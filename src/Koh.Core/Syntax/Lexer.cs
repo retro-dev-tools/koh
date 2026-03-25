@@ -69,6 +69,28 @@ public sealed class Lexer
         return new SyntaxToken(green, null, tokenStart);
     }
 
+    internal GreenToken NextGreenToken()
+    {
+        int tokenStart = _position;
+        var leadingTrivia = ScanLeadingTrivia();
+
+        SyntaxKind kind;
+        string text;
+
+        if (IsAtEnd)
+        {
+            kind = SyntaxKind.EndOfFileToken;
+            text = "";
+        }
+        else
+        {
+            (kind, text) = ScanToken();
+        }
+
+        var trailingTrivia = ScanTrailingTrivia();
+        return new GreenToken(kind, text, leadingTrivia, trailingTrivia);
+    }
+
     private (SyntaxKind kind, string text) ScanToken()
     {
         int start = _position;
