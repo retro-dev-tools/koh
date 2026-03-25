@@ -149,6 +149,7 @@ One enum covering all node types:
 - Evaluates constant expressions where possible (folds `EQU`, `EQUS`, `DEF`)
 - Link-time dependent expressions remain as **deferred expressions** — tree-structured, preserving source spans for diagnostics
 - Produces semantic diagnostics: undefined symbols, duplicate definitions, type mismatches, section constraint violations
+- **Output to Koh.Emit**: the binder produces an `EmitModel` — a flat list of `SectionData` (name, type, constraints, byte data, patches with deferred expressions) and `SymbolData` (name, kind, visibility, value). This is the Core-to-Emit boundary contract — a simple data model, not the full bound tree.
 
 ### SemanticModel
 
@@ -175,13 +176,20 @@ One enum covering all node types:
 
 ### Directives
 
-All 51 RGBDS directives supported:
+Full RGBDS directive coverage:
 
-- `DB`, `DW`, `DL` — literal bytes/words/longs, support deferred expressions
-- `DS` — reserve space, optional fill byte
-- `SECTION` — opens section context with type, bank, address, alignment constraints
-- `INCLUDE` / `INCBIN` — resolved via `SourceFileResolver` interface (abstractable for LSP virtual file systems)
-- Macro expansion at syntax level — binder expands invocations by substituting arguments, re-parsing, binding the expanded tree
+- **Data**: `DB`, `DW`, `DL` — literal bytes/words/longs, support deferred expressions. `DS` — reserve space, optional fill byte.
+- **Sections**: `SECTION` — opens section context with type, bank, address, alignment constraints. `UNION`/`NEXTU`/`ENDU` — overlapping sections sharing the same memory region. `FRAGMENT` — sections that can be split across source files but placed contiguously. `LOAD`/`ENDL` — load-time address overrides.
+- **Symbols**: `EQU`, `EQUS`, `REDEF`, `DEF`, `EXPORT`, `PURGE`
+- **Macros**: `MACRO`/`ENDM`, `SHIFT` — macro expansion happens during binding. The binder substitutes arguments into a copy of the macro body tokens, re-parses the expansion, and binds the result. `\@` generates a unique suffix per invocation. Recursion depth limit: 64 (configurable). `SHIFT` mutates the argument list within a single expansion context (not the immutable tree — the expansion context is a mutable binding-phase structure).
+- **Repetition**: `REPT`/`ENDR`, `FOR`/`ENDR` — expanded during binding similarly to macros. The body is re-parsed N times with the loop counter substituted.
+- **Conditionals**: `IF`/`ELIF`/`ELSE`/`ENDC` — evaluated during binding. Only the taken branch is bound; untaken branches are parsed (for tree completeness) but not semantically analyzed.
+- **Character maps**: `CHARMAP`, `NEWCHARMAP`, `SETCHARMAP`, `PRECHMAP`, `POPCHARMAP` — affect how string literals in `DB` are encoded to bytes. The active charmap is tracked as binding-phase state.
+- **Includes**: `INCLUDE`/`INCBIN` — resolved via `SourceFileResolver` interface (abstractable for LSP virtual file systems)
+- **Control**: `ASSERT`, `STATIC_ASSERT`, `FAIL`, `FATAL`, `WARN`, `PRINT`, `PRINTLN`
+- **Stacks**: `PUSHS`/`POPS`, `PUSHC`/`POPC`, `PUSHO`/`POPO`
+- **RS counters**: `RB`, `RW`, `RSRESET`, `RSSET`
+- **Options**: `OPT`, `ALIGN`
 
 ---
 
@@ -230,8 +238,8 @@ Instead of RGBDS's greedy first-fit-decreasing:
   - Fixed bank / fixed address constraints
   - Alignment with offset
   - Fragment co-location (same bank)
-  - Per-bank capacity limits (ROM0: 16K, ROMX: 16K, WRAM0: 4K, etc.)
-- Custom backtracking solver, with potential Z3 integration for provably optimal placement
+  - Per-bank capacity limits (ROM0: 16K, ROMX: 16K, WRAM0: 8K default / 4K when WRAMX banking enabled, WRAMX: 4K, VRAM: 8K, HRAM: 127B, OAM: 160B, SRAM: 8K)
+- Custom backtracking solver with constraint propagation. The GB problem space is small (max 512 banks, simple constraints) — a well-written backtracker solves it in milliseconds without external solvers. The primary advantage over RGBDS's greedy approach isn't optimal placement but **better failure diagnostics**: on conflict, the solver identifies the minimal set of incompatible constraints and explains exactly why placement failed.
 - **Key advantage**: on failure, the solver explains *why* — "sections A, B, C together exceed bank capacity" instead of opaque "section won't fit"
 
 ### Expression Evaluation
@@ -278,8 +286,9 @@ Instead of RGBDS's greedy first-fit-decreasing:
 
 ### Incremental Updates
 
-- Red-green tree enables incremental reparsing — only re-lex/re-parse changed regions
+- Red-green tree enables incremental reparsing from V1 — on edit, re-lex the changed region, reparse only affected subtrees, reuse unchanged green nodes via structural sharing
 - Immutable `Compilation` means old state stays valid during recomputation — no races, trivial cancellation
+- **Parallelism**: since green nodes are immutable, files can be parsed in parallel. The compilation creates parse tasks per file and merges results.
 
 ---
 
