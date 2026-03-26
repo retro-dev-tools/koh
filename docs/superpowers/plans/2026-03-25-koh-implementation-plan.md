@@ -1669,7 +1669,7 @@ Map each valid `(mnemonic, operand pattern)` to opcode byte(s) with encoding rul
 - Create: `tests/Koh.Emit.Tests/Koh.Emit.Tests.csproj`
 - Test: `tests/Koh.Emit.Tests/KobjRoundtripTests.cs`
 
-- [ ] **Step 1: Create Koh.Emit project**
+- [x] **Step 1: Create Koh.Emit project**
 
 ```bash
 dotnet new classlib -n Koh.Emit -o src/Koh.Emit -f net10.0
@@ -1681,15 +1681,15 @@ dotnet add tests/Koh.Emit.Tests reference src/Koh.Emit
 dotnet add tests/Koh.Emit.Tests package TUnit
 ```
 
-- [ ] **Step 2: Write failing roundtrip test**
+- [x] **Step 2: Write failing roundtrip test**
 
 Create an `EmitModel` with a section, symbols, and patches. Write to `.kobj`, read back, verify all data matches.
 
-- [ ] **Step 3: Implement KobjWriter and KobjReader**
+- [x] **Step 3: Implement KobjWriter and KobjReader**
 
 Binary format: magic (`KOH\0`), version (1), then sections for symbols, sections, expressions, diagnostics. Use `BinaryWriter`/`BinaryReader`.
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 5.6: Integration Test — Single File Assembly
 

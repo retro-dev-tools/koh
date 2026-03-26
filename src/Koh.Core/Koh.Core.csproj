@@ -1,3 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Emit" />
+    <InternalsVisibleTo Include="Koh.Core.Tests" />
+    <InternalsVisibleTo Include="Koh.Emit.Tests" />
+  </ItemGroup>
+
 </Project>

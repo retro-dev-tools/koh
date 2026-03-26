@@ -32,6 +32,22 @@ public sealed class EmitModel
     }
 
     /// <summary>
+    /// Deserialization constructor. Diagnostics are not stored in .kobj — pass an explicit
+    /// <paramref name="success"/> flag derived from the original compilation result.
+    /// The only valid caller is <see cref="Koh.Emit.KobjReader"/>; all other paths should
+    /// use the diagnostics-based overload.
+    /// </summary>
+    internal EmitModel(IReadOnlyList<SectionData> sections,
+        IReadOnlyList<SymbolData> symbols,
+        bool success)
+    {
+        Sections = sections;
+        Symbols = symbols;
+        Diagnostics = [];
+        Success = success;
+    }
+
+    /// <summary>
     /// Build a frozen EmitModel from the live binding state.
     /// </summary>
     internal static EmitModel FromBindingResult(BindingResult result)

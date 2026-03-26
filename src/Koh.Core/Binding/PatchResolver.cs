@@ -31,6 +31,10 @@ internal sealed class PatchResolver
                 var patch = section.Patches[i];
                 // Use the patch's own byte offset as the $ value so that expressions
                 // like "dw $ + 4" evaluate correctly even when deferred to this phase.
+                // Expression is null for patches deserialized from .kobj (linker-time patches).
+                // They cannot be resolved here — leave them for the linker to handle.
+                if (patch.Expression is null) continue;
+
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
                     () => section.BaseAddress + patch.Offset);
                 var value = evaluator.TryEvaluate(patch.Expression);
