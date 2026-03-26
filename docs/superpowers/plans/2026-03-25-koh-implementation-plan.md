@@ -1696,7 +1696,7 @@ Binary format: magic (`KOH\0`), version (1), then sections for symbols, sections
 **Files:**
 - Test: `tests/Koh.Core.Tests/Integration/SingleFileAssemblyTests.cs`
 
-- [ ] **Step 1: Write integration test**
+- [x] **Step 1: Write integration test**
 
 ```csharp
 [Test]
@@ -1733,11 +1733,11 @@ public async Task Assemble_HelloWorld()
 }
 ```
 
-- [ ] **Step 2: Implement Compilation.Create() and .Emit()**
+- [x] **Step 2: Implement Compilation.Create() and .Emit()**
 
 Wire parser → binder → emit model pipeline.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ---
 

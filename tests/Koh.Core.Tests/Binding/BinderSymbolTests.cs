@@ -197,10 +197,9 @@ public class BinderSymbolTests
     [Test]
     public async Task InvalidHexLiteral_DoesNotCrash()
     {
-        // $GG is not valid hex — should not throw, should produce 0 or diagnostic
+        // $GG: $ lexes as CurrentAddressToken, GG as IdentifierToken.
+        // The binder sees GG as an undefined symbol and reports a diagnostic.
         var result = Bind("SECTION \"Main\", ROM0\ndb $GG");
-        // The lexer would lex $ as CurrentAddressToken and GG as identifier,
-        // so this tests the binder doesn't crash on unexpected expression structure
-        await Assert.That(result).IsNotNull();
+        await Assert.That(result.Diagnostics).IsNotEmpty();
     }
 }
