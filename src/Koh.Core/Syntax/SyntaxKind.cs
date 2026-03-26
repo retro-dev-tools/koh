@@ -34,6 +34,11 @@ public enum SyntaxKind : ushort
     NumberLiteral, StringLiteral, IdentifierToken, LocalLabelToken,
     CurrentAddressToken,
 
+    // Macro parameter tokens: \1..\9, \@, \#, \NARG
+    // These are lexed as a single token so that macro bodies parse with correct
+    // positions and the parameter placeholder survives as a tree node.
+    MacroParamToken,
+
     // SM83 instruction keywords
     NopKeyword, LdKeyword, AddKeyword,
     AdcKeyword, SubKeyword, SbcKeyword, AndKeyword, OrKeyword, XorKeyword, CpKeyword,

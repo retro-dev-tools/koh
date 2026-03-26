@@ -12,17 +12,24 @@ public sealed class Binder
     private readonly SectionManager _sections = new();
     private readonly ConditionalAssemblyState _conditional = new();
     private readonly InstructionEncoder _encoder;
+    private readonly MacroExpander _macros;
+    private bool _insideMacroDefinition; // skip body nodes between MACRO and ENDM
+    // TODO: _repeatSkipDepth and _sourceText will be removed by AssemblyExpander refactor
 
     public Binder()
     {
         _symbols = new SymbolTable(_diagnostics);
         _encoder = new InstructionEncoder(_symbols, _diagnostics);
+        _macros = new MacroExpander(_diagnostics);
     }
 
     public BindingResult Bind(SyntaxTree tree)
     {
         foreach (var d in tree.Diagnostics)
             _diagnostics.Report(d.Span, d.Message, d.Severity);
+
+        // Collect macro definitions before passes
+        _macros.CollectDefinitions(tree.Root, tree.Text);
 
         var pcTracker = new SectionPCTracker();
         Pass1(tree.Root, pcTracker);
@@ -62,6 +69,10 @@ public sealed class Binder
 
             if (_conditional.IsSuppressed) continue;
 
+            // Skip macro body nodes (between MACRO and ENDM)
+            if (_insideMacroDefinition && node.Kind != SyntaxKind.MacroDefinition)
+                continue;
+
             switch (node.Kind)
             {
                 case SyntaxKind.LabelDeclaration:
@@ -79,6 +90,14 @@ public sealed class Binder
                 case SyntaxKind.SymbolDirective:
                     Pass1Symbol(node, pc);
                     break;
+                case SyntaxKind.MacroDefinition:
+                    ToggleMacroSkip(node);
+                    break;
+                case SyntaxKind.MacroCall:
+                    ExpandMacroCall(node, pc, pass: 1);
+                    break;
+                case SyntaxKind.RepeatDirective:
+                    break; // TODO: REPT expansion — will be handled by AssemblyExpander refactor
             }
         }
     }
@@ -168,6 +187,7 @@ public sealed class Binder
     private void Pass2(SyntaxNode root)
     {
         _conditional.Reset();
+        _insideMacroDefinition = false;
 
         foreach (var child in root.ChildNodesAndTokens())
         {
@@ -181,6 +201,8 @@ public sealed class Binder
             }
 
             if (_conditional.IsSuppressed) continue;
+            if (_insideMacroDefinition && node.Kind != SyntaxKind.MacroDefinition)
+                continue;
 
             switch (node.Kind)
             {
@@ -192,6 +214,12 @@ public sealed class Binder
                     break;
                 case SyntaxKind.InstructionStatement:
                     Pass2Instruction(node);
+                    break;
+                case SyntaxKind.MacroDefinition:
+                    ToggleMacroSkip(node);
+                    break;
+                case SyntaxKind.MacroCall:
+                    ExpandMacroCall(node, null, pass: 2);
                     break;
             }
         }
@@ -271,6 +299,56 @@ public sealed class Binder
                 }
                 break;
         }
+    }
+
+    private void ToggleMacroSkip(SyntaxNode node)
+    {
+        var kw = node.ChildTokens().FirstOrDefault();
+        if (kw?.Kind == SyntaxKind.MacroKeyword)
+            _insideMacroDefinition = true;
+        else if (kw?.Kind == SyntaxKind.EndmKeyword)
+            _insideMacroDefinition = false;
+    }
+
+    private void ExpandMacroCall(SyntaxNode node, SectionPCTracker? pc, int pass)
+    {
+        var tokens = node.ChildTokens().ToList();
+        if (tokens.Count == 0) return;
+
+        var name = tokens[0].Text;
+        if (!_macros.IsMacro(name))
+        {
+            if (pass == 2) // only report in Pass 2 to avoid duplicate diagnostics
+                _diagnostics.Report(node.FullSpan, $"Unexpected identifier '{name}'");
+            return;
+        }
+
+        // Collect comma-separated arguments as raw text
+        var args = new List<string>();
+        var currentArg = new List<string>();
+        for (int i = 1; i < tokens.Count; i++)
+        {
+            if (tokens[i].Kind == SyntaxKind.CommaToken)
+            {
+                args.Add(string.Join(" ", currentArg));
+                currentArg.Clear();
+            }
+            else
+            {
+                currentArg.Add(tokens[i].Text);
+            }
+        }
+        if (currentArg.Count > 0)
+            args.Add(string.Join(" ", currentArg));
+
+        var expanded = _macros.Expand(name, args);
+        if (expanded == null) return;
+
+        // Walk the expanded tree through the current pass
+        if (pass == 1 && pc != null)
+            Pass1(expanded.Root, pc);
+        else if (pass == 2)
+            Pass2(expanded.Root);
     }
 
     private void Pass2Instruction(SyntaxNode node)

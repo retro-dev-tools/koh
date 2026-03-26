@@ -272,6 +272,31 @@ public sealed class Lexer
             return (SyntaxKind.IdentifierToken, word);
         }
 
+        // Macro parameter tokens: \1..\9, \@, \#, \NARG
+        // Must be checked before the single-character fallthrough so that \1 is a
+        // single two-character token rather than BadToken(\) + NumberLiteral(1).
+        if (c == '\\')
+        {
+            char next = Peek();
+            if (next >= '1' && next <= '9')
+            {
+                _position += 2;
+                return (SyntaxKind.MacroParamToken, Substring(start, _position));
+            }
+            if (next == '@' || next == '#')
+            {
+                _position += 2;
+                return (SyntaxKind.MacroParamToken, Substring(start, _position));
+            }
+            // \NARG — consumed as a single identifier-like token
+            if (next == 'N' && _position + 5 <= _source.Length
+                && _source.ToString(new TextSpan(_position + 1, 4)) == "NARG")
+            {
+                _position += 5;
+                return (SyntaxKind.MacroParamToken, Substring(start, _position));
+            }
+        }
+
         // Multi-character punctuation (check before single-char)
         if (c == '<' && Peek() == '<')
         {

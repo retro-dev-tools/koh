@@ -171,10 +171,13 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.ShiftKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
 
-        // Macro call: identifier that is NOT followed by : or :: (label) and NOT followed by EQU
-        // Macro calls are handled by the binder, not the parser — the parser sees them as
-        // unknown identifiers which fall through to the safety advance. The binder recognizes
-        // macro names and expands them during Pass 1.
+        // Potential macro call or unrecognized identifier at statement level.
+        // Parse as MacroCall so the binder can check if it's a known macro.
+        // If not a macro, the binder ignores it (produces a diagnostic for unknown statement).
+        if (Current.Kind == SyntaxKind.IdentifierToken &&
+            Peek().Kind is not SyntaxKind.ColonToken and not SyntaxKind.DoubleColonToken
+            and not SyntaxKind.EquKeyword and not SyntaxKind.EqusKeyword)
+            return ParseBlockDirective(SyntaxKind.MacroCall);
 
         return null; // will be handled by the safety advance in ParseCompilationUnit
     }
@@ -208,11 +211,14 @@ internal sealed class Parser
 
     /// <summary>
     /// Parse a block directive as a flat token sequence on the current line.
+    /// Always consumes at least the keyword token, then any remaining tokens.
     /// Used for MACRO/ENDM, REPT/FOR/ENDR, INCLUDE/INCBIN, NEXTU/ENDU, LOAD/ENDL, SHIFT.
     /// </summary>
     private GreenNode ParseBlockDirective(SyntaxKind nodeKind)
     {
         var children = new List<GreenNodeBase>();
+        // Always consume at least the leading keyword
+        children.Add(Advance());
         while (!AtEndOfStatement())
             children.Add(Advance());
         return new GreenNode(nodeKind, children.ToArray());
@@ -509,6 +515,7 @@ internal sealed class Parser
             case SyntaxKind.NumberLiteral:
             case SyntaxKind.CurrentAddressToken:
             case SyntaxKind.StringLiteral:
+            case SyntaxKind.MacroParamToken:
                 return new GreenNode(SyntaxKind.LiteralExpression, [Advance()]);
 
             case SyntaxKind.IdentifierToken:
