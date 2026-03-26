@@ -1558,7 +1558,7 @@ public record SourceMapping(int ByteOffset, int Length, TextSpan SourceSpan, str
 - Create: `src/Koh.Core/SemanticModel.cs`
 - Test: `tests/Koh.Core.Tests/SemanticModelTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```csharp
 [Test]
@@ -1625,15 +1625,15 @@ public async Task Compilation_ReplaceSyntaxTree()
 }
 ```
 
-- [ ] **Step 2: Implement Compilation**
+- [x] **Step 2: Implement Compilation**
 
 Immutable. Holds syntax trees, runs binder lazily, caches results. `AddSyntaxTrees()` and `ReplaceSyntaxTree()` return new instances. `GetSemanticModel(tree)` returns per-file view. `Emit()` produces `EmitModel`.
 
-- [ ] **Step 3: Implement SemanticModel**
+- [x] **Step 3: Implement SemanticModel**
 
 Per-file view into compilation. `GetSymbol(node)` → resolve a reference node to its symbol. `GetDeclaredSymbol(node)` → get the symbol declared by a label/EQU node. `LookupSymbols(position)` → all symbols visible at a position. `GetDiagnostics()` → diagnostics for this file.
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 5.4: SM83 Instruction Encoder
 
