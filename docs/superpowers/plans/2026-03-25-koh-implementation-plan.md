@@ -1328,15 +1328,15 @@ Precedence levels (matching RGBDS):
 - Modify: `src/Koh.Core/Syntax/Parser.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/BuiltinFunctionTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `HIGH($AABB)`, `LOW($AABB)`, `BANK("name")`, `SIZEOF("name")`, `STARTOF("name")`, `DEF(symbol)`, `STRLEN("hello")`, `STRCAT("a", "b")`, `STRSUB("abc", 2, 1)`, etc.
 
-- [ ] **Step 2: Add function keywords to SyntaxKind and lexer**
+- [x] **Step 2: Add function keywords to SyntaxKind and lexer**
 
-- [ ] **Step 3: Add function call expression parsing**
+- [x] **Step 3: Add function call expression parsing**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ---
 

@@ -57,6 +57,10 @@ public enum SyntaxKind : ushort
     // Directive keywords (starter set)
     SectionKeyword, DbKeyword, DwKeyword, DsKeyword,
 
+    // Built-in function keywords
+    HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
+    DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword,
+
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,
     DirectiveStatement, SectionDirective, DataDirective,
@@ -67,5 +71,5 @@ public enum SyntaxKind : ushort
 
     // Expression nodes
     LiteralExpression, NameExpression, BinaryExpression,
-    UnaryExpression, ParenthesizedExpression,
+    UnaryExpression, ParenthesizedExpression, FunctionCallExpression,
 }

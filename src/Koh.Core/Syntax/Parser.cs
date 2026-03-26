@@ -105,6 +105,10 @@ internal sealed class Parser
         if (IsInstructionKeyword(Current.Kind))
             return ParseInstruction();
 
+        // TODO: Directive parsing (Phase 4). When adding DEF directive support,
+        // disambiguate DEF( (function call in expression) from DEF identifier
+        // (symbol definition) by peeking at the next token.
+
         return null; // will be handled by the safety advance in ParseCompilationUnit
     }
 
@@ -289,6 +293,19 @@ internal sealed class Parser
             case SyntaxKind.LocalLabelToken:
                 return new GreenNode(SyntaxKind.NameExpression, [Advance()]);
 
+            // Built-in functions: HIGH(...), LOW(...), BANK(...), etc.
+            case SyntaxKind.HighKeyword:
+            case SyntaxKind.LowKeyword:
+            case SyntaxKind.BankKeyword:
+            case SyntaxKind.SizeofKeyword:
+            case SyntaxKind.StartofKeyword:
+            case SyntaxKind.DefKeyword:
+            case SyntaxKind.IsConstKeyword:
+            case SyntaxKind.StrlenKeyword:
+            case SyntaxKind.StrcatKeyword:
+            case SyntaxKind.StrsubKeyword:
+                return ParseFunctionCallExpression();
+
             case SyntaxKind.OpenParenToken:
             {
                 var open = Advance();
@@ -318,6 +335,46 @@ internal sealed class Parser
                     [new GreenToken(SyntaxKind.MissingToken, "")]
                 );
         }
+    }
+
+    private GreenNode ParseFunctionCallExpression()
+    {
+        var children = new List<GreenNodeBase>
+        {
+            Advance(), // function keyword
+            ExpectToken(SyntaxKind.OpenParenToken),
+        };
+
+        // Parse comma-separated arguments
+        if (Current.Kind != SyntaxKind.CloseParenToken && Current.Kind != SyntaxKind.EndOfFileToken)
+        {
+            children.Add(ParseExpression());
+
+            while (Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                var before = _position;
+                children.Add(ParseExpression());
+                // Safety: if ParseExpression didn't advance, force-consume to avoid infinite loop
+                if (_position == before && Current.Kind != SyntaxKind.CloseParenToken)
+                {
+                    var bad = Advance();
+                    ReportBadToken(bad);
+                }
+            }
+        }
+
+        children.Add(ExpectToken(SyntaxKind.CloseParenToken));
+        return new GreenNode(SyntaxKind.FunctionCallExpression, children.ToArray());
+    }
+
+    private GreenToken ExpectToken(SyntaxKind expected)
+    {
+        if (Current.Kind == expected)
+            return Advance();
+
+        ReportMissingToken(expected);
+        return new GreenToken(SyntaxKind.MissingToken, "");
     }
 
     // RGBDS precedence (higher number = tighter binding), matching C conventions:

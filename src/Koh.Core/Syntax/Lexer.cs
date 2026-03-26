@@ -86,6 +86,16 @@ public sealed class Lexer
         ["db"] = SyntaxKind.DbKeyword,
         ["dw"] = SyntaxKind.DwKeyword,
         ["ds"] = SyntaxKind.DsKeyword,
+        ["high"] = SyntaxKind.HighKeyword,
+        ["low"] = SyntaxKind.LowKeyword,
+        ["bank"] = SyntaxKind.BankKeyword,
+        ["sizeof"] = SyntaxKind.SizeofKeyword,
+        ["startof"] = SyntaxKind.StartofKeyword,
+        ["def"] = SyntaxKind.DefKeyword,
+        ["isconst"] = SyntaxKind.IsConstKeyword,
+        ["strlen"] = SyntaxKind.StrlenKeyword,
+        ["strcat"] = SyntaxKind.StrcatKeyword,
+        ["strsub"] = SyntaxKind.StrsubKeyword,
     };
 
     public Lexer(SourceText source)
