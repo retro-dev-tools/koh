@@ -14,10 +14,13 @@ internal sealed class Parser
     public Parser(SourceText text)
     {
         _text = text;
-        _tokens = LexAll(text);
+        var (tokens, lexerDiagnostics) = LexAll(text);
+        _tokens = tokens;
+        foreach (var d in lexerDiagnostics)
+            _diagnostics.Report(d.Span, d.Message, d.Severity);
     }
 
-    private static List<GreenToken> LexAll(SourceText text)
+    private static (List<GreenToken> tokens, IReadOnlyList<Diagnostic> lexerDiagnostics) LexAll(SourceText text)
     {
         var lexer = new Lexer(text);
         var tokens = new List<GreenToken>();
@@ -27,7 +30,7 @@ internal sealed class Parser
             tokens.Add(greenToken);
             if (greenToken.Kind == SyntaxKind.EndOfFileToken) break;
         }
-        return tokens;
+        return (tokens, lexer.Diagnostics);
     }
 
     private GreenToken Current => _position < _tokens.Count
@@ -200,7 +203,10 @@ internal sealed class Parser
     }
 
     private static bool HasNewlineTrivia(GreenToken token) =>
-        token.TrailingTrivia.Any(t => t.Kind == SyntaxKind.NewlineTrivia);
+        token.TrailingTrivia.Any(t =>
+            t.Kind == SyntaxKind.NewlineTrivia ||
+            (t.Kind == SyntaxKind.BlockCommentTrivia &&
+             (t.Text.Contains('\n') || t.Text.Contains('\r'))));
 
     private void ReportMissingToken(SyntaxKind expected)
     {

@@ -1235,25 +1235,27 @@ Test cases:
 - Modify: `src/Koh.Core/Syntax/Lexer.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/LexerModeTests.cs`
 
-- [ ] **Step 1: Write failing tests for string mode**
+- [x] **Step 1: Write failing tests for string mode**
 
 Test: `db "hello\nworld"` — lexer should handle escape sequences inside strings.
-Test: `db "value={MY_VAR}"` — lexer should produce interpolation tokens inside strings.
+Note: String interpolation (`{symbol}`) deferred to Phase 8 — it's EQUS symbol expansion, a binding-phase concern.
 
-- [ ] **Step 2: Write failing tests for block comments**
+- [x] **Step 2: Write failing tests for block comments**
 
 Test: `/* comment */ nop` — lexer should produce `BlockCommentTrivia`.
-Test: nested block comments if RGBDS supports them.
+Test: nested block comments (RGBDS supports them) — verified with depth tracking.
 
-- [ ] **Step 3: Implement string lexer mode with escape sequences and interpolation**
+- [x] **Step 3: Implement string escape handling and block comments**
 
-When the lexer encounters `"`, switch to String mode. Produce `StringLiteral` token with leading/trailing quote tokens. Handle `\n`, `\t`, `\\`, `\"` escapes. Handle `{identifier}` interpolation by producing structured tokens.
+String escapes already handled by the lexer (skips `\x` sequences). Block comments with nesting via depth counter.
+Unterminated block comments produce a diagnostic. Multi-line block comments in trailing trivia break the statement boundary.
+Lexer now has its own `DiagnosticBag`; parser merges lexer diagnostics after lexing.
 
-- [ ] **Step 4: Implement block comment trivia**
+- [x] **Step 4: Implement block comment trivia**
 
-- [ ] **Step 5: Run tests, commit**
+- [x] **Step 5: Run tests, commit**
 
-Note: Raw lexer mode (for macro arguments) is deferred to Phase 8 Task 8.1 when macros are implemented.
+Note: Raw lexer mode (for macro arguments) and string interpolation deferred to Phase 8.
 
 ---
 

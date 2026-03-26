@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Koh.Core.Diagnostics;
 using Koh.Core.Syntax.InternalSyntax;
 using Koh.Core.Text;
 
@@ -8,6 +9,13 @@ public sealed class Lexer
 {
     private readonly SourceText _source;
     private int _position;
+    private readonly DiagnosticBag _diagnostics = new();
+
+    /// <summary>
+    /// Diagnostics produced during lexing (e.g. unterminated block comments).
+    /// The parser merges these into its own bag after lexing is complete.
+    /// </summary>
+    internal IReadOnlyList<Diagnostic> Diagnostics => _diagnostics.ToList();
 
     private static readonly Dictionary<string, SyntaxKind> Keywords =
         new(StringComparer.OrdinalIgnoreCase)
@@ -253,6 +261,10 @@ public sealed class Lexer
             {
                 trivia.Add(ScanWhitespace());
             }
+            else if (Current == '/' && Peek() == '*')
+            {
+                trivia.Add(ScanBlockComment());
+            }
             else if (Current == ';')
             {
                 trivia.Add(ScanLineComment());
@@ -277,6 +289,17 @@ public sealed class Lexer
             if (Current == ' ' || Current == '\t')
             {
                 trivia.Add(ScanWhitespace());
+            }
+            else if (Current == '/' && Peek() == '*')
+            {
+                var comment = ScanBlockComment();
+                trivia.Add(comment);
+                // If the block comment spanned lines, stop here. The newline is
+                // embedded in the comment text; the parser cannot see it as a
+                // NewlineTrivia node, so we treat the comment as the line
+                // terminator for the purposes of statement-boundary detection.
+                if (comment.Text.Contains('\n') || comment.Text.Contains('\r'))
+                    break;
             }
             else if (Current == ';')
             {
@@ -309,6 +332,41 @@ public sealed class Lexer
         while (!IsAtEnd && Current != '\n' && Current != '\r')
             _position++;
         return new GreenTrivia(SyntaxKind.LineCommentTrivia, Substring(start, _position));
+    }
+
+    private GreenTrivia ScanBlockComment()
+    {
+        int start = _position;
+        _position += 2; // consume /*
+        int depth = 1;
+
+        while (!IsAtEnd && depth > 0)
+        {
+            if (Current == '/' && Peek() == '*')
+            {
+                _position += 2;
+                depth++;
+            }
+            else if (Current == '*' && Peek() == '/')
+            {
+                _position += 2;
+                depth--;
+            }
+            else
+            {
+                _position++;
+            }
+        }
+
+        if (depth > 0)
+        {
+            // Consumed to EOF without finding the closing */
+            _diagnostics.Report(
+                new TextSpan(start, _position - start),
+                "Unterminated block comment");
+        }
+
+        return new GreenTrivia(SyntaxKind.BlockCommentTrivia, Substring(start, _position));
     }
 
     private GreenTrivia ScanNewline()

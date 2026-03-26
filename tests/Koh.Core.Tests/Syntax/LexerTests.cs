@@ -230,4 +230,148 @@ public class LexerTests
         var tokens = Lex("& 1");
         await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.AmpersandToken);
     }
+
+    // -------------------------------------------------------------------------
+    // String escape handling
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task String_WithEscapedQuote()
+    {
+        var tokens = Lex("db \"hello\\\"world\"");
+        var str = tokens[1]; // db, then the string literal
+        await Assert.That(str.Kind).IsEqualTo(SyntaxKind.StringLiteral);
+        await Assert.That(str.Text).IsEqualTo("\"hello\\\"world\"");
+    }
+
+    [Test]
+    public async Task String_WithEscapedNewline()
+    {
+        var tokens = Lex("db \"hello\\nworld\"");
+        var str = tokens[1];
+        await Assert.That(str.Kind).IsEqualTo(SyntaxKind.StringLiteral);
+        await Assert.That(str.Text).IsEqualTo("\"hello\\nworld\"");
+    }
+
+    [Test]
+    public async Task String_WithEscapedBackslash()
+    {
+        var tokens = Lex("db \"path\\\\file\"");
+        var str = tokens[1];
+        await Assert.That(str.Kind).IsEqualTo(SyntaxKind.StringLiteral);
+        await Assert.That(str.Text).IsEqualTo("\"path\\\\file\"");
+    }
+
+    [Test]
+    public async Task String_Unterminated_StopsAtNewline()
+    {
+        // The unterminated string ends at the newline; nop on the next line is a
+        // separate token, not part of the string.
+        var tokens = Lex("db \"hello\nnop");
+        var str = tokens[1];
+        await Assert.That(str.Kind).IsEqualTo(SyntaxKind.StringLiteral);
+        await Assert.That(str.Text).IsEqualTo("\"hello");
+        // nop must still be recognised as its own token
+        await Assert.That(tokens[2].Kind).IsEqualTo(SyntaxKind.NopKeyword);
+    }
+
+    // -------------------------------------------------------------------------
+    // Block comment trivia
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task BlockComment_Simple()
+    {
+        // Block comment in leading trivia of nop
+        var tokens = Lex("/* comment */ nop");
+        var nop = tokens[0];
+        await Assert.That(nop.Kind).IsEqualTo(SyntaxKind.NopKeyword);
+        var leading = nop.LeadingTrivia.ToList();
+        await Assert.That(leading.Any(t => t.Kind == SyntaxKind.BlockCommentTrivia)).IsTrue();
+    }
+
+    [Test]
+    public async Task BlockComment_PreservesText()
+    {
+        var tokens = Lex("/* hello */ nop");
+        var nop = tokens[0];
+        var comment = nop.LeadingTrivia.First(t => t.Kind == SyntaxKind.BlockCommentTrivia);
+        await Assert.That(comment.Text).IsEqualTo("/* hello */");
+    }
+
+    [Test]
+    public async Task BlockComment_Nested()
+    {
+        // Nested: /* outer /* inner */ still comment */ — depth goes 1 -> 2 -> 1 -> 0
+        var tokens = Lex("/* outer /* inner */ still comment */ nop");
+        var nop = tokens[0];
+        var comment = nop.LeadingTrivia.First(t => t.Kind == SyntaxKind.BlockCommentTrivia);
+        await Assert.That(comment.Text).IsEqualTo("/* outer /* inner */ still comment */");
+    }
+
+    [Test]
+    public async Task BlockComment_MultiLine_IsLeadingTriviaOfNextToken()
+    {
+        // A multi-line block comment before a token goes into its leading trivia.
+        var tokens = Lex("/* line1\nline2\nline3 */ nop");
+        var nop = tokens[0];
+        var leading = nop.LeadingTrivia.ToList();
+        await Assert.That(leading.Any(t => t.Kind == SyntaxKind.BlockCommentTrivia)).IsTrue();
+        var comment = leading.First(t => t.Kind == SyntaxKind.BlockCommentTrivia);
+        await Assert.That(comment.Text).IsEqualTo("/* line1\nline2\nline3 */");
+    }
+
+    [Test]
+    public async Task BlockComment_Unterminated_ProducesDiagnostic()
+    {
+        // An unterminated block comment must surface as an error diagnostic.
+        var tree = SyntaxTree.Parse("/* never closed");
+        await Assert.That(tree.Diagnostics.Any(d =>
+            d.Message.Contains("Unterminated") || d.Message.Contains("block comment"))).IsTrue();
+    }
+
+    [Test]
+    public async Task BlockComment_InTrailingTrivia()
+    {
+        // Same-line block comment after a token lands in trailing trivia.
+        var tokens = Lex("nop /* trailing */");
+        var nop = tokens[0];
+        var trailing = nop.TrailingTrivia.ToList();
+        await Assert.That(trailing.Any(t => t.Kind == SyntaxKind.BlockCommentTrivia)).IsTrue();
+    }
+
+    [Test]
+    public async Task BlockComment_BetweenTokens_IsTrailingOfPreceding()
+    {
+        // ld /* comment */ a, b — the comment on the same line as ld is trailing trivia of ld.
+        var tokens = Lex("ld /* comment */ a, b");
+        var ld = tokens[0];
+        await Assert.That(ld.Kind).IsEqualTo(SyntaxKind.LdKeyword);
+        var trailing = ld.TrailingTrivia.ToList();
+        await Assert.That(trailing.Any(t => t.Kind == SyntaxKind.BlockCommentTrivia)).IsTrue();
+        // a must still be the next token
+        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.AKeyword);
+    }
+
+    [Test]
+    public async Task BlockComment_MultiLine_InTrailingTrivia_BreaksStatement()
+    {
+        // nop /* comment\nstill comment */ — the multi-line block comment in
+        // trailing trivia position must act as a statement boundary so that
+        // tokens on the following line are parsed as a new statement.
+        var tree = SyntaxTree.Parse("nop /* comment\nstill comment */\nnop");
+        var statements = tree.Root.ChildNodes().ToList();
+        await Assert.That(statements).HasCount().EqualTo(2);
+    }
+
+    [Test]
+    public async Task LineComment_StillWorks()
+    {
+        // Confirm that adding block comment support did not break line comments.
+        var tokens = Lex("; line comment\nnop");
+        var nop = tokens[0];
+        await Assert.That(nop.Kind).IsEqualTo(SyntaxKind.NopKeyword);
+        var leading = nop.LeadingTrivia.ToList();
+        await Assert.That(leading.Any(t => t.Kind == SyntaxKind.LineCommentTrivia)).IsTrue();
+    }
 }
