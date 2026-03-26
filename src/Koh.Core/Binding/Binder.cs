@@ -33,7 +33,11 @@ public sealed class Binder
         // Resolve patches (forward refs now defined after Pass 1)
         new PatchResolver(_symbols, _sections, _diagnostics).ApplyAll();
 
-        // Check for undefined symbols (after all passes so data directive refs are included)
+        // Check for undefined symbols (after all passes so data directive refs are included).
+        // NOTE: ReferenceSites is not yet populated by the evaluator (it operates on green
+        // nodes without red-node position context). Proper reference tracking requires
+        // threading red-node spans through the evaluator — deferred to the LSP phase.
+        // For now, diagnostics use default span (line 1:1).
         foreach (var sym in _symbols.GetUndefinedSymbols())
             _diagnostics.Report(default, $"Undefined symbol '{sym.Name}'");
 

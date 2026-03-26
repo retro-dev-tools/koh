@@ -1,9 +1,11 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Koh.Asm/Koh.Asm.csproj" />
     <Project Path="src/Koh.Core/Koh.Core.csproj" />
     <Project Path="src/Koh.Emit/Koh.Emit.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
     <Project Path="tests/Koh.Core.Tests/Koh.Core.Tests.csproj" />
     <Project Path="tests/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />
   </Folder>

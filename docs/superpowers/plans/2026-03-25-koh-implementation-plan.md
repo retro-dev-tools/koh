@@ -1751,7 +1751,7 @@ Wire parser → binder → emit model pipeline.
 - Create: `src/Koh.Asm/Koh.Asm.csproj`
 - Create: `src/Koh.Asm/Program.cs`
 
-- [ ] **Step 1: Create console project**
+- [x] **Step 1: Create console project**
 
 ```bash
 dotnet new console -n Koh.Asm -o src/Koh.Asm -f net10.0
@@ -1760,11 +1760,11 @@ dotnet add src/Koh.Asm reference src/Koh.Core
 dotnet add src/Koh.Asm reference src/Koh.Emit
 ```
 
-- [ ] **Step 2: Implement Program.cs**
+- [x] **Step 2: Implement Program.cs**
 
 Parse CLI args (input file, `-o` output path, `--format` kobj/rgbds). Read source file → parse → compile → emit → write object file. Report diagnostics to stderr with file:line:column format.
 
-- [ ] **Step 3: Write automated CLI integration tests**
+- [x] **Step 3: Write automated CLI integration tests**
 
 Test: `tests/Koh.Core.Tests/Integration/CliTests.cs` — run the assembler as a process, verify:
 - Exit code 0 on valid input, non-zero on errors
@@ -1772,11 +1772,11 @@ Test: `tests/Koh.Core.Tests/Integration/CliTests.cs` — run the assembler as a 
 - Diagnostics printed to stderr with `file:line:column:` format
 - `--format rgbds` flag accepted (output deferred to Phase 9)
 
-- [ ] **Step 4: Manual test**
+- [x] **Step 4: Manual test**
 
 Create a test `.asm` file, run `dotnet run --project src/Koh.Asm -- test.asm -o test.kobj`, verify output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
