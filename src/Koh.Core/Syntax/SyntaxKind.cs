@@ -59,6 +59,25 @@ public enum SyntaxKind : ushort
     SectionKeyword, DbKeyword, DwKeyword, DsKeyword,
     EquKeyword, EqusKeyword, RedefKeyword, ExportKeyword, PurgeKeyword,
 
+    // Conditional assembly keywords
+    IfKeyword, ElifKeyword, ElseKeyword, EndcKeyword,
+
+    // Macro keywords
+    MacroKeyword, EndmKeyword, ShiftKeyword,
+
+    // Repeat/loop keywords
+    ReptKeyword, ForKeyword, EndrKeyword,
+
+    // Include keywords
+    IncludeKeyword, IncbinKeyword,
+
+    // Character map keywords
+    CharmapKeyword, NewcharmapKeyword, SetcharmapKeyword,
+    PrecharmapKeyword, PopcharmapKeyword,
+
+    // UNION/LOAD keywords
+    NextuKeyword, EnduKeyword, LoadKeyword, EndlKeyword,
+
     // Section type keywords — Rom0Keyword..OamKeyword must remain contiguous;
     // Parser.IsSectionTypeKeyword relies on a range check.
     Rom0Keyword, RomxKeyword, Wram0Keyword, WramxKeyword,
@@ -74,6 +93,8 @@ public enum SyntaxKind : ushort
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,
     DirectiveStatement, SectionDirective, DataDirective, SymbolDirective,
+    ConditionalDirective, MacroDefinition, MacroCall,
+    RepeatDirective, IncludeDirective,
 
     // Operand nodes
     RegisterOperand, ImmediateOperand, IndirectOperand,

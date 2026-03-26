@@ -1975,7 +1975,7 @@ ENDR
 - Modify: `src/Koh.Core/Binding/Binder.cs`
 - Test: `tests/Koh.Core.Tests/Binding/ConditionalTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```asm
 MY_FLAG EQU 1
@@ -1988,9 +1988,9 @@ ELSE
 ENDC
 ```
 
-- [ ] **Step 2: Implement IF/ELIF/ELSE/ENDC in binder**
+- [x] **Step 2: Implement IF/ELIF/ELSE/ENDC in binder**
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 8.4: Character Maps
 

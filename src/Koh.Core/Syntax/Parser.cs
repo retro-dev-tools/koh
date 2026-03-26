@@ -138,6 +138,44 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.PurgeKeyword)
             return ParseSymbolDirective();
 
+        // Conditional assembly: IF/ELIF/ELSE/ENDC
+        if (Current.Kind is SyntaxKind.IfKeyword or SyntaxKind.ElifKeyword
+            or SyntaxKind.ElseKeyword or SyntaxKind.EndcKeyword)
+            return ParseConditionalDirective();
+
+        // Macro: MACRO/ENDM or identifier followed by MACRO
+        if (Current.Kind == SyntaxKind.MacroKeyword || Current.Kind == SyntaxKind.EndmKeyword)
+            return ParseBlockDirective(SyntaxKind.MacroDefinition);
+
+        // Repeat: REPT/FOR/ENDR
+        if (Current.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword
+            or SyntaxKind.EndrKeyword)
+            return ParseBlockDirective(SyntaxKind.RepeatDirective);
+
+        // Include: INCLUDE/INCBIN
+        if (Current.Kind is SyntaxKind.IncludeKeyword or SyntaxKind.IncbinKeyword)
+            return ParseBlockDirective(SyntaxKind.IncludeDirective);
+
+        // Character map directives
+        if (Current.Kind is SyntaxKind.CharmapKeyword or SyntaxKind.NewcharmapKeyword
+            or SyntaxKind.SetcharmapKeyword or SyntaxKind.PrecharmapKeyword
+            or SyntaxKind.PopcharmapKeyword)
+            return ParseSymbolDirective(); // flat token gobble, binder handles semantics
+
+        // UNION control: NEXTU/ENDU/LOAD/ENDL
+        if (Current.Kind is SyntaxKind.NextuKeyword or SyntaxKind.EnduKeyword
+            or SyntaxKind.LoadKeyword or SyntaxKind.EndlKeyword)
+            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
+        // SHIFT (inside macro expansion)
+        if (Current.Kind == SyntaxKind.ShiftKeyword)
+            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
+        // Macro call: identifier that is NOT followed by : or :: (label) and NOT followed by EQU
+        // Macro calls are handled by the binder, not the parser — the parser sees them as
+        // unknown identifiers which fall through to the safety advance. The binder recognizes
+        // macro names and expands them during Pass 1.
+
         return null; // will be handled by the safety advance in ParseCompilationUnit
     }
 
@@ -146,6 +184,38 @@ internal sealed class Parser
         if (Current.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
             return Peek().Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken;
         return false;
+    }
+
+    /// <summary>
+    /// Parse IF expr / ELIF expr / ELSE / ENDC — the condition expression (if any)
+    /// is parsed as a full expression. The binder evaluates it and skips branches.
+    /// </summary>
+    private GreenNode ParseConditionalDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // IF/ELIF/ELSE/ENDC keyword
+
+        // IF and ELIF have a condition expression
+        var keyword = ((GreenToken)children[0]).Kind;
+        if (keyword is SyntaxKind.IfKeyword or SyntaxKind.ElifKeyword)
+        {
+            if (!AtEndOfStatement())
+                children.Add(ParseExpression());
+        }
+
+        return new GreenNode(SyntaxKind.ConditionalDirective, children.ToArray());
+    }
+
+    /// <summary>
+    /// Parse a block directive as a flat token sequence on the current line.
+    /// Used for MACRO/ENDM, REPT/FOR/ENDR, INCLUDE/INCBIN, NEXTU/ENDU, LOAD/ENDL, SHIFT.
+    /// </summary>
+    private GreenNode ParseBlockDirective(SyntaxKind nodeKind)
+    {
+        var children = new List<GreenNodeBase>();
+        while (!AtEndOfStatement())
+            children.Add(Advance());
+        return new GreenNode(nodeKind, children.ToArray());
     }
 
     private GreenNode ParseSectionDirective()

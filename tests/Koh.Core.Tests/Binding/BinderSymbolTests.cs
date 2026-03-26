@@ -197,9 +197,28 @@ public class BinderSymbolTests
     [Test]
     public async Task InvalidHexLiteral_DoesNotCrash()
     {
-        // $GG: $ lexes as CurrentAddressToken, GG as IdentifierToken.
-        // The binder sees GG as an undefined symbol and reports a diagnostic.
         var result = Bind("SECTION \"Main\", ROM0\ndb $GG");
         await Assert.That(result.Diagnostics).IsNotEmpty();
+    }
+
+    [Test]
+    public async Task Section_FixedAddress_LabelHasCorrectPC()
+    {
+        // SECTION at $0100 — label defined immediately should have PC = $0100
+        var result = Bind("SECTION \"Entry\", ROM0[$0100]\nentry:\nnop");
+        await Assert.That(result.Success).IsTrue();
+        var sym = result.Symbols!.Lookup("entry");
+        await Assert.That(sym).IsNotNull();
+        await Assert.That(sym!.Value).IsEqualTo(0x0100);
+    }
+
+    [Test]
+    public async Task Section_FixedAddress_LabelAfterInstructionCorrect()
+    {
+        var result = Bind("SECTION \"Entry\", ROM0[$0100]\nnop\nnop\nend:\nhalt");
+        await Assert.That(result.Success).IsTrue();
+        var sym = result.Symbols!.Lookup("end");
+        await Assert.That(sym).IsNotNull();
+        await Assert.That(sym!.Value).IsEqualTo(0x0102); // $0100 + 2 nops
     }
 }
