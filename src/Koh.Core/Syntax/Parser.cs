@@ -87,6 +87,11 @@ internal sealed class Parser
     private static bool IsInstructionKeyword(SyntaxKind kind) =>
         kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.LdhKeyword;
 
+    // Section type keywords occupy a contiguous range — Rom0Keyword..OamKeyword.
+    // SyntaxKind.cs documents this dependency.
+    private static bool IsSectionTypeKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.Rom0Keyword && kind <= SyntaxKind.OamKeyword;
+
     // Condition-only keywords (z, nz, nc) — never registers.
     // CKeyword is NOT here: it's always parsed as RegisterOperand, binder disambiguates.
     private static bool IsConditionKeyword(SyntaxKind kind) =>
@@ -105,9 +110,33 @@ internal sealed class Parser
         if (IsInstructionKeyword(Current.Kind))
             return ParseInstruction();
 
-        // TODO: Directive parsing (Phase 4). When adding DEF directive support,
-        // disambiguate DEF( (function call in expression) from DEF identifier
-        // (symbol definition) by peeking at the next token.
+        // Symbol definition: identifier EQU/EQUS expr
+        if (Current.Kind == SyntaxKind.IdentifierToken &&
+            Peek().Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword)
+            return ParseSymbolDirective();
+
+        // Directives
+        if (Current.Kind == SyntaxKind.SectionKeyword)
+            return ParseSectionDirective();
+
+        if (Current.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DsKeyword)
+            return ParseDataDirective();
+
+        // REDEF identifier EQU/EQUS expr
+        if (Current.Kind == SyntaxKind.RedefKeyword)
+            return ParseSymbolDirective();
+
+        // DEF identifier = expr (not DEF( which is a function call)
+        if (Current.Kind == SyntaxKind.DefKeyword && Peek().Kind != SyntaxKind.OpenParenToken)
+            return ParseSymbolDirective();
+
+        // EXPORT identifier, ...
+        if (Current.Kind == SyntaxKind.ExportKeyword)
+            return ParseSymbolDirective();
+
+        // PURGE identifier, ...
+        if (Current.Kind == SyntaxKind.PurgeKeyword)
+            return ParseSymbolDirective();
 
         return null; // will be handled by the safety advance in ParseCompilationUnit
     }
@@ -117,6 +146,129 @@ internal sealed class Parser
         if (Current.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
             return Peek().Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken;
         return false;
+    }
+
+    private GreenNode ParseSectionDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // SECTION keyword
+
+        // Optional FRAGMENT or UNION modifier
+        if (Current.Kind is SyntaxKind.FragmentKeyword or SyntaxKind.UnionKeyword)
+            children.Add(Advance());
+
+        // Section name (string literal)
+        if (Current.Kind == SyntaxKind.StringLiteral)
+            children.Add(Advance());
+
+        // Comma separating name from type
+        if (Current.Kind == SyntaxKind.CommaToken)
+            children.Add(Advance());
+
+        // Memory type keyword: ROM0, ROMX, WRAM0, WRAMX, VRAM, HRAM, SRAM, OAM
+        if (IsSectionTypeKeyword(Current.Kind))
+            children.Add(Advance());
+
+        // Bracket groups [$addr], [bank(n)], [align(n)] — consumed flat until structured
+        // address/bank/align parsing is needed in a later phase.
+        while (!AtEndOfStatement())
+            children.Add(Advance());
+
+        return new GreenNode(SyntaxKind.SectionDirective, children.ToArray());
+    }
+
+    private GreenNode ParseSymbolDirective()
+    {
+        return Current.Kind switch
+        {
+            SyntaxKind.RedefKeyword  => ParseEquDefinition(),
+            SyntaxKind.DefKeyword    => ParseDefDefinition(),
+            SyntaxKind.ExportKeyword => ParseSymbolList(),
+            SyntaxKind.PurgeKeyword  => ParseSymbolList(),
+            _                        => ParseEquDefinition(), // name EQU/EQUS expr
+        };
+    }
+
+    // Handles:  name EQU expr
+    //           name EQUS expr
+    //           REDEF name EQU expr
+    //           REDEF name EQUS expr
+    private GreenNode ParseEquDefinition()
+    {
+        var children = new List<GreenNodeBase>();
+
+        if (Current.Kind == SyntaxKind.RedefKeyword)
+            children.Add(Advance()); // REDEF
+
+        System.Diagnostics.Debug.Assert(
+            Current.Kind == SyntaxKind.IdentifierToken,
+            $"ParseEquDefinition expected IdentifierToken for symbol name, got {Current.Kind}"
+        );
+        children.Add(Advance()); // symbol name (IdentifierToken)
+
+        System.Diagnostics.Debug.Assert(
+            Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword,
+            $"ParseEquDefinition expected EQU/EQUS keyword, got {Current.Kind}"
+        );
+        children.Add(Advance()); // EQU or EQUS keyword
+
+        if (!AtEndOfStatement())
+            children.Add(ParseExpression()); // value
+
+        return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
+    }
+
+    // Handles:  DEF name = expr
+    private GreenNode ParseDefDefinition()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance());                               // DEF
+        children.Add(Advance());                               // symbol name
+        children.Add(ExpectToken(SyntaxKind.EqualsToken));     // =
+        if (!AtEndOfStatement())
+            children.Add(ParseExpression());                   // value
+        return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
+    }
+
+    // Handles:  EXPORT sym [, sym]*
+    //           PURGE  sym [, sym]*
+    private GreenNode ParseSymbolList()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // EXPORT or PURGE keyword
+
+        if (!AtEndOfStatement())
+        {
+            children.Add(Advance()); // first symbol
+
+            while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                children.Add(ExpectToken(SyntaxKind.IdentifierToken)); // next symbol
+            }
+        }
+
+        return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
+    }
+
+    private GreenNode ParseDataDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // DB/DW/DS keyword
+
+        // Parse comma-separated expressions
+        if (!AtEndOfStatement())
+        {
+            children.Add(ParseExpression());
+
+            while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                children.Add(ParseExpression());
+            }
+        }
+
+        return new GreenNode(SyntaxKind.DataDirective, children.ToArray());
     }
 
     private GreenNode ParseLabelDeclaration()

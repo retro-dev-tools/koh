@@ -1351,7 +1351,7 @@ Precedence levels (matching RGBDS):
 - Create: `src/Koh.Core/Syntax/Nodes/SectionNode.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/SectionTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```
 SECTION "Main", ROM0
@@ -1361,11 +1361,11 @@ SECTION FRAGMENT "Frag", ROMX
 SECTION UNION "Shared", WRAM0[$C100]
 ```
 
-- [ ] **Step 2: Add section type keywords to SyntaxKind** (`Rom0Keyword`, `RomxKeyword`, `Wram0Keyword`, `WramxKeyword`, `VramKeyword`, `HramKeyword`, `SramKeyword`, `OamKeyword`, `BankKeyword`, `AlignKeyword`, `FragmentKeyword`, `UnionKeyword`)
+- [x] **Step 2: Add section type keywords to SyntaxKind** (`Rom0Keyword`, `RomxKeyword`, `Wram0Keyword`, `WramxKeyword`, `VramKeyword`, `HramKeyword`, `SramKeyword`, `OamKeyword`, `BankKeyword`, `AlignKeyword`, `FragmentKeyword`, `UnionKeyword`)
 
-- [ ] **Step 3: Implement section directive parsing**
+- [x] **Step 3: Implement section directive parsing**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 4.2: Data Directives
 
@@ -1373,7 +1373,7 @@ SECTION UNION "Shared", WRAM0[$C100]
 - Modify: `src/Koh.Core/Syntax/Parser.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/DataDirectiveTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```
 db $00, $01, $02
@@ -1384,11 +1384,11 @@ ds 10
 ds 10, $FF
 ```
 
-- [ ] **Step 2: Implement data directive parsing**
+- [x] **Step 2: Implement data directive parsing**
 
 `DataDirective` = `DbKeyword`/`DwKeyword`/`DsKeyword` + comma-separated expression list
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 4.3: Symbol Definition Directives
 
@@ -1396,7 +1396,7 @@ ds 10, $FF
 - Modify: `src/Koh.Core/Syntax/Parser.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/SymbolDirectiveTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```
 MY_CONST EQU $10
@@ -1407,11 +1407,11 @@ EXPORT my_label
 PURGE MY_CONST
 ```
 
-- [ ] **Step 2: Add `EquKeyword`, `EqusKeyword`, `RedefKeyword`, `ExportKeyword`, `PurgeKeyword` to SyntaxKind**
+- [x] **Step 2: Add `EquKeyword`, `EqusKeyword`, `RedefKeyword`, `ExportKeyword`, `PurgeKeyword` to SyntaxKind**
 
-- [ ] **Step 3: Implement symbol directive parsing**
+- [x] **Step 3: Implement symbol directive parsing**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ---
 

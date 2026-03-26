@@ -25,6 +25,7 @@ public enum SyntaxKind : ushort
     AmpersandToken, PipeToken, CaretToken, TildeToken, BangToken,
     LessThanToken, GreaterThanToken,
     LessThanLessThanToken, GreaterThanGreaterThanToken,
+    EqualsToken,
     EqualsEqualsToken, BangEqualsToken,
     LessThanEqualsToken, GreaterThanEqualsToken,
     AmpersandAmpersandToken, PipePipeToken,
@@ -54,8 +55,17 @@ public enum SyntaxKind : ushort
     AKeyword, BKeyword, CKeyword, DKeyword, EKeyword,
     HKeyword, LKeyword, HlKeyword, SpKeyword, AfKeyword, BcKeyword, DeKeyword,
 
-    // Directive keywords (starter set)
+    // Directive keywords
     SectionKeyword, DbKeyword, DwKeyword, DsKeyword,
+    EquKeyword, EqusKeyword, RedefKeyword, ExportKeyword, PurgeKeyword,
+
+    // Section type keywords — Rom0Keyword..OamKeyword must remain contiguous;
+    // Parser.IsSectionTypeKeyword relies on a range check.
+    Rom0Keyword, RomxKeyword, Wram0Keyword, WramxKeyword,
+    VramKeyword, HramKeyword, SramKeyword, OamKeyword,
+
+    // Section modifier / constraint keywords (not memory types)
+    AlignKeyword, FragmentKeyword, UnionKeyword,
 
     // Built-in function keywords
     HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
@@ -63,7 +73,7 @@ public enum SyntaxKind : ushort
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,
-    DirectiveStatement, SectionDirective, DataDirective,
+    DirectiveStatement, SectionDirective, DataDirective, SymbolDirective,
 
     // Operand nodes
     RegisterOperand, ImmediateOperand, IndirectOperand,
