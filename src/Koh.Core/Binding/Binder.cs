@@ -1,4 +1,5 @@
 using Koh.Core.Diagnostics;
+using Koh.Core.Encoding;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;
@@ -88,13 +89,11 @@ public sealed class Binder
 
     private void Pass1Instruction(SyntaxNode node, SectionPCTracker pc)
     {
-        // For now, estimate instruction size from operand count
-        // Task 5.2b will use the InstructionTable for exact sizing
-        var mnemonic = node.ChildTokens().First();
-        var operandNodes = node.ChildNodes().ToList();
-
-        int size = EstimateInstructionSize(mnemonic.Kind, operandNodes.Count);
-        pc.Advance(size);
+        var desc = MatchInstruction(node);
+        if (desc != null)
+            pc.Advance(desc.Size);
+        else
+            pc.Advance(1); // fallback for unrecognized — diagnostic in Pass 2
     }
 
     private void Pass1Data(SyntaxNode node, SectionPCTracker pc)
@@ -166,7 +165,7 @@ public sealed class Binder
                     break;
 
                 case SyntaxKind.InstructionStatement:
-                    // Task 5.2b will implement instruction encoding
+                    Pass2Instruction(node);
                     break;
             }
         }
@@ -253,35 +252,6 @@ public sealed class Binder
     }
 
     /// <summary>
-    /// Estimate instruction size for Pass 1. Will be replaced by InstructionTable in Task 5.2b.
-    /// </summary>
-    private static int EstimateInstructionSize(SyntaxKind mnemonic, int operandCount)
-    {
-        // Zero-operand instructions (NOP, HALT, DI, EI, etc.) = 1 byte
-        // One-operand instructions vary: RST = 1, JR = 2, JP/CALL = 3, PUSH/POP = 1
-        // Two-operand instructions vary: LD r,r = 1, LD r,n = 2, LD rr,nn = 3
-        // CB-prefix instructions = 2 bytes
-        // This is a rough estimate — Task 5.2b replaces this with exact table lookups
-        return operandCount switch
-        {
-            0 => 1,
-            1 => mnemonic switch
-            {
-                SyntaxKind.JpKeyword or SyntaxKind.CallKeyword => 3,
-                SyntaxKind.JrKeyword => 2,
-                SyntaxKind.RstKeyword => 1,
-                _ => 1,
-            },
-            2 => mnemonic switch
-            {
-                SyntaxKind.LdKeyword => 1, // conservative for LD r,r; will be fixed by table
-                _ => 2,
-            },
-            _ => 1,
-        };
-    }
-
-    /// <summary>
     /// Parses name and section type out of a SectionDirective node. Returns false and
     /// reports a diagnostic if the name token is absent (malformed input).
     /// </summary>
@@ -315,6 +285,226 @@ public sealed class Binder
         _diagnostics.Report(node.FullSpan, "SECTION directive requires a name");
         return false;
     }
+
+    private void Pass2Instruction(SyntaxNode node)
+    {
+        var section = _sections.ActiveSection;
+        if (section == null)
+        {
+            _diagnostics.Report(node.FullSpan, "Instruction outside of a section");
+            return;
+        }
+
+        var desc = MatchInstruction(node);
+        if (desc == null)
+        {
+            var mnemonic = node.ChildTokens().First().Text;
+            _diagnostics.Report(node.FullSpan, $"No valid encoding for '{mnemonic}' with given operands");
+            return;
+        }
+
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+
+        // Record the offset of the first opcode byte before emitting (needed for OpcodeOrImm8).
+        int opcodeOffset = section.CurrentOffset;
+
+        // Emit opcode bytes
+        foreach (var b in desc.Encoding)
+            section.EmitByte(b);
+
+        // Emit operand data bytes per emit rules
+        foreach (var rule in desc.EmitRules)
+        {
+            var operandGreen = GetOperandExpression(node, rule.OperandIndex);
+            var value = operandGreen != null ? evaluator.TryEvaluate(operandGreen) : null;
+
+            switch (rule.Kind)
+            {
+                case EmitRuleKind.AppendImm8:
+                    if (value.HasValue)
+                        section.EmitByte((byte)(value.Value & 0xFF));
+                    else
+                    {
+                        int offset = section.ReserveByte();
+                        if (operandGreen != null)
+                            section.RecordPatch(new PatchEntry
+                            {
+                                SectionName = section.Name,
+                                Offset = offset,
+                                Expression = operandGreen,
+                                Kind = PatchKind.Absolute8,
+                            });
+                    }
+                    break;
+
+                case EmitRuleKind.AppendImm16LE:
+                    if (value.HasValue)
+                        section.EmitWord((ushort)(value.Value & 0xFFFF));
+                    else
+                    {
+                        int offset = section.ReserveWord();
+                        if (operandGreen != null)
+                            section.RecordPatch(new PatchEntry
+                            {
+                                SectionName = section.Name,
+                                Offset = offset,
+                                Expression = operandGreen,
+                                Kind = PatchKind.Absolute16,
+                            });
+                    }
+                    break;
+
+                case EmitRuleKind.AppendRelative8:
+                    if (value.HasValue)
+                    {
+                        // PC-relative offset is measured from the address of the byte
+                        // immediately AFTER the complete instruction. At this point the
+                        // opcode bytes have been emitted but the offset byte has not,
+                        // so CurrentPC is (instrBase + opcodeByteCount). Adding 1 gives
+                        // the post-instruction PC, which is the correct base for JR.
+                        long rel = value.Value - (section.CurrentPC + 1);
+                        section.EmitByte((byte)(sbyte)rel);
+                    }
+                    else
+                    {
+                        int offset = section.ReserveByte();
+                        if (operandGreen != null)
+                            section.RecordPatch(new PatchEntry
+                            {
+                                SectionName = section.Name,
+                                Offset = offset,
+                                Expression = operandGreen,
+                                Kind = PatchKind.Relative8,
+                                // CurrentPC already includes the reserved byte (+1 from ReserveByte),
+                                // so this equals instrBase + 2 — the correct post-instruction PC.
+                                PCAfterInstruction = section.CurrentPC,
+                            });
+                    }
+                    break;
+
+                case EmitRuleKind.OpcodeOrImm8:
+                    // OR the operand value into the first opcode byte already emitted.
+                    // Used by RST: RST $08 → 0xC7 | 0x08 = 0xCF.
+                    if (value.HasValue)
+                        section.ApplyPatch(opcodeOffset, (byte)(desc.Encoding[0] | (value.Value & 0xFF)));
+                    else
+                        _diagnostics.Report(node.FullSpan,
+                            "RST vector must be a constant expression");
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Match an instruction node against the SM83 table.
+    /// </summary>
+    private InstructionDescriptor? MatchInstruction(SyntaxNode node)
+    {
+        var green = node.Green;
+        var greenNode = (GreenNode)green;
+
+        // First child is the mnemonic token
+        var mnemonicToken = (GreenToken)greenNode.GetChild(0)!;
+        var mnemonic = mnemonicToken.Text;
+
+        // Collect operand nodes (skip mnemonic and commas)
+        var operandGreens = new List<GreenNodeBase>();
+        for (int i = 1; i < greenNode.ChildCount; i++)
+        {
+            var child = greenNode.GetChild(i)!;
+            if (child is GreenToken t && t.Kind == SyntaxKind.CommaToken)
+                continue;
+            if (child is GreenNode n && IsOperandKind(n.Kind))
+                operandGreens.Add(n);
+        }
+
+        // Convert to patterns
+        var patterns = operandGreens.Select(OperandPatternMatcher.PatternOf).ToList();
+
+        // Evaluate operand values for pattern matching (range checks)
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+        var values = operandGreens.Select(op =>
+        {
+            var expr = GetOperandExpressionFromGreen(op);
+            return expr != null ? evaluator.TryEvaluate(expr) : null;
+        }).ToList();
+
+        return OperandPatternMatcher.Match(mnemonic, patterns, values);
+    }
+
+    /// <summary>
+    /// Get the expression node inside an operand (for evaluation).
+    /// </summary>
+    private static GreenNodeBase? GetOperandExpression(SyntaxNode instrNode, int operandIndex)
+    {
+        var greenNode = (GreenNode)instrNode.Green;
+        int opIdx = 0;
+        for (int i = 1; i < greenNode.ChildCount; i++)
+        {
+            var child = greenNode.GetChild(i)!;
+            if (child is GreenToken t && t.Kind == SyntaxKind.CommaToken)
+                continue;
+            if (child is GreenNode n && IsOperandKind(n.Kind))
+            {
+                if (opIdx == operandIndex)
+                    return GetOperandExpressionFromGreen(n);
+                opIdx++;
+            }
+        }
+        return null;
+    }
+
+    private static GreenNodeBase? GetOperandExpressionFromGreen(GreenNodeBase operand)
+    {
+        if (operand is not GreenNode green) return null;
+        return green.Kind switch
+        {
+            SyntaxKind.ImmediateOperand => green.GetChild(0), // expression inside
+            SyntaxKind.LabelOperand     => green.GetChild(0), // label token → evaluate as name
+            // Indirect operand: extract the expression inside the brackets so that
+            // AppendImm16LE / AppendImm8 can emit the address. The inner expression
+            // is the first non-bracket child (index 1 — after the '[' token).
+            SyntaxKind.IndirectOperand  => GetIndirectExpression(green),
+            _ => null, // registers/conditions don't have evaluable expressions
+        };
+    }
+
+    /// <summary>
+    /// Returns the inner expression node from an IndirectOperand green node if it carries
+    /// an evaluable immediate address (e.g. <c>[HL]</c> → null, <c>[$C000]</c> → expression).
+    /// Register-based and post-increment/decrement indirects have no evaluable address byte.
+    /// </summary>
+    private static GreenNodeBase? GetIndirectExpression(GreenNode indirect)
+    {
+        // Children: '[', content..., ']'
+        // content is either:
+        //   - a register token  ([BC], [DE], [HL], [C]) — no evaluable address
+        //   - flat HL + +/- tokens ([HL+], [HL-]) — no evaluable address
+        //   - an expression node ([$C000], [$FF], label) — evaluable
+        if (indirect.ChildCount < 3) return null;
+        var inner = indirect.GetChild(1);
+
+        if (inner is not GreenNode exprNode) return null; // flat token — register, not address
+
+        // A NameExpression wrapping a register keyword is still a register reference,
+        // not a numeric address. Discard it to avoid spurious "undefined symbol" diagnostics.
+        if (exprNode.Kind == SyntaxKind.NameExpression)
+        {
+            var tok = exprNode.GetChild(0) as GreenToken;
+            if (tok != null && IsRegisterOrPairKeyword(tok.Kind))
+                return null;
+        }
+
+        return exprNode;
+    }
+
+    private static bool IsRegisterOrPairKeyword(SyntaxKind kind) =>
+        kind is >= SyntaxKind.AKeyword and <= SyntaxKind.DeKeyword;
+
+    private static bool IsOperandKind(SyntaxKind kind) => kind is
+        SyntaxKind.RegisterOperand or SyntaxKind.ImmediateOperand or
+        SyntaxKind.IndirectOperand or SyntaxKind.ConditionOperand or
+        SyntaxKind.LabelOperand;
 
     private static GreenNodeBase GetGreenNode(SyntaxNode node) => node.Green;
 }

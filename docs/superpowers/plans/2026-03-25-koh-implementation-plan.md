@@ -1468,7 +1468,7 @@ Walk the syntax tree. On labels: create symbols. On EQU/EQUS: evaluate constant 
 - Modify: `src/Koh.Core/Binding/Binder.cs`
 - Test: `tests/Koh.Core.Tests/Binding/InstructionBindingTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Bind `nop` in a section → bytes `[0x00]`, PC advances by 1
 - Bind `ld a, b` → bytes `[0x78]`
@@ -1477,15 +1477,15 @@ Walk the syntax tree. On labels: create symbols. On EQU/EQUS: evaluate constant 
 - Bind `ld a, af` → diagnostic: invalid operand combination for LD
 - Bind `add hl, a` → diagnostic: invalid operand combination for ADD
 
-- [ ] **Step 2: Implement instruction table as data**
+- [x] **Step 2: Implement instruction table as data**
 
 Static table of `(SyntaxKind mnemonic, OperandPattern[] patterns)` → `(opcode bytes, size)`. The binder pattern-matches parsed instruction nodes against this table. Unmatched patterns produce diagnostics. This is the single source of truth for instruction validation AND encoding — no separate validation pass.
 
-- [ ] **Step 3: Wire instruction encoding into binder**
+- [x] **Step 3: Wire instruction encoding into binder**
 
 On instruction node: match against table → encode to bytes if operands are constant, create patch if deferred.
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 5.2c: Binder — Data Directives & Patches
 
@@ -1495,7 +1495,7 @@ On instruction node: match against table → encode to bytes if operands are con
 - Create: `src/Koh.Core/Binding/DeferredExpression.cs`
 - Test: `tests/Koh.Core.Tests/Binding/DataBindingTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Bind `db $01, $02` → section data `[01 02]`
 - Bind `dw $1234` → section data `[34 12]` (little-endian)
@@ -1504,14 +1504,14 @@ On instruction node: match against table → encode to bytes if operands are con
 - Bind `ds 3, $FF` → section data `[FF FF FF]`
 - Bind `dw main` where `main` is a label → patch with deferred expression
 
-- [ ] **Step 2: Implement Patch and DeferredExpression**
+- [x] **Step 2: Implement Patch and DeferredExpression**
 
 `Patch`: location in section data + expression tree + width (1/2/4 bytes).
 `DeferredExpression`: tree-structured expression preserving source spans.
 
-- [ ] **Step 3: Wire data directive binding into binder**
+- [x] **Step 3: Wire data directive binding into binder**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 5.2d: Binder — EmitModel & Forward Reference Resolution
 

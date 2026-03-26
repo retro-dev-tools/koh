@@ -33,10 +33,12 @@ public sealed class ExpressionEvaluator
             SyntaxKind.UnaryExpression => EvaluateUnary(node),
             SyntaxKind.ParenthesizedExpression => EvaluateParenthesized(node),
             SyntaxKind.FunctionCallExpression => EvaluateFunction(node),
-            // Raw tokens (e.g., number literal directly)
+            // Raw tokens (e.g., from LabelOperand or ImmediateOperand unwrapping)
             SyntaxKind.NumberLiteral => ParseNumber(((GreenToken)node).Text),
             SyntaxKind.CurrentAddressToken => _getCurrentPC(),
-            SyntaxKind.StringLiteral => null, // strings are not numeric
+            SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken =>
+                EvaluateRawIdentifier(((GreenToken)node).Text),
+            SyntaxKind.StringLiteral => null,
             _ => null,
         };
     }
@@ -57,11 +59,16 @@ public sealed class ExpressionEvaluator
     private long? EvaluateName(GreenNodeBase node)
     {
         var token = (GreenToken)((GreenNode)node).GetChild(0)!;
-        var sym = _symbols.Lookup(token.Text);
+        return EvaluateRawIdentifier(token.Text);
+    }
+
+    private long? EvaluateRawIdentifier(string name)
+    {
+        var sym = _symbols.Lookup(name);
 
         if (sym == null)
         {
-            _symbols.DeclareForwardRef(token.Text);
+            _symbols.DeclareForwardRef(name);
             return null;
         }
 
