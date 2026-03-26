@@ -42,7 +42,10 @@ public class OperandParsingTests
         await Assert.That(ops[0].Kind).IsEqualTo(SyntaxKind.RegisterOperand);
         await Assert.That(ops[1].Kind).IsEqualTo(SyntaxKind.ImmediateOperand);
 
-        var numToken = ops[1].ChildTokens().First();
+        // ImmediateOperand now wraps a LiteralExpression
+        var expr = ops[1].ChildNodes().First();
+        await Assert.That(expr.Kind).IsEqualTo(SyntaxKind.LiteralExpression);
+        var numToken = expr.ChildTokens().First();
         await Assert.That(numToken.Kind).IsEqualTo(SyntaxKind.NumberLiteral);
     }
 
@@ -56,11 +59,13 @@ public class OperandParsingTests
         await Assert.That(ops[0].Kind).IsEqualTo(SyntaxKind.RegisterOperand);
         await Assert.That(ops[1].Kind).IsEqualTo(SyntaxKind.IndirectOperand);
 
-        // Indirect contains [ hl ]
+        // Indirect contains [ NameExpression(hl) ]
         var tokens = ops[1].ChildTokens().ToList();
         await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.OpenBracketToken);
-        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.HlKeyword);
-        await Assert.That(tokens[2].Kind).IsEqualTo(SyntaxKind.CloseBracketToken);
+        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.CloseBracketToken);
+        // hl is inside a NameExpression node
+        var innerExpr = ops[1].ChildNodes().First();
+        await Assert.That(innerExpr.Kind).IsEqualTo(SyntaxKind.NameExpression);
     }
 
     [Test]
@@ -88,8 +93,12 @@ public class OperandParsingTests
         var ops = Operands(instr);
 
         await Assert.That(ops[1].Kind).IsEqualTo(SyntaxKind.IndirectOperand);
+        // [hl-] is a special case — flat tokens, not an expression
         var tokens = ops[1].ChildTokens().ToList();
+        await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.OpenBracketToken);
+        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.HlKeyword);
         await Assert.That(tokens[2].Kind).IsEqualTo(SyntaxKind.MinusToken);
+        await Assert.That(tokens[3].Kind).IsEqualTo(SyntaxKind.CloseBracketToken);
     }
 
     [Test]
@@ -210,7 +219,10 @@ public class OperandParsingTests
 
         await Assert.That(ops).Count().IsEqualTo(1);
         await Assert.That(ops[0].Kind).IsEqualTo(SyntaxKind.ImmediateOperand);
-        var token = ops[0].ChildTokens().First();
+        // ImmediateOperand wraps a LiteralExpression containing the CurrentAddressToken
+        var expr = ops[0].ChildNodes().First();
+        await Assert.That(expr.Kind).IsEqualTo(SyntaxKind.LiteralExpression);
+        var token = expr.ChildTokens().First();
         await Assert.That(token.Kind).IsEqualTo(SyntaxKind.CurrentAddressToken);
     }
 
@@ -243,8 +255,9 @@ public class OperandParsingTests
         var ops = Operands(instr);
 
         await Assert.That(ops[1].Kind).IsEqualTo(SyntaxKind.IndirectOperand);
-        var tokens = ops[1].ChildTokens().ToList();
-        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.BcKeyword);
+        // bc is inside a NameExpression
+        var innerExpr = ops[1].ChildNodes().First();
+        await Assert.That(innerExpr.Kind).IsEqualTo(SyntaxKind.NameExpression);
     }
 
     [Test]
@@ -318,10 +331,11 @@ public class OperandParsingTests
         await Assert.That(ops[0].Kind).IsEqualTo(SyntaxKind.RegisterOperand);
         await Assert.That(ops[1].Kind).IsEqualTo(SyntaxKind.IndirectOperand);
 
-        // Inner content: [ $FF ]
+        // Inner content: [ LiteralExpression($FF) ]
         var tokens = ops[1].ChildTokens().ToList();
         await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.OpenBracketToken);
-        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.NumberLiteral);
-        await Assert.That(tokens[2].Kind).IsEqualTo(SyntaxKind.CloseBracketToken);
+        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.CloseBracketToken);
+        var innerExpr = ops[1].ChildNodes().First();
+        await Assert.That(innerExpr.Kind).IsEqualTo(SyntaxKind.LiteralExpression);
     }
 }

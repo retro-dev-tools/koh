@@ -17,75 +17,76 @@ public sealed class Lexer
     /// </summary>
     internal IReadOnlyList<Diagnostic> Diagnostics => _diagnostics.ToList();
 
-    private static readonly Dictionary<string, SyntaxKind> Keywords =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["nop"] = SyntaxKind.NopKeyword,
-            ["ld"] = SyntaxKind.LdKeyword,
-            ["add"] = SyntaxKind.AddKeyword,
-            ["adc"] = SyntaxKind.AdcKeyword,
-            ["sub"] = SyntaxKind.SubKeyword,
-            ["sbc"] = SyntaxKind.SbcKeyword,
-            ["and"] = SyntaxKind.AndKeyword,
-            ["or"] = SyntaxKind.OrKeyword,
-            ["xor"] = SyntaxKind.XorKeyword,
-            ["cp"] = SyntaxKind.CpKeyword,
-            ["inc"] = SyntaxKind.IncKeyword,
-            ["dec"] = SyntaxKind.DecKeyword,
-            ["daa"] = SyntaxKind.DaaKeyword,
-            ["cpl"] = SyntaxKind.CplKeyword,
-            ["rlca"] = SyntaxKind.RlcaKeyword,
-            ["rla"] = SyntaxKind.RlaKeyword,
-            ["rrca"] = SyntaxKind.RrcaKeyword,
-            ["rra"] = SyntaxKind.RraKeyword,
-            ["rlc"] = SyntaxKind.RlcKeyword,
-            ["rl"] = SyntaxKind.RlKeyword,
-            ["rrc"] = SyntaxKind.RrcKeyword,
-            ["rr"] = SyntaxKind.RrKeyword,
-            ["sla"] = SyntaxKind.SlaKeyword,
-            ["sra"] = SyntaxKind.SraKeyword,
-            ["srl"] = SyntaxKind.SrlKeyword,
-            ["swap"] = SyntaxKind.SwapKeyword,
-            ["bit"] = SyntaxKind.BitKeyword,
-            ["set"] = SyntaxKind.SetKeyword,
-            ["res"] = SyntaxKind.ResKeyword,
-            ["jp"] = SyntaxKind.JpKeyword,
-            ["jr"] = SyntaxKind.JrKeyword,
-            ["call"] = SyntaxKind.CallKeyword,
-            ["ret"] = SyntaxKind.RetKeyword,
-            ["reti"] = SyntaxKind.RetiKeyword,
-            ["rst"] = SyntaxKind.RstKeyword,
-            ["pop"] = SyntaxKind.PopKeyword,
-            ["push"] = SyntaxKind.PushKeyword,
-            ["di"] = SyntaxKind.DiKeyword,
-            ["ei"] = SyntaxKind.EiKeyword,
-            ["halt"] = SyntaxKind.HaltKeyword,
-            ["stop"] = SyntaxKind.StopKeyword,
-            ["ccf"] = SyntaxKind.CcfKeyword,
-            ["scf"] = SyntaxKind.ScfKeyword,
-            ["ldi"] = SyntaxKind.LdiKeyword,
-            ["ldd"] = SyntaxKind.LddKeyword,
-            ["ldh"] = SyntaxKind.LdhKeyword,
-            ["z"] = SyntaxKind.ZKeyword,
-            ["nz"] = SyntaxKind.NzKeyword,
-            ["nc"] = SyntaxKind.NcKeyword,
-            ["a"] = SyntaxKind.AKeyword,
-            ["b"] = SyntaxKind.BKeyword,
-            ["c"] = SyntaxKind.CKeyword,
-            ["d"] = SyntaxKind.DKeyword,
-            ["e"] = SyntaxKind.EKeyword,
-            ["h"] = SyntaxKind.HKeyword,
-            ["l"] = SyntaxKind.LKeyword,
-            ["hl"] = SyntaxKind.HlKeyword,
-            ["sp"] = SyntaxKind.SpKeyword,
-            ["af"] = SyntaxKind.AfKeyword,
-            ["bc"] = SyntaxKind.BcKeyword,
-            ["de"] = SyntaxKind.DeKeyword,
-            ["section"] = SyntaxKind.SectionKeyword,
-            ["db"] = SyntaxKind.DbKeyword,
-            ["dw"] = SyntaxKind.DwKeyword,
-            ["ds"] = SyntaxKind.DsKeyword,
-        };
+    private static readonly Dictionary<string, SyntaxKind> Keywords = new(
+        StringComparer.OrdinalIgnoreCase
+    )
+    {
+        ["nop"] = SyntaxKind.NopKeyword,
+        ["ld"] = SyntaxKind.LdKeyword,
+        ["add"] = SyntaxKind.AddKeyword,
+        ["adc"] = SyntaxKind.AdcKeyword,
+        ["sub"] = SyntaxKind.SubKeyword,
+        ["sbc"] = SyntaxKind.SbcKeyword,
+        ["and"] = SyntaxKind.AndKeyword,
+        ["or"] = SyntaxKind.OrKeyword,
+        ["xor"] = SyntaxKind.XorKeyword,
+        ["cp"] = SyntaxKind.CpKeyword,
+        ["inc"] = SyntaxKind.IncKeyword,
+        ["dec"] = SyntaxKind.DecKeyword,
+        ["daa"] = SyntaxKind.DaaKeyword,
+        ["cpl"] = SyntaxKind.CplKeyword,
+        ["rlca"] = SyntaxKind.RlcaKeyword,
+        ["rla"] = SyntaxKind.RlaKeyword,
+        ["rrca"] = SyntaxKind.RrcaKeyword,
+        ["rra"] = SyntaxKind.RraKeyword,
+        ["rlc"] = SyntaxKind.RlcKeyword,
+        ["rl"] = SyntaxKind.RlKeyword,
+        ["rrc"] = SyntaxKind.RrcKeyword,
+        ["rr"] = SyntaxKind.RrKeyword,
+        ["sla"] = SyntaxKind.SlaKeyword,
+        ["sra"] = SyntaxKind.SraKeyword,
+        ["srl"] = SyntaxKind.SrlKeyword,
+        ["swap"] = SyntaxKind.SwapKeyword,
+        ["bit"] = SyntaxKind.BitKeyword,
+        ["set"] = SyntaxKind.SetKeyword,
+        ["res"] = SyntaxKind.ResKeyword,
+        ["jp"] = SyntaxKind.JpKeyword,
+        ["jr"] = SyntaxKind.JrKeyword,
+        ["call"] = SyntaxKind.CallKeyword,
+        ["ret"] = SyntaxKind.RetKeyword,
+        ["reti"] = SyntaxKind.RetiKeyword,
+        ["rst"] = SyntaxKind.RstKeyword,
+        ["pop"] = SyntaxKind.PopKeyword,
+        ["push"] = SyntaxKind.PushKeyword,
+        ["di"] = SyntaxKind.DiKeyword,
+        ["ei"] = SyntaxKind.EiKeyword,
+        ["halt"] = SyntaxKind.HaltKeyword,
+        ["stop"] = SyntaxKind.StopKeyword,
+        ["ccf"] = SyntaxKind.CcfKeyword,
+        ["scf"] = SyntaxKind.ScfKeyword,
+        ["ldi"] = SyntaxKind.LdiKeyword,
+        ["ldd"] = SyntaxKind.LddKeyword,
+        ["ldh"] = SyntaxKind.LdhKeyword,
+        ["z"] = SyntaxKind.ZKeyword,
+        ["nz"] = SyntaxKind.NzKeyword,
+        ["nc"] = SyntaxKind.NcKeyword,
+        ["a"] = SyntaxKind.AKeyword,
+        ["b"] = SyntaxKind.BKeyword,
+        ["c"] = SyntaxKind.CKeyword,
+        ["d"] = SyntaxKind.DKeyword,
+        ["e"] = SyntaxKind.EKeyword,
+        ["h"] = SyntaxKind.HKeyword,
+        ["l"] = SyntaxKind.LKeyword,
+        ["hl"] = SyntaxKind.HlKeyword,
+        ["sp"] = SyntaxKind.SpKeyword,
+        ["af"] = SyntaxKind.AfKeyword,
+        ["bc"] = SyntaxKind.BcKeyword,
+        ["de"] = SyntaxKind.DeKeyword,
+        ["section"] = SyntaxKind.SectionKeyword,
+        ["db"] = SyntaxKind.DbKeyword,
+        ["dw"] = SyntaxKind.DwKeyword,
+        ["ds"] = SyntaxKind.DsKeyword,
+    };
 
     public Lexer(SourceText source)
     {
@@ -93,8 +94,10 @@ public sealed class Lexer
     }
 
     private char Current => _position < _source.Length ? _source[_position] : '\0';
+
     private char Peek(int offset = 1) =>
         _position + offset < _source.Length ? _source[_position + offset] : '\0';
+
     private bool IsAtEnd => _position >= _source.Length;
 
     public SyntaxToken NextToken()
@@ -154,27 +157,36 @@ public sealed class Lexer
         if (c == '$' && IsHexDigit(Peek()))
         {
             _position++;
-            while (IsHexDigit(Current)) _position++;
+            while (IsHexDigit(Current))
+                _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
         if (c == '%' && IsBinaryDigit(Peek()))
         {
             _position++;
-            while (IsBinaryDigit(Current)) _position++;
+            while (IsBinaryDigit(Current))
+                _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
-        if (c == '&' && IsOctalDigit(Peek()))
+        // &octal is a number literal only when & appears where a prefix (unary) is
+        // expected — i.e. the character immediately before the & (ignoring whitespace)
+        // is not a token that can end a primary expression.  If the & follows an
+        // identifier, digit, closing bracket/paren, or closing quote it is the
+        // bitwise-AND operator and must not be consumed as a number prefix.
+        if (c == '&' && IsOctalDigit(Peek()) && !PrecedingCharIsExpressionEnd(start))
         {
             _position++;
-            while (IsOctalDigit(Current)) _position++;
+            while (IsOctalDigit(Current))
+                _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
         if (char.IsDigit(c))
         {
-            while (char.IsDigit(Current)) _position++;
+            while (char.IsDigit(Current))
+                _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
@@ -184,10 +196,12 @@ public sealed class Lexer
             _position++; // opening quote
             while (!IsAtEnd && Current != '"' && Current != '\n' && Current != '\r')
             {
-                if (Current == '\\') _position++; // skip escape char
+                if (Current == '\\')
+                    _position++; // skip escape char
                 _position++;
             }
-            if (Current == '"') _position++; // closing quote
+            if (Current == '"')
+                _position++; // closing quote
             return (SyntaxKind.StringLiteral, Substring(start, _position));
         }
 
@@ -195,14 +209,16 @@ public sealed class Lexer
         if (c == '.' && IsIdentifierStart(Peek()))
         {
             _position++; // consume the dot prefix
-            while (IsIdentifierPart(Current)) _position++;
+            while (IsIdentifierPart(Current))
+                _position++;
             return (SyntaxKind.LocalLabelToken, Substring(start, _position));
         }
 
         // Identifiers / keywords
         if (IsIdentifierStart(c))
         {
-            while (IsIdentifierPart(Current)) _position++;
+            while (IsIdentifierPart(Current))
+                _position++;
             string word = Substring(start, _position);
             if (Keywords.TryGetValue(word, out var keywordKind))
                 return (keywordKind, word);
@@ -210,15 +226,51 @@ public sealed class Lexer
         }
 
         // Multi-character punctuation (check before single-char)
-        if (c == '<' && Peek() == '<') { _position += 2; return (SyntaxKind.LessThanLessThanToken, "<<"); }
-        if (c == '>' && Peek() == '>') { _position += 2; return (SyntaxKind.GreaterThanGreaterThanToken, ">>"); }
-        if (c == '=' && Peek() == '=') { _position += 2; return (SyntaxKind.EqualsEqualsToken, "=="); }
-        if (c == '!' && Peek() == '=') { _position += 2; return (SyntaxKind.BangEqualsToken, "!="); }
-        if (c == '<' && Peek() == '=') { _position += 2; return (SyntaxKind.LessThanEqualsToken, "<="); }
-        if (c == '>' && Peek() == '=') { _position += 2; return (SyntaxKind.GreaterThanEqualsToken, ">="); }
-        if (c == '&' && Peek() == '&') { _position += 2; return (SyntaxKind.AmpersandAmpersandToken, "&&"); }
-        if (c == '|' && Peek() == '|') { _position += 2; return (SyntaxKind.PipePipeToken, "||"); }
-        if (c == ':' && Peek() == ':') { _position += 2; return (SyntaxKind.DoubleColonToken, "::"); }
+        if (c == '<' && Peek() == '<')
+        {
+            _position += 2;
+            return (SyntaxKind.LessThanLessThanToken, "<<");
+        }
+        if (c == '>' && Peek() == '>')
+        {
+            _position += 2;
+            return (SyntaxKind.GreaterThanGreaterThanToken, ">>");
+        }
+        if (c == '=' && Peek() == '=')
+        {
+            _position += 2;
+            return (SyntaxKind.EqualsEqualsToken, "==");
+        }
+        if (c == '!' && Peek() == '=')
+        {
+            _position += 2;
+            return (SyntaxKind.BangEqualsToken, "!=");
+        }
+        if (c == '<' && Peek() == '=')
+        {
+            _position += 2;
+            return (SyntaxKind.LessThanEqualsToken, "<=");
+        }
+        if (c == '>' && Peek() == '=')
+        {
+            _position += 2;
+            return (SyntaxKind.GreaterThanEqualsToken, ">=");
+        }
+        if (c == '&' && Peek() == '&')
+        {
+            _position += 2;
+            return (SyntaxKind.AmpersandAmpersandToken, "&&");
+        }
+        if (c == '|' && Peek() == '|')
+        {
+            _position += 2;
+            return (SyntaxKind.PipePipeToken, "||");
+        }
+        if (c == ':' && Peek() == ':')
+        {
+            _position += 2;
+            return (SyntaxKind.DoubleColonToken, "::");
+        }
 
         // Single-character punctuation
         _position++;
@@ -363,7 +415,8 @@ public sealed class Lexer
             // Consumed to EOF without finding the closing */
             _diagnostics.Report(
                 new TextSpan(start, _position - start),
-                "Unterminated block comment");
+                "Unterminated block comment"
+            );
         }
 
         return new GreenTrivia(SyntaxKind.BlockCommentTrivia, Substring(start, _position));
@@ -375,7 +428,8 @@ public sealed class Lexer
         if (Current == '\r')
         {
             _position++;
-            if (!IsAtEnd && Current == '\n') _position++;
+            if (!IsAtEnd && Current == '\n')
+                _position++;
         }
         else
         {
@@ -391,8 +445,34 @@ public sealed class Lexer
     }
 
     private static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
+
     private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
+
     private static bool IsHexDigit(char c) => char.IsAsciiHexDigit(c);
+
     private static bool IsBinaryDigit(char c) => c is '0' or '1';
+
     private static bool IsOctalDigit(char c) => c is >= '0' and <= '7';
+
+    /// <summary>
+    /// Returns true if the character immediately before <paramref name="pos"/>
+    /// (skipping whitespace/tabs) is one that can end a primary expression:
+    /// an identifier/keyword character, a decimal/hex digit, or a closing
+    /// bracket, paren, or quote.  This is used to distinguish the bitwise-AND
+    /// operator <c>&amp;</c> from the octal literal prefix <c>&amp;digits</c>.
+    /// </summary>
+    private bool PrecedingCharIsExpressionEnd(int pos)
+    {
+        int i = pos - 1;
+        while (i >= 0 && (_source[i] == ' ' || _source[i] == '\t'))
+            i--;
+        if (i < 0)
+            return false;
+        char prev = _source[i];
+        return char.IsLetterOrDigit(prev)
+            || prev == '_'
+            || prev == ')'
+            || prev == ']'
+            || prev == '"';
+    }
 }

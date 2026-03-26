@@ -1270,7 +1270,7 @@ Note: Raw lexer mode (for macro arguments) and string interpolation deferred to 
 - Modify: `src/Koh.Core/Syntax/Parser.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/LabelTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```
 main:          → global label
@@ -1278,11 +1278,11 @@ main:          → global label
 main::         → exported global label
 ```
 
-- [ ] **Step 2: Implement label declaration node**
+- [x] **Step 2: Implement label declaration node**
 
 `LabelDeclaration` = `IdentifierToken` + `ColonToken` (+ optional second colon for export)
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 3.2: Expression Parser (Pratt)
 
@@ -1290,7 +1290,7 @@ main::         → exported global label
 - Create: `src/Koh.Core/Syntax/ExpressionParser.cs` (or inline in `Parser.cs`)
 - Test: `tests/Koh.Core.Tests/Syntax/ExpressionTests.cs`
 
-- [ ] **Step 1: Write failing tests for expression parsing**
+- [x] **Step 1: Write failing tests for expression parsing**
 
 ```
 1 + 2           → BinaryExpression(+)
@@ -1305,7 +1305,7 @@ BANK("Section") → function call expression
 1 && 2          → BinaryExpression(&&)
 ```
 
-- [ ] **Step 2: Implement Pratt parser**
+- [x] **Step 2: Implement Pratt parser**
 
 Precedence levels (matching RGBDS):
 1. `||`
@@ -1319,7 +1319,7 @@ Precedence levels (matching RGBDS):
 9. `* / %`
 10. Unary: `- ~ ! + HIGH LOW BANK SIZEOF STARTOF`
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 3.3: Built-in Functions
 

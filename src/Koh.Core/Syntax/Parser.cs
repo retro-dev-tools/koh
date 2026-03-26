@@ -20,7 +20,9 @@ internal sealed class Parser
             _diagnostics.Report(d.Span, d.Message, d.Severity);
     }
 
-    private static (List<GreenToken> tokens, IReadOnlyList<Diagnostic> lexerDiagnostics) LexAll(SourceText text)
+    private static (List<GreenToken> tokens, IReadOnlyList<Diagnostic> lexerDiagnostics) LexAll(
+        SourceText text
+    )
     {
         var lexer = new Lexer(text);
         var tokens = new List<GreenToken>();
@@ -28,19 +30,25 @@ internal sealed class Parser
         {
             var greenToken = lexer.NextGreenToken();
             tokens.Add(greenToken);
-            if (greenToken.Kind == SyntaxKind.EndOfFileToken) break;
+            if (greenToken.Kind == SyntaxKind.EndOfFileToken)
+                break;
         }
         return (tokens, lexer.Diagnostics);
     }
 
-    private GreenToken Current => _position < _tokens.Count
-        ? _tokens[_position]
-        : _tokens[^1]; // EOF
+    private GreenToken Current => _position < _tokens.Count ? _tokens[_position] : _tokens[^1]; // EOF
+
+    private GreenToken Peek(int offset = 1)
+    {
+        int index = _position + offset;
+        return index < _tokens.Count ? _tokens[index] : _tokens[^1];
+    }
 
     private GreenToken Advance()
     {
         var token = Current;
-        if (_position < _tokens.Count - 1) _position++;
+        if (_position < _tokens.Count - 1)
+            _position++;
         return token;
     }
 
@@ -90,10 +98,28 @@ internal sealed class Parser
 
     private GreenNodeBase? ParseStatement()
     {
+        // Labels: identifier/localLabel followed by : or ::
+        if (IsLabelStart())
+            return ParseLabelDeclaration();
+
         if (IsInstructionKeyword(Current.Kind))
             return ParseInstruction();
 
         return null; // will be handled by the safety advance in ParseCompilationUnit
+    }
+
+    private bool IsLabelStart()
+    {
+        if (Current.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
+            return Peek().Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken;
+        return false;
+    }
+
+    private GreenNode ParseLabelDeclaration()
+    {
+        var name = Advance(); // identifier or local label token
+        var colon = Advance(); // : or ::
+        return new GreenNode(SyntaxKind.LabelDeclaration, [name, colon]);
     }
 
     private GreenNode ParseInstruction()
@@ -119,8 +145,10 @@ internal sealed class Parser
 
     private bool AtEndOfStatement()
     {
-        if (Current.Kind == SyntaxKind.EndOfFileToken) return true;
-        if (_position == 0) return false;
+        if (Current.Kind == SyntaxKind.EndOfFileToken)
+            return true;
+        if (_position == 0)
+            return false;
         return HasNewlineTrivia(_tokens[_position - 1]);
     }
 
@@ -128,13 +156,14 @@ internal sealed class Parser
     {
         var kind = Current.Kind;
 
-        // Guard: if we're at EOF or on a token that can't start an operand,
-        // produce a missing operand rather than absorbing the token.
+        // Guard: if we're at EOF, produce a missing operand.
         if (kind == SyntaxKind.EndOfFileToken)
         {
             ReportMissingToken(SyntaxKind.IdentifierToken);
-            return new GreenNode(SyntaxKind.ImmediateOperand,
-                [new GreenToken(SyntaxKind.MissingToken, "")]);
+            return new GreenNode(
+                SyntaxKind.ImmediateOperand,
+                [new GreenToken(SyntaxKind.MissingToken, "")]
+            );
         }
 
         // Condition flags: z, nz, nc
@@ -145,46 +174,53 @@ internal sealed class Parser
         if (kind == SyntaxKind.OpenBracketToken)
             return ParseIndirectOperand();
 
-        // Register keywords
-        if (IsRegisterKeyword(kind))
+        // Register keywords (only if not followed by an operator — e.g. `sp` alone is
+        // a register, but `sp + $05` would be caught here too since sp is a register
+        // and the binder handles the expression form)
+        if (IsRegisterKeyword(kind) && !IsBinaryOperator(Peek().Kind))
             return ParseRegisterOperand();
 
-        // Local label reference
-        if (kind == SyntaxKind.LocalLabelToken)
+        // Label reference (bare, not in expression)
+        if (
+            kind is SyntaxKind.LocalLabelToken or SyntaxKind.IdentifierToken
+            && !IsBinaryOperator(Peek().Kind)
+        )
             return ParseLabelOperand();
 
-        // Global label reference (identifier)
-        if (kind == SyntaxKind.IdentifierToken)
-            return ParseLabelOperand();
-
-        // Everything else: immediate (number literal, current address, etc.)
+        // Everything else: immediate wrapping an expression
         return ParseImmediateOperand();
     }
 
-    private GreenNode ParseRegisterOperand() =>
-        new(SyntaxKind.RegisterOperand, [Advance()]);
+    private GreenNode ParseRegisterOperand() => new(SyntaxKind.RegisterOperand, [Advance()]);
 
-    private GreenNode ParseConditionOperand() =>
-        new(SyntaxKind.ConditionOperand, [Advance()]);
+    private GreenNode ParseConditionOperand() => new(SyntaxKind.ConditionOperand, [Advance()]);
 
-    private GreenNode ParseLabelOperand() =>
-        new(SyntaxKind.LabelOperand, [Advance()]);
+    private GreenNode ParseLabelOperand() => new(SyntaxKind.LabelOperand, [Advance()]);
 
     private GreenNode ParseImmediateOperand() =>
-        new(SyntaxKind.ImmediateOperand, [Advance()]);
+        new(SyntaxKind.ImmediateOperand, [ParseExpression()]);
 
     private GreenNode ParseIndirectOperand()
     {
         var children = new List<GreenNodeBase>();
         children.Add(Advance()); // [
 
-        // Consume inner tokens until ], comma, or end of statement
-        while (Current.Kind != SyntaxKind.CloseBracketToken &&
-               Current.Kind != SyntaxKind.CommaToken &&
-               Current.Kind != SyntaxKind.EndOfFileToken &&
-               !HasNewlineTrivia(_tokens[_position - 1]))
+        // Special case: [hl+] or [hl-] — post-increment/decrement syntax, not an expression
+        if (
+            Current.Kind == SyntaxKind.HlKeyword
+            && Peek().Kind is SyntaxKind.PlusToken or SyntaxKind.MinusToken
+            && Peek(2).Kind == SyntaxKind.CloseBracketToken
+        )
         {
-            children.Add(Advance());
+            children.Add(Advance()); // hl
+            children.Add(Advance()); // + or -
+        }
+        else if (
+            Current.Kind != SyntaxKind.CloseBracketToken
+            && Current.Kind != SyntaxKind.EndOfFileToken
+        )
+        {
+            children.Add(ParseExpression());
         }
 
         if (Current.Kind == SyntaxKind.CloseBracketToken)
@@ -193,7 +229,6 @@ internal sealed class Parser
         }
         else
         {
-            // Missing closing bracket — insert a zero-width missing token
             var missing = new GreenToken(SyntaxKind.MissingToken, "");
             children.Add(missing);
             ReportMissingToken(SyntaxKind.CloseBracketToken);
@@ -202,11 +237,137 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.IndirectOperand, children.ToArray());
     }
 
-    private static bool HasNewlineTrivia(GreenToken token) =>
-        token.TrailingTrivia.Any(t =>
-            t.Kind == SyntaxKind.NewlineTrivia ||
-            (t.Kind == SyntaxKind.BlockCommentTrivia &&
-             (t.Text.Contains('\n') || t.Text.Contains('\r'))));
+    // --- Pratt expression parser ---
+
+    private GreenNodeBase ParseExpression(int parentPrecedence = 0)
+    {
+        var left = ParsePrefixExpression();
+
+        while (true)
+        {
+            var precedence = GetBinaryPrecedence(Current.Kind);
+            if (precedence == 0 || precedence <= parentPrecedence)
+                break;
+
+            var op = Advance();
+            var right = ParseExpression(precedence);
+            left = new GreenNode(SyntaxKind.BinaryExpression, [left, op, right]);
+        }
+
+        return left;
+    }
+
+    private GreenNodeBase ParsePrefixExpression()
+    {
+        // Unary operators
+        if (
+            Current.Kind
+            is SyntaxKind.MinusToken
+                or SyntaxKind.TildeToken
+                or SyntaxKind.BangToken
+                or SyntaxKind.PlusToken
+        )
+        {
+            var op = Advance();
+            var operand = ParsePrefixExpression();
+            return new GreenNode(SyntaxKind.UnaryExpression, [op, operand]);
+        }
+
+        return ParsePrimaryExpression();
+    }
+
+    private GreenNodeBase ParsePrimaryExpression()
+    {
+        switch (Current.Kind)
+        {
+            case SyntaxKind.NumberLiteral:
+            case SyntaxKind.CurrentAddressToken:
+            case SyntaxKind.StringLiteral:
+                return new GreenNode(SyntaxKind.LiteralExpression, [Advance()]);
+
+            case SyntaxKind.IdentifierToken:
+            case SyntaxKind.LocalLabelToken:
+                return new GreenNode(SyntaxKind.NameExpression, [Advance()]);
+
+            case SyntaxKind.OpenParenToken:
+            {
+                var open = Advance();
+                var expr = ParseExpression();
+                GreenNodeBase close;
+                if (Current.Kind == SyntaxKind.CloseParenToken)
+                {
+                    close = Advance();
+                }
+                else
+                {
+                    close = new GreenToken(SyntaxKind.MissingToken, "");
+                    ReportMissingToken(SyntaxKind.CloseParenToken);
+                }
+                return new GreenNode(SyntaxKind.ParenthesizedExpression, [open, expr, close]);
+            }
+
+            default:
+                // Register keywords can appear in expressions (e.g. sp in `sp + $05`)
+                if (IsRegisterKeyword(Current.Kind))
+                    return new GreenNode(SyntaxKind.NameExpression, [Advance()]);
+
+                // Unknown token — produce a missing expression, don't consume
+                ReportMissingToken(SyntaxKind.NumberLiteral);
+                return new GreenNode(
+                    SyntaxKind.LiteralExpression,
+                    [new GreenToken(SyntaxKind.MissingToken, "")]
+                );
+        }
+    }
+
+    // RGBDS precedence (higher number = tighter binding), matching C conventions:
+    // 1: ||
+    // 2: &&
+    // 3: == !=
+    // 4: < > <= >=
+    // 5: |          (bitwise OR — lowest of the three bitwise ops, same as C)
+    // 6: ^          (bitwise XOR)
+    // 7: &          (bitwise AND — highest of the three)
+    // 8: << >>
+    // 9: + -
+    // 10: * / %
+    private static int GetBinaryPrecedence(SyntaxKind kind) =>
+        kind switch
+        {
+            SyntaxKind.PipePipeToken => 1,
+            SyntaxKind.AmpersandAmpersandToken => 2,
+            SyntaxKind.EqualsEqualsToken or SyntaxKind.BangEqualsToken => 3,
+            SyntaxKind.LessThanToken
+            or SyntaxKind.GreaterThanToken
+            or SyntaxKind.LessThanEqualsToken
+            or SyntaxKind.GreaterThanEqualsToken => 4,
+            SyntaxKind.PipeToken => 5,
+            SyntaxKind.CaretToken => 6,
+            SyntaxKind.AmpersandToken => 7,
+            SyntaxKind.LessThanLessThanToken or SyntaxKind.GreaterThanGreaterThanToken => 8,
+            SyntaxKind.PlusToken or SyntaxKind.MinusToken => 9,
+            SyntaxKind.StarToken or SyntaxKind.SlashToken or SyntaxKind.PercentToken => 10,
+            _ => 0,
+        };
+
+    private static bool IsBinaryOperator(SyntaxKind kind) => GetBinaryPrecedence(kind) > 0;
+
+    private static bool HasNewlineTrivia(GreenToken token)
+    {
+        var trivia = token.TrailingTrivia;
+        for (int i = 0; i < trivia.Count; i++)
+        {
+            var t = trivia[i];
+            if (t.Kind == SyntaxKind.NewlineTrivia)
+                return true;
+            if (
+                t.Kind == SyntaxKind.BlockCommentTrivia
+                && (t.Text.Contains('\n') || t.Text.Contains('\r'))
+            )
+                return true;
+        }
+        return false;
+    }
 
     private void ReportMissingToken(SyntaxKind expected)
     {
@@ -215,9 +376,7 @@ internal sealed class Parser
         for (int i = 0; i < _position && i < _tokens.Count; i++)
             pos += _tokens[i].FullWidth;
 
-        _diagnostics.Report(
-            new TextSpan(pos, 0),
-            $"Expected '{expected}'");
+        _diagnostics.Report(new TextSpan(pos, 0), $"Expected '{expected}'");
     }
 
     private void ReportBadToken(GreenToken token)
@@ -226,12 +385,14 @@ internal sealed class Parser
         int pos = 0;
         for (int i = 0; i < _tokens.Count; i++)
         {
-            if (ReferenceEquals(_tokens[i], token)) break;
+            if (ReferenceEquals(_tokens[i], token))
+                break;
             pos += _tokens[i].FullWidth;
         }
 
         _diagnostics.Report(
             new TextSpan(pos + token.LeadingTriviaWidth, token.Width),
-            $"Unexpected token '{token.Kind}'");
+            $"Unexpected token '{token.Kind}'"
+        );
     }
 }
