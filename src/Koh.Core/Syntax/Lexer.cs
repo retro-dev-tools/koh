@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Koh.Core.Syntax.InternalSyntax;
 using Koh.Core.Text;
 
@@ -14,6 +15,52 @@ public sealed class Lexer
             ["nop"] = SyntaxKind.NopKeyword,
             ["ld"] = SyntaxKind.LdKeyword,
             ["add"] = SyntaxKind.AddKeyword,
+            ["adc"] = SyntaxKind.AdcKeyword,
+            ["sub"] = SyntaxKind.SubKeyword,
+            ["sbc"] = SyntaxKind.SbcKeyword,
+            ["and"] = SyntaxKind.AndKeyword,
+            ["or"] = SyntaxKind.OrKeyword,
+            ["xor"] = SyntaxKind.XorKeyword,
+            ["cp"] = SyntaxKind.CpKeyword,
+            ["inc"] = SyntaxKind.IncKeyword,
+            ["dec"] = SyntaxKind.DecKeyword,
+            ["daa"] = SyntaxKind.DaaKeyword,
+            ["cpl"] = SyntaxKind.CplKeyword,
+            ["rlca"] = SyntaxKind.RlcaKeyword,
+            ["rla"] = SyntaxKind.RlaKeyword,
+            ["rrca"] = SyntaxKind.RrcaKeyword,
+            ["rra"] = SyntaxKind.RraKeyword,
+            ["rlc"] = SyntaxKind.RlcKeyword,
+            ["rl"] = SyntaxKind.RlKeyword,
+            ["rrc"] = SyntaxKind.RrcKeyword,
+            ["rr"] = SyntaxKind.RrKeyword,
+            ["sla"] = SyntaxKind.SlaKeyword,
+            ["sra"] = SyntaxKind.SraKeyword,
+            ["srl"] = SyntaxKind.SrlKeyword,
+            ["swap"] = SyntaxKind.SwapKeyword,
+            ["bit"] = SyntaxKind.BitKeyword,
+            ["set"] = SyntaxKind.SetKeyword,
+            ["res"] = SyntaxKind.ResKeyword,
+            ["jp"] = SyntaxKind.JpKeyword,
+            ["jr"] = SyntaxKind.JrKeyword,
+            ["call"] = SyntaxKind.CallKeyword,
+            ["ret"] = SyntaxKind.RetKeyword,
+            ["reti"] = SyntaxKind.RetiKeyword,
+            ["rst"] = SyntaxKind.RstKeyword,
+            ["pop"] = SyntaxKind.PopKeyword,
+            ["push"] = SyntaxKind.PushKeyword,
+            ["di"] = SyntaxKind.DiKeyword,
+            ["ei"] = SyntaxKind.EiKeyword,
+            ["halt"] = SyntaxKind.HaltKeyword,
+            ["stop"] = SyntaxKind.StopKeyword,
+            ["ccf"] = SyntaxKind.CcfKeyword,
+            ["scf"] = SyntaxKind.ScfKeyword,
+            ["ldi"] = SyntaxKind.LdiKeyword,
+            ["ldd"] = SyntaxKind.LddKeyword,
+            ["ldh"] = SyntaxKind.LdhKeyword,
+            ["z"] = SyntaxKind.ZKeyword,
+            ["nz"] = SyntaxKind.NzKeyword,
+            ["nc"] = SyntaxKind.NcKeyword,
             ["a"] = SyntaxKind.AKeyword,
             ["b"] = SyntaxKind.BKeyword,
             ["c"] = SyntaxKind.CKeyword,
@@ -29,7 +76,6 @@ public sealed class Lexer
             ["section"] = SyntaxKind.SectionKeyword,
             ["db"] = SyntaxKind.DbKeyword,
             ["dw"] = SyntaxKind.DwKeyword,
-            ["dl"] = SyntaxKind.DlKeyword,
             ["ds"] = SyntaxKind.DsKeyword,
         };
 
@@ -97,21 +143,21 @@ public sealed class Lexer
         char c = Current;
 
         // Numbers: $hex, %binary, &octal, decimal
-        if (c == '$')
+        if (c == '$' && IsHexDigit(Peek()))
         {
             _position++;
             while (IsHexDigit(Current)) _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
-        if (c == '%' && IsBinaryDigit(Peek(0 + 1)))
+        if (c == '%' && IsBinaryDigit(Peek()))
         {
             _position++;
             while (IsBinaryDigit(Current)) _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
-        if (c == '&')
+        if (c == '&' && IsOctalDigit(Peek()))
         {
             _position++;
             while (IsOctalDigit(Current)) _position++;
@@ -137,8 +183,16 @@ public sealed class Lexer
             return (SyntaxKind.StringLiteral, Substring(start, _position));
         }
 
+        // Local labels: .loop, .done, .retry
+        if (c == '.' && IsIdentifierStart(Peek()))
+        {
+            _position++; // consume the dot prefix
+            while (IsIdentifierPart(Current)) _position++;
+            return (SyntaxKind.LocalLabelToken, Substring(start, _position));
+        }
+
         // Identifiers / keywords
-        if (IsIdentifierStartOrDotLabel(c))
+        if (IsIdentifierStart(c))
         {
             while (IsIdentifierPart(Current)) _position++;
             string word = Substring(start, _position);
@@ -160,7 +214,7 @@ public sealed class Lexer
 
         // Single-character punctuation
         _position++;
-        return c switch
+        var result = c switch
         {
             ',' => (SyntaxKind.CommaToken, ","),
             '(' => (SyntaxKind.OpenParenToken, "("),
@@ -182,8 +236,12 @@ public sealed class Lexer
             '!' => (SyntaxKind.BangToken, "!"),
             '<' => (SyntaxKind.LessThanToken, "<"),
             '>' => (SyntaxKind.GreaterThanToken, ">"),
+            '$' => (SyntaxKind.CurrentAddressToken, "$"),
             _ => (SyntaxKind.BadToken, c.ToString()),
         };
+
+        Debug.Assert(_position > start, "Lexer failed to advance position");
+        return result;
     }
 
     private IReadOnlyList<GreenTrivia> ScanLeadingTrivia()
@@ -275,8 +333,6 @@ public sealed class Lexer
     }
 
     private static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
-    private bool IsIdentifierStartOrDotLabel(char c) =>
-        IsIdentifierStart(c) || (c == '.' && IsIdentifierStart(Peek()));
     private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
     private static bool IsHexDigit(char c) => char.IsAsciiHexDigit(c);
     private static bool IsBinaryDigit(char c) => c is '0' or '1';

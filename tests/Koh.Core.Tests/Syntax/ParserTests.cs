@@ -50,4 +50,54 @@ public class ParserTests
         var statements = tree.Root.ChildNodes().ToList();
         await Assert.That(statements).HasCount().EqualTo(2);
     }
+
+    [Test]
+    public async Task Parser_ArithmeticInstructions()
+    {
+        foreach (var instr in new[] { "sub a", "adc a", "sbc a", "and a", "or a", "xor a", "cp a", "inc b", "dec b" })
+        {
+            var tree = SyntaxTree.Parse(instr);
+            var stmts = tree.Root.ChildNodes().ToList();
+            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
+        }
+    }
+
+    [Test]
+    public async Task Parser_ControlFlowInstructions()
+    {
+        foreach (var instr in new[] { "jp $1234", "jr .loop", "call $0100", "ret", "reti", "rst $38" })
+        {
+            var tree = SyntaxTree.Parse(instr);
+            var stmts = tree.Root.ChildNodes().ToList();
+            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
+        }
+    }
+
+    [Test]
+    public async Task Parser_RotateShiftBitInstructions()
+    {
+        foreach (var instr in new[] { "rlca", "rla", "rrca", "rra", "rlc a", "rl a", "rrc a", "rr a",
+            "sla a", "sra a", "srl a", "swap a", "bit 3, a", "set 3, a", "res 3, a" })
+        {
+            var tree = SyntaxTree.Parse(instr);
+            var stmts = tree.Root.ChildNodes().ToList();
+            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
+        }
+    }
+
+    [Test]
+    public async Task Parser_MiscInstructions()
+    {
+        foreach (var instr in new[] { "daa", "cpl", "di", "ei", "halt", "stop", "ccf", "scf",
+            "push hl", "pop bc", "ldi", "ldd" })
+        {
+            var tree = SyntaxTree.Parse(instr);
+            var stmts = tree.Root.ChildNodes().ToList();
+            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
+        }
+    }
 }

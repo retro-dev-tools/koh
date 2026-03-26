@@ -21,37 +21,6 @@ internal sealed class Parser
     {
         var lexer = new Lexer(text);
         var tokens = new List<GreenToken>();
-
-        // We need to get the green tokens. The Lexer returns SyntaxToken (red),
-        // so we re-lex and capture green tokens by creating a helper.
-        // Actually, the Lexer returns SyntaxToken which wraps GreenToken.
-        // We need access to the GreenToken. Let's use the lexer and extract.
-        // Since SyntaxToken's green is private, we'll store the tokens as SyntaxTokens
-        // and work with them. But we need GreenTokens to build GreenNodes.
-        //
-        // Let's change approach: store SyntaxTokens and extract green tokens
-        // through a helper method on the lexer. Actually, let's just lex
-        // and keep track of both.
-        //
-        // Simplest approach: use InternalLexer that returns GreenTokens.
-        // But the Lexer is already built. Let's add an internal method.
-        //
-        // Actually, let's just build the parser around SyntaxTokens and
-        // create GreenNodes from the green tokens we extract.
-
-        // We'll use a different approach: lex into SyntaxTokens, then build
-        // green tree from the underlying green tokens.
-        return LexGreenTokens(text);
-    }
-
-    private static List<GreenToken> LexGreenTokens(SourceText text)
-    {
-        // We need to lex and get GreenTokens. Since the Lexer wraps them
-        // in SyntaxToken with an internal constructor, and the green field
-        // is private, we need a way to access them.
-        // Let's add an internal method to the Lexer for this purpose.
-        var lexer = new Lexer(text);
-        var tokens = new List<GreenToken>();
         while (true)
         {
             var greenToken = lexer.NextGreenToken();
@@ -102,15 +71,17 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.CompilationUnit, children.ToArray());
     }
 
+    // Instruction keywords occupy a contiguous range in SyntaxKind — new instructions
+    // added within that block are automatically included.
+    private static bool IsInstructionKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.LdhKeyword;
+
     private GreenNodeBase? ParseStatement()
     {
-        return Current.Kind switch
-        {
-            SyntaxKind.NopKeyword or
-            SyntaxKind.LdKeyword or
-            SyntaxKind.AddKeyword => ParseInstruction(),
-            _ => null, // will be handled by the safety advance in ParseCompilationUnit
-        };
+        if (IsInstructionKeyword(Current.Kind))
+            return ParseInstruction();
+
+        return null; // will be handled by the safety advance in ParseCompilationUnit
     }
 
     private GreenNode ParseInstruction()
@@ -120,12 +91,11 @@ internal sealed class Parser
         children.Add(mnemonic);
 
         // Consume remaining tokens on this line (operands, commas, etc.)
-        // A line ends when: we hit EOF, or the previous token had newline trailing trivia
+        // A line ends when: we hit EOF, or the previous token had newline trailing trivia.
+        // We check _tokens directly so this stays correct even when children contains GreenNodes.
         while (Current.Kind != SyntaxKind.EndOfFileToken)
         {
-            // Check if the mnemonic or last consumed token had a newline in trailing trivia
-            // That means we've moved to a new line
-            if (HasNewlineTrivia(children[^1]))
+            if (HasNewlineTrivia(_tokens[_position - 1]))
                 break;
 
             children.Add(Advance());
@@ -134,14 +104,8 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.InstructionStatement, children.ToArray());
     }
 
-    private static bool HasNewlineTrivia(GreenNodeBase node)
-    {
-        if (node is GreenToken token)
-        {
-            return token.TrailingTrivia.Any(t => t.Kind == SyntaxKind.NewlineTrivia);
-        }
-        return false;
-    }
+    private static bool HasNewlineTrivia(GreenToken token) =>
+        token.TrailingTrivia.Any(t => t.Kind == SyntaxKind.NewlineTrivia);
 
     private void ReportBadToken(GreenToken token)
     {

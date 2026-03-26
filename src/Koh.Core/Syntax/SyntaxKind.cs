@@ -30,17 +30,32 @@ public enum SyntaxKind : ushort
     AmpersandAmpersandToken, PipePipeToken,
 
     // Literals
-    NumberLiteral, StringLiteral, IdentifierToken,
+    NumberLiteral, StringLiteral, IdentifierToken, LocalLabelToken,
+    CurrentAddressToken,
 
-    // SM83 instruction keywords (starter set)
+    // SM83 instruction keywords
     NopKeyword, LdKeyword, AddKeyword,
+    AdcKeyword, SubKeyword, SbcKeyword, AndKeyword, OrKeyword, XorKeyword, CpKeyword,
+    IncKeyword, DecKeyword, DaaKeyword, CplKeyword,
+    RlcaKeyword, RlaKeyword, RrcaKeyword, RraKeyword,
+    RlcKeyword, RlKeyword, RrcKeyword, RrKeyword,
+    SlaKeyword, SraKeyword, SrlKeyword, SwapKeyword,
+    BitKeyword, SetKeyword, ResKeyword,
+    JpKeyword, JrKeyword, CallKeyword, RetKeyword, RetiKeyword, RstKeyword,
+    PopKeyword, PushKeyword,
+    DiKeyword, EiKeyword, HaltKeyword, StopKeyword,
+    CcfKeyword, ScfKeyword,
+    LdiKeyword, LddKeyword, LdhKeyword,
+
+    // Condition flag keywords (C condition is contextual — CKeyword serves both register and flag)
+    ZKeyword, NzKeyword, NcKeyword,
 
     // Register keywords
     AKeyword, BKeyword, CKeyword, DKeyword, EKeyword,
     HKeyword, LKeyword, HlKeyword, SpKeyword, AfKeyword, BcKeyword, DeKeyword,
 
     // Directive keywords (starter set)
-    SectionKeyword, DbKeyword, DwKeyword, DlKeyword, DsKeyword,
+    SectionKeyword, DbKeyword, DwKeyword, DsKeyword,
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,
