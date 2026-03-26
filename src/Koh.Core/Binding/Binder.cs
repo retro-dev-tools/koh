@@ -11,11 +11,13 @@ public sealed class Binder
     private readonly SymbolTable _symbols;
     private readonly SectionManager _sections = new();
     private readonly InstructionEncoder _encoder;
+    private readonly ISourceFileResolver _fileResolver;
 
-    public Binder()
+    public Binder(ISourceFileResolver? fileResolver = null)
     {
         _symbols = new SymbolTable(_diagnostics);
         _encoder = new InstructionEncoder(_symbols, _diagnostics);
+        _fileResolver = fileResolver ?? new FileSystemResolver();
     }
 
     public BindingResult Bind(SyntaxTree tree)
@@ -23,18 +25,18 @@ public sealed class Binder
         foreach (var d in tree.Diagnostics)
             _diagnostics.Report(d.Span, d.Message, d.Severity);
 
-        // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC into flat list
-        var expander = new AssemblyExpander(_diagnostics, _symbols);
+        // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC, INCLUDE into flat list
+        var expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver);
         var nodes = expander.Expand(tree);
 
         // Pass 1: symbol collection and PC tracking
         var pcTracker = new SectionPCTracker();
         foreach (var en in nodes)
-            Pass1Node(en.Node, pcTracker);
+            Pass1Node(en, pcTracker);
 
         // Pass 2: byte emission
         foreach (var en in nodes)
-            Pass2Node(en.Node);
+            Pass2Node(en);
 
         new PatchResolver(_symbols, _sections, _diagnostics).ApplyAll();
 
@@ -51,8 +53,9 @@ public sealed class Binder
     // Pass 1 — symbol collection and PC tracking (flat iteration, no blocks)
     // =========================================================================
 
-    private void Pass1Node(SyntaxNode node, SectionPCTracker pc)
+    private void Pass1Node(ExpandedNode en, SectionPCTracker pc)
     {
+        var node = en.Node;
         switch (node.Kind)
         {
             case SyntaxKind.LabelDeclaration:
@@ -66,6 +69,9 @@ public sealed class Binder
                 break;
             case SyntaxKind.DataDirective:
                 Pass1Data(node, pc);
+                break;
+            case SyntaxKind.IncludeDirective:
+                Pass1Incbin(node, en.SourceFilePath, pc);
                 break;
             case SyntaxKind.SymbolDirective:
                 // EQU constants are defined by the AssemblyExpander before Pass 1 runs;
@@ -122,6 +128,33 @@ public sealed class Binder
         }
     }
 
+    private void Pass1Incbin(SyntaxNode node, string sourceFilePath, SectionPCTracker pc)
+    {
+        var kw = node.ChildTokens().FirstOrDefault();
+        if (kw?.Kind != SyntaxKind.IncbinKeyword) return;
+
+        var strToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+        if (strToken == null) return;
+
+        var filePath = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+        var resolved = _fileResolver.ResolvePath(sourceFilePath, filePath);
+
+        if (_fileResolver.FileExists(resolved))
+        {
+            try
+            {
+                var bytes = _fileResolver.ReadAllBytes(resolved);
+                pc.Advance(bytes.Length);
+            }
+            catch (IOException ex)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    $"Cannot read INCBIN file '{filePath}': {ex.Message}");
+                // PC not advanced — consistent with Pass 2 which won't emit bytes either
+            }
+        }
+    }
+
     /// <summary>
     /// Pass 1 only needs to process EXPORT visibility from SymbolDirective nodes.
     /// EQU and REDEF constants are fully resolved by AssemblyExpander before Pass 1 runs;
@@ -148,8 +181,9 @@ public sealed class Binder
     // Pass 2 — byte emission (flat iteration, no blocks)
     // =========================================================================
 
-    private void Pass2Node(SyntaxNode node)
+    private void Pass2Node(ExpandedNode en)
     {
+        var node = en.Node;
         switch (node.Kind)
         {
             case SyntaxKind.SectionDirective:
@@ -158,12 +192,55 @@ public sealed class Binder
             case SyntaxKind.DataDirective:
                 Pass2Data(node);
                 break;
+            case SyntaxKind.IncludeDirective:
+                Pass2Incbin(node, en.SourceFilePath);
+                break;
             case SyntaxKind.InstructionStatement:
                 Pass2Instruction(node);
                 break;
             case SyntaxKind.SymbolDirective:
                 Pass2Symbol(node);
                 break;
+        }
+    }
+
+    private void Pass2Incbin(SyntaxNode node, string sourceFilePath)
+    {
+        var kw = node.ChildTokens().FirstOrDefault();
+        if (kw?.Kind != SyntaxKind.IncbinKeyword) return;
+
+        var section = _sections.ActiveSection;
+        if (section == null)
+        {
+            _diagnostics.Report(node.FullSpan, "INCBIN outside of a section");
+            return;
+        }
+
+        var strToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+        if (strToken == null)
+        {
+            _diagnostics.Report(node.FullSpan, "INCBIN requires a filename string");
+            return;
+        }
+
+        var filePath = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+        var resolved = _fileResolver.ResolvePath(sourceFilePath, filePath);
+
+        if (!_fileResolver.FileExists(resolved))
+        {
+            _diagnostics.Report(node.FullSpan, $"INCBIN file not found: {filePath}");
+            return;
+        }
+
+        try
+        {
+            var bytes = _fileResolver.ReadAllBytes(resolved);
+            foreach (var b in bytes)
+                section.EmitByte(b);
+        }
+        catch (IOException ex)
+        {
+            _diagnostics.Report(node.FullSpan, $"Cannot read INCBIN file '{filePath}': {ex.Message}");
         }
     }
 

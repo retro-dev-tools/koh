@@ -10,7 +10,11 @@ namespace Koh.Core.Binding;
 /// <summary>
 /// A single effective statement after all macro/REPT/IF expansion.
 /// </summary>
-public sealed record ExpandedNode(SyntaxNode Node);
+/// <summary>
+/// A single effective statement after all macro/REPT/IF expansion.
+/// SourceFilePath tracks which file the node came from (for INCBIN path resolution).
+/// </summary>
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "");
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -23,22 +27,31 @@ internal sealed class AssemblyExpander
     private readonly SymbolTable _symbols;
     private readonly ConditionalAssemblyState _conditional = new();
     private readonly Dictionary<string, MacroDef> _macros = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ISourceFileResolver _fileResolver;
+    private readonly HashSet<string> _includeStack = new(StringComparer.OrdinalIgnoreCase);
     private int _uniqueIdCounter;
     private int _expansionDepth;
     private SourceText? _currentSourceText;
+    private string _currentFilePath = "";
 
     private const int MaxExpansionDepth = 64;
 
-    public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols)
+    public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols,
+        ISourceFileResolver? fileResolver = null)
     {
         _diagnostics = diagnostics;
         _symbols = symbols;
+        _fileResolver = fileResolver ?? new FileSystemResolver();
     }
 
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
         var output = new List<ExpandedNode>();
         _currentSourceText = tree.Text;
+        _currentFilePath = tree.Text.FilePath;
+        // Seed include stack with root file for circular detection
+        if (!string.IsNullOrEmpty(_currentFilePath))
+            _includeStack.Add(_currentFilePath);
         var children = tree.Root.ChildNodesAndTokens().ToList();
         int i = 0;
         ExpandBodyList(children, ref i, output);
@@ -128,6 +141,18 @@ internal sealed class AssemblyExpander
                 continue;
             }
 
+            // INCLUDE — textual inclusion of another source file
+            if (node.Kind == SyntaxKind.IncludeDirective)
+            {
+                var kw = node.ChildTokens().FirstOrDefault();
+                if (kw?.Kind == SyntaxKind.IncludeKeyword)
+                    ExpandInclude(node, output);
+                else if (kw?.Kind == SyntaxKind.IncbinKeyword)
+                    output.Add(new ExpandedNode(node, _currentFilePath)); // INCBIN handled by binder Pass 2
+                i++;
+                continue;
+            }
+
             // Label before MACRO — skip (it's the macro name)
             if (node.Kind == SyntaxKind.LabelDeclaration && i + 1 < siblings.Count)
             {
@@ -147,7 +172,7 @@ internal sealed class AssemblyExpander
             if (node.Kind == SyntaxKind.SymbolDirective)
                 EarlyDefineEqu(node);
 
-            output.Add(new ExpandedNode(node));
+            output.Add(new ExpandedNode(node, _currentFilePath));
             i++;
         }
     }
@@ -367,6 +392,83 @@ internal sealed class AssemblyExpander
             if (savedNarg.HasValue)
                 _symbols.DefineOrRedefine("_NARG", savedNarg.Value);
 
+            _expansionDepth--;
+        }
+    }
+
+    // =========================================================================
+    // INCLUDE — textual file inclusion
+    // =========================================================================
+
+    private void ExpandInclude(SyntaxNode node, List<ExpandedNode> output)
+    {
+        // Extract filename from string literal token
+        var strToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+        if (strToken == null)
+        {
+            _diagnostics.Report(node.FullSpan, "INCLUDE requires a filename string");
+            return;
+        }
+
+        var rawPath = strToken.Text;
+        var filePath = rawPath.Length >= 2 ? rawPath[1..^1] : rawPath; // strip quotes
+
+        var resolved = _fileResolver.ResolvePath(_currentFilePath, filePath);
+
+        if (!_fileResolver.FileExists(resolved))
+        {
+            _diagnostics.Report(node.FullSpan, $"Included file not found: {filePath}");
+            return;
+        }
+
+        // Circular include detection
+        if (_includeStack.Contains(resolved))
+        {
+            _diagnostics.Report(node.FullSpan, $"Circular include detected: {filePath}");
+            return;
+        }
+
+        _expansionDepth++;
+        if (_expansionDepth > MaxExpansionDepth)
+        {
+            _diagnostics.Report(node.FullSpan,
+                $"Maximum include depth ({MaxExpansionDepth}) exceeded");
+            _expansionDepth--;
+            return;
+        }
+
+        _includeStack.Add(resolved);
+
+        try
+        {
+            var source = _fileResolver.ReadAllText(resolved);
+            var includeText = Text.SourceText.From(source, resolved);
+            var includeTree = Syntax.SyntaxTree.Parse(includeText);
+
+            var savedText = _currentSourceText;
+            var savedPath = _currentFilePath;
+            _currentSourceText = includeText;
+            _currentFilePath = resolved;
+
+            try
+            {
+                var children = includeTree.Root.ChildNodesAndTokens().ToList();
+                int j = 0;
+                ExpandBodyList(children, ref j, output);
+            }
+            finally
+            {
+                _currentSourceText = savedText;
+                _currentFilePath = savedPath;
+            }
+        }
+        catch (IOException ex)
+        {
+            _diagnostics.Report(node.FullSpan, $"Cannot read included file '{filePath}': {ex.Message}");
+        }
+        finally
+        {
+            _includeStack.Remove(resolved);
             _expansionDepth--;
         }
     }

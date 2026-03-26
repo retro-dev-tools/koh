@@ -2019,13 +2019,13 @@ db "AB" ; → [0x41, 0x42]
 - Create: `src/Koh.Core/SourceFileResolver.cs`
 - Test: `tests/Koh.Core.Tests/Binding/IncludeTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Using in-memory `SourceFileResolver` for testability.
 
-- [ ] **Step 2: Implement INCLUDE (parse + bind included file) and INCBIN (embed binary data)**
+- [x] **Step 2: Implement INCLUDE (parse + bind included file) and INCBIN (embed binary data)**
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 8.6: UNION / LOAD Sections
 
