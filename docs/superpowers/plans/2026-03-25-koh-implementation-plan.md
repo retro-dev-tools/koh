@@ -44,7 +44,7 @@
 - Create: `global.json`
 - Create: `Directory.Build.props`
 
-- [ ] **Step 1: Create solution and projects**
+- [x] **Step 1: Create solution and projects**
 
 ```bash
 cd /c/projekty/koh
@@ -56,7 +56,7 @@ dotnet sln add tests/Koh.Core.Tests/Koh.Core.Tests.csproj
 dotnet add tests/Koh.Core.Tests reference src/Koh.Core
 ```
 
-- [ ] **Step 2: Configure TUnit**
+- [x] **Step 2: Configure TUnit**
 
 Add TUnit package to test project. Configure `Directory.Build.props` for shared settings (nullable, implicit usings, LangVersion preview).
 
@@ -77,11 +77,11 @@ cd /c/projekty/koh
 dotnet add tests/Koh.Core.Tests package TUnit
 ```
 
-- [ ] **Step 3: Add .gitignore**
+- [x] **Step 3: Add .gitignore**
 
 Standard .NET gitignore (bin/, obj/, .vs/, *.user).
 
-- [ ] **Step 4: Verify build**
+- [x] **Step 4: Verify build**
 
 ```bash
 dotnet build
@@ -90,7 +90,7 @@ dotnet test
 
 Expected: build succeeds, 0 tests run.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -103,7 +103,7 @@ git commit -m "scaffold: solution with Koh.Core and test project"
 - Create: `src/Koh.Core/Syntax/SyntaxKind.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/SyntaxKindTests.cs`
 
-- [ ] **Step 1: Write test that SyntaxKind has expected members**
+- [x] **Step 1: Write test that SyntaxKind has expected members**
 
 ```csharp
 using Koh.Core.Syntax;
@@ -136,7 +136,7 @@ public class SyntaxKindTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 dotnet test
@@ -144,7 +144,7 @@ dotnet test
 
 Expected: FAIL — `SyntaxKind` type does not exist.
 
-- [ ] **Step 3: Implement SyntaxKind**
+- [x] **Step 3: Implement SyntaxKind**
 
 ```csharp
 namespace Koh.Core.Syntax;
@@ -225,7 +225,6 @@ public enum SyntaxKind : ushort
     SectionKeyword,
     DbKeyword,
     DwKeyword,
-    DlKeyword,
     DsKeyword,
 
     // Nodes
@@ -245,7 +244,7 @@ public enum SyntaxKind : ushort
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 dotnet test
@@ -253,7 +252,7 @@ dotnet test
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -268,7 +267,7 @@ git commit -m "feat: add SyntaxKind enum with starter token/node kinds"
 - Create: `src/Koh.Core/Syntax/InternalSyntax/GreenTrivia.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/InternalSyntax/GreenNodeTests.cs`
 
-- [ ] **Step 1: Write failing tests for green nodes**
+- [x] **Step 1: Write failing tests for green nodes**
 
 ```csharp
 using Koh.Core.Syntax;
@@ -311,7 +310,7 @@ public class GreenNodeTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 ```bash
 dotnet test
@@ -319,7 +318,7 @@ dotnet test
 
 Expected: FAIL — types do not exist.
 
-- [ ] **Step 3: Implement GreenTrivia**
+- [x] **Step 3: Implement GreenTrivia**
 
 ```csharp
 namespace Koh.Core.Syntax.InternalSyntax;
@@ -338,7 +337,7 @@ public sealed class GreenTrivia
 }
 ```
 
-- [ ] **Step 4: Implement GreenToken**
+- [x] **Step 4: Implement GreenToken**
 
 ```csharp
 namespace Koh.Core.Syntax.InternalSyntax;
@@ -370,7 +369,7 @@ public sealed class GreenToken : GreenNodeBase
 }
 ```
 
-- [ ] **Step 5: Implement GreenNode**
+- [x] **Step 5: Implement GreenNode**
 
 ```csharp
 namespace Koh.Core.Syntax.InternalSyntax;
@@ -411,7 +410,7 @@ public sealed class GreenNode : GreenNodeBase
 }
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 ```bash
 dotnet test
@@ -419,7 +418,7 @@ dotnet test
 
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -436,7 +435,7 @@ git commit -m "feat: green node infrastructure (GreenNode, GreenToken, GreenTriv
 - Create: `src/Koh.Core/Syntax/TextSpan.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/SyntaxNodeTests.cs`
 
-- [ ] **Step 1: Write failing tests for red nodes**
+- [x] **Step 1: Write failing tests for red nodes**
 
 ```csharp
 using Koh.Core.Syntax;
@@ -499,9 +498,9 @@ public class SyntaxNodeTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
-- [ ] **Step 3: Implement TextSpan**
+- [x] **Step 3: Implement TextSpan**
 
 ```csharp
 namespace Koh.Core.Syntax;
@@ -515,7 +514,7 @@ public readonly record struct TextSpan(int Start, int Length)
 }
 ```
 
-- [ ] **Step 4: Implement SyntaxTrivia**
+- [x] **Step 4: Implement SyntaxTrivia**
 
 ```csharp
 using Koh.Core.Syntax.InternalSyntax;
@@ -539,7 +538,7 @@ public readonly struct SyntaxTrivia
 }
 ```
 
-- [ ] **Step 5: Implement SyntaxToken**
+- [x] **Step 5: Implement SyntaxToken**
 
 ```csharp
 using Koh.Core.Syntax.InternalSyntax;
@@ -595,7 +594,7 @@ public sealed class SyntaxToken
 }
 ```
 
-- [ ] **Step 6: Implement SyntaxNode**
+- [x] **Step 6: Implement SyntaxNode**
 
 ```csharp
 using Koh.Core.Syntax.InternalSyntax;
@@ -672,7 +671,7 @@ public class SyntaxNode
 }
 ```
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 ```bash
 dotnet test
@@ -680,7 +679,7 @@ dotnet test
 
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A
@@ -695,7 +694,7 @@ git commit -m "feat: red node infrastructure (SyntaxNode, SyntaxToken, SyntaxTri
 - Create: `src/Koh.Core/Text/TextChange.cs`
 - Test: `tests/Koh.Core.Tests/Text/SourceTextTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```csharp
 using Koh.Core.Text;
@@ -741,9 +740,9 @@ public class SourceTextTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
-- [ ] **Step 3: Implement TextChange, TextLine, SourceText**
+- [x] **Step 3: Implement TextChange, TextLine, SourceText**
 
 ```csharp
 // TextChange.cs
@@ -847,7 +846,7 @@ public sealed class SourceText
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 dotnet test
@@ -855,7 +854,7 @@ dotnet test
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -868,7 +867,7 @@ git commit -m "feat: SourceText with line tracking and incremental changes"
 - Create: `src/Koh.Core/Syntax/Lexer.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/LexerTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```csharp
 using Koh.Core.Syntax;
@@ -949,9 +948,9 @@ public class LexerTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
-- [ ] **Step 3: Implement Lexer**
+- [x] **Step 3: Implement Lexer**
 
 The lexer reads from `SourceText`, producing `SyntaxToken` (red nodes directly for now — we'll refactor to produce green tokens and wrap later as complexity grows). It handles:
 
@@ -968,7 +967,7 @@ Implementation: ~200-300 lines. Hand-written character-by-character scanner with
 
 Note: The lexer should produce green tokens internally (`GreenToken`) and the test helper wraps them. Adjust the `Lex` helper and `Lexer` to work with `GreenToken` + position tracking to produce `SyntaxToken` for tests.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 dotnet test
@@ -976,7 +975,7 @@ dotnet test
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -992,7 +991,7 @@ git commit -m "feat: starter lexer — keywords, numbers, trivia, punctuation"
 - Create: `src/Koh.Core/Diagnostics/DiagnosticBag.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/ParserTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```csharp
 using Koh.Core.Syntax;
@@ -1053,9 +1052,9 @@ public class ParserTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
-- [ ] **Step 3: Implement Diagnostic and DiagnosticBag**
+- [x] **Step 3: Implement Diagnostic and DiagnosticBag**
 
 ```csharp
 // Diagnostic.cs
@@ -1116,7 +1115,7 @@ public sealed class DiagnosticBag : IEnumerable<Diagnostic>
 }
 ```
 
-- [ ] **Step 4: Implement SyntaxTree**
+- [x] **Step 4: Implement SyntaxTree**
 
 ```csharp
 using Koh.Core.Diagnostics;
@@ -1152,7 +1151,7 @@ public sealed class SyntaxTree
 }
 ```
 
-- [ ] **Step 5: Implement Parser (starter)**
+- [x] **Step 5: Implement Parser (starter)**
 
 Recursive descent parser. For Phase 1 it handles:
 - `CompilationUnit` = list of statements + EOF
@@ -1163,7 +1162,7 @@ The parser consumes green tokens from the lexer, builds green nodes, then wraps 
 
 ~150-200 lines for the starter.
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 ```bash
 dotnet test
@@ -1171,7 +1170,7 @@ dotnet test
 
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -1190,17 +1189,17 @@ git commit -m "feat: starter parser + SyntaxTree — parse NOP and LD instructio
 - Modify: `src/Koh.Core/Syntax/SyntaxKind.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/SyntaxKindTests.cs`
 
-- [ ] **Step 1: Add all 46 SM83 instruction keywords to SyntaxKind**
+- [x] **Step 1: Add all 46 SM83 instruction keywords to SyntaxKind**
 
 Add: `AdcKeyword`, `SubKeyword`, `SbcKeyword`, `AndKeyword`, `OrKeyword`, `XorKeyword`, `CpKeyword`, `IncKeyword`, `DecKeyword`, `DaaKeyword`, `CplKeyword`, `RlcaKeyword`, `RlaKeyword`, `RrcaKeyword`, `RraKeyword`, `RlcKeyword`, `RlKeyword`, `RrcKeyword`, `RrKeyword`, `SlaKeyword`, `SraKeyword`, `SrlKeyword`, `SwapKeyword`, `BitKeyword`, `SetKeyword`, `ResKeyword`, `JpKeyword`, `JrKeyword`, `CallKeyword`, `RetKeyword`, `RetiKeyword`, `RstKeyword`, `PopKeyword`, `PushKeyword`, `DiKeyword`, `EiKeyword`, `HaltKeyword`, `StopKeyword`, `CcfKeyword`, `ScfKeyword`, `LdiKeyword`, `LddKeyword`, `LdhKeyword`.
 
-Also add condition flag tokens: `ZKeyword`, `NzKeyword`, `CCondKeyword`, `NcKeyword`.
+Also add condition flag tokens: `ZKeyword`, `NzKeyword`, `NcKeyword`. Note: `CCondKeyword` was removed — `CKeyword` serves both register and condition flag, disambiguated contextually by the parser. `DlKeyword` was also removed (not in RGBASM spec). `CurrentAddressToken` added for standalone `$`.
 
-- [ ] **Step 2: Update lexer keyword table**
+- [x] **Step 2: Update lexer keyword table**
 
-- [ ] **Step 3: Write tests for each instruction category**
+- [x] **Step 3: Write tests for each instruction category**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 2.2: Operand Parsing
 
@@ -1209,7 +1208,7 @@ Also add condition flag tokens: `ZKeyword`, `NzKeyword`, `CCondKeyword`, `NcKeyw
 - Create: `src/Koh.Core/Syntax/Nodes/OperandNodes.cs`
 - Test: `tests/Koh.Core.Tests/Syntax/OperandParsingTests.cs`
 
-- [ ] **Step 1: Write failing tests for operand patterns**
+- [x] **Step 1: Write failing tests for operand patterns**
 
 Test cases:
 - `ld a, b` — register to register
@@ -1222,13 +1221,13 @@ Test cases:
 - `jr nz, .loop` — condition + relative target
 - `rst $38` — restart vector
 
-- [ ] **Step 2: Implement operand node types**
+- [x] **Step 2: Implement operand node types**
 
 `RegisterOperand`, `ImmediateOperand`, `IndirectOperand`, `ConditionOperand`, `BitIndexOperand`
 
-- [ ] **Step 3: Extend parser to handle operand patterns**
+- [x] **Step 3: Extend parser to handle operand patterns**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 2.3: Lexer Modes Infrastructure
 
@@ -1385,7 +1384,7 @@ ds 10, $FF
 
 - [ ] **Step 2: Implement data directive parsing**
 
-`DataDirective` = `DbKeyword`/`DwKeyword`/`DlKeyword`/`DsKeyword` + comma-separated expression list
+`DataDirective` = `DbKeyword`/`DwKeyword`/`DsKeyword` + comma-separated expression list
 
 - [ ] **Step 3: Run tests, commit**
 

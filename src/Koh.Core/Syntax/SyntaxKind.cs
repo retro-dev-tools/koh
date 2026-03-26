@@ -61,6 +61,10 @@ public enum SyntaxKind : ushort
     CompilationUnit, InstructionStatement, LabelDeclaration,
     DirectiveStatement, SectionDirective, DataDirective,
 
+    // Operand nodes
+    RegisterOperand, ImmediateOperand, IndirectOperand,
+    ConditionOperand, LabelOperand,
+
     // Expression nodes
     LiteralExpression, NameExpression, BinaryExpression,
     UnaryExpression, ParenthesizedExpression,

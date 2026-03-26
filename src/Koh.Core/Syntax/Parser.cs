@@ -76,6 +76,15 @@ internal sealed class Parser
     private static bool IsInstructionKeyword(SyntaxKind kind) =>
         kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.LdhKeyword;
 
+    // Condition-only keywords (z, nz, nc) — never registers.
+    // CKeyword is NOT here: it's always parsed as RegisterOperand, binder disambiguates.
+    private static bool IsConditionKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.ZKeyword && kind <= SyntaxKind.NcKeyword;
+
+    // Register keywords occupy a contiguous range in SyntaxKind.
+    private static bool IsRegisterKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.AKeyword && kind <= SyntaxKind.DeKeyword;
+
     private GreenNodeBase? ParseStatement()
     {
         if (IsInstructionKeyword(Current.Kind))
@@ -87,25 +96,123 @@ internal sealed class Parser
     private GreenNode ParseInstruction()
     {
         var children = new List<GreenNodeBase>();
-        var mnemonic = Advance();
-        children.Add(mnemonic);
+        children.Add(Advance()); // mnemonic
 
-        // Consume remaining tokens on this line (operands, commas, etc.)
-        // A line ends when: we hit EOF, or the previous token had newline trailing trivia.
-        // We check _tokens directly so this stays correct even when children contains GreenNodes.
-        while (Current.Kind != SyntaxKind.EndOfFileToken)
+        // Parse first operand if present
+        if (!AtEndOfStatement())
         {
-            if (HasNewlineTrivia(_tokens[_position - 1]))
-                break;
+            children.Add(ParseOperand());
 
-            children.Add(Advance());
+            // Parse comma-separated additional operands
+            while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma is a direct child
+                children.Add(ParseOperand()); // ParseOperand handles EOF/missing gracefully
+            }
         }
 
         return new GreenNode(SyntaxKind.InstructionStatement, children.ToArray());
     }
 
+    private bool AtEndOfStatement()
+    {
+        if (Current.Kind == SyntaxKind.EndOfFileToken) return true;
+        if (_position == 0) return false;
+        return HasNewlineTrivia(_tokens[_position - 1]);
+    }
+
+    private GreenNodeBase ParseOperand()
+    {
+        var kind = Current.Kind;
+
+        // Guard: if we're at EOF or on a token that can't start an operand,
+        // produce a missing operand rather than absorbing the token.
+        if (kind == SyntaxKind.EndOfFileToken)
+        {
+            ReportMissingToken(SyntaxKind.IdentifierToken);
+            return new GreenNode(SyntaxKind.ImmediateOperand,
+                [new GreenToken(SyntaxKind.MissingToken, "")]);
+        }
+
+        // Condition flags: z, nz, nc
+        if (IsConditionKeyword(kind))
+            return ParseConditionOperand();
+
+        // Indirect: [...]
+        if (kind == SyntaxKind.OpenBracketToken)
+            return ParseIndirectOperand();
+
+        // Register keywords
+        if (IsRegisterKeyword(kind))
+            return ParseRegisterOperand();
+
+        // Local label reference
+        if (kind == SyntaxKind.LocalLabelToken)
+            return ParseLabelOperand();
+
+        // Global label reference (identifier)
+        if (kind == SyntaxKind.IdentifierToken)
+            return ParseLabelOperand();
+
+        // Everything else: immediate (number literal, current address, etc.)
+        return ParseImmediateOperand();
+    }
+
+    private GreenNode ParseRegisterOperand() =>
+        new(SyntaxKind.RegisterOperand, [Advance()]);
+
+    private GreenNode ParseConditionOperand() =>
+        new(SyntaxKind.ConditionOperand, [Advance()]);
+
+    private GreenNode ParseLabelOperand() =>
+        new(SyntaxKind.LabelOperand, [Advance()]);
+
+    private GreenNode ParseImmediateOperand() =>
+        new(SyntaxKind.ImmediateOperand, [Advance()]);
+
+    private GreenNode ParseIndirectOperand()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // [
+
+        // Consume inner tokens until ], comma, or end of statement
+        while (Current.Kind != SyntaxKind.CloseBracketToken &&
+               Current.Kind != SyntaxKind.CommaToken &&
+               Current.Kind != SyntaxKind.EndOfFileToken &&
+               !HasNewlineTrivia(_tokens[_position - 1]))
+        {
+            children.Add(Advance());
+        }
+
+        if (Current.Kind == SyntaxKind.CloseBracketToken)
+        {
+            children.Add(Advance()); // ]
+        }
+        else
+        {
+            // Missing closing bracket — insert a zero-width missing token
+            var missing = new GreenToken(SyntaxKind.MissingToken, "");
+            children.Add(missing);
+            ReportMissingToken(SyntaxKind.CloseBracketToken);
+        }
+
+        return new GreenNode(SyntaxKind.IndirectOperand, children.ToArray());
+    }
+
     private static bool HasNewlineTrivia(GreenToken token) =>
         token.TrailingTrivia.Any(t => t.Kind == SyntaxKind.NewlineTrivia);
+
+    private void ReportMissingToken(SyntaxKind expected)
+    {
+        // Calculate current position for the diagnostic span
+        int pos = 0;
+        for (int i = 0; i < _position && i < _tokens.Count; i++)
+            pos += _tokens[i].FullWidth;
+
+        _diagnostics.Report(
+            new TextSpan(pos, 0),
+            $"Expected '{expected}'");
+    }
 
     private void ReportBadToken(GreenToken token)
     {
