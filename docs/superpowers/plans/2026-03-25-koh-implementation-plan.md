@@ -1426,16 +1426,16 @@ PURGE MY_CONST
 - Create: `src/Koh.Core/Symbols/SymbolTable.cs`
 - Test: `tests/Koh.Core.Tests/Symbols/SymbolTableTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Define a label, look it up by name
 - Define a local label, verify scoping to parent global label
 - Define an EQU constant, verify value
 - Attempt duplicate definition, get diagnostic
 
-- [ ] **Step 2: Implement Symbol hierarchy and SymbolTable**
+- [x] **Step 2: Implement Symbol hierarchy and SymbolTable**
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 5.2: Binder — Section & Symbol Tracking
 
@@ -1444,22 +1444,22 @@ PURGE MY_CONST
 - Create: `src/Koh.Core/Binding/BinderState.cs`
 - Test: `tests/Koh.Core.Tests/Binding/BinderSymbolTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Bind `MY_CONST EQU $10` → symbol with value 16
 - Bind `main:` followed by `.loop:` → global + local label, local scoped to global
 - Bind `SECTION "Main", ROM0` → section state tracking, subsequent data goes to this section
 - Duplicate label definition → diagnostic
 
-- [ ] **Step 2: Implement BinderState**
+- [x] **Step 2: Implement BinderState**
 
 Mutable state for the binding pass: current section, current global label (for local label scoping), PC tracking within section.
 
-- [ ] **Step 3: Implement Binder (symbol + section tracking only)**
+- [x] **Step 3: Implement Binder (symbol + section tracking only)**
 
 Walk the syntax tree. On labels: create symbols. On EQU/EQUS: evaluate constant expressions, create symbols. On SECTION: open new section context. Does NOT yet encode instructions — just tracks structure.
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 5.2b: Binder — Instruction Validation & Encoding
 

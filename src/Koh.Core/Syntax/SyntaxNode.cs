@@ -9,7 +9,18 @@ public class SyntaxNode
     public SyntaxKind Kind => _green.Kind;
     public SyntaxNode? Parent { get; }
     public int Position { get; }
+
+    /// <summary>
+    /// The underlying green node. Used by the binder/evaluator to walk the
+    /// immutable tree without red-node overhead.
+    /// </summary>
+    internal GreenNodeBase Green => _green;
     public TextSpan FullSpan => new(Position, _green.FullWidth);
+
+    // TODO: Span should exclude leading trivia of the first token and trailing trivia of the
+    // last token. GreenNode.Width currently returns FullWidth (no trivia stripping for
+    // composite nodes), so Span == FullSpan for all SyntaxNodes. Fix requires GreenNode to
+    // track inner width separately, which is a green-layer change deferred to a future phase.
     public TextSpan Span => new(Position, _green.FullWidth);
 
     public SyntaxNode(GreenNodeBase green, SyntaxNode? parent, int position)
