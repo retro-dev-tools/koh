@@ -1795,7 +1795,7 @@ git commit -m "feat: CLI assembler — koh-asm"
 - Create: `src/Koh.Linker.Core/Koh.Linker.Core.csproj`
 - Create: `tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj`
 
-- [ ] **Step 1: Create projects and wire references**
+- [x] **Step 1: Create projects and wire references**
 
 ### Task 7.2: Object File Loading & Symbol Resolution
 
@@ -1804,15 +1804,15 @@ git commit -m "feat: CLI assembler — koh-asm"
 - Create: `src/Koh.Linker.Core/SymbolResolver.cs`
 - Test: `tests/Koh.Linker.Tests/SymbolResolutionTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Two objects: one exports `main`, other imports `main` → resolved
 - Two objects both export `main` → diagnostic: duplicate export
 - Import with no matching export → diagnostic: unresolved symbol
 
-- [ ] **Step 2: Implement symbol resolution**
+- [x] **Step 2: Implement symbol resolution**
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 7.3: Constraint-Based Section Placement
 
@@ -1821,7 +1821,7 @@ git commit -m "feat: CLI assembler — koh-asm"
 - Create: `src/Koh.Linker.Core/Constraint.cs`
 - Test: `tests/Koh.Linker.Tests/SectionPlacementTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Section with fixed address → placed at that address
 - Section with fixed bank → placed in that bank
@@ -1830,7 +1830,7 @@ git commit -m "feat: CLI assembler — koh-asm"
 - Alignment constraint → placed at aligned address
 - Fragment constraint → co-located in same bank
 
-- [ ] **Step 2: Implement backtracking constraint solver**
+- [x] **Step 2: Implement backtracking constraint solver**
 
 The solver:
 1. Collects all constraints from all sections
@@ -1839,7 +1839,7 @@ The solver:
 4. On conflict, backtracks and tries alternative placements
 5. On failure, identifies minimal conflicting constraint set for diagnostics
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 7.4: Expression Evaluation & Patch Application
 
@@ -1847,7 +1847,7 @@ The solver:
 - Create: `src/Koh.Linker.Core/ExpressionEvaluator.cs`
 - Test: `tests/Koh.Linker.Tests/ExpressionEvalTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Simple label reference → resolved to absolute address
 - `label + 3` → address + 3
@@ -1857,11 +1857,11 @@ The solver:
 - Division by zero → diagnostic with source span
 - ASSERT failure → diagnostic with assert message
 
-- [ ] **Step 2: Implement expression tree evaluator**
+- [x] **Step 2: Implement expression tree evaluator**
 
 Walk the expression tree with all addresses now known. On error, report using the source span carried in the expression node.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 7.5: ROM Output
 
@@ -1872,7 +1872,7 @@ Walk the expression tree with all addresses now known. On error, report using th
 - Create: `src/Koh.Linker.Core/HeaderFixer.cs`
 - Test: `tests/Koh.Linker.Tests/RomOutputTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Link a single-section ROM0 program → correct `.gb` bytes
 - Verify header checksum at $014D
@@ -1880,11 +1880,11 @@ Walk the expression tree with all addresses now known. On error, report using th
 - Verify `.sym` file format: `bank:addr symbolname`
 - Verify `.map` file shows bank usage
 
-- [ ] **Step 2: Implement ROM writer with header fixup**
+- [x] **Step 2: Implement ROM writer with header fixup**
 
-- [ ] **Step 3: Implement .sym and .map file writers**
+- [x] **Step 3: Implement .sym and .map file writers**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 7.6: CLI Linker
 
@@ -1892,13 +1892,13 @@ Walk the expression tree with all addresses now known. On error, report using th
 - Create: `src/Koh.Link/Koh.Link.csproj`
 - Create: `src/Koh.Link/Program.cs`
 
-- [ ] **Step 1: Create console project, wire references**
+- [x] **Step 1: Create console project, wire references**
 
-- [ ] **Step 2: Implement CLI** — parse args (input .kobj files, `-o` output ROM, `-n` sym file, `-m` map file)
+- [x] **Step 2: Implement CLI** — parse args (input .kobj files, `-o` output ROM, `-n` sym file, `-m` map file)
 
-- [ ] **Step 3: Manual end-to-end test** — assemble a hello world, link it, run in emulator
+- [x] **Step 3: Manual end-to-end test** — assemble a hello world, link it, run in emulator
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ### Task 7.7: End-to-End Integration Test
 
@@ -1906,11 +1906,11 @@ Walk the expression tree with all addresses now known. On error, report using th
 - Create: `tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj`
 - Test: `tests/Koh.Compat.Tests/EndToEndTests.cs`
 
-- [ ] **Step 1: Write test that assembles + links a minimal ROM**
+- [x] **Step 1: Write test that assembles + links a minimal ROM**
 
 A complete Game Boy ROM with proper header, entry point at $0100, interrupt vectors, and a simple loop. Verify the output is a valid GB ROM (correct header checksum, correct size).
 
-- [ ] **Step 2: Run tests, commit**
+- [x] **Step 2: Run tests, commit**
 
 ---
 

@@ -3,10 +3,13 @@
     <Project Path="src/Koh.Asm/Koh.Asm.csproj" />
     <Project Path="src/Koh.Core/Koh.Core.csproj" />
     <Project Path="src/Koh.Emit/Koh.Emit.csproj" />
+    <Project Path="src/Koh.Link/Koh.Link.csproj" />
+    <Project Path="src/Koh.Linker.Core/Koh.Linker.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
     <Project Path="tests/Koh.Core.Tests/Koh.Core.Tests.csproj" />
     <Project Path="tests/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />
+    <Project Path="tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj" />
   </Folder>
 </Solution>

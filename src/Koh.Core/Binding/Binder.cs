@@ -101,11 +101,11 @@ public sealed class Binder
 
     private void Pass1Section(SyntaxNode node, SectionPCTracker pc)
     {
-        if (!TryParseSectionHeader(node, out var name, out var sectionType))
+        if (!TryParseSectionHeader(node, out var name, out var sectionType,
+                out var fixedAddress, out _))
             return;
 
-        // TODO (Task 5.3): extract fixedAddr from flat bracket-group tokens [$addr].
-        pc.SetActive(name!, 0);
+        pc.SetActive(name!, fixedAddress ?? 0);
     }
 
     private void Pass1Instruction(SyntaxNode node, SectionPCTracker pc)
@@ -219,10 +219,11 @@ public sealed class Binder
 
     private void Pass2Section(SyntaxNode node)
     {
-        if (!TryParseSectionHeader(node, out var name, out var sectionType))
+        if (!TryParseSectionHeader(node, out var name, out var sectionType,
+                out var fixedAddress, out var bank))
             return;
 
-        _sections.OpenOrResume(name!, sectionType);
+        _sections.OpenOrResume(name!, sectionType, fixedAddress, bank);
     }
 
     private void Pass2Data(SyntaxNode node)
@@ -302,17 +303,31 @@ public sealed class Binder
     /// reports a diagnostic if the name token is absent (malformed input).
     /// </summary>
     private bool TryParseSectionHeader(SyntaxNode node,
-        out string? name, out SectionType sectionType)
+        out string? name, out SectionType sectionType,
+        out int? fixedAddress, out int? bank)
     {
         name = null;
         sectionType = SectionType.Rom0;
+        fixedAddress = null;
+        bank = null;
 
-        foreach (var t in node.ChildTokens())
+        // The parser stores the section directive as a flat sequence of tokens:
+        //   SECTION ["Fragment"|"Union"] "name" , <type> [ [ $addr ] ] [ , BANK [ $n ] ] ...
+        // We scan the token list, recognising BANK and ALIGN bracket groups by context.
+        var tokens = node.ChildTokens().ToList();
+        SyntaxKind? lastKeyword = null;
+
+        for (int i = 0; i < tokens.Count; i++)
         {
-            if (t.Kind == SyntaxKind.StringLiteral)
-                name = t.Text.Length >= 2 ? t.Text[1..^1] : t.Text;
+            var t = tokens[i];
 
-            sectionType = t.Kind switch
+            if (t.Kind == SyntaxKind.StringLiteral)
+            {
+                name = t.Text.Length >= 2 ? t.Text[1..^1] : t.Text;
+                continue;
+            }
+
+            var mapped = t.Kind switch
             {
                 SyntaxKind.Rom0Keyword  => SectionType.Rom0,
                 SyntaxKind.RomxKeyword  => SectionType.RomX,
@@ -322,14 +337,64 @@ public sealed class Binder
                 SyntaxKind.HramKeyword  => SectionType.Hram,
                 SyntaxKind.SramKeyword  => SectionType.Sram,
                 SyntaxKind.OamKeyword   => SectionType.Oam,
-                _ => sectionType,
+                _ => (SectionType?)null,
             };
+            if (mapped.HasValue)
+            {
+                sectionType = mapped.Value;
+                lastKeyword = t.Kind;
+                continue;
+            }
+
+            // A [ token after the memory-type keyword is a fixed-address bracket: TYPE[$addr]
+            if (t.Kind == SyntaxKind.OpenBracketToken)
+            {
+                // Peek at the number inside the brackets
+                if (i + 2 < tokens.Count &&
+                    tokens[i + 1].Kind == SyntaxKind.NumberLiteral &&
+                    tokens[i + 2].Kind == SyntaxKind.CloseBracketToken)
+                {
+                    if (TryParseIntegerLiteral(tokens[i + 1].Text, out int value))
+                    {
+                        if (lastKeyword == SyntaxKind.BankKeyword)
+                            bank = value;
+                        else
+                            fixedAddress = value; // TYPE[$addr] — address bracket
+                    }
+                    i += 2; // consume number and ]
+                }
+                continue;
+            }
+
+            if (t.Kind == SyntaxKind.BankKeyword)
+            {
+                lastKeyword = SyntaxKind.BankKeyword;
+                continue;
+            }
         }
 
         if (name != null) return true;
 
         _diagnostics.Report(node.FullSpan, "SECTION directive requires a name");
         return false;
+    }
+
+    /// <summary>
+    /// Parse a GB assembler integer literal: hex ($xxxx), binary (%bbb), or decimal.
+    /// </summary>
+    private static bool TryParseIntegerLiteral(string text, out int value)
+    {
+        value = 0;
+        if (string.IsNullOrEmpty(text)) return false;
+        if (text[0] == '$')
+            return int.TryParse(text[1..], System.Globalization.NumberStyles.HexNumber,
+                null, out value);
+        if (text[0] == '%')
+        {
+            try { value = Convert.ToInt32(text[1..], 2); return true; }
+            catch { return false; }
+        }
+        return int.TryParse(text, out value);
     }
 
     private void Pass2Instruction(SyntaxNode node)
