@@ -27,17 +27,29 @@ public sealed class Binder
         var pcTracker = new SectionPCTracker();
         Pass1(tree.Root, pcTracker);
 
-        // Check for undefined symbols
+        // Pass 2: emit bytes and encode instructions
+        Pass2(tree.Root);
+
+        // Resolve patches (forward refs now defined after Pass 1)
+        new PatchResolver(_symbols, _sections, _diagnostics).ApplyAll();
+
+        // Check for undefined symbols (after all passes so data directive refs are included)
         foreach (var sym in _symbols.GetUndefinedSymbols())
             _diagnostics.Report(default, $"Undefined symbol '{sym.Name}'");
-
-        // Pass 2: emit bytes (Task 5.2b will implement instruction encoding)
-        Pass2(tree.Root);
 
         return new BindingResult(
             _sections.AllSections,
             _symbols,
             _diagnostics.ToList());
+    }
+
+    /// <summary>
+    /// Bind and produce a frozen EmitModel for the linker / .kobj writer.
+    /// </summary>
+    public EmitModel BindToEmitModel(SyntaxTree tree)
+    {
+        var result = Bind(tree);
+        return EmitModel.FromBindingResult(result);
     }
 
     private void Pass1(SyntaxNode root, SectionPCTracker pc)
@@ -74,8 +86,13 @@ public sealed class Binder
 
     private void Pass1Label(SyntaxNode node, SectionPCTracker pc)
     {
-        var nameToken = node.ChildTokens().First();
-        _symbols.DefineLabel(nameToken.Text, pc.CurrentPC, pc.ActiveSectionName, node);
+        var tokens = node.ChildTokens().ToList();
+        var nameToken = tokens[0];
+        var sym = _symbols.DefineLabel(nameToken.Text, pc.CurrentPC, pc.ActiveSectionName, node);
+
+        // Exported label (main::) — double colon
+        if (tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.DoubleColonToken)
+            sym.Visibility = SymbolVisibility.Exported;
     }
 
     private void Pass1Section(SyntaxNode node, SectionPCTracker pc)
@@ -144,7 +161,32 @@ public sealed class Binder
                     _symbols.DefineConstant(first.Text, value.Value, node);
             }
         }
-        // EXPORT, PURGE — no PC impact, handled by binder later
+        // EXPORT sym [, sym]*
+        else if (first.Kind == SyntaxKind.ExportKeyword)
+        {
+            for (int i = 1; i < tokens.Count; i++)
+            {
+                if (tokens[i].Kind == SyntaxKind.IdentifierToken)
+                {
+                    // NOTE: if a local label (.name) is exported before its global anchor
+                    // is established, DeclareForwardRef creates an unqualified placeholder
+                    // that will never match the qualified definition. EXPORT of local labels
+                    // before their enclosing global label is therefore unsupported and will
+                    // produce a spurious "Undefined symbol" diagnostic. This is an acceptable
+                    // limitation for Phase 5; full local-label forward-export requires
+                    // deferred qualification (Task 8.x).
+                    var sym = _symbols.Lookup(tokens[i].Text)
+                              ?? _symbols.DeclareForwardRef(tokens[i].Text);
+                    sym.Visibility = SymbolVisibility.Exported;
+                }
+            }
+        }
+        // PURGE sym [, sym]*
+        else if (first.Kind == SyntaxKind.PurgeKeyword)
+        {
+            // PURGE removes symbols — for now just record the intent;
+            // full PURGE semantics deferred to Phase 8 (macros)
+        }
     }
 
     private void Pass2(SyntaxNode root)
@@ -357,13 +399,17 @@ public sealed class Binder
                 case EmitRuleKind.AppendRelative8:
                     if (value.HasValue)
                     {
-                        // PC-relative offset is measured from the address of the byte
-                        // immediately AFTER the complete instruction. At this point the
-                        // opcode bytes have been emitted but the offset byte has not,
-                        // so CurrentPC is (instrBase + opcodeByteCount). Adding 1 gives
-                        // the post-instruction PC, which is the correct base for JR.
                         long rel = value.Value - (section.CurrentPC + 1);
-                        section.EmitByte((byte)(sbyte)rel);
+                        if (rel < -128 || rel > 127)
+                        {
+                            _diagnostics.Report(node.FullSpan,
+                                $"JR target out of range: offset {rel} does not fit in signed byte");
+                            section.EmitByte(0x00); // placeholder
+                        }
+                        else
+                        {
+                            section.EmitByte((byte)(sbyte)rel);
+                        }
                     }
                     else
                     {

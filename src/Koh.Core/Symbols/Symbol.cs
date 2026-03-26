@@ -9,6 +9,12 @@ public enum SymbolKind
     StringConstant,
 }
 
+public enum SymbolVisibility
+{
+    Local,
+    Exported,
+}
+
 public enum SymbolState
 {
     Undefined,
@@ -21,6 +27,7 @@ public sealed class Symbol
     public string Name { get; }
     public SymbolKind Kind { get; }
     public SymbolState State { get; internal set; }
+    public SymbolVisibility Visibility { get; internal set; }
     public long Value { get; internal set; }
     public string? Section { get; internal set; }
     public SyntaxNode? DefinitionSite { get; internal set; }

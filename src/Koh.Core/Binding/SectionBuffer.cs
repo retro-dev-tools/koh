@@ -68,4 +68,10 @@ public sealed class SectionBuffer
         _bytes[offset] = (byte)(value & 0xFF);
         _bytes[offset + 1] = (byte)(value >> 8);
     }
+
+    internal void RemoveResolvedPatches(List<int> resolvedIndices)
+    {
+        for (int i = resolvedIndices.Count - 1; i >= 0; i--)
+            _patches.RemoveAt(resolvedIndices[i]);
+    }
 }

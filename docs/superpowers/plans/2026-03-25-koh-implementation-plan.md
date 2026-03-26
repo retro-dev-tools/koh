@@ -1520,14 +1520,14 @@ On instruction node: match against table → encode to bytes if operands are con
 - Modify: `src/Koh.Core/Binding/Binder.cs`
 - Test: `tests/Koh.Core.Tests/Binding/EmitModelTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Full binding produces `EmitModel` with sections, symbols, and diagnostics
 - Forward reference: `jp .end` then `.end:` later → deferred expression correctly references the label
 - Undefined symbol → diagnostic: undefined symbol 'foo'
 - EXPORT directive → symbol visibility set to exported
 
-- [ ] **Step 2: Implement EmitModel**
+- [x] **Step 2: Implement EmitModel**
 
 ```csharp
 public record EmitModel(
@@ -1547,9 +1547,9 @@ public record SymbolData(
 public record SourceMapping(int ByteOffset, int Length, TextSpan SourceSpan, string FilePath);
 ```
 
-- [ ] **Step 3: Implement forward reference resolution** — two-pass: first pass collects all symbol definitions, second pass resolves references. Unresolved references to labels become deferred expressions (for link-time).
+- [x] **Step 3: Implement forward reference resolution** — two-pass: first pass collects all symbol definitions, second pass resolves references. Unresolved references to labels become deferred expressions (for link-time).
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 5.3: SemanticModel & Compilation API
 
@@ -1641,7 +1641,7 @@ Per-file view into compilation. `GetSymbol(node)` → resolve a reference node t
 - Create: `src/Koh.Core/Encoding/Sm83Encoder.cs`
 - Test: `tests/Koh.Core.Tests/Encoding/Sm83EncoderTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```
 nop        → [0x00]
@@ -1654,11 +1654,11 @@ rst $38    → [0xFF]
 bit 3, a   → [0xCB, 0x5F]
 ```
 
-- [ ] **Step 2: Implement encoder as data-driven table**
+- [x] **Step 2: Implement encoder as data-driven table**
 
 Map each valid `(mnemonic, operand pattern)` to opcode byte(s) with encoding rules. The table itself is ~300 entries.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 5.5: Koh Object Format Writer
 
