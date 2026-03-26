@@ -10,17 +10,12 @@ public sealed class Binder
     private readonly DiagnosticBag _diagnostics = new();
     private readonly SymbolTable _symbols;
     private readonly SectionManager _sections = new();
-    private readonly ConditionalAssemblyState _conditional = new();
     private readonly InstructionEncoder _encoder;
-    private readonly MacroExpander _macros;
-    private bool _insideMacroDefinition; // skip body nodes between MACRO and ENDM
-    // TODO: _repeatSkipDepth and _sourceText will be removed by AssemblyExpander refactor
 
     public Binder()
     {
         _symbols = new SymbolTable(_diagnostics);
         _encoder = new InstructionEncoder(_symbols, _diagnostics);
-        _macros = new MacroExpander(_diagnostics);
     }
 
     public BindingResult Bind(SyntaxTree tree)
@@ -28,16 +23,18 @@ public sealed class Binder
         foreach (var d in tree.Diagnostics)
             _diagnostics.Report(d.Span, d.Message, d.Severity);
 
-        // Collect macro definitions before passes
-        _macros.CollectDefinitions(tree.Root, tree.Text);
+        // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC into flat list
+        var expander = new AssemblyExpander(_diagnostics, _symbols);
+        var nodes = expander.Expand(tree);
 
+        // Pass 1: symbol collection and PC tracking
         var pcTracker = new SectionPCTracker();
-        Pass1(tree.Root, pcTracker);
+        foreach (var en in nodes)
+            Pass1Node(en.Node, pcTracker);
 
-        if (_conditional.HasUnclosedBlocks)
-            _diagnostics.Report(default, "Unclosed IF block: missing ENDC");
-
-        Pass2(tree.Root);
+        // Pass 2: byte emission
+        foreach (var en in nodes)
+            Pass2Node(en.Node);
 
         new PatchResolver(_symbols, _sections, _diagnostics).ApplyAll();
 
@@ -51,61 +48,37 @@ public sealed class Binder
         EmitModel.FromBindingResult(Bind(tree));
 
     // =========================================================================
-    // Pass 1 — symbol collection and PC tracking
+    // Pass 1 — symbol collection and PC tracking (flat iteration, no blocks)
     // =========================================================================
 
-    private void Pass1(SyntaxNode root, SectionPCTracker pc)
+    private void Pass1Node(SyntaxNode node, SectionPCTracker pc)
     {
-        foreach (var child in root.ChildNodesAndTokens())
+        switch (node.Kind)
         {
-            if (!child.IsNode) continue;
-            var node = child.AsNode!;
-
-            if (node.Kind == SyntaxKind.ConditionalDirective)
-            {
-                HandleConditional(node, pc);
-                continue;
-            }
-
-            if (_conditional.IsSuppressed) continue;
-
-            // Skip macro body nodes (between MACRO and ENDM)
-            if (_insideMacroDefinition && node.Kind != SyntaxKind.MacroDefinition)
-                continue;
-
-            switch (node.Kind)
-            {
-                case SyntaxKind.LabelDeclaration:
-                    Pass1Label(node, pc);
-                    break;
-                case SyntaxKind.SectionDirective:
-                    Pass1Section(node, pc);
-                    break;
-                case SyntaxKind.InstructionStatement:
-                    Pass1Instruction(node, pc);
-                    break;
-                case SyntaxKind.DataDirective:
-                    Pass1Data(node, pc);
-                    break;
-                case SyntaxKind.SymbolDirective:
-                    Pass1Symbol(node, pc);
-                    break;
-                case SyntaxKind.MacroDefinition:
-                    ToggleMacroSkip(node);
-                    break;
-                case SyntaxKind.MacroCall:
-                    ExpandMacroCall(node, pc, pass: 1);
-                    break;
-                case SyntaxKind.RepeatDirective:
-                    break; // TODO: REPT expansion — will be handled by AssemblyExpander refactor
-            }
+            case SyntaxKind.LabelDeclaration:
+                Pass1Label(node, pc);
+                break;
+            case SyntaxKind.SectionDirective:
+                Pass1Section(node, pc);
+                break;
+            case SyntaxKind.InstructionStatement:
+                Pass1Instruction(node, pc);
+                break;
+            case SyntaxKind.DataDirective:
+                Pass1Data(node, pc);
+                break;
+            case SyntaxKind.SymbolDirective:
+                // EQU constants are defined by the AssemblyExpander before Pass 1 runs;
+                // do not redefine them here. Only EXPORT visibility marking belongs in Pass 1.
+                Pass1Export(node);
+                break;
         }
     }
 
     private void Pass1Label(SyntaxNode node, SectionPCTracker pc)
     {
         var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return; // malformed node — parser invariant violated
+        if (tokens.Count == 0) return;
         var sym = _symbols.DefineLabel(tokens[0].Text, pc.CurrentPC, pc.ActiveSectionName, node);
         if (tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.DoubleColonToken)
             sym.Visibility = SymbolVisibility.Exported;
@@ -149,26 +122,17 @@ public sealed class Binder
         }
     }
 
-    private void Pass1Symbol(SyntaxNode node, SectionPCTracker pc)
+    /// <summary>
+    /// Pass 1 only needs to process EXPORT visibility from SymbolDirective nodes.
+    /// EQU and REDEF constants are fully resolved by AssemblyExpander before Pass 1 runs;
+    /// re-evaluating them here would cause duplicate-definition diagnostics.
+    /// </summary>
+    private void Pass1Export(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count < 2) return;
 
-        var first = tokens[0];
-
-        if (first.Kind == SyntaxKind.IdentifierToken &&
-            tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.EquKeyword)
-        {
-            var exprNodes = node.ChildNodes().ToList();
-            if (exprNodes.Count > 0)
-            {
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
-                var value = evaluator.TryEvaluate(exprNodes[0].Green);
-                if (value.HasValue)
-                    _symbols.DefineConstant(first.Text, value.Value, node);
-            }
-        }
-        else if (first.Kind == SyntaxKind.ExportKeyword)
+        if (tokens[0].Kind == SyntaxKind.ExportKeyword)
         {
             for (int i = 1; i < tokens.Count; i++)
                 if (tokens[i].Kind == SyntaxKind.IdentifierToken)
@@ -181,47 +145,25 @@ public sealed class Binder
     }
 
     // =========================================================================
-    // Pass 2 — byte emission
+    // Pass 2 — byte emission (flat iteration, no blocks)
     // =========================================================================
 
-    private void Pass2(SyntaxNode root)
+    private void Pass2Node(SyntaxNode node)
     {
-        _conditional.Reset();
-        _insideMacroDefinition = false;
-
-        foreach (var child in root.ChildNodesAndTokens())
+        switch (node.Kind)
         {
-            if (!child.IsNode) continue;
-            var node = child.AsNode!;
-
-            if (node.Kind == SyntaxKind.ConditionalDirective)
-            {
-                HandleConditional(node, null);
-                continue;
-            }
-
-            if (_conditional.IsSuppressed) continue;
-            if (_insideMacroDefinition && node.Kind != SyntaxKind.MacroDefinition)
-                continue;
-
-            switch (node.Kind)
-            {
-                case SyntaxKind.SectionDirective:
-                    Pass2Section(node);
-                    break;
-                case SyntaxKind.DataDirective:
-                    Pass2Data(node);
-                    break;
-                case SyntaxKind.InstructionStatement:
-                    Pass2Instruction(node);
-                    break;
-                case SyntaxKind.MacroDefinition:
-                    ToggleMacroSkip(node);
-                    break;
-                case SyntaxKind.MacroCall:
-                    ExpandMacroCall(node, null, pass: 2);
-                    break;
-            }
+            case SyntaxKind.SectionDirective:
+                Pass2Section(node);
+                break;
+            case SyntaxKind.DataDirective:
+                Pass2Data(node);
+                break;
+            case SyntaxKind.InstructionStatement:
+                Pass2Instruction(node);
+                break;
+            case SyntaxKind.SymbolDirective:
+                Pass2Symbol(node);
+                break;
         }
     }
 
@@ -301,56 +243,6 @@ public sealed class Binder
         }
     }
 
-    private void ToggleMacroSkip(SyntaxNode node)
-    {
-        var kw = node.ChildTokens().FirstOrDefault();
-        if (kw?.Kind == SyntaxKind.MacroKeyword)
-            _insideMacroDefinition = true;
-        else if (kw?.Kind == SyntaxKind.EndmKeyword)
-            _insideMacroDefinition = false;
-    }
-
-    private void ExpandMacroCall(SyntaxNode node, SectionPCTracker? pc, int pass)
-    {
-        var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
-
-        var name = tokens[0].Text;
-        if (!_macros.IsMacro(name))
-        {
-            if (pass == 2) // only report in Pass 2 to avoid duplicate diagnostics
-                _diagnostics.Report(node.FullSpan, $"Unexpected identifier '{name}'");
-            return;
-        }
-
-        // Collect comma-separated arguments as raw text
-        var args = new List<string>();
-        var currentArg = new List<string>();
-        for (int i = 1; i < tokens.Count; i++)
-        {
-            if (tokens[i].Kind == SyntaxKind.CommaToken)
-            {
-                args.Add(string.Join(" ", currentArg));
-                currentArg.Clear();
-            }
-            else
-            {
-                currentArg.Add(tokens[i].Text);
-            }
-        }
-        if (currentArg.Count > 0)
-            args.Add(string.Join(" ", currentArg));
-
-        var expanded = _macros.Expand(name, args);
-        if (expanded == null) return;
-
-        // Walk the expanded tree through the current pass
-        if (pass == 1 && pc != null)
-            Pass1(expanded.Root, pc);
-        else if (pass == 2)
-            Pass2(expanded.Root);
-    }
-
     private void Pass2Instruction(SyntaxNode node)
     {
         var section = _sections.ActiveSection;
@@ -372,44 +264,10 @@ public sealed class Binder
         _encoder.Encode(node, desc, section);
     }
 
-    // =========================================================================
-    // Conditional assembly
-    // =========================================================================
-
-    private void HandleConditional(SyntaxNode node, SectionPCTracker? pc)
+    private void Pass2Symbol(SyntaxNode node)
     {
-        var keyword = ((GreenToken)((GreenNode)node.Green).GetChild(0)!).Kind;
-
-        // Lazy evaluator — only called when the state machine needs the condition value
-        bool Eval() => EvaluateCondition(node, pc);
-
-        switch (keyword)
-        {
-            case SyntaxKind.IfKeyword:
-                _conditional.HandleIf(Eval);
-                break;
-            case SyntaxKind.ElifKeyword:
-                if (!_conditional.HandleElif(Eval))
-                    _diagnostics.Report(node.FullSpan, "ELIF without matching IF");
-                break;
-            case SyntaxKind.ElseKeyword:
-                if (!_conditional.HandleElse())
-                    _diagnostics.Report(node.FullSpan, "ELSE without matching IF");
-                break;
-            case SyntaxKind.EndcKeyword:
-                if (!_conditional.HandleEndc())
-                    _diagnostics.Report(node.FullSpan, "ENDC without matching IF");
-                break;
-        }
-    }
-
-    private bool EvaluateCondition(SyntaxNode node, SectionPCTracker? pc)
-    {
-        var exprNodes = node.ChildNodes().ToList();
-        if (exprNodes.Count == 0) return false;
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-            () => pc?.CurrentPC ?? 0);
-        var value = evaluator.TryEvaluate(exprNodes[0].Green);
-        return value.HasValue && value.Value != 0;
+        // EQU/REDEF constants are fully resolved by AssemblyExpander before any pass.
+        // EXPORT visibility is marked in Pass1Export.
+        // Nothing to emit in Pass 2 for symbol directives.
     }
 }

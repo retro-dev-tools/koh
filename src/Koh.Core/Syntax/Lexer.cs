@@ -283,7 +283,7 @@ public sealed class Lexer
                 _position += 2;
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));
             }
-            if (next == '@' || next == '#')
+            if (next is '@' or '#' or ',')
             {
                 _position += 2;
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));

@@ -90,6 +90,26 @@ public sealed class SymbolTable
     }
 
     /// <summary>
+    /// Define or redefine a constant (used by FOR loop variables).
+    /// Bypasses the duplicate-definition guard.
+    /// </summary>
+    public void DefineOrRedefine(string name, long value)
+    {
+        var key = QualifyName(name);
+        if (_symbols.TryGetValue(key, out var existing))
+        {
+            existing.Value = value;
+            existing.State = SymbolState.Defined;
+        }
+        else
+        {
+            var sym = new Symbol(key, SymbolKind.Constant);
+            sym.Define(value);
+            _symbols[key] = sym;
+        }
+    }
+
+    /// <summary>
     /// Create or return a placeholder symbol for a forward reference.
     /// </summary>
     /// <param name="name">Raw (possibly local) symbol name.</param>

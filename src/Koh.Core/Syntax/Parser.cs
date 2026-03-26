@@ -147,9 +147,10 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.MacroKeyword || Current.Kind == SyntaxKind.EndmKeyword)
             return ParseBlockDirective(SyntaxKind.MacroDefinition);
 
-        // Repeat: REPT/FOR/ENDR
-        if (Current.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword
-            or SyntaxKind.EndrKeyword)
+        // Repeat: REPT/FOR — parse with expression arguments; ENDR as flat block
+        if (Current.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword)
+            return ParseRepeatDirective();
+        if (Current.Kind == SyntaxKind.EndrKeyword)
             return ParseBlockDirective(SyntaxKind.RepeatDirective);
 
         // Include: INCLUDE/INCBIN
@@ -207,6 +208,31 @@ internal sealed class Parser
         }
 
         return new GreenNode(SyntaxKind.ConditionalDirective, children.ToArray());
+    }
+
+    /// <summary>
+    /// Parse REPT count / FOR var, start, stop [, step].
+    /// The keyword is consumed, then comma-separated expressions are parsed.
+    /// </summary>
+    private GreenNode ParseRepeatDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // REPT or FOR keyword
+
+        // Parse comma-separated arguments as expressions
+        if (!AtEndOfStatement())
+        {
+            // FOR: first argument may be an identifier (variable name)
+            children.Add(ParseExpression());
+
+            while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                children.Add(ParseExpression());
+            }
+        }
+
+        return new GreenNode(SyntaxKind.RepeatDirective, children.ToArray());
     }
 
     /// <summary>

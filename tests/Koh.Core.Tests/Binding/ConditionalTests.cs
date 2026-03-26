@@ -203,6 +203,54 @@ public class ConditionalTests
         await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("ELSE without"))).IsTrue();
     }
 
+    /// <summary>
+    /// Regression: EQU constants must be defined exactly once (by the AssemblyExpander).
+    /// Pass 1 must NOT attempt to redefine them, which would produce a spurious
+    /// "already defined" diagnostic. The model must be fully successful with no diagnostics.
+    /// </summary>
+    [Test]
+    public async Task Equ_BeforeIf_NoDuplicateDefinitionDiagnostic()
+    {
+        var model = Emit("""
+            MY_FLAG EQU 1
+            SECTION "Main", ROM0
+            IF MY_FLAG
+                nop
+            ENDC
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics).IsEmpty();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x00); // nop
+    }
+
+    /// <summary>
+    /// Regression: Two distinct EQU constants must each produce exactly one definition.
+    /// Neither should cause a duplicate-definition diagnostic.
+    /// </summary>
+    [Test]
+    public async Task MultipleEqu_NoDuplicateDefinitionDiagnostics()
+    {
+        // Note: single-letter names A/B/C/D/E/H/L are register keywords in SM83;
+        // use multi-character names for user-defined constants.
+        var model = Emit("""
+            FLAG_ONE EQU 1
+            FLAG_TWO EQU 2
+            SECTION "Main", ROM0
+            IF FLAG_ONE
+                nop
+            ENDC
+            IF FLAG_TWO
+                halt
+            ENDC
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics).IsEmpty();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x00); // nop
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0x76); // halt
+    }
+
     [Test]
     public async Task IfWithoutEndc_ProducesDiagnostic()
     {

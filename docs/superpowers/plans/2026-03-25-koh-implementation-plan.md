@@ -1925,7 +1925,7 @@ A complete Game Boy ROM with proper header, entry point at $0100, interrupt vect
 - Modify: `src/Koh.Core/Binding/Binder.cs`
 - Test: `tests/Koh.Core.Tests/Binding/MacroTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```asm
 my_macro: MACRO
@@ -1939,11 +1939,11 @@ Expected: expands to `ld a, b` + `add a, c`.
 
 Test also: nested macros, `SHIFT`, `\@` unique suffix, `_NARG`, recursion depth limit.
 
-- [ ] **Step 2: Implement macro parsing (MACRO/ENDM)**
+- [x] **Step 2: Implement macro parsing (MACRO/ENDM)**
 
-- [ ] **Step 3: Implement macro expansion in binder**
+- [x] **Step 3: Implement macro expansion in binder**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 8.2: REPT/FOR Loops
 
@@ -1951,7 +1951,7 @@ Test also: nested macros, `SHIFT`, `\@` unique suffix, `_NARG`, recursion depth 
 - Modify: `src/Koh.Core/Binding/Binder.cs`
 - Test: `tests/Koh.Core.Tests/Binding/RepeatTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```asm
 REPT 3
@@ -1965,9 +1965,9 @@ ENDR
 ; → db 0, db 1, db 2, db 3
 ```
 
-- [ ] **Step 2: Implement REPT/FOR expansion in binder**
+- [x] **Step 2: Implement REPT/FOR expansion in binder**
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 8.3: Conditional Assembly
 
