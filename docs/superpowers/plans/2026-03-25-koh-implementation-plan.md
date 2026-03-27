@@ -1999,7 +1999,7 @@ ENDC
 - Create: `src/Koh.Core/Binding/CharMap.cs`
 - Test: `tests/Koh.Core.Tests/Binding/CharMapTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```asm
 NEWCHARMAP ascii
@@ -2008,9 +2008,9 @@ CHARMAP "B", $42
 db "AB" ; → [0x41, 0x42]
 ```
 
-- [ ] **Step 2: Implement charmap tracking and string encoding**
+- [x] **Step 2: Implement charmap tracking and string encoding**
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 8.5: INCLUDE / INCBIN
 
