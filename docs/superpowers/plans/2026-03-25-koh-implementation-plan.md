@@ -2034,7 +2034,7 @@ Using in-memory `SourceFileResolver` for testability.
 - Modify: `src/Koh.Core/Binding/Binder.cs`
 - Test: `tests/Koh.Core.Tests/Binding/UnionLoadTests.cs`
 
-- [ ] **Step 1: Write failing tests for UNION/NEXTU/ENDU**
+- [x] **Step 1: Write failing tests for UNION/NEXTU/ENDU**
 
 ```asm
 SECTION UNION "Shared", WRAM0
@@ -2045,7 +2045,7 @@ ENDU
 ```
 Verify: both variables share the same address. Section size = max of all union members.
 
-- [ ] **Step 2: Write failing tests for LOAD/ENDL**
+- [x] **Step 2: Write failing tests for LOAD/ENDL**
 
 ```asm
 SECTION "ROM", ROM0
@@ -2055,9 +2055,9 @@ ENDL
 ```
 Verify: `my_var` gets a WRAM0 address but the data is placed in ROM.
 
-- [ ] **Step 3: Implement UNION and LOAD semantics in binder**
+- [x] **Step 3: Implement UNION and LOAD semantics in binder**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 8.7: Stack Directives & RS Counters
 
@@ -2065,7 +2065,7 @@ Verify: `my_var` gets a WRAM0 address but the data is placed in ROM.
 - Modify: `src/Koh.Core/Binding/Binder.cs`
 - Test: `tests/Koh.Core.Tests/Binding/StackDirectiveTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```asm
 ; Section stack
@@ -2091,11 +2091,11 @@ OPT b.X
 POPO
 ```
 
-- [ ] **Step 2: Implement PUSHS/POPS, PUSHC/POPC, PUSHO/POPO as binder state stacks**
+- [x] **Step 2: Implement PUSHS/POPS, PUSHC/POPC, PUSHO/POPO as binder state stacks**
 
-- [ ] **Step 3: Implement RB, RW, RSRESET, RSSET**
+- [x] **Step 3: Implement RB, RW, RSRESET, RSSET**
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 8.8: Control Directives & String Interpolation
 
@@ -2104,7 +2104,7 @@ POPO
 - Modify: `src/Koh.Core/Syntax/Lexer.cs`
 - Test: `tests/Koh.Core.Tests/Binding/ControlDirectiveTests.cs`
 
-- [ ] **Step 1: Write failing tests for ASSERT/WARN/FAIL/PRINT**
+- [x] **Step 1: Write failing tests for ASSERT/WARN/FAIL/PRINT**
 
 ```asm
 ASSERT 1 + 1 == 2, "math is broken"
@@ -2124,7 +2124,7 @@ MY_STR EQUS "hello"
 PRINTLN "{MY_STR} world"
 ```
 
-- [ ] **Step 3: Implement control directives in binder**
+- [x] **Step 3: Implement control directives in binder**
 
 ASSERT/STATIC_ASSERT: evaluate expression, report diagnostic on failure. STATIC_ASSERT runs at assembly time, ASSERT deferred to link time if expression contains link-time values.
 

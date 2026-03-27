@@ -59,6 +59,19 @@ public sealed class SectionBuffer
             _bytes.Add(fill);
     }
 
+    /// <summary>
+    /// Truncate the byte buffer to the given offset (used by UNION/NEXTU to rewind).
+    /// </summary>
+    internal void TruncateTo(int offset)
+    {
+        if (offset >= 0 && offset < _bytes.Count)
+        {
+            _bytes.RemoveRange(offset, _bytes.Count - offset);
+            // Remove patches that reference truncated offsets
+            _patches.RemoveAll(p => p.Offset >= offset);
+        }
+    }
+
     public void RecordPatch(PatchEntry patch) => _patches.Add(patch);
 
     public void ApplyPatch(int offset, byte value) => _bytes[offset] = value;

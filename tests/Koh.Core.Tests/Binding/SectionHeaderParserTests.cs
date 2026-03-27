@@ -16,7 +16,8 @@ public class SectionHeaderParserTests
         var section = tree.Root.ChildNodes().First(n => n.Kind == SyntaxKind.SectionDirective);
         var diag = new DiagnosticBag();
         var ok = SectionHeaderParser.TryParse(section, diag,
-            out var name, out var type, out var addr, out var bank);
+            out var name, out var type, out var addr, out var bank,
+            out _, out _);
         return (name, type, addr, bank, ok);
     }
 
@@ -79,7 +80,7 @@ public class SectionHeaderParserTests
 
         var diag = new DiagnosticBag();
         var ok = SectionHeaderParser.TryParse(section, diag,
-            out _, out _, out _, out _);
+            out _, out _, out _, out _, out _, out _);
         await Assert.That(ok).IsFalse();
     }
 

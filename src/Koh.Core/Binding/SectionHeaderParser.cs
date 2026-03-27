@@ -15,15 +15,25 @@ internal static class SectionHeaderParser
     /// </summary>
     public static bool TryParse(SyntaxNode node, DiagnosticBag diagnostics,
         out string? name, out SectionType sectionType,
-        out int? fixedAddress, out int? bank)
+        out int? fixedAddress, out int? bank,
+        out bool isUnion, out bool isFragment)
     {
         name = null;
         sectionType = SectionType.Rom0;
         fixedAddress = null;
         bank = null;
+        isUnion = false;
+        isFragment = false;
 
         var tokens = node.ChildTokens().ToList();
         SyntaxKind? lastKeyword = null;
+
+        // Check for UNION/FRAGMENT modifiers
+        for (int j = 0; j < tokens.Count; j++)
+        {
+            if (tokens[j].Kind == SyntaxKind.UnionKeyword) isUnion = true;
+            if (tokens[j].Kind == SyntaxKind.FragmentKeyword) isFragment = true;
+        }
 
         for (int i = 0; i < tokens.Count; i++)
         {

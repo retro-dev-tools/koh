@@ -100,18 +100,57 @@ public sealed class Binder
                 pc.PushSection();
                 break;
             case SyntaxKind.PopsKeyword:
-                // Diagnostic for unmatched POPS is reported by Pass2Directive only,
-                // to avoid duplicate error messages.
                 pc.PopSection();
                 break;
+            case SyntaxKind.NextuKeyword:
+                pc.NextUnion();
+                break;
+            case SyntaxKind.EnduKeyword:
+                pc.EndUnion();
+                break;
+            case SyntaxKind.LoadKeyword:
+                Pass1Load(node, pc);
+                break;
+            case SyntaxKind.EndlKeyword:
+                pc.EndLoad();
+                break;
         }
+    }
+
+    private void Pass1Load(SyntaxNode node, SectionPCTracker pc)
+    {
+        // LOAD "name", TYPE — parse like a section header but route to load
+        var tokens = node.ChildTokens().ToList();
+        string? name = null;
+        SectionType type = SectionType.Wram0;
+        int? fixedAddr = null;
+
+        for (int i = 1; i < tokens.Count; i++)
+        {
+            if (tokens[i].Kind == SyntaxKind.StringLiteral)
+                name = tokens[i].Text.Length >= 2 ? tokens[i].Text[1..^1] : tokens[i].Text;
+            var mapped = tokens[i].Kind switch
+            {
+                SyntaxKind.Wram0Keyword => SectionType.Wram0,
+                SyntaxKind.WramxKeyword => SectionType.WramX,
+                SyntaxKind.HramKeyword  => SectionType.Hram,
+                SyntaxKind.SramKeyword  => SectionType.Sram,
+                SyntaxKind.VramKeyword  => SectionType.Vram,
+                _ => (SectionType?)null,
+            };
+            if (mapped.HasValue) type = mapped.Value;
+        }
+
+        if (name != null)
+            pc.BeginLoad(name, fixedAddr ?? 0);
     }
 
     private void Pass1Label(SyntaxNode node, SectionPCTracker pc)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count == 0) return;
-        var sym = _symbols.DefineLabel(tokens[0].Text, pc.CurrentPC, pc.ActiveSectionName, node);
+        // In LOAD blocks, labels get addresses from the load section
+        var sym = _symbols.DefineLabel(tokens[0].Text, pc.LabelPC, pc.LabelSectionName, node);
         if (tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.DoubleColonToken)
             sym.Visibility = SymbolVisibility.Exported;
     }
@@ -119,15 +158,20 @@ public sealed class Binder
     private void Pass1Section(SyntaxNode node, SectionPCTracker pc)
     {
         if (!SectionHeaderParser.TryParse(node, _diagnostics,
-                out var name, out _, out var fixedAddress, out _))
+                out var name, out _, out var fixedAddress, out _,
+                out var isUnion, out _))
             return;
         pc.SetActive(name!, fixedAddress ?? 0);
+        if (isUnion)
+            pc.BeginUnion();
     }
 
     private void Pass1Instruction(SyntaxNode node, SectionPCTracker pc)
     {
         var desc = _encoder.Match(node);
-        pc.Advance(desc?.Size ?? 1);
+        var size = desc?.Size ?? 1;
+        pc.Advance(size);
+        pc.AdvanceLoad(size); // no-op if not in LOAD block
     }
 
     private void Pass1Data(SyntaxNode node, SectionPCTracker pc)
@@ -148,17 +192,24 @@ public sealed class Binder
                         byteCount++;
                 }
                 pc.Advance(byteCount);
+                pc.AdvanceLoad(byteCount);
                 break;
             }
             case SyntaxKind.DwKeyword:
-                pc.Advance(expressions.Count * 2);
+            {
+                int size = expressions.Count * 2;
+                pc.Advance(size);
+                pc.AdvanceLoad(size);
                 break;
+            }
             case SyntaxKind.DsKeyword:
                 if (expressions.Count > 0)
                 {
                     var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
                     var sizeVal = evaluator.TryEvaluate(expressions[0].Green);
-                    pc.Advance(sizeVal.HasValue ? (int)sizeVal.Value : 0);
+                    int dsSize = sizeVal.HasValue ? (int)sizeVal.Value : 0;
+                    pc.Advance(dsSize);
+                    pc.AdvanceLoad(dsSize);
                 }
                 break;
         }
@@ -181,6 +232,7 @@ public sealed class Binder
             {
                 var bytes = _fileResolver.ReadAllBytes(resolved);
                 pc.Advance(bytes.Length);
+                pc.AdvanceLoad(bytes.Length);
             }
             catch (IOException ex)
             {
@@ -326,9 +378,12 @@ public sealed class Binder
     private void Pass2Section(SyntaxNode node)
     {
         if (!SectionHeaderParser.TryParse(node, _diagnostics,
-                out var name, out var sectionType, out var fixedAddress, out var bank))
+                out var name, out var sectionType, out var fixedAddress, out var bank,
+                out var isUnion, out _))
             return;
         _sections.OpenOrResume(name!, sectionType, fixedAddress, bank);
+        if (isUnion)
+            _sections.BeginUnion();
     }
 
     private void Pass2Data(SyntaxNode node)
@@ -516,7 +571,59 @@ public sealed class Binder
                 if (!_sections.PopSection())
                     _diagnostics.Report(node.FullSpan, "POPS without matching PUSHS");
                 break;
+
+            case SyntaxKind.NextuKeyword:
+                if (!_sections.NextUnion())
+                    _diagnostics.Report(node.FullSpan, "NEXTU without matching SECTION UNION");
+                break;
+
+            case SyntaxKind.EnduKeyword:
+                if (!_sections.EndUnion())
+                    _diagnostics.Report(node.FullSpan, "ENDU without matching SECTION UNION");
+                break;
+
+            case SyntaxKind.LoadKeyword:
+                Pass2Load(node);
+                break;
+
+            case SyntaxKind.EndlKeyword:
+                if (!_sections.EndLoad())
+                    _diagnostics.Report(node.FullSpan, "ENDL without matching LOAD");
+                break;
         }
+    }
+
+    private void Pass2Load(SyntaxNode node)
+    {
+        var tokens = node.ChildTokens().ToList();
+        string? name = null;
+        SectionType type = SectionType.Wram0;
+        int? fixedAddr = null;
+        int? bank = null;
+
+        for (int i = 1; i < tokens.Count; i++)
+        {
+            if (tokens[i].Kind == SyntaxKind.StringLiteral)
+                name = tokens[i].Text.Length >= 2 ? tokens[i].Text[1..^1] : tokens[i].Text;
+            var mapped = tokens[i].Kind switch
+            {
+                SyntaxKind.Wram0Keyword => SectionType.Wram0,
+                SyntaxKind.WramxKeyword => SectionType.WramX,
+                SyntaxKind.HramKeyword  => SectionType.Hram,
+                SyntaxKind.SramKeyword  => SectionType.Sram,
+                SyntaxKind.VramKeyword  => SectionType.Vram,
+                _ => (SectionType?)null,
+            };
+            if (mapped.HasValue) type = mapped.Value;
+        }
+
+        if (name == null)
+        {
+            _diagnostics.Report(node.FullSpan, "LOAD requires a section name");
+            return;
+        }
+
+        _sections.BeginLoad(name, type, fixedAddr, bank);
     }
 
     private static bool IsStringLiteral(Syntax.InternalSyntax.GreenNodeBase green)
