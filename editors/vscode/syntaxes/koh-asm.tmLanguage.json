@@ -1,0 +1,158 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Koh Assembly",
+    "scopeName": "source.koh-asm",
+    "patterns": [
+        { "include": "#comment" },
+        { "include": "#label" },
+        { "include": "#directive" },
+        { "include": "#instruction" },
+        { "include": "#string" },
+        { "include": "#number" },
+        { "include": "#register" },
+        { "include": "#macro-parameter" },
+        { "include": "#program-counter" },
+        { "include": "#operator" }
+    ],
+    "repository": {
+        "comment": {
+            "patterns": [
+                {
+                    "name": "comment.line.semicolon.koh-asm",
+                    "begin": ";",
+                    "end": "$"
+                },
+                {
+                    "name": "comment.block.koh-asm",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
+        },
+        "label": {
+            "patterns": [
+                {
+                    "name": "entity.name.function.local.koh-asm",
+                    "match": "^(\\.[a-zA-Z_][a-zA-Z0-9_]*)\\s*:?:?"
+                },
+                {
+                    "match": "^([a-zA-Z_][a-zA-Z0-9_]*)\\s*(::)",
+                    "captures": {
+                        "1": { "name": "entity.name.function.exported.koh-asm" },
+                        "2": { "name": "punctuation.definition.label.koh-asm" }
+                    }
+                },
+                {
+                    "match": "^([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)(?!:)",
+                    "captures": {
+                        "1": { "name": "entity.name.function.koh-asm" },
+                        "2": { "name": "punctuation.definition.label.koh-asm" }
+                    }
+                }
+            ]
+        },
+        "directive": {
+            "patterns": [
+                {
+                    "name": "keyword.control.directive.koh-asm",
+                    "match": "(?i)\\b(SECTION|INCLUDE|INCBIN|MACRO|ENDM|IF|ELIF|ELSE|ENDC|REPT|ENDR|FOR|UNION|NEXTU|ENDU|LOAD|ENDL)\\b"
+                },
+                {
+                    "name": "keyword.other.directive.koh-asm",
+                    "match": "(?i)\\b(DEF|REDEF|EQU|EQUS|EXPORT|PURGE|OPT|CHARMAP|NEWCHARMAP|SETCHARMAP|ASSERT|STATIC_ASSERT|WARN|FAIL|PRINT|PRINTLN|PUSHS|POPS|PUSHC|POPC|SHIFT|FRAGMENT)\\b"
+                },
+                {
+                    "name": "keyword.other.data.koh-asm",
+                    "match": "(?i)\\b(DB|DW|DL|DS|RSRESET|RSSET|RB|RW|RL)\\b"
+                },
+                {
+                    "name": "keyword.other.section-type.koh-asm",
+                    "match": "(?i)\\b(ROM0|ROMX|VRAM|SRAM|WRAM0|WRAMX|OAM|HRAM|BANK|ALIGN)\\b"
+                }
+            ]
+        },
+        "instruction": {
+            "patterns": [
+                {
+                    "name": "keyword.mnemonic.koh-asm",
+                    "match": "(?i)\\b(adc|add|and|bit|call|ccf|cp|cpl|daa|dec|di|ei|halt|inc|jp|jr|ld|ldh|ldi|ldd|nop|or|pop|push|res|ret|reti|rl|rla|rlc|rlca|rr|rra|rrc|rrca|rst|sbc|scf|set|sla|sra|srl|stop|sub|swap|xor)\\b"
+                }
+            ]
+        },
+        "register": {
+            "patterns": [
+                {
+                    "name": "variable.language.register.koh-asm",
+                    "match": "(?i)\\b(af|bc|de|hl|sp|a|b|c|d|e|h|l)\\b"
+                },
+                {
+                    "name": "keyword.other.condition.koh-asm",
+                    "match": "(?i)\\b(nz|z|nc)\\b"
+                }
+            ]
+        },
+        "number": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.hex.koh-asm",
+                    "match": "\\$[0-9a-fA-F]+"
+                },
+                {
+                    "name": "constant.numeric.binary.koh-asm",
+                    "match": "%[01]+"
+                },
+                {
+                    "name": "constant.numeric.octal.koh-asm",
+                    "match": "&[0-7]+"
+                },
+                {
+                    "name": "constant.numeric.decimal.koh-asm",
+                    "match": "\\b[0-9]+\\b"
+                }
+            ]
+        },
+        "string": {
+            "patterns": [
+                {
+                    "name": "string.quoted.double.koh-asm",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.koh-asm",
+                            "match": "\\\\."
+                        }
+                    ]
+                }
+            ]
+        },
+        "macro-parameter": {
+            "patterns": [
+                {
+                    "name": "variable.other.macro-parameter.koh-asm",
+                    "match": "\\\\[1-9@#,]"
+                },
+                {
+                    "name": "variable.other.macro-narg.koh-asm",
+                    "match": "(?i)\\b_NARG\\b"
+                }
+            ]
+        },
+        "program-counter": {
+            "patterns": [
+                {
+                    "name": "constant.language.program-counter.koh-asm",
+                    "match": "(?<=^|[^$])\\$(?![0-9a-fA-F])"
+                }
+            ]
+        },
+        "operator": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.koh-asm",
+                    "match": "<<|>>|==|!=|<=|>=|&&|\\|\\||[+\\-*/&|^~!<>]"
+                }
+            ]
+        }
+    }
+}

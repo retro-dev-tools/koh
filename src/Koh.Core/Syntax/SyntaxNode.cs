@@ -54,6 +54,33 @@ public class SyntaxNode
         }
     }
 
+    /// <summary>
+    /// Find the innermost token at the given absolute position.
+    /// Returns null if position is outside this node's span.
+    /// </summary>
+    public SyntaxToken? FindToken(int position)
+    {
+        if (position < Position || position >= Position + _green.FullWidth)
+            return null;
+
+        int offset = Position;
+        for (int i = 0; i < _green.ChildCount; i++)
+        {
+            var child = _green.GetChild(i)!;
+            int childEnd = offset + child.FullWidth;
+            if (position < childEnd)
+            {
+                if (child is GreenToken greenToken)
+                    return new SyntaxToken(greenToken, this, offset);
+                // Recurse into child node
+                var childNode = new SyntaxNode(child, this, offset);
+                return childNode.FindToken(position);
+            }
+            offset = childEnd;
+        }
+        return null;
+    }
+
     public IEnumerable<SyntaxNodeOrToken> ChildNodesAndTokens()
     {
         int offset = Position;

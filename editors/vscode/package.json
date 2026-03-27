@@ -1,0 +1,70 @@
+{
+  "name": "koh-asm",
+  "displayName": "Koh Assembly",
+  "description": "Language support for Game Boy assembly — diagnostics, hover, go-to-definition, completion, document symbols",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "retro-dev-tools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/retro-dev-tools/koh"
+  },
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "koh-asm",
+        "aliases": [
+          "Game Boy Assembly",
+          "koh-asm",
+          "gbz80",
+          "sm83",
+          "rgbds"
+        ],
+        "extensions": [
+          ".asm",
+          ".inc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "koh-asm",
+        "scopeName": "source.koh-asm",
+        "path": "./syntaxes/koh-asm.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Koh Assembly",
+      "properties": {
+        "koh.serverPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Path to `koh-lsp` binary. Leave empty to auto-detect."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./tsconfig.json",
+    "watch": "tsc -w -p ./tsconfig.json",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.82.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

@@ -52,4 +52,71 @@ public class SyntaxNodeTests
         var root = new SyntaxNode(rootGreen, parent: null, position: 0);
         await Assert.That(root.FullSpan).IsEqualTo(new TextSpan(0, 3));
     }
+
+    // =========================================================================
+    // FindToken
+    // =========================================================================
+
+    [Test]
+    public async Task FindToken_AtStartOfToken_ReturnsToken()
+    {
+        var tree = SyntaxTree.Parse("nop");
+        var token = tree.Root.FindToken(0);
+
+        await Assert.That(token).IsNotNull();
+        await Assert.That(token!.Kind).IsEqualTo(SyntaxKind.NopKeyword);
+    }
+
+    [Test]
+    public async Task FindToken_InsideToken_ReturnsToken()
+    {
+        var tree = SyntaxTree.Parse("halt");
+        var token = tree.Root.FindToken(2);
+
+        await Assert.That(token).IsNotNull();
+        await Assert.That(token!.Kind).IsEqualTo(SyntaxKind.HaltKeyword);
+    }
+
+    [Test]
+    public async Task FindToken_AtBoundaryBetweenTokens()
+    {
+        var tree = SyntaxTree.Parse("nop\nhalt");
+        var tokenAtNop = tree.Root.FindToken(0);
+        var tokenAtHalt = tree.Root.FindToken(4);
+
+        await Assert.That(tokenAtNop).IsNotNull();
+        await Assert.That(tokenAtNop!.Text).IsEqualTo("nop");
+
+        await Assert.That(tokenAtHalt).IsNotNull();
+        await Assert.That(tokenAtHalt!.Text).IsEqualTo("halt");
+    }
+
+    [Test]
+    public async Task FindToken_PastEnd_ReturnsNull()
+    {
+        var tree = SyntaxTree.Parse("nop");
+        var token = tree.Root.FindToken(100);
+
+        await Assert.That(token).IsNull();
+    }
+
+    [Test]
+    public async Task FindToken_NegativePosition_ReturnsNull()
+    {
+        var tree = SyntaxTree.Parse("nop");
+        var token = tree.Root.FindToken(-1);
+
+        await Assert.That(token).IsNull();
+    }
+
+    [Test]
+    public async Task FindToken_RecursesIntoNestedNodes()
+    {
+        var tree = SyntaxTree.Parse("ld a, $42");
+        var token = tree.Root.FindToken(6);
+
+        await Assert.That(token).IsNotNull();
+        await Assert.That(token!.Kind).IsEqualTo(SyntaxKind.NumberLiteral);
+        await Assert.That(token.Text).IsEqualTo("$42");
+    }
 }

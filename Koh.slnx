@@ -5,6 +5,7 @@
     <Project Path="src/Koh.Emit/Koh.Emit.csproj" />
     <Project Path="src/Koh.Link/Koh.Link.csproj" />
     <Project Path="src/Koh.Linker.Core/Koh.Linker.Core.csproj" />
+    <Project Path="src/Koh.Lsp/Koh.Lsp.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
