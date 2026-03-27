@@ -18,15 +18,15 @@ static class KohAsm
         if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
             return ShowUsage(exitCode: args.Length == 0 ? 1 : 0);
 
-        var (inputPath, outputPath, error) = ParseArgs(args);
+        var (inputPath, outputPath, format, error) = ParseArgs(args);
         if (error != null)
             return Fail(error);
-        // inputPath is guaranteed non-null here: ParseArgs sets error when input is null.
         if (!File.Exists(inputPath!))
             return Fail($"file not found: {inputPath}");
 
         var input = inputPath!;
-        outputPath ??= Path.ChangeExtension(input, ".kobj");
+        var defaultExt = format == OutputFormat.Rgbds ? ".o" : ".kobj";
+        outputPath ??= Path.ChangeExtension(input, defaultExt);
 
         var source = ReadSource(input);
         if (source == null)
@@ -37,8 +37,10 @@ static class KohAsm
         if (ReportDiagnostics(emitModel, source))
             return 1;
 
-        return WriteOutput(emitModel, outputPath, input);
+        return WriteOutput(emitModel, outputPath, input, format);
     }
+
+    enum OutputFormat { Kobj, Rgbds }
 
     // -------------------------------------------------------------------------
     // Pipeline stages
@@ -82,13 +84,18 @@ static class KohAsm
         return hasErrors;
     }
 
-    static int WriteOutput(EmitModel model, string outputPath, string inputPath)
+    static int WriteOutput(EmitModel model, string outputPath, string inputPath, OutputFormat format)
     {
         var tempPath = outputPath + "." + Path.GetRandomFileName();
         try
         {
             using (var stream = File.Create(tempPath))
-                KobjWriter.Write(stream, model);
+            {
+                if (format == OutputFormat.Rgbds)
+                    RgbdsObjectWriter.Write(stream, model);
+                else
+                    KobjWriter.Write(stream, model);
+            }
             File.Move(tempPath, outputPath, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -115,30 +122,45 @@ static class KohAsm
     // Helpers
     // -------------------------------------------------------------------------
 
-    static (string? input, string? output, string? error) ParseArgs(string[] args)
+    static (string? input, string? output, OutputFormat format, string? error) ParseArgs(string[] args)
     {
-        string? input = null,
-            output = null;
+        string? input = null, output = null;
+        var format = OutputFormat.Kobj;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] is "-o" or "--output")
             {
                 if (i + 1 >= args.Length)
-                    return (null, null, $"option '{args[i]}' requires an argument");
+                    return (null, null, format, $"option '{args[i]}' requires an argument");
                 output = args[++i];
+            }
+            else if (args[i] is "--format" or "-f")
+            {
+                if (i + 1 >= args.Length)
+                    return (null, null, format, $"option '{args[i]}' requires an argument");
+                var val = args[++i].ToLowerInvariant();
+                OutputFormat? parsed = val switch
+                {
+                    "kobj" => OutputFormat.Kobj,
+                    "rgbds" or "o" => OutputFormat.Rgbds,
+                    _ => null,
+                };
+                if (parsed is null)
+                    return (null, null, format, $"unknown format '{val}' (expected: kobj, rgbds, o)");
+                format = parsed.Value;
             }
             else if (!args[i].StartsWith('-'))
             {
                 if (input != null)
-                    return (null, null, $"unexpected argument '{args[i]}'");
+                    return (null, null, format, $"unexpected argument '{args[i]}'");
                 input = args[i];
             }
             else
             {
-                return (null, null, $"unknown option '{args[i]}' (try --help)");
+                return (null, null, format, $"unknown option '{args[i]}' (try --help)");
             }
         }
-        return input == null ? (null, null, "no input file specified") : (input, output, null);
+        return input == null ? (null, null, format, "no input file specified") : (input, output, format, null);
     }
 
     static (int line, int col) GetLocation(Diagnostic diag, SourceText source)
@@ -173,12 +195,13 @@ static class KohAsm
         var output = exitCode == 0 ? Console.Out : Console.Error;
         output.WriteLine(
             """
-            Usage: koh-asm <input.asm> [-o output.kobj]
+            Usage: koh-asm <input.asm> [-o output] [--format kobj|rgbds]
 
             Options:
-              -o, --output <path>  Output file path (default: input.kobj)
-                  --version        Show version information
-              -h, --help           Show this help
+              -o, --output <path>    Output file path (default: input.kobj or input.o)
+              -f, --format <format>  Output format: kobj (default), rgbds or o (.o for rgblink)
+                  --version          Show version information
+              -h, --help             Show this help
             """
         );
         return exitCode;

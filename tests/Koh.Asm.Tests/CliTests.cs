@@ -255,6 +255,68 @@ public sealed class CliTests
     }
 
     // ---------------------------------------------------------------------------
+    // --format / -f
+    // ---------------------------------------------------------------------------
+
+    [Test]
+    public async Task FormatRgbds_ProducesDotOWithRgb9Header()
+    {
+        using var tmp = new TempDirectory();
+        var asmPath = tmp.Write("test.asm", MinimalValidSource());
+
+        var result = await CliFixture.RunAsync([asmPath, "--format", "rgbds"]);
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        var outputPath = Path.ChangeExtension(asmPath, ".o");
+        await Assert.That(File.Exists(outputPath)).IsTrue();
+        var bytes = File.ReadAllBytes(outputPath);
+        await Assert.That(bytes.Length).IsGreaterThan(4);
+        // RGB9 magic header
+        await Assert.That(bytes[0]).IsEqualTo((byte)'R');
+        await Assert.That(bytes[1]).IsEqualTo((byte)'G');
+        await Assert.That(bytes[2]).IsEqualTo((byte)'B');
+        await Assert.That(bytes[3]).IsEqualTo((byte)'9');
+    }
+
+    [Test]
+    public async Task FormatShortFlag_ProducesDotO()
+    {
+        using var tmp = new TempDirectory();
+        var asmPath = tmp.Write("test.asm", MinimalValidSource());
+
+        var result = await CliFixture.RunAsync([asmPath, "-f", "rgbds"]);
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        var outputPath = Path.ChangeExtension(asmPath, ".o");
+        await Assert.That(File.Exists(outputPath)).IsTrue();
+    }
+
+    [Test]
+    public async Task FormatUnknown_ReportsError_ExitsOne()
+    {
+        using var tmp = new TempDirectory();
+        var asmPath = tmp.Write("test.asm", MinimalValidSource());
+
+        var result = await CliFixture.RunAsync([asmPath, "--format", "elf"]);
+
+        await Assert.That(result.ExitCode).IsEqualTo(1);
+        await Assert.That(result.Stderr).Contains("unknown format");
+        await Assert.That(result.Stderr).Contains("elf");
+    }
+
+    [Test]
+    public async Task FormatFlagMissingValue_ReportsError_ExitsOne()
+    {
+        using var tmp = new TempDirectory();
+        var asmPath = tmp.Write("test.asm", MinimalValidSource());
+
+        var result = await CliFixture.RunAsync([asmPath, "--format"]);
+
+        await Assert.That(result.ExitCode).IsEqualTo(1);
+        await Assert.That(result.Stderr).Contains("requires an argument");
+    }
+
+    // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
 
