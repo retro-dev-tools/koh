@@ -2183,33 +2183,33 @@ Find an open-source GB project using RGBDS syntax. Assemble with both RGBDS and 
 - Create: `src/Koh.Emit/RgbdsObjectWriter.cs`
 - Test: `tests/Koh.Emit.Tests/RgbdsFormatTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create an EmitModel, write as RGBDS `.o`, read with a reference reader (parse the binary), verify structure matches RGB9 rev 13 spec.
 
-- [ ] **Step 2: Implement RGB9 writer**
+- [x] **Step 2: Implement RGB9 writer**
 
 - Expression tree → RPN flattening
 - Symbol table → RGBDS symbol format
 - Section → RGBDS section format with patches
 - File stack nodes for backtraces
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ### Task 9.2: Cross-Tool Integration Test
 
 **Files:**
 - Test: `tests/Koh.Compat.Tests/RgbdsInteropTests.cs`
 
-- [ ] **Step 1: Write test that assembles with Koh, links with rgblink**
+- [x] **Step 1: Write test that assembles with Koh, links with rgblink**
 
-Requires `rgblink` available on PATH. Skip if not available (`[ConditionalTest]`).
+Requires `rgblink` available on PATH. Skip if not available (`[ConditionalTest]`). Docker-based via `docker compose run --rm --build compat-tests`.
 
 - [ ] **Step 2: Write test that mixes Koh .o and rgbasm .o files**
 
 Assemble one file with Koh (`--format rgbds`), another with rgbasm, link both with rgblink.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ---
 
@@ -2225,13 +2225,13 @@ Assemble one file with Koh (`--format rgbds`), another with rgbasm, link both wi
 - Create: `src/Koh.Lsp/KohLanguageServer.cs`
 - Create: `src/Koh.Lsp/Workspace.cs`
 
-- [ ] **Step 1: Create project, add LSP protocol dependency**
+- [x] **Step 1: Create project, add LSP protocol dependency**
 
-- [ ] **Step 2: Implement basic server lifecycle** — initialize, initialized, shutdown, exit
+- [x] **Step 2: Implement basic server lifecycle** — initialize, initialized, shutdown, exit
 
-- [ ] **Step 3: Implement Workspace** — holds `Compilation`, updates on `textDocument/didOpen`, `didChange`, `didClose`
+- [x] **Step 3: Implement Workspace** — holds `Compilation`, updates on `textDocument/didOpen`, `didChange`, `didClose`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ### Task 10.2: Diagnostics
 
@@ -2240,33 +2240,26 @@ Assemble one file with Koh (`--format rgbds`), another with rgbasm, link both wi
 - Create: `tests/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj`
 - Test: `tests/Koh.Lsp.Tests/DiagnosticsTests.cs`
 
-- [ ] **Step 1: Create LSP test project**
+- [x] **Step 1: Create LSP test project**
 
-```bash
-dotnet new classlib -n Koh.Lsp.Tests -o tests/Koh.Lsp.Tests -f net10.0
-dotnet sln add tests/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj
-dotnet add tests/Koh.Lsp.Tests reference src/Koh.Lsp
-dotnet add tests/Koh.Lsp.Tests package TUnit
-```
+- [x] **Step 2: Write failing test** — send `textDocument/didOpen` with invalid source, verify `textDocument/publishDiagnostics` is received with correct file/line/column.
 
-- [ ] **Step 2: Write failing test** — send `textDocument/didOpen` with invalid source, verify `textDocument/publishDiagnostics` is received with correct file/line/column.
-
-- [ ] **Step 3: On file change → reparse → publish diagnostics**
+- [x] **Step 3: On file change → reparse → publish diagnostics**
 
 Convert `Koh.Core.Diagnostics.Diagnostic` to LSP `Diagnostic` with file/line/column mapping.
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 ### Task 10.3: Hover
 
 **Files:**
 - Create: `src/Koh.Lsp/Handlers/HoverHandler.cs`
 
-- [ ] **Step 1: Implement textDocument/hover**
+- [x] **Step 1: Implement textDocument/hover**
 
 Use `SemanticModel.GetSymbol(position)` → return symbol info, value in all bases, instruction details (bytes, cycles, flags).
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ### Task 10.4: Go-to-Definition & References
 
@@ -2274,22 +2267,22 @@ Use `SemanticModel.GetSymbol(position)` → return symbol info, value in all bas
 - Create: `src/Koh.Lsp/Handlers/DefinitionHandler.cs`
 - Create: `src/Koh.Lsp/Handlers/ReferencesHandler.cs`
 
-- [ ] **Step 1: Implement textDocument/definition** — `SemanticModel.GetDeclaredSymbol()` → return source location
+- [x] **Step 1: Implement textDocument/definition** — `SemanticModel.GetDeclaredSymbol()` → return source location
 
 - [ ] **Step 2: Implement textDocument/references** — find all references to a symbol across all files
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ### Task 10.5: Completion
 
 **Files:**
 - Create: `src/Koh.Lsp/Handlers/CompletionHandler.cs`
 
-- [ ] **Step 1: Implement textDocument/completion**
+- [x] **Step 1: Implement textDocument/completion**
 
 Context-aware: instructions at line start, registers after instruction, symbols in expressions, directives.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ### Task 10.6: Remaining LSP Features
 
@@ -2297,7 +2290,7 @@ Context-aware: instructions at line start, registers after instruction, symbols 
 - [ ] **Step 2: Semantic tokens** — `textDocument/semanticTokens/full` from syntax tree
 - [ ] **Step 3: Inlay hints** — constant values, macro parameters
 - [ ] **Step 4: Signature help** — macro parameter positions
-- [ ] **Step 5: Document symbols** — labels, constants, macros, sections
+- [x] **Step 5: Document symbols** — labels, constants, macros, sections
 - [ ] **Step 6: Commit**
 
 ### Task 10.7: VS Code Extension
@@ -2306,10 +2299,10 @@ Context-aware: instructions at line start, registers after instruction, symbols 
 - Create: `editors/vscode/package.json`
 - Create: `editors/vscode/src/extension.ts`
 
-- [ ] **Step 1: Create VS Code extension** that launches the Koh LSP server
-- [ ] **Step 2: Configure language contribution points** (`.asm`, `.inc` file associations)
+- [x] **Step 1: Create VS Code extension** that launches the Koh LSP server
+- [x] **Step 2: Configure language contribution points** (`.asm`, `.inc` file associations)
 - [ ] **Step 3: Test locally with VS Code**
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ---
 

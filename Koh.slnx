@@ -13,5 +13,6 @@
     <Project Path="tests/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />
     <Project Path="tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj" />
     <Project Path="tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj" />
+    <Project Path="tests/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj" />
   </Folder>
 </Solution>
