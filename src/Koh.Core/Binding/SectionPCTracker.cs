@@ -6,6 +6,7 @@ namespace Koh.Core.Binding;
 internal sealed class SectionPCTracker
 {
     private readonly Dictionary<string, int> _sectionPCs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Stack<string?> _sectionStack = new();
     private string? _activeSection;
 
     public int CurrentPC => _activeSection != null && _sectionPCs.TryGetValue(_activeSection, out var pc)
@@ -16,13 +17,21 @@ internal sealed class SectionPCTracker
     public void SetActive(string sectionName, int basePC)
     {
         _activeSection = sectionName;
-        if (!_sectionPCs.ContainsKey(sectionName))
-            _sectionPCs[sectionName] = basePC;
+        _sectionPCs.TryAdd(sectionName, basePC);
     }
 
     public void Advance(int bytes)
     {
         if (_activeSection != null)
             _sectionPCs[_activeSection] += bytes;
+    }
+
+    public void PushSection() => _sectionStack.Push(_activeSection);
+
+    public bool PopSection()
+    {
+        if (_sectionStack.Count == 0) return false;
+        _activeSection = _sectionStack.Pop();
+        return true;
     }
 }

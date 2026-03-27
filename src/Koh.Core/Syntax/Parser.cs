@@ -110,9 +110,10 @@ internal sealed class Parser
         if (IsInstructionKeyword(Current.Kind))
             return ParseInstruction();
 
-        // Symbol definition: identifier EQU/EQUS expr
+        // Symbol definition: identifier EQU/EQUS expr or identifier RB/RW N
         if (Current.Kind == SyntaxKind.IdentifierToken &&
-            Peek().Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword)
+            Peek().Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
+                or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
             return ParseSymbolDirective();
 
         // Directives
@@ -157,11 +158,11 @@ internal sealed class Parser
         if (Current.Kind is SyntaxKind.IncludeKeyword or SyntaxKind.IncbinKeyword)
             return ParseBlockDirective(SyntaxKind.IncludeDirective);
 
-        // Character map directives
+        // Character map directives — flat token gobble, binder handles semantics
         if (Current.Kind is SyntaxKind.CharmapKeyword or SyntaxKind.NewcharmapKeyword
             or SyntaxKind.SetcharmapKeyword or SyntaxKind.PrecharmapKeyword
             or SyntaxKind.PopcharmapKeyword)
-            return ParseSymbolDirective(); // flat token gobble, binder handles semantics
+            return ParseBlockDirective(SyntaxKind.SymbolDirective);
 
         // UNION control: NEXTU/ENDU/LOAD/ENDL
         if (Current.Kind is SyntaxKind.NextuKeyword or SyntaxKind.EnduKeyword
@@ -172,12 +173,32 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.ShiftKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
 
+        // RS counters: RSRESET (no args), RSSET expr
+        if (Current.Kind == SyntaxKind.RsresetKeyword)
+            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+        if (Current.Kind == SyntaxKind.RssetKeyword)
+            return ParseRssetDirective();
+
+        // ASSERT/STATIC_ASSERT — parse with expression arguments
+        if (Current.Kind is SyntaxKind.AssertKeyword or SyntaxKind.StaticAssertKeyword)
+            return ParseAssertDirective();
+
+        // WARN/FAIL/PRINT/PRINTLN
+        if (Current.Kind is SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword
+            or SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
+            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
+        // PUSHS/POPS
+        if (Current.Kind is SyntaxKind.PushsKeyword or SyntaxKind.PopsKeyword)
+            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
         // Potential macro call or unrecognized identifier at statement level.
         // Parse as MacroCall so the binder can check if it's a known macro.
         // If not a macro, the binder ignores it (produces a diagnostic for unknown statement).
         if (Current.Kind == SyntaxKind.IdentifierToken &&
             Peek().Kind is not SyntaxKind.ColonToken and not SyntaxKind.DoubleColonToken
-            and not SyntaxKind.EquKeyword and not SyntaxKind.EqusKeyword)
+            and not SyntaxKind.EquKeyword and not SyntaxKind.EqusKeyword
+            and not SyntaxKind.RbKeyword and not SyntaxKind.RwKeyword and not SyntaxKind.RlKeyword)
             return ParseBlockDirective(SyntaxKind.MacroCall);
 
         return null; // will be handled by the safety advance in ParseCompilationUnit
@@ -208,6 +229,51 @@ internal sealed class Parser
         }
 
         return new GreenNode(SyntaxKind.ConditionalDirective, children.ToArray());
+    }
+
+    /// <summary>
+    /// Parse RSSET expr — sets the RS counter to a specific value.
+    /// </summary>
+    private GreenNode ParseRssetDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // RSSET keyword
+        if (!AtEndOfStatement())
+            children.Add(ParseExpression());
+        return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
+    }
+
+    /// <summary>
+    /// Parse ASSERT expr [, "message"] / STATIC_ASSERT expr [, "message"].
+    /// The condition expression is parsed so the binder can evaluate it.
+    /// </summary>
+    private GreenNode ParseAssertDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // ASSERT or STATIC_ASSERT keyword
+
+        if (!AtEndOfStatement())
+        {
+            // Optional severity keyword: ASSERT WARN, expr / ASSERT FAIL, expr / ASSERT FATAL, expr
+            if (Current.Kind is SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword or SyntaxKind.FatalKeyword
+                && Peek().Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // severity keyword
+                children.Add(Advance()); // comma after severity
+            }
+
+            children.Add(ParseExpression()); // condition
+
+            // Optional comma + message string
+            while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                if (!AtEndOfStatement())
+                    children.Add(Advance()); // message token (string literal or other)
+            }
+        }
+
+        return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
     }
 
     /// <summary>
@@ -309,10 +375,11 @@ internal sealed class Parser
         children.Add(Advance()); // symbol name (IdentifierToken)
 
         System.Diagnostics.Debug.Assert(
-            Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword,
-            $"ParseEquDefinition expected EQU/EQUS keyword, got {Current.Kind}"
+            Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
+                or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword,
+            $"ParseEquDefinition expected EQU/EQUS/RB/RW/RL keyword, got {Current.Kind}"
         );
-        children.Add(Advance()); // EQU or EQUS keyword
+        children.Add(Advance()); // EQU, EQUS, RB, RW, or RL keyword
 
         if (!AtEndOfStatement())
             children.Add(ParseExpression()); // value

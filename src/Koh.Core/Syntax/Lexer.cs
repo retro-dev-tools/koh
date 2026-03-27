@@ -119,10 +119,27 @@ public sealed class Lexer
         ["setcharmap"] = SyntaxKind.SetcharmapKeyword,
         ["prechmap"] = SyntaxKind.PrecharmapKeyword,
         ["popcharmap"] = SyntaxKind.PopcharmapKeyword,
+        // RGBDS canonical forms: PUSHC/POPC
+        ["pushc"] = SyntaxKind.PrecharmapKeyword,
+        ["popc"] = SyntaxKind.PopcharmapKeyword,
         ["nextu"] = SyntaxKind.NextuKeyword,
         ["endu"] = SyntaxKind.EnduKeyword,
         ["load"] = SyntaxKind.LoadKeyword,
         ["endl"] = SyntaxKind.EndlKeyword,
+        ["rb"] = SyntaxKind.RbKeyword,
+        ["rw"] = SyntaxKind.RwKeyword,
+        // "rl" is already mapped to RlKeyword in the instruction range above
+        ["rsreset"] = SyntaxKind.RsresetKeyword,
+        ["rsset"] = SyntaxKind.RssetKeyword,
+        ["assert"] = SyntaxKind.AssertKeyword,
+        ["static_assert"] = SyntaxKind.StaticAssertKeyword,
+        ["warn"] = SyntaxKind.WarnKeyword,
+        ["fail"] = SyntaxKind.FailKeyword,
+        ["fatal"] = SyntaxKind.FatalKeyword,
+        ["print"] = SyntaxKind.PrintKeyword,
+        ["println"] = SyntaxKind.PrintlnKeyword,
+        ["pushs"] = SyntaxKind.PushsKeyword,
+        ["pops"] = SyntaxKind.PopsKeyword,
         ["high"] = SyntaxKind.HighKeyword,
         ["low"] = SyntaxKind.LowKeyword,
         ["bank"] = SyntaxKind.BankKeyword,
@@ -288,9 +305,9 @@ public sealed class Lexer
                 _position += 2;
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));
             }
-            // \NARG — consumed as a single identifier-like token
-            if (next == 'N' && _position + 5 <= _source.Length
-                && _source.ToString(new TextSpan(_position + 1, 4)) == "NARG")
+            // \NARG — consumed as a single identifier-like token (case-insensitive)
+            if ((next is 'N' or 'n') && _position + 5 <= _source.Length
+                && _source.ToString(new TextSpan(_position + 1, 4)).Equals("NARG", StringComparison.OrdinalIgnoreCase))
             {
                 _position += 5;
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));

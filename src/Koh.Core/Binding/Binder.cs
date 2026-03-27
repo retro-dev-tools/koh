@@ -12,12 +12,14 @@ public sealed class Binder
     private readonly SectionManager _sections = new();
     private readonly InstructionEncoder _encoder;
     private readonly ISourceFileResolver _fileResolver;
+    private readonly CharMapManager _charMaps;
 
     public Binder(ISourceFileResolver? fileResolver = null)
     {
         _symbols = new SymbolTable(_diagnostics);
         _encoder = new InstructionEncoder(_symbols, _diagnostics);
         _fileResolver = fileResolver ?? new FileSystemResolver();
+        _charMaps = new CharMapManager(_diagnostics);
     }
 
     public BindingResult Bind(SyntaxTree tree)
@@ -76,7 +78,31 @@ public sealed class Binder
             case SyntaxKind.SymbolDirective:
                 // EQU constants are defined by the AssemblyExpander before Pass 1 runs;
                 // do not redefine them here. Only EXPORT visibility marking belongs in Pass 1.
+                // Charmap directives are also processed here so Pass1Data can compute
+                // accurate byte counts for strings using multi-char charmap mappings.
                 Pass1Export(node);
+                Pass1Charmap(node);
+                break;
+            case SyntaxKind.DirectiveStatement:
+                Pass1Directive(node, pc);
+                break;
+        }
+    }
+
+    private void Pass1Directive(SyntaxNode node, SectionPCTracker pc)
+    {
+        var kw = node.ChildTokens().FirstOrDefault();
+        if (kw == null) return;
+
+        switch (kw.Kind)
+        {
+            case SyntaxKind.PushsKeyword:
+                pc.PushSection();
+                break;
+            case SyntaxKind.PopsKeyword:
+                // Diagnostic for unmatched POPS is reported by Pass2Directive only,
+                // to avoid duplicate error messages.
+                pc.PopSection();
                 break;
         }
     }
@@ -112,8 +138,18 @@ public sealed class Binder
         switch (keyword.Kind)
         {
             case SyntaxKind.DbKeyword:
-                pc.Advance(expressions.Count);
+            {
+                int byteCount = 0;
+                foreach (var expr in expressions)
+                {
+                    if (IsStringLiteral(expr.Green))
+                        byteCount += _charMaps.EncodeString(ExtractStringText(expr.Green)).Length;
+                    else
+                        byteCount++;
+                }
+                pc.Advance(byteCount);
                 break;
+            }
             case SyntaxKind.DwKeyword:
                 pc.Advance(expressions.Count * 2);
                 break;
@@ -160,6 +196,47 @@ public sealed class Binder
     /// EQU and REDEF constants are fully resolved by AssemblyExpander before Pass 1 runs;
     /// re-evaluating them here would cause duplicate-definition diagnostics.
     /// </summary>
+    private void Pass1Charmap(SyntaxNode node)
+    {
+        var tokens = node.ChildTokens().ToList();
+        if (tokens.Count == 0) return;
+
+        switch (tokens[0].Kind)
+        {
+            case SyntaxKind.NewcharmapKeyword:
+                if (tokens.Count >= 2)
+                    _charMaps.NewCharMap(StripQuotes(tokens[1].Text));
+                break;
+            case SyntaxKind.SetcharmapKeyword:
+                if (tokens.Count >= 2)
+                    _charMaps.SetCharMap(StripQuotes(tokens[1].Text));
+                break;
+            case SyntaxKind.PrecharmapKeyword:
+                _charMaps.PushCharMap();
+                break;
+            case SyntaxKind.PopcharmapKeyword:
+                _charMaps.PopCharMap();
+                break;
+            case SyntaxKind.CharmapKeyword:
+                if (tokens.Count >= 2)
+                {
+                    var charStr = tokens[1].Text;
+                    if (charStr.Length >= 2) charStr = charStr[1..^1];
+                    for (int i = tokens.Count - 1; i >= 2; i--)
+                    {
+                        if (tokens[i].Kind == SyntaxKind.NumberLiteral)
+                        {
+                            var val = ExpressionEvaluator.ParseNumber(tokens[i].Text);
+                            if (val.HasValue)
+                                _charMaps.AddMapping(charStr, (byte)(val.Value & 0xFF));
+                            break;
+                        }
+                    }
+                }
+                break;
+        }
+    }
+
     private void Pass1Export(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
@@ -198,8 +275,10 @@ public sealed class Binder
             case SyntaxKind.InstructionStatement:
                 Pass2Instruction(node);
                 break;
-            case SyntaxKind.SymbolDirective:
-                Pass2Symbol(node);
+            // SymbolDirective: charmap directives handled in Pass1Charmap,
+            // EQU/EXPORT handled in Pass1. Nothing to do in Pass2.
+            case SyntaxKind.DirectiveStatement:
+                Pass2Directive(node);
                 break;
         }
     }
@@ -270,6 +349,15 @@ public sealed class Binder
             case SyntaxKind.DbKeyword:
                 foreach (var expr in expressions)
                 {
+                    // String literals in DB: encode through character map
+                    if (IsStringLiteral(expr.Green))
+                    {
+                        var text = ExtractStringText(expr.Green);
+                        foreach (var b in _charMaps.EncodeString(text))
+                            section.EmitByte(b);
+                        continue;
+                    }
+
                     var val = evaluator.TryEvaluate(expr.Green);
                     if (val.HasValue)
                         section.EmitByte((byte)(val.Value & 0xFF));
@@ -341,10 +429,113 @@ public sealed class Binder
         _encoder.Encode(node, desc, section);
     }
 
-    private void Pass2Symbol(SyntaxNode node)
+    private static string StripQuotes(string text) =>
+        text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
+
+    private void Pass2Directive(SyntaxNode node)
     {
-        // EQU/REDEF constants are fully resolved by AssemblyExpander before any pass.
-        // EXPORT visibility is marked in Pass1Export.
-        // Nothing to emit in Pass 2 for symbol directives.
+        var tokens = node.ChildTokens().ToList();
+        if (tokens.Count == 0) return;
+
+        switch (tokens[0].Kind)
+        {
+            case SyntaxKind.AssertKeyword:
+            case SyntaxKind.StaticAssertKeyword:
+            {
+                var exprNodes = node.ChildNodes().ToList();
+                if (exprNodes.Count == 0)
+                {
+                    _diagnostics.Report(node.FullSpan, "ASSERT requires a condition expression");
+                    return;
+                }
+                var section = _sections.ActiveSection;
+                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
+                    () => section?.CurrentPC ?? 0);
+                var val = evaluator.TryEvaluate(exprNodes[0].Green);
+
+                // Determine severity: ASSERT WARN, ... → warning; ASSERT FAIL/FATAL, ... → error (default)
+                var severity = DiagnosticSeverity.Error;
+                for (int ti = 1; ti < tokens.Count; ti++)
+                {
+                    if (tokens[ti].Kind == SyntaxKind.WarnKeyword) { severity = DiagnosticSeverity.Warning; break; }
+                    if (tokens[ti].Kind is SyntaxKind.FailKeyword or SyntaxKind.FatalKeyword) break;
+                    if (tokens[ti].Kind == SyntaxKind.CommaToken) break; // past severity position
+                }
+
+                string GetAssertMessage()
+                {
+                    for (int ti = 0; ti < tokens.Count; ti++)
+                        if (tokens[ti].Kind == SyntaxKind.StringLiteral && tokens[ti].Text.Length >= 2)
+                            return tokens[ti].Text[1..^1];
+                    return "Assertion failed";
+                }
+
+                if (val.HasValue && val.Value == 0)
+                {
+                    _diagnostics.Report(node.FullSpan, GetAssertMessage(), severity);
+                }
+                else if (!val.HasValue && tokens[0].Kind == SyntaxKind.StaticAssertKeyword)
+                {
+                    _diagnostics.Report(node.FullSpan,
+                        "STATIC_ASSERT condition could not be evaluated at assembly time");
+                }
+                // Regular ASSERT with null: deferred to link time (not yet implemented)
+                break;
+            }
+
+            case SyntaxKind.WarnKeyword:
+            {
+                var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                var msg = msgToken != null && msgToken.Text.Length >= 2
+                    ? msgToken.Text[1..^1]
+                    : "WARN directive";
+                _diagnostics.Report(node.FullSpan, msg, DiagnosticSeverity.Warning);
+                break;
+            }
+
+            case SyntaxKind.FailKeyword:
+            {
+                var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                var msg = msgToken != null && msgToken.Text.Length >= 2
+                    ? msgToken.Text[1..^1]
+                    : "FAIL directive";
+                _diagnostics.Report(node.FullSpan, msg);
+                break;
+            }
+
+            case SyntaxKind.PrintKeyword:
+            case SyntaxKind.PrintlnKeyword:
+                // PRINT/PRINTLN — no-op during binding (compile-time output only)
+                break;
+
+            case SyntaxKind.PushsKeyword:
+                _sections.PushSection();
+                break;
+
+            case SyntaxKind.PopsKeyword:
+                if (!_sections.PopSection())
+                    _diagnostics.Report(node.FullSpan, "POPS without matching PUSHS");
+                break;
+        }
+    }
+
+    private static bool IsStringLiteral(Syntax.InternalSyntax.GreenNodeBase green)
+    {
+        if (green is Syntax.InternalSyntax.GreenNode node &&
+            node.Kind == SyntaxKind.LiteralExpression)
+        {
+            var child = node.GetChild(0);
+            return child is Syntax.InternalSyntax.GreenToken t &&
+                   t.Kind == SyntaxKind.StringLiteral;
+        }
+        return false;
+    }
+
+    private static string ExtractStringText(Syntax.InternalSyntax.GreenNodeBase green)
+    {
+        var node = (Syntax.InternalSyntax.GreenNode)green;
+        var token = (Syntax.InternalSyntax.GreenToken)node.GetChild(0)!;
+        var text = token.Text;
+        return text.Length >= 2 ? text[1..^1] : text; // strip quotes
     }
 }

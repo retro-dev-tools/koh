@@ -83,6 +83,17 @@ public enum SyntaxKind : ushort
     // UNION/LOAD keywords
     NextuKeyword, EnduKeyword, LoadKeyword, EndlKeyword,
 
+    // RS counter keywords (RlKeyword is defined in the instruction range above — RL is
+    // both the rotate-left instruction and an RS long directive, disambiguated by context)
+    RbKeyword, RwKeyword, RsresetKeyword, RssetKeyword,
+
+    // Control directives
+    AssertKeyword, StaticAssertKeyword, WarnKeyword, FailKeyword, FatalKeyword,
+    PrintKeyword, PrintlnKeyword,
+
+    // Stack directives
+    PushsKeyword, PopsKeyword,
+
     // Section type keywords — Rom0Keyword..OamKeyword must remain contiguous;
     // Parser.IsSectionTypeKeyword relies on a range check.
     Rom0Keyword, RomxKeyword, Wram0Keyword, WramxKeyword,

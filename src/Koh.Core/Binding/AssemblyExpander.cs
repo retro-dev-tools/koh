@@ -9,9 +9,6 @@ namespace Koh.Core.Binding;
 
 /// <summary>
 /// A single effective statement after all macro/REPT/IF expansion.
-/// </summary>
-/// <summary>
-/// A single effective statement after all macro/REPT/IF expansion.
 /// SourceFilePath tracks which file the node came from (for INCBIN path resolution).
 /// </summary>
 public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "");
@@ -27,6 +24,7 @@ internal sealed class AssemblyExpander
     private readonly SymbolTable _symbols;
     private readonly ConditionalAssemblyState _conditional = new();
     private readonly Dictionary<string, MacroDef> _macros = new(StringComparer.OrdinalIgnoreCase);
+    private long _rsCounter; // RS counter for RB/RW/RSRESET/RSSET
     private readonly ISourceFileResolver _fileResolver;
     private readonly HashSet<string> _includeStack = new(StringComparer.OrdinalIgnoreCase);
     private int _uniqueIdCounter;
@@ -168,9 +166,21 @@ internal sealed class AssemblyExpander
                 }
             }
 
-            // EQU constants — define immediately for IF/REPT condition evaluation
+            // EQU constants and RS counters — define immediately for IF/REPT condition evaluation
             if (node.Kind == SyntaxKind.SymbolDirective)
                 EarlyDefineEqu(node);
+
+            // RSRESET/RSSET — handle RS counter directives during expansion
+            if (node.Kind == SyntaxKind.DirectiveStatement)
+            {
+                var kw = node.ChildTokens().FirstOrDefault();
+                if (kw?.Kind is SyntaxKind.RsresetKeyword or SyntaxKind.RssetKeyword)
+                {
+                    HandleRsDirective(node);
+                    i++;
+                    continue; // consumed — don't emit to output
+                }
+            }
 
             output.Add(new ExpandedNode(node, _currentFilePath));
             i++;
@@ -181,6 +191,7 @@ internal sealed class AssemblyExpander
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count < 2) return;
+
         if (tokens[0].Kind == SyntaxKind.IdentifierToken &&
             tokens[1].Kind == SyntaxKind.EquKeyword)
         {
@@ -191,6 +202,61 @@ internal sealed class AssemblyExpander
                 var value = evaluator.TryEvaluate(exprNodes[0].Green);
                 if (value.HasValue)
                     _symbols.DefineConstant(tokens[0].Text, value.Value, node);
+            }
+        }
+        else if (tokens[0].Kind == SyntaxKind.IdentifierToken &&
+                 tokens[1].Kind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
+                 // Note: RlKeyword is also an instruction (rotate-left). Context disambiguates:
+                 // IdentifierToken followed by RlKeyword = RS directive, not instruction.
+        {
+            // name RB count — define name as current RS counter, advance by count*1
+            // name RW count — define name as current RS counter, advance by count*2
+            // name RL count — define name as current RS counter, advance by count*4
+            int multiplier = tokens[1].Kind switch
+            {
+                SyntaxKind.RwKeyword => 2,
+                SyntaxKind.RlKeyword => 4,
+                _ => 1,
+            };
+            long count = 1; // default count is 1
+
+            var exprNodes = node.ChildNodes().ToList();
+            if (exprNodes.Count > 0)
+            {
+                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                var value = evaluator.TryEvaluate(exprNodes[0].Green);
+                if (value.HasValue) count = value.Value;
+            }
+
+            _symbols.DefineConstant(tokens[0].Text, _rsCounter, node);
+            _rsCounter += count * multiplier;
+        }
+    }
+
+    private void HandleRsDirective(SyntaxNode node)
+    {
+        var tokens = node.ChildTokens().ToList();
+        if (tokens.Count == 0) return;
+
+        switch (tokens[0].Kind)
+        {
+            case SyntaxKind.RsresetKeyword:
+                _rsCounter = 0;
+                break;
+            case SyntaxKind.RssetKeyword:
+            {
+                var exprNodes = node.ChildNodes().ToList();
+                if (exprNodes.Count > 0)
+                {
+                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                    var value = evaluator.TryEvaluate(exprNodes[0].Green);
+                    if (value.HasValue) _rsCounter = value.Value;
+                }
+                else
+                {
+                    _diagnostics.Report(node.FullSpan, "RSSET requires a value");
+                }
+                break;
             }
         }
     }
