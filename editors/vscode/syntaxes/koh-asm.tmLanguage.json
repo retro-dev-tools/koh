@@ -59,7 +59,7 @@
                 },
                 {
                     "name": "keyword.other.directive.koh-asm",
-                    "match": "(?i)\\b(DEF|REDEF|EQU|EQUS|EXPORT|PURGE|OPT|CHARMAP|NEWCHARMAP|SETCHARMAP|ASSERT|STATIC_ASSERT|WARN|FAIL|PRINT|PRINTLN|PUSHS|POPS|PUSHC|POPC|SHIFT|FRAGMENT)\\b"
+                    "match": "(?i)\\b(DEF|REDEF|EQU|EQUS|EXPORT|PURGE|OPT|CHARMAP|NEWCHARMAP|SETCHARMAP|ASSERT|STATIC_ASSERT|WARN|FAIL|PRINT|PRINTLN|PUSHS|POPS|PUSHO|POPO|PUSHC|POPC|SHIFT|FRAGMENT)\\b"
                 },
                 {
                     "name": "keyword.other.data.koh-asm",

@@ -188,9 +188,18 @@ internal sealed class Parser
             or SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
 
-        // PUSHS/POPS
-        if (Current.Kind is SyntaxKind.PushsKeyword or SyntaxKind.PopsKeyword)
+        // PUSHS/POPS/PUSHO/POPO
+        if (Current.Kind is SyntaxKind.PushsKeyword or SyntaxKind.PopsKeyword
+            or SyntaxKind.PushoKeyword or SyntaxKind.PopoKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
+        // OPT — assembler options
+        if (Current.Kind == SyntaxKind.OptKeyword)
+            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
+        // Inline ALIGN — pad PC to alignment boundary
+        if (Current.Kind == SyntaxKind.AlignKeyword)
+            return ParseAlignDirective();
 
         // Potential macro call or unrecognized identifier at statement level.
         // Parse as MacroCall so the binder can check if it's a known macro.
@@ -229,6 +238,26 @@ internal sealed class Parser
         }
 
         return new GreenNode(SyntaxKind.ConditionalDirective, children.ToArray());
+    }
+
+    /// <summary>
+    /// Parse inline ALIGN [bits[, offset]] — pad PC to alignment boundary.
+    /// </summary>
+    private GreenNode ParseAlignDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // ALIGN keyword
+        if (!AtEndOfStatement())
+        {
+            children.Add(ParseExpression()); // alignment bits
+            if (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                if (!AtEndOfStatement())
+                    children.Add(ParseExpression()); // offset
+            }
+        }
+        return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
     }
 
     /// <summary>

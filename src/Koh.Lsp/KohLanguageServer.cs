@@ -416,7 +416,7 @@ public sealed class KohLanguageServer
             "INCLUDE", "INCBIN", "EXPORT", "PURGE", "OPT",
             "CHARMAP", "NEWCHARMAP", "SETCHARMAP", "PUSHC", "POPC",
             "ASSERT", "STATIC_ASSERT", "WARN", "FAIL", "PRINT", "PRINTLN",
-            "PUSHS", "POPS", "RSRESET", "RSSET", "RB", "RW", "RL",
+            "PUSHS", "POPS", "PUSHO", "POPO", "RSRESET", "RSSET", "RB", "RW", "RL", "ALIGN",
             "UNION", "NEXTU", "ENDU", "LOAD", "ENDL",
         };
         foreach (var d in directives)

@@ -13,13 +13,16 @@ public sealed class Binder
     private readonly InstructionEncoder _encoder;
     private readonly ISourceFileResolver _fileResolver;
     private readonly CharMapManager _charMaps;
+    private readonly TextWriter _printOutput;
+    private AssemblyExpander? _expander;
 
-    public Binder(ISourceFileResolver? fileResolver = null)
+    public Binder(ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
     {
         _symbols = new SymbolTable(_diagnostics);
         _encoder = new InstructionEncoder(_symbols, _diagnostics);
         _fileResolver = fileResolver ?? new FileSystemResolver();
         _charMaps = new CharMapManager(_diagnostics);
+        _printOutput = printOutput ?? Console.Error; // Default to stderr, NOT stdout (stdout is LSP transport)
     }
 
     public BindingResult Bind(SyntaxTree tree)
@@ -28,8 +31,8 @@ public sealed class Binder
             _diagnostics.Report(d.Span, d.Message, d.Severity);
 
         // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC, INCLUDE into flat list
-        var expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver);
-        var nodes = expander.Expand(tree);
+        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver);
+        var nodes = _expander.Expand(tree);
 
         // Pass 1: symbol collection and PC tracking
         var pcTracker = new SectionPCTracker();
@@ -114,7 +117,25 @@ public sealed class Binder
             case SyntaxKind.EndlKeyword:
                 pc.EndLoad();
                 break;
+            case SyntaxKind.AlignKeyword:
+                Pass1Align(node, pc);
+                break;
+            // OPT/PUSHO/POPO: no PC impact in Pass 1
         }
+    }
+
+    private void Pass1Align(SyntaxNode node, SectionPCTracker pc)
+    {
+        var exprNodes = node.ChildNodes().ToList();
+        if (exprNodes.Count == 0) return;
+        // Note: optional offset argument (exprNodes[1]) is parsed but not yet implemented.
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+        var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
+        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
+        int mask = (1 << (int)alignBits.Value) - 1;
+        int pad = (mask + 1 - (pc.CurrentPC & mask)) & mask;
+        pc.Advance(pad);
+        pc.AdvanceLoad(pad);
     }
 
     private void Pass1Load(SyntaxNode node, SectionPCTracker pc)
@@ -560,8 +581,21 @@ public sealed class Binder
 
             case SyntaxKind.PrintKeyword:
             case SyntaxKind.PrintlnKeyword:
-                // PRINT/PRINTLN — no-op during binding (compile-time output only)
+            {
+                // PRINT/PRINTLN — resolve interpolations and collect output.
+                // Output goes to _printOutput, NOT Console (Console is the LSP stdio transport).
+                var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                if (msgToken != null)
+                {
+                    var text = msgToken.Text.Length >= 2 ? msgToken.Text[1..^1] : msgToken.Text;
+                    if (_expander != null)
+                        text = _expander.ResolveInterpolations(text);
+                    _printOutput.Write(text);
+                }
+                if (tokens[0].Kind == SyntaxKind.PrintlnKeyword)
+                    _printOutput.WriteLine();
                 break;
+            }
 
             case SyntaxKind.PushsKeyword:
                 _sections.PushSection();
@@ -590,7 +624,43 @@ public sealed class Binder
                 if (!_sections.EndLoad())
                     _diagnostics.Report(node.FullSpan, "ENDL without matching LOAD");
                 break;
+
+            case SyntaxKind.AlignKeyword:
+                Pass2Align(node);
+                break;
+
+            case SyntaxKind.OptKeyword:
+            case SyntaxKind.PushoKeyword:
+            case SyntaxKind.PopoKeyword:
+                // OPT/PUSHO/POPO: accepted but not yet implemented — no-op
+                break;
         }
+    }
+
+    private void Pass2Align(SyntaxNode node)
+    {
+        var section = _sections.ActiveSection;
+        if (section == null)
+        {
+            _diagnostics.Report(node.FullSpan, "ALIGN outside of a section");
+            return;
+        }
+        var exprNodes = node.ChildNodes().ToList();
+        if (exprNodes.Count == 0)
+        {
+            _diagnostics.Report(node.FullSpan, "ALIGN requires an alignment value");
+            return;
+        }
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
+        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
+        {
+            _diagnostics.Report(node.FullSpan, "ALIGN value must be 0-16");
+            return;
+        }
+        int mask = (1 << (int)alignBits.Value) - 1;
+        int pad = (mask + 1 - (section.CurrentPC & mask)) & mask;
+        section.ReserveBytes(pad);
     }
 
     private void Pass2Load(SyntaxNode node)

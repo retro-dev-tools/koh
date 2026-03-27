@@ -24,6 +24,7 @@ internal sealed class AssemblyExpander
     private readonly SymbolTable _symbols;
     private readonly ConditionalAssemblyState _conditional = new();
     private readonly Dictionary<string, MacroDef> _macros = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _equsConstants = new(StringComparer.OrdinalIgnoreCase);
     private long _rsCounter; // RS counter for RB/RW/RSRESET/RSSET
     private readonly ISourceFileResolver _fileResolver;
     private readonly HashSet<string> _includeStack = new(StringComparer.OrdinalIgnoreCase);
@@ -134,6 +135,14 @@ internal sealed class AssemblyExpander
 
             if (node.Kind == SyntaxKind.MacroCall)
             {
+                // Check if it's an EQUS bare-name expansion before macro lookup
+                var callName = node.ChildTokens().FirstOrDefault()?.Text;
+                if (callName != null && _equsConstants.TryGetValue(callName, out var equsValue))
+                {
+                    ExpandTextInline(equsValue, output);
+                    i++;
+                    continue;
+                }
                 ExpandMacroCall(node, output);
                 i++;
                 continue;
@@ -230,6 +239,23 @@ internal sealed class AssemblyExpander
 
             _symbols.DefineConstant(tokens[0].Text, _rsCounter, node);
             _rsCounter += count * multiplier;
+        }
+        else if (tokens[0].Kind == SyntaxKind.IdentifierToken &&
+                 tokens[1].Kind == SyntaxKind.EqusKeyword)
+        {
+            // name EQUS "string" — store as text constant for expansion
+            // The string literal is inside a LiteralExpression child node
+            var exprNodes = node.ChildNodes().ToList();
+            if (exprNodes.Count > 0)
+            {
+                var strToken = exprNodes[0].ChildTokens()
+                    .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                if (strToken != null)
+                {
+                    var value = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+                    _equsConstants[tokens[0].Text] = value;
+                }
+            }
         }
     }
 
@@ -365,10 +391,24 @@ internal sealed class AssemblyExpander
         var args = new List<string>();
         var currentArg = new List<string>();
         int parenDepth = 0;
+        bool angleBracketQuoted = false;
 
         for (int t = startIndex; t < tokens.Count; t++)
         {
             var tok = tokens[t];
+
+            // Angle-bracket quoting: <arg with, commas> treated as single arg
+            if (tok.Kind == SyntaxKind.LessThanToken && parenDepth == 0 && !angleBracketQuoted
+                && currentArg.Count == 0)
+            {
+                angleBracketQuoted = true;
+                continue; // skip the opening <
+            }
+            if (tok.Kind == SyntaxKind.GreaterThanToken && angleBracketQuoted)
+            {
+                angleBracketQuoted = false;
+                continue; // skip the closing >
+            }
 
             if (tok.Kind == SyntaxKind.OpenParenToken)
             {
@@ -380,14 +420,13 @@ internal sealed class AssemblyExpander
                 parenDepth = Math.Max(0, parenDepth - 1);
                 currentArg.Add(tok.Text);
             }
-            else if (tok.Kind == SyntaxKind.CommaToken && parenDepth == 0)
+            else if (tok.Kind == SyntaxKind.CommaToken && parenDepth == 0 && !angleBracketQuoted)
             {
                 args.Add(string.Join(" ", currentArg));
                 currentArg.Clear();
             }
             else if (tok.Kind == SyntaxKind.MacroParamToken && tok.Text == "\\,")
             {
-                // \, escape — literal comma in argument
                 currentArg.Add(",");
             }
             else
@@ -808,11 +847,113 @@ internal sealed class AssemblyExpander
         }
     }
 
+    // =========================================================================
+    // String interpolation: {symbol}, {d:symbol}, {x:symbol}, etc.
+    // =========================================================================
+
+    /// <summary>
+    /// Resolve {symbol} and {fmt:symbol} interpolations in a string.
+    /// Used for PRINT/PRINTLN string arguments and EQUS expansion text.
+    /// </summary>
+    internal string ResolveInterpolations(string text)
+    {
+        if (!text.Contains('{')) return text;
+
+        var sb = new System.Text.StringBuilder(text.Length);
+        int i = 0;
+        while (i < text.Length)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] == '{')
+            {
+                // \{ — escaped brace, literal {
+                sb.Append('{');
+                i += 2;
+                continue;
+            }
+
+            if (text[i] == '{')
+            {
+                int braceStart = i;
+                i++; // skip {
+                // Parse optional format specifier: {fmt:name} or {name}
+                string? fmt = null;
+                int colonPos = text.IndexOf(':', i);
+                int closePos = text.IndexOf('}', i);
+
+                if (closePos < 0)
+                {
+                    // Unclosed { — emit as-is
+                    sb.Append('{');
+                    continue;
+                }
+
+                if (colonPos >= 0 && colonPos < closePos)
+                {
+                    fmt = text[i..colonPos];
+                    i = colonPos + 1;
+                }
+
+                string name = text[i..closePos];
+                i = closePos + 1;
+
+                // Resolve the symbol
+                string? resolved = ResolveInterpolationValue(name.Trim(), fmt?.Trim());
+                if (resolved != null)
+                    sb.Append(resolved);
+                else
+                {
+                    // Unknown symbol — preserve original text
+                    sb.Append(text[braceStart..i]);
+                    _diagnostics.Report(default, $"Interpolation: symbol '{name.Trim()}' not found");
+                }
+                continue;
+            }
+
+            sb.Append(text[i]);
+            i++;
+        }
+
+        return sb.ToString();
+    }
+
+    private string? ResolveInterpolationValue(string name, string? fmt)
+    {
+        // Check EQUS constants first (string type)
+        if (_equsConstants.TryGetValue(name, out var equsValue))
+            return equsValue; // EQUS always returns raw string regardless of format
+
+        // Check numeric symbols
+        var sym = _symbols.Lookup(name);
+        if (sym != null && sym.State == Symbols.SymbolState.Defined)
+        {
+            long val = sym.Value;
+            // Parse # prefix flag for base prefixes ($, %, &)
+            bool hasPrefix = fmt != null && fmt.StartsWith('#');
+            string type = fmt ?? "d"; // RGBDS default is decimal
+            if (hasPrefix) type = type[1..];
+
+            return type switch
+            {
+                "d" => ((int)val).ToString(),
+                "u" => ((uint)val).ToString(),
+                "x" => hasPrefix ? $"${val:x}" : val.ToString("x"),
+                "X" => hasPrefix ? $"${val:X}" : val.ToString("X"),
+                "b" => hasPrefix ? $"%{Convert.ToString(val, 2)}" : Convert.ToString(val, 2),
+                "o" => hasPrefix ? $"&{Convert.ToString(val, 8)}" : Convert.ToString(val, 8),
+                _ => ((int)val).ToString(),
+            };
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Parse and expand text inline (used for macro/REPT/FOR text-level expansion).
     /// </summary>
     private void ExpandTextInline(string text, List<ExpandedNode> output)
     {
+        // Resolve {symbol} interpolations before re-parsing
+        text = ResolveInterpolations(text);
         _expansionDepth++;
         if (_expansionDepth > MaxExpansionDepth)
         {

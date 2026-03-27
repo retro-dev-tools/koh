@@ -89,10 +89,10 @@ public enum SyntaxKind : ushort
 
     // Control directives
     AssertKeyword, StaticAssertKeyword, WarnKeyword, FailKeyword, FatalKeyword,
-    PrintKeyword, PrintlnKeyword,
+    PrintKeyword, PrintlnKeyword, OptKeyword,
 
     // Stack directives
-    PushsKeyword, PopsKeyword,
+    PushsKeyword, PopsKeyword, PushoKeyword, PopoKeyword,
 
     // Section type keywords — Rom0Keyword..OamKeyword must remain contiguous;
     // Parser.IsSectionTypeKeyword relies on a range check.
