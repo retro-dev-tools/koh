@@ -53,6 +53,21 @@ public class SyntaxNodeTests
         await Assert.That(root.FullSpan).IsEqualTo(new TextSpan(0, 3));
     }
 
+    [Test]
+    public async Task SyntaxNode_Span_ExcludesTrivia()
+    {
+        // "  nop\n" — leading whitespace (2) + "nop" (3) + trailing newline (1)
+        var tree = SyntaxTree.Parse("  nop\n");
+        var stmt = tree.Root.ChildNodes().First();
+
+        // FullSpan includes trivia
+        await Assert.That(stmt.FullSpan.Start).IsEqualTo(0);
+
+        // Span excludes leading whitespace and trailing newline
+        await Assert.That(stmt.Span.Start).IsEqualTo(2);
+        await Assert.That(stmt.Span.Length).IsLessThan(stmt.FullSpan.Length);
+    }
+
     // =========================================================================
     // FindToken
     // =========================================================================

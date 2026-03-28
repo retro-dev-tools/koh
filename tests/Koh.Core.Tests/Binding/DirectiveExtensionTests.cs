@@ -94,6 +94,38 @@ public class DirectiveExtensionTests
     }
 
     [Test]
+    public async Task Align_WithOffset_PadsToCorrectBoundary()
+    {
+        var model = Emit("""
+            SECTION "Main", ROM0
+            db $AA, $BB
+            ALIGN 2, 1
+            after: db $CC
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
+        await Assert.That(model.Success).IsTrue();
+        // ALIGN 2, 1 = address % 4 == 1. After 2 bytes, next such address is 5. Pad 3.
+        var sym = model.Symbols.First(s => s.Name == "after");
+        await Assert.That(sym.Value).IsEqualTo(5);
+    }
+
+    [Test]
+    public async Task Align_WithOffset_AlreadySatisfied()
+    {
+        var model = Emit("""
+            SECTION "Main", ROM0
+            ds 5
+            ALIGN 2, 1
+            after: db $CC
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
+        await Assert.That(model.Success).IsTrue();
+        // At offset 5, 5 % 4 == 1 — already satisfied, no pad
+        var sym = model.Symbols.First(s => s.Name == "after");
+        await Assert.That(sym.Value).IsEqualTo(5);
+    }
+
+    [Test]
     public async Task Align_OutsideSection_ReportsError()
     {
         var model = Emit("ALIGN 3");

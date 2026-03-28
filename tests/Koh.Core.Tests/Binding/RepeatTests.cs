@@ -203,11 +203,21 @@ public class RepeatTests
         await Assert.That(model.Sections[0].Data[3]).IsEqualTo((byte)0x77);
     }
 
-    // NOTE: Rept_UniqueAt_Labels is deferred. The parser does not yet support \@ embedded
-    // within a label name (e.g. .loop\@:) — the lexer emits LocalLabelToken + MacroParamToken
-    // + ColonToken rather than treating the whole composite as a single label token.
-    // Full \@ support in label names requires a lexer-level change to merge the tokens or
-    // a parser-level change to accept <LocalLabelToken> <MacroParamToken> <ColonToken> as a
-    // LabelDeclaration. Tracked as a known limitation; the substitution infrastructure is in
-    // place (ExpandRept correctly substitutes \@ in bodyTextRaw before re-parsing).
+    [Test]
+    public async Task Rept_UniqueAt_Labels()
+    {
+        // \@ in label names produces unique labels per iteration
+        var model = Emit("""
+            my_macro: MACRO
+            .local\@:
+                nop
+            ENDM
+            SECTION "Main", ROM0
+            my_macro
+            my_macro
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2); // two nops from two invocations
+    }
 }

@@ -64,26 +64,44 @@ public sealed class SemanticModel
     }
 
     /// <summary>
-    /// Get all defined symbols in the compilation.
-    /// NOTE: The <paramref name="position"/> parameter is currently unused — all defined
-    /// symbols are returned regardless of source position. Position-sensitive scoping
-    /// requires a scope chain that does not exist yet (deferred to a later phase).
+    /// Get all defined symbols visible at the given position.
+    /// Global symbols are always visible. Local labels (starting with '.') are filtered
+    /// to the enclosing global label scope at the given position.
     /// </summary>
     public IEnumerable<Symbol> LookupSymbols(int position)
     {
         if (_result.Symbols == null)
             return Enumerable.Empty<Symbol>();
 
+        // Find the enclosing global label for scope filtering
+        string? currentScope = null;
+        foreach (var node in _tree.Root.ChildNodes())
+        {
+            if (node.Position > position) break;
+            if (node.Kind == SyntaxKind.LabelDeclaration)
+            {
+                var token = node.ChildTokens().FirstOrDefault();
+                if (token != null && token.Kind == SyntaxKind.IdentifierToken)
+                    currentScope = token.Text;
+            }
+        }
+
         return _result.Symbols.AllSymbols
-            .Where(s => s.State == SymbolState.Defined);
+            .Where(s => s.State == SymbolState.Defined)
+            .Where(s =>
+            {
+                if (!s.Name.Contains('.')) return true; // global symbol — always visible
+                // Local labels stored as "globalName.localName" — visible in matching scope
+                if (currentScope == null) return false; // no enclosing scope — local not visible
+                return s.Name.StartsWith(currentScope + ".", StringComparison.OrdinalIgnoreCase);
+            });
     }
 
     /// <summary>
     /// Get diagnostics from the binding phase.
-    /// NOTE: Returns diagnostics for the entire compilation, not just this file, because
-    /// the binder accumulates all diagnostics in a single bag shared across trees.
-    /// Per-file filtering requires <see cref="Diagnostic"/> to carry a source-tree
-    /// reference (deferred to a later phase).
+    /// Returns all diagnostics from the compilation. For per-file filtering in multi-file
+    /// scenarios, use the Workspace.GetDocumentDiagnostics approach (SyntaxTree diagnostics
+    /// for parse errors, single-file binding diagnostics when only one file is open).
     /// </summary>
     public IReadOnlyList<Diagnostic> GetDiagnostics() => _result.Diagnostics;
 }

@@ -97,12 +97,20 @@ internal sealed class AssemblyExpander
                 var kw = node.ChildTokens().FirstOrDefault();
                 if (kw?.Kind == SyntaxKind.MacroKeyword)
                 {
+                    // Try old syntax: label preceding MACRO keyword
                     string? macroName = PeekMacroName(siblings, i);
+                    // Try RGBDS 0.5+ syntax: MACRO name (name as token after keyword)
+                    if (macroName == null)
+                    {
+                        var nameToken = node.ChildTokens()
+                            .FirstOrDefault(t => t.Kind == SyntaxKind.IdentifierToken);
+                        macroName = nameToken?.Text;
+                    }
                     if (macroName != null)
                         CollectMacroBody(siblings, ref i, macroName);
                     else
                     {
-                        _diagnostics.Report(node.FullSpan, "MACRO without a preceding label");
+                        _diagnostics.Report(node.FullSpan, "MACRO requires a name");
                         SkipMacroBlock(siblings, ref i);
                     }
                 }
@@ -202,7 +210,7 @@ internal sealed class AssemblyExpander
         if (tokens.Count < 2) return;
 
         if (tokens[0].Kind == SyntaxKind.IdentifierToken &&
-            tokens[1].Kind == SyntaxKind.EquKeyword)
+            tokens[1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
         {
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)

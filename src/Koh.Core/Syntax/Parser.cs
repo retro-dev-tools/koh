@@ -110,10 +110,11 @@ internal sealed class Parser
         if (IsInstructionKeyword(Current.Kind))
             return ParseInstruction();
 
-        // Symbol definition: identifier EQU/EQUS expr or identifier RB/RW N
+        // Symbol definition: identifier EQU/EQUS expr, identifier RB/RW/RL N, identifier = expr
         if (Current.Kind == SyntaxKind.IdentifierToken &&
             Peek().Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
-                or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
+                or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword
+                or SyntaxKind.EqualsToken)
             return ParseSymbolDirective();
 
         // Directives
@@ -207,7 +208,8 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.IdentifierToken &&
             Peek().Kind is not SyntaxKind.ColonToken and not SyntaxKind.DoubleColonToken
             and not SyntaxKind.EquKeyword and not SyntaxKind.EqusKeyword
-            and not SyntaxKind.RbKeyword and not SyntaxKind.RwKeyword and not SyntaxKind.RlKeyword)
+            and not SyntaxKind.RbKeyword and not SyntaxKind.RwKeyword and not SyntaxKind.RlKeyword
+            and not SyntaxKind.EqualsToken)
             return ParseBlockDirective(SyntaxKind.MacroCall);
 
         return null; // will be handled by the safety advance in ParseCompilationUnit
@@ -216,7 +218,15 @@ internal sealed class Parser
     private bool IsLabelStart()
     {
         if (Current.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
-            return Peek().Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken;
+        {
+            var next = Peek();
+            if (next.Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
+                return true;
+            // .label\@: — LocalLabelToken + MacroParamToken + ColonToken
+            if (next.Kind == SyntaxKind.MacroParamToken &&
+                Peek(2).Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
+                return true;
+        }
         return false;
     }
 
@@ -366,8 +376,8 @@ internal sealed class Parser
         if (IsSectionTypeKeyword(Current.Kind))
             children.Add(Advance());
 
-        // Bracket groups [$addr], [bank(n)], [align(n)] — consumed flat until structured
-        // address/bank/align parsing is needed in a later phase.
+        // Bracket groups [$addr], [bank(n)], [align(n)] — consumed flat as tokens.
+        // SectionHeaderParser re-scans these tokens to extract address/bank values.
         while (!AtEndOfStatement())
             children.Add(Advance());
 
@@ -405,10 +415,11 @@ internal sealed class Parser
 
         System.Diagnostics.Debug.Assert(
             Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
-                or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword,
-            $"ParseEquDefinition expected EQU/EQUS/RB/RW/RL keyword, got {Current.Kind}"
+                or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword
+                or SyntaxKind.EqualsToken,
+            $"ParseEquDefinition expected EQU/EQUS/RB/RW/RL/= keyword, got {Current.Kind}"
         );
-        children.Add(Advance()); // EQU, EQUS, RB, RW, or RL keyword
+        children.Add(Advance()); // EQU, EQUS, RB, RW, RL, or = token
 
         if (!AtEndOfStatement())
             children.Add(ParseExpression()); // value
@@ -416,13 +427,18 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
     }
 
-    // Handles:  DEF name = expr
+    // Handles:  DEF name = expr, DEF name EQU expr, DEF name EQUS expr
     private GreenNode ParseDefDefinition()
     {
         var children = new List<GreenNodeBase>();
         children.Add(Advance());                               // DEF
         children.Add(Advance());                               // symbol name
-        children.Add(ExpectToken(SyntaxKind.EqualsToken));     // =
+        // Accept both = and EQU/EQUS/RB/RW/RL after the name
+        if (Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
+            or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
+            children.Add(Advance());
+        else
+            children.Add(ExpectToken(SyntaxKind.EqualsToken)); // =
         if (!AtEndOfStatement())
             children.Add(ParseExpression());                   // value
         return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
@@ -471,9 +487,13 @@ internal sealed class Parser
 
     private GreenNode ParseLabelDeclaration()
     {
-        var name = Advance(); // identifier or local label token
-        var colon = Advance(); // : or ::
-        return new GreenNode(SyntaxKind.LabelDeclaration, [name, colon]);
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // identifier or local label token
+        // Handle .label\@: — consume optional MacroParamToken before the colon
+        if (Current.Kind == SyntaxKind.MacroParamToken)
+            children.Add(Advance());
+        children.Add(Advance()); // : or ::
+        return new GreenNode(SyntaxKind.LabelDeclaration, children.ToArray());
     }
 
     private GreenNode ParseInstruction()

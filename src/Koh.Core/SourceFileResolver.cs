@@ -23,6 +23,10 @@ public sealed class FileSystemResolver : ISourceFileResolver
 
     public string ResolvePath(string currentFile, string includedPath)
     {
+        // RGBDS behavior: includes are relative to CWD first, then the including file's directory.
+        var cwdPath = Path.GetFullPath(includedPath);
+        if (File.Exists(cwdPath)) return cwdPath;
+
         var dir = Path.GetDirectoryName(currentFile) ?? ".";
         return Path.GetFullPath(Path.Combine(dir, includedPath));
     }

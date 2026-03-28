@@ -50,7 +50,8 @@ static class KohAsm
     {
         try
         {
-            return SourceText.From(File.ReadAllText(path), path);
+            var absolutePath = Path.GetFullPath(path);
+            return SourceText.From(File.ReadAllText(absolutePath), absolutePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

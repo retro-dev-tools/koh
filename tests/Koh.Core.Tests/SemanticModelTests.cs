@@ -42,10 +42,13 @@ public class SemanticModelTests
     [Test]
     public async Task SemanticModel_LookupSymbols()
     {
-        var tree = SyntaxTree.Parse("SECTION \"Main\", ROM0\nmain:\nnop\n.loop:\nnop");
+        var source = "SECTION \"Main\", ROM0\nmain:\nnop\n.loop:\nnop";
+        var tree = SyntaxTree.Parse(source);
         var compilation = Compilation.Create(tree);
         var model = compilation.GetSemanticModel(tree);
-        var symbols = model.LookupSymbols(0).ToList();
+        // Position inside "main" scope (after "main:" declaration)
+        int posInMainScope = source.IndexOf("nop");
+        var symbols = model.LookupSymbols(posInMainScope).ToList();
         await Assert.That(symbols.Any(s => s.Name == "main")).IsTrue();
         await Assert.That(symbols.Any(s => s.Name == "main.loop")).IsTrue();
     }

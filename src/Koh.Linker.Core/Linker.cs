@@ -79,12 +79,11 @@ public sealed class Linker
                 // intra-file forward references before the .kobj is written, so
                 // every patch that reaches this linker has Expression == null.
                 //
-                // TODO: cross-file references (calls to symbols defined in a
-                // different .kobj) require expression serialisation in both
-                // KobjWriter and KobjReader. Until that is implemented, a non-null
-                // expression means the in-memory EmitModel was linked directly
-                // without a .kobj round-trip. Promote it to an error so the gap
-                // is visible rather than silently producing a corrupt ROM.
+                // Cross-file references via .kobj require expression serialization
+                // in KobjWriter/KobjReader. For RGBDS output, use --format rgbds
+                // which handles cross-file refs via RPN patches in the .o format.
+                // A non-null expression here means the patch was not resolved by
+                // PatchResolver — report it as an error.
                 if (patch.Expression == null) continue;
 
                 _diagnostics.Report(patch.DiagnosticSpan,

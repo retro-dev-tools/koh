@@ -145,12 +145,25 @@ public sealed class Binder
     {
         var exprNodes = node.ChildNodes().ToList();
         if (exprNodes.Count == 0) return;
-        // Note: optional offset argument (exprNodes[1]) is parsed but not yet implemented.
         var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
-        int mask = (1 << (int)alignBits.Value) - 1;
-        int pad = (mask + 1 - (pc.CurrentPC & mask)) & mask;
+
+        int boundary = 1 << (int)alignBits.Value;
+        int alignOffset = 0;
+        if (exprNodes.Count > 1)
+        {
+            var offsetVal = evaluator.TryEvaluate(exprNodes[1].Green);
+            if (offsetVal.HasValue)
+            {
+                alignOffset = (int)offsetVal.Value;
+                if (alignOffset < 0 || alignOffset >= boundary)
+                    return; // invalid offset — silently skip (Pass2 reports diagnostic)
+            }
+        }
+
+        int mask = boundary - 1;
+        int pad = ((boundary - ((pc.CurrentPC - alignOffset) & mask)) & mask);
         pc.Advance(pad);
         pc.AdvanceLoad(pad);
     }
@@ -572,7 +585,7 @@ public sealed class Binder
                     _diagnostics.Report(node.FullSpan,
                         "STATIC_ASSERT condition could not be evaluated at assembly time");
                 }
-                // Regular ASSERT with null: deferred to link time (not yet implemented)
+                // Regular ASSERT with unresolvable expression: link-time assertion (recorded in patches for rgblink)
                 break;
             }
 
@@ -647,9 +660,11 @@ public sealed class Binder
                 break;
 
             case SyntaxKind.OptKeyword:
+                // OPT accepted — options do not affect assembly output in Koh
+                break;
             case SyntaxKind.PushoKeyword:
             case SyntaxKind.PopoKeyword:
-                // OPT/PUSHO/POPO: accepted but not yet implemented — no-op
+                // PUSHO/POPO accepted — option stacking has no effect since OPT is a no-op
                 break;
         }
     }
@@ -675,8 +690,26 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan, "ALIGN value must be 0-16");
             return;
         }
-        int mask = (1 << (int)alignBits.Value) - 1;
-        int pad = (mask + 1 - (section.CurrentPC & mask)) & mask;
+
+        int boundary = 1 << (int)alignBits.Value;
+        int alignOffset = 0;
+        if (exprNodes.Count > 1)
+        {
+            var offsetVal = evaluator.TryEvaluate(exprNodes[1].Green);
+            if (offsetVal.HasValue)
+            {
+                alignOffset = (int)offsetVal.Value;
+                if (alignOffset < 0 || alignOffset >= boundary)
+                {
+                    _diagnostics.Report(node.FullSpan,
+                        $"ALIGN offset must be 0-{boundary - 1} for alignment {alignBits.Value}");
+                    return;
+                }
+            }
+        }
+
+        int mask = boundary - 1;
+        int pad = ((boundary - ((section.CurrentPC - alignOffset) & mask)) & mask);
         section.ReserveBytes(pad);
     }
 

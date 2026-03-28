@@ -64,11 +64,8 @@ public sealed class SymbolResolver
     public void ResolveAddresses(IReadOnlyList<LinkerSection> sections)
     {
         // TryAdd: first section with a given name wins. Duplicate section names across
-        // object files are not detected here — RGBDS merges same-name sections of the
-        // same type, but this linker treats each object file's section independently.
-        // TODO: either reject duplicate section names with a diagnostic, or implement
-        // RGBDS-compatible section merging so that symbols in later sections resolve
-        // against the correct placed address rather than the first file's section.
+        // object files are merged by RGBDS — Koh's linker currently uses first-wins
+        // semantics. Duplicate names with conflicting types will produce wrong addresses.
         var sectionMap = new Dictionary<string, LinkerSection>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in sections)
             sectionMap.TryAdd(s.Name, s);

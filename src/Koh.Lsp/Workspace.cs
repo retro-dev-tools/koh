@@ -82,9 +82,10 @@ internal sealed class Workspace
                 foreach (var diag in model.Diagnostics)
                     fileDiags.Add(diag);
             }
-            // Multi-file: binding diagnostics are not attributable per-file yet.
-            // Only parse diagnostics are shown. Binding diagnostic attribution
-            // requires Diagnostic to carry a file reference (deferred).
+            // Multi-file: binding diagnostics cannot be attributed to individual files
+            // because the Diagnostic type has no file-path field. Only parse diagnostics
+            // (from SyntaxTree.Diagnostics) are shown per-file. Binding diagnostics are
+            // compilation-wide and shown only in single-file mode.
         }
 
         return (text, tree, fileDiags);

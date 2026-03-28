@@ -54,7 +54,9 @@ public sealed class KobjWriter
                 bw.Write(patch.Offset);
                 bw.Write((byte)patch.Kind);
                 bw.Write(patch.PCAfterInstruction);
-                // Expression serialization deferred — store diagnostic span as placeholder
+                // Kobj patches store the diagnostic span for error reporting.
+                // Expression ASTs are not serialized — all patches are resolved by
+                // PatchResolver before writing. For cross-file linking, use --format rgbds.
                 bw.Write(patch.DiagnosticSpan.Start);
                 bw.Write(patch.DiagnosticSpan.Length);
             }

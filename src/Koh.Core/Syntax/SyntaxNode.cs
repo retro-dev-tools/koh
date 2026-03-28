@@ -17,11 +17,85 @@ public class SyntaxNode
     internal GreenNodeBase Green => _green;
     public TextSpan FullSpan => new(Position, _green.FullWidth);
 
-    // TODO: Span should exclude leading trivia of the first token and trailing trivia of the
-    // last token. GreenNode.Width currently returns FullWidth (no trivia stripping for
-    // composite nodes), so Span == FullSpan for all SyntaxNodes. Fix requires GreenNode to
-    // track inner width separately, which is a green-layer change deferred to a future phase.
-    public TextSpan Span => new(Position, _green.FullWidth);
+    /// <summary>
+    /// Span excluding leading trivia of the first token and trailing trivia of the last token.
+    /// </summary>
+    public TextSpan Span
+    {
+        get
+        {
+            // Walk to find first and last tokens for trivia-free span
+            int start = Position;
+            int end = Position + _green.FullWidth;
+
+            var firstToken = FindFirstToken(_green);
+            if (firstToken != null)
+            {
+                int firstOffset = GetOffsetToChild(_green, firstToken);
+                if (firstOffset >= 0)
+                    start = Position + firstOffset + firstToken.LeadingTriviaWidth;
+            }
+
+            var lastToken = FindLastToken(_green);
+            if (lastToken != null)
+            {
+                int lastOffset = GetOffsetToChild(_green, lastToken);
+                if (lastOffset >= 0)
+                    end = Position + lastOffset + lastToken.FullWidth - lastToken.TrailingTriviaWidth;
+            }
+
+            return new TextSpan(start, Math.Max(0, end - start));
+        }
+    }
+
+    private static GreenToken? FindFirstToken(GreenNodeBase node)
+    {
+        if (node is GreenToken t) return t;
+        if (node is not GreenNode gn) return null;
+        for (int i = 0; i < gn.ChildCount; i++)
+        {
+            var child = gn.GetChild(i);
+            if (child != null)
+            {
+                var result = FindFirstToken(child);
+                if (result != null) return result;
+            }
+        }
+        return null;
+    }
+
+    private static GreenToken? FindLastToken(GreenNodeBase node)
+    {
+        if (node is GreenToken t) return t;
+        if (node is not GreenNode gn) return null;
+        for (int i = gn.ChildCount - 1; i >= 0; i--)
+        {
+            var child = gn.GetChild(i);
+            if (child != null)
+            {
+                var result = FindLastToken(child);
+                if (result != null) return result;
+            }
+        }
+        return null;
+    }
+
+    private static int GetOffsetToChild(GreenNodeBase parent, GreenToken target)
+    {
+        if (parent is GreenToken t) return ReferenceEquals(t, target) ? 0 : -1;
+        if (parent is not GreenNode gn) return -1;
+        int offset = 0;
+        for (int i = 0; i < gn.ChildCount; i++)
+        {
+            var child = gn.GetChild(i);
+            if (child == null) continue;
+            if (ReferenceEquals(child, target)) return offset;
+            var inner = GetOffsetToChild(child, target);
+            if (inner >= 0) return offset + inner;
+            offset += child.FullWidth;
+        }
+        return -1;
+    }
 
     public SyntaxNode(GreenNodeBase green, SyntaxNode? parent, int position)
     {
