@@ -227,6 +227,15 @@ internal sealed class Parser
                 Peek(2).Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
                 return true;
         }
+        // RGBDS allows labels without trailing colon. Local labels (.name) on their own
+        // line are unambiguous — they can only be label declarations.
+        if (Current.Kind == SyntaxKind.LocalLabelToken)
+        {
+            var next = Peek();
+            // Standalone local label: .name followed by newline/EOF
+            if (next.Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current))
+                return true;
+        }
         return false;
     }
 
@@ -492,7 +501,9 @@ internal sealed class Parser
         // Handle .label\@: — consume optional MacroParamToken before the colon
         if (Current.Kind == SyntaxKind.MacroParamToken)
             children.Add(Advance());
-        children.Add(Advance()); // : or ::
+        // Colon is optional in RGBDS (labels can be declared without trailing colon)
+        if (Current.Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
+            children.Add(Advance());
         return new GreenNode(SyntaxKind.LabelDeclaration, children.ToArray());
     }
 
@@ -554,12 +565,16 @@ internal sealed class Parser
         if (IsRegisterKeyword(kind) && !IsBinaryOperator(Peek().Kind))
             return ParseRegisterOperand();
 
-        // Label reference (bare, not in expression)
-        if (
-            kind is SyntaxKind.LocalLabelToken or SyntaxKind.IdentifierToken
-            && !IsBinaryOperator(Peek().Kind)
-        )
-            return ParseLabelOperand();
+        // Label reference (bare, not in expression).
+        // When followed by \@ (MacroParamToken), check the token AFTER \@ for operators
+        // so that `.label\@ + 1` routes to expression parsing, not ParseLabelOperand.
+        if (kind is SyntaxKind.LocalLabelToken or SyntaxKind.IdentifierToken)
+        {
+            var lookAhead = Peek();
+            var afterLabel = lookAhead.Kind == SyntaxKind.MacroParamToken ? Peek(2) : lookAhead;
+            if (!IsBinaryOperator(afterLabel.Kind))
+                return ParseLabelOperand();
+        }
 
         // Everything else: immediate wrapping an expression
         return ParseImmediateOperand();
@@ -569,7 +584,17 @@ internal sealed class Parser
 
     private GreenNode ParseConditionOperand() => new(SyntaxKind.ConditionOperand, [Advance()]);
 
-    private GreenNode ParseLabelOperand() => new(SyntaxKind.LabelOperand, [Advance()]);
+    private GreenNode ParseLabelOperand()
+    {
+        var children = new List<GreenNodeBase> { Advance() }; // identifier or local label
+        // Consume a trailing \@ suffix — .label\@ is a single semantic unit inside a macro.
+        // Without this, the MacroParamToken is orphaned (not a child of any green node),
+        // causing its 2-char width to be excluded from FullWidth sums and breaking all
+        // position-based calculations (CollectMacroBody bodyStart/bodyEnd, diagnostic spans).
+        if (Current.Kind == SyntaxKind.MacroParamToken)
+            children.Add(Advance());
+        return new GreenNode(SyntaxKind.LabelOperand, children.ToArray());
+    }
 
     private GreenNode ParseImmediateOperand() =>
         new(SyntaxKind.ImmediateOperand, [ParseExpression()]);
@@ -662,7 +687,13 @@ internal sealed class Parser
 
             case SyntaxKind.IdentifierToken:
             case SyntaxKind.LocalLabelToken:
-                return new GreenNode(SyntaxKind.NameExpression, [Advance()]);
+            {
+                var name = Advance();
+                // Consume trailing \@ macro-unique suffix (e.g., .label\@ or const\@ in expressions)
+                if (Current.Kind == SyntaxKind.MacroParamToken)
+                    return new GreenNode(SyntaxKind.NameExpression, [name, Advance()]);
+                return new GreenNode(SyntaxKind.NameExpression, [name]);
+            }
 
             // Built-in functions: HIGH(...), LOW(...), BANK(...), etc.
             case SyntaxKind.HighKeyword:

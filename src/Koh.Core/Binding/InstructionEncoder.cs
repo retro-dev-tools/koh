@@ -30,24 +30,40 @@ internal sealed class InstructionEncoder
         var mnemonicToken = (GreenToken)greenNode.GetChild(0)!;
         var mnemonic = mnemonicToken.Text;
 
-        var operandGreens = new List<GreenNodeBase>();
-        for (int i = 1; i < greenNode.ChildCount; i++)
+        // SM83 instructions have at most 3 operands — use fixed-size arrays to avoid LINQ allocations
+        var operandGreens = new GreenNodeBase?[3];
+        int operandCount = 0;
+        for (int i = 1; i < greenNode.ChildCount && operandCount < 3; i++)
         {
             var child = greenNode.GetChild(i)!;
             if (child is GreenToken t && t.Kind == SyntaxKind.CommaToken)
                 continue;
             if (child is GreenNode n && IsOperandKind(n.Kind))
-                operandGreens.Add(n);
+                operandGreens[operandCount++] = n;
         }
 
-        var patterns = operandGreens.Select(OperandPatternMatcher.PatternOf).ToList();
+        var patterns = new OperandPattern[operandCount];
+        var values = new long?[operandCount];
+        for (int i = 0; i < operandCount; i++)
+            patterns[i] = OperandPatternMatcher.PatternOf(operandGreens[i]!);
 
         var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
-        var values = operandGreens.Select(op =>
+        for (int i = 0; i < operandCount; i++)
         {
-            var expr = GetOperandExpressionFromGreen(op);
-            return expr != null ? evaluator.TryEvaluate(expr) : null;
-        }).ToList();
+            var op = operandGreens[i]!;
+            // SpPlusImm8: evaluate only the offset, not the full SP±expr
+            // (avoids creating a spurious forward ref for register keyword 'sp')
+            if (patterns[i] == OperandPattern.SpPlusImm8)
+            {
+                var offsetExpr = OperandPatternMatcher.ExtractSpOffsetExpression(op);
+                values[i] = offsetExpr != null ? evaluator.TryEvaluate(offsetExpr) : null;
+            }
+            else
+            {
+                var expr = GetOperandExpressionFromGreen(op);
+                values[i] = expr != null ? evaluator.TryEvaluate(expr) : null;
+            }
+        }
 
         return OperandPatternMatcher.Match(mnemonic, patterns, values);
     }
@@ -67,6 +83,16 @@ internal sealed class InstructionEncoder
         foreach (var rule in desc.EmitRules)
         {
             var operandGreen = GetOperandExpression(node, rule.OperandIndex);
+
+            // LD HL, SP+imm8: extract just the offset, not the full SP±expr
+            if (rule.OperandIndex < desc.Operands.Length
+                && desc.Operands[rule.OperandIndex] == OperandPattern.SpPlusImm8)
+            {
+                var rawOperand = GetRawOperand(node, rule.OperandIndex);
+                if (rawOperand != null)
+                    operandGreen = OperandPatternMatcher.ExtractSpOffsetExpression(rawOperand);
+            }
+
             var value = operandGreen != null ? evaluator.TryEvaluate(operandGreen) : null;
 
             switch (rule.Kind)
@@ -84,6 +110,8 @@ internal sealed class InstructionEncoder
                                 Offset = offset,
                                 Expression = operandGreen,
                                 Kind = PatchKind.Absolute8,
+                                FilePath = _diagnostics.CurrentFilePath,
+                                GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                             });
                     }
                     break;
@@ -101,6 +129,8 @@ internal sealed class InstructionEncoder
                                 Offset = offset,
                                 Expression = operandGreen,
                                 Kind = PatchKind.Absolute16,
+                                FilePath = _diagnostics.CurrentFilePath,
+                                GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                             });
                     }
                     break;
@@ -131,6 +161,8 @@ internal sealed class InstructionEncoder
                                 Expression = operandGreen,
                                 Kind = PatchKind.Relative8,
                                 PCAfterInstruction = section.CurrentPC,
+                                FilePath = _diagnostics.CurrentFilePath,
+                                GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                             });
                     }
                     break;
@@ -146,7 +178,8 @@ internal sealed class InstructionEncoder
         }
     }
 
-    private static GreenNodeBase? GetOperandExpression(SyntaxNode instrNode, int operandIndex)
+    /// <summary>Get the raw operand green node (e.g. ImmediateOperand) at the given index.</summary>
+    private static GreenNodeBase? GetRawOperand(SyntaxNode instrNode, int operandIndex)
     {
         var greenNode = (GreenNode)instrNode.Green;
         int opIdx = 0;
@@ -156,12 +189,17 @@ internal sealed class InstructionEncoder
             if (child is GreenToken t && t.Kind == SyntaxKind.CommaToken) continue;
             if (child is GreenNode n && IsOperandKind(n.Kind))
             {
-                if (opIdx == operandIndex)
-                    return GetOperandExpressionFromGreen(n);
+                if (opIdx == operandIndex) return n;
                 opIdx++;
             }
         }
         return null;
+    }
+
+    private static GreenNodeBase? GetOperandExpression(SyntaxNode instrNode, int operandIndex)
+    {
+        var raw = GetRawOperand(instrNode, operandIndex);
+        return raw != null ? GetOperandExpressionFromGreen(raw) : null;
     }
 
     private static GreenNodeBase? GetOperandExpressionFromGreen(GreenNodeBase operand)

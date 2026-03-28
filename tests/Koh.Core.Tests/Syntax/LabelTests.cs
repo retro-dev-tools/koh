@@ -99,4 +99,54 @@ public class LabelTests
         // It won't match instruction or label, so it'll be a bad token
         await Assert.That(stmts.All(s => s.Kind != SyntaxKind.LabelDeclaration)).IsTrue();
     }
+
+    // =========================================================================
+    // Local labels without trailing colon (RGBDS compatibility)
+    // =========================================================================
+
+    [Test]
+    public async Task LocalLabel_WithoutColon_ParsedAsLabel()
+    {
+        var tree = SyntaxTree.Parse(".loadLoop\n    nop");
+        var stmts = tree.Root.ChildNodes().ToList();
+
+        await Assert.That(stmts).Count().IsEqualTo(2);
+        await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.LabelDeclaration);
+        await Assert.That(stmts[1].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
+
+        var tokens = stmts[0].ChildTokens().ToList();
+        await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.LocalLabelToken);
+        await Assert.That(tokens[0].Text).IsEqualTo(".loadLoop");
+        // No colon token — only 1 child
+        await Assert.That(tokens).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task LocalLabel_WithoutColon_NoDiagnostics()
+    {
+        var tree = SyntaxTree.Parse(".done\n    ret");
+        await Assert.That(tree.Diagnostics).IsEmpty();
+    }
+
+    [Test]
+    public async Task LocalLabel_WithoutColon_AtEndOfFile()
+    {
+        var tree = SyntaxTree.Parse(".end");
+        var stmts = tree.Root.ChildNodes().ToList();
+
+        await Assert.That(stmts).Count().IsEqualTo(1);
+        await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.LabelDeclaration);
+    }
+
+    [Test]
+    public async Task LocalLabel_WithoutColon_MultipleOnSeparateLines()
+    {
+        var tree = SyntaxTree.Parse(".first\n.second\n    nop");
+        var stmts = tree.Root.ChildNodes().ToList();
+
+        await Assert.That(stmts).Count().IsEqualTo(3);
+        await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.LabelDeclaration);
+        await Assert.That(stmts[1].Kind).IsEqualTo(SyntaxKind.LabelDeclaration);
+        await Assert.That(stmts[2].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
+    }
 }

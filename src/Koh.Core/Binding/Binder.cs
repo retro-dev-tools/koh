@@ -63,11 +63,18 @@ public sealed class Binder
         // Pass 1: symbol collection and PC tracking
         var pcTracker = new SectionPCTracker();
         foreach (var en in nodes)
+        {
+            _diagnostics.CurrentFilePath = en.SourceFilePath;
             Pass1Node(en, pcTracker);
+        }
 
-        // Pass 2: byte emission
+        // Pass 2: byte emission — reset global label scope so local labels resolve correctly
+        _symbols.SetGlobalAnchor(null);
         foreach (var en in nodes)
+        {
+            _diagnostics.CurrentFilePath = en.SourceFilePath;
             Pass2Node(en);
+        }
 
         new PatchResolver(_symbols, _sections, _diagnostics).ApplyAll();
 
@@ -205,6 +212,23 @@ public sealed class Binder
             pc.BeginLoad(name, fixedAddr ?? 0);
     }
 
+    /// <summary>
+    /// Pass 2 label tracking: advance the global anchor so local label references
+    /// in expressions resolve against the correct scope.
+    /// </summary>
+    private void Pass2Label(SyntaxNode node)
+    {
+        var first = node.ChildTokens().FirstOrDefault();
+        if (first == null) return;
+        var name = first.Text;
+        if (!name.StartsWith('.'))
+        {
+            var sym = _symbols.Lookup(name);
+            if (sym != null)
+                _symbols.SetGlobalAnchor(sym);
+        }
+    }
+
     private void Pass1Label(SyntaxNode node, SectionPCTracker pc)
     {
         var tokens = node.ChildTokens().ToList();
@@ -334,6 +358,10 @@ public sealed class Binder
         var node = en.Node;
         switch (node.Kind)
         {
+            case SyntaxKind.LabelDeclaration:
+                // Track global scope in Pass 2 so local label references resolve correctly
+                Pass2Label(node);
+                break;
             case SyntaxKind.SectionDirective:
                 Pass2Section(node);
                 break;
@@ -396,6 +424,9 @@ public sealed class Binder
 
     private void Pass2Section(SyntaxNode node)
     {
+        // RGBDS resets local label scope on every SECTION directive
+        _symbols.SetGlobalAnchor(null);
+
         if (!SectionHeaderParser.TryParse(node, _diagnostics,
                 out var name, out var sectionType, out var fixedAddress, out var bank,
                 out var isUnion, out _))
@@ -442,6 +473,8 @@ public sealed class Binder
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute8,
+                            FilePath = _diagnostics.CurrentFilePath,
+                            GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                         });
                     }
                 }
@@ -460,6 +493,8 @@ public sealed class Binder
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute16,
+                            FilePath = _diagnostics.CurrentFilePath,
+                            GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                         });
                     }
                 }

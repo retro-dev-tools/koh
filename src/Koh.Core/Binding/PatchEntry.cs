@@ -18,4 +18,7 @@ public sealed class PatchEntry
     public required PatchKind Kind { get; init; }
     public int PCAfterInstruction { get; init; }
     public TextSpan DiagnosticSpan { get; init; }
+    public string? FilePath { get; init; }
+    /// <summary>Global label anchor at the site where this patch was recorded, for local label resolution.</summary>
+    public string? GlobalAnchorName { get; init; }
 }

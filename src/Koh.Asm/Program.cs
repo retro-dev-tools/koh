@@ -39,17 +39,28 @@ static class KohAsm
         stopwatch.Stop();
         var elapsed = stopwatch.Elapsed;
 
+        // Cache SourceTexts per file for resolving diagnostic line/col
+        var sourceTextCache = new Dictionary<string, SourceText>(StringComparer.OrdinalIgnoreCase)
+        {
+            [source.FilePath] = source,
+        };
+
         int errors = 0, warnings = 0;
         foreach (var diag in emitModel.Diagnostics)
         {
-            var (line, col) = GetLocation(diag, source);
+            var diagFile = diag.FilePath;
+            if (string.IsNullOrEmpty(diagFile))
+                diagFile = source.FilePath;
+
+            var diagSource = GetOrLoadSourceText(diagFile, source, sourceTextCache);
+            var (line, col) = GetLocation(diag, diagSource);
             var severity = diag.Severity switch
             {
                 DiagnosticSeverity.Error => "error",
                 DiagnosticSeverity.Warning => "warning",
                 _ => "info",
             };
-            Console.Error.WriteLine($"{source.FilePath}:{line}:{col}: {severity}: {diag.Message}");
+            Console.Error.WriteLine($"{diagFile}:{line}:{col}: {severity}: {diag.Message}");
             if (diag.Severity == DiagnosticSeverity.Error) errors++;
             else if (diag.Severity == DiagnosticSeverity.Warning) warnings++;
         }
@@ -196,6 +207,23 @@ static class KohAsm
             }
         }
         return input == null ? (null, null, format, "no input file specified") : (input, output, format, null);
+    }
+
+    static SourceText GetOrLoadSourceText(string filePath, SourceText fallback,
+        Dictionary<string, SourceText> cache)
+    {
+        if (cache.TryGetValue(filePath, out var cached))
+            return cached;
+        try
+        {
+            var text = SourceText.From(File.ReadAllText(filePath), filePath);
+            cache[filePath] = text;
+            return text;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return fallback;
+        }
     }
 
     static (int line, int col) GetLocation(Diagnostic diag, SourceText source)

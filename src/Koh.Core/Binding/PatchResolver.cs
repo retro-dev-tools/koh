@@ -35,6 +35,18 @@ internal sealed class PatchResolver
                 // They cannot be resolved here — leave them for the linker to handle.
                 if (patch.Expression is null) continue;
 
+                // Restore the global label anchor that was active when the patch was recorded,
+                // so local label references (.foo) resolve in the correct scope.
+                if (patch.GlobalAnchorName != null)
+                {
+                    var anchor = _symbols.Lookup(patch.GlobalAnchorName);
+                    _symbols.SetGlobalAnchor(anchor);
+                }
+                else
+                {
+                    _symbols.SetGlobalAnchor(null);
+                }
+
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
                     () => section.BaseAddress + patch.Offset);
                 var value = evaluator.TryEvaluate(patch.Expression);
@@ -55,7 +67,8 @@ internal sealed class PatchResolver
                         if (rel < -128 || rel > 127)
                         {
                             _diagnostics.Report(patch.DiagnosticSpan,
-                                $"JR target out of range: offset {rel} does not fit in signed byte");
+                                $"JR target out of range: offset {rel} does not fit in signed byte",
+                                filePath: patch.FilePath);
                             break; // leave placeholder byte; error is reported
                         }
                         section.ApplyPatch(patch.Offset, (byte)(sbyte)rel);

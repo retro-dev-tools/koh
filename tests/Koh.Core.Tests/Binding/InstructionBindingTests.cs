@@ -556,13 +556,6 @@ public class InstructionBindingTests
         await AssertBytes(bytes, 0xF1);
     }
 
-    // NOTE: LD HL, SP+r8 (0xF8) is not yet testable end-to-end. The parser
-    // produces ImmediateOperand(BinaryExpression(sp, +, n)) for "sp+$04", but
-    // the expression evaluator cannot evaluate 'sp' as a constant, so the match
-    // fails and the emit cannot extract only the offset byte. This requires either
-    // a dedicated SpPlusImm8Operand syntax node kind or a special-case in the
-    // evaluator. Tracked for a future task.
-
     [Test]
     public async Task LdIndNN_SP()
     {
@@ -764,5 +757,53 @@ public class InstructionBindingTests
         var bytes = GetBytes("jr nz, .skip\nnop\n.skip:\nnop");
         await Assert.That(bytes[0]).IsEqualTo((byte)0x20);
         await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+    }
+
+    // =========================================================================
+    // LD HL, SP+imm8 encoding (opcode $F8)
+    // Regression: was incorrectly matched as LD HL, imm16 ($21, 3 bytes)
+    // because ImmediatePattern never returned SpPlusImm8.
+    // =========================================================================
+
+    [Test]
+    public async Task LdHlSpPlusImm8_PositiveOffset()
+    {
+        var bytes = GetBytes("ld hl, sp+$10");
+        await AssertBytes(bytes, 0xF8, 0x10);
+    }
+
+    [Test]
+    public async Task LdHlSpMinusImm8_NegativeOffset()
+    {
+        // sp-$46 → $F8 $BA (signed: -70 = 0xBA)
+        var bytes = GetBytes("ld hl, sp-$46");
+        await AssertBytes(bytes, 0xF8, 0xBA);
+    }
+
+    [Test]
+    public async Task LdHlSpPlusZero()
+    {
+        var bytes = GetBytes("ld hl, sp+0");
+        await AssertBytes(bytes, 0xF8, 0x00);
+    }
+
+    [Test]
+    public async Task LdHlSpPlus_CorrectSize_DoesNotShiftJr()
+    {
+        // LD HL, SP+N is 2 bytes. If incorrectly encoded as LD HL, imm16 (3 bytes),
+        // the JR offset would be off by 1 per occurrence.
+        var bytes = GetBytes("""
+            ld hl, sp+$10
+            jr .done
+            nop
+            .done:
+            nop
+            """);
+        // LD HL, SP+$10 = 2 bytes at offset 0-1
+        await Assert.That(bytes[0]).IsEqualTo((byte)0xF8);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x10);
+        // JR .done = 2 bytes at offset 2-3, skips 1 nop
+        await Assert.That(bytes[2]).IsEqualTo((byte)0x18); // jr
+        await Assert.That(bytes[3]).IsEqualTo((byte)0x01); // offset = 1 (skip 1 nop)
     }
 }

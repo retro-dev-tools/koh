@@ -338,4 +338,126 @@ public class OperandParsingTests
         var innerExpr = ops[1].ChildNodes().First();
         await Assert.That(innerExpr.Kind).IsEqualTo(SyntaxKind.LiteralExpression);
     }
+
+    // --- \@ macro-unique-label suffix tests ---
+    // Regression for: ParseLabelOperand() consumed only the identifier token and left the
+    // trailing MacroParamToken(\@) orphaned (not a child of any green node). The orphan's
+    // 2-char width was excluded from FullWidth sums, shifting all subsequent node positions
+    // by -2 and breaking CollectMacroBody's bodyStart/bodyEnd calculations.
+
+    [Test]
+    public async Task LabelOperand_WithMacroAtSuffix_HasTwoTokenChildren()
+    {
+        // "call .loop\@" — the \@ suffix must be consumed as part of the LabelOperand,
+        // not left as an orphaned token between nodes.
+        var instr = ParseInstruction("call .loop\\@");
+        var ops = Operands(instr);
+
+        await Assert.That(ops).Count().IsEqualTo(1);
+        await Assert.That(ops[0].Kind).IsEqualTo(SyntaxKind.LabelOperand);
+
+        var tokens = ops[0].ChildTokens().ToList();
+        await Assert.That(tokens).Count().IsEqualTo(2);
+        await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.LocalLabelToken);
+        await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.MacroParamToken);
+        await Assert.That(tokens[1].Text).IsEqualTo("\\@");
+    }
+
+    [Test]
+    public async Task LabelOperand_WithMacroAtSuffix_TreeFullWidthCoversEntireSource()
+    {
+        // The tree's FullWidth must equal the source text length exactly. If \@ is orphaned,
+        // FullWidth is 2 bytes short and all position-based calculations drift.
+        const string source = "call .loop\\@";
+        var tree = SyntaxTree.Parse(source);
+
+        // The CompilationUnit's FullWidth (via the red root's green node) must cover
+        // every byte of the source text, including the \@ suffix.
+        var root = tree.Root;
+        await Assert.That(root.FullSpan.Length).IsEqualTo(source.Length);
+    }
+
+    [Test]
+    public async Task LabelOperand_WithoutMacroAtSuffix_HasOneTokenChild()
+    {
+        // Ensure the fix doesn't break the normal (no \@) case.
+        var instr = ParseInstruction("call .loop");
+        var ops = Operands(instr);
+
+        await Assert.That(ops[0].Kind).IsEqualTo(SyntaxKind.LabelOperand);
+        var tokens = ops[0].ChildTokens().ToList();
+        await Assert.That(tokens).Count().IsEqualTo(1);
+        await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.LocalLabelToken);
+    }
+
+    [Test]
+    public async Task MultipleStatements_AfterMacroAtOperand_HaveCorrectPositions()
+    {
+        // Verifies that a statement following an instruction with a \@ operand starts at
+        // the correct source position. Before the fix, the next node's Position was off by
+        // 2 because the orphaned \@ was excluded from the cumulative FullWidth sum.
+        const string source = "call .fn\\@\nnop";
+        var tree = SyntaxTree.Parse(source);
+        var stmts = tree.Root.ChildNodes().ToList();
+
+        await Assert.That(stmts).Count().IsEqualTo(2);
+
+        // "nop" starts at position 11 (after "call .fn\@\n" which is 11 chars)
+        int expectedNopPosition = "call .fn\\@\n".Length;
+        await Assert.That(stmts[1].Position).IsEqualTo(expectedNopPosition);
+    }
+
+    // --- \@ in expression context (ParsePrimaryExpression) ---
+
+    [Test]
+    public async Task NameExpression_WithMacroAtSuffix_InIndirectOperand()
+    {
+        // [.data\@] — \@ inside indirect (expression context, not label operand)
+        // must be consumed as part of the NameExpression, not left orphaned.
+        const string source = "ld a, [.data\\@]";
+        var tree = SyntaxTree.Parse(source);
+
+        await Assert.That(tree.Root.FullSpan.Length).IsEqualTo(source.Length);
+    }
+
+    [Test]
+    public async Task NameExpression_WithMacroAtSuffix_InArithmeticExpression()
+    {
+        // .table\@ + 1 — \@ in expression context (ParsePrimaryExpression)
+        const string source = "db .base\\@ + 1";
+        var tree = SyntaxTree.Parse(source);
+
+        await Assert.That(tree.Root.FullSpan.Length).IsEqualTo(source.Length);
+    }
+
+    /// <summary>
+    /// Regression: ParseOperand must look past \@ when checking for binary operators.
+    /// Without this fix, `.data\@ + 1` routes to ParseLabelOperand (producing a
+    /// LabelOperand) instead of ParseImmediateOperand (producing an ImmediateOperand
+    /// wrapping a BinaryExpression).
+    /// </summary>
+    [Test]
+    public async Task InstructionOperand_LabelAtSuffixPlusBinaryOp_RoutesToImmediateOperand()
+    {
+        var instr = ParseInstruction("ld a, .data\\@ + 1");
+        var ops = Operands(instr);
+
+        await Assert.That(ops).Count().IsEqualTo(2);
+        // Second operand must be ImmediateOperand (expression), NOT LabelOperand
+        await Assert.That(ops[1].Kind).IsEqualTo(SyntaxKind.ImmediateOperand);
+        // The expression inside should be a BinaryExpression
+        var expr = ops[1].ChildNodes().First();
+        await Assert.That(expr.Kind).IsEqualTo(SyntaxKind.BinaryExpression);
+    }
+
+    [Test]
+    public async Task InstructionOperand_LabelAtSuffixNoBinaryOp_RoutesToLabelOperand()
+    {
+        // Without a following binary operator, .label\@ should still be a LabelOperand
+        var instr = ParseInstruction("call .target\\@");
+        var ops = Operands(instr);
+
+        await Assert.That(ops).Count().IsEqualTo(1);
+        await Assert.That(ops[0].Kind).IsEqualTo(SyntaxKind.LabelOperand);
+    }
 }

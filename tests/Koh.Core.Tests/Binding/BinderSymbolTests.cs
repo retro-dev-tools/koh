@@ -261,4 +261,158 @@ public class BinderSymbolTests
         await Assert.That(result.Success).IsFalse();
         await Assert.That(result.Diagnostics.Any(d => d.Message.Contains("already defined"))).IsTrue();
     }
+
+    // =========================================================================
+    // Local labels without trailing colon — binding
+    // =========================================================================
+
+    [Test]
+    public async Task LocalLabel_WithoutColon_DefinedAndResolvable()
+    {
+        var result = Bind("""
+            SECTION "Main", ROM0
+            start:
+            .noColon
+                nop
+                jr .noColon
+            """);
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Diagnostics).IsEmpty();
+    }
+
+    [Test]
+    public async Task LocalLabel_WithoutColon_JrTarget()
+    {
+        var result = Bind("""
+            SECTION "Main", ROM0
+            main:
+                jr .target
+                nop
+            .target
+                ret
+            """);
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Diagnostics).IsEmpty();
+        // JR offset should be 1 (skip the nop)
+        var bytes = result.Sections!["Main"].Bytes;
+        await Assert.That(bytes[0]).IsEqualTo((byte)0x18); // jr
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x01); // skip 1 nop
+    }
+
+    // =========================================================================
+    // Pass 2 global scope reset — local labels across sections
+    // Regression: without resetting the global anchor between passes,
+    // local label references in Pass 2 resolved against the wrong global scope.
+    // =========================================================================
+
+    [Test]
+    public async Task LocalLabels_AcrossSections_ResolveCorrectly()
+    {
+        var result = Bind("""
+            SECTION "First", ROM0[$0000]
+            FirstRoutine:
+            .local:
+                nop
+                jr .local
+
+            SECTION "Second", ROM0[$0100]
+            SecondRoutine:
+            .local:
+                nop
+                jr .local
+            """);
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Diagnostics).IsEmpty();
+    }
+
+    [Test]
+    public async Task LocalLabels_Pass2Scope_JrResolvesInCorrectGlobal()
+    {
+        // Two global labels with identically-named local labels.
+        // Pass 2 must track the global anchor so .loop resolves
+        // to the correct scope in each context.
+        var result = Bind("""
+            SECTION "Main", ROM0
+            FuncA:
+            .loop:
+                nop
+                jr .loop
+            FuncB:
+            .loop:
+                nop
+                jr .loop
+            """);
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Diagnostics).IsEmpty();
+
+        var bytes = result.Sections!["Main"].Bytes;
+        // FuncA: nop(1) + jr .loop(2) = 3 bytes, jr offset = -3 (0xFD)
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x18); // jr
+        await Assert.That(bytes[2]).IsEqualTo((byte)0xFD); // -3
+
+        // FuncB: nop(1) + jr .loop(2) = same pattern
+        await Assert.That(bytes[4]).IsEqualTo((byte)0x18); // jr
+        await Assert.That(bytes[5]).IsEqualTo((byte)0xFD); // -3
+    }
+
+    [Test]
+    public async Task SectionDirective_ResetsLocalLabelScope()
+    {
+        // RGBDS resets local label scope on each SECTION directive.
+        // .local in SectionB must not resolve against GlobalA from SectionA.
+        var result = Bind("""
+            SECTION "A", ROM0[$0000]
+            GlobalA:
+            .local:
+                nop
+                jr .local
+
+            SECTION "B", ROM0[$0100]
+            GlobalB:
+            .local:
+                nop
+                jr .local
+            """);
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Diagnostics).IsEmpty();
+    }
+
+    /// <summary>
+    /// Regression: PatchResolver must restore the global anchor from the patch site
+    /// before evaluating deferred local label references. Without this, forward-referenced
+    /// local labels in multi-scope code resolve against the wrong global scope.
+    /// </summary>
+    [Test]
+    public async Task PatchResolver_DeferredLocalLabel_ResolvesInCorrectScope()
+    {
+        // FuncA and FuncB each have a forward-referenced .end via dw.
+        // The dw patches are deferred to PatchResolver. Without anchor restoration,
+        // both patches would resolve against FuncB (the last global label).
+        var result = Bind("""
+            SECTION "Main", ROM0
+            FuncA:
+                dw .end
+                nop
+            .end:
+                ret
+            FuncB:
+                dw .end
+                nop
+            .end:
+                ret
+            """);
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Diagnostics).IsEmpty();
+
+        var bytes = result.Sections!["Main"].Bytes;
+        // FuncA: dw .end(2) + nop(1) = 3 bytes before .end label at offset 3
+        // FuncA.end address = 3
+        await Assert.That(bytes[0]).IsEqualTo((byte)0x03); // low byte of FuncA.end
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x00); // high byte
+
+        // FuncB starts at offset 4 (after ret): dw .end(2) + nop(1) = offset 7 for .end
+        // FuncB.end address = 4 + 3 = 7
+        await Assert.That(bytes[4]).IsEqualTo((byte)0x07); // low byte of FuncB.end
+        await Assert.That(bytes[5]).IsEqualTo((byte)0x00); // high byte
+    }
 }

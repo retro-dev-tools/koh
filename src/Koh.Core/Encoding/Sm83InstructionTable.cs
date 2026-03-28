@@ -224,6 +224,7 @@ public static class Sm83InstructionTable
         yield return I("JP", [OperandPattern.CondC, OperandPattern.Imm16], [0xDA], 3,
             [new(EmitRuleKind.AppendImm16LE, 1)]);
         yield return I("JP", [OperandPattern.IndHL], [0xE9], 1);
+        yield return I("JP", [OperandPattern.RegHL], [0xE9], 1); // jp hl = jp [hl]
 
         yield return I("JR", [OperandPattern.Imm8Signed], [0x18], 2,
             [new(EmitRuleKind.AppendRelative8, 0)]);

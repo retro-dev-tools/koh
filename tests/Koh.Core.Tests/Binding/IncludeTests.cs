@@ -182,4 +182,33 @@ public class IncludeTests
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1); // only nop
     }
+
+    // =========================================================================
+    // Diagnostic FilePath attribution
+    // =========================================================================
+
+    [Test]
+    public async Task Diagnostic_InIncludedFile_CarriesIncludedFilePath()
+    {
+        var vfs = new VirtualFileResolver();
+        // The included file has an instruction outside a section → error
+        vfs.AddTextFile("bad.asm", "nop");
+
+        var model = Emit("INCLUDE \"bad.asm\"", vfs);
+
+        await Assert.That(model.Success).IsFalse();
+        var diag = model.Diagnostics.First(d => d.Message.Contains("outside of a section"));
+        // FilePath must point to the included file, not the root
+        await Assert.That(diag.FilePath).IsEqualTo("bad.asm");
+    }
+
+    [Test]
+    public async Task Diagnostic_InRootFile_CarriesRootFilePath()
+    {
+        var model = Emit("nop"); // instruction outside section in root file
+
+        await Assert.That(model.Success).IsFalse();
+        var diag = model.Diagnostics.First(d => d.Message.Contains("outside of a section"));
+        await Assert.That(diag.FilePath).IsEqualTo("main.asm");
+    }
 }

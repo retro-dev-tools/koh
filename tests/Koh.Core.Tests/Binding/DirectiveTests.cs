@@ -299,4 +299,106 @@ public class DirectiveTests
             """);
         await Assert.That(model.Success).IsTrue();
     }
+
+    // =========================================================================
+    // DS — space reservation
+    // =========================================================================
+
+    [Test]
+    public async Task Ds_LiteralCount_ReservesCorrectBytes()
+    {
+        var model = Emit("""
+            SECTION "Main", ROM0
+            DS 4
+            nop
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
+        await Assert.That(model.Success).IsTrue();
+        // DS 4 pads with 0x00 by default; nop ($00) follows
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(5);
+    }
+
+    [Test]
+    public async Task Ds_ForwardDeclaredEquCount_LabelAddressIsCorrect()
+    {
+        // Regression for: Pass1Data advances PC by 0 when DS count references a forward-declared
+        // EQU constant, causing labels after the DS to receive wrong addresses. The pre-scan
+        // in AssemblyExpander now defines all EQU constants before Pass 1 runs.
+        var model = Emit("""
+            SECTION "Main", ROM0[$0000]
+            DS PAD_SIZE
+            after_pad:
+            nop
+            PAD_SIZE EQU 4
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
+        await Assert.That(model.Success).IsTrue();
+
+        var afterPad = model.Symbols.FirstOrDefault(s => s.Name == "after_pad");
+        await Assert.That(afterPad).IsNotNull();
+        // DS 4 reserves 4 bytes starting at $0000, so after_pad must be at $0004
+        await Assert.That(afterPad!.Value).IsEqualTo(4L);
+    }
+
+    [Test]
+    public async Task Ds_EquCountDefinedBefore_LabelAddressIsCorrect()
+    {
+        // Confirm the normal (non-forward-reference) case still works correctly.
+        var model = Emit("""
+            PAD_SIZE EQU 4
+            SECTION "Main", ROM0[$0000]
+            DS PAD_SIZE
+            after_pad:
+            nop
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
+        await Assert.That(model.Success).IsTrue();
+
+        var afterPad = model.Symbols.FirstOrDefault(s => s.Name == "after_pad");
+        await Assert.That(afterPad).IsNotNull();
+        await Assert.That(afterPad!.Value).IsEqualTo(4L);
+    }
+
+    [Test]
+    public async Task Ds_EquChainForwardDeclared_LabelAddressIsCorrect()
+    {
+        // Two-deep constant chain: DS TOTAL_SIZE where TOTAL_SIZE EQU BASE * 2 and BASE EQU 4.
+        // Both constants are forward-declared relative to the DS. The pre-scan runs two passes
+        // so it can resolve BASE on pass 1, then TOTAL_SIZE on pass 2.
+        var model = Emit("""
+            SECTION "Main", ROM0[$0000]
+            DS TOTAL_SIZE
+            after_pad:
+            nop
+            BASE EQU 4
+            TOTAL_SIZE EQU BASE * 2
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
+        await Assert.That(model.Success).IsTrue();
+
+        var afterPad = model.Symbols.FirstOrDefault(s => s.Name == "after_pad");
+        await Assert.That(afterPad).IsNotNull();
+        await Assert.That(afterPad!.Value).IsEqualTo(8L); // DS 8 → after_pad at $0008
+    }
+
+    [Test]
+    public async Task Ds_ThreeDeepEquChain_LabelAddressIsCorrect()
+    {
+        // Three-deep chain: DS C where C EQU B + 1, B EQU A, A EQU 4.
+        // Requires 3 pre-scan passes (the old fixed-2-pass would fail).
+        var model = Emit("""
+            SECTION "Main", ROM0[$0000]
+            DS C_VAL
+            after_pad:
+            nop
+            C_VAL EQU B_VAL + 1
+            B_VAL EQU A_VAL
+            A_VAL EQU 4
+            """);
+        await Assert.That(model.Success).IsTrue();
+
+        var afterPad = model.Symbols.FirstOrDefault(s => s.Name == "after_pad");
+        await Assert.That(afterPad).IsNotNull();
+        await Assert.That(afterPad!.Value).IsEqualTo(5L); // DS 5 → after_pad at $0005
+    }
 }

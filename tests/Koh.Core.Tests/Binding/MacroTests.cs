@@ -116,4 +116,48 @@ public class MacroTests
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x3E);
         await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)20);
     }
+
+    // --- \@ label suffix regression tests ---
+    // Regression for: ParseLabelOperand() leaving the MacroParamToken(\@) orphaned so that
+    // CollectMacroBody computed wrong bodyStart/bodyEnd, cutting off or misaligning the body.
+
+    [Test]
+    public async Task Macro_WithAtLabelOperand_ExpandsCorrectly()
+    {
+        // A macro body containing "call .inner\@" — the \@ suffix must be part of the
+        // LabelOperand node so the macro body text is sliced at the right positions.
+        var model = Emit("""
+            loop_body: MACRO
+            call .done\@
+            nop
+            .done\@:
+            ENDM
+            SECTION "Main", ROM0
+            loop_body
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d.Severity}: {d.Message}");
+        await Assert.That(model.Success).IsTrue();
+        // call + nop = 3 bytes + 0 bytes for the label
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(4); // call(3) + nop(1)
+    }
+
+    [Test]
+    public async Task Macro_WithAtLabelDeclaration_NoDiagnostics()
+    {
+        // Confirm that a macro defining a \@ local label produces no diagnostics.
+        // Before the fix, \@ orphaning caused bodyStart to be off, producing
+        // parse errors on the re-lexed macro body text.
+        var model = Emit("""
+            with_label: MACRO
+            .inner\@:
+            nop
+            ENDM
+            SECTION "Main", ROM0
+            with_label
+            with_label
+            """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d.Severity}: {d.Message}");
+        await Assert.That(model.Diagnostics).IsEmpty();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2); // two nop expansions
+    }
 }

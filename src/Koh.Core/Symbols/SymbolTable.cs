@@ -64,6 +64,9 @@ public sealed class SymbolTable
 
     /// <summary>
     /// Define an EQU constant with a known value.
+    /// If the symbol is already defined with the same value (e.g. pre-defined by PreScanEquConstants),
+    /// this is a silent no-op. If the symbol is already defined with a different value, reports a
+    /// duplicate-definition diagnostic (genuine user-source redefinition error).
     /// </summary>
     public Symbol DefineConstant(string name, long value, SyntaxNode? site = null)
     {
@@ -73,14 +76,44 @@ public sealed class SymbolTable
         {
             if (existing.State == SymbolState.Defined)
             {
-                _diagnostics.Report(
-                    site != null ? site.FullSpan : default,
-                    $"Symbol '{key}' is already defined");
+                // Same value: pre-scan idempotency — no error, no change.
+                // Different value: genuine source-level duplicate — report error.
+                if (existing.Value != value)
+                    _diagnostics.Report(
+                        site != null ? site.FullSpan : default,
+                        $"Symbol '{key}' is already defined");
                 return existing;
             }
 
             existing.Define(value, site);
             return existing;
+        }
+
+        var sym = new Symbol(key, SymbolKind.Constant);
+        sym.Define(value, site);
+        _symbols[key] = sym;
+        return sym;
+    }
+
+    /// <summary>
+    /// Define an EQU constant only if the name is not already registered.
+    /// Used during pre-scan passes where EarlyDefineEqu will later run the
+    /// definitive definition (with duplicate-definition checking). This avoids
+    /// producing a duplicate-definition diagnostic for the pre-scan attempt.
+    /// </summary>
+    public Symbol? DefineConstantIfAbsent(string name, long value, SyntaxNode? site = null)
+    {
+        var key = QualifyName(name);
+        if (_symbols.TryGetValue(key, out var existing))
+        {
+            // Allow defining a forward-referenced (Undefined) symbol
+            if (existing.State == SymbolState.Undefined)
+            {
+                existing.Value = value;
+                existing.State = SymbolState.Defined;
+                return existing;
+            }
+            return null; // already defined — don't redefine
         }
 
         var sym = new Symbol(key, SymbolKind.Constant);
@@ -148,10 +181,16 @@ public sealed class SymbolTable
     /// </summary>
     public IEnumerable<Symbol> AllSymbols => _symbols.Values;
 
+    /// <summary>Count of defined symbols, for pre-scan convergence detection.</summary>
+    public int DefinedCount => _symbols.Values.Count(s => s.State == SymbolState.Defined);
+
     /// <summary>
     /// Set the current global anchor manually (used when resuming binding context).
     /// </summary>
     public void SetGlobalAnchor(Symbol? anchor) => _currentGlobalAnchor = anchor;
+
+    /// <summary>Current global anchor name, for recording on PatchEntry.</summary>
+    public string? CurrentGlobalAnchorName => _currentGlobalAnchor?.Name;
 
     private string QualifyName(string name)
     {

@@ -53,10 +53,20 @@ internal sealed class AssemblyExpander
         var output = new List<ExpandedNode>();
         _currentSourceText = tree.Text;
         _currentFilePath = tree.Text.FilePath;
+        _diagnostics.CurrentFilePath = _currentFilePath;
         // Seed include stack with root file for circular detection
         if (!string.IsNullOrEmpty(_currentFilePath))
             _includeStack.Add(_currentFilePath);
         var children = tree.Root.ChildNodesAndTokens().ToList();
+
+        // Pre-scan: define all EQU/SET/DEF constants in the root node list before the main
+        // expansion walk. This makes forward-declared constants visible to DS count expressions
+        // in Pass 1, preventing a size divergence between Pass 1 and Pass 2.
+        // Constants whose values depend on other forward-declared constants are resolved in
+        // up to two passes of the pre-scan; circular definitions are silently skipped (they
+        // will produce an "undefined symbol" diagnostic during evaluation).
+        PreScanEquConstants(children);
+
         int i = 0;
         ExpandBodyList(children, ref i, output);
 
@@ -64,6 +74,77 @@ internal sealed class AssemblyExpander
             _diagnostics.Report(default, "Unclosed IF block: missing ENDC");
 
         return output;
+    }
+
+    /// <summary>
+    /// Pre-scan the top-level child list for EQU/SET/DEF/EQUS/RS constant definitions and
+    /// register them before the main expansion walk begins. This ensures that DS directives
+    /// referencing forward-declared constants can resolve their counts during Pass 1.
+    ///
+    /// Runs in a convergence loop: each pass resolves constants whose dependencies were
+    /// defined in the previous pass. Stops when no new constants are resolved or after
+    /// 8 iterations (handles arbitrarily deep chains like A EQU B, B EQU C, C EQU 5).
+    /// </summary>
+    private void PreScanEquConstants(IReadOnlyList<SyntaxNodeOrToken> siblings)
+    {
+        const int maxPasses = 8;
+        int previousCount = _symbols.DefinedCount;
+
+        for (int pass = 0; pass < maxPasses; pass++)
+        {
+            foreach (var item in siblings)
+            {
+                if (!item.IsNode) continue;
+                var node = item.AsNode!;
+                if (node.Kind == SyntaxKind.SymbolDirective)
+                    EarlyDefineEquNoError(node);
+            }
+
+            int currentCount = _symbols.DefinedCount;
+            if (currentCount == previousCount)
+                break; // no new constants resolved — converged
+            previousCount = currentCount;
+        }
+    }
+
+    /// <summary>
+    /// Like EarlyDefineEqu but silently skips when the value expression cannot be resolved
+    /// (instead of producing a diagnostic). Used during pre-scan where unresolved forward
+    /// references are expected — they are retried on the second pass or during the normal walk.
+    /// </summary>
+    private void EarlyDefineEquNoError(SyntaxNode node)
+    {
+        var tokens = node.ChildTokens().ToList();
+        if (tokens.Count < 2) return;
+
+        int nameIdx = 0;
+        if (tokens[0].Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword)
+            nameIdx = 1;
+
+        if (nameIdx + 1 >= tokens.Count) return;
+        if (tokens[nameIdx].Kind != SyntaxKind.IdentifierToken) return;
+
+        var kwKind = tokens[nameIdx + 1].Kind;
+        if (kwKind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        {
+            var exprNodes = node.ChildNodes().ToList();
+            if (exprNodes.Count == 0) return;
+            // Use a silent evaluator — don't report missing-symbol errors during pre-scan
+            var evaluator = new ExpressionEvaluator(_symbols, DiagnosticBag.Null, () => 0);
+            var value = evaluator.TryEvaluate(exprNodes[0].Green);
+            if (!value.HasValue) return; // unresolvable at this point — retry on next pass
+            if (kwKind == SyntaxKind.EqualsToken || tokens[0].Kind == SyntaxKind.RedefKeyword)
+                _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+            else
+                // EQU: only define if not already defined (avoid duplicate-definition diagnostic)
+                _symbols.DefineConstantIfAbsent(tokens[nameIdx].Text, value.Value, node);
+        }
+        else if (kwKind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
+        {
+            // RS allocation — skip in pre-scan; RS counters depend on declaration order and
+            // are handled correctly by EarlyDefineEqu during the sequential expansion walk.
+        }
+        // EQUS pre-scan is skipped: string constants are macro-expansion-time, not DS-count-time.
     }
 
     // =========================================================================
@@ -234,7 +315,11 @@ internal sealed class AssemblyExpander
                 var value = evaluator.TryEvaluate(exprNodes[0].Green);
                 if (value.HasValue)
                 {
-                    // = and REDEF are reassignable (SET semantics); EQU is immutable
+                    // = and REDEF are reassignable (SET semantics); EQU is immutable.
+                    // DefineConstant handles the pre-scan idempotency case: if the pre-scan
+                    // already defined this constant with the same value, it is a silent no-op.
+                    // If a user writes FOO EQU x twice with different values, DefineConstant
+                    // will report the duplicate-definition error.
                     if (tokens[nameIdx + 1].Kind == SyntaxKind.EqualsToken ||
                         tokens[0].Kind == SyntaxKind.RedefKeyword)
                         _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
@@ -668,6 +753,7 @@ internal sealed class AssemblyExpander
             var savedPath = _currentFilePath;
             _currentSourceText = includeText;
             _currentFilePath = resolved;
+            _diagnostics.CurrentFilePath = resolved;
 
             try
             {
@@ -679,6 +765,7 @@ internal sealed class AssemblyExpander
             {
                 _currentSourceText = savedText;
                 _currentFilePath = savedPath;
+                _diagnostics.CurrentFilePath = savedPath;
             }
         }
         catch (IOException ex)

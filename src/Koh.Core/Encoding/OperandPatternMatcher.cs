@@ -211,7 +211,59 @@ public static class OperandPatternMatcher
     private static OperandPattern ImmediatePattern(GreenNodeBase node)
     {
         // ImmediateOperand wraps an expression node
+        var green = (GreenNode)node;
+        if (green.ChildCount > 0)
+        {
+            var expr = green.GetChild(0);
+            if (IsSpPlusExpression(expr))
+                return OperandPattern.SpPlusImm8;
+        }
         // Default to Imm16; the matcher will narrow based on the instruction table entry
         return OperandPattern.Imm16;
+    }
+
+    /// <summary>
+    /// Detect expressions of the form SP + expr or SP - expr (for LD HL, SP+imm8).
+    /// </summary>
+    private static bool IsSpPlusExpression(GreenNodeBase? expr)
+    {
+        if (expr is not GreenNode gn || gn.Kind != SyntaxKind.BinaryExpression)
+            return false;
+        // BinaryExpression: [left, operator, right]
+        if (gn.ChildCount < 3) return false;
+        var left = gn.GetChild(0);
+        if (left is GreenNode nameExpr && nameExpr.Kind == SyntaxKind.NameExpression)
+        {
+            var inner = nameExpr.GetChild(0) as GreenToken;
+            if (inner?.Kind == SyntaxKind.SpKeyword)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Extract the offset expression from SP ± expr. Returns the right-hand side
+    /// of the binary expression, negated if the operator is minus.
+    /// For SP + $10: returns the $10 literal expression.
+    /// For SP - $46: returns the -$46 unary expression (or wraps in one).
+    /// </summary>
+    public static GreenNodeBase? ExtractSpOffsetExpression(GreenNodeBase operandGreen)
+    {
+        if (operandGreen is not GreenNode imm || imm.Kind != SyntaxKind.ImmediateOperand)
+            return null;
+        var expr = imm.GetChild(0) as GreenNode;
+        if (expr == null || expr.Kind != SyntaxKind.BinaryExpression || expr.ChildCount < 3)
+            return null;
+        var op = expr.GetChild(1) as GreenToken;
+        var right = expr.GetChild(2);
+        if (right == null) return null;
+
+        if (op?.Kind == SyntaxKind.MinusToken)
+        {
+            // Wrap in unary negation: -(right)
+            return new GreenNode(SyntaxKind.UnaryExpression,
+                [new GreenToken(SyntaxKind.MinusToken, "-"), right]);
+        }
+        return right;
     }
 }
