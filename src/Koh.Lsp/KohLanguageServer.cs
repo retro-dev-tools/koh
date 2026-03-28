@@ -36,6 +36,7 @@ public sealed class KohLanguageServer
                 },
                 HoverProvider = true,
                 DefinitionProvider = true,
+                ReferencesProvider = true,
                 DocumentSymbolProvider = true,
                 CompletionProvider = new CompletionOptions
                 {
@@ -251,6 +252,16 @@ public sealed class KohLanguageServer
         if (token == null || token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
             return null;
 
+        bool isLocalLabel = token.Kind == SyntaxKind.LocalLabelToken;
+
+        if (isLocalLabel)
+        {
+            // Local labels are file-scoped — only search current document
+            string? scopeName = FindEnclosingGlobalLabel(tree.Root, offset);
+            return FindDefinition(tree.Root, token.Text, p.TextDocument.Uri.ToString(),
+                source, true, scopeName);
+        }
+
         foreach (var uri in _workspace.OpenDocumentUris)
         {
             var otherDoc = _workspace.GetDocument(uri);
@@ -264,7 +275,15 @@ public sealed class KohLanguageServer
         return null;
     }
 
-    private static Location? FindDefinition(SyntaxNode node, string name, string uri, SourceText source)
+    private static Location? FindDefinition(SyntaxNode node, string name, string uri,
+        SourceText source, bool isLocalLabel = false, string? requiredScope = null)
+    {
+        string? currentScope = null;
+        return FindDefinitionWalk(node, name, uri, source, isLocalLabel, requiredScope, ref currentScope);
+    }
+
+    private static Location? FindDefinitionWalk(SyntaxNode node, string name, string uri,
+        SourceText source, bool isLocalLabel, string? requiredScope, ref string? currentScope)
     {
         foreach (var child in node.ChildNodesAndTokens())
         {
@@ -274,14 +293,28 @@ public sealed class KohLanguageServer
             if (childNode.Kind == SyntaxKind.LabelDeclaration)
             {
                 var labelToken = childNode.ChildTokens().FirstOrDefault();
-                if (labelToken != null &&
-                    labelToken.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
+                if (labelToken != null)
                 {
-                    return new Location
+                    // Track global label scope
+                    if (labelToken.Kind == SyntaxKind.IdentifierToken)
+                        currentScope = labelToken.Text;
+
+                    if (labelToken.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
                     {
-                        Uri = new Uri(uri),
-                        Range = PositionUtilities.ToLspRange(source, childNode.Span),
-                    };
+                        // For local labels, match only LocalLabelTokens in the same scope
+                        if (isLocalLabel)
+                        {
+                            if (labelToken.Kind != SyntaxKind.LocalLabelToken) continue;
+                            if (!string.Equals(currentScope, requiredScope, StringComparison.OrdinalIgnoreCase))
+                                continue;
+                        }
+
+                        return new Location
+                        {
+                            Uri = new Uri(uri),
+                            Range = PositionUtilities.ToLspRange(source, childNode.Span),
+                        };
+                    }
                 }
             }
             else if (childNode.Kind == SyntaxKind.SymbolDirective)
@@ -299,12 +332,140 @@ public sealed class KohLanguageServer
                 }
             }
 
-            // Recurse into child nodes (conditionals, macros, repeats, etc.)
-            var found = FindDefinition(childNode, name, uri, source);
+            var found = FindDefinitionWalk(childNode, name, uri, source, isLocalLabel, requiredScope, ref currentScope);
             if (found != null) return found;
         }
 
         return null;
+    }
+
+    // =========================================================================
+    // Find references (recursive tree walk)
+    // =========================================================================
+
+    [JsonRpcMethod("textDocument/references")]
+    public Location[] References(JToken arg)
+    {
+        var p = arg.ToObject<ReferenceParams>()!;
+        var doc = _workspace.GetDocument(p.TextDocument.Uri.ToString());
+        if (doc == null) return [];
+
+        var (source, tree) = doc.Value;
+        var offset = PositionUtilities.ToOffset(source, p.Position);
+        var token = tree.Root.FindToken(offset);
+        if (token == null || token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
+            return [];
+
+        bool includeDeclaration = p.Context?.IncludeDeclaration ?? false;
+        bool isLocalLabel = token.Kind == SyntaxKind.LocalLabelToken;
+
+        string? scopeName = isLocalLabel
+            ? FindEnclosingGlobalLabel(tree.Root, offset)
+            : null;
+
+        var locations = new List<Location>();
+
+        if (isLocalLabel)
+        {
+            // Local labels are file-scoped — only search the current document
+            FindReferences(tree.Root, token.Text, new Uri(p.TextDocument.Uri.ToString()),
+                source, locations, includeDeclaration, true, scopeName);
+        }
+        else
+        {
+            foreach (var uri in _workspace.OpenDocumentUris)
+            {
+                var otherDoc = _workspace.GetDocument(uri);
+                if (otherDoc == null) continue;
+                var (otherSource, otherTree) = otherDoc.Value;
+
+                FindReferences(otherTree.Root, token.Text, new Uri(uri), otherSource, locations,
+                    includeDeclaration, false, null);
+            }
+        }
+
+        return locations.ToArray();
+    }
+
+    /// <summary>
+    /// Find the name of the most recent global label before the given position.
+    /// Local labels in RGBDS are scoped to the preceding global label.
+    /// </summary>
+    private static string? FindEnclosingGlobalLabel(SyntaxNode root, int position)
+    {
+        string? lastGlobal = null;
+        foreach (var child in root.ChildNodesAndTokens())
+        {
+            if (!child.IsNode) continue;
+            var node = child.AsNode!;
+            if (node.Position > position) break;
+
+            if (node.Kind == SyntaxKind.LabelDeclaration)
+            {
+                var nameToken = node.ChildTokens().FirstOrDefault();
+                if (nameToken != null && nameToken.Kind == SyntaxKind.IdentifierToken)
+                    lastGlobal = nameToken.Text;
+            }
+        }
+        return lastGlobal;
+    }
+
+    private static void FindReferences(SyntaxNode root, string name, Uri documentUri,
+        SourceText source, List<Location> results, bool includeDeclaration,
+        bool isLocalLabel, string? requiredScope)
+    {
+        // For local labels, track the current global label scope as we walk
+        string? currentScope = null;
+        FindReferencesWalk(root, name, documentUri, source, results,
+            includeDeclaration, isLocalLabel, requiredScope, ref currentScope);
+    }
+
+    private static void FindReferencesWalk(SyntaxNode node, string name, Uri documentUri,
+        SourceText source, List<Location> results, bool includeDeclaration,
+        bool isLocalLabel, string? requiredScope, ref string? currentScope)
+    {
+        foreach (var child in node.ChildNodesAndTokens())
+        {
+            if (child.IsNode)
+            {
+                var childNode = child.AsNode!;
+                // Track global label scope changes at top level
+                if (childNode.Kind == SyntaxKind.LabelDeclaration)
+                {
+                    var labelToken = childNode.ChildTokens().FirstOrDefault();
+                    if (labelToken != null && labelToken.Kind == SyntaxKind.IdentifierToken)
+                        currentScope = labelToken.Text;
+                }
+
+                FindReferencesWalk(childNode, name, documentUri, source, results,
+                    includeDeclaration, isLocalLabel, requiredScope, ref currentScope);
+                continue;
+            }
+
+            if (!child.IsToken) continue;
+            var token = child.AsToken!;
+
+            if ((token.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken) &&
+                token.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                // For local labels, only match LocalLabelTokens in the same scope
+                if (isLocalLabel)
+                {
+                    if (token.Kind != SyntaxKind.LocalLabelToken) continue;
+                    if (!string.Equals(currentScope, requiredScope, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                }
+
+                bool isDecl = token.Parent?.Kind is SyntaxKind.LabelDeclaration or SyntaxKind.SymbolDirective;
+                if (isDecl && !includeDeclaration) continue;
+
+                results.Add(new Location
+                {
+                    Uri = documentUri,
+                    Range = PositionUtilities.ToLspRange(source, token.Span),
+                });
+            }
+        }
     }
 
     // =========================================================================

@@ -2259,7 +2259,7 @@ Use `SemanticModel.GetSymbol(position)` → return symbol info, value in all bas
 
 - [x] **Step 1: Implement textDocument/definition** — `SemanticModel.GetDeclaredSymbol()` → return source location
 
-- [ ] **Step 2: Implement textDocument/references** — find all references to a symbol across all files
+- [x] **Step 2: Implement textDocument/references** — find all references to a symbol across all files
 
 - [x] **Step 3: Commit**
 
