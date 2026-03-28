@@ -747,4 +747,22 @@ public class InstructionBindingTests
         var bytes = GetBytes("sbc c");
         await AssertBytes(bytes, 0x99);
     }
+
+    // JR with forward-referenced local labels
+
+    [Test]
+    public async Task JrForwardLabel()
+    {
+        var bytes = GetBytes("jr .skip\nnop\n.skip:\nnop");
+        await Assert.That(bytes[0]).IsEqualTo((byte)0x18);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+    }
+
+    [Test]
+    public async Task JrCondNZ_ForwardLabel()
+    {
+        var bytes = GetBytes("jr nz, .skip\nnop\n.skip:\nnop");
+        await Assert.That(bytes[0]).IsEqualTo((byte)0x20);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+    }
 }

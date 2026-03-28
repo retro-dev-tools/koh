@@ -79,8 +79,8 @@ public sealed class CliTests
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(File.Exists(expectedKobj)).IsTrue();
-        // Success message goes to stdout (not stderr).
-        await Assert.That(result.Stdout).Contains("Assembled");
+        // Success summary goes to stdout (not stderr).
+        await Assert.That(result.Stdout).Contains("->");
         await Assert.That(result.Stderr).IsEmpty();
     }
 
@@ -131,9 +131,9 @@ public sealed class CliTests
 
         var result = await CliFixture.RunAsync([asmPath]);
 
-        await Assert.That(result.Stdout).Contains("Assembled");
+        await Assert.That(result.Stdout).Contains("->");
         // stderr must not contain the success message — only diagnostics belong there.
-        await Assert.That(result.Stderr).DoesNotContain("Assembled");
+        await Assert.That(result.Stderr).DoesNotContain("->");
     }
 
     // ---------------------------------------------------------------------------

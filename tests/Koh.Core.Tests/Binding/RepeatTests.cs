@@ -220,4 +220,20 @@ public class RepeatTests
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2); // two nops from two invocations
     }
+
+    [Test]
+    public async Task ForLoop_DataTable()
+    {
+        var model = Emit("""
+            SECTION "Data", ROM0
+            FOR I, 0, 8
+            db I * 2
+            ENDR
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(8);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0);
+        await Assert.That(model.Sections[0].Data[3]).IsEqualTo((byte)6);
+        await Assert.That(model.Sections[0].Data[7]).IsEqualTo((byte)14);
+    }
 }

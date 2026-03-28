@@ -272,4 +272,33 @@ public class ConditionalTests
             """);
         await Assert.That(model.Diagnostics).IsEmpty();
     }
+
+    [Test]
+    public async Task ConditionalAssembly_IfElse()
+    {
+        var model = Emit("""
+            GBC_MODE EQU 1
+            SECTION "Main", ROM0
+            IF GBC_MODE
+            ld a, $80
+            ELSE
+            ld a, $00
+            ENDC
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0x80);
+    }
+
+    [Test]
+    public async Task RgbdsBuiltins_VersionCheck()
+    {
+        var model = Emit("""
+            IF __RGBDS_MAJOR__ >= 1
+            SECTION "Main", ROM0
+            db $AA
+            ENDC
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xAA);
+    }
 }

@@ -82,4 +82,38 @@ public class MacroTests
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xAA);
     }
+
+    [Test]
+    public async Task MacroKeywordFirst_Expands()
+    {
+        var model = Emit("MACRO my_nop\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_nop");
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x00);
+    }
+
+    [Test]
+    public async Task MacroKeywordFirst_WithArgs()
+    {
+        var model = Emit("MACRO load_reg\nld \\1, \\2\nENDM\nSECTION \"Main\", ROM0\nload_reg a, b");
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x78);
+    }
+
+    [Test]
+    public async Task MacroWithEquConstants()
+    {
+        var model = Emit("""
+            SCREEN_W EQU 160
+            TILE_SIZE EQU 8
+            set_reg: MACRO
+            ld \1, \2
+            ENDM
+            SECTION "Main", ROM0
+            set_reg a, SCREEN_W / TILE_SIZE
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x3E);
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)20);
+    }
 }

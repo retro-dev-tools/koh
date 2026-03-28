@@ -32,12 +32,59 @@ static class KohAsm
         if (source == null)
             return 1; // error already reported
 
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
         var emitModel = Assemble(source, format);
 
-        if (ReportDiagnostics(emitModel, source))
-            return 1;
+        stopwatch.Stop();
+        var elapsed = stopwatch.Elapsed;
 
-        return WriteOutput(emitModel, outputPath, input, format);
+        int errors = 0, warnings = 0;
+        foreach (var diag in emitModel.Diagnostics)
+        {
+            var (line, col) = GetLocation(diag, source);
+            var severity = diag.Severity switch
+            {
+                DiagnosticSeverity.Error => "error",
+                DiagnosticSeverity.Warning => "warning",
+                _ => "info",
+            };
+            Console.Error.WriteLine($"{source.FilePath}:{line}:{col}: {severity}: {diag.Message}");
+            if (diag.Severity == DiagnosticSeverity.Error) errors++;
+            else if (diag.Severity == DiagnosticSeverity.Warning) warnings++;
+        }
+
+        if (errors > 0)
+        {
+            PrintSummary(input, elapsed, errors, warnings, null);
+            return 1;
+        }
+
+        var result = WriteOutput(emitModel, outputPath, input, format);
+        if (result == 0)
+            PrintSummary(input, elapsed, errors, warnings, outputPath);
+        return result;
+    }
+
+    static void PrintSummary(string input, TimeSpan elapsed, int errors, int warnings, string? outputPath)
+    {
+        var inputName = Path.GetFileName(input);
+        var timeStr = elapsed.TotalSeconds < 1
+            ? $"{elapsed.TotalMilliseconds:F0}ms"
+            : $"{elapsed.TotalSeconds:F2}s";
+
+        if (errors > 0)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"  {inputName}: {errors} error(s), {warnings} warning(s) [{timeStr}]");
+        }
+        else
+        {
+            var outName = outputPath != null ? Path.GetFileName(outputPath) : "?";
+            Console.WriteLine($"  {inputName} -> {outName}  [{timeStr}]");
+            if (warnings > 0)
+                Console.Error.WriteLine($"  {warnings} warning(s)");
+        }
     }
 
     enum OutputFormat { Kobj, Rgbds }
@@ -70,24 +117,7 @@ static class KohAsm
         return Compilation.Create(options, tree).Emit();
     }
 
-    static bool ReportDiagnostics(EmitModel model, SourceText source)
-    {
-        var hasErrors = false;
-        foreach (var diag in model.Diagnostics)
-        {
-            var (line, col) = GetLocation(diag, source);
-            var severity = diag.Severity switch
-            {
-                DiagnosticSeverity.Error => "error",
-                DiagnosticSeverity.Warning => "warning",
-                _ => "info",
-            };
-            Console.Error.WriteLine($"{source.FilePath}:{line}:{col}: {severity}: {diag.Message}");
-            if (diag.Severity == DiagnosticSeverity.Error)
-                hasErrors = true;
-        }
-        return hasErrors;
-    }
+    // Diagnostics are now reported inline in Run()
 
     static int WriteOutput(EmitModel model, string outputPath, string inputPath, OutputFormat format)
     {
@@ -119,7 +149,7 @@ static class KohAsm
                 catch { }
         }
 
-        Console.WriteLine($"Assembled {inputPath} -> {outputPath}");
+        // Success message printed by PrintSummary in Run()
         return 0;
     }
 

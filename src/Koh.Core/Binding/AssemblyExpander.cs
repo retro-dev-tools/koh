@@ -25,6 +25,7 @@ internal sealed class AssemblyExpander
     private readonly ConditionalAssemblyState _conditional = new();
     private readonly Dictionary<string, MacroDef> _macros = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _equsConstants = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CharMapManager _charMaps;
     private long _rsCounter; // RS counter for RB/RW/RSRESET/RSSET
     private readonly ISourceFileResolver _fileResolver;
     private readonly HashSet<string> _includeStack = new(StringComparer.OrdinalIgnoreCase);
@@ -36,12 +37,16 @@ internal sealed class AssemblyExpander
     private const int MaxExpansionDepth = 64;
 
     public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols,
-        ISourceFileResolver? fileResolver = null)
+        ISourceFileResolver? fileResolver = null, CharMapManager? charMaps = null)
     {
         _diagnostics = diagnostics;
         _symbols = symbols;
         _fileResolver = fileResolver ?? new FileSystemResolver();
+        _charMaps = charMaps ?? new CharMapManager(diagnostics);
     }
+
+    /// <summary>The expander's charmap state, for sharing with the binder.</summary>
+    internal CharMapManager CharMaps => _charMaps;
 
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
@@ -183,9 +188,12 @@ internal sealed class AssemblyExpander
                 }
             }
 
-            // EQU constants and RS counters — define immediately for IF/REPT condition evaluation
+            // EQU constants, RS counters, and charmaps — define immediately for IF/REPT/REVCHAR
             if (node.Kind == SyntaxKind.SymbolDirective)
+            {
                 EarlyDefineEqu(node);
+                EarlyProcessCharmap(node);
+            }
 
             // RSRESET/RSSET — handle RS counter directives during expansion
             if (node.Kind == SyntaxKind.DirectiveStatement)
@@ -209,8 +217,15 @@ internal sealed class AssemblyExpander
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count < 2) return;
 
-        if (tokens[0].Kind == SyntaxKind.IdentifierToken &&
-            tokens[1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        // Handle DEF/REDEF prefix: skip to the identifier + keyword pair
+        int nameIdx = 0;
+        if (tokens[0].Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword)
+            nameIdx = 1;
+
+        if (nameIdx + 1 >= tokens.Count) return;
+
+        if (tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
+            tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
         {
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
@@ -218,18 +233,20 @@ internal sealed class AssemblyExpander
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
                 var value = evaluator.TryEvaluate(exprNodes[0].Green);
                 if (value.HasValue)
-                    _symbols.DefineConstant(tokens[0].Text, value.Value, node);
+                {
+                    // = and REDEF are reassignable (SET semantics); EQU is immutable
+                    if (tokens[nameIdx + 1].Kind == SyntaxKind.EqualsToken ||
+                        tokens[0].Kind == SyntaxKind.RedefKeyword)
+                        _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+                    else
+                        _symbols.DefineConstant(tokens[nameIdx].Text, value.Value, node);
+                }
             }
         }
-        else if (tokens[0].Kind == SyntaxKind.IdentifierToken &&
-                 tokens[1].Kind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
-                 // Note: RlKeyword is also an instruction (rotate-left). Context disambiguates:
-                 // IdentifierToken followed by RlKeyword = RS directive, not instruction.
+        else if (tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
+                 tokens[nameIdx + 1].Kind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
         {
-            // name RB count — define name as current RS counter, advance by count*1
-            // name RW count — define name as current RS counter, advance by count*2
-            // name RL count — define name as current RS counter, advance by count*4
-            int multiplier = tokens[1].Kind switch
+            int multiplier = tokens[nameIdx + 1].Kind switch
             {
                 SyntaxKind.RwKeyword => 2,
                 SyntaxKind.RlKeyword => 4,
@@ -245,27 +262,116 @@ internal sealed class AssemblyExpander
                 if (value.HasValue) count = value.Value;
             }
 
-            _symbols.DefineConstant(tokens[0].Text, _rsCounter, node);
+            _symbols.DefineConstant(tokens[nameIdx].Text, _rsCounter, node);
             _rsCounter += count * multiplier;
         }
-        else if (tokens[0].Kind == SyntaxKind.IdentifierToken &&
-                 tokens[1].Kind == SyntaxKind.EqusKeyword)
+        else if (tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
+                 tokens[nameIdx + 1].Kind == SyntaxKind.EqusKeyword)
         {
-            // name EQUS "string" — store as text constant for expansion
-            // The string literal is inside a LiteralExpression child node
+            // name EQUS expr — evaluate string expression
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
             {
-                var strToken = exprNodes[0].ChildTokens()
-                    .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
-                if (strToken != null)
-                {
-                    var value = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
-                    _equsConstants[tokens[0].Text] = value;
-                }
+                var value = EvaluateStringExpression(exprNodes[0]);
+                if (value != null)
+                    _equsConstants[tokens[nameIdx].Text] = value;
             }
         }
     }
+
+    /// <summary>
+    /// Evaluate a string expression for EQUS assignment. Handles string literals and REVCHAR().
+    /// </summary>
+    private string? EvaluateStringExpression(SyntaxNode exprNode)
+    {
+        // String literal
+        var strToken = exprNode.ChildTokens()
+            .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+        if (strToken != null)
+            return strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+
+        // REVCHAR(...) function call
+        if (exprNode.Kind == SyntaxKind.FunctionCallExpression)
+        {
+            var funcTokens = exprNode.ChildTokens().ToList();
+            if (funcTokens.Count > 0 && funcTokens[0].Kind == SyntaxKind.RevcharKeyword)
+            {
+                // Collect numeric arguments
+                var argExprs = exprNode.ChildNodes().ToList();
+                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                var bytes = new List<byte>();
+                foreach (var argExpr in argExprs)
+                {
+                    var val = evaluator.TryEvaluate(argExpr.Green);
+                    if (val.HasValue)
+                        bytes.Add((byte)(val.Value & 0xFF));
+                }
+                if (bytes.Count > 0)
+                    return _charMaps.ReverseCharMap(bytes.ToArray());
+            }
+        }
+
+        return null;
+    }
+
+    private void EarlyProcessCharmap(SyntaxNode node)
+    {
+        var tokens = node.ChildTokens().ToList();
+        if (tokens.Count == 0) return;
+
+        switch (tokens[0].Kind)
+        {
+            case SyntaxKind.NewcharmapKeyword:
+                if (tokens.Count >= 2)
+                {
+                    var name = StripQuotes(tokens[1].Text);
+                    string? baseName = null;
+                    for (int ci = 2; ci < tokens.Count; ci++)
+                    {
+                        if (tokens[ci].Kind is SyntaxKind.IdentifierToken or SyntaxKind.StringLiteral)
+                        {
+                            baseName = StripQuotes(tokens[ci].Text);
+                            break;
+                        }
+                    }
+                    _charMaps.NewCharMap(name, baseName);
+                }
+                break;
+            case SyntaxKind.SetcharmapKeyword:
+                if (tokens.Count >= 2)
+                    _charMaps.SetCharMap(StripQuotes(tokens[1].Text));
+                break;
+            case SyntaxKind.PrecharmapKeyword:
+                _charMaps.PushCharMap();
+                break;
+            case SyntaxKind.PopcharmapKeyword:
+                _charMaps.PopCharMap();
+                break;
+            case SyntaxKind.CharmapKeyword:
+                if (tokens.Count >= 2)
+                {
+                    var charStr = tokens[1].Text;
+                    if (charStr.Length >= 2) charStr = charStr[1..^1];
+                    // Collect all number literal tokens after the string as multi-byte value
+                    var byteValues = new List<byte>();
+                    for (int ci = 2; ci < tokens.Count; ci++)
+                    {
+                        if (tokens[ci].Kind == SyntaxKind.NumberLiteral)
+                        {
+                            var val = ExpressionEvaluator.ParseNumber(tokens[ci].Text);
+                            if (val.HasValue)
+                                byteValues.Add((byte)(val.Value & 0xFF));
+                        }
+                    }
+                    if (byteValues.Count > 0)
+                        _charMaps.AddMapping(charStr, byteValues.ToArray());
+                }
+                break;
+        }
+    }
+
+    private static string StripQuotes(string text) =>
+        text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
 
     private void HandleRsDirective(SyntaxNode node)
     {

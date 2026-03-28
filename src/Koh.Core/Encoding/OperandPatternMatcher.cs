@@ -55,8 +55,9 @@ public static class OperandPatternMatcher
             (OperandPattern.Imm8, OperandPattern.Imm16) =>
                 value == null || (value >= -128 && value <= 255),
             (OperandPattern.Imm8, OperandPattern.Imm8Signed) => true,
-            (OperandPattern.Imm8Signed, OperandPattern.Imm16) =>
-                value == null || (value >= -128 && value <= 127),
+            // JR targets are absolute addresses; the relative offset is computed at
+            // encode time (target - PC - 2). Always match here; range check at emit.
+            (OperandPattern.Imm8Signed, OperandPattern.Imm16) => true,
             (OperandPattern.Imm8Signed, OperandPattern.Imm8) =>
                 value == null || (value >= -128 && value <= 127),
             (OperandPattern.Imm16, OperandPattern.Imm8) => true, // 8-bit fits in 16-bit

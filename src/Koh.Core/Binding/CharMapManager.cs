@@ -4,45 +4,48 @@ namespace Koh.Core.Binding;
 
 /// <summary>
 /// Manages character mapping tables for string-to-byte encoding.
-/// RGBDS directives: CHARMAP, NEWCHARMAP, SETCHARMAP, PRECHMAP, POPCHARMAP.
+/// Supports multi-byte values: CHARMAP "str", $80, $00, $00.
 /// </summary>
 internal sealed class CharMapManager
 {
     private readonly DiagnosticBag _diagnostics;
-    private readonly Dictionary<string, Dictionary<string, byte>> _maps = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, byte[]>> _maps = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stack<string> _mapStack = new();
-    private string _activeMapName = "";
-    private Dictionary<string, byte> _activeMap;
+    private string _activeMapName = "main";
+    private Dictionary<string, byte[]> _activeMap;
     private int _maxKeyLen = 1;
 
     public CharMapManager(DiagnosticBag diagnostics)
     {
         _diagnostics = diagnostics;
-        // Default map: identity (no custom mappings — ASCII passthrough)
-        _activeMap = new Dictionary<string, byte>();
+        _activeMap = new Dictionary<string, byte[]>();
+        _maps["main"] = _activeMap;
         _maps[""] = _activeMap;
     }
 
-    /// <summary>
-    /// Create a new named character map and activate it (RGBDS behavior).
-    /// </summary>
-    public void NewCharMap(string name)
+    public void NewCharMap(string name, string? baseName = null)
     {
         if (_maps.ContainsKey(name))
         {
             _diagnostics.Report(default, $"Character map '{name}' already exists");
             return;
         }
-        var map = new Dictionary<string, byte>();
+        Dictionary<string, byte[]> map;
+        if (baseName != null && _maps.TryGetValue(baseName, out var baseMap))
+            map = new Dictionary<string, byte[]>(baseMap);
+        else if (baseName != null)
+        {
+            _diagnostics.Report(default, $"Base character map '{baseName}' not found");
+            map = new Dictionary<string, byte[]>();
+        }
+        else
+            map = new Dictionary<string, byte[]>();
+
         _maps[name] = map;
-        // RGBDS: NEWCHARMAP creates and activates the new map
         _activeMapName = name;
         _activeMap = map;
     }
 
-    /// <summary>
-    /// Switch to a named character map.
-    /// </summary>
     public void SetCharMap(string name)
     {
         if (!_maps.TryGetValue(name, out var map))
@@ -62,14 +65,8 @@ internal sealed class CharMapManager
             if (key.Length > _maxKeyLen) _maxKeyLen = key.Length;
     }
 
-    /// <summary>
-    /// Push the current charmap name onto the stack.
-    /// </summary>
     public void PushCharMap() => _mapStack.Push(_activeMapName);
 
-    /// <summary>
-    /// Pop and restore a charmap from the stack.
-    /// </summary>
     public void PopCharMap()
     {
         if (_mapStack.Count == 0)
@@ -80,14 +77,37 @@ internal sealed class CharMapManager
         SetCharMap(_mapStack.Pop());
     }
 
-    /// <summary>
-    /// Add a character mapping to the active map.
-    /// </summary>
-    public void AddMapping(string character, byte value)
+    public void AddMapping(string character, byte[] value)
     {
         _activeMap[character] = value;
         if (character.Length > _maxKeyLen)
             _maxKeyLen = character.Length;
+    }
+
+    /// <summary>
+    /// REVCHAR: reverse lookup — find the string key that maps to the given byte values.
+    /// </summary>
+    public string? ReverseCharMap(byte[] values)
+    {
+        string? result = null;
+        foreach (var (key, val) in _activeMap)
+        {
+            if (val.Length == values.Length && val.AsSpan().SequenceEqual(values))
+            {
+                if (result != null)
+                {
+                    _diagnostics.Report(default, "REVCHAR: Multiple character mappings to values");
+                    return null;
+                }
+                result = key;
+            }
+        }
+
+        if (result == null)
+            _diagnostics.Report(default,
+                $"REVCHAR: No character mapping to value(s) {string.Join(", ", values.Select(b => $"${b:X2}"))}");
+
+        return result;
     }
 
     /// <summary>
@@ -100,14 +120,13 @@ internal sealed class CharMapManager
         int i = 0;
         while (i < text.Length)
         {
-            // Try longest match first (multi-char mappings)
             bool matched = false;
             for (int len = Math.Min(text.Length - i, _maxKeyLen); len >= 1; len--)
             {
                 var substr = text.Substring(i, len);
                 if (_activeMap.TryGetValue(substr, out var mapped))
                 {
-                    result.Add(mapped);
+                    result.AddRange(mapped);
                     i += len;
                     matched = true;
                     break;

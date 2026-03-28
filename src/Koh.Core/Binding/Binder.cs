@@ -39,13 +39,25 @@ public sealed class Binder
         _printOutput = printOutput ?? Console.Error;
     }
 
+    private void DefineRgbdsBuiltins()
+    {
+        // RGBDS version constants — report as Koh but RGBDS-compatible version numbers
+        _symbols.DefineConstant("__RGBDS_MAJOR__", 1, null);
+        _symbols.DefineConstant("__RGBDS_MINOR__", 0, null);
+        _symbols.DefineConstant("__RGBDS_PATCH__", 0, null);
+        _symbols.DefineConstant("__RGBDS_RC__", 0, null);
+    }
+
     public BindingResult Bind(SyntaxTree tree)
     {
+        // Pre-define RGBDS built-in constants for conditional assembly compatibility
+        DefineRgbdsBuiltins();
+
         foreach (var d in tree.Diagnostics)
             _diagnostics.Report(d.Span, d.Message, d.Severity);
 
         // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC, INCLUDE into flat list
-        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver);
+        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver, _charMaps);
         var nodes = _expander.Expand(tree);
 
         // Pass 1: symbol collection and PC tracking
@@ -96,12 +108,9 @@ public sealed class Binder
                 Pass1Incbin(node, en.SourceFilePath, pc);
                 break;
             case SyntaxKind.SymbolDirective:
-                // EQU constants are defined by the AssemblyExpander before Pass 1 runs;
-                // do not redefine them here. Only EXPORT visibility marking belongs in Pass 1.
-                // Charmap directives are also processed here so Pass1Data can compute
-                // accurate byte counts for strings using multi-char charmap mappings.
+                // EQU constants and charmap directives are processed by the AssemblyExpander
+                // during expansion (before Pass 1). Only EXPORT visibility marking belongs here.
                 Pass1Export(node);
-                Pass1Charmap(node);
                 break;
             case SyntaxKind.DirectiveStatement:
                 Pass1Directive(node, pc);
@@ -299,47 +308,6 @@ public sealed class Binder
     /// EQU and REDEF constants are fully resolved by AssemblyExpander before Pass 1 runs;
     /// re-evaluating them here would cause duplicate-definition diagnostics.
     /// </summary>
-    private void Pass1Charmap(SyntaxNode node)
-    {
-        var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
-
-        switch (tokens[0].Kind)
-        {
-            case SyntaxKind.NewcharmapKeyword:
-                if (tokens.Count >= 2)
-                    _charMaps.NewCharMap(StripQuotes(tokens[1].Text));
-                break;
-            case SyntaxKind.SetcharmapKeyword:
-                if (tokens.Count >= 2)
-                    _charMaps.SetCharMap(StripQuotes(tokens[1].Text));
-                break;
-            case SyntaxKind.PrecharmapKeyword:
-                _charMaps.PushCharMap();
-                break;
-            case SyntaxKind.PopcharmapKeyword:
-                _charMaps.PopCharMap();
-                break;
-            case SyntaxKind.CharmapKeyword:
-                if (tokens.Count >= 2)
-                {
-                    var charStr = tokens[1].Text;
-                    if (charStr.Length >= 2) charStr = charStr[1..^1];
-                    for (int i = tokens.Count - 1; i >= 2; i--)
-                    {
-                        if (tokens[i].Kind == SyntaxKind.NumberLiteral)
-                        {
-                            var val = ExpressionEvaluator.ParseNumber(tokens[i].Text);
-                            if (val.HasValue)
-                                _charMaps.AddMapping(charStr, (byte)(val.Value & 0xFF));
-                            break;
-                        }
-                    }
-                }
-                break;
-        }
-    }
-
     private void Pass1Export(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
@@ -378,8 +346,8 @@ public sealed class Binder
             case SyntaxKind.InstructionStatement:
                 Pass2Instruction(node);
                 break;
-            // SymbolDirective: charmap directives handled in Pass1Charmap,
-            // EQU/EXPORT handled in Pass1. Nothing to do in Pass2.
+            // SymbolDirective: charmap directives handled in AssemblyExpander.EarlyProcessCharmap,
+            // EQU handled in AssemblyExpander.EarlyDefineEqu, EXPORT in Pass1Export.
             case SyntaxKind.DirectiveStatement:
                 Pass2Directive(node);
                 break;

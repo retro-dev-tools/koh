@@ -223,4 +223,103 @@ public class CharMapTests
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x01);
     }
+
+    [Test]
+    public async Task Charmap_MultiByte_Encoding()
+    {
+        var model = Emit("""
+            CHARMAP "hello", $80, $01, $00
+            SECTION "Main", ROM0
+            db "hello"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(3);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x80);
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0x01);
+        await Assert.That(model.Sections[0].Data[2]).IsEqualTo((byte)0x00);
+    }
+
+    [Test]
+    public async Task Revchar_SingleByte()
+    {
+        var sw = new System.IO.StringWriter();
+        var tree = SyntaxTree.Parse("""
+            CHARMAP "X", $58
+            MY_STR EQUS REVCHAR($58)
+            SECTION "Main", ROM0
+            PRINTLN "{MY_STR}"
+            nop
+            """);
+        var model = Compilation.Create(new Koh.Core.Binding.BinderOptions(), sw, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(sw.ToString()).Contains("X");
+    }
+
+    [Test]
+    public async Task Revchar_MultiByte()
+    {
+        var sw = new System.IO.StringWriter();
+        var tree = SyntaxTree.Parse("""
+            CHARMAP "Hi", $80, $01
+            MY_STR EQUS REVCHAR($80, $01)
+            SECTION "Main", ROM0
+            PRINTLN "{MY_STR}"
+            nop
+            """);
+        var model = Compilation.Create(new Koh.Core.Binding.BinderOptions(), sw, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(sw.ToString()).Contains("Hi");
+    }
+
+    [Test]
+    public async Task Revchar_NoMatch_ReportsError()
+    {
+        var model = Emit("""
+            CHARMAP "X", $58
+            BAD EQUS REVCHAR($99)
+            SECTION "Main", ROM0
+            nop
+            """);
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("REVCHAR"))).IsTrue();
+    }
+
+    [Test]
+    public async Task Newcharmap_CopyFromBase()
+    {
+        var model = Emit("""
+            NEWCHARMAP base_map
+            CHARMAP "A", $80
+            NEWCHARMAP derived, base_map
+            SECTION "Main", ROM0
+            db "A"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x80);
+    }
+
+    [Test]
+    public async Task Newcharmap_UnknownBase_ReportsError()
+    {
+        var model = Emit("""
+            NEWCHARMAP derived, ghost_map
+            SECTION "Main", ROM0
+            nop
+            """);
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("not found"))).IsTrue();
+    }
+
+    [Test]
+    public async Task DefaultCharmap_NamedMain()
+    {
+        var model = Emit("""
+            CHARMAP "Z", $90
+            NEWCHARMAP other
+            CHARMAP "Z", $91
+            SETCHARMAP main
+            SECTION "Main", ROM0
+            db "Z"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x90);
+    }
 }

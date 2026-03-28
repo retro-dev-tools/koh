@@ -221,4 +221,44 @@ public class BinderSymbolTests
         await Assert.That(sym).IsNotNull();
         await Assert.That(sym!.Value).IsEqualTo(0x0102); // $0100 + 2 nops
     }
+
+    [Test]
+    public async Task BareAssignment_DefinesConstant()
+    {
+        var result = Bind("FOO = $42\nSECTION \"Main\", ROM0\ndb FOO");
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Sections!["Main"].Bytes[0]).IsEqualTo((byte)0x42);
+    }
+
+    [Test]
+    public async Task BareAssignment_Reassignable()
+    {
+        var result = Bind("COUNTER = 0\nCOUNTER = 1\nCOUNTER = 2\nSECTION \"Main\", ROM0\ndb COUNTER");
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Sections!["Main"].Bytes[0]).IsEqualTo((byte)2);
+    }
+
+    [Test]
+    public async Task DefEqu_DefinesConstant()
+    {
+        var result = Bind("DEF MY_CONST EQU $10\nSECTION \"Main\", ROM0\ndb MY_CONST");
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Sections!["Main"].Bytes[0]).IsEqualTo((byte)0x10);
+    }
+
+    [Test]
+    public async Task DefEqu_AvailableInIfCondition()
+    {
+        var result = Bind("DEF ENABLED EQU 1\nIF ENABLED\nSECTION \"Main\", ROM0\ndb $AA\nENDC");
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Sections!["Main"].Bytes[0]).IsEqualTo((byte)0xAA);
+    }
+
+    [Test]
+    public async Task Equ_DuplicateDefinition_ReportsError()
+    {
+        var result = Bind("FOO EQU $10\nFOO EQU $20\nSECTION \"Main\", ROM0\nnop");
+        await Assert.That(result.Success).IsFalse();
+        await Assert.That(result.Diagnostics.Any(d => d.Message.Contains("already defined"))).IsTrue();
+    }
 }
