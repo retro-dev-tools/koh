@@ -2195,7 +2195,7 @@ Create an EmitModel, write as RGBDS `.o`, read with a reference reader (parse th
 
 Requires `rgblink` available on PATH. Skip if not available (`[ConditionalTest]`). Docker-based via `docker compose run --rm --build compat-tests`.
 
-- [ ] **Step 2: Write test that mixes Koh .o and rgbasm .o files**
+- [x] **Step 2: Write test that mixes Koh .o and rgbasm .o files**
 
 Assemble one file with Koh (`--format rgbds`), another with rgbasm, link both with rgblink.
 

@@ -167,4 +167,48 @@ public sealed class RgbdsLinkTests : IDisposable
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.RomData).IsNotNull();
     }
+
+    // =========================================================================
+    // Mixed Koh + rgbasm object files
+    // =========================================================================
+
+    [Test]
+    public async Task MixedKohAndRgbasm_LinkTogether()
+    {
+        SkipIfNoRgblink();
+
+        // File 1: assembled by Koh — non-zero bytes for meaningful assertions
+        var kohModel = RgbdsCompatFixture.Assemble("""
+            SECTION "KohCode", ROM0[$0000]
+            koh_entry::
+                db $DE, $AD, $BE
+            """);
+        await Assert.That(kohModel.Success).IsTrue();
+        var kohObj = RgbdsCompatFixture.WriteObjectFile(kohModel, _tmpDir, "koh_part.o");
+
+        // File 2: assembled by rgbasm — non-zero bytes
+        var rgbasmObj = await RgbdsCompatFixture.RgbasmAssembleAsync("""
+            SECTION "RgbasmCode", ROM0[$0010]
+            rgbasm_entry::
+                db $CA, $FE
+            """, _tmpDir, "rgbasm_part");
+
+        if (rgbasmObj == null)
+            Skip.Test("rgbasm not available or failed to assemble");
+
+        // Link both together with rgblink
+        var romPath = Path.Combine(_tmpDir, "mixed.gb");
+        var result = await RgbdsCompatFixture.LinkAsync(romPath, kohObj, rgbasmObj!);
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        await Assert.That(result.RomData).IsNotNull();
+        await Assert.That(result.RomData!.Length).IsGreaterThan(0x11);
+        // Koh section at $0000: $DE $AD $BE
+        await Assert.That(result.RomData[0x0000]).IsEqualTo((byte)0xDE);
+        await Assert.That(result.RomData[0x0001]).IsEqualTo((byte)0xAD);
+        await Assert.That(result.RomData[0x0002]).IsEqualTo((byte)0xBE);
+        // rgbasm section at $0010: $CA $FE
+        await Assert.That(result.RomData[0x0010]).IsEqualTo((byte)0xCA);
+        await Assert.That(result.RomData[0x0011]).IsEqualTo((byte)0xFE);
+    }
 }

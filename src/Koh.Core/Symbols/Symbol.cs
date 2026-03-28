@@ -13,6 +13,7 @@ public enum SymbolVisibility
 {
     Local,
     Exported,
+    Imported,
 }
 
 public enum SymbolState

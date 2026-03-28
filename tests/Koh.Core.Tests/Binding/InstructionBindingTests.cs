@@ -685,4 +685,66 @@ public class InstructionBindingTests
         await Assert.That(bytes[0]).IsEqualTo((byte)0x30);
         await Assert.That(bytes.Count).IsEqualTo(2);
     }
+
+    // =========================================================================
+    // ALU single-operand shorthand forms (cp $84, xor a, add b, etc.)
+    // =========================================================================
+
+    // ALU single-operand shorthand: implied A destination (cp $84 = cp a, $84)
+
+    [Test]
+    public async Task CpImmediate_ImpliedA()
+    {
+        var bytes = GetBytes("cp $84");
+        await AssertBytes(bytes, 0xFE, 0x84);
+    }
+
+    [Test]
+    public async Task XorA_ImpliedA()
+    {
+        var bytes = GetBytes("xor a");
+        await AssertBytes(bytes, 0xAF);
+    }
+
+    [Test]
+    public async Task AddB_ImpliedA()
+    {
+        var bytes = GetBytes("add b");
+        await AssertBytes(bytes, 0x80);
+    }
+
+    [Test]
+    public async Task SubImmediate_ImpliedA()
+    {
+        var bytes = GetBytes("sub $10");
+        await AssertBytes(bytes, 0xD6, 0x10);
+    }
+
+    [Test]
+    public async Task AndB_ImpliedA()
+    {
+        var bytes = GetBytes("and b");
+        await AssertBytes(bytes, 0xA0);
+    }
+
+    [Test]
+    public async Task OrIndHL_ImpliedA()
+    {
+        var bytes = GetBytes("or [hl]");
+        await AssertBytes(bytes, 0xB6);
+    }
+
+    [Test]
+    public async Task AdcImmediate_ImpliedA()
+    {
+        var bytes = GetBytes("adc $FF");
+        await AssertBytes(bytes, 0xCE, 0xFF);
+    }
+
+    [Test]
+    public async Task SbcC_ImpliedA()
+    {
+        var bytes = GetBytes("sbc c");
+        await AssertBytes(bytes, 0x99);
+    }
 }

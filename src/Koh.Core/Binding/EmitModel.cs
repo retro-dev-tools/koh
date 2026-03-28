@@ -69,10 +69,19 @@ public sealed class EmitModel
         {
             foreach (var sym in result.Symbols.AllSymbols)
             {
-                if (sym.State != SymbolState.Defined) continue;
-                symbols.Add(new SymbolData(
-                    sym.Name, sym.Kind, sym.Visibility,
-                    sym.Section, sym.Value));
+                if (sym.State == SymbolState.Defined)
+                {
+                    symbols.Add(new SymbolData(
+                        sym.Name, sym.Kind, sym.Visibility,
+                        sym.Section, sym.Value));
+                }
+                else if (sym.State == SymbolState.Undefined && sym.DefinitionSite == null)
+                {
+                    // Truly undefined (no definition in this file) — mark as import
+                    symbols.Add(new SymbolData(
+                        sym.Name, sym.Kind, SymbolVisibility.Imported,
+                        null, 0));
+                }
             }
         }
 

@@ -32,7 +32,7 @@ static class KohAsm
         if (source == null)
             return 1; // error already reported
 
-        var emitModel = Assemble(source);
+        var emitModel = Assemble(source, format);
 
         if (ReportDiagnostics(emitModel, source))
             return 1;
@@ -59,10 +59,14 @@ static class KohAsm
         }
     }
 
-    static EmitModel Assemble(SourceText source)
+    static EmitModel Assemble(SourceText source, OutputFormat format)
     {
         var tree = SyntaxTree.Parse(source);
-        return Compilation.Create(tree).Emit();
+        var options = new Koh.Core.Binding.BinderOptions
+        {
+            AllowUndefinedSymbols = format == OutputFormat.Rgbds,
+        };
+        return Compilation.Create(options, tree).Emit();
     }
 
     static bool ReportDiagnostics(EmitModel model, SourceText source)

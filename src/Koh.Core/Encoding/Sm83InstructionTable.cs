@@ -152,6 +152,17 @@ public static class Sm83InstructionTable
             // ALU A, n (immediate)
             yield return I(mnem, [OperandPattern.RegA, OperandPattern.Imm8], [(byte)immOp], 2,
                 [new(EmitRuleKind.AppendImm8, 1)]);
+
+            // Single-operand shorthand: ALU r → ALU A, r (A is implied)
+            foreach (var (reg, code) in regs8)
+                yield return I(mnem, [reg], [(byte)(baseOp | code)], 1);
+
+            // ALU [HL] → ALU A, [HL]
+            yield return I(mnem, [OperandPattern.IndHL], [(byte)(baseOp | 6)], 1);
+
+            // ALU n → ALU A, n
+            yield return I(mnem, [OperandPattern.Imm8], [(byte)immOp], 2,
+                [new(EmitRuleKind.AppendImm8, 0)]);
         }
 
         // =====================================================================

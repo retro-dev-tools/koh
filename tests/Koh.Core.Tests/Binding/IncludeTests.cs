@@ -10,7 +10,7 @@ public class IncludeTests
     private static EmitModel Emit(string source, VirtualFileResolver? vfs = null)
     {
         var tree = SyntaxTree.Parse(SourceText.From(source, "main.asm"));
-        var binder = new Binder(vfs);
+        var binder = new Binder(fileResolver: vfs);
         return binder.BindToEmitModel(tree);
     }
 

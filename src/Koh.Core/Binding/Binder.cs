@@ -5,6 +5,18 @@ using Koh.Core.Syntax.InternalSyntax;
 
 namespace Koh.Core.Binding;
 
+/// <summary>
+/// Controls binding behavior. Compilation translates output format → binding policy.
+/// </summary>
+public readonly record struct BinderOptions
+{
+    /// <summary>
+    /// When true, undefined symbols are treated as imports (for .o output).
+    /// When false, undefined symbols are reported as errors (for final ROM).
+    /// </summary>
+    public bool AllowUndefinedSymbols { get; init; }
+}
+
 public sealed class Binder
 {
     private readonly DiagnosticBag _diagnostics = new();
@@ -14,15 +26,17 @@ public sealed class Binder
     private readonly ISourceFileResolver _fileResolver;
     private readonly CharMapManager _charMaps;
     private readonly TextWriter _printOutput;
+    private readonly BinderOptions _options;
     private AssemblyExpander? _expander;
 
-    public Binder(ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
+    public Binder(BinderOptions options = default, ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
     {
+        _options = options;
         _symbols = new SymbolTable(_diagnostics);
         _encoder = new InstructionEncoder(_symbols, _diagnostics);
         _fileResolver = fileResolver ?? new FileSystemResolver();
         _charMaps = new CharMapManager(_diagnostics);
-        _printOutput = printOutput ?? Console.Error; // Default to stderr, NOT stdout (stdout is LSP transport)
+        _printOutput = printOutput ?? Console.Error;
     }
 
     public BindingResult Bind(SyntaxTree tree)
@@ -45,8 +59,11 @@ public sealed class Binder
 
         new PatchResolver(_symbols, _sections, _diagnostics).ApplyAll();
 
-        foreach (var sym in _symbols.GetUndefinedSymbols())
-            _diagnostics.Report(default, $"Undefined symbol '{sym.Name}'");
+        if (!_options.AllowUndefinedSymbols)
+        {
+            foreach (var sym in _symbols.GetUndefinedSymbols())
+                _diagnostics.Report(default, $"Undefined symbol '{sym.Name}'");
+        }
 
         return new BindingResult(_sections.AllSections, _symbols, _diagnostics.ToList());
     }

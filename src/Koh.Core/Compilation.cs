@@ -12,13 +12,16 @@ public sealed class Compilation
 {
     private readonly IReadOnlyList<SyntaxTree> _trees;
     private readonly TextWriter? _printOutput;
+    private readonly BinderOptions _binderOptions;
     private BindingResult? _bindingResult;
     private EmitModel? _emitModel;
 
-    private Compilation(IReadOnlyList<SyntaxTree> trees, TextWriter? printOutput = null)
+    private Compilation(IReadOnlyList<SyntaxTree> trees, TextWriter? printOutput = null,
+        BinderOptions binderOptions = default)
     {
         _trees = trees;
         _printOutput = printOutput;
+        _binderOptions = binderOptions;
     }
 
     public static Compilation Create(params SyntaxTree[] trees) =>
@@ -26,6 +29,12 @@ public sealed class Compilation
 
     public static Compilation Create(TextWriter printOutput, params SyntaxTree[] trees) =>
         new(trees.ToList(), printOutput);
+
+    public static Compilation Create(BinderOptions options, params SyntaxTree[] trees) =>
+        new(trees.ToList(), binderOptions: options);
+
+    public static Compilation Create(BinderOptions options, TextWriter printOutput, params SyntaxTree[] trees) =>
+        new(trees.ToList(), printOutput, options);
 
     public IReadOnlyList<SyntaxTree> SyntaxTrees => _trees;
 
@@ -35,7 +44,7 @@ public sealed class Compilation
     {
         var newTrees = new List<SyntaxTree>(_trees);
         newTrees.AddRange(trees);
-        return new Compilation(newTrees, _printOutput);
+        return new Compilation(newTrees, _printOutput, _binderOptions);
     }
 
     public Compilation ReplaceSyntaxTree(SyntaxTree oldTree, SyntaxTree newTree)
@@ -43,7 +52,7 @@ public sealed class Compilation
         var newTrees = new List<SyntaxTree>(_trees.Count);
         foreach (var t in _trees)
             newTrees.Add(ReferenceEquals(t, oldTree) ? newTree : t);
-        return new Compilation(newTrees, _printOutput);
+        return new Compilation(newTrees, _printOutput, _binderOptions);
     }
 
     public SemanticModel GetSemanticModel(SyntaxTree tree)
@@ -74,7 +83,7 @@ public sealed class Compilation
         // defined in a later tree. The fix is to move the undefined-symbol check out of
         // Bind() and call it once here after all trees are processed. Safe for now because
         // no test exercises cross-tree forward references.
-        var binder = new Binder(printOutput: _printOutput);
+        var binder = new Binder(_binderOptions, printOutput: _printOutput);
         BindingResult? result = null;
         foreach (var tree in _trees)
             result = binder.Bind(tree);

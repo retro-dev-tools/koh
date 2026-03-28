@@ -156,6 +156,79 @@ public class RgbdsFormatTests
     }
 
     [Test]
+    public async Task ImportSymbol_WrittenCorrectly()
+    {
+        // Assemble with AllowUndefinedSymbols — undefined symbol becomes an import
+        var tree = SyntaxTree.Parse("""
+            SECTION "Main", ROM0
+            dw external_func
+            """);
+        var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
+        var model = Compilation.Create(options, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+
+        // The symbol "external_func" should be in the model as Imported
+        var importSym = model.Symbols.FirstOrDefault(s => s.Name == "external_func");
+        await Assert.That(importSym).IsNotNull();
+        await Assert.That(importSym!.Visibility).IsEqualTo(Koh.Core.Symbols.SymbolVisibility.Imported);
+
+        // Write to RGBDS format — should not throw
+        var bytes = WriteToBytes(model);
+        await Assert.That(bytes.Length).IsGreaterThan(20);
+
+        // The symbol name should appear in the binary
+        var text = System.Text.Encoding.UTF8.GetString(bytes);
+        await Assert.That(text.Contains("external_func")).IsTrue();
+    }
+
+    [Test]
+    public async Task ImportSymbol_PatchContainsRpnSymbolOpcode()
+    {
+        var tree = SyntaxTree.Parse("""
+            SECTION "Main", ROM0
+            dw external_func
+            """);
+        var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
+        var model = Compilation.Create(options, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+
+        // Verify the section has a patch
+        var section = model.Sections.First(s => s.Name == "Main");
+        await Assert.That(section.Patches.Count).IsGreaterThan(0);
+
+        // Write to RGBDS format
+        var bytes = WriteToBytes(model);
+
+        // The RPN should contain opcode 0x81 (RpnSymbol), NOT 0x80 (RpnLiteral)
+        // Search for 0x81 in the binary — it must appear in the patch RPN data
+        bool hasRpnSymbol = false;
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            if (bytes[i] == 0x81) { hasRpnSymbol = true; break; }
+        }
+        await Assert.That(hasRpnSymbol).IsTrue();
+    }
+
+    [Test]
+    public async Task ForwardRef_SameFile_NotImport()
+    {
+        // A forward-referenced label defined later in the same file should NOT become an import
+        var tree = SyntaxTree.Parse("""
+            SECTION "Main", ROM0
+            dw my_label
+            my_label: nop
+            """);
+        var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
+        var model = Compilation.Create(options, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+
+        var sym = model.Symbols.FirstOrDefault(s => s.Name == "my_label");
+        await Assert.That(sym).IsNotNull();
+        // Should be Local or Exported, NOT Imported — it's defined in this file
+        await Assert.That(sym!.Visibility).IsNotEqualTo(Koh.Core.Symbols.SymbolVisibility.Imported);
+    }
+
+    [Test]
     public async Task RamSection_NoDataEmitted()
     {
         var model = Emit("""

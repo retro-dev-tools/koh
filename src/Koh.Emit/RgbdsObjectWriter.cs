@@ -62,14 +62,19 @@ public sealed class RgbdsObjectWriter
     {
         WriteString(bw, sym.Name);
 
-        byte type = sym.Visibility == SymbolVisibility.Exported
-            ? RgbdsObjectFormat.SymExport
-            : RgbdsObjectFormat.SymLocal;
+        byte type = sym.Visibility switch
+        {
+            SymbolVisibility.Exported => RgbdsObjectFormat.SymExport,
+            SymbolVisibility.Imported => RgbdsObjectFormat.SymImport,
+            _ => RgbdsObjectFormat.SymLocal,
+        };
         bw.Write(type);
 
-        // Import symbols have no further fields in RGBDS format.
-        // Currently we only emit LOCAL and EXPORT symbols.
-        // NodeID, LineNo, SectionID, Value are only for non-import symbols.
+        // Import symbols have only name + type in RGBDS format — no further fields
+        if (sym.Visibility == SymbolVisibility.Imported)
+            return;
+
+        // Non-import: nodeID, lineNo, sectionID, value
         WriteInt32(bw, 0); // file stack node ID
         WriteInt32(bw, 0); // line number
 
@@ -163,7 +168,8 @@ public sealed class RgbdsObjectWriter
                         }
                         else
                         {
-                            // Unknown symbol — emit as literal 0 (should be an import in a full implementation)
+                            // Symbol not in index — should not happen if EmitModel
+                            // includes imports. Emit literal 0 as last resort.
                             rpn.Add(RgbdsObjectFormat.RpnLiteral);
                             WriteRpnInt32(rpn, 0);
                         }
