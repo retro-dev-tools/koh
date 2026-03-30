@@ -33,16 +33,21 @@ internal sealed class AssemblyExpander
     private int _expansionDepth;
     private SourceText? _currentSourceText;
     private string _currentFilePath = "";
+    private bool _breakRequested;
+    private TextWriter _printOutput;
+    private int _loopDepth; // >0 means inside REPT/FOR expansion
 
     private const int MaxExpansionDepth = 64;
 
     public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols,
-        ISourceFileResolver? fileResolver = null, CharMapManager? charMaps = null)
+        ISourceFileResolver? fileResolver = null, CharMapManager? charMaps = null,
+        TextWriter? printOutput = null)
     {
         _diagnostics = diagnostics;
         _symbols = symbols;
         _fileResolver = fileResolver ?? new FileSystemResolver();
         _charMaps = charMaps ?? new CharMapManager(diagnostics);
+        _printOutput = printOutput ?? Console.Error;
     }
 
     /// <summary>The expander's charmap state, for sharing with the binder.</summary>
@@ -154,7 +159,7 @@ internal sealed class AssemblyExpander
     private void ExpandBodyList(IReadOnlyList<SyntaxNodeOrToken> siblings,
         ref int i, List<ExpandedNode> output)
     {
-        while (i < siblings.Count)
+        while (i < siblings.Count && !_breakRequested)
         {
             var item = siblings[i];
             if (!item.IsNode) { i++; continue; }
@@ -277,6 +282,7 @@ internal sealed class AssemblyExpander
             }
 
             // RSRESET/RSSET — handle RS counter directives during expansion
+            // BREAK — signal loop exit
             if (node.Kind == SyntaxKind.DirectiveStatement)
             {
                 var kw = node.ChildTokens().FirstOrDefault();
@@ -285,6 +291,28 @@ internal sealed class AssemblyExpander
                     HandleRsDirective(node);
                     i++;
                     continue; // consumed — don't emit to output
+                }
+                if (kw?.Kind == SyntaxKind.BreakKeyword)
+                {
+                    _breakRequested = true;
+                    i++;
+                    return; // exit ExpandBodyList — caller loop will see the flag
+                }
+                // PRINT/PRINTLN inside loops — resolve at expansion time so per-iteration output is correct
+                if (_loopDepth > 0 && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
+                {
+                    var msgToken = node.ChildTokens()
+                        .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                    if (msgToken != null)
+                    {
+                        var text = msgToken.Text.Length >= 2 ? msgToken.Text[1..^1] : msgToken.Text;
+                        text = ResolveInterpolations(text);
+                        _printOutput.Write(text);
+                    }
+                    if (kw.Kind == SyntaxKind.PrintlnKeyword)
+                        _printOutput.WriteLine();
+                    i++;
+                    continue; // consumed — don't emit to output (already printed)
                 }
             }
 
@@ -637,6 +665,14 @@ internal sealed class AssemblyExpander
         if (currentArg.Count > 0)
             args.Add(string.Join(" ", currentArg));
 
+        // Trailing comma — remove the last empty argument if it was produced by a trailing comma
+        if (args.Count > 0 && string.IsNullOrWhiteSpace(args[^1]))
+            args.RemoveAt(args.Count - 1);
+
+        // Trim whitespace from all arguments (RGBDS behavior)
+        for (int a = 0; a < args.Count; a++)
+            args[a] = args[a].Trim();
+
         return args;
     }
 
@@ -919,35 +955,20 @@ internal sealed class AssemblyExpander
 
         // Extract body text for \@ substitution (REPT bodies support \@ for unique labels)
         var bodyTextRaw = ExtractBodyText(reptNode, PeekBodyNodes(siblings, i));
-        var body = CollectRepeatBody(siblings, ref i);
+        CollectRepeatBody(siblings, ref i); // advances index past ENDR
 
-        if (bodyTextRaw.Contains("\\@"))
+        _loopDepth++;
+        try
         {
-            // Text-level expansion with \@ substitution per iteration.
-            // Each iteration re-parses the body so \@ produces a unique suffix.
             for (int iter = 0; iter < count; iter++)
             {
                 _uniqueIdCounter++;
                 var iterText = bodyTextRaw.Replace("\\@", $"_{_uniqueIdCounter}");
                 ExpandTextInline(iterText, output);
+                if (_breakRequested) { _breakRequested = false; break; }
             }
         }
-        else
-        {
-            // Node-level replay: the same immutable body list is re-walked each
-            // iteration. This is safe because SyntaxNodeOrToken is immutable and
-            // ExpandBodyList only reads (never mutates) its siblings list.
-            // NOTE: the _conditional state machine is shared across iterations.
-            // A body whose IF/ELIF/ELSE/ENDC blocks are balanced will always leave
-            // _conditional in its pre-iteration state after each pass, which is
-            // correct. A body with unbalanced conditionals is already malformed and
-            // will have produced a diagnostic at the IF-collection stage.
-            for (int iter = 0; iter < count; iter++)
-            {
-                int j = 0;
-                ExpandBodyList(body, ref j, output);
-            }
-        }
+        finally { _loopDepth--; }
     }
 
     /// <summary>
@@ -1006,46 +1027,49 @@ internal sealed class AssemblyExpander
             step = 1;
         }
 
+        // Warn if step direction doesn't match range direction (backwards step)
+        if ((step > 0 && start > stop) || (step < 0 && start < stop))
+        {
+            _diagnostics.Report(forNode.FullSpan,
+                "FOR has backwards step; no iterations will be performed",
+                Diagnostics.DiagnosticSeverity.Warning);
+        }
+
         // Extract body text for variable + \@ substitution
         var bodyTextRaw = ExtractBodyText(forNode, PeekBodyNodes(siblings, i));
         var body = CollectRepeatBody(siblings, ref i);
 
-        if (varName != null)
+        _loopDepth++;
+        try
         {
-            // The FOR variable must be substituted as text into each iteration's body
-            // before re-parsing, because expression evaluation happens in Pass 2 (after
-            // all expansion is complete). If we relied solely on the symbol table, all
-            // iterations of "db I" would see I's last value, not per-iteration values.
-            //
-            // Text substitution uses word-boundary matching (\b) to avoid corrupting
-            // longer identifiers (ITEM when variable is I). It also skips content inside
-            // string literals to avoid corrupting quoted text.
-            //
-            // The symbol is ALSO defined via DefineOrRedefine so that DEF(var), IF var>N,
-            // and any compile-time expression evaluation during expansion (e.g. EQU inside
-            // the loop body, IF conditions) see the correct per-iteration value.
-            var varPattern = new Regex($@"\b{Regex.Escape(varName)}\b");
-
-            for (long v = start; step > 0 ? v < stop : v > stop; v += step)
+            if (varName != null)
             {
-                _symbols.DefineOrRedefine(varName, v);
+                var varPattern = new Regex($@"\b{Regex.Escape(varName)}\b");
 
-                _uniqueIdCounter++;
-                var iterText = SubstituteOutsideStrings(bodyTextRaw, varPattern, v.ToString());
-                iterText = iterText.Replace("\\@", $"_{_uniqueIdCounter}");
-                ExpandTextInline(iterText, output);
+                for (long v = start; step > 0 ? v < stop : v > stop; v += step)
+                {
+                    _symbols.DefineOrRedefine(varName, v);
+
+                    _uniqueIdCounter++;
+                    var iterText = SubstituteOutsideStrings(bodyTextRaw, varPattern, v.ToString());
+                    iterText = iterText.Replace("\\@", $"_{_uniqueIdCounter}");
+                    ExpandTextInline(iterText, output);
+                    if (_breakRequested) { _breakRequested = false; break; }
+                }
+                // Variable retains its last value after the loop (RGBDS behavior).
             }
-            // Variable retains its last value after the loop (RGBDS behavior).
-        }
-        else
-        {
-            // No variable — behave like REPT
-            for (long v = start; step > 0 ? v < stop : v > stop; v += step)
+            else
             {
-                int j = 0;
-                ExpandBodyList(body, ref j, output);
+                for (long v = start; step > 0 ? v < stop : v > stop; v += step)
+                {
+                    _uniqueIdCounter++;
+                    var iterText = bodyTextRaw.Replace("\\@", $"_{_uniqueIdCounter}");
+                    ExpandTextInline(iterText, output);
+                    if (_breakRequested) { _breakRequested = false; break; }
+                }
             }
         }
+        finally { _loopDepth--; }
     }
 
     // =========================================================================
@@ -1117,8 +1141,24 @@ internal sealed class AssemblyExpander
         return sb.ToString();
     }
 
+    /// <summary>Current section name for SECTION(@) function resolution.</summary>
+    internal string? CurrentSectionName { get; set; }
+
     private string? ResolveInterpolationValue(string name, string? fmt)
     {
+        // SECTION() function: SECTION(@) returns current section, SECTION(label) returns label's section
+        if (name.StartsWith("SECTION(", StringComparison.OrdinalIgnoreCase) && name.EndsWith(')'))
+        {
+            var arg = name["SECTION(".Length..^1].Trim();
+            if (arg == "@")
+                return CurrentSectionName ?? "";
+            // SECTION(label) — look up label's section
+            var labelSym = _symbols.Lookup(arg);
+            if (labelSym?.Section != null)
+                return labelSym.Section;
+            return null;
+        }
+
         // Check EQUS constants first (string type)
         if (_equsConstants.TryGetValue(name, out var equsValue))
             return equsValue; // EQUS always returns raw string regardless of format

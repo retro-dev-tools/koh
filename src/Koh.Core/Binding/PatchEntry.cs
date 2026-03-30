@@ -7,6 +7,7 @@ public enum PatchKind
 {
     Absolute8,
     Absolute16,
+    Absolute32,
     Relative8,
 }
 

@@ -146,10 +146,11 @@ public sealed class ExpressionEvaluator
                 TryEvaluate(arg) is { } v ? (v >> 8) & 0xFF : null,
             SyntaxKind.LowKeyword when arg != null =>
                 TryEvaluate(arg) is { } v ? v & 0xFF : null,
-            // BANK, SIZEOF, STARTOF are linker-time — always null
+            // BANK, STARTOF are linker-time — always null
             SyntaxKind.BankKeyword => null,
-            SyntaxKind.SizeofKeyword => null,
             SyntaxKind.StartofKeyword => null,
+            // SIZEOF — resolve for register operands; null for sections (linker-time)
+            SyntaxKind.SizeofKeyword => EvaluateSizeof(green),
             // DEF(symbol) — check if defined. Only valid when argument is a NameExpression;
             // any other expression kind (literal, binary, etc.) is not a symbol name reference.
             SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
@@ -157,6 +158,55 @@ public sealed class ExpressionEvaluator
             _ => null,
         };
     }
+
+    private long? EvaluateSizeof(GreenNode green)
+    {
+        // sizeof(register) — return register width
+        // Arg is at index 2 (after keyword and open paren)
+        var arg = green.ChildCount > 2 ? green.GetChild(2) : null;
+        if (arg == null) return null;
+
+        // Direct register: sizeof(a), sizeof(bc)
+        if (arg is GreenNode nameNode && nameNode.Kind == SyntaxKind.NameExpression)
+        {
+            var regToken = (GreenToken)nameNode.GetChild(0)!;
+            return RegisterSize(regToken.Kind);
+        }
+
+        // Indirect operand: sizeof([bc]), sizeof([hl+])
+        if (arg is GreenNode indirectNode && indirectNode.Kind == SyntaxKind.IndirectOperand)
+        {
+            // Indirect memory access is always 1 byte
+            return 1;
+        }
+
+        // Function call inside sizeof: sizeof(high(af)), sizeof(low(bc))
+        if (arg is GreenNode funcNode && funcNode.Kind == SyntaxKind.FunctionCallExpression)
+        {
+            var funcKw = (GreenToken)funcNode.GetChild(0)!;
+            if (funcKw.Kind is SyntaxKind.HighKeyword or SyntaxKind.LowKeyword)
+                return 1; // high/low always yields 1 byte
+        }
+
+        return null; // section name or other — linker-time
+    }
+
+    private static long? RegisterSize(SyntaxKind kind) => kind switch
+    {
+        SyntaxKind.AKeyword => 1,
+        SyntaxKind.BKeyword => 1,
+        SyntaxKind.CKeyword => 1,
+        SyntaxKind.DKeyword => 1,
+        SyntaxKind.EKeyword => 1,
+        SyntaxKind.HKeyword => 1,
+        SyntaxKind.LKeyword => 1,
+        SyntaxKind.AfKeyword => 2,
+        SyntaxKind.BcKeyword => 2,
+        SyntaxKind.DeKeyword => 2,
+        SyntaxKind.HlKeyword => 2,
+        SyntaxKind.SpKeyword => 2,
+        _ => null,
+    };
 
     public static long? ParseNumber(string text)
     {

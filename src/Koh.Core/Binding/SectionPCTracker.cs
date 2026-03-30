@@ -9,10 +9,9 @@ internal sealed class SectionPCTracker
     private readonly Stack<string?> _sectionStack = new();
     private string? _activeSection;
 
-    // Union state
-    private int _unionStartPC;
-    private int _unionMaxPC;
-    private bool _inUnion;
+    // Union state — stack for nested UNION support
+    private readonly record struct UnionState(int StartPC, int MaxPC);
+    private readonly Stack<UnionState> _unionStack = new();
 
     // LOAD state: labels go to load section, PC tracking continues in enclosing section
     private string? _loadSection;
@@ -47,28 +46,28 @@ internal sealed class SectionPCTracker
 
     public void BeginUnion()
     {
-        if (_activeSection == null || _inUnion) return;
-        _unionStartPC = CurrentPC;
-        _unionMaxPC = CurrentPC;
-        _inUnion = true;
+        if (_activeSection == null) return;
+        _unionStack.Push(new UnionState(CurrentPC, CurrentPC));
     }
 
     public bool NextUnion()
     {
-        if (!_inUnion) return false;
-        if (CurrentPC > _unionMaxPC) _unionMaxPC = CurrentPC;
+        if (_unionStack.Count == 0) return false;
+        var state = _unionStack.Pop();
+        int maxPC = Math.Max(state.MaxPC, CurrentPC);
         if (_activeSection != null)
-            _sectionPCs[_activeSection] = _unionStartPC;
+            _sectionPCs[_activeSection] = state.StartPC;
+        _unionStack.Push(new UnionState(state.StartPC, maxPC));
         return true;
     }
 
     public bool EndUnion()
     {
-        if (!_inUnion) return false;
-        if (CurrentPC > _unionMaxPC) _unionMaxPC = CurrentPC;
+        if (_unionStack.Count == 0) return false;
+        var state = _unionStack.Pop();
+        int maxPC = Math.Max(state.MaxPC, CurrentPC);
         if (_activeSection != null)
-            _sectionPCs[_activeSection] = _unionMaxPC;
-        _inUnion = false;
+            _sectionPCs[_activeSection] = maxPC;
         return true;
     }
 

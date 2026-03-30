@@ -6,10 +6,9 @@ public sealed class SectionManager
     private SectionBuffer? _activeSection;
     private readonly Stack<string?> _sectionStack = new();
 
-    // Union state
-    private int _unionStartOffset;
-    private int _unionMaxOffset;
-    private bool _inUnion;
+    // Union state — stack for nested UNION support
+    private readonly record struct UnionState(int StartOffset, int MaxOffset);
+    private readonly Stack<UnionState> _unionStack = new();
 
     // LOAD state: data goes to enclosing section, labels go to load section
     private SectionBuffer? _loadSection;
@@ -53,39 +52,43 @@ public sealed class SectionManager
 
     public void BeginUnion()
     {
-        if (_activeSection == null || _inUnion) return;
-        _unionStartOffset = _activeSection.CurrentOffset;
-        _unionMaxOffset = _activeSection.CurrentOffset;
-        _inUnion = true;
+        if (_activeSection == null) return;
+        _unionStack.Push(new UnionState(_activeSection.CurrentOffset, _activeSection.CurrentOffset));
     }
 
     public bool NextUnion()
     {
-        if (!_inUnion || _activeSection == null) return false;
-        if (_activeSection.CurrentOffset > _unionMaxOffset)
-            _unionMaxOffset = _activeSection.CurrentOffset;
+        if (_unionStack.Count == 0 || _activeSection == null) return false;
+        var state = _unionStack.Pop();
+        int maxOffset = Math.Max(state.MaxOffset, _activeSection.CurrentOffset);
         // Truncate bytes back to union start for next member
-        _activeSection.TruncateTo(_unionStartOffset);
+        _activeSection.TruncateTo(state.StartOffset);
+        _unionStack.Push(new UnionState(state.StartOffset, maxOffset));
         return true;
     }
 
     public bool EndUnion()
     {
-        if (!_inUnion || _activeSection == null) return false;
-        if (_activeSection.CurrentOffset > _unionMaxOffset)
-            _unionMaxOffset = _activeSection.CurrentOffset;
+        if (_unionStack.Count == 0 || _activeSection == null) return false;
+        var state = _unionStack.Pop();
+        int maxOffset = Math.Max(state.MaxOffset, _activeSection.CurrentOffset);
         // Pad to max member size
-        while (_activeSection.CurrentOffset < _unionMaxOffset)
+        while (_activeSection.CurrentOffset < maxOffset)
             _activeSection.EmitByte(0x00);
-        _inUnion = false;
         return true;
     }
 
     // --- LOAD support ---
 
+    public bool IsInLoad => _loadSection != null;
+
     public void BeginLoad(string name, SectionType type, int? fixedAddress, int? bank)
     {
-        if (_loadSection != null) return; // nested LOAD not supported
+        if (_loadSection != null)
+        {
+            // Implicitly end the current LOAD before starting a new one
+            EndLoad();
+        }
         _enclosingSection = _activeSection;
         var loadBuf = OpenOrResume(name, type, fixedAddress, bank);
         _loadSection = loadBuf;
