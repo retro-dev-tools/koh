@@ -111,12 +111,42 @@ internal sealed class CharMapManager
     }
 
     /// <summary>
+    /// Count the number of mapped characters in a string using the active charmap.
+    /// </summary>
+    public int CharLen(string text)
+    {
+        int count = 0;
+        WalkGreedyMatch(text, (_, _) => count++);
+        return count;
+    }
+
+    /// <summary>Check if a string is a valid entry in the active charmap.</summary>
+    public bool InCharMap(string text) => _activeMap.ContainsKey(text);
+
+    /// <summary>
     /// Encode a string literal into bytes using the active character map.
     /// Characters not in the map use their ASCII value.
     /// </summary>
     public byte[] EncodeString(string text)
     {
         var result = new List<byte>();
+        WalkGreedyMatch(text, (mapped, ch) =>
+        {
+            if (mapped != null)
+                result.AddRange(mapped);
+            else
+                result.Add((byte)ch);
+        });
+        return result.ToArray();
+    }
+
+    /// <summary>
+    /// Walk the string using greedy charmap matching. For each position, calls
+    /// <paramref name="onMatch"/> with either the mapped bytes (if matched) or null and the
+    /// unmapped character.
+    /// </summary>
+    private void WalkGreedyMatch(string text, Action<byte[]?, char> onMatch)
+    {
         int i = 0;
         while (i < text.Length)
         {
@@ -126,7 +156,7 @@ internal sealed class CharMapManager
                 var substr = text.Substring(i, len);
                 if (_activeMap.TryGetValue(substr, out var mapped))
                 {
-                    result.AddRange(mapped);
+                    onMatch(mapped, '\0');
                     i += len;
                     matched = true;
                     break;
@@ -134,10 +164,9 @@ internal sealed class CharMapManager
             }
             if (!matched)
             {
-                result.Add((byte)text[i]);
+                onMatch(null, text[i]);
                 i++;
             }
         }
-        return result.ToArray();
     }
 }

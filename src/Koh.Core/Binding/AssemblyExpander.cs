@@ -48,6 +48,15 @@ internal sealed class AssemblyExpander
     /// <summary>The expander's charmap state, for sharing with the binder.</summary>
     internal CharMapManager CharMaps => _charMaps;
 
+    /// <summary>Look up an EQUS constant by name. Returns null if not found.</summary>
+    internal string? LookupEqus(string name) =>
+        _equsConstants.TryGetValue(name, out var value) ? value : null;
+
+    /// <summary>
+    /// Optional callback to resolve SECTION(@) and SECTION(label) in string interpolation.
+    /// </summary>
+    internal Func<string, string?>? SectionNameResolver { get; set; }
+
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
         var output = new List<ExpandedNode>();
@@ -365,17 +374,17 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Evaluate a string expression for EQUS assignment. Handles string literals and REVCHAR().
+    /// Evaluate a string expression for EQUS assignment. Handles string literals, REVCHAR(),
+    /// and all string-returning functions (STRUPR, STRLWR, STRCAT, READFILE, etc.).
     /// </summary>
     private string? EvaluateStringExpression(SyntaxNode exprNode)
     {
-        // String literal
-        var strToken = exprNode.ChildTokens()
-            .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
-        if (strToken != null)
-            return strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+        // Use the full ExpressionEvaluator with string support
+        var evaluator = CreateStringEvaluator();
+        var result = evaluator.TryEvaluateString(exprNode.Green);
+        if (result != null) return result;
 
-        // REVCHAR(...) function call
+        // REVCHAR(...) function call — special handling for charmap
         if (exprNode.Kind == SyntaxKind.FunctionCallExpression)
         {
             var funcTokens = exprNode.ChildTokens().ToList();
@@ -383,11 +392,11 @@ internal sealed class AssemblyExpander
             {
                 // Collect numeric arguments
                 var argExprs = exprNode.ChildNodes().ToList();
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                var numEval = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
                 var bytes = new List<byte>();
                 foreach (var argExpr in argExprs)
                 {
-                    var val = evaluator.TryEvaluate(argExpr.Green);
+                    var val = numEval.TryEvaluate(argExpr.Green);
                     if (val.HasValue)
                         bytes.Add((byte)(val.Value & 0xFF));
                 }
@@ -397,6 +406,46 @@ internal sealed class AssemblyExpander
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Create an ExpressionEvaluator configured for string evaluation in the expander context.
+    /// </summary>
+    private ExpressionEvaluator CreateStringEvaluator()
+    {
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0)
+        {
+            EqusResolver = LookupEqus,
+            CharlenResolver = s => _charMaps.CharLen(s),
+            IncharmapResolver = s => _charMaps.InCharMap(s),
+            ReadfileResolver = ResolveReadfile,
+        };
+        return evaluator;
+    }
+
+    /// <summary>
+    /// Shared file reading logic for READFILE function.
+    /// </summary>
+    internal string? ResolveReadfile(string path, int? limit)
+    {
+        var resolved = _fileResolver.ResolvePath(_currentFilePath, path);
+        if (!_fileResolver.FileExists(resolved))
+        {
+            _diagnostics.Report(default, $"READFILE: file not found: {path}");
+            return null;
+        }
+        try
+        {
+            var text = _fileResolver.ReadAllText(resolved);
+            if (limit.HasValue && limit.Value < text.Length)
+                text = text.Substring(0, limit.Value);
+            return text;
+        }
+        catch (IOException ex)
+        {
+            _diagnostics.Report(default, $"READFILE: cannot read '{path}': {ex.Message}");
+            return null;
+        }
     }
 
     private void EarlyProcessCharmap(SyntaxNode node)
@@ -1097,8 +1146,22 @@ internal sealed class AssemblyExpander
                 string name = text[i..closePos];
                 i = closePos + 1;
 
+                // Handle SECTION(...) as a special function in interpolation
+                string trimmedName = name.Trim();
+                if (fmt == null && trimmedName.StartsWith("SECTION(", StringComparison.OrdinalIgnoreCase)
+                    && trimmedName.EndsWith(")"))
+                {
+                    string arg = trimmedName.Substring(8, trimmedName.Length - 9).Trim();
+                    string? sectionName = SectionNameResolver?.Invoke(arg);
+                    if (sectionName != null)
+                    {
+                        sb.Append(sectionName);
+                        continue;
+                    }
+                }
+
                 // Resolve the symbol
-                string? resolved = ResolveInterpolationValue(name.Trim(), fmt?.Trim());
+                string? resolved = ResolveInterpolationValue(trimmedName, fmt?.Trim());
                 if (resolved != null)
                     sb.Append(resolved);
                 else
@@ -1128,24 +1191,89 @@ internal sealed class AssemblyExpander
         if (sym != null && sym.State == Symbols.SymbolState.Defined)
         {
             long val = sym.Value;
-            // Parse # prefix flag for base prefixes ($, %, &)
-            bool hasPrefix = fmt != null && fmt.StartsWith('#');
-            string type = fmt ?? "d"; // RGBDS default is decimal
-            if (hasPrefix) type = type[1..];
-
-            return type switch
-            {
-                "d" => ((int)val).ToString(),
-                "u" => ((uint)val).ToString(),
-                "x" => hasPrefix ? $"${val:x}" : val.ToString("x"),
-                "X" => hasPrefix ? $"${val:X}" : val.ToString("X"),
-                "b" => hasPrefix ? $"%{Convert.ToString(val, 2)}" : Convert.ToString(val, 2),
-                "o" => hasPrefix ? $"&{Convert.ToString(val, 8)}" : Convert.ToString(val, 8),
-                _ => ((int)val).ToString(),
-            };
+            return FormatNumericValue((int)val, fmt);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Format a numeric value according to an RGBDS format specifier.
+    /// Format: [#][0][width][type] where type is d/u/x/X/b/o/f
+    /// </summary>
+    internal static string FormatNumericValue(int val, string? fmt)
+    {
+        if (string.IsNullOrEmpty(fmt))
+            return val.ToString();
+
+        // Parse format spec: [+][#][0][width][type]
+        int pos = 0;
+        bool showSign = false;
+        bool hasPrefix = false;
+        bool zeroPad = false;
+        int width = 0;
+
+        if (pos < fmt.Length && fmt[pos] == '+')
+        {
+            showSign = true;
+            pos++;
+        }
+        if (pos < fmt.Length && fmt[pos] == '#')
+        {
+            hasPrefix = true;
+            pos++;
+        }
+        if (pos < fmt.Length && fmt[pos] == '0')
+        {
+            zeroPad = true;
+            pos++;
+        }
+        // Parse width digits
+        int widthStart = pos;
+        while (pos < fmt.Length && char.IsDigit(fmt[pos]))
+            pos++;
+        if (pos > widthStart)
+            int.TryParse(fmt.AsSpan(widthStart, pos - widthStart), out width);
+
+        // Remaining is the type character
+        string type = pos < fmt.Length ? fmt[pos..] : "d";
+
+        string prefix = "";
+        if (hasPrefix)
+        {
+            prefix = type switch
+            {
+                "x" or "X" => "$",
+                "b" => "%",
+                "o" => "&",
+                _ => "",
+            };
+        }
+
+        string signStr = "";
+        if (showSign && val >= 0)
+            signStr = "+";
+
+        string formatted = type switch
+        {
+            "d" => val.ToString(),
+            "u" => ((uint)val).ToString(),
+            "x" => ((uint)val).ToString("x"),
+            "X" => ((uint)val).ToString("X"),
+            "b" => Convert.ToString((uint)val, 2),
+            "o" => Convert.ToString((uint)val, 8),
+            _ => val.ToString(),
+        };
+
+        // Apply width padding — width includes prefix and sign
+        int totalExtra = prefix.Length + signStr.Length;
+        if (width > 0 && formatted.Length + totalExtra < width)
+        {
+            char padChar = zeroPad ? '0' : ' ';
+            formatted = formatted.PadLeft(width - totalExtra, padChar);
+        }
+
+        return signStr + prefix + formatted;
     }
 
     /// <summary>

@@ -29,6 +29,10 @@ public sealed class Binder
     private readonly BinderOptions _options;
     private AssemblyExpander? _expander;
 
+    /// <summary>Fixed-point fractional bits (Q.N). Default is 16.</summary>
+    private int _fracBits = 16;
+    private readonly Stack<int> _optStack = new();
+
     public Binder(BinderOptions options = default, ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
     {
         _options = options;
@@ -70,6 +74,13 @@ public sealed class Binder
 
         // Pass 2: byte emission — reset global label scope so local labels resolve correctly
         _symbols.SetGlobalAnchor(null);
+        // Wire up section name resolver for {SECTION(@)} in PRINTLN interpolation
+        _expander.SectionNameResolver = arg =>
+        {
+            if (arg == "@") return _sections.ActiveSection?.Name;
+            var sym = _symbols.Lookup(arg);
+            return sym?.Section;
+        };
         foreach (var en in nodes)
         {
             _diagnostics.CurrentFilePath = en.SourceFilePath;
@@ -89,6 +100,22 @@ public sealed class Binder
 
     public EmitModel BindToEmitModel(SyntaxTree tree) =>
         EmitModel.FromBindingResult(Bind(tree));
+
+    /// <summary>
+    /// Create an ExpressionEvaluator with all resolvers wired up.
+    /// </summary>
+    private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC)
+    {
+        var eval = new ExpressionEvaluator(_symbols, _diagnostics, getCurrentPC)
+        {
+            FracBits = _fracBits,
+            EqusResolver = name => _expander?.LookupEqus(name),
+            CharlenResolver = s => _charMaps.CharLen(s),
+            IncharmapResolver = s => _charMaps.InCharMap(s),
+            ReadfileResolver = _expander != null ? _expander.ResolveReadfile : null,
+        };
+        return eval;
+    }
 
     // =========================================================================
     // Pass 1 — symbol collection and PC tracking (flat iteration, no blocks)
@@ -286,10 +313,18 @@ public sealed class Binder
                 pc.AdvanceLoad(size);
                 break;
             }
+            case SyntaxKind.DlKeyword:
+            {
+                int size = expressions.Count * 4;
+                pc.Advance(size);
+                pc.AdvanceLoad(size);
+                break;
+            }
             case SyntaxKind.DsKeyword:
                 if (expressions.Count > 0)
                 {
                     var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+                    evaluator.FracBits = _fracBits;
                     var sizeVal = evaluator.TryEvaluate(expressions[0].Green);
                     int dsSize = sizeVal.HasValue ? (int)sizeVal.Value : 0;
                     pc.Advance(dsSize);
@@ -447,7 +482,7 @@ public sealed class Binder
 
         var keyword = node.ChildTokens().First();
         var expressions = node.ChildNodes().ToList();
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var evaluator = CreateEvaluator(() => section.CurrentPC);
 
         switch (keyword.Kind)
         {
@@ -493,6 +528,26 @@ public sealed class Binder
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute16,
+                            FilePath = _diagnostics.CurrentFilePath,
+                            GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                        });
+                    }
+                }
+                break;
+
+            case SyntaxKind.DlKeyword:
+                foreach (var expr in expressions)
+                {
+                    var val = evaluator.TryEvaluate(expr.Green);
+                    if (val.HasValue)
+                        section.EmitLong((uint)(val.Value & 0xFFFFFFFF));
+                    else
+                    {
+                        int offset = section.ReserveLong();
+                        section.RecordPatch(new PatchEntry
+                        {
+                            SectionName = section.Name, Offset = offset,
+                            Expression = expr.Green, Kind = PatchKind.Absolute32,
                             FilePath = _diagnostics.CurrentFilePath,
                             GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                         });
@@ -558,8 +613,7 @@ public sealed class Binder
                     return;
                 }
                 var section = _sections.ActiveSection;
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-                    () => section?.CurrentPC ?? 0);
+                var evaluator = CreateEvaluator(() => section?.CurrentPC ?? 0);
                 var val = evaluator.TryEvaluate(exprNodes[0].Green);
 
                 // Determine severity: ASSERT WARN, ... → warning; ASSERT FAIL/FATAL, ... → error (default)
@@ -617,13 +671,31 @@ public sealed class Binder
             {
                 // PRINT/PRINTLN — resolve interpolations and collect output.
                 // Output goes to _printOutput, NOT Console (Console is the LSP stdio transport).
-                var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
-                if (msgToken != null)
+                var exprNodes = node.ChildNodes().ToList();
+                if (exprNodes.Count > 0)
                 {
-                    var text = msgToken.Text.Length >= 2 ? msgToken.Text[1..^1] : msgToken.Text;
-                    if (_expander != null)
-                        text = _expander.ResolveInterpolations(text);
-                    _printOutput.Write(text);
+                    var section = _sections.ActiveSection;
+                    var evaluator = CreateEvaluator(() => section?.CurrentPC ?? 0);
+                    // Try string evaluation first (for expressions like strupr(#s) ++ "!")
+                    var strVal = evaluator.TryEvaluateString(exprNodes[0].Green);
+                    if (strVal != null)
+                    {
+                        if (_expander != null)
+                            strVal = _expander.ResolveInterpolations(strVal);
+                        _printOutput.Write(strVal);
+                    }
+                    else
+                    {
+                        // Fall back to looking for string literal token
+                        var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                        if (msgToken != null)
+                        {
+                            var text = msgToken.Text.Length >= 2 ? msgToken.Text[1..^1] : msgToken.Text;
+                            if (_expander != null)
+                                text = _expander.ResolveInterpolations(text);
+                            _printOutput.Write(text);
+                        }
+                    }
                 }
                 if (tokens[0].Kind == SyntaxKind.PrintlnKeyword)
                     _printOutput.WriteLine();
@@ -663,12 +735,45 @@ public sealed class Binder
                 break;
 
             case SyntaxKind.OptKeyword:
-                // OPT accepted — options do not affect assembly output in Koh
+                ProcessOpt(tokens);
                 break;
             case SyntaxKind.PushoKeyword:
-            case SyntaxKind.PopoKeyword:
-                // PUSHO/POPO accepted — option stacking has no effect since OPT is a no-op
+                _optStack.Push(_fracBits);
                 break;
+            case SyntaxKind.PopoKeyword:
+                if (_optStack.Count > 0)
+                    _fracBits = _optStack.Pop();
+                else
+                    _diagnostics.Report(node.FullSpan, "POPO without matching PUSHO");
+                break;
+        }
+    }
+
+    private void ProcessOpt(IReadOnlyList<SyntaxToken> tokens)
+    {
+        // OPT Q.N — set fixed-point precision
+        // Tokens: OptKeyword, IdentifierToken("Q"), DotToken("."), NumberLiteral("N")
+        // OPT Wno-div, OPT Wno-unmapped-char, OPT p$XX — accepted silently
+        for (int i = 1; i < tokens.Count; i++)
+        {
+            var text = tokens[i].Text;
+            // Check for "Q" followed by "." and a number
+            if (text.Equals("Q", StringComparison.OrdinalIgnoreCase)
+                && i + 2 < tokens.Count
+                && tokens[i + 1].Kind == SyntaxKind.DotToken
+                && tokens[i + 2].Kind == SyntaxKind.NumberLiteral)
+            {
+                if (int.TryParse(tokens[i + 2].Text, out var bits) && bits >= 1 && bits <= 31)
+                    _fracBits = bits;
+                i += 2; // skip dot and number
+            }
+            // Also handle single-token form "Q.N" (unlikely with lexer but just in case)
+            else if (text.StartsWith("Q.", StringComparison.OrdinalIgnoreCase) && text.Length > 2)
+            {
+                if (int.TryParse(text.AsSpan(2), out var bits) && bits >= 1 && bits <= 31)
+                    _fracBits = bits;
+            }
+            // Other OPT flags accepted silently (Wno-xxx, p$XX, etc.)
         }
     }
 

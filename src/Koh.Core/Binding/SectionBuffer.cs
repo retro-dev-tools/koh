@@ -38,6 +38,14 @@ public sealed class SectionBuffer
         _bytes.Add((byte)(value >> 8));
     }
 
+    public void EmitLong(uint value)
+    {
+        _bytes.Add((byte)(value & 0xFF));
+        _bytes.Add((byte)((value >> 8) & 0xFF));
+        _bytes.Add((byte)((value >> 16) & 0xFF));
+        _bytes.Add((byte)((value >> 24) & 0xFF));
+    }
+
     public int ReserveByte()
     {
         var offset = _bytes.Count;
@@ -48,6 +56,16 @@ public sealed class SectionBuffer
     public int ReserveWord()
     {
         var offset = _bytes.Count;
+        _bytes.Add(0x00);
+        _bytes.Add(0x00);
+        return offset;
+    }
+
+    public int ReserveLong()
+    {
+        var offset = _bytes.Count;
+        _bytes.Add(0x00);
+        _bytes.Add(0x00);
         _bytes.Add(0x00);
         _bytes.Add(0x00);
         return offset;
@@ -80,6 +98,14 @@ public sealed class SectionBuffer
     {
         _bytes[offset] = (byte)(value & 0xFF);
         _bytes[offset + 1] = (byte)(value >> 8);
+    }
+
+    public void ApplyPatchLong(int offset, uint value)
+    {
+        _bytes[offset] = (byte)(value & 0xFF);
+        _bytes[offset + 1] = (byte)((value >> 8) & 0xFF);
+        _bytes[offset + 2] = (byte)((value >> 16) & 0xFF);
+        _bytes[offset + 3] = (byte)((value >> 24) & 0xFF);
     }
 
     internal void RemoveResolvedPatches(List<int> resolvedIndices)

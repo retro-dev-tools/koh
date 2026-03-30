@@ -25,13 +25,18 @@ public enum SyntaxKind : ushort
     AmpersandToken, PipeToken, CaretToken, TildeToken, BangToken,
     LessThanToken, GreaterThanToken,
     LessThanLessThanToken, GreaterThanGreaterThanToken,
+    TripleGreaterThanToken, // >>> logical right shift
+    StarStarToken, // ** exponentiation
+    PlusPlusToken, // ++ string concatenation
+    TripleEqualsToken, // === string equality
+    BangEqualsEqualsToken, // !== string inequality
     EqualsToken,
     EqualsEqualsToken, BangEqualsToken,
     LessThanEqualsToken, GreaterThanEqualsToken,
     AmpersandAmpersandToken, PipePipeToken,
 
     // Literals
-    NumberLiteral, StringLiteral, IdentifierToken, LocalLabelToken,
+    NumberLiteral, FixedPointLiteral, StringLiteral, IdentifierToken, LocalLabelToken,
     CurrentAddressToken,
 
     // Macro parameter tokens: \1..\9, \@, \#, \NARG
@@ -61,7 +66,7 @@ public enum SyntaxKind : ushort
     HKeyword, LKeyword, HlKeyword, SpKeyword, AfKeyword, BcKeyword, DeKeyword,
 
     // Directive keywords
-    SectionKeyword, DbKeyword, DwKeyword, DsKeyword,
+    SectionKeyword, DbKeyword, DwKeyword, DlKeyword, DsKeyword,
     EquKeyword, EqusKeyword, RedefKeyword, ExportKeyword, PurgeKeyword,
 
     // Conditional assembly keywords
@@ -105,6 +110,19 @@ public enum SyntaxKind : ushort
     // Built-in function keywords
     HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
     DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
+    // Math function keywords
+    MulKeyword, DivKeyword, FmodKeyword, PowKeyword, LogKeyword,
+    RoundKeyword, CeilKeyword, FloorKeyword,
+    // Trig function keywords
+    SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
+    // String function keywords
+    StrfindKeyword, StrrfindKeyword, StruprKeyword, StrlwrKeyword,
+    BytelenKeyword, StrbyteKeyword, CharlenKeyword, IncharmapKeyword,
+    ReadfileKeyword,
+    // Bit query function keywords
+    BitwidthKeyword, TzcountKeyword,
+    // Format function keyword
+    StrfmtKeyword,
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,

@@ -154,6 +154,38 @@ public sealed class Lexer
         ["strcat"] = SyntaxKind.StrcatKeyword,
         ["strsub"] = SyntaxKind.StrsubKeyword,
         ["revchar"] = SyntaxKind.RevcharKeyword,
+        ["dl"] = SyntaxKind.DlKeyword,
+        // Math functions
+        ["mul"] = SyntaxKind.MulKeyword,
+        ["div"] = SyntaxKind.DivKeyword,
+        ["fmod"] = SyntaxKind.FmodKeyword,
+        ["pow"] = SyntaxKind.PowKeyword,
+        ["log"] = SyntaxKind.LogKeyword,
+        ["round"] = SyntaxKind.RoundKeyword,
+        ["ceil"] = SyntaxKind.CeilKeyword,
+        ["floor"] = SyntaxKind.FloorKeyword,
+        // Trig functions
+        ["sin"] = SyntaxKind.SinKeyword,
+        ["cos"] = SyntaxKind.CosKeyword,
+        ["tan"] = SyntaxKind.TanKeyword,
+        ["asin"] = SyntaxKind.AsinKeyword,
+        ["acos"] = SyntaxKind.AcosKeyword,
+        ["atan"] = SyntaxKind.AtanKeyword,
+        ["atan2"] = SyntaxKind.Atan2Keyword,
+        // String functions
+        ["strfind"] = SyntaxKind.StrfindKeyword,
+        ["strrfind"] = SyntaxKind.StrrfindKeyword,
+        ["strupr"] = SyntaxKind.StruprKeyword,
+        ["strlwr"] = SyntaxKind.StrlwrKeyword,
+        ["bytelen"] = SyntaxKind.BytelenKeyword,
+        ["strbyte"] = SyntaxKind.StrbyteKeyword,
+        ["charlen"] = SyntaxKind.CharlenKeyword,
+        ["incharmap"] = SyntaxKind.IncharmapKeyword,
+        ["readfile"] = SyntaxKind.ReadfileKeyword,
+        ["strfmt"] = SyntaxKind.StrfmtKeyword,
+        // Bit query functions
+        ["bitwidth"] = SyntaxKind.BitwidthKeyword,
+        ["tzcount"] = SyntaxKind.TzcountKeyword,
     };
 
     public Lexer(SourceText source)
@@ -225,7 +257,7 @@ public sealed class Lexer
         if (c == '$' && IsHexDigit(Peek()))
         {
             _position++;
-            while (IsHexDigit(Current))
+            while (IsHexDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -233,7 +265,7 @@ public sealed class Lexer
         if (c == '%' && IsBinaryDigit(Peek()))
         {
             _position++;
-            while (IsBinaryDigit(Current))
+            while (IsBinaryDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -246,15 +278,46 @@ public sealed class Lexer
         if (c == '&' && IsOctalDigit(Peek()) && !PrecedingCharIsExpressionEnd(start))
         {
             _position++;
-            while (IsOctalDigit(Current))
+            while (IsOctalDigit(Current) || Current == '_')
+                _position++;
+            return (SyntaxKind.NumberLiteral, Substring(start, _position));
+        }
+
+        // C-style prefixes: 0x (hex), 0b (binary), 0o (octal)
+        if (c == '0' && (Peek() == 'x' || Peek() == 'X') && IsHexDigit(Peek(2)))
+        {
+            _position += 2;
+            while (IsHexDigit(Current) || Current == '_')
+                _position++;
+            return (SyntaxKind.NumberLiteral, Substring(start, _position));
+        }
+        if (c == '0' && (Peek() == 'b' || Peek() == 'B') && IsBinaryDigit(Peek(2)))
+        {
+            _position += 2;
+            while (IsBinaryDigit(Current) || Current == '_')
+                _position++;
+            return (SyntaxKind.NumberLiteral, Substring(start, _position));
+        }
+        if (c == '0' && (Peek() == 'o' || Peek() == 'O') && IsOctalDigit(Peek(2)))
+        {
+            _position += 2;
+            while (IsOctalDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
         if (char.IsDigit(c))
         {
-            while (char.IsDigit(Current))
+            while (char.IsDigit(Current) || Current == '_')
                 _position++;
+            // Check for fixed-point literal: digits.digits (not dot followed by identifier)
+            if (Current == '.' && Peek() != '\0' && char.IsDigit(Peek()))
+            {
+                _position++; // consume the dot
+                while (char.IsDigit(Current) || Current == '_')
+                    _position++;
+                return (SyntaxKind.FixedPointLiteral, Substring(start, _position));
+            }
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
@@ -324,10 +387,35 @@ public sealed class Lexer
             _position += 2;
             return (SyntaxKind.LessThanLessThanToken, "<<");
         }
+        if (c == '>' && Peek() == '>' && Peek(2) == '>')
+        {
+            _position += 3;
+            return (SyntaxKind.TripleGreaterThanToken, ">>>");
+        }
         if (c == '>' && Peek() == '>')
         {
             _position += 2;
             return (SyntaxKind.GreaterThanGreaterThanToken, ">>");
+        }
+        if (c == '*' && Peek() == '*')
+        {
+            _position += 2;
+            return (SyntaxKind.StarStarToken, "**");
+        }
+        if (c == '+' && Peek() == '+')
+        {
+            _position += 2;
+            return (SyntaxKind.PlusPlusToken, "++");
+        }
+        if (c == '=' && Peek() == '=' && Peek(2) == '=')
+        {
+            _position += 3;
+            return (SyntaxKind.TripleEqualsToken, "===");
+        }
+        if (c == '!' && Peek() == '=' && Peek(2) == '=')
+        {
+            _position += 3;
+            return (SyntaxKind.BangEqualsEqualsToken, "!==");
         }
         if (c == '=' && Peek() == '=')
         {
