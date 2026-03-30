@@ -170,7 +170,9 @@ public sealed class Binder
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
 
-        int boundary = 1 << (int)alignBits.Value;
+        int bits = (int)alignBits.Value;
+        pc.SetAlignBits(bits);
+        int boundary = 1 << bits;
         int alignOffset = 0;
         if (exprNodes.Count > 1)
         {
@@ -286,12 +288,34 @@ public sealed class Binder
             }
             case SyntaxKind.DwKeyword:
             {
-                int size = expressions.Count * 2;
+                int byteCount = 0;
+                foreach (var expr in expressions)
+                {
+                    if (IsStringLiteral(expr.Green))
+                        byteCount += _charMaps.EncodeString(ExtractStringText(expr.Green)).Length * 2;
+                    else
+                        byteCount += 2;
+                }
+                pc.Advance(byteCount);
+                pc.AdvanceLoad(byteCount);
+                break;
+            }
+            case SyntaxKind.DlKeyword:
+            {
+                int size = expressions.Count * 4;
                 pc.Advance(size);
                 pc.AdvanceLoad(size);
                 break;
             }
             case SyntaxKind.DsKeyword:
+            {
+                // DS ALIGN[n] / DS ALIGN[n, offset] — alignment padding
+                var alignToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.AlignKeyword);
+                if (alignToken != null)
+                {
+                    Pass1DsAlign(node, pc);
+                    break;
+                }
                 if (expressions.Count > 0)
                 {
                     var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC, _fixedPointFracBits, _charMaps);
@@ -301,7 +325,36 @@ public sealed class Binder
                     pc.AdvanceLoad(dsSize);
                 }
                 break;
+            }
         }
+    }
+
+    private void Pass1DsAlign(SyntaxNode node, SectionPCTracker pc)
+    {
+        var exprNodes = node.ChildNodes().ToList();
+        if (exprNodes.Count == 0) return;
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+        var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
+        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
+
+        // For floating sections, use effective alignment = min(section_align, requested)
+        int bits = (int)alignBits.Value;
+        if (pc.ActiveAlignBits > 0)
+            bits = Math.Min(bits, pc.ActiveAlignBits);
+
+        int boundary = 1 << bits;
+        int alignOffset = 0;
+        if (exprNodes.Count > 1)
+        {
+            var offsetVal = evaluator.TryEvaluate(exprNodes[1].Green);
+            if (offsetVal.HasValue)
+                alignOffset = (int)offsetVal.Value;
+        }
+
+        int mask = boundary - 1;
+        int pad = ((boundary - ((pc.CurrentPC - alignOffset) & mask)) & mask);
+        pc.Advance(pad);
+        pc.AdvanceLoad(pad);
     }
 
     private void Pass1Incbin(SyntaxNode node, string sourceFilePath, SectionPCTracker pc)
@@ -454,6 +507,16 @@ public sealed class Binder
         var expressions = node.ChildNodes().ToList();
         var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC, _fixedPointFracBits, _charMaps);
 
+        // Empty data directive warning (RGBDS -Wempty-data-directive)
+        if (keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword
+            && expressions.Count == 0)
+        {
+            _diagnostics.Report(node.FullSpan,
+                $"Empty {keyword.Text.ToUpperInvariant()} directive",
+                Diagnostics.DiagnosticSeverity.Warning);
+            return;
+        }
+
         switch (keyword.Kind)
         {
             case SyntaxKind.DbKeyword:
@@ -488,6 +551,15 @@ public sealed class Binder
             case SyntaxKind.DwKeyword:
                 foreach (var expr in expressions)
                 {
+                    // String literals in DW: each character becomes a 16-bit word
+                    if (IsStringLiteral(expr.Green))
+                    {
+                        var text = ExtractStringText(expr.Green);
+                        foreach (var b in _charMaps.EncodeString(text))
+                            section.EmitWord(b);
+                        continue;
+                    }
+
                     var val = evaluator.TryEvaluate(expr.Green);
                     if (val.HasValue)
                         section.EmitWord((ushort)(val.Value & 0xFFFF));
@@ -505,7 +577,35 @@ public sealed class Binder
                 }
                 break;
 
+            case SyntaxKind.DlKeyword:
+                foreach (var expr in expressions)
+                {
+                    var val = evaluator.TryEvaluate(expr.Green);
+                    if (val.HasValue)
+                        section.EmitDword((uint)(val.Value & 0xFFFFFFFF));
+                    else
+                    {
+                        int offset = section.ReserveDword();
+                        section.RecordPatch(new PatchEntry
+                        {
+                            SectionName = section.Name, Offset = offset,
+                            Expression = expr.Green, Kind = PatchKind.Absolute32,
+                            FilePath = _diagnostics.CurrentFilePath,
+                            GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                        });
+                    }
+                }
+                break;
+
             case SyntaxKind.DsKeyword:
+            {
+                // DS ALIGN[n] / DS ALIGN[n, offset] — alignment padding
+                var alignToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.AlignKeyword);
+                if (alignToken != null)
+                {
+                    Pass2DsAlign(node);
+                    break;
+                }
                 if (expressions.Count > 0)
                 {
                     var countVal = evaluator.TryEvaluate(expressions[0].Green);
@@ -529,7 +629,66 @@ public sealed class Binder
                     }
                 }
                 break;
+            }
         }
+    }
+
+    private void Pass2DsAlign(SyntaxNode node)
+    {
+        var section = _sections.ActiveSection;
+        if (section == null)
+        {
+            _diagnostics.Report(node.FullSpan, "DS ALIGN outside of a section");
+            return;
+        }
+        var exprNodes = node.ChildNodes().ToList();
+        if (exprNodes.Count == 0) return;
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
+        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
+
+        // For floating sections, use effective alignment = min(section_align, requested)
+        int bits = (int)alignBits.Value;
+        if (section.AlignBits > 0)
+            bits = Math.Min(bits, section.AlignBits);
+
+        int boundary = 1 << bits;
+        int alignOffset = 0;
+        if (exprNodes.Count > 1)
+        {
+            var offsetVal = evaluator.TryEvaluate(exprNodes[1].Green);
+            if (offsetVal.HasValue)
+                alignOffset = (int)offsetVal.Value;
+        }
+
+        // Fill value — last expression if there are extra expressions after align params
+        byte fill = 0x00;
+        // Check for fill value token after the closing bracket
+        var tokens = node.ChildTokens().ToList();
+        // Find the comma after CloseBracketToken — the expression after it is the fill value
+        bool pastBracket = false;
+        int fillExprIndex = -1;
+        for (int ti = 0; ti < tokens.Count; ti++)
+        {
+            if (tokens[ti].Kind == SyntaxKind.CloseBracketToken)
+                pastBracket = true;
+            else if (pastBracket && tokens[ti].Kind == SyntaxKind.CommaToken)
+            {
+                // The fill expression is the last child node
+                if (exprNodes.Count > 0)
+                    fillExprIndex = exprNodes.Count - 1;
+                break;
+            }
+        }
+        if (fillExprIndex >= 0 && fillExprIndex > (exprNodes.Count > 1 ? 1 : 0))
+        {
+            var fillVal = evaluator.TryEvaluate(exprNodes[fillExprIndex].Green);
+            if (fillVal.HasValue) fill = (byte)(fillVal.Value & 0xFF);
+        }
+
+        int mask = boundary - 1;
+        int pad = ((boundary - ((section.CurrentPC - alignOffset) & mask)) & mask);
+        section.ReserveBytes(pad, fill);
     }
 
     private void Pass2Instruction(SyntaxNode node)
@@ -739,7 +898,10 @@ public sealed class Binder
             return;
         }
 
-        int boundary = 1 << (int)alignBits.Value;
+        int bits = (int)alignBits.Value;
+        if (bits > section.AlignBits)
+            section.AlignBits = bits;
+        int boundary = 1 << bits;
         int alignOffset = 0;
         if (exprNodes.Count > 1)
         {

@@ -65,7 +65,7 @@ public enum SyntaxKind : ushort
     HKeyword, LKeyword, HlKeyword, SpKeyword, AfKeyword, BcKeyword, DeKeyword,
 
     // Directive keywords
-    SectionKeyword, DbKeyword, DwKeyword, DsKeyword,
+    SectionKeyword, DbKeyword, DwKeyword, DlKeyword, DsKeyword,
     EquKeyword, EqusKeyword, RedefKeyword, ExportKeyword, PurgeKeyword,
 
     // Conditional assembly keywords

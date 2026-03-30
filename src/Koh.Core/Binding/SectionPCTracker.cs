@@ -6,6 +6,7 @@ namespace Koh.Core.Binding;
 internal sealed class SectionPCTracker
 {
     private readonly Dictionary<string, int> _sectionPCs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _sectionAlignBits = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stack<string?> _sectionStack = new();
     private string? _activeSection;
 
@@ -22,10 +23,22 @@ internal sealed class SectionPCTracker
 
     public string? ActiveSectionName => _activeSection;
 
+    /// <summary>Known alignment bits for the active section (0 = no alignment info).</summary>
+    public int ActiveAlignBits => _activeSection != null && _sectionAlignBits.TryGetValue(_activeSection, out var bits)
+        ? bits : 0;
+
     public void SetActive(string sectionName, int basePC)
     {
         _activeSection = sectionName;
         _sectionPCs.TryAdd(sectionName, basePC);
+        _sectionAlignBits.TryAdd(sectionName, 0);
+    }
+
+    /// <summary>Record that the active section has at least the given alignment.</summary>
+    public void SetAlignBits(int bits)
+    {
+        if (_activeSection != null && bits > ActiveAlignBits)
+            _sectionAlignBits[_activeSection] = bits;
     }
 
     public void Advance(int bytes)

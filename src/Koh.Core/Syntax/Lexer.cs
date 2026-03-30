@@ -86,6 +86,7 @@ public sealed class Lexer
         ["section"] = SyntaxKind.SectionKeyword,
         ["db"] = SyntaxKind.DbKeyword,
         ["dw"] = SyntaxKind.DwKeyword,
+        ["dl"] = SyntaxKind.DlKeyword,
         ["ds"] = SyntaxKind.DsKeyword,
         ["equ"] = SyntaxKind.EquKeyword,
         ["equs"] = SyntaxKind.EqusKeyword,
