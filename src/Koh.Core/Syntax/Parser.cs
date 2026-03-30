@@ -70,6 +70,10 @@ internal sealed class Parser
             if (statement != null)
                 children.Add(statement);
 
+            // Consume :: statement separator (not part of any statement node)
+            while (Current.Kind == SyntaxKind.DoubleColonToken)
+                Advance();
+
             // Safety: if we didn't advance, force advance to avoid infinite loop
             if (_position == startPos)
             {
@@ -121,7 +125,7 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.SectionKeyword)
             return ParseSectionDirective();
 
-        if (Current.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DsKeyword)
+        if (Current.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword or SyntaxKind.DsKeyword)
             return ParseDataDirective();
 
         // REDEF identifier EQU/EQUS expr
@@ -477,7 +481,35 @@ internal sealed class Parser
     private GreenNode ParseDataDirective()
     {
         var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // DB/DW/DS keyword
+        var keyword = Advance(); // DB/DW/DL/DS keyword
+        children.Add(keyword);
+
+        // DS ALIGN[n] / DS ALIGN[n, offset] — special syntax
+        if (keyword.Kind == SyntaxKind.DsKeyword &&
+            Current.Kind == SyntaxKind.AlignKeyword)
+        {
+            children.Add(Advance()); // ALIGN keyword
+            if (Current.Kind == SyntaxKind.OpenBracketToken)
+            {
+                children.Add(Advance()); // [
+                children.Add(ParseExpression()); // alignment bits
+                if (Current.Kind == SyntaxKind.CommaToken)
+                {
+                    children.Add(Advance()); // comma
+                    children.Add(ParseExpression()); // offset
+                }
+                if (Current.Kind == SyntaxKind.CloseBracketToken)
+                    children.Add(Advance()); // ]
+            }
+            // Optional fill value: ds align[n], fill
+            if (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                if (!AtEndOfStatement())
+                    children.Add(ParseExpression()); // fill value
+            }
+            return new GreenNode(SyntaxKind.DataDirective, children.ToArray());
+        }
 
         // Parse comma-separated expressions
         if (!AtEndOfStatement())
@@ -487,6 +519,12 @@ internal sealed class Parser
             while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
                 children.Add(Advance()); // comma
+                // Trailing comma: if at end of statement after comma, emit warning but continue
+                if (AtEndOfStatement())
+                {
+                    ReportTrailingComma();
+                    break;
+                }
                 children.Add(ParseExpression());
             }
         }
@@ -531,6 +569,9 @@ internal sealed class Parser
     private bool AtEndOfStatement()
     {
         if (Current.Kind == SyntaxKind.EndOfFileToken)
+            return true;
+        // :: acts as a statement separator (consumed by ParseCompilationUnit)
+        if (Current.Kind == SyntaxKind.DoubleColonToken)
             return true;
         if (_position == 0)
             return false;
@@ -827,6 +868,15 @@ internal sealed class Parser
                 return true;
         }
         return false;
+    }
+
+    private void ReportTrailingComma()
+    {
+        int pos = 0;
+        for (int i = 0; i < _position && i < _tokens.Count; i++)
+            pos += _tokens[i].FullWidth;
+        _diagnostics.Report(new TextSpan(pos, 0), "Trailing comma in data directive",
+            Diagnostics.DiagnosticSeverity.Warning);
     }
 
     private void ReportMissingToken(SyntaxKind expected)
