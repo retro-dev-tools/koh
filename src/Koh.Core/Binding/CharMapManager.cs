@@ -79,6 +79,11 @@ internal sealed class CharMapManager
 
     public void AddMapping(string character, byte[] value)
     {
+        if (string.IsNullOrEmpty(character))
+        {
+            _diagnostics.Report(default, "CHARMAP: empty string is not allowed");
+            return;
+        }
         _activeMap[character] = value;
         if (character.Length > _maxKeyLen)
             _maxKeyLen = character.Length;
@@ -108,6 +113,46 @@ internal sealed class CharMapManager
                 $"REVCHAR: No character mapping to value(s) {string.Join(", ", values.Select(b => $"${b:X2}"))}");
 
         return result;
+    }
+
+    /// <summary>
+    /// Count the number of charmap-level characters in a string.
+    /// Each matched charmap entry counts as 1 character regardless of byte count.
+    /// </summary>
+    public int CharLen(string text)
+    {
+        int count = 0;
+        int i = 0;
+        while (i < text.Length)
+        {
+            bool matched = false;
+            for (int len = Math.Min(text.Length - i, _maxKeyLen); len >= 1; len--)
+            {
+                var substr = text.Substring(i, len);
+                if (_activeMap.TryGetValue(substr, out _))
+                {
+                    count++;
+                    i += len;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched)
+            {
+                count++;
+                i++;
+            }
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Check if a string has a mapping in the active character map.
+    /// </summary>
+    public bool InCharMap(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        return _activeMap.ContainsKey(text);
     }
 
     /// <summary>

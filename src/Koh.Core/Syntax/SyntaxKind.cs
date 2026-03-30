@@ -105,6 +105,25 @@ public enum SyntaxKind : ushort
     // Built-in function keywords
     HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
     DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
+    StrcmpKeyword, StrfindKeyword, StrrfindKeyword, StruprKeyword, StrlwrKeyword,
+    BytelenKeyword, StrbyteKeyword, CharlenKeyword, IncharmapKeyword,
+    SectionFuncKeyword, ReadfileKeyword, SizeofRegKeyword,
+    // Fixed-point math function keywords
+    MulKeyword, DivFuncKeyword, FmodKeyword, PowKeyword, LogKeyword,
+    RoundKeyword, CeilKeyword, FloorKeyword,
+    SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
+    // Integer function keywords
+    BitwidthKeyword, TzcountKeyword,
+    // DL keyword (32-bit data)
+    DlKeyword,
+    // BREAK keyword (inside REPT/FOR)
+    BreakKeyword,
+    // String operators
+    PlusPlusToken, // ++
+    EqualsEqualsEqualsToken, // ===
+    BangEqualsEqualsToken, // !==
+    // Exponentiation operator
+    StarStarToken, // **
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,

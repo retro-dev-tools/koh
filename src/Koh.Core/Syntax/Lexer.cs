@@ -154,6 +154,36 @@ public sealed class Lexer
         ["strcat"] = SyntaxKind.StrcatKeyword,
         ["strsub"] = SyntaxKind.StrsubKeyword,
         ["revchar"] = SyntaxKind.RevcharKeyword,
+        ["strcmp"] = SyntaxKind.StrcmpKeyword,
+        ["strfind"] = SyntaxKind.StrfindKeyword,
+        ["strrfind"] = SyntaxKind.StrrfindKeyword,
+        ["strupr"] = SyntaxKind.StruprKeyword,
+        ["strlwr"] = SyntaxKind.StrlwrKeyword,
+        ["bytelen"] = SyntaxKind.BytelenKeyword,
+        ["strbyte"] = SyntaxKind.StrbyteKeyword,
+        ["charlen"] = SyntaxKind.CharlenKeyword,
+        ["incharmap"] = SyntaxKind.IncharmapKeyword,
+        ["readfile"] = SyntaxKind.ReadfileKeyword,
+        ["mul"] = SyntaxKind.MulKeyword,
+        ["div"] = SyntaxKind.DivFuncKeyword,
+        ["fmod"] = SyntaxKind.FmodKeyword,
+        ["pow"] = SyntaxKind.PowKeyword,
+        ["log"] = SyntaxKind.LogKeyword,
+        ["round"] = SyntaxKind.RoundKeyword,
+        ["ceil"] = SyntaxKind.CeilKeyword,
+        ["floor"] = SyntaxKind.FloorKeyword,
+        ["sin"] = SyntaxKind.SinKeyword,
+        ["cos"] = SyntaxKind.CosKeyword,
+        ["tan"] = SyntaxKind.TanKeyword,
+        ["asin"] = SyntaxKind.AsinKeyword,
+        ["acos"] = SyntaxKind.AcosKeyword,
+        ["atan"] = SyntaxKind.AtanKeyword,
+        ["atan2"] = SyntaxKind.Atan2Keyword,
+        ["bitwidth"] = SyntaxKind.BitwidthKeyword,
+        ["tzcount"] = SyntaxKind.TzcountKeyword,
+        ["dl"] = SyntaxKind.DlKeyword,
+        ["break"] = SyntaxKind.BreakKeyword,
+        ["strfmt"] = SyntaxKind.StrcatKeyword, // strfmt is an alias for strcat in RGBDS
     };
 
     public Lexer(SourceText source)
@@ -221,11 +251,11 @@ public sealed class Lexer
         int start = _position;
         char c = Current;
 
-        // Numbers: $hex, %binary, &octal, decimal
+        // Numbers: $hex, %binary, &octal, decimal, 0x hex, 0b binary, 0o octal
         if (c == '$' && IsHexDigit(Peek()))
         {
             _position++;
-            while (IsHexDigit(Current))
+            while (IsHexDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -233,7 +263,7 @@ public sealed class Lexer
         if (c == '%' && IsBinaryDigit(Peek()))
         {
             _position++;
-            while (IsBinaryDigit(Current))
+            while (IsBinaryDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -246,15 +276,45 @@ public sealed class Lexer
         if (c == '&' && IsOctalDigit(Peek()) && !PrecedingCharIsExpressionEnd(start))
         {
             _position++;
-            while (IsOctalDigit(Current))
+            while (IsOctalDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
         if (char.IsDigit(c))
         {
-            while (char.IsDigit(Current))
+            // C-style prefixes: 0x hex, 0b binary, 0o octal
+            if (c == '0' && (Peek() is 'x' or 'X') && IsHexDigit(Peek(2)))
+            {
+                _position += 2; // skip 0x
+                while (IsHexDigit(Current) || Current == '_')
+                    _position++;
+                return (SyntaxKind.NumberLiteral, Substring(start, _position));
+            }
+            if (c == '0' && (Peek() is 'b' or 'B') && IsBinaryDigit(Peek(2)))
+            {
+                _position += 2; // skip 0b
+                while (IsBinaryDigit(Current) || Current == '_')
+                    _position++;
+                return (SyntaxKind.NumberLiteral, Substring(start, _position));
+            }
+            if (c == '0' && (Peek() is 'o' or 'O') && IsOctalDigit(Peek(2)))
+            {
+                _position += 2; // skip 0o
+                while (IsOctalDigit(Current) || Current == '_')
+                    _position++;
+                return (SyntaxKind.NumberLiteral, Substring(start, _position));
+            }
+
+            while (char.IsDigit(Current) || Current == '_')
                 _position++;
+            // Fixed-point literal: digits.digits (e.g. 1.5, 3.14)
+            if (Current == '.' && char.IsDigit(Peek()))
+            {
+                _position++; // consume .
+                while (char.IsDigit(Current) || Current == '_')
+                    _position++;
+            }
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
@@ -280,6 +340,16 @@ public sealed class Lexer
             while (IsIdentifierPart(Current))
                 _position++;
             return (SyntaxKind.LocalLabelToken, Substring(start, _position));
+        }
+
+        // Raw identifiers: #identifier — allows using keywords as names
+        if (c == '#' && IsIdentifierStart(Peek()))
+        {
+            _position++; // skip #
+            while (IsIdentifierPart(Current))
+                _position++;
+            // Return as identifier, not keyword, even if the text matches a keyword
+            return (SyntaxKind.IdentifierToken, Substring(start, _position));
         }
 
         // Identifiers / keywords
@@ -329,6 +399,17 @@ public sealed class Lexer
             _position += 2;
             return (SyntaxKind.GreaterThanGreaterThanToken, ">>");
         }
+        // 3-char operators must be checked before 2-char ones
+        if (c == '=' && Peek() == '=' && Peek(2) == '=')
+        {
+            _position += 3;
+            return (SyntaxKind.EqualsEqualsEqualsToken, "===");
+        }
+        if (c == '!' && Peek() == '=' && Peek(2) == '=')
+        {
+            _position += 3;
+            return (SyntaxKind.BangEqualsEqualsToken, "!==");
+        }
         if (c == '=' && Peek() == '=')
         {
             _position += 2;
@@ -363,6 +444,16 @@ public sealed class Lexer
         {
             _position += 2;
             return (SyntaxKind.DoubleColonToken, "::");
+        }
+        if (c == '+' && Peek() == '+')
+        {
+            _position += 2;
+            return (SyntaxKind.PlusPlusToken, "++");
+        }
+        if (c == '*' && Peek() == '*')
+        {
+            _position += 2;
+            return (SyntaxKind.StarStarToken, "**");
         }
 
         // Single-character punctuation
@@ -435,6 +526,13 @@ public sealed class Lexer
             if (Current == ' ' || Current == '\t')
             {
                 trivia.Add(ScanWhitespace());
+            }
+            else if (Current == '\\' && IsLineContinuation())
+            {
+                // Line continuation: \ followed by optional whitespace then newline
+                trivia.Add(ScanLineContinuation());
+                // After continuation, absorb leading whitespace of next line
+                continue;
             }
             else if (Current == '/' && Peek() == '*')
             {
@@ -530,6 +628,41 @@ public sealed class Lexer
             _position++;
         }
         return new GreenTrivia(SyntaxKind.NewlineTrivia, Substring(start, _position));
+    }
+
+    /// <summary>
+    /// Check if current position is a line continuation: \ followed by optional whitespace then newline.
+    /// </summary>
+    private bool IsLineContinuation()
+    {
+        if (Current != '\\') return false;
+        int scan = _position + 1;
+        while (scan < _source.Length && (_source[scan] == ' ' || _source[scan] == '\t'))
+            scan++;
+        return scan < _source.Length && (_source[scan] == '\n' || _source[scan] == '\r');
+    }
+
+    /// <summary>
+    /// Consume a line continuation (\ + optional whitespace + newline) as whitespace trivia.
+    /// </summary>
+    private GreenTrivia ScanLineContinuation()
+    {
+        int start = _position;
+        _position++; // skip backslash
+        while (!IsAtEnd && (Current == ' ' || Current == '\t'))
+            _position++;
+        // Consume the newline
+        if (!IsAtEnd && Current == '\r')
+        {
+            _position++;
+            if (!IsAtEnd && Current == '\n')
+                _position++;
+        }
+        else if (!IsAtEnd && Current == '\n')
+        {
+            _position++;
+        }
+        return new GreenTrivia(SyntaxKind.WhitespaceTrivia, Substring(start, _position));
     }
 
     private string Substring(int start, int end)

@@ -121,7 +121,7 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.SectionKeyword)
             return ParseSectionDirective();
 
-        if (Current.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DsKeyword)
+        if (Current.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DsKeyword or SyntaxKind.DlKeyword)
             return ParseDataDirective();
 
         // REDEF identifier EQU/EQUS expr
@@ -172,6 +172,10 @@ internal sealed class Parser
 
         // SHIFT (inside macro expansion)
         if (Current.Kind == SyntaxKind.ShiftKeyword)
+            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
+        // BREAK (inside REPT/FOR)
+        if (Current.Kind == SyntaxKind.BreakKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
 
         // RS counters: RSRESET (no args), RSSET expr
@@ -649,7 +653,9 @@ internal sealed class Parser
                 break;
 
             var op = Advance();
-            var right = ParseExpression(precedence);
+            // Right-associative operators: ** (exponentiation)
+            int rightPrec = op.Kind == SyntaxKind.StarStarToken ? precedence - 1 : precedence;
+            var right = ParseExpression(rightPrec);
             left = new GreenNode(SyntaxKind.BinaryExpression, [left, op, right]);
         }
 
@@ -707,7 +713,61 @@ internal sealed class Parser
             case SyntaxKind.StrcatKeyword:
             case SyntaxKind.StrsubKeyword:
             case SyntaxKind.RevcharKeyword:
+            case SyntaxKind.StrcmpKeyword:
+            case SyntaxKind.StrfindKeyword:
+            case SyntaxKind.StrrfindKeyword:
+            case SyntaxKind.StruprKeyword:
+            case SyntaxKind.StrlwrKeyword:
+            case SyntaxKind.BytelenKeyword:
+            case SyntaxKind.StrbyteKeyword:
+            case SyntaxKind.CharlenKeyword:
+            case SyntaxKind.IncharmapKeyword:
+            case SyntaxKind.SectionFuncKeyword:
+            case SyntaxKind.ReadfileKeyword:
+            case SyntaxKind.SizeofRegKeyword:
+            case SyntaxKind.MulKeyword:
+            case SyntaxKind.DivFuncKeyword:
+            case SyntaxKind.FmodKeyword:
+            case SyntaxKind.PowKeyword:
+            case SyntaxKind.LogKeyword:
+            case SyntaxKind.RoundKeyword:
+            case SyntaxKind.CeilKeyword:
+            case SyntaxKind.FloorKeyword:
+            case SyntaxKind.SinKeyword:
+            case SyntaxKind.CosKeyword:
+            case SyntaxKind.TanKeyword:
+            case SyntaxKind.AsinKeyword:
+            case SyntaxKind.AcosKeyword:
+            case SyntaxKind.AtanKeyword:
+            case SyntaxKind.Atan2Keyword:
+            case SyntaxKind.BitwidthKeyword:
+            case SyntaxKind.TzcountKeyword:
                 return ParseFunctionCallExpression();
+
+            // ALIGN in expression context (for ds align[n])
+            case SyntaxKind.AlignKeyword when Peek().Kind == SyntaxKind.OpenBracketToken:
+                return ParseAlignFunctionExpression();
+
+            // SECTION() function call (returns section name of a label)
+            case SyntaxKind.SectionKeyword when Peek().Kind == SyntaxKind.OpenParenToken:
+            {
+                // Rewrite as SectionFuncKeyword for the function call parser
+                var kw = Advance();
+                var fakeKw = new GreenToken(SyntaxKind.SectionFuncKeyword, kw.Text,
+                    kw.LeadingTrivia, kw.TrailingTrivia);
+                var children = new List<GreenNodeBase> { fakeKw, ExpectToken(SyntaxKind.OpenParenToken) };
+                if (Current.Kind != SyntaxKind.CloseParenToken && Current.Kind != SyntaxKind.EndOfFileToken)
+                {
+                    children.Add(ParseExpression());
+                    while (Current.Kind == SyntaxKind.CommaToken)
+                    {
+                        children.Add(Advance());
+                        children.Add(ParseExpression());
+                    }
+                }
+                children.Add(ExpectToken(SyntaxKind.CloseParenToken));
+                return new GreenNode(SyntaxKind.FunctionCallExpression, children.ToArray());
+            }
 
             case SyntaxKind.OpenParenToken:
             {
@@ -738,6 +798,32 @@ internal sealed class Parser
                     [new GreenToken(SyntaxKind.MissingToken, "")]
                 );
         }
+    }
+
+    /// <summary>
+    /// Parse align[bits[, offset]] as a function-call-like expression.
+    /// Uses brackets instead of parens.
+    /// </summary>
+    private GreenNode ParseAlignFunctionExpression()
+    {
+        var children = new List<GreenNodeBase>
+        {
+            Advance(), // ALIGN keyword
+            ExpectToken(SyntaxKind.OpenBracketToken),
+        };
+
+        if (Current.Kind != SyntaxKind.CloseBracketToken && Current.Kind != SyntaxKind.EndOfFileToken)
+        {
+            children.Add(ParseExpression());
+            while (Current.Kind == SyntaxKind.CommaToken)
+            {
+                children.Add(Advance()); // comma
+                children.Add(ParseExpression());
+            }
+        }
+
+        children.Add(ExpectToken(SyntaxKind.CloseBracketToken));
+        return new GreenNode(SyntaxKind.FunctionCallExpression, children.ToArray());
     }
 
     private GreenNode ParseFunctionCallExpression()
@@ -783,20 +869,22 @@ internal sealed class Parser
     // RGBDS precedence (higher number = tighter binding), matching C conventions:
     // 1: ||
     // 2: &&
-    // 3: == !=
+    // 3: == != === !==
     // 4: < > <= >=
     // 5: |          (bitwise OR — lowest of the three bitwise ops, same as C)
     // 6: ^          (bitwise XOR)
     // 7: &          (bitwise AND — highest of the three)
     // 8: << >>
-    // 9: + -
+    // 9: + - ++     (++ is string concatenation, same precedence as +)
     // 10: * / %
+    // 11: **        (exponentiation — right-associative, highest binary precedence)
     private static int GetBinaryPrecedence(SyntaxKind kind) =>
         kind switch
         {
             SyntaxKind.PipePipeToken => 1,
             SyntaxKind.AmpersandAmpersandToken => 2,
-            SyntaxKind.EqualsEqualsToken or SyntaxKind.BangEqualsToken => 3,
+            SyntaxKind.EqualsEqualsToken or SyntaxKind.BangEqualsToken
+                or SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.BangEqualsEqualsToken => 3,
             SyntaxKind.LessThanToken
             or SyntaxKind.GreaterThanToken
             or SyntaxKind.LessThanEqualsToken
@@ -805,8 +893,9 @@ internal sealed class Parser
             SyntaxKind.CaretToken => 6,
             SyntaxKind.AmpersandToken => 7,
             SyntaxKind.LessThanLessThanToken or SyntaxKind.GreaterThanGreaterThanToken => 8,
-            SyntaxKind.PlusToken or SyntaxKind.MinusToken => 9,
+            SyntaxKind.PlusToken or SyntaxKind.MinusToken or SyntaxKind.PlusPlusToken => 9,
             SyntaxKind.StarToken or SyntaxKind.SlashToken or SyntaxKind.PercentToken => 10,
+            SyntaxKind.StarStarToken => 11,
             _ => 0,
         };
 

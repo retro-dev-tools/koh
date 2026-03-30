@@ -365,7 +365,8 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Evaluate a string expression for EQUS assignment. Handles string literals and REVCHAR().
+    /// Evaluate a string expression for EQUS assignment. Handles string literals,
+    /// REVCHAR(), STRUPR(), STRLWR(), STRCAT(), STRSUB(), READFILE(), and ++ concatenation.
     /// </summary>
     private string? EvaluateStringExpression(SyntaxNode exprNode)
     {
@@ -375,24 +376,138 @@ internal sealed class AssemblyExpander
         if (strToken != null)
             return strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
 
-        // REVCHAR(...) function call
+        // ++ concatenation (BinaryExpression)
+        if (exprNode.Kind == SyntaxKind.BinaryExpression)
+        {
+            var childTokens = exprNode.ChildTokens().ToList();
+            if (childTokens.Any(t => t.Kind == SyntaxKind.PlusPlusToken))
+            {
+                var children = exprNode.ChildNodes().ToList();
+                if (children.Count >= 2)
+                {
+                    var left = EvaluateStringExpression(children[0]);
+                    var right = EvaluateStringExpression(children[^1]);
+                    if (left != null && right != null)
+                        return left + right;
+                }
+            }
+        }
+
+        // Function calls
         if (exprNode.Kind == SyntaxKind.FunctionCallExpression)
         {
             var funcTokens = exprNode.ChildTokens().ToList();
-            if (funcTokens.Count > 0 && funcTokens[0].Kind == SyntaxKind.RevcharKeyword)
+            if (funcTokens.Count == 0) return null;
+            var funcKind = funcTokens[0].Kind;
+            var argExprs = exprNode.ChildNodes().ToList();
+
+            switch (funcKind)
             {
-                // Collect numeric arguments
-                var argExprs = exprNode.ChildNodes().ToList();
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
-                var bytes = new List<byte>();
-                foreach (var argExpr in argExprs)
+                case SyntaxKind.RevcharKeyword:
                 {
-                    var val = evaluator.TryEvaluate(argExpr.Green);
-                    if (val.HasValue)
-                        bytes.Add((byte)(val.Value & 0xFF));
+                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                    var bytes = new List<byte>();
+                    foreach (var argExpr in argExprs)
+                    {
+                        var val = evaluator.TryEvaluate(argExpr.Green);
+                        if (val.HasValue)
+                            bytes.Add((byte)(val.Value & 0xFF));
+                    }
+                    if (bytes.Count > 0)
+                        return _charMaps.ReverseCharMap(bytes.ToArray());
+                    break;
                 }
-                if (bytes.Count > 0)
-                    return _charMaps.ReverseCharMap(bytes.ToArray());
+                case SyntaxKind.StruprKeyword:
+                {
+                    if (argExprs.Count > 0)
+                    {
+                        var s = EvaluateStringExpression(argExprs[0]);
+                        return s?.ToUpperInvariant();
+                    }
+                    break;
+                }
+                case SyntaxKind.StrlwrKeyword:
+                {
+                    if (argExprs.Count > 0)
+                    {
+                        var s = EvaluateStringExpression(argExprs[0]);
+                        return s?.ToLowerInvariant();
+                    }
+                    break;
+                }
+                case SyntaxKind.StrcatKeyword:
+                {
+                    var sb = new System.Text.StringBuilder();
+                    foreach (var argExpr in argExprs)
+                    {
+                        var s = EvaluateStringExpression(argExpr);
+                        if (s == null) return null;
+                        sb.Append(s);
+                    }
+                    return sb.ToString();
+                }
+                case SyntaxKind.StrsubKeyword:
+                {
+                    if (argExprs.Count >= 2)
+                    {
+                        var s = EvaluateStringExpression(argExprs[0]);
+                        if (s == null) return null;
+                        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                        var startVal = evaluator.TryEvaluate(argExprs[1].Green);
+                        if (!startVal.HasValue) return null;
+                        int start = (int)startVal.Value - 1; // 1-based
+                        int len = s.Length - start;
+                        if (argExprs.Count >= 3)
+                        {
+                            var lenVal = evaluator.TryEvaluate(argExprs[2].Green);
+                            if (lenVal.HasValue) len = (int)lenVal.Value;
+                        }
+                        if (start < 0) start = 0;
+                        if (start + len > s.Length) len = s.Length - start;
+                        if (len < 0) len = 0;
+                        return s.Substring(start, len);
+                    }
+                    break;
+                }
+                case SyntaxKind.ReadfileKeyword:
+                {
+                    if (argExprs.Count > 0)
+                    {
+                        var filename = EvaluateStringExpression(argExprs[0]);
+                        if (filename == null) return null;
+                        var resolved = _fileResolver.ResolvePath(_currentFilePath, filename);
+                        if (!_fileResolver.FileExists(resolved)) return null;
+                        try
+                        {
+                            var content = _fileResolver.ReadAllText(resolved);
+                            if (argExprs.Count > 1)
+                            {
+                                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                                var limit = evaluator.TryEvaluate(argExprs[1].Green);
+                                if (limit.HasValue && limit.Value < content.Length)
+                                    content = content[..(int)limit.Value];
+                            }
+                            return content;
+                        }
+                        catch { return null; }
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Name expression referencing an EQUS constant — resolve through the #prefix syntax
+        if (exprNode.Kind == SyntaxKind.NameExpression)
+        {
+            var nameToken = exprNode.ChildTokens().FirstOrDefault();
+            if (nameToken != null)
+            {
+                var name = nameToken.Text;
+                // #name syntax: raw identifier prefixed with #
+                if (name.StartsWith('#'))
+                    name = name[1..];
+                if (_equsConstants.TryGetValue(name, out var equsVal))
+                    return equsVal;
             }
         }
 
@@ -508,13 +623,20 @@ internal sealed class AssemblyExpander
                 _conditional.HandleIf(Eval);
                 break;
             case SyntaxKind.ElifKeyword:
-                if (!_conditional.HandleElif(Eval))
+                if (_conditional.HasSeenElse)
+                    _diagnostics.Report(node.FullSpan, "ELIF after ELSE");
+                else if (!_conditional.HandleElif(Eval))
                     _diagnostics.Report(node.FullSpan, "ELIF without matching IF");
                 break;
             case SyntaxKind.ElseKeyword:
-                if (!_conditional.HandleElse())
+            {
+                var result = _conditional.HandleElseEx();
+                if (result == 0)
                     _diagnostics.Report(node.FullSpan, "ELSE without matching IF");
+                else if (result == 2)
+                    _diagnostics.Report(node.FullSpan, "Multiple ELSE blocks in one IF");
                 break;
+            }
             case SyntaxKind.EndcKeyword:
                 if (!_conditional.HandleEndc())
                     _diagnostics.Report(node.FullSpan, "ENDC without matching IF");
