@@ -364,6 +364,19 @@ public sealed class Lexer
             _position += 2;
             return (SyntaxKind.DoubleColonToken, "::");
         }
+        // Anonymous label references: :+ :++ :+++ etc. and :- :-- :--- etc.
+        if (c == ':' && Peek() == '+')
+        {
+            _position += 2;
+            while (Current == '+') _position++;
+            return (SyntaxKind.AnonLabelForwardToken, Substring(start, _position));
+        }
+        if (c == ':' && Peek() == '-')
+        {
+            _position += 2;
+            while (Current == '-') _position++;
+            return (SyntaxKind.AnonLabelBackwardToken, Substring(start, _position));
+        }
 
         // Single-character punctuation
         _position++;

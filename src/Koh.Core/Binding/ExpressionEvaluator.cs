@@ -38,6 +38,8 @@ public sealed class ExpressionEvaluator
             SyntaxKind.CurrentAddressToken => _getCurrentPC(),
             SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken =>
                 EvaluateRawIdentifier(((GreenToken)node).Text),
+            SyntaxKind.AnonLabelForwardToken => EvaluateAnonRef(((GreenToken)node).Text, forward: true),
+            SyntaxKind.AnonLabelBackwardToken => EvaluateAnonRef(((GreenToken)node).Text, forward: false),
             SyntaxKind.StringLiteral => null,
             _ => null,
         };
@@ -73,6 +75,21 @@ public sealed class ExpressionEvaluator
         }
 
         return sym.State == SymbolState.Defined ? sym.Value : null;
+    }
+
+    /// <summary>
+    /// Evaluate an anonymous label reference (:+, :-, :++, etc.).
+    /// The text is ":+" (1 forward), ":++" (2 forward), ":-" (1 backward), etc.
+    /// </summary>
+    private long? EvaluateAnonRef(string text, bool forward)
+    {
+        // Count the + or - characters after the colon
+        int count = text.Length - 1; // subtract the colon
+        int offset = forward ? count : -count;
+        var sym = _symbols.ResolveAnonymousRef(offset);
+        if (sym != null && sym.State == SymbolState.Defined)
+            return sym.Value;
+        return null;
     }
 
     private long? EvaluateBinary(GreenNodeBase node)

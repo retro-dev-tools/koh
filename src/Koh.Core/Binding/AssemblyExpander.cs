@@ -160,6 +160,21 @@ internal sealed class AssemblyExpander
             if (!item.IsNode) { i++; continue; }
             var node = item.AsNode!;
 
+            // Check if this node's source text contains {EQUS} interpolation that needs
+            // resolving before the parser can understand it. This handles cases like
+            // DEF {prefix}banana EQU 1, PURGE {prefix}banana, etc.
+            if (!_conditional.IsSuppressed && _currentSourceText != null && NeedsInterpolation(node))
+            {
+                var rawText = _currentSourceText.ToString(node.FullSpan);
+                var resolved = ResolveInterpolations(rawText);
+                if (resolved != rawText)
+                {
+                    ExpandTextInline(resolved, output);
+                    i++;
+                    continue;
+                }
+            }
+
             if (node.Kind == SyntaxKind.ConditionalDirective)
             {
                 HandleConditional(node);
@@ -272,6 +287,14 @@ internal sealed class AssemblyExpander
             // EQU constants, RS counters, and charmaps — define immediately for IF/REPT/REVCHAR
             if (node.Kind == SyntaxKind.SymbolDirective)
             {
+                // Handle PURGE during expansion — remove symbols from EQUS constants and symbol table
+                var symTokens = node.ChildTokens().ToList();
+                if (symTokens.Count > 0 && symTokens[0].Kind == SyntaxKind.PurgeKeyword)
+                {
+                    HandlePurge(node);
+                    i++;
+                    continue; // consumed — don't emit to output
+                }
                 EarlyDefineEqu(node);
                 EarlyProcessCharmap(node);
             }
@@ -373,7 +396,10 @@ internal sealed class AssemblyExpander
         var strToken = exprNode.ChildTokens()
             .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
         if (strToken != null)
-            return strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+        {
+            var raw = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+            return UnescapeString(raw);
+        }
 
         // REVCHAR(...) function call
         if (exprNode.Kind == SyntaxKind.FunctionCallExpression)
@@ -457,6 +483,55 @@ internal sealed class AssemblyExpander
 
     private static string StripQuotes(string text) =>
         text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
+
+    /// <summary>
+    /// Process escape sequences in a string: \n → newline, \" → ", \\ → \, \t → tab.
+    /// Used for EQUS string values which may contain embedded newlines and escaped quotes.
+    /// </summary>
+    private static string UnescapeString(string text)
+    {
+        if (!text.Contains('\\')) return text;
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                switch (text[i + 1])
+                {
+                    case 'n': sb.Append('\n'); i++; break;
+                    case 't': sb.Append('\t'); i++; break;
+                    case '\\': sb.Append('\\'); i++; break;
+                    case '"': sb.Append('"'); i++; break;
+                    case '0': sb.Append('\0'); i++; break;
+                    default: sb.Append(text[i]); break;
+                }
+            }
+            else
+            {
+                sb.Append(text[i]);
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Handle PURGE directive — remove symbols from both EQUS constants and the symbol table.
+    /// Resolves {EQUS} interpolations in purge target names.
+    /// </summary>
+    private void HandlePurge(SyntaxNode node)
+    {
+        var tokens = node.ChildTokens().ToList();
+        for (int ti = 1; ti < tokens.Count; ti++)
+        {
+            if (tokens[ti].Kind == SyntaxKind.CommaToken) continue;
+            if (tokens[ti].Kind == SyntaxKind.IdentifierToken)
+            {
+                var name = tokens[ti].Text;
+                _equsConstants.Remove(name);
+                _symbols.Remove(name);
+            }
+        }
+    }
 
     private void HandleRsDirective(SyntaxNode node)
     {
@@ -777,6 +852,26 @@ internal sealed class AssemblyExpander
             _includeStack.Remove(resolved);
             _expansionDepth--;
         }
+    }
+
+    /// <summary>
+    /// Check if a node contains {name} interpolation patterns that need resolving.
+    /// This detects BadToken '{' in the node's children.
+    /// </summary>
+    private bool NeedsInterpolation(SyntaxNode node)
+    {
+        foreach (var tok in node.ChildTokens())
+        {
+            if (tok.Kind == SyntaxKind.BadToken && tok.Text == "{")
+                return true;
+        }
+        // Also check child nodes recursively (for nested structures)
+        foreach (var child in node.ChildNodes())
+        {
+            if (NeedsInterpolation(child))
+                return true;
+        }
+        return false;
     }
 
     // Pre-compiled pattern that matches either a double-quoted string literal or any
