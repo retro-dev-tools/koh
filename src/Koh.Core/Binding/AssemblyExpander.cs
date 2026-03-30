@@ -130,7 +130,7 @@ internal sealed class AssemblyExpander
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count == 0) return;
             // Use a silent evaluator — don't report missing-symbol errors during pre-scan
-            var evaluator = new ExpressionEvaluator(_symbols, DiagnosticBag.Null, () => 0);
+            var evaluator = new ExpressionEvaluator(_symbols, DiagnosticBag.Null, () => 0, _charMaps);
             var value = evaluator.TryEvaluate(exprNodes[0].Green);
             if (!value.HasValue) return; // unresolvable at this point — retry on next pass
             if (kwKind == SyntaxKind.EqualsToken || tokens[0].Kind == SyntaxKind.RedefKeyword)
@@ -311,7 +311,7 @@ internal sealed class AssemblyExpander
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
             {
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps);
                 var value = evaluator.TryEvaluate(exprNodes[0].Green);
                 if (value.HasValue)
                 {
@@ -342,7 +342,7 @@ internal sealed class AssemblyExpander
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
             {
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps);
                 var value = evaluator.TryEvaluate(exprNodes[0].Green);
                 if (value.HasValue) count = value.Value;
             }
@@ -365,7 +365,8 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Evaluate a string expression for EQUS assignment. Handles string literals and REVCHAR().
+    /// Evaluate a string expression for EQUS assignment. Handles string literals,
+    /// REVCHAR(), and STRCAT().
     /// </summary>
     private string? EvaluateStringExpression(SyntaxNode exprNode)
     {
@@ -373,9 +374,12 @@ internal sealed class AssemblyExpander
         var strToken = exprNode.ChildTokens()
             .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
         if (strToken != null)
-            return strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+        {
+            var raw = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+            return ExpressionEvaluator.UnescapeString(raw);
+        }
 
-        // REVCHAR(...) function call
+        // Function calls: REVCHAR, STRCAT
         if (exprNode.Kind == SyntaxKind.FunctionCallExpression)
         {
             var funcTokens = exprNode.ChildTokens().ToList();
@@ -383,7 +387,7 @@ internal sealed class AssemblyExpander
             {
                 // Collect numeric arguments
                 var argExprs = exprNode.ChildNodes().ToList();
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps);
                 var bytes = new List<byte>();
                 foreach (var argExpr in argExprs)
                 {
@@ -394,6 +398,11 @@ internal sealed class AssemblyExpander
                 if (bytes.Count > 0)
                     return _charMaps.ReverseCharMap(bytes.ToArray());
             }
+
+            // Use ExpressionEvaluator's string evaluation for STRCAT, STRSUB, etc.
+            var eval = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps);
+            var result = eval.TryEvaluateString(exprNode.Green);
+            if (result != null) return result;
         }
 
         return null;
@@ -445,7 +454,13 @@ internal sealed class AssemblyExpander
                         {
                             var val = ExpressionEvaluator.ParseNumber(tokens[ci].Text);
                             if (val.HasValue)
+                            {
+                                if (val.Value > 0xFF)
+                                    _diagnostics.Report(default,
+                                        $"CHARMAP value ${val.Value:X} truncated to ${val.Value & 0xFF:X2}",
+                                        Diagnostics.DiagnosticSeverity.Warning);
                                 byteValues.Add((byte)(val.Value & 0xFF));
+                            }
                         }
                     }
                     if (byteValues.Count > 0)
@@ -473,7 +488,7 @@ internal sealed class AssemblyExpander
                 var exprNodes = node.ChildNodes().ToList();
                 if (exprNodes.Count > 0)
                 {
-                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps);
                     var value = evaluator.TryEvaluate(exprNodes[0].Green);
                     if (value.HasValue) _rsCounter = value.Value;
                 }
@@ -498,7 +513,8 @@ internal sealed class AssemblyExpander
         {
             var exprNode = node.ChildNodes().FirstOrDefault();
             if (exprNode == null) return false;
-            var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+            var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps,
+                ResolveInterpolations);
             return evaluator.TryEvaluate(exprNode.Green) is { } v && v != 0;
         }
 
@@ -911,7 +927,7 @@ internal sealed class AssemblyExpander
         int count = 0;
         if (exprNodes.Count > 0)
         {
-            var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+            var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps);
             var val = evaluator.TryEvaluate(exprNodes[0].Green);
             if (val.HasValue) count = (int)val.Value;
         }
@@ -995,7 +1011,7 @@ internal sealed class AssemblyExpander
         if (exprNodes.Count > 0 && exprNodes[0].Kind == SyntaxKind.NameExpression)
             varName = exprNodes[0].ChildTokens().FirstOrDefault()?.Text;
 
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, _charMaps);
         long start = exprNodes.Count > 1 ? evaluator.TryEvaluate(exprNodes[1].Green) ?? 0 : 0;
         long stop = exprNodes.Count > 2 ? evaluator.TryEvaluate(exprNodes[2].Green) ?? 0 : 0;
         long step = exprNodes.Count > 3 ? evaluator.TryEvaluate(exprNodes[3].Green) ?? 1 : 1;

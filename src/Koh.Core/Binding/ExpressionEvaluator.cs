@@ -14,13 +14,18 @@ public sealed class ExpressionEvaluator
     private readonly SymbolTable _symbols;
     private readonly DiagnosticBag _diagnostics;
     private readonly Func<int> _getCurrentPC;
+    private readonly CharMapManager? _charMaps;
+    private readonly Func<string, string>? _resolveInterpolations;
 
-    public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
-        Func<int> getCurrentPC)
+    internal ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
+        Func<int> getCurrentPC, CharMapManager? charMaps = null,
+        Func<string, string>? resolveInterpolations = null)
     {
         _symbols = symbols;
         _diagnostics = diagnostics;
         _getCurrentPC = getCurrentPC;
+        _charMaps = charMaps;
+        _resolveInterpolations = resolveInterpolations;
     }
 
     public long? TryEvaluate(GreenNodeBase node)
@@ -39,8 +44,73 @@ public sealed class ExpressionEvaluator
             SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken =>
                 EvaluateRawIdentifier(((GreenToken)node).Text),
             SyntaxKind.StringLiteral => null,
+            SyntaxKind.CharLiteralToken => EvaluateCharLiteral(((GreenToken)node).Text),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Evaluate a node as a string expression. Handles string literals and string-returning
+    /// functions (STRCAT, STRSUB).
+    /// </summary>
+    public string? TryEvaluateString(GreenNodeBase node)
+    {
+        if (node.Kind == SyntaxKind.LiteralExpression)
+        {
+            var token = (GreenToken)((GreenNode)node).GetChild(0)!;
+            if (token.Kind == SyntaxKind.StringLiteral)
+            {
+                var raw = token.Text.Length >= 2 ? token.Text[1..^1] : token.Text;
+                var unescaped = UnescapeString(raw);
+                return _resolveInterpolations != null ? _resolveInterpolations(unescaped) : unescaped;
+            }
+        }
+
+        if (node.Kind == SyntaxKind.FunctionCallExpression)
+        {
+            var green = (GreenNode)node;
+            var keyword = (GreenToken)green.GetChild(0)!;
+
+            if (keyword.Kind == SyntaxKind.StrcatKeyword)
+            {
+                // STRCAT(str1, str2, ...) — concatenate strings
+                var sb = new System.Text.StringBuilder();
+                for (int i = 2; i < green.ChildCount; i++)
+                {
+                    var child = green.GetChild(i)!;
+                    if (child.Kind is SyntaxKind.CommaToken or SyntaxKind.CloseParenToken)
+                        continue;
+                    var s = TryEvaluateString(child);
+                    if (s != null) sb.Append(s);
+                }
+                return sb.ToString();
+            }
+
+            if (keyword.Kind == SyntaxKind.StrsubKeyword)
+            {
+                // STRSUB(str, pos, len) — substring (1-based position)
+                var args = CollectFunctionArgs(green);
+                if (args.Count >= 2)
+                {
+                    var str = TryEvaluateString(args[0]);
+                    var pos = TryEvaluate(args[1]);
+                    if (str != null && pos.HasValue)
+                    {
+                        int start = (int)pos.Value - 1; // 1-based to 0-based
+                        int len = args.Count >= 3 && TryEvaluate(args[2]) is { } l ? (int)l : str.Length - start;
+                        if (start >= 0 && start + len <= str.Length)
+                            return str.Substring(start, len);
+                    }
+                }
+                return null;
+            }
+        }
+
+        // For raw StringLiteral tokens
+        if (node is GreenToken tok && tok.Kind == SyntaxKind.StringLiteral)
+            return UnescapeString(tok.Text.Length >= 2 ? tok.Text[1..^1] : tok.Text);
+
+        return null;
     }
 
     private long? EvaluateLiteral(GreenNodeBase node)
@@ -50,10 +120,51 @@ public sealed class ExpressionEvaluator
         {
             SyntaxKind.NumberLiteral => ParseNumber(token.Text),
             SyntaxKind.CurrentAddressToken => _getCurrentPC(),
+            SyntaxKind.CharLiteralToken => EvaluateCharLiteral(token.Text),
             SyntaxKind.StringLiteral => null,
             SyntaxKind.MissingToken => null,
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Evaluate a character literal like 'A' or '\n'. If a charmap mapping exists, returns
+    /// the charmap value; otherwise returns the ASCII/Unicode code point.
+    /// </summary>
+    private long? EvaluateCharLiteral(string text)
+    {
+        if (text.Length < 2 || text[0] != '\'' || text[^1] != '\'')
+            return null;
+
+        var inner = text[1..^1];
+        char ch;
+        if (inner.Length == 1)
+            ch = inner[0];
+        else if (inner.Length == 2 && inner[0] == '\\')
+        {
+            ch = inner[1] switch
+            {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '0' => '\0',
+                '\\' => '\\',
+                '\'' => '\'',
+                _ => inner[1],
+            };
+        }
+        else
+            return null;
+
+        // Check charmap first
+        if (_charMaps != null)
+        {
+            var mapped = _charMaps.LookupCharValue(ch.ToString());
+            if (mapped.HasValue)
+                return mapped.Value;
+        }
+
+        return ch;
     }
 
     private long? EvaluateName(GreenNodeBase node)
@@ -140,22 +251,119 @@ public sealed class ExpressionEvaluator
         // Arguments start at index 2 (after keyword and open paren)
         var arg = green.ChildCount > 2 ? green.GetChild(2) : null;
 
-        return keyword.Kind switch
+        switch (keyword.Kind)
         {
-            SyntaxKind.HighKeyword when arg != null =>
-                TryEvaluate(arg) is { } v ? (v >> 8) & 0xFF : null,
-            SyntaxKind.LowKeyword when arg != null =>
-                TryEvaluate(arg) is { } v ? v & 0xFF : null,
+            case SyntaxKind.HighKeyword when arg != null:
+                return TryEvaluate(arg) is { } hv ? (hv >> 8) & 0xFF : null;
+            case SyntaxKind.LowKeyword when arg != null:
+                return TryEvaluate(arg) is { } lv ? lv & 0xFF : null;
             // BANK, SIZEOF, STARTOF are linker-time — always null
-            SyntaxKind.BankKeyword => null,
-            SyntaxKind.SizeofKeyword => null,
-            SyntaxKind.StartofKeyword => null,
-            // DEF(symbol) — check if defined. Only valid when argument is a NameExpression;
-            // any other expression kind (literal, binary, etc.) is not a symbol name reference.
-            SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
-                _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L,
-            _ => null,
-        };
+            case SyntaxKind.BankKeyword:
+            case SyntaxKind.SizeofKeyword:
+            case SyntaxKind.StartofKeyword:
+                return null;
+            // DEF(symbol) — check if defined
+            case SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression:
+                return _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L;
+
+            case SyntaxKind.StrlenKeyword:
+            {
+                var str = arg != null ? TryEvaluateString(arg) : null;
+                if (str != null) return str.Length;
+                return null;
+            }
+
+            case SyntaxKind.StrcmpKeyword:
+            {
+                var args = CollectFunctionArgs(green);
+                if (args.Count >= 2)
+                {
+                    var s1 = TryEvaluateString(args[0]);
+                    var s2 = TryEvaluateString(args[1]);
+                    if (s1 != null && s2 != null)
+                        return string.Compare(s1, s2, StringComparison.Ordinal);
+                }
+                return null;
+            }
+
+            case SyntaxKind.CharlenKeyword:
+            {
+                if (_charMaps != null && arg != null)
+                {
+                    var str = TryEvaluateString(arg);
+                    if (str != null) return _charMaps.CharLen(str);
+                }
+                return null;
+            }
+
+            case SyntaxKind.IncharmapKeyword:
+            {
+                if (_charMaps != null && arg != null)
+                {
+                    var str = TryEvaluateString(arg);
+                    if (str != null) return _charMaps.ContainsKey(str) ? 1L : 0L;
+                }
+                return null;
+            }
+
+            // STRCAT returns a string, not a number — if used in numeric context, return null
+            case SyntaxKind.StrcatKeyword:
+            case SyntaxKind.StrsubKeyword:
+                return null;
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Collect function call arguments (skip open/close paren and commas).
+    /// </summary>
+    private static List<GreenNodeBase> CollectFunctionArgs(GreenNode green)
+    {
+        var args = new List<GreenNodeBase>();
+        for (int i = 2; i < green.ChildCount; i++)
+        {
+            var child = green.GetChild(i)!;
+            if (child.Kind is SyntaxKind.CommaToken or SyntaxKind.CloseParenToken
+                or SyntaxKind.OpenParenToken)
+                continue;
+            args.Add(child);
+        }
+        return args;
+    }
+
+    /// <summary>
+    /// Process escape sequences in a string: \n, \r, \t, \0, \\, \", etc.
+    /// </summary>
+    internal static string UnescapeString(string text)
+    {
+        if (!text.Contains('\\')) return text;
+
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                i++;
+                sb.Append(text[i] switch
+                {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    '0' => '\0',
+                    '\\' => '\\',
+                    '"' => '"',
+                    '\'' => '\'',
+                    _ => text[i],
+                });
+            }
+            else
+            {
+                sb.Append(text[i]);
+            }
+        }
+        return sb.ToString();
     }
 
     public static long? ParseNumber(string text)

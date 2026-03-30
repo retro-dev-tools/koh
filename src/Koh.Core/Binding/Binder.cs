@@ -161,7 +161,7 @@ public sealed class Binder
     {
         var exprNodes = node.ChildNodes().ToList();
         if (exprNodes.Count == 0) return;
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC, _charMaps);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
 
@@ -289,7 +289,7 @@ public sealed class Binder
             case SyntaxKind.DsKeyword:
                 if (expressions.Count > 0)
                 {
-                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC, _charMaps);
                     var sizeVal = evaluator.TryEvaluate(expressions[0].Green);
                     int dsSize = sizeVal.HasValue ? (int)sizeVal.Value : 0;
                     pc.Advance(dsSize);
@@ -447,7 +447,7 @@ public sealed class Binder
 
         var keyword = node.ChildTokens().First();
         var expressions = node.ChildNodes().ToList();
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC, _charMaps);
 
         switch (keyword.Kind)
         {
@@ -483,6 +483,21 @@ public sealed class Binder
             case SyntaxKind.DwKeyword:
                 foreach (var expr in expressions)
                 {
+                    // String literals in DW: encode through character map
+                    if (IsStringLiteral(expr.Green))
+                    {
+                        var text = ExtractStringText(expr.Green);
+                        var encoded = _charMaps.EncodeString(text);
+                        // Emit charmap bytes as little-endian words (pad odd byte with 0)
+                        for (int bi = 0; bi < encoded.Length; bi += 2)
+                        {
+                            byte lo = encoded[bi];
+                            byte hi = bi + 1 < encoded.Length ? encoded[bi + 1] : (byte)0;
+                            section.EmitWord((ushort)(lo | (hi << 8)));
+                        }
+                        continue;
+                    }
+
                     var val = evaluator.TryEvaluate(expr.Green);
                     if (val.HasValue)
                         section.EmitWord((ushort)(val.Value & 0xFFFF));
@@ -559,7 +574,8 @@ public sealed class Binder
                 }
                 var section = _sections.ActiveSection;
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-                    () => section?.CurrentPC ?? 0);
+                    () => section?.CurrentPC ?? 0, _charMaps,
+                    _expander != null ? _expander.ResolveInterpolations : null);
                 var val = evaluator.TryEvaluate(exprNodes[0].Green);
 
                 // Determine severity: ASSERT WARN, ... → warning; ASSERT FAIL/FATAL, ... → error (default)
@@ -686,7 +702,7 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan, "ALIGN requires an alignment value");
             return;
         }
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC, _charMaps);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
         {
@@ -766,6 +782,7 @@ public sealed class Binder
         var node = (Syntax.InternalSyntax.GreenNode)green;
         var token = (Syntax.InternalSyntax.GreenToken)node.GetChild(0)!;
         var text = token.Text;
-        return text.Length >= 2 ? text[1..^1] : text; // strip quotes
+        var raw = text.Length >= 2 ? text[1..^1] : text; // strip quotes
+        return ExpressionEvaluator.UnescapeString(raw);
     }
 }

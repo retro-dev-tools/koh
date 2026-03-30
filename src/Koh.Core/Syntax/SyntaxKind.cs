@@ -105,6 +105,10 @@ public enum SyntaxKind : ushort
     // Built-in function keywords
     HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
     DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
+    CharlenKeyword, IncharmapKeyword, StrcmpKeyword,
+
+    // Character literal token: 'A', 'z', etc.
+    CharLiteralToken,
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,

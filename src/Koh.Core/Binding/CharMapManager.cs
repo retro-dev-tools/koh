@@ -79,9 +79,71 @@ internal sealed class CharMapManager
 
     public void AddMapping(string character, byte[] value)
     {
+        if (character.Length == 0)
+        {
+            _diagnostics.Report(default, "CHARMAP: empty string is not allowed");
+            return;
+        }
         _activeMap[character] = value;
         if (character.Length > _maxKeyLen)
             _maxKeyLen = character.Length;
+    }
+
+    /// <summary>
+    /// Check if the given string is a key in the active character map.
+    /// </summary>
+    public bool ContainsKey(string key) => _activeMap.ContainsKey(key);
+
+    /// <summary>
+    /// Count charmap-mapped characters in a string. Each longest-match charmap entry
+    /// counts as one character. Unmapped characters count as one Unicode codepoint each.
+    /// </summary>
+    public int CharLen(string text)
+    {
+        int count = 0;
+        int i = 0;
+        while (i < text.Length)
+        {
+            bool matched = false;
+            for (int len = Math.Min(text.Length - i, _maxKeyLen); len >= 1; len--)
+            {
+                var substr = text.Substring(i, len);
+                if (_activeMap.TryGetValue(substr, out _))
+                {
+                    count++;
+                    i += len;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched)
+            {
+                // Unmapped: count one Unicode codepoint (handle surrogate pairs)
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                    i += 2;
+                else
+                    i++;
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Look up the charmap value for a single character string key.
+    /// Returns the first byte of the mapped value, or null if not mapped.
+    /// </summary>
+    public long? LookupCharValue(string charStr)
+    {
+        if (_activeMap.TryGetValue(charStr, out var value) && value.Length > 0)
+        {
+            // Return the full integer value (reconstruct from bytes, big-endian)
+            long result = 0;
+            foreach (var b in value)
+                result = (result << 8) | b;
+            return result;
+        }
+        return null;
     }
 
     /// <summary>
