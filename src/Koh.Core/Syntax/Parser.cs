@@ -901,6 +901,13 @@ internal sealed class Parser
             case SyntaxKind.Atan2Keyword:
             case SyntaxKind.BitwidthKeyword:
             case SyntaxKind.TzcountKeyword:
+            case SyntaxKind.StrfindKeyword:
+            case SyntaxKind.StrrfindKeyword:
+            case SyntaxKind.StruprKeyword:
+            case SyntaxKind.StrlwrKeyword:
+            case SyntaxKind.BytelenKeyword:
+            case SyntaxKind.StrbyteKeyword:
+            case SyntaxKind.StrcharKeyword:
                 return ParseFunctionCallExpression();
 
             case SyntaxKind.OpenParenToken:

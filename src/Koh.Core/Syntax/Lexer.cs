@@ -176,6 +176,13 @@ public sealed class Lexer
         ["atan2"] = SyntaxKind.Atan2Keyword,
         ["bitwidth"] = SyntaxKind.BitwidthKeyword,
         ["tzcount"] = SyntaxKind.TzcountKeyword,
+        ["strfind"] = SyntaxKind.StrfindKeyword,
+        ["strrfind"] = SyntaxKind.StrrfindKeyword,
+        ["strupr"] = SyntaxKind.StruprKeyword,
+        ["strlwr"] = SyntaxKind.StrlwrKeyword,
+        ["bytelen"] = SyntaxKind.BytelenKeyword,
+        ["strbyte"] = SyntaxKind.StrbyteKeyword,
+        ["strchar"] = SyntaxKind.StrcharKeyword,
     };
 
     public Lexer(SourceText source)

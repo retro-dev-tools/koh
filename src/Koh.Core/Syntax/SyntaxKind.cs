@@ -117,6 +117,8 @@ public enum SyntaxKind : ushort
     RoundKeyword, CeilKeyword, FloorKeyword, FmodKeyword,
     SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
     BitwidthKeyword, TzcountKeyword,
+    StrfindKeyword, StrrfindKeyword, StruprKeyword, StrlwrKeyword,
+    BytelenKeyword, StrbyteKeyword, StrcharKeyword,
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,

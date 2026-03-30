@@ -331,11 +331,11 @@ public sealed class ExpressionEvaluator
             case SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression:
                 return _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L;
 
+            // STRLEN("str") — return character count of string literal
             case SyntaxKind.StrlenKeyword:
             {
-                var str = arg != null ? TryEvaluateString(arg) : null;
-                if (str != null) return str.Length;
-                return null;
+                var s = ExtractStringArg(green, 2);
+                return s?.Length;
             }
 
             case SyntaxKind.StrcmpKeyword:
@@ -351,24 +351,74 @@ public sealed class ExpressionEvaluator
                 return null;
             }
 
-            case SyntaxKind.CharlenKeyword:
+            // STRFIND("haystack", "needle") — 0-based index of first occurrence, or -1
+            case SyntaxKind.StrfindKeyword:
             {
-                if (_charMaps != null && arg != null)
-                {
-                    var str = TryEvaluateString(arg);
-                    if (str != null) return _charMaps.CharLen(str);
-                }
-                return null;
+                var haystack = ExtractStringArg(green, 2);
+                var needle = ExtractStringArg(green, 4);
+                if (haystack == null || needle == null) return null;
+                if (needle.Length == 0) return 0L;
+                int idx = haystack.IndexOf(needle, StringComparison.Ordinal);
+                return idx < 0 ? -1L : (long)idx;
             }
 
+            // STRRFIND("haystack", "needle") — 0-based index of last occurrence, or -1
+            case SyntaxKind.StrrfindKeyword:
+            {
+                var haystack = ExtractStringArg(green, 2);
+                var needle = ExtractStringArg(green, 4);
+                if (haystack == null || needle == null) return null;
+                if (needle.Length == 0) return (long)haystack.Length;
+                int idx = haystack.LastIndexOf(needle, StringComparison.Ordinal);
+                return idx < 0 ? -1L : (long)idx;
+            }
+
+            // BYTELEN("str") — byte length after charmap encoding
+            case SyntaxKind.BytelenKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                if (s == null) return null;
+                if (_charMaps != null)
+                    return _charMaps.EncodeString(s).Length;
+                return s.Length; // fallback: ASCII byte length
+            }
+
+            // STRBYTE("str", index) — byte at 0-based index after charmap encoding; negative = from end
+            case SyntaxKind.StrbyteKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                var idxVal = green.ChildCount > 4 ? TryEvaluate(green.GetChild(4)!) : null;
+                if (s == null || !idxVal.HasValue) return null;
+                var encoded = _charMaps != null ? _charMaps.EncodeString(s) : System.Text.Encoding.ASCII.GetBytes(s);
+                int idx = (int)idxVal.Value;
+                if (idx < 0) idx += encoded.Length; // negative index from end
+                if (idx < 0 || idx >= encoded.Length)
+                {
+                    _diagnostics.Report(default, $"STRBYTE index {idxVal.Value} out of range for string of byte length {encoded.Length}",
+                        Diagnostics.DiagnosticSeverity.Warning);
+                    return 0L;
+                }
+                return (long)encoded[idx];
+            }
+
+            // CHARLEN("str") — character count using charmap-aware tokenization
+            case SyntaxKind.CharlenKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                if (s == null) return null;
+                if (_charMaps != null)
+                    return _charMaps.CountChars(s);
+                return s.Length; // fallback: plain character count
+            }
+
+            // INCHARMAP("str") — 1 if the string has a charmap mapping, 0 otherwise
             case SyntaxKind.IncharmapKeyword:
             {
-                if (_charMaps != null && arg != null)
-                {
-                    var str = TryEvaluateString(arg);
-                    if (str != null) return _charMaps.ContainsKey(str) ? 1L : 0L;
-                }
-                return null;
+                var s = ExtractStringArg(green, 2);
+                if (s == null) return null;
+                if (_charMaps != null)
+                    return _charMaps.HasMapping(s) ? 1L : 0L;
+                return 0L;
             }
 
             // STRCAT returns a string, not a number — if used in numeric context, return null
@@ -419,6 +469,40 @@ public sealed class ExpressionEvaluator
                 return null;
         }
     }
+
+    /// <summary>
+    /// Extract a string literal value from a function call argument at the given child index.
+    /// Returns the unquoted string content, or null if the argument is not a string literal.
+    /// Applies string interpolation if a resolver is available.
+    /// </summary>
+    private string? ExtractStringArg(GreenNode funcCall, int childIndex)
+    {
+        if (childIndex >= funcCall.ChildCount) return null;
+        var arg = funcCall.GetChild(childIndex);
+        if (arg == null) return null;
+
+        string? raw = null;
+
+        // Direct string literal token
+        if (arg is GreenToken { Kind: SyntaxKind.StringLiteral } directToken)
+            raw = StripQuotes(directToken.Text);
+
+        // LiteralExpression wrapping a StringLiteral
+        if (raw == null && arg is GreenNode { Kind: SyntaxKind.LiteralExpression } litNode)
+        {
+            var inner = litNode.GetChild(0);
+            if (inner is GreenToken { Kind: SyntaxKind.StringLiteral } strToken)
+                raw = StripQuotes(strToken.Text);
+        }
+
+        if (raw != null && _resolveInterpolations != null)
+            raw = _resolveInterpolations(raw);
+
+        return raw;
+    }
+
+    private static string StripQuotes(string text) =>
+        text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
 
     /// <summary>
     /// Collect function call arguments (skip open/close paren and commas).
