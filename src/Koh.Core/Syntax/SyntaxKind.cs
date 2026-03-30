@@ -29,9 +29,12 @@ public enum SyntaxKind : ushort
     EqualsEqualsToken, BangEqualsToken,
     LessThanEqualsToken, GreaterThanEqualsToken,
     AmpersandAmpersandToken, PipePipeToken,
+    PlusPlusToken,                          // ++ string concatenation
+    EqualsEqualsEqualsToken,                // === string equality
+    BangEqualsEqualsToken,                  // !== string inequality
 
     // Literals
-    NumberLiteral, StringLiteral, IdentifierToken, LocalLabelToken,
+    NumberLiteral, StringLiteral, CharLiteralToken, IdentifierToken, LocalLabelToken,
     CurrentAddressToken,
 
     // Macro parameter tokens: \1..\9, \@, \#, \NARG
