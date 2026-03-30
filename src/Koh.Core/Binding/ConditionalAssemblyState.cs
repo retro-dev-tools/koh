@@ -10,6 +10,7 @@ namespace Koh.Core.Binding;
 internal sealed class ConditionalAssemblyState
 {
     private readonly Stack<bool> _branchTakenStack = new();
+    private readonly Stack<bool> _elseSeenStack = new(); // Track whether ELSE has been seen for each IF
     private int _skipDepth;
 
     /// <summary>True when inside a false conditional branch — nodes should be skipped.</summary>
@@ -25,15 +26,20 @@ internal sealed class ConditionalAssemblyState
         {
             _skipDepth++;
             _branchTakenStack.Push(false); // placeholder frame
+            _elseSeenStack.Push(false);
         }
         else
         {
             var condValue = evaluateCondition();
             _branchTakenStack.Push(condValue);
+            _elseSeenStack.Push(false);
             if (!condValue)
                 _skipDepth = 1;
         }
     }
+
+    /// <summary>True if the current IF block has already seen an ELSE.</summary>
+    public bool HasSeenElse => _elseSeenStack.Count > 0 && _elseSeenStack.Peek();
 
     /// <summary>
     /// Handle ELIF. Returns false if orphaned (no matching IF).
@@ -63,11 +69,19 @@ internal sealed class ConditionalAssemblyState
 
     /// <summary>
     /// Handle ELSE. Returns false if orphaned (no matching IF).
+    /// Returns 2 if ELSE after ELSE (duplicate ELSE).
     /// </summary>
-    public bool HandleElse()
+    public int HandleElseEx()
     {
-        if (_branchTakenStack.Count == 0) return false; // orphaned
-        if (_skipDepth > 1) return true; // deeply nested skip — matched but irrelevant
+        if (_branchTakenStack.Count == 0) return 0; // orphaned
+        if (_skipDepth > 1) return 1; // deeply nested skip — matched but irrelevant
+
+        // Check for duplicate ELSE
+        if (_elseSeenStack.Count > 0 && _elseSeenStack.Peek())
+            return 2; // duplicate ELSE
+
+        // Mark ELSE as seen
+        if (_elseSeenStack.Count > 0) { _elseSeenStack.Pop(); _elseSeenStack.Push(true); }
 
         if (_branchTakenStack.TryPeek(out var taken) && taken)
         {
@@ -79,8 +93,13 @@ internal sealed class ConditionalAssemblyState
             _branchTakenStack.Push(true);
             _skipDepth = 0;
         }
-        return true;
+        return 1;
     }
+
+    /// <summary>
+    /// Handle ELSE. Returns false if orphaned (no matching IF).
+    /// </summary>
+    public bool HandleElse() => HandleElseEx() >= 1;
 
     /// <summary>
     /// Handle ENDC. Returns true if the ENDC was matched; false if orphaned
@@ -92,6 +111,7 @@ internal sealed class ConditionalAssemblyState
         {
             _skipDepth--;
             if (_branchTakenStack.Count > 0) _branchTakenStack.Pop();
+            if (_elseSeenStack.Count > 0) _elseSeenStack.Pop();
             return true;
         }
 
@@ -100,6 +120,7 @@ internal sealed class ConditionalAssemblyState
         if (_branchTakenStack.Count > 0)
         {
             _branchTakenStack.Pop();
+            if (_elseSeenStack.Count > 0) _elseSeenStack.Pop();
             return true;
         }
 
@@ -112,6 +133,7 @@ internal sealed class ConditionalAssemblyState
     public void Reset()
     {
         _branchTakenStack.Clear();
+        _elseSeenStack.Clear();
         _skipDepth = 0;
     }
 }

@@ -438,18 +438,35 @@ internal sealed class AssemblyExpander
         var result = evaluator.TryEvaluateString(exprNode.Green);
         if (result != null) return result;
 
-        // REVCHAR(...) function call — special handling for charmap
+        // ++ concatenation (BinaryExpression)
+        if (exprNode.Kind == SyntaxKind.BinaryExpression)
+        {
+            var childTokens = exprNode.ChildTokens().ToList();
+            if (childTokens.Any(t => t.Kind == SyntaxKind.PlusPlusToken))
+            {
+                var children = exprNode.ChildNodes().ToList();
+                if (children.Count >= 2)
+                {
+                    var left = EvaluateStringExpression(children[0]);
+                    var right = EvaluateStringExpression(children[^1]);
+                    if (left != null && right != null)
+                        return left + right;
+                }
+            }
+        }
+
+        // Function calls
         if (exprNode.Kind == SyntaxKind.FunctionCallExpression)
         {
             var funcTokens = exprNode.ChildTokens().ToList();
             if (funcTokens.Count == 0) return null;
+            var funcKind = funcTokens[0].Kind;
+            var argExprs = exprNode.ChildNodes().ToList();
 
-            switch (funcTokens[0].Kind)
+            switch (funcKind)
             {
                 case SyntaxKind.RevcharKeyword:
                 {
-                    // Collect numeric arguments
-                    var argExprs = exprNode.ChildNodes().ToList();
                     var numEval = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
                     var bytes = new List<byte>();
                     foreach (var argExpr in argExprs)
@@ -465,7 +482,6 @@ internal sealed class AssemblyExpander
 
                 case SyntaxKind.StrcharKeyword:
                 {
-                    var argExprs = exprNode.ChildNodes().ToList();
                     if (argExprs.Count >= 2)
                     {
                         var s = EvaluateStringExpression(argExprs[0]);
@@ -480,6 +496,96 @@ internal sealed class AssemblyExpander
                     }
                     break;
                 }
+                case SyntaxKind.StruprKeyword:
+                {
+                    if (argExprs.Count > 0)
+                    {
+                        var s = EvaluateStringExpression(argExprs[0]);
+                        return s?.ToUpperInvariant();
+                    }
+                    break;
+                }
+                case SyntaxKind.StrlwrKeyword:
+                {
+                    if (argExprs.Count > 0)
+                    {
+                        var s = EvaluateStringExpression(argExprs[0]);
+                        return s?.ToLowerInvariant();
+                    }
+                    break;
+                }
+                case SyntaxKind.StrcatKeyword:
+                {
+                    var sb = new System.Text.StringBuilder();
+                    foreach (var argExpr in argExprs)
+                    {
+                        var s = EvaluateStringExpression(argExpr);
+                        if (s == null) return null;
+                        sb.Append(s);
+                    }
+                    return sb.ToString();
+                }
+                case SyntaxKind.StrsubKeyword:
+                {
+                    if (argExprs.Count >= 2)
+                    {
+                        var s = EvaluateStringExpression(argExprs[0]);
+                        if (s == null) return null;
+                        var numEval2 = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                        var startVal = numEval2.TryEvaluate(argExprs[1].Green);
+                        if (!startVal.HasValue) return null;
+                        int start = (int)startVal.Value - 1; // 1-based
+                        int len = s.Length - start;
+                        if (argExprs.Count >= 3)
+                        {
+                            var lenVal = numEval2.TryEvaluate(argExprs[2].Green);
+                            if (lenVal.HasValue) len = (int)lenVal.Value;
+                        }
+                        if (start < 0) start = 0;
+                        if (start + len > s.Length) len = s.Length - start;
+                        if (len < 0) len = 0;
+                        return s.Substring(start, len);
+                    }
+                    break;
+                }
+                case SyntaxKind.ReadfileKeyword:
+                {
+                    if (argExprs.Count > 0)
+                    {
+                        var filename = EvaluateStringExpression(argExprs[0]);
+                        if (filename == null) return null;
+                        var resolved = _fileResolver.ResolvePath(_currentFilePath, filename);
+                        if (!_fileResolver.FileExists(resolved)) return null;
+                        try
+                        {
+                            var content = _fileResolver.ReadAllText(resolved);
+                            if (argExprs.Count > 1)
+                            {
+                                var numEval3 = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                                var limit = numEval3.TryEvaluate(argExprs[1].Green);
+                                if (limit.HasValue && limit.Value < content.Length)
+                                    content = content[..(int)limit.Value];
+                            }
+                            return content;
+                        }
+                        catch { return null; }
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Name expression referencing an EQUS constant
+        if (exprNode.Kind == SyntaxKind.NameExpression)
+        {
+            var nameToken = exprNode.ChildTokens().FirstOrDefault();
+            if (nameToken != null)
+            {
+                var name = nameToken.Text;
+                if (name.StartsWith('#'))
+                    name = name[1..];
+                if (_equsConstants.TryGetValue(name, out var equsVal))
+                    return equsVal;
             }
         }
 
@@ -690,13 +796,20 @@ internal sealed class AssemblyExpander
                 _conditional.HandleIf(Eval);
                 break;
             case SyntaxKind.ElifKeyword:
-                if (!_conditional.HandleElif(Eval))
+                if (_conditional.HasSeenElse)
+                    _diagnostics.Report(node.FullSpan, "ELIF after ELSE");
+                else if (!_conditional.HandleElif(Eval))
                     _diagnostics.Report(node.FullSpan, "ELIF without matching IF");
                 break;
             case SyntaxKind.ElseKeyword:
-                if (!_conditional.HandleElse())
+            {
+                var result = _conditional.HandleElseEx();
+                if (result == 0)
                     _diagnostics.Report(node.FullSpan, "ELSE without matching IF");
+                else if (result == 2)
+                    _diagnostics.Report(node.FullSpan, "Multiple ELSE blocks in one IF");
                 break;
+            }
             case SyntaxKind.EndcKeyword:
                 if (!_conditional.HandleEndc())
                     _diagnostics.Report(node.FullSpan, "ENDC without matching IF");

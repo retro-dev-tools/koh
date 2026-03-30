@@ -37,6 +37,7 @@ public sealed class Binder
     /// <summary>Fixed-point fractional bits (Q.N). Default is 16.</summary>
     private int _fracBits = 16;
     private readonly Stack<int> _optStack = new();
+    private readonly HashSet<string> _declaredSections = new(StringComparer.OrdinalIgnoreCase);
 
     public Binder(BinderOptions options = default, ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
     {
@@ -55,6 +56,15 @@ public sealed class Binder
         _symbols.DefineConstant("__RGBDS_MINOR__", 0, null);
         _symbols.DefineConstant("__RGBDS_PATCH__", 0, null);
         _symbols.DefineConstant("__RGBDS_RC__", 0, null);
+
+        // UTC date/time constants
+        var now = DateTime.UtcNow;
+        _symbols.DefineConstant("__UTC_YEAR__", now.Year, null);
+        _symbols.DefineConstant("__UTC_MONTH__", now.Month, null);
+        _symbols.DefineConstant("__UTC_DAY__", now.Day, null);
+        _symbols.DefineConstant("__UTC_HOUR__", now.Hour, null);
+        _symbols.DefineConstant("__UTC_MINUTE__", now.Minute, null);
+        _symbols.DefineConstant("__UTC_SECOND__", now.Second, null);
     }
 
     public BindingResult Bind(SyntaxTree tree)
@@ -319,8 +329,10 @@ public sealed class Binder
             return;
         }
 
+        var name = tokens[0].Text;
+
         // In LOAD blocks, labels get addresses from the load section
-        var sym = _symbols.DefineLabel(tokens[0].Text, pc.LabelPC, pc.LabelSectionName, node);
+        var sym = _symbols.DefineLabel(name, pc.LabelPC, pc.LabelSectionName, node);
         if (tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.DoubleColonToken)
             sym.Visibility = SymbolVisibility.Exported;
     }
@@ -576,14 +588,183 @@ public sealed class Binder
 
         if (!SectionHeaderParser.TryParse(node, _diagnostics,
                 out var name, out var sectionType, out var fixedAddress, out var bank,
-                out var isUnion, out _))
+                out var isUnion, out var isFragment))
             return;
+
+        // Validate alignment parameters from the SECTION header
+        ValidateSectionConstraints(node, name!, sectionType, fixedAddress, bank, isUnion, isFragment);
+
         _sections.OpenOrResume(name!, sectionType, fixedAddress, bank);
         if (_expander != null)
             _expander.CurrentSectionName = name;
         if (isUnion)
             _sections.BeginUnion();
     }
+
+    private void ValidateSectionConstraints(SyntaxNode node, string name, SectionType sectionType,
+        int? fixedAddress, int? bank, bool isUnion, bool isFragment)
+    {
+        // Validate fixed address range
+        if (fixedAddress.HasValue)
+        {
+            var (lo, hi) = GetSectionAddressRange(sectionType);
+            if (fixedAddress.Value < lo || fixedAddress.Value > hi)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    $"Fixed address ${fixedAddress.Value:X4} is outside the range for {sectionType} (${lo:X4}-${hi:X4})");
+            }
+        }
+
+        // Validate bank
+        if (bank.HasValue)
+        {
+            switch (sectionType)
+            {
+                case SectionType.Rom0:
+                case SectionType.Wram0:
+                case SectionType.Hram:
+                case SectionType.Oam:
+                    _diagnostics.Report(node.FullSpan,
+                        $"{sectionType} does not support BANK clause");
+                    break;
+                case SectionType.Vram:
+                    if (bank.Value < 0 || bank.Value > 1)
+                        _diagnostics.Report(node.FullSpan,
+                            $"VRAM bank must be 0 or 1, got {bank.Value}");
+                    break;
+                case SectionType.WramX:
+                    if (bank.Value < 1 || bank.Value > 7)
+                        _diagnostics.Report(node.FullSpan,
+                            $"WRAMX bank must be 1-7, got {bank.Value}");
+                    break;
+                case SectionType.Sram:
+                    if (bank.Value < 0 || bank.Value > 15)
+                        _diagnostics.Report(node.FullSpan,
+                            $"SRAM bank must be 0-15, got {bank.Value}");
+                    break;
+                case SectionType.RomX:
+                    if (bank.Value < 1 || bank.Value > 511)
+                        _diagnostics.Report(node.FullSpan,
+                            $"ROMX bank must be 1-511, got {bank.Value}");
+                    break;
+            }
+        }
+
+        // Parse ALIGN from the section header tokens
+        var tokens = node.ChildTokens().ToList();
+        int? alignBits = null;
+        int? alignOffset = null;
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            if (tokens[i].Kind == SyntaxKind.AlignKeyword)
+            {
+                // ALIGN[bits[, offset]]
+                if (i + 2 < tokens.Count && tokens[i + 1].Kind == SyntaxKind.OpenBracketToken)
+                {
+                    // Find the number tokens inside brackets
+                    int j = i + 2;
+                    var nums = new List<int>();
+                    while (j < tokens.Count && tokens[j].Kind != SyntaxKind.CloseBracketToken)
+                    {
+                        if (tokens[j].Kind == SyntaxKind.NumberLiteral &&
+                            SectionHeaderParser.TryParseIntegerLiteral(tokens[j].Text, out int val))
+                            nums.Add(val);
+                        j++;
+                    }
+                    if (nums.Count > 0) alignBits = nums[0];
+                    if (nums.Count > 1) alignOffset = nums[1];
+                }
+            }
+        }
+
+        // Validate alignment
+        if (alignBits.HasValue)
+        {
+            if (alignBits.Value < 0 || alignBits.Value > 16)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    $"ALIGN value must be 0-16, got {alignBits.Value}");
+            }
+            else if (alignOffset.HasValue)
+            {
+                int boundary = 1 << alignBits.Value;
+                if (alignOffset.Value < 0 || alignOffset.Value >= boundary)
+                {
+                    _diagnostics.Report(node.FullSpan,
+                        $"ALIGN offset must be 0-{boundary - 1} for alignment {alignBits.Value}, got {alignOffset.Value}");
+                }
+            }
+        }
+
+        // Check for duplicate non-fragment, non-union section names
+        // A second SECTION directive with the same name (non-fragment, non-union) is an error
+        // unless it matches an existing section and serves as section resuming via PUSHS/POPS.
+        if (!isFragment && !isUnion)
+        {
+            if (_declaredSections.Contains(name) && _sections.AllSections.ContainsKey(name))
+            {
+                // Check if we're in the same contiguous section — that's the duplicate case.
+                // If we used PUSHS/POPS to get here, it's section resuming (allowed).
+                var existing = _sections.AllSections[name];
+                if (_sections.ActiveSection == existing)
+                {
+                    _diagnostics.Report(node.FullSpan,
+                        $"Section '{name}' already defined");
+                }
+            }
+            _declaredSections.Add(name);
+        }
+
+        // Check for UNION in ROM (not allowed — UNION is only for RAM types)
+        if (isUnion)
+        {
+            if (sectionType is SectionType.Rom0 or SectionType.RomX)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    "UNION sections cannot be ROM type — use WRAM0, WRAMX, HRAM, SRAM, or VRAM");
+            }
+        }
+
+        // Validate fragment constraints are consistent
+        if (isFragment && _sections.AllSections.TryGetValue(name, out var existingFrag))
+        {
+            if (fixedAddress.HasValue && existingFrag.FixedAddress.HasValue &&
+                fixedAddress.Value != existingFrag.FixedAddress.Value)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    $"FRAGMENT '{name}' has conflicting fixed addresses: ${existingFrag.FixedAddress.Value:X4} vs ${fixedAddress.Value:X4}");
+            }
+        }
+
+        // Validate UNION constraints are consistent
+        if (isUnion && _sections.AllSections.TryGetValue(name, out var existingUnion))
+        {
+            if (fixedAddress.HasValue && existingUnion.FixedAddress.HasValue &&
+                fixedAddress.Value != existingUnion.FixedAddress.Value)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    $"UNION '{name}' has conflicting fixed addresses: ${existingUnion.FixedAddress.Value:X4} vs ${fixedAddress.Value:X4}");
+            }
+            if (alignBits.HasValue && alignBits.Value > 15)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    $"UNION '{name}' alignment ALIGN[{alignBits.Value}] is unattainable");
+            }
+        }
+    }
+
+    private static (int lo, int hi) GetSectionAddressRange(SectionType type) => type switch
+    {
+        SectionType.Rom0 => (0x0000, 0x3FFF),
+        SectionType.RomX => (0x4000, 0x7FFF),
+        SectionType.Wram0 => (0xC000, 0xCFFF),
+        SectionType.WramX => (0xD000, 0xDFFF),
+        SectionType.Vram => (0x8000, 0x9FFF),
+        SectionType.Hram => (0xFF80, 0xFFFE),
+        SectionType.Sram => (0xA000, 0xBFFF),
+        SectionType.Oam => (0xFE00, 0xFE9F),
+        _ => (0, 0xFFFF),
+    };
 
     private void Pass2Data(SyntaxNode node)
     {
@@ -598,6 +779,21 @@ public sealed class Binder
         var expressions = node.ChildNodes().ToList();
         var evaluator = CreateEvaluator(() => section.CurrentPC);
 
+        // Check: data (db/dw/dl) in RAM sections (only ds is allowed)
+        if (keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword)
+        {
+            if (section.Type is SectionType.Wram0 or SectionType.WramX or SectionType.Hram
+                or SectionType.Sram or SectionType.Vram or SectionType.Oam)
+            {
+                if (expressions.Count > 0)
+                {
+                    _diagnostics.Report(node.FullSpan,
+                        $"Cannot use {keyword.Text.ToUpperInvariant()} with data in {section.Type} section — only DS is allowed in RAM sections");
+                    return;
+                }
+            }
+        }
+
         // Empty data directive warning (RGBDS -Wempty-data-directive)
         if (keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword
             && expressions.Count == 0)
@@ -605,22 +801,6 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan,
                 $"Empty {keyword.Text.ToUpperInvariant()} directive",
                 Diagnostics.DiagnosticSeverity.Warning);
-            return;
-        }
-
-        // Empty data directive: db/dw/dl with no arguments → reserve their natural size with warning
-        if (expressions.Count == 0 && keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword)
-        {
-            _diagnostics.Report(node.FullSpan, "Empty data directive",
-                Diagnostics.DiagnosticSeverity.Warning);
-            int emptySize = keyword.Kind switch
-            {
-                SyntaxKind.DbKeyword => 1,
-                SyntaxKind.DwKeyword => 2,
-                SyntaxKind.DlKeyword => 4,
-                _ => 0,
-            };
-            section.ReserveBytes(emptySize);
             return;
         }
 
@@ -640,7 +820,14 @@ public sealed class Binder
 
                     var val = evaluator.TryEvaluate(expr.Green);
                     if (val.HasValue)
+                    {
+                        // Truncation warning for values that don't fit in 8 bits
+                        if (val.Value > 255 || val.Value < -128)
+                            _diagnostics.Report(expr.FullSpan,
+                                $"Value {val.Value} truncated to 8-bit range",
+                                DiagnosticSeverity.Warning);
                         section.EmitByte((byte)(val.Value & 0xFF));
+                    }
                     else
                     {
                         int offset = section.ReserveByte();
@@ -721,6 +908,13 @@ public sealed class Binder
                 }
                 if (expressions.Count > 0)
                 {
+                    // Check for DS ALIGN[n] syntax
+                    if (IsDsAlign(expressions[0]))
+                    {
+                        EmitDsAlign(section, evaluator, expressions);
+                        break;
+                    }
+
                     var countVal = evaluator.TryEvaluate(expressions[0].Green);
                     if (countVal.HasValue)
                     {
@@ -804,12 +998,74 @@ public sealed class Binder
         section.ReserveBytes(pad, fill);
     }
 
+    /// <summary>
+    /// Check if a DS expression is DS ALIGN[n, offset] syntax.
+    /// The parser produces a FunctionCallExpression with AlignKeyword for "align[n]".
+    /// </summary>
+    private static bool IsDsAlign(SyntaxNode expr)
+    {
+        var green = expr.Green;
+        // DS ALIGN[...] is parsed as a function call with AlignKeyword
+        if (green.Kind == SyntaxKind.FunctionCallExpression)
+        {
+            var kw = ((Syntax.InternalSyntax.GreenNode)green).GetChild(0);
+            if (kw is Syntax.InternalSyntax.GreenToken t && t.Kind == SyntaxKind.AlignKeyword)
+                return true;
+        }
+        return false;
+    }
+
+    private void EmitDsAlign(SectionBuffer section, ExpressionEvaluator evaluator,
+        List<SyntaxNode> expressions)
+    {
+        // DS ALIGN[bits, offset], fill
+        var alignNode = (Syntax.InternalSyntax.GreenNode)expressions[0].Green;
+        // Arguments are at indices 2, 4, ...
+        var bitsArg = alignNode.ChildCount > 2 ? alignNode.GetChild(2) : null;
+        var offsetArg = alignNode.ChildCount > 4 ? alignNode.GetChild(4) : null;
+
+        int bits = 0;
+        int alignOfs = 0;
+        if (bitsArg != null)
+        {
+            var v = evaluator.TryEvaluate(bitsArg);
+            if (v.HasValue) bits = (int)v.Value;
+        }
+        if (offsetArg != null)
+        {
+            var v = evaluator.TryEvaluate(offsetArg);
+            if (v.HasValue) alignOfs = (int)v.Value;
+        }
+
+        byte fill = 0x00;
+        if (expressions.Count > 1)
+        {
+            var fillVal = evaluator.TryEvaluate(expressions[1].Green);
+            if (fillVal.HasValue) fill = (byte)(fillVal.Value & 0xFF);
+        }
+
+        if (bits <= 0) return;
+        int boundary = 1 << bits;
+        int bitmask = boundary - 1;
+        int alignPad = ((boundary - ((section.CurrentPC - alignOfs) & bitmask)) & bitmask);
+        section.ReserveBytes(alignPad, fill);
+    }
+
     private void Pass2Instruction(SyntaxNode node)
     {
         var section = _sections.ActiveSection;
         if (section == null)
         {
             _diagnostics.Report(node.FullSpan, "Instruction outside of a section");
+            return;
+        }
+
+        // Check: code in RAM sections
+        if (section.Type is SectionType.Wram0 or SectionType.WramX or SectionType.Hram
+            or SectionType.Sram or SectionType.Vram or SectionType.Oam)
+        {
+            _diagnostics.Report(node.FullSpan,
+                $"Cannot use instructions in {section.Type} section — only DS is allowed in RAM sections");
             return;
         }
 
