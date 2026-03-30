@@ -154,6 +154,15 @@ public sealed class Lexer
         ["strcat"] = SyntaxKind.StrcatKeyword,
         ["strsub"] = SyntaxKind.StrsubKeyword,
         ["revchar"] = SyntaxKind.RevcharKeyword,
+        ["strfind"] = SyntaxKind.StrfindKeyword,
+        ["strrfind"] = SyntaxKind.StrrfindKeyword,
+        ["strupr"] = SyntaxKind.StruprKeyword,
+        ["strlwr"] = SyntaxKind.StrlwrKeyword,
+        ["bytelen"] = SyntaxKind.BytelenKeyword,
+        ["strbyte"] = SyntaxKind.StrbyteKeyword,
+        ["charlen"] = SyntaxKind.CharlenKeyword,
+        ["strchar"] = SyntaxKind.StrcharKeyword,
+        ["incharmap"] = SyntaxKind.IncharmapKeyword,
     };
 
     public Lexer(SourceText source)

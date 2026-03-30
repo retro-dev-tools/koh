@@ -29,6 +29,9 @@ public sealed class Binder
     private readonly BinderOptions _options;
     private AssemblyExpander? _expander;
 
+    private Func<string, string>? ExpanderResolve =>
+        _expander != null ? _expander.ResolveInterpolations : null;
+
     public Binder(BinderOptions options = default, ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
     {
         _options = options;
@@ -161,7 +164,7 @@ public sealed class Binder
     {
         var exprNodes = node.ChildNodes().ToList();
         if (exprNodes.Count == 0) return;
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC, _charMaps, ExpanderResolve);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
 
@@ -289,7 +292,7 @@ public sealed class Binder
             case SyntaxKind.DsKeyword:
                 if (expressions.Count > 0)
                 {
-                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC, _charMaps, ExpanderResolve);
                     var sizeVal = evaluator.TryEvaluate(expressions[0].Green);
                     int dsSize = sizeVal.HasValue ? (int)sizeVal.Value : 0;
                     pc.Advance(dsSize);
@@ -447,7 +450,7 @@ public sealed class Binder
 
         var keyword = node.ChildTokens().First();
         var expressions = node.ChildNodes().ToList();
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC, _charMaps, ExpanderResolve);
 
         switch (keyword.Kind)
         {
@@ -559,7 +562,7 @@ public sealed class Binder
                 }
                 var section = _sections.ActiveSection;
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-                    () => section?.CurrentPC ?? 0);
+                    () => section?.CurrentPC ?? 0, _charMaps, ExpanderResolve);
                 var val = evaluator.TryEvaluate(exprNodes[0].Green);
 
                 // Determine severity: ASSERT WARN, ... → warning; ASSERT FAIL/FATAL, ... → error (default)
@@ -686,7 +689,7 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan, "ALIGN requires an alignment value");
             return;
         }
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC, _charMaps, ExpanderResolve);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
         {

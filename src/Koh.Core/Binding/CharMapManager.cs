@@ -6,7 +6,7 @@ namespace Koh.Core.Binding;
 /// Manages character mapping tables for string-to-byte encoding.
 /// Supports multi-byte values: CHARMAP "str", $80, $00, $00.
 /// </summary>
-internal sealed class CharMapManager
+public sealed class CharMapManager
 {
     private readonly DiagnosticBag _diagnostics;
     private readonly Dictionary<string, Dictionary<string, byte[]>> _maps = new(StringComparer.OrdinalIgnoreCase);
@@ -111,12 +111,43 @@ internal sealed class CharMapManager
     }
 
     /// <summary>
+    /// Returns true if the exact string has a mapping in the active character map.
+    /// </summary>
+    public bool HasMapping(string text) =>
+        text.Length > 0 && _activeMap.ContainsKey(text);
+
+    /// <summary>
+    /// Count the number of charmap-aware characters in a string.
+    /// Each longest-match charmap entry counts as one character; unmapped characters count individually.
+    /// </summary>
+    public int CountChars(string text)
+    {
+        int count = 0;
+        WalkLongestMatch(text, (_, _) => count++, _ => count++);
+        return count;
+    }
+
+    /// <summary>
     /// Encode a string literal into bytes using the active character map.
     /// Characters not in the map use their ASCII value.
     /// </summary>
     public byte[] EncodeString(string text)
     {
         var result = new List<byte>();
+        WalkLongestMatch(text,
+            (_, mapped) => result.AddRange(mapped),
+            ch => result.Add((byte)ch));
+        return result.ToArray();
+    }
+
+    /// <summary>
+    /// Walk the string using longest-match charmap lookup.
+    /// Calls <paramref name="onMapped"/> for each matched charmap entry,
+    /// or <paramref name="onUnmapped"/> for each unmatched character.
+    /// </summary>
+    private void WalkLongestMatch(string text,
+        Action<string, byte[]> onMapped, Action<char> onUnmapped)
+    {
         int i = 0;
         while (i < text.Length)
         {
@@ -126,7 +157,7 @@ internal sealed class CharMapManager
                 var substr = text.Substring(i, len);
                 if (_activeMap.TryGetValue(substr, out var mapped))
                 {
-                    result.AddRange(mapped);
+                    onMapped(substr, mapped);
                     i += len;
                     matched = true;
                     break;
@@ -134,10 +165,9 @@ internal sealed class CharMapManager
             }
             if (!matched)
             {
-                result.Add((byte)text[i]);
+                onUnmapped(text[i]);
                 i++;
             }
         }
-        return result.ToArray();
     }
 }

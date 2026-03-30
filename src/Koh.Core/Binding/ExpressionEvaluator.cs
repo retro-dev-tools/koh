@@ -14,13 +14,18 @@ public sealed class ExpressionEvaluator
     private readonly SymbolTable _symbols;
     private readonly DiagnosticBag _diagnostics;
     private readonly Func<int> _getCurrentPC;
+    private readonly CharMapManager? _charMaps;
+    private readonly Func<string, string>? _resolveInterpolations;
 
     public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
-        Func<int> getCurrentPC)
+        Func<int> getCurrentPC, CharMapManager? charMaps = null,
+        Func<string, string>? resolveInterpolations = null)
     {
         _symbols = symbols;
         _diagnostics = diagnostics;
         _getCurrentPC = getCurrentPC;
+        _charMaps = charMaps;
+        _resolveInterpolations = resolveInterpolations;
     }
 
     public long? TryEvaluate(GreenNodeBase node)
@@ -140,23 +145,136 @@ public sealed class ExpressionEvaluator
         // Arguments start at index 2 (after keyword and open paren)
         var arg = green.ChildCount > 2 ? green.GetChild(2) : null;
 
-        return keyword.Kind switch
+        switch (keyword.Kind)
         {
-            SyntaxKind.HighKeyword when arg != null =>
-                TryEvaluate(arg) is { } v ? (v >> 8) & 0xFF : null,
-            SyntaxKind.LowKeyword when arg != null =>
-                TryEvaluate(arg) is { } v ? v & 0xFF : null,
+            case SyntaxKind.HighKeyword when arg != null:
+                return TryEvaluate(arg) is { } hv ? (hv >> 8) & 0xFF : null;
+            case SyntaxKind.LowKeyword when arg != null:
+                return TryEvaluate(arg) is { } lv ? lv & 0xFF : null;
             // BANK, SIZEOF, STARTOF are linker-time — always null
-            SyntaxKind.BankKeyword => null,
-            SyntaxKind.SizeofKeyword => null,
-            SyntaxKind.StartofKeyword => null,
-            // DEF(symbol) — check if defined. Only valid when argument is a NameExpression;
-            // any other expression kind (literal, binary, etc.) is not a symbol name reference.
-            SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
-                _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L,
-            _ => null,
-        };
+            case SyntaxKind.BankKeyword:
+            case SyntaxKind.SizeofKeyword:
+            case SyntaxKind.StartofKeyword:
+                return null;
+            // DEF(symbol) — check if defined
+            case SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression:
+                return _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L;
+
+            // STRLEN("str") — return character count of string literal
+            case SyntaxKind.StrlenKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                return s?.Length;
+            }
+
+            // STRFIND("haystack", "needle") — 0-based index of first occurrence, or -1
+            case SyntaxKind.StrfindKeyword:
+            {
+                var haystack = ExtractStringArg(green, 2);
+                var needle = ExtractStringArg(green, 4);
+                if (haystack == null || needle == null) return null;
+                if (needle.Length == 0) return 0L;
+                int idx = haystack.IndexOf(needle, StringComparison.Ordinal);
+                return idx < 0 ? -1L : (long)idx;
+            }
+
+            // STRRFIND("haystack", "needle") — 0-based index of last occurrence, or -1
+            case SyntaxKind.StrrfindKeyword:
+            {
+                var haystack = ExtractStringArg(green, 2);
+                var needle = ExtractStringArg(green, 4);
+                if (haystack == null || needle == null) return null;
+                if (needle.Length == 0) return (long)haystack.Length;
+                int idx = haystack.LastIndexOf(needle, StringComparison.Ordinal);
+                return idx < 0 ? -1L : (long)idx;
+            }
+
+            // BYTELEN("str") — byte length after charmap encoding
+            case SyntaxKind.BytelenKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                if (s == null) return null;
+                if (_charMaps != null)
+                    return _charMaps.EncodeString(s).Length;
+                return s.Length; // fallback: ASCII byte length
+            }
+
+            // STRBYTE("str", index) — byte at 0-based index after charmap encoding; negative = from end
+            case SyntaxKind.StrbyteKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                var idxVal = green.ChildCount > 4 ? TryEvaluate(green.GetChild(4)!) : null;
+                if (s == null || !idxVal.HasValue) return null;
+                var encoded = _charMaps != null ? _charMaps.EncodeString(s) : System.Text.Encoding.ASCII.GetBytes(s);
+                int idx = (int)idxVal.Value;
+                if (idx < 0) idx += encoded.Length; // negative index from end
+                if (idx < 0 || idx >= encoded.Length)
+                {
+                    _diagnostics.Report(default, $"STRBYTE index {idxVal.Value} out of range for string of byte length {encoded.Length}",
+                        Diagnostics.DiagnosticSeverity.Warning);
+                    return 0L;
+                }
+                return (long)encoded[idx];
+            }
+
+            // CHARLEN("str") — character count using charmap-aware tokenization
+            case SyntaxKind.CharlenKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                if (s == null) return null;
+                if (_charMaps != null)
+                    return _charMaps.CountChars(s);
+                return s.Length; // fallback: plain character count
+            }
+
+            // INCHARMAP("str") — 1 if the string has a charmap mapping, 0 otherwise
+            case SyntaxKind.IncharmapKeyword:
+            {
+                var s = ExtractStringArg(green, 2);
+                if (s == null) return null;
+                if (_charMaps != null)
+                    return _charMaps.HasMapping(s) ? 1L : 0L;
+                return 0L;
+            }
+
+            default:
+                return null;
+        }
     }
+
+    /// <summary>
+    /// Extract a string literal value from a function call argument at the given child index.
+    /// Returns the unquoted string content, or null if the argument is not a string literal.
+    /// Applies string interpolation if a resolver is available.
+    /// </summary>
+    private string? ExtractStringArg(GreenNode funcCall, int childIndex)
+    {
+        if (childIndex >= funcCall.ChildCount) return null;
+        var arg = funcCall.GetChild(childIndex);
+        if (arg == null) return null;
+
+        string? raw = null;
+
+        // Direct string literal token
+        if (arg is GreenToken { Kind: SyntaxKind.StringLiteral } directToken)
+            raw = StripQuotes(directToken.Text);
+
+        // LiteralExpression wrapping a StringLiteral
+        if (raw == null && arg is GreenNode { Kind: SyntaxKind.LiteralExpression } litNode)
+        {
+            var inner = litNode.GetChild(0);
+            if (inner is GreenToken { Kind: SyntaxKind.StringLiteral } strToken)
+                raw = StripQuotes(strToken.Text);
+        }
+
+        if (raw != null && _resolveInterpolations != null)
+            raw = _resolveInterpolations(raw);
+
+        return raw;
+    }
+
+    private static string StripQuotes(string text) =>
+        text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
 
     public static long? ParseNumber(string text)
     {
