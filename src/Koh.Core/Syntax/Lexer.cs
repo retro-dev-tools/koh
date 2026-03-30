@@ -10,6 +10,7 @@ public sealed class Lexer
     private readonly SourceText _source;
     private int _position;
     private readonly DiagnosticBag _diagnostics = new();
+    private SyntaxKind _lastTokenKind = SyntaxKind.None;
 
     /// <summary>
     /// Diagnostics produced during lexing (e.g. unterminated block comments).
@@ -154,6 +155,7 @@ public sealed class Lexer
         ["strcat"] = SyntaxKind.StrcatKeyword,
         ["strsub"] = SyntaxKind.StrsubKeyword,
         ["revchar"] = SyntaxKind.RevcharKeyword,
+        ["strcmp"] = SyntaxKind.StrcmpKeyword,
         ["mul"] = SyntaxKind.MulKeyword,
         ["div"] = SyntaxKind.DivFuncKeyword,
         ["pow"] = SyntaxKind.PowKeyword,
@@ -208,6 +210,7 @@ public sealed class Lexer
         var trailingTrivia = ScanTrailingTrivia();
 
         var green = new GreenToken(kind, text, leadingTrivia, trailingTrivia);
+        _lastTokenKind = kind;
         return new SyntaxToken(green, null, tokenStart);
     }
 
@@ -230,6 +233,7 @@ public sealed class Lexer
         }
 
         var trailingTrivia = ScanTrailingTrivia();
+        _lastTokenKind = kind;
         return new GreenToken(kind, text, leadingTrivia, trailingTrivia);
     }
 
@@ -242,16 +246,14 @@ public sealed class Lexer
         if (c == '$' && IsHexDigit(Peek()))
         {
             _position++;
-            while (IsHexDigit(Current) || Current == '_')
-                _position++;
+            ScanDigitsWithUnderscores(start, IsHexDigit);
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
         if (c == '%' && IsBinaryDigit(Peek()))
         {
             _position++;
-            while (IsBinaryDigit(Current) || Current == '_')
-                _position++;
+            ScanDigitsWithUnderscores(start, IsBinaryDigit);
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
@@ -263,15 +265,37 @@ public sealed class Lexer
         if (c == '&' && IsOctalDigit(Peek()) && !PrecedingCharIsExpressionEnd(start))
         {
             _position++;
-            while (IsOctalDigit(Current) || Current == '_')
-                _position++;
+            ScanDigitsWithUnderscores(start, IsOctalDigit);
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
         if (char.IsDigit(c))
         {
-            while (char.IsDigit(Current) || Current == '_')
-                _position++;
+            // Check for C-style prefixes: 0x, 0b, 0o
+            if (c == '0')
+            {
+                char next = Peek();
+                if (next is 'x' or 'X')
+                {
+                    _position += 2; // consume 0x
+                    ScanDigitsWithUnderscores(start, IsHexDigit);
+                    return (SyntaxKind.NumberLiteral, Substring(start, _position));
+                }
+                if (next is 'b' or 'B')
+                {
+                    _position += 2; // consume 0b
+                    ScanDigitsWithUnderscores(start, IsBinaryDigit);
+                    return (SyntaxKind.NumberLiteral, Substring(start, _position));
+                }
+                if (next is 'o' or 'O')
+                {
+                    _position += 2; // consume 0o
+                    ScanDigitsWithUnderscores(start, IsOctalDigit);
+                    return (SyntaxKind.NumberLiteral, Substring(start, _position));
+                }
+            }
+
+            ScanDigitsWithUnderscores(start, char.IsDigit);
             // Fixed-point literal: digits.digits (e.g. 5.0, 2.5)
             if (Current == '.' && char.IsDigit(Peek()))
             {
@@ -282,19 +306,16 @@ public sealed class Lexer
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
+        // Raw string literals: #"..." or #"""..."""
+        if (c == '#' && Peek() == '"')
+        {
+            return ScanRawString(start);
+        }
+
         // String literals
         if (c == '"')
         {
-            _position++; // opening quote
-            while (!IsAtEnd && Current != '"' && Current != '\n' && Current != '\r')
-            {
-                if (Current == '\\')
-                    _position++; // skip escape char
-                _position++;
-            }
-            if (Current == '"')
-                _position++; // closing quote
-            return (SyntaxKind.StringLiteral, Substring(start, _position));
+            return ScanString(start);
         }
 
         // Local labels: .loop, .done, .retry
@@ -339,6 +360,16 @@ public sealed class Lexer
             {
                 _position += 5;
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));
+            }
+            // Backslash followed by non-whitespace, non-newline, non-macro-param:
+            // invalid line continuation. Report error and consume as BadToken.
+            if (next != '\r' && next != '\n' && next != ' ' && next != '\t' && next != '\0' && next != ';')
+            {
+                _diagnostics.Report(
+                    new TextSpan(start, 1),
+                    "Invalid character after line continuation backslash");
+                _position++;
+                return (SyntaxKind.BadToken, "\\");
             }
         }
 
@@ -445,6 +476,10 @@ public sealed class Lexer
             {
                 trivia.Add(ScanLineComment());
             }
+            else if (Current == '\\' && IsLineContinuation())
+            {
+                trivia.Add(ScanLineContinuation());
+            }
             else if (Current == '\r' || Current == '\n')
             {
                 trivia.Add(ScanNewline());
@@ -480,6 +515,12 @@ public sealed class Lexer
             else if (Current == ';')
             {
                 trivia.Add(ScanLineComment());
+            }
+            else if (Current == '\\' && IsLineContinuation())
+            {
+                trivia.Add(ScanLineContinuation());
+                // After consuming \<newline>, continue scanning trivia — do NOT break.
+                // The next line's tokens are part of the same logical line.
             }
             else if (Current == '\r' || Current == '\n')
             {
@@ -579,14 +620,187 @@ public sealed class Lexer
     private static bool IsOctalDigit(char c) => c is >= '0' and <= '7';
 
     /// <summary>
-    /// Returns true if the character immediately before <paramref name="pos"/>
-    /// (skipping whitespace/tabs) is one that can end a primary expression:
-    /// an identifier/keyword character, a decimal/hex digit, or a closing
-    /// bracket, paren, or quote.  This is used to distinguish the bitwise-AND
-    /// operator <c>&amp;</c> from the octal literal prefix <c>&amp;digits</c>.
+    /// Scans digits (validated by <paramref name="isDigit"/>) with optional underscore
+    /// separators. Reports diagnostics for double underscores and trailing underscores.
+    /// </summary>
+    private void ScanDigitsWithUnderscores(int literalStart, Func<char, bool> isDigit)
+    {
+        bool lastWasUnderscore = false;
+        while (!IsAtEnd && (isDigit(Current) || Current == '_'))
+        {
+            if (Current == '_')
+            {
+                if (lastWasUnderscore)
+                {
+                    _diagnostics.Report(
+                        new TextSpan(literalStart, _position - literalStart + 1),
+                        "Double underscore in numeric constant");
+                }
+                lastWasUnderscore = true;
+            }
+            else
+            {
+                lastWasUnderscore = false;
+            }
+            _position++;
+        }
+        if (lastWasUnderscore)
+        {
+            _diagnostics.Report(
+                new TextSpan(literalStart, _position - literalStart),
+                "Trailing underscore in numeric constant");
+        }
+    }
+
+    /// <summary>
+    /// Scans a regular (non-raw) string literal starting at the opening quote.
+    /// Handles \&lt;newline&gt; as line continuation (string continues on next line).
+    /// </summary>
+    private (SyntaxKind kind, string text) ScanString(int start)
+    {
+        _position++; // opening quote
+        while (!IsAtEnd && Current != '"')
+        {
+            if (Current == '\\')
+            {
+                _position++; // skip past backslash
+                if (!IsAtEnd && (Current == '\r' || Current == '\n'))
+                {
+                    // Line continuation in string: consume newline and continue
+                    if (Current == '\r') _position++;
+                    if (!IsAtEnd && Current == '\n') _position++;
+                    continue;
+                }
+                if (!IsAtEnd) _position++; // skip escaped char
+                continue;
+            }
+            // Unescaped newline terminates the string (unterminated string)
+            if (Current == '\n' || Current == '\r')
+                break;
+            _position++;
+        }
+        if (Current == '"')
+            _position++; // closing quote
+        return (SyntaxKind.StringLiteral, Substring(start, _position));
+    }
+
+    /// <summary>
+    /// Scans a raw string literal: #"..." or #"""...""".
+    /// Backslashes are not treated as escape characters.
+    /// </summary>
+    private (SyntaxKind kind, string text) ScanRawString(int start)
+    {
+        _position++; // consume #
+        _position++; // consume first "
+
+        // Check for triple-quote: #"""..."""
+        if (Current == '"' && Peek() == '"')
+        {
+            _position += 2; // consume second and third opening quotes
+            // Scan until closing """
+            while (!IsAtEnd)
+            {
+                if (Current == '"' && Peek() == '"' && Peek(2) == '"')
+                {
+                    _position += 3; // consume closing """
+                    return (SyntaxKind.StringLiteral, Substring(start, _position));
+                }
+                _position++;
+            }
+            // Unterminated triple-quote raw string
+            _diagnostics.Report(
+                new TextSpan(start, _position - start),
+                "Unterminated raw string literal");
+            return (SyntaxKind.StringLiteral, Substring(start, _position));
+        }
+
+        // Single-quote raw string: #"..."
+        while (!IsAtEnd && Current != '"' && Current != '\n' && Current != '\r')
+        {
+            _position++; // no escape processing
+        }
+        if (Current == '"')
+            _position++; // closing quote
+        return (SyntaxKind.StringLiteral, Substring(start, _position));
+    }
+
+    /// <summary>
+    /// Returns true if the current position is a backslash followed by optional
+    /// whitespace/comment and then a newline — i.e. a valid line continuation.
+    /// </summary>
+    private bool IsLineContinuation()
+    {
+        int i = _position + 1; // skip the backslash
+        while (i < _source.Length && (_source[i] == ' ' || _source[i] == '\t'))
+            i++;
+        // Allow a line comment before the newline
+        if (i < _source.Length && _source[i] == ';')
+        {
+            while (i < _source.Length && _source[i] != '\n' && _source[i] != '\r')
+                i++;
+        }
+        return i < _source.Length && (_source[i] == '\n' || _source[i] == '\r');
+    }
+
+    /// <summary>
+    /// Consumes a line continuation: backslash, optional whitespace/comment, and newline.
+    /// </summary>
+    private GreenTrivia ScanLineContinuation()
+    {
+        int start = _position;
+        _position++; // consume backslash
+        // Consume optional whitespace
+        while (!IsAtEnd && (Current == ' ' || Current == '\t'))
+            _position++;
+        // Consume optional line comment
+        if (!IsAtEnd && Current == ';')
+        {
+            while (!IsAtEnd && Current != '\n' && Current != '\r')
+                _position++;
+        }
+        // Consume newline
+        if (!IsAtEnd && Current == '\r')
+        {
+            _position++;
+            if (!IsAtEnd && Current == '\n')
+                _position++;
+        }
+        else if (!IsAtEnd && Current == '\n')
+        {
+            _position++;
+        }
+        return new GreenTrivia(SyntaxKind.WhitespaceTrivia, Substring(start, _position));
+    }
+
+    /// <summary>
+    /// Returns true if the last emitted token can end a primary expression.
+    /// Used to distinguish the bitwise-AND operator <c>&amp;</c> from the
+    /// octal literal prefix <c>&amp;digits</c>.
     /// </summary>
     private bool PrecedingCharIsExpressionEnd(int pos)
     {
+        // Use the last token kind for precise disambiguation.
+        // When no prior token exists, fall back to character inspection.
+        if (_lastTokenKind != SyntaxKind.None)
+        {
+            return _lastTokenKind switch
+            {
+                SyntaxKind.NumberLiteral => true,
+                SyntaxKind.StringLiteral => true,
+                SyntaxKind.IdentifierToken => true,
+                SyntaxKind.LocalLabelToken => true,
+                SyntaxKind.CurrentAddressToken => true,
+                SyntaxKind.CloseParenToken => true,
+                SyntaxKind.CloseBracketToken => true,
+                // Register keywords can appear as operands in expressions
+                >= SyntaxKind.AKeyword and <= SyntaxKind.DeKeyword => true,
+                // Condition flag keywords (z, nz, nc)
+                SyntaxKind.ZKeyword or SyntaxKind.NzKeyword or SyntaxKind.NcKeyword => true,
+                _ => false,
+            };
+        }
+
+        // Fallback: character-level inspection for first token in stream
         int i = pos - 1;
         while (i >= 0 && (_source[i] == ' ' || _source[i] == '\t'))
             i--;

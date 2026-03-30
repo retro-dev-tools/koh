@@ -168,6 +168,7 @@ public sealed class ExpressionEvaluator
             // any other expression kind (literal, binary, etc.) is not a symbol name reference.
             SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
                 _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L,
+            SyntaxKind.StrcmpKeyword => EvaluateStrcmp(green),
 
             // Fixed-point math functions (Q16.16)
             SyntaxKind.MulKeyword => EvalFixedMul(green),
@@ -306,13 +307,110 @@ public sealed class ExpressionEvaluator
         return result;
     }
 
+    private long? EvaluateStrcmp(GreenNode green)
+    {
+        // strcmp(str1, str2) — children: keyword, open_paren, arg1, comma, arg2, close_paren
+        var arg1 = green.ChildCount > 2 ? green.GetChild(2) : null;
+        var arg2 = green.ChildCount > 4 ? green.GetChild(4) : null;
+        if (arg1 == null || arg2 == null) return null;
+
+        var s1 = TryExtractString(arg1);
+        var s2 = TryExtractString(arg2);
+        if (s1 == null || s2 == null) return null;
+
+        return string.Compare(s1, s2, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Tries to extract the string value from a string literal expression node.
+    /// Handles regular strings (with escape processing) and raw strings (no escapes).
+    /// </summary>
+    private static string? TryExtractString(GreenNodeBase node)
+    {
+        GreenToken? token = null;
+        if (node is GreenNode gn && gn.Kind == SyntaxKind.LiteralExpression)
+            token = gn.GetChild(0) as GreenToken;
+        else if (node is GreenToken gt)
+            token = gt;
+
+        if (token?.Kind != SyntaxKind.StringLiteral) return null;
+
+        var text = token.Text;
+        return InterpretStringLiteral(text);
+    }
+
+    /// <summary>
+    /// Interprets a string literal token text (including delimiters) into the
+    /// actual string value. Handles raw strings (#"..." and #"""...""") and
+    /// regular strings with escape sequences.
+    /// </summary>
+    internal static string InterpretStringLiteral(string text)
+    {
+        if (text.StartsWith("#\"\"\"") && text.EndsWith("\"\"\""))
+        {
+            // Raw triple-quoted string: #"""...""" — no escape processing
+            return text[4..^3];
+        }
+        if (text.StartsWith("#\"") && text.EndsWith("\""))
+        {
+            // Raw string: #"..." — no escape processing
+            return text[2..^1];
+        }
+        if (text.StartsWith("\"") && text.EndsWith("\"") && text.Length >= 2)
+        {
+            // Regular string — process escape sequences
+            var inner = text[1..^1];
+            return ProcessEscapes(inner);
+        }
+        return text;
+    }
+
+    private static string ProcessEscapes(string text)
+    {
+        if (!text.Contains('\\')) return text;
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                i++;
+                if (text[i] == '\r' || text[i] == '\n')
+                {
+                    // Line continuation in string: \<newline><leading whitespace> → removed
+                    if (text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
+                        i++; // skip \r\n
+                    // Skip leading whitespace on the continuation line
+                    while (i + 1 < text.Length && (text[i + 1] == ' ' || text[i + 1] == '\t'))
+                        i++;
+                }
+                else
+                {
+                    sb.Append(text[i] switch
+                    {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '\\' => '\\',
+                        '"' => '"',
+                        _ => text[i], // unknown escape — keep the char as-is
+                    });
+                }
+            }
+            else
+            {
+                sb.Append(text[i]);
+            }
+        }
+        return sb.ToString();
+    }
+
     public long? ParseNumberWithFixedPoint(string text) => ParseNumber(text, _fracBits);
 
     public static long? ParseNumber(string text) => ParseNumber(text, 0);
 
     public static long? ParseNumber(string text, int fracBits)
     {
-        var clean = text.Contains('_') ? text.Replace("_", "") : text;
+        var clean = StripUnderscores(text);
 
         if (clean.StartsWith('$'))
             return TryParseBase(clean.AsSpan(1), 16);
@@ -320,6 +418,17 @@ public sealed class ExpressionEvaluator
             return TryParseBase(clean.AsSpan(1), 2);
         if (clean.StartsWith('&'))
             return TryParseBase(clean.AsSpan(1), 8);
+        // C-style prefixes: 0x, 0b, 0o
+        if (clean.Length >= 2 && clean[0] == '0')
+        {
+            char prefix = clean[1];
+            if (prefix is 'x' or 'X')
+                return TryParseBase(clean.AsSpan(2), 16);
+            if (prefix is 'b' or 'B')
+                return TryParseBase(clean.AsSpan(2), 2);
+            if (prefix is 'o' or 'O')
+                return TryParseBase(clean.AsSpan(2), 8);
+        }
         // Fixed-point literal: digits.digits
         if (fracBits > 0 && clean.Contains('.'))
         {
@@ -356,6 +465,12 @@ public sealed class ExpressionEvaluator
             result += integer >= 0 ? fracFixed : -fracFixed;
         }
         return result;
+    }
+
+    private static string StripUnderscores(string text)
+    {
+        if (!text.Contains('_')) return text;
+        return text.Replace("_", "");
     }
 
     private static long? TryParseBase(ReadOnlySpan<char> digits, int radix)

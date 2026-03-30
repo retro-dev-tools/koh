@@ -710,6 +710,7 @@ internal sealed class Parser
             case SyntaxKind.StrcatKeyword:
             case SyntaxKind.StrsubKeyword:
             case SyntaxKind.RevcharKeyword:
+            case SyntaxKind.StrcmpKeyword:
             case SyntaxKind.MulKeyword:
             case SyntaxKind.DivFuncKeyword:
             case SyntaxKind.PowKeyword:
