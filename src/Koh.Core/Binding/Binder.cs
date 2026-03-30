@@ -551,12 +551,18 @@ public sealed class Binder
             case SyntaxKind.DwKeyword:
                 foreach (var expr in expressions)
                 {
-                    // String literals in DW: each character becomes a 16-bit word
+                    // String literals in DW: encode through character map
                     if (IsStringLiteral(expr.Green))
                     {
                         var text = ExtractStringText(expr.Green);
-                        foreach (var b in _charMaps.EncodeString(text))
-                            section.EmitWord(b);
+                        var encoded = _charMaps.EncodeString(text);
+                        // Emit charmap bytes as little-endian words (pad odd byte with 0)
+                        for (int bi = 0; bi < encoded.Length; bi += 2)
+                        {
+                            byte lo = encoded[bi];
+                            byte hi = bi + 1 < encoded.Length ? encoded[bi + 1] : (byte)0;
+                            section.EmitWord((ushort)(lo | (hi << 8)));
+                        }
                         continue;
                     }
 
@@ -733,7 +739,8 @@ public sealed class Binder
                 }
                 var section = _sections.ActiveSection;
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-                    () => section?.CurrentPC ?? 0, _fixedPointFracBits, _charMaps);
+                    () => section?.CurrentPC ?? 0, _fixedPointFracBits, _charMaps,
+                    _expander != null ? _expander.ResolveInterpolations : null);
                 var val = evaluator.TryEvaluate(exprNodes[0].Green);
 
                 // Determine severity: ASSERT WARN, ... → warning; ASSERT FAIL/FATAL, ... → error (default)
@@ -978,6 +985,7 @@ public sealed class Binder
             return text[4..^3];
         if (text.StartsWith("#\"") && text.EndsWith("\""))
             return text[2..^1];
-        return text.Length >= 2 ? text[1..^1] : text; // strip quotes
+        var raw = text.Length >= 2 ? text[1..^1] : text; // strip quotes
+        return ExpressionEvaluator.UnescapeString(raw);
     }
 }

@@ -156,6 +156,8 @@ public sealed class Lexer
         ["strcat"] = SyntaxKind.StrcatKeyword,
         ["strsub"] = SyntaxKind.StrsubKeyword,
         ["revchar"] = SyntaxKind.RevcharKeyword,
+        ["charlen"] = SyntaxKind.CharlenKeyword,
+        ["incharmap"] = SyntaxKind.IncharmapKeyword,
         ["strcmp"] = SyntaxKind.StrcmpKeyword,
         ["mul"] = SyntaxKind.MulKeyword,
         ["div"] = SyntaxKind.DivFuncKeyword,
@@ -319,12 +321,21 @@ public sealed class Lexer
             return ScanString(start);
         }
 
-        // Character literals: 'X' — single character in single quotes
-        if (c == '\'' && !IsAtEnd && Peek() != '\'' && Peek(2) == '\'')
+        // Character literals: 'A', '\n', etc. — single character in single quotes
+        if (c == '\'' && !IsAtEnd)
         {
             _position++; // opening quote
-            _position++; // the character
-            _position++; // closing quote
+            if (!IsAtEnd && Current == '\\')
+            {
+                _position++; // skip backslash
+                if (!IsAtEnd) _position++; // skip escaped char
+            }
+            else if (!IsAtEnd && Current != '\'')
+            {
+                _position++; // skip the character
+            }
+            if (!IsAtEnd && Current == '\'')
+                _position++; // closing quote
             return (SyntaxKind.CharLiteralToken, Substring(start, _position));
         }
 

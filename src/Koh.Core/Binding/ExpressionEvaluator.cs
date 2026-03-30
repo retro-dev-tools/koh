@@ -25,21 +25,24 @@ public sealed class ExpressionEvaluator
     private readonly Func<int> _getCurrentPC;
     private readonly int _fracBits;
     private readonly CharMapManager? _charMaps;
+    private readonly Func<string, string>? _resolveInterpolations;
 
     public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
         Func<int> getCurrentPC, int fracBits = 0)
-        : this(symbols, diagnostics, getCurrentPC, fracBits, null)
+        : this(symbols, diagnostics, getCurrentPC, fracBits, null, null)
     {
     }
 
     internal ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
-        Func<int> getCurrentPC, int fracBits, CharMapManager? charMaps)
+        Func<int> getCurrentPC, int fracBits, CharMapManager? charMaps,
+        Func<string, string>? resolveInterpolations = null)
     {
         _symbols = symbols;
         _diagnostics = diagnostics;
         _getCurrentPC = getCurrentPC;
         _fracBits = fracBits;
         _charMaps = charMaps;
+        _resolveInterpolations = resolveInterpolations;
     }
 
     public long? TryEvaluate(GreenNodeBase node)
@@ -65,7 +68,8 @@ public sealed class ExpressionEvaluator
 
     /// <summary>
     /// Evaluate an expression that may produce a string value (for ++ concatenation,
-    /// === / !== comparison). Returns null for non-string expressions.
+    /// === / !== comparison, and string-returning functions like STRCAT, STRSUB).
+    /// Returns null for non-string expressions.
     /// </summary>
     public string? TryEvaluateString(GreenNodeBase node)
     {
@@ -73,10 +77,59 @@ public sealed class ExpressionEvaluator
         {
             var token = (GreenToken)((GreenNode)node).GetChild(0)!;
             if (token.Kind == SyntaxKind.StringLiteral)
-                return StripQuotes(token.Text);
+            {
+                var raw = token.Text.Length >= 2 ? token.Text[1..^1] : token.Text;
+                var unescaped = UnescapeString(raw);
+                return _resolveInterpolations != null ? _resolveInterpolations(unescaped) : unescaped;
+            }
         }
+
+        if (node.Kind == SyntaxKind.FunctionCallExpression)
+        {
+            var green = (GreenNode)node;
+            var keyword = (GreenToken)green.GetChild(0)!;
+
+            if (keyword.Kind == SyntaxKind.StrcatKeyword)
+            {
+                // STRCAT(str1, str2, ...) — concatenate strings
+                var sb = new System.Text.StringBuilder();
+                for (int i = 2; i < green.ChildCount; i++)
+                {
+                    var child = green.GetChild(i)!;
+                    if (child.Kind is SyntaxKind.CommaToken or SyntaxKind.CloseParenToken)
+                        continue;
+                    var s = TryEvaluateString(child);
+                    if (s != null) sb.Append(s);
+                }
+                return sb.ToString();
+            }
+
+            if (keyword.Kind == SyntaxKind.StrsubKeyword)
+            {
+                // STRSUB(str, pos, len) — substring (1-based position)
+                var args = CollectFunctionArgs(green);
+                if (args.Count >= 2)
+                {
+                    var str = TryEvaluateString(args[0]);
+                    var pos = TryEvaluate(args[1]);
+                    if (str != null && pos.HasValue)
+                    {
+                        int start = (int)pos.Value - 1; // 1-based to 0-based
+                        int len = args.Count >= 3 && TryEvaluate(args[2]) is { } l ? (int)l : str.Length - start;
+                        if (start >= 0 && start + len <= str.Length)
+                            return str.Substring(start, len);
+                    }
+                }
+                return null;
+            }
+        }
+
         if (node.Kind == SyntaxKind.StringLiteral && node is GreenToken strTok)
-            return StripQuotes(strTok.Text);
+        {
+            var raw = strTok.Text.Length >= 2 ? strTok.Text[1..^1] : strTok.Text;
+            return UnescapeString(raw);
+        }
+
         if (node.Kind == SyntaxKind.BinaryExpression)
         {
             var green = (GreenNode)node;
@@ -92,31 +145,6 @@ public sealed class ExpressionEvaluator
         return null;
     }
 
-    private static string StripQuotes(string text) =>
-        text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
-
-    private long EvaluateCharLiteral(string text)
-    {
-        // 'X' — extract the character between quotes and return its charmap/ASCII value
-        if (text.Length >= 3 && text[0] == '\'' && text[^1] == '\'')
-        {
-            var ch = text[1..^1]; // the character(s) between quotes
-            if (_charMaps != null)
-            {
-                var bytes = _charMaps.EncodeString(ch);
-                if (bytes.Length > 0)
-                {
-                    // Combine bytes into a single value (big-endian)
-                    long val = 0;
-                    foreach (var b in bytes)
-                        val = (val << 8) | b;
-                    return val;
-                }
-            }
-            return ch.Length > 0 ? ch[0] : 0;
-        }
-        return 0;
-    }
 
     private long? EvaluateLiteral(GreenNodeBase node)
     {
@@ -130,6 +158,46 @@ public sealed class ExpressionEvaluator
             SyntaxKind.MissingToken => null,
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Evaluate a character literal like 'A' or '\n'. If a charmap mapping exists, returns
+    /// the charmap value; otherwise returns the ASCII/Unicode code point.
+    /// </summary>
+    private long? EvaluateCharLiteral(string text)
+    {
+        if (text.Length < 2 || text[0] != '\'' || text[^1] != '\'')
+            return null;
+
+        var inner = text[1..^1];
+        char ch;
+        if (inner.Length == 1)
+            ch = inner[0];
+        else if (inner.Length == 2 && inner[0] == '\\')
+        {
+            ch = inner[1] switch
+            {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '0' => '\0',
+                '\\' => '\\',
+                '\'' => '\'',
+                _ => inner[1],
+            };
+        }
+        else
+            return null;
+
+        // Check charmap first
+        if (_charMaps != null)
+        {
+            var mapped = _charMaps.LookupCharValue(ch.ToString());
+            if (mapped.HasValue)
+                return mapped.Value;
+        }
+
+        return ch;
     }
 
     private long? EvaluateName(GreenNodeBase node)
@@ -231,47 +299,158 @@ public sealed class ExpressionEvaluator
         // Second argument at index 4 (after comma at index 3)
         var arg2 = green.ChildCount > 4 ? green.GetChild(4) : null;
 
-        return keyword.Kind switch
+        switch (keyword.Kind)
         {
-            SyntaxKind.HighKeyword when arg != null =>
-                TryEvaluate(arg) is { } v ? (v >> 8) & 0xFF : null,
-            SyntaxKind.LowKeyword when arg != null =>
-                TryEvaluate(arg) is { } v ? v & 0xFF : null,
+            case SyntaxKind.HighKeyword when arg != null:
+                return TryEvaluate(arg) is { } hv ? (hv >> 8) & 0xFF : null;
+            case SyntaxKind.LowKeyword when arg != null:
+                return TryEvaluate(arg) is { } lv ? lv & 0xFF : null;
             // BANK, SIZEOF, STARTOF are linker-time — always null
-            SyntaxKind.BankKeyword => null,
-            SyntaxKind.SizeofKeyword => null,
-            SyntaxKind.StartofKeyword => null,
-            // DEF(symbol) — check if defined. Only valid when argument is a NameExpression;
-            // any other expression kind (literal, binary, etc.) is not a symbol name reference.
-            SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
-                _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L,
-            SyntaxKind.StrcmpKeyword => EvaluateStrcmp(green),
+            case SyntaxKind.BankKeyword:
+            case SyntaxKind.SizeofKeyword:
+            case SyntaxKind.StartofKeyword:
+                return null;
+            // DEF(symbol) — check if defined
+            case SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression:
+                return _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L;
+
+            case SyntaxKind.StrlenKeyword:
+            {
+                var str = arg != null ? TryEvaluateString(arg) : null;
+                if (str != null) return str.Length;
+                return null;
+            }
+
+            case SyntaxKind.StrcmpKeyword:
+            {
+                var args = CollectFunctionArgs(green);
+                if (args.Count >= 2)
+                {
+                    var s1 = TryEvaluateString(args[0]);
+                    var s2 = TryEvaluateString(args[1]);
+                    if (s1 != null && s2 != null)
+                        return string.Compare(s1, s2, StringComparison.Ordinal);
+                }
+                return null;
+            }
+
+            case SyntaxKind.CharlenKeyword:
+            {
+                if (_charMaps != null && arg != null)
+                {
+                    var str = TryEvaluateString(arg);
+                    if (str != null) return _charMaps.CharLen(str);
+                }
+                return null;
+            }
+
+            case SyntaxKind.IncharmapKeyword:
+            {
+                if (_charMaps != null && arg != null)
+                {
+                    var str = TryEvaluateString(arg);
+                    if (str != null) return _charMaps.ContainsKey(str) ? 1L : 0L;
+                }
+                return null;
+            }
+
+            // STRCAT returns a string, not a number — if used in numeric context, return null
+            case SyntaxKind.StrcatKeyword:
+            case SyntaxKind.StrsubKeyword:
+                return null;
 
             // Fixed-point math functions (Q16.16)
-            SyntaxKind.MulKeyword => EvalFixedMul(green),
-            SyntaxKind.DivFuncKeyword => EvalFixedDiv(green),
-            SyntaxKind.FmodKeyword => EvalFixedFmod(green),
-            SyntaxKind.PowKeyword => EvalFixedPow(green),
-            SyntaxKind.LogKeyword => EvalFixedLog(green),
-            SyntaxKind.RoundKeyword => EvalFixedRound(arg),
-            SyntaxKind.CeilKeyword => EvalFixedCeil(arg),
-            SyntaxKind.FloorKeyword => EvalFixedFloor(arg),
+            case SyntaxKind.MulKeyword:
+                return EvalFixedMul(green);
+            case SyntaxKind.DivFuncKeyword:
+                return EvalFixedDiv(green);
+            case SyntaxKind.FmodKeyword:
+                return EvalFixedFmod(green);
+            case SyntaxKind.PowKeyword:
+                return EvalFixedPow(green);
+            case SyntaxKind.LogKeyword:
+                return EvalFixedLog(green);
+            case SyntaxKind.RoundKeyword:
+                return EvalFixedRound(arg);
+            case SyntaxKind.CeilKeyword:
+                return EvalFixedCeil(arg);
+            case SyntaxKind.FloorKeyword:
+                return EvalFixedFloor(arg);
 
             // Trigonometry — fixed-point where 1.0 = full turn
-            SyntaxKind.SinKeyword when arg != null => EvaluateTrigFunction(arg, Math.Sin),
-            SyntaxKind.CosKeyword when arg != null => EvaluateTrigFunction(arg, Math.Cos),
-            SyntaxKind.TanKeyword when arg != null => EvaluateTrigFunction(arg, Math.Tan),
-            SyntaxKind.AsinKeyword when arg != null => EvaluateInverseTrigFunction(arg, Math.Asin),
-            SyntaxKind.AcosKeyword when arg != null => EvaluateInverseTrigFunction(arg, Math.Acos),
-            SyntaxKind.AtanKeyword when arg != null => EvaluateInverseTrigFunction(arg, Math.Atan),
-            SyntaxKind.Atan2Keyword when arg != null && arg2 != null => EvaluateAtan2(arg, arg2),
+            case SyntaxKind.SinKeyword when arg != null:
+                return EvaluateTrigFunction(arg, Math.Sin);
+            case SyntaxKind.CosKeyword when arg != null:
+                return EvaluateTrigFunction(arg, Math.Cos);
+            case SyntaxKind.TanKeyword when arg != null:
+                return EvaluateTrigFunction(arg, Math.Tan);
+            case SyntaxKind.AsinKeyword when arg != null:
+                return EvaluateInverseTrigFunction(arg, Math.Asin);
+            case SyntaxKind.AcosKeyword when arg != null:
+                return EvaluateInverseTrigFunction(arg, Math.Acos);
+            case SyntaxKind.AtanKeyword when arg != null:
+                return EvaluateInverseTrigFunction(arg, Math.Atan);
+            case SyntaxKind.Atan2Keyword when arg != null && arg2 != null:
+                return EvaluateAtan2(arg, arg2);
             // Bit functions
-            SyntaxKind.BitwidthKeyword when arg != null =>
-                TryEvaluate(arg) is { } bw ? EvaluateBitwidth(bw) : null,
-            SyntaxKind.TzcountKeyword when arg != null =>
-                TryEvaluate(arg) is { } tz ? EvaluateTzcount(tz) : null,
-            _ => null,
-        };
+            case SyntaxKind.BitwidthKeyword when arg != null:
+                return TryEvaluate(arg) is { } bw ? EvaluateBitwidth(bw) : null;
+            case SyntaxKind.TzcountKeyword when arg != null:
+                return TryEvaluate(arg) is { } tz ? EvaluateTzcount(tz) : null;
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Collect function call arguments (skip open/close paren and commas).
+    /// </summary>
+    private static List<GreenNodeBase> CollectFunctionArgs(GreenNode green)
+    {
+        var args = new List<GreenNodeBase>();
+        for (int i = 2; i < green.ChildCount; i++)
+        {
+            var child = green.GetChild(i)!;
+            if (child.Kind is SyntaxKind.CommaToken or SyntaxKind.CloseParenToken
+                or SyntaxKind.OpenParenToken)
+                continue;
+            args.Add(child);
+        }
+        return args;
+    }
+
+    /// <summary>
+    /// Process escape sequences in a string: \n, \r, \t, \0, \\, \", etc.
+    /// </summary>
+    internal static string UnescapeString(string text)
+    {
+        if (!text.Contains('\\')) return text;
+
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                i++;
+                sb.Append(text[i] switch
+                {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    '0' => '\0',
+                    '\\' => '\\',
+                    '"' => '"',
+                    '\'' => '\'',
+                    _ => text[i],
+                });
+            }
+            else
+            {
+                sb.Append(text[i]);
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>
@@ -567,3 +746,4 @@ public sealed class ExpressionEvaluator
         return result;
     }
 }
+

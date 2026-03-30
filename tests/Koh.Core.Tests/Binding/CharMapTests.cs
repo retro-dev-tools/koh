@@ -432,6 +432,7 @@ public class CharMapTests
             DEF _A_ EQU 'A'
             db _A_
             """);
+        foreach (var d in model.Diagnostics) Console.WriteLine($"  DIAG: [{d.Severity}] {d.Message}");
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)1);
     }

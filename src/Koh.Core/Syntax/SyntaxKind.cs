@@ -108,7 +108,8 @@ public enum SyntaxKind : ushort
 
     // Built-in function keywords
     HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
-    DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword, StrcmpKeyword,
+    DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
+    CharlenKeyword, IncharmapKeyword, StrcmpKeyword,
     MulKeyword, DivFuncKeyword, PowKeyword, LogKeyword,
     RoundKeyword, CeilKeyword, FloorKeyword, FmodKeyword,
     SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
