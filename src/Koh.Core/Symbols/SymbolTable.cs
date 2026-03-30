@@ -5,7 +5,7 @@ namespace Koh.Core.Symbols;
 
 public sealed class SymbolTable
 {
-    private readonly Dictionary<string, Symbol> _symbols = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Symbol> _symbols = new(StringComparer.OrdinalIgnoreCase);
     private readonly DiagnosticBag _diagnostics;
     private Symbol? _currentGlobalAnchor;
 
