@@ -428,7 +428,8 @@ public sealed class ExpressionEvaluator
             SyntaxKind.StartofKeyword => null,
             // SIZEOF: check for register operands first, then linker-time
             SyntaxKind.SizeofKeyword => EvaluateSizeof(args),
-            // DEF(symbol) — check if defined
+            // DEF(symbol) — check if defined. Only valid when argument is a NameExpression;
+            // any other expression kind (literal, binary, etc.) is not a symbol name reference.
             SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
                 _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L,
             // ISCONST — return 1 if constant, 0 otherwise

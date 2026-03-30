@@ -176,13 +176,13 @@ internal sealed class Parser
             or SyntaxKind.PopcharmapKeyword)
             return ParseBlockDirective(SyntaxKind.SymbolDirective);
 
-        // UNION control: NEXTU/ENDU/LOAD/ENDL
-        if (Current.Kind is SyntaxKind.NextuKeyword or SyntaxKind.EnduKeyword
+        // UNION control: UNION/NEXTU/ENDU/LOAD/ENDL
+        if (Current.Kind is SyntaxKind.UnionKeyword or SyntaxKind.NextuKeyword or SyntaxKind.EnduKeyword
             or SyntaxKind.LoadKeyword or SyntaxKind.EndlKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
 
-        // SHIFT (inside macro expansion)
-        if (Current.Kind == SyntaxKind.ShiftKeyword)
+        // SHIFT (inside macro expansion) / BREAK (loop exit)
+        if (Current.Kind is SyntaxKind.ShiftKeyword or SyntaxKind.BreakKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
 
         // RS counters: RSRESET (no args), RSSET expr
@@ -986,13 +986,20 @@ internal sealed class Parser
         // Parse comma-separated arguments
         if (Current.Kind != SyntaxKind.CloseParenToken && Current.Kind != SyntaxKind.EndOfFileToken)
         {
-            children.Add(ParseExpression());
+            // Handle [reg] operands inside function calls (e.g., sizeof([bc]))
+            if (Current.Kind == SyntaxKind.OpenBracketToken)
+                children.Add(ParseBracketedArgument());
+            else
+                children.Add(ParseExpression());
 
             while (Current.Kind == SyntaxKind.CommaToken)
             {
                 children.Add(Advance()); // comma
                 var before = _position;
-                children.Add(ParseExpression());
+                if (Current.Kind == SyntaxKind.OpenBracketToken)
+                    children.Add(ParseBracketedArgument());
+                else
+                    children.Add(ParseExpression());
                 // Safety: if ParseExpression didn't advance, force-consume to avoid infinite loop
                 if (_position == before && Current.Kind != SyntaxKind.CloseParenToken)
                 {
@@ -1020,6 +1027,22 @@ internal sealed class Parser
                 kw.LeadingTrivia, kw.TrailingTrivia);
         }
         return Advance();
+    }
+
+    /// <summary>
+    /// Parse a bracketed argument like [bc], [hl+], [hld] for sizeof() etc.
+    /// Wraps the brackets and content in an IndirectOperand node.
+    /// </summary>
+    private GreenNode ParseBracketedArgument()
+    {
+        var bracketChildren = new List<GreenNodeBase>();
+        bracketChildren.Add(Advance()); // [
+        while (Current.Kind != SyntaxKind.CloseBracketToken && Current.Kind != SyntaxKind.EndOfFileToken
+               && Current.Kind != SyntaxKind.CloseParenToken)
+            bracketChildren.Add(Advance());
+        if (Current.Kind == SyntaxKind.CloseBracketToken)
+            bracketChildren.Add(Advance()); // ]
+        return new GreenNode(SyntaxKind.IndirectOperand, bracketChildren.ToArray());
     }
 
     private GreenToken ExpectToken(SyntaxKind expected)

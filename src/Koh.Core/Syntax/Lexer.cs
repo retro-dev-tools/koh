@@ -114,6 +114,7 @@ public sealed class Lexer
         ["rept"] = SyntaxKind.ReptKeyword,
         ["for"] = SyntaxKind.ForKeyword,
         ["endr"] = SyntaxKind.EndrKeyword,
+        ["break"] = SyntaxKind.BreakKeyword,
         ["include"] = SyntaxKind.IncludeKeyword,
         ["incbin"] = SyntaxKind.IncbinKeyword,
         ["charmap"] = SyntaxKind.CharmapKeyword,

@@ -66,7 +66,7 @@ public sealed class Binder
             _diagnostics.Report(d.Span, d.Message, d.Severity);
 
         // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC, INCLUDE into flat list
-        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver, _charMaps);
+        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver, _charMaps, _printOutput);
         var nodes = _expander.Expand(tree);
 
         // Pass 1: symbol collection and PC tracking
@@ -170,9 +170,14 @@ public sealed class Binder
         {
             case SyntaxKind.PushsKeyword:
                 pc.PushSection();
+                // PUSHS with inline section: PUSHS "name", TYPE
+                Pass1PushsSection(node, pc);
                 break;
             case SyntaxKind.PopsKeyword:
                 pc.PopSection();
+                break;
+            case SyntaxKind.UnionKeyword:
+                pc.BeginUnion();
                 break;
             case SyntaxKind.NextuKeyword:
                 pc.NextUnion();
@@ -228,9 +233,12 @@ public sealed class Binder
         pc.AdvanceLoad(pad);
     }
 
-    private void Pass1Load(SyntaxNode node, SectionPCTracker pc)
+    /// <summary>
+    /// Extract section-like properties (name, type, fixed address) from a directive node's tokens.
+    /// Used by LOAD, PUSHS-with-inline-section, and similar directives.
+    /// </summary>
+    private static (string? Name, SectionType Type, int? FixedAddr) ParseSectionTokens(SyntaxNode node)
     {
-        // LOAD "name", TYPE — parse like a section header but route to load
         var tokens = node.ChildTokens().ToList();
         string? name = null;
         SectionType type = SectionType.Wram0;
@@ -239,7 +247,7 @@ public sealed class Binder
         for (int i = 1; i < tokens.Count; i++)
         {
             if (tokens[i].Kind == SyntaxKind.StringLiteral)
-                name = tokens[i].Text.Length >= 2 ? tokens[i].Text[1..^1] : tokens[i].Text;
+                name = StripQuotes(tokens[i].Text);
             var mapped = tokens[i].Kind switch
             {
                 SyntaxKind.Wram0Keyword => SectionType.Wram0,
@@ -250,10 +258,28 @@ public sealed class Binder
                 _ => (SectionType?)null,
             };
             if (mapped.HasValue) type = mapped.Value;
+            if (tokens[i].Kind == SyntaxKind.OpenBracketToken && i + 1 < tokens.Count)
+            {
+                var addrVal = ExpressionEvaluator.ParseNumber(tokens[i + 1].Text);
+                if (addrVal.HasValue) fixedAddr = (int)addrVal.Value;
+            }
         }
 
+        return (name, type, fixedAddr);
+    }
+
+    private void Pass1Load(SyntaxNode node, SectionPCTracker pc)
+    {
+        var (name, _, fixedAddr) = ParseSectionTokens(node);
         if (name != null)
             pc.BeginLoad(name, fixedAddr ?? 0);
+    }
+
+    private void Pass1PushsSection(SyntaxNode node, SectionPCTracker pc)
+    {
+        var (name, _, fixedAddr) = ParseSectionTokens(node);
+        if (name != null)
+            pc.SetActive(name, fixedAddr ?? 0);
     }
 
     /// <summary>
@@ -327,7 +353,7 @@ public sealed class Binder
         {
             case SyntaxKind.DbKeyword:
             {
-                int byteCount = 0;
+                int byteCount = expressions.Count == 0 ? 1 : 0; // empty db = 1 byte
                 foreach (var expr in expressions)
                 {
                     if (IsStringLiteral(expr.Green))
@@ -349,13 +375,14 @@ public sealed class Binder
                     else
                         byteCount += 2;
                 }
+                if (byteCount == 0) byteCount = 2; // empty DW still reserves 2 bytes
                 pc.Advance(byteCount);
                 pc.AdvanceLoad(byteCount);
                 break;
             }
             case SyntaxKind.DlKeyword:
             {
-                int size = expressions.Count * 4;
+                int size = expressions.Count == 0 ? 4 : expressions.Count * 4;
                 pc.Advance(size);
                 pc.AdvanceLoad(size);
                 break;
@@ -538,11 +565,22 @@ public sealed class Binder
         // RGBDS resets local label scope on every SECTION directive
         _symbols.SetGlobalAnchor(null);
 
+        // If we're in a LOAD block, a new SECTION implicitly terminates it
+        if (_sections.IsInLoad)
+        {
+            _diagnostics.Report(node.FullSpan,
+                "Unterminated LOAD block: SECTION implicitly ends LOAD",
+                Diagnostics.DiagnosticSeverity.Warning);
+            _sections.EndLoad();
+        }
+
         if (!SectionHeaderParser.TryParse(node, _diagnostics,
                 out var name, out var sectionType, out var fixedAddress, out var bank,
                 out var isUnion, out _))
             return;
         _sections.OpenOrResume(name!, sectionType, fixedAddress, bank);
+        if (_expander != null)
+            _expander.CurrentSectionName = name;
         if (isUnion)
             _sections.BeginUnion();
     }
@@ -567,6 +605,22 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan,
                 $"Empty {keyword.Text.ToUpperInvariant()} directive",
                 Diagnostics.DiagnosticSeverity.Warning);
+            return;
+        }
+
+        // Empty data directive: db/dw/dl with no arguments → reserve their natural size with warning
+        if (expressions.Count == 0 && keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword)
+        {
+            _diagnostics.Report(node.FullSpan, "Empty data directive",
+                Diagnostics.DiagnosticSeverity.Warning);
+            int emptySize = keyword.Kind switch
+            {
+                SyntaxKind.DbKeyword => 1,
+                SyntaxKind.DwKeyword => 2,
+                SyntaxKind.DlKeyword => 4,
+                _ => 0,
+            };
+            section.ReserveBytes(emptySize);
             return;
         }
 
@@ -882,11 +936,16 @@ public sealed class Binder
 
             case SyntaxKind.PushsKeyword:
                 _sections.PushSection();
+                Pass2PushsSection(node);
                 break;
 
             case SyntaxKind.PopsKeyword:
                 if (!_sections.PopSection())
                     _diagnostics.Report(node.FullSpan, "POPS without matching PUSHS");
+                break;
+
+            case SyntaxKind.UnionKeyword:
+                _sections.BeginUnion();
                 break;
 
             case SyntaxKind.NextuKeyword:
@@ -1030,29 +1089,24 @@ public sealed class Binder
         section.ReserveBytes(pad);
     }
 
+    private void Pass2PushsSection(SyntaxNode node)
+    {
+        var (name, type, fixedAddr) = ParseSectionTokens(node);
+        if (name != null)
+            _sections.OpenOrResume(name, type, fixedAddr);
+    }
+
     private void Pass2Load(SyntaxNode node)
     {
-        var tokens = node.ChildTokens().ToList();
-        string? name = null;
-        SectionType type = SectionType.Wram0;
-        int? fixedAddr = null;
-        int? bank = null;
-
-        for (int i = 1; i < tokens.Count; i++)
+        // If we're already in a LOAD block, a new LOAD implicitly terminates it
+        if (_sections.IsInLoad)
         {
-            if (tokens[i].Kind == SyntaxKind.StringLiteral)
-                name = tokens[i].Text.Length >= 2 ? tokens[i].Text[1..^1] : tokens[i].Text;
-            var mapped = tokens[i].Kind switch
-            {
-                SyntaxKind.Wram0Keyword => SectionType.Wram0,
-                SyntaxKind.WramxKeyword => SectionType.WramX,
-                SyntaxKind.HramKeyword  => SectionType.Hram,
-                SyntaxKind.SramKeyword  => SectionType.Sram,
-                SyntaxKind.VramKeyword  => SectionType.Vram,
-                _ => (SectionType?)null,
-            };
-            if (mapped.HasValue) type = mapped.Value;
+            _diagnostics.Report(node.FullSpan,
+                "Unterminated LOAD block: new LOAD implicitly ends previous LOAD",
+                Diagnostics.DiagnosticSeverity.Warning);
         }
+
+        var (name, type, fixedAddr) = ParseSectionTokens(node);
 
         if (name == null)
         {
@@ -1060,7 +1114,7 @@ public sealed class Binder
             return;
         }
 
-        _sections.BeginLoad(name, type, fixedAddr, bank);
+        _sections.BeginLoad(name, type, fixedAddr, bank: null);
     }
 
     private static bool IsStringLiteral(Syntax.InternalSyntax.GreenNodeBase green)

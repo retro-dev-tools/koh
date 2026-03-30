@@ -80,7 +80,7 @@ public enum SyntaxKind : ushort
     MacroKeyword, EndmKeyword, ShiftKeyword,
 
     // Repeat/loop keywords
-    ReptKeyword, ForKeyword, EndrKeyword,
+    ReptKeyword, ForKeyword, EndrKeyword, BreakKeyword,
 
     // Include keywords
     IncludeKeyword, IncbinKeyword,
