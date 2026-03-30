@@ -13,6 +13,12 @@ public class BinderSymbolTests
         return binder.Bind(tree);
     }
 
+    private static EmitModel Emit(string source)
+    {
+        var tree = SyntaxTree.Parse(source);
+        return Compilation.Create(tree).Emit();
+    }
+
     [Test]
     public async Task EquConstant_ResolvedValue()
     {
@@ -414,5 +420,447 @@ public class BinderSymbolTests
         // FuncB.end address = 4 + 3 = 7
         await Assert.That(bytes[4]).IsEqualTo((byte)0x07); // low byte of FuncB.end
         await Assert.That(bytes[5]).IsEqualTo((byte)0x00); // high byte
+    }
+
+    // =========================================================================
+    // RGBDS rejection tests
+    // =========================================================================
+
+    // RGBDS: double-purge
+    [Test]
+    public async Task DoublePurge_PurgeTwice_RejectsAssembly()
+    {
+        var model = Emit("""
+            def n equ 42
+            purge n
+            purge n
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: empty-local-purged
+    [Test]
+    public async Task EmptyLocalPurged_PurgeLocalWithoutParent_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Test", ROM0
+            PURGE .test
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: local-purge
+    [Test]
+    public async Task LocalPurge_InterpolateAfterPurge_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Test", ROM0[0]
+            Glob:
+            .loc
+            PURGE .loc
+            PRINTLN "{.loc}"
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: local-ref-without-parent
+    [Test]
+    public async Task LocalRefWithoutParent_ReferenceLocalInMainScope_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Test", ROM0
+            dw .test
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: local-without-parent
+    [Test]
+    public async Task LocalWithoutParent_DeclareLocalInMainScope_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Test", ROM0
+            .test:
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: purge-ref
+    [Test]
+    public async Task PurgeRef_PurgeReferencedSymbol_RejectsAssembly()
+    {
+        // A symbol that has already been referenced cannot be purged
+        var model = Emit("""
+            SECTION "test", ROM0
+            dw ref
+            PURGE ref
+            OK:
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: purge-refs
+    [Test]
+    public async Task PurgeRefs_FloatingLabelPurgedAfterUse_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "floating purging", ROM0
+            Floating:
+            db Floating
+            PURGE Floating
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: reference-undefined-equs
+    [Test]
+    public async Task ReferenceUndefinedEqus_EqusDefinedAfterUse_RejectsAssembly()
+    {
+        // s1 is referenced before DEF s1 EQUS — must fail because EQUS cannot be patched
+        var model = Emit("""
+            SECTION "sec", ROM0[0]
+            db s1, s2
+            def s1 equs "1"
+            redef s2 equs "2"
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: ref-override-bad
+    [Test]
+    public async Task RefOverrideBad_EqusDefinedAfterUseAsNumeric_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Bad!", ROM0
+            db X
+            def X equs "0"
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: sym-collision
+    [Test]
+    public async Task SymCollision_InterpolateAfterPurge_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Collision course", OAM[$FE00]
+            dork: ds 1
+            PURGE dork
+            PRINTLN "dork: {dork}"
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: warn-truncation
+    [Test]
+    public async Task WarnTruncation_Db9BitValue_SucceedsWithWarning()
+    {
+        // In RGBDS, db with a value that doesn't fit in 8 bits is a WARNING, not an error.
+        // Assembly succeeds but a truncation/range diagnostic is emitted.
+        var model = Emit("""
+            SECTION "ROM", ROM0
+            db 1 << 8
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("truncat") || d.Message.Contains("range"))).IsTrue();
+    }
+
+    // =========================================================================
+    // RGBDS: anon-label.asm — anonymous labels with : syntax
+    // =========================================================================
+
+    [Test]
+    public async Task AnonLabel_ForwardAndBackReference_ResolvedCorrectly()
+    {
+        // RGBDS: anon-label.asm
+        // Anonymous labels use : for declaration and :- / :+ for references
+        var model = Emit("""
+            SECTION "Test", ROM0[$0000]
+            :
+                nop
+                jr :-
+            :
+                db $01
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics).IsEmpty();
+    }
+
+    // =========================================================================
+    // RGBDS: endl-local-scope.asm — ENDL restores local label scope to ROM side
+    // =========================================================================
+
+    [Test]
+    public async Task EndlLocalScope_LabelAfterEndl_AttachesToRomGlobal()
+    {
+        // RGBDS: endl-local-scope.asm
+        // .end after ENDL attaches to DMARoutineCode (ROM scope), not the LOAD block global
+        var model = Emit("""
+            SECTION "DMA ROM", ROM0[$0000]
+            DMARoutineCode:
+            LOAD "DMA RAM", HRAM[$FF80]
+            DMARoutine:
+                nop
+            ENDL
+            .end
+            """);
+        await Assert.That(model.Success).IsTrue();
+        var sym = model.Symbols.FirstOrDefault(s => s.Name == "DMARoutineCode.end");
+        await Assert.That(sym).IsNotNull();
+    }
+
+    // =========================================================================
+    // RGBDS: scope-level.asm — . and .. scope identifiers with global/local labels
+    // =========================================================================
+
+    [Test]
+    public async Task ScopeLevel_GlobalAndLocalLabels_ScopeStrings()
+    {
+        // RGBDS: scope-level.asm — Alpha.local1 is a global-syntax local label
+        var model = Emit("""
+            SECTION "test", ROM0
+            Alpha.local1:
+                nop
+            Beta:
+                nop
+            Alpha.local2:
+                nop
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "Alpha.local1")).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "Beta")).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "Alpha.local2")).IsTrue();
+    }
+
+    // =========================================================================
+    // RGBDS: period.asm — . and .. after LOAD/ENDL restore correctly
+    // =========================================================================
+
+    [Test]
+    public async Task Period_LoadEndlRestoresScope()
+    {
+        // RGBDS: period.asm — after ENDL, . and .. refer back to ROM-side globals
+        var model = Emit("""
+            SECTION "sec", ROM0
+            global2:
+            .local1:
+                nop
+            LOAD "load", WRAM0
+            wGlobal1:
+            .wLocal1:
+                ds 1
+            ENDL
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "global2.local1")).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "wGlobal1.wLocal1")).IsTrue();
+    }
+
+    // =========================================================================
+    // RGBDS: sym-scope.asm — Parent.loc and Parent.explicit are same symbol
+    // =========================================================================
+
+    [Test]
+    public async Task SymScope_ExplicitLocalInjection_SameAddressAsShortLocal()
+    {
+        // RGBDS: sym-scope.asm
+        // Parent.loc via .loc (short), Parent.explicit via Parent.explicit (fully qualified)
+        // dw Parent.loc and dw .explicit should reference the same address
+        var model = Emit("""
+            SECTION "Scopes", ROM0
+            Parent:
+            .loc
+                nop
+            Parent.explicit
+                nop
+            """);
+        await Assert.That(model.Success).IsTrue();
+        var loc = model.Symbols.FirstOrDefault(s => s.Name == "Parent.loc");
+        var expl = model.Symbols.FirstOrDefault(s => s.Name == "Parent.explicit");
+        await Assert.That(loc).IsNotNull();
+        await Assert.That(expl).IsNotNull();
+    }
+
+    // =========================================================================
+    // RGBDS: remote-local-explicit.asm — exported local, referenced from outside
+    // =========================================================================
+
+    [Test]
+    public async Task RemoteLocalExplicit_ExportedLocalReferencedExternally()
+    {
+        // RGBDS: remote-local-explicit.asm
+        // Parent.child is exported (::), NotParent uses dw Parent.child
+        var model = Emit("""
+            SECTION "sec", ROM0
+            Parent:
+            Parent.child:
+                db 0
+            NotParent:
+                dw Parent.child
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics).IsEmpty();
+        var child = model.Symbols.FirstOrDefault(s => s.Name == "Parent.child");
+        await Assert.That(child).IsNotNull();
+        await Assert.That(child!.Value).IsEqualTo(0L);
+    }
+
+    // =========================================================================
+    // RGBDS: raw-identifiers.asm — #identifier syntax allows keyword names
+    // =========================================================================
+
+    [Test]
+    public async Task RawIdentifiers_HashPrefixedKeywordNames_Defined()
+    {
+        // RGBDS: raw-identifiers.asm — def #DEF equ 1, def #def equ 2
+        var model = Emit("""
+            def #DEF equ 1
+            def #def equ 2
+            SECTION "sec", ROM0
+            db #DEF
+            db #def
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)1);
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)2);
+    }
+
+    // =========================================================================
+    // RGBDS: symbol-names.asm — identifiers with _, digits, @, #, $
+    // =========================================================================
+
+    [Test]
+    public async Task SymbolNames_UnderscoreAndAlphanumeric_Valid()
+    {
+        // RGBDS: symbol-names.asm
+        var model = Emit("""
+            def Alpha_Betical = 1
+            def A1pha_Num3r1c = 2
+            SECTION "test", WRAM0
+            wABC:: db
+            w123:: db
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "Alpha_Betical")).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "wABC")).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "w123")).IsTrue();
+    }
+
+    // =========================================================================
+    // RGBDS: equs-macrodef.asm — EQUS string containing MACRO definition
+    // =========================================================================
+
+    [Test]
+    public async Task EqusMacroDef_EqusExpansionDefinesMacro_MacroWorks()
+    {
+        // RGBDS: equs-macrodef.asm — {DEFINE} expands to a full MACRO block
+        var model = Emit("""
+            def DEFINE equs "MACRO mac\ndb $42\nENDM"
+            {DEFINE}
+            SECTION "Main", ROM0
+            mac
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x42);
+    }
+
+    // =========================================================================
+    // EQUS self-redef via brace expansion — Koh-specific behaviour test
+    // =========================================================================
+
+    [Test]
+    public async Task EqusNest_SelfRedefViaExpansion_NewValueUsedOnSecondExpansion()
+    {
+        // {X} expands X → "redef X equs \"nop\""; then {X} uses the new value "nop"
+        var model = Emit("""
+            def X equs "redef X equs \"nop\""
+            {X}
+            SECTION "Main", ROM0
+            {X}
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x00); // nop
+    }
+
+    // =========================================================================
+    // RGBDS: equs-newline.asm — EQUS with \n produces multiple statements
+    // =========================================================================
+
+    [Test]
+    public async Task EqusNewline_EmbeddedNewline_ExpandsToMultipleStatements()
+    {
+        // RGBDS: equs-newline.asm
+        // {ACT} expands to "WARN \"First\"\nWARN \"Second\"" — two warnings emitted
+        var model = Emit("""
+            def ACT equs "WARN \"First\"\nWARN \"Second\""
+            {ACT}
+            WARN "Third"
+            SECTION "Main", ROM0
+            nop
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("First"))).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("Second"))).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("Third"))).IsTrue();
+    }
+
+    // =========================================================================
+    // RGBDS: equs-purge.asm — EQUS body PURGEs the symbol mid-expansion
+    // =========================================================================
+
+    [Test]
+    public async Task EqusPurge_SelfPurgeDuringExpansion_SucceedsWithWarning()
+    {
+        // RGBDS: equs-purge.asm — BYE PURGEs itself then WARNs during {BYE} expansion
+        var model = Emit("""
+            def BYE equs "PURGE BYE\nWARN \"Crash?\"\n"
+            {BYE}
+            SECTION "Main", ROM0
+            nop
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("Crash?"))).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "BYE")).IsFalse();
+    }
+
+    // =========================================================================
+    // RGBDS: label-indent.asm — labels at any indentation level
+    // =========================================================================
+
+    [Test]
+    public async Task LabelIndent_IndentedGlobalAndLocalLabels_Defined()
+    {
+        // RGBDS: label-indent.asm — Lab:, .loc, Lab.loc2 all work indented
+        var model = Emit("""
+            SECTION "test", WRAMX
+            	Lab:
+            	.loc
+            	Lab.loc2
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "Lab")).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "Lab.loc")).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "Lab.loc2")).IsTrue();
+    }
+
+    // =========================================================================
+    // RGBDS: purge-deferred.asm — PURGE with brace-expanded names
+    // =========================================================================
+
+    [Test]
+    public async Task PurgeDeferred_BraceExpandedNameInPurgeList_BothSymbolsRemoved()
+    {
+        // RGBDS: purge-deferred.asm
+        // Purging 'prefix' must not prevent evaluating {prefix}banana → coolbanana
+        var model = Emit("""
+            DEF prefix EQUS "cool"
+            DEF {prefix}banana EQU 1
+            PURGE prefix, {prefix}banana
+            SECTION "Main", ROM0
+            nop
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Symbols.Any(s => s.Name == "prefix")).IsFalse();
+        await Assert.That(model.Symbols.Any(s => s.Name == "coolbanana")).IsFalse();
     }
 }

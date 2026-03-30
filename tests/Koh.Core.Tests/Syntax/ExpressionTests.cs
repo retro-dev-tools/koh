@@ -1,3 +1,5 @@
+using Koh.Core;
+using Koh.Core.Binding;
 using Koh.Core.Syntax;
 
 namespace Koh.Core.Tests.Syntax;
@@ -386,5 +388,276 @@ public class ExpressionTests
         await Assert.That(expr.Kind).IsEqualTo(SyntaxKind.BinaryExpression);
         var children = expr.ChildNodesAndTokens().ToList();
         await Assert.That(children[0].AsNode!.Kind).IsEqualTo(SyntaxKind.NameExpression);
+    }
+
+    // =========================================================================
+    // Semantic evaluation tests (expression results at bind time)
+    // =========================================================================
+
+    private static EmitModel Emit(string source)
+    {
+        var tree = SyntaxTree.Parse(source);
+        return Compilation.Create(tree).Emit();
+    }
+
+    // --- RGBDS: bit-functions.asm ---
+
+    [Test]
+    public async Task BitWidth_Zero_IsZero()
+    {
+        // RGBDS: bit-functions.asm
+        var model = Emit("assert BITWIDTH(0) == 0");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task BitWidth_42_IsSix()
+    {
+        // RGBDS: bit-functions.asm
+        var model = Emit("assert BITWIDTH(42) == 6");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task BitWidth_NegativeOne_Is32()
+    {
+        // RGBDS: bit-functions.asm
+        var model = Emit("assert BITWIDTH(-1) == 32");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task BitWidth_MinInt_Is32()
+    {
+        // RGBDS: bit-functions.asm
+        var model = Emit("assert BITWIDTH($80000000) == 32");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task TzCount_Zero_Is32()
+    {
+        // RGBDS: bit-functions.asm
+        var model = Emit("assert TZCOUNT(0) == 32");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task TzCount_42_IsOne()
+    {
+        // RGBDS: bit-functions.asm — 42 = 0b101010, lowest set bit is bit 1
+        var model = Emit("assert TZCOUNT(42) == 1");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task TzCount_NegativeOne_IsZero()
+    {
+        // RGBDS: bit-functions.asm — all bits set, no trailing zeros
+        var model = Emit("assert TZCOUNT(-1) == 0");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task TzCount_MinInt_Is31()
+    {
+        // RGBDS: bit-functions.asm — $80000000 = only bit 31 set
+        var model = Emit("assert TZCOUNT($80000000) == 31");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    // --- RGBDS: math.asm — integer exponentiation (**) and arithmetic ---
+
+    [Test]
+    public async Task Exponentiation_2Pow10_Is1024()
+    {
+        // RGBDS: math.asm — ** operator
+        var model = Emit("assert 2 ** 10 == 1024");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task Exponentiation_NegBase_OddExp_IsNegative()
+    {
+        // RGBDS: math.asm — -(3**4) == -81
+        var model = Emit("assert -(3 ** 4) == -81");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task Exponentiation_2Pow30_IsLargeValue()
+    {
+        // RGBDS: math.asm — 2**30 == $40000000
+        var model = Emit("assert 2 ** 30 == $4000_0000");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task IntegerDivision_TruncatesDown()
+    {
+        // RGBDS: math.asm — 37/2 == 18
+        var model = Emit("assert 37 / 2 == 18");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    // --- RGBDS: exponent.asm — ** over loop ---
+
+    [Test]
+    public async Task Exponentiation_ZeroPow_IsOne()
+    {
+        // RGBDS: exponent.asm — any x**0 == 1
+        var model = Emit("assert 5 ** 0 == 1");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task Exponentiation_ThreePowFour_Is81()
+    {
+        // RGBDS: exponent.asm
+        var model = Emit("assert 3 ** 4 == 81");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task Exponentiation_NegativeBase_EvenExp_IsPositive()
+    {
+        // RGBDS: exponent.asm — (-3)**4 == 81
+        var model = Emit("assert (-3) ** 4 == 81");
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    // --- RGBDS: ccode.asm — condition code operators (! prefix) ---
+
+    [Test]
+    public async Task ConditionCode_LogicalNot_JpNz()
+    {
+        // RGBDS: ccode.asm — "jp !nz, Label" is valid (nz negated)
+        var model = Emit("""
+            SECTION "ccode test", ROM0[0]
+            Label:
+            .local1
+                jp z, Label
+                jr nz, .local1
+            .local2
+                jp !nz, Label
+                jr !z, .local2
+            """);
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task ConditionCode_DoubleNot_IsOriginal()
+    {
+        // RGBDS: ccode.asm — !!z == z, !!nz == nz
+        var model = Emit("""
+            SECTION "ccode test", ROM0[0]
+            Label:
+            .local3
+                jp !!z, Label
+                jr !!nz, .local3
+                call !!c, Label
+                call !!nc, Label
+            """);
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    // --- RGBDS: pc-operand.asm — @ in instruction operands ---
+
+    [Test]
+    public async Task PcOperand_RstAtFixed()
+    {
+        // RGBDS: pc-operand.asm — rst @ at address 0 means rst 0
+        var model = Emit("""
+            SECTION "fixed", ROM0[0]
+                rst @
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xC7); // RST 0x00
+    }
+
+    [Test]
+    public async Task PcOperand_LdDeAtAddress()
+    {
+        // RGBDS: pc-operand.asm — ld de, @ at offset 1 yields ld de, 1
+        var model = Emit("""
+            SECTION "fixed", ROM0[0]
+                rst @
+                ld de, @
+            """);
+        await Assert.That(model.Success).IsTrue();
+        // rst @ = 1 byte at 0, then ld de,@ is ld de,1 = 0x11 0x01 0x00
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xC7);
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0x11);
+        await Assert.That(model.Sections[0].Data[2]).IsEqualTo((byte)0x01);
+    }
+
+    [Test]
+    public async Task PcOperand_JrAtIsJrZero()
+    {
+        // RGBDS: jr-@.asm — jr @ in a fixed section at 0 encodes as jr 0 (opcode $18, offset -2)
+        var model = Emit("""
+            SECTION "fixed", ROM0[0]
+                jr @
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x18); // JR
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0xFE); // offset -2 (back to self)
+    }
+
+    // --- RGBDS: pc.asm — @ in PRINTLN ---
+
+    [Test]
+    public async Task Pc_PrintlnInFixedSection()
+    {
+        // RGBDS: pc.asm — PRINTLN "{@}" in section at $1A4 outputs "$1A4"
+        var sw = new System.IO.StringWriter();
+        var tree = SyntaxTree.Parse("""
+            SECTION "fixed", ROM0[420]
+                PRINTLN "{@}"
+                ds 69
+                PRINTLN "{@}"
+            """);
+        var model = Compilation.Create(sw, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+        var output = sw.ToString();
+        await Assert.That(output).Contains("$1A4");
+        await Assert.That(output).Contains("$1E9");
+    }
+
+    // --- RGBDS: ds-@.asm — @ in DS fill expressions ---
+
+    [Test]
+    public async Task DsAt_FixedSectionFill()
+    {
+        // RGBDS: ds-@.asm — ds 4, @ fills 4 bytes with the current PC value at each byte
+        var model = Emit("""
+            SECTION "zero", ROM0[0]
+            zero:
+            SECTION "test fixed", ROM0[0]
+            FixedStart:
+                ds 4, @
+            """);
+        await Assert.That(model.Success).IsTrue();
+        // At ROM0[0], ds 4, @ → each byte is filled with @ at that position: 0,1,2,3
+        var sec = model.Sections.First(s => s.Name == "test fixed");
+        await Assert.That(sec.Data[0]).IsEqualTo((byte)0);
+        await Assert.That(sec.Data[1]).IsEqualTo((byte)1);
+        await Assert.That(sec.Data[2]).IsEqualTo((byte)2);
+        await Assert.That(sec.Data[3]).IsEqualTo((byte)3);
+    }
+
+    // --- RGBDS: assert-const.asm — link-time assert on a known-constant @ ---
+
+    [Test]
+    public async Task Assert_PcAtFixedAddressIsConst()
+    {
+        // RGBDS: assert-const.asm — @ in a fixed ROM0 section is known at assembly time
+        var model = Emit("""
+            SECTION "rgbasm passing asserts", ROM0[0]
+                db 0
+                assert @
+            """);
+        // @ == 1 at the assert point (after db 0), so assert 1 should pass
+        await Assert.That(model.Success).IsTrue();
     }
 }

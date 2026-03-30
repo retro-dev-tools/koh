@@ -211,4 +211,75 @@ public class IncludeTests
         var diag = model.Diagnostics.First(d => d.Message.Contains("outside of a section"));
         await Assert.That(diag.FilePath).IsEqualTo("main.asm");
     }
+
+    // =========================================================================
+    // RGBDS rejection tests
+    // =========================================================================
+
+    // RGBDS: include-slash
+    [Test]
+    public async Task IncludeSlash_MissingPreIncludedFile_RejectsAssembly()
+    {
+        // When the assembler is invoked with a pre-include flag pointing to a
+        // non-existent file, assembly must fail. Simulate by INCLUDEing a file
+        // that the VFS does not contain.
+        var model = Emit("""
+            INCLUDE "include-slash-nonexist.inc"
+            println x
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: incbin-empty-bad
+    [Test]
+    public async Task IncbinEmptyBad_RangeExceedsFileSize_RejectsAssembly()
+    {
+        // INCBIN with a length that exceeds the file's content must fail
+        var vfs = new VirtualFileResolver();
+        vfs.AddBinaryFile("empty.bin", Array.Empty<byte>());
+        var model = Emit("""
+            SECTION "Test", ROM0
+            INCBIN "empty.bin", 0, 1
+            """, vfs);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: incbin-end-bad
+    [Test]
+    public async Task IncbinEndBad_StartPlusLengthExceedsFile_RejectsAssembly()
+    {
+        var vfs = new VirtualFileResolver();
+        vfs.AddBinaryFile("data.bin", new byte[123]);
+        var model = Emit("""
+            SECTION "Bad", ROM0
+            INCBIN "data.bin", 123, 1
+            """, vfs);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: incbin-negative-bad
+    [Test]
+    public async Task IncbinNegativeBad_NegativeStartOffset_RejectsAssembly()
+    {
+        var vfs = new VirtualFileResolver();
+        vfs.AddBinaryFile("data.bin", new byte[200]);
+        var model = Emit("""
+            SECTION "Bad", ROM0
+            INCBIN "data.bin", -42
+            """, vfs);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: incbin-start-bad
+    [Test]
+    public async Task IncbinStartBad_StartOffsetBeyondEndOfFile_RejectsAssembly()
+    {
+        var vfs = new VirtualFileResolver();
+        vfs.AddBinaryFile("data.bin", new byte[123]);
+        var model = Emit("""
+            SECTION "Bad", ROM0
+            INCBIN "data.bin", 999
+            """, vfs);
+        await Assert.That(model.Success).IsFalse();
+    }
 }

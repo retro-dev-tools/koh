@@ -255,4 +255,261 @@ public class UnionLoadTests
         var ram = model.Sections.FirstOrDefault(s => s.Name == "MyRAM");
         await Assert.That(ram).IsNotNull();
     }
+
+    // =========================================================================
+    // RGBDS rejection tests
+    // =========================================================================
+
+    // RGBDS: load-rom
+    [Test]
+    public async Task LoadRom_LoadBlockForRomSection_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Hello", ROM0
+            ld a, 1
+            LOAD "Wello", ROM0
+            ld a, 2
+            ENDL
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: load-overflow
+    [Test]
+    public async Task LoadOverflow_SectionExceedsMaxSize_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION "Overflow", ROM0
+            ds $6000
+            LOAD "oops", WRAM0
+            ds $2000
+            db
+            db
+            ENDL
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: section-in-load
+    [Test]
+    public async Task SectionInLoad_SectionInsideLoadBlock_RejectsAssembly()
+    {
+        // A SECTION directive inside a LOAD block implicitly terminates the block;
+        // the subsequent ENDL is then dangling.
+        var model = Emit("""
+            SECTION "outer1", ROM0
+            LOAD "ram", WRAM0
+            SECTION "outer2", ROM0
+            ENDL
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: union-mismatch
+    [Test]
+    public async Task UnionMismatch_FixedVsAligned_RejectsAssembly()
+    {
+        var model = Emit("""
+            SECTION UNION "fixed", WRAM0[$c001]
+            SECTION UNION "fixed", WRAM0, ALIGN[1]
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // =========================================================================
+    // RGBDS: single-union.asm — simplest UNION with one exported label
+    // =========================================================================
+
+    [Test]
+    public async Task SingleUnion_ExportedLabel_AtBaseAddress()
+    {
+        // RGBDS: single-union.asm — UNION with single exported label :: ds 5
+        var model = Emit("""
+            SECTION "test", WRAM0
+            UNION
+            label: ds 5
+            ENDU
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics).IsEmpty();
+        var label = model.Symbols.FirstOrDefault(s => s.Name == "label");
+        await Assert.That(label).IsNotNull();
+        await Assert.That(label!.Value).IsEqualTo(0L);
+    }
+
+    // =========================================================================
+    // RGBDS: union-in-union.asm — nested UNION inside outer UNION member
+    // =========================================================================
+
+    [Test]
+    public async Task UnionInUnion_NestedUnionSize_IsMaxOfAll()
+    {
+        // RGBDS: union-in-union.asm — nested union, sizeof("test") == 4
+        // Inner union: max(db=1, dw=2) = 2; outer: max(inner=2, dl=4) = 4
+        var model = Emit("""
+            SECTION "test", WRAM0
+            UNION
+                UNION
+                    db
+                NEXTU
+                    dw
+                ENDU
+            NEXTU
+                dl
+            ENDU
+            after: ds 1
+            """);
+        await Assert.That(model.Success).IsTrue();
+        var after = model.Symbols.FirstOrDefault(s => s.Name == "after");
+        await Assert.That(after).IsNotNull();
+        await Assert.That(after!.Value).IsEqualTo(4L);
+    }
+
+    // =========================================================================
+    // RGBDS: union-pushs.asm — PUSHS/POPS inside UNION member
+    // =========================================================================
+
+    [Test]
+    public async Task UnionPushs_PushsInsideUnionMember_SectionSizesCorrect()
+    {
+        // RGBDS: union-pushs.asm — PUSHS creates HRAM section inside UNION member
+        var model = Emit("""
+            SECTION "Test", ROM0[$0]
+            dw 0
+            dw 0
+
+            SECTION "RAM", WRAM0
+            ds 654
+            UNION
+            ds 14
+            NEXTU
+            ds 897
+
+            PUSHS
+            SECTION "HRAM", HRAM
+            ds $7F
+            POPS
+            ds 75
+            NEXTU
+            ds 863
+            ENDU
+            ds 28
+            """);
+        await Assert.That(model.Success).IsTrue();
+        var hram = model.Sections.FirstOrDefault(s => s.Name == "HRAM");
+        await Assert.That(hram).IsNotNull();
+    }
+
+    // =========================================================================
+    // RGBDS: load-endings.asm — LOAD terminated by LOAD/SECTION/POPS/ENDSECTION
+    // =========================================================================
+
+    [Test]
+    public async Task LoadEndings_LoadTerminatedByNewLoad_WarnsUnterminated()
+    {
+        // RGBDS: load-endings.asm — second LOAD terminates first without ENDL
+        var model = Emit("""
+            SECTION "A", ROM0
+            db 1
+            LOAD "P", WRAM0
+            db 2
+            LOAD "Q", WRAM0
+            db 3
+            ENDL
+            """);
+        // RGBDS warns about unterminated LOAD, but assembles ok
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("LOAD"))).IsTrue();
+    }
+
+    [Test]
+    public async Task LoadEndings_LoadTerminatedBySection_WarnsUnterminated()
+    {
+        // RGBDS: load-endings.asm — SECTION after LOAD terminates it without ENDL
+        var model = Emit("""
+            SECTION "A", ROM0
+            db 1
+            LOAD "P", WRAM0
+            db 2
+            SECTION "B", ROM0
+            db 3
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("LOAD"))).IsTrue();
+    }
+
+    // =========================================================================
+    // RGBDS: load-pushs.asm — PUSHS inside LOAD block
+    // =========================================================================
+
+    [Test]
+    public async Task LoadPushs_PushsInsideLoad_HramSectionCreated()
+    {
+        // RGBDS: load-pushs.asm — PUSHS creates HRAM section while inside LOAD
+        var model = Emit("""
+            SECTION "ROM CODE", ROM0
+            ds $80
+            LOAD "RAM CODE", SRAM
+            PUSHS "HRAM", HRAM
+            ds 1
+            POPS
+            ENDL
+            """);
+        await Assert.That(model.Success).IsTrue();
+        var hram = model.Sections.FirstOrDefault(s => s.Name == "HRAM");
+        await Assert.That(hram).IsNotNull();
+    }
+
+    // =========================================================================
+    // RGBDS: load-pushs-load.asm — LOAD + PUSHS + nested LOAD + labels
+    // =========================================================================
+
+    [Test]
+    public async Task LoadPushsLoad_NestedLoadAndPushs_LabelsGetCorrectAddresses()
+    {
+        // RGBDS: load-pushs-load.asm — PUSHS inside LOAD then another LOAD inside pushed section
+        var model = Emit("""
+            SECTION "A", ROM0[$1324]
+            Rom0Label1:
+            LOAD "LA", SRAM[$BEAD]
+            SramLabel1:
+            PUSHS
+            SECTION "B", ROMX[$4698]
+            RomxLabel1:
+            POPS
+            SramLabel2:
+            ENDL
+            Rom0Label2:
+            """);
+        await Assert.That(model.Success).IsTrue();
+        var sram1 = model.Symbols.FirstOrDefault(s => s.Name == "SramLabel1");
+        var sram2 = model.Symbols.FirstOrDefault(s => s.Name == "SramLabel2");
+        await Assert.That(sram1).IsNotNull();
+        await Assert.That(sram2).IsNotNull();
+        await Assert.That(sram1!.Value).IsEqualTo(0xBEADL);
+    }
+
+    // =========================================================================
+    // RGBDS: endl-local-scope.asm (UnionLoad variant) — .end after ENDL
+    // =========================================================================
+
+    [Test]
+    public async Task UnionLoad_EndlLocalScope_DotEndAfterEndlIsRomScope()
+    {
+        // RGBDS: endl-local-scope.asm
+        // .end label placed after ENDL in ROM context references DMARoutineCode scope
+        var model = Emit("""
+            SECTION "DMA ROM", ROM0[$0000]
+            DMARoutineCode:
+            LOAD "DMA RAM", HRAM[$FF80]
+            DMARoutine:
+                nop
+                ret
+            ENDL
+            .end
+            """);
+        await Assert.That(model.Success).IsTrue();
+        var endSym = model.Symbols.FirstOrDefault(s => s.Name == "DMARoutineCode.end");
+        await Assert.That(endSym).IsNotNull();
+    }
 }

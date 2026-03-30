@@ -514,4 +514,17 @@ public class ParserTests
         var symDir = FindFirst(tree.Root, SyntaxKind.SymbolDirective);
         await Assert.That(symDir).IsNull();
     }
+
+    // =========================================================================
+    // RGBDS rejection tests
+    // =========================================================================
+
+    // RGBDS: syntax-error
+    [Test]
+    public async Task SyntaxError_PrintFollowedByIdentifier_ProducesDiagnostic()
+    {
+        // "print a" — PRINT expects a string or expression, bare 'a' is a syntax error
+        var tree = SyntaxTree.Parse("print a");
+        await Assert.That(tree.Diagnostics).IsNotEmpty();
+    }
 }

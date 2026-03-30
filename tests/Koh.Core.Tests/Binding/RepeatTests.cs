@@ -204,24 +204,6 @@ public class RepeatTests
     }
 
     [Test]
-    public async Task Rept_UniqueAt_Labels()
-    {
-        // \@ in label names produces unique labels per iteration
-        var model = Emit("""
-            my_macro: MACRO
-            .local\@:
-                nop
-            ENDM
-            SECTION "Main", ROM0
-            my_macro
-            my_macro
-            """);
-        foreach (var d in model.Diagnostics) Console.WriteLine($"  {d}");
-        await Assert.That(model.Success).IsTrue();
-        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2); // two nops from two invocations
-    }
-
-    [Test]
     public async Task ForLoop_DataTable()
     {
         var model = Emit("""
@@ -235,5 +217,180 @@ public class RepeatTests
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0);
         await Assert.That(model.Sections[0].Data[3]).IsEqualTo((byte)6);
         await Assert.That(model.Sections[0].Data[7]).IsEqualTo((byte)14);
+    }
+
+    // =========================================================================
+    // RGBDS rejection tests
+    // =========================================================================
+
+    // RGBDS: rept-trace
+    [Test]
+    public async Task ReptTrace_NestedReptWithFailingAssertion_RejectsAssembly()
+    {
+        // Deeply nested REPT/FOR with a STATIC_ASSERT 0 at the innermost level must fail
+        var model = Emit("""
+            SECTION "test", ROM0
+            MACRO m
+            static_assert \1
+            ENDM
+            REPT 2
+            m 0
+            ENDR
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // =========================================================================
+    // RGBDS: nested-break.asm — BREAK inside nested FOR/REPT
+    // =========================================================================
+
+    [Test]
+    public async Task NestedBreak_BreakInnerForLoop_ContinuesOuterRept()
+    {
+        // RGBDS: nested-break.asm
+        // BREAK in the inner FOR exits only the inner loop; the outer REPT continues.
+        // We test the simpler property: BREAK in a nested loop doesn't abort the outer.
+        var sw = new System.IO.StringWriter();
+        var tree = SyntaxTree.Parse("""
+            def n = 1
+            REPT 3
+                FOR x, 10
+                    if x == n
+                        BREAK
+                    endc
+                ENDR
+                def n = n + 1
+            ENDR
+            PRINTLN "done"
+            SECTION "Main", ROM0
+            nop
+            """);
+        var model = Compilation.Create(sw, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(sw.ToString()).Contains("done");
+    }
+
+    [Test]
+    public async Task NestedBreak_BreakOuterLoop_ExitsAtCondition()
+    {
+        // RGBDS: nested-break.asm — outer REPT breaks when n==2
+        var sw = new System.IO.StringWriter();
+        var tree = SyntaxTree.Parse("""
+            def n = 1
+            REPT 10
+                if n == 2
+                    BREAK
+                endc
+                PRINTLN "n={d:n}"
+                def n = n + 1
+            ENDR
+            PRINTLN "after n={d:n}"
+            SECTION "Main", ROM0
+            nop
+            """);
+        var model = Compilation.Create(sw, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+        var output = sw.ToString();
+        await Assert.That(output).Contains("n=1");
+        await Assert.That(output).DoesNotContain("n=2");
+        await Assert.That(output).Contains("after n=2");
+    }
+
+    // =========================================================================
+    // RGBDS: for-loop-count.asm — FOR with large/negative 32-bit range values
+    // =========================================================================
+
+    [Test]
+    public async Task ForLoopCount_PositiveRange_ExecutesCorrectIterations()
+    {
+        // RGBDS: for-loop-count.asm — basic positive range with step
+        var model = Emit("""
+            SECTION "Main", ROM0
+            FOR x, 0, 4, 1
+            db x
+            ENDR
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(4);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0);
+        await Assert.That(model.Sections[0].Data[3]).IsEqualTo((byte)3);
+    }
+
+    [Test]
+    public async Task ForLoopCount_StartEqualsStop_ZeroIterations()
+    {
+        // RGBDS: for-loop-count.asm — start >= stop with positive step → count = 0
+        var model = Emit("""
+            SECTION "Main", ROM0
+            FOR x, 4, 4, 1
+            db x
+            ENDR
+            nop
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1); // only nop
+    }
+
+    [Test]
+    public async Task ForLoopCount_BackwardsStepWarning_ZeroIterations()
+    {
+        // RGBDS: for-loop-count.asm — negative step backwards produces warning, 0 iterations
+        var model = Emit("""
+            SECTION "Main", ROM0
+            FOR x, -1, 4, -1
+            db x
+            ENDR
+            nop
+            """);
+        // backwards-for warning but assembles ok with 0 iterations
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1); // only nop
+    }
+
+    // =========================================================================
+    // RGBDS: unique-id-nested.asm — \@ unique IDs in nested macro/REPT
+    // =========================================================================
+
+    [Test]
+    public async Task UniqueIdNested_MacroInsideRept_UniqueAtSuffixes()
+    {
+        // RGBDS: unique-id-nested.asm — each macro call and REPT iteration gets distinct \@
+        var sw = new System.IO.StringWriter();
+        var tree = SyntaxTree.Parse("""
+            MACRO m1
+            PRINTLN "mac: \@"
+            ENDM
+            REPT 2
+            m1
+            PRINTLN "rept: \@"
+            ENDR
+            SECTION "Main", ROM0
+            nop
+            """);
+        var model = Compilation.Create(sw, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+        var lines = sw.ToString().Split('\n', System.StringSplitOptions.RemoveEmptyEntries);
+        // All \@ values must be distinct
+        var ids = lines.Select(l => l.Trim()).ToList();
+        await Assert.That(ids.Distinct().Count()).IsEqualTo(ids.Count);
+    }
+
+    [Test]
+    public async Task UniqueIdNested_NestedMacroDefinedInRept_UniqueLabels()
+    {
+        // RGBDS: unique-id-nested.asm — macro defined inside REPT body; inner \@ is unique
+        var model = Emit("""
+            MACRO outer
+            .label\@:
+                nop
+            ENDM
+            SECTION "Main", ROM0
+            outer
+            outer
+            outer
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics).IsEmpty();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(3);
     }
 }

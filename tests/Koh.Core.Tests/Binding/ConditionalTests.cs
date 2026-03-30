@@ -286,6 +286,7 @@ public class ConditionalTests
             ENDC
             """);
         await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x3E); // ld a, n8 opcode
         await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0x80);
     }
 
@@ -296,6 +297,190 @@ public class ConditionalTests
             IF __RGBDS_MAJOR__ >= 1
             SECTION "Main", ROM0
             db $AA
+            ENDC
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xAA);
+    }
+
+    // =========================================================================
+    // RGBDS rejection tests
+    // =========================================================================
+
+    // RGBDS: elif-after-else
+    [Test]
+    public async Task ElifAfterElse_ElifFollowingElseBlock_RejectsAssembly()
+    {
+        var model = Emit("""
+            if 0
+            println "zero"
+            else
+            println "one"
+            elif 2
+            println "two"
+            endc
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: multiple-else
+    [Test]
+    public async Task MultipleElse_TwoElseBlocksInOneIf_RejectsAssembly()
+    {
+        var model = Emit("""
+            if 0
+            println "zero"
+            else
+            println "one"
+            else
+            println "two"
+            endc
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: label-before-endc
+    [Test]
+    public async Task LabelBeforeEndc_LabelOnSameLineAsEndc_RejectsAssembly()
+    {
+        // "label0: endc" — ENDC cannot follow a label on the same line
+        var model = Emit("""
+            SECTION "test", ROM0
+            if 1
+            println "one"
+            label0: endc
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: misleading-indentation
+    [Test]
+    public async Task MisleadingIndentation_EndcInsideRept_RejectsAssembly()
+    {
+        // ENDC inside REPT that was inside IF — the IF block is never closed
+        var model = Emit("""
+            IF 1
+            REPT 1
+            ENDC
+            ENDR
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: code-after-endm-endr-endc (ENDR variant)
+    [Test]
+    public async Task CodeAfterEndr_TrailingTokenOnEndrLine_RejectsAssembly()
+    {
+        var model = Emit("""
+            REPT 3
+            println "hey!"
+            ENDR println "<_<"
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: code-after-endm-endr-endc (ELSE variant)
+    [Test]
+    public async Task CodeAfterElse_TrailingTokenOnElseLine_RejectsAssembly()
+    {
+        var model = Emit("""
+            IF 0
+            println "skipped"
+            ELSE println "<_<"
+            println "else clause"
+            ENDC
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // RGBDS: code-after-endm-endr-endc (ENDC variant)
+    [Test]
+    public async Task CodeAfterEndc_TrailingTokenOnEndcLine_RejectsAssembly()
+    {
+        var model = Emit("""
+            IF 1
+            println "if clause"
+            ENDC println "<_<"
+            """);
+        await Assert.That(model.Success).IsFalse();
+    }
+
+    // =========================================================================
+    // RGBDS: nested-if.asm — IF with parens, braces, nested in false branch
+    // =========================================================================
+
+    [Test]
+    public async Task NestedIf_SkippedBranch_NestedIfWithParens_Ignored()
+    {
+        // RGBDS: nested-if.asm — IF 0 skips everything including nested IFs
+        // All the nested if(1), if 1, if{x} inside the false branch are ignored
+        var model = Emit("""
+            IF 0
+            IF 1
+            nop
+            ENDC
+            IF 1
+            nop
+            ENDC
+            ENDC
+            SECTION "Main", ROM0
+            halt
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x76); // halt
+    }
+
+    [Test]
+    public async Task NestedIf_TrueBranch_ElseBranch_NestedIfIgnored()
+    {
+        // RGBDS: nested-if.asm — IF 1 takes true branch; ELSE branch with nested IFs skipped
+        var model = Emit("""
+            IF 1
+            nop
+            ELSE
+            IF 1
+            halt
+            ENDC
+            IF 1
+            halt
+            ENDC
+            ENDC
+            SECTION "Main", ROM0
+            nop
+            """);
+        await Assert.That(model.Success).IsTrue();
+        // only one nop from IF branch, not halt from else
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x00);
+    }
+
+    [Test]
+    public async Task NestedIf_IfWithParentheses_ParsedCorrectly()
+    {
+        // RGBDS: nested-if.asm — if(1) syntax (parens immediately after IF keyword)
+        var model = Emit("""
+            IF(1)
+            SECTION "Main", ROM0
+            nop
+            ENDC
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task NestedIf_DeepNesting_CorrectBranchSelection()
+    {
+        // RGBDS: nested-if.asm style — three levels of nesting
+        var model = Emit("""
+            IF 1
+            IF 1
+            IF 1
+            SECTION "Main", ROM0
+            db $AA
+            ENDC
+            ENDC
             ENDC
             """);
         await Assert.That(model.Success).IsTrue();

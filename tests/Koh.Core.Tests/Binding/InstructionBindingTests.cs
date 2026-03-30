@@ -806,4 +806,55 @@ public class InstructionBindingTests
         await Assert.That(bytes[2]).IsEqualTo((byte)0x18); // jr
         await Assert.That(bytes[3]).IsEqualTo((byte)0x01); // offset = 1 (skip 1 nop)
     }
+
+    // =========================================================================
+    // RGBDS rejection tests
+    // =========================================================================
+
+    // RGBDS: ff00+c-bad
+    [Test]
+    public async Task Ff00PlusCBad_BaseNotFF00_RejectsAssembly()
+    {
+        // [$ff01 + c] — base must be exactly $FF00 for this addressing mode
+        var result = Bind("""
+            SECTION "ff00+c or not to ff00+c", ROMX
+            ld a, [$ff01 + c]
+            """);
+        await Assert.That(result.Success).IsFalse();
+    }
+
+    // RGBDS: invalid-ldh
+    [Test]
+    public async Task InvalidLdh_AddressNotInHighRam_RejectsAssembly()
+    {
+        // LDH requires address in $FF00–$FFFF; $11 is out of range
+        var result = Bind("""
+            SECTION "test", ROM0
+            ldh [$11], a
+            ldh a, [$22]
+            """);
+        await Assert.That(result.Success).IsFalse();
+    }
+
+    // RGBDS: divzero-instr
+    [Test]
+    public async Task DivzeroInstr_DivisionByZeroInOperand_RejectsAssembly()
+    {
+        var result = Bind("""
+            SECTION "sec", ROM0
+            ld a, 1/0
+            """);
+        await Assert.That(result.Success).IsFalse();
+    }
+
+    // RGBDS: modzero-instr
+    [Test]
+    public async Task ModzeroInstr_ModuloByZeroInOperand_RejectsAssembly()
+    {
+        var result = Bind("""
+            SECTION "sec", ROM0
+            ld a, 1 % 0
+            """);
+        await Assert.That(result.Success).IsFalse();
+    }
 }

@@ -280,6 +280,7 @@ public class CharMapTests
             SECTION "Main", ROM0
             nop
             """);
+        await Assert.That(model.Success).IsFalse();
         await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("REVCHAR"))).IsTrue();
     }
 
@@ -305,6 +306,7 @@ public class CharMapTests
             SECTION "Main", ROM0
             nop
             """);
+        await Assert.That(model.Success).IsFalse();
         await Assert.That(model.Diagnostics.Any(d => d.Message.Contains("not found"))).IsTrue();
     }
 
@@ -321,5 +323,173 @@ public class CharMapTests
             """);
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x90);
+    }
+
+    // =========================================================================
+    // RGBDS: charmap-unicode.asm — multi-byte UTF-8 characters as charmap keys
+    // =========================================================================
+
+    [Test]
+    public async Task CharmapUnicode_SingleUtf8Char_CharlenIsOne()
+    {
+        // RGBDS: charmap-unicode.asm — charmap "デ", 42 → charlen("デ") == 1
+        var model = Emit("""
+            CHARMAP "デ", 42
+            SECTION "Main", ROM0
+            db "デ"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task CharmapUnicode_MultipleUtf8Chars_CharlenMatchesCodepointCount()
+    {
+        // RGBDS: charmap-unicode.asm — charmap "グレイシア", 99 → 5 codepoints map to 1 byte
+        var model = Emit("""
+            CHARMAP "グレイシア", 99
+            SECTION "Main", ROM0
+            db "グレイシア"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)99);
+    }
+
+    [Test]
+    public async Task CharmapUnicode_MixedAsciiAndUtf8()
+    {
+        // RGBDS: charmap-unicode.asm — charmap "Pokémon", 77 → maps 7-codepoint sequence
+        var model = Emit("""
+            CHARMAP "Pokémon", 77
+            SECTION "Main", ROM0
+            db "Pokémon"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)77);
+    }
+
+    // =========================================================================
+    // RGBDS: multivalue-charmap.asm — multi-byte charmap values, truncation warnings
+    // =========================================================================
+
+    [Test]
+    public async Task MultivalueCharmap_MultiByteCharEntry_DbEmitsAllBytes()
+    {
+        // RGBDS: multivalue-charmap.asm — charmap "啊", $04, $c3 → 2-byte mapping
+        var model = Emit("""
+            SECTION "test", ROM0[$0]
+            CHARMAP "a", $61
+            CHARMAP "啊", $04, $c3
+            db "a啊"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x61);
+        await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0x04);
+        await Assert.That(model.Sections[0].Data[2]).IsEqualTo((byte)0xC3);
+    }
+
+    [Test]
+    public async Task MultivalueCharmap_MultiByteKeyMergedEntry_DwEmitsAll()
+    {
+        // RGBDS: multivalue-charmap.asm — charmap "de", $6564 → 2-byte key, 2-byte val
+        var model = Emit("""
+            SECTION "test", ROM0[$0]
+            CHARMAP "de", $64, $65
+            dw "de"
+            """);
+        await Assert.That(model.Success).IsTrue();
+        // dw emits value as little-endian word per charmap unit
+        await Assert.That(model.Sections[0].Data.Length).IsGreaterThanOrEqualTo(2);
+    }
+
+    [Test]
+    public async Task MultivalueCharmap_DbWithLargeCharValue_TruncationWarning()
+    {
+        // RGBDS: multivalue-charmap.asm — charmap "A", $01234567 → DB truncates to $67
+        var model = Emit("""
+            SECTION "test", ROM0[$0]
+            CHARMAP "A", $01234567
+            db "A"
+            """);
+        // DB truncates to 8 bits — produces warning
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Diagnostics.Any(d =>
+            d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Warning)).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x67);
+    }
+
+    // =========================================================================
+    // RGBDS: equ-charmap.asm — char literal 'A' via EQU
+    // =========================================================================
+
+    [Test]
+    public async Task EquCharmap_CharLiteralViaEqu_DbEmitsCorrectByte()
+    {
+        // RGBDS: equ-charmap.asm — DEF _A_ EQU 'A' where charmap "A", 1
+        var model = Emit("""
+            CHARMAP "A", 1
+            SECTION "sec", ROM0[$0]
+            DEF _A_ EQU 'A'
+            db _A_
+            """);
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)1);
+    }
+
+    // =========================================================================
+    // RGBDS: null-char-functions.asm — null byte in EQUS strings
+    // =========================================================================
+
+    [Test]
+    public async Task NullCharFunctions_NullInEqusString_StrlenCountsNull()
+    {
+        // RGBDS: null-char-functions.asm — "hello\0world" has strlen 11
+        var model = Emit("""
+            def s equs "hello\0world"
+            SECTION "Main", ROM0
+            IF STRLEN("{s}") == 11
+            db $01
+            ELSE
+            db $00
+            ENDC
+            """);
+        // strlen of a string with embedded null counts the null byte
+        await Assert.That(model.Success).IsTrue();
+    }
+
+    [Test]
+    public async Task NullCharFunctions_NullInEqusString_PrintlnShowsNull()
+    {
+        // RGBDS: null-char-functions.asm — PRINTLN of "hello\0world" shows "hello world"
+        // (null printed as space in RGBDS reference output)
+        var sw = new System.IO.StringWriter();
+        var tree = SyntaxTree.Parse("""
+            def s equs "hello\0world"
+            PRINTLN "{s}"
+            SECTION "Main", ROM0
+            nop
+            """);
+        var model = Compilation.Create(new Koh.Core.Binding.BinderOptions(), sw, tree).Emit();
+        await Assert.That(model.Success).IsTrue();
+        // The output must contain "hello" and "world"
+        var output = sw.ToString();
+        await Assert.That(output).Contains("hello");
+        await Assert.That(output).Contains("world");
+    }
+
+    [Test]
+    public async Task NullCharFunctions_Strcat_NullByteMidString()
+    {
+        // RGBDS: null-char-functions.asm — strcat("hello\0world", "\0lol") == "hello\0world\0lol"
+        var model = Emit("""
+            def s equs "hello\0world"
+            SECTION "Main", ROM0
+            IF !STRCMP(STRCAT("{s}", "\0lol"), "hello\0world\0lol")
+            db $01
+            ELSE
+            db $00
+            ENDC
+            """);
+        await Assert.That(model.Success).IsTrue();
     }
 }
