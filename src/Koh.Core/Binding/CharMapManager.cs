@@ -178,6 +178,9 @@ public sealed class CharMapManager
     public bool HasMapping(string text) =>
         text.Length > 0 && _activeMap.ContainsKey(text);
 
+    /// <summary>Check if a string is a valid entry in the active charmap.</summary>
+    public bool InCharMap(string text) => _activeMap.ContainsKey(text);
+
     /// <summary>
     /// Count the number of charmap-aware characters in a string.
     /// Each longest-match charmap entry counts as one character; unmapped characters count individually.
@@ -188,6 +191,7 @@ public sealed class CharMapManager
         WalkLongestMatch(text, (_, _) => count++, _ => count++);
         return count;
     }
+
 
     /// <summary>
     /// Encode a string literal into bytes using the active character map.

@@ -25,17 +25,19 @@ public enum SyntaxKind : ushort
     AmpersandToken, PipeToken, CaretToken, TildeToken, BangToken,
     LessThanToken, GreaterThanToken,
     LessThanLessThanToken, GreaterThanGreaterThanToken,
+    TripleGreaterThanToken, // >>> logical right shift
+    StarStarToken, // ** exponentiation
+    PlusPlusToken, // ++ string concatenation
+    TripleEqualsToken, // === string equality
+    EqualsEqualsEqualsToken, // === string equality (alias)
+    BangEqualsEqualsToken, // !== string inequality
     EqualsToken,
     EqualsEqualsToken, BangEqualsToken,
     LessThanEqualsToken, GreaterThanEqualsToken,
     AmpersandAmpersandToken, PipePipeToken,
-    StarStarToken,
-    PlusPlusToken,                          // ++ string concatenation
-    EqualsEqualsEqualsToken,                // === string equality
-    BangEqualsEqualsToken,                  // !== string inequality
 
     // Literals
-    NumberLiteral, StringLiteral, CharLiteralToken, IdentifierToken, LocalLabelToken,
+    NumberLiteral, FixedPointLiteral, StringLiteral, CharLiteralToken, IdentifierToken, LocalLabelToken,
     CurrentAddressToken, AtToken,
 
     // Macro parameter tokens: \1..\9, \@, \#, \NARG
@@ -113,12 +115,19 @@ public enum SyntaxKind : ushort
     HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
     DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
     CharlenKeyword, IncharmapKeyword, StrcmpKeyword,
-    MulKeyword, DivFuncKeyword, PowKeyword, LogKeyword,
-    RoundKeyword, CeilKeyword, FloorKeyword, FmodKeyword,
+    // Math function keywords
+    MulKeyword, DivFuncKeyword, DivKeyword, FmodKeyword, PowKeyword, LogKeyword,
+    RoundKeyword, CeilKeyword, FloorKeyword,
+    // Trig function keywords
     SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
-    BitwidthKeyword, TzcountKeyword,
+    // String function keywords
     StrfindKeyword, StrrfindKeyword, StruprKeyword, StrlwrKeyword,
     BytelenKeyword, StrbyteKeyword, StrcharKeyword,
+    ReadfileKeyword,
+    // Bit query function keywords
+    BitwidthKeyword, TzcountKeyword,
+    // Format function keyword
+    StrfmtKeyword,
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,

@@ -195,10 +195,13 @@ internal sealed class Parser
         if (Current.Kind is SyntaxKind.AssertKeyword or SyntaxKind.StaticAssertKeyword)
             return ParseAssertDirective();
 
-        // WARN/FAIL/PRINT/PRINTLN
-        if (Current.Kind is SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword
-            or SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
+        // WARN/FAIL — simple block directive
+        if (Current.Kind is SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword)
             return ParseBlockDirective(SyntaxKind.DirectiveStatement);
+
+        // PRINT/PRINTLN — parse with expression arguments for string evaluation
+        if (Current.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
+            return ParsePrintDirective();
 
         // PUSHS/POPS/PUSHO/POPO
         if (Current.Kind is SyntaxKind.PushsKeyword or SyntaxKind.PopsKeyword
@@ -392,6 +395,18 @@ internal sealed class Parser
         while (!AtEndOfStatement())
             children.Add(Advance());
         return new GreenNode(nodeKind, children.ToArray());
+    }
+
+    private GreenNode ParsePrintDirective()
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // PRINT or PRINTLN keyword
+        // Parse expression arguments (may be string expressions with ++, function calls, etc.)
+        if (!AtEndOfStatement())
+        {
+            children.Add(ParseExpression());
+        }
+        return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
     }
 
     private GreenNode ParseSectionDirective()
@@ -821,6 +836,7 @@ internal sealed class Parser
                 or SyntaxKind.TildeToken
                 or SyntaxKind.BangToken
                 or SyntaxKind.PlusToken
+                or SyntaxKind.HashToken
         )
         {
             var op = Advance();
@@ -836,6 +852,7 @@ internal sealed class Parser
         switch (Current.Kind)
         {
             case SyntaxKind.NumberLiteral:
+            case SyntaxKind.FixedPointLiteral:
             case SyntaxKind.CurrentAddressToken:
             case SyntaxKind.AtToken:
             case SyntaxKind.StringLiteral:
@@ -886,12 +903,13 @@ internal sealed class Parser
             case SyntaxKind.StrcmpKeyword:
             case SyntaxKind.MulKeyword:
             case SyntaxKind.DivFuncKeyword:
+            case SyntaxKind.DivKeyword:
+            case SyntaxKind.FmodKeyword:
             case SyntaxKind.PowKeyword:
             case SyntaxKind.LogKeyword:
             case SyntaxKind.RoundKeyword:
             case SyntaxKind.CeilKeyword:
             case SyntaxKind.FloorKeyword:
-            case SyntaxKind.FmodKeyword:
             case SyntaxKind.SinKeyword:
             case SyntaxKind.CosKeyword:
             case SyntaxKind.TanKeyword:
@@ -908,6 +926,8 @@ internal sealed class Parser
             case SyntaxKind.BytelenKeyword:
             case SyntaxKind.StrbyteKeyword:
             case SyntaxKind.StrcharKeyword:
+            case SyntaxKind.ReadfileKeyword:
+            case SyntaxKind.StrfmtKeyword:
                 return ParseFunctionCallExpression();
 
             case SyntaxKind.OpenParenToken:
@@ -925,6 +945,20 @@ internal sealed class Parser
                     ReportMissingToken(SyntaxKind.CloseParenToken);
                 }
                 return new GreenNode(SyntaxKind.ParenthesizedExpression, [open, expr, close]);
+            }
+
+            case SyntaxKind.OpenBracketToken:
+            {
+                // [register] — indirect operand (used in sizeof([bc]) etc.)
+                var open = Advance();
+                var children2 = new List<GreenNodeBase> { open };
+                while (Current.Kind != SyntaxKind.CloseBracketToken
+                    && Current.Kind != SyntaxKind.EndOfFileToken
+                    && !AtEndOfStatement())
+                    children2.Add(Advance());
+                if (Current.Kind == SyntaxKind.CloseBracketToken)
+                    children2.Add(Advance());
+                return new GreenNode(SyntaxKind.IndirectOperand, children2.ToArray());
             }
 
             default:
@@ -1000,13 +1034,13 @@ internal sealed class Parser
     // RGBDS precedence (higher number = tighter binding), matching C conventions:
     // 1: ||
     // 2: &&
-    // 3: == !=
+    // 3: == != === !==
     // 4: < > <= >=
     // 5: |          (bitwise OR — lowest of the three bitwise ops, same as C)
     // 6: ^          (bitwise XOR)
     // 7: &          (bitwise AND — highest of the three)
-    // 8: << >>
-    // 9: + -
+    // 8: << >> >>>
+    // 9: + - ++
     // 10: * / %
     // 11: **         (exponentiation, right-associative)
     private static int GetBinaryPrecedence(SyntaxKind kind) =>
@@ -1015,7 +1049,8 @@ internal sealed class Parser
             SyntaxKind.PipePipeToken => 1,
             SyntaxKind.AmpersandAmpersandToken => 2,
             SyntaxKind.EqualsEqualsToken or SyntaxKind.BangEqualsToken
-                or SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.BangEqualsEqualsToken => 3,
+                or SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.TripleEqualsToken
+                or SyntaxKind.BangEqualsEqualsToken => 3,
             SyntaxKind.LessThanToken
             or SyntaxKind.GreaterThanToken
             or SyntaxKind.LessThanEqualsToken
@@ -1023,7 +1058,8 @@ internal sealed class Parser
             SyntaxKind.PipeToken => 5,
             SyntaxKind.CaretToken => 6,
             SyntaxKind.AmpersandToken => 7,
-            SyntaxKind.LessThanLessThanToken or SyntaxKind.GreaterThanGreaterThanToken => 8,
+            SyntaxKind.LessThanLessThanToken or SyntaxKind.GreaterThanGreaterThanToken
+                or SyntaxKind.TripleGreaterThanToken => 8,
             SyntaxKind.PlusToken or SyntaxKind.MinusToken or SyntaxKind.PlusPlusToken => 9,
             SyntaxKind.StarToken or SyntaxKind.SlashToken or SyntaxKind.PercentToken => 10,
             SyntaxKind.StarStarToken => 11,

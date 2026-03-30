@@ -39,22 +39,12 @@ public sealed class SectionBuffer
         _bytes.Add((byte)(value >> 8));
     }
 
-    public void EmitDword(uint value)
+    public void EmitLong(uint value)
     {
         _bytes.Add((byte)(value & 0xFF));
         _bytes.Add((byte)((value >> 8) & 0xFF));
         _bytes.Add((byte)((value >> 16) & 0xFF));
         _bytes.Add((byte)((value >> 24) & 0xFF));
-    }
-
-    public int ReserveDword()
-    {
-        var offset = _bytes.Count;
-        _bytes.Add(0x00);
-        _bytes.Add(0x00);
-        _bytes.Add(0x00);
-        _bytes.Add(0x00);
-        return offset;
     }
 
     public int ReserveByte()
@@ -67,6 +57,16 @@ public sealed class SectionBuffer
     public int ReserveWord()
     {
         var offset = _bytes.Count;
+        _bytes.Add(0x00);
+        _bytes.Add(0x00);
+        return offset;
+    }
+
+    public int ReserveLong()
+    {
+        var offset = _bytes.Count;
+        _bytes.Add(0x00);
+        _bytes.Add(0x00);
         _bytes.Add(0x00);
         _bytes.Add(0x00);
         return offset;
@@ -101,7 +101,7 @@ public sealed class SectionBuffer
         _bytes[offset + 1] = (byte)(value >> 8);
     }
 
-    public void ApplyPatchDword(int offset, uint value)
+    public void ApplyPatchLong(int offset, uint value)
     {
         _bytes[offset] = (byte)(value & 0xFF);
         _bytes[offset + 1] = (byte)((value >> 8) & 0xFF);

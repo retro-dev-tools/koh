@@ -63,7 +63,7 @@ internal sealed class PatchResolver
                         section.ApplyPatchWord(patch.Offset, (ushort)(value.Value & 0xFFFF));
                         break;
                     case PatchKind.Absolute32:
-                        section.ApplyPatchDword(patch.Offset, (uint)(value.Value & 0xFFFFFFFF));
+                        section.ApplyPatchLong(patch.Offset, (uint)(value.Value & 0xFFFFFFFF));
                         break;
                     case PatchKind.Relative8:
                         long rel = value.Value - patch.PCAfterInstruction;

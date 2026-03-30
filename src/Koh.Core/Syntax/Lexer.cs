@@ -159,14 +159,17 @@ public sealed class Lexer
         ["charlen"] = SyntaxKind.CharlenKeyword,
         ["incharmap"] = SyntaxKind.IncharmapKeyword,
         ["strcmp"] = SyntaxKind.StrcmpKeyword,
+        ["dl"] = SyntaxKind.DlKeyword,
+        // Math functions
         ["mul"] = SyntaxKind.MulKeyword,
         ["div"] = SyntaxKind.DivFuncKeyword,
+        ["fmod"] = SyntaxKind.FmodKeyword,
         ["pow"] = SyntaxKind.PowKeyword,
         ["log"] = SyntaxKind.LogKeyword,
         ["round"] = SyntaxKind.RoundKeyword,
         ["ceil"] = SyntaxKind.CeilKeyword,
         ["floor"] = SyntaxKind.FloorKeyword,
-        ["fmod"] = SyntaxKind.FmodKeyword,
+        // Trig functions
         ["sin"] = SyntaxKind.SinKeyword,
         ["cos"] = SyntaxKind.CosKeyword,
         ["tan"] = SyntaxKind.TanKeyword,
@@ -174,8 +177,7 @@ public sealed class Lexer
         ["acos"] = SyntaxKind.AcosKeyword,
         ["atan"] = SyntaxKind.AtanKeyword,
         ["atan2"] = SyntaxKind.Atan2Keyword,
-        ["bitwidth"] = SyntaxKind.BitwidthKeyword,
-        ["tzcount"] = SyntaxKind.TzcountKeyword,
+        // String functions
         ["strfind"] = SyntaxKind.StrfindKeyword,
         ["strrfind"] = SyntaxKind.StrrfindKeyword,
         ["strupr"] = SyntaxKind.StruprKeyword,
@@ -183,6 +185,11 @@ public sealed class Lexer
         ["bytelen"] = SyntaxKind.BytelenKeyword,
         ["strbyte"] = SyntaxKind.StrbyteKeyword,
         ["strchar"] = SyntaxKind.StrcharKeyword,
+        ["readfile"] = SyntaxKind.ReadfileKeyword,
+        ["strfmt"] = SyntaxKind.StrfmtKeyword,
+        // Bit query functions
+        ["bitwidth"] = SyntaxKind.BitwidthKeyword,
+        ["tzcount"] = SyntaxKind.TzcountKeyword,
     };
 
     public Lexer(SourceText source)
@@ -307,11 +314,12 @@ public sealed class Lexer
 
             ScanDigitsWithUnderscores(start, char.IsDigit);
             // Fixed-point literal: digits.digits (e.g. 5.0, 2.5)
-            if (Current == '.' && char.IsDigit(Peek()))
+            if (Current == '.' && Peek() != '\0' && char.IsDigit(Peek()))
             {
                 _position++; // consume the dot
-                while (char.IsDigit(Current))
+                while (char.IsDigit(Current) || Current == '_')
                     _position++;
+                return (SyntaxKind.FixedPointLiteral, Substring(start, _position));
             }
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -407,35 +415,45 @@ public sealed class Lexer
             _position += 2;
             return (SyntaxKind.LessThanLessThanToken, "<<");
         }
+        if (c == '>' && Peek() == '>' && Peek(2) == '>')
+        {
+            _position += 3;
+            return (SyntaxKind.TripleGreaterThanToken, ">>>");
+        }
         if (c == '>' && Peek() == '>')
         {
             _position += 2;
             return (SyntaxKind.GreaterThanGreaterThanToken, ">>");
         }
+        if (c == '*' && Peek() == '*')
+        {
+            _position += 2;
+            return (SyntaxKind.StarStarToken, "**");
+        }
+        if (c == '+' && Peek() == '+')
+        {
+            _position += 2;
+            return (SyntaxKind.PlusPlusToken, "++");
+        }
         if (c == '=' && Peek() == '=' && Peek(2) == '=')
         {
             _position += 3;
-            return (SyntaxKind.EqualsEqualsEqualsToken, "===");
-        }
-        if (c == '=' && Peek() == '=')
-        {
-            _position += 2;
-            return (SyntaxKind.EqualsEqualsToken, "==");
+            return (SyntaxKind.TripleEqualsToken, "===");
         }
         if (c == '!' && Peek() == '=' && Peek(2) == '=')
         {
             _position += 3;
             return (SyntaxKind.BangEqualsEqualsToken, "!==");
         }
+        if (c == '=' && Peek() == '=')
+        {
+            _position += 2;
+            return (SyntaxKind.EqualsEqualsToken, "==");
+        }
         if (c == '!' && Peek() == '=')
         {
             _position += 2;
             return (SyntaxKind.BangEqualsToken, "!=");
-        }
-        if (c == '+' && Peek() == '+')
-        {
-            _position += 2;
-            return (SyntaxKind.PlusPlusToken, "++");
         }
         if (c == '<' && Peek() == '=')
         {
@@ -456,11 +474,6 @@ public sealed class Lexer
         {
             _position += 2;
             return (SyntaxKind.PipePipeToken, "||");
-        }
-        if (c == '*' && Peek() == '*')
-        {
-            _position += 2;
-            return (SyntaxKind.StarStarToken, "**");
         }
         if (c == ':' && Peek() == ':')
         {

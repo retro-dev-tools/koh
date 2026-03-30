@@ -17,8 +17,6 @@ public sealed class ExpressionEvaluator
     /// </summary>
     private const int FixedQ = 16;
     private const long FixedOne = 1L << FixedQ;
-    private const long FixedFracMask = FixedOne - 1;
-    private const long FixedHalf = 1L << (FixedQ - 1);
 
     private readonly SymbolTable _symbols;
     private readonly DiagnosticBag _diagnostics;
@@ -26,6 +24,29 @@ public sealed class ExpressionEvaluator
     private readonly int _fracBits;
     private readonly CharMapManager? _charMaps;
     private readonly Func<string, string>? _resolveInterpolations;
+
+    /// <summary>Fixed-point fractional bits (Q.N). Default is 16.</summary>
+    public int FracBits { get; set; } = 16;
+
+    /// <summary>
+    /// Optional callback to resolve EQUS string constants by name.
+    /// </summary>
+    public Func<string, string?>? EqusResolver { get; set; }
+
+    /// <summary>
+    /// Optional callback to resolve CHARLEN with the active charmap.
+    /// </summary>
+    public Func<string, int>? CharlenResolver { get; set; }
+
+    /// <summary>
+    /// Optional callback to check if a string is in the active charmap.
+    /// </summary>
+    public Func<string, bool>? IncharmapResolver { get; set; }
+
+    /// <summary>
+    /// Optional callback to read a file for READFILE.
+    /// </summary>
+    public Func<string, int?, string?>? ReadfileResolver { get; set; }
 
     public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
         Func<int> getCurrentPC, int fracBits = 0)
@@ -56,7 +77,8 @@ public sealed class ExpressionEvaluator
             SyntaxKind.ParenthesizedExpression => EvaluateParenthesized(node),
             SyntaxKind.FunctionCallExpression => EvaluateFunction(node),
             // Raw tokens (e.g., from LabelOperand or ImmediateOperand unwrapping)
-            SyntaxKind.NumberLiteral => ParseNumberWithFixedPoint(((GreenToken)node).Text),
+            SyntaxKind.NumberLiteral => ParseNumber(((GreenToken)node).Text),
+            SyntaxKind.FixedPointLiteral => ParseFixedPoint(((GreenToken)node).Text, FracBits),
             SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken => _getCurrentPC(),
             SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken =>
                 EvaluateRawIdentifier(((GreenToken)node).Text),
@@ -80,58 +102,15 @@ public sealed class ExpressionEvaluator
             var token = (GreenToken)((GreenNode)node).GetChild(0)!;
             if (token.Kind == SyntaxKind.StringLiteral)
             {
-                var raw = token.Text.Length >= 2 ? token.Text[1..^1] : token.Text;
-                var unescaped = UnescapeString(raw);
-                return _resolveInterpolations != null ? _resolveInterpolations(unescaped) : unescaped;
-            }
-        }
-
-        if (node.Kind == SyntaxKind.FunctionCallExpression)
-        {
-            var green = (GreenNode)node;
-            var keyword = (GreenToken)green.GetChild(0)!;
-
-            if (keyword.Kind == SyntaxKind.StrcatKeyword)
-            {
-                // STRCAT(str1, str2, ...) — concatenate strings
-                var sb = new System.Text.StringBuilder();
-                for (int i = 2; i < green.ChildCount; i++)
-                {
-                    var child = green.GetChild(i)!;
-                    if (child.Kind is SyntaxKind.CommaToken or SyntaxKind.CloseParenToken)
-                        continue;
-                    var s = TryEvaluateString(child);
-                    if (s != null) sb.Append(s);
-                }
-                return sb.ToString();
-            }
-
-            if (keyword.Kind == SyntaxKind.StrsubKeyword)
-            {
-                // STRSUB(str, pos, len) — substring (1-based position)
-                var args = CollectFunctionArgs(green);
-                if (args.Count >= 2)
-                {
-                    var str = TryEvaluateString(args[0]);
-                    var pos = TryEvaluate(args[1]);
-                    if (str != null && pos.HasValue)
-                    {
-                        int start = (int)pos.Value - 1; // 1-based to 0-based
-                        int len = args.Count >= 3 && TryEvaluate(args[2]) is { } l ? (int)l : str.Length - start;
-                        if (start >= 0 && start + len <= str.Length)
-                            return str.Substring(start, len);
-                    }
-                }
-                return null;
+                var raw = StripQuotes(token.Text);
+                return _resolveInterpolations != null ? _resolveInterpolations(raw) : raw;
             }
         }
 
         if (node.Kind == SyntaxKind.StringLiteral && node is GreenToken strTok)
-        {
-            var raw = strTok.Text.Length >= 2 ? strTok.Text[1..^1] : strTok.Text;
-            return UnescapeString(raw);
-        }
+            return StripQuotes(strTok.Text);
 
+        // Binary expression: string ++ string (concatenation)
         if (node.Kind == SyntaxKind.BinaryExpression)
         {
             var green = (GreenNode)node;
@@ -144,13 +123,53 @@ public sealed class ExpressionEvaluator
                     return leftStr + rightStr;
             }
         }
+
+        // Function call that returns string
+        if (node.Kind == SyntaxKind.FunctionCallExpression)
+            return EvaluateStringFunction(node);
+
+        // NameExpression — check EQUS
+        if (node.Kind == SyntaxKind.NameExpression)
+        {
+            var token = (GreenToken)((GreenNode)node).GetChild(0)!;
+            if (EqusResolver != null)
+                return EqusResolver(token.Text);
+        }
+
+        // UnaryExpression with # — EQUS string dereference (#name yields string value)
+        if (node.Kind == SyntaxKind.UnaryExpression)
+        {
+            var green = (GreenNode)node;
+            var op = (GreenToken)green.GetChild(0)!;
+            if (op.Kind == SyntaxKind.HashToken)
+            {
+                var operand = green.GetChild(1)!;
+                // Get the name from the operand
+                string? name = null;
+                if (operand.Kind == SyntaxKind.NameExpression)
+                    name = ((GreenToken)((GreenNode)operand).GetChild(0)!).Text;
+                else if (operand is GreenToken tok)
+                    name = tok.Text;
+                if (name != null && EqusResolver != null)
+                    return EqusResolver(name);
+            }
+        }
+
         return null;
     }
-
 
     private long? EvaluateLiteral(GreenNodeBase node)
     {
         var token = (GreenToken)((GreenNode)node).GetChild(0)!;
+        if (token.Kind == SyntaxKind.FixedPointLiteral)
+        {
+            var (value, overflow) = ParseFixedPointEx(token.Text, FracBits);
+            if (overflow)
+                _diagnostics.Report(default,
+                    $"Fixed-point literal '{token.Text}' overflows Q.{FracBits} range",
+                    DiagnosticSeverity.Warning);
+            return value;
+        }
         return token.Kind switch
         {
             SyntaxKind.NumberLiteral => ParseNumberWithFixedPoint(token.Text),
@@ -241,15 +260,25 @@ public sealed class ExpressionEvaluator
         var green = (GreenNode)node;
         var op = (GreenToken)green.GetChild(1)!;
 
-        // String operators: ===, !==, ++ (++ returns string, handled via TryEvaluateString)
-        if (op.Kind is SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.BangEqualsEqualsToken)
+        // String operators: ===, !==, ++
+        if (op.Kind is SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.TripleEqualsToken
+            or SyntaxKind.BangEqualsEqualsToken or SyntaxKind.PlusPlusToken)
         {
             var leftStr = TryEvaluateString(green.GetChild(0)!);
             var rightStr = TryEvaluateString(green.GetChild(2)!);
-            if (leftStr == null || rightStr == null) return null;
-            return op.Kind == SyntaxKind.EqualsEqualsEqualsToken
-                ? (leftStr == rightStr ? 1L : 0L)
-                : (leftStr != rightStr ? 1L : 0L);
+            if (leftStr != null && rightStr != null)
+            {
+                return op.Kind switch
+                {
+                    SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.TripleEqualsToken =>
+                        string.Equals(leftStr, rightStr, StringComparison.Ordinal) ? 1L : 0L,
+                    SyntaxKind.BangEqualsEqualsToken =>
+                        !string.Equals(leftStr, rightStr, StringComparison.Ordinal) ? 1L : 0L,
+                    // ++ returns a string — numeric eval returns null
+                    _ => null,
+                };
+            }
+            return null;
         }
 
         var left = TryEvaluate(green.GetChild(0)!);
@@ -257,29 +286,84 @@ public sealed class ExpressionEvaluator
 
         if (left == null || right == null) return null;
 
+        // Treat values as signed 32-bit for division/modulo (C semantics)
+        int li = (int)left.Value;
+        int ri = (int)right.Value;
+
+        // All arithmetic uses signed 32-bit to match RGBDS behavior
         return op.Kind switch
         {
-            SyntaxKind.PlusToken => left.Value + right.Value,
-            SyntaxKind.MinusToken => left.Value - right.Value,
-            SyntaxKind.StarToken => left.Value * right.Value,
-            SyntaxKind.SlashToken when right.Value != 0 => left.Value / right.Value,
-            SyntaxKind.PercentToken when right.Value != 0 => left.Value % right.Value,
-            SyntaxKind.AmpersandToken => left.Value & right.Value,
-            SyntaxKind.PipeToken => left.Value | right.Value,
-            SyntaxKind.CaretToken => left.Value ^ right.Value,
-            SyntaxKind.LessThanLessThanToken => left.Value << (int)right.Value,
-            SyntaxKind.GreaterThanGreaterThanToken => left.Value >> (int)right.Value,
-            SyntaxKind.EqualsEqualsToken => left.Value == right.Value ? 1L : 0L,
-            SyntaxKind.BangEqualsToken => left.Value != right.Value ? 1L : 0L,
-            SyntaxKind.LessThanToken => left.Value < right.Value ? 1L : 0L,
-            SyntaxKind.GreaterThanToken => left.Value > right.Value ? 1L : 0L,
-            SyntaxKind.LessThanEqualsToken => left.Value <= right.Value ? 1L : 0L,
-            SyntaxKind.GreaterThanEqualsToken => left.Value >= right.Value ? 1L : 0L,
-            SyntaxKind.AmpersandAmpersandToken => (left.Value != 0 && right.Value != 0) ? 1L : 0L,
-            SyntaxKind.PipePipeToken => (left.Value != 0 || right.Value != 0) ? 1L : 0L,
-            SyntaxKind.StarStarToken => IntegerPow(left.Value, right.Value),
+            SyntaxKind.PlusToken => (long)(int)(li + ri),
+            SyntaxKind.MinusToken => (long)(int)(li - ri),
+            SyntaxKind.StarToken => (long)(int)(li * ri),
+            SyntaxKind.SlashToken when ri != 0 => EvalDivision(li, ri),
+            SyntaxKind.SlashToken => null,
+            SyntaxKind.PercentToken when ri != 0 => EvalModulo(li, ri),
+            SyntaxKind.PercentToken => null,
+            SyntaxKind.AmpersandToken => (long)(int)(li & ri),
+            SyntaxKind.PipeToken => (long)(int)(li | ri),
+            SyntaxKind.CaretToken => (long)(int)(li ^ ri),
+            SyntaxKind.LessThanLessThanToken => EvalLeftShift(li, ri),
+            SyntaxKind.GreaterThanGreaterThanToken => (long)(li >> Math.Min(ri, 31)),
+            SyntaxKind.TripleGreaterThanToken => EvalLogicalRightShift(li, ri),
+            SyntaxKind.StarStarToken => EvalExponentiation(li, ri),
+            SyntaxKind.EqualsEqualsToken => li == ri ? 1L : 0L,
+            SyntaxKind.BangEqualsToken => li != ri ? 1L : 0L,
+            SyntaxKind.LessThanToken => li < ri ? 1L : 0L,
+            SyntaxKind.GreaterThanToken => li > ri ? 1L : 0L,
+            SyntaxKind.LessThanEqualsToken => li <= ri ? 1L : 0L,
+            SyntaxKind.GreaterThanEqualsToken => li >= ri ? 1L : 0L,
+            SyntaxKind.AmpersandAmpersandToken => (li != 0 && ri != 0) ? 1L : 0L,
+            SyntaxKind.PipePipeToken => (li != 0 || ri != 0) ? 1L : 0L,
             _ => null,
         };
+    }
+
+    private long EvalDivision(int left, int right)
+    {
+        // Handle INT_MIN / -1 overflow (undefined in C, crash in C#)
+        if (left == int.MinValue && right == -1)
+        {
+            _diagnostics.Report(default, "Division overflow: INT_MIN / -1",
+                DiagnosticSeverity.Warning);
+            return (long)left; // RGBDS returns INT_MIN
+        }
+        return (long)(left / right);
+    }
+
+    private long EvalModulo(int left, int right)
+    {
+        if (left == int.MinValue && right == -1)
+            return 0; // INT_MIN % -1 = 0
+        return (long)(left % right);
+    }
+
+    private long EvalLeftShift(int left, int amount)
+    {
+        if (amount < 0 || amount >= 32)
+        {
+            _diagnostics.Report(default, $"Shift amount {amount} is out of range 0-31",
+                DiagnosticSeverity.Warning);
+            return 0;
+        }
+        return (long)(left << amount);
+    }
+
+    private static long EvalLogicalRightShift(int left, int amount)
+    {
+        if (amount < 0 || amount >= 32) return 0;
+        return (long)((uint)left >> amount);
+    }
+
+    private static long EvalExponentiation(int baseVal, int exp)
+    {
+        if (exp < 0) return 0;
+        if (exp == 0) return 1;
+        long result = 1;
+        long b = baseVal;
+        for (int i = 0; i < exp; i++)
+            result *= b;
+        return result;
     }
 
     private long? EvaluateUnary(GreenNodeBase node)
@@ -307,168 +391,533 @@ public sealed class ExpressionEvaluator
         return TryEvaluate(green.GetChild(1)!);
     }
 
+    /// <summary>
+    /// Get all arguments from a function call node (children at indices 2, 4, 6, ... before close paren).
+    /// </summary>
+    private List<GreenNodeBase> GetFunctionArgs(GreenNode green)
+    {
+        var args = new List<GreenNodeBase>();
+        // Children: keyword ( arg , arg , arg ... )
+        for (int i = 2; i < green.ChildCount; i++)
+        {
+            var child = green.GetChild(i)!;
+            if (child is GreenToken tok && (tok.Kind == SyntaxKind.CommaToken
+                || tok.Kind == SyntaxKind.CloseParenToken
+                || tok.Kind == SyntaxKind.OpenParenToken))
+                continue;
+            args.Add(child);
+        }
+        return args;
+    }
+
     private long? EvaluateFunction(GreenNodeBase node)
     {
         var green = (GreenNode)node;
         var keyword = (GreenToken)green.GetChild(0)!;
-        // Arguments start at index 2 (after keyword and open paren)
-        var arg = green.ChildCount > 2 ? green.GetChild(2) : null;
-        // Second argument at index 4 (after comma at index 3)
-        var arg2 = green.ChildCount > 4 ? green.GetChild(4) : null;
+        var args = GetFunctionArgs(green);
+        var arg = args.Count > 0 ? args[0] : null;
 
-        switch (keyword.Kind)
+        return keyword.Kind switch
         {
-            case SyntaxKind.HighKeyword when arg != null:
-                return TryEvaluate(arg) is { } hv ? (hv >> 8) & 0xFF : null;
-            case SyntaxKind.LowKeyword when arg != null:
-                return TryEvaluate(arg) is { } lv ? lv & 0xFF : null;
-            // BANK, SIZEOF, STARTOF are linker-time — always null
-            case SyntaxKind.BankKeyword:
-            case SyntaxKind.SizeofKeyword:
-            case SyntaxKind.StartofKeyword:
-                return null;
+            SyntaxKind.HighKeyword when arg != null =>
+                TryEvaluate(arg) is { } v ? (v >> 8) & 0xFF : null,
+            SyntaxKind.LowKeyword when arg != null =>
+                TryEvaluate(arg) is { } v ? v & 0xFF : null,
+            // BANK, STARTOF are linker-time — always null
+            SyntaxKind.BankKeyword => null,
+            SyntaxKind.StartofKeyword => null,
+            // SIZEOF: check for register operands first, then linker-time
+            SyntaxKind.SizeofKeyword => EvaluateSizeof(args),
             // DEF(symbol) — check if defined
-            case SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression:
-                return _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L;
-
-            // STRLEN("str") — return character count of string literal
-            case SyntaxKind.StrlenKeyword:
-            {
-                var s = ExtractStringArg(green, 2);
-                return s?.Length;
-            }
-
-            case SyntaxKind.StrcmpKeyword:
-            {
-                var args = CollectFunctionArgs(green);
-                if (args.Count >= 2)
-                {
-                    var s1 = TryEvaluateString(args[0]);
-                    var s2 = TryEvaluateString(args[1]);
-                    if (s1 != null && s2 != null)
-                        return string.Compare(s1, s2, StringComparison.Ordinal);
-                }
-                return null;
-            }
-
-            // STRFIND("haystack", "needle") — 0-based index of first occurrence, or -1
-            case SyntaxKind.StrfindKeyword:
-            {
-                var haystack = ExtractStringArg(green, 2);
-                var needle = ExtractStringArg(green, 4);
-                if (haystack == null || needle == null) return null;
-                if (needle.Length == 0) return 0L;
-                int idx = haystack.IndexOf(needle, StringComparison.Ordinal);
-                return idx < 0 ? -1L : (long)idx;
-            }
-
-            // STRRFIND("haystack", "needle") — 0-based index of last occurrence, or -1
-            case SyntaxKind.StrrfindKeyword:
-            {
-                var haystack = ExtractStringArg(green, 2);
-                var needle = ExtractStringArg(green, 4);
-                if (haystack == null || needle == null) return null;
-                if (needle.Length == 0) return (long)haystack.Length;
-                int idx = haystack.LastIndexOf(needle, StringComparison.Ordinal);
-                return idx < 0 ? -1L : (long)idx;
-            }
-
-            // BYTELEN("str") — byte length after charmap encoding
-            case SyntaxKind.BytelenKeyword:
-            {
-                var s = ExtractStringArg(green, 2);
-                if (s == null) return null;
-                if (_charMaps != null)
-                    return _charMaps.EncodeString(s).Length;
-                return s.Length; // fallback: ASCII byte length
-            }
-
-            // STRBYTE("str", index) — byte at 0-based index after charmap encoding; negative = from end
-            case SyntaxKind.StrbyteKeyword:
-            {
-                var s = ExtractStringArg(green, 2);
-                var idxVal = green.ChildCount > 4 ? TryEvaluate(green.GetChild(4)!) : null;
-                if (s == null || !idxVal.HasValue) return null;
-                var encoded = _charMaps != null ? _charMaps.EncodeString(s) : System.Text.Encoding.ASCII.GetBytes(s);
-                int idx = (int)idxVal.Value;
-                if (idx < 0) idx += encoded.Length; // negative index from end
-                if (idx < 0 || idx >= encoded.Length)
-                {
-                    _diagnostics.Report(default, $"STRBYTE index {idxVal.Value} out of range for string of byte length {encoded.Length}",
-                        Diagnostics.DiagnosticSeverity.Warning);
-                    return 0L;
-                }
-                return (long)encoded[idx];
-            }
-
-            // CHARLEN("str") — character count using charmap-aware tokenization
-            case SyntaxKind.CharlenKeyword:
-            {
-                var s = ExtractStringArg(green, 2);
-                if (s == null) return null;
-                if (_charMaps != null)
-                    return _charMaps.CountChars(s);
-                return s.Length; // fallback: plain character count
-            }
-
-            // INCHARMAP("str") — 1 if the string has a charmap mapping, 0 otherwise
-            case SyntaxKind.IncharmapKeyword:
-            {
-                var s = ExtractStringArg(green, 2);
-                if (s == null) return null;
-                if (_charMaps != null)
-                    return _charMaps.HasMapping(s) ? 1L : 0L;
-                return 0L;
-            }
-
-            // STRCAT returns a string, not a number — if used in numeric context, return null
-            case SyntaxKind.StrcatKeyword:
-            case SyntaxKind.StrsubKeyword:
-                return null;
-
-            // Fixed-point math functions (Q16.16)
-            case SyntaxKind.MulKeyword:
-                return EvalFixedMul(green);
-            case SyntaxKind.DivFuncKeyword:
-                return EvalFixedDiv(green);
-            case SyntaxKind.FmodKeyword:
-                return EvalFixedFmod(green);
-            case SyntaxKind.PowKeyword:
-                return EvalFixedPow(green);
-            case SyntaxKind.LogKeyword:
-                return EvalFixedLog(green);
-            case SyntaxKind.RoundKeyword:
-                return EvalFixedRound(arg);
-            case SyntaxKind.CeilKeyword:
-                return EvalFixedCeil(arg);
-            case SyntaxKind.FloorKeyword:
-                return EvalFixedFloor(arg);
-
-            // Trigonometry — fixed-point where 1.0 = full turn
-            case SyntaxKind.SinKeyword when arg != null:
-                return EvaluateTrigFunction(arg, Math.Sin);
-            case SyntaxKind.CosKeyword when arg != null:
-                return EvaluateTrigFunction(arg, Math.Cos);
-            case SyntaxKind.TanKeyword when arg != null:
-                return EvaluateTrigFunction(arg, Math.Tan);
-            case SyntaxKind.AsinKeyword when arg != null:
-                return EvaluateInverseTrigFunction(arg, Math.Asin);
-            case SyntaxKind.AcosKeyword when arg != null:
-                return EvaluateInverseTrigFunction(arg, Math.Acos);
-            case SyntaxKind.AtanKeyword when arg != null:
-                return EvaluateInverseTrigFunction(arg, Math.Atan);
-            case SyntaxKind.Atan2Keyword when arg != null && arg2 != null:
-                return EvaluateAtan2(arg, arg2);
-            // Bit functions
-            case SyntaxKind.BitwidthKeyword when arg != null:
-                return TryEvaluate(arg) is { } bw ? EvaluateBitwidth(bw) : null;
-            case SyntaxKind.TzcountKeyword when arg != null:
-                return TryEvaluate(arg) is { } tz ? EvaluateTzcount(tz) : null;
-
-            default:
-                return null;
-        }
+            SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
+                _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L,
+            // ISCONST — return 1 if constant, 0 otherwise
+            SyntaxKind.IsConstKeyword when arg != null =>
+                TryEvaluate(arg) != null ? 1L : 0L,
+            // String functions that return int
+            SyntaxKind.StrlenKeyword => EvalStrlen(args),
+            SyntaxKind.StrcmpKeyword => EvalStrcmp(args),
+            SyntaxKind.StrfindKeyword => EvalStrfind(args),
+            SyntaxKind.StrrfindKeyword => EvalStrrfind(args),
+            SyntaxKind.BytelenKeyword => EvalBytelen(args),
+            SyntaxKind.StrbyteKeyword => EvalStrbyte(args),
+            SyntaxKind.CharlenKeyword => EvalCharlen(args),
+            SyntaxKind.IncharmapKeyword => EvalIncharmap(args),
+            // String-returning functions used in numeric context → null
+            SyntaxKind.StrcatKeyword or SyntaxKind.StrsubKeyword
+                or SyntaxKind.StruprKeyword or SyntaxKind.StrlwrKeyword
+                or SyntaxKind.ReadfileKeyword or SyntaxKind.StrfmtKeyword => null,
+            // Math functions (fixed-point)
+            SyntaxKind.MulKeyword => EvalMul(args),
+            SyntaxKind.DivFuncKeyword or SyntaxKind.DivKeyword => EvalDiv(args),
+            SyntaxKind.FmodKeyword => EvalFmod(args),
+            SyntaxKind.PowKeyword => EvalPow(args),
+            SyntaxKind.LogKeyword => EvalLog(args),
+            SyntaxKind.RoundKeyword => EvalRound(args),
+            SyntaxKind.CeilKeyword => EvalCeil(args),
+            SyntaxKind.FloorKeyword => EvalFloor(args),
+            // Trig functions
+            SyntaxKind.SinKeyword => EvalSin(args),
+            SyntaxKind.CosKeyword => EvalCos(args),
+            SyntaxKind.TanKeyword => EvalTan(args),
+            SyntaxKind.AsinKeyword => EvalAsin(args),
+            SyntaxKind.AcosKeyword => EvalAcos(args),
+            SyntaxKind.AtanKeyword => EvalAtan(args),
+            SyntaxKind.Atan2Keyword => EvalAtan2(args),
+            // Bit query
+            SyntaxKind.BitwidthKeyword => EvalBitwidth(args),
+            SyntaxKind.TzcountKeyword => EvalTzcount(args),
+            _ => null,
+        };
     }
+
+    /// <summary>
+    /// Evaluate string-returning functions.
+    /// </summary>
+    private string? EvaluateStringFunction(GreenNodeBase node)
+    {
+        var green = (GreenNode)node;
+        var keyword = (GreenToken)green.GetChild(0)!;
+        var args = GetFunctionArgs(green);
+
+        return keyword.Kind switch
+        {
+            SyntaxKind.StrcatKeyword => EvalStrcat(args),
+            SyntaxKind.StrsubKeyword => EvalStrsub(args),
+            SyntaxKind.StruprKeyword => EvalStrupr(args),
+            SyntaxKind.StrlwrKeyword => EvalStrlwr(args),
+            SyntaxKind.ReadfileKeyword => EvalReadfile(args),
+            _ => null,
+        };
+    }
+
+    // =========================================================================
+    // SIZEOF for register operands
+    // =========================================================================
+
+    private long? EvaluateSizeof(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var arg = args[0];
+
+        // Check for register name (NameExpression or raw token)
+        string? regName = null;
+        if (arg.Kind == SyntaxKind.NameExpression)
+        {
+            var token = (GreenToken)((GreenNode)arg).GetChild(0)!;
+            regName = token.Text;
+        }
+        else if (arg is GreenToken tok)
+        {
+            regName = tok.Text;
+        }
+        // Check for string argument (section name) — linker-time
+        if (arg.Kind == SyntaxKind.LiteralExpression)
+        {
+            var litTok = (GreenToken)((GreenNode)arg).GetChild(0)!;
+            if (litTok.Kind == SyntaxKind.StringLiteral)
+                return null; // linker-time
+            // It might be a register keyword parsed as literal
+            regName = litTok.Text;
+        }
+
+        if (regName != null)
+        {
+            return regName.ToLowerInvariant() switch
+            {
+                "a" or "b" or "c" or "d" or "e" or "h" or "l" or "f" => 1,
+                "af" or "bc" or "de" or "hl" or "sp" => 2,
+                _ => null,
+            };
+        }
+
+        // Indirect operand [bc], [hl+], [hld] — always 1 byte
+        if (arg.Kind == SyntaxKind.IndirectOperand)
+            return 1;
+
+        // sizeof(high(af)), sizeof(low(bc)) — always 1
+        if (arg.Kind == SyntaxKind.FunctionCallExpression)
+        {
+            var innerGreen = (GreenNode)arg;
+            var innerKw = (GreenToken)innerGreen.GetChild(0)!;
+            if (innerKw.Kind is SyntaxKind.HighKeyword or SyntaxKind.LowKeyword)
+                return 1;
+        }
+
+        return null;
+    }
+
+    // =========================================================================
+    // String functions (return long)
+    // =========================================================================
+
+    private long? EvalStrlen(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var s = TryEvaluateString(args[0]);
+        return s != null ? s.Length : null;
+    }
+
+    private long? EvalStrcmp(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var s1 = TryEvaluateString(args[0]);
+        var s2 = TryEvaluateString(args[1]);
+        if (s1 != null && s2 != null)
+            return string.Compare(s1, s2, StringComparison.Ordinal);
+        return null;
+    }
+
+    private long? EvalStrfind(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var haystack = TryEvaluateString(args[0]);
+        var needle = TryEvaluateString(args[1]);
+        if (haystack == null || needle == null) return null;
+        if (needle.Length == 0) return 0;
+        int idx = haystack.IndexOf(needle, StringComparison.Ordinal);
+        return idx < 0 ? -1 : idx;
+    }
+
+    private long? EvalStrrfind(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var haystack = TryEvaluateString(args[0]);
+        var needle = TryEvaluateString(args[1]);
+        if (haystack == null || needle == null) return null;
+        if (needle.Length == 0) return haystack.Length;
+        int idx = haystack.LastIndexOf(needle, StringComparison.Ordinal);
+        return idx < 0 ? -1 : idx;
+    }
+
+    private long? EvalBytelen(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var s = TryEvaluateString(args[0]);
+        if (s == null) return null;
+        if (_charMaps != null)
+            return _charMaps.EncodeString(s).Length;
+        return System.Text.Encoding.UTF8.GetByteCount(s);
+    }
+
+    private long? EvalStrbyte(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var s = TryEvaluateString(args[0]);
+        var idx = TryEvaluate(args[1]);
+        if (s == null || idx == null) return null;
+        var bytes = _charMaps != null ? _charMaps.EncodeString(s) : System.Text.Encoding.UTF8.GetBytes(s);
+        int i = (int)idx.Value;
+        // Negative index: from end
+        if (i < 0) i = bytes.Length + i;
+        if (i < 0 || i >= bytes.Length)
+        {
+            _diagnostics.Report(default, $"STRBYTE index {idx.Value} out of range for string of length {bytes.Length}",
+                DiagnosticSeverity.Warning);
+            return 0;
+        }
+        return bytes[i];
+    }
+
+    private long? EvalCharlen(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var s = TryEvaluateString(args[0]);
+        if (s == null) return null;
+        if (_charMaps != null)
+            return _charMaps.CountChars(s);
+        if (CharlenResolver != null) return CharlenResolver(s);
+        return s.Length; // fallback: 1 char per byte
+    }
+
+    private long? EvalIncharmap(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var s = TryEvaluateString(args[0]);
+        if (s == null) return null;
+        if (string.IsNullOrEmpty(s)) return 0;
+        if (_charMaps != null)
+            return _charMaps.HasMapping(s) ? 1L : 0L;
+        if (IncharmapResolver != null) return IncharmapResolver(s) ? 1L : 0L;
+        return 0;
+    }
+
+    // =========================================================================
+    // String functions (return string)
+    // =========================================================================
+
+    private string? EvalStrcat(List<GreenNodeBase> args)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var arg in args)
+        {
+            var s = TryEvaluateString(arg);
+            if (s == null) return null;
+            sb.Append(s);
+        }
+        return sb.ToString();
+    }
+
+    private string? EvalStrsub(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var s = TryEvaluateString(args[0]);
+        var start = TryEvaluate(args[1]);
+        if (s == null || start == null) return null;
+        int startIdx = (int)start.Value;
+        // RGBDS STRSUB is 1-based
+        startIdx -= 1;
+        if (startIdx < 0) startIdx = 0;
+        if (startIdx >= s.Length) return "";
+        if (args.Count >= 3)
+        {
+            var len = TryEvaluate(args[2]);
+            if (len == null) return null;
+            int length = (int)len.Value;
+            if (startIdx + length > s.Length) length = s.Length - startIdx;
+            return s.Substring(startIdx, length);
+        }
+        return s.Substring(startIdx);
+    }
+
+    private string? EvalStrupr(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var s = TryEvaluateString(args[0]);
+        return s?.ToUpperInvariant();
+    }
+
+    private string? EvalStrlwr(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var s = TryEvaluateString(args[0]);
+        return s?.ToLowerInvariant();
+    }
+
+    private string? EvalReadfile(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var path = TryEvaluateString(args[0]);
+        if (path == null) return null;
+        int? limit = null;
+        if (args.Count >= 2)
+        {
+            var lv = TryEvaluate(args[1]);
+            if (lv.HasValue) limit = (int)lv.Value;
+        }
+        if (ReadfileResolver != null)
+            return ReadfileResolver(path, limit);
+        _diagnostics.Report(default, $"Cannot read file '{path}': no file resolver available");
+        return null;
+    }
+
+    // =========================================================================
+    // Fixed-point math functions
+    // =========================================================================
+
+    private double ToDouble(long fixedVal) => (double)fixedVal / (1L << FracBits);
+    private long ToFixed(double val)
+    {
+        double scale = 1L << FracBits;
+        double scaled = val * scale;
+        // Check for overflow
+        if (scaled > int.MaxValue || scaled < int.MinValue)
+        {
+            _diagnostics.Report(default, $"Fixed-point value {val} overflows Q.{FracBits} range",
+                DiagnosticSeverity.Warning);
+            return (long)(int)(scaled > 0 ? int.MaxValue : int.MinValue);
+        }
+        return (long)(int)Math.Round(scaled);
+    }
+
+    private long? EvalMul(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var a = TryEvaluate(args[0]);
+        var b = TryEvaluate(args[1]);
+        if (a == null || b == null) return null;
+        // Fixed-point multiplication: (a * b) >> fracBits
+        long result = ((long)(int)a.Value * (int)b.Value) >> FracBits;
+        return (long)(int)result;
+    }
+
+    private long? EvalDiv(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var a = TryEvaluate(args[0]);
+        var b = TryEvaluate(args[1]);
+        if (a == null || b == null) return null;
+        int av = (int)a.Value;
+        int bv = (int)b.Value;
+        if (bv == 0)
+        {
+            if (av == 0) return 0; // NaN -> 0
+            return av > 0 ? 0x7fffffff : unchecked((long)(int)0x80000000);
+        }
+        // Fixed-point division: (a << fracBits) / b
+        long result = ((long)av << FracBits) / bv;
+        return (long)(int)result;
+    }
+
+    private long? EvalFmod(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var a = TryEvaluate(args[0]);
+        var b = TryEvaluate(args[1]);
+        if (a == null || b == null) return null;
+        if ((int)b.Value == 0) return 0; // NaN
+        double da = ToDouble((int)a.Value);
+        double db = ToDouble((int)b.Value);
+        return ToFixed(da % db);
+    }
+
+    private long? EvalPow(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var a = TryEvaluate(args[0]);
+        var b = TryEvaluate(args[1]);
+        if (a == null || b == null) return null;
+        double da = ToDouble((int)a.Value);
+        double db = ToDouble((int)b.Value);
+        return ToFixed(Math.Pow(da, db));
+    }
+
+    private long? EvalLog(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var a = TryEvaluate(args[0]);
+        var b = TryEvaluate(args[1]);
+        if (a == null || b == null) return null;
+        double da = ToDouble((int)a.Value);
+        double db = ToDouble((int)b.Value);
+        return ToFixed(Math.Log(da, db));
+    }
+
+    private long? EvalRound(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double da = ToDouble((int)a.Value);
+        return ToFixed(Math.Round(da, MidpointRounding.AwayFromZero));
+    }
+
+    private long? EvalCeil(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double da = ToDouble((int)a.Value);
+        return ToFixed(Math.Ceiling(da));
+    }
+
+    private long? EvalFloor(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double da = ToDouble((int)a.Value);
+        return ToFixed(Math.Floor(da));
+    }
+
+    // =========================================================================
+    // Trig functions — input/output in fixed-point, angle in turns (0..1 = 0..360 degrees)
+    // =========================================================================
+
+    private long? EvalSin(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double turns = ToDouble((int)a.Value);
+        return ToFixed(Math.Sin(turns * 2 * Math.PI));
+    }
+
+    private long? EvalCos(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double turns = ToDouble((int)a.Value);
+        return ToFixed(Math.Cos(turns * 2 * Math.PI));
+    }
+
+    private long? EvalTan(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double turns = ToDouble((int)a.Value);
+        return ToFixed(Math.Tan(turns * 2 * Math.PI));
+    }
+
+    private long? EvalAsin(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double val = ToDouble((int)a.Value);
+        return ToFixed(Math.Asin(val) / (2 * Math.PI));
+    }
+
+    private long? EvalAcos(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double val = ToDouble((int)a.Value);
+        return ToFixed(Math.Acos(val) / (2 * Math.PI));
+    }
+
+    private long? EvalAtan(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        double val = ToDouble((int)a.Value);
+        return ToFixed(Math.Atan(val) / (2 * Math.PI));
+    }
+
+    private long? EvalAtan2(List<GreenNodeBase> args)
+    {
+        if (args.Count < 2) return null;
+        var a = TryEvaluate(args[0]);
+        var b = TryEvaluate(args[1]);
+        if (a == null || b == null) return null;
+        double y = ToDouble((int)a.Value);
+        double x = ToDouble((int)b.Value);
+        return ToFixed(Math.Atan2(y, x) / (2 * Math.PI));
+    }
+
+    // =========================================================================
+    // Bit query functions
+    // =========================================================================
+
+    private long? EvalBitwidth(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        int v = (int)a.Value;
+        if (v == 0) return 0;
+        // For negative values, use unsigned representation
+        uint uv = (uint)v;
+        return 32 - BitOperations.LeadingZeroCount(uv);
+    }
+
+    private long? EvalTzcount(List<GreenNodeBase> args)
+    {
+        if (args.Count == 0) return null;
+        var a = TryEvaluate(args[0]);
+        if (a == null) return null;
+        uint v = (uint)(int)a.Value;
+        if (v == 0) return 32;
+        return BitOperations.TrailingZeroCount(v);
+    }
+
+    // =========================================================================
+    // String helpers
+    // =========================================================================
 
     /// <summary>
     /// Extract a string literal value from a function call argument at the given child index.
@@ -505,23 +954,6 @@ public sealed class ExpressionEvaluator
         text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
 
     /// <summary>
-    /// Collect function call arguments (skip open/close paren and commas).
-    /// </summary>
-    private static List<GreenNodeBase> CollectFunctionArgs(GreenNode green)
-    {
-        var args = new List<GreenNodeBase>();
-        for (int i = 2; i < green.ChildCount; i++)
-        {
-            var child = green.GetChild(i)!;
-            if (child.Kind is SyntaxKind.CommaToken or SyntaxKind.CloseParenToken
-                or SyntaxKind.OpenParenToken)
-                continue;
-            args.Add(child);
-        }
-        return args;
-    }
-
-    /// <summary>
     /// Process escape sequences in a string: \n, \r, \t, \0, \\, \", etc.
     /// </summary>
     internal static string UnescapeString(string text)
@@ -552,148 +984,6 @@ public sealed class ExpressionEvaluator
             }
         }
         return sb.ToString();
-    }
-
-    /// <summary>
-    /// Evaluates two fixed-point arguments from a function call node.
-    /// Children layout: [0]=keyword [1]=( [2]=arg1 [3]=, [4]=arg2 [5]=)
-    /// </summary>
-    private (long a, long b)? EvalTwoFixedArgs(GreenNode green)
-    {
-        var a = TryEvaluate(green.GetChild(2)!);
-        var b = green.ChildCount > 4 ? TryEvaluate(green.GetChild(4)!) : null;
-        if (a is null || b is null) return null;
-        return (a.Value, b.Value);
-    }
-
-    private long? EvalFixedMul(GreenNode green) =>
-        EvalTwoFixedArgs(green) is var (a, b) ? (a * b) >> FixedQ : null;
-
-    private long? EvalFixedDiv(GreenNode green)
-    {
-        if (EvalTwoFixedArgs(green) is not var (a, b)) return null;
-        if (b == 0)
-            return a == 0 ? 0 : a > 0 ? 0x7FFFFFFF : unchecked((long)(uint)0x80000000);
-        return (a << FixedQ) / b;
-    }
-
-    private long? EvalFixedFmod(GreenNode green) =>
-        EvalTwoFixedArgs(green) is var (a, b) ? b == 0 ? 0 : a % b : null;
-
-    private long? EvalFixedPow(GreenNode green)
-    {
-        if (EvalTwoFixedArgs(green) is not var (a, b)) return null;
-        double result = Math.Pow(a / (double)FixedOne, b / (double)FixedOne);
-        return (long)Math.Round(result * FixedOne);
-    }
-
-    private long? EvalFixedLog(GreenNode green)
-    {
-        if (EvalTwoFixedArgs(green) is not var (a, b)) return null;
-        double result = Math.Log(a / (double)FixedOne, b / (double)FixedOne);
-        return (long)Math.Round(result * FixedOne);
-    }
-
-    private long? EvalFixedUnary(GreenNodeBase? arg, Func<long, long> op)
-    {
-        if (arg is null) return null;
-        var v = TryEvaluate(arg);
-        return v is null ? null : op(v.Value);
-    }
-
-    private long? EvalFixedRound(GreenNodeBase? arg) =>
-        EvalFixedUnary(arg, val => val >= 0
-            ? (val + FixedHalf) & ~FixedFracMask
-            : -(((-val) + FixedHalf) & ~FixedFracMask));
-
-    private long? EvalFixedCeil(GreenNodeBase? arg) =>
-        EvalFixedUnary(arg, val => val >= 0
-            ? (val & FixedFracMask) != 0 ? (val & ~FixedFracMask) + FixedOne : val
-            : -((-val) & ~FixedFracMask));
-
-    private long? EvalFixedFloor(GreenNodeBase? arg) =>
-        EvalFixedUnary(arg, val => val >= 0
-            ? val & ~FixedFracMask
-            : ((-val) & FixedFracMask) != 0 ? -(((-val) & ~FixedFracMask) + FixedOne) : val);
-
-    private double FixedToDouble(long v) => v / (double)(1L << _fracBits);
-    private long DoubleToFixed(double d) => (long)Math.Round(d * (1L << _fracBits));
-
-    /// <summary>Forward trig: fixed-point turns in, fixed-point result out.</summary>
-    private long? EvaluateTrigFunction(GreenNodeBase arg, Func<double, double> trigFn)
-    {
-        if (TryEvaluate(arg) is not { } v || _fracBits == 0) return null;
-        double angleRad = FixedToDouble(v) * 2.0 * Math.PI;
-        return DoubleToFixed(trigFn(angleRad));
-    }
-
-    /// <summary>Inverse trig: fixed-point value in, fixed-point turns out.</summary>
-    private long? EvaluateInverseTrigFunction(GreenNodeBase arg, Func<double, double> invTrigFn)
-    {
-        if (TryEvaluate(arg) is not { } v || _fracBits == 0) return null;
-        double turns = invTrigFn(FixedToDouble(v)) / (2.0 * Math.PI);
-        return DoubleToFixed(turns);
-    }
-
-    private long? EvaluateAtan2(GreenNodeBase arg1, GreenNodeBase arg2)
-    {
-        if (TryEvaluate(arg1) is not { } y || TryEvaluate(arg2) is not { } x || _fracBits == 0)
-            return null;
-        double turns = Math.Atan2(FixedToDouble(y), FixedToDouble(x)) / (2.0 * Math.PI);
-        return DoubleToFixed(turns);
-    }
-
-    private static long? EvaluateBitwidth(long v)
-    {
-        if (v == 0) return 0;
-        return 32 - BitOperations.LeadingZeroCount((uint)(v & 0xFFFFFFFF));
-    }
-
-    private static long? EvaluateTzcount(long v)
-    {
-        uint uv = (uint)(v & 0xFFFFFFFF);
-        return uv == 0 ? 32 : BitOperations.TrailingZeroCount(uv);
-    }
-
-    private static long IntegerPow(long baseVal, long exp)
-    {
-        if (exp < 0) return 0;
-        long result = 1;
-        for (long i = 0; i < exp; i++)
-            result *= baseVal;
-        return result;
-    }
-
-    private long? EvaluateStrcmp(GreenNode green)
-    {
-        // strcmp(str1, str2) — children: keyword, open_paren, arg1, comma, arg2, close_paren
-        var arg1 = green.ChildCount > 2 ? green.GetChild(2) : null;
-        var arg2 = green.ChildCount > 4 ? green.GetChild(4) : null;
-        if (arg1 == null || arg2 == null) return null;
-
-        var s1 = TryExtractString(arg1);
-        var s2 = TryExtractString(arg2);
-        if (s1 == null || s2 == null) return null;
-
-        return string.Compare(s1, s2, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Tries to extract the string value from a string literal expression node.
-    /// Handles regular strings (with escape processing) and raw strings (no escapes).
-    /// </summary>
-    private static string? TryExtractString(GreenNodeBase node)
-    {
-        GreenToken? token = null;
-        if (node is GreenNode gn && gn.Kind == SyntaxKind.LiteralExpression)
-            token = gn.GetChild(0) as GreenToken;
-        else if (node is GreenToken gt)
-            token = gt;
-
-        if (token?.Kind != SyntaxKind.StringLiteral) return null;
-
-        var text = token.Text;
-        return InterpretStringLiteral(text);
     }
 
     /// <summary>
@@ -733,7 +1023,7 @@ public sealed class ExpressionEvaluator
                 i++;
                 if (text[i] == '\r' || text[i] == '\n')
                 {
-                    // Line continuation in string: \<newline><leading whitespace> → removed
+                    // Line continuation in string: \<newline><leading whitespace> removed
                     if (text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
                         i++; // skip \r\n
                     // Skip leading whitespace on the continuation line
@@ -761,13 +1051,17 @@ public sealed class ExpressionEvaluator
         return sb.ToString();
     }
 
+    // =========================================================================
+    // Number parsing
+    // =========================================================================
+
     public long? ParseNumberWithFixedPoint(string text) => ParseNumber(text, _fracBits);
 
     public static long? ParseNumber(string text) => ParseNumber(text, 0);
 
     public static long? ParseNumber(string text, int fracBits)
     {
-        var clean = StripUnderscores(text);
+        string clean = text.Replace("_", "");
 
         if (clean.StartsWith('$'))
             return TryParseBase(clean.AsSpan(1), 16);
@@ -795,39 +1089,30 @@ public sealed class ExpressionEvaluator
             return null;
         }
 
-        int dot = clean.IndexOf('.');
-        if (dot >= 0)
-            return ParseFixedPoint(clean, dot);
-
         if (long.TryParse(clean, out var val))
             return val;
         return null;
     }
 
-    private static long? ParseFixedPoint(string text, int dot)
+    /// <summary>
+    /// Parse a fixed-point literal (e.g. "3.14159") into a Q.N fixed-point integer.
+    /// Returns the value and an overflow flag.
+    /// </summary>
+    public static (long value, bool overflow) ParseFixedPointEx(string text, int fracBits)
     {
-        var intPart = text.AsSpan(0, dot);
-        var fracPart = text.AsSpan(dot + 1);
-
-        if (!long.TryParse(intPart, out long integer))
-            return null;
-
-        long result = integer << FixedQ;
-        if (fracPart.Length > 0)
-        {
-            if (!long.TryParse(fracPart, out long fracVal))
-                return null;
-            double frac = fracVal / Math.Pow(10, fracPart.Length);
-            long fracFixed = (long)Math.Round(frac * FixedOne);
-            result += integer >= 0 ? fracFixed : -fracFixed;
-        }
-        return result;
+        string clean = text.Replace("_", "");
+        if (!double.TryParse(clean, System.Globalization.CultureInfo.InvariantCulture, out var dval))
+            return (0, false);
+        double scale = 1L << fracBits;
+        double scaled = dval * scale;
+        bool overflow = scaled > int.MaxValue || scaled < int.MinValue;
+        return ((long)(int)(long)Math.Round(scaled), overflow);
     }
 
-    private static string StripUnderscores(string text)
+    public static long? ParseFixedPoint(string text, int fracBits)
     {
-        if (!text.Contains('_')) return text;
-        return text.Replace("_", "");
+        var (value, _) = ParseFixedPointEx(text, fracBits);
+        return value;
     }
 
     private static long? TryParseBase(ReadOnlySpan<char> digits, int radix)
@@ -847,4 +1132,3 @@ public sealed class ExpressionEvaluator
         return result;
     }
 }
-
