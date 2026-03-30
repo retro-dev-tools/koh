@@ -270,7 +270,7 @@ public sealed class Lexer
 
         if (char.IsDigit(c))
         {
-            while (char.IsDigit(Current))
+            while (char.IsDigit(Current) || Current == '_')
                 _position++;
             // Fixed-point literal: digits.digits (e.g. 5.0, 2.5)
             if (Current == '.' && char.IsDigit(Peek()))
@@ -383,6 +383,11 @@ public sealed class Lexer
             _position += 2;
             return (SyntaxKind.PipePipeToken, "||");
         }
+        if (c == '*' && Peek() == '*')
+        {
+            _position += 2;
+            return (SyntaxKind.StarStarToken, "**");
+        }
         if (c == ':' && Peek() == ':')
         {
             _position += 2;
@@ -415,6 +420,7 @@ public sealed class Lexer
             '<' => (SyntaxKind.LessThanToken, "<"),
             '>' => (SyntaxKind.GreaterThanToken, ">"),
             '$' => (SyntaxKind.CurrentAddressToken, "$"),
+            '@' => (SyntaxKind.AtToken, "@"),
             _ => (SyntaxKind.BadToken, c.ToString()),
         };
 

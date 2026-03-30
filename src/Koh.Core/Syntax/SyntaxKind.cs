@@ -29,10 +29,11 @@ public enum SyntaxKind : ushort
     EqualsEqualsToken, BangEqualsToken,
     LessThanEqualsToken, GreaterThanEqualsToken,
     AmpersandAmpersandToken, PipePipeToken,
+    StarStarToken,
 
     // Literals
     NumberLiteral, StringLiteral, IdentifierToken, LocalLabelToken,
-    CurrentAddressToken,
+    CurrentAddressToken, AtToken,
 
     // Macro parameter tokens: \1..\9, \@, \#, \NARG
     // These are lexed as a single token so that macro bodies parse with correct

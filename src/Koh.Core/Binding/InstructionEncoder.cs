@@ -73,7 +73,8 @@ internal sealed class InstructionEncoder
     /// </summary>
     public void Encode(SyntaxNode node, InstructionDescriptor desc, SectionBuffer section)
     {
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        int instructionPC = section.CurrentPC;
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => instructionPC);
 
         int opcodeOffset = section.CurrentOffset;
 

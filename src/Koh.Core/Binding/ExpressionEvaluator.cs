@@ -46,7 +46,7 @@ public sealed class ExpressionEvaluator
             SyntaxKind.FunctionCallExpression => EvaluateFunction(node),
             // Raw tokens (e.g., from LabelOperand or ImmediateOperand unwrapping)
             SyntaxKind.NumberLiteral => ParseNumberWithFixedPoint(((GreenToken)node).Text),
-            SyntaxKind.CurrentAddressToken => _getCurrentPC(),
+            SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken => _getCurrentPC(),
             SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken =>
                 EvaluateRawIdentifier(((GreenToken)node).Text),
             SyntaxKind.StringLiteral => null,
@@ -60,7 +60,7 @@ public sealed class ExpressionEvaluator
         return token.Kind switch
         {
             SyntaxKind.NumberLiteral => ParseNumberWithFixedPoint(token.Text),
-            SyntaxKind.CurrentAddressToken => _getCurrentPC(),
+            SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken => _getCurrentPC(),
             SyntaxKind.StringLiteral => null,
             SyntaxKind.MissingToken => null,
             _ => null,
@@ -115,6 +115,7 @@ public sealed class ExpressionEvaluator
             SyntaxKind.GreaterThanEqualsToken => left.Value >= right.Value ? 1L : 0L,
             SyntaxKind.AmpersandAmpersandToken => (left.Value != 0 && right.Value != 0) ? 1L : 0L,
             SyntaxKind.PipePipeToken => (left.Value != 0 || right.Value != 0) ? 1L : 0L,
+            SyntaxKind.StarStarToken => IntegerPow(left.Value, right.Value),
             _ => null,
         };
     }
@@ -296,6 +297,15 @@ public sealed class ExpressionEvaluator
         return uv == 0 ? 32 : BitOperations.TrailingZeroCount(uv);
     }
 
+    private static long IntegerPow(long baseVal, long exp)
+    {
+        if (exp < 0) return 0;
+        long result = 1;
+        for (long i = 0; i < exp; i++)
+            result *= baseVal;
+        return result;
+    }
+
     public long? ParseNumberWithFixedPoint(string text) => ParseNumber(text, _fracBits);
 
     public static long? ParseNumber(string text) => ParseNumber(text, 0);
@@ -354,6 +364,7 @@ public sealed class ExpressionEvaluator
         long result = 0;
         foreach (char c in digits)
         {
+            if (c == '_') continue; // skip underscore separators
             int d = c >= '0' && c <= '9' ? c - '0'
                   : c >= 'a' && c <= 'f' ? c - 'a' + 10
                   : c >= 'A' && c <= 'F' ? c - 'A' + 10
