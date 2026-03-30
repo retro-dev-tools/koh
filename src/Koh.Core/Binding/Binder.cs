@@ -620,7 +620,14 @@ public sealed class Binder
                 var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
                 if (msgToken != null)
                 {
-                    var text = msgToken.Text.Length >= 2 ? msgToken.Text[1..^1] : msgToken.Text;
+                    var text = msgToken.Text;
+                    // Strip string delimiters: raw strings (#"...", #"""...""") and regular strings ("...")
+                    if (text.StartsWith("#\"\"\"") && text.EndsWith("\"\"\""))
+                        text = text[4..^3];
+                    else if (text.StartsWith("#\"") && text.EndsWith("\""))
+                        text = text[2..^1];
+                    else if (text.Length >= 2)
+                        text = text[1..^1];
                     if (_expander != null)
                         text = _expander.ResolveInterpolations(text);
                     _printOutput.Write(text);
@@ -766,6 +773,11 @@ public sealed class Binder
         var node = (Syntax.InternalSyntax.GreenNode)green;
         var token = (Syntax.InternalSyntax.GreenToken)node.GetChild(0)!;
         var text = token.Text;
+        // Handle raw string delimiters: #"""...""" and #"..."
+        if (text.StartsWith("#\"\"\"") && text.EndsWith("\"\"\""))
+            return text[4..^3];
+        if (text.StartsWith("#\"") && text.EndsWith("\""))
+            return text[2..^1];
         return text.Length >= 2 ? text[1..^1] : text; // strip quotes
     }
 }
