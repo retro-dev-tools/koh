@@ -11,6 +11,14 @@ namespace Koh.Core.Binding;
 /// </summary>
 public sealed class ExpressionEvaluator
 {
+    /// <summary>
+    /// Fractional bits for Q16.16 fixed-point arithmetic.
+    /// </summary>
+    private const int FixedQ = 16;
+    private const long FixedOne = 1L << FixedQ;
+    private const long FixedFracMask = FixedOne - 1;
+    private const long FixedHalf = 1L << (FixedQ - 1);
+
     private readonly SymbolTable _symbols;
     private readonly DiagnosticBag _diagnostics;
     private readonly Func<int> _getCurrentPC;
@@ -154,21 +162,121 @@ public sealed class ExpressionEvaluator
             // any other expression kind (literal, binary, etc.) is not a symbol name reference.
             SyntaxKind.DefKeyword when arg?.Kind == SyntaxKind.NameExpression =>
                 _symbols.Lookup(((GreenToken)((GreenNode)arg).GetChild(0)!).Text) is { State: SymbolState.Defined } ? 1L : 0L,
+
+            // Fixed-point math functions (Q16.16)
+            SyntaxKind.MulKeyword => EvalFixedMul(green),
+            SyntaxKind.DivFuncKeyword => EvalFixedDiv(green),
+            SyntaxKind.FmodKeyword => EvalFixedFmod(green),
+            SyntaxKind.PowKeyword => EvalFixedPow(green),
+            SyntaxKind.LogKeyword => EvalFixedLog(green),
+            SyntaxKind.RoundKeyword => EvalFixedRound(arg),
+            SyntaxKind.CeilKeyword => EvalFixedCeil(arg),
+            SyntaxKind.FloorKeyword => EvalFixedFloor(arg),
+
             _ => null,
         };
     }
 
+    /// <summary>
+    /// Evaluates two fixed-point arguments from a function call node.
+    /// Children layout: [0]=keyword [1]=( [2]=arg1 [3]=, [4]=arg2 [5]=)
+    /// </summary>
+    private (long a, long b)? EvalTwoFixedArgs(GreenNode green)
+    {
+        var a = TryEvaluate(green.GetChild(2)!);
+        var b = green.ChildCount > 4 ? TryEvaluate(green.GetChild(4)!) : null;
+        if (a is null || b is null) return null;
+        return (a.Value, b.Value);
+    }
+
+    private long? EvalFixedMul(GreenNode green) =>
+        EvalTwoFixedArgs(green) is var (a, b) ? (a * b) >> FixedQ : null;
+
+    private long? EvalFixedDiv(GreenNode green)
+    {
+        if (EvalTwoFixedArgs(green) is not var (a, b)) return null;
+        if (b == 0)
+            return a == 0 ? 0 : a > 0 ? 0x7FFFFFFF : unchecked((long)(uint)0x80000000);
+        return (a << FixedQ) / b;
+    }
+
+    private long? EvalFixedFmod(GreenNode green) =>
+        EvalTwoFixedArgs(green) is var (a, b) ? b == 0 ? 0 : a % b : null;
+
+    private long? EvalFixedPow(GreenNode green)
+    {
+        if (EvalTwoFixedArgs(green) is not var (a, b)) return null;
+        double result = Math.Pow(a / (double)FixedOne, b / (double)FixedOne);
+        return (long)Math.Round(result * FixedOne);
+    }
+
+    private long? EvalFixedLog(GreenNode green)
+    {
+        if (EvalTwoFixedArgs(green) is not var (a, b)) return null;
+        double result = Math.Log(a / (double)FixedOne, b / (double)FixedOne);
+        return (long)Math.Round(result * FixedOne);
+    }
+
+    private long? EvalFixedUnary(GreenNodeBase? arg, Func<long, long> op)
+    {
+        if (arg is null) return null;
+        var v = TryEvaluate(arg);
+        return v is null ? null : op(v.Value);
+    }
+
+    private long? EvalFixedRound(GreenNodeBase? arg) =>
+        EvalFixedUnary(arg, val => val >= 0
+            ? (val + FixedHalf) & ~FixedFracMask
+            : -(((-val) + FixedHalf) & ~FixedFracMask));
+
+    private long? EvalFixedCeil(GreenNodeBase? arg) =>
+        EvalFixedUnary(arg, val => val >= 0
+            ? (val & FixedFracMask) != 0 ? (val & ~FixedFracMask) + FixedOne : val
+            : -((-val) & ~FixedFracMask));
+
+    private long? EvalFixedFloor(GreenNodeBase? arg) =>
+        EvalFixedUnary(arg, val => val >= 0
+            ? val & ~FixedFracMask
+            : ((-val) & FixedFracMask) != 0 ? -(((-val) & ~FixedFracMask) + FixedOne) : val);
+
     public static long? ParseNumber(string text)
     {
-        if (text.StartsWith('$'))
-            return TryParseBase(text.AsSpan(1), 16);
-        if (text.StartsWith('%'))
-            return TryParseBase(text.AsSpan(1), 2);
-        if (text.StartsWith('&'))
-            return TryParseBase(text.AsSpan(1), 8);
-        if (long.TryParse(text, out var val))
+        var clean = text.Contains('_') ? text.Replace("_", "") : text;
+
+        if (clean.StartsWith('$'))
+            return TryParseBase(clean.AsSpan(1), 16);
+        if (clean.StartsWith('%'))
+            return TryParseBase(clean.AsSpan(1), 2);
+        if (clean.StartsWith('&'))
+            return TryParseBase(clean.AsSpan(1), 8);
+
+        int dot = clean.IndexOf('.');
+        if (dot >= 0)
+            return ParseFixedPoint(clean, dot);
+
+        if (long.TryParse(clean, out var val))
             return val;
         return null;
+    }
+
+    private static long? ParseFixedPoint(string text, int dot)
+    {
+        var intPart = text.AsSpan(0, dot);
+        var fracPart = text.AsSpan(dot + 1);
+
+        if (!long.TryParse(intPart, out long integer))
+            return null;
+
+        long result = integer << FixedQ;
+        if (fracPart.Length > 0)
+        {
+            if (!long.TryParse(fracPart, out long fracVal))
+                return null;
+            double frac = fracVal / Math.Pow(10, fracPart.Length);
+            long fracFixed = (long)Math.Round(frac * FixedOne);
+            result += integer >= 0 ? fracFixed : -fracFixed;
+        }
+        return result;
     }
 
     private static long? TryParseBase(ReadOnlySpan<char> digits, int radix)

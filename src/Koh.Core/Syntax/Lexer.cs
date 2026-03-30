@@ -154,6 +154,14 @@ public sealed class Lexer
         ["strcat"] = SyntaxKind.StrcatKeyword,
         ["strsub"] = SyntaxKind.StrsubKeyword,
         ["revchar"] = SyntaxKind.RevcharKeyword,
+        ["mul"] = SyntaxKind.MulKeyword,
+        ["div"] = SyntaxKind.DivFuncKeyword,
+        ["pow"] = SyntaxKind.PowKeyword,
+        ["log"] = SyntaxKind.LogKeyword,
+        ["round"] = SyntaxKind.RoundKeyword,
+        ["ceil"] = SyntaxKind.CeilKeyword,
+        ["floor"] = SyntaxKind.FloorKeyword,
+        ["fmod"] = SyntaxKind.FmodKeyword,
     };
 
     public Lexer(SourceText source)
@@ -225,7 +233,7 @@ public sealed class Lexer
         if (c == '$' && IsHexDigit(Peek()))
         {
             _position++;
-            while (IsHexDigit(Current))
+            while (IsHexDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -233,7 +241,7 @@ public sealed class Lexer
         if (c == '%' && IsBinaryDigit(Peek()))
         {
             _position++;
-            while (IsBinaryDigit(Current))
+            while (IsBinaryDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -246,7 +254,7 @@ public sealed class Lexer
         if (c == '&' && IsOctalDigit(Peek()) && !PrecedingCharIsExpressionEnd(start))
         {
             _position++;
-            while (IsOctalDigit(Current))
+            while (IsOctalDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -255,6 +263,13 @@ public sealed class Lexer
         {
             while (char.IsDigit(Current))
                 _position++;
+            // Fixed-point literal: digits.digits (e.g. 5.0, 2.5)
+            if (Current == '.' && char.IsDigit(Peek()))
+            {
+                _position++; // consume the dot
+                while (char.IsDigit(Current))
+                    _position++;
+            }
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 

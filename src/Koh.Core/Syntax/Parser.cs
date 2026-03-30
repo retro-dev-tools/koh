@@ -707,6 +707,14 @@ internal sealed class Parser
             case SyntaxKind.StrcatKeyword:
             case SyntaxKind.StrsubKeyword:
             case SyntaxKind.RevcharKeyword:
+            case SyntaxKind.MulKeyword:
+            case SyntaxKind.DivFuncKeyword:
+            case SyntaxKind.PowKeyword:
+            case SyntaxKind.LogKeyword:
+            case SyntaxKind.RoundKeyword:
+            case SyntaxKind.CeilKeyword:
+            case SyntaxKind.FloorKeyword:
+            case SyntaxKind.FmodKeyword:
                 return ParseFunctionCallExpression();
 
             case SyntaxKind.OpenParenToken:
