@@ -154,6 +154,15 @@ public sealed class Lexer
         ["strcat"] = SyntaxKind.StrcatKeyword,
         ["strsub"] = SyntaxKind.StrsubKeyword,
         ["revchar"] = SyntaxKind.RevcharKeyword,
+        ["sin"] = SyntaxKind.SinKeyword,
+        ["cos"] = SyntaxKind.CosKeyword,
+        ["tan"] = SyntaxKind.TanKeyword,
+        ["asin"] = SyntaxKind.AsinKeyword,
+        ["acos"] = SyntaxKind.AcosKeyword,
+        ["atan"] = SyntaxKind.AtanKeyword,
+        ["atan2"] = SyntaxKind.Atan2Keyword,
+        ["bitwidth"] = SyntaxKind.BitwidthKeyword,
+        ["tzcount"] = SyntaxKind.TzcountKeyword,
     };
 
     public Lexer(SourceText source)
@@ -255,6 +264,13 @@ public sealed class Lexer
         {
             while (char.IsDigit(Current))
                 _position++;
+            // Fixed-point literal: digits.digits (e.g. 0.25, 1.0)
+            if (Current == '.' && char.IsDigit(Peek()))
+            {
+                _position++; // consume '.'
+                while (char.IsDigit(Current))
+                    _position++;
+            }
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 

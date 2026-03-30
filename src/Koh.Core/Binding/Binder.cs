@@ -28,6 +28,7 @@ public sealed class Binder
     private readonly TextWriter _printOutput;
     private readonly BinderOptions _options;
     private AssemblyExpander? _expander;
+    private int _fixedPointFracBits;
 
     public Binder(BinderOptions options = default, ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
     {
@@ -153,7 +154,10 @@ public sealed class Binder
             case SyntaxKind.AlignKeyword:
                 Pass1Align(node, pc);
                 break;
-            // OPT/PUSHO/POPO: no PC impact in Pass 1
+            case SyntaxKind.OptKeyword:
+                ParseOptDirective(node);
+                break;
+            // PUSHO/POPO: no PC impact in Pass 1
         }
     }
 
@@ -161,7 +165,7 @@ public sealed class Binder
     {
         var exprNodes = node.ChildNodes().ToList();
         if (exprNodes.Count == 0) return;
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC, _fixedPointFracBits);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
 
@@ -289,7 +293,7 @@ public sealed class Binder
             case SyntaxKind.DsKeyword:
                 if (expressions.Count > 0)
                 {
-                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC);
+                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => pc.CurrentPC, _fixedPointFracBits);
                     var sizeVal = evaluator.TryEvaluate(expressions[0].Green);
                     int dsSize = sizeVal.HasValue ? (int)sizeVal.Value : 0;
                     pc.Advance(dsSize);
@@ -447,7 +451,7 @@ public sealed class Binder
 
         var keyword = node.ChildTokens().First();
         var expressions = node.ChildNodes().ToList();
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC, _fixedPointFracBits);
 
         switch (keyword.Kind)
         {
@@ -559,7 +563,7 @@ public sealed class Binder
                 }
                 var section = _sections.ActiveSection;
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-                    () => section?.CurrentPC ?? 0);
+                    () => section?.CurrentPC ?? 0, _fixedPointFracBits);
                 var val = evaluator.TryEvaluate(exprNodes[0].Green);
 
                 // Determine severity: ASSERT WARN, ... → warning; ASSERT FAIL/FATAL, ... → error (default)
@@ -663,12 +667,35 @@ public sealed class Binder
                 break;
 
             case SyntaxKind.OptKeyword:
-                // OPT accepted — options do not affect assembly output in Koh
+                ParseOptDirective(node);
                 break;
             case SyntaxKind.PushoKeyword:
             case SyntaxKind.PopoKeyword:
                 // PUSHO/POPO accepted — option stacking has no effect since OPT is a no-op
                 break;
+        }
+    }
+
+    private void ParseOptDirective(SyntaxNode node)
+    {
+        // Look for Q.N pattern in OPT children: OptKeyword, IdentifierToken("Q"), DotToken, NumberLiteral("N")
+        var children = node.ChildNodes().ToList();
+        for (int i = 0; i < children.Count; i++)
+        {
+            var child = children[i];
+            if (child.Green is GreenToken { Kind: SyntaxKind.IdentifierToken } ident &&
+                ident.Text.Equals("Q", StringComparison.OrdinalIgnoreCase))
+            {
+                // Look for . N after Q
+                if (i + 2 < children.Count &&
+                    children[i + 1].Green is GreenToken { Kind: SyntaxKind.DotToken } &&
+                    children[i + 2].Green is GreenToken { Kind: SyntaxKind.NumberLiteral } numToken &&
+                    int.TryParse(numToken.Text, out var bits))
+                {
+                    _fixedPointFracBits = bits;
+                    return;
+                }
+            }
         }
     }
 
@@ -686,7 +713,7 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan, "ALIGN requires an alignment value");
             return;
         }
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => section.CurrentPC, _fixedPointFracBits);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
         {

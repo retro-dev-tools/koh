@@ -105,6 +105,8 @@ public enum SyntaxKind : ushort
     // Built-in function keywords
     HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
     DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
+    SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
+    BitwidthKeyword, TzcountKeyword,
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,
