@@ -48,6 +48,9 @@ internal sealed class AssemblyExpander
     /// <summary>The expander's charmap state, for sharing with the binder.</summary>
     internal CharMapManager CharMaps => _charMaps;
 
+    /// <summary>Optional callback to retrieve the current PC for @ interpolation.</summary>
+    internal Func<int>? GetCurrentPC { get; set; }
+
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
         var output = new List<ExpandedNode>();
@@ -1119,6 +1122,10 @@ internal sealed class AssemblyExpander
 
     private string? ResolveInterpolationValue(string name, string? fmt)
     {
+        // Handle @ (current PC) — RGBDS defaults to uppercase hex with $ prefix
+        if (name == "@" && GetCurrentPC != null)
+            return FormatNumericValue(GetCurrentPC(), fmt ?? "#X");
+
         // Check EQUS constants first (string type)
         if (_equsConstants.TryGetValue(name, out var equsValue))
             return equsValue; // EQUS always returns raw string regardless of format
@@ -1126,26 +1133,26 @@ internal sealed class AssemblyExpander
         // Check numeric symbols
         var sym = _symbols.Lookup(name);
         if (sym != null && sym.State == Symbols.SymbolState.Defined)
-        {
-            long val = sym.Value;
-            // Parse # prefix flag for base prefixes ($, %, &)
-            bool hasPrefix = fmt != null && fmt.StartsWith('#');
-            string type = fmt ?? "d"; // RGBDS default is decimal
-            if (hasPrefix) type = type[1..];
-
-            return type switch
-            {
-                "d" => ((int)val).ToString(),
-                "u" => ((uint)val).ToString(),
-                "x" => hasPrefix ? $"${val:x}" : val.ToString("x"),
-                "X" => hasPrefix ? $"${val:X}" : val.ToString("X"),
-                "b" => hasPrefix ? $"%{Convert.ToString(val, 2)}" : Convert.ToString(val, 2),
-                "o" => hasPrefix ? $"&{Convert.ToString(val, 8)}" : Convert.ToString(val, 8),
-                _ => ((int)val).ToString(),
-            };
-        }
+            return FormatNumericValue(sym.Value, fmt ?? "d");
 
         return null;
+    }
+
+    private static string FormatNumericValue(long val, string fmt)
+    {
+        bool hasPrefix = fmt.StartsWith('#');
+        string type = hasPrefix ? fmt[1..] : fmt;
+
+        return type switch
+        {
+            "d" => ((int)val).ToString(),
+            "u" => ((uint)val).ToString(),
+            "x" => hasPrefix ? $"${val:x}" : val.ToString("x"),
+            "X" => hasPrefix ? $"${val:X}" : val.ToString("X"),
+            "b" => hasPrefix ? $"%{Convert.ToString(val, 2)}" : Convert.ToString(val, 2),
+            "o" => hasPrefix ? $"&{Convert.ToString(val, 8)}" : Convert.ToString(val, 8),
+            _ => ((int)val).ToString(),
+        };
     }
 
     /// <summary>

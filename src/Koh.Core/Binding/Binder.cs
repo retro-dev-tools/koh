@@ -70,6 +70,7 @@ public sealed class Binder
 
         // Pass 2: byte emission — reset global label scope so local labels resolve correctly
         _symbols.SetGlobalAnchor(null);
+        _expander.GetCurrentPC = () => _sections.ActiveSection?.CurrentPC ?? 0;
         foreach (var en in nodes)
         {
             _diagnostics.CurrentFilePath = en.SourceFilePath;
@@ -504,14 +505,24 @@ public sealed class Binder
                 if (expressions.Count > 0)
                 {
                     var countVal = evaluator.TryEvaluate(expressions[0].Green);
-                    byte fill = 0x00;
-                    if (expressions.Count > 1)
-                    {
-                        var fillVal = evaluator.TryEvaluate(expressions[1].Green);
-                        if (fillVal.HasValue) fill = (byte)(fillVal.Value & 0xFF);
-                    }
                     if (countVal.HasValue)
-                        section.ReserveBytes((int)countVal.Value, fill);
+                    {
+                        int dsCount = (int)countVal.Value;
+                        if (expressions.Count > 1)
+                        {
+                            // Re-evaluate fill per byte so @ (PC) advances correctly
+                            var fillExpr = expressions[1].Green;
+                            for (int i = 0; i < dsCount; i++)
+                            {
+                                var fillVal = evaluator.TryEvaluate(fillExpr);
+                                section.EmitByte(fillVal.HasValue ? (byte)(fillVal.Value & 0xFF) : (byte)0);
+                            }
+                        }
+                        else
+                        {
+                            section.ReserveBytes(dsCount);
+                        }
+                    }
                 }
                 break;
         }

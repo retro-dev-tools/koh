@@ -225,7 +225,7 @@ public sealed class Lexer
         if (c == '$' && IsHexDigit(Peek()))
         {
             _position++;
-            while (IsHexDigit(Current))
+            while (IsHexDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -233,7 +233,7 @@ public sealed class Lexer
         if (c == '%' && IsBinaryDigit(Peek()))
         {
             _position++;
-            while (IsBinaryDigit(Current))
+            while (IsBinaryDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -246,14 +246,14 @@ public sealed class Lexer
         if (c == '&' && IsOctalDigit(Peek()) && !PrecedingCharIsExpressionEnd(start))
         {
             _position++;
-            while (IsOctalDigit(Current))
+            while (IsOctalDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
 
         if (char.IsDigit(c))
         {
-            while (char.IsDigit(Current))
+            while (char.IsDigit(Current) || Current == '_')
                 _position++;
             return (SyntaxKind.NumberLiteral, Substring(start, _position));
         }
@@ -359,6 +359,11 @@ public sealed class Lexer
             _position += 2;
             return (SyntaxKind.PipePipeToken, "||");
         }
+        if (c == '*' && Peek() == '*')
+        {
+            _position += 2;
+            return (SyntaxKind.StarStarToken, "**");
+        }
         if (c == ':' && Peek() == ':')
         {
             _position += 2;
@@ -391,6 +396,7 @@ public sealed class Lexer
             '<' => (SyntaxKind.LessThanToken, "<"),
             '>' => (SyntaxKind.GreaterThanToken, ">"),
             '$' => (SyntaxKind.CurrentAddressToken, "$"),
+            '@' => (SyntaxKind.AtToken, "@"),
             _ => (SyntaxKind.BadToken, c.ToString()),
         };
 

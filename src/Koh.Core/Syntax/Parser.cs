@@ -649,7 +649,9 @@ internal sealed class Parser
                 break;
 
             var op = Advance();
-            var right = ParseExpression(precedence);
+            // Right-associative operators (like **) recurse at precedence - 1
+            var rightPrec = IsRightAssociative(op.Kind) ? precedence - 1 : precedence;
+            var right = ParseExpression(rightPrec);
             left = new GreenNode(SyntaxKind.BinaryExpression, [left, op, right]);
         }
 
@@ -681,6 +683,7 @@ internal sealed class Parser
         {
             case SyntaxKind.NumberLiteral:
             case SyntaxKind.CurrentAddressToken:
+            case SyntaxKind.AtToken:
             case SyntaxKind.StringLiteral:
             case SyntaxKind.MacroParamToken:
                 return new GreenNode(SyntaxKind.LiteralExpression, [Advance()]);
@@ -791,6 +794,7 @@ internal sealed class Parser
     // 8: << >>
     // 9: + -
     // 10: * / %
+    // 11: **         (exponentiation, right-associative)
     private static int GetBinaryPrecedence(SyntaxKind kind) =>
         kind switch
         {
@@ -807,10 +811,13 @@ internal sealed class Parser
             SyntaxKind.LessThanLessThanToken or SyntaxKind.GreaterThanGreaterThanToken => 8,
             SyntaxKind.PlusToken or SyntaxKind.MinusToken => 9,
             SyntaxKind.StarToken or SyntaxKind.SlashToken or SyntaxKind.PercentToken => 10,
+            SyntaxKind.StarStarToken => 11,
             _ => 0,
         };
 
     private static bool IsBinaryOperator(SyntaxKind kind) => GetBinaryPrecedence(kind) > 0;
+
+    private static bool IsRightAssociative(SyntaxKind kind) => kind == SyntaxKind.StarStarToken;
 
     private static bool HasNewlineTrivia(GreenToken token)
     {
