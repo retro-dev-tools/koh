@@ -162,6 +162,15 @@ public sealed class Lexer
         ["ceil"] = SyntaxKind.CeilKeyword,
         ["floor"] = SyntaxKind.FloorKeyword,
         ["fmod"] = SyntaxKind.FmodKeyword,
+        ["sin"] = SyntaxKind.SinKeyword,
+        ["cos"] = SyntaxKind.CosKeyword,
+        ["tan"] = SyntaxKind.TanKeyword,
+        ["asin"] = SyntaxKind.AsinKeyword,
+        ["acos"] = SyntaxKind.AcosKeyword,
+        ["atan"] = SyntaxKind.AtanKeyword,
+        ["atan2"] = SyntaxKind.Atan2Keyword,
+        ["bitwidth"] = SyntaxKind.BitwidthKeyword,
+        ["tzcount"] = SyntaxKind.TzcountKeyword,
     };
 
     public Lexer(SourceText source)

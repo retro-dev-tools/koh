@@ -715,6 +715,15 @@ internal sealed class Parser
             case SyntaxKind.CeilKeyword:
             case SyntaxKind.FloorKeyword:
             case SyntaxKind.FmodKeyword:
+            case SyntaxKind.SinKeyword:
+            case SyntaxKind.CosKeyword:
+            case SyntaxKind.TanKeyword:
+            case SyntaxKind.AsinKeyword:
+            case SyntaxKind.AcosKeyword:
+            case SyntaxKind.AtanKeyword:
+            case SyntaxKind.Atan2Keyword:
+            case SyntaxKind.BitwidthKeyword:
+            case SyntaxKind.TzcountKeyword:
                 return ParseFunctionCallExpression();
 
             case SyntaxKind.OpenParenToken:

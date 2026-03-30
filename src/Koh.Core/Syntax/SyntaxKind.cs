@@ -107,6 +107,8 @@ public enum SyntaxKind : ushort
     DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
     MulKeyword, DivFuncKeyword, PowKeyword, LogKeyword,
     RoundKeyword, CeilKeyword, FloorKeyword, FmodKeyword,
+    SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
+    BitwidthKeyword, TzcountKeyword,
 
     // Nodes
     CompilationUnit, InstructionStatement, LabelDeclaration,
