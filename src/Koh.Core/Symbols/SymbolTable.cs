@@ -9,6 +9,10 @@ public sealed class SymbolTable
     private readonly DiagnosticBag _diagnostics;
     private Symbol? _currentGlobalAnchor;
 
+    // Anonymous label tracking
+    private readonly List<Symbol> _anonymousLabels = new();
+    private int _anonymousLabelIndex;
+
     public SymbolTable(DiagnosticBag diagnostics)
     {
         _diagnostics = diagnostics;
@@ -171,6 +175,15 @@ public sealed class SymbolTable
     }
 
     /// <summary>
+    /// Remove a symbol by name. Used by PURGE directive.
+    /// </summary>
+    public bool Remove(string name)
+    {
+        var key = QualifyName(name);
+        return _symbols.Remove(key);
+    }
+
+    /// <summary>
     /// Returns all symbols that are still undefined after Pass 1.
     /// </summary>
     public IEnumerable<Symbol> GetUndefinedSymbols() =>
@@ -191,6 +204,50 @@ public sealed class SymbolTable
 
     /// <summary>Current global anchor name, for recording on PatchEntry.</summary>
     public string? CurrentGlobalAnchorName => _currentGlobalAnchor?.Name;
+
+    /// <summary>
+    /// Define an anonymous label at the given PC. Returns the generated symbol.
+    /// </summary>
+    public Symbol DefineAnonymousLabel(long pc, string? section, SyntaxNode? site = null)
+    {
+        var name = $"__anon_{_anonymousLabels.Count}";
+        var sym = new Symbol(name, SymbolKind.Label);
+        sym.Define(pc, site);
+        sym.Section = section;
+        _symbols[name] = sym;
+        _anonymousLabels.Add(sym);
+        return sym;
+    }
+
+    /// <summary>
+    /// Resolve an anonymous label reference. Positive offset = forward (:+, :++),
+    /// negative offset = backward (:-, :--).
+    /// </summary>
+    public Symbol? ResolveAnonymousRef(int offset)
+    {
+        int target = _anonymousLabelIndex + offset;
+        // For forward refs (offset > 0), target is _anonymousLabelIndex + offset - 1
+        // because _anonymousLabelIndex points to the next anon label to be defined.
+        // For backward refs (offset < 0), target is _anonymousLabelIndex + offset
+        // because the previous label is at _anonymousLabelIndex - 1.
+        if (offset > 0)
+            target = _anonymousLabelIndex + offset - 1;
+        else
+            target = _anonymousLabelIndex + offset;
+
+        if (target >= 0 && target < _anonymousLabels.Count)
+            return _anonymousLabels[target];
+        return null;
+    }
+
+    /// <summary>
+    /// Advance the anonymous label index during Pass 2 when encountering
+    /// an anonymous label declaration.
+    /// </summary>
+    public void AdvanceAnonymousIndex() => _anonymousLabelIndex++;
+
+    /// <summary>Reset the anonymous label index for Pass 2.</summary>
+    public void ResetAnonymousIndex() => _anonymousLabelIndex = 0;
 
     private string QualifyName(string name)
     {

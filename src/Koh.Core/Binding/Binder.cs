@@ -29,6 +29,7 @@ public sealed class Binder
     private readonly BinderOptions _options;
     private AssemblyExpander? _expander;
     private int _fixedPointFracBits;
+    private Symbol? _savedGlobalAnchorBeforeLoad; // saved global anchor for ENDL scope restoration
 
     public Binder(BinderOptions options = default, ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
     {
@@ -72,6 +73,7 @@ public sealed class Binder
         // Pass 2: byte emission — reset global label scope so local labels resolve correctly
         _symbols.SetGlobalAnchor(null);
         _expander.GetCurrentPC = () => _sections.ActiveSection?.CurrentPC ?? 0;
+        _symbols.ResetAnonymousIndex();
         foreach (var en in nodes)
         {
             _diagnostics.CurrentFilePath = en.SourceFilePath;
@@ -127,6 +129,8 @@ public sealed class Binder
         }
     }
 
+    private Symbol? _savedGlobalAnchorBeforeLoadPass1;
+
     private void Pass1Directive(SyntaxNode node, SectionPCTracker pc)
     {
         var kw = node.ChildTokens().FirstOrDefault();
@@ -147,10 +151,13 @@ public sealed class Binder
                 pc.EndUnion();
                 break;
             case SyntaxKind.LoadKeyword:
+                _savedGlobalAnchorBeforeLoadPass1 = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "");
                 Pass1Load(node, pc);
                 break;
             case SyntaxKind.EndlKeyword:
                 pc.EndLoad();
+                if (_savedGlobalAnchorBeforeLoadPass1 != null)
+                    _symbols.SetGlobalAnchor(_savedGlobalAnchorBeforeLoadPass1);
                 break;
             case SyntaxKind.AlignKeyword:
                 Pass1Align(node, pc);
@@ -227,6 +234,14 @@ public sealed class Binder
     {
         var first = node.ChildTokens().FirstOrDefault();
         if (first == null) return;
+
+        // Anonymous label: advance the anonymous label index
+        if (first.Kind == SyntaxKind.ColonToken)
+        {
+            _symbols.AdvanceAnonymousIndex();
+            return;
+        }
+
         var name = first.Text;
         if (!name.StartsWith('.'))
         {
@@ -240,6 +255,14 @@ public sealed class Binder
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count == 0) return;
+
+        // Anonymous label: bare colon (the parser produces a LabelDeclaration with just ColonToken)
+        if (tokens[0].Kind == SyntaxKind.ColonToken && tokens.Count == 1)
+        {
+            _symbols.DefineAnonymousLabel(pc.LabelPC, pc.LabelSectionName, node);
+            return;
+        }
+
         // In LOAD blocks, labels get addresses from the load section
         var sym = _symbols.DefineLabel(tokens[0].Text, pc.LabelPC, pc.LabelSectionName, node);
         if (tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.DoubleColonToken)
@@ -838,12 +861,17 @@ public sealed class Binder
                 break;
 
             case SyntaxKind.LoadKeyword:
+                // Save current global anchor before entering LOAD block so ENDL can restore it
+                _savedGlobalAnchorBeforeLoad = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "");
                 Pass2Load(node);
                 break;
 
             case SyntaxKind.EndlKeyword:
                 if (!_sections.EndLoad())
                     _diagnostics.Report(node.FullSpan, "ENDL without matching LOAD");
+                // Restore global anchor to ROM-side scope after ENDL
+                if (_savedGlobalAnchorBeforeLoad != null)
+                    _symbols.SetGlobalAnchor(_savedGlobalAnchorBeforeLoad);
                 break;
 
             case SyntaxKind.AlignKeyword:

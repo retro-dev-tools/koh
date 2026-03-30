@@ -43,6 +43,9 @@ public enum SyntaxKind : ushort
     // positions and the parameter placeholder survives as a tree node.
     MacroParamToken,
 
+    // Anonymous label reference tokens: :+ (forward), :- (backward), :++ (2 forward), etc.
+    AnonLabelForwardToken, AnonLabelBackwardToken,
+
     // SM83 instruction keywords
     NopKeyword, LdKeyword, AddKeyword,
     AdcKeyword, SubKeyword, SbcKeyword, AndKeyword, OrKeyword, XorKeyword, CpKeyword,

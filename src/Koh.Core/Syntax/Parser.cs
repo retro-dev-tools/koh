@@ -78,7 +78,10 @@ internal sealed class Parser
             if (_position == startPos)
             {
                 var bad = Advance();
-                ReportBadToken(bad);
+                // Don't report diagnostics for { and } — they may be EQUS interpolation
+                // markers that will be resolved during expansion.
+                if (bad.Kind != SyntaxKind.BadToken || (bad.Text != "{" && bad.Text != "}"))
+                    ReportBadToken(bad);
             }
         }
 
@@ -234,6 +237,17 @@ internal sealed class Parser
             if (next.Kind == SyntaxKind.MacroParamToken &&
                 Peek(2).Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
                 return true;
+            // Compound label: Identifier + LocalLabel (+ optional colon)
+            // e.g. Alpha.local1: or Alpha.local1 (standalone)
+            if (Current.Kind == SyntaxKind.IdentifierToken && next.Kind == SyntaxKind.LocalLabelToken)
+            {
+                var afterLocal = Peek(2);
+                if (afterLocal.Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
+                    return true;
+                // Standalone compound label: Ident.local followed by newline/EOF
+                if (afterLocal.Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(next))
+                    return true;
+            }
         }
         // RGBDS allows labels without trailing colon. Local labels (.name) on their own
         // line are unambiguous — they can only be label declarations.
@@ -241,6 +255,14 @@ internal sealed class Parser
         {
             var next = Peek();
             // Standalone local label: .name followed by newline/EOF
+            if (next.Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current))
+                return true;
+        }
+        // Anonymous label: bare colon at statement start
+        if (Current.Kind == SyntaxKind.ColonToken)
+        {
+            var next = Peek();
+            // : followed by newline/EOF or another statement
             if (next.Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current))
                 return true;
         }
@@ -539,7 +561,29 @@ internal sealed class Parser
     private GreenNode ParseLabelDeclaration()
     {
         var children = new List<GreenNodeBase>();
+
+        // Anonymous label: bare colon
+        if (Current.Kind == SyntaxKind.ColonToken)
+        {
+            children.Add(Advance()); // consume the colon
+            return new GreenNode(SyntaxKind.LabelDeclaration, children.ToArray());
+        }
+
         children.Add(Advance()); // identifier or local label token
+
+        // Compound label: Identifier + LocalLabel (e.g. Alpha.local1)
+        if (Current.Kind == SyntaxKind.LocalLabelToken &&
+            children[0] is GreenToken firstToken &&
+            firstToken.Kind == SyntaxKind.IdentifierToken)
+        {
+            // Merge into a single compound identifier token
+            var localToken = Advance();
+            var compoundText = firstToken.Text + localToken.Text;
+            var compound = new GreenToken(SyntaxKind.IdentifierToken, compoundText,
+                firstToken.LeadingTrivia, localToken.TrailingTrivia);
+            children[0] = compound;
+        }
+
         // Handle .label\@: — consume optional MacroParamToken before the colon
         if (Current.Kind == SyntaxKind.MacroParamToken)
             children.Add(Advance());
@@ -611,6 +655,14 @@ internal sealed class Parser
         // and the binder handles the expression form)
         if (IsRegisterKeyword(kind) && !IsBinaryOperator(Peek().Kind))
             return ParseRegisterOperand();
+
+        // Anonymous label references: :+ :- :++ etc. — treat as label operands
+        if (kind is SyntaxKind.AnonLabelForwardToken or SyntaxKind.AnonLabelBackwardToken)
+        {
+            if (!IsBinaryOperator(Peek().Kind))
+                return new GreenNode(SyntaxKind.LabelOperand, [Advance()]);
+            return ParseImmediateOperand();
+        }
 
         // Label reference (bare, not in expression).
         // When followed by \@ (MacroParamToken), check the token AFTER \@ for operators
@@ -811,6 +863,11 @@ internal sealed class Parser
                     kwToken.LeadingTrivia, kwToken.TrailingTrivia);
                 return new GreenNode(SyntaxKind.NameExpression, [idToken]);
             }
+
+            // Anonymous label references: :+ :- :++ :-- etc.
+            case SyntaxKind.AnonLabelForwardToken:
+            case SyntaxKind.AnonLabelBackwardToken:
+                return new GreenNode(SyntaxKind.LiteralExpression, [Advance()]);
 
             // Built-in functions: HIGH(...), LOW(...), BANK(...), etc.
             case SyntaxKind.HighKeyword:
