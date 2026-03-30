@@ -101,6 +101,10 @@ internal sealed class Parser
     private static bool IsRegisterKeyword(SyntaxKind kind) =>
         kind >= SyntaxKind.AKeyword && kind <= SyntaxKind.DeKeyword;
 
+    // Any keyword token (instruction, register, directive, condition, built-in function).
+    private static bool IsKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.RevcharKeyword;
+
     private GreenNodeBase? ParseStatement()
     {
         // Labels: identifier/localLabel followed by : or ::
@@ -441,7 +445,7 @@ internal sealed class Parser
     {
         var children = new List<GreenNodeBase>();
         children.Add(Advance());                               // DEF
-        children.Add(Advance());                               // symbol name
+        children.Add(ConsumeRawIdentifierOrAdvance());         // symbol name (may be #keyword)
         // Accept both = and EQU/EQUS/RB/RW/RL after the name
         if (Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
             or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
@@ -551,9 +555,11 @@ internal sealed class Parser
             );
         }
 
-        // Condition flags: z, nz, nc
+        // Condition flags: z, nz, nc — with optional ! prefix(es) for negation
         if (IsConditionKeyword(kind))
             return ParseConditionOperand();
+        if (kind == SyntaxKind.BangToken && IsNegatedCondition())
+            return ParseNegatedConditionOperand();
 
         // Indirect: [...]
         if (kind == SyntaxKind.OpenBracketToken)
@@ -583,6 +589,61 @@ internal sealed class Parser
     private GreenNode ParseRegisterOperand() => new(SyntaxKind.RegisterOperand, [Advance()]);
 
     private GreenNode ParseConditionOperand() => new(SyntaxKind.ConditionOperand, [Advance()]);
+
+    /// <summary>
+    /// Check if the current position has one or more ! tokens followed by a condition keyword.
+    /// Handles !nz, !z, !nc, !c, !!z, !!nz, etc.
+    /// </summary>
+    private bool IsNegatedCondition()
+    {
+        int offset = 0;
+        while (Peek(offset).Kind == SyntaxKind.BangToken)
+            offset++;
+        var target = Peek(offset);
+        return IsConditionKeyword(target.Kind) || target.Kind == SyntaxKind.CKeyword;
+    }
+
+    /// <summary>
+    /// Parse !cond, !!cond, etc. Count the ! prefixes, consume them, then consume the
+    /// condition keyword. If odd number of !, invert the condition. Emit a single
+    /// ConditionOperand node with the resolved condition keyword.
+    /// </summary>
+    private GreenNode ParseNegatedConditionOperand()
+    {
+        int bangCount = 0;
+        while (Current.Kind == SyntaxKind.BangToken)
+        {
+            Advance(); // consume !
+            bangCount++;
+        }
+
+        var condToken = Advance(); // consume the condition keyword (z/nz/nc/c)
+        bool invert = bangCount % 2 != 0;
+
+        if (invert)
+        {
+            var invertedKind = condToken.Kind switch
+            {
+                SyntaxKind.ZKeyword => SyntaxKind.NzKeyword,
+                SyntaxKind.NzKeyword => SyntaxKind.ZKeyword,
+                SyntaxKind.NcKeyword => SyntaxKind.CKeyword,
+                SyntaxKind.CKeyword => SyntaxKind.NcKeyword,
+                _ => condToken.Kind,
+            };
+            var invertedText = invertedKind switch
+            {
+                SyntaxKind.ZKeyword => "z",
+                SyntaxKind.NzKeyword => "nz",
+                SyntaxKind.NcKeyword => "nc",
+                SyntaxKind.CKeyword => "c",
+                _ => condToken.Text,
+            };
+            condToken = new GreenToken(invertedKind, invertedText,
+                condToken.LeadingTrivia, condToken.TrailingTrivia);
+        }
+
+        return new GreenNode(SyntaxKind.ConditionOperand, [condToken]);
+    }
 
     private GreenNode ParseLabelOperand()
     {
@@ -685,6 +746,7 @@ internal sealed class Parser
             case SyntaxKind.CurrentAddressToken:
             case SyntaxKind.AtToken:
             case SyntaxKind.StringLiteral:
+            case SyntaxKind.CharLiteralToken:
             case SyntaxKind.MacroParamToken:
                 return new GreenNode(SyntaxKind.LiteralExpression, [Advance()]);
 
@@ -696,6 +758,17 @@ internal sealed class Parser
                 if (Current.Kind == SyntaxKind.MacroParamToken)
                     return new GreenNode(SyntaxKind.NameExpression, [name, Advance()]);
                 return new GreenNode(SyntaxKind.NameExpression, [name]);
+            }
+
+            // Raw identifier: #keyword — treat keyword as identifier name
+            case SyntaxKind.HashToken when IsKeyword(Peek().Kind):
+            {
+                Advance(); // consume #
+                var kwToken = Advance(); // consume keyword
+                // Re-tag as IdentifierToken so the binder sees it as a symbol name
+                var idToken = new GreenToken(SyntaxKind.IdentifierToken, kwToken.Text,
+                    kwToken.LeadingTrivia, kwToken.TrailingTrivia);
+                return new GreenNode(SyntaxKind.NameExpression, [idToken]);
             }
 
             // Built-in functions: HIGH(...), LOW(...), BANK(...), etc.
@@ -792,6 +865,22 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.FunctionCallExpression, children.ToArray());
     }
 
+    /// <summary>
+    /// If current token is # followed by a keyword, consume both and return
+    /// an IdentifierToken with the keyword text. Otherwise just Advance().
+    /// </summary>
+    private GreenToken ConsumeRawIdentifierOrAdvance()
+    {
+        if (Current.Kind == SyntaxKind.HashToken && IsKeyword(Peek().Kind))
+        {
+            Advance(); // consume #
+            var kw = Advance();
+            return new GreenToken(SyntaxKind.IdentifierToken, kw.Text,
+                kw.LeadingTrivia, kw.TrailingTrivia);
+        }
+        return Advance();
+    }
+
     private GreenToken ExpectToken(SyntaxKind expected)
     {
         if (Current.Kind == expected)
@@ -818,7 +907,8 @@ internal sealed class Parser
         {
             SyntaxKind.PipePipeToken => 1,
             SyntaxKind.AmpersandAmpersandToken => 2,
-            SyntaxKind.EqualsEqualsToken or SyntaxKind.BangEqualsToken => 3,
+            SyntaxKind.EqualsEqualsToken or SyntaxKind.BangEqualsToken
+                or SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.BangEqualsEqualsToken => 3,
             SyntaxKind.LessThanToken
             or SyntaxKind.GreaterThanToken
             or SyntaxKind.LessThanEqualsToken
@@ -827,7 +917,7 @@ internal sealed class Parser
             SyntaxKind.CaretToken => 6,
             SyntaxKind.AmpersandToken => 7,
             SyntaxKind.LessThanLessThanToken or SyntaxKind.GreaterThanGreaterThanToken => 8,
-            SyntaxKind.PlusToken or SyntaxKind.MinusToken => 9,
+            SyntaxKind.PlusToken or SyntaxKind.MinusToken or SyntaxKind.PlusPlusToken => 9,
             SyntaxKind.StarToken or SyntaxKind.SlashToken or SyntaxKind.PercentToken => 10,
             SyntaxKind.StarStarToken => 11,
             _ => 0,

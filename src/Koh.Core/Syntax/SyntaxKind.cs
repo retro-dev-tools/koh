@@ -30,9 +30,12 @@ public enum SyntaxKind : ushort
     LessThanEqualsToken, GreaterThanEqualsToken,
     AmpersandAmpersandToken, PipePipeToken,
     StarStarToken,
+    PlusPlusToken,                          // ++ string concatenation
+    EqualsEqualsEqualsToken,                // === string equality
+    BangEqualsEqualsToken,                  // !== string inequality
 
     // Literals
-    NumberLiteral, StringLiteral, IdentifierToken, LocalLabelToken,
+    NumberLiteral, StringLiteral, CharLiteralToken, IdentifierToken, LocalLabelToken,
     CurrentAddressToken, AtToken,
 
     // Macro parameter tokens: \1..\9, \@, \#, \NARG

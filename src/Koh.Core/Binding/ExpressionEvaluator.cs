@@ -24,14 +24,22 @@ public sealed class ExpressionEvaluator
     private readonly DiagnosticBag _diagnostics;
     private readonly Func<int> _getCurrentPC;
     private readonly int _fracBits;
+    private readonly CharMapManager? _charMaps;
 
     public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
         Func<int> getCurrentPC, int fracBits = 0)
+        : this(symbols, diagnostics, getCurrentPC, fracBits, null)
+    {
+    }
+
+    internal ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
+        Func<int> getCurrentPC, int fracBits, CharMapManager? charMaps)
     {
         _symbols = symbols;
         _diagnostics = diagnostics;
         _getCurrentPC = getCurrentPC;
         _fracBits = fracBits;
+        _charMaps = charMaps;
     }
 
     public long? TryEvaluate(GreenNodeBase node)
@@ -49,9 +57,65 @@ public sealed class ExpressionEvaluator
             SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken => _getCurrentPC(),
             SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken =>
                 EvaluateRawIdentifier(((GreenToken)node).Text),
+            SyntaxKind.CharLiteralToken => EvaluateCharLiteral(((GreenToken)node).Text),
             SyntaxKind.StringLiteral => null,
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Evaluate an expression that may produce a string value (for ++ concatenation,
+    /// === / !== comparison). Returns null for non-string expressions.
+    /// </summary>
+    public string? TryEvaluateString(GreenNodeBase node)
+    {
+        if (node.Kind == SyntaxKind.LiteralExpression)
+        {
+            var token = (GreenToken)((GreenNode)node).GetChild(0)!;
+            if (token.Kind == SyntaxKind.StringLiteral)
+                return StripQuotes(token.Text);
+        }
+        if (node.Kind == SyntaxKind.StringLiteral && node is GreenToken strTok)
+            return StripQuotes(strTok.Text);
+        if (node.Kind == SyntaxKind.BinaryExpression)
+        {
+            var green = (GreenNode)node;
+            var op = (GreenToken)green.GetChild(1)!;
+            if (op.Kind == SyntaxKind.PlusPlusToken)
+            {
+                var leftStr = TryEvaluateString(green.GetChild(0)!);
+                var rightStr = TryEvaluateString(green.GetChild(2)!);
+                if (leftStr != null && rightStr != null)
+                    return leftStr + rightStr;
+            }
+        }
+        return null;
+    }
+
+    private static string StripQuotes(string text) =>
+        text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
+
+    private long EvaluateCharLiteral(string text)
+    {
+        // 'X' — extract the character between quotes and return its charmap/ASCII value
+        if (text.Length >= 3 && text[0] == '\'' && text[^1] == '\'')
+        {
+            var ch = text[1..^1]; // the character(s) between quotes
+            if (_charMaps != null)
+            {
+                var bytes = _charMaps.EncodeString(ch);
+                if (bytes.Length > 0)
+                {
+                    // Combine bytes into a single value (big-endian)
+                    long val = 0;
+                    foreach (var b in bytes)
+                        val = (val << 8) | b;
+                    return val;
+                }
+            }
+            return ch.Length > 0 ? ch[0] : 0;
+        }
+        return 0;
     }
 
     private long? EvaluateLiteral(GreenNodeBase node)
@@ -61,6 +125,7 @@ public sealed class ExpressionEvaluator
         {
             SyntaxKind.NumberLiteral => ParseNumberWithFixedPoint(token.Text),
             SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken => _getCurrentPC(),
+            SyntaxKind.CharLiteralToken => EvaluateCharLiteral(token.Text),
             SyntaxKind.StringLiteral => null,
             SyntaxKind.MissingToken => null,
             _ => null,
@@ -89,8 +154,20 @@ public sealed class ExpressionEvaluator
     private long? EvaluateBinary(GreenNodeBase node)
     {
         var green = (GreenNode)node;
-        var left = TryEvaluate(green.GetChild(0)!);
         var op = (GreenToken)green.GetChild(1)!;
+
+        // String operators: ===, !==, ++ (++ returns string, handled via TryEvaluateString)
+        if (op.Kind is SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.BangEqualsEqualsToken)
+        {
+            var leftStr = TryEvaluateString(green.GetChild(0)!);
+            var rightStr = TryEvaluateString(green.GetChild(2)!);
+            if (leftStr == null || rightStr == null) return null;
+            return op.Kind == SyntaxKind.EqualsEqualsEqualsToken
+                ? (leftStr == rightStr ? 1L : 0L)
+                : (leftStr != rightStr ? 1L : 0L);
+        }
+
+        var left = TryEvaluate(green.GetChild(0)!);
         var right = TryEvaluate(green.GetChild(2)!);
 
         if (left == null || right == null) return null;

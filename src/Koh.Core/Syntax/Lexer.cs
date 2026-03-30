@@ -318,6 +318,15 @@ public sealed class Lexer
             return ScanString(start);
         }
 
+        // Character literals: 'X' — single character in single quotes
+        if (c == '\'' && !IsAtEnd && Peek() != '\'' && Peek(2) == '\'')
+        {
+            _position++; // opening quote
+            _position++; // the character
+            _position++; // closing quote
+            return (SyntaxKind.CharLiteralToken, Substring(start, _position));
+        }
+
         // Local labels: .loop, .done, .retry
         if (c == '.' && IsIdentifierStart(Peek()))
         {
@@ -384,15 +393,30 @@ public sealed class Lexer
             _position += 2;
             return (SyntaxKind.GreaterThanGreaterThanToken, ">>");
         }
+        if (c == '=' && Peek() == '=' && Peek(2) == '=')
+        {
+            _position += 3;
+            return (SyntaxKind.EqualsEqualsEqualsToken, "===");
+        }
         if (c == '=' && Peek() == '=')
         {
             _position += 2;
             return (SyntaxKind.EqualsEqualsToken, "==");
         }
+        if (c == '!' && Peek() == '=' && Peek(2) == '=')
+        {
+            _position += 3;
+            return (SyntaxKind.BangEqualsEqualsToken, "!==");
+        }
         if (c == '!' && Peek() == '=')
         {
             _position += 2;
             return (SyntaxKind.BangEqualsToken, "!=");
+        }
+        if (c == '+' && Peek() == '+')
+        {
+            _position += 2;
+            return (SyntaxKind.PlusPlusToken, "++");
         }
         if (c == '<' && Peek() == '=')
         {
