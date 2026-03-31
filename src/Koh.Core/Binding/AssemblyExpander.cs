@@ -34,8 +34,34 @@ internal sealed class AssemblyExpander
     private SourceText? _currentSourceText;
     private string _currentFilePath = "";
     private bool _breakRequested;
+    private bool _shiftRequested; // set by SHIFT inside macro body — signals ExpandMacroBody to re-expand
     private TextWriter _printOutput;
     private int _loopDepth; // >0 means inside REPT/FOR expansion
+
+    // Macro frame stack — each macro invocation pushes a frame so \N, \#, _NARG
+    // resolve lazily against the current args+shift state. SHIFT mutates the top frame.
+    private readonly Stack<MacroFrame> _macroFrameStack = new();
+
+    private sealed class MacroFrame
+    {
+        public IReadOnlyList<string> Args { get; }
+        public int ShiftOffset { get; set; }
+        public int UniqueId { get; set; }
+        public int Narg => Math.Max(0, Args.Count - ShiftOffset);
+        public string GetArg(int oneBasedIndex)
+        {
+            int i = oneBasedIndex - 1 + ShiftOffset;
+            return i >= 0 && i < Args.Count ? Args[i] : "";
+        }
+        public string AllArgs()
+        {
+            var remaining = new List<string>();
+            for (int i = ShiftOffset; i < Args.Count; i++)
+                remaining.Add(Args[i]);
+            return string.Join(", ", remaining);
+        }
+        public MacroFrame(IReadOnlyList<string> args) => Args = args;
+    }
 
     private const int MaxExpansionDepth = 64;
 
@@ -342,13 +368,21 @@ internal sealed class AssemblyExpander
                 EarlyProcessCharmap(node);
             }
 
-            // SHIFT outside macro — error
+            // SHIFT handling — advance the macro argument window
             if (node.Kind == SyntaxKind.DirectiveStatement)
             {
                 var kwCheck = node.ChildTokens().FirstOrDefault();
-                if (kwCheck?.Kind == SyntaxKind.ShiftKeyword && _expansionDepth == 0 && _loopDepth == 0)
+                if (kwCheck?.Kind == SyntaxKind.ShiftKeyword)
                 {
-                    _diagnostics.Report(node.FullSpan, "SHIFT used outside of a macro or REPT block");
+                    if (_macroFrameStack.Count == 0)
+                    {
+                        _diagnostics.Report(node.FullSpan, "SHIFT used outside of a macro");
+                        i++;
+                        continue;
+                    }
+                    var frame = _macroFrameStack.Peek();
+                    frame.ShiftOffset++;
+                    _symbols.DefineOrRedefine("_NARG", frame.Narg);
                     i++;
                     continue;
                 }
@@ -1037,6 +1071,20 @@ internal sealed class AssemblyExpander
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count == 0) return;
 
+        // If the call text contains \# (MacroParamToken), resolve it against
+        // the parent macro frame before looking up the macro name and args.
+        bool hasBackslashHash = tokens.Any(t => t.Kind == SyntaxKind.MacroParamToken && t.Text == "\\#");
+        if (hasBackslashHash && _macroFrameStack.Count > 0)
+        {
+            var parentFrame = _macroFrameStack.Peek();
+            var rawText = _currentSourceText != null
+                ? _currentSourceText.ToString(node.FullSpan)
+                : string.Join("", tokens.Select(t => t.Text));
+            var resolved = rawText.Replace("\\#", parentFrame.AllArgs());
+            ExpandTextInline(resolved, output);
+            return;
+        }
+
         var name = tokens[0].Text;
         if (!_macros.TryGetValue(name, out var macro))
         {
@@ -1055,41 +1103,74 @@ internal sealed class AssemblyExpander
         }
 
         var args = CollectMacroArgs(tokens, startIndex: 1);
-        int shiftOffset = 0;
+        _uniqueIdCounter++;
+        var frame = new MacroFrame(args) { UniqueId = _uniqueIdCounter };
+        _macroFrameStack.Push(frame);
 
-        // _NARG save/restore uses try/finally so that it is guaranteed to be
-        // restored even if expansion throws or hits the depth limit in a nested call.
         var prevNarg = _symbols.Lookup("_NARG");
         long? savedNarg = prevNarg?.State == SymbolState.Defined ? prevNarg.Value : null;
-        _symbols.DefineOrRedefine("_NARG", args.Count - shiftOffset);
+        _symbols.DefineOrRedefine("_NARG", frame.Narg);
 
         try
         {
-            var body = SubstituteMacroParams(macro.Body, args, shiftOffset);
-            var expanded = SyntaxTree.Parse(body);
-            var savedText = _currentSourceText;
-            _currentSourceText = expanded.Text;
-            try
-            {
-                var expandedChildren = expanded.Root.ChildNodesAndTokens().ToList();
-                int j = 0;
-                ExpandBodyList(expandedChildren, ref j, output);
-            }
-            finally
-            {
-                _currentSourceText = savedText;
-            }
+            ExpandMacroBody(macro.Body, frame, output);
         }
         finally
         {
-            // Restore _NARG to the caller's value. If it was undefined before this
-            // macro call, leave it at the inner macro's count (RGBDS leaves _NARG
-            // as the last macro's count when called from top-level context).
+            _macroFrameStack.Pop();
             if (savedNarg.HasValue)
                 _symbols.DefineOrRedefine("_NARG", savedNarg.Value);
-
             _expansionDepth--;
         }
+    }
+
+    /// <summary>
+    /// Expand a macro body. If the body contains SHIFT, expands line-by-line so that
+    /// each line's \N, \#, _NARG substitutions reflect the current shift state.
+    /// Without SHIFT, substitutes all at once (faster, backward-compatible).
+    /// </summary>
+    private void ExpandMacroBody(string rawBody, MacroFrame frame, List<ExpandedNode> output)
+    {
+        if (rawBody.Contains("SHIFT", StringComparison.OrdinalIgnoreCase))
+        {
+            // Line-by-line expansion: each line gets substituted with current frame state,
+            // so SHIFT affects subsequent lines' \N, \#, _NARG values.
+            var lines = rawBody.Split('\n');
+            foreach (var rawLine in lines)
+            {
+                if (string.IsNullOrWhiteSpace(rawLine)) continue;
+                var line = SubstituteLineParams(rawLine, frame);
+                // Check if this line IS the SHIFT directive
+                if (line.Trim().Equals("SHIFT", StringComparison.OrdinalIgnoreCase))
+                {
+                    frame.ShiftOffset++;
+                    _symbols.DefineOrRedefine("_NARG", frame.Narg);
+                    continue;
+                }
+                ExpandTextInline(line, output);
+                if (_breakRequested) break;
+            }
+        }
+        else
+        {
+            var body = SubstituteMacroParams(rawBody, frame);
+            ExpandTextInline(body, output);
+        }
+    }
+
+    private string SubstituteLineParams(string line, MacroFrame frame)
+    {
+        line = line.Replace("\\@", $"_{frame.UniqueId}");
+
+        for (int p = 9; p >= 1; p--)
+            line = line.Replace($"\\{p}", frame.GetArg(p));
+
+        if (line.Contains("\\#"))
+            line = line.Replace("\\#", frame.AllArgs());
+
+        line = SubstituteOutsideStrings(line, NargPattern, frame.Narg.ToString());
+
+        return line;
     }
 
     // =========================================================================
@@ -1232,33 +1313,27 @@ internal sealed class AssemblyExpander
     /// the current invocation's argument count. Text substitution bakes the correct
     /// value into each iteration's re-parsed tree, matching RGBDS behavior.
     /// </summary>
-    private string SubstituteMacroParams(string body, IReadOnlyList<string> args, int shiftOffset)
+    /// <summary>
+    /// Substitute macro params in body text. Only \@ is eagerly baked (immutable per invocation).
+    /// \1..\9, \#, _NARG are resolved lazily via MacroFrame so SHIFT can mutate the view.
+    /// </summary>
+    private string SubstituteMacroParams(string body, MacroFrame frame)
     {
         _uniqueIdCounter++;
-        int narg = args.Count - shiftOffset;
 
-        // Substitute \9..\1 descending (avoid \1 matching prefix of \10 if extended)
-        for (int p = 9; p >= 1; p--)
-        {
-            int argIndex = p - 1 + shiftOffset;
-            var replacement = argIndex < args.Count ? args[argIndex] : "";
-            body = body.Replace($"\\{p}", replacement);
-        }
-
-        // \@ → unique suffix per invocation
+        // \@ → unique suffix per invocation (eagerly baked — immutable)
         body = body.Replace("\\@", $"_{_uniqueIdCounter}");
+
+        // \1..\9 — resolve against current frame (shift-aware)
+        for (int p = 9; p >= 1; p--)
+            body = body.Replace($"\\{p}", frame.GetArg(p));
 
         // \# → all remaining args as comma-separated string
         if (body.Contains("\\#"))
-        {
-            var remaining = args.Skip(shiftOffset).ToList();
-            body = body.Replace("\\#", string.Join(", ", remaining));
-        }
+            body = body.Replace("\\#", frame.AllArgs());
 
-        // _NARG → argument count as a literal number, baked into the body text.
-        // This ensures that expressions like "db _NARG" evaluate correctly in Pass 2
-        // regardless of any subsequent macro calls that modify the _NARG symbol.
-        body = SubstituteOutsideStrings(body, NargPattern, narg.ToString());
+        // _NARG baked into body text so nested macro calls don't overwrite it
+        body = SubstituteOutsideStrings(body, NargPattern, frame.Narg.ToString());
 
         return body;
     }
