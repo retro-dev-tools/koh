@@ -1333,6 +1333,7 @@ internal sealed class AssemblyExpander
         var bodyTextRaw = ExtractBodyText(reptNode, PeekBodyNodes(siblings, i));
         CollectRepeatBody(siblings, ref i); // advances index past ENDR
 
+        var condDepthBefore = _conditional.Depth;
         _loopDepth++;
         try
         {
@@ -1345,6 +1346,8 @@ internal sealed class AssemblyExpander
             }
         }
         finally { _loopDepth--; }
+        if (_conditional.Depth != condDepthBefore)
+            _diagnostics.Report(reptNode.FullSpan, "Unbalanced IF/ENDC inside REPT body");
     }
 
     /// <summary>
