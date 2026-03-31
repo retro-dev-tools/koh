@@ -18,6 +18,24 @@ public sealed class Lexer
     /// </summary>
     internal IReadOnlyList<Diagnostic> Diagnostics => _diagnostics.ToList();
 
+    /// <summary>
+    /// Lex all tokens from the source text. Returns the token list and any lexer diagnostics.
+    /// Used by the Parser constructor — keeps lexer knowledge out of the parser.
+    /// </summary>
+    internal static (List<GreenToken> Tokens, IReadOnlyList<Diagnostic> LexerDiagnostics) LexAll(SourceText text)
+    {
+        var lexer = new Lexer(text);
+        var tokens = new List<GreenToken>();
+        while (true)
+        {
+            var greenToken = lexer.NextGreenToken();
+            tokens.Add(greenToken);
+            if (greenToken.Kind == SyntaxKind.EndOfFileToken)
+                break;
+        }
+        return (tokens, lexer.Diagnostics);
+    }
+
     private static readonly Dictionary<string, SyntaxKind> Keywords = new(
         StringComparer.OrdinalIgnoreCase
     )

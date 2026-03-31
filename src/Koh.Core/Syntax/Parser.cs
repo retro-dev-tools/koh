@@ -10,30 +10,15 @@ internal sealed class Parser
     private readonly List<GreenToken> _tokens;
     private readonly DiagnosticBag _diagnostics = new();
     private int _position;
+    private int _currentOffset; // running byte offset — avoids O(n²) in error reporting
 
     public Parser(SourceText text)
     {
         _text = text;
-        var (tokens, lexerDiagnostics) = LexAll(text);
+        var (tokens, lexerDiagnostics) = Lexer.LexAll(text);
         _tokens = tokens;
         foreach (var d in lexerDiagnostics)
             _diagnostics.Report(d.Span, d.Message, d.Severity);
-    }
-
-    private static (List<GreenToken> tokens, IReadOnlyList<Diagnostic> lexerDiagnostics) LexAll(
-        SourceText text
-    )
-    {
-        var lexer = new Lexer(text);
-        var tokens = new List<GreenToken>();
-        while (true)
-        {
-            var greenToken = lexer.NextGreenToken();
-            tokens.Add(greenToken);
-            if (greenToken.Kind == SyntaxKind.EndOfFileToken)
-                break;
-        }
-        return (tokens, lexer.Diagnostics);
     }
 
     private GreenToken Current => _position < _tokens.Count ? _tokens[_position] : _tokens[^1]; // EOF
@@ -48,7 +33,10 @@ internal sealed class Parser
     {
         var token = Current;
         if (_position < _tokens.Count - 1)
+        {
+            _currentOffset += token.FullWidth;
             _position++;
+        }
         return token;
     }
 
@@ -74,12 +62,13 @@ internal sealed class Parser
             while (Current.Kind == SyntaxKind.DoubleColonToken)
                 Advance();
 
-            // Safety: if we didn't advance, force advance to avoid infinite loop
+            // Safety: if we didn't advance, force advance to avoid infinite loop.
+            // Unlike the function call loop (which always reports bad tokens), here we
+            // suppress diagnostics for { and } since they may be EQUS interpolation
+            // markers resolved later during macro expansion.
             if (_position == startPos)
             {
                 var bad = Advance();
-                // Don't report diagnostics for { and } — they may be EQUS interpolation
-                // markers that will be resolved during expansion.
                 if (bad.Kind != SyntaxKind.BadToken || (bad.Text != "{" && bad.Text != "}"))
                     ReportBadToken(bad);
             }
@@ -295,7 +284,7 @@ internal sealed class Parser
             // ENDC and ELSE must not have trailing tokens
             if (!AtEndOfStatement())
             {
-                _diagnostics.Report(default, $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
+                _diagnostics.Report(new TextSpan(_currentOffset, 0), $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
                 while (!AtEndOfStatement()) Advance(); // consume trailing tokens
             }
         }
@@ -396,7 +385,15 @@ internal sealed class Parser
     /// <summary>
     /// Parse a block directive as a flat token sequence on the current line.
     /// Always consumes at least the keyword token, then any remaining tokens.
-    /// Used for MACRO/ENDM, REPT/FOR/ENDR, INCLUDE/INCBIN, NEXTU/ENDU, LOAD/ENDL, SHIFT.
+    /// Used for MACRO/ENDM, REPT/FOR/ENDR, INCLUDE/INCBIN, NEXTU/ENDU, LOAD/ENDL, SHIFT,
+    /// and also as the macro-call fallback for unrecognized identifiers.
+    ///
+    /// Design tradeoff: this is a "consume everything until EOL" approach that defers
+    /// structural validation to the binder. For constructs with well-defined syntax
+    /// (e.g., INCLUDE requires exactly one string argument), this means the parser
+    /// gives no structural diagnostics — malformed directives are silently passed
+    /// through. The binder is responsible for reporting errors like "INCLUDE missing
+    /// file argument". This simplifies the parser at the cost of later error reporting.
     /// </summary>
     private GreenNode ParseBlockDirective(SyntaxKind nodeKind)
     {
@@ -417,7 +414,7 @@ internal sealed class Parser
         children.Add(Advance()); // keyword
         if (!AtEndOfStatement())
         {
-            _diagnostics.Report(default, $"Unexpected tokens after {name}");
+            _diagnostics.Report(new TextSpan(_currentOffset, 0), $"Unexpected tokens after {name}");
             while (!AtEndOfStatement()) children.Add(Advance());
         }
         return new GreenNode(nodeKind, children.ToArray());
@@ -439,7 +436,7 @@ internal sealed class Parser
                 if (AtEndOfStatement())
                 {
                     // Bare register name only — this is an error
-                    _diagnostics.Report(default, "PRINT/PRINTLN requires a string or expression argument, not a bare register name");
+                    _diagnostics.Report(new TextSpan(_currentOffset, 0), "PRINT/PRINTLN requires a string or expression argument, not a bare register name");
                     _position = saved;
                     children.Add(Advance());
                 }
@@ -509,18 +506,20 @@ internal sealed class Parser
         if (Current.Kind == SyntaxKind.RedefKeyword)
             children.Add(Advance()); // REDEF
 
-        System.Diagnostics.Debug.Assert(
-            Current.Kind == SyntaxKind.IdentifierToken,
-            $"ParseEquDefinition expected IdentifierToken for symbol name, got {Current.Kind}"
-        );
+        if (Current.Kind != SyntaxKind.IdentifierToken)
+        {
+            ReportMissingToken(SyntaxKind.IdentifierToken);
+            return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
+        }
         children.Add(Advance()); // symbol name (IdentifierToken)
 
-        System.Diagnostics.Debug.Assert(
-            Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
+        if (Current.Kind is not (SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
                 or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword
-                or SyntaxKind.EqualsToken,
-            $"ParseEquDefinition expected EQU/EQUS/RB/RW/RL/= keyword, got {Current.Kind}"
-        );
+                or SyntaxKind.EqualsToken))
+        {
+            ReportMissingToken(SyntaxKind.EqualsToken);
+            return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
+        }
         children.Add(Advance()); // EQU, EQUS, RB, RW, RL, or = token
 
         if (!AtEndOfStatement())
@@ -677,6 +676,13 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.InstructionStatement, children.ToArray());
     }
 
+    /// <summary>
+    /// Returns true if the current position is at a statement boundary:
+    /// EOF, :: separator, or the previous token's trailing trivia contains a newline.
+    /// At _position == 0, returns false since there is no previous token to check.
+    /// This means leading newlines on the very first token are not detected, but in
+    /// practice the first token always starts at the beginning of the file.
+    /// </summary>
     private bool AtEndOfStatement()
     {
         if (Current.Kind == SyntaxKind.EndOfFileToken)
@@ -750,9 +756,14 @@ internal sealed class Parser
     /// Check if the current position has one or more ! tokens followed by a condition keyword.
     /// Handles !nz, !z, !nc, !c, !!z, !!nz, etc.
     /// </summary>
+    /// <summary>
+    /// Check whether the current `!` token begins a negated condition code sequence
+    /// (e.g., `!nz`, `!!z`). Called only when Current.Kind == BangToken.
+    /// Starts peeking at offset 1 since offset 0 is the already-known `!`.
+    /// </summary>
     private bool IsNegatedCondition()
     {
-        int offset = 0;
+        int offset = 1; // skip the already-known ! at position 0
         while (Peek(offset).Kind == SyntaxKind.BangToken)
             offset++;
         var target = Peek(offset);
@@ -763,13 +774,16 @@ internal sealed class Parser
     /// Parse !cond, !!cond, etc. Count the ! prefixes, consume them, then consume the
     /// condition keyword. If odd number of !, invert the condition. Emit a single
     /// ConditionOperand node with the resolved condition keyword.
+    /// NOTE: Leading trivia from the first ! token is not attached to the resulting
+    /// ConditionOperand — the ! tokens are purely semantic modifiers. This is acceptable
+    /// since round-trip fidelity is not a current goal (the binder consumes green nodes).
     /// </summary>
     private GreenNode ParseNegatedConditionOperand()
     {
         int bangCount = 0;
         while (Current.Kind == SyntaxKind.BangToken)
         {
-            Advance(); // consume !
+            Advance(); // consume ! — trivia intentionally dropped (see doc above)
             bangCount++;
         }
 
@@ -1014,7 +1028,11 @@ internal sealed class Parser
                 if (IsRegisterKeyword(Current.Kind))
                     return new GreenNode(SyntaxKind.NameExpression, [Advance()]);
 
-                // Unknown token — produce a missing expression, don't consume
+                // Unknown token — produce a MissingToken placeholder WITHOUT consuming.
+                // This diverges from the normal "advance on error" pattern intentionally:
+                // the parent (ParseOperand/ParseStatement) will see the unexpected token
+                // and handle it via its own error-recovery loop. Consuming here would
+                // swallow a token the parent needs for recovery.
                 ReportMissingToken(SyntaxKind.NumberLiteral);
                 return new GreenNode(
                     SyntaxKind.LiteralExpression,
@@ -1155,36 +1173,22 @@ internal sealed class Parser
 
     private void ReportTrailingComma()
     {
-        int pos = 0;
-        for (int i = 0; i < _position && i < _tokens.Count; i++)
-            pos += _tokens[i].FullWidth;
-        _diagnostics.Report(new TextSpan(pos, 0), "Trailing comma in data directive",
+        _diagnostics.Report(new TextSpan(_currentOffset, 0), "Trailing comma in data directive",
             Diagnostics.DiagnosticSeverity.Warning);
     }
 
     private void ReportMissingToken(SyntaxKind expected)
     {
-        // Calculate current position for the diagnostic span
-        int pos = 0;
-        for (int i = 0; i < _position && i < _tokens.Count; i++)
-            pos += _tokens[i].FullWidth;
-
-        _diagnostics.Report(new TextSpan(pos, 0), $"Expected '{expected}'");
+        _diagnostics.Report(new TextSpan(_currentOffset, 0), $"Expected '{expected}'");
     }
 
     private void ReportBadToken(GreenToken token)
     {
-        // Calculate position of the bad token by summing all prior token widths
-        int pos = 0;
-        for (int i = 0; i < _tokens.Count; i++)
-        {
-            if (ReferenceEquals(_tokens[i], token))
-                break;
-            pos += _tokens[i].FullWidth;
-        }
-
+        // Use _currentOffset — the token was just Advance()'d so _currentOffset points
+        // past it. Subtract its width to get the token's start position.
+        int tokenStart = _currentOffset - token.FullWidth;
         _diagnostics.Report(
-            new TextSpan(pos + token.LeadingTriviaWidth, token.Width),
+            new TextSpan(tokenStart + token.LeadingTriviaWidth, token.Width),
             $"Unexpected token '{token.Kind}'"
         );
     }
