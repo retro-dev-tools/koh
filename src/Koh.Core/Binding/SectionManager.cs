@@ -5,6 +5,7 @@ public sealed class SectionManager
     private readonly Dictionary<string, SectionBuffer> _sections = new(StringComparer.OrdinalIgnoreCase);
     private SectionBuffer? _activeSection;
     private readonly Stack<string?> _sectionStack = new();
+    private readonly HashSet<string> _pushedSectionNames = new(StringComparer.OrdinalIgnoreCase);
 
     // Union state — stack for nested UNION support
     private readonly record struct UnionState(int StartOffset, int MaxOffset);
@@ -36,9 +37,13 @@ public sealed class SectionManager
     /// </summary>
     public void PushSection()
     {
-        _sectionStack.Push(_activeSection?.Name);
-        _activeSection = null; // PUSHS clears active section — must use new SECTION
+        var name = _activeSection?.Name;
+        _sectionStack.Push(name);
+        if (name != null) _pushedSectionNames.Add(name);
+        _activeSection = null;
     }
+
+    public bool IsSectionOnStack(string name) => _pushedSectionNames.Contains(name);
 
     /// <summary>
     /// Pop and restore the previous section (POPS).
@@ -48,6 +53,7 @@ public sealed class SectionManager
     {
         if (_sectionStack.Count == 0) return false;
         var name = _sectionStack.Pop();
+        if (name != null) _pushedSectionNames.Remove(name);
         _activeSection = name != null && _sections.TryGetValue(name, out var s) ? s : null;
         return true;
     }

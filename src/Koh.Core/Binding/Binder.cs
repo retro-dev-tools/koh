@@ -691,6 +691,13 @@ public sealed class Binder
         // Validate alignment parameters from the SECTION header
         ValidateSectionConstraints(node, name!, sectionType, fixedAddress, bank, isUnion, isFragment, sectionAlignBits, sectionAlignOffset);
 
+        // Cannot reopen a section that is currently suspended on the PUSHS stack
+        if (_sections.IsSectionOnStack(name!))
+        {
+            _diagnostics.Report(node.FullSpan, $"Section '{name}' is currently on the PUSHS stack and cannot be reopened");
+            return;
+        }
+
         _sections.OpenOrResume(name!, sectionType, fixedAddress, bank);
         if (_expander != null)
             _expander.CurrentSectionName = name;
@@ -836,6 +843,18 @@ public sealed class Binder
                 {
                     _diagnostics.Report(node.FullSpan,
                         $"FRAGMENT '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with fixed address ${existingFrag.FixedAddress.Value:X4}");
+                }
+            }
+            // Check fragment alignment compatibility: if both the existing fragment and the
+            // new fragment have alignment requirements, verify the current offset is compatible.
+            // Two ALIGN[8] fragments with a non-256-byte-aligned offset between them are incompatible.
+            if (sectionAlignBits.HasValue && existingFrag.AlignBits > 0 && existingFrag.CurrentOffset > 0)
+            {
+                int newBoundary = 1 << sectionAlignBits.Value;
+                if (existingFrag.CurrentOffset % newBoundary != (sectionAlignOffset ?? 0))
+                {
+                    _diagnostics.Report(node.FullSpan,
+                        $"FRAGMENT '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with current fragment offset {existingFrag.CurrentOffset}");
                 }
             }
             // Check new fixed address against existing section's alignment requirement
