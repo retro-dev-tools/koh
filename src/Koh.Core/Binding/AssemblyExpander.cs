@@ -11,7 +11,7 @@ namespace Koh.Core.Binding;
 /// A single effective statement after all macro/REPT/IF expansion.
 /// SourceFilePath tracks which file the node came from (for INCBIN path resolution).
 /// </summary>
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "");
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false);
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -146,6 +146,11 @@ internal sealed class AssemblyExpander
         {
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count == 0) return;
+            // Skip char literals in the pre-scan: their values depend on charmap state which is
+            // not fully known until the sequential expansion walk processes all CHARMAP directives.
+            // Allowing the pre-scan to define them with the wrong (ASCII) value would conflict
+            // with the later correct (charmap-mapped) definition from EarlyDefineEqu.
+            if (ContainsCharLiteral(exprNodes[0].Green)) return;
             // Use a silent evaluator — don't report missing-symbol errors during pre-scan
             var evaluator = new ExpressionEvaluator(_symbols, DiagnosticBag.Null, () => 0, 0, _charMaps);
             var value = evaluator.TryEvaluate(exprNodes[0].Green);
@@ -302,7 +307,7 @@ internal sealed class AssemblyExpander
                 if (kw?.Kind == SyntaxKind.IncludeKeyword)
                     ExpandInclude(node, output);
                 else if (kw?.Kind == SyntaxKind.IncbinKeyword)
-                    output.Add(new ExpandedNode(node, _currentFilePath)); // INCBIN handled by binder Pass 2
+                    output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0)); // INCBIN handled by binder Pass 2
                 i++;
                 continue;
             }
@@ -349,18 +354,14 @@ internal sealed class AssemblyExpander
                 }
             }
 
-            // Check for macro parameter tokens (\1..\9) outside macro context
+            // Check for macro parameter tokens (\1..\9) outside macro context.
+            // Must walk the full green subtree because \1 may be inside a nested expression node
+            // (e.g. "println \1" → DirectiveStatement[PrintlnKw, LiteralExpression[MacroParamToken]]).
             if (_expansionDepth == 0)
             {
-                foreach (var tok in node.ChildTokens())
-                {
-                    if (tok.Kind == SyntaxKind.MacroParamToken && tok.Text.Length == 2
-                        && tok.Text[1] >= '1' && tok.Text[1] <= '9')
-                    {
-                        _diagnostics.Report(node.FullSpan, $"Macro argument {tok.Text} used outside of a macro");
-                        break;
-                    }
-                }
+                var macroParam = FindMacroParamToken(node.Green);
+                if (macroParam != null)
+                    _diagnostics.Report(node.FullSpan, $"Macro argument {macroParam} used outside of a macro");
             }
 
             // RSRESET/RSSET — handle RS counter directives during expansion
@@ -398,7 +399,7 @@ internal sealed class AssemblyExpander
                 }
             }
 
-            output.Add(new ExpandedNode(node, _currentFilePath));
+            output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0));
             i++;
         }
     }
@@ -1510,8 +1511,18 @@ internal sealed class AssemblyExpander
                     }
                 }
 
+                // Validate format specifier if present
+                string? trimmedFmt = fmt?.Trim();
+                if (trimmedFmt != null && !IsValidInterpolationFormat(trimmedFmt))
+                {
+                    _diagnostics.Report(default,
+                        $"Invalid format specifier '{trimmedFmt}' in string interpolation");
+                    sb.Append(text[braceStart..i]);
+                    continue;
+                }
+
                 // Resolve the symbol
-                string? resolved = ResolveInterpolationValue(trimmedName, fmt?.Trim());
+                string? resolved = ResolveInterpolationValue(trimmedName, trimmedFmt);
                 if (resolved != null)
                     sb.Append(resolved);
                 else
@@ -1582,6 +1593,31 @@ internal sealed class AssemblyExpander
             "o" => hasPrefix ? $"&{Convert.ToString(val, 8)}" : Convert.ToString(val, 8),
             _ => ((int)val).ToString(),
         };
+    }
+
+    /// <summary>
+    /// Returns true if the interpolation format specifier is valid.
+    /// Valid forms: [+][#][0][width]type  where type ∈ {d,u,x,X,b,o,f,s}
+    /// Invalid: unknown type characters, extra characters, etc.
+    /// </summary>
+    private static bool IsValidInterpolationFormat(string fmt)
+    {
+        if (string.IsNullOrEmpty(fmt)) return true; // empty = default = valid
+
+        int pos = 0;
+        // Optional sign flag
+        if (pos < fmt.Length && fmt[pos] == '+') pos++;
+        // Optional prefix flag
+        if (pos < fmt.Length && fmt[pos] == '#') pos++;
+        // Optional zero-pad flag
+        if (pos < fmt.Length && fmt[pos] == '0') pos++;
+        // Optional width digits
+        while (pos < fmt.Length && char.IsDigit(fmt[pos])) pos++;
+        // Must have exactly one type character remaining
+        if (pos >= fmt.Length) return false; // no type
+        char type = fmt[pos++];
+        if (pos != fmt.Length) return false; // extra chars after type
+        return type is 'd' or 'u' or 'x' or 'X' or 'b' or 'o' or 'f' or 's';
     }
 
     /// <summary>
@@ -1743,6 +1779,46 @@ internal sealed class AssemblyExpander
         }
         else
             i++;
+    }
+
+    /// <summary>
+    /// Recursively search the green subtree for a MacroParamToken with a digit suffix (\1..\9).
+    /// Returns the token text if found, or null if none present.
+    /// </summary>
+    private static string? FindMacroParamToken(GreenNodeBase green)
+    {
+        if (green is GreenToken tok)
+        {
+            if (tok.Kind == SyntaxKind.MacroParamToken && tok.Text.Length == 2
+                && tok.Text[1] >= '1' && tok.Text[1] <= '9')
+                return tok.Text;
+            return null;
+        }
+        for (int i = 0; i < green.ChildCount; i++)
+        {
+            var child = green.GetChild(i);
+            if (child == null) continue;
+            var found = FindMacroParamToken(child);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true if the green subtree contains any CharLiteralToken.
+    /// Used to exclude char-literal expressions from the pre-scan EQU phase, because
+    /// their values depend on charmap state which isn't available during pre-scan.
+    /// </summary>
+    private static bool ContainsCharLiteral(GreenNodeBase green)
+    {
+        if (green is GreenToken tok)
+            return tok.Kind == SyntaxKind.CharLiteralToken;
+        for (int i = 0; i < green.ChildCount; i++)
+        {
+            var child = green.GetChild(i);
+            if (child != null && ContainsCharLiteral(child)) return true;
+        }
+        return false;
     }
 
     private sealed record MacroDef(string Name, string Body);

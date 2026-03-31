@@ -6,6 +6,8 @@ namespace Koh.Core.Symbols;
 public sealed class SymbolTable
 {
     private readonly Dictionary<string, Symbol> _symbols = new(StringComparer.OrdinalIgnoreCase);
+    // Raw identifiers (#keyword) are case-sensitive; stored separately to avoid OrdinalIgnoreCase collisions.
+    private readonly Dictionary<string, Symbol> _rawSymbols = new(StringComparer.Ordinal);
     private readonly DiagnosticBag _diagnostics;
     private Symbol? _currentGlobalAnchor;
 
@@ -25,7 +27,7 @@ public sealed class SymbolTable
     public Symbol? Lookup(string name)
     {
         var key = QualifyName(name);
-        _symbols.TryGetValue(key, out var sym);
+        DictFor(key).TryGetValue(key, out var sym);
         return sym;
     }
 
@@ -36,8 +38,9 @@ public sealed class SymbolTable
     public Symbol DefineLabel(string name, long pc, string? section, SyntaxNode? site = null)
     {
         var key = QualifyName(name);
+        var dict = DictFor(key);
 
-        if (_symbols.TryGetValue(key, out var existing))
+        if (dict.TryGetValue(key, out var existing))
         {
             if (existing.State == SymbolState.Defined)
             {
@@ -56,7 +59,7 @@ public sealed class SymbolTable
             existing = new Symbol(key, SymbolKind.Label);
             existing.Define(pc, site);
             existing.Section = section;
-            _symbols[key] = existing;
+            dict[key] = existing;
         }
 
         // Global labels advance the anchor
@@ -75,8 +78,9 @@ public sealed class SymbolTable
     public Symbol DefineConstant(string name, long value, SyntaxNode? site = null)
     {
         var key = QualifyName(name);
+        var dict = DictFor(key);
 
-        if (_symbols.TryGetValue(key, out var existing))
+        if (dict.TryGetValue(key, out var existing))
         {
             if (existing.State == SymbolState.Defined)
             {
@@ -95,7 +99,7 @@ public sealed class SymbolTable
 
         var sym = new Symbol(key, SymbolKind.Constant);
         sym.Define(value, site);
-        _symbols[key] = sym;
+        dict[key] = sym;
         return sym;
     }
 
@@ -108,7 +112,8 @@ public sealed class SymbolTable
     public Symbol? DefineConstantIfAbsent(string name, long value, SyntaxNode? site = null)
     {
         var key = QualifyName(name);
-        if (_symbols.TryGetValue(key, out var existing))
+        var dict = DictFor(key);
+        if (dict.TryGetValue(key, out var existing))
         {
             // Allow defining a forward-referenced (Undefined) symbol
             if (existing.State == SymbolState.Undefined)
@@ -122,7 +127,7 @@ public sealed class SymbolTable
 
         var sym = new Symbol(key, SymbolKind.Constant);
         sym.Define(value, site);
-        _symbols[key] = sym;
+        dict[key] = sym;
         return sym;
     }
 
@@ -133,7 +138,8 @@ public sealed class SymbolTable
     public void DefineOrRedefine(string name, long value)
     {
         var key = QualifyName(name);
-        if (_symbols.TryGetValue(key, out var existing))
+        var dict = DictFor(key);
+        if (dict.TryGetValue(key, out var existing))
         {
             existing.Value = value;
             existing.State = SymbolState.Defined;
@@ -142,7 +148,7 @@ public sealed class SymbolTable
         {
             var sym = new Symbol(key, SymbolKind.Constant);
             sym.Define(value);
-            _symbols[key] = sym;
+            dict[key] = sym;
         }
     }
 
@@ -161,11 +167,12 @@ public sealed class SymbolTable
         SyntaxNode? referenceSite = null)
     {
         var key = QualifyName(name);
+        var dict = DictFor(key);
 
-        if (!_symbols.TryGetValue(key, out var sym))
+        if (!dict.TryGetValue(key, out var sym))
         {
             sym = new Symbol(key, kind);
-            _symbols[key] = sym;
+            dict[key] = sym;
         }
 
         if (referenceSite != null)
@@ -180,22 +187,24 @@ public sealed class SymbolTable
     public bool Remove(string name)
     {
         var key = QualifyName(name);
-        return _symbols.Remove(key);
+        return DictFor(key).Remove(key);
     }
 
     /// <summary>
     /// Returns all symbols that are still undefined after Pass 1.
     /// </summary>
     public IEnumerable<Symbol> GetUndefinedSymbols() =>
-        _symbols.Values.Where(s => s.State == SymbolState.Undefined);
+        _symbols.Values.Concat(_rawSymbols.Values).Where(s => s.State == SymbolState.Undefined);
 
     /// <summary>
     /// All defined symbols (for export/linker).
     /// </summary>
-    public IEnumerable<Symbol> AllSymbols => _symbols.Values;
+    public IEnumerable<Symbol> AllSymbols => _symbols.Values.Concat(_rawSymbols.Values);
 
     /// <summary>Count of defined symbols, for pre-scan convergence detection.</summary>
-    public int DefinedCount => _symbols.Values.Count(s => s.State == SymbolState.Defined);
+    public int DefinedCount =>
+        _symbols.Values.Count(s => s.State == SymbolState.Defined) +
+        _rawSymbols.Values.Count(s => s.State == SymbolState.Defined);
 
     /// <summary>
     /// Set the current global anchor manually (used when resuming binding context).
@@ -256,4 +265,12 @@ public sealed class SymbolTable
             return $"{_currentGlobalAnchor.Name}{name}";
         return name;
     }
+
+    /// <summary>
+    /// Returns the correct symbol dictionary for the given (already-qualified) key.
+    /// Raw identifiers (starting with '#') use a case-sensitive dictionary so that
+    /// '#DEF' and '#def' remain distinct. All other names use the case-insensitive dictionary.
+    /// </summary>
+    private Dictionary<string, Symbol> DictFor(string key) =>
+        key.StartsWith('#') ? _rawSymbols : _symbols;
 }

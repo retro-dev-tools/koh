@@ -358,14 +358,16 @@ public class InstructionBindingTests
     [Test]
     public async Task Ldh_A_IndImm8()
     {
-        var bytes = GetBytes("ldh a, [$FF]");
+        // LDH requires full $FF00-$FFFF address; $FFFF → offset byte $FF
+        var bytes = GetBytes("ldh a, [$FFFF]");
         await AssertBytes(bytes, 0xF0, 0xFF);
     }
 
     [Test]
     public async Task Ldh_IndImm8_A()
     {
-        var bytes = GetBytes("ldh [$44], a");
+        // LDH requires full $FF00-$FFFF address; $FF44 → offset byte $44
+        var bytes = GetBytes("ldh [$FF44], a");
         await AssertBytes(bytes, 0xE0, 0x44);
     }
 

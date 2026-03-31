@@ -6,7 +6,9 @@ namespace Koh.Core.Binding;
 internal sealed class SectionPCTracker
 {
     private readonly Dictionary<string, int> _sectionPCs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _sectionBasePCs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _sectionAlignBits = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SectionType> _sectionTypes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stack<string?> _sectionStack = new();
     private string? _activeSection;
 
@@ -28,12 +30,37 @@ internal sealed class SectionPCTracker
     public int ActiveAlignBits => _activeSection != null && _sectionAlignBits.TryGetValue(_activeSection, out var bits)
         ? bits : 0;
 
-    public void SetActive(string sectionName, int basePC)
+    public void SetActive(string sectionName, int basePC, SectionType? type = null)
     {
         _activeSection = sectionName;
         _sectionPCs.TryAdd(sectionName, basePC);
+        _sectionBasePCs.TryAdd(sectionName, basePC);
         _sectionAlignBits.TryAdd(sectionName, 0);
+        if (type.HasValue)
+            _sectionTypes[sectionName] = type.Value;
     }
+
+    /// <summary>Get the section type for the active section, or null if not known.</summary>
+    public SectionType? ActiveSectionType => _activeSection != null && _sectionTypes.TryGetValue(_activeSection, out var t) ? t : null;
+
+    /// <summary>Current byte offset from section start (PC minus base PC).</summary>
+    public int ActiveSectionOffset => _activeSection != null
+        && _sectionBasePCs.TryGetValue(_activeSection, out var basePC)
+        ? CurrentPC - basePC : CurrentPC;
+
+    /// <summary>Returns the maximum byte capacity for the given section type.</summary>
+    public static int MaxSizeForType(SectionType type) => type switch
+    {
+        SectionType.Rom0  => 0x4000,
+        SectionType.RomX  => 0x4000,
+        SectionType.Wram0 => 0x1000,
+        SectionType.WramX => 0x1000,
+        SectionType.Vram  => 0x2000,
+        SectionType.Hram  => 0x7F,
+        SectionType.Oam   => 0xA0,
+        SectionType.Sram  => 0x2000,
+        _ => int.MaxValue,
+    };
 
     /// <summary>Record that the active section has at least the given alignment.</summary>
     public void SetAlignBits(int bits)

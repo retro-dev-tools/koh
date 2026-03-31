@@ -55,7 +55,13 @@ public sealed class EmitModel
         var sections = new List<SectionData>();
         if (result.Sections != null)
         {
-            foreach (var (name, buf) in result.Sections)
+            // Sort sections by alignment bits descending (tighter alignment first), then by
+            // insertion order for sections with the same alignment. This matches the linker's
+            // placement strategy and produces deterministic output for multi-section assemblies.
+            var orderedSections = result.Sections
+                .OrderByDescending(kv => kv.Value.AlignBits)
+                .ThenByDescending(kv => kv.Value.FixedAddress.HasValue ? 1 : 0);
+            foreach (var (name, buf) in orderedSections)
             {
                 sections.Add(new SectionData(
                     name, buf.Type, buf.FixedAddress, buf.Bank,

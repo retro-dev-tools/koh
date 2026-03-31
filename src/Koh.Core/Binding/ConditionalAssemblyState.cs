@@ -130,6 +130,12 @@ internal sealed class ConditionalAssemblyState
     /// <summary>True if there are unclosed IF blocks remaining.</summary>
     public bool HasUnclosedBlocks => _branchTakenStack.Count > 0;
 
+    /// <summary>
+    /// Current nesting depth — 0 means we are not inside any IF/ELIF/ELSE block.
+    /// Nodes emitted when Depth &gt; 0 were produced inside a conditional block.
+    /// </summary>
+    public int Depth => _branchTakenStack.Count;
+
     public void Reset()
     {
         _branchTakenStack.Clear();

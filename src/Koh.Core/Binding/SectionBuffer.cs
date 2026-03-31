@@ -13,6 +13,11 @@ public sealed class SectionBuffer
     public int? Bank { get; }
     public int BaseAddress { get; }
     public int AlignBits { get; set; }
+    /// <summary>
+    /// Alignment offset recorded by the first ALIGN N, OFFSET directive in this section.
+    /// Used by DS ALIGN to account for the section's known placement offset.
+    /// </summary>
+    public int AlignOffset { get; set; }
 
     private readonly List<byte> _bytes = [];
     private readonly List<PatchEntry> _patches = [];

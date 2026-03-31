@@ -720,6 +720,7 @@ public class BinderSymbolTests
             db #DEF
             db #def
             """);
+        File.WriteAllLines(@"C:\temp\rawid_diag.txt", model.Diagnostics.Select(d => $"{d.Severity}: {d.Message}"));
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)1);
         await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)2);

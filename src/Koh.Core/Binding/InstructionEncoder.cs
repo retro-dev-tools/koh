@@ -51,12 +51,16 @@ internal sealed class InstructionEncoder
         for (int i = 0; i < operandCount; i++)
         {
             var op = operandGreens[i]!;
-            // SpPlusImm8: evaluate only the offset, not the full SP±expr
-            // (avoids creating a spurious forward ref for register keyword 'sp')
+            // SpPlusImm8 / IndC: don't evaluate the full expression — it contains
+            // register keywords that aren't numeric symbols.
             if (patterns[i] == OperandPattern.SpPlusImm8)
             {
                 var offsetExpr = OperandPatternMatcher.ExtractSpOffsetExpression(op);
                 values[i] = offsetExpr != null ? evaluator.TryEvaluate(offsetExpr) : null;
+            }
+            else if (patterns[i] == OperandPattern.IndC)
+            {
+                values[i] = null; // no immediate value for [C] / [$FF00+C]
             }
             else
             {
@@ -100,7 +104,21 @@ internal sealed class InstructionEncoder
             {
                 case EmitRuleKind.AppendImm8:
                     if (value.HasValue)
+                    {
+                        // LDH requires the address to be in $FF00–$FFFF.
+                        // A value of $00–$FF is not acceptable — the programmer must write the
+                        // full address (e.g. LDH [$FF80], A rather than LDH [$80], A).
+                        if (desc.Mnemonic.Equals("LDH", StringComparison.OrdinalIgnoreCase))
+                        {
+                            long addr = value.Value;
+                            if (addr < 0xFF00 || addr > 0xFFFF)
+                            {
+                                _diagnostics.Report(node.FullSpan,
+                                    $"LDH address ${addr:X4} is not in range $FF00–$FFFF");
+                            }
+                        }
                         section.EmitByte((byte)(value.Value & 0xFF));
+                    }
                     else
                     {
                         int offset = section.ReserveByte();

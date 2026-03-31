@@ -702,6 +702,10 @@ internal sealed class Parser
 
     private GreenNodeBase ParsePrefixExpression()
     {
+        // # before a keyword is a raw identifier, not unary operator
+        if (Current.Kind == SyntaxKind.HashToken && IsKeyword(Peek().Kind))
+            return ParsePrimaryExpression();
+
         if (Current.Kind is SyntaxKind.MinusToken or SyntaxKind.TildeToken
             or SyntaxKind.BangToken or SyntaxKind.PlusToken or SyntaxKind.HashToken)
         {
@@ -729,13 +733,13 @@ internal sealed class Parser
                 return new GreenNode(SyntaxKind.NameExpression, [name]);
             }
 
-            // Raw identifier: #keyword — treat keyword as identifier name
+            // Raw identifier: #keyword — treat keyword as identifier name (case-sensitive, '#' prefix preserved)
             case SyntaxKind.HashToken when IsKeyword(Peek().Kind):
             {
-                Advance(); // #
+                var hash = Advance(); // #
                 var kw = Advance();
-                var id = new GreenToken(SyntaxKind.IdentifierToken, kw.Text,
-                    kw.LeadingTrivia, kw.TrailingTrivia);
+                var id = new GreenToken(SyntaxKind.IdentifierToken, "#" + kw.Text,
+                    hash.LeadingTrivia, kw.TrailingTrivia);
                 return new GreenNode(SyntaxKind.NameExpression, [id]);
             }
 
@@ -817,10 +821,12 @@ internal sealed class Parser
     {
         if (Current.Kind == SyntaxKind.HashToken && IsKeyword(Peek().Kind))
         {
-            Advance();
+            var hash = Advance();
             var kw = Advance();
-            return new GreenToken(SyntaxKind.IdentifierToken, kw.Text,
-                kw.LeadingTrivia, kw.TrailingTrivia);
+            // Raw identifier: preserve '#' prefix so '#DEF' and '#def' remain distinct
+            // case-sensitive symbols and don't collide with each other or with bare identifiers.
+            return new GreenToken(SyntaxKind.IdentifierToken, "#" + kw.Text,
+                hash.LeadingTrivia, kw.TrailingTrivia);
         }
         return Advance();
     }
