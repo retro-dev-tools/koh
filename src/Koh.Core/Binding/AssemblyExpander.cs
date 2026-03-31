@@ -1166,6 +1166,8 @@ internal sealed class AssemblyExpander
         for (int p = 9; p >= 1; p--)
             line = line.Replace($"\\{p}", frame.GetArg(p));
 
+        line = ResolveComputedArgs(line, frame);
+
         if (line.Contains("\\#"))
             line = line.Replace("\\#", frame.AllArgs());
 
@@ -1329,6 +1331,9 @@ internal sealed class AssemblyExpander
         for (int p = 9; p >= 1; p--)
             body = body.Replace($"\\{p}", frame.GetArg(p));
 
+        // \<expr> — computed arg index. Evaluate expr as integer, use as 1-based index.
+        body = ResolveComputedArgs(body, frame);
+
         // \# → all remaining args as comma-separated string
         if (body.Contains("\\#"))
             body = body.Replace("\\#", frame.AllArgs());
@@ -1336,6 +1341,43 @@ internal sealed class AssemblyExpander
         // _NARG baked into body text so nested macro calls don't overwrite it
         body = SubstituteOutsideStrings(body, NargPattern, frame.Narg.ToString());
 
+        return body;
+    }
+
+    /// <summary>
+    /// Resolve \&lt;expr&gt; computed arg index references in macro body text.
+    /// The expr is evaluated as an integer and used as a 1-based argument index.
+    /// Invalid expressions produce a diagnostic.
+    /// </summary>
+    private string ResolveComputedArgs(string body, MacroFrame frame)
+    {
+        int searchFrom = 0;
+        while (true)
+        {
+            int start = body.IndexOf("\\<", searchFrom, StringComparison.Ordinal);
+            if (start < 0) break;
+            int end = body.IndexOf('>', start + 2);
+            if (end < 0) break;
+
+            var exprText = body[(start + 2)..end];
+            var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+            var tree = SyntaxTree.Parse(exprText);
+            var exprNode = tree.Root.ChildNodes().FirstOrDefault();
+            long? val = exprNode != null ? evaluator.TryEvaluate(exprNode.Green) : null;
+
+            if (val.HasValue)
+            {
+                var replacement = frame.GetArg((int)val.Value);
+                body = body[..start] + replacement + body[(end + 1)..];
+                searchFrom = start + replacement.Length;
+            }
+            else
+            {
+                _diagnostics.Report(default, $"Invalid computed macro argument expression: \\<{exprText}>");
+                // Leave the text as-is and advance past it
+                searchFrom = end + 1;
+            }
+        }
         return body;
     }
 
