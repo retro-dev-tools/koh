@@ -21,7 +21,7 @@ internal sealed class Parser
             _diagnostics.Report(d.Span, d.Message, d.Severity);
     }
 
-    private GreenToken Current => _position < _tokens.Count ? _tokens[_position] : _tokens[^1]; // EOF
+    private GreenToken Current => _position < _tokens.Count ? _tokens[_position] : _tokens[^1];
 
     private GreenToken Peek(int offset = 1)
     {
@@ -47,6 +47,34 @@ internal sealed class Parser
         return SyntaxTree.Create(_text, redRoot, _diagnostics.ToList());
     }
 
+    // =========================================================================
+    // Keyword range checks — these depend on contiguous ranges in SyntaxKind.cs
+    // =========================================================================
+
+    private static bool IsInstructionKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.LdhKeyword;
+
+    private static bool IsSectionTypeKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.Rom0Keyword && kind <= SyntaxKind.OamKeyword;
+
+    // z, nz, nc — NOT CKeyword (always RegisterOperand; binder disambiguates).
+    private static bool IsConditionKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.ZKeyword && kind <= SyntaxKind.NcKeyword;
+
+    private static bool IsRegisterKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.AKeyword && kind <= SyntaxKind.DeKeyword;
+
+    // HighKeyword..StrfmtKeyword must remain contiguous in SyntaxKind.cs.
+    private static bool IsBuiltInFunctionKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.HighKeyword && kind <= SyntaxKind.StrfmtKeyword;
+
+    private static bool IsKeyword(SyntaxKind kind) =>
+        kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.StrfmtKeyword;
+
+    // =========================================================================
+    // Top-level
+    // =========================================================================
+
     private GreenNode ParseCompilationUnit()
     {
         var children = new List<GreenNodeBase>();
@@ -58,14 +86,11 @@ internal sealed class Parser
             if (statement != null)
                 children.Add(statement);
 
-            // Consume :: statement separator (not part of any statement node)
             while (Current.Kind == SyntaxKind.DoubleColonToken)
                 Advance();
 
-            // Safety: if we didn't advance, force advance to avoid infinite loop.
-            // Unlike the function call loop (which always reports bad tokens), here we
-            // suppress diagnostics for { and } since they may be EQUS interpolation
-            // markers resolved later during macro expansion.
+            // Safety: force-advance to avoid infinite loop.
+            // Suppress diagnostics for { } — may be EQUS interpolation markers.
             if (_position == startPos)
             {
                 var bad = Advance();
@@ -74,150 +99,76 @@ internal sealed class Parser
             }
         }
 
-        children.Add(Advance()); // EOF token
+        children.Add(Advance()); // EOF
         return new GreenNode(SyntaxKind.CompilationUnit, children.ToArray());
     }
 
-    // Instruction keywords occupy a contiguous range in SyntaxKind — new instructions
-    // added within that block are automatically included.
-    private static bool IsInstructionKeyword(SyntaxKind kind) =>
-        kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.LdhKeyword;
-
-    // Section type keywords occupy a contiguous range — Rom0Keyword..OamKeyword.
-    // SyntaxKind.cs documents this dependency.
-    private static bool IsSectionTypeKeyword(SyntaxKind kind) =>
-        kind >= SyntaxKind.Rom0Keyword && kind <= SyntaxKind.OamKeyword;
-
-    // Condition-only keywords (z, nz, nc) — never registers.
-    // CKeyword is NOT here: it's always parsed as RegisterOperand, binder disambiguates.
-    private static bool IsConditionKeyword(SyntaxKind kind) =>
-        kind >= SyntaxKind.ZKeyword && kind <= SyntaxKind.NcKeyword;
-
-    // Register keywords occupy a contiguous range in SyntaxKind.
-    private static bool IsRegisterKeyword(SyntaxKind kind) =>
-        kind >= SyntaxKind.AKeyword && kind <= SyntaxKind.DeKeyword;
-
-    // Any keyword token (instruction, register, directive, condition, built-in function).
-    private static bool IsKeyword(SyntaxKind kind) =>
-        kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.RevcharKeyword;
-
     private GreenNodeBase? ParseStatement()
     {
-        // Labels: identifier/localLabel followed by : or ::
         if (IsLabelStart())
             return ParseLabelDeclaration();
 
         if (IsInstructionKeyword(Current.Kind))
             return ParseInstruction();
 
-        // Symbol definition: identifier EQU/EQUS expr, identifier RB/RW/RL N, identifier = expr
+        // name EQU/EQUS/RB/RW/RL/= expr
         if (Current.Kind == SyntaxKind.IdentifierToken &&
             Peek().Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
                 or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword
                 or SyntaxKind.EqualsToken)
-            return ParseSymbolDirective();
+            return ParseEquDefinition();
 
-        // Directives
-        if (Current.Kind == SyntaxKind.SectionKeyword)
-            return ParseSectionDirective();
+        return Current.Kind switch
+        {
+            SyntaxKind.SectionKeyword => ParseSectionDirective(),
 
-        if (Current.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword or SyntaxKind.DsKeyword)
-            return ParseDataDirective();
+            SyntaxKind.DbKeyword or SyntaxKind.DwKeyword
+                or SyntaxKind.DlKeyword or SyntaxKind.DsKeyword => ParseDataDirective(),
 
-        // REDEF identifier EQU/EQUS expr
-        if (Current.Kind == SyntaxKind.RedefKeyword)
-            return ParseSymbolDirective();
+            SyntaxKind.RedefKeyword => ParseEquDefinition(),
+            SyntaxKind.DefKeyword when Peek().Kind != SyntaxKind.OpenParenToken => ParseDefDefinition(),
+            SyntaxKind.ExportKeyword or SyntaxKind.PurgeKeyword => ParseSymbolList(),
 
-        // DEF identifier = expr (not DEF( which is a function call)
-        if (Current.Kind == SyntaxKind.DefKeyword && Peek().Kind != SyntaxKind.OpenParenToken)
-            return ParseSymbolDirective();
+            SyntaxKind.IfKeyword or SyntaxKind.ElifKeyword
+                or SyntaxKind.ElseKeyword or SyntaxKind.EndcKeyword => ParseConditionalDirective(),
 
-        // EXPORT identifier, ...
-        if (Current.Kind == SyntaxKind.ExportKeyword)
-            return ParseSymbolDirective();
+            SyntaxKind.MacroKeyword => ParseBlockDirective(SyntaxKind.MacroDefinition),
+            SyntaxKind.EndmKeyword => ParseTerminatorDirective(SyntaxKind.MacroDefinition, "ENDM"),
 
-        // PURGE identifier, ...
-        if (Current.Kind == SyntaxKind.PurgeKeyword)
-            return ParseSymbolDirective();
+            SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword => ParseRepeatDirective(),
+            SyntaxKind.EndrKeyword => ParseTerminatorDirective(SyntaxKind.RepeatDirective, "ENDR"),
 
-        // Conditional assembly: IF/ELIF/ELSE/ENDC
-        if (Current.Kind is SyntaxKind.IfKeyword or SyntaxKind.ElifKeyword
-            or SyntaxKind.ElseKeyword or SyntaxKind.EndcKeyword)
-            return ParseConditionalDirective();
+            SyntaxKind.IncludeKeyword or SyntaxKind.IncbinKeyword
+                => ParseBlockDirective(SyntaxKind.IncludeDirective),
 
-        // Macro: MACRO/ENDM or identifier followed by MACRO
-        if (Current.Kind == SyntaxKind.MacroKeyword)
-            return ParseBlockDirective(SyntaxKind.MacroDefinition);
-        if (Current.Kind == SyntaxKind.EndmKeyword)
-            return ParseTerminatorDirective(SyntaxKind.MacroDefinition, "ENDM");
+            SyntaxKind.CharmapKeyword or SyntaxKind.NewcharmapKeyword
+                or SyntaxKind.SetcharmapKeyword or SyntaxKind.PrecharmapKeyword
+                or SyntaxKind.PopcharmapKeyword => ParseBlockDirective(SyntaxKind.SymbolDirective),
 
-        // Repeat: REPT/FOR — parse with expression arguments; ENDR as flat block
-        if (Current.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword)
-            return ParseRepeatDirective();
-        if (Current.Kind == SyntaxKind.EndrKeyword)
-            return ParseTerminatorDirective(SyntaxKind.RepeatDirective, "ENDR");
+            SyntaxKind.UnionKeyword or SyntaxKind.NextuKeyword or SyntaxKind.EnduKeyword
+                or SyntaxKind.LoadKeyword or SyntaxKind.EndlKeyword
+                or SyntaxKind.ShiftKeyword or SyntaxKind.BreakKeyword
+                or SyntaxKind.RsresetKeyword
+                or SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword
+                or SyntaxKind.PushsKeyword or SyntaxKind.PopsKeyword
+                or SyntaxKind.PushoKeyword or SyntaxKind.PopoKeyword
+                or SyntaxKind.OptKeyword => ParseBlockDirective(SyntaxKind.DirectiveStatement),
 
-        // Include: INCLUDE/INCBIN
-        if (Current.Kind is SyntaxKind.IncludeKeyword or SyntaxKind.IncbinKeyword)
-            return ParseBlockDirective(SyntaxKind.IncludeDirective);
+            SyntaxKind.RssetKeyword => ParseRssetDirective(),
+            SyntaxKind.AssertKeyword or SyntaxKind.StaticAssertKeyword => ParseAssertDirective(),
+            SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword => ParsePrintDirective(),
+            SyntaxKind.AlignKeyword => ParseAlignDirective(),
 
-        // Character map directives — flat token gobble, binder handles semantics
-        if (Current.Kind is SyntaxKind.CharmapKeyword or SyntaxKind.NewcharmapKeyword
-            or SyntaxKind.SetcharmapKeyword or SyntaxKind.PrecharmapKeyword
-            or SyntaxKind.PopcharmapKeyword)
-            return ParseBlockDirective(SyntaxKind.SymbolDirective);
+            // Macro call: identifier not already matched as label or EQU definition
+            SyntaxKind.IdentifierToken
+                when Peek().Kind is not SyntaxKind.ColonToken and not SyntaxKind.DoubleColonToken
+                    and not SyntaxKind.EquKeyword and not SyntaxKind.EqusKeyword
+                    and not SyntaxKind.RbKeyword and not SyntaxKind.RwKeyword
+                    and not SyntaxKind.RlKeyword and not SyntaxKind.EqualsToken
+                => ParseBlockDirective(SyntaxKind.MacroCall),
 
-        // UNION control: UNION/NEXTU/ENDU/LOAD/ENDL
-        if (Current.Kind is SyntaxKind.UnionKeyword or SyntaxKind.NextuKeyword or SyntaxKind.EnduKeyword
-            or SyntaxKind.LoadKeyword or SyntaxKind.EndlKeyword)
-            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
-
-        // SHIFT (inside macro expansion) / BREAK (loop exit)
-        if (Current.Kind is SyntaxKind.ShiftKeyword or SyntaxKind.BreakKeyword)
-            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
-
-        // RS counters: RSRESET (no args), RSSET expr
-        if (Current.Kind == SyntaxKind.RsresetKeyword)
-            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
-        if (Current.Kind == SyntaxKind.RssetKeyword)
-            return ParseRssetDirective();
-
-        // ASSERT/STATIC_ASSERT — parse with expression arguments
-        if (Current.Kind is SyntaxKind.AssertKeyword or SyntaxKind.StaticAssertKeyword)
-            return ParseAssertDirective();
-
-        // WARN/FAIL — simple block directive
-        if (Current.Kind is SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword)
-            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
-
-        // PRINT/PRINTLN — parse with expression arguments for string evaluation
-        if (Current.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
-            return ParsePrintDirective();
-
-        // PUSHS/POPS/PUSHO/POPO
-        if (Current.Kind is SyntaxKind.PushsKeyword or SyntaxKind.PopsKeyword
-            or SyntaxKind.PushoKeyword or SyntaxKind.PopoKeyword)
-            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
-
-        // OPT — assembler options
-        if (Current.Kind == SyntaxKind.OptKeyword)
-            return ParseBlockDirective(SyntaxKind.DirectiveStatement);
-
-        // Inline ALIGN — pad PC to alignment boundary
-        if (Current.Kind == SyntaxKind.AlignKeyword)
-            return ParseAlignDirective();
-
-        // Potential macro call or unrecognized identifier at statement level.
-        // Parse as MacroCall so the binder can check if it's a known macro.
-        // If not a macro, the binder ignores it (produces a diagnostic for unknown statement).
-        if (Current.Kind == SyntaxKind.IdentifierToken &&
-            Peek().Kind is not SyntaxKind.ColonToken and not SyntaxKind.DoubleColonToken
-            and not SyntaxKind.EquKeyword and not SyntaxKind.EqusKeyword
-            and not SyntaxKind.RbKeyword and not SyntaxKind.RwKeyword and not SyntaxKind.RlKeyword
-            and not SyntaxKind.EqualsToken)
-            return ParseBlockDirective(SyntaxKind.MacroCall);
-
-        return null; // will be handled by the safety advance in ParseCompilationUnit
+            _ => null, // safety advance in ParseCompilationUnit handles this
+        };
     }
 
     private bool IsLabelStart()
@@ -227,154 +178,118 @@ internal sealed class Parser
             var next = Peek();
             if (next.Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
                 return true;
-            // .label\@: — LocalLabelToken + MacroParamToken + ColonToken
             if (next.Kind == SyntaxKind.MacroParamToken &&
                 Peek(2).Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
                 return true;
-            // Compound label: Identifier + LocalLabel (+ optional colon)
-            // e.g. Alpha.local1: or Alpha.local1 (standalone)
+            // Compound label: Alpha.local1: or Alpha.local1 (standalone)
             if (Current.Kind == SyntaxKind.IdentifierToken && next.Kind == SyntaxKind.LocalLabelToken)
             {
-                var afterLocal = Peek(2);
-                if (afterLocal.Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
+                var after = Peek(2);
+                if (after.Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken
+                    or SyntaxKind.EndOfFileToken)
                     return true;
-                // Standalone compound label: Ident.local followed by newline/EOF
-                if (afterLocal.Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(next))
+                if (HasNewlineTrivia(next))
                     return true;
             }
         }
-        // RGBDS allows labels without trailing colon. Local labels (.name) on their own
-        // line are unambiguous — they can only be label declarations.
-        if (Current.Kind == SyntaxKind.LocalLabelToken)
-        {
-            var next = Peek();
-            // Standalone local label: .name followed by newline/EOF
-            if (next.Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current))
-                return true;
-        }
+
+        // Standalone local label on its own line
+        if (Current.Kind == SyntaxKind.LocalLabelToken &&
+            (Peek().Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current)))
+            return true;
+
         // Anonymous label: bare colon at statement start
-        if (Current.Kind == SyntaxKind.ColonToken)
-        {
-            var next = Peek();
-            // : followed by newline/EOF or another statement
-            if (next.Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current))
-                return true;
-        }
+        if (Current.Kind == SyntaxKind.ColonToken &&
+            (Peek().Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current)))
+            return true;
+
         return false;
     }
 
-    /// <summary>
-    /// Parse IF expr / ELIF expr / ELSE / ENDC — the condition expression (if any)
-    /// is parsed as a full expression. The binder evaluates it and skips branches.
-    /// </summary>
+    // =========================================================================
+    // Directive parsers
+    // =========================================================================
+
     private GreenNode ParseConditionalDirective()
     {
         var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // IF/ELIF/ELSE/ENDC keyword
+        children.Add(Advance()); // IF/ELIF/ELSE/ENDC
 
-        // IF and ELIF have a condition expression
         var keyword = ((GreenToken)children[0]).Kind;
         if (keyword is SyntaxKind.IfKeyword or SyntaxKind.ElifKeyword)
         {
             if (!AtEndOfStatement())
                 children.Add(ParseExpression());
         }
-        else if (keyword is SyntaxKind.EndcKeyword or SyntaxKind.ElseKeyword)
+        else if (!AtEndOfStatement())
         {
-            // ENDC and ELSE must not have trailing tokens
-            if (!AtEndOfStatement())
-            {
-                _diagnostics.Report(new TextSpan(_currentOffset, 0), $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
-                while (!AtEndOfStatement()) Advance(); // consume trailing tokens
-            }
+            _diagnostics.Report(new TextSpan(_currentOffset, 0),
+                $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
+            while (!AtEndOfStatement()) Advance();
         }
 
         return new GreenNode(SyntaxKind.ConditionalDirective, children.ToArray());
     }
 
-    /// <summary>
-    /// Parse inline ALIGN [bits[, offset]] — pad PC to alignment boundary.
-    /// </summary>
     private GreenNode ParseAlignDirective()
     {
         var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // ALIGN keyword
+        children.Add(Advance()); // ALIGN
         if (!AtEndOfStatement())
         {
-            children.Add(ParseExpression()); // alignment bits
+            children.Add(ParseExpression());
             if (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma
+                children.Add(Advance());
                 if (!AtEndOfStatement())
-                    children.Add(ParseExpression()); // offset
+                    children.Add(ParseExpression());
             }
         }
         return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
     }
 
-    /// <summary>
-    /// Parse RSSET expr — sets the RS counter to a specific value.
-    /// </summary>
     private GreenNode ParseRssetDirective()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // RSSET keyword
+        var children = new List<GreenNodeBase> { Advance() }; // RSSET
         if (!AtEndOfStatement())
             children.Add(ParseExpression());
         return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
     }
 
-    /// <summary>
-    /// Parse ASSERT expr [, "message"] / STATIC_ASSERT expr [, "message"].
-    /// The condition expression is parsed so the binder can evaluate it.
-    /// </summary>
     private GreenNode ParseAssertDirective()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // ASSERT or STATIC_ASSERT keyword
+        var children = new List<GreenNodeBase> { Advance() }; // ASSERT / STATIC_ASSERT
 
         if (!AtEndOfStatement())
         {
-            // Optional severity keyword: ASSERT WARN, expr / ASSERT FAIL, expr / ASSERT FATAL, expr
             if (Current.Kind is SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword or SyntaxKind.FatalKeyword
                 && Peek().Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // severity keyword
-                children.Add(Advance()); // comma after severity
+                children.Add(Advance()); // severity
+                children.Add(Advance()); // comma
             }
-
-            children.Add(ParseExpression()); // condition
-
-            // Optional comma + message string
+            children.Add(ParseExpression());
             while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma
+                children.Add(Advance());
                 if (!AtEndOfStatement())
-                    children.Add(Advance()); // message token (string literal or other)
+                    children.Add(Advance()); // message token
             }
         }
 
         return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
     }
 
-    /// <summary>
-    /// Parse REPT count / FOR var, start, stop [, step].
-    /// The keyword is consumed, then comma-separated expressions are parsed.
-    /// </summary>
     private GreenNode ParseRepeatDirective()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // REPT or FOR keyword
+        var children = new List<GreenNodeBase> { Advance() }; // REPT / FOR
 
-        // Parse comma-separated arguments as expressions
         if (!AtEndOfStatement())
         {
-            // FOR: first argument may be an identifier (variable name)
             children.Add(ParseExpression());
-
             while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma
+                children.Add(Advance());
                 children.Add(ParseExpression());
             }
         }
@@ -382,36 +297,20 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.RepeatDirective, children.ToArray());
     }
 
-    /// <summary>
-    /// Parse a block directive as a flat token sequence on the current line.
-    /// Always consumes at least the keyword token, then any remaining tokens.
-    /// Used for MACRO/ENDM, REPT/FOR/ENDR, INCLUDE/INCBIN, NEXTU/ENDU, LOAD/ENDL, SHIFT,
-    /// and also as the macro-call fallback for unrecognized identifiers.
-    ///
-    /// Design tradeoff: this is a "consume everything until EOL" approach that defers
-    /// structural validation to the binder. For constructs with well-defined syntax
-    /// (e.g., INCLUDE requires exactly one string argument), this means the parser
-    /// gives no structural diagnostics — malformed directives are silently passed
-    /// through. The binder is responsible for reporting errors like "INCLUDE missing
-    /// file argument". This simplifies the parser at the cost of later error reporting.
-    /// </summary>
+    // Flat token-gobble for directives whose structure is validated by the binder.
+    // This defers structural validation (e.g. "INCLUDE missing file argument") to a
+    // later phase, simplifying the parser at the cost of later error reporting.
     private GreenNode ParseBlockDirective(SyntaxKind nodeKind)
     {
-        var children = new List<GreenNodeBase>();
-        // Always consume at least the leading keyword
-        children.Add(Advance());
+        var children = new List<GreenNodeBase> { Advance() };
         while (!AtEndOfStatement())
             children.Add(Advance());
         return new GreenNode(nodeKind, children.ToArray());
     }
 
-    /// <summary>
-    /// Parse a block terminator (ENDM, ENDR) that must not have trailing tokens.
-    /// </summary>
     private GreenNode ParseTerminatorDirective(SyntaxKind nodeKind, string name)
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // keyword
+        var children = new List<GreenNodeBase> { Advance() };
         if (!AtEndOfStatement())
         {
             _diagnostics.Report(new TextSpan(_currentOffset, 0), $"Unexpected tokens after {name}");
@@ -422,21 +321,18 @@ internal sealed class Parser
 
     private GreenNode ParsePrintDirective()
     {
-        var children = new List<GreenNodeBase>();
-        var printKw = Advance(); // PRINT or PRINTLN keyword
-        children.Add(printKw);
-        // Parse expression arguments (may be string expressions with ++, function calls, etc.)
+        var children = new List<GreenNodeBase> { Advance() }; // PRINT / PRINTLN
+
         if (!AtEndOfStatement())
         {
-            // Check for bare register keyword — PRINT/PRINTLN expects string/expression, not register
-            if (Current.Kind is >= SyntaxKind.AKeyword and <= SyntaxKind.DeKeyword)
+            if (IsRegisterKeyword(Current.Kind))
             {
                 var saved = _position;
-                Advance(); // consume register
+                Advance();
                 if (AtEndOfStatement())
                 {
-                    // Bare register name only — this is an error
-                    _diagnostics.Report(new TextSpan(_currentOffset, 0), "PRINT/PRINTLN requires a string or expression argument, not a bare register name");
+                    _diagnostics.Report(new TextSpan(_currentOffset, 0),
+                        "PRINT/PRINTLN requires a string or expression argument, not a bare register name");
                     _position = saved;
                     children.Add(Advance());
                 }
@@ -456,62 +352,42 @@ internal sealed class Parser
 
     private GreenNode ParseSectionDirective()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // SECTION keyword
+        var children = new List<GreenNodeBase> { Advance() }; // SECTION
 
-        // Optional FRAGMENT or UNION modifier
         if (Current.Kind is SyntaxKind.FragmentKeyword or SyntaxKind.UnionKeyword)
             children.Add(Advance());
-
-        // Section name (string literal)
         if (Current.Kind == SyntaxKind.StringLiteral)
             children.Add(Advance());
-
-        // Comma separating name from type
         if (Current.Kind == SyntaxKind.CommaToken)
             children.Add(Advance());
-
-        // Memory type keyword: ROM0, ROMX, WRAM0, WRAMX, VRAM, HRAM, SRAM, OAM
         if (IsSectionTypeKeyword(Current.Kind))
             children.Add(Advance());
 
-        // Bracket groups [$addr], [bank(n)], [align(n)] — consumed flat as tokens.
-        // SectionHeaderParser re-scans these tokens to extract address/bank values.
+        // Remaining bracket groups consumed flat — SectionHeaderParser re-scans them.
         while (!AtEndOfStatement())
             children.Add(Advance());
 
         return new GreenNode(SyntaxKind.SectionDirective, children.ToArray());
     }
 
-    private GreenNode ParseSymbolDirective()
-    {
-        return Current.Kind switch
-        {
-            SyntaxKind.RedefKeyword  => ParseEquDefinition(),
-            SyntaxKind.DefKeyword    => ParseDefDefinition(),
-            SyntaxKind.ExportKeyword => ParseSymbolList(),
-            SyntaxKind.PurgeKeyword  => ParseSymbolList(),
-            _                        => ParseEquDefinition(), // name EQU/EQUS expr
-        };
-    }
+    // =========================================================================
+    // Symbol directives
+    // =========================================================================
 
-    // Handles:  name EQU expr
-    //           name EQUS expr
-    //           REDEF name EQU expr
-    //           REDEF name EQUS expr
+    // name EQU/EQUS/RB/RW/RL/= expr  |  REDEF name EQU/EQUS expr
     private GreenNode ParseEquDefinition()
     {
         var children = new List<GreenNodeBase>();
 
         if (Current.Kind == SyntaxKind.RedefKeyword)
-            children.Add(Advance()); // REDEF
+            children.Add(Advance());
 
         if (Current.Kind != SyntaxKind.IdentifierToken)
         {
             ReportMissingToken(SyntaxKind.IdentifierToken);
             return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
         }
-        children.Add(Advance()); // symbol name (IdentifierToken)
+        children.Add(Advance());
 
         if (Current.Kind is not (SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
                 or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword
@@ -520,94 +396,90 @@ internal sealed class Parser
             ReportMissingToken(SyntaxKind.EqualsToken);
             return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
         }
-        children.Add(Advance()); // EQU, EQUS, RB, RW, RL, or = token
+        children.Add(Advance());
 
         if (!AtEndOfStatement())
-            children.Add(ParseExpression()); // value
+            children.Add(ParseExpression());
 
         return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
     }
 
-    // Handles:  DEF name = expr, DEF name EQU expr, DEF name EQUS expr
+    // DEF name = expr  |  DEF name EQU/EQUS expr
     private GreenNode ParseDefDefinition()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance());                               // DEF
-        children.Add(ConsumeRawIdentifierOrAdvance());         // symbol name (may be #keyword)
-        // Accept both = and EQU/EQUS/RB/RW/RL after the name
+        var children = new List<GreenNodeBase>
+        {
+            Advance(),                           // DEF
+            ConsumeRawIdentifierOrAdvance(),      // name (may be #keyword)
+        };
         if (Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
             or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
             children.Add(Advance());
         else
-            children.Add(ExpectToken(SyntaxKind.EqualsToken)); // =
+            children.Add(ExpectToken(SyntaxKind.EqualsToken));
         if (!AtEndOfStatement())
-            children.Add(ParseExpression());                   // value
+            children.Add(ParseExpression());
         return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
     }
 
-    // Handles:  EXPORT sym [, sym]*
-    //           PURGE  sym [, sym]*
+    // EXPORT sym [, sym]*  |  PURGE sym [, sym]*
     private GreenNode ParseSymbolList()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // EXPORT or PURGE keyword
-
+        var children = new List<GreenNodeBase> { Advance() };
         if (!AtEndOfStatement())
         {
-            children.Add(Advance()); // first symbol
-
+            children.Add(Advance());
             while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma
-                children.Add(ExpectToken(SyntaxKind.IdentifierToken)); // next symbol
+                children.Add(Advance());
+                children.Add(ExpectToken(SyntaxKind.IdentifierToken));
             }
         }
-
         return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
     }
+
+    // =========================================================================
+    // Data directives
+    // =========================================================================
 
     private GreenNode ParseDataDirective()
     {
         var children = new List<GreenNodeBase>();
-        var keyword = Advance(); // DB/DW/DL/DS keyword
+        var keyword = Advance();
         children.Add(keyword);
 
-        // DS ALIGN[n] / DS ALIGN[n, offset] — special syntax
-        if (keyword.Kind == SyntaxKind.DsKeyword &&
-            Current.Kind == SyntaxKind.AlignKeyword)
+        // DS ALIGN[n, offset], fill
+        if (keyword.Kind == SyntaxKind.DsKeyword && Current.Kind == SyntaxKind.AlignKeyword)
         {
-            children.Add(Advance()); // ALIGN keyword
+            children.Add(Advance()); // ALIGN
             if (Current.Kind == SyntaxKind.OpenBracketToken)
             {
                 children.Add(Advance()); // [
-                children.Add(ParseExpression()); // alignment bits
+                children.Add(ParseExpression());
                 if (Current.Kind == SyntaxKind.CommaToken)
                 {
-                    children.Add(Advance()); // comma
-                    children.Add(ParseExpression()); // offset
+                    children.Add(Advance());
+                    children.Add(ParseExpression());
                 }
                 if (Current.Kind == SyntaxKind.CloseBracketToken)
                     children.Add(Advance()); // ]
             }
-            // Optional fill value: ds align[n], fill
             if (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma
+                children.Add(Advance());
                 if (!AtEndOfStatement())
-                    children.Add(ParseExpression()); // fill value
+                    children.Add(ParseExpression());
             }
             return new GreenNode(SyntaxKind.DataDirective, children.ToArray());
         }
 
-        // Parse comma-separated expressions
+        // Comma-separated expressions with trailing comma support
         if (!AtEndOfStatement())
         {
             children.Add(ParseExpression());
-
             while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma
-                // Trailing comma: if at end of statement after comma, emit warning but continue
+                children.Add(Advance());
                 if (AtEndOfStatement())
                 {
                     ReportTrailingComma();
@@ -620,122 +492,103 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.DataDirective, children.ToArray());
     }
 
+    // =========================================================================
+    // Labels
+    // =========================================================================
+
     private GreenNode ParseLabelDeclaration()
     {
-        var children = new List<GreenNodeBase>();
-
         // Anonymous label: bare colon
         if (Current.Kind == SyntaxKind.ColonToken)
-        {
-            children.Add(Advance()); // consume the colon
-            return new GreenNode(SyntaxKind.LabelDeclaration, children.ToArray());
-        }
+            return new GreenNode(SyntaxKind.LabelDeclaration, [Advance()]);
 
-        children.Add(Advance()); // identifier or local label token
+        var children = new List<GreenNodeBase> { Advance() }; // identifier or local label
 
         // Compound label: Identifier + LocalLabel (e.g. Alpha.local1)
         if (Current.Kind == SyntaxKind.LocalLabelToken &&
             children[0] is GreenToken firstToken &&
             firstToken.Kind == SyntaxKind.IdentifierToken)
         {
-            // Merge into a single compound identifier token
             var localToken = Advance();
-            var compoundText = firstToken.Text + localToken.Text;
-            var compound = new GreenToken(SyntaxKind.IdentifierToken, compoundText,
+            children[0] = new GreenToken(SyntaxKind.IdentifierToken,
+                firstToken.Text + localToken.Text,
                 firstToken.LeadingTrivia, localToken.TrailingTrivia);
-            children[0] = compound;
         }
 
-        // Handle .label\@: — consume optional MacroParamToken before the colon
         if (Current.Kind == SyntaxKind.MacroParamToken)
             children.Add(Advance());
-        // Colon is optional in RGBDS (labels can be declared without trailing colon)
         if (Current.Kind is SyntaxKind.ColonToken or SyntaxKind.DoubleColonToken)
             children.Add(Advance());
         return new GreenNode(SyntaxKind.LabelDeclaration, children.ToArray());
     }
 
+    // =========================================================================
+    // Instructions
+    // =========================================================================
+
     private GreenNode ParseInstruction()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // mnemonic
+        var children = new List<GreenNodeBase> { Advance() }; // mnemonic
 
-        // Parse first operand if present
         if (!AtEndOfStatement())
         {
             children.Add(ParseOperand());
-
-            // Parse comma-separated additional operands
             while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma is a direct child
-                children.Add(ParseOperand()); // ParseOperand handles EOF/missing gracefully
+                children.Add(Advance());
+                children.Add(ParseOperand());
             }
         }
 
         return new GreenNode(SyntaxKind.InstructionStatement, children.ToArray());
     }
 
-    /// <summary>
-    /// Returns true if the current position is at a statement boundary:
-    /// EOF, :: separator, or the previous token's trailing trivia contains a newline.
-    /// At _position == 0, returns false since there is no previous token to check.
-    /// This means leading newlines on the very first token are not detected, but in
-    /// practice the first token always starts at the beginning of the file.
-    /// </summary>
+    // =========================================================================
+    // Statement boundary detection
+    // =========================================================================
+
+    // At _position == 0, returns false — no previous token to check.
+    // Leading newlines on the very first token are not detected, but the first
+    // token always starts at file position 0 in practice.
     private bool AtEndOfStatement()
     {
-        if (Current.Kind == SyntaxKind.EndOfFileToken)
+        if (Current.Kind is SyntaxKind.EndOfFileToken or SyntaxKind.DoubleColonToken)
             return true;
-        // :: acts as a statement separator (consumed by ParseCompilationUnit)
-        if (Current.Kind == SyntaxKind.DoubleColonToken)
-            return true;
-        if (_position == 0)
-            return false;
-        return HasNewlineTrivia(_tokens[_position - 1]);
+        return _position > 0 && HasNewlineTrivia(_tokens[_position - 1]);
     }
+
+    // =========================================================================
+    // Operand parsing
+    // =========================================================================
 
     private GreenNodeBase ParseOperand()
     {
         var kind = Current.Kind;
 
-        // Guard: if we're at EOF, produce a missing operand.
         if (kind == SyntaxKind.EndOfFileToken)
         {
             ReportMissingToken(SyntaxKind.IdentifierToken);
-            return new GreenNode(
-                SyntaxKind.ImmediateOperand,
-                [new GreenToken(SyntaxKind.MissingToken, "")]
-            );
+            return new GreenNode(SyntaxKind.ImmediateOperand, [new GreenToken(SyntaxKind.MissingToken, "")]);
         }
 
-        // Condition flags: z, nz, nc — with optional ! prefix(es) for negation
         if (IsConditionKeyword(kind))
-            return ParseConditionOperand();
+            return new GreenNode(SyntaxKind.ConditionOperand, [Advance()]);
         if (kind == SyntaxKind.BangToken && IsNegatedCondition())
             return ParseNegatedConditionOperand();
 
-        // Indirect: [...]
         if (kind == SyntaxKind.OpenBracketToken)
             return ParseIndirectOperand();
 
-        // Register keywords (only if not followed by an operator — e.g. `sp` alone is
-        // a register, but `sp + $05` would be caught here too since sp is a register
-        // and the binder handles the expression form)
         if (IsRegisterKeyword(kind) && !IsBinaryOperator(Peek().Kind))
-            return ParseRegisterOperand();
+            return new GreenNode(SyntaxKind.RegisterOperand, [Advance()]);
 
-        // Anonymous label references: :+ :- :++ etc. — treat as label operands
         if (kind is SyntaxKind.AnonLabelForwardToken or SyntaxKind.AnonLabelBackwardToken)
         {
             if (!IsBinaryOperator(Peek().Kind))
                 return new GreenNode(SyntaxKind.LabelOperand, [Advance()]);
-            return ParseImmediateOperand();
+            return new GreenNode(SyntaxKind.ImmediateOperand, [ParseExpression()]);
         }
 
-        // Label reference (bare, not in expression).
-        // When followed by \@ (MacroParamToken), check the token AFTER \@ for operators
-        // so that `.label\@ + 1` routes to expression parsing, not ParseLabelOperand.
         if (kind is SyntaxKind.LocalLabelToken or SyntaxKind.IdentifierToken)
         {
             var lookAhead = Peek();
@@ -744,69 +597,40 @@ internal sealed class Parser
                 return ParseLabelOperand();
         }
 
-        // Everything else: immediate wrapping an expression
-        return ParseImmediateOperand();
+        return new GreenNode(SyntaxKind.ImmediateOperand, [ParseExpression()]);
     }
 
-    private GreenNode ParseRegisterOperand() => new(SyntaxKind.RegisterOperand, [Advance()]);
-
-    private GreenNode ParseConditionOperand() => new(SyntaxKind.ConditionOperand, [Advance()]);
-
-    /// <summary>
-    /// Check if the current position has one or more ! tokens followed by a condition keyword.
-    /// Handles !nz, !z, !nc, !c, !!z, !!nz, etc.
-    /// </summary>
-    /// <summary>
-    /// Check whether the current `!` token begins a negated condition code sequence
-    /// (e.g., `!nz`, `!!z`). Called only when Current.Kind == BangToken.
-    /// Starts peeking at offset 1 since offset 0 is the already-known `!`.
-    /// </summary>
+    // Called only when Current.Kind == BangToken. Peeks past consecutive ! tokens.
     private bool IsNegatedCondition()
     {
-        int offset = 1; // skip the already-known ! at position 0
+        int offset = 1;
         while (Peek(offset).Kind == SyntaxKind.BangToken)
             offset++;
         var target = Peek(offset);
         return IsConditionKeyword(target.Kind) || target.Kind == SyntaxKind.CKeyword;
     }
 
-    /// <summary>
-    /// Parse !cond, !!cond, etc. Count the ! prefixes, consume them, then consume the
-    /// condition keyword. If odd number of !, invert the condition. Emit a single
-    /// ConditionOperand node with the resolved condition keyword.
-    /// NOTE: Leading trivia from the first ! token is not attached to the resulting
-    /// ConditionOperand — the ! tokens are purely semantic modifiers. This is acceptable
-    /// since round-trip fidelity is not a current goal (the binder consumes green nodes).
-    /// </summary>
+    // Leading trivia from ! tokens is intentionally dropped — the ! tokens are
+    // purely semantic modifiers, and round-trip fidelity is not a current goal.
     private GreenNode ParseNegatedConditionOperand()
     {
         int bangCount = 0;
         while (Current.Kind == SyntaxKind.BangToken)
         {
-            Advance(); // consume ! — trivia intentionally dropped (see doc above)
+            Advance();
             bangCount++;
         }
 
-        var condToken = Advance(); // consume the condition keyword (z/nz/nc/c)
-        bool invert = bangCount % 2 != 0;
-
-        if (invert)
+        var condToken = Advance();
+        if (bangCount % 2 != 0)
         {
-            var invertedKind = condToken.Kind switch
+            var (invertedKind, invertedText) = condToken.Kind switch
             {
-                SyntaxKind.ZKeyword => SyntaxKind.NzKeyword,
-                SyntaxKind.NzKeyword => SyntaxKind.ZKeyword,
-                SyntaxKind.NcKeyword => SyntaxKind.CKeyword,
-                SyntaxKind.CKeyword => SyntaxKind.NcKeyword,
-                _ => condToken.Kind,
-            };
-            var invertedText = invertedKind switch
-            {
-                SyntaxKind.ZKeyword => "z",
-                SyntaxKind.NzKeyword => "nz",
-                SyntaxKind.NcKeyword => "nc",
-                SyntaxKind.CKeyword => "c",
-                _ => condToken.Text,
+                SyntaxKind.ZKeyword  => (SyntaxKind.NzKeyword, "nz"),
+                SyntaxKind.NzKeyword => (SyntaxKind.ZKeyword,  "z"),
+                SyntaxKind.NcKeyword => (SyntaxKind.CKeyword,  "c"),
+                SyntaxKind.CKeyword  => (SyntaxKind.NcKeyword, "nc"),
+                _                    => (condToken.Kind, condToken.Text),
             };
             condToken = new GreenToken(invertedKind, invertedText,
                 condToken.LeadingTrivia, condToken.TrailingTrivia);
@@ -817,57 +641,45 @@ internal sealed class Parser
 
     private GreenNode ParseLabelOperand()
     {
-        var children = new List<GreenNodeBase> { Advance() }; // identifier or local label
-        // Consume a trailing \@ suffix — .label\@ is a single semantic unit inside a macro.
-        // Without this, the MacroParamToken is orphaned (not a child of any green node),
-        // causing its 2-char width to be excluded from FullWidth sums and breaking all
-        // position-based calculations (CollectMacroBody bodyStart/bodyEnd, diagnostic spans).
+        var children = new List<GreenNodeBase> { Advance() };
+        // \@ suffix is part of the label — consuming it here ensures its width
+        // is included in FullWidth sums (critical for position calculations).
         if (Current.Kind == SyntaxKind.MacroParamToken)
             children.Add(Advance());
         return new GreenNode(SyntaxKind.LabelOperand, children.ToArray());
     }
 
-    private GreenNode ParseImmediateOperand() =>
-        new(SyntaxKind.ImmediateOperand, [ParseExpression()]);
-
     private GreenNode ParseIndirectOperand()
     {
-        var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // [
+        var children = new List<GreenNodeBase> { Advance() }; // [
 
-        // Special case: [hl+] or [hl-] — post-increment/decrement syntax, not an expression
-        if (
-            Current.Kind == SyntaxKind.HlKeyword
+        // [HL+] or [HL-] — post-increment/decrement, not an expression
+        if (Current.Kind == SyntaxKind.HlKeyword
             && Peek().Kind is SyntaxKind.PlusToken or SyntaxKind.MinusToken
-            && Peek(2).Kind == SyntaxKind.CloseBracketToken
-        )
+            && Peek(2).Kind == SyntaxKind.CloseBracketToken)
         {
             children.Add(Advance()); // hl
             children.Add(Advance()); // + or -
         }
-        else if (
-            Current.Kind != SyntaxKind.CloseBracketToken
-            && Current.Kind != SyntaxKind.EndOfFileToken
-        )
+        else if (Current.Kind is not SyntaxKind.CloseBracketToken and not SyntaxKind.EndOfFileToken)
         {
             children.Add(ParseExpression());
         }
 
         if (Current.Kind == SyntaxKind.CloseBracketToken)
-        {
-            children.Add(Advance()); // ]
-        }
+            children.Add(Advance());
         else
         {
-            var missing = new GreenToken(SyntaxKind.MissingToken, "");
-            children.Add(missing);
+            children.Add(new GreenToken(SyntaxKind.MissingToken, ""));
             ReportMissingToken(SyntaxKind.CloseBracketToken);
         }
 
         return new GreenNode(SyntaxKind.IndirectOperand, children.ToArray());
     }
 
-    // --- Pratt expression parser ---
+    // =========================================================================
+    // Pratt expression parser
+    // =========================================================================
 
     private GreenNodeBase ParseExpression(int parentPrecedence = 0)
     {
@@ -880,7 +692,6 @@ internal sealed class Parser
                 break;
 
             var op = Advance();
-            // Right-associative operators (like **) recurse at precedence - 1
             var rightPrec = IsRightAssociative(op.Kind) ? precedence - 1 : precedence;
             var right = ParseExpression(rightPrec);
             left = new GreenNode(SyntaxKind.BinaryExpression, [left, op, right]);
@@ -891,21 +702,12 @@ internal sealed class Parser
 
     private GreenNodeBase ParsePrefixExpression()
     {
-        // Unary operators
-        if (
-            Current.Kind
-            is SyntaxKind.MinusToken
-                or SyntaxKind.TildeToken
-                or SyntaxKind.BangToken
-                or SyntaxKind.PlusToken
-                or SyntaxKind.HashToken
-        )
+        if (Current.Kind is SyntaxKind.MinusToken or SyntaxKind.TildeToken
+            or SyntaxKind.BangToken or SyntaxKind.PlusToken or SyntaxKind.HashToken)
         {
             var op = Advance();
-            var operand = ParsePrefixExpression();
-            return new GreenNode(SyntaxKind.UnaryExpression, [op, operand]);
+            return new GreenNode(SyntaxKind.UnaryExpression, [op, ParsePrefixExpression()]);
         }
-
         return ParsePrimaryExpression();
     }
 
@@ -913,20 +715,15 @@ internal sealed class Parser
     {
         switch (Current.Kind)
         {
-            case SyntaxKind.NumberLiteral:
-            case SyntaxKind.FixedPointLiteral:
-            case SyntaxKind.CurrentAddressToken:
-            case SyntaxKind.AtToken:
-            case SyntaxKind.StringLiteral:
-            case SyntaxKind.CharLiteralToken:
-            case SyntaxKind.MacroParamToken:
+            case SyntaxKind.NumberLiteral or SyntaxKind.FixedPointLiteral
+                or SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken
+                or SyntaxKind.StringLiteral or SyntaxKind.CharLiteralToken
+                or SyntaxKind.MacroParamToken:
                 return new GreenNode(SyntaxKind.LiteralExpression, [Advance()]);
 
-            case SyntaxKind.IdentifierToken:
-            case SyntaxKind.LocalLabelToken:
+            case SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken:
             {
                 var name = Advance();
-                // Consume trailing \@ macro-unique suffix (e.g., .label\@ or const\@ in expressions)
                 if (Current.Kind == SyntaxKind.MacroParamToken)
                     return new GreenNode(SyntaxKind.NameExpression, [name, Advance()]);
                 return new GreenNode(SyntaxKind.NameExpression, [name]);
@@ -935,109 +732,51 @@ internal sealed class Parser
             // Raw identifier: #keyword — treat keyword as identifier name
             case SyntaxKind.HashToken when IsKeyword(Peek().Kind):
             {
-                Advance(); // consume #
-                var kwToken = Advance(); // consume keyword
-                // Re-tag as IdentifierToken so the binder sees it as a symbol name
-                var idToken = new GreenToken(SyntaxKind.IdentifierToken, kwToken.Text,
-                    kwToken.LeadingTrivia, kwToken.TrailingTrivia);
-                return new GreenNode(SyntaxKind.NameExpression, [idToken]);
+                Advance(); // #
+                var kw = Advance();
+                var id = new GreenToken(SyntaxKind.IdentifierToken, kw.Text,
+                    kw.LeadingTrivia, kw.TrailingTrivia);
+                return new GreenNode(SyntaxKind.NameExpression, [id]);
             }
 
-            // Anonymous label references: :+ :- :++ :-- etc.
-            case SyntaxKind.AnonLabelForwardToken:
-            case SyntaxKind.AnonLabelBackwardToken:
+            case SyntaxKind.AnonLabelForwardToken or SyntaxKind.AnonLabelBackwardToken:
                 return new GreenNode(SyntaxKind.LiteralExpression, [Advance()]);
-
-            // Built-in functions: HIGH(...), LOW(...), BANK(...), etc.
-            case SyntaxKind.HighKeyword:
-            case SyntaxKind.LowKeyword:
-            case SyntaxKind.BankKeyword:
-            case SyntaxKind.SizeofKeyword:
-            case SyntaxKind.StartofKeyword:
-            case SyntaxKind.DefKeyword:
-            case SyntaxKind.IsConstKeyword:
-            case SyntaxKind.StrlenKeyword:
-            case SyntaxKind.StrcatKeyword:
-            case SyntaxKind.StrsubKeyword:
-            case SyntaxKind.RevcharKeyword:
-            case SyntaxKind.CharlenKeyword:
-            case SyntaxKind.IncharmapKeyword:
-            case SyntaxKind.StrcmpKeyword:
-            case SyntaxKind.MulKeyword:
-            case SyntaxKind.DivFuncKeyword:
-            case SyntaxKind.DivKeyword:
-            case SyntaxKind.FmodKeyword:
-            case SyntaxKind.PowKeyword:
-            case SyntaxKind.LogKeyword:
-            case SyntaxKind.RoundKeyword:
-            case SyntaxKind.CeilKeyword:
-            case SyntaxKind.FloorKeyword:
-            case SyntaxKind.SinKeyword:
-            case SyntaxKind.CosKeyword:
-            case SyntaxKind.TanKeyword:
-            case SyntaxKind.AsinKeyword:
-            case SyntaxKind.AcosKeyword:
-            case SyntaxKind.AtanKeyword:
-            case SyntaxKind.Atan2Keyword:
-            case SyntaxKind.BitwidthKeyword:
-            case SyntaxKind.TzcountKeyword:
-            case SyntaxKind.StrfindKeyword:
-            case SyntaxKind.StrrfindKeyword:
-            case SyntaxKind.StruprKeyword:
-            case SyntaxKind.StrlwrKeyword:
-            case SyntaxKind.BytelenKeyword:
-            case SyntaxKind.StrbyteKeyword:
-            case SyntaxKind.StrcharKeyword:
-            case SyntaxKind.ReadfileKeyword:
-            case SyntaxKind.StrfmtKeyword:
-                return ParseFunctionCallExpression();
 
             case SyntaxKind.OpenParenToken:
             {
                 var open = Advance();
                 var expr = ParseExpression();
-                GreenNodeBase close;
-                if (Current.Kind == SyntaxKind.CloseParenToken)
-                {
-                    close = Advance();
-                }
-                else
-                {
-                    close = new GreenToken(SyntaxKind.MissingToken, "");
-                    ReportMissingToken(SyntaxKind.CloseParenToken);
-                }
+                GreenNodeBase close = Current.Kind == SyntaxKind.CloseParenToken
+                    ? Advance()
+                    : ExpectToken(SyntaxKind.CloseParenToken);
                 return new GreenNode(SyntaxKind.ParenthesizedExpression, [open, expr, close]);
             }
 
             case SyntaxKind.OpenBracketToken:
             {
-                // [register] — indirect operand (used in sizeof([bc]) etc.)
-                var open = Advance();
-                var children2 = new List<GreenNodeBase> { open };
-                while (Current.Kind != SyntaxKind.CloseBracketToken
-                    && Current.Kind != SyntaxKind.EndOfFileToken
-                    && !AtEndOfStatement())
-                    children2.Add(Advance());
+                // [register] inside expressions (used in sizeof([bc]) etc.)
+                var children = new List<GreenNodeBase> { Advance() };
+                while (Current.Kind is not SyntaxKind.CloseBracketToken
+                    and not SyntaxKind.EndOfFileToken && !AtEndOfStatement())
+                    children.Add(Advance());
                 if (Current.Kind == SyntaxKind.CloseBracketToken)
-                    children2.Add(Advance());
-                return new GreenNode(SyntaxKind.IndirectOperand, children2.ToArray());
+                    children.Add(Advance());
+                return new GreenNode(SyntaxKind.IndirectOperand, children.ToArray());
             }
 
             default:
-                // Register keywords can appear in expressions (e.g. sp in `sp + $05`)
+                // Built-in functions: HIGH(...), LOW(...), SIN(...), STRLEN(...), etc.
+                // HighKeyword..StrfmtKeyword is a contiguous range in SyntaxKind.cs.
+                if (IsBuiltInFunctionKeyword(Current.Kind))
+                    return ParseFunctionCallExpression();
+
                 if (IsRegisterKeyword(Current.Kind))
                     return new GreenNode(SyntaxKind.NameExpression, [Advance()]);
 
-                // Unknown token — produce a MissingToken placeholder WITHOUT consuming.
-                // This diverges from the normal "advance on error" pattern intentionally:
-                // the parent (ParseOperand/ParseStatement) will see the unexpected token
-                // and handle it via its own error-recovery loop. Consuming here would
-                // swallow a token the parent needs for recovery.
+                // Intentionally does NOT consume — the parent handles recovery.
                 ReportMissingToken(SyntaxKind.NumberLiteral);
-                return new GreenNode(
-                    SyntaxKind.LiteralExpression,
-                    [new GreenToken(SyntaxKind.MissingToken, "")]
-                );
+                return new GreenNode(SyntaxKind.LiteralExpression,
+                    [new GreenToken(SyntaxKind.MissingToken, "")]);
         }
     }
 
@@ -1049,24 +788,19 @@ internal sealed class Parser
             ExpectToken(SyntaxKind.OpenParenToken),
         };
 
-        // Parse comma-separated arguments
-        if (Current.Kind != SyntaxKind.CloseParenToken && Current.Kind != SyntaxKind.EndOfFileToken)
+        if (Current.Kind is not SyntaxKind.CloseParenToken and not SyntaxKind.EndOfFileToken)
         {
-            // Handle [reg] operands inside function calls (e.g., sizeof([bc]))
-            if (Current.Kind == SyntaxKind.OpenBracketToken)
-                children.Add(ParseBracketedArgument());
-            else
-                children.Add(ParseExpression());
+            children.Add(Current.Kind == SyntaxKind.OpenBracketToken
+                ? ParseBracketedArgument()
+                : ParseExpression());
 
             while (Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance()); // comma
+                children.Add(Advance());
                 var before = _position;
-                if (Current.Kind == SyntaxKind.OpenBracketToken)
-                    children.Add(ParseBracketedArgument());
-                else
-                    children.Add(ParseExpression());
-                // Safety: if ParseExpression didn't advance, force-consume to avoid infinite loop
+                children.Add(Current.Kind == SyntaxKind.OpenBracketToken
+                    ? ParseBracketedArgument()
+                    : ParseExpression());
                 if (_position == before && Current.Kind != SyntaxKind.CloseParenToken)
                 {
                     var bad = Advance();
@@ -1079,15 +813,11 @@ internal sealed class Parser
         return new GreenNode(SyntaxKind.FunctionCallExpression, children.ToArray());
     }
 
-    /// <summary>
-    /// If current token is # followed by a keyword, consume both and return
-    /// an IdentifierToken with the keyword text. Otherwise just Advance().
-    /// </summary>
     private GreenToken ConsumeRawIdentifierOrAdvance()
     {
         if (Current.Kind == SyntaxKind.HashToken && IsKeyword(Peek().Kind))
         {
-            Advance(); // consume #
+            Advance();
             var kw = Advance();
             return new GreenToken(SyntaxKind.IdentifierToken, kw.Text,
                 kw.LeadingTrivia, kw.TrailingTrivia);
@@ -1095,43 +825,32 @@ internal sealed class Parser
         return Advance();
     }
 
-    /// <summary>
-    /// Parse a bracketed argument like [bc], [hl+], [hld] for sizeof() etc.
-    /// Wraps the brackets and content in an IndirectOperand node.
-    /// </summary>
     private GreenNode ParseBracketedArgument()
     {
-        var bracketChildren = new List<GreenNodeBase>();
-        bracketChildren.Add(Advance()); // [
-        while (Current.Kind != SyntaxKind.CloseBracketToken && Current.Kind != SyntaxKind.EndOfFileToken
-               && Current.Kind != SyntaxKind.CloseParenToken)
-            bracketChildren.Add(Advance());
+        var children = new List<GreenNodeBase> { Advance() }; // [
+        while (Current.Kind is not SyntaxKind.CloseBracketToken
+            and not SyntaxKind.EndOfFileToken and not SyntaxKind.CloseParenToken)
+            children.Add(Advance());
         if (Current.Kind == SyntaxKind.CloseBracketToken)
-            bracketChildren.Add(Advance()); // ]
-        return new GreenNode(SyntaxKind.IndirectOperand, bracketChildren.ToArray());
+            children.Add(Advance());
+        return new GreenNode(SyntaxKind.IndirectOperand, children.ToArray());
     }
 
     private GreenToken ExpectToken(SyntaxKind expected)
     {
         if (Current.Kind == expected)
             return Advance();
-
         ReportMissingToken(expected);
         return new GreenToken(SyntaxKind.MissingToken, "");
     }
 
-    // RGBDS precedence (higher number = tighter binding), matching C conventions:
-    // 1: ||
-    // 2: &&
-    // 3: == != === !==
-    // 4: < > <= >=
-    // 5: |          (bitwise OR — lowest of the three bitwise ops, same as C)
-    // 6: ^          (bitwise XOR)
-    // 7: &          (bitwise AND — highest of the three)
-    // 8: << >> >>>
-    // 9: + - ++
-    // 10: * / %
-    // 11: **         (exponentiation, right-associative)
+    // =========================================================================
+    // Operator precedence (RGBDS-compatible, higher = tighter)
+    // =========================================================================
+
+    // 1: ||  2: &&  3: == != === !==  4: < > <= >=
+    // 5: |   6: ^   7: &
+    // 8: << >> >>>  9: + - ++  10: * / %  11: ** (right-assoc)
     private static int GetBinaryPrecedence(SyntaxKind kind) =>
         kind switch
         {
@@ -1140,10 +859,8 @@ internal sealed class Parser
             SyntaxKind.EqualsEqualsToken or SyntaxKind.BangEqualsToken
                 or SyntaxKind.EqualsEqualsEqualsToken or SyntaxKind.TripleEqualsToken
                 or SyntaxKind.BangEqualsEqualsToken => 3,
-            SyntaxKind.LessThanToken
-            or SyntaxKind.GreaterThanToken
-            or SyntaxKind.LessThanEqualsToken
-            or SyntaxKind.GreaterThanEqualsToken => 4,
+            SyntaxKind.LessThanToken or SyntaxKind.GreaterThanToken
+                or SyntaxKind.LessThanEqualsToken or SyntaxKind.GreaterThanEqualsToken => 4,
             SyntaxKind.PipeToken => 5,
             SyntaxKind.CaretToken => 6,
             SyntaxKind.AmpersandToken => 7,
@@ -1159,37 +876,32 @@ internal sealed class Parser
 
     private static bool IsRightAssociative(SyntaxKind kind) => kind == SyntaxKind.StarStarToken;
 
+    // =========================================================================
+    // Diagnostics
+    // =========================================================================
+
     private static bool HasNewlineTrivia(GreenToken token)
     {
         var trivia = token.TrailingTrivia;
         for (int i = 0; i < trivia.Count; i++)
-        {
-            var t = trivia[i];
-            if (t.Kind == SyntaxKind.NewlineTrivia)
+            if (trivia[i].Kind == SyntaxKind.NewlineTrivia)
                 return true;
-        }
         return false;
     }
 
-    private void ReportTrailingComma()
-    {
-        _diagnostics.Report(new TextSpan(_currentOffset, 0), "Trailing comma in data directive",
-            Diagnostics.DiagnosticSeverity.Warning);
-    }
+    private void ReportTrailingComma() =>
+        _diagnostics.Report(new TextSpan(_currentOffset, 0),
+            "Trailing comma in data directive", DiagnosticSeverity.Warning);
 
-    private void ReportMissingToken(SyntaxKind expected)
-    {
+    private void ReportMissingToken(SyntaxKind expected) =>
         _diagnostics.Report(new TextSpan(_currentOffset, 0), $"Expected '{expected}'");
-    }
 
     private void ReportBadToken(GreenToken token)
     {
-        // Use _currentOffset — the token was just Advance()'d so _currentOffset points
-        // past it. Subtract its width to get the token's start position.
+        // Token was just Advance()'d — _currentOffset is past it.
         int tokenStart = _currentOffset - token.FullWidth;
         _diagnostics.Report(
             new TextSpan(tokenStart + token.LeadingTriviaWidth, token.Width),
-            $"Unexpected token '{token.Kind}'"
-        );
+            $"Unexpected token '{token.Kind}'");
     }
 }
