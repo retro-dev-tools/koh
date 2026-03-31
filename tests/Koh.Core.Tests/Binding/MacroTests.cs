@@ -133,6 +133,7 @@ public class MacroTests
             .done\@:
             ENDM
             SECTION "Main", ROM0
+            main:
             loop_body
             """);
         await Assert.That(model.Success).IsTrue();
@@ -152,6 +153,7 @@ public class MacroTests
             nop
             ENDM
             SECTION "Main", ROM0
+            main:
             with_label
             with_label
             """);

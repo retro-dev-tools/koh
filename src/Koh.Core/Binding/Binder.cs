@@ -342,6 +342,13 @@ public sealed class Binder
             return;
         }
 
+        // Local label without global parent
+        if (name.StartsWith('.') && !_symbols.HasGlobalAnchor)
+        {
+            _diagnostics.Report(node.FullSpan, $"Local label '{name}' declared without a preceding global label");
+            return;
+        }
+
         // In LOAD blocks, labels get addresses from the load section
         var sym = _symbols.DefineLabel(name, pc.LabelPC, pc.LabelSectionName, node);
         if (tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.DoubleColonToken)

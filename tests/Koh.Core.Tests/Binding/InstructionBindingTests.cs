@@ -14,7 +14,7 @@ public class InstructionBindingTests
 
     private static IReadOnlyList<byte> GetBytes(string source)
     {
-        var result = Bind($"SECTION \"Main\", ROM0\n{source}");
+        var result = Bind($"SECTION \"Main\", ROM0\n__main__:\n{source}");
         if (!result.Success)
             throw new Exception($"Binding failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}");
         return result.Sections!["Main"].Bytes;

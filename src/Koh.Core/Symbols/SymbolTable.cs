@@ -204,6 +204,7 @@ public sealed class SymbolTable
 
     /// <summary>Current global anchor name, for recording on PatchEntry.</summary>
     public string? CurrentGlobalAnchorName => _currentGlobalAnchor?.Name;
+    public bool HasGlobalAnchor => _currentGlobalAnchor != null;
 
     /// <summary>
     /// Define an anonymous label at the given PC. Returns the generated symbol.
