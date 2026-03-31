@@ -97,6 +97,8 @@ public sealed class Lexer
         ["h"] = SyntaxKind.HKeyword,
         ["l"] = SyntaxKind.LKeyword,
         ["hl"] = SyntaxKind.HlKeyword,
+        ["hli"] = SyntaxKind.HliKeyword,
+        ["hld"] = SyntaxKind.HldKeyword,
         ["sp"] = SyntaxKind.SpKeyword,
         ["af"] = SyntaxKind.AfKeyword,
         ["bc"] = SyntaxKind.BcKeyword,

@@ -153,17 +153,18 @@ public static class OperandPatternMatcher
                 return token.Kind switch
                 {
                     SyntaxKind.HlKeyword =>
-                        // Check for [HL+] or [HL-]
                         HasFollowingPlusMinus(green, i) switch
                         {
                             SyntaxKind.PlusToken => OperandPattern.IndHLInc,
                             SyntaxKind.MinusToken => OperandPattern.IndHLDec,
                             _ => OperandPattern.IndHL,
                         },
+                    SyntaxKind.HliKeyword => OperandPattern.IndHLInc,
+                    SyntaxKind.HldKeyword => OperandPattern.IndHLDec,
                     SyntaxKind.BcKeyword => OperandPattern.IndBC,
                     SyntaxKind.DeKeyword => OperandPattern.IndDE,
                     SyntaxKind.CKeyword => OperandPattern.IndC,
-                    _ => OperandPattern.IndImm8, // unknown token inside brackets
+                    _ => OperandPattern.IndImm8,
                 };
             }
 
@@ -179,6 +180,8 @@ public static class OperandPatternMatcher
                         return innerToken.Kind switch
                         {
                             SyntaxKind.HlKeyword => OperandPattern.IndHL,
+                            SyntaxKind.HliKeyword => OperandPattern.IndHLInc,
+                            SyntaxKind.HldKeyword => OperandPattern.IndHLDec,
                             SyntaxKind.BcKeyword => OperandPattern.IndBC,
                             SyntaxKind.DeKeyword => OperandPattern.IndDE,
                             SyntaxKind.CKeyword => OperandPattern.IndC,

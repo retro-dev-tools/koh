@@ -198,9 +198,10 @@ internal sealed class Parser
             (Peek().Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current)))
             return true;
 
-        // Anonymous label: bare colon at statement start
-        if (Current.Kind == SyntaxKind.ColonToken &&
-            (Peek().Kind == SyntaxKind.EndOfFileToken || HasNewlineTrivia(Current)))
+        // Anonymous label: bare colon at statement start. Content may follow on the
+        // same line (e.g., ":	ld a, [hli]") — the colon is always the label; the rest
+        // is parsed as the next statement by ParseCompilationUnit's main loop.
+        if (Current.Kind == SyntaxKind.ColonToken)
             return true;
 
         return false;
@@ -653,13 +654,18 @@ internal sealed class Parser
     {
         var children = new List<GreenNodeBase> { Advance() }; // [
 
-        // [HL+] or [HL-] — post-increment/decrement, not an expression
+        // [HL+] / [HL-] — post-increment/decrement, not an expression
         if (Current.Kind == SyntaxKind.HlKeyword
             && Peek().Kind is SyntaxKind.PlusToken or SyntaxKind.MinusToken
             && Peek(2).Kind == SyntaxKind.CloseBracketToken)
         {
             children.Add(Advance()); // hl
             children.Add(Advance()); // + or -
+        }
+        // [hli] / [hld] — RGBDS aliases for [HL+] / [HL-]
+        else if (Current.Kind is SyntaxKind.HliKeyword or SyntaxKind.HldKeyword)
+        {
+            children.Add(Advance());
         }
         else if (Current.Kind is not SyntaxKind.CloseBracketToken and not SyntaxKind.EndOfFileToken)
         {

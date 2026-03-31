@@ -65,9 +65,12 @@ public enum SyntaxKind : ushort
     // Condition flag keywords (C condition is contextual — CKeyword serves both register and flag)
     ZKeyword, NzKeyword, NcKeyword,
 
-    // Register keywords
+    // Register keywords — AKeyword..DeKeyword must remain contiguous (IsRegisterKeyword range check).
     AKeyword, BKeyword, CKeyword, DKeyword, EKeyword,
     HKeyword, LKeyword, HlKeyword, SpKeyword, AfKeyword, BcKeyword, DeKeyword,
+
+    // Indirect addressing mode keywords — NOT in the register range (not valid as standalone operands).
+    HliKeyword, HldKeyword, // [hli] = [hl+], [hld] = [hl-]
 
     // Directive keywords
     SectionKeyword, DbKeyword, DwKeyword, DlKeyword, DsKeyword,
