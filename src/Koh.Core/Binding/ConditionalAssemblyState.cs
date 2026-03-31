@@ -142,4 +142,21 @@ internal sealed class ConditionalAssemblyState
         _elseSeenStack.Clear();
         _skipDepth = 0;
     }
+
+    /// <summary>
+    /// Discard all conditional frames above <paramref name="targetDepth"/>.
+    /// Used when BREAK exits a loop body mid-conditional — the unclosed IF blocks
+    /// were in the abandoned body and must not persist to the next iteration or caller.
+    /// </summary>
+    public void ResetToDepth(int targetDepth)
+    {
+        while (_branchTakenStack.Count > targetDepth)
+        {
+            _branchTakenStack.Pop();
+            if (_elseSeenStack.Count > 0) _elseSeenStack.Pop();
+        }
+        // If we unwound everything, clear skip state too
+        if (_branchTakenStack.Count <= targetDepth)
+            _skipDepth = 0;
+    }
 }

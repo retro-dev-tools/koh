@@ -18,7 +18,7 @@ public sealed class SectionManager
     public SectionBuffer? ActiveSection => _activeSection;
 
     public SectionBuffer OpenOrResume(string name, SectionType type,
-        int? fixedAddress = null, int? bank = null)
+        int? fixedAddress = null, int? bank = null, bool isFragment = false)
     {
         if (_sections.TryGetValue(name, out var existing))
         {
@@ -26,7 +26,7 @@ public sealed class SectionManager
             return existing;
         }
 
-        var section = new SectionBuffer(name, type, fixedAddress, bank);
+        var section = new SectionBuffer(name, type, fixedAddress, bank) { IsFragment = isFragment };
         _sections[name] = section;
         _activeSection = section;
         return section;
@@ -44,6 +44,9 @@ public sealed class SectionManager
     }
 
     public bool IsSectionOnStack(string name) => _pushedSectionNames.Contains(name);
+
+    /// <summary>True when at least one section has been PUSHed (PUSHS stack is non-empty).</summary>
+    public bool IsInPushsContext => _sectionStack.Count > 0;
 
     /// <summary>
     /// Pop and restore the previous section (POPS).

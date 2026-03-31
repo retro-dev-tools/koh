@@ -411,8 +411,12 @@ internal sealed class Parser
         var children = new List<GreenNodeBase>
         {
             Advance(),                           // DEF
-            ConsumeRawIdentifierOrAdvance(),      // name (may be #keyword)
         };
+        // Name may be an interpolated identifier: {equs}name, name{equs}, etc.
+        // Consume all tokens that form the name (BadToken("{"), identifiers, BadToken("}"))
+        // until we reach a keyword that starts the definition (EQU, EQUS, =, RB, RW, RL).
+        children.AddRange(ConsumeInterpolatedName());
+
         if (Current.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
             or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
             children.Add(Advance());
@@ -429,14 +433,65 @@ internal sealed class Parser
         var children = new List<GreenNodeBase> { Advance() };
         if (!AtEndOfStatement())
         {
-            children.Add(Advance());
+            // First symbol (may be interpolated)
+            children.AddRange(ConsumeInterpolatedName());
             while (!AtEndOfStatement() && Current.Kind == SyntaxKind.CommaToken)
             {
-                children.Add(Advance());
-                children.Add(ExpectToken(SyntaxKind.IdentifierToken));
+                children.Add(Advance()); // comma
+                if (!AtEndOfStatement())
+                    children.AddRange(ConsumeInterpolatedName());
             }
         }
         return new GreenNode(SyntaxKind.SymbolDirective, children.ToArray());
+    }
+
+    /// <summary>
+    /// Consume a symbol name that may contain {equs} interpolation sequences.
+    /// Handles: plain identifier, {equs}suffix, prefix{equs}, prefix{equs}suffix, etc.
+    /// Does NOT report errors for BadToken("{") or BadToken("}") — they are expected in
+    /// interpolated names and will be resolved by the AssemblyExpander.
+    /// </summary>
+    private IEnumerable<GreenToken> ConsumeInterpolatedName()
+    {
+        var parts = new List<GreenToken>();
+        // Consume leading { sequences and identifier parts until we hit a non-name token
+        while (!AtEndOfStatement())
+        {
+            var kind = Current.Kind;
+            if (kind == SyntaxKind.BadToken && Current.Text == "{")
+            {
+                parts.Add(Advance()); // {
+                // consume name inside braces
+                while (!AtEndOfStatement() && !(Current.Kind == SyntaxKind.BadToken && Current.Text == "}"))
+                    parts.Add(Advance());
+                if (!AtEndOfStatement() && Current.Kind == SyntaxKind.BadToken && Current.Text == "}")
+                    parts.Add(Advance()); // }
+                continue;
+            }
+            if (kind == SyntaxKind.IdentifierToken || kind == SyntaxKind.LocalLabelToken)
+            {
+                parts.Add(Advance());
+                continue;
+            }
+            // Allow keywords that appear as raw identifiers (#DEF etc.)
+            // Merge '#' + keyword into a single IdentifierToken to match ConsumeRawIdentifierOrAdvance.
+            if (kind == SyntaxKind.HashToken && IsKeyword(Peek().Kind))
+            {
+                var hash = Advance(); // #
+                var kw = Advance();   // keyword
+                parts.Add(new GreenToken(SyntaxKind.IdentifierToken, "#" + kw.Text,
+                    hash.LeadingTrivia, kw.TrailingTrivia));
+                continue;
+            }
+            break; // stop at EQU, EQUS, =, RB, etc.
+        }
+        if (parts.Count == 0)
+        {
+            // Nothing consumed — advance one token to avoid infinite loops, emit missing
+            ReportMissingToken(SyntaxKind.IdentifierToken);
+            parts.Add(new GreenToken(SyntaxKind.MissingToken, ""));
+        }
+        return parts;
     }
 
     // =========================================================================

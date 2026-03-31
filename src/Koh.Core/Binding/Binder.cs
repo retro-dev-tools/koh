@@ -145,7 +145,7 @@ public sealed class Binder
         switch (node.Kind)
         {
             case SyntaxKind.LabelDeclaration:
-                Pass1Label(node, pc);
+                Pass1Label(node, pc, en.FromMacroBody);
                 break;
             case SyntaxKind.SectionDirective:
                 Pass1Section(node, pc);
@@ -321,7 +321,7 @@ public sealed class Binder
         }
     }
 
-    private void Pass1Label(SyntaxNode node, SectionPCTracker pc)
+    private void Pass1Label(SyntaxNode node, SectionPCTracker pc, bool fromMacroBody = false)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count == 0) return;
@@ -342,8 +342,9 @@ public sealed class Binder
             return;
         }
 
-        // Local label without global parent
-        if (name.StartsWith('.') && !_symbols.HasGlobalAnchor)
+        // Local label without global parent — error in regular code, but allowed inside
+        // macro bodies (RGBDS allows .local\@: in macros as a uniqueness idiom).
+        if (name.StartsWith('.') && !_symbols.HasGlobalAnchor && !fromMacroBody)
         {
             _diagnostics.Report(node.FullSpan, $"Local label '{name}' declared without a preceding global label");
             return;
@@ -673,8 +674,11 @@ public sealed class Binder
         // RGBDS resets local label scope on every SECTION directive
         _symbols.SetGlobalAnchor(null);
 
-        // If we're in a LOAD block, a new SECTION implicitly terminates it
-        if (_sections.IsInLoad)
+        // If we're in a LOAD block, a new SECTION implicitly terminates it —
+        // UNLESS the SECTION is being opened within a PUSHS context (i.e., the PUSHS/POPS
+        // mechanism is in use to temporarily switch sections). In that case the LOAD block
+        // remains active and will be continued after the matching POPS.
+        if (_sections.IsInLoad && !_sections.IsInPushsContext)
         {
             _diagnostics.Report(node.FullSpan,
                 "Unterminated LOAD block: SECTION implicitly ends LOAD",
@@ -698,7 +702,7 @@ public sealed class Binder
             return;
         }
 
-        _sections.OpenOrResume(name!, sectionType, fixedAddress, bank);
+        _sections.OpenOrResume(name!, sectionType, fixedAddress, bank, isFragment);
         if (_expander != null)
             _expander.CurrentSectionName = name;
 
@@ -1561,8 +1565,6 @@ public sealed class Binder
         }
 
         int bits = (int)alignBits.Value;
-        if (bits > section.AlignBits)
-            section.AlignBits = bits;
         int boundary = 1 << bits;
         int alignOffset = 0;
         if (exprNodes.Count > 1)
@@ -1579,6 +1581,46 @@ public sealed class Binder
                 }
             }
         }
+
+        // For floating FRAGMENT sections (no fixed address), an inline ALIGN N is only
+        // satisfiable at link time if the section's header alignment is at least N.
+        // If there is already content in the section (offset > 0) and the section's
+        // alignment is less than N, no valid placement exists that satisfies both
+        // the section constraint and the inline ALIGN — report an error.
+        // This check only applies to FRAGMENT sections: regular floating sections can
+        // satisfy any inline ALIGN because the linker can place them at any address.
+        if (section.IsFragment && section.FixedAddress == null && bits > 0 && section.CurrentOffset > 0)
+        {
+            if (bits > section.AlignBits)
+            {
+                _diagnostics.Report(node.FullSpan,
+                    $"ALIGN {bits} inside a floating section requires the section to have at least ALIGN[{bits}], " +
+                    $"but the section only has ALIGN[{section.AlignBits}]. The alignment cannot be satisfied at link time.");
+                return;
+            }
+            // Even with sufficient section alignment, verify the current offset satisfies ALIGN N.
+            int mask2 = boundary - 1;
+            if ((section.CurrentOffset - alignOffset) % boundary != 0)
+            {
+                int pad2 = ((boundary - ((section.CurrentOffset - alignOffset) & mask2)) & mask2);
+                // If padding would be needed, verify the section's base alignment guarantees it
+                if (pad2 != 0)
+                {
+                    // The padding amount must be a multiple of 2^(section.AlignBits) to be linkable
+                    int sectionBoundary = 1 << section.AlignBits;
+                    if (pad2 % sectionBoundary != 0)
+                    {
+                        _diagnostics.Report(node.FullSpan,
+                            $"ALIGN {bits} at offset {section.CurrentOffset} cannot be satisfied: " +
+                            $"required padding of {pad2} bytes is not a multiple of section alignment {sectionBoundary}");
+                        return;
+                    }
+                }
+            }
+        }
+
+        if (bits > section.AlignBits)
+            section.AlignBits = bits;
 
         // Record this offset as the section's alignment base offset (for DS ALIGN calculations).
         // Only update if this is the tightest alignment seen so far (highest bits).

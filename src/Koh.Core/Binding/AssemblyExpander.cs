@@ -10,8 +10,10 @@ namespace Koh.Core.Binding;
 /// <summary>
 /// A single effective statement after all macro/REPT/IF expansion.
 /// SourceFilePath tracks which file the node came from (for INCBIN path resolution).
+/// FromMacroBody is true when the node was produced inside a macro body expansion —
+/// used to allow local labels without a preceding global anchor (RGBDS behavior).
 /// </summary>
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false);
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false);
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -37,6 +39,7 @@ internal sealed class AssemblyExpander
     private bool _shiftRequested; // set by SHIFT inside macro body — signals ExpandMacroBody to re-expand
     private TextWriter _printOutput;
     private int _loopDepth; // >0 means inside REPT/FOR expansion
+    private int _macroBodyDepth; // >0 means currently expanding a macro body
     private readonly Stack<int> _reptUniqueIdStack = new(); // per-REPT-iteration unique IDs
 
     // Macro frame stack — each macro invocation pushes a frame so \N, \#, _NARG
@@ -211,7 +214,15 @@ internal sealed class AssemblyExpander
 
             // Lazy macro param resolution: if inside a macro frame with SHIFT,
             // MacroParamTokens (\1..\9, \#) survive in the tree and need resolving.
-            if (!_conditional.IsSuppressed && _macroFrameStack.Count > 0 && ContainsMacroParam(node.Green))
+            // Do NOT apply this to block-structured nodes (REPT, FOR, conditional, macro defs)
+            // because those require sibling context for body collection and must go through
+            // their dedicated expansion paths (ExpandRept, ExpandFor, HandleConditional, etc.).
+            // _NARG inside REPT _NARG is resolved via the symbol table lookup in ExpandRept's
+            // expression evaluator — not through text substitution here.
+            bool isBlockNode = node.Kind is SyntaxKind.RepeatDirective
+                or SyntaxKind.ConditionalDirective
+                or SyntaxKind.MacroDefinition;
+            if (!isBlockNode && !_conditional.IsSuppressed && _macroFrameStack.Count > 0 && ContainsMacroParam(node.Green))
             {
                 var frame = _macroFrameStack.Peek();
                 var rawText = _currentSourceText != null
@@ -227,7 +238,9 @@ internal sealed class AssemblyExpander
             }
 
             // {EQUS} interpolation — DEF {prefix}banana EQU 1, PURGE {prefix}banana, etc.
-            if (!_conditional.IsSuppressed && _currentSourceText != null && NeedsInterpolation(node))
+            // Skip block-structured nodes for the same reason as the macro param path above:
+            // they need sibling context and have dedicated expansion handlers.
+            if (!isBlockNode && !_conditional.IsSuppressed && _currentSourceText != null && NeedsInterpolation(node))
             {
                 var rawText = _currentSourceText.ToString(node.FullSpan);
                 var resolved = ResolveInterpolations(rawText);
@@ -349,7 +362,7 @@ internal sealed class AssemblyExpander
                 if (kw?.Kind == SyntaxKind.IncludeKeyword)
                     ExpandInclude(node, output);
                 else if (kw?.Kind == SyntaxKind.IncbinKeyword)
-                    output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0)); // INCBIN handled by binder Pass 2
+                    output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0)); // INCBIN handled by binder Pass 2
                 i++;
                 continue;
             }
@@ -438,11 +451,13 @@ internal sealed class AssemblyExpander
                 // PRINT/PRINTLN inside loops — resolve at expansion time so per-iteration output is correct
                 if (_loopDepth > 0 && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
                 {
-                    var msgToken = node.ChildTokens()
-                        .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                    // The StringLiteral may be nested inside a LiteralExpression child node,
+                    // so use a recursive descent to find it rather than ChildTokens() which
+                    // only returns direct token children.
+                    var msgToken = FindTokenInSubtree(node.Green, SyntaxKind.StringLiteral);
                     if (msgToken != null)
                     {
-                        var text = msgToken.Text.Length >= 2 ? msgToken.Text[1..^1] : msgToken.Text;
+                        var text = ExpressionEvaluator.InterpretStringLiteral(msgToken);
                         text = ResolveInterpolations(text);
                         _printOutput.Write(text);
                     }
@@ -453,7 +468,7 @@ internal sealed class AssemblyExpander
                 }
             }
 
-            output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0));
+            output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0));
             i++;
         }
     }
@@ -1152,7 +1167,15 @@ internal sealed class AssemblyExpander
     private void ExpandMacroBody(string rawBody, MacroFrame frame, List<ExpandedNode> output)
     {
         var body = SubstituteMacroParams(rawBody, frame);
-        ExpandTextInline(body, output);
+        _macroBodyDepth++;
+        try
+        {
+            ExpandTextInline(body, output);
+        }
+        finally
+        {
+            _macroBodyDepth--;
+        }
     }
 
     private string SubstituteLineParams(string line, MacroFrame frame)
@@ -1218,6 +1241,20 @@ internal sealed class AssemblyExpander
         try
         {
             var source = _fileResolver.ReadAllText(resolved);
+
+            // Substitute \@ in the included file's text using the current invocation's unique ID.
+            // This ensures that \@ labels and PRINTLN statements in an included file share the same
+            // unique suffix as the macro call (or REPT iteration) that INCLUDEd them, matching RGBDS.
+            if (_macroFrameStack.Count > 0)
+            {
+                var frame = _macroFrameStack.Peek();
+                source = source.Replace("\\@", $"_{frame.UniqueId}");
+            }
+            else if (_reptUniqueIdStack.Count > 0)
+            {
+                source = source.Replace("\\@", $"_{_reptUniqueIdStack.Peek()}");
+            }
+
             var includeText = Text.SourceText.From(source, resolved);
             var includeTree = Syntax.SyntaxTree.Parse(includeText);
 
@@ -1318,11 +1355,12 @@ internal sealed class AssemblyExpander
     /// </summary>
     private string SubstituteMacroParams(string body, MacroFrame frame)
     {
-        _uniqueIdCounter++;
-        frame.UniqueId = _uniqueIdCounter;
+        // frame.UniqueId was already set by ExpandMacroCall; do NOT increment _uniqueIdCounter
+        // here again (that would make each macro invocation consume two IDs and cause
+        // \@ values to duplicate across nested REPT/macro combinations).
 
         // \@ → unique suffix per invocation (eagerly baked — immutable)
-        body = body.Replace("\\@", $"_{_uniqueIdCounter}");
+        body = body.Replace("\\@", $"_{frame.UniqueId}");
 
         bool hasShift = body.Contains("SHIFT", StringComparison.OrdinalIgnoreCase);
         if (hasShift)
@@ -1468,7 +1506,14 @@ internal sealed class AssemblyExpander
                 var iterText = bodyTextRaw.Replace("\\@", $"_{_uniqueIdCounter}");
                 ExpandTextInline(iterText, output);
                 _reptUniqueIdStack.Pop();
-                if (_breakRequested) { _breakRequested = false; break; }
+                if (_breakRequested)
+                {
+                    // BREAK may have fired inside an IF block; reset conditional state to the
+                    // depth before this iteration so the balance check doesn't fire a false positive.
+                    _conditional.ResetToDepth(condDepthBefore);
+                    _breakRequested = false;
+                    break;
+                }
             }
         }
         finally { _loopDepth--; }
@@ -1704,6 +1749,13 @@ internal sealed class AssemblyExpander
             return FormatNumericValue((int)val, fmt ?? "d");
         }
 
+        // Numeric literal in interpolation: {d:5}, {x:42}, etc.
+        // This arises when macro args like \1 are eagerly substituted before interpolation,
+        // producing e.g. PRINTLN "{d:5}" where 5 is a number, not a symbol name.
+        var parsedNum = ExpressionEvaluator.ParseNumber(name);
+        if (parsedNum.HasValue)
+            return FormatNumericValue((int)parsedNum.Value, fmt ?? "d");
+
         return null;
     }
 
@@ -1833,8 +1885,15 @@ internal sealed class AssemblyExpander
     /// </summary>
     private void ExpandTextInline(string text, List<ExpandedNode> output)
     {
-        // Resolve {symbol} interpolations before re-parsing
-        text = ResolveInterpolations(text);
+        // Resolve {symbol} interpolations before re-parsing, but ONLY if there are no
+        // unresolved macro parameter references (\1..\9, \#) in the text. When macro params
+        // are still present (SHIFT deferred them), interpolations inside string literals like
+        // PRINTLN "{d:\1}" must NOT be resolved yet — \1 is not a symbol name. The per-node
+        // NeedsInterpolation path in ExpandBodyList will resolve them after macro params are
+        // substituted via the ContainsMacroParam path.
+        bool hasMacroParams = ContainsUnresolvedMacroParam(text);
+        if (!hasMacroParams)
+            text = ResolveInterpolations(text);
         _expansionDepth++;
         if (_expansionDepth > MaxExpansionDepth)
         {
@@ -1927,6 +1986,11 @@ internal sealed class AssemblyExpander
             if (tok.Kind == SyntaxKind.IdentifierToken &&
                 tok.Text.Equals("_NARG", StringComparison.OrdinalIgnoreCase))
                 return true;
+            // \1..\9, \#, _NARG may also appear literally inside a string literal token
+            // (e.g. PRINTLN "\1s!" — the lexer embeds \1 in the StringLiteral text).
+            // We must detect them here so the lazy resolution path fires even for PRINTLN.
+            if (tok.Kind == SyntaxKind.StringLiteral && StringLiteralContainsMacroParam(tok.Text))
+                return true;
         }
         for (int i = 0; i < green.ChildCount; i++)
         {
@@ -1935,6 +1999,46 @@ internal sealed class AssemblyExpander
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Returns true if the raw source text contains any unresolved macro parameter reference:
+    /// \1..\9 or \# anywhere in the text. Used to suppress upfront EQUS interpolation in
+    /// ExpandTextInline when the text still has un-substituted macro params (SHIFT scenario).
+    /// </summary>
+    private static bool ContainsUnresolvedMacroParam(string text)
+    {
+        for (int i = 0; i < text.Length - 1; i++)
+        {
+            if (text[i] == '\\')
+            {
+                char next = text[i + 1];
+                if (next >= '1' && next <= '9') return true;
+                if (next == '#') return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if the text of a StringLiteral token contains any macro parameter
+    /// reference: \1..\9, \#, or _NARG (case-insensitive).
+    /// </summary>
+    private static bool StringLiteralContainsMacroParam(string tokenText)
+    {
+        if (!tokenText.Contains('\\') && !tokenText.Contains("_NARG", StringComparison.OrdinalIgnoreCase))
+            return false;
+        // Scan for \1..\9 or \#
+        for (int i = 0; i < tokenText.Length - 1; i++)
+        {
+            if (tokenText[i] == '\\')
+            {
+                char next = tokenText[i + 1];
+                if (next >= '1' && next <= '9') return true;
+                if (next == '#') return true;
+            }
+        }
+        return tokenText.IndexOf("_NARG", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     /// <summary>
@@ -1968,6 +2072,24 @@ internal sealed class AssemblyExpander
         text = SubstituteOutsideStrings(text, NargPattern, frame.Narg.ToString());
 
         return text;
+    }
+
+    /// <summary>
+    /// Recursively find the text of the first token with the given kind in the subtree.
+    /// Returns null if not found.
+    /// </summary>
+    private static string? FindTokenInSubtree(GreenNodeBase green, SyntaxKind kind)
+    {
+        if (green is GreenToken tok)
+            return tok.Kind == kind ? tok.Text : null;
+        for (int i = 0; i < green.ChildCount; i++)
+        {
+            var child = green.GetChild(i);
+            if (child == null) continue;
+            var found = FindTokenInSubtree(child, kind);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private static string? FindMacroParamToken(GreenNodeBase green)

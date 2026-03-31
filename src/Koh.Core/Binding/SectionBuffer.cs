@@ -18,6 +18,11 @@ public sealed class SectionBuffer
     /// Used by DS ALIGN to account for the section's known placement offset.
     /// </summary>
     public int AlignOffset { get; set; }
+    /// <summary>
+    /// True when this section was opened with the FRAGMENT keyword.
+    /// Fragment sections are allowed to appear multiple times and are concatenated.
+    /// </summary>
+    public bool IsFragment { get; set; }
 
     private readonly List<byte> _bytes = [];
     private readonly List<PatchEntry> _patches = [];

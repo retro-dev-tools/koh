@@ -291,8 +291,12 @@ public class RepeatTests
         var model = Compilation.Create(sw, tree).Emit();
         await Assert.That(model.Success).IsTrue();
         var output = sw.ToString();
+        // "n=1" must be printed (REPT body ran in iteration 1)
         await Assert.That(output).Contains("n=1");
-        await Assert.That(output).DoesNotContain("n=2");
+        // Standalone line "n=2" must NOT be printed (BREAK fires before PRINTLN in iteration 2)
+        var lines = output.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        await Assert.That(lines).DoesNotContain("n=2");
+        // Post-REPT PRINTLN must print "after n=2" (n was 2 when BREAK fired)
         await Assert.That(output).Contains("after n=2");
     }
 
