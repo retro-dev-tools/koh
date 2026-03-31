@@ -115,6 +115,9 @@ public static class Sm83InstructionTable
             [new(EmitRuleKind.AppendImm8, 0)]);
         yield return I("LDH", [OperandPattern.RegA, OperandPattern.IndC], [0xF2], 1);
         yield return I("LDH", [OperandPattern.IndC, OperandPattern.RegA], [0xE2], 1);
+        // LD [$FF00+C], A and LD A, [$FF00+C] are RGBDS synonyms for LDH [C], A / LDH A, [C]
+        yield return I("LD", [OperandPattern.RegA, OperandPattern.IndC], [0xF2], 1);
+        yield return I("LD", [OperandPattern.IndC, OperandPattern.RegA], [0xE2], 1);
 
         // LDI / LDD aliases
         yield return I("LDI", [OperandPattern.RegA, OperandPattern.IndHL], [0x2A], 1);

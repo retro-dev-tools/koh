@@ -187,6 +187,10 @@ public static class OperandPatternMatcher
                     }
                 }
 
+                // Check for [$FF00 + C] pattern — this is IndC (LDH [C])
+                if (exprNode.Kind == SyntaxKind.BinaryExpression && IsFF00PlusC(exprNode))
+                    return OperandPattern.IndC;
+
                 // Expression inside brackets — could be 8-bit or 16-bit
                 // For LDH: [n] is IndImm8. For LD: [nn] is IndImm16.
                 // The mnemonic determines which — the matcher handles this.
@@ -247,6 +251,52 @@ public static class OperandPatternMatcher
     /// For SP + $10: returns the $10 literal expression.
     /// For SP - $46: returns the -$46 unary expression (or wraps in one).
     /// </summary>
+    /// <summary>
+    /// Detect [$FF00 + C] or [$FF00+C] patterns — these are LDH [C] shorthand.
+    /// </summary>
+    private static bool IsFF00PlusC(GreenNode binExpr)
+    {
+        if (binExpr.ChildCount < 3) return false;
+        var op = binExpr.GetChild(1) as GreenToken;
+        if (op?.Kind != SyntaxKind.PlusToken) return false;
+
+        // Check left side evaluates to $FF00
+        if (!IsFF00Literal(binExpr.GetChild(0))) return false;
+
+        // Check right side is C register
+        return IsCRegister(binExpr.GetChild(2));
+    }
+
+    private static bool IsFF00Literal(GreenNodeBase? node)
+    {
+        GreenToken? token = node as GreenToken;
+        if (token == null && node is GreenNode gn)
+        {
+            if (gn.Kind == SyntaxKind.LiteralExpression)
+                token = gn.GetChild(0) as GreenToken;
+        }
+        if (token?.Kind != SyntaxKind.NumberLiteral) return false;
+        var text = token.Text.Trim();
+        // Parse the number and check if it equals 0xFF00
+        if (text.StartsWith('$'))
+            return int.TryParse(text[1..], System.Globalization.NumberStyles.HexNumber, null, out var v) && v == 0xFF00;
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return int.TryParse(text[2..], System.Globalization.NumberStyles.HexNumber, null, out var v2) && v2 == 0xFF00;
+        return int.TryParse(text, out var v3) && v3 == 0xFF00;
+    }
+
+    private static bool IsCRegister(GreenNodeBase? node)
+    {
+        if (node is GreenToken t)
+            return t.Kind == SyntaxKind.CKeyword;
+        if (node is GreenNode gn && gn.Kind == SyntaxKind.NameExpression)
+        {
+            var inner = gn.GetChild(0) as GreenToken;
+            return inner?.Kind == SyntaxKind.CKeyword;
+        }
+        return false;
+    }
+
     public static GreenNodeBase? ExtractSpOffsetExpression(GreenNodeBase operandGreen)
     {
         if (operandGreen is not GreenNode imm || imm.Kind != SyntaxKind.ImmediateOperand)

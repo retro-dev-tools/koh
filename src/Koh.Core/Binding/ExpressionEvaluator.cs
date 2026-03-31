@@ -986,17 +986,27 @@ public sealed class ExpressionEvaluator
             if (text[i] == '\\' && i + 1 < text.Length)
             {
                 i++;
-                sb.Append(text[i] switch
+                if (text[i] == 'u' && i + 4 < text.Length &&
+                    int.TryParse(text.AsSpan(i + 1, 4),
+                        System.Globalization.NumberStyles.HexNumber, null, out var cp))
                 {
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    '0' => '\0',
-                    '\\' => '\\',
-                    '"' => '"',
-                    '\'' => '\'',
-                    _ => text[i],
-                });
+                    sb.Append(char.ConvertFromUtf32(cp));
+                    i += 4;
+                }
+                else
+                {
+                    sb.Append(text[i] switch
+                    {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '0' => '\0',
+                        '\\' => '\\',
+                        '"' => '"',
+                        '\'' => '\'',
+                        _ => text[i],
+                    });
+                }
             }
             else
             {
@@ -1052,15 +1062,25 @@ public sealed class ExpressionEvaluator
                 }
                 else
                 {
-                    sb.Append(text[i] switch
+                    if (text[i] == 'u' && i + 4 < text.Length &&
+                        int.TryParse(text.AsSpan(i + 1, 4), System.Globalization.NumberStyles.HexNumber, null, out var cp))
                     {
-                        'n' => '\n',
-                        'r' => '\r',
-                        't' => '\t',
-                        '\\' => '\\',
-                        '"' => '"',
-                        _ => text[i], // unknown escape — keep the char as-is
-                    });
+                        sb.Append(char.ConvertFromUtf32(cp));
+                        i += 4; // skip the 4 hex digits
+                    }
+                    else
+                    {
+                        sb.Append(text[i] switch
+                        {
+                            'n' => '\n',
+                            'r' => '\r',
+                            't' => '\t',
+                            '0' => '\0',
+                            '\\' => '\\',
+                            '"' => '"',
+                            _ => text[i], // unknown escape — keep the char as-is
+                        });
+                    }
                 }
             }
             else

@@ -2,4 +2,5 @@ bin/
 obj/
 .vs/
 *.user
-TestResults/.claude/worktrees/
+TestResults/
+
