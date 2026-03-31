@@ -283,7 +283,8 @@ public class MacroTests
     [Test]
     public async Task ReptShift_ShiftPastEndInsideRept_RejectsAssembly()
     {
-        // Shifting past the end of arguments inside REPT leaves \1 undefined — must fail
+        // RGBDS: rept-shift.asm — SHIFT inside REPT advances macro args.
+        // After shifting past the end, using \1 is an error.
         var model = Emit("""
             MACRO m
             PRINT "\1 "
@@ -291,6 +292,9 @@ public class MacroTests
             SHIFT
             ENDR
             PRINTLN "\1s!"
+            SHIFT
+            SHIFT
+            PRINTLN "\1?"
             ENDM
             m This, used, not, to, work
             """);

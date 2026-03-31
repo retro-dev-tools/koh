@@ -209,9 +209,24 @@ internal sealed class AssemblyExpander
             if (!item.IsNode) { i++; continue; }
             var node = item.AsNode!;
 
-            // Check if this node's source text contains {EQUS} interpolation that needs
-            // resolving before the parser can understand it. This handles cases like
-            // DEF {prefix}banana EQU 1, PURGE {prefix}banana, etc.
+            // Lazy macro param resolution: if inside a macro frame with SHIFT,
+            // MacroParamTokens (\1..\9, \#) survive in the tree and need resolving.
+            if (!_conditional.IsSuppressed && _macroFrameStack.Count > 0 && ContainsMacroParam(node.Green))
+            {
+                var frame = _macroFrameStack.Peek();
+                var rawText = _currentSourceText != null
+                    ? _currentSourceText.ToString(node.FullSpan)
+                    : node.Green.ToString();
+                var resolved = ResolveMacroParamsInText(rawText, frame);
+                if (resolved != rawText)
+                {
+                    ExpandTextInline(resolved, output);
+                    i++;
+                    continue;
+                }
+            }
+
+            // {EQUS} interpolation — DEF {prefix}banana EQU 1, PURGE {prefix}banana, etc.
             if (!_conditional.IsSuppressed && _currentSourceText != null && NeedsInterpolation(node))
             {
                 var rawText = _currentSourceText.ToString(node.FullSpan);
@@ -382,6 +397,10 @@ internal sealed class AssemblyExpander
                         continue;
                     }
                     var frame = _macroFrameStack.Peek();
+                    if (frame.ShiftOffset >= frame.Args.Count)
+                        _diagnostics.Report(node.FullSpan,
+                            "Cannot shift macro arguments past their end",
+                            DiagnosticSeverity.Warning);
                     frame.ShiftOffset++;
                     _symbols.DefineOrRedefine("_NARG", frame.Narg);
                     i++;
@@ -1126,37 +1145,14 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Expand a macro body. If the body contains SHIFT, expands line-by-line so that
-    /// each line's \N, \#, _NARG substitutions reflect the current shift state.
-    /// Without SHIFT, substitutes all at once (faster, backward-compatible).
+    /// Expand a macro body. Substitutes eager params (\@) then parses and expands.
+    /// \1..\9, \#, _NARG are either pre-substituted (no SHIFT in body) or left for
+    /// lazy resolution via MacroParamToken handling in ExpandBodyList (when SHIFT is used).
     /// </summary>
     private void ExpandMacroBody(string rawBody, MacroFrame frame, List<ExpandedNode> output)
     {
-        if (rawBody.Contains("SHIFT", StringComparison.OrdinalIgnoreCase))
-        {
-            // Line-by-line expansion: each line gets substituted with current frame state,
-            // so SHIFT affects subsequent lines' \N, \#, _NARG values.
-            var lines = rawBody.Split('\n');
-            foreach (var rawLine in lines)
-            {
-                if (string.IsNullOrWhiteSpace(rawLine)) continue;
-                var line = SubstituteLineParams(rawLine, frame);
-                // Check if this line IS the SHIFT directive
-                if (line.Trim().Equals("SHIFT", StringComparison.OrdinalIgnoreCase))
-                {
-                    frame.ShiftOffset++;
-                    _symbols.DefineOrRedefine("_NARG", frame.Narg);
-                    continue;
-                }
-                ExpandTextInline(line, output);
-                if (_breakRequested) break;
-            }
-        }
-        else
-        {
-            var body = SubstituteMacroParams(rawBody, frame);
-            ExpandTextInline(body, output);
-        }
+        var body = SubstituteMacroParams(rawBody, frame);
+        ExpandTextInline(body, output);
     }
 
     private string SubstituteLineParams(string line, MacroFrame frame)
@@ -1323,22 +1319,30 @@ internal sealed class AssemblyExpander
     private string SubstituteMacroParams(string body, MacroFrame frame)
     {
         _uniqueIdCounter++;
+        frame.UniqueId = _uniqueIdCounter;
 
         // \@ → unique suffix per invocation (eagerly baked — immutable)
         body = body.Replace("\\@", $"_{_uniqueIdCounter}");
 
-        // \1..\9 — resolve against current frame (shift-aware)
+        bool hasShift = body.Contains("SHIFT", StringComparison.OrdinalIgnoreCase);
+        if (hasShift)
+        {
+            // Bodies with SHIFT leave \1..\9, \#, _NARG as-is. They survive as
+            // MacroParamToken in the re-parsed tree and are resolved lazily from
+            // the MacroFrame during ExpandBodyList. This allows SHIFT to mutate
+            // the argument window and affect subsequent references.
+            return body;
+        }
+
+        // No SHIFT — eagerly substitute everything (faster, no MacroParamToken overhead)
         for (int p = 9; p >= 1; p--)
             body = body.Replace($"\\{p}", frame.GetArg(p));
 
-        // \<expr> — computed arg index. Evaluate expr as integer, use as 1-based index.
         body = ResolveComputedArgs(body, frame);
 
-        // \# → all remaining args as comma-separated string
         if (body.Contains("\\#"))
             body = body.Replace("\\#", frame.AllArgs());
 
-        // _NARG baked into body text so nested macro calls don't overwrite it
         body = SubstituteOutsideStrings(body, NargPattern, frame.Narg.ToString());
 
         return body;
@@ -1910,6 +1914,62 @@ internal sealed class AssemblyExpander
     /// Recursively search the green subtree for a MacroParamToken with a digit suffix (\1..\9).
     /// Returns the token text if found, or null if none present.
     /// </summary>
+    /// <summary>
+    /// Check if a green subtree contains MacroParamTokens (\1..\9, \#) or _NARG references
+    /// that need lazy resolution from the current macro frame.
+    /// </summary>
+    private static bool ContainsMacroParam(GreenNodeBase green)
+    {
+        if (green is GreenToken tok)
+        {
+            if (tok.Kind == SyntaxKind.MacroParamToken)
+                return true;
+            if (tok.Kind == SyntaxKind.IdentifierToken &&
+                tok.Text.Equals("_NARG", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        for (int i = 0; i < green.ChildCount; i++)
+        {
+            var child = green.GetChild(i);
+            if (child != null && ContainsMacroParam(child))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Resolve \1..\9, \#, _NARG in raw text against the current macro frame.
+    /// Used for lazy resolution when SHIFT is active.
+    /// Reports an error if \N references an arg that has been shifted past.
+    /// </summary>
+    private string ResolveMacroParamsInText(string text, MacroFrame frame)
+    {
+        for (int p = 9; p >= 1; p--)
+        {
+            var placeholder = $"\\{p}";
+            if (!text.Contains(placeholder)) continue;
+            int argIndex = p - 1 + frame.ShiftOffset;
+            if (argIndex >= frame.Args.Count)
+            {
+                _diagnostics.Report(default, $"Macro argument \\{p} not defined (shifted past end)");
+                text = text.Replace(placeholder, "");
+            }
+            else
+            {
+                text = text.Replace(placeholder, frame.Args[argIndex]);
+            }
+        }
+
+        text = ResolveComputedArgs(text, frame);
+
+        if (text.Contains("\\#"))
+            text = text.Replace("\\#", frame.AllArgs());
+
+        text = SubstituteOutsideStrings(text, NargPattern, frame.Narg.ToString());
+
+        return text;
+    }
+
     private static string? FindMacroParamToken(GreenNodeBase green)
     {
         if (green is GreenToken tok)
