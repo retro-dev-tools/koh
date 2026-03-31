@@ -37,6 +37,7 @@ internal sealed class AssemblyExpander
     private bool _shiftRequested; // set by SHIFT inside macro body — signals ExpandMacroBody to re-expand
     private TextWriter _printOutput;
     private int _loopDepth; // >0 means inside REPT/FOR expansion
+    private readonly Stack<int> _reptUniqueIdStack = new(); // per-REPT-iteration unique IDs
 
     // Macro frame stack — each macro invocation pushes a frame so \N, \#, _NARG
     // resolve lazily against the current args+shift state. SHIFT mutates the top frame.
@@ -1415,8 +1416,12 @@ internal sealed class AssemblyExpander
             for (int iter = 0; iter < count; iter++)
             {
                 _uniqueIdCounter++;
+                _reptUniqueIdStack.Push(_uniqueIdCounter);
+                // Substitute \@ only at the REPT level; macro calls inside will
+                // get their own \@ via SubstituteMacroParams.
                 var iterText = bodyTextRaw.Replace("\\@", $"_{_uniqueIdCounter}");
                 ExpandTextInline(iterText, output);
+                _reptUniqueIdStack.Pop();
                 if (_breakRequested) { _breakRequested = false; break; }
             }
         }
