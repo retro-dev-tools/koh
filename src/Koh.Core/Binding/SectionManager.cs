@@ -34,7 +34,11 @@ public sealed class SectionManager
     /// <summary>
     /// Push the current section name onto the stack (PUSHS).
     /// </summary>
-    public void PushSection() => _sectionStack.Push(_activeSection?.Name);
+    public void PushSection()
+    {
+        _sectionStack.Push(_activeSection?.Name);
+        _activeSection = null; // PUSHS clears active section — must use new SECTION
+    }
 
     /// <summary>
     /// Pop and restore the previous section (POPS).

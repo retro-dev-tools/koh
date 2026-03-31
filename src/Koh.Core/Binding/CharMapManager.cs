@@ -202,7 +202,11 @@ public sealed class CharMapManager
         var result = new List<byte>();
         WalkLongestMatch(text,
             (_, mapped) => result.AddRange(mapped),
-            ch => result.Add((byte)ch));
+            ch => {
+                // Emit UTF-8 bytes for unmapped characters
+                var utf8 = System.Text.Encoding.UTF8.GetBytes(new[] { ch });
+                result.AddRange(utf8);
+            });
         return result.ToArray();
     }
 

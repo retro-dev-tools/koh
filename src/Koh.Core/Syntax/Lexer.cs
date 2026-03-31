@@ -398,9 +398,9 @@ public sealed class Lexer
                 _position += 5;
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));
             }
-            // Backslash followed by non-whitespace, non-newline, non-macro-param:
-            // invalid line continuation. Report error and consume as BadToken.
-            if (next != '\r' && next != '\n' && next != ' ' && next != '\t' && next != '\0' && next != ';')
+            // Backslash not followed by newline/EOF and not a valid line continuation:
+            // report error and consume as BadToken.
+            if (next != '\r' && next != '\n' && next != '\0' && !IsLineContinuation())
             {
                 _diagnostics.Report(
                     new TextSpan(start, 1),
@@ -575,12 +575,9 @@ public sealed class Lexer
             {
                 var comment = ScanBlockComment();
                 trivia.Add(comment);
-                // If the block comment spanned lines, stop here. The newline is
-                // embedded in the comment text; the parser cannot see it as a
-                // NewlineTrivia node, so we treat the comment as the line
-                // terminator for the purposes of statement-boundary detection.
-                if (comment.Text.Contains('\n') || comment.Text.Contains('\r'))
-                    break;
+                // Do NOT break here for multi-line comments. Any newline that
+                // follows the closing */ will be consumed as NewlineTrivia,
+                // which is what the parser uses for statement-boundary detection.
             }
             else if (Current == ';')
             {
@@ -625,19 +622,29 @@ public sealed class Lexer
     {
         int start = _position;
         _position += 2; // consume /*
-        int depth = 1;
+        bool inComment = true;
 
-        while (!IsAtEnd && depth > 0)
+        while (!IsAtEnd && inComment)
         {
-            if (Current == '/' && Peek() == '*')
+            if (Current == '*' && Peek() == '/')
             {
+                // Closing */ — always takes priority over /* detection.
                 _position += 2;
-                depth++;
+                inComment = false;
             }
-            else if (Current == '*' && Peek() == '/')
+            else if (Current == '/' && Peek() == '*' && Peek(2) != '/')
             {
-                _position += 2;
-                depth--;
+                // Nested /* inside a block comment: warn but do NOT nest.
+                // RGBDS treats block comments as non-nestable.
+                // Guard: if the sequence is / * / (i.e., peek(2)=='/'), the * belongs
+                // to the closing */, so advance only one character and let the next
+                // iteration close the comment.
+                _diagnostics.Report(
+                    new TextSpan(_position, 2),
+                    "Nested block comment (/* inside /* ... */)",
+                    DiagnosticSeverity.Warning
+                );
+                _position += 2; // consume the inner /* (it is part of the comment text)
             }
             else
             {
@@ -645,7 +652,7 @@ public sealed class Lexer
             }
         }
 
-        if (depth > 0)
+        if (inComment)
         {
             // Consumed to EOF without finding the closing */
             _diagnostics.Report(

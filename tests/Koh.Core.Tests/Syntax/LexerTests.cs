@@ -304,11 +304,14 @@ public class LexerTests
     [Test]
     public async Task BlockComment_Nested()
     {
-        // Nested: /* outer /* inner */ still comment */ — depth goes 1 -> 2 -> 1 -> 0
-        var tokens = Lex("/* outer /* inner */ still comment */ nop");
+        // RGBDS block comments are NOT nestable. A /* inside a block comment is treated
+        // as literal comment text (with a warning) and the first */ closes the comment.
+        // Input:  /* outer /* inner */ nop
+        // The comment closes at the first */ after "inner"; "nop" is the next token.
+        var tokens = Lex("/* outer /* inner */ nop");
         var nop = tokens[0];
         var comment = nop.LeadingTrivia.First(t => t.Kind == SyntaxKind.BlockCommentTrivia);
-        await Assert.That(comment.Text).IsEqualTo("/* outer /* inner */ still comment */");
+        await Assert.That(comment.Text).IsEqualTo("/* outer /* inner */");
     }
 
     [Test]

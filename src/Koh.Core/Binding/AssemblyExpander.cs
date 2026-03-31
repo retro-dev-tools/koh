@@ -194,6 +194,13 @@ internal sealed class AssemblyExpander
 
             if (node.Kind == SyntaxKind.ConditionalDirective)
             {
+                // Check for label before ENDC (same line)
+                var condKw = ((GreenToken)((GreenNode)node.Green).GetChild(0)!).Kind;
+                if (condKw == SyntaxKind.EndcKeyword && i > 0 && siblings[i - 1].IsNode
+                    && siblings[i - 1].AsNode!.Kind == SyntaxKind.LabelDeclaration)
+                {
+                    _diagnostics.Report(node.FullSpan, "Label on the same line as ENDC is not allowed");
+                }
                 HandleConditional(node);
                 i++;
                 continue;
@@ -213,6 +220,13 @@ internal sealed class AssemblyExpander
             if (node.Kind == SyntaxKind.MacroDefinition)
             {
                 var kw = node.ChildTokens().FirstOrDefault();
+                // Check for trailing tokens after ENDM
+                if (kw?.Kind == SyntaxKind.EndmKeyword)
+                {
+                    var allToks = node.ChildTokens().ToList();
+                    if (allToks.Count > 1)
+                        _diagnostics.Report(node.FullSpan, "Unexpected tokens after ENDM");
+                }
                 if (kw?.Kind == SyntaxKind.MacroKeyword)
                 {
                     // Try old syntax: label preceding MACRO keyword
@@ -245,6 +259,13 @@ internal sealed class AssemblyExpander
             if (node.Kind == SyntaxKind.RepeatDirective)
             {
                 var kw = node.ChildTokens().FirstOrDefault();
+                // Check for trailing tokens after ENDR
+                if (kw?.Kind == SyntaxKind.EndrKeyword)
+                {
+                    var allToks = node.ChildTokens().ToList();
+                    if (allToks.Count > 1)
+                        _diagnostics.Report(node.FullSpan, "Unexpected tokens after ENDR");
+                }
                 if (kw?.Kind == SyntaxKind.ReptKeyword)
                     ExpandRept(node, siblings, ref i, output);
                 else if (kw?.Kind == SyntaxKind.ForKeyword)
@@ -316,6 +337,32 @@ internal sealed class AssemblyExpander
                 EarlyProcessCharmap(node);
             }
 
+            // SHIFT outside macro — error
+            if (node.Kind == SyntaxKind.DirectiveStatement)
+            {
+                var kwCheck = node.ChildTokens().FirstOrDefault();
+                if (kwCheck?.Kind == SyntaxKind.ShiftKeyword && _expansionDepth == 0 && _loopDepth == 0)
+                {
+                    _diagnostics.Report(node.FullSpan, "SHIFT used outside of a macro or REPT block");
+                    i++;
+                    continue;
+                }
+            }
+
+            // Check for macro parameter tokens (\1..\9) outside macro context
+            if (_expansionDepth == 0)
+            {
+                foreach (var tok in node.ChildTokens())
+                {
+                    if (tok.Kind == SyntaxKind.MacroParamToken && tok.Text.Length == 2
+                        && tok.Text[1] >= '1' && tok.Text[1] <= '9')
+                    {
+                        _diagnostics.Report(node.FullSpan, $"Macro argument {tok.Text} used outside of a macro");
+                        break;
+                    }
+                }
+            }
+
             // RSRESET/RSSET — handle RS counter directives during expansion
             // BREAK — signal loop exit
             if (node.Kind == SyntaxKind.DirectiveStatement)
@@ -371,6 +418,13 @@ internal sealed class AssemblyExpander
         if (tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
             tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
         {
+            // Check for built-in symbol protection
+            if (tokens[0].Kind == SyntaxKind.RedefKeyword && BuiltinSymbols.Contains(tokens[nameIdx].Text))
+            {
+                _diagnostics.Report(node.FullSpan, $"Cannot redefine built-in symbol '{tokens[nameIdx].Text}'");
+                return;
+            }
+
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
             {
@@ -379,10 +433,6 @@ internal sealed class AssemblyExpander
                 if (value.HasValue)
                 {
                     // = and REDEF are reassignable (SET semantics); EQU is immutable.
-                    // DefineConstant handles the pre-scan idempotency case: if the pre-scan
-                    // already defined this constant with the same value, it is a silent no-op.
-                    // If a user writes FOO EQU x twice with different values, DefineConstant
-                    // will report the duplicate-definition error.
                     if (tokens[nameIdx + 1].Kind == SyntaxKind.EqualsToken ||
                         tokens[0].Kind == SyntaxKind.RedefKeyword)
                         _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
@@ -731,15 +781,42 @@ internal sealed class AssemblyExpander
     /// Handle PURGE directive — remove symbols from both EQUS constants and the symbol table.
     /// Resolves {EQUS} interpolations in purge target names.
     /// </summary>
+    private static readonly HashSet<string> BuiltinSymbols = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "__RGBDS_MAJOR__", "__RGBDS_MINOR__", "__RGBDS_PATCH__", "__RGBDS_RC__",
+        "__UTC_YEAR__", "__UTC_MONTH__", "__UTC_DAY__",
+        "__UTC_HOUR__", "__UTC_MINUTE__", "__UTC_SECOND__",
+        "__ISO_8601_UTC__", "__ISO_8601_LOCAL__",
+    };
+
     private void HandlePurge(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
         for (int ti = 1; ti < tokens.Count; ti++)
         {
             if (tokens[ti].Kind == SyntaxKind.CommaToken) continue;
-            if (tokens[ti].Kind == SyntaxKind.IdentifierToken)
+            if (tokens[ti].Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
             {
                 var name = tokens[ti].Text;
+                // Check for built-in symbol protection
+                if (BuiltinSymbols.Contains(name))
+                {
+                    _diagnostics.Report(node.FullSpan, $"Cannot PURGE built-in symbol '{name}'");
+                    continue;
+                }
+                // Check for purge of already-undefined symbol
+                var sym = _symbols.Lookup(name);
+                if (sym == null && !_equsConstants.ContainsKey(name))
+                {
+                    _diagnostics.Report(node.FullSpan, $"PURGE: symbol '{name}' is not defined");
+                    continue;
+                }
+                // Check for purge of referenced symbol (has references)
+                if (sym != null && sym.HasReferences)
+                {
+                    _diagnostics.Report(node.FullSpan, $"Cannot PURGE symbol '{name}' that has been referenced");
+                    continue;
+                }
                 _equsConstants.Remove(name);
                 _symbols.Remove(name);
             }
@@ -781,6 +858,17 @@ internal sealed class AssemblyExpander
     private void HandleConditional(SyntaxNode node)
     {
         var keyword = ((GreenToken)((GreenNode)node.Green).GetChild(0)!).Kind;
+
+        // Check for trailing tokens after ENDC or ELSE
+        if (keyword is SyntaxKind.EndcKeyword or SyntaxKind.ElseKeyword)
+        {
+            var allToks = node.ChildTokens().ToList();
+            if (allToks.Count > 1)
+                _diagnostics.Report(node.FullSpan, $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
+        }
+
+        // Check for label before ENDC (label on same line as ENDC)
+        // This is detected by looking at preceding sibling nodes — handled in ExpandBodyList
 
         bool Eval()
         {

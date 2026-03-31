@@ -102,13 +102,16 @@ public sealed class ExpressionEvaluator
             var token = (GreenToken)((GreenNode)node).GetChild(0)!;
             if (token.Kind == SyntaxKind.StringLiteral)
             {
-                var raw = StripQuotes(token.Text);
-                return _resolveInterpolations != null ? _resolveInterpolations(raw) : raw;
+                // InterpretStringLiteral handles regular, raw (#"..."), and raw triple-quoted (#"""...""")
+                // strings — strips the appropriate delimiters and applies escape processing only for
+                // non-raw strings. The result is the literal content before interpolation.
+                var interpreted = InterpretStringLiteral(token.Text);
+                return _resolveInterpolations != null ? _resolveInterpolations(interpreted) : interpreted;
             }
         }
 
         if (node.Kind == SyntaxKind.StringLiteral && node is GreenToken strTok)
-            return StripQuotes(strTok.Text);
+            return InterpretStringLiteral(strTok.Text);
 
         // Binary expression: string ++ string (concatenation)
         if (node.Kind == SyntaxKind.BinaryExpression)
@@ -297,9 +300,9 @@ public sealed class ExpressionEvaluator
             SyntaxKind.MinusToken => (long)(int)(li - ri),
             SyntaxKind.StarToken => (long)(int)(li * ri),
             SyntaxKind.SlashToken when ri != 0 => EvalDivision(li, ri),
-            SyntaxKind.SlashToken => null,
+            SyntaxKind.SlashToken => EvalDivByZero(),
             SyntaxKind.PercentToken when ri != 0 => EvalModulo(li, ri),
-            SyntaxKind.PercentToken => null,
+            SyntaxKind.PercentToken => EvalModByZero(),
             SyntaxKind.AmpersandToken => (long)(int)(li & ri),
             SyntaxKind.PipeToken => (long)(int)(li | ri),
             SyntaxKind.CaretToken => (long)(int)(li ^ ri),
@@ -335,7 +338,23 @@ public sealed class ExpressionEvaluator
     {
         if (left == int.MinValue && right == -1)
             return 0; // INT_MIN % -1 = 0
-        return (long)(left % right);
+        // Use floored (Euclidean) modulo so that (x-y)%y == x%y holds
+        int result = left % right;
+        if (result != 0 && ((result ^ right) < 0))
+            result += right;
+        return (long)result;
+    }
+
+    private long? EvalDivByZero()
+    {
+        _diagnostics.Report(default, "Division by zero");
+        return null;
+    }
+
+    private long? EvalModByZero()
+    {
+        _diagnostics.Report(default, "Modulo by zero");
+        return null;
     }
 
     private long EvalLeftShift(int left, int amount)

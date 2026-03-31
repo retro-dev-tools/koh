@@ -157,14 +157,16 @@ internal sealed class Parser
             return ParseConditionalDirective();
 
         // Macro: MACRO/ENDM or identifier followed by MACRO
-        if (Current.Kind == SyntaxKind.MacroKeyword || Current.Kind == SyntaxKind.EndmKeyword)
+        if (Current.Kind == SyntaxKind.MacroKeyword)
             return ParseBlockDirective(SyntaxKind.MacroDefinition);
+        if (Current.Kind == SyntaxKind.EndmKeyword)
+            return ParseTerminatorDirective(SyntaxKind.MacroDefinition, "ENDM");
 
         // Repeat: REPT/FOR — parse with expression arguments; ENDR as flat block
         if (Current.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword)
             return ParseRepeatDirective();
         if (Current.Kind == SyntaxKind.EndrKeyword)
-            return ParseBlockDirective(SyntaxKind.RepeatDirective);
+            return ParseTerminatorDirective(SyntaxKind.RepeatDirective, "ENDR");
 
         // Include: INCLUDE/INCBIN
         if (Current.Kind is SyntaxKind.IncludeKeyword or SyntaxKind.IncbinKeyword)
@@ -288,6 +290,15 @@ internal sealed class Parser
             if (!AtEndOfStatement())
                 children.Add(ParseExpression());
         }
+        else if (keyword is SyntaxKind.EndcKeyword or SyntaxKind.ElseKeyword)
+        {
+            // ENDC and ELSE must not have trailing tokens
+            if (!AtEndOfStatement())
+            {
+                _diagnostics.Report(default, $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
+                while (!AtEndOfStatement()) Advance(); // consume trailing tokens
+            }
+        }
 
         return new GreenNode(SyntaxKind.ConditionalDirective, children.ToArray());
     }
@@ -397,14 +408,51 @@ internal sealed class Parser
         return new GreenNode(nodeKind, children.ToArray());
     }
 
+    /// <summary>
+    /// Parse a block terminator (ENDM, ENDR) that must not have trailing tokens.
+    /// </summary>
+    private GreenNode ParseTerminatorDirective(SyntaxKind nodeKind, string name)
+    {
+        var children = new List<GreenNodeBase>();
+        children.Add(Advance()); // keyword
+        if (!AtEndOfStatement())
+        {
+            _diagnostics.Report(default, $"Unexpected tokens after {name}");
+            while (!AtEndOfStatement()) children.Add(Advance());
+        }
+        return new GreenNode(nodeKind, children.ToArray());
+    }
+
     private GreenNode ParsePrintDirective()
     {
         var children = new List<GreenNodeBase>();
-        children.Add(Advance()); // PRINT or PRINTLN keyword
+        var printKw = Advance(); // PRINT or PRINTLN keyword
+        children.Add(printKw);
         // Parse expression arguments (may be string expressions with ++, function calls, etc.)
         if (!AtEndOfStatement())
         {
-            children.Add(ParseExpression());
+            // Check for bare register keyword — PRINT/PRINTLN expects string/expression, not register
+            if (Current.Kind is >= SyntaxKind.AKeyword and <= SyntaxKind.DeKeyword)
+            {
+                var saved = _position;
+                Advance(); // consume register
+                if (AtEndOfStatement())
+                {
+                    // Bare register name only — this is an error
+                    _diagnostics.Report(default, "PRINT/PRINTLN requires a string or expression argument, not a bare register name");
+                    _position = saved;
+                    children.Add(Advance());
+                }
+                else
+                {
+                    _position = saved;
+                    children.Add(ParseExpression());
+                }
+            }
+            else
+            {
+                children.Add(ParseExpression());
+            }
         }
         return new GreenNode(SyntaxKind.DirectiveStatement, children.ToArray());
     }
@@ -1100,11 +1148,6 @@ internal sealed class Parser
         {
             var t = trivia[i];
             if (t.Kind == SyntaxKind.NewlineTrivia)
-                return true;
-            if (
-                t.Kind == SyntaxKind.BlockCommentTrivia
-                && (t.Text.Contains('\n') || t.Text.Contains('\r'))
-            )
                 return true;
         }
         return false;

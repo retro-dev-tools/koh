@@ -51,4 +51,6 @@ public sealed class Symbol
     }
 
     internal void AddReference(SyntaxNode site) => _referenceSites.Add(site);
+
+    public bool HasReferences => _referenceSites.Count > 0;
 }

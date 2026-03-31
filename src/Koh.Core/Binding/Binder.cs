@@ -123,7 +123,8 @@ public sealed class Binder
     /// </summary>
     private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC)
     {
-        var eval = new ExpressionEvaluator(_symbols, _diagnostics, getCurrentPC)
+        var eval = new ExpressionEvaluator(_symbols, _diagnostics, getCurrentPC, _fracBits,
+            _charMaps, _expander != null ? _expander.ResolveInterpolations : null)
         {
             FracBits = _fracBits,
             EqusResolver = name => _expander?.LookupEqus(name),
@@ -260,11 +261,14 @@ public sealed class Binder
                 name = StripQuotes(tokens[i].Text);
             var mapped = tokens[i].Kind switch
             {
+                SyntaxKind.Rom0Keyword  => SectionType.Rom0,
+                SyntaxKind.RomxKeyword  => SectionType.RomX,
                 SyntaxKind.Wram0Keyword => SectionType.Wram0,
                 SyntaxKind.WramxKeyword => SectionType.WramX,
                 SyntaxKind.HramKeyword  => SectionType.Hram,
                 SyntaxKind.SramKeyword  => SectionType.Sram,
                 SyntaxKind.VramKeyword  => SectionType.Vram,
+                SyntaxKind.OamKeyword   => SectionType.Oam,
                 _ => (SectionType?)null,
             };
             if (mapped.HasValue) type = mapped.Value;
@@ -330,6 +334,13 @@ public sealed class Binder
         }
 
         var name = tokens[0].Text;
+
+        // Label outside section check
+        if (!pc.HasActiveSection)
+        {
+            _diagnostics.Report(node.FullSpan, $"Label '{name}' declared outside of a section");
+            return;
+        }
 
         // In LOAD blocks, labels get addresses from the load section
         var sym = _symbols.DefineLabel(name, pc.LabelPC, pc.LabelSectionName, node);
@@ -563,8 +574,67 @@ public sealed class Binder
         try
         {
             var bytes = _fileResolver.ReadAllBytes(resolved);
-            foreach (var b in bytes)
-                section.EmitByte(b);
+
+            // Parse optional start offset and length from token stream
+            // INCBIN "file"[, start[, length]]
+            var allTokens = node.ChildTokens().ToList();
+            var evaluator = CreateEvaluator(() => section.CurrentPC);
+            int startOffset = 0;
+            int? length = null;
+            // Find number tokens after the string literal, separated by commas
+            var numTokens = new List<long>();
+            bool pastString = false;
+            for (int ti = 0; ti < allTokens.Count; ti++)
+            {
+                if (allTokens[ti].Kind == SyntaxKind.StringLiteral) { pastString = true; continue; }
+                if (!pastString) continue;
+                if (allTokens[ti].Kind == SyntaxKind.CommaToken) continue;
+                if (allTokens[ti].Kind == SyntaxKind.NumberLiteral)
+                {
+                    var v = ExpressionEvaluator.ParseNumber(allTokens[ti].Text);
+                    if (v.HasValue) numTokens.Add(v.Value);
+                }
+                else if (allTokens[ti].Kind == SyntaxKind.MinusToken && ti + 1 < allTokens.Count
+                    && allTokens[ti + 1].Kind == SyntaxKind.NumberLiteral)
+                {
+                    var v = ExpressionEvaluator.ParseNumber(allTokens[ti + 1].Text);
+                    if (v.HasValue) numTokens.Add(-v.Value);
+                    ti++; // skip number
+                }
+            }
+            // Also try child expression nodes
+            var exprNodes = node.ChildNodes().ToList();
+            if (numTokens.Count == 0 && exprNodes.Count > 0)
+            {
+                foreach (var en in exprNodes)
+                {
+                    var val = evaluator.TryEvaluate(en.Green);
+                    if (val.HasValue) numTokens.Add(val.Value);
+                }
+            }
+            if (numTokens.Count >= 1) startOffset = (int)numTokens[0];
+            if (numTokens.Count >= 2) length = (int)numTokens[1];
+
+            // Validate INCBIN ranges
+            if (startOffset < 0)
+            {
+                _diagnostics.Report(node.FullSpan, $"INCBIN start offset {startOffset} is negative");
+                return;
+            }
+            if (startOffset > bytes.Length)
+            {
+                _diagnostics.Report(node.FullSpan, $"INCBIN start offset {startOffset} exceeds file size {bytes.Length}");
+                return;
+            }
+            int actualLength = length ?? (bytes.Length - startOffset);
+            if (startOffset + actualLength > bytes.Length)
+            {
+                _diagnostics.Report(node.FullSpan, $"INCBIN range ({startOffset}+{actualLength}) exceeds file size {bytes.Length}");
+                return;
+            }
+
+            for (int bi = startOffset; bi < startOffset + actualLength; bi++)
+                section.EmitByte(bytes[bi]);
         }
         catch (IOException ex)
         {
@@ -1271,7 +1341,53 @@ public sealed class Binder
                 if (int.TryParse(text.AsSpan(2), out var bits) && bits >= 1 && bits <= 31)
                     _fracBits = bits;
             }
-            // Other OPT flags accepted silently (Wno-xxx, p$XX, etc.)
+            // Known OPT letters: b (binary digits), g (graphics), p (pad byte), W (warnings)
+            else if (tokens[i].Kind == SyntaxKind.IdentifierToken && text.Length >= 1)
+            {
+                char letter = char.ToLowerInvariant(text[0]);
+                if (letter is not ('b' or 'g' or 'p' or 'w' or 'q'))
+                {
+                    _diagnostics.Report(default, $"Unknown OPT option: '{text}'");
+                }
+                else if (letter == 'b')
+                {
+                    // b.XX format: skip dot and value tokens
+                    if (i + 1 < tokens.Count && tokens[i + 1].Kind == SyntaxKind.DotToken)
+                    {
+                        i += 2; // skip dot and value
+                    }
+                    else if (text.Length > 1 && !text.Contains('.'))
+                    {
+                        _diagnostics.Report(default, $"Invalid OPT binary digit spec: '{text}'");
+                    }
+                }
+                else if (letter == 'p')
+                {
+                    // p$XX — pad byte. Skip any following tokens that are part of the value
+                    if (i + 1 < tokens.Count && tokens[i + 1].Kind == SyntaxKind.NumberLiteral)
+                        i++;
+                    else if (i + 1 < tokens.Count && tokens[i + 1].Kind == SyntaxKind.CurrentAddressToken)
+                    {
+                        // p$XX where $ was lexed as CurrentAddressToken followed by hex digits
+                        i++;
+                        if (i + 1 < tokens.Count && tokens[i + 1].Kind == SyntaxKind.NumberLiteral)
+                            i++;
+                    }
+                }
+                else if (letter == 'w')
+                {
+                    // W-option: skip all following tokens that are part of the warning flag name
+                    // e.g., Wno-unmapped-char → Wno, -, unmapped, -, char
+                    while (i + 1 < tokens.Count && tokens[i + 1].Kind is SyntaxKind.MinusToken
+                        or SyntaxKind.IdentifierToken)
+                    {
+                        i++;
+                        if (tokens[i].Kind == SyntaxKind.IdentifierToken)
+                            continue;
+                        // MinusToken — skip and continue looking for next identifier part
+                    }
+                }
+            }
         }
     }
 
@@ -1367,6 +1483,13 @@ public sealed class Binder
         if (name == null)
         {
             _diagnostics.Report(node.FullSpan, "LOAD requires a section name");
+            return;
+        }
+
+        // LOAD into ROM is not allowed
+        if (type is SectionType.Rom0 or SectionType.RomX)
+        {
+            _diagnostics.Report(node.FullSpan, "LOAD block cannot target ROM section type");
             return;
         }
 

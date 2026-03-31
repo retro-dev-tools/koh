@@ -22,6 +22,8 @@ internal sealed class SectionPCTracker
 
     public string? ActiveSectionName => _activeSection;
 
+    public bool HasActiveSection => _activeSection != null;
+
     /// <summary>Known alignment bits for the active section (0 = no alignment info).</summary>
     public int ActiveAlignBits => _activeSection != null && _sectionAlignBits.TryGetValue(_activeSection, out var bits)
         ? bits : 0;
@@ -46,7 +48,11 @@ internal sealed class SectionPCTracker
             _sectionPCs[_activeSection] += bytes;
     }
 
-    public void PushSection() => _sectionStack.Push(_activeSection);
+    public void PushSection()
+    {
+        _sectionStack.Push(_activeSection);
+        _activeSection = null; // PUSHS clears active section
+    }
 
     public bool PopSection()
     {
