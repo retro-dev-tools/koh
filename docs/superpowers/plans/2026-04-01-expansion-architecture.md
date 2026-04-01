@@ -547,13 +547,29 @@ new ExpansionContext
     FilePath = _currentFilePath,
     LoopDepth = _loopDepth,
     MacroBodyDepth = _macroBodyDepth,
-    MacroFrames = ImmutableStackFromLegacyStack(_macroFrameStack),
-    // StructuralDepth and ReplayDepth: derive from _expansionDepth as best estimate
-    // Trace: ExpansionTrace.Empty (no legacy equivalent — trace is new)
+    // MacroFrames: empty — bridge contexts do not support nested macro
+    // frame lookup. This is a known limitation removed in Task 5 when
+    // macro expansion switches to child-context creation.
+    // StructuralDepth: _expansionDepth (single legacy counter, best available)
+    StructuralDepth = _expansionDepth,
+    // ReplayDepth: 0 (not tracked in legacy code; replay depth checking
+    // does not take effect until Task 5 rewrites ExpandTextInline)
+    // Trace: empty (new concept, no legacy equivalent; tests must not
+    // depend on trace correctness until bridge removal in Task 8)
 }
 ```
 
-If converting `_macroFrameStack` to `ImmutableStack` is too complex for the bridge step, populate `MacroFrames` as empty and accept that bridge contexts do not support nested macro frame lookup. Document this as a known bridge limitation removed in Task 5. These bridge contexts are temporary and must not survive past Task 8.
+Bridge mapping rules:
+- `SourceText` ← `_currentSourceText` (exact)
+- `FilePath` ← `_currentFilePath` (exact)
+- `LoopDepth` ← `_loopDepth` (exact)
+- `MacroBodyDepth` ← `_macroBodyDepth` (exact)
+- `StructuralDepth` ← `_expansionDepth` (best available — legacy counter is overloaded)
+- `ReplayDepth` ← `0` (not tracked separately in legacy; safe because replay depth checks are not active until Task 5)
+- `MacroFrames` ← empty (bridge limitation; macro frame access via ctx not needed until Task 5)
+- `Trace` ← empty (new concept; trace emission not correct until bridge removal)
+
+These bridge contexts are temporary and must not survive past Task 8.
 
 - [ ] **Step 2: Run full test suite**
 
@@ -576,7 +592,20 @@ Replace ambient field reads in `ExpandBodyList` with `ctx` reads. Remove each am
 **Files:**
 - Modify: `src/Koh.Core/Binding/AssemblyExpander.cs`
 
-- [ ] **Step 1: Replace _currentSourceText reads with ctx.SourceText**
+- [ ] **Step 1: Change ExpandedNode record to use ExpansionTrace**
+
+This must happen before emission can use `ctx.Trace`. Change the record in `AssemblyExpander.cs`:
+
+```csharp
+// Before:
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionOrigin? Origin = null);
+// After:
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionTrace? Trace = null);
+```
+
+Verify no compile errors by searching for `.Origin` references in the codebase. Update any found.
+
+- [ ] **Step 2: Replace _currentSourceText reads with ctx.SourceText**
 
 In `ExpandBodyList`, replace:
 - `_currentSourceText != null` → `ctx.SourceText != null`
@@ -600,12 +629,12 @@ Replace `_loopDepth > 0` with `ctx.LoopDepth > 0`.
 
 Replace `_expansionDepth == 0` check for macro-param-outside-macro diagnostic with `ctx.StructuralDepth == 0 && ctx.ReplayDepth == 0`.
 
-- [ ] **Step 2: Run full test suite**
+- [ ] **Step 3: Run full test suite**
 
 Run: `dotnet test tests/Koh.Core.Tests/ --no-restore -v quiet`
 Expected: All tests pass.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Core/Binding/AssemblyExpander.cs
@@ -830,6 +859,8 @@ git commit -m "refactor: thread ctx through macro expansion, eliminate macro sav
 
 ### Task 6: Thread ctx through include and REPT/FOR expansion
 
+**Important:** Do not change `ExpandTextInline`'s return type in this task. It remains `void` until Task 7 changes it to `LoopControl`. Do not partially apply Task 7-style code here.
+
 **Files:**
 - Modify: `src/Koh.Core/Binding/AssemblyExpander.cs`
 
@@ -928,7 +959,9 @@ private void ExpandRept(SyntaxNode reptNode,
     if (count < 0) count = 0;
 
     var bodyTextRaw = ExtractBodyText(reptNode, PeekBodyNodes(siblings, i), ctx);
-    CollectRepeatBody(siblings, ref i, reptNode.FullSpan);
+    // Keep both: body (parsed nodes for structural replay in Task 12)
+    // and bodyTextRaw (text for text replay path). CollectRepeatBody advances i.
+    var body = CollectRepeatBody(siblings, ref i, reptNode.FullSpan);
 
     var condDepthBefore = _conditional.Depth;
     for (int iter = 0; iter < count; iter++)
@@ -1113,46 +1146,33 @@ git commit -m "refactor: thread ctx through all methods, remove all ambient expa
 
 ---
 
-### Task 9: Delete ExpansionOrigin, update ExpandedNode to use Trace
+### Task 9: Delete ExpansionOrigin.cs
+
+The `ExpandedNode` record was already changed to use `ExpansionTrace` in Task 4 Step 1. This task only deletes the now-unused `ExpansionOrigin.cs` file.
 
 **Files:**
-- Modify: `src/Koh.Core/Binding/AssemblyExpander.cs`
-- Modify: `src/Koh.Core/Binding/Binder.cs` (if any `.Origin` reads exist)
 - Delete: `src/Koh.Core/Binding/ExpansionOrigin.cs`
+- Modify: `src/Koh.Core/Binding/Binder.cs` (verify by searching for `.Origin` references; update any found)
 
-- [ ] **Step 1: Change ExpandedNode record**
+- [ ] **Step 1: Verify no remaining ExpansionOrigin references**
 
-In `AssemblyExpander.cs`, change:
-
-```csharp
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionOrigin? Origin = null);
-```
-
-to:
-
-```csharp
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionTrace? Trace = null);
-```
+Search for `ExpansionOrigin` across the codebase. All usages should have been replaced by `ExpansionTrace` + `ExpansionFrame` in previous tasks. If any remain, update them.
 
 - [ ] **Step 2: Delete ExpansionOrigin.cs**
 
-Delete `src/Koh.Core/Binding/ExpansionOrigin.cs`. All usages were already replaced by `ExpansionTrace` + `ExpansionFrame` in previous tasks.
+Delete `src/Koh.Core/Binding/ExpansionOrigin.cs`.
 
-- [ ] **Step 3: Verify no remaining ExpansionOrigin references**
-
-Search for any remaining references. The `ExpansionKind` enum was already moved to `ExpansionTrace.cs` in Task 1. If any `ExpansionKind.Source` references exist, remove them (it was removed from the enum).
-
-- [ ] **Step 4: Run full test suite**
+- [ ] **Step 3: Run full test suite**
 
 Run: `dotnet test tests/Koh.Core.Tests/ --no-restore -v quiet`
 Expected: All tests pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git rm src/Koh.Core/Binding/ExpansionOrigin.cs
-git add src/Koh.Core/Binding/AssemblyExpander.cs
-git commit -m "refactor: replace ExpansionOrigin with ExpansionTrace on ExpandedNode"
+git add -A
+git commit -m "refactor: delete ExpansionOrigin.cs — replaced by ExpansionTrace"
 ```
 
 **Phase 1 gate: All ambient expansion-scope fields are eliminated. The transitional bridge is gone. Only shared-state fields remain on AssemblyExpander.**
@@ -1336,12 +1356,16 @@ public BodyReplayPlan ClassifyReptBody(string bodyText)
 }
 
 /// <summary>
-/// Classify a FOR body for structural vs text replay.
+/// Conservative first-pass classifier for FOR body structural replay.
 ///
-/// A FOR body is eligible for structural replay only when:
-/// 1. The body contains no replay-required constructs (\@, macro params, etc.)
-/// 2. Every semantic use of the loop variable in the parsed body appears as
-///    a normal IdentifierToken that is evaluated through symbol lookup.
+/// This is NOT a deep proof of safety. It is a conservative check that
+/// allows structural replay only for the clearly safe case:
+/// 1. No replay-required constructs (\@, macro params, etc.)
+/// 2. Every parsed occurrence of the loop variable is a normal IdentifierToken
+///
+/// Any uncertainty falls back to RequiresTextReplay. This means some bodies
+/// that could theoretically be replayed structurally will still use text replay.
+/// That is acceptable — false positives toward replay are safe.
 ///
 /// In the first implementation, this reparses the body text for classification.
 /// A future improvement should classify directly from the already-collected
@@ -1776,9 +1800,9 @@ public async Task NestedMacroInsideRept_TraceCarriesFullAncestry()
 [Test]
 public async Task ReplayDepthLimit_FiresIndependentlyOfStructuralDepth()
 {
-    // Create a chain of EQUS self-referencing to hit replay depth
-    // This is hard to construct naturally, so just verify the diagnostic message
-    // references "replay depth" not "expansion depth"
+    // EQUS mutual reference creates infinite text replay recursion.
+    // This should hit the replay depth limit, not the structural depth limit.
+    // The diagnostic must mention "replay depth" specifically.
     var source = "X EQUS \"Y\"\nY EQUS \"X\"\nSECTION \"Main\", ROM0\nX";
     var tree = SyntaxTree.Parse(source);
     var diag = new DiagnosticBag();
@@ -1786,8 +1810,11 @@ public async Task ReplayDepthLimit_FiresIndependentlyOfStructuralDepth()
     var expander = new AssemblyExpander(diag, symbols);
     expander.Expand(tree);
     var messages = diag.ToList().Select(d => d.Message).ToList();
-    // Must mention "replay depth" specifically — not the old generic "expansion depth"
-    await Assert.That(messages.Any(m => m.Contains("replay depth"))).IsTrue();
+    // Verify a depth-limit diagnostic was emitted. If it was, it must use
+    // the new "replay depth" wording, not the old generic "expansion depth".
+    var depthMessages = messages.Where(m => m.Contains("depth") && m.Contains("exceeded")).ToList();
+    await Assert.That(depthMessages.Count).IsGreaterThan(0);
+    await Assert.That(depthMessages.All(m => m.Contains("replay depth"))).IsTrue();
 }
 
 [Test]
