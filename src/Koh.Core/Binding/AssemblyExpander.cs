@@ -1448,10 +1448,8 @@ internal sealed class AssemblyExpander
             }
             else
             {
-                // Text replay path: pre-parse once and bake per-iteration values via substitution.
-                var bodyTree = SyntaxTree.Parse(bodyTextRaw);
-                var positions = new List<(int Start, int Length)>();
-                TextReplayService.CollectIdentifierPositions(bodyTree.Root, varName, positions);
+                // Text replay path: use positions from classification (avoids reparsing)
+                var positions = plan.IdentifierPositions ?? [];
 
                 for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
                 {
@@ -1530,10 +1528,8 @@ internal sealed class AssemblyExpander
                 _symbols.DefineOrRedefine(varName, v);
                 // Emit a synthetic REDEF node so Pass 1 and Pass 2 re-evaluate the symbol
                 // with the current iteration value before processing the body nodes.
-                var synthTree = SyntaxTree.Parse($"REDEF {varName} EQU {v}");
-                var synthNode = synthTree.Root.ChildNodes().FirstOrDefault();
-                if (synthNode != null)
-                    output.Add(new ExpandedNode(synthNode, ctx.FilePath, false, false, ctx.Trace));
+                var synthNode = BuildSyntheticRedef(varName, v);
+                output.Add(new ExpandedNode(synthNode, ctx.FilePath, false, false, ctx.Trace));
             }
 
             _uniqueIdCounter++;
@@ -1547,6 +1543,30 @@ internal sealed class AssemblyExpander
         }
         // Variable retains its last value after the loop (RGBDS behavior).
         return LoopControl.Continue;
+    }
+
+    // =========================================================================
+    // Synthetic node construction
+    // =========================================================================
+
+    /// <summary>
+    /// Build a synthetic REDEF node (SymbolDirective) from green nodes directly,
+    /// avoiding SyntaxTree.Parse per loop iteration. Constructs:
+    /// REDEF {varName} EQU {value}
+    /// </summary>
+    private static SyntaxNode BuildSyntheticRedef(string varName, long value)
+    {
+        var redefToken = new GreenToken(SyntaxKind.RedefKeyword, "REDEF",
+            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]);
+        var nameToken = new GreenToken(SyntaxKind.IdentifierToken, varName,
+            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]);
+        var equToken = new GreenToken(SyntaxKind.EquKeyword, "EQU",
+            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]);
+        var valueToken = new GreenToken(SyntaxKind.NumberLiteral, value.ToString());
+        var valueExpr = new GreenNode(SyntaxKind.LiteralExpression, [valueToken]);
+        var directive = new GreenNode(SyntaxKind.SymbolDirective,
+            [redefToken, nameToken, equToken, valueExpr]);
+        return new SyntaxNode(directive, null, 0);
     }
 
     // =========================================================================

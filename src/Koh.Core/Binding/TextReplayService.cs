@@ -309,19 +309,24 @@ internal sealed class TextReplayService
     /// </summary>
     public static BodyReplayPlan ClassifyForBody(string bodyText, string varName)
     {
-        // Quick exits — obvious text-replay triggers
+        // Quick exits — obvious text-replay triggers (no positions needed for \@ or macro params)
         if (bodyText.Contains("\\@"))
-            return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.ForTokenShapingSubstitution);
+            return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.UniqueLabelSubstitution);
 
         if (ContainsUnresolvedMacroParam(bodyText))
-            return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.ForTokenShapingSubstitution);
+            return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.MacroParameterConcatenation);
 
-        // One-time parse to check token shape
+        // One-time parse to check token shape — reuse for position collection if text replay needed
         var tree = SyntaxTree.Parse(bodyText);
         bool allIdentifiers = CheckAllVarRefsAreIdentifiers(tree.Root, varName);
-        return allIdentifiers
-            ? new BodyReplayPlan(BodyReplayKind.Structural)
-            : new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.ForTokenShapingSubstitution);
+        if (allIdentifiers)
+            return new BodyReplayPlan(BodyReplayKind.Structural);
+
+        // Text replay needed — collect identifier positions from this same parse to avoid reparsing
+        var positions = new List<(int Start, int Length)>();
+        CollectIdentifierPositions(tree.Root, varName, positions);
+        return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay,
+            TextReplayReason.ForTokenShapingSubstitution, positions);
     }
 
     /// <summary>
