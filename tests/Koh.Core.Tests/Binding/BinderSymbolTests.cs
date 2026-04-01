@@ -166,7 +166,7 @@ public class BinderSymbolTests
         await Assert.That(sym!.Value).IsEqualTo(2);
         // Pass 1 collected the label, so Pass 2 can emit the value directly — no patch.
         var section = result.Sections!["Main"];
-        await Assert.That(section.Patches).HasCount().EqualTo(0);
+        await Assert.That(section.Patches).Count().IsEqualTo(0);
         await Assert.That(section.Bytes[0]).IsEqualTo((byte)0x02); // low byte of 2
         await Assert.That(section.Bytes[1]).IsEqualTo((byte)0x00); // high byte of 2
     }

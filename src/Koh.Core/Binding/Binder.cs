@@ -131,7 +131,7 @@ public sealed class Binder
             CharlenResolver = s => _charMaps.CharLen(s),
             IncharmapResolver = s => _charMaps.InCharMap(s),
             ReadfileResolver = _expander != null
-                ? (path, limit) => _expander.ResolveReadfile(path, limit, _diagnostics.CurrentFilePath)
+                ? (path, limit) => _expander.ResolveReadfile(path, limit, _diagnostics.CurrentFilePath ?? string.Empty)
                 : null,
         };
         return eval;

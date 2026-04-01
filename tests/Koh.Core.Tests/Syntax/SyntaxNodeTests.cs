@@ -19,7 +19,7 @@ public class SyntaxNodeTests
         await Assert.That(root.Kind).IsEqualTo(SyntaxKind.CompilationUnit);
 
         var children = root.ChildNodes().ToList();
-        await Assert.That(children).HasCount().EqualTo(1); // only nodes, not tokens
+        await Assert.That(children).Count().IsEqualTo(1); // only nodes, not tokens
         await Assert.That(children[0].Parent).IsEqualTo(root);
     }
 

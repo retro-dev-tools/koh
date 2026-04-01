@@ -34,10 +34,7 @@ internal static class RgbdsCompatFixture
 
         await _image.CreateAsync();
 
-        _container = new ContainerBuilder()
-            .WithImage(_image)
-            .WithEntrypoint("tail", "-f", "/dev/null")
-            .Build();
+        _container = new ContainerBuilder(_image).WithEntrypoint("tail", "-f", "/dev/null").Build();
 
         await _container.StartAsync();
     }
@@ -72,7 +69,11 @@ internal static class RgbdsCompatFixture
         return stream.ToArray();
     }
 
-    public static async Task<byte[]?> RgbasmAssembleAsync(string source, string containerDir, string name)
+    public static async Task<byte[]?> RgbasmAssembleAsync(
+        string source,
+        string containerDir,
+        string name
+    )
     {
         var container = _container ?? throw new InvalidOperationException("Container not started");
 
@@ -99,7 +100,8 @@ internal static class RgbdsCompatFixture
     public static async Task<LinkResult> LinkAsync(
         string containerDir,
         string outputName,
-        params (string Name, byte[] Data)[] objectFiles)
+        params (string Name, byte[] Data)[] objectFiles
+    )
     {
         var container = _container ?? throw new InvalidOperationException("Container not started");
 
@@ -138,7 +140,7 @@ internal static class RgbdsCompatFixture
             }
         }
 
-        return new LinkResult((int)result.ExitCode, result.Stdout, result.Stderr, romData);
+        return new LinkResult((int)(result.ExitCode ?? -1), result.Stdout, result.Stderr, romData);
     }
 }
 

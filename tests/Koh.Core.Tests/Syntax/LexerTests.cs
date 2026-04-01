@@ -25,7 +25,7 @@ public class LexerTests
     public async Task Lexer_Nop()
     {
         var tokens = Lex("nop");
-        await Assert.That(tokens).HasCount().EqualTo(2); // NOP + EOF
+        await Assert.That(tokens).Count().IsEqualTo(2); // NOP + EOF
         await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.NopKeyword);
         await Assert.That(tokens[0].Text).IsEqualTo("nop");
     }
@@ -46,7 +46,7 @@ public class LexerTests
         var tokens = Lex("  nop");
         await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.NopKeyword);
         var leading = tokens[0].LeadingTrivia.ToList();
-        await Assert.That(leading).HasCount().EqualTo(1);
+        await Assert.That(leading).Count().IsEqualTo(1);
         await Assert.That(leading[0].Kind).IsEqualTo(SyntaxKind.WhitespaceTrivia);
         await Assert.That(leading[0].Text).IsEqualTo("  ");
     }
@@ -366,7 +366,7 @@ public class LexerTests
         // tokens on the following line are parsed as a new statement.
         var tree = SyntaxTree.Parse("nop /* comment\nstill comment */\nnop");
         var statements = tree.Root.ChildNodes().ToList();
-        await Assert.That(statements).HasCount().EqualTo(2);
+        await Assert.That(statements).Count().IsEqualTo(2);
     }
 
     [Test]

@@ -24,7 +24,7 @@ public class ParserTests
 
         await Assert.That(root.Kind).IsEqualTo(SyntaxKind.CompilationUnit);
         var statements = root.ChildNodes().ToList();
-        await Assert.That(statements).HasCount().EqualTo(1);
+        await Assert.That(statements).Count().IsEqualTo(1);
         await Assert.That(statements[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
     }
 
@@ -60,7 +60,7 @@ public class ParserTests
     {
         var tree = SyntaxTree.Parse("nop\nnop");
         var statements = tree.Root.ChildNodes().ToList();
-        await Assert.That(statements).HasCount().EqualTo(2);
+        await Assert.That(statements).Count().IsEqualTo(2);
     }
 
     [Test]
@@ -70,7 +70,7 @@ public class ParserTests
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
-            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts).Count().IsEqualTo(1);
             await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
         }
     }
@@ -82,7 +82,7 @@ public class ParserTests
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
-            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts).Count().IsEqualTo(1);
             await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
         }
     }
@@ -95,7 +95,7 @@ public class ParserTests
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
-            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts).Count().IsEqualTo(1);
             await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
         }
     }
@@ -108,7 +108,7 @@ public class ParserTests
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
-            await Assert.That(stmts).HasCount().EqualTo(1);
+            await Assert.That(stmts).Count().IsEqualTo(1);
             await Assert.That(stmts[0].Kind).IsEqualTo(SyntaxKind.InstructionStatement);
         }
     }
@@ -134,7 +134,7 @@ public class ParserTests
         // Children: ld, RegisterOperand(a), comma(token), ImmediateOperand(BinaryExpr)
         var operands = stmt.ChildNodes().ToList();
         // operands[0] = RegisterOperand, operands[1] = ImmediateOperand
-        await Assert.That(operands).HasCount().EqualTo(2);
+        await Assert.That(operands).Count().IsEqualTo(2);
         var immediate = operands[1];
         await Assert.That(immediate.Kind).IsEqualTo(SyntaxKind.ImmediateOperand);
 
