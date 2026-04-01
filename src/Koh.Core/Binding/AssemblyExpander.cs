@@ -36,7 +36,6 @@ internal sealed class AssemblyExpander
     private SourceText? _currentSourceText;
     private string _currentFilePath = "";
     private bool _breakRequested;
-    private bool _shiftRequested; // set by SHIFT inside macro body — signals ExpandMacroBody to re-expand
     private TextWriter _printOutput;
     private int _loopDepth; // >0 means inside REPT/FOR expansion
     private int _macroBodyDepth; // >0 means currently expanding a macro body
@@ -45,6 +44,7 @@ internal sealed class AssemblyExpander
     // Macro frame stack — each macro invocation pushes a frame so \N, \#, _NARG
     // resolve lazily against the current args+shift state. SHIFT mutates the top frame.
     private readonly Stack<MacroFrame> _macroFrameStack = new();
+    private readonly InterpolationResolver _interpolation;
 
     private sealed class MacroFrame
     {
@@ -78,13 +78,18 @@ internal sealed class AssemblyExpander
         _fileResolver = fileResolver ?? new FileSystemResolver();
         _charMaps = charMaps ?? new CharMapManager(diagnostics);
         _printOutput = printOutput ?? Console.Error;
+        _interpolation = new InterpolationResolver(symbols, _equsConstants, diagnostics);
     }
 
     /// <summary>The expander's charmap state, for sharing with the binder.</summary>
     internal CharMapManager CharMaps => _charMaps;
 
     /// <summary>Optional callback to retrieve the current PC for @ interpolation.</summary>
-    internal Func<int>? GetCurrentPC { get; set; }
+    internal Func<int>? GetCurrentPC
+    {
+        get => _interpolation.GetCurrentPC;
+        set => _interpolation.GetCurrentPC = value;
+    }
 
     /// <summary>Look up an EQUS constant by name. Returns null if not found.</summary>
     internal string? LookupEqus(string name) =>
@@ -93,7 +98,11 @@ internal sealed class AssemblyExpander
     /// <summary>
     /// Optional callback to resolve SECTION(@) and SECTION(label) in string interpolation.
     /// </summary>
-    internal Func<string, string?>? SectionNameResolver { get; set; }
+    internal Func<string, string?>? SectionNameResolver
+    {
+        get => _interpolation.SectionNameResolver;
+        set => _interpolation.SectionNameResolver = value;
+    }
 
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
@@ -151,6 +160,13 @@ internal sealed class AssemblyExpander
             if (currentCount == previousCount)
                 break; // no new constants resolved — converged
             previousCount = currentCount;
+
+            if (pass == maxPasses - 1)
+            {
+                _diagnostics.Report(default,
+                    $"EQU pre-scan did not converge after {maxPasses} passes; some forward references may be unresolved",
+                    Diagnostics.DiagnosticSeverity.Warning);
+            }
         }
     }
 
@@ -800,7 +816,7 @@ internal sealed class AssemblyExpander
                             if (val.HasValue)
                             {
                                 if (val.Value > 0xFF)
-                                    _diagnostics.Report(default,
+                                    _diagnostics.Report(node.FullSpan,
                                         $"CHARMAP value ${val.Value:X} truncated to ${val.Value & 0xFF:X2}",
                                         Diagnostics.DiagnosticSeverity.Warning);
                                 byteValues.Add((byte)(val.Value & 0xFF));
@@ -816,36 +832,6 @@ internal sealed class AssemblyExpander
 
     private static string StripQuotes(string text) =>
         text.Length >= 2 && text[0] == '"' && text[^1] == '"' ? text[1..^1] : text;
-
-    /// <summary>
-    /// Process escape sequences in a string: \n → newline, \" → ", \\ → \, \t → tab.
-    /// Used for EQUS string values which may contain embedded newlines and escaped quotes.
-    /// </summary>
-    private static string UnescapeString(string text)
-    {
-        if (!text.Contains('\\')) return text;
-        var sb = new System.Text.StringBuilder(text.Length);
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (text[i] == '\\' && i + 1 < text.Length)
-            {
-                switch (text[i + 1])
-                {
-                    case 'n': sb.Append('\n'); i++; break;
-                    case 't': sb.Append('\t'); i++; break;
-                    case '\\': sb.Append('\\'); i++; break;
-                    case '"': sb.Append('"'); i++; break;
-                    case '0': sb.Append('\0'); i++; break;
-                    default: sb.Append(text[i]); break;
-                }
-            }
-            else
-            {
-                sb.Append(text[i]);
-            }
-        }
-        return sb.ToString();
-    }
 
     /// <summary>
     /// Handle PURGE directive — remove symbols from both EQUS constants and the symbol table.
@@ -1022,7 +1008,7 @@ internal sealed class AssemblyExpander
 
         if (depth != 0)
         {
-            _diagnostics.Report(default, $"Macro '{macroName}' has no matching ENDM");
+            _diagnostics.Report(macroNode.FullSpan, $"Macro '{macroName}' has no matching ENDM");
             return;
         }
 
@@ -1178,23 +1164,6 @@ internal sealed class AssemblyExpander
         }
     }
 
-    private string SubstituteLineParams(string line, MacroFrame frame)
-    {
-        line = line.Replace("\\@", $"_{frame.UniqueId}");
-
-        for (int p = 9; p >= 1; p--)
-            line = line.Replace($"\\{p}", frame.GetArg(p));
-
-        line = ResolveComputedArgs(line, frame);
-
-        if (line.Contains("\\#"))
-            line = line.Replace("\\#", frame.AllArgs());
-
-        line = SubstituteOutsideStrings(line, NargPattern, frame.Narg.ToString());
-
-        return line;
-    }
-
     // =========================================================================
     // INCLUDE — textual file inclusion
     // =========================================================================
@@ -1340,18 +1309,13 @@ internal sealed class AssemblyExpander
         new Regex(@"\b_NARG\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
-    /// Substitute macro parameter tokens (\1..\9, \@, \#, _NARG) in body text.
-    ///
-    /// _NARG is substituted as text (like the other parameter tokens) rather than
-    /// being resolved via the symbol table. This is necessary because expressions
-    /// are evaluated in Pass 2, after all expansion is complete — a symbol-table
-    /// value for _NARG would reflect whatever the last macro call set it to, not
-    /// the current invocation's argument count. Text substitution bakes the correct
-    /// value into each iteration's re-parsed tree, matching RGBDS behavior.
-    /// </summary>
-    /// <summary>
     /// Substitute macro params in body text. Only \@ is eagerly baked (immutable per invocation).
-    /// \1..\9, \#, _NARG are resolved lazily via MacroFrame so SHIFT can mutate the view.
+    /// \1..\9, \#, _NARG are resolved lazily via MacroFrame when SHIFT is present;
+    /// otherwise eagerly substituted for efficiency.
+    ///
+    /// _NARG is substituted as text rather than via the symbol table because expressions
+    /// are evaluated in Pass 2 — a symbol-table value would reflect the last macro call,
+    /// not the current invocation. Text substitution bakes the correct value per call.
     /// </summary>
     private string SubstituteMacroParams(string body, MacroFrame frame)
     {
@@ -1362,8 +1326,7 @@ internal sealed class AssemblyExpander
         // \@ → unique suffix per invocation (eagerly baked — immutable)
         body = body.Replace("\\@", $"_{frame.UniqueId}");
 
-        bool hasShift = body.Contains("SHIFT", StringComparison.OrdinalIgnoreCase);
-        if (hasShift)
+        if (body.Contains("SHIFT", StringComparison.OrdinalIgnoreCase))
         {
             // Bodies with SHIFT leave \1..\9, \#, _NARG as-is. They survive as
             // MacroParamToken in the re-parsed tree and are resolved lazily from
@@ -1373,17 +1336,7 @@ internal sealed class AssemblyExpander
         }
 
         // No SHIFT — eagerly substitute everything (faster, no MacroParamToken overhead)
-        for (int p = 9; p >= 1; p--)
-            body = body.Replace($"\\{p}", frame.GetArg(p));
-
-        body = ResolveComputedArgs(body, frame);
-
-        if (body.Contains("\\#"))
-            body = body.Replace("\\#", frame.AllArgs());
-
-        body = SubstituteOutsideStrings(body, NargPattern, frame.Narg.ToString());
-
-        return body;
+        return SubstituteParamReferences(body, frame, reportShiftedPast: false);
     }
 
     /// <summary>
@@ -1428,7 +1381,7 @@ internal sealed class AssemblyExpander
     // =========================================================================
 
     private List<SyntaxNodeOrToken> CollectRepeatBody(
-        IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i)
+        IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i, TextSpan headerSpan)
     {
         i++;
         var body = new List<SyntaxNodeOrToken>();
@@ -1453,7 +1406,7 @@ internal sealed class AssemblyExpander
             body.Add(siblings[i]); i++;
         }
 
-        _diagnostics.Report(default, "REPT/FOR without matching ENDR");
+        _diagnostics.Report(headerSpan, "REPT/FOR without matching ENDR");
         return body;
     }
 
@@ -1491,7 +1444,7 @@ internal sealed class AssemblyExpander
 
         // Extract body text for \@ substitution (REPT bodies support \@ for unique labels)
         var bodyTextRaw = ExtractBodyText(reptNode, PeekBodyNodes(siblings, i));
-        CollectRepeatBody(siblings, ref i); // advances index past ENDR
+        CollectRepeatBody(siblings, ref i, reptNode.FullSpan); // advances index past ENDR
 
         var condDepthBefore = _conditional.Depth;
         _loopDepth++;
@@ -1587,7 +1540,7 @@ internal sealed class AssemblyExpander
 
         // Extract body text for variable + \@ substitution
         var bodyTextRaw = ExtractBodyText(forNode, PeekBodyNodes(siblings, i));
-        var body = CollectRepeatBody(siblings, ref i);
+        var body = CollectRepeatBody(siblings, ref i, forNode.FullSpan);
 
         _loopDepth++;
         try
@@ -1623,262 +1576,21 @@ internal sealed class AssemblyExpander
     }
 
     // =========================================================================
-    // String interpolation: {symbol}, {d:symbol}, {x:symbol}, etc.
+    // String interpolation — delegated to InterpolationResolver
     // =========================================================================
+
+    /// <summary>Current section name for SECTION(@) function resolution.</summary>
+    internal string? CurrentSectionName
+    {
+        get => _interpolation.CurrentSectionName;
+        set => _interpolation.CurrentSectionName = value;
+    }
 
     /// <summary>
     /// Resolve {symbol} and {fmt:symbol} interpolations in a string.
-    /// Used for PRINT/PRINTLN string arguments and EQUS expansion text.
+    /// Delegates to <see cref="InterpolationResolver"/>.
     /// </summary>
-    internal string ResolveInterpolations(string text)
-    {
-        if (!text.Contains('{')) return text;
-
-        var sb = new System.Text.StringBuilder(text.Length);
-        int i = 0;
-        while (i < text.Length)
-        {
-            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] == '{')
-            {
-                // \{ — escaped brace, literal {
-                sb.Append('{');
-                i += 2;
-                continue;
-            }
-
-            if (text[i] == '{')
-            {
-                int braceStart = i;
-                i++; // skip {
-                // Parse optional format specifier: {fmt:name} or {name}
-                string? fmt = null;
-                int colonPos = text.IndexOf(':', i);
-                int closePos = text.IndexOf('}', i);
-
-                if (closePos < 0)
-                {
-                    // Unclosed { — emit as-is
-                    sb.Append('{');
-                    continue;
-                }
-
-                if (colonPos >= 0 && colonPos < closePos)
-                {
-                    fmt = text[i..colonPos];
-                    i = colonPos + 1;
-                }
-
-                string name = text[i..closePos];
-                i = closePos + 1;
-
-                // Handle SECTION(...) as a special function in interpolation
-                string trimmedName = name.Trim();
-                if (fmt == null && trimmedName.StartsWith("SECTION(", StringComparison.OrdinalIgnoreCase)
-                    && trimmedName.EndsWith(")"))
-                {
-                    string arg = trimmedName.Substring(8, trimmedName.Length - 9).Trim();
-                    string? sectionName = SectionNameResolver?.Invoke(arg);
-                    if (sectionName != null)
-                    {
-                        sb.Append(sectionName);
-                        continue;
-                    }
-                }
-
-                // Validate format specifier if present
-                string? trimmedFmt = fmt?.Trim();
-                if (trimmedFmt != null && !IsValidInterpolationFormat(trimmedFmt))
-                {
-                    _diagnostics.Report(default,
-                        $"Invalid format specifier '{trimmedFmt}' in string interpolation");
-                    sb.Append(text[braceStart..i]);
-                    continue;
-                }
-
-                // Resolve the symbol
-                string? resolved = ResolveInterpolationValue(trimmedName, trimmedFmt);
-                if (resolved != null)
-                    sb.Append(resolved);
-                else
-                {
-                    // Unknown symbol — preserve original text
-                    sb.Append(text[braceStart..i]);
-                    _diagnostics.Report(default, $"Interpolation: symbol '{name.Trim()}' not found");
-                }
-                continue;
-            }
-
-            sb.Append(text[i]);
-            i++;
-        }
-
-        return sb.ToString();
-    }
-
-    /// <summary>Current section name for SECTION(@) function resolution.</summary>
-    internal string? CurrentSectionName { get; set; }
-
-    private string? ResolveInterpolationValue(string name, string? fmt)
-    {
-        // Handle @ (current PC) — RGBDS defaults to uppercase hex with $ prefix
-        if (name == "@" && GetCurrentPC != null)
-            return FormatNumericValue(GetCurrentPC(), fmt ?? "#X");
-
-        // SECTION() function: SECTION(@) returns current section, SECTION(label) returns label's section
-        if (name.StartsWith("SECTION(", StringComparison.OrdinalIgnoreCase) && name.EndsWith(')'))
-        {
-            var arg = name["SECTION(".Length..^1].Trim();
-            if (arg == "@")
-                return CurrentSectionName ?? "";
-            // SECTION(label) — look up label's section
-            var labelSym = _symbols.Lookup(arg);
-            if (labelSym?.Section != null)
-                return labelSym.Section;
-            return null;
-        }
-
-        // Check EQUS constants first (string type)
-        if (_equsConstants.TryGetValue(name, out var equsValue))
-            return equsValue; // EQUS always returns raw string regardless of format
-
-        // Check numeric symbols
-        var sym = _symbols.Lookup(name);
-        if (sym != null && sym.State == Symbols.SymbolState.Defined)
-        {
-            long val = sym.Value;
-            return FormatNumericValue((int)val, fmt ?? "d");
-        }
-
-        // Numeric literal in interpolation: {d:5}, {x:42}, etc.
-        // This arises when macro args like \1 are eagerly substituted before interpolation,
-        // producing e.g. PRINTLN "{d:5}" where 5 is a number, not a symbol name.
-        var parsedNum = ExpressionEvaluator.ParseNumber(name);
-        if (parsedNum.HasValue)
-            return FormatNumericValue((int)parsedNum.Value, fmt ?? "d");
-
-        return null;
-    }
-
-    private static string FormatNumericValue(long val, string fmt)
-    {
-        bool hasPrefix = fmt.StartsWith('#');
-        string type = hasPrefix ? fmt[1..] : fmt;
-
-        return type switch
-        {
-            "d" => ((int)val).ToString(),
-            "u" => ((uint)val).ToString(),
-            "x" => hasPrefix ? $"${val:x}" : val.ToString("x"),
-            "X" => hasPrefix ? $"${val:X}" : val.ToString("X"),
-            "b" => hasPrefix ? $"%{Convert.ToString(val, 2)}" : Convert.ToString(val, 2),
-            "o" => hasPrefix ? $"&{Convert.ToString(val, 8)}" : Convert.ToString(val, 8),
-            _ => ((int)val).ToString(),
-        };
-    }
-
-    /// <summary>
-    /// Returns true if the interpolation format specifier is valid.
-    /// Valid forms: [+][#][0][width]type  where type ∈ {d,u,x,X,b,o,f,s}
-    /// Invalid: unknown type characters, extra characters, etc.
-    /// </summary>
-    private static bool IsValidInterpolationFormat(string fmt)
-    {
-        if (string.IsNullOrEmpty(fmt)) return true; // empty = default = valid
-
-        int pos = 0;
-        // Optional sign flag
-        if (pos < fmt.Length && fmt[pos] == '+') pos++;
-        // Optional prefix flag
-        if (pos < fmt.Length && fmt[pos] == '#') pos++;
-        // Optional zero-pad flag
-        if (pos < fmt.Length && fmt[pos] == '0') pos++;
-        // Optional width digits
-        while (pos < fmt.Length && char.IsDigit(fmt[pos])) pos++;
-        // Must have exactly one type character remaining
-        if (pos >= fmt.Length) return false; // no type
-        char type = fmt[pos++];
-        if (pos != fmt.Length) return false; // extra chars after type
-        return type is 'd' or 'u' or 'x' or 'X' or 'b' or 'o' or 'f' or 's';
-    }
-
-    /// <summary>
-    /// Format a numeric value according to an RGBDS format specifier.
-    /// Format: [#][0][width][type] where type is d/u/x/X/b/o/f
-    /// </summary>
-    internal static string FormatNumericValue(int val, string? fmt)
-    {
-        if (string.IsNullOrEmpty(fmt))
-            return val.ToString();
-
-        // Parse format spec: [+][#][0][width][type]
-        int pos = 0;
-        bool showSign = false;
-        bool hasPrefix = false;
-        bool zeroPad = false;
-        int width = 0;
-
-        if (pos < fmt.Length && fmt[pos] == '+')
-        {
-            showSign = true;
-            pos++;
-        }
-        if (pos < fmt.Length && fmt[pos] == '#')
-        {
-            hasPrefix = true;
-            pos++;
-        }
-        if (pos < fmt.Length && fmt[pos] == '0')
-        {
-            zeroPad = true;
-            pos++;
-        }
-        // Parse width digits
-        int widthStart = pos;
-        while (pos < fmt.Length && char.IsDigit(fmt[pos]))
-            pos++;
-        if (pos > widthStart)
-            int.TryParse(fmt.AsSpan(widthStart, pos - widthStart), out width);
-
-        // Remaining is the type character
-        string type = pos < fmt.Length ? fmt[pos..] : "d";
-
-        string prefix = "";
-        if (hasPrefix)
-        {
-            prefix = type switch
-            {
-                "x" or "X" => "$",
-                "b" => "%",
-                "o" => "&",
-                _ => "",
-            };
-        }
-
-        string signStr = "";
-        if (showSign && val >= 0)
-            signStr = "+";
-
-        string formatted = type switch
-        {
-            "d" => val.ToString(),
-            "u" => ((uint)val).ToString(),
-            "x" => ((uint)val).ToString("x"),
-            "X" => ((uint)val).ToString("X"),
-            "b" => Convert.ToString((uint)val, 2),
-            "o" => Convert.ToString((uint)val, 8),
-            _ => val.ToString(),
-        };
-
-        // Apply width padding — width includes prefix and sign
-        int totalExtra = prefix.Length + signStr.Length;
-        if (width > 0 && formatted.Length + totalExtra < width)
-        {
-            char padChar = zeroPad ? '0' : ' ';
-            formatted = formatted.PadLeft(width - totalExtra, padChar);
-        }
-
-        return signStr + prefix + formatted;
-    }
+    internal string ResolveInterpolations(string text) => _interpolation.Resolve(text);
 
     /// <summary>
     /// Parse and expand text inline (used for macro/REPT/FOR text-level expansion).
@@ -1970,10 +1682,6 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Recursively search the green subtree for a MacroParamToken with a digit suffix (\1..\9).
-    /// Returns the token text if found, or null if none present.
-    /// </summary>
-    /// <summary>
     /// Check if a green subtree contains MacroParamTokens (\1..\9, \#) or _NARG references
     /// that need lazy resolution from the current macro frame.
     /// </summary>
@@ -2047,21 +1755,33 @@ internal sealed class AssemblyExpander
     /// Reports an error if \N references an arg that has been shifted past.
     /// </summary>
     private string ResolveMacroParamsInText(string text, MacroFrame frame)
+        => SubstituteParamReferences(text, frame, reportShiftedPast: true);
+
+    /// <summary>
+    /// Shared core for macro parameter substitution: \1..\9, \&lt;expr&gt;, \#, _NARG.
+    /// When <paramref name="reportShiftedPast"/> is true, reports a diagnostic for
+    /// \N references that have been shifted past the argument list (lazy/SHIFT path).
+    /// When false, silently substitutes "" for missing args (eager/no-SHIFT path).
+    /// </summary>
+    private string SubstituteParamReferences(string text, MacroFrame frame, bool reportShiftedPast)
     {
         for (int p = 9; p >= 1; p--)
         {
             var placeholder = $"\\{p}";
             if (!text.Contains(placeholder)) continue;
-            int argIndex = p - 1 + frame.ShiftOffset;
-            if (argIndex >= frame.Args.Count)
+
+            if (reportShiftedPast)
             {
-                _diagnostics.Report(default, $"Macro argument \\{p} not defined (shifted past end)");
-                text = text.Replace(placeholder, "");
+                int argIndex = p - 1 + frame.ShiftOffset;
+                if (argIndex >= frame.Args.Count)
+                {
+                    _diagnostics.Report(default, $"Macro argument \\{p} not defined (shifted past end)");
+                    text = text.Replace(placeholder, "");
+                    continue;
+                }
             }
-            else
-            {
-                text = text.Replace(placeholder, frame.Args[argIndex]);
-            }
+
+            text = text.Replace(placeholder, frame.GetArg(p));
         }
 
         text = ResolveComputedArgs(text, frame);
