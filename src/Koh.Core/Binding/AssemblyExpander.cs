@@ -13,7 +13,7 @@ namespace Koh.Core.Binding;
 /// FromMacroBody is true when the node was produced inside a macro body expansion —
 /// used to allow local labels without a preceding global anchor (RGBDS behavior).
 /// </summary>
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false);
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionOrigin? Origin = null);
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -25,7 +25,7 @@ internal sealed class AssemblyExpander
     private readonly DiagnosticBag _diagnostics;
     private readonly SymbolTable _symbols;
     private readonly ConditionalAssemblyState _conditional = new();
-    private readonly Dictionary<string, MacroDef> _macros = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, MacroDefinition> _macros = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _equsConstants = new(StringComparer.OrdinalIgnoreCase);
     private readonly CharMapManager _charMaps;
     private long _rsCounter; // RS counter for RB/RW/RSRESET/RSSET
@@ -40,6 +40,10 @@ internal sealed class AssemblyExpander
     private int _loopDepth; // >0 means inside REPT/FOR expansion
     private int _macroBodyDepth; // >0 means currently expanding a macro body
     private readonly Stack<int> _reptUniqueIdStack = new(); // per-REPT-iteration unique IDs
+    private ExpansionOrigin? _currentOrigin; // provenance of the current expansion context
+
+    // Cache for parsed expression fragments (avoids repeated SyntaxTree.Parse for \<expr>)
+    private readonly Dictionary<string, GreenNodeBase?> _expressionCache = new();
 
     // Macro frame stack — each macro invocation pushes a frame so \N, \#, _NARG
     // resolve lazily against the current args+shift state. SHIFT mutates the top frame.
@@ -378,7 +382,7 @@ internal sealed class AssemblyExpander
                 if (kw?.Kind == SyntaxKind.IncludeKeyword)
                     ExpandInclude(node, output);
                 else if (kw?.Kind == SyntaxKind.IncbinKeyword)
-                    output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0)); // INCBIN handled by binder Pass 2
+                    output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0, _currentOrigin)); // INCBIN handled by binder Pass 2
                 i++;
                 continue;
             }
@@ -484,7 +488,7 @@ internal sealed class AssemblyExpander
                 }
             }
 
-            output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0));
+            output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0, _currentOrigin));
             i++;
         }
     }
@@ -1015,7 +1019,7 @@ internal sealed class AssemblyExpander
         if (_currentSourceText != null)
         {
             var bodyText = _currentSourceText.ToString(new TextSpan(bodyStart, bodyEnd - bodyStart)).Trim();
-            _macros[macroName] = new MacroDef(macroName, bodyText);
+            _macros[macroName] = new MacroDefinition(macroName, bodyText, macroNode.FullSpan, _currentFilePath);
         }
     }
 
@@ -1132,12 +1136,15 @@ internal sealed class AssemblyExpander
         long? savedNarg = prevNarg?.State == SymbolState.Defined ? prevNarg.Value : null;
         _symbols.DefineOrRedefine("_NARG", frame.Narg);
 
+        var savedOrigin = _currentOrigin;
+        _currentOrigin = ExpansionOrigin.ForMacro(macro);
         try
         {
-            ExpandMacroBody(macro.Body, frame, output);
+            ExpandMacroBody(macro, frame, output);
         }
         finally
         {
+            _currentOrigin = savedOrigin;
             _macroFrameStack.Pop();
             if (savedNarg.HasValue)
                 _symbols.DefineOrRedefine("_NARG", savedNarg.Value);
@@ -1146,21 +1153,63 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Expand a macro body. Substitutes eager params (\@) then parses and expands.
-    /// \1..\9, \#, _NARG are either pre-substituted (no SHIFT in body) or left for
-    /// lazy resolution via MacroParamToken handling in ExpandBodyList (when SHIFT is used).
+    /// Expand a macro body. Two paths:
+    /// 1. Fast path: macros without param references (\1..\9, \@, \#, _NARG, \&lt;expr&gt;)
+    ///    replay the pre-parsed tree directly — no text substitution, no reparse.
+    /// 2. Text path: macros with param references go through text substitution + reparse
+    ///    (necessary because RGBDS params can concatenate to form new tokens).
     /// </summary>
-    private void ExpandMacroBody(string rawBody, MacroFrame frame, List<ExpandedNode> output)
+    private void ExpandMacroBody(MacroDefinition macro, MacroFrame frame, List<ExpandedNode> output)
     {
-        var body = SubstituteMacroParams(rawBody, frame);
         _macroBodyDepth++;
         try
         {
-            ExpandTextInline(body, output);
+            if (macro.RequiresTextSubstitution)
+            {
+                var body = SubstituteMacroParams(macro.RawBody, frame, macro.ContainsShift);
+                ExpandTextInline(body, output);
+            }
+            else
+            {
+                // Fast path — replay pre-parsed tree without reparsing.
+                // Interpolation ({symbol}) is handled per-node by ExpandBodyList's
+                // NeedsInterpolation check; no upfront text resolution needed.
+                ExpandParsedTree(macro.ParsedBody, output);
+            }
         }
         finally
         {
             _macroBodyDepth--;
+        }
+    }
+
+    /// <summary>
+    /// Expand a pre-parsed syntax tree through the expansion kernel without reparsing.
+    /// Used for macro bodies that don't require text-level parameter substitution.
+    /// </summary>
+    private void ExpandParsedTree(SyntaxTree tree, List<ExpandedNode> output)
+    {
+        _expansionDepth++;
+        if (_expansionDepth > MaxExpansionDepth)
+        {
+            _diagnostics.Report(default,
+                $"Maximum expansion depth ({MaxExpansionDepth}) exceeded");
+            _expansionDepth--;
+            return;
+        }
+
+        var savedText = _currentSourceText;
+        _currentSourceText = tree.Text;
+        try
+        {
+            var children = tree.Root.ChildNodesAndTokens().ToList();
+            int j = 0;
+            ExpandBodyList(children, ref j, output);
+        }
+        finally
+        {
+            _currentSourceText = savedText;
+            _expansionDepth--;
         }
     }
 
@@ -1229,9 +1278,11 @@ internal sealed class AssemblyExpander
 
             var savedText = _currentSourceText;
             var savedPath = _currentFilePath;
+            var savedOrigin = _currentOrigin;
             _currentSourceText = includeText;
             _currentFilePath = resolved;
             _diagnostics.CurrentFilePath = resolved;
+            _currentOrigin = ExpansionOrigin.ForInclude(resolved, node.FullSpan);
 
             try
             {
@@ -1244,6 +1295,7 @@ internal sealed class AssemblyExpander
                 _currentSourceText = savedText;
                 _currentFilePath = savedPath;
                 _diagnostics.CurrentFilePath = savedPath;
+                _currentOrigin = savedOrigin;
             }
         }
         catch (IOException ex)
@@ -1317,7 +1369,7 @@ internal sealed class AssemblyExpander
     /// are evaluated in Pass 2 — a symbol-table value would reflect the last macro call,
     /// not the current invocation. Text substitution bakes the correct value per call.
     /// </summary>
-    private string SubstituteMacroParams(string body, MacroFrame frame)
+    private string SubstituteMacroParams(string body, MacroFrame frame, bool containsShift)
     {
         // frame.UniqueId was already set by ExpandMacroCall; do NOT increment _uniqueIdCounter
         // here again (that would make each macro invocation consume two IDs and cause
@@ -1326,7 +1378,7 @@ internal sealed class AssemblyExpander
         // \@ → unique suffix per invocation (eagerly baked — immutable)
         body = body.Replace("\\@", $"_{frame.UniqueId}");
 
-        if (body.Contains("SHIFT", StringComparison.OrdinalIgnoreCase))
+        if (containsShift)
         {
             // Bodies with SHIFT leave \1..\9, \#, _NARG as-is. They survive as
             // MacroParamToken in the re-parsed tree and are resolved lazily from
@@ -1356,9 +1408,8 @@ internal sealed class AssemblyExpander
 
             var exprText = body[(start + 2)..end];
             var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
-            var tree = SyntaxTree.Parse(exprText);
-            var exprNode = tree.Root.ChildNodes().FirstOrDefault();
-            long? val = exprNode != null ? evaluator.TryEvaluate(exprNode.Green) : null;
+            var exprGreen = ParseExpressionCached(exprText);
+            long? val = exprGreen != null ? evaluator.TryEvaluate(exprGreen) : null;
 
             if (val.HasValue)
             {
@@ -1447,6 +1498,8 @@ internal sealed class AssemblyExpander
         CollectRepeatBody(siblings, ref i, reptNode.FullSpan); // advances index past ENDR
 
         var condDepthBefore = _conditional.Depth;
+        var savedOrigin = _currentOrigin;
+        _currentOrigin = ExpansionOrigin.ForRept(_currentFilePath, reptNode.FullSpan);
         _loopDepth++;
         try
         {
@@ -1469,7 +1522,11 @@ internal sealed class AssemblyExpander
                 }
             }
         }
-        finally { _loopDepth--; }
+        finally
+        {
+            _currentOrigin = savedOrigin;
+            _loopDepth--;
+        }
         if (_conditional.Depth != condDepthBefore)
             _diagnostics.Report(reptNode.FullSpan, "Unbalanced IF/ENDC inside REPT body");
     }
@@ -1542,19 +1599,30 @@ internal sealed class AssemblyExpander
         var bodyTextRaw = ExtractBodyText(forNode, PeekBodyNodes(siblings, i));
         var body = CollectRepeatBody(siblings, ref i, forNode.FullSpan);
 
+        // Pre-parse body once for syntax-aware variable substitution.
+        // This replaces the regex+SubstituteOutsideStrings approach: instead of building
+        // a Regex per loop and relying on a heuristic to skip string literals, we walk
+        // the parsed token stream and only replace actual IdentifierToken nodes. This is
+        // strictly more precise — it won't match inside strings, comments, or partial identifiers.
+        SyntaxTree? bodyTree = varName != null ? SyntaxTree.Parse(bodyTextRaw) : null;
+
+        var savedOrigin = _currentOrigin;
+        _currentOrigin = ExpansionOrigin.ForFor(_currentFilePath, forNode.FullSpan, varName);
         _loopDepth++;
         try
         {
-            if (varName != null)
+            if (varName != null && bodyTree != null)
             {
-                var varPattern = new Regex($@"\b{Regex.Escape(varName)}\b");
+                // Collect substitution positions once from the pre-parsed tree
+                var positions = new List<(int Start, int Length)>();
+                CollectIdentifierPositions(bodyTree.Root, varName, positions);
 
                 for (long v = start; step > 0 ? v < stop : v > stop; v += step)
                 {
                     _symbols.DefineOrRedefine(varName, v);
 
                     _uniqueIdCounter++;
-                    var iterText = SubstituteOutsideStrings(bodyTextRaw, varPattern, v.ToString());
+                    var iterText = SubstituteAtPositions(bodyTextRaw, positions, v.ToString());
                     iterText = iterText.Replace("\\@", $"_{_uniqueIdCounter}");
                     ExpandTextInline(iterText, output);
                     if (_breakRequested) { _breakRequested = false; break; }
@@ -1572,7 +1640,11 @@ internal sealed class AssemblyExpander
                 }
             }
         }
-        finally { _loopDepth--; }
+        finally
+        {
+            _currentOrigin = savedOrigin;
+            _loopDepth--;
+        }
     }
 
     // =========================================================================
@@ -1680,6 +1752,80 @@ internal sealed class AssemblyExpander
         else
             i++;
     }
+
+    // =========================================================================
+    // Syntax-aware substitution helpers
+    // =========================================================================
+
+    /// <summary>
+    /// Recursively collect the <see cref="TextSpan"/> positions of all IdentifierToken nodes
+    /// in the red tree that match <paramref name="name"/> (case-insensitive).
+    /// Used by FOR loop substitution to precisely locate variable references without regex.
+    /// </summary>
+    private static void CollectIdentifierPositions(SyntaxNode node, string name,
+        List<(int Start, int Length)> positions)
+    {
+        foreach (var child in node.ChildNodesAndTokens())
+        {
+            if (child.IsToken)
+            {
+                var token = child.AsToken!;
+                if (token.Kind == SyntaxKind.IdentifierToken &&
+                    token.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    positions.Add((token.Span.Start, token.Span.Length));
+                }
+            }
+            else if (child.IsNode)
+            {
+                CollectIdentifierPositions(child.AsNode!, name, positions);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Replace text at pre-computed token positions. The positions were collected from
+    /// a pre-parsed tree, making this a syntax-driven substitution: only actual identifier
+    /// tokens are replaced, not occurrences inside string literals, comments, or partial matches.
+    ///
+    /// Note: positions are valid for the original text. If the replacement has a different
+    /// length than the original token, positions shift. This method accounts for the
+    /// cumulative offset from prior replacements.
+    /// </summary>
+    private static string SubstituteAtPositions(string source,
+        List<(int Start, int Length)> positions, string replacement)
+    {
+        if (positions.Count == 0) return source;
+
+        var sb = new System.Text.StringBuilder(source.Length);
+        int pos = 0;
+        foreach (var (start, length) in positions)
+        {
+            sb.Append(source, pos, start - pos);
+            sb.Append(replacement);
+            pos = start + length;
+        }
+        sb.Append(source, pos, source.Length - pos);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Parse an expression fragment and cache the result. Avoids repeated SyntaxTree.Parse
+    /// for the same \&lt;expr&gt; text across multiple macro invocations.
+    /// </summary>
+    private GreenNodeBase? ParseExpressionCached(string exprText)
+    {
+        if (_expressionCache.TryGetValue(exprText, out var cached))
+            return cached;
+        var tree = SyntaxTree.Parse(exprText);
+        var exprNode = tree.Root.ChildNodes().FirstOrDefault()?.Green;
+        _expressionCache[exprText] = exprNode;
+        return exprNode;
+    }
+
+    // =========================================================================
+    // Green tree inspection helpers
+    // =========================================================================
 
     /// <summary>
     /// Check if a green subtree contains MacroParamTokens (\1..\9, \#) or _NARG references
@@ -1848,5 +1994,4 @@ internal sealed class AssemblyExpander
         return false;
     }
 
-    private sealed record MacroDef(string Name, string Body);
 }
