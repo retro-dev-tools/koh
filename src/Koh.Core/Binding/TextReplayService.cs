@@ -102,24 +102,10 @@ internal sealed class TextReplayService
     public string SubstituteParamReferences(string text, MacroFrame frame, bool reportShiftedPast,
         SymbolTable symbols, Dictionary<string, GreenNodeBase?> expressionCache)
     {
-        for (int p = 9; p >= 1; p--)
-        {
-            var placeholder = $"\\{p}";
-            if (!text.Contains(placeholder)) continue;
-
-            if (reportShiftedPast)
-            {
-                int argIndex = p - 1 + frame.ShiftOffset;
-                if (argIndex >= frame.Args.Count)
-                {
-                    _diagnostics.Report(default, $"Macro argument \\{p} not defined (shifted past end)");
-                    text = text.Replace(placeholder, "");
-                    continue;
-                }
-            }
-
-            text = text.Replace(placeholder, frame.GetArg(p));
-        }
+        // Perf: single-pass scan for \1..\9 instead of up to 9 separate Contains+Replace calls
+        // (which each scan the full string). We build a result only when substitutions are needed.
+        if (text.Contains('\\'))
+            text = SubstituteIndexedParams(text, frame, reportShiftedPast);
 
         text = ResolveComputedArgs(text, frame, symbols, expressionCache);
 
@@ -129,6 +115,67 @@ internal sealed class TextReplayService
         text = SubstituteOutsideStrings(text, NargPattern, frame.Narg.ToString());
 
         return text;
+    }
+
+    /// <summary>
+    /// Single-pass substitution of \1..\9 references. Scans once for backslash characters
+    /// and replaces digit references in-place via a <see cref="System.Text.StringBuilder"/>.
+    /// Avoids the O(9n) cost of nine independent Replace scans.
+    /// </summary>
+    private string SubstituteIndexedParams(string text, MacroFrame frame, bool reportShiftedPast)
+    {
+        // Quick check: does this text actually contain \1..\9?
+        bool hasAny = false;
+        for (int i = 0; i < text.Length - 1; i++)
+        {
+            if (text[i] == '\\' && text[i + 1] >= '1' && text[i + 1] <= '9')
+            {
+                hasAny = true;
+                break;
+            }
+        }
+        if (!hasAny) return text;
+
+        var sb = new System.Text.StringBuilder(text.Length);
+        int pos = 0;
+        while (pos < text.Length)
+        {
+            int bsIdx = text.IndexOf('\\', pos);
+            if (bsIdx < 0 || bsIdx == text.Length - 1)
+            {
+                sb.Append(text, pos, text.Length - pos);
+                break;
+            }
+
+            char next = text[bsIdx + 1];
+            if (next >= '1' && next <= '9')
+            {
+                sb.Append(text, pos, bsIdx - pos); // everything before the backslash
+                int p = next - '0';
+
+                if (reportShiftedPast)
+                {
+                    int argIndex = p - 1 + frame.ShiftOffset;
+                    if (argIndex >= frame.Args.Count)
+                    {
+                        _diagnostics.Report(default, $"Macro argument \\{p} not defined (shifted past end)");
+                        // substitute empty string — don't append anything
+                        pos = bsIdx + 2;
+                        continue;
+                    }
+                }
+
+                sb.Append(frame.GetArg(p));
+                pos = bsIdx + 2;
+            }
+            else
+            {
+                // Not a digit reference — copy the backslash and advance past it
+                sb.Append(text, pos, bsIdx - pos + 1);
+                pos = bsIdx + 1;
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>

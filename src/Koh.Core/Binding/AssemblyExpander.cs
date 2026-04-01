@@ -155,17 +155,29 @@ internal sealed class AssemblyExpander
     /// </summary>
     private void EarlyDefineEquNoError(SyntaxNode node)
     {
-        var tokens = node.ChildTokens().ToList();
-        if (tokens.Count < 2) return;
+        // Perf: extract first 3 tokens by iterating rather than materializing a List<SyntaxToken>.
+        // We only ever need tok0, tok[nameIdx], and tok[nameIdx+1] — at most 3 slots.
+        SyntaxToken? tok0 = null, tok1 = null, tok2 = null;
+        int tokenCount = 0;
+        foreach (var t in node.ChildTokens())
+        {
+            if (tokenCount == 0) tok0 = t;
+            else if (tokenCount == 1) tok1 = t;
+            else if (tokenCount == 2) tok2 = t;
+            tokenCount++;
+            if (tokenCount > 2) break; // we have all we need
+        }
+        if (tokenCount < 2) return;
 
-        int nameIdx = 0;
-        if (tokens[0].Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword)
-            nameIdx = 1;
+        // Determine nameIdx: if first token is DEF/REDEF prefix, name is at index 1
+        int nameIdx = tok0!.Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword ? 1 : 0;
 
-        if (nameIdx + 1 >= tokens.Count) return;
-        if (tokens[nameIdx].Kind != SyntaxKind.IdentifierToken) return;
+        SyntaxToken nameTok = nameIdx == 0 ? tok0! : tok1!;
+        SyntaxToken? kwTok  = nameIdx == 0 ? tok1  : tok2;
+        if (tokenCount < nameIdx + 2 || kwTok == null) return;
+        if (nameTok.Kind != SyntaxKind.IdentifierToken) return;
 
-        var kwKind = tokens[nameIdx + 1].Kind;
+        var kwKind = kwTok.Kind;
         if (kwKind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
         {
             // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
@@ -180,11 +192,11 @@ internal sealed class AssemblyExpander
             var evaluator = new ExpressionEvaluator(_symbols, DiagnosticBag.Null, () => 0, 0, _charMaps);
             var value = evaluator.TryEvaluate(firstExpr.Green);
             if (!value.HasValue) return; // unresolvable at this point — retry on next pass
-            if (kwKind == SyntaxKind.EqualsToken || tokens[0].Kind == SyntaxKind.RedefKeyword)
-                _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+            if (kwKind == SyntaxKind.EqualsToken || tok0.Kind == SyntaxKind.RedefKeyword)
+                _symbols.DefineOrRedefine(nameTok.Text, value.Value);
             else
                 // EQU: only define if not already defined (avoid duplicate-definition diagnostic)
-                _symbols.DefineConstantIfAbsent(tokens[nameIdx].Text, value.Value, node);
+                _symbols.DefineConstantIfAbsent(nameTok.Text, value.Value, node);
         }
         else if (kwKind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
         {
@@ -281,7 +293,7 @@ internal sealed class AssemblyExpander
                 if (kw?.Kind == SyntaxKind.EndmKeyword)
                 {
                     // Perf: count tokens directly to avoid ToList() allocation
-                    if (CountChildTokens(node) > 1)
+                    if (HasChildTokensBeyond(node, 1))
                         _diagnostics.Report(node.FullSpan, "Unexpected tokens after ENDM");
                 }
                 if (kw?.Kind == SyntaxKind.MacroKeyword)
@@ -320,7 +332,7 @@ internal sealed class AssemblyExpander
                 if (kw?.Kind == SyntaxKind.EndrKeyword)
                 {
                     // Perf: count tokens directly to avoid ToList() allocation
-                    if (CountChildTokens(node) > 1)
+                    if (HasChildTokensBeyond(node, 1))
                         _diagnostics.Report(node.FullSpan, "Unexpected tokens after ENDR");
                 }
                 if (kw?.Kind == SyntaxKind.ReptKeyword)
@@ -482,23 +494,34 @@ internal sealed class AssemblyExpander
 
     private void EarlyDefineEqu(SyntaxNode node, ExpansionContext ctx)
     {
-        var tokens = node.ChildTokens().ToList();
-        if (tokens.Count < 2) return;
+        // Perf: extract first 3 tokens by iterating rather than materializing a List<SyntaxToken>.
+        // We only ever need tok0, tok[nameIdx], and tok[nameIdx+1] — at most 3 slots.
+        SyntaxToken? tok0 = null, tok1 = null, tok2 = null;
+        int tokenCount = 0;
+        foreach (var t in node.ChildTokens())
+        {
+            if (tokenCount == 0) tok0 = t;
+            else if (tokenCount == 1) tok1 = t;
+            else if (tokenCount == 2) tok2 = t;
+            tokenCount++;
+            if (tokenCount > 2) break; // we have all we need
+        }
+        if (tokenCount < 2) return;
 
-        // Handle DEF/REDEF prefix: skip to the identifier + keyword pair
-        int nameIdx = 0;
-        if (tokens[0].Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword)
-            nameIdx = 1;
+        // Handle DEF/REDEF prefix: if first token is a prefix keyword, name is at index 1
+        int nameIdx = tok0!.Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword ? 1 : 0;
 
-        if (nameIdx + 1 >= tokens.Count) return;
+        SyntaxToken nameTok = nameIdx == 0 ? tok0! : tok1!;
+        SyntaxToken? kwTok  = nameIdx == 0 ? tok1  : tok2;
+        if (tokenCount < nameIdx + 2 || kwTok == null) return;
 
-        if (tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
-            tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        if (nameTok.Kind == SyntaxKind.IdentifierToken &&
+            kwTok.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
         {
             // Check for built-in symbol protection
-            if (tokens[0].Kind == SyntaxKind.RedefKeyword && BuiltinSymbols.Contains(tokens[nameIdx].Text))
+            if (tok0.Kind == SyntaxKind.RedefKeyword && BuiltinSymbols.Contains(nameTok.Text))
             {
-                _diagnostics.Report(node.FullSpan, $"Cannot redefine built-in symbol '{tokens[nameIdx].Text}'");
+                _diagnostics.Report(node.FullSpan, $"Cannot redefine built-in symbol '{nameTok.Text}'");
                 return;
             }
 
@@ -511,18 +534,17 @@ internal sealed class AssemblyExpander
                 if (value.HasValue)
                 {
                     // = and REDEF are reassignable (SET semantics); EQU is immutable.
-                    if (tokens[nameIdx + 1].Kind == SyntaxKind.EqualsToken ||
-                        tokens[0].Kind == SyntaxKind.RedefKeyword)
-                        _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+                    if (kwTok.Kind == SyntaxKind.EqualsToken || tok0.Kind == SyntaxKind.RedefKeyword)
+                        _symbols.DefineOrRedefine(nameTok.Text, value.Value);
                     else
-                        _symbols.DefineConstant(tokens[nameIdx].Text, value.Value, node);
+                        _symbols.DefineConstant(nameTok.Text, value.Value, node);
                 }
             }
         }
-        else if (tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
-                 tokens[nameIdx + 1].Kind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
+        else if (nameTok.Kind == SyntaxKind.IdentifierToken &&
+                 kwTok.Kind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
         {
-            int multiplier = tokens[nameIdx + 1].Kind switch
+            int multiplier = kwTok.Kind switch
             {
                 SyntaxKind.RwKeyword => 2,
                 SyntaxKind.RlKeyword => 4,
@@ -539,11 +561,10 @@ internal sealed class AssemblyExpander
                 if (value.HasValue) count = value.Value;
             }
 
-            _symbols.DefineConstant(tokens[nameIdx].Text, _rsCounter, node);
+            _symbols.DefineConstant(nameTok.Text, _rsCounter, node);
             _rsCounter += count * multiplier;
         }
-        else if (tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
-                 tokens[nameIdx + 1].Kind == SyntaxKind.EqusKeyword)
+        else if (nameTok.Kind == SyntaxKind.IdentifierToken && kwTok.Kind == SyntaxKind.EqusKeyword)
         {
             // name EQUS expr — evaluate string expression
             // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
@@ -552,7 +573,7 @@ internal sealed class AssemblyExpander
             {
                 var value = EvaluateStringExpression(firstExprEqus, ctx);
                 if (value != null)
-                    _equsConstants[tokens[nameIdx].Text] = value;
+                    _equsConstants[nameTok.Text] = value;
             }
         }
     }
@@ -579,11 +600,20 @@ internal sealed class AssemblyExpander
             }
             if (hasPlusPlus)
             {
-                var children = exprNode.ChildNodes().ToList();
-                if (children.Count >= 2)
+                // Perf: extract first and last child nodes by iterating — avoids List<> allocation.
+                // ++ concatenation is binary so we need exactly children[0] and children[^1].
+                SyntaxNode? firstChild = null, lastChild = null;
+                int childCount = 0;
+                foreach (var c in exprNode.ChildNodes())
                 {
-                    var left = EvaluateStringExpression(children[0], ctx);
-                    var right = EvaluateStringExpression(children[^1], ctx);
+                    if (childCount == 0) firstChild = c;
+                    lastChild = c;
+                    childCount++;
+                }
+                if (childCount >= 2)
+                {
+                    var left  = EvaluateStringExpression(firstChild!, ctx);
+                    var right = EvaluateStringExpression(lastChild!,  ctx);
                     if (left != null && right != null)
                         return left + right;
                 }
@@ -921,7 +951,7 @@ internal sealed class AssemblyExpander
         // Perf: count tokens directly to avoid ToList() allocation
         if (keyword is SyntaxKind.EndcKeyword or SyntaxKind.ElseKeyword)
         {
-            if (CountChildTokens(node) > 1)
+            if (HasChildTokensBeyond(node, 1))
                 _diagnostics.Report(node.FullSpan, $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
         }
 
@@ -1436,15 +1466,31 @@ internal sealed class AssemblyExpander
         IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i,
         List<ExpandedNode> output, ExpansionContext ctx)
     {
-        var exprNodes = forNode.ChildNodes().ToList();
+        // Perf: extract up to 4 child nodes by iterating rather than materializing a List<SyntaxNode>.
+        // FOR header has exactly 4 slots: varName, start, stop, step.
+        SyntaxNode? exprNode0 = null, exprNode1 = null, exprNode2 = null, exprNode3 = null;
+        int exprCount = 0;
+        foreach (var n in forNode.ChildNodes())
+        {
+            switch (exprCount)
+            {
+                case 0: exprNode0 = n; break;
+                case 1: exprNode1 = n; break;
+                case 2: exprNode2 = n; break;
+                case 3: exprNode3 = n; break;
+            }
+            exprCount++;
+            if (exprCount > 3) break;
+        }
+
         string? varName = null;
-        if (exprNodes.Count > 0 && exprNodes[0].Kind == SyntaxKind.NameExpression)
-            varName = exprNodes[0].ChildTokens().FirstOrDefault()?.Text;
+        if (exprNode0 != null && exprNode0.Kind == SyntaxKind.NameExpression)
+            varName = exprNode0.ChildTokens().FirstOrDefault()?.Text;
 
         var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
-        long start = exprNodes.Count > 1 ? evaluator.TryEvaluate(exprNodes[1].Green) ?? 0 : 0;
-        long stop = exprNodes.Count > 2 ? evaluator.TryEvaluate(exprNodes[2].Green) ?? 0 : 0;
-        long step = exprNodes.Count > 3 ? evaluator.TryEvaluate(exprNodes[3].Green) ?? 1 : 1;
+        long start = exprNode1 != null ? evaluator.TryEvaluate(exprNode1.Green) ?? 0 : 0;
+        long stop  = exprNode2 != null ? evaluator.TryEvaluate(exprNode2.Green) ?? 0 : 0;
+        long step  = exprNode3 != null ? evaluator.TryEvaluate(exprNode3.Green) ?? 1 : 1;
 
         if (step == 0)
         {
@@ -1825,15 +1871,18 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Count child tokens of a node without materializing a list.
-    /// Used to check "more than N tokens" without a ToList() allocation.
+    /// Returns true if the node has more than <paramref name="threshold"/> direct child tokens.
+    /// Exits early once the threshold is exceeded — no full enumeration needed.
     /// </summary>
-    private static int CountChildTokens(SyntaxNode node)
+    private static bool HasChildTokensBeyond(SyntaxNode node, int threshold)
     {
         int count = 0;
         foreach (var _ in node.ChildTokens())
+        {
             count++;
-        return count;
+            if (count > threshold) return true;
+        }
+        return false;
     }
 
 }
