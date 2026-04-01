@@ -130,7 +130,9 @@ public sealed class Binder
             EqusResolver = name => _expander?.LookupEqus(name),
             CharlenResolver = s => _charMaps.CharLen(s),
             IncharmapResolver = s => _charMaps.InCharMap(s),
-            ReadfileResolver = _expander != null ? _expander.ResolveReadfile : null,
+            ReadfileResolver = _expander != null
+                ? (path, limit) => _expander.ResolveReadfile(path, limit, _diagnostics.CurrentFilePath)
+                : null,
         };
         return eval;
     }

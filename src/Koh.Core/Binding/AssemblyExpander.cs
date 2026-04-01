@@ -12,7 +12,7 @@ namespace Koh.Core.Binding;
 /// FromMacroBody is true when the node was produced inside a macro body expansion —
 /// used to allow local labels without a preceding global anchor (RGBDS behavior).
 /// </summary>
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionTrace? Trace = null);
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath, bool WasInConditional, bool FromMacroBody, ExpansionTrace Trace);
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -239,7 +239,7 @@ internal sealed class AssemblyExpander
                 var resolved = ResolveInterpolations(rawText);
                 if (resolved != rawText)
                 {
-                    var lc = ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.MacroParameterConcatenation);
+                    var lc = ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.EqusReplay);
                     i++;
                     if (lc == LoopControl.Break) return LoopControl.Break;
                     continue;
@@ -439,8 +439,14 @@ internal sealed class AssemblyExpander
                 }
                 if (kw?.Kind == SyntaxKind.BreakKeyword)
                 {
+                    if (ctx.LoopDepth == 0)
+                    {
+                        _diagnostics.Report(node.FullSpan, "BREAK used outside of a REPT/FOR loop");
+                        i++;
+                        continue;
+                    }
                     i++;
-                    return LoopControl.Break; // signal caller to exit loop
+                    return LoopControl.Break;
                 }
                 // PRINT/PRINTLN inside loops — resolve at expansion time so per-iteration output is correct
                 if (ctx.LoopDepth > 0 && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
@@ -748,8 +754,8 @@ internal sealed class AssemblyExpander
     }
 
     // Keep the old overload for internal callers that don't have a ctx yet
-    internal string? ResolveReadfile(string path, int? limit)
-        => ResolveReadfile(path, limit, new ExpansionContext { FilePath = "" });
+    internal string? ResolveReadfile(string path, int? limit, string filePath)
+        => ResolveReadfile(path, limit, new ExpansionContext { FilePath = filePath });
 
     private void EarlyProcessCharmap(SyntaxNode node, ExpansionContext ctx)
     {
@@ -1151,10 +1157,11 @@ internal sealed class AssemblyExpander
     /// <summary>
     /// Expand a pre-parsed syntax tree through the expansion kernel without reparsing.
     /// Used for macro bodies that don't require text-level parameter substitution.
+    /// Structural depth is already checked at the call site (ExpandMacroCall).
+    /// ReplayDepth is not incremented — this is structural execution, not replay.
     /// </summary>
     private void ExpandParsedTree(SyntaxTree tree, List<ExpandedNode> output, ExpansionContext ctx)
     {
-        // Update source text for the new tree (structural execution, not replay — no ReplayDepth increment)
         var treeCtx = ctx with { SourceText = tree.Text };
         var children = tree.Root.ChildNodesAndTokens().ToList();
         int j = 0;
@@ -1208,17 +1215,17 @@ internal sealed class AssemblyExpander
             var source = _fileResolver.ReadAllText(resolved);
 
             // Substitute \@ in the included file's text using the current invocation's unique ID.
-            // This ensures that \@ labels and PRINTLN statements in an included file share the same
-            // unique suffix as the macro call (or REPT iteration) that INCLUDEd them, matching RGBDS.
+            // This ensures that \@ labels in an included file share the same unique suffix as the
+            // macro call (or REPT iteration) that INCLUDEd them, matching RGBDS.
+            // Note: this is text modification before parse, routed through TextReplayService
+            // for consistency even though INCLUDE is new-source intake.
             if (ctx.CurrentMacroFrame != null)
             {
-                var frame = ctx.CurrentMacroFrame;
-                source = source.Replace("\\@", $"_{frame.UniqueId}");
+                source = TextReplayService.SubstituteUniqueId(source, ctx.CurrentMacroFrame.UniqueId);
             }
             else if (ctx.LoopUniqueId != 0)
             {
-                // Inside a REPT/FOR iteration: substitute \@ with the iteration's unique ID.
-                source = source.Replace("\\@", $"_{ctx.LoopUniqueId}");
+                source = TextReplayService.SubstituteUniqueId(source, ctx.LoopUniqueId);
             }
 
             var includeText = Text.SourceText.From(source, resolved);
@@ -1450,6 +1457,7 @@ internal sealed class AssemblyExpander
             {
                 // Text replay path: use positions from classification (avoids reparsing)
                 var positions = plan.IdentifierPositions ?? [];
+                var condDepthBefore = _conditional.Depth;
 
                 for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
                 {
@@ -1464,9 +1472,14 @@ internal sealed class AssemblyExpander
                     iterText = TextReplayService.SubstituteUniqueId(iterText, iterUniqueId);
                     var lc = ExpandTextInline(iterText, output, iterCtx, forNode.FullSpan,
                         TextReplayReason.ForTokenShapingSubstitution);
-                    if (lc == LoopControl.Break) break;
+                    if (lc == LoopControl.Break)
+                    {
+                        _conditional.ResetToDepth(condDepthBefore);
+                        break;
+                    }
                 }
-                // Variable retains its last value after the loop (RGBDS behavior).
+                if (_conditional.Depth != condDepthBefore)
+                    _diagnostics.Report(forNode.FullSpan, "Unbalanced IF/ENDC inside FOR body");
             }
         }
         else
@@ -1519,29 +1532,35 @@ internal sealed class AssemblyExpander
         string? varName, long start, long stop, long step,
         SyntaxNode forNode, List<ExpandedNode> output, ExpansionContext ctx)
     {
+        var condDepthBefore = _conditional.Depth;
         int iterIndex = 0;
         for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
         {
-            if (varName != null)
-            {
-                // Update symbol table for expansion-time evaluation (e.g., nested IF expressions).
-                _symbols.DefineOrRedefine(varName, v);
-                // Emit a synthetic REDEF node so Pass 1 and Pass 2 re-evaluate the symbol
-                // with the current iteration value before processing the body nodes.
-                var synthNode = BuildSyntheticRedef(varName, v);
-                output.Add(new ExpandedNode(synthNode, ctx.FilePath, false, false, ctx.Trace));
-            }
-
             _uniqueIdCounter++;
             var iterUniqueId = _uniqueIdCounter;
             var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
             var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
 
+            if (varName != null)
+            {
+                _symbols.DefineOrRedefine(varName, v);
+                // Emit a synthetic REDEF node so Pass 1 and Pass 2 re-evaluate the symbol.
+                // Uses iterCtx.Trace (the iteration context), not ctx.Trace.
+                var synthNode = BuildSyntheticRedef(varName, v);
+                output.Add(new ExpandedNode(synthNode, iterCtx.FilePath,
+                    _conditional.Depth > 0, iterCtx.MacroBodyDepth > 0, iterCtx.Trace));
+            }
+
             int j = 0;
             var lc = ExpandBodyList(bodyNodes, ref j, output, iterCtx);
-            if (lc == LoopControl.Break) return LoopControl.Break;
+            if (lc == LoopControl.Break)
+            {
+                _conditional.ResetToDepth(condDepthBefore);
+                return LoopControl.Break;
+            }
         }
-        // Variable retains its last value after the loop (RGBDS behavior).
+        if (_conditional.Depth != condDepthBefore)
+            _diagnostics.Report(forNode.FullSpan, "Unbalanced IF/ENDC inside FOR body");
         return LoopControl.Continue;
     }
 
