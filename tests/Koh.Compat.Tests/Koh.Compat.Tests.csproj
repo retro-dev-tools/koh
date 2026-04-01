@@ -6,8 +6,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Testcontainers" Version="4.4.0" />
-    <PackageReference Include="TUnit" Version="1.21.24" />
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="TUnit" />
   </ItemGroup>
 
   <ItemGroup>
