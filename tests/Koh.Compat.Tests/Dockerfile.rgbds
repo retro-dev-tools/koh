@@ -1,0 +1,9 @@
+FROM ubuntu:24.04
+ARG RGBDS_VERSION=1.0.1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+    && curl -fsSL "https://github.com/gbdev/rgbds/releases/download/v${RGBDS_VERSION}/rgbds-linux-x86_64.tar.xz" \
+       | tar -xJ -C /usr/local/bin/ \
+    && apt-get remove -y ca-certificates curl xz-utils && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir /work

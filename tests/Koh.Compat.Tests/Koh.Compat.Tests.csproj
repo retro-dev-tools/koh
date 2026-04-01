@@ -6,7 +6,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Testcontainers" Version="4.4.0" />
     <PackageReference Include="TUnit" Version="1.21.24" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Dockerfile.rgbds" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

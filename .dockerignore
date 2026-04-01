@@ -1,9 +1,0 @@
-.git
-bin
-obj
-TestResults
-*.user
-*.suo
-.vs
-.idea
-node_modules

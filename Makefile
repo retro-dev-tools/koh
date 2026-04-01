@@ -7,4 +7,4 @@ test:
 	dotnet test
 
 compat-tests:
-	docker compose run --rm --build compat-tests
+	dotnet test --project tests/Koh.Compat.Tests/

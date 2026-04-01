@@ -1,4 +1,6 @@
-using System.Diagnostics;
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Containers;
+using DotNet.Testcontainers.Images;
 using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
@@ -7,46 +9,51 @@ using Koh.Emit;
 namespace Koh.Compat.Tests;
 
 /// <summary>
-/// Helpers for RGBDS compatibility tests. Provides assembler API wrappers,
-/// .o file writing, and rgblink/rgbasm subprocess invocation.
+/// Helpers for RGBDS compatibility tests. Spins up a lightweight container
+/// with RGBDS tools and executes rgblink/rgbasm inside it via Testcontainers.
 /// </summary>
 internal static class RgbdsCompatFixture
 {
-    private static readonly Lazy<string?> RgblinkPathLazy = new(FindRgblink);
+    private static IFutureDockerImage? _image;
+    private static IContainer? _container;
 
-    public static bool IsAvailable => RgblinkPathLazy.Value != null;
-    public static string? RgblinkPath => RgblinkPathLazy.Value;
+    public static bool IsAvailable => _container != null;
 
-    private static string? FindRgblink()
+    public static async Task StartAsync()
     {
-        try
+        if (_container != null)
+            return;
+
+        var dockerfileDir = Path.GetDirectoryName(typeof(RgbdsCompatFixture).Assembly.Location)!;
+
+        _image = new ImageFromDockerfileBuilder()
+            .WithDockerfileDirectory(dockerfileDir)
+            .WithDockerfile("Dockerfile.rgbds")
+            .WithName("koh-rgbds-compat")
+            .Build();
+
+        await _image.CreateAsync();
+
+        _container = new ContainerBuilder()
+            .WithImage(_image)
+            .WithEntrypoint("tail", "-f", "/dev/null")
+            .Build();
+
+        await _container.StartAsync();
+    }
+
+    public static async Task StopAsync()
+    {
+        if (_container != null)
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "rgblink",
-                Arguments = "--version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            using var process = Process.Start(psi);
-            if (process == null) return null;
-
-            // Sequential drain is safe for tiny --version output
-            process.StandardOutput.ReadToEnd();
-            process.StandardError.ReadToEnd();
-
-            if (!process.WaitForExit(5000))
-            {
-                try { process.Kill(); } catch (Exception) { }
-                return null;
-            }
-
-            return process.ExitCode == 0 ? "rgblink" : null;
+            await _container.DisposeAsync();
+            _container = null;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+
+        if (_image != null)
         {
-            return null;
+            await _image.DisposeAsync();
+            _image = null;
         }
     }
 
@@ -58,96 +65,80 @@ internal static class RgbdsCompatFixture
             : Compilation.Create(tree).Emit();
     }
 
-    /// <summary>
-    /// Assemble a source file with rgbasm to produce a .o file.
-    /// Returns the path to the .o file, or null if rgbasm is unavailable or assembly failed.
-    /// </summary>
-    public static async Task<string?> RgbasmAssembleAsync(string source, string directory, string name)
+    public static byte[] WriteObjectFile(EmitModel model)
     {
-        var asmPath = Path.Combine(directory, name + ".asm");
-        var objPath = Path.Combine(directory, name + ".o");
-        await File.WriteAllTextAsync(asmPath, source);
+        using var stream = new MemoryStream();
+        RgbdsObjectWriter.Write(stream, model);
+        return stream.ToArray();
+    }
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = "rgbasm",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        psi.ArgumentList.Add("-o");
-        psi.ArgumentList.Add(objPath);
-        psi.ArgumentList.Add(asmPath);
+    public static async Task<byte[]?> RgbasmAssembleAsync(string source, string containerDir, string name)
+    {
+        var container = _container ?? throw new InvalidOperationException("Container not started");
 
-        using var process = Process.Start(psi);
-        if (process == null) return null;
+        var asmPath = $"{containerDir}/{name}.asm";
+        var objPath = $"{containerDir}/{name}.o";
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await container.CopyAsync(System.Text.Encoding.UTF8.GetBytes(source), asmPath);
+
+        var result = await container.ExecAsync(["rgbasm", "-o", objPath, asmPath]);
+
+        if (result.ExitCode != 0)
+            return null;
+
         try
         {
-            var results = await Task.WhenAll(
-                process.StandardOutput.ReadToEndAsync(cts.Token),
-                process.StandardError.ReadToEndAsync(cts.Token));
-            await process.WaitForExitAsync(cts.Token);
-            return process.ExitCode == 0 ? objPath : null;
+            return await container.ReadFileAsync(objPath);
         }
-        catch (OperationCanceledException)
+        catch
         {
-            try { process.Kill(); } catch (Exception) { }
             return null;
         }
     }
 
-    public static string WriteObjectFile(EmitModel model, string directory, string name)
+    public static async Task<LinkResult> LinkAsync(
+        string containerDir,
+        string outputName,
+        params (string Name, byte[] Data)[] objectFiles)
     {
-        var path = Path.Combine(directory, name);
-        using var stream = File.Create(path);
-        RgbdsObjectWriter.Write(stream, model);
-        return path;
-    }
+        var container = _container ?? throw new InvalidOperationException("Container not started");
 
-    public static async Task<LinkResult> LinkAsync(string outputPath, params string[] objectFiles)
-    {
-        var rgblink = RgblinkPath ?? throw new InvalidOperationException("rgblink not available");
+        await container.ExecAsync(["mkdir", "-p", containerDir]);
 
-        var psi = new ProcessStartInfo
+        var objPaths = new string[objectFiles.Length];
+        for (var i = 0; i < objectFiles.Length; i++)
         {
-            FileName = rgblink,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        psi.ArgumentList.Add("-o");
-        psi.ArgumentList.Add(outputPath);
-        foreach (var obj in objectFiles)
-            psi.ArgumentList.Add(obj);
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start rgblink");
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-
-        try
-        {
-            var results = await Task.WhenAll(
-                process.StandardOutput.ReadToEndAsync(cts.Token),
-                process.StandardError.ReadToEndAsync(cts.Token));
-            await process.WaitForExitAsync(cts.Token);
-
-            var stdout = results[0];
-            var stderr = results[1];
-
-            byte[]? romData = null;
-            if (process.ExitCode == 0 && File.Exists(outputPath))
-                romData = await File.ReadAllBytesAsync(outputPath);
-
-            return new LinkResult(process.ExitCode, stdout, stderr, romData);
+            var (name, data) = objectFiles[i];
+            var objPath = $"{containerDir}/{name}";
+            await container.CopyAsync(data, objPath);
+            objPaths[i] = objPath;
         }
-        catch (OperationCanceledException)
+
+        var outputPath = $"{containerDir}/{outputName}";
+
+        var args = new List<string> { "rgblink", "-o", outputPath };
+        args.AddRange(objPaths);
+
+        var result = await container.ExecAsync(args);
+
+        Console.WriteLine($"rgblink exit: {result.ExitCode}");
+        if (!string.IsNullOrWhiteSpace(result.Stderr))
+            Console.WriteLine($"rgblink stderr: {result.Stderr}");
+
+        byte[]? romData = null;
+        if (result.ExitCode == 0)
         {
-            try { process.Kill(); } catch (Exception) { }
-            return new LinkResult(-1, "", "Process timed out", null);
+            try
+            {
+                romData = await container.ReadFileAsync(outputPath);
+            }
+            catch
+            {
+                // File may not exist if linking produced no output
+            }
         }
+
+        return new LinkResult((int)result.ExitCode, result.Stdout, result.Stderr, romData);
     }
 }
 
