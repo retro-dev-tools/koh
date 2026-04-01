@@ -100,7 +100,9 @@ internal sealed class AssemblyExpander
         PreScanEquConstants(children);
 
         int i = 0;
-        ExpandBodyList(children, ref i, output, ctx);
+        var topLc = ExpandBodyList(children, ref i, output, ctx);
+        if (topLc == LoopControl.Break)
+            _diagnostics.Report(default, "BREAK escaped loop scope");
 
         if (_conditional.HasUnclosedBlocks)
             _diagnostics.Report(default, "Unclosed IF block: missing ENDC");
@@ -723,7 +725,7 @@ internal sealed class AssemblyExpander
             EqusResolver = LookupEqus,
             CharlenResolver = s => _charMaps.CharLen(s),
             IncharmapResolver = s => _charMaps.InCharMap(s),
-            ReadfileResolver = (path, limit) => ResolveReadfile(path, limit, ctx),
+            ReadfileResolver = (path, limit) => ResolveReadfile(path, limit, ctx.FilePath),
         };
         return evaluator;
     }
@@ -731,9 +733,9 @@ internal sealed class AssemblyExpander
     /// <summary>
     /// Shared file reading logic for READFILE function.
     /// </summary>
-    internal string? ResolveReadfile(string path, int? limit, ExpansionContext ctx)
+    internal string? ResolveReadfile(string path, int? limit, string basePath)
     {
-        var resolved = _fileResolver.ResolvePath(ctx.FilePath, path);
+        var resolved = _fileResolver.ResolvePath(basePath, path);
         if (!_fileResolver.FileExists(resolved))
         {
             _diagnostics.Report(default, $"READFILE: file not found: {path}");
@@ -752,10 +754,6 @@ internal sealed class AssemblyExpander
             return null;
         }
     }
-
-    // Keep the old overload for internal callers that don't have a ctx yet
-    internal string? ResolveReadfile(string path, int? limit, string filePath)
-        => ResolveReadfile(path, limit, new ExpansionContext { FilePath = filePath });
 
     private void EarlyProcessCharmap(SyntaxNode node, ExpansionContext ctx)
     {
@@ -1217,8 +1215,9 @@ internal sealed class AssemblyExpander
             // Substitute \@ in the included file's text using the current invocation's unique ID.
             // This ensures that \@ labels in an included file share the same unique suffix as the
             // macro call (or REPT iteration) that INCLUDEd them, matching RGBDS.
-            // Note: this is text modification before parse, routed through TextReplayService
-            // for consistency even though INCLUDE is new-source intake.
+            // Note: substitution is routed through TextReplayService for consistency, but the
+            // subsequent SyntaxTree.Parse is direct new-source intake, not replay — it does not
+            // go through ParseForReplay because INCLUDE is not replay-driven re-expansion.
             if (ctx.CurrentMacroFrame != null)
             {
                 source = TextReplayService.SubstituteUniqueId(source, ctx.CurrentMacroFrame.UniqueId);
