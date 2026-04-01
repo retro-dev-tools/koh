@@ -1,7 +1,7 @@
 # AssemblyExpander Compiler-Grade Expansion Architecture
 
 **Date:** 2026-04-01
-**Status:** Approved design, pending implementation
+**Status:** Approved
 
 ## Problem
 
@@ -73,7 +73,6 @@ One level of expansion ancestry with per-kind data. `TextReplayReason` is a stru
 ```csharp
 internal enum ExpansionKind
 {
-    Source,
     MacroExpansion,
     ReptIteration,
     ForIteration,
@@ -84,7 +83,7 @@ internal enum ExpansionKind
 internal enum TextReplayReason
 {
     MacroParameterConcatenation,
-    ReptUniqueLabelSubstitution,
+    UniqueLabelSubstitution,
     ForTokenShapingSubstitution,
     EqusReplay
 }
@@ -334,15 +333,15 @@ internal sealed record BodyReplayPlan(
 ```
 
 **REPT classification:**
-- Body text contains `\@` → `RequiresTextReplay` with reason `ReptUniqueLabelSubstitution`
+- Body text contains `\@` → `RequiresTextReplay` with reason `UniqueLabelSubstitution`
 - Otherwise → `Structural`
 
 **FOR classification:**
-- Parse body once. Walk token stream. For each occurrence of the loop variable:
-  - If the variable appears as a distinct `IdentifierToken` that represents a standalone symbolic reference (a complete token in the parsed tree, not a fragment of a synthesized token) → evaluation-only, structural
-  - If the variable participates in text constructs that synthesize token identity or token boundaries (EQUS/text replay cases, macro parameter concatenation, `\@` suffix) → token-shaping, requires text replay
-- If any token-shaping occurrence exists → `RequiresTextReplay` with reason `ForTokenShapingSubstitution`
-- If body contains `\@` → `RequiresTextReplay` with reason `ReptUniqueLabelSubstitution`
+- Parse body once. Walk token stream.
+- A FOR body is eligible for structural replay only when every occurrence of the loop variable is a standalone parsed identifier/reference occurrence that can be represented by symbol-table rebinding alone. Any occurrence discovered only after textual substitution, interpolation, EQUS expansion, macro parameter concatenation, or `\@`-driven token formation requires text replay.
+- Concretely: each occurrence of the loop variable in the parsed tree must be a distinct `IdentifierToken` node — a complete token, not a substring of a larger synthesized token.
+- If any non-standalone occurrence exists → `RequiresTextReplay` with reason `ForTokenShapingSubstitution`
+- If body contains `\@` → `RequiresTextReplay` with reason `UniqueLabelSubstitution`
 - Otherwise → `Structural`
 
 Classification is conservative: ambiguous cases default to `RequiresTextReplay`. False positives toward replay are safe (unnecessary reparse); false positives toward structural are bugs (wrong tokens).
@@ -406,8 +405,16 @@ internal sealed class TextReplayService
         => bodyText.Replace("\\@", $"_{uniqueId}");
 
     public string SubstituteMacroParams(string body, MacroFrame frame, bool containsShift,
-        SymbolTable symbols, ExpressionCache cache) { ... }
+        SymbolTable symbols, Dictionary<string, GreenNodeBase?> expressionCache) { ... }
 
+    /// <summary>
+    /// Resolve interpolations (if no macro params pending), check replay depth,
+    /// and parse text for re-expansion. Returns null if depth exceeded.
+    ///
+    /// Text replay creates a synthetic SyntaxTree, but emitted nodes still use
+    /// the replay context's immediate file container semantics through ctx.FilePath;
+    /// trace records the replay frame and ancestry.
+    /// </summary>
     public SyntaxTree? ParseForReplay(string text, bool hasMacroParams,
         ExpansionContext ctx, TextSpan triggerSpan, TextReplayReason reason,
         int maxReplayDepth)
@@ -459,6 +466,12 @@ internal sealed class TextReplayService
 
 These are not replay — they are analysis or new-source intake. The boundary is: if the parse exists because text was transformed by substitution and needs re-lexing, it must go through `ParseForReplay`.
 
+### Trace emission invariant
+
+**Every emitted `ExpandedNode` must carry the exact `ctx.Trace` of the scope in which it was emitted. No emission site may synthesize or partially reconstruct trace data ad hoc.**
+
+This means: nodes emitted in the kernel use `ctx.Trace` directly. There is no path where emission constructs a trace by combining fragments from different contexts or by manually pushing frames outside the context factory methods.
+
 ### Remaining reparses — exhaustive list
 
 | Reparse site | Reason | Routed through |
@@ -482,7 +495,7 @@ Approximate change: drops from ~2,000 lines to ~1,700 lines. More importantly, t
 
 ### Phase 1: Context threading
 
-Each step leaves all 922 existing tests passing.
+Each numbered migration step should leave the test suite green before proceeding to the next step.
 
 1. **Add new type files** — `ExpansionContext.cs`, `ExpansionTrace.cs`, `BodyReplayPlan.cs`. No references yet.
 2. **Add `ctx` parameter to `ExpandBodyList`** — entry point creates initial context. Internals still temporarily read ambient fields (transitional bridge).
@@ -527,6 +540,7 @@ All 922 tests must pass after every migration step. Primary regression guard.
 | Structural depth limit fires independently of replay depth | Deep macro nesting hits `MaxStructuralDepth` while replay depth is zero. |
 | SHIFT path uses replay only when needed | Macro with SHIFT and deferred params works correctly. Trace shows replay when replay occurs. |
 | INCLUDE inside macro/REPT preserves SourceFilePath while trace preserves ancestry | Validates `SourceFilePath` = immediate container, trace = full history. |
+| Direct source node has empty trace | Non-expanded statements carry `ExpansionTrace.Empty`, not fake provenance frames. |
 
 ### Replay verification approach
 
@@ -581,3 +595,4 @@ For backward compatibility, `Trace?.Current?.Kind` replaces `Origin?.Kind`. But 
 - Does not rewrite binder diagnostics to use expansion traces (though it produces the data that makes that possible).
 - Does not extract `_macros` into a separate `MacroRepository` (identified as next-step candidate).
 - Does not make `MacroFrame` immutable (SHIFT pragmatic compromise).
+- Does not yet make binder/linker diagnostics expansion-trace-aware by default; this pass only guarantees the trace data is available and correct.
