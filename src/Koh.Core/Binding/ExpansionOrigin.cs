@@ -2,24 +2,7 @@ using Koh.Core.Syntax;
 
 namespace Koh.Core.Binding;
 
-/// <summary>
-/// Classifies how an <see cref="ExpandedNode"/> was produced.
-/// </summary>
-public enum ExpansionKind
-{
-    /// <summary>Node from the original source file, no synthetic expansion.</summary>
-    Source,
-    /// <summary>Produced by macro body expansion.</summary>
-    MacroExpansion,
-    /// <summary>Produced by REPT loop iteration.</summary>
-    ReptIteration,
-    /// <summary>Produced by FOR loop iteration.</summary>
-    ForIteration,
-    /// <summary>Produced by INCLUDE directive.</summary>
-    Include,
-    /// <summary>Produced by EQUS text replay or interpolation-driven re-expansion.</summary>
-    TextReplay
-}
+// ExpansionKind enum moved to ExpansionTrace.cs
 
 /// <summary>
 /// Records where a synthetic expansion originated: the expansion type,
