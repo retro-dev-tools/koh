@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Koh.Core.Diagnostics;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
@@ -37,6 +36,7 @@ internal sealed class AssemblyExpander
 
     // Cache for parsed expression fragments (avoids repeated SyntaxTree.Parse for \<expr>)
     private readonly Dictionary<string, GreenNodeBase?> _expressionCache = new();
+    private readonly TextReplayService _textReplay;
 
     private const int MaxStructuralDepth = 64;
     private const int MaxReplayDepth = 64;
@@ -51,6 +51,7 @@ internal sealed class AssemblyExpander
         _charMaps = charMaps ?? new CharMapManager(diagnostics);
         _printOutput = printOutput ?? Console.Error;
         _interpolation = new InterpolationResolver(symbols, _equsConstants, diagnostics);
+        _textReplay = new TextReplayService(_diagnostics, _interpolation);
     }
 
     /// <summary>The expander's charmap state, for sharing with the binder.</summary>
@@ -1134,7 +1135,8 @@ internal sealed class AssemblyExpander
     {
         if (macro.RequiresTextSubstitution)
         {
-            var body = SubstituteMacroParams(macro.RawBody, frame, macro.ContainsShift);
+            var body = _textReplay.SubstituteMacroParams(macro.RawBody, frame, macro.ContainsShift,
+                _symbols, _expressionCache);
             ExpandTextInline(body, output, ctx, macro.DefinitionSpan, TextReplayReason.MacroParameterConcatenation);
         }
         else
@@ -1266,103 +1268,7 @@ internal sealed class AssemblyExpander
         return false;
     }
 
-    // Pre-compiled pattern that matches either a double-quoted string literal or any
-    // non-string-literal content (captured separately). Used by SubstituteOutsideStrings.
-    private static readonly Regex StringLiteralSplitter =
-        new Regex(@"""(?:[^""\\]|\\.)*""|[^""]+", RegexOptions.Compiled);
 
-    /// <summary>
-    /// Replace all occurrences of <paramref name="pattern"/> in <paramref name="text"/>
-    /// with <paramref name="replacement"/>, but only in regions that are not inside
-    /// double-quoted string literals. String literal content is preserved verbatim.
-    /// </summary>
-    private static string SubstituteOutsideStrings(string text, Regex pattern, string replacement)
-    {
-        if (!text.Contains('"'))
-            return pattern.Replace(text, replacement); // fast path: no string literals
-
-        var sb = new System.Text.StringBuilder(text.Length);
-        foreach (Match m in StringLiteralSplitter.Matches(text))
-        {
-            var segment = m.Value;
-            // If the segment starts with '"' it is a string literal — copy verbatim.
-            if (segment.Length > 0 && segment[0] == '"')
-                sb.Append(segment);
-            else
-                sb.Append(pattern.Replace(segment, replacement));
-        }
-        return sb.ToString();
-    }
-
-    private static readonly Regex NargPattern =
-        new Regex(@"\b_NARG\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    /// <summary>
-    /// Substitute macro params in body text. Only \@ is eagerly baked (immutable per invocation).
-    /// \1..\9, \#, _NARG are resolved lazily via MacroFrame when SHIFT is present;
-    /// otherwise eagerly substituted for efficiency.
-    ///
-    /// _NARG is substituted as text rather than via the symbol table because expressions
-    /// are evaluated in Pass 2 — a symbol-table value would reflect the last macro call,
-    /// not the current invocation. Text substitution bakes the correct value per call.
-    /// </summary>
-    private string SubstituteMacroParams(string body, MacroFrame frame, bool containsShift)
-    {
-        // frame.UniqueId was already set by ExpandMacroCall; do NOT increment _uniqueIdCounter
-        // here again (that would make each macro invocation consume two IDs and cause
-        // \@ values to duplicate across nested REPT/macro combinations).
-
-        // \@ → unique suffix per invocation (eagerly baked — immutable)
-        body = body.Replace("\\@", $"_{frame.UniqueId}");
-
-        if (containsShift)
-        {
-            // Bodies with SHIFT leave \1..\9, \#, _NARG as-is. They survive as
-            // MacroParamToken in the re-parsed tree and are resolved lazily from
-            // the MacroFrame during ExpandBodyList. This allows SHIFT to mutate
-            // the argument window and affect subsequent references.
-            return body;
-        }
-
-        // No SHIFT — eagerly substitute everything (faster, no MacroParamToken overhead)
-        return SubstituteParamReferences(body, frame, reportShiftedPast: false);
-    }
-
-    /// <summary>
-    /// Resolve \&lt;expr&gt; computed arg index references in macro body text.
-    /// The expr is evaluated as an integer and used as a 1-based argument index.
-    /// Invalid expressions produce a diagnostic.
-    /// </summary>
-    private string ResolveComputedArgs(string body, MacroFrame frame)
-    {
-        int searchFrom = 0;
-        while (true)
-        {
-            int start = body.IndexOf("\\<", searchFrom, StringComparison.Ordinal);
-            if (start < 0) break;
-            int end = body.IndexOf('>', start + 2);
-            if (end < 0) break;
-
-            var exprText = body[(start + 2)..end];
-            var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
-            var exprGreen = ParseExpressionCached(exprText);
-            long? val = exprGreen != null ? evaluator.TryEvaluate(exprGreen) : null;
-
-            if (val.HasValue)
-            {
-                var replacement = frame.GetArg((int)val.Value);
-                body = body[..start] + replacement + body[(end + 1)..];
-                searchFrom = start + replacement.Length;
-            }
-            else
-            {
-                _diagnostics.Report(default, $"Invalid computed macro argument expression: \\<{exprText}>");
-                // Leave the text as-is and advance past it
-                searchFrom = end + 1;
-            }
-        }
-        return body;
-    }
 
     // =========================================================================
     // REPT/FOR expansion
@@ -1398,24 +1304,6 @@ internal sealed class AssemblyExpander
         return body;
     }
 
-    private string ExtractBodyText(SyntaxNode headerNode,
-        IReadOnlyList<SyntaxNodeOrToken> body, ExpansionContext ctx)
-    {
-        if (ctx.SourceText == null || body.Count == 0)
-            return "";
-
-        int bodyTextStart = headerNode.FullSpan.Start + headerNode.FullSpan.Length;
-        int bodyTextEnd = bodyTextStart;
-
-        var last = body[^1];
-        if (last.IsNode)
-            bodyTextEnd = last.AsNode!.FullSpan.Start + last.AsNode!.FullSpan.Length;
-        else if (last.IsToken)
-            bodyTextEnd = last.AsToken!.FullSpan.Start + last.AsToken!.FullSpan.Length;
-
-        return ctx.SourceText.ToString(new TextSpan(bodyTextStart, bodyTextEnd - bodyTextStart));
-    }
-
     private void ExpandRept(SyntaxNode reptNode,
         IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i,
         List<ExpandedNode> output, ExpansionContext ctx)
@@ -1430,32 +1318,46 @@ internal sealed class AssemblyExpander
         }
         if (count < 0) count = 0;
 
-        // Extract body text for \@ substitution (REPT bodies support \@ for unique labels)
-        var bodyTextRaw = ExtractBodyText(reptNode, PeekBodyNodes(siblings, i), ctx);
-        CollectRepeatBody(siblings, ref i, reptNode.FullSpan); // advances index past ENDR
+        // Peek body nodes to extract text, then collect to advance cursor past ENDR
+        var peekBody = PeekBodyNodes(siblings, i);
+        var bodyTextRaw = TextReplayService.ExtractBodyText(reptNode, peekBody, ctx);
+        var bodyNodes = CollectRepeatBody(siblings, ref i, reptNode.FullSpan);
+
+        // Classify: structural replay if no \@, text replay if \@ present
+        var plan = TextReplayService.ClassifyReptBody(bodyTextRaw);
 
         var condDepthBefore = _conditional.Depth;
-        for (int iter = 0; iter < count; iter++)
+        if (plan.Kind == BodyReplayKind.Structural)
         {
-            _uniqueIdCounter++;
-            var iterUniqueId = _uniqueIdCounter;
-            var iterFrame = ExpansionFrame.ForRept(ctx.FilePath, reptNode.FullSpan, iter);
-            var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
-
-            // Substitute \@ only at the REPT level; macro calls inside will
-            // get their own \@ via SubstituteMacroParams.
-            var iterText = bodyTextRaw.Replace("\\@", $"_{iterUniqueId}");
-            var lc = ExpandTextInline(iterText, output, iterCtx, reptNode.FullSpan, TextReplayReason.UniqueLabelSubstitution);
-            if (lc == LoopControl.Break)
-            {
-                // BREAK may have fired inside an IF block; reset conditional state to the
-                // depth before this iteration so the balance check doesn't fire a false positive.
-                _conditional.ResetToDepth(condDepthBefore);
-                break;
-            }
+            var lc = ExpandReptStructural(bodyNodes, count, reptNode, output, ctx);
+            if (_conditional.Depth != condDepthBefore)
+                _diagnostics.Report(reptNode.FullSpan, "Unbalanced IF/ENDC inside REPT body");
+            _ = lc; // loop control already handled inside ExpandReptStructural
         }
-        if (_conditional.Depth != condDepthBefore)
-            _diagnostics.Report(reptNode.FullSpan, "Unbalanced IF/ENDC inside REPT body");
+        else
+        {
+            for (int iter = 0; iter < count; iter++)
+            {
+                _uniqueIdCounter++;
+                var iterUniqueId = _uniqueIdCounter;
+                var iterFrame = ExpansionFrame.ForRept(ctx.FilePath, reptNode.FullSpan, iter);
+                var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+
+                // Substitute \@ only at the REPT level; macro calls inside will
+                // get their own \@ via SubstituteMacroParams.
+                var iterText = TextReplayService.SubstituteUniqueId(bodyTextRaw, iterUniqueId);
+                var lc = ExpandTextInline(iterText, output, iterCtx, reptNode.FullSpan, TextReplayReason.UniqueLabelSubstitution);
+                if (lc == LoopControl.Break)
+                {
+                    // BREAK may have fired inside an IF block; reset conditional state to the
+                    // depth before this iteration so the balance check doesn't fire a false positive.
+                    _conditional.ResetToDepth(condDepthBefore);
+                    break;
+                }
+            }
+            if (_conditional.Depth != condDepthBefore)
+                _diagnostics.Report(reptNode.FullSpan, "Unbalanced IF/ENDC inside REPT body");
+        }
     }
 
     /// <summary>
@@ -1522,54 +1424,129 @@ internal sealed class AssemblyExpander
                 Diagnostics.DiagnosticSeverity.Warning);
         }
 
-        // Extract body text for variable + \@ substitution
-        var bodyTextRaw = ExtractBodyText(forNode, PeekBodyNodes(siblings, i), ctx);
-        var body = CollectRepeatBody(siblings, ref i, forNode.FullSpan);
+        // Extract body text for classification and potential substitution
+        var peekForBody = PeekBodyNodes(siblings, i);
+        var bodyTextRaw = TextReplayService.ExtractBodyText(forNode, peekForBody, ctx);
+        var forBodyNodes = CollectRepeatBody(siblings, ref i, forNode.FullSpan);
 
-        // Pre-parse body once for syntax-aware variable substitution.
-        // This replaces the regex+SubstituteOutsideStrings approach: instead of building
-        // a Regex per loop and relying on a heuristic to skip string literals, we walk
-        // the parsed token stream and only replace actual IdentifierToken nodes. This is
-        // strictly more precise — it won't match inside strings, comments, or partial identifiers.
-        SyntaxTree? bodyTree = varName != null ? SyntaxTree.Parse(bodyTextRaw) : null;
-
+        // Classify: can we replay structurally (symbol table lookup per iteration)?
+        // Structural replay emits synthetic REDEF nodes before each body so the Binder's
+        // Pass 2 can re-evaluate the per-iteration variable value without re-parsing.
+        // Text replay bakes the value into the re-parsed node text — used when the variable
+        // appears in token-shaping positions or when \@ substitution is required.
         int iterIndex = 0;
-        if (varName != null && bodyTree != null)
+        if (varName != null)
         {
-            // Collect substitution positions once from the pre-parsed tree
-            var positions = new List<(int Start, int Length)>();
-            CollectIdentifierPositions(bodyTree.Root, varName, positions);
+            var plan = TextReplayService.ClassifyForBody(bodyTextRaw, varName);
 
-            for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
+            if (plan.Kind == BodyReplayKind.Structural)
             {
-                _symbols.DefineOrRedefine(varName, v);
-
-                _uniqueIdCounter++;
-                var iterUniqueId = _uniqueIdCounter;
-                var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
-                var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
-
-                var iterText = SubstituteAtPositions(bodyTextRaw, positions, v.ToString());
-                iterText = iterText.Replace("\\@", $"_{iterUniqueId}");
-                var lc = ExpandTextInline(iterText, output, iterCtx, forNode.FullSpan, TextReplayReason.ForTokenShapingSubstitution);
-                if (lc == LoopControl.Break) break;
+                // Structural path: all variable references are IdentifierTokens.
+                // Emit synthetic REDEF nodes so Pass 2 evaluates the correct per-iteration value.
+                ExpandForStructural(forBodyNodes, varName, start, stop, step,
+                    forNode, output, ctx);
             }
-            // Variable retains its last value after the loop (RGBDS behavior).
+            else
+            {
+                // Text replay path: pre-parse once and bake per-iteration values via substitution.
+                var bodyTree = SyntaxTree.Parse(bodyTextRaw);
+                var positions = new List<(int Start, int Length)>();
+                TextReplayService.CollectIdentifierPositions(bodyTree.Root, varName, positions);
+
+                for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
+                {
+                    _symbols.DefineOrRedefine(varName, v);
+
+                    _uniqueIdCounter++;
+                    var iterUniqueId = _uniqueIdCounter;
+                    var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
+                    var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+
+                    var iterText = TextReplayService.SubstituteAtPositions(bodyTextRaw, positions, v.ToString());
+                    iterText = TextReplayService.SubstituteUniqueId(iterText, iterUniqueId);
+                    var lc = ExpandTextInline(iterText, output, iterCtx, forNode.FullSpan,
+                        TextReplayReason.ForTokenShapingSubstitution);
+                    if (lc == LoopControl.Break) break;
+                }
+                // Variable retains its last value after the loop (RGBDS behavior).
+            }
         }
         else
         {
-            for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
-            {
-                _uniqueIdCounter++;
-                var iterUniqueId = _uniqueIdCounter;
-                var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
-                var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+            // No variable name — structural replay is always safe (nothing to substitute)
+            ExpandForStructural(forBodyNodes, varName, start, stop, step,
+                forNode, output, ctx);
+        }
+    }
 
-                var iterText = bodyTextRaw.Replace("\\@", $"_{iterUniqueId}");
-                var lc = ExpandTextInline(iterText, output, iterCtx, forNode.FullSpan, TextReplayReason.ForTokenShapingSubstitution);
-                if (lc == LoopControl.Break) break;
+    // =========================================================================
+    // Structural replay (no text substitution, no SyntaxTree.Parse per iteration)
+    // =========================================================================
+
+    /// <summary>
+    /// Walk parsed body nodes N times without text extraction or re-parsing.
+    /// Used when REPT body contains no \@ (structural replay classification).
+    /// Returns LoopControl.Break if BREAK was encountered.
+    /// </summary>
+    private LoopControl ExpandReptStructural(List<SyntaxNodeOrToken> bodyNodes, int count,
+        SyntaxNode reptNode, List<ExpandedNode> output, ExpansionContext ctx)
+    {
+        var condDepthBefore = _conditional.Depth;
+        for (int iter = 0; iter < count; iter++)
+        {
+            _uniqueIdCounter++;
+            var iterUniqueId = _uniqueIdCounter;
+            var iterFrame = ExpansionFrame.ForRept(ctx.FilePath, reptNode.FullSpan, iter);
+            var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+
+            int j = 0;
+            var lc = ExpandBodyList(bodyNodes, ref j, output, iterCtx);
+            if (lc == LoopControl.Break)
+            {
+                _conditional.ResetToDepth(condDepthBefore);
+                return LoopControl.Break;
             }
         }
+        if (_conditional.Depth != condDepthBefore)
+            _diagnostics.Report(reptNode.FullSpan, "Unbalanced IF/ENDC inside REPT body");
+        return LoopControl.Continue;
+    }
+
+    /// <summary>
+    /// Walk parsed body nodes for each FOR iteration. If a variable is named, emits a synthetic
+    /// REDEF node before each body so that the Binder's Pass 1 and Pass 2 both see the correct
+    /// per-iteration value without re-parsing the body. No text substitution or per-body reparse.
+    /// </summary>
+    private LoopControl ExpandForStructural(List<SyntaxNodeOrToken> bodyNodes,
+        string? varName, long start, long stop, long step,
+        SyntaxNode forNode, List<ExpandedNode> output, ExpansionContext ctx)
+    {
+        int iterIndex = 0;
+        for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
+        {
+            if (varName != null)
+            {
+                // Update symbol table for expansion-time evaluation (e.g., nested IF expressions).
+                _symbols.DefineOrRedefine(varName, v);
+                // Emit a synthetic REDEF node so Pass 1 and Pass 2 re-evaluate the symbol
+                // with the current iteration value before processing the body nodes.
+                var synthTree = SyntaxTree.Parse($"REDEF {varName} EQU {v}");
+                var synthNode = synthTree.Root.ChildNodes().FirstOrDefault();
+                if (synthNode != null)
+                    output.Add(new ExpandedNode(synthNode, ctx.FilePath, false, false, ctx.Trace));
+            }
+
+            _uniqueIdCounter++;
+            var iterUniqueId = _uniqueIdCounter;
+            var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
+            var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+
+            int j = 0;
+            var lc = ExpandBodyList(bodyNodes, ref j, output, iterCtx);
+            if (lc == LoopControl.Break) return LoopControl.Break;
+        }
+        // Variable retains its last value after the loop (RGBDS behavior).
+        return LoopControl.Continue;
     }
 
     // =========================================================================
@@ -1601,18 +1578,12 @@ internal sealed class AssemblyExpander
         // PRINTLN "{d:\1}" must NOT be resolved yet — \1 is not a symbol name. The per-node
         // NeedsInterpolation path in ExpandBodyList will resolve them after macro params are
         // substituted via the ContainsMacroParam path.
-        bool hasMacroParams = ContainsUnresolvedMacroParam(text);
-        if (!hasMacroParams)
-            text = ResolveInterpolations(text);
+        bool hasMacroParams = TextReplayService.ContainsUnresolvedMacroParam(text);
 
-        if (ctx.ReplayDepth >= MaxReplayDepth)
-        {
-            _diagnostics.Report(triggerSpan,
-                $"Maximum text replay depth ({MaxReplayDepth}) exceeded");
+        var tree = _textReplay.ParseForReplay(text, hasMacroParams, ctx, triggerSpan, reason, MaxReplayDepth);
+        if (tree == null)
             return LoopControl.Continue;
-        }
 
-        var tree = SyntaxTree.Parse(text);
         var replayCtx = ctx.ForTextReplay(tree.Text, triggerSpan, reason);
 
         var children = tree.Root.ChildNodesAndTokens().ToList();
@@ -1671,76 +1642,6 @@ internal sealed class AssemblyExpander
     }
 
     // =========================================================================
-    // Syntax-aware substitution helpers
-    // =========================================================================
-
-    /// <summary>
-    /// Recursively collect the <see cref="TextSpan"/> positions of all IdentifierToken nodes
-    /// in the red tree that match <paramref name="name"/> (case-insensitive).
-    /// Used by FOR loop substitution to precisely locate variable references without regex.
-    /// </summary>
-    private static void CollectIdentifierPositions(SyntaxNode node, string name,
-        List<(int Start, int Length)> positions)
-    {
-        foreach (var child in node.ChildNodesAndTokens())
-        {
-            if (child.IsToken)
-            {
-                var token = child.AsToken!;
-                if (token.Kind == SyntaxKind.IdentifierToken &&
-                    token.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
-                {
-                    positions.Add((token.Span.Start, token.Span.Length));
-                }
-            }
-            else if (child.IsNode)
-            {
-                CollectIdentifierPositions(child.AsNode!, name, positions);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Replace text at pre-computed token positions. The positions were collected from
-    /// a pre-parsed tree, making this a syntax-driven substitution: only actual identifier
-    /// tokens are replaced, not occurrences inside string literals, comments, or partial matches.
-    ///
-    /// Note: positions are valid for the original text. If the replacement has a different
-    /// length than the original token, positions shift. This method accounts for the
-    /// cumulative offset from prior replacements.
-    /// </summary>
-    private static string SubstituteAtPositions(string source,
-        List<(int Start, int Length)> positions, string replacement)
-    {
-        if (positions.Count == 0) return source;
-
-        var sb = new System.Text.StringBuilder(source.Length);
-        int pos = 0;
-        foreach (var (start, length) in positions)
-        {
-            sb.Append(source, pos, start - pos);
-            sb.Append(replacement);
-            pos = start + length;
-        }
-        sb.Append(source, pos, source.Length - pos);
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// Parse an expression fragment and cache the result. Avoids repeated SyntaxTree.Parse
-    /// for the same \&lt;expr&gt; text across multiple macro invocations.
-    /// </summary>
-    private GreenNodeBase? ParseExpressionCached(string exprText)
-    {
-        if (_expressionCache.TryGetValue(exprText, out var cached))
-            return cached;
-        var tree = SyntaxTree.Parse(exprText);
-        var exprNode = tree.Root.ChildNodes().FirstOrDefault()?.Green;
-        _expressionCache[exprText] = exprNode;
-        return exprNode;
-    }
-
-    // =========================================================================
     // Green tree inspection helpers
     // =========================================================================
 
@@ -1773,25 +1674,6 @@ internal sealed class AssemblyExpander
     }
 
     /// <summary>
-    /// Returns true if the raw source text contains any unresolved macro parameter reference:
-    /// \1..\9 or \# anywhere in the text. Used to suppress upfront EQUS interpolation in
-    /// ExpandTextInline when the text still has un-substituted macro params (SHIFT scenario).
-    /// </summary>
-    private static bool ContainsUnresolvedMacroParam(string text)
-    {
-        for (int i = 0; i < text.Length - 1; i++)
-        {
-            if (text[i] == '\\')
-            {
-                char next = text[i + 1];
-                if (next >= '1' && next <= '9') return true;
-                if (next == '#') return true;
-            }
-        }
-        return false;
-    }
-
-    /// <summary>
     /// Returns true if the text of a StringLiteral token contains any macro parameter
     /// reference: \1..\9, \#, or _NARG (case-insensitive).
     /// </summary>
@@ -1799,7 +1681,6 @@ internal sealed class AssemblyExpander
     {
         if (!tokenText.Contains('\\') && !tokenText.Contains("_NARG", StringComparison.OrdinalIgnoreCase))
             return false;
-        // Scan for \1..\9 or \#
         for (int i = 0; i < tokenText.Length - 1; i++)
         {
             if (tokenText[i] == '\\')
@@ -1818,44 +1699,8 @@ internal sealed class AssemblyExpander
     /// Reports an error if \N references an arg that has been shifted past.
     /// </summary>
     private string ResolveMacroParamsInText(string text, MacroFrame frame)
-        => SubstituteParamReferences(text, frame, reportShiftedPast: true);
-
-    /// <summary>
-    /// Shared core for macro parameter substitution: \1..\9, \&lt;expr&gt;, \#, _NARG.
-    /// When <paramref name="reportShiftedPast"/> is true, reports a diagnostic for
-    /// \N references that have been shifted past the argument list (lazy/SHIFT path).
-    /// When false, silently substitutes "" for missing args (eager/no-SHIFT path).
-    /// </summary>
-    private string SubstituteParamReferences(string text, MacroFrame frame, bool reportShiftedPast)
-    {
-        for (int p = 9; p >= 1; p--)
-        {
-            var placeholder = $"\\{p}";
-            if (!text.Contains(placeholder)) continue;
-
-            if (reportShiftedPast)
-            {
-                int argIndex = p - 1 + frame.ShiftOffset;
-                if (argIndex >= frame.Args.Count)
-                {
-                    _diagnostics.Report(default, $"Macro argument \\{p} not defined (shifted past end)");
-                    text = text.Replace(placeholder, "");
-                    continue;
-                }
-            }
-
-            text = text.Replace(placeholder, frame.GetArg(p));
-        }
-
-        text = ResolveComputedArgs(text, frame);
-
-        if (text.Contains("\\#"))
-            text = text.Replace("\\#", frame.AllArgs());
-
-        text = SubstituteOutsideStrings(text, NargPattern, frame.Narg.ToString());
-
-        return text;
-    }
+        => _textReplay.SubstituteParamReferences(text, frame, reportShiftedPast: true,
+            _symbols, _expressionCache);
 
     /// <summary>
     /// Recursively find the text of the first token with the given kind in the subtree.

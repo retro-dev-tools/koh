@@ -162,7 +162,10 @@ public sealed class Binder
             case SyntaxKind.SymbolDirective:
                 // EQU constants and charmap directives are processed by the AssemblyExpander
                 // during expansion (before Pass 1). Only EXPORT visibility marking belongs here.
-                Pass1Export(node);
+                // REDEF nodes emitted as synthetic ExpandedNodes by ExpandForStructural are
+                // re-processed here so that Pass 1 PC tracking and Pass 2 expression evaluation
+                // both see the current per-iteration value.
+                Pass1SymbolDirective(node);
                 break;
             case SyntaxKind.DirectiveStatement:
                 Pass1Directive(node, pc);
@@ -516,15 +519,16 @@ public sealed class Binder
     }
 
     /// <summary>
-    /// Pass 1 only needs to process EXPORT visibility from SymbolDirective nodes.
-    /// EQU and REDEF constants are fully resolved by AssemblyExpander before Pass 1 runs;
-    /// re-evaluating them here would cause duplicate-definition diagnostics.
+    /// Handle SymbolDirective in Pass 1. Processes EXPORT visibility and synthetic REDEF
+    /// nodes emitted by ExpandForStructural (so the symbol table reflects the current
+    /// per-iteration value for both Pass 1 PC tracking and Pass 2 expression evaluation).
     /// </summary>
-    private void Pass1Export(SyntaxNode node)
+    private void Pass1SymbolDirective(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count < 2) return;
 
+        // EXPORT: mark symbol as exported
         if (tokens[0].Kind == SyntaxKind.ExportKeyword)
         {
             for (int i = 1; i < tokens.Count; i++)
@@ -534,8 +538,32 @@ public sealed class Binder
                               ?? _symbols.DeclareForwardRef(tokens[i].Text);
                     sym.Visibility = SymbolVisibility.Exported;
                 }
+            return;
+        }
+
+        // REDEF name EQU value — re-set a symbol that was previously defined.
+        // This handles synthetic REDEF nodes emitted by ExpandForStructural so that
+        // each FOR iteration produces the correct per-iteration value without text substitution.
+        int nameIdx = 0;
+        if (tokens[0].Kind == SyntaxKind.RedefKeyword)
+            nameIdx = 1;
+
+        if (nameIdx < tokens.Count && tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
+            nameIdx + 1 < tokens.Count &&
+            tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        {
+            var exprNodes = node.ChildNodes().ToList();
+            if (exprNodes.Count > 0)
+            {
+                var evaluator = CreateEvaluator(() => 0);
+                var value = evaluator.TryEvaluate(exprNodes[0].Green);
+                if (value.HasValue)
+                    _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+            }
         }
     }
+
+    private void Pass1Export(SyntaxNode node) => Pass1SymbolDirective(node);
 
     // =========================================================================
     // Pass 2 — byte emission (flat iteration, no blocks)
@@ -564,9 +592,43 @@ public sealed class Binder
                 break;
             // SymbolDirective: charmap directives handled in AssemblyExpander.EarlyProcessCharmap,
             // EQU handled in AssemblyExpander.EarlyDefineEqu, EXPORT in Pass1Export.
+            // Synthetic REDEF nodes from ExpandForStructural are re-evaluated here so that
+            // Pass 2 expression evaluation sees the correct per-iteration symbol value.
+            case SyntaxKind.SymbolDirective:
+                Pass2SymbolDirective(node);
+                break;
             case SyntaxKind.DirectiveStatement:
                 Pass2Directive(node);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Pass 2 handler for SymbolDirective. Re-applies REDEF EQU definitions so that
+    /// synthetic REDEF nodes from ExpandForStructural produce correct per-iteration
+    /// symbol values for all Pass 2 expressions (db I, etc.).
+    /// </summary>
+    private void Pass2SymbolDirective(SyntaxNode node)
+    {
+        var tokens = node.ChildTokens().ToList();
+        if (tokens.Count < 2) return;
+
+        int nameIdx = 0;
+        if (tokens[0].Kind == SyntaxKind.RedefKeyword)
+            nameIdx = 1;
+
+        if (nameIdx < tokens.Count && tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
+            nameIdx + 1 < tokens.Count &&
+            tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        {
+            var exprNodes = node.ChildNodes().ToList();
+            if (exprNodes.Count > 0)
+            {
+                var evaluator = CreateEvaluator(() => _sections.ActiveSection?.CurrentPC ?? 0);
+                var value = evaluator.TryEvaluate(exprNodes[0].Green);
+                if (value.HasValue)
+                    _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+            }
         }
     }
 
