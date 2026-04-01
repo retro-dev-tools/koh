@@ -13,7 +13,7 @@ namespace Koh.Core.Binding;
 /// FromMacroBody is true when the node was produced inside a macro body expansion —
 /// used to allow local labels without a preceding global anchor (RGBDS behavior).
 /// </summary>
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionOrigin? Origin = null);
+public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath = "", bool WasInConditional = false, bool FromMacroBody = false, ExpansionTrace? Trace = null);
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -32,27 +32,14 @@ internal sealed class AssemblyExpander
     private readonly ISourceFileResolver _fileResolver;
     private readonly HashSet<string> _includeStack = new(StringComparer.OrdinalIgnoreCase);
     private int _uniqueIdCounter;
-    private int _expansionDepth;
-    private SourceText? _currentSourceText;
-    private string _currentFilePath = "";
-    private bool _breakRequested;
     private TextWriter _printOutput;
-    private int _loopDepth; // >0 means inside REPT/FOR expansion
-    private int _macroBodyDepth; // >0 means currently expanding a macro body
-    private readonly Stack<int> _reptUniqueIdStack = new(); // per-REPT-iteration unique IDs
-    private ExpansionOrigin? _currentOrigin; // provenance of the current expansion context
+    private readonly InterpolationResolver _interpolation;
 
     // Cache for parsed expression fragments (avoids repeated SyntaxTree.Parse for \<expr>)
     private readonly Dictionary<string, GreenNodeBase?> _expressionCache = new();
 
-    // Macro frame stack — each macro invocation pushes a frame so \N, \#, _NARG
-    // resolve lazily against the current args+shift state. SHIFT mutates the top frame.
-    private readonly Stack<MacroFrame> _macroFrameStack = new();
-    private readonly InterpolationResolver _interpolation;
-
-    // MacroFrame promoted to top-level class in ExpansionContext.cs
-
-    private const int MaxExpansionDepth = 64;
+    private const int MaxStructuralDepth = 64;
+    private const int MaxReplayDepth = 64;
 
     public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols,
         ISourceFileResolver? fileResolver = null, CharMapManager? charMaps = null,
@@ -92,12 +79,15 @@ internal sealed class AssemblyExpander
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
         var output = new List<ExpandedNode>();
-        _currentSourceText = tree.Text;
-        _currentFilePath = tree.Text.FilePath;
-        _diagnostics.CurrentFilePath = _currentFilePath;
+        var ctx = new ExpansionContext
+        {
+            SourceText = tree.Text,
+            FilePath = tree.Text.FilePath
+        };
+        _diagnostics.CurrentFilePath = ctx.FilePath;
         // Seed include stack with root file for circular detection
-        if (!string.IsNullOrEmpty(_currentFilePath))
-            _includeStack.Add(_currentFilePath);
+        if (!string.IsNullOrEmpty(ctx.FilePath))
+            _includeStack.Add(ctx.FilePath);
         var children = tree.Root.ChildNodesAndTokens().ToList();
 
         // Pre-scan: define all EQU/SET/DEF constants in the root node list before the main
@@ -109,7 +99,7 @@ internal sealed class AssemblyExpander
         PreScanEquConstants(children);
 
         int i = 0;
-        ExpandBodyList(children, ref i, output);
+        ExpandBodyList(children, ref i, output, ctx);
 
         if (_conditional.HasUnclosedBlocks)
             _diagnostics.Report(default, "Unclosed IF block: missing ENDC");
@@ -204,10 +194,10 @@ internal sealed class AssemblyExpander
     // Core expansion kernel
     // =========================================================================
 
-    private void ExpandBodyList(IReadOnlyList<SyntaxNodeOrToken> siblings,
-        ref int i, List<ExpandedNode> output)
+    private LoopControl ExpandBodyList(IReadOnlyList<SyntaxNodeOrToken> siblings,
+        ref int i, List<ExpandedNode> output, ExpansionContext ctx)
     {
-        while (i < siblings.Count && !_breakRequested)
+        while (i < siblings.Count)
         {
             var item = siblings[i];
             if (!item.IsNode) { i++; continue; }
@@ -223,17 +213,18 @@ internal sealed class AssemblyExpander
             bool isBlockNode = node.Kind is SyntaxKind.RepeatDirective
                 or SyntaxKind.ConditionalDirective
                 or SyntaxKind.MacroDefinition;
-            if (!isBlockNode && !_conditional.IsSuppressed && _macroFrameStack.Count > 0 && ContainsMacroParam(node.Green))
+            if (!isBlockNode && !_conditional.IsSuppressed && ctx.CurrentMacroFrame != null && ContainsMacroParam(node.Green))
             {
-                var frame = _macroFrameStack.Peek();
-                var rawText = _currentSourceText != null
-                    ? _currentSourceText.ToString(node.FullSpan)
-                    : node.Green.ToString();
+                var frame = ctx.CurrentMacroFrame;
+                var rawText = ctx.SourceText != null
+                    ? ctx.SourceText.ToString(node.FullSpan)
+                    : (node.Green.ToString() ?? "");
                 var resolved = ResolveMacroParamsInText(rawText, frame);
                 if (resolved != rawText)
                 {
-                    ExpandTextInline(resolved, output);
+                    var lc = ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.MacroParameterConcatenation);
                     i++;
+                    if (lc == LoopControl.Break) return LoopControl.Break;
                     continue;
                 }
             }
@@ -241,14 +232,15 @@ internal sealed class AssemblyExpander
             // {EQUS} interpolation — DEF {prefix}banana EQU 1, PURGE {prefix}banana, etc.
             // Skip block-structured nodes for the same reason as the macro param path above:
             // they need sibling context and have dedicated expansion handlers.
-            if (!isBlockNode && !_conditional.IsSuppressed && _currentSourceText != null && NeedsInterpolation(node))
+            if (!isBlockNode && !_conditional.IsSuppressed && ctx.SourceText != null && NeedsInterpolation(node))
             {
-                var rawText = _currentSourceText.ToString(node.FullSpan);
+                var rawText = ctx.SourceText.ToString(node.FullSpan);
                 var resolved = ResolveInterpolations(rawText);
                 if (resolved != rawText)
                 {
-                    ExpandTextInline(resolved, output);
+                    var lc = ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.MacroParameterConcatenation);
                     i++;
+                    if (lc == LoopControl.Break) return LoopControl.Break;
                     continue;
                 }
             }
@@ -262,7 +254,7 @@ internal sealed class AssemblyExpander
                 {
                     _diagnostics.Report(node.FullSpan, "Label on the same line as ENDC is not allowed");
                 }
-                HandleConditional(node);
+                HandleConditional(node, ctx);
                 i++;
                 continue;
             }
@@ -300,7 +292,7 @@ internal sealed class AssemblyExpander
                         macroName = nameToken?.Text;
                     }
                     if (macroName != null)
-                        CollectMacroBody(siblings, ref i, macroName);
+                        CollectMacroBody(siblings, ref i, macroName, ctx);
                     else
                     {
                         _diagnostics.Report(node.FullSpan, "MACRO requires a name");
@@ -328,9 +320,9 @@ internal sealed class AssemblyExpander
                         _diagnostics.Report(node.FullSpan, "Unexpected tokens after ENDR");
                 }
                 if (kw?.Kind == SyntaxKind.ReptKeyword)
-                    ExpandRept(node, siblings, ref i, output);
+                    ExpandRept(node, siblings, ref i, output, ctx);
                 else if (kw?.Kind == SyntaxKind.ForKeyword)
-                    ExpandFor(node, siblings, ref i, output);
+                    ExpandFor(node, siblings, ref i, output, ctx);
                 else if (kw?.Kind == SyntaxKind.EndrKeyword)
                 {
                     _diagnostics.Report(node.FullSpan, "ENDR without matching REPT/FOR");
@@ -347,11 +339,12 @@ internal sealed class AssemblyExpander
                 var callName = node.ChildTokens().FirstOrDefault()?.Text;
                 if (callName != null && _equsConstants.TryGetValue(callName, out var equsValue))
                 {
-                    ExpandTextInline(equsValue, output);
+                    var lc = ExpandTextInline(equsValue, output, ctx, node.FullSpan, TextReplayReason.EqusReplay);
                     i++;
+                    if (lc == LoopControl.Break) return LoopControl.Break;
                     continue;
                 }
-                ExpandMacroCall(node, output);
+                ExpandMacroCall(node, output, ctx);
                 i++;
                 continue;
             }
@@ -361,9 +354,9 @@ internal sealed class AssemblyExpander
             {
                 var kw = node.ChildTokens().FirstOrDefault();
                 if (kw?.Kind == SyntaxKind.IncludeKeyword)
-                    ExpandInclude(node, output);
+                    ExpandInclude(node, output, ctx);
                 else if (kw?.Kind == SyntaxKind.IncbinKeyword)
-                    output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0, _currentOrigin)); // INCBIN handled by binder Pass 2
+                    output.Add(new ExpandedNode(node, ctx.FilePath, _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace)); // INCBIN handled by binder Pass 2
                 i++;
                 continue;
             }
@@ -390,12 +383,12 @@ internal sealed class AssemblyExpander
                 var symTokens = node.ChildTokens().ToList();
                 if (symTokens.Count > 0 && symTokens[0].Kind == SyntaxKind.PurgeKeyword)
                 {
-                    HandlePurge(node);
+                    HandlePurge(node, ctx);
                     i++;
                     continue; // consumed — don't emit to output
                 }
-                EarlyDefineEqu(node);
-                EarlyProcessCharmap(node);
+                EarlyDefineEqu(node, ctx);
+                EarlyProcessCharmap(node, ctx);
             }
 
             // SHIFT handling — advance the macro argument window
@@ -404,13 +397,13 @@ internal sealed class AssemblyExpander
                 var kwCheck = node.ChildTokens().FirstOrDefault();
                 if (kwCheck?.Kind == SyntaxKind.ShiftKeyword)
                 {
-                    if (_macroFrameStack.Count == 0)
+                    if (ctx.CurrentMacroFrame == null)
                     {
                         _diagnostics.Report(node.FullSpan, "SHIFT used outside of a macro");
                         i++;
                         continue;
                     }
-                    var frame = _macroFrameStack.Peek();
+                    var frame = ctx.CurrentMacroFrame;
                     if (frame.ShiftOffset >= frame.Args.Count)
                         _diagnostics.Report(node.FullSpan,
                             "Cannot shift macro arguments past their end",
@@ -425,7 +418,7 @@ internal sealed class AssemblyExpander
             // Check for macro parameter tokens (\1..\9) outside macro context.
             // Must walk the full green subtree because \1 may be inside a nested expression node
             // (e.g. "println \1" → DirectiveStatement[PrintlnKw, LiteralExpression[MacroParamToken]]).
-            if (_expansionDepth == 0)
+            if (ctx.StructuralDepth == 0 && ctx.ReplayDepth == 0)
             {
                 var macroParam = FindMacroParamToken(node.Green);
                 if (macroParam != null)
@@ -439,18 +432,17 @@ internal sealed class AssemblyExpander
                 var kw = node.ChildTokens().FirstOrDefault();
                 if (kw?.Kind is SyntaxKind.RsresetKeyword or SyntaxKind.RssetKeyword)
                 {
-                    HandleRsDirective(node);
+                    HandleRsDirective(node, ctx);
                     i++;
                     continue; // consumed — don't emit to output
                 }
                 if (kw?.Kind == SyntaxKind.BreakKeyword)
                 {
-                    _breakRequested = true;
                     i++;
-                    return; // exit ExpandBodyList — caller loop will see the flag
+                    return LoopControl.Break; // signal caller to exit loop
                 }
                 // PRINT/PRINTLN inside loops — resolve at expansion time so per-iteration output is correct
-                if (_loopDepth > 0 && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
+                if (ctx.LoopDepth > 0 && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
                 {
                     // The StringLiteral may be nested inside a LiteralExpression child node,
                     // so use a recursive descent to find it rather than ChildTokens() which
@@ -469,12 +461,13 @@ internal sealed class AssemblyExpander
                 }
             }
 
-            output.Add(new ExpandedNode(node, _currentFilePath, _conditional.Depth > 0, _macroBodyDepth > 0, _currentOrigin));
+            output.Add(new ExpandedNode(node, ctx.FilePath, _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace));
             i++;
         }
+        return LoopControl.Continue;
     }
 
-    private void EarlyDefineEqu(SyntaxNode node)
+    private void EarlyDefineEqu(SyntaxNode node, ExpansionContext ctx)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count < 2) return;
@@ -541,7 +534,7 @@ internal sealed class AssemblyExpander
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
             {
-                var value = EvaluateStringExpression(exprNodes[0]);
+                var value = EvaluateStringExpression(exprNodes[0], ctx);
                 if (value != null)
                     _equsConstants[tokens[nameIdx].Text] = value;
             }
@@ -552,10 +545,10 @@ internal sealed class AssemblyExpander
     /// Evaluate a string expression for EQUS assignment. Handles string literals, REVCHAR(),
     /// and all string-returning functions (STRUPR, STRLWR, STRCAT, READFILE, etc.).
     /// </summary>
-    private string? EvaluateStringExpression(SyntaxNode exprNode)
+    private string? EvaluateStringExpression(SyntaxNode exprNode, ExpansionContext ctx)
     {
         // Use the full ExpressionEvaluator with string support
-        var evaluator = CreateStringEvaluator();
+        var evaluator = CreateStringEvaluator(ctx);
         var result = evaluator.TryEvaluateString(exprNode.Green);
         if (result != null) return result;
 
@@ -568,8 +561,8 @@ internal sealed class AssemblyExpander
                 var children = exprNode.ChildNodes().ToList();
                 if (children.Count >= 2)
                 {
-                    var left = EvaluateStringExpression(children[0]);
-                    var right = EvaluateStringExpression(children[^1]);
+                    var left = EvaluateStringExpression(children[0], ctx);
+                    var right = EvaluateStringExpression(children[^1], ctx);
                     if (left != null && right != null)
                         return left + right;
                 }
@@ -605,7 +598,7 @@ internal sealed class AssemblyExpander
                 {
                     if (argExprs.Count >= 2)
                     {
-                        var s = EvaluateStringExpression(argExprs[0]);
+                        var s = EvaluateStringExpression(argExprs[0], ctx);
                         var numEval = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
                         var idxVal = numEval.TryEvaluate(argExprs[1].Green);
                         if (s != null && idxVal.HasValue)
@@ -621,7 +614,7 @@ internal sealed class AssemblyExpander
                 {
                     if (argExprs.Count > 0)
                     {
-                        var s = EvaluateStringExpression(argExprs[0]);
+                        var s = EvaluateStringExpression(argExprs[0], ctx);
                         return s?.ToUpperInvariant();
                     }
                     break;
@@ -630,7 +623,7 @@ internal sealed class AssemblyExpander
                 {
                     if (argExprs.Count > 0)
                     {
-                        var s = EvaluateStringExpression(argExprs[0]);
+                        var s = EvaluateStringExpression(argExprs[0], ctx);
                         return s?.ToLowerInvariant();
                     }
                     break;
@@ -640,7 +633,7 @@ internal sealed class AssemblyExpander
                     var sb = new System.Text.StringBuilder();
                     foreach (var argExpr in argExprs)
                     {
-                        var s = EvaluateStringExpression(argExpr);
+                        var s = EvaluateStringExpression(argExpr, ctx);
                         if (s == null) return null;
                         sb.Append(s);
                     }
@@ -650,7 +643,7 @@ internal sealed class AssemblyExpander
                 {
                     if (argExprs.Count >= 2)
                     {
-                        var s = EvaluateStringExpression(argExprs[0]);
+                        var s = EvaluateStringExpression(argExprs[0], ctx);
                         if (s == null) return null;
                         var numEval2 = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
                         var startVal = numEval2.TryEvaluate(argExprs[1].Green);
@@ -673,9 +666,9 @@ internal sealed class AssemblyExpander
                 {
                     if (argExprs.Count > 0)
                     {
-                        var filename = EvaluateStringExpression(argExprs[0]);
+                        var filename = EvaluateStringExpression(argExprs[0], ctx);
                         if (filename == null) return null;
-                        var resolved = _fileResolver.ResolvePath(_currentFilePath, filename);
+                        var resolved = _fileResolver.ResolvePath(ctx.FilePath, filename);
                         if (!_fileResolver.FileExists(resolved)) return null;
                         try
                         {
@@ -716,14 +709,14 @@ internal sealed class AssemblyExpander
     /// <summary>
     /// Create an ExpressionEvaluator configured for string evaluation in the expander context.
     /// </summary>
-    private ExpressionEvaluator CreateStringEvaluator()
+    private ExpressionEvaluator CreateStringEvaluator(ExpansionContext ctx)
     {
         var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0)
         {
             EqusResolver = LookupEqus,
             CharlenResolver = s => _charMaps.CharLen(s),
             IncharmapResolver = s => _charMaps.InCharMap(s),
-            ReadfileResolver = ResolveReadfile,
+            ReadfileResolver = (path, limit) => ResolveReadfile(path, limit, ctx),
         };
         return evaluator;
     }
@@ -731,9 +724,9 @@ internal sealed class AssemblyExpander
     /// <summary>
     /// Shared file reading logic for READFILE function.
     /// </summary>
-    internal string? ResolveReadfile(string path, int? limit)
+    internal string? ResolveReadfile(string path, int? limit, ExpansionContext ctx)
     {
-        var resolved = _fileResolver.ResolvePath(_currentFilePath, path);
+        var resolved = _fileResolver.ResolvePath(ctx.FilePath, path);
         if (!_fileResolver.FileExists(resolved))
         {
             _diagnostics.Report(default, $"READFILE: file not found: {path}");
@@ -753,7 +746,11 @@ internal sealed class AssemblyExpander
         }
     }
 
-    private void EarlyProcessCharmap(SyntaxNode node)
+    // Keep the old overload for internal callers that don't have a ctx yet
+    internal string? ResolveReadfile(string path, int? limit)
+        => ResolveReadfile(path, limit, new ExpansionContext { FilePath = "" });
+
+    private void EarlyProcessCharmap(SyntaxNode node, ExpansionContext ctx)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count == 0) return;
@@ -830,7 +827,7 @@ internal sealed class AssemblyExpander
         "__ISO_8601_UTC__", "__ISO_8601_LOCAL__",
     };
 
-    private void HandlePurge(SyntaxNode node)
+    private void HandlePurge(SyntaxNode node, ExpansionContext ctx)
     {
         var tokens = node.ChildTokens().ToList();
         for (int ti = 1; ti < tokens.Count; ti++)
@@ -864,7 +861,7 @@ internal sealed class AssemblyExpander
         }
     }
 
-    private void HandleRsDirective(SyntaxNode node)
+    private void HandleRsDirective(SyntaxNode node, ExpansionContext ctx)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count == 0) return;
@@ -896,7 +893,7 @@ internal sealed class AssemblyExpander
     // Conditional assembly
     // =========================================================================
 
-    private void HandleConditional(SyntaxNode node)
+    private void HandleConditional(SyntaxNode node, ExpansionContext ctx)
     {
         var keyword = ((GreenToken)((GreenNode)node.Green).GetChild(0)!).Kind;
 
@@ -959,7 +956,7 @@ internal sealed class AssemblyExpander
     }
 
     private void CollectMacroBody(IReadOnlyList<SyntaxNodeOrToken> siblings,
-        ref int i, string macroName)
+        ref int i, string macroName, ExpansionContext ctx)
     {
         var macroNode = siblings[i].AsNode!;
         int bodyStart = macroNode.FullSpan.Start + macroNode.FullSpan.Length;
@@ -997,10 +994,10 @@ internal sealed class AssemblyExpander
             return;
         }
 
-        if (_currentSourceText != null)
+        if (ctx.SourceText != null)
         {
-            var bodyText = _currentSourceText.ToString(new TextSpan(bodyStart, bodyEnd - bodyStart)).Trim();
-            _macros[macroName] = new MacroDefinition(macroName, bodyText, macroNode.FullSpan, _currentFilePath);
+            var bodyText = ctx.SourceText.ToString(new TextSpan(bodyStart, bodyEnd - bodyStart)).Trim();
+            _macros[macroName] = new MacroDefinition(macroName, bodyText, macroNode.FullSpan, ctx.FilePath);
         }
     }
 
@@ -1072,7 +1069,7 @@ internal sealed class AssemblyExpander
         return args;
     }
 
-    private void ExpandMacroCall(SyntaxNode node, List<ExpandedNode> output)
+    private void ExpandMacroCall(SyntaxNode node, List<ExpandedNode> output, ExpansionContext ctx)
     {
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count == 0) return;
@@ -1080,14 +1077,14 @@ internal sealed class AssemblyExpander
         // If the call text contains \# (MacroParamToken), resolve it against
         // the parent macro frame before looking up the macro name and args.
         bool hasBackslashHash = tokens.Any(t => t.Kind == SyntaxKind.MacroParamToken && t.Text == "\\#");
-        if (hasBackslashHash && _macroFrameStack.Count > 0)
+        if (hasBackslashHash && ctx.CurrentMacroFrame != null)
         {
-            var parentFrame = _macroFrameStack.Peek();
-            var rawText = _currentSourceText != null
-                ? _currentSourceText.ToString(node.FullSpan)
+            var parentFrame = ctx.CurrentMacroFrame;
+            var rawText = ctx.SourceText != null
+                ? ctx.SourceText.ToString(node.FullSpan)
                 : string.Join("", tokens.Select(t => t.Text));
             var resolved = rawText.Replace("\\#", parentFrame.AllArgs());
-            ExpandTextInline(resolved, output);
+            ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.MacroParameterConcatenation);
             return;
         }
 
@@ -1098,38 +1095,31 @@ internal sealed class AssemblyExpander
             return;
         }
 
-        // Recursion depth check
-        _expansionDepth++;
-        if (_expansionDepth > MaxExpansionDepth)
-        {
-            _diagnostics.Report(node.FullSpan,
-                $"Maximum macro expansion depth ({MaxExpansionDepth}) exceeded");
-            _expansionDepth--;
-            return;
-        }
-
+        // Structural depth check
         var args = CollectMacroArgs(tokens, startIndex: 1);
         _uniqueIdCounter++;
         var frame = new MacroFrame(args) { UniqueId = _uniqueIdCounter };
-        _macroFrameStack.Push(frame);
+        var macroCtx = ctx.ForMacro(frame, macro);
+
+        if (macroCtx.StructuralDepth > MaxStructuralDepth)
+        {
+            _diagnostics.Report(node.FullSpan,
+                $"Maximum structural depth ({MaxStructuralDepth}) exceeded");
+            return;
+        }
 
         var prevNarg = _symbols.Lookup("_NARG");
         long? savedNarg = prevNarg?.State == SymbolState.Defined ? prevNarg.Value : null;
         _symbols.DefineOrRedefine("_NARG", frame.Narg);
 
-        var savedOrigin = _currentOrigin;
-        _currentOrigin = ExpansionOrigin.ForMacro(macro);
         try
         {
-            ExpandMacroBody(macro, frame, output);
+            ExpandMacroBody(macro, frame, output, macroCtx);
         }
         finally
         {
-            _currentOrigin = savedOrigin;
-            _macroFrameStack.Pop();
             if (savedNarg.HasValue)
                 _symbols.DefineOrRedefine("_NARG", savedNarg.Value);
-            _expansionDepth--;
         }
     }
 
@@ -1140,27 +1130,19 @@ internal sealed class AssemblyExpander
     /// 2. Text path: macros with param references go through text substitution + reparse
     ///    (necessary because RGBDS params can concatenate to form new tokens).
     /// </summary>
-    private void ExpandMacroBody(MacroDefinition macro, MacroFrame frame, List<ExpandedNode> output)
+    private void ExpandMacroBody(MacroDefinition macro, MacroFrame frame, List<ExpandedNode> output, ExpansionContext ctx)
     {
-        _macroBodyDepth++;
-        try
+        if (macro.RequiresTextSubstitution)
         {
-            if (macro.RequiresTextSubstitution)
-            {
-                var body = SubstituteMacroParams(macro.RawBody, frame, macro.ContainsShift);
-                ExpandTextInline(body, output);
-            }
-            else
-            {
-                // Fast path — replay pre-parsed tree without reparsing.
-                // Interpolation ({symbol}) is handled per-node by ExpandBodyList's
-                // NeedsInterpolation check; no upfront text resolution needed.
-                ExpandParsedTree(macro.ParsedBody, output);
-            }
+            var body = SubstituteMacroParams(macro.RawBody, frame, macro.ContainsShift);
+            ExpandTextInline(body, output, ctx, macro.DefinitionSpan, TextReplayReason.MacroParameterConcatenation);
         }
-        finally
+        else
         {
-            _macroBodyDepth--;
+            // Fast path — replay pre-parsed tree without reparsing.
+            // Interpolation ({symbol}) is handled per-node by ExpandBodyList's
+            // NeedsInterpolation check; no upfront text resolution needed.
+            ExpandParsedTree(macro.ParsedBody, output, ctx);
         }
     }
 
@@ -1168,37 +1150,20 @@ internal sealed class AssemblyExpander
     /// Expand a pre-parsed syntax tree through the expansion kernel without reparsing.
     /// Used for macro bodies that don't require text-level parameter substitution.
     /// </summary>
-    private void ExpandParsedTree(SyntaxTree tree, List<ExpandedNode> output)
+    private void ExpandParsedTree(SyntaxTree tree, List<ExpandedNode> output, ExpansionContext ctx)
     {
-        _expansionDepth++;
-        if (_expansionDepth > MaxExpansionDepth)
-        {
-            _diagnostics.Report(default,
-                $"Maximum expansion depth ({MaxExpansionDepth}) exceeded");
-            _expansionDepth--;
-            return;
-        }
-
-        var savedText = _currentSourceText;
-        _currentSourceText = tree.Text;
-        try
-        {
-            var children = tree.Root.ChildNodesAndTokens().ToList();
-            int j = 0;
-            ExpandBodyList(children, ref j, output);
-        }
-        finally
-        {
-            _currentSourceText = savedText;
-            _expansionDepth--;
-        }
+        // Update source text for the new tree (structural execution, not replay — no ReplayDepth increment)
+        var treeCtx = ctx with { SourceText = tree.Text };
+        var children = tree.Root.ChildNodesAndTokens().ToList();
+        int j = 0;
+        ExpandBodyList(children, ref j, output, treeCtx);
     }
 
     // =========================================================================
     // INCLUDE — textual file inclusion
     // =========================================================================
 
-    private void ExpandInclude(SyntaxNode node, List<ExpandedNode> output)
+    private void ExpandInclude(SyntaxNode node, List<ExpandedNode> output, ExpansionContext ctx)
     {
         // Extract filename from string literal token
         var strToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
@@ -1211,7 +1176,7 @@ internal sealed class AssemblyExpander
         var rawPath = strToken.Text;
         var filePath = rawPath.Length >= 2 ? rawPath[1..^1] : rawPath; // strip quotes
 
-        var resolved = _fileResolver.ResolvePath(_currentFilePath, filePath);
+        var resolved = _fileResolver.ResolvePath(ctx.FilePath, filePath);
 
         if (!_fileResolver.FileExists(resolved))
         {
@@ -1226,12 +1191,11 @@ internal sealed class AssemblyExpander
             return;
         }
 
-        _expansionDepth++;
-        if (_expansionDepth > MaxExpansionDepth)
+        // Structural depth check (ForInclude increments by 1)
+        if (ctx.StructuralDepth + 1 > MaxStructuralDepth)
         {
             _diagnostics.Report(node.FullSpan,
-                $"Maximum include depth ({MaxExpansionDepth}) exceeded");
-            _expansionDepth--;
+                $"Maximum structural depth ({MaxStructuralDepth}) exceeded");
             return;
         }
 
@@ -1244,39 +1208,32 @@ internal sealed class AssemblyExpander
             // Substitute \@ in the included file's text using the current invocation's unique ID.
             // This ensures that \@ labels and PRINTLN statements in an included file share the same
             // unique suffix as the macro call (or REPT iteration) that INCLUDEd them, matching RGBDS.
-            if (_macroFrameStack.Count > 0)
+            if (ctx.CurrentMacroFrame != null)
             {
-                var frame = _macroFrameStack.Peek();
+                var frame = ctx.CurrentMacroFrame;
                 source = source.Replace("\\@", $"_{frame.UniqueId}");
             }
-            else if (_reptUniqueIdStack.Count > 0)
+            else if (ctx.LoopUniqueId != 0)
             {
-                source = source.Replace("\\@", $"_{_reptUniqueIdStack.Peek()}");
+                // Inside a REPT/FOR iteration: substitute \@ with the iteration's unique ID.
+                source = source.Replace("\\@", $"_{ctx.LoopUniqueId}");
             }
 
             var includeText = Text.SourceText.From(source, resolved);
             var includeTree = Syntax.SyntaxTree.Parse(includeText);
 
-            var savedText = _currentSourceText;
-            var savedPath = _currentFilePath;
-            var savedOrigin = _currentOrigin;
-            _currentSourceText = includeText;
-            _currentFilePath = resolved;
+            var finalIncludeCtx = ctx.ForInclude(resolved, includeText, node.FullSpan);
             _diagnostics.CurrentFilePath = resolved;
-            _currentOrigin = ExpansionOrigin.ForInclude(resolved, node.FullSpan);
 
             try
             {
                 var children = includeTree.Root.ChildNodesAndTokens().ToList();
                 int j = 0;
-                ExpandBodyList(children, ref j, output);
+                ExpandBodyList(children, ref j, output, finalIncludeCtx);
             }
             finally
             {
-                _currentSourceText = savedText;
-                _currentFilePath = savedPath;
-                _diagnostics.CurrentFilePath = savedPath;
-                _currentOrigin = savedOrigin;
+                _diagnostics.CurrentFilePath = ctx.FilePath;
             }
         }
         catch (IOException ex)
@@ -1286,7 +1243,6 @@ internal sealed class AssemblyExpander
         finally
         {
             _includeStack.Remove(resolved);
-            _expansionDepth--;
         }
     }
 
@@ -1443,9 +1399,9 @@ internal sealed class AssemblyExpander
     }
 
     private string ExtractBodyText(SyntaxNode headerNode,
-        IReadOnlyList<SyntaxNodeOrToken> body)
+        IReadOnlyList<SyntaxNodeOrToken> body, ExpansionContext ctx)
     {
-        if (_currentSourceText == null || body.Count == 0)
+        if (ctx.SourceText == null || body.Count == 0)
             return "";
 
         int bodyTextStart = headerNode.FullSpan.Start + headerNode.FullSpan.Length;
@@ -1457,12 +1413,12 @@ internal sealed class AssemblyExpander
         else if (last.IsToken)
             bodyTextEnd = last.AsToken!.FullSpan.Start + last.AsToken!.FullSpan.Length;
 
-        return _currentSourceText.ToString(new TextSpan(bodyTextStart, bodyTextEnd - bodyTextStart));
+        return ctx.SourceText.ToString(new TextSpan(bodyTextStart, bodyTextEnd - bodyTextStart));
     }
 
     private void ExpandRept(SyntaxNode reptNode,
         IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i,
-        List<ExpandedNode> output)
+        List<ExpandedNode> output, ExpansionContext ctx)
     {
         var exprNodes = reptNode.ChildNodes().ToList();
         int count = 0;
@@ -1475,38 +1431,28 @@ internal sealed class AssemblyExpander
         if (count < 0) count = 0;
 
         // Extract body text for \@ substitution (REPT bodies support \@ for unique labels)
-        var bodyTextRaw = ExtractBodyText(reptNode, PeekBodyNodes(siblings, i));
+        var bodyTextRaw = ExtractBodyText(reptNode, PeekBodyNodes(siblings, i), ctx);
         CollectRepeatBody(siblings, ref i, reptNode.FullSpan); // advances index past ENDR
 
         var condDepthBefore = _conditional.Depth;
-        var savedOrigin = _currentOrigin;
-        _currentOrigin = ExpansionOrigin.ForRept(_currentFilePath, reptNode.FullSpan);
-        _loopDepth++;
-        try
+        for (int iter = 0; iter < count; iter++)
         {
-            for (int iter = 0; iter < count; iter++)
+            _uniqueIdCounter++;
+            var iterUniqueId = _uniqueIdCounter;
+            var iterFrame = ExpansionFrame.ForRept(ctx.FilePath, reptNode.FullSpan, iter);
+            var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+
+            // Substitute \@ only at the REPT level; macro calls inside will
+            // get their own \@ via SubstituteMacroParams.
+            var iterText = bodyTextRaw.Replace("\\@", $"_{iterUniqueId}");
+            var lc = ExpandTextInline(iterText, output, iterCtx, reptNode.FullSpan, TextReplayReason.UniqueLabelSubstitution);
+            if (lc == LoopControl.Break)
             {
-                _uniqueIdCounter++;
-                _reptUniqueIdStack.Push(_uniqueIdCounter);
-                // Substitute \@ only at the REPT level; macro calls inside will
-                // get their own \@ via SubstituteMacroParams.
-                var iterText = bodyTextRaw.Replace("\\@", $"_{_uniqueIdCounter}");
-                ExpandTextInline(iterText, output);
-                _reptUniqueIdStack.Pop();
-                if (_breakRequested)
-                {
-                    // BREAK may have fired inside an IF block; reset conditional state to the
-                    // depth before this iteration so the balance check doesn't fire a false positive.
-                    _conditional.ResetToDepth(condDepthBefore);
-                    _breakRequested = false;
-                    break;
-                }
+                // BREAK may have fired inside an IF block; reset conditional state to the
+                // depth before this iteration so the balance check doesn't fire a false positive.
+                _conditional.ResetToDepth(condDepthBefore);
+                break;
             }
-        }
-        finally
-        {
-            _currentOrigin = savedOrigin;
-            _loopDepth--;
         }
         if (_conditional.Depth != condDepthBefore)
             _diagnostics.Report(reptNode.FullSpan, "Unbalanced IF/ENDC inside REPT body");
@@ -1550,7 +1496,7 @@ internal sealed class AssemblyExpander
 
     private void ExpandFor(SyntaxNode forNode,
         IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i,
-        List<ExpandedNode> output)
+        List<ExpandedNode> output, ExpansionContext ctx)
     {
         var exprNodes = forNode.ChildNodes().ToList();
         string? varName = null;
@@ -1577,7 +1523,7 @@ internal sealed class AssemblyExpander
         }
 
         // Extract body text for variable + \@ substitution
-        var bodyTextRaw = ExtractBodyText(forNode, PeekBodyNodes(siblings, i));
+        var bodyTextRaw = ExtractBodyText(forNode, PeekBodyNodes(siblings, i), ctx);
         var body = CollectRepeatBody(siblings, ref i, forNode.FullSpan);
 
         // Pre-parse body once for syntax-aware variable substitution.
@@ -1587,44 +1533,42 @@ internal sealed class AssemblyExpander
         // strictly more precise — it won't match inside strings, comments, or partial identifiers.
         SyntaxTree? bodyTree = varName != null ? SyntaxTree.Parse(bodyTextRaw) : null;
 
-        var savedOrigin = _currentOrigin;
-        _currentOrigin = ExpansionOrigin.ForFor(_currentFilePath, forNode.FullSpan, varName);
-        _loopDepth++;
-        try
+        int iterIndex = 0;
+        if (varName != null && bodyTree != null)
         {
-            if (varName != null && bodyTree != null)
-            {
-                // Collect substitution positions once from the pre-parsed tree
-                var positions = new List<(int Start, int Length)>();
-                CollectIdentifierPositions(bodyTree.Root, varName, positions);
+            // Collect substitution positions once from the pre-parsed tree
+            var positions = new List<(int Start, int Length)>();
+            CollectIdentifierPositions(bodyTree.Root, varName, positions);
 
-                for (long v = start; step > 0 ? v < stop : v > stop; v += step)
-                {
-                    _symbols.DefineOrRedefine(varName, v);
-
-                    _uniqueIdCounter++;
-                    var iterText = SubstituteAtPositions(bodyTextRaw, positions, v.ToString());
-                    iterText = iterText.Replace("\\@", $"_{_uniqueIdCounter}");
-                    ExpandTextInline(iterText, output);
-                    if (_breakRequested) { _breakRequested = false; break; }
-                }
-                // Variable retains its last value after the loop (RGBDS behavior).
-            }
-            else
+            for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
             {
-                for (long v = start; step > 0 ? v < stop : v > stop; v += step)
-                {
-                    _uniqueIdCounter++;
-                    var iterText = bodyTextRaw.Replace("\\@", $"_{_uniqueIdCounter}");
-                    ExpandTextInline(iterText, output);
-                    if (_breakRequested) { _breakRequested = false; break; }
-                }
+                _symbols.DefineOrRedefine(varName, v);
+
+                _uniqueIdCounter++;
+                var iterUniqueId = _uniqueIdCounter;
+                var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
+                var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+
+                var iterText = SubstituteAtPositions(bodyTextRaw, positions, v.ToString());
+                iterText = iterText.Replace("\\@", $"_{iterUniqueId}");
+                var lc = ExpandTextInline(iterText, output, iterCtx, forNode.FullSpan, TextReplayReason.ForTokenShapingSubstitution);
+                if (lc == LoopControl.Break) break;
             }
+            // Variable retains its last value after the loop (RGBDS behavior).
         }
-        finally
+        else
         {
-            _currentOrigin = savedOrigin;
-            _loopDepth--;
+            for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
+            {
+                _uniqueIdCounter++;
+                var iterUniqueId = _uniqueIdCounter;
+                var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
+                var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
+
+                var iterText = bodyTextRaw.Replace("\\@", $"_{iterUniqueId}");
+                var lc = ExpandTextInline(iterText, output, iterCtx, forNode.FullSpan, TextReplayReason.ForTokenShapingSubstitution);
+                if (lc == LoopControl.Break) break;
+            }
         }
     }
 
@@ -1648,7 +1592,8 @@ internal sealed class AssemblyExpander
     /// <summary>
     /// Parse and expand text inline (used for macro/REPT/FOR text-level expansion).
     /// </summary>
-    private void ExpandTextInline(string text, List<ExpandedNode> output)
+    private LoopControl ExpandTextInline(string text, List<ExpandedNode> output,
+        ExpansionContext ctx, TextSpan triggerSpan, TextReplayReason reason)
     {
         // Resolve {symbol} interpolations before re-parsing, but ONLY if there are no
         // unresolved macro parameter references (\1..\9, \#) in the text. When macro params
@@ -1659,29 +1604,20 @@ internal sealed class AssemblyExpander
         bool hasMacroParams = ContainsUnresolvedMacroParam(text);
         if (!hasMacroParams)
             text = ResolveInterpolations(text);
-        _expansionDepth++;
-        if (_expansionDepth > MaxExpansionDepth)
+
+        if (ctx.ReplayDepth >= MaxReplayDepth)
         {
-            _diagnostics.Report(default,
-                $"Maximum expansion depth ({MaxExpansionDepth}) exceeded");
-            _expansionDepth--;
-            return;
+            _diagnostics.Report(triggerSpan,
+                $"Maximum text replay depth ({MaxReplayDepth}) exceeded");
+            return LoopControl.Continue;
         }
 
         var tree = SyntaxTree.Parse(text);
-        var savedText = _currentSourceText;
-        _currentSourceText = tree.Text;
-        try
-        {
-            var children = tree.Root.ChildNodesAndTokens().ToList();
-            int j = 0;
-            ExpandBodyList(children, ref j, output);
-        }
-        finally
-        {
-            _currentSourceText = savedText;
-            _expansionDepth--;
-        }
+        var replayCtx = ctx.ForTextReplay(tree.Text, triggerSpan, reason);
+
+        var children = tree.Root.ChildNodesAndTokens().ToList();
+        int j = 0;
+        return ExpandBodyList(children, ref j, output, replayCtx);
     }
 
     // =========================================================================

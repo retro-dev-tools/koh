@@ -37,8 +37,9 @@ public class ExpansionContextTests
     {
         var ctx = new ExpansionContext { FilePath = "test.asm" };
         var loopFrame = ExpansionFrame.ForRept("test.asm", default, 0);
-        var child = ctx.ForLoop(loopFrame);
+        var child = ctx.ForLoop(loopFrame, uniqueId: 42);
         await Assert.That(child.LoopDepth).IsEqualTo(1);
+        await Assert.That(child.LoopUniqueId).IsEqualTo(42);
         await Assert.That(child.Trace.Current!.Kind).IsEqualTo(ExpansionKind.ReptIteration);
         await Assert.That(ctx.LoopDepth).IsEqualTo(0);
     }

@@ -3,7 +3,6 @@ using Koh.Core.Syntax;
 
 namespace Koh.Core.Binding;
 
-// public until ExpansionOrigin.cs is deleted in Task 9 (it references this enum publicly)
 public enum ExpansionKind
 {
     MacroExpansion,
@@ -13,7 +12,7 @@ public enum ExpansionKind
     TextReplay
 }
 
-internal enum TextReplayReason
+public enum TextReplayReason
 {
     MacroParameterConcatenation,
     UniqueLabelSubstitution,
@@ -21,7 +20,7 @@ internal enum TextReplayReason
     EqusReplay
 }
 
-internal sealed record ExpansionFrame(
+public sealed record ExpansionFrame(
     ExpansionKind Kind,
     string FilePath,
     TextSpan SourceSpan,
@@ -29,7 +28,7 @@ internal sealed record ExpansionFrame(
     int? Iteration = null,
     TextReplayReason? ReplayReason = null)
 {
-    public static ExpansionFrame ForMacro(MacroDefinition macro)
+    internal static ExpansionFrame ForMacro(MacroDefinition macro)
         => new(ExpansionKind.MacroExpansion, macro.DefinitionFilePath,
                macro.DefinitionSpan, macro.Name);
 
@@ -48,7 +47,7 @@ internal sealed record ExpansionFrame(
         => new(ExpansionKind.TextReplay, filePath, sourceSpan, ReplayReason: reason);
 }
 
-internal sealed record ExpansionTrace(ImmutableArray<ExpansionFrame> Frames)
+public sealed record ExpansionTrace(ImmutableArray<ExpansionFrame> Frames)
 {
     public static readonly ExpansionTrace Empty = new([]);
     public bool IsEmpty => Frames.IsDefaultOrEmpty;

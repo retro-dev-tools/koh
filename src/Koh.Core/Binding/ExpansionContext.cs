@@ -47,6 +47,13 @@ internal sealed record ExpansionContext
     public int MacroBodyDepth { get; init; }
     public int LoopDepth { get; init; }
 
+    /// <summary>
+    /// The unique ID of the current REPT/FOR iteration. Used so that INCLUDE directives
+    /// inside a REPT/FOR body can substitute \@ with the same ID as the outer loop iteration.
+    /// Zero when not inside any REPT/FOR loop.
+    /// </summary>
+    public int LoopUniqueId { get; init; }
+
     public MacroFrame? CurrentMacroFrame
         => MacroFrames.IsEmpty ? null : MacroFrames.Peek();
 
@@ -59,10 +66,11 @@ internal sealed record ExpansionContext
             Trace = Trace.Push(ExpansionFrame.ForMacro(macro))
         };
 
-    public ExpansionContext ForLoop(ExpansionFrame loopFrame)
+    public ExpansionContext ForLoop(ExpansionFrame loopFrame, int uniqueId)
         => this with
         {
             LoopDepth = LoopDepth + 1,
+            LoopUniqueId = uniqueId,
             Trace = Trace.Push(loopFrame)
         };
 
