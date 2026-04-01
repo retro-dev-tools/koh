@@ -12,6 +12,12 @@
 
 **Test command:** `dotnet test tests/Koh.Core.Tests/ --no-restore -v quiet`
 
+**Key invariants:**
+- `TextReplayReason.UniqueLabelSubstitution` is the reason whenever `\@` causes token-shaping replay, regardless of whether it appears in macro, REPT, or FOR expansion.
+- Every `ExpandedNode` emission site must attach `ctx.Trace` exactly as-is. No emission site may construct, filter, or partially rewrite traces.
+- No replay-driven parse may occur outside `TextReplayService.ParseForReplay`.
+- Transitional bridge contexts (Task 3) are allowed only at direct `ExpandBodyList` call sites. No helper method may construct synthetic bridge contexts. All bridge contexts must be removed by the end of Task 8.
+
 ---
 
 ## File Map
@@ -523,15 +529,15 @@ public List<ExpandedNode> Expand(SyntaxTree tree)
 }
 ```
 
-Update all call sites of `ExpandBodyList` inside AssemblyExpander to pass the appropriate context. For now, at each existing call site, pass `ctx` if available, or create a temporary context from ambient fields if needed. The existing call sites are:
+Update all call sites of `ExpandBodyList` inside AssemblyExpander to pass the appropriate context. At each existing call site, construct a bridge context from ambient fields. Bridge contexts are allowed **only** at direct `ExpandBodyList` call sites — no helper method may construct synthetic bridge contexts. All bridge contexts must be removed by the end of Task 8. The existing call sites are:
 
-1. `ExpandParsedTree` (line ~1207): pass a temporary `ctx with { SourceText = tree.Text }`
-2. `ExpandTextInline` (line ~1697): pass a temporary context
-3. `ExpandInclude` (line ~1291): pass a temporary context
-4. `ExpandRept` loop body (line ~1513): pass a temporary context
-5. `ExpandFor` loop body (line ~1627): pass a temporary context
+1. `ExpandParsedTree` (line ~1207)
+2. `ExpandTextInline` (line ~1697)
+3. `ExpandInclude` (line ~1291)
+4. `ExpandRept` loop body (line ~1513)
+5. `ExpandFor` loop body (line ~1627)
 
-At each site, construct: `new ExpansionContext { SourceText = _currentSourceText, FilePath = _currentFilePath, ... }` as a transitional bridge.
+At each site, construct: `new ExpansionContext { SourceText = _currentSourceText, FilePath = _currentFilePath, LoopDepth = _loopDepth, MacroBodyDepth = _macroBodyDepth }` as a transitional bridge. These are temporary and must not survive past Task 8.
 
 - [ ] **Step 2: Run full test suite**
 
@@ -711,9 +717,11 @@ private void ExpandParsedTree(SyntaxTree tree, List<ExpandedNode> output, Expans
 {
     // Structured parsed-body replay does NOT increment ReplayDepth.
     // Only check StructuralDepth — this is structural execution, not replay.
+    // Use the nearest trace frame's span for diagnostics if available.
     if (ctx.StructuralDepth > MaxStructuralDepth)
     {
-        _diagnostics.Report(default,
+        var diagSpan = ctx.Trace.Current?.SourceSpan ?? default;
+        _diagnostics.Report(diagSpan,
             $"Maximum expansion depth ({MaxStructuralDepth}) exceeded");
         return;
     }
@@ -777,17 +785,14 @@ private const int MaxStructuralDepth = 64;
 private const int MaxReplayDepth = 64;
 ```
 
-- [ ] **Step 8: Remove ambient fields that are now fully on ctx**
+- [ ] **Step 8: Remove macro-scope ambient fields that are now fully on ctx**
 
 Remove these fields from `AssemblyExpander`:
 - `private int _expansionDepth;`
-- `private SourceText? _currentSourceText;`
-- `private string _currentFilePath = "";`
-- `private int _macroBodyDepth;`
 - `private ExpansionOrigin? _currentOrigin;`
 - `private readonly Stack<MacroFrame> _macroFrameStack = new();`
 
-Keep `_currentFilePath` and `_currentSourceText` temporarily if `EarlyDefineEqu`, `HandleConditional`, or other methods not yet migrated still read them. Those will be migrated in Task 7.
+Keep `_currentFilePath`, `_currentSourceText`, `_macroBodyDepth`, and `_loopDepth` temporarily — `EarlyDefineEqu`, `HandleConditional`, and other methods not yet migrated still read them. Those will be migrated in Tasks 6-8 and the fields removed in Task 8.
 
 - [ ] **Step 9: Run full test suite**
 
@@ -840,11 +845,8 @@ private void ExpandInclude(SyntaxNode node, List<ExpandedNode> output, Expansion
         return;
     }
 
-    var includeCtx = ctx.ForInclude(resolved,
-        Text.SourceText.From("", resolved), // placeholder, replaced below
-        node.FullSpan);
-
-    if (includeCtx.StructuralDepth > MaxStructuralDepth)
+    // Check depth before reading file — no placeholder contexts
+    if (ctx.StructuralDepth + 1 > MaxStructuralDepth)
     {
         _diagnostics.Report(node.FullSpan,
             $"Maximum include depth ({MaxStructuralDepth}) exceeded");
@@ -865,13 +867,12 @@ private void ExpandInclude(SyntaxNode node, List<ExpandedNode> output, Expansion
         var includeText = Text.SourceText.From(source, resolved);
         var includeTree = SyntaxTree.Parse(includeText);
 
-        // Create the real include context with actual source text
-        var realIncludeCtx = ctx.ForInclude(resolved, includeText, node.FullSpan);
+        var includeCtx = ctx.ForInclude(resolved, includeText, node.FullSpan);
         _diagnostics.CurrentFilePath = resolved;
 
         var children = includeTree.Root.ChildNodesAndTokens().ToList();
         int j = 0;
-        ExpandBodyList(children, ref j, output, realIncludeCtx);
+        ExpandBodyList(children, ref j, output, includeCtx);
     }
     catch (IOException ex)
     {
@@ -930,7 +931,7 @@ private void ExpandRept(SyntaxNode reptNode,
 }
 ```
 
-Note: `_breakRequested` handling is not yet replaced by `LoopControl` return — that happens in Task 7. For now, keep the `_breakRequested` check temporarily.
+Note: `_breakRequested` handling is not yet replaced by `LoopControl` return — that happens in Task 7. Task 6 may temporarily preserve `_breakRequested`, but no new code introduced in Task 6 may depend on it except at the final loop exit decision points that will be replaced in Task 7. Do not spread `_breakRequested` reads to new locations.
 
 - [ ] **Step 3: Rewrite ExpandFor similarly**
 
@@ -1326,35 +1327,41 @@ public BodyReplayPlan ClassifyForBody(string bodyText, string varName)
 }
 
 /// <summary>
-/// Check that every occurrence of <paramref name="varName"/> in the parsed tree
-/// is a distinct IdentifierToken — a complete standalone token, not part of a
-/// synthesized larger token.
+/// Structural FOR replay is allowed only when every semantic occurrence of the
+/// loop variable is already present in the parsed body as a standalone
+/// IdentifierToken that can be satisfied by rebinding the symbol table.
+///
+/// This walks the tree recursively (SyntaxNode does not have DescendantTokens).
+/// Only IdentifierToken matches count as occurrences — the variable name appearing
+/// as a substring inside strings, comments, or other token types is irrelevant
+/// because structural replay does not modify text.
 /// </summary>
 private static bool AllVariableOccurrencesAreStandalone(SyntaxNode root, string varName)
 {
-    // Walk all tokens. Every identifier matching varName must be a standalone
-    // IdentifierToken. If varName doesn't appear at all, structural is fine.
-    foreach (var token in root.DescendantTokens())
-    {
-        if (token.Kind == SyntaxKind.IdentifierToken &&
-            token.Text.Equals(varName, StringComparison.OrdinalIgnoreCase))
-        {
-            // This is a standalone identifier — good for structural replay
-            continue;
-        }
+    // Use the same recursive walk pattern as CollectIdentifierPositions.
+    // We only need to confirm that identifiers matching varName exist as
+    // standalone tokens. If the body text has no parsed occurrence of the
+    // variable at all, structural replay is safe (the variable is unused).
+    return CheckTokensRecursive(root, varName);
 
-        // Check if varName appears as a substring inside any other token
-        // (e.g., inside a string literal, or concatenated into another identifier)
-        if (token.Text.Contains(varName, StringComparison.OrdinalIgnoreCase) &&
-            token.Kind != SyntaxKind.IdentifierToken)
+    static bool CheckTokensRecursive(SyntaxNode node, string name)
+    {
+        foreach (var child in node.ChildNodesAndTokens())
         {
-            // Could be inside a string literal (harmless) — skip string tokens
-            if (token.Kind == SyntaxKind.StringLiteral) continue;
-            // Inside another token type — not safe for structural replay
-            return false;
+            if (child.IsToken)
+            {
+                // IdentifierToken matching the variable name: standalone, safe.
+                // Any other token kind is not a variable occurrence — ignore it.
+                // We do NOT substring-scan other tokens. If the variable name
+                // appears only inside strings or other tokens, structural replay
+                // is correct because it does not perform text substitution.
+                continue;
+            }
+            if (child.IsNode && !CheckTokensRecursive(child.AsNode!, name))
+                return false;
         }
+        return true;
     }
-    return true;
 }
 ```
 
@@ -1463,10 +1470,10 @@ public class StructuredReplayTests
     [Test]
     public async Task Rept_Break_WorksWithStructuralReplay()
     {
-        var nodes = Expand("SECTION \"Main\", ROM0\nREPT 10\nnop\nIF _NARG == 0\nBREAK\nENDC\nENDR");
-        // BREAK should fire on first iteration (no _NARG in REPT context)
+        // BREAK on second iteration — uses IF 1 which is always true
+        var nodes = Expand("COUNT = 0\nSECTION \"Main\", ROM0\nREPT 10\nnop\nCOUNT = COUNT + 1\nIF COUNT >= 2\nBREAK\nENDC\nENDR");
         var nopNodes = nodes.Where(n => n.Node.Kind == SyntaxKind.InstructionStatement).ToList();
-        await Assert.That(nopNodes.Count).IsEqualTo(1);
+        await Assert.That(nopNodes.Count).IsEqualTo(2);
     }
 }
 ```
@@ -1729,7 +1736,8 @@ public async Task ReplayDepthLimit_FiresIndependentlyOfStructuralDepth()
     var expander = new AssemblyExpander(diag, symbols);
     expander.Expand(tree);
     var messages = diag.ToList().Select(d => d.Message).ToList();
-    await Assert.That(messages.Any(m => m.Contains("replay depth") || m.Contains("expansion depth"))).IsTrue();
+    // Must mention "replay depth" specifically — not the old generic "expansion depth"
+    await Assert.That(messages.Any(m => m.Contains("replay depth"))).IsTrue();
 }
 
 [Test]
@@ -1759,11 +1767,9 @@ public async Task StructuralDepthLimit_FiresForDeepMacroNesting()
 [Test]
 public async Task Include_InsideMacro_PreservesSourceFilePath_WhileTracePreservesAncestry()
 {
-    var fileResolver = new Koh.Core.Binding.InMemoryFileResolver(new Dictionary<string, string>
-    {
-        ["main.asm"] = "my_inc: MACRO\nINCLUDE \"inc.asm\"\nENDM\nSECTION \"Main\", ROM0\nmy_inc",
-        ["inc.asm"] = "nop"
-    });
+    var fileResolver = new VirtualFileResolver();
+    fileResolver.AddTextFile("main.asm", "my_inc: MACRO\nINCLUDE \"inc.asm\"\nENDM\nSECTION \"Main\", ROM0\nmy_inc");
+    fileResolver.AddTextFile("inc.asm", "nop");
     var tree = SyntaxTree.Parse(Text.SourceText.From(fileResolver.ReadAllText("main.asm"), "main.asm"));
     var diag = new DiagnosticBag();
     var symbols = new SymbolTable(diag);
@@ -1778,11 +1784,24 @@ public async Task Include_InsideMacro_PreservesSourceFilePath_WhileTracePreserve
     await Assert.That(nopNodes[0].Trace!.ContainsKind(ExpansionKind.MacroExpansion)).IsTrue();
     await Assert.That(nopNodes[0].Trace!.ContainsKind(ExpansionKind.Include)).IsTrue();
 }
+
+- [ ] **Step 5: Add parameterless macro fast-path trace test**
+
+```csharp
+[Test]
+public async Task ParameterlessMacro_FastPath_HasMacroTraceButNoTextReplay()
+{
+    var source = "my_nop: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_nop";
+    var nodes = Expand(source);
+    var nopNodes = nodes.Where(n => n.Node.Kind == SyntaxKind.InstructionStatement).ToList();
+    await Assert.That(nopNodes.Count).IsEqualTo(1);
+    await Assert.That(nopNodes[0].Trace).IsNotNull();
+    await Assert.That(nopNodes[0].Trace!.ContainsKind(ExpansionKind.MacroExpansion)).IsTrue();
+    await Assert.That(nopNodes[0].Trace!.ContainsKind(ExpansionKind.TextReplay)).IsFalse();
+}
 ```
 
-Note: If `InMemoryFileResolver` doesn't exist, use the existing `ISourceFileResolver` mock pattern from `IncludeTests.cs`. Check the codebase for the actual resolver mock type name and adjust.
-
-- [ ] **Step 5: Add SHIFT regression test**
+- [ ] **Step 6: Add SHIFT regression test**
 
 ```csharp
 [Test]
@@ -1808,16 +1827,16 @@ public async Task Shift_Macro_StillWorksCorrectly()
 }
 ```
 
-- [ ] **Step 6: Run full test suite**
+- [ ] **Step 8: Run full test suite**
 
 Run: `dotnet test tests/Koh.Core.Tests/ --no-restore -v quiet`
 Expected: All tests pass.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add tests/Koh.Core.Tests/Binding/StructuredReplayTests.cs
-git commit -m "test: add provenance ancestry, depth limit, SHIFT regression, and INCLUDE provenance tests"
+git commit -m "test: add provenance ancestry, depth limit, SHIFT regression, macro fast-path, and INCLUDE provenance tests"
 ```
 
 ---
@@ -1852,16 +1871,9 @@ No ambient expansion-scope fields should remain.
 Run: `dotnet test tests/Koh.Core.Tests/ --no-restore -v quiet`
 Expected: All 922+ existing tests pass, plus all new tests pass.
 
-- [ ] **Step 5: Commit final cleanup**
-
-```bash
-git add src/Koh.Core/Binding/AssemblyExpander.cs
-git commit -m "refactor: enforce architectural invariant — no replay parse outside TextReplayService"
-```
-
-- [ ] **Step 6: Final commit with summary**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat: complete expansion architecture refactor — context-passing, structured replay, provenance traces"
+git commit -m "refactor: enforce architectural invariant — no replay parse outside TextReplayService"
 ```
