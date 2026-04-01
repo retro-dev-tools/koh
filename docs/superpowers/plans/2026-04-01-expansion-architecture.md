@@ -21,7 +21,7 @@
 - Trace-sensitive test assertions (checking `Trace` contents on emitted nodes) should only be added after Phase 1 bridge removal (Task 8+). Do not add them in Tasks 3–7.
 - Depth-limit diagnostics use consistent wording: "Maximum structural depth" for macro/include nesting, "Maximum text replay depth" for text→reparse nesting. Do not use the old generic "expansion depth" wording.
 - FOR body classification in Task 11 is a conservative first-pass rule. Do not attempt clever token-adjacency heuristics beyond the standalone-identifier check in this pass.
-- Tests that use `VirtualFileResolver` (defined in `src/Koh.Core/SourceFileResolver.cs`) should verify it exists before use. If it does not exist in the repo at implementation time, use the existing include-test resolver helper instead.
+- Before writing the INCLUDE provenance test, search the repo for `VirtualFileResolver` (expected in `src/Koh.Core/SourceFileResolver.cs`). If absent, use the existing include-test resolver helper already used by include-related tests. Do not invent a new resolver type in this pass.
 
 ---
 
@@ -572,7 +572,7 @@ Bridge mapping rules:
 - `LoopDepth` ← `_loopDepth` (exact)
 - `MacroBodyDepth` ← `_macroBodyDepth` (exact)
 - `StructuralDepth` ← `_expansionDepth` (best available — legacy counter is overloaded)
-- `ReplayDepth` ← `0` (not tracked separately in legacy; safe because replay depth checks are not active until Task 5)
+- `ReplayDepth` ← `0` as a temporary bridge default. Legacy code does not track replay depth separately, so replay-depth semantics are intentionally incomplete until Task 5 rewrites `ExpandTextInline`.
 - `MacroFrames` ← empty (bridge limitation; macro frame access via ctx not needed until Task 5)
 - `Trace` ← empty (new concept; trace emission not correct until bridge removal)
 
@@ -948,7 +948,7 @@ private void ExpandInclude(SyntaxNode node, List<ExpandedNode> output, Expansion
 
 Change signature to `private void ExpandRept(SyntaxNode reptNode, IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i, List<ExpandedNode> output, ExpansionContext ctx)`.
 
-Replace `_loopDepth++/--`, `_currentOrigin` save/restore, and `_breakRequested` with context and `LoopControl`:
+Replace `_loopDepth++/--` and `_currentOrigin` save/restore with context. Preserve the existing `_breakRequested` mechanism temporarily at the final loop-exit points only. Task 7 replaces it with `LoopControl`:
 
 ```csharp
 private void ExpandRept(SyntaxNode reptNode,
@@ -1127,17 +1127,20 @@ For methods that only need `ctx` for file path (like `HandleConditional`), still
 
 - [ ] **Step 2: Remove remaining ambient expansion-scope fields**
 
-After all methods read from `ctx`, remove these fields from AssemblyExpander:
+After all methods read from `ctx`, remove these fields that should still be present at this point:
 - `private SourceText? _currentSourceText;`
 - `private string _currentFilePath = "";`
-- `private int _expansionDepth;` (if not already removed)
 - `private int _loopDepth;`
 - `private int _macroBodyDepth;`
-- `private ExpansionOrigin? _currentOrigin;`
-- `private readonly Stack<MacroFrame> _macroFrameStack = new();`
 - `private readonly Stack<int> _reptUniqueIdStack = new();`
 
-Verify: the only remaining fields are the shared-state fields listed in the spec (diagnostics, symbols, conditional, macros, equsConstants, charMaps, rsCounter, fileResolver, includeStack, uniqueIdCounter, printOutput, interpolation, expressionCache).
+Also verify that fields removed in earlier tasks have not been reintroduced:
+- `_expansionDepth` (removed in Task 5)
+- `_currentOrigin` (removed in Task 5)
+- `_macroFrameStack` (removed in Task 5)
+- `_breakRequested` (removed in Task 7)
+
+After removal, the only remaining fields should be the shared-state fields listed in the spec: `_diagnostics`, `_symbols`, `_conditional`, `_macros`, `_equsConstants`, `_charMaps`, `_rsCounter`, `_fileResolver`, `_includeStack`, `_uniqueIdCounter`, `_printOutput`, `_interpolation`, `_expressionCache`.
 
 - [ ] **Step 3: Run full test suite**
 
@@ -1368,7 +1371,7 @@ public BodyReplayPlan ClassifyReptBody(string bodyText)
 /// This is NOT a deep proof of safety. It is a conservative check that
 /// allows structural replay only for the clearly safe case:
 /// 1. No replay-required constructs (\@, macro params, etc.)
-/// 2. Every parsed occurrence of the loop variable is a normal IdentifierToken
+/// 2. Every parsed token whose text equals the loop variable name is a normal IdentifierToken
 ///
 /// Any uncertainty falls back to RequiresTextReplay. This means some bodies
 /// that could theoretically be replayed structurally will still use text replay.
@@ -1461,6 +1464,8 @@ git commit -m "feat: add BodyReplayPlan and body classification for REPT/FOR"
 ---
 
 ### Task 12: Add structured REPT replay
+
+These tests assume Phase 1 is fully complete and no bridge contexts remain. Do not start Task 12 until Tasks 1–9 are done and all bridge code is removed.
 
 **Files:**
 - Modify: `src/Koh.Core/Binding/AssemblyExpander.cs`
