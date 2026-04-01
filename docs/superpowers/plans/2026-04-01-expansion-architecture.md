@@ -16,7 +16,12 @@
 - `TextReplayReason.UniqueLabelSubstitution` is the reason whenever `\@` causes token-shaping replay, regardless of whether it appears in macro, REPT, or FOR expansion.
 - Every `ExpandedNode` emission site must attach `ctx.Trace` exactly as-is. No emission site may construct, filter, or partially rewrite traces.
 - No replay-driven parse may occur outside `TextReplayService.ParseForReplay`.
+- After Task 5, do not introduce any new direct `SyntaxTree.Parse` replay paths. The only temporary direct replay parse allowed is the existing one inside `ExpandTextInline`, and it must be removed in Task 10.
 - Transitional bridge contexts (Task 3) are allowed only at direct `ExpandBodyList` call sites. No helper method may construct synthetic bridge contexts. All bridge contexts must be removed by the end of Task 8.
+- Trace-sensitive test assertions (checking `Trace` contents on emitted nodes) should only be added after Phase 1 bridge removal (Task 8+). Do not add them in Tasks 3–7.
+- Depth-limit diagnostics use consistent wording: "Maximum structural depth" for macro/include nesting, "Maximum text replay depth" for text→reparse nesting. Do not use the old generic "expansion depth" wording.
+- FOR body classification in Task 11 is a conservative first-pass rule. Do not attempt clever token-adjacency heuristics beyond the standalone-identifier check in this pass.
+- Tests that use `VirtualFileResolver` (defined in `src/Koh.Core/SourceFileResolver.cs`) should verify it exists before use. If it does not exist in the repo at implementation time, use the existing include-test resolver helper instead.
 
 ---
 
@@ -552,8 +557,10 @@ new ExpansionContext
     // macro expansion switches to child-context creation.
     // StructuralDepth: _expansionDepth (single legacy counter, best available)
     StructuralDepth = _expansionDepth,
-    // ReplayDepth: 0 (not tracked in legacy code; replay depth checking
-    // does not take effect until Task 5 rewrites ExpandTextInline)
+    // ReplayDepth: 0 — temporary bridge default. Legacy code does not track
+    // replay depth separately, so replay-depth semantics are not correct
+    // until Task 5 rewrites ExpandTextInline. No logic should rely on
+    // replay-depth correctness during the bridge period.
     // Trace: empty (new concept, no legacy equivalent; tests must not
     // depend on trace correctness until bridge removal in Task 8)
 }
@@ -716,7 +723,7 @@ private void ExpandMacroCall(SyntaxNode node, List<ExpandedNode> output, Expansi
     if (macroCtx.StructuralDepth > MaxStructuralDepth)
     {
         _diagnostics.Report(node.FullSpan,
-            $"Maximum macro expansion depth ({MaxStructuralDepth}) exceeded");
+            $"Maximum structural depth ({MaxStructuralDepth}) exceeded");
         return;
     }
 
@@ -767,7 +774,7 @@ private void ExpandParsedTree(SyntaxTree tree, List<ExpandedNode> output, Expans
     {
         var diagSpan = ctx.Trace.Current?.SourceSpan ?? default;
         _diagnostics.Report(diagSpan,
-            $"Maximum expansion depth ({MaxStructuralDepth}) exceeded");
+            $"Maximum structural depth ({MaxStructuralDepth}) exceeded");
         return;
     }
 
@@ -900,7 +907,7 @@ private void ExpandInclude(SyntaxNode node, List<ExpandedNode> output, Expansion
     if (ctx.StructuralDepth + 1 > MaxStructuralDepth)
     {
         _diagnostics.Report(node.FullSpan,
-            $"Maximum include depth ({MaxStructuralDepth}) exceeded");
+            $"Maximum structural depth ({MaxStructuralDepth}) exceeded");
         return;
     }
 
@@ -1834,7 +1841,10 @@ public async Task StructuralDepthLimit_FiresForDeepMacroNesting()
     var expander = new AssemblyExpander(diag, symbols);
     expander.Expand(tree);
     var messages = diag.ToList().Select(d => d.Message).ToList();
-    await Assert.That(messages.Any(m => m.Contains("depth") && m.Contains("exceeded"))).IsTrue();
+    var depthMessages = messages.Where(m => m.Contains("depth") && m.Contains("exceeded")).ToList();
+    await Assert.That(depthMessages.Count).IsGreaterThan(0);
+    // Must use "structural depth" wording, not old generic "expansion depth"
+    await Assert.That(depthMessages.All(m => m.Contains("structural depth"))).IsTrue();
 }
 ```
 
