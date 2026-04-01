@@ -168,16 +168,17 @@ internal sealed class AssemblyExpander
         var kwKind = tokens[nameIdx + 1].Kind;
         if (kwKind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
         {
-            var exprNodes = node.ChildNodes().ToList();
-            if (exprNodes.Count == 0) return;
+            // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
+            var firstExpr = node.ChildNodes().FirstOrDefault();
+            if (firstExpr == null) return;
             // Skip char literals in the pre-scan: their values depend on charmap state which is
             // not fully known until the sequential expansion walk processes all CHARMAP directives.
             // Allowing the pre-scan to define them with the wrong (ASCII) value would conflict
             // with the later correct (charmap-mapped) definition from EarlyDefineEqu.
-            if (ContainsCharLiteral(exprNodes[0].Green)) return;
+            if (ContainsCharLiteral(firstExpr.Green)) return;
             // Use a silent evaluator — don't report missing-symbol errors during pre-scan
             var evaluator = new ExpressionEvaluator(_symbols, DiagnosticBag.Null, () => 0, 0, _charMaps);
-            var value = evaluator.TryEvaluate(exprNodes[0].Green);
+            var value = evaluator.TryEvaluate(firstExpr.Green);
             if (!value.HasValue) return; // unresolvable at this point — retry on next pass
             if (kwKind == SyntaxKind.EqualsToken || tokens[0].Kind == SyntaxKind.RedefKeyword)
                 _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
@@ -279,8 +280,8 @@ internal sealed class AssemblyExpander
                 // Check for trailing tokens after ENDM
                 if (kw?.Kind == SyntaxKind.EndmKeyword)
                 {
-                    var allToks = node.ChildTokens().ToList();
-                    if (allToks.Count > 1)
+                    // Perf: count tokens directly to avoid ToList() allocation
+                    if (CountChildTokens(node) > 1)
                         _diagnostics.Report(node.FullSpan, "Unexpected tokens after ENDM");
                 }
                 if (kw?.Kind == SyntaxKind.MacroKeyword)
@@ -318,8 +319,8 @@ internal sealed class AssemblyExpander
                 // Check for trailing tokens after ENDR
                 if (kw?.Kind == SyntaxKind.EndrKeyword)
                 {
-                    var allToks = node.ChildTokens().ToList();
-                    if (allToks.Count > 1)
+                    // Perf: count tokens directly to avoid ToList() allocation
+                    if (CountChildTokens(node) > 1)
                         _diagnostics.Report(node.FullSpan, "Unexpected tokens after ENDR");
                 }
                 if (kw?.Kind == SyntaxKind.ReptKeyword)
@@ -383,8 +384,9 @@ internal sealed class AssemblyExpander
             if (node.Kind == SyntaxKind.SymbolDirective)
             {
                 // Handle PURGE during expansion — remove symbols from EQUS constants and symbol table
-                var symTokens = node.ChildTokens().ToList();
-                if (symTokens.Count > 0 && symTokens[0].Kind == SyntaxKind.PurgeKeyword)
+                // Perf: FirstOrDefault avoids ToList() allocation for the keyword peek
+                var firstSymTok = node.ChildTokens().FirstOrDefault();
+                if (firstSymTok?.Kind == SyntaxKind.PurgeKeyword)
                 {
                     HandlePurge(node, ctx);
                     i++;
@@ -394,11 +396,15 @@ internal sealed class AssemblyExpander
                 EarlyProcessCharmap(node, ctx);
             }
 
-            // SHIFT handling — advance the macro argument window
+            // Perf: single DirectiveStatement check with one FirstOrDefault() call covers
+            // SHIFT, RSRESET/RSSET, BREAK, and PRINT/PRINTLN — avoids two separate kind checks
+            // and two separate FirstOrDefault() enumerations over the same node.
             if (node.Kind == SyntaxKind.DirectiveStatement)
             {
-                var kwCheck = node.ChildTokens().FirstOrDefault();
-                if (kwCheck?.Kind == SyntaxKind.ShiftKeyword)
+                var kw = node.ChildTokens().FirstOrDefault();
+
+                // SHIFT — advance the macro argument window
+                if (kw?.Kind == SyntaxKind.ShiftKeyword)
                 {
                     if (ctx.CurrentMacroFrame == null)
                     {
@@ -416,29 +422,16 @@ internal sealed class AssemblyExpander
                     i++;
                     continue;
                 }
-            }
 
-            // Check for macro parameter tokens (\1..\9) outside macro context.
-            // Must walk the full green subtree because \1 may be inside a nested expression node
-            // (e.g. "println \1" → DirectiveStatement[PrintlnKw, LiteralExpression[MacroParamToken]]).
-            if (ctx.StructuralDepth == 0 && ctx.ReplayDepth == 0)
-            {
-                var macroParam = FindMacroParamToken(node.Green);
-                if (macroParam != null)
-                    _diagnostics.Report(node.FullSpan, $"Macro argument {macroParam} used outside of a macro");
-            }
-
-            // RSRESET/RSSET — handle RS counter directives during expansion
-            // BREAK — signal loop exit
-            if (node.Kind == SyntaxKind.DirectiveStatement)
-            {
-                var kw = node.ChildTokens().FirstOrDefault();
+                // RSRESET/RSSET — handle RS counter directives during expansion
                 if (kw?.Kind is SyntaxKind.RsresetKeyword or SyntaxKind.RssetKeyword)
                 {
                     HandleRsDirective(node, ctx);
                     i++;
                     continue; // consumed — don't emit to output
                 }
+
+                // BREAK — signal loop exit
                 if (kw?.Kind == SyntaxKind.BreakKeyword)
                 {
                     if (ctx.LoopDepth == 0)
@@ -450,6 +443,7 @@ internal sealed class AssemblyExpander
                     i++;
                     return LoopControl.Break;
                 }
+
                 // PRINT/PRINTLN inside loops — resolve at expansion time so per-iteration output is correct
                 if (ctx.LoopDepth > 0 && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
                 {
@@ -463,11 +457,21 @@ internal sealed class AssemblyExpander
                         text = ResolveInterpolations(text);
                         _printOutput.Write(text);
                     }
-                    if (kw.Kind == SyntaxKind.PrintlnKeyword)
+                    if (kw!.Kind == SyntaxKind.PrintlnKeyword)
                         _printOutput.WriteLine();
                     i++;
                     continue; // consumed — don't emit to output (already printed)
                 }
+            }
+
+            // Check for macro parameter tokens (\1..\9) outside macro context.
+            // Must walk the full green subtree because \1 may be inside a nested expression node
+            // (e.g. "println \1" → DirectiveStatement[PrintlnKw, LiteralExpression[MacroParamToken]]).
+            if (ctx.StructuralDepth == 0 && ctx.ReplayDepth == 0)
+            {
+                var macroParam = FindMacroParamToken(node.Green);
+                if (macroParam != null)
+                    _diagnostics.Report(node.FullSpan, $"Macro argument {macroParam} used outside of a macro");
             }
 
             output.Add(new ExpandedNode(node, ctx.FilePath, _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace));
@@ -498,11 +502,12 @@ internal sealed class AssemblyExpander
                 return;
             }
 
-            var exprNodes = node.ChildNodes().ToList();
-            if (exprNodes.Count > 0)
+            // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
+            var firstExprEqu = node.ChildNodes().FirstOrDefault();
+            if (firstExprEqu != null)
             {
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps, ResolveInterpolations);
-                var value = evaluator.TryEvaluate(exprNodes[0].Green);
+                var value = evaluator.TryEvaluate(firstExprEqu.Green);
                 if (value.HasValue)
                 {
                     // = and REDEF are reassignable (SET semantics); EQU is immutable.
@@ -525,11 +530,12 @@ internal sealed class AssemblyExpander
             };
             long count = 1; // default count is 1
 
-            var exprNodes = node.ChildNodes().ToList();
-            if (exprNodes.Count > 0)
+            // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
+            var firstExprRs = node.ChildNodes().FirstOrDefault();
+            if (firstExprRs != null)
             {
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
-                var value = evaluator.TryEvaluate(exprNodes[0].Green);
+                var value = evaluator.TryEvaluate(firstExprRs.Green);
                 if (value.HasValue) count = value.Value;
             }
 
@@ -540,10 +546,11 @@ internal sealed class AssemblyExpander
                  tokens[nameIdx + 1].Kind == SyntaxKind.EqusKeyword)
         {
             // name EQUS expr — evaluate string expression
-            var exprNodes = node.ChildNodes().ToList();
-            if (exprNodes.Count > 0)
+            // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
+            var firstExprEqus = node.ChildNodes().FirstOrDefault();
+            if (firstExprEqus != null)
             {
-                var value = EvaluateStringExpression(exprNodes[0], ctx);
+                var value = EvaluateStringExpression(firstExprEqus, ctx);
                 if (value != null)
                     _equsConstants[tokens[nameIdx].Text] = value;
             }
@@ -564,8 +571,13 @@ internal sealed class AssemblyExpander
         // ++ concatenation (BinaryExpression)
         if (exprNode.Kind == SyntaxKind.BinaryExpression)
         {
-            var childTokens = exprNode.ChildTokens().ToList();
-            if (childTokens.Any(t => t.Kind == SyntaxKind.PlusPlusToken))
+            // Perf: scan tokens directly without ToList() to detect ++
+            bool hasPlusPlus = false;
+            foreach (var t in exprNode.ChildTokens())
+            {
+                if (t.Kind == SyntaxKind.PlusPlusToken) { hasPlusPlus = true; break; }
+            }
+            if (hasPlusPlus)
             {
                 var children = exprNode.ChildNodes().ToList();
                 if (children.Count >= 2)
@@ -581,9 +593,10 @@ internal sealed class AssemblyExpander
         // Function calls
         if (exprNode.Kind == SyntaxKind.FunctionCallExpression)
         {
-            var funcTokens = exprNode.ChildTokens().ToList();
-            if (funcTokens.Count == 0) return null;
-            var funcKind = funcTokens[0].Kind;
+            // Perf: FirstOrDefault avoids ToList() allocation for the keyword peek
+            var firstFuncTok = exprNode.ChildTokens().FirstOrDefault();
+            if (firstFuncTok == null) return null;
+            var funcKind = firstFuncTok.Kind;
             var argExprs = exprNode.ChildNodes().ToList();
 
             switch (funcKind)
@@ -868,21 +881,23 @@ internal sealed class AssemblyExpander
 
     private void HandleRsDirective(SyntaxNode node, ExpansionContext ctx)
     {
-        var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
+        // Perf: FirstOrDefault avoids ToList() allocation for keyword peek
+        var firstTok = node.ChildTokens().FirstOrDefault();
+        if (firstTok == null) return;
 
-        switch (tokens[0].Kind)
+        switch (firstTok.Kind)
         {
             case SyntaxKind.RsresetKeyword:
                 _rsCounter = 0;
                 break;
             case SyntaxKind.RssetKeyword:
             {
-                var exprNodes = node.ChildNodes().ToList();
-                if (exprNodes.Count > 0)
+                // Perf: FirstOrDefault avoids ToList() allocation
+                var firstExpr = node.ChildNodes().FirstOrDefault();
+                if (firstExpr != null)
                 {
                     var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
-                    var value = evaluator.TryEvaluate(exprNodes[0].Green);
+                    var value = evaluator.TryEvaluate(firstExpr.Green);
                     if (value.HasValue) _rsCounter = value.Value;
                 }
                 else
@@ -903,10 +918,10 @@ internal sealed class AssemblyExpander
         var keyword = ((GreenToken)((GreenNode)node.Green).GetChild(0)!).Kind;
 
         // Check for trailing tokens after ENDC or ELSE
+        // Perf: count tokens directly to avoid ToList() allocation
         if (keyword is SyntaxKind.EndcKeyword or SyntaxKind.ElseKeyword)
         {
-            var allToks = node.ChildTokens().ToList();
-            if (allToks.Count > 1)
+            if (CountChildTokens(node) > 1)
                 _diagnostics.Report(node.FullSpan, $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
         }
 
@@ -1081,13 +1096,27 @@ internal sealed class AssemblyExpander
 
         // If the call text contains \# (MacroParamToken), resolve it against
         // the parent macro frame before looking up the macro name and args.
-        bool hasBackslashHash = tokens.Any(t => t.Kind == SyntaxKind.MacroParamToken && t.Text == "\\#");
+        // Perf: manual loop avoids LINQ delegate allocation on every macro call
+        bool hasBackslashHash = false;
+        foreach (var t in tokens)
+        {
+            if (t.Kind == SyntaxKind.MacroParamToken && t.Text == "\\#") { hasBackslashHash = true; break; }
+        }
         if (hasBackslashHash && ctx.CurrentMacroFrame != null)
         {
             var parentFrame = ctx.CurrentMacroFrame;
-            var rawText = ctx.SourceText != null
-                ? ctx.SourceText.ToString(node.FullSpan)
-                : string.Join("", tokens.Select(t => t.Text));
+            string rawText;
+            if (ctx.SourceText != null)
+            {
+                rawText = ctx.SourceText.ToString(node.FullSpan);
+            }
+            else
+            {
+                // Cold path: no source text — build from token texts
+                var sb = new System.Text.StringBuilder();
+                foreach (var t in tokens) sb.Append(t.Text);
+                rawText = sb.ToString();
+            }
             var resolved = rawText.Replace("\\#", parentFrame.AllArgs());
             ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.MacroParameterConcatenation);
             return;
@@ -1314,12 +1343,13 @@ internal sealed class AssemblyExpander
         IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i,
         List<ExpandedNode> output, ExpansionContext ctx)
     {
-        var exprNodes = reptNode.ChildNodes().ToList();
+        // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
+        var reptCountExpr = reptNode.ChildNodes().FirstOrDefault();
         int count = 0;
-        if (exprNodes.Count > 0)
+        if (reptCountExpr != null)
         {
             var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
-            var val = evaluator.TryEvaluate(exprNodes[0].Green);
+            var val = evaluator.TryEvaluate(reptCountExpr.Green);
             if (val.HasValue) count = (int)val.Value;
         }
         if (count < 0) count = 0;
@@ -1792,6 +1822,18 @@ internal sealed class AssemblyExpander
             if (child != null && ContainsCharLiteral(child)) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Count child tokens of a node without materializing a list.
+    /// Used to check "more than N tokens" without a ToList() allocation.
+    /// </summary>
+    private static int CountChildTokens(SyntaxNode node)
+    {
+        int count = 0;
+        foreach (var _ in node.ChildTokens())
+            count++;
+        return count;
     }
 
 }
