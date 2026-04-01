@@ -50,26 +50,7 @@ internal sealed class AssemblyExpander
     private readonly Stack<MacroFrame> _macroFrameStack = new();
     private readonly InterpolationResolver _interpolation;
 
-    private sealed class MacroFrame
-    {
-        public IReadOnlyList<string> Args { get; }
-        public int ShiftOffset { get; set; }
-        public int UniqueId { get; set; }
-        public int Narg => Math.Max(0, Args.Count - ShiftOffset);
-        public string GetArg(int oneBasedIndex)
-        {
-            int i = oneBasedIndex - 1 + ShiftOffset;
-            return i >= 0 && i < Args.Count ? Args[i] : "";
-        }
-        public string AllArgs()
-        {
-            var remaining = new List<string>();
-            for (int i = ShiftOffset; i < Args.Count; i++)
-                remaining.Add(Args[i]);
-            return string.Join(", ", remaining);
-        }
-        public MacroFrame(IReadOnlyList<string> args) => Args = args;
-    }
+    // MacroFrame promoted to top-level class in ExpansionContext.cs
 
     private const int MaxExpansionDepth = 64;
 
