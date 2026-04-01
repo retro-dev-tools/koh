@@ -44,7 +44,7 @@
 | File | Change |
 |------|--------|
 | `src/Koh.Core/Binding/AssemblyExpander.cs` | All method signatures gain `ctx`. 9 ambient fields removed. `MacroFrame` promoted to top-level. Text methods extracted to `TextReplayService`. Structured replay paths added. |
-| `src/Koh.Core/Binding/Binder.cs` | `ExpandedNode.Origin` → `ExpandedNode.Trace` (no read sites currently — just the record change) |
+| `src/Koh.Core/Binding/Binder.cs` | `ExpandedNode.Origin` → `ExpandedNode.Trace`. Verify by searching for `.Origin` references before assuming no read sites need updating. |
 
 ### Deleted files
 
@@ -100,7 +100,8 @@ public class ExpansionTraceTests
         var trace = ExpansionTrace.Empty.Push(include).Push(rept);
         await Assert.That(trace.Depth).IsEqualTo(2);
         await Assert.That(trace.Current).IsEqualTo(rept);
-        await Assert.That(trace.Frames[0]).IsEqualTo(include);
+        await Assert.That(trace.ContainsKind(ExpansionKind.Include)).IsTrue();
+        await Assert.That(trace.FindNearest(ExpansionKind.Include)).IsEqualTo(include);
     }
 
     [Test]
@@ -537,7 +538,22 @@ Update all call sites of `ExpandBodyList` inside AssemblyExpander to pass the ap
 4. `ExpandRept` loop body (line ~1513)
 5. `ExpandFor` loop body (line ~1627)
 
-At each site, construct: `new ExpansionContext { SourceText = _currentSourceText, FilePath = _currentFilePath, LoopDepth = _loopDepth, MacroBodyDepth = _macroBodyDepth }` as a transitional bridge. These are temporary and must not survive past Task 8.
+At each site, the bridge context must populate every field that has an ambient equivalent available. Missing fields must be explicitly justified as safe defaults for that call site. The full bridge:
+
+```csharp
+new ExpansionContext
+{
+    SourceText = _currentSourceText,
+    FilePath = _currentFilePath,
+    LoopDepth = _loopDepth,
+    MacroBodyDepth = _macroBodyDepth,
+    MacroFrames = ImmutableStackFromLegacyStack(_macroFrameStack),
+    // StructuralDepth and ReplayDepth: derive from _expansionDepth as best estimate
+    // Trace: ExpansionTrace.Empty (no legacy equivalent — trace is new)
+}
+```
+
+If converting `_macroFrameStack` to `ImmutableStack` is too complex for the bridge step, populate `MacroFrames` as empty and accept that bridge contexts do not support nested macro frame lookup. Document this as a known bridge limitation removed in Task 5. These bridge contexts are temporary and must not survive past Task 8.
 
 - [ ] **Step 2: Run full test suite**
 
@@ -735,6 +751,8 @@ private void ExpandParsedTree(SyntaxTree tree, List<ExpandedNode> output, Expans
 
 - [ ] **Step 5: Update ExpandTextInline signature and body**
 
+**Important:** This step keeps direct `SyntaxTree.Parse` in `ExpandTextInline` temporarily. This is a context-threading step only. Task 10 must replace this with `_textReplay.ParseForReplay` and remove all replay parsing from AssemblyExpander. Do not consider the architecture complete after this step.
+
 Change signature to:
 ```csharp
 private void ExpandTextInline(string text, List<ExpandedNode> output,
@@ -757,6 +775,8 @@ private void ExpandTextInline(string text, List<ExpandedNode> output,
         return;
     }
 
+    // NOTE: This direct SyntaxTree.Parse is temporary. Task 10 replaces it
+    // with _textReplay.ParseForReplay to enforce the architectural invariant.
     var tree = SyntaxTree.Parse(text);
     var replayCtx = ctx.ForTextReplay(tree.Text, triggerSpan, reason);
     var children = tree.Root.ChildNodesAndTokens().ToList();
@@ -919,9 +939,19 @@ private void ExpandRept(SyntaxNode reptNode,
         var iterCtx = ctx.ForLoop(iterFrame);
 
         var iterText = bodyTextRaw.Replace("\\@", $"_{uniqueId}");
+        // ExpandTextInline is still void in Task 6. Task 7 changes it to
+        // return LoopControl and replaces _breakRequested.
         ExpandTextInline(iterText, output, iterCtx, reptNode.FullSpan,
             TextReplayReason.UniqueLabelSubstitution);
 
+        // Temporary: _breakRequested is still the BREAK mechanism until Task 7.
+        // This is the ONLY place new Task 6 code may read _breakRequested.
+        if (_breakRequested)
+        {
+            _breakRequested = false;
+            _conditional.ResetToDepth(condDepthBefore);
+            break;
+        }
         if (_conditional.Depth != condDepthBefore)
             _conditional.ResetToDepth(condDepthBefore);
     }
@@ -931,7 +961,7 @@ private void ExpandRept(SyntaxNode reptNode,
 }
 ```
 
-Note: `_breakRequested` handling is not yet replaced by `LoopControl` return — that happens in Task 7. Task 6 may temporarily preserve `_breakRequested`, but no new code introduced in Task 6 may depend on it except at the final loop exit decision points that will be replaced in Task 7. Do not spread `_breakRequested` reads to new locations.
+Note: `ExpandTextInline` is still `void` in Task 6. Task 7 changes its return type to `LoopControl` and removes `_breakRequested` entirely. Task 6 may temporarily preserve `_breakRequested` checks at the final loop exit points shown above, but no new code may introduce additional `_breakRequested` reads or writes elsewhere.
 
 - [ ] **Step 3: Rewrite ExpandFor similarly**
 
@@ -1307,61 +1337,81 @@ public BodyReplayPlan ClassifyReptBody(string bodyText)
 
 /// <summary>
 /// Classify a FOR body for structural vs text replay.
-/// Structural replay is possible only when every occurrence of the loop variable
-/// is a standalone parsed IdentifierToken that can be represented by symbol-table
-/// rebinding alone.
+///
+/// A FOR body is eligible for structural replay only when:
+/// 1. The body contains no replay-required constructs (\@, macro params, etc.)
+/// 2. Every semantic use of the loop variable in the parsed body appears as
+///    a normal IdentifierToken that is evaluated through symbol lookup.
+///
+/// In the first implementation, this reparses the body text for classification.
+/// A future improvement should classify directly from the already-collected
+/// parsed body nodes when available, avoiding the extra parse.
 /// </summary>
 public BodyReplayPlan ClassifyForBody(string bodyText, string varName)
 {
+    // Any body containing \@ requires text replay
     if (bodyText.Contains("\\@"))
         return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay,
             TextReplayReason.UniqueLabelSubstitution);
 
-    // Parse once to inspect token stream
-    var tree = Syntax.SyntaxTree.Parse(bodyText);
-    if (AllVariableOccurrencesAreStandalone(tree.Root, varName))
-        return new BodyReplayPlan(BodyReplayKind.Structural);
+    // Any body containing unresolved macro params requires text replay
+    if (ContainsUnresolvedMacroParam(bodyText))
+        return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay,
+            TextReplayReason.MacroParameterConcatenation);
 
-    return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay,
-        TextReplayReason.ForTokenShapingSubstitution);
+    // Parse once to inspect token positions.
+    // Walk the parsed tree and verify that every occurrence of varName
+    // appears as a standalone IdentifierToken. If it does, the loop
+    // variable can be satisfied by symbol-table rebinding alone.
+    var tree = Syntax.SyntaxTree.Parse(bodyText);
+    bool foundAny = false;
+    if (!AllVarRefsAreStandaloneIdentifiers(tree.Root, varName, ref foundAny))
+        return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay,
+            TextReplayReason.ForTokenShapingSubstitution);
+
+    // If the variable name never appears as a token at all, structural
+    // replay is safe — the variable is unused in the body.
+    return new BodyReplayPlan(BodyReplayKind.Structural);
 }
 
 /// <summary>
-/// Structural FOR replay is allowed only when every semantic occurrence of the
-/// loop variable is already present in the parsed body as a standalone
-/// IdentifierToken that can be satisfied by rebinding the symbol table.
-///
-/// This walks the tree recursively (SyntaxNode does not have DescendantTokens).
-/// Only IdentifierToken matches count as occurrences — the variable name appearing
-/// as a substring inside strings, comments, or other token types is irrelevant
-/// because structural replay does not modify text.
+/// Walk the parsed tree recursively (SyntaxNode does not have DescendantTokens).
+/// Returns false if any token matches <paramref name="varName"/> but is NOT
+/// a standalone <see cref="SyntaxKind.IdentifierToken"/>.
+/// Sets <paramref name="foundAny"/> to true if at least one match was found.
 /// </summary>
-private static bool AllVariableOccurrencesAreStandalone(SyntaxNode root, string varName)
+private static bool AllVarRefsAreStandaloneIdentifiers(
+    SyntaxNode node, string varName, ref bool foundAny)
 {
-    // Use the same recursive walk pattern as CollectIdentifierPositions.
-    // We only need to confirm that identifiers matching varName exist as
-    // standalone tokens. If the body text has no parsed occurrence of the
-    // variable at all, structural replay is safe (the variable is unused).
-    return CheckTokensRecursive(root, varName);
-
-    static bool CheckTokensRecursive(SyntaxNode node, string name)
+    foreach (var child in node.ChildNodesAndTokens())
     {
-        foreach (var child in node.ChildNodesAndTokens())
+        if (child.IsToken)
         {
-            if (child.IsToken)
+            var token = child.AsToken!;
+            if (token.Text.Equals(varName, StringComparison.OrdinalIgnoreCase))
             {
-                // IdentifierToken matching the variable name: standalone, safe.
-                // Any other token kind is not a variable occurrence — ignore it.
-                // We do NOT substring-scan other tokens. If the variable name
-                // appears only inside strings or other tokens, structural replay
-                // is correct because it does not perform text substitution.
-                continue;
+                if (token.Kind == SyntaxKind.IdentifierToken)
+                {
+                    foundAny = true;
+                    // Standalone identifier — safe for structural replay
+                }
+                else
+                {
+                    // Variable name appears as a non-identifier token
+                    // (e.g., inside a keyword, or lexed differently).
+                    // Not safe for structural replay.
+                    return false;
+                }
             }
-            if (child.IsNode && !CheckTokensRecursive(child.AsNode!, name))
+            // Tokens that don't match varName are irrelevant.
+        }
+        else if (child.IsNode)
+        {
+            if (!AllVarRefsAreStandaloneIdentifiers(child.AsNode!, varName, ref foundAny))
                 return false;
         }
-        return true;
     }
+    return true;
 }
 ```
 
@@ -1784,6 +1834,7 @@ public async Task Include_InsideMacro_PreservesSourceFilePath_WhileTracePreserve
     await Assert.That(nopNodes[0].Trace!.ContainsKind(ExpansionKind.MacroExpansion)).IsTrue();
     await Assert.That(nopNodes[0].Trace!.ContainsKind(ExpansionKind.Include)).IsTrue();
 }
+```
 
 - [ ] **Step 5: Add parameterless macro fast-path trace test**
 
