@@ -15,4 +15,7 @@
     <Project Path="tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj" />
     <Project Path="tests/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />
+  </Folder>
 </Solution>
