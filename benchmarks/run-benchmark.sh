@@ -169,7 +169,7 @@ ENV_CPU=$(grep 'model name' /proc/cpuinfo | head -1 | sed 's/.*: //')
 ENV_KERNEL=$(uname -r)
 ENV_CONTAINER_OS=$(grep PRETTY_NAME /etc/os-release | sed 's/PRETTY_NAME="//' | sed 's/"//')
 ENV_RAM_MB=$(awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo)
-ENV_DOTNET=$(dotnet --version 2>/dev/null || echo "unknown")
+ENV_DOTNET=$(dotnet --list-runtimes 2>/dev/null | grep NETCore | head -1 | sed 's/.*App //' | sed 's/ .*//' || echo "unknown")
 ENV_RGBDS=$(rgbasm --version 2>&1 | head -1)
 ENV_KOH=$(/opt/koh/koh-asm/koh-asm --version 2>&1 | head -1 || echo "unknown")
 ENV_SDK_HOST="${DOTNET_SDK_HOST:-unknown}"
@@ -199,7 +199,8 @@ if [[ ! -d /work/pokecrystal ]]; then
   git clone https://github.com/pret/pokecrystal.git /work/pokecrystal 2>&1 | tail -3
 fi
 cd /work/pokecrystal
-git checkout "$POKECRYSTAL_REF" --quiet 2>/dev/null || git fetch --depth=50 origin "$POKECRYSTAL_REF" && git checkout "$POKECRYSTAL_REF" --quiet
+git fetch --depth=1 origin "$POKECRYSTAL_REF" 2>/dev/null || true
+git checkout "$POKECRYSTAL_REF" --quiet
 
 # ===========================================================================
 # Step 3: Build prerequisites (not measured)
@@ -210,15 +211,14 @@ make -C tools/ -j"$(nproc)" 2>&1 | tail -5
 log "Building pokecrystal (generates graphics assets)..."
 make -j"$(nproc)" 2>&1 | tail -10
 
-# Validate critical assets exist
+# Validate the build succeeded
 if [[ ! -f includes.asm ]]; then
   die "includes.asm not found — pokecrystal setup failed"
 fi
-# Check a representative INCBIN-referenced asset
-if ! find gfx -name "*.2bpp" | head -1 | grep -q .; then
-  die "No .2bpp files found — graphics asset generation failed"
+if [[ ! -f pokecrystal.gbc ]]; then
+  die "pokecrystal.gbc not produced — full build failed"
 fi
-log "Prerequisites built and validated"
+log "Prerequisites built and validated (ROM produced)"
 
 # ===========================================================================
 # Step 4: Pre-flight classification

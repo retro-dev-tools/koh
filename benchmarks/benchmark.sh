@@ -7,8 +7,8 @@ set -euo pipefail
 # Publishes KOH, builds Docker image, runs benchmark container, prints results.
 # ===========================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -W 2>/dev/null || pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -W 2>/dev/null || pwd)"
 
 BENCH_IMAGE="${BENCH_IMAGE:-koh-benchmark}"
 BENCH_OUTPUT="${BENCH_OUTPUT:-$SCRIPT_DIR/results}"
