@@ -4,3 +4,8 @@ obj/
 *.user
 TestResults/
 
+# Benchmarks
+benchmarks/results/
+benchmarks/.publish/
+benchmarks/Koh.Benchmarks/BenchmarkDotNet.Artifacts/
+
