@@ -7,6 +7,7 @@ public enum SymbolKind
     Label,
     Constant,
     StringConstant,
+    Macro,
 }
 
 public enum SymbolVisibility
