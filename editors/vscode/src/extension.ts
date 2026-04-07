@@ -53,8 +53,9 @@ const MAX_GENERATED_ENTRYPOINTS = 5;
  * Scan the workspace folder for .asm files and try to guess which ones are
  * root entrypoints (i.e. not included by other files).
  *
- * INCLUDE paths in RGBDS are resolved relative to CWD (workspace root) first,
- * then relative to the including file's directory. We try both when matching.
+ * RGBDS resolves INCLUDE paths relative to CWD, which may differ from the
+ * workspace root (e.g. CWD = src/). We infer the CWD and also do suffix-based
+ * matching as a fallback so that include relationships are correctly detected.
  */
 async function guessEntrypoints(folder: vscode.Uri): Promise<string[]> {
     const pattern = new vscode.RelativePattern(folder, '**/*.asm');
@@ -66,37 +67,65 @@ async function guessEntrypoints(folder: vscode.Uri): Promise<string[]> {
     }
 
     // Build a set of all known relative paths for quick lookup.
-    const relPaths = new Map<string, string>(); // normalized → original relative
+    const relPaths = new Map<string, string>(); // lowercased → original relative
+    // Build a suffix index for fuzzy matching: "ram/wram.asm" matches "src/ram/wram.asm"
+    const suffixIndex = new Map<string, string[]>(); // lowercased suffix → original paths
     for (const uri of uris) {
         const rel = vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
         relPaths.set(rel.toLowerCase(), rel);
+        // Index all path suffixes (each subpath from every / boundary)
+        const lower = rel.toLowerCase();
+        const parts = lower.split('/');
+        for (let i = 0; i < parts.length; i++) {
+            const suffix = parts.slice(i).join('/');
+            if (!suffixIndex.has(suffix)) suffixIndex.set(suffix, []);
+            suffixIndex.get(suffix)!.push(rel);
+        }
     }
 
-    // Collect all INCLUDE/INCBIN references, resolving relative to both
-    // workspace root and including file's directory.
+    /** Try to resolve an include path to a known workspace file. */
+    function resolveInclude(raw: string, includerRel: string): string | undefined {
+        const rawLower = raw.toLowerCase();
+        const includerDir = path.posix.dirname(includerRel);
+
+        // Try 1: raw path as-is (CWD = workspace root)
+        if (relPaths.has(rawLower)) return relPaths.get(rawLower)!;
+
+        // Try 2: relative to including file's directory
+        const fromFile = path.posix.normalize(path.posix.join(includerDir, raw));
+        if (relPaths.has(fromFile.toLowerCase())) return relPaths.get(fromFile.toLowerCase())!;
+
+        // Try 3: suffix match — find workspace files ending with this include path.
+        // E.g. "ram/wram.asm" matches "src/ram/wram.asm" (CWD was probably src/)
+        // Strip leading "../" segments for paths that navigate outside CWD and back.
+        let normalized = path.posix.normalize(raw);
+        while (normalized.startsWith('../')) normalized = normalized.slice(3);
+        const matches = suffixIndex.get(normalized.toLowerCase());
+        if (matches && matches.length === 1) return matches[0];
+
+        return undefined;
+    }
+
+    // Collect all INCLUDE/INCBIN references and count per-file outgoing includes.
     const includedFiles = new Set<string>();
+    const includeCount = new Map<string, number>(); // how many files each file includes
     for (const uri of uris) {
         try {
             const bytes = await vscode.workspace.fs.readFile(uri);
             const text = Buffer.from(bytes).toString('utf-8');
             const includerRel = vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
-            const includerDir = path.posix.dirname(includerRel);
+            let count = 0;
             const regex = /^\s*(?:INCLUDE|INCBIN)\s+"([^"]+)"/gmi;
             let m: RegExpExecArray | null;
             while ((m = regex.exec(text)) !== null) {
                 const raw = m[1].replace(/\\/g, '/');
-
-                // Try 1: raw path as-is (relative to workspace root / CWD)
-                if (relPaths.has(raw.toLowerCase())) {
-                    includedFiles.add(relPaths.get(raw.toLowerCase())!);
-                }
-
-                // Try 2: resolved relative to the including file's directory
-                const resolved = path.posix.normalize(path.posix.join(includerDir, raw));
-                if (relPaths.has(resolved.toLowerCase())) {
-                    includedFiles.add(relPaths.get(resolved.toLowerCase())!);
-                }
+                // Skip non-.asm/.inc files (binary INCBINs)
+                if (!raw.endsWith('.asm') && !raw.endsWith('.inc')) continue;
+                count++;
+                const resolved = resolveInclude(raw, includerRel);
+                if (resolved) includedFiles.add(resolved);
             }
+            includeCount.set(includerRel, count);
         } catch {
             // Unreadable file — skip
         }
@@ -116,33 +145,35 @@ async function guessEntrypoints(folder: vscode.Uri): Promise<string[]> {
         return [];
     }
 
-    // Sort by heuristic confidence: well-known names first, then root/src files, then alphabetical.
+    // Sort by heuristic confidence.
+    const score = (r: string) => entrypointScore(r, includeCount.get(r) ?? 0);
     roots.sort((a, b) => {
-        const scoreA = entrypointScore(a);
-        const scoreB = entrypointScore(b);
-        if (scoreA !== scoreB) return scoreB - scoreA;
-        return a.localeCompare(b);
+        const diff = score(b) - score(a);
+        return diff !== 0 ? diff : a.localeCompare(b);
     });
 
-    // If too many roots found, the heuristic isn't working well for this project.
-    // Only return the highest-confidence ones.
+    // Only keep roots with positive score (files that actually look like entrypoints).
+    const viable = roots.filter(r => score(r) > 0);
+    if (viable.length > 0) {
+        return viable.slice(0, MAX_GENERATED_ENTRYPOINTS);
+    }
+
+    // No confident candidates — return top few sorted roots as a starting point.
     if (roots.length > MAX_GENERATED_ENTRYPOINTS) {
-        const highConfidence = roots.filter(r => entrypointScore(r) > 0);
-        if (highConfidence.length > 0 && highConfidence.length <= MAX_GENERATED_ENTRYPOINTS) {
-            return highConfidence;
-        }
-        // Still too many or none with confidence — return just the top few
         return roots.slice(0, MAX_GENERATED_ENTRYPOINTS);
     }
 
     return roots;
 }
 
-function entrypointScore(relPath: string): number {
+function entrypointScore(relPath: string, includeCount: number): number {
     const name = path.basename(relPath).toLowerCase();
     const dir = path.dirname(relPath).replace(/\\/g, '/');
 
     let score = 0;
+
+    // Files that include others are much more likely to be real entrypoints.
+    if (includeCount > 0) score += 20;
 
     // Well-known filename bonus
     const idx = ENTRYPOINT_NAMES.indexOf(name);
@@ -151,6 +182,9 @@ function entrypointScore(relPath: string): number {
     // Root or src/ directory bonus
     if (dir === '.' || dir === '') score += 5;
     else if (dir === 'src') score += 3;
+
+    // Penalty for files under tools/, test/, tests/, build/ — unlikely entrypoints
+    if (/^(tools|test|tests|build)(\/|$)/i.test(relPath)) score -= 50;
 
     return score;
 }
