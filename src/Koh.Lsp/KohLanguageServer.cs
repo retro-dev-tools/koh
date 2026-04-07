@@ -11,6 +11,7 @@ public sealed class KohLanguageServer
 {
     private readonly JsonRpc _rpc;
     private readonly Workspace _workspace = new();
+    private readonly SymbolFinder _symbolFinder = new();
     private bool _shutdownReceived;
 
     public KohLanguageServer(JsonRpc rpc)
@@ -38,6 +39,7 @@ public sealed class KohLanguageServer
                 DefinitionProvider = true,
                 ReferencesProvider = true,
                 DocumentSymbolProvider = true,
+                RenameProvider = new RenameOptions { PrepareProvider = true },
                 CompletionProvider = new CompletionOptions
                 {
                     TriggerCharacters = new[] { "." },
@@ -612,5 +614,86 @@ public sealed class KohLanguageServer
         }
 
         return items.ToArray();
+    }
+
+    // =========================================================================
+    // Rename
+    // =========================================================================
+
+    [JsonRpcMethod("textDocument/prepareRename")]
+    public object? PrepareRename(JToken arg)
+    {
+        var p = arg.ToObject<TextDocumentPositionParams>()!;
+        var uri = p.TextDocument.Uri.ToString();
+        var doc = _workspace.GetDocument(uri);
+        if (doc == null) return null;
+
+        var (source, _) = doc.Value;
+        var offset = PositionUtilities.ToOffset(source, p.Position);
+
+        var resolved = _symbolFinder.ResolveAt(_workspace, uri, offset);
+        if (resolved == null) return null;
+
+        return new
+        {
+            range = PositionUtilities.ToLspRange(source, resolved.Token.Span),
+            placeholder = resolved.Token.Text,
+        };
+    }
+
+    [JsonRpcMethod("textDocument/rename")]
+    public WorkspaceEdit? Rename(JToken arg)
+    {
+        var p = arg.ToObject<RenameParams>()!;
+        var uri = p.TextDocument.Uri.ToString();
+        var doc = _workspace.GetDocument(uri);
+        if (doc == null) return null;
+
+        var (source, _) = doc.Value;
+        var offset = PositionUtilities.ToOffset(source, p.Position);
+
+        var target = _symbolFinder.ResolveAt(_workspace, uri, offset);
+        if (target == null) return null;
+
+        // Validate
+        var error = _symbolFinder.ValidateRename(_workspace, target, p.NewName);
+        if (error != null) return null;
+
+        // Find all occurrences
+        var occurrences = _symbolFinder.FindAllOccurrences(_workspace, target);
+        if (occurrences.Count == 0) return null;
+
+        // Build WorkspaceEdit grouped by URI
+        var changes = new Dictionary<string, TextEdit[]>();
+
+        foreach (var group in occurrences.GroupBy(o => o.Uri, StringComparer.OrdinalIgnoreCase))
+        {
+            var groupUri = group.Key;
+            var groupDoc = _workspace.GetDocument(groupUri);
+            if (groupDoc == null) continue;
+            var (groupSource, _) = groupDoc.Value;
+
+            // Determine the replacement text for each occurrence
+            var edits = group.Select(occ =>
+            {
+                // For local labels, the stored name is qualified (e.g. "Global.local")
+                // but the token text is just ".local". Preserve the dot prefix form.
+                string newText;
+                if (occ.Token.Kind == Core.Syntax.SyntaxKind.LocalLabelToken)
+                    newText = p.NewName; // caller provides ".newname"
+                else
+                    newText = p.NewName;
+
+                return new TextEdit
+                {
+                    Range = PositionUtilities.ToLspRange(groupSource, occ.Token.Span),
+                    NewText = newText,
+                };
+            }).ToArray();
+
+            changes[groupUri] = edits;
+        }
+
+        return new WorkspaceEdit { Changes = changes };
     }
 }
