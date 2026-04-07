@@ -41,11 +41,11 @@ public class PositionUtilitiesTests
     }
 
     [Test]
-    public async Task ToOffset_OutOfRangeLine_ReturnsZero()
+    public async Task ToOffset_OutOfRangeLine_ReturnsEndOfText()
     {
         var source = SourceText.From("nop");
         var offset = PositionUtilities.ToOffset(source, new LspPosition(99, 0));
-        await Assert.That(offset).IsEqualTo(0);
+        await Assert.That(offset).IsEqualTo(source.Length);
     }
 
     [Test]

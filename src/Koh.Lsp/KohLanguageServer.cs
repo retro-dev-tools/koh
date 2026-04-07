@@ -24,9 +24,9 @@ public sealed class KohLanguageServer
     // =========================================================================
 
     [JsonRpcMethod("initialize")]
-    public InitializeResult Initialize(JToken arg)
+    public JToken Initialize(JToken arg)
     {
-        return new InitializeResult
+        var result = new InitializeResult
         {
             Capabilities = new ServerCapabilities
             {
@@ -56,6 +56,15 @@ public sealed class KohLanguageServer
                 },
             },
         };
+
+        // Add capabilities not available in this version of the LSP protocol package
+        var json = JToken.FromObject(result);
+        json["capabilities"]!["inlayHintProvider"] = true;
+        json["capabilities"]!["signatureHelpProvider"] = JToken.FromObject(new
+        {
+            triggerCharacters = new[] { "," },
+        });
+        return json;
     }
 
     [JsonRpcMethod("initialized")]
@@ -641,6 +650,103 @@ public sealed class KohLanguageServer
         var data = SemanticTokenEncoder.Encode(tree);
 
         return new SemanticTokens { Data = data };
+    }
+
+    // =========================================================================
+    // Inlay Hints
+    // =========================================================================
+
+    [JsonRpcMethod("textDocument/inlayHint")]
+    public JToken? InlayHint(JToken arg)
+    {
+        var uri = arg["textDocument"]!["uri"]!.ToString();
+        var doc = _workspace.GetDocument(uri);
+        if (doc == null) return null;
+
+        var (source, tree) = doc.Value;
+        var model = _workspace.GetSemanticModel(uri);
+        if (model == null) return null;
+
+        // Parse the requested range
+        var startLine = (int)arg["range"]!["start"]!["line"]!;
+        var startChar = (int)arg["range"]!["start"]!["character"]!;
+        var endLine = (int)arg["range"]!["end"]!["line"]!;
+        var endChar = (int)arg["range"]!["end"]!["character"]!;
+
+        var startOffset = PositionUtilities.ToOffset(source, new Position(startLine, startChar));
+        var endOffset = PositionUtilities.ToOffset(source, new Position(endLine, endChar));
+
+        var hints = new List<JObject>();
+        var seen = new HashSet<int>();
+
+        CollectInlayHints(tree.Root, source, model, startOffset, endOffset, hints, seen);
+
+        return hints.Count > 0 ? JToken.FromObject(hints) : new JArray();
+    }
+
+    private static void CollectInlayHints(SyntaxNode node, SourceText source,
+        Core.SemanticModel model, int startOffset, int endOffset,
+        List<JObject> hints, HashSet<int> seen)
+    {
+        foreach (var child in node.ChildNodesAndTokens())
+        {
+            if (child.IsNode)
+            {
+                var childNode = child.AsNode!;
+                // Skip if entirely outside range
+                if (childNode.Position + childNode.FullSpan.Length < startOffset) continue;
+                if (childNode.Position > endOffset) break;
+
+                CollectInlayHints(childNode, source, model, startOffset, endOffset, hints, seen);
+                continue;
+            }
+
+            if (!child.IsToken) continue;
+            var token = child.AsToken!;
+
+            // Only identifier/local label tokens
+            if (token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
+                continue;
+
+            // Must be within range
+            if (token.Span.Start < startOffset || token.Span.Start > endOffset)
+                continue;
+
+            // Must be in a reference context, not a declaration
+            var parent = token.Parent;
+            if (parent == null) continue;
+            if (parent.Kind is SyntaxKind.LabelDeclaration or SyntaxKind.SymbolDirective or SyntaxKind.MacroDefinition)
+                continue;
+            if (parent.Kind is not SyntaxKind.NameExpression and not SyntaxKind.LabelOperand)
+                continue;
+
+            // Resolve semantically
+            var symbol = model.ResolveSymbol(token.Text, token.Span.Start);
+            if (symbol == null) continue;
+
+            // Only Label and Constant get hints — not StringConstant, not Macro
+            if (symbol.Kind is not Core.Symbols.SymbolKind.Label and not Core.Symbols.SymbolKind.Constant)
+                continue;
+
+            // Dedupe by position
+            if (!seen.Add(token.Span.Start)) continue;
+
+            // Build hint
+            var pos = PositionUtilities.ToLspPosition(source, token.Span.Start + token.Span.Length);
+            string valueText;
+            if (symbol.Kind == Core.Symbols.SymbolKind.Label)
+                valueText = $"${symbol.Value:X4}";
+            else
+                valueText = $"${symbol.Value:X4} ({symbol.Value})";
+
+            hints.Add(new JObject
+            {
+                ["position"] = JToken.FromObject(new { line = pos.Line, character = pos.Character }),
+                ["label"] = $" = {valueText}",
+                ["kind"] = 1, // Type hint
+                ["paddingLeft"] = true,
+            });
+        }
     }
 
     // =========================================================================

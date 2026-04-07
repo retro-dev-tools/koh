@@ -10,8 +10,9 @@ internal static class PositionUtilities
 {
     public static int ToOffset(SourceText source, LspPosition position)
     {
-        if (position.Line < 0 || position.Line >= source.Lines.Count)
-            return 0;
+        if (position.Line < 0) return 0;
+        if (position.Line >= source.Lines.Count)
+            return source.Length;
         var line = source.Lines[position.Line];
         return line.Start + Math.Min(position.Character, line.Length);
     }
