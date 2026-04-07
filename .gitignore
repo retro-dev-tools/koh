@@ -9,3 +9,7 @@ benchmarks/results/
 benchmarks/.publish/
 benchmarks/Koh.Benchmarks/BenchmarkDotNet.Artifacts/
 
+# VS Code extension
+editors/vscode/node_modules/
+editors/vscode/out/
+editors/vscode/server/
