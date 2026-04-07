@@ -750,6 +750,207 @@ public sealed class KohLanguageServer
     }
 
     // =========================================================================
+    // Signature Help
+    // =========================================================================
+
+    [JsonRpcMethod("textDocument/signatureHelp")]
+    public JToken? SignatureHelp(JToken arg)
+    {
+        var p = arg.ToObject<TextDocumentPositionParams>()!;
+        var uri = p.TextDocument.Uri.ToString();
+        var doc = _workspace.GetDocument(uri);
+        if (doc == null) return null;
+
+        var (source, tree) = doc.Value;
+        var offset = PositionUtilities.ToOffset(source, p.Position);
+
+        // Find enclosing MacroCall node
+        var token = tree.Root.FindToken(offset);
+        if (token == null) return null;
+
+        var macroCall = FindEnclosingMacroCall(token);
+        if (macroCall == null) return null;
+
+        // Resolve macro symbol
+        var macroNameToken = macroCall.ChildTokens().FirstOrDefault();
+        if (macroNameToken == null || macroNameToken.Kind != SyntaxKind.IdentifierToken)
+            return null;
+
+        var model = _workspace.GetSemanticModel(uri);
+        if (model == null) return null;
+
+        var symbol = model.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
+        if (symbol == null || symbol.Kind != Core.Symbols.SymbolKind.Macro)
+            return null;
+
+        // Determine arity from macro definition body
+        int arity = GetMacroArity(symbol, tree);
+        if (arity < 0) return null;
+
+        // Compute active parameter by counting commas before cursor
+        int activeParam = ComputeActiveParameter(macroCall, offset);
+
+        // Build parameter list \1..\N
+        var parameters = new JArray();
+        for (int i = 1; i <= arity; i++)
+            parameters.Add(new JObject
+            {
+                ["label"] = $"\\{i}",
+            });
+
+        return new JObject
+        {
+            ["signatures"] = new JArray
+            {
+                new JObject
+                {
+                    ["label"] = $"{macroNameToken.Text}({string.Join(", ", Enumerable.Range(1, arity).Select(i => $"\\{i}"))})",
+                    ["parameters"] = parameters,
+                    ["activeParameter"] = Math.Min(activeParam, Math.Max(0, arity - 1)),
+                },
+            },
+            ["activeSignature"] = 0,
+            ["activeParameter"] = Math.Min(activeParam, Math.Max(0, arity - 1)),
+        };
+    }
+
+    private static SyntaxNode? FindEnclosingMacroCall(SyntaxToken token)
+    {
+        var node = token.Parent;
+        while (node != null)
+        {
+            if (node.Kind == SyntaxKind.MacroCall)
+                return node;
+            node = node.Parent;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Determine macro arity by scanning the definition body for \1..\9 references.
+    /// Returns the highest parameter index found, or 0 if no parameters are used.
+    /// </summary>
+    private static int GetMacroArity(Core.Symbols.Symbol macroSymbol, SyntaxTree tree)
+    {
+        var definitionNode = macroSymbol.DefinitionSite;
+        if (definitionNode == null) return 0;
+
+        // The DefinitionSite may be the MacroDefinition (MACRO keyword) node.
+        // The macro body nodes are siblings between this node and the closing
+        // MacroDefinition (ENDM keyword) node in the parent CompilationUnit.
+        SyntaxNode? macroStart = null;
+        if (definitionNode.Kind == SyntaxKind.MacroDefinition)
+            macroStart = definitionNode;
+        else if (definitionNode.Kind == SyntaxKind.LabelDeclaration)
+        {
+            // Find the MacroDefinition sibling after the label
+            macroStart = FindNextSiblingOfKind(definitionNode, SyntaxKind.MacroDefinition);
+        }
+
+        if (macroStart == null) return 0;
+
+        // Scan all sibling nodes between MACRO and ENDM for parameter references.
+        // Red tree nodes are created on-the-fly during iteration, so compare by position.
+        int maxParam = 0;
+        var parent = macroStart.Parent;
+        if (parent == null) return 0;
+
+        bool inBody = false;
+        foreach (var child in parent.ChildNodesAndTokens())
+        {
+            if (!child.IsNode) continue;
+            var childNode = child.AsNode!;
+
+            if (childNode.Kind == SyntaxKind.MacroDefinition && childNode.Position == macroStart.Position)
+            {
+                inBody = true;
+                continue;
+            }
+            if (inBody)
+            {
+                // Stop at the closing ENDM (another MacroDefinition)
+                if (childNode.Kind == SyntaxKind.MacroDefinition)
+                    break;
+
+                ScanMacroParams(childNode, ref maxParam);
+            }
+        }
+
+        return maxParam;
+    }
+
+    private static SyntaxNode? FindNextSiblingOfKind(SyntaxNode node, SyntaxKind kind)
+    {
+        var parent = node.Parent;
+        if (parent == null) return null;
+
+        bool foundNode = false;
+        foreach (var child in parent.ChildNodesAndTokens())
+        {
+            if (!child.IsNode) continue;
+            // Red tree nodes are created on-the-fly; compare by position
+            if (child.AsNode!.Position == node.Position && child.AsNode!.Kind == node.Kind)
+            { foundNode = true; continue; }
+            if (foundNode && child.AsNode!.Kind == kind)
+                return child.AsNode;
+        }
+        return null;
+    }
+
+    private static void ScanMacroParams(SyntaxNode node, ref int maxParam)
+    {
+        foreach (var child in node.ChildNodesAndTokens())
+        {
+            if (child.IsToken)
+            {
+                var t = child.AsToken!;
+                if (t.Kind == SyntaxKind.MacroParamToken && t.Text.Length == 2 &&
+                    t.Text[0] == '\\' && t.Text[1] >= '1' && t.Text[1] <= '9')
+                {
+                    int idx = t.Text[1] - '0';
+                    if (idx > maxParam) maxParam = idx;
+                }
+            }
+            else
+            {
+                ScanMacroParams(child.AsNode!, ref maxParam);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Count commas before the cursor position in a macro call to determine the active parameter.
+    /// Handles parenthesized expressions and nested commas correctly.
+    /// </summary>
+    private static int ComputeActiveParameter(SyntaxNode macroCall, int cursorOffset)
+    {
+        int commaCount = 0;
+        int parenDepth = 0;
+
+        foreach (var child in macroCall.ChildNodesAndTokens())
+        {
+            if (child.IsToken)
+            {
+                var t = child.AsToken!;
+                if (t.Span.Start >= cursorOffset) break;
+
+                if (t.Kind == SyntaxKind.OpenParenToken) parenDepth++;
+                else if (t.Kind == SyntaxKind.CloseParenToken) parenDepth--;
+                else if (t.Kind == SyntaxKind.CommaToken && parenDepth == 0)
+                    commaCount++;
+            }
+            else
+            {
+                var n = child.AsNode!;
+                if (n.Position >= cursorOffset) break;
+                // Don't count commas inside nested expressions
+            }
+        }
+
+        return commaCount;
+    }
+
+    // =========================================================================
     // Rename
     // =========================================================================
 
