@@ -46,7 +46,7 @@ internal static class KohProjectFileLoader
         try
         {
             var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(UnderscoredNamingConvention.Instance)
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .IgnoreUnmatchedProperties()
                 .Build();
 
@@ -109,6 +109,14 @@ internal static class KohProjectFileLoader
         {
             var name = entry.Name!;
             var rawEntrypoint = entry.Entrypoint!;
+
+            // Reject absolute paths — entrypoints must be workspace-folder-relative.
+            if (Path.IsPathRooted(rawEntrypoint))
+            {
+                errors.Add(new ConfigValidationError(
+                    $"Entrypoint must be a relative path: '{rawEntrypoint}'."));
+                continue;
+            }
 
             // Normalize: resolve relative to workspace folder, then get absolute path.
             var absoluteEntrypoint = Path.GetFullPath(

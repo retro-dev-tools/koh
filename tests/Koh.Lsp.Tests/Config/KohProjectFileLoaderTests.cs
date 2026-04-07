@@ -281,4 +281,22 @@ public class KohProjectFileLoaderTests
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
     }
+
+    [Test]
+    public async Task AbsoluteEntrypoint_ReturnsInvalid()
+    {
+        var folder = CreateTempFolder();
+        WriteConfig(folder, """
+            version: 1
+            projects:
+              - name: game
+                entrypoint: /etc/passwd
+            """);
+
+        var result = KohProjectFileLoader.Load(folder);
+
+        await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
+        var invalid = (KohConfigLoadResult.Invalid)result;
+        await Assert.That(invalid.Errors.Any(e => e.Message.Contains("relative path"))).IsTrue();
+    }
 }
