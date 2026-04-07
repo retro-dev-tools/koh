@@ -44,6 +44,20 @@
         "path": "./syntaxes/koh-asm.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "koh.generateConfig",
+        "title": "Koh: Generate koh.yaml"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "koh.generateConfig",
+          "when": "workspaceFolderCount != 0"
+        }
+      ]
+    },
     "configuration": {
       "title": "Koh Assembly",
       "properties": {
