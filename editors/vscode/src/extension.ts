@@ -46,9 +46,15 @@ function findServer(): string | null {
 /** Well-known entrypoint filenames, ordered by confidence. */
 const ENTRYPOINT_NAMES = ['main.asm', 'game.asm', 'app.asm', 'index.asm'];
 
+/** Maximum number of entrypoints to put in a generated koh.yaml. */
+const MAX_GENERATED_ENTRYPOINTS = 5;
+
 /**
  * Scan the workspace folder for .asm files and try to guess which ones are
  * root entrypoints (i.e. not included by other files).
+ *
+ * INCLUDE paths in RGBDS are resolved relative to CWD (workspace root) first,
+ * then relative to the including file's directory. We try both when matching.
  */
 async function guessEntrypoints(folder: vscode.Uri): Promise<string[]> {
     const pattern = new vscode.RelativePattern(folder, '**/*.asm');
@@ -59,17 +65,37 @@ async function guessEntrypoints(folder: vscode.Uri): Promise<string[]> {
         return [vscode.workspace.asRelativePath(uris[0], false)];
     }
 
-    // Collect all INCLUDE/INCBIN references so we can exclude included files.
+    // Build a set of all known relative paths for quick lookup.
+    const relPaths = new Map<string, string>(); // normalized → original relative
+    for (const uri of uris) {
+        const rel = vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+        relPaths.set(rel.toLowerCase(), rel);
+    }
+
+    // Collect all INCLUDE/INCBIN references, resolving relative to both
+    // workspace root and including file's directory.
     const includedFiles = new Set<string>();
     for (const uri of uris) {
         try {
             const bytes = await vscode.workspace.fs.readFile(uri);
             const text = Buffer.from(bytes).toString('utf-8');
+            const includerRel = vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+            const includerDir = path.posix.dirname(includerRel);
             const regex = /^\s*(?:INCLUDE|INCBIN)\s+"([^"]+)"/gmi;
             let m: RegExpExecArray | null;
             while ((m = regex.exec(text)) !== null) {
-                // Normalise to forward slashes
-                includedFiles.add(m[1].replace(/\\/g, '/'));
+                const raw = m[1].replace(/\\/g, '/');
+
+                // Try 1: raw path as-is (relative to workspace root / CWD)
+                if (relPaths.has(raw.toLowerCase())) {
+                    includedFiles.add(relPaths.get(raw.toLowerCase())!);
+                }
+
+                // Try 2: resolved relative to the including file's directory
+                const resolved = path.posix.normalize(path.posix.join(includerDir, raw));
+                if (relPaths.has(resolved.toLowerCase())) {
+                    includedFiles.add(relPaths.get(resolved.toLowerCase())!);
+                }
             }
         } catch {
             // Unreadable file — skip
@@ -86,8 +112,8 @@ async function guessEntrypoints(folder: vscode.Uri): Promise<string[]> {
     }
 
     if (roots.length === 0) {
-        // Fallback: everything is included by something — just return all .asm files
-        return uris.map(u => vscode.workspace.asRelativePath(u, false).replace(/\\/g, '/'));
+        // Everything is included by something — return empty (template will be used)
+        return [];
     }
 
     // Sort by heuristic confidence: well-known names first, then root/src files, then alphabetical.
@@ -97,6 +123,17 @@ async function guessEntrypoints(folder: vscode.Uri): Promise<string[]> {
         if (scoreA !== scoreB) return scoreB - scoreA;
         return a.localeCompare(b);
     });
+
+    // If too many roots found, the heuristic isn't working well for this project.
+    // Only return the highest-confidence ones.
+    if (roots.length > MAX_GENERATED_ENTRYPOINTS) {
+        const highConfidence = roots.filter(r => entrypointScore(r) > 0);
+        if (highConfidence.length > 0 && highConfidence.length <= MAX_GENERATED_ENTRYPOINTS) {
+            return highConfidence;
+        }
+        // Still too many or none with confidence — return just the top few
+        return roots.slice(0, MAX_GENERATED_ENTRYPOINTS);
+    }
 
     return roots;
 }
