@@ -338,9 +338,69 @@ internal sealed class ProjectContextManager
 
     private void BuildAndAddProject(string name, string entrypointPath)
     {
+        // Ensure the include graph is populated for this entrypoint and all
+        // transitive includes. Without this, files that were never opened in
+        // the editor won't appear in the reachable set, and therefore won't
+        // get a primary owner or receive semantic diagnostics.
+        EnsureGraphPopulatedFromResolver(entrypointPath);
+
         var reachable = _graph.GetReachableFiles(entrypointPath);
         var compilation = BuildCompilation(entrypointPath);
         _projects[entrypointPath] = new ProjectContext(name, entrypointPath, reachable, compilation);
+    }
+
+    /// <summary>
+    /// Recursively reads files from the overlay/disk resolver and discovers their
+    /// INCLUDE directives, populating the workspace graph. This ensures that files
+    /// which were never opened in the editor are still part of the include graph.
+    /// </summary>
+    private void EnsureGraphPopulatedFromResolver(string filePath)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<string>();
+
+        queue.Enqueue(filePath);
+        visited.Add(filePath);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+
+            // Skip if already scanned (via UpdateDocumentText or a previous call).
+            // Leaf files with no includes are still marked as scanned, so we
+            // don't re-read them on every call.
+            if (_graph.IsScanned(current))
+            {
+                // Still need to traverse existing edges to find un-scanned descendants
+                foreach (var existing in _graph.GetIncludes(current))
+                {
+                    if (visited.Add(existing))
+                        queue.Enqueue(existing);
+                }
+                continue;
+            }
+
+            string text;
+            try
+            {
+                text = _overlayResolver.ReadAllText(current);
+            }
+            catch (FileNotFoundException)
+            {
+                continue;
+            }
+
+            var info = _includeDiscovery.Discover(current, text, _folderPath);
+            _graph.UpsertFile(info);
+            _allFiles.Add(current);
+
+            foreach (var included in info.IncludedFiles)
+            {
+                _allFiles.Add(included);
+                if (visited.Add(included))
+                    queue.Enqueue(included);
+            }
+        }
     }
 
     private Compilation BuildCompilation(string entrypointPath)

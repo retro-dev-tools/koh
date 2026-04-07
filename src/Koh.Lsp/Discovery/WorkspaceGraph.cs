@@ -9,6 +9,7 @@ internal sealed class WorkspaceGraph
 {
     private readonly Dictionary<string, HashSet<string>> _forwardEdges = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> _reverseEdges = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _scannedFiles = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Adds or updates a file's include edges. Old edges for the file are removed first.
@@ -25,7 +26,15 @@ internal sealed class WorkspaceGraph
             targets.Add(included);
             GetOrCreateSet(_reverseEdges, included).Add(info.FilePath);
         }
+
+        _scannedFiles.Add(info.FilePath);
     }
+
+    /// <summary>
+    /// Whether this file has been scanned for includes (via <see cref="UpsertFile"/>).
+    /// Leaf files with no INCLUDE directives are still considered scanned.
+    /// </summary>
+    public bool IsScanned(string path) => _scannedFiles.Contains(path);
 
     /// <summary>
     /// Removes a file and all its edges (both forward and reverse).
@@ -35,6 +44,7 @@ internal sealed class WorkspaceGraph
         // Remove forward edges (this file includes X)
         RemoveForwardEdges(path);
         _forwardEdges.Remove(path);
+        _scannedFiles.Remove(path);
 
         // Remove reverse edges (X includes this file) — clean up the forward side too
         if (_reverseEdges.TryGetValue(path, out var includers))

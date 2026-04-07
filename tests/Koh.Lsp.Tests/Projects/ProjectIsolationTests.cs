@@ -179,6 +179,102 @@ public class ProjectIsolationTests
         await Assert.That(ctx!.EntrypointPath).IsEqualTo(Path.GetFullPath("C:/test/standalone.inc"));
     }
 
+    // ───────────────────────────────────────────────────────────────
+    // Regression: included files must be reachable even when
+    // the entrypoint was never opened in the editor
+    // ───────────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task IncludedFile_HasPrimaryOwner_WhenEntrypointNotOpened()
+    {
+        // Simulate: koh.yaml points to src/game.asm as entrypoint.
+        // game.asm includes macros.inc then home/main.asm.
+        // Only home/main.asm is opened in the editor.
+        // home/main.asm should still belong to the game project.
+        var resolver = new VirtualFileResolver();
+        var gamePath = Path.GetFullPath("C:/test/src/game.asm");
+        var macrosPath = Path.GetFullPath("C:/test/src/macros/asm.inc");
+        var mainPath = Path.GetFullPath("C:/test/src/home/main.asm");
+
+        resolver.AddTextFile(gamePath,
+            "INCLUDE \"macros/asm.inc\"\nINCLUDE \"home/main.asm\"");
+        resolver.AddTextFile(macrosPath,
+            "MACRO test_macro\n  nop\nENDM");
+        resolver.AddTextFile(mainPath,
+            "SECTION \"Home\", ROM0\n  test_macro");
+
+        var manager = CreateManager(resolver);
+        manager.ApplyConfig(new KohConfigLoadResult.Configured([
+            new KohProjectDefinition { Name = "game", Entrypoint = gamePath },
+        ]));
+
+        // Only open the included file, NOT the entrypoint
+        manager.UpdateDocumentText(mainPath,
+            "SECTION \"Home\", ROM0\n  test_macro");
+
+        // main.asm should be owned by the game project
+        var ctx = manager.GetPrimaryProjectContextFor(mainPath);
+        await Assert.That(ctx).IsNotNull();
+        await Assert.That(ctx!.Name).IsEqualTo("game");
+    }
+
+    [Test]
+    public async Task IncludedFile_NoDiagnosticErrors_WhenMacrosDefinedInEarlierInclude()
+    {
+        // Reproduce the real scenario: game.asm includes macros, then dialogue_entry.asm.
+        // dialogue_entry.asm uses a macro from the earlier include.
+        // The compilation should have zero errors.
+        var resolver = new VirtualFileResolver();
+        var gamePath = Path.GetFullPath("C:/test/src/game.asm");
+        var macrosPath = Path.GetFullPath("C:/test/src/macros/asm.inc");
+        var dialoguePath = Path.GetFullPath("C:/test/src/home/dialogue_entry.asm");
+        var wramPath = Path.GetFullPath("C:/test/src/ram/wram.asm");
+
+        resolver.AddTextFile(gamePath, string.Join("\n",
+            "INCLUDE \"ram/wram.asm\"",
+            "INCLUDE \"macros/asm.inc\"",
+            "SECTION \"Home\", ROM0",
+            "INCLUDE \"home/dialogue_entry.asm\""));
+
+        resolver.AddTextFile(wramPath, string.Join("\n",
+            "SECTION \"WRAM\", WRAM0",
+            "wDialogueState:: db"));
+
+        resolver.AddTextFile(macrosPath, string.Join("\n",
+            "MACRO switch_bank",
+            "  ld a, \\1",
+            "ENDM"));
+
+        resolver.AddTextFile(dialoguePath, string.Join("\n",
+            "RunDialogue:",
+            "  switch_bank $0d",
+            "  ld a, [wDialogueState]",
+            "  ret"));
+
+        var manager = CreateManager(resolver);
+        manager.ApplyConfig(new KohConfigLoadResult.Configured([
+            new KohProjectDefinition { Name = "game", Entrypoint = gamePath },
+        ]));
+
+        // Open only the leaf file
+        manager.UpdateDocumentText(dialoguePath, string.Join("\n",
+            "RunDialogue:",
+            "  switch_bank $0d",
+            "  ld a, [wDialogueState]",
+            "  ret"));
+
+        // Get the project context for dialogue_entry.asm
+        var ctx = manager.GetPrimaryProjectContextFor(dialoguePath);
+        await Assert.That(ctx).IsNotNull();
+
+        // The compilation should succeed with no errors
+        var diags = ctx!.Compilation.Emit().Diagnostics;
+        var errors = diags.Where(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error).ToList();
+        await Assert.That(errors.Count).IsEqualTo(0);
+    }
+
+    // ───────────────────────────────────────────────────────────────
+
     [Test]
     public async Task FileOutsideConfiguredProjects_NotAutoAssigned()
     {
