@@ -385,8 +385,9 @@ internal sealed class ProjectContextManager
             {
                 text = _overlayResolver.ReadAllText(current);
             }
-            catch (FileNotFoundException)
+            catch (IOException)
             {
+                // File or directory doesn't exist on disk — skip it.
                 continue;
             }
 
@@ -419,18 +420,18 @@ internal sealed class ProjectContextManager
         var source = SourceText.From(text, entrypointPath);
         var tree = SyntaxTree.Parse(source);
 
-        // Use the entrypoint's directory as the CWD for INCLUDE resolution.
-        // RGBDS resolves includes relative to the build CWD, which is typically
-        // the entrypoint's directory (e.g. src/ for src/game.asm).
-        var entrypointDir = Path.GetDirectoryName(entrypointPath) ?? _folderPath;
-        var resolver = new EntrypointResolver(_overlayResolver, entrypointDir);
+        // RGBDS resolves includes relative to the working directory where the
+        // assembler is invoked — which is the project/workspace root, not the
+        // entrypoint's directory. E.g. INCLUDE "hardware.inc" in src/game.asm
+        // resolves to <workspace>/hardware.inc, not <workspace>/src/hardware.inc.
+        var resolver = new EntrypointResolver(_overlayResolver, _folderPath);
         return Compilation.Create(resolver, tree);
     }
 
     /// <summary>
-    /// Wraps the shared overlay resolver with per-entrypoint INCLUDE path resolution.
-    /// Uses the entrypoint's directory as the CWD for resolving include paths,
-    /// while delegating text/binary reads and overlay lookups to the shared resolver.
+    /// Wraps the shared overlay resolver with workspace-root-based INCLUDE path resolution.
+    /// Uses the workspace folder as the CWD (matching RGBDS behavior), with fallback to
+    /// the including file's directory. Delegates text/binary reads to the shared resolver.
     /// </summary>
     private sealed class EntrypointResolver(ISourceFileResolver inner, string basePath) : ISourceFileResolver
     {

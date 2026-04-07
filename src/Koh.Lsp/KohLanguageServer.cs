@@ -20,6 +20,11 @@ public sealed class KohLanguageServer
         _rpc = rpc;
     }
 
+    private void Log(string message)
+    {
+        _ = _rpc.NotifyAsync("window/logMessage", new { type = 3, message }); // 3 = Info
+    }
+
     // =========================================================================
     // Lifecycle
     // =========================================================================
@@ -29,16 +34,22 @@ public sealed class KohLanguageServer
     {
         // Set CWD to workspace root so FileSystemResolver resolves INCLUDEs correctly
         var rootUri = arg["rootUri"]?.ToString();
+        Log($"[init] rootUri = {rootUri}");
         if (rootUri != null)
         {
             try
             {
-                var rootPath = new Uri(rootUri).LocalPath;
+                var rootPath = ToFilePath(rootUri);
                 Directory.SetCurrentDirectory(rootPath);
                 _rootPath = rootPath;
+                Log($"[init] rootPath = {rootPath}");
                 _workspace.InitializeFolder(rootPath);
+                Log($"[init] workspace mode = {_workspace.CurrentMode}");
             }
-            catch { /* ignore — CWD stays as-is */ }
+            catch (Exception ex)
+            {
+                Log($"[init] ERROR: {ex.Message}");
+            }
         }
 
         var result = new InitializeResult
@@ -102,9 +113,20 @@ public sealed class KohLanguageServer
 
     /// <summary>
     /// Convert an LSP document URI to a local file path.
-    /// The workspace and compiler work with real file paths, not URIs.
+    /// VS Code sends URIs like "file:///c%3A/projekty/foo" where the colon is
+    /// percent-encoded. We decode the path component and strip the leading slash
+    /// on Windows so "c:\projekty\foo" is returned instead of "/c:/projekty/foo".
     /// </summary>
-    private static string ToFilePath(Uri uri) => uri.LocalPath;
+    private static string ToFilePath(Uri uri)
+    {
+        var path = Uri.UnescapeDataString(uri.AbsolutePath);
+        // On Windows, strip leading "/" from "/c:/..." paths
+        if (path.Length >= 3 && path[0] == '/' && char.IsLetter(path[1]) && path[2] == ':')
+            path = path[1..];
+        return path.Replace('/', Path.DirectorySeparatorChar);
+    }
+
+    private static string ToFilePath(string uriString) => ToFilePath(new Uri(uriString));
 
     private static Uri ToUri(string filePath) => new Uri("file:///" + filePath.Replace('\\', '/'));
 
@@ -117,7 +139,10 @@ public sealed class KohLanguageServer
     {
         var p = arg.ToObject<DidOpenTextDocumentParams>()!;
         var path = ToFilePath(p.TextDocument.Uri);
+        Log($"[didOpen] path = {path}");
         _workspace.OpenDocument(path, p.TextDocument.Text);
+        var ctx = _workspace.GetPrimaryProjectContext(path);
+        Log($"[didOpen] primaryProject = {(ctx != null ? $"{ctx.Name} (entry={ctx.EntrypointPath})" : "null")}");
         PublishDiagnosticsForAllOpen();
     }
 
@@ -179,6 +204,13 @@ public sealed class KohLanguageServer
     {
         var state = _workspace.GetDocumentDiagnostics(path);
         if (state.Text == null || state.Diagnostics == null) return;
+
+        Log($"[diag] {path} → {state.Diagnostics.Count} diagnostics");
+        if (state.Diagnostics.Count > 0 && state.Diagnostics.Count <= 10)
+        {
+            foreach (var d in state.Diagnostics)
+                Log($"[diag]   {d.Severity}: {d.Message} (file={d.FilePath ?? "null"})");
+        }
 
         var lspDiags = new List<Microsoft.VisualStudio.LanguageServer.Protocol.Diagnostic>();
         foreach (var diag in state.Diagnostics)
