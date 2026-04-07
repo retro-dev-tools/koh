@@ -33,6 +33,7 @@ internal sealed class AssemblyExpander
     private int _uniqueIdCounter;
     private TextWriter _printOutput;
     private readonly InterpolationResolver _interpolation;
+    private readonly SymbolResolutionContext _ownerContext;
 
     // Cache for parsed expression fragments (avoids repeated SyntaxTree.Parse for \<expr>)
     private readonly Dictionary<string, GreenNodeBase?> _expressionCache = new();
@@ -43,13 +44,17 @@ internal sealed class AssemblyExpander
 
     public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols,
         ISourceFileResolver? fileResolver = null, CharMapManager? charMaps = null,
-        TextWriter? printOutput = null)
+        TextWriter? printOutput = null,
+        SymbolResolutionContext ownerContext = default)
     {
         _diagnostics = diagnostics;
         _symbols = symbols;
         _fileResolver = fileResolver ?? new FileSystemResolver();
         _charMaps = charMaps ?? new CharMapManager(diagnostics);
         _printOutput = printOutput ?? Console.Error;
+        _ownerContext = ownerContext.OwnerId != null
+            ? ownerContext
+            : new SymbolResolutionContext("<anonymous>");
         _interpolation = new InterpolationResolver(symbols, _equsConstants, diagnostics);
         _textReplay = new TextReplayService(_diagnostics, _interpolation);
     }
@@ -193,10 +198,10 @@ internal sealed class AssemblyExpander
             var value = evaluator.TryEvaluate(firstExpr.Green);
             if (!value.HasValue) return; // unresolvable at this point — retry on next pass
             if (kwKind == SyntaxKind.EqualsToken || tok0.Kind == SyntaxKind.RedefKeyword)
-                _symbols.DefineOrRedefine(nameTok.Text, value.Value);
+                _symbols.DefineOrRedefine(nameTok.Text, value.Value, _ownerContext);
             else
                 // EQU: only define if not already defined (avoid duplicate-definition diagnostic)
-                _symbols.DefineConstantIfAbsent(nameTok.Text, value.Value, node);
+                _symbols.DefineConstantIfAbsent(nameTok.Text, value.Value, node, _ownerContext);
         }
         else if (kwKind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
         {
@@ -430,7 +435,7 @@ internal sealed class AssemblyExpander
                             "Cannot shift macro arguments past their end",
                             DiagnosticSeverity.Warning);
                     frame.ShiftOffset++;
-                    _symbols.DefineOrRedefine("_NARG", frame.Narg);
+                    _symbols.DefineOrRedefine("_NARG", frame.Narg, _ownerContext);
                     i++;
                     continue;
                 }
@@ -535,9 +540,9 @@ internal sealed class AssemblyExpander
                 {
                     // = and REDEF are reassignable (SET semantics); EQU is immutable.
                     if (kwTok.Kind == SyntaxKind.EqualsToken || tok0.Kind == SyntaxKind.RedefKeyword)
-                        _symbols.DefineOrRedefine(nameTok.Text, value.Value);
+                        _symbols.DefineOrRedefine(nameTok.Text, value.Value, _ownerContext);
                     else
-                        _symbols.DefineConstant(nameTok.Text, value.Value, node);
+                        _symbols.DefineConstant(nameTok.Text, value.Value, node, _ownerContext);
                 }
             }
         }
@@ -561,7 +566,7 @@ internal sealed class AssemblyExpander
                 if (value.HasValue) count = value.Value;
             }
 
-            _symbols.DefineConstant(nameTok.Text, _rsCounter, node);
+            _symbols.DefineConstant(nameTok.Text, _rsCounter, node, _ownerContext);
             _rsCounter += count * multiplier;
         }
         else if (nameTok.Kind == SyntaxKind.IdentifierToken && kwTok.Kind == SyntaxKind.EqusKeyword)
@@ -573,7 +578,10 @@ internal sealed class AssemblyExpander
             {
                 var value = EvaluateStringExpression(firstExprEqus, ctx);
                 if (value != null)
+                {
                     _equsConstants[nameTok.Text] = value;
+                    _symbols.DefineStringConstant(nameTok.Text, value, node, _ownerContext);
+                }
             }
         }
     }
@@ -891,7 +899,7 @@ internal sealed class AssemblyExpander
                     continue;
                 }
                 // Check for purge of already-undefined symbol
-                var sym = _symbols.Lookup(name);
+                var sym = _symbols.Lookup(name, _ownerContext);
                 if (sym == null && !_equsConstants.ContainsKey(name))
                 {
                     _diagnostics.Report(node.FullSpan, $"PURGE: symbol '{name}' is not defined");
@@ -1048,6 +1056,8 @@ internal sealed class AssemblyExpander
         {
             var bodyText = ctx.SourceText.ToString(new TextSpan(bodyStart, bodyEnd - bodyStart)).Trim();
             _macros[macroName] = new MacroDefinition(macroName, bodyText, macroNode.FullSpan, ctx.FilePath);
+            // Register macro in symbol table using root owner context (not included file's path)
+            _symbols.DefineMacro(macroName, macroNode, _ownerContext);
         }
     }
 
@@ -1172,9 +1182,9 @@ internal sealed class AssemblyExpander
             return;
         }
 
-        var prevNarg = _symbols.Lookup("_NARG");
+        var prevNarg = _symbols.Lookup("_NARG", _ownerContext);
         long? savedNarg = prevNarg?.State == SymbolState.Defined ? prevNarg.Value : null;
-        _symbols.DefineOrRedefine("_NARG", frame.Narg);
+        _symbols.DefineOrRedefine("_NARG", frame.Narg, _ownerContext);
 
         try
         {
@@ -1183,7 +1193,7 @@ internal sealed class AssemblyExpander
         finally
         {
             if (savedNarg.HasValue)
-                _symbols.DefineOrRedefine("_NARG", savedNarg.Value);
+                _symbols.DefineOrRedefine("_NARG", savedNarg.Value, _ownerContext);
         }
     }
 
@@ -1536,7 +1546,7 @@ internal sealed class AssemblyExpander
 
                 for (long v = start; step > 0 ? v < stop : v > stop; v += step, iterIndex++)
                 {
-                    _symbols.DefineOrRedefine(varName, v);
+                    _symbols.DefineOrRedefine(varName, v, _ownerContext);
 
                     _uniqueIdCounter++;
                     var iterUniqueId = _uniqueIdCounter;
@@ -1618,7 +1628,7 @@ internal sealed class AssemblyExpander
 
             if (varName != null)
             {
-                _symbols.DefineOrRedefine(varName, v);
+                _symbols.DefineOrRedefine(varName, v, _ownerContext);
                 // Emit a synthetic REDEF node so Pass 1 and Pass 2 re-evaluate the symbol.
                 // Uses iterCtx.Trace (the iteration context), not ctx.Trace.
                 var synthNode = BuildSyntheticRedef(varName, v);

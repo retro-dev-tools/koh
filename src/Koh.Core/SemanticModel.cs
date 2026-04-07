@@ -13,11 +13,13 @@ public sealed class SemanticModel
 {
     private readonly SyntaxTree _tree;
     private readonly BindingResult _result;
+    private readonly string _ownerId;
 
     internal SemanticModel(SyntaxTree tree, BindingResult result)
     {
         _tree = tree;
         _result = result;
+        _ownerId = string.IsNullOrEmpty(tree.Text.FilePath) ? "<anonymous>" : tree.Text.FilePath;
     }
 
     /// <summary>
@@ -29,6 +31,8 @@ public sealed class SemanticModel
     public Symbol? ResolveSymbol(string rawName, int position)
     {
         if (_result.Symbols == null) return null;
+
+        var context = new SymbolResolutionContext(_ownerId, _tree.Text.FilePath);
 
         if (rawName.StartsWith('.'))
         {
@@ -45,10 +49,10 @@ public sealed class SemanticModel
             }
             if (scope == null) return null;
 
-            return _result.Symbols.LookupQualified(scope + rawName);
+            return _result.Symbols.LookupQualified(scope + rawName, context);
         }
 
-        return _result.Symbols.LookupQualified(rawName);
+        return _result.Symbols.LookupQualified(rawName, context);
     }
 
     /// <summary>
@@ -62,15 +66,18 @@ public sealed class SemanticModel
         {
             var nameToken = node.ChildTokens().FirstOrDefault();
             if (nameToken != null)
-                return _result.Symbols.Lookup(nameToken.Text);
+            {
+                var name = nameToken.Text;
+                return ResolveSymbol(name, node.Position);
+            }
         }
 
         if (node.Kind == SyntaxKind.SymbolDirective)
         {
             var tokens = node.ChildTokens().ToList();
-            // identifier EQU ... — first token is the name
+            // identifier EQU/EQUS ... — first token is the name
             if (tokens.Count >= 2 && tokens[0].Kind == SyntaxKind.IdentifierToken)
-                return _result.Symbols.Lookup(tokens[0].Text);
+                return ResolveSymbol(tokens[0].Text, node.Position);
         }
 
         return null;
@@ -88,7 +95,7 @@ public sealed class SemanticModel
         {
             var token = node.ChildTokens().FirstOrDefault();
             if (token != null)
-                return _result.Symbols.Lookup(token.Text);
+                return ResolveSymbol(token.Text, node.Position);
         }
 
         return null;
@@ -98,6 +105,7 @@ public sealed class SemanticModel
     /// Get all defined symbols visible at the given position.
     /// Global symbols are always visible. Local labels (starting with '.') are filtered
     /// to the enclosing global label scope at the given position.
+    /// Only shows owner-local symbols for this owner plus all exported symbols.
     /// </summary>
     public IEnumerable<Symbol> LookupSymbols(int position)
     {
@@ -117,7 +125,7 @@ public sealed class SemanticModel
             }
         }
 
-        return _result.Symbols.AllSymbols
+        return _result.Symbols.GetVisibleSymbols(_ownerId)
             .Where(s => s.State == SymbolState.Defined)
             .Where(s =>
             {

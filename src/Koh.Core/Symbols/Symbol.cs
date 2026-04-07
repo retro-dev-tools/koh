@@ -33,6 +33,11 @@ public sealed class Symbol
     public long Value { get; internal set; }
     public string? Section { get; internal set; }
     public SyntaxNode? DefinitionSite { get; internal set; }
+    public string? OwnerId { get; internal set; }
+
+    public (string? OwnerId, string QualifiedName) SymbolId => (
+        Visibility == SymbolVisibility.Exported ? null : OwnerId,
+        Name);
 
     private readonly List<SyntaxNode> _referenceSites = [];
     public IReadOnlyList<SyntaxNode> ReferenceSites => _referenceSites;

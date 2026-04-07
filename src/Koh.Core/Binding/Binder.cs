@@ -30,6 +30,7 @@ public sealed class Binder
     private AssemblyExpander? _expander;
     private int _fixedPointFracBits;
     private Symbol? _savedGlobalAnchorBeforeLoad; // saved global anchor for ENDL scope restoration
+    private SymbolResolutionContext _ownerContext;
 
     private Func<string, string>? ExpanderResolve =>
         _expander != null ? _expander.ResolveInterpolations : null;
@@ -52,23 +53,28 @@ public sealed class Binder
     private void DefineRgbdsBuiltins()
     {
         // RGBDS version constants — report as Koh but RGBDS-compatible version numbers
-        _symbols.DefineConstant("__RGBDS_MAJOR__", 1, null);
-        _symbols.DefineConstant("__RGBDS_MINOR__", 0, null);
-        _symbols.DefineConstant("__RGBDS_PATCH__", 0, null);
-        _symbols.DefineConstant("__RGBDS_RC__", 0, null);
+        _symbols.DefineConstant("__RGBDS_MAJOR__", 1, null, _ownerContext);
+        _symbols.DefineConstant("__RGBDS_MINOR__", 0, null, _ownerContext);
+        _symbols.DefineConstant("__RGBDS_PATCH__", 0, null, _ownerContext);
+        _symbols.DefineConstant("__RGBDS_RC__", 0, null, _ownerContext);
 
         // UTC date/time constants
         var now = DateTime.UtcNow;
-        _symbols.DefineConstant("__UTC_YEAR__", now.Year, null);
-        _symbols.DefineConstant("__UTC_MONTH__", now.Month, null);
-        _symbols.DefineConstant("__UTC_DAY__", now.Day, null);
-        _symbols.DefineConstant("__UTC_HOUR__", now.Hour, null);
-        _symbols.DefineConstant("__UTC_MINUTE__", now.Minute, null);
-        _symbols.DefineConstant("__UTC_SECOND__", now.Second, null);
+        _symbols.DefineConstant("__UTC_YEAR__", now.Year, null, _ownerContext);
+        _symbols.DefineConstant("__UTC_MONTH__", now.Month, null, _ownerContext);
+        _symbols.DefineConstant("__UTC_DAY__", now.Day, null, _ownerContext);
+        _symbols.DefineConstant("__UTC_HOUR__", now.Hour, null, _ownerContext);
+        _symbols.DefineConstant("__UTC_MINUTE__", now.Minute, null, _ownerContext);
+        _symbols.DefineConstant("__UTC_SECOND__", now.Second, null, _ownerContext);
     }
 
     public BindingResult Bind(SyntaxTree tree)
     {
+        // Create root owner context for this tree
+        var ownerId = string.IsNullOrEmpty(tree.Text.FilePath) ? "<anonymous>" : tree.Text.FilePath;
+        _ownerContext = new SymbolResolutionContext(ownerId, tree.Text.FilePath);
+        _symbols.SetCurrentContext(_ownerContext);
+
         // Pre-define RGBDS built-in constants for conditional assembly compatibility
         DefineRgbdsBuiltins();
 
@@ -76,7 +82,8 @@ public sealed class Binder
             _diagnostics.Report(d.Span, d.Message, d.Severity);
 
         // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC, INCLUDE into flat list
-        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver, _charMaps, _printOutput);
+        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver, _charMaps, _printOutput,
+            _ownerContext);
         var nodes = _expander.Expand(tree);
 
         // Pass 1: symbol collection and PC tracking
@@ -95,7 +102,7 @@ public sealed class Binder
         _expander.SectionNameResolver = arg =>
         {
             if (arg == "@") return _sections.ActiveSection?.Name;
-            var sym = _symbols.Lookup(arg);
+            var sym = _symbols.Lookup(arg, _ownerContext);
             return sym?.Section;
         };
         foreach (var en in nodes)
@@ -202,7 +209,7 @@ public sealed class Binder
                 pc.EndUnion();
                 break;
             case SyntaxKind.LoadKeyword:
-                _savedGlobalAnchorBeforeLoadPass1 = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "");
+                _savedGlobalAnchorBeforeLoadPass1 = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "", _ownerContext);
                 Pass1Load(node, pc);
                 break;
             case SyntaxKind.EndlKeyword:
@@ -320,7 +327,7 @@ public sealed class Binder
         var name = first.Text;
         if (!name.StartsWith('.'))
         {
-            var sym = _symbols.Lookup(name);
+            var sym = _symbols.Lookup(name, _ownerContext);
             if (sym != null)
                 _symbols.SetGlobalAnchor(sym);
         }
@@ -334,7 +341,7 @@ public sealed class Binder
         // Anonymous label: bare colon (the parser produces a LabelDeclaration with just ColonToken)
         if (tokens[0].Kind == SyntaxKind.ColonToken && tokens.Count == 1)
         {
-            _symbols.DefineAnonymousLabel(pc.LabelPC, pc.LabelSectionName, node);
+            _symbols.DefineAnonymousLabel(pc.LabelPC, pc.LabelSectionName, node, _ownerContext);
             return;
         }
 
@@ -356,9 +363,9 @@ public sealed class Binder
         }
 
         // In LOAD blocks, labels get addresses from the load section
-        var sym = _symbols.DefineLabel(name, pc.LabelPC, pc.LabelSectionName, node);
+        var sym = _symbols.DefineLabel(name, pc.LabelPC, pc.LabelSectionName, node, _ownerContext);
         if (tokens.Count >= 2 && tokens[1].Kind == SyntaxKind.DoubleColonToken)
-            sym.Visibility = SymbolVisibility.Exported;
+            _symbols.PromoteExport(name, node, _ownerContext);
     }
 
     private void Pass1Section(SyntaxNode node, SectionPCTracker pc)
@@ -530,16 +537,12 @@ public sealed class Binder
         var tokens = node.ChildTokens().ToList();
         if (tokens.Count < 2) return;
 
-        // EXPORT: mark symbol as exported
+        // EXPORT: promote symbol to exported namespace with validation
         if (tokens[0].Kind == SyntaxKind.ExportKeyword)
         {
             for (int i = 1; i < tokens.Count; i++)
                 if (tokens[i].Kind == SyntaxKind.IdentifierToken)
-                {
-                    var sym = _symbols.Lookup(tokens[i].Text)
-                              ?? _symbols.DeclareForwardRef(tokens[i].Text);
-                    sym.Visibility = SymbolVisibility.Exported;
-                }
+                    _symbols.PromoteExport(tokens[i].Text, node, _ownerContext);
             return;
         }
 
@@ -560,7 +563,7 @@ public sealed class Binder
                 var evaluator = CreateEvaluator(() => 0);
                 var value = evaluator.TryEvaluate(exprNodes[0].Green);
                 if (value.HasValue)
-                    _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+                    _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value, _ownerContext);
             }
         }
     }
@@ -629,7 +632,7 @@ public sealed class Binder
                 var evaluator = CreateEvaluator(() => _sections.ActiveSection?.CurrentPC ?? 0);
                 var value = evaluator.TryEvaluate(exprNodes[0].Green);
                 if (value.HasValue)
-                    _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value);
+                    _symbols.DefineOrRedefine(tokens[nameIdx].Text, value.Value, _ownerContext);
             }
         }
     }
@@ -1478,7 +1481,7 @@ public sealed class Binder
 
             case SyntaxKind.LoadKeyword:
                 // Save current global anchor before entering LOAD block so ENDL can restore it
-                _savedGlobalAnchorBeforeLoad = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "");
+                _savedGlobalAnchorBeforeLoad = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "", _ownerContext);
                 Pass2Load(node);
                 break;
 
