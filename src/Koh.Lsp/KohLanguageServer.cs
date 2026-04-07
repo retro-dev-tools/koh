@@ -13,6 +13,7 @@ public sealed class KohLanguageServer
     private readonly Workspace _workspace = new();
     private readonly SymbolFinder _symbolFinder = new();
     private bool _shutdownReceived;
+    private string? _rootPath;
 
     public KohLanguageServer(JsonRpc rpc)
     {
@@ -34,6 +35,8 @@ public sealed class KohLanguageServer
             {
                 var rootPath = new Uri(rootUri).LocalPath;
                 Directory.SetCurrentDirectory(rootPath);
+                _rootPath = rootPath;
+                _workspace.InitializeFolder(rootPath);
             }
             catch { /* ignore — CWD stays as-is */ }
         }
@@ -46,6 +49,7 @@ public sealed class KohLanguageServer
                 {
                     OpenClose = true,
                     Change = TextDocumentSyncKind.Full,
+                    Save = new SaveOptions { IncludeText = false },
                 },
                 HoverProvider = true,
                 DefinitionProvider = true,
@@ -114,7 +118,7 @@ public sealed class KohLanguageServer
         var p = arg.ToObject<DidOpenTextDocumentParams>()!;
         var path = ToFilePath(p.TextDocument.Uri);
         _workspace.OpenDocument(path, p.TextDocument.Text);
-        PublishDiagnosticsFor(path);
+        PublishDiagnosticsForAllOpen();
     }
 
     [JsonRpcMethod("textDocument/didChange")]
@@ -125,7 +129,7 @@ public sealed class KohLanguageServer
         // Full sync: client sends exactly one change with complete text
         if (p.ContentChanges.Length > 0)
             _workspace.ChangeDocument(path, p.ContentChanges[^1].Text);
-        PublishDiagnosticsFor(path);
+        PublishDiagnosticsForAllOpen();
     }
 
     [JsonRpcMethod("textDocument/didClose")]
@@ -140,14 +144,36 @@ public sealed class KohLanguageServer
             Uri = ToUri(path),
             Diagnostics = [],
         });
+        // Republish diagnostics for remaining open files (closing an include may affect them)
+        PublishDiagnosticsForAllOpen();
     }
 
     [JsonRpcMethod("textDocument/didSave")]
-    public void DidSave(JToken arg) { }
+    public void DidSave(JToken arg)
+    {
+        var uri = arg["textDocument"]?["uri"]?.ToString();
+        if (uri == null) return;
+
+        var path = ToFilePath(new Uri(uri));
+
+        if (Path.GetFileName(path).Equals("koh.yaml", StringComparison.OrdinalIgnoreCase) && _rootPath != null)
+        {
+            _workspace.ReloadConfiguration(_rootPath);
+        }
+
+        // Republish diagnostics for all open files (saved file may affect others)
+        PublishDiagnosticsForAllOpen();
+    }
 
     // =========================================================================
     // Diagnostics
     // =========================================================================
+
+    private void PublishDiagnosticsForAllOpen()
+    {
+        foreach (var uri in _workspace.OpenDocumentUris)
+            PublishDiagnosticsFor(uri);
+    }
 
     private void PublishDiagnosticsFor(string path)
     {
@@ -181,7 +207,7 @@ public sealed class KohLanguageServer
         var token = tree.Root.FindToken(offset);
         if (token == null) return null;
 
-        var content = GetHoverContent(token);
+        var content = GetHoverContent(token, ToFilePath(p.TextDocument.Uri));
         if (content == null) return null;
 
         return new Hover
@@ -195,14 +221,14 @@ public sealed class KohLanguageServer
         };
     }
 
-    private string? GetHoverContent(SyntaxToken token)
+    private string? GetHoverContent(SyntaxToken token, string path)
     {
         if (IsInstructionKeyword(token.Kind))
             return GetInstructionHover(token.Text.ToUpperInvariant());
 
         if (token.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
         {
-            var model = _workspace.GetModel();
+            var model = _workspace.GetModel(path);
             if (model == null) return null;
             var sym = model.Symbols.FirstOrDefault(s =>
                 s.Name.Equals(token.Text, StringComparison.OrdinalIgnoreCase));
@@ -637,9 +663,11 @@ public sealed class KohLanguageServer
     [JsonRpcMethod("textDocument/completion")]
     public CompletionItem[]? Completion(JToken arg)
     {
+        var p = arg.ToObject<CompletionParams>()!;
+        var path = ToFilePath(p.TextDocument.Uri);
         var items = new List<CompletionItem>(StaticCompletionItems);
 
-        var model = _workspace.GetModel();
+        var model = _workspace.GetModel(path);
         if (model != null)
         {
             foreach (var sym in model.Symbols)
