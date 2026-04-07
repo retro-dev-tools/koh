@@ -14,9 +14,23 @@ public interface ISourceFileResolver
 
 /// <summary>
 /// Real file system implementation for production use.
+/// Optionally accepts a base path used as the CWD for INCLUDE resolution.
 /// </summary>
 public sealed class FileSystemResolver : ISourceFileResolver
 {
+    private readonly string? _basePath;
+
+    public FileSystemResolver() { }
+
+    /// <summary>
+    /// Creates a resolver that uses <paramref name="basePath"/> as the working
+    /// directory for resolving INCLUDE paths, instead of the process CWD.
+    /// </summary>
+    public FileSystemResolver(string basePath)
+    {
+        _basePath = basePath;
+    }
+
     public bool FileExists(string path) => File.Exists(path);
     public string ReadAllText(string path) => File.ReadAllText(path);
     public byte[] ReadAllBytes(string path) => File.ReadAllBytes(path);
@@ -24,7 +38,9 @@ public sealed class FileSystemResolver : ISourceFileResolver
     public string ResolvePath(string currentFile, string includedPath)
     {
         // RGBDS behavior: includes are relative to CWD first, then the including file's directory.
-        var cwdPath = Path.GetFullPath(includedPath);
+        var cwdPath = _basePath != null
+            ? Path.GetFullPath(Path.Combine(_basePath, includedPath))
+            : Path.GetFullPath(includedPath);
         if (File.Exists(cwdPath)) return cwdPath;
 
         var dir = Path.GetDirectoryName(currentFile) ?? ".";

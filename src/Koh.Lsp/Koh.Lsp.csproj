@@ -19,6 +19,7 @@
   <ItemGroup>
     <PackageReference Include="StreamJsonRpc" />
     <PackageReference Include="Microsoft.VisualStudio.LanguageServer.Protocol" />
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
 </Project>
