@@ -358,7 +358,36 @@ internal sealed class ProjectContextManager
 
         var source = SourceText.From(text, entrypointPath);
         var tree = SyntaxTree.Parse(source);
-        return Compilation.Create(_overlayResolver, tree);
+
+        // Use the entrypoint's directory as the CWD for INCLUDE resolution.
+        // RGBDS resolves includes relative to the build CWD, which is typically
+        // the entrypoint's directory (e.g. src/ for src/game.asm).
+        var entrypointDir = Path.GetDirectoryName(entrypointPath) ?? _folderPath;
+        var resolver = new EntrypointResolver(_overlayResolver, entrypointDir);
+        return Compilation.Create(resolver, tree);
+    }
+
+    /// <summary>
+    /// Wraps the shared overlay resolver with per-entrypoint INCLUDE path resolution.
+    /// Uses the entrypoint's directory as the CWD for resolving include paths,
+    /// while delegating text/binary reads and overlay lookups to the shared resolver.
+    /// </summary>
+    private sealed class EntrypointResolver(ISourceFileResolver inner, string basePath) : ISourceFileResolver
+    {
+        public bool FileExists(string path) => inner.FileExists(path);
+        public string ReadAllText(string path) => inner.ReadAllText(path);
+        public byte[] ReadAllBytes(string path) => inner.ReadAllBytes(path);
+
+        public string ResolvePath(string currentFile, string includedPath)
+        {
+            // RGBDS behavior: resolve relative to CWD (entrypoint dir) first,
+            // then relative to the including file's directory.
+            var cwdPath = Path.GetFullPath(Path.Combine(basePath, includedPath));
+            if (inner.FileExists(cwdPath)) return cwdPath;
+
+            var dir = Path.GetDirectoryName(currentFile) ?? basePath;
+            return Path.GetFullPath(Path.Combine(dir, includedPath));
+        }
     }
 
     private void RebuildPrimaryOwnerMap()
