@@ -1,6 +1,7 @@
 bin/
 obj/
 .vs/
+.vscode/
 *.user
 TestResults/
 
@@ -13,3 +14,4 @@ benchmarks/Koh.Benchmarks/BenchmarkDotNet.Artifacts/
 editors/vscode/node_modules/
 editors/vscode/out/
 editors/vscode/server/
+editors/vscode/.vscode/

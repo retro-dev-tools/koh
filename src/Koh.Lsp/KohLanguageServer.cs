@@ -26,6 +26,18 @@ public sealed class KohLanguageServer
     [JsonRpcMethod("initialize")]
     public JToken Initialize(JToken arg)
     {
+        // Set CWD to workspace root so FileSystemResolver resolves INCLUDEs correctly
+        var rootUri = arg["rootUri"]?.ToString();
+        if (rootUri != null)
+        {
+            try
+            {
+                var rootPath = new Uri(rootUri).LocalPath;
+                Directory.SetCurrentDirectory(rootPath);
+            }
+            catch { /* ignore — CWD stays as-is */ }
+        }
+
         var result = new InitializeResult
         {
             Capabilities = new ServerCapabilities
@@ -81,6 +93,18 @@ public sealed class KohLanguageServer
     public void Exit() => Environment.Exit(_shutdownReceived ? 0 : 1);
 
     // =========================================================================
+    // URI / path conversion
+    // =========================================================================
+
+    /// <summary>
+    /// Convert an LSP document URI to a local file path.
+    /// The workspace and compiler work with real file paths, not URIs.
+    /// </summary>
+    private static string ToFilePath(Uri uri) => uri.LocalPath;
+
+    private static Uri ToUri(string filePath) => new Uri("file:///" + filePath.Replace('\\', '/'));
+
+    // =========================================================================
     // Text document sync
     // =========================================================================
 
@@ -88,32 +112,32 @@ public sealed class KohLanguageServer
     public void DidOpen(JToken arg)
     {
         var p = arg.ToObject<DidOpenTextDocumentParams>()!;
-        var uri = p.TextDocument.Uri.ToString();
-        _workspace.OpenDocument(uri, p.TextDocument.Text);
-        PublishDiagnosticsFor(uri);
+        var path = ToFilePath(p.TextDocument.Uri);
+        _workspace.OpenDocument(path, p.TextDocument.Text);
+        PublishDiagnosticsFor(path);
     }
 
     [JsonRpcMethod("textDocument/didChange")]
     public void DidChange(JToken arg)
     {
         var p = arg.ToObject<DidChangeTextDocumentParams>()!;
-        var uri = p.TextDocument.Uri.ToString();
+        var path = ToFilePath(p.TextDocument.Uri);
         // Full sync: client sends exactly one change with complete text
         if (p.ContentChanges.Length > 0)
-            _workspace.ChangeDocument(uri, p.ContentChanges[^1].Text);
-        PublishDiagnosticsFor(uri);
+            _workspace.ChangeDocument(path, p.ContentChanges[^1].Text);
+        PublishDiagnosticsFor(path);
     }
 
     [JsonRpcMethod("textDocument/didClose")]
     public void DidClose(JToken arg)
     {
         var p = arg.ToObject<DidCloseTextDocumentParams>()!;
-        var uri = p.TextDocument.Uri.ToString();
-        _workspace.CloseDocument(uri);
+        var path = ToFilePath(p.TextDocument.Uri);
+        _workspace.CloseDocument(path);
         // Clear diagnostics for closed file
         _ = _rpc.NotifyAsync("textDocument/publishDiagnostics", new PublishDiagnosticParams
         {
-            Uri = new Uri(uri),
+            Uri = ToUri(path),
             Diagnostics = [],
         });
     }
@@ -125,9 +149,9 @@ public sealed class KohLanguageServer
     // Diagnostics
     // =========================================================================
 
-    private void PublishDiagnosticsFor(string uri)
+    private void PublishDiagnosticsFor(string path)
     {
-        var state = _workspace.GetDocumentDiagnostics(uri);
+        var state = _workspace.GetDocumentDiagnostics(path);
         if (state.Text == null || state.Diagnostics == null) return;
 
         var lspDiags = new List<Microsoft.VisualStudio.LanguageServer.Protocol.Diagnostic>();
@@ -136,7 +160,7 @@ public sealed class KohLanguageServer
 
         _ = _rpc.NotifyAsync("textDocument/publishDiagnostics", new PublishDiagnosticParams
         {
-            Uri = new Uri(uri),
+            Uri = ToUri(path),
             Diagnostics = lspDiags.ToArray(),
         });
     }
@@ -149,7 +173,7 @@ public sealed class KohLanguageServer
     public Hover? Hover(JToken arg)
     {
         var p = arg.ToObject<TextDocumentPositionParams>()!;
-        var doc = _workspace.GetDocument(p.TextDocument.Uri.ToString());
+        var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
         if (doc == null) return null;
 
         var (source, tree) = doc.Value;
@@ -263,7 +287,7 @@ public sealed class KohLanguageServer
     public Location? Definition(JToken arg)
     {
         var p = arg.ToObject<TextDocumentPositionParams>()!;
-        var doc = _workspace.GetDocument(p.TextDocument.Uri.ToString());
+        var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
         if (doc == null) return null;
 
         var (source, tree) = doc.Value;
@@ -278,7 +302,7 @@ public sealed class KohLanguageServer
         {
             // Local labels are file-scoped — only search current document
             string? scopeName = FindEnclosingGlobalLabel(tree.Root, offset);
-            return FindDefinition(tree.Root, token.Text, p.TextDocument.Uri.ToString(),
+            return FindDefinition(tree.Root, token.Text, ToFilePath(p.TextDocument.Uri),
                 source, true, scopeName);
         }
 
@@ -367,7 +391,7 @@ public sealed class KohLanguageServer
     public Location[] References(JToken arg)
     {
         var p = arg.ToObject<ReferenceParams>()!;
-        var doc = _workspace.GetDocument(p.TextDocument.Uri.ToString());
+        var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
         if (doc == null) return [];
 
         var (source, tree) = doc.Value;
@@ -388,7 +412,7 @@ public sealed class KohLanguageServer
         if (isLocalLabel)
         {
             // Local labels are file-scoped — only search the current document
-            FindReferences(tree.Root, token.Text, new Uri(p.TextDocument.Uri.ToString()),
+            FindReferences(tree.Root, token.Text, new Uri(ToFilePath(p.TextDocument.Uri)),
                 source, locations, includeDeclaration, true, scopeName);
         }
         else
@@ -496,7 +520,7 @@ public sealed class KohLanguageServer
     public DocumentSymbol[]? DocumentSymbol(JToken arg)
     {
         var p = arg.ToObject<DocumentSymbolParams>()!;
-        var doc = _workspace.GetDocument(p.TextDocument.Uri.ToString());
+        var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
         if (doc == null) return null;
 
         var (source, tree) = doc.Value;
@@ -642,8 +666,8 @@ public sealed class KohLanguageServer
     public SemanticTokens? SemanticTokensFull(JToken arg)
     {
         var p = arg.ToObject<SemanticTokensParams>()!;
-        var uri = p.TextDocument.Uri.ToString();
-        var doc = _workspace.GetDocument(uri);
+        var path = ToFilePath(p.TextDocument.Uri);
+        var doc = _workspace.GetDocument(path);
         if (doc == null) return null;
 
         var (_, tree) = doc.Value;
@@ -659,12 +683,13 @@ public sealed class KohLanguageServer
     [JsonRpcMethod("textDocument/inlayHint")]
     public JToken? InlayHint(JToken arg)
     {
-        var uri = arg["textDocument"]!["uri"]!.ToString();
-        var doc = _workspace.GetDocument(uri);
+        var uri = new Uri(arg["textDocument"]!["uri"]!.ToString());
+        var path = ToFilePath(uri);
+        var doc = _workspace.GetDocument(path);
         if (doc == null) return null;
 
         var (source, tree) = doc.Value;
-        var model = _workspace.GetSemanticModel(uri);
+        var model = _workspace.GetSemanticModel(path);
         if (model == null) return null;
 
         // Parse the requested range
@@ -757,8 +782,8 @@ public sealed class KohLanguageServer
     public JToken? SignatureHelp(JToken arg)
     {
         var p = arg.ToObject<TextDocumentPositionParams>()!;
-        var uri = p.TextDocument.Uri.ToString();
-        var doc = _workspace.GetDocument(uri);
+        var path = ToFilePath(p.TextDocument.Uri);
+        var doc = _workspace.GetDocument(path);
         if (doc == null) return null;
 
         var (source, tree) = doc.Value;
@@ -776,7 +801,7 @@ public sealed class KohLanguageServer
         if (macroNameToken == null || macroNameToken.Kind != SyntaxKind.IdentifierToken)
             return null;
 
-        var model = _workspace.GetSemanticModel(uri);
+        var model = _workspace.GetSemanticModel(path);
         if (model == null) return null;
 
         var symbol = model.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
@@ -958,14 +983,14 @@ public sealed class KohLanguageServer
     public object? PrepareRename(JToken arg)
     {
         var p = arg.ToObject<TextDocumentPositionParams>()!;
-        var uri = p.TextDocument.Uri.ToString();
-        var doc = _workspace.GetDocument(uri);
+        var path = ToFilePath(p.TextDocument.Uri);
+        var doc = _workspace.GetDocument(path);
         if (doc == null) return null;
 
         var (source, _) = doc.Value;
         var offset = PositionUtilities.ToOffset(source, p.Position);
 
-        var resolved = _symbolFinder.ResolveAt(_workspace, uri, offset);
+        var resolved = _symbolFinder.ResolveAt(_workspace, path, offset);
         if (resolved == null) return null;
 
         return new
@@ -979,14 +1004,14 @@ public sealed class KohLanguageServer
     public WorkspaceEdit? Rename(JToken arg)
     {
         var p = arg.ToObject<RenameParams>()!;
-        var uri = p.TextDocument.Uri.ToString();
-        var doc = _workspace.GetDocument(uri);
+        var path = ToFilePath(p.TextDocument.Uri);
+        var doc = _workspace.GetDocument(path);
         if (doc == null) return null;
 
         var (source, _) = doc.Value;
         var offset = PositionUtilities.ToOffset(source, p.Position);
 
-        var target = _symbolFinder.ResolveAt(_workspace, uri, offset);
+        var target = _symbolFinder.ResolveAt(_workspace, path, offset);
         if (target == null) return null;
 
         // Validate
@@ -1025,7 +1050,7 @@ public sealed class KohLanguageServer
                 };
             }).ToArray();
 
-            changes[groupUri] = edits;
+            changes[ToUri(groupUri).ToString()] = edits;
         }
 
         return new WorkspaceEdit { Changes = changes };

@@ -17,24 +17,24 @@ internal sealed class Workspace
     private Compilation? _compilation;
     private volatile EmitModel? _cachedModel;
 
-    public void OpenDocument(string uri, string text)
+    public void OpenDocument(string path, string text)
     {
         lock (_lock)
         {
-            var source = SourceText.From(text, uri);
+            var source = SourceText.From(text, path);
             var tree = SyntaxTree.Parse(source);
-            _documents[uri] = (source, tree);
+            _documents[path] = (source, tree);
             RebuildCompilation();
         }
     }
 
-    public void ChangeDocument(string uri, string text)
+    public void ChangeDocument(string path, string text)
     {
         lock (_lock)
         {
-            var source = SourceText.From(text, uri);
+            var source = SourceText.From(text, path);
             var tree = SyntaxTree.Parse(source);
-            _documents[uri] = (source, tree);
+            _documents[path] = (source, tree);
             RebuildCompilation();
         }
     }
@@ -50,15 +50,14 @@ internal sealed class Workspace
 
     /// <summary>
     /// Get document text/tree and per-file diagnostics.
-    /// Uses SyntaxTree.Diagnostics (parse errors, per-file) plus binding diagnostics
-    /// when only one file is open (single-file is the common GB project case).
+    /// Includes parse diagnostics from the SyntaxTree plus all binding diagnostics
+    /// from the compilation (which follows INCLUDE chains for full project context).
     /// </summary>
     public (SourceText? Text, SyntaxTree? Tree, IReadOnlyList<Diagnostic>? Diagnostics) GetDocumentDiagnostics(string uri)
     {
         Compilation? compilation;
         SourceText? text;
         SyntaxTree? tree;
-        int documentCount;
 
         lock (_lock)
         {
@@ -67,7 +66,6 @@ internal sealed class Workspace
             text = doc.Text;
             tree = doc.Tree;
             compilation = _compilation;
-            documentCount = _documents.Count;
         }
 
         // Always include per-file parse diagnostics from the SyntaxTree
@@ -76,16 +74,8 @@ internal sealed class Workspace
         if (compilation != null)
         {
             var model = GetOrCreateModel(compilation);
-            if (documentCount == 1)
-            {
-                // Single file: all binding diagnostics belong to this file
-                foreach (var diag in model.Diagnostics)
-                    fileDiags.Add(diag);
-            }
-            // Multi-file: binding diagnostics cannot be attributed to individual files
-            // because the Diagnostic type has no file-path field. Only parse diagnostics
-            // (from SyntaxTree.Diagnostics) are shown per-file. Binding diagnostics are
-            // compilation-wide and shown only in single-file mode.
+            foreach (var diag in model.Diagnostics)
+                fileDiags.Add(diag);
         }
 
         return (text, tree, fileDiags);

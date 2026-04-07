@@ -7,36 +7,50 @@ import {
 import * as path from 'path';
 import * as fs from 'fs';
 
-// Client lifecycle managed via context.subscriptions — no explicit deactivate needed.
 let client: LanguageClient;
+let log: vscode.OutputChannel;
 
 function findServer(): string | null {
     // 1. Check user setting
     const configPath = vscode.workspace.getConfiguration('koh').get<string>('serverPath');
-    if (configPath && fs.existsSync(configPath)) return configPath;
+    log.appendLine(`[config] koh.serverPath = "${configPath || ''}"`);
+    if (configPath && fs.existsSync(configPath)) {
+        log.appendLine(`[config] Found server at configured path: ${configPath}`);
+        return configPath;
+    }
 
     // 2. Check bundled server next to extension
+    log.appendLine(`[search] __dirname = ${__dirname}`);
     const bundledCandidates = [
         path.join(__dirname, '..', 'server', 'koh-lsp'),
         path.join(__dirname, '..', 'server', 'koh-lsp.exe'),
     ];
     for (const candidate of bundledCandidates) {
-        if (fs.existsSync(candidate)) return candidate;
+        const exists = fs.existsSync(candidate);
+        log.appendLine(`[search] ${candidate} → ${exists ? 'FOUND' : 'not found'}`);
+        if (exists) return candidate;
     }
 
-    // 3. Not found — let user know
+    // 3. Not found
+    log.appendLine('[search] No server binary found');
     return null;
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+    log = vscode.window.createOutputChannel('Koh');
+    log.appendLine('Koh extension activating...');
+
     const serverPath = findServer();
 
     if (!serverPath) {
-        vscode.window.showWarningMessage(
-            'Koh language server (koh-lsp) not found. Set koh.serverPath in settings, or install koh-lsp on your PATH.'
-        );
+        const msg = 'Koh language server (koh-lsp) not found. Set koh.serverPath in settings, or build with: dotnet publish src/Koh.Lsp -c Release -o editors/vscode/server';
+        log.appendLine(`[error] ${msg}`);
+        log.show(true);
+        vscode.window.showWarningMessage(msg);
         return;
     }
+
+    log.appendLine(`[server] Using: ${serverPath}`);
 
     const serverOptions: ServerOptions = {
         command: serverPath,
@@ -48,6 +62,7 @@ export async function activate(context: vscode.ExtensionContext) {
             { scheme: 'file', language: 'koh-asm' },
             { scheme: 'untitled', language: 'koh-asm' },
         ],
+        outputChannel: log,
     };
 
     client = new LanguageClient(
@@ -57,11 +72,18 @@ export async function activate(context: vscode.ExtensionContext) {
         clientOptions,
     );
 
-    await client.start();
+    log.appendLine('[client] Starting language client...');
+    try {
+        await client.start();
+        log.appendLine('[client] Language client started successfully');
+    } catch (e) {
+        log.appendLine(`[client] Failed to start: ${e}`);
+        log.show(true);
+    }
     context.subscriptions.push(client);
 }
 
 export function deactivate(): Thenable<void> | undefined {
-    // Client stop is handled by context.subscriptions disposal
+    log?.appendLine('[client] Deactivating...');
     return undefined;
 }
