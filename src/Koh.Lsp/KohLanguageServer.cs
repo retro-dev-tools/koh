@@ -39,6 +39,15 @@ public sealed class KohLanguageServer
                 DefinitionProvider = true,
                 ReferencesProvider = true,
                 DocumentSymbolProvider = true,
+                SemanticTokensOptions = new SemanticTokensOptions
+                {
+                    Full = true,
+                    Legend = new SemanticTokensLegend
+                    {
+                        TokenTypes = SemanticTokenEncoder.TokenTypes,
+                        TokenModifiers = SemanticTokenEncoder.TokenModifiers,
+                    },
+                },
                 RenameProvider = new RenameOptions { PrepareProvider = true },
                 CompletionProvider = new CompletionOptions
                 {
@@ -614,6 +623,24 @@ public sealed class KohLanguageServer
         }
 
         return items.ToArray();
+    }
+
+    // =========================================================================
+    // Semantic Tokens
+    // =========================================================================
+
+    [JsonRpcMethod("textDocument/semanticTokens/full")]
+    public SemanticTokens? SemanticTokensFull(JToken arg)
+    {
+        var p = arg.ToObject<SemanticTokensParams>()!;
+        var uri = p.TextDocument.Uri.ToString();
+        var doc = _workspace.GetDocument(uri);
+        if (doc == null) return null;
+
+        var (_, tree) = doc.Value;
+        var data = SemanticTokenEncoder.Encode(tree);
+
+        return new SemanticTokens { Data = data };
     }
 
     // =========================================================================
