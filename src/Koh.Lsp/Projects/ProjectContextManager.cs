@@ -106,8 +106,11 @@ internal sealed class ProjectContextManager
     {
         var normalizedPath = Path.GetFullPath(filePath);
         _overlayResolver.SetOverlayText(normalizedPath, text);
-        _openFiles.Add(normalizedPath);
+        var isNewFile = _openFiles.Add(normalizedPath);
         _allFiles.Add(normalizedPath);
+
+        // Capture old include edges before updating
+        var oldIncludes = _graph.GetIncludes(normalizedPath);
 
         // Re-discover includes for this file
         var info = _includeDiscovery.Discover(normalizedPath, text, _folderPath);
@@ -126,12 +129,36 @@ internal sealed class ProjectContextManager
 
         if (Mode == FolderMode.Heuristic)
         {
-            RebuildHeuristicProjects();
+            // If include edges changed or a new file was opened, the entrypoint set may
+            // have changed — re-run full discovery. Otherwise just rebuild affected projects.
+            var edgesChanged = isNewFile || !IncludeEdgesEqual(oldIncludes, info.IncludedFiles);
+            if (edgesChanged)
+            {
+                RebuildHeuristicProjects();
+            }
+            else
+            {
+                RebuildAffectedProjects(normalizedPath);
+            }
         }
         else
         {
             RebuildAffectedProjects(normalizedPath);
         }
+    }
+
+    private static bool IncludeEdgesEqual(IReadOnlySet<string> oldEdges, IReadOnlyList<string> newEdges)
+    {
+        if (oldEdges.Count != newEdges.Count)
+            return false;
+
+        foreach (var edge in newEdges)
+        {
+            if (!oldEdges.Contains(edge))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>
