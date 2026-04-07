@@ -21,6 +21,37 @@ public sealed class SemanticModel
     }
 
     /// <summary>
+    /// Authoritative post-binding resolution API. Resolves a symbol by raw name
+    /// at a specific source position. For local labels (.xxx), walks top-level
+    /// children to find the nearest preceding global LabelDeclaration, then
+    /// looks up the qualified name via LookupQualified.
+    /// </summary>
+    public Symbol? ResolveSymbol(string rawName, int position)
+    {
+        if (_result.Symbols == null) return null;
+
+        if (rawName.StartsWith('.'))
+        {
+            string? scope = null;
+            foreach (var node in _tree.Root.ChildNodes())
+            {
+                if (node.Position > position) break;
+                if (node.Kind == SyntaxKind.LabelDeclaration)
+                {
+                    var token = node.ChildTokens().FirstOrDefault();
+                    if (token != null && token.Kind == SyntaxKind.IdentifierToken)
+                        scope = token.Text;
+                }
+            }
+            if (scope == null) return null;
+
+            return _result.Symbols.LookupQualified(scope + rawName);
+        }
+
+        return _result.Symbols.LookupQualified(rawName);
+    }
+
+    /// <summary>
     /// Get the symbol declared by a label or EQU node.
     /// </summary>
     public Symbol? GetDeclaredSymbol(SyntaxNode node)

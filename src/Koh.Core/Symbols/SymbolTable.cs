@@ -259,6 +259,17 @@ public sealed class SymbolTable
     /// <summary>Reset the anonymous label index for Pass 2.</summary>
     public void ResetAnonymousIndex() => _anonymousLabelIndex = 0;
 
+    /// <summary>
+    /// Direct qualified-name lookup bypassing QualifyName (which depends on
+    /// stale _currentGlobalAnchor post-binding). Used by SemanticModel.ResolveSymbol.
+    /// </summary>
+    public Symbol? LookupQualified(string qualifiedName)
+    {
+        var dict = DictFor(qualifiedName);
+        dict.TryGetValue(qualifiedName, out var sym);
+        return sym;
+    }
+
     private string QualifyName(string name)
     {
         if (name.StartsWith('.') && _currentGlobalAnchor != null)

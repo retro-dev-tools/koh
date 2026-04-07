@@ -5,6 +5,83 @@ namespace Koh.Core.Tests;
 
 public class SemanticModelTests
 {
+    // --- ResolveSymbol tests ---
+
+    [Test]
+    public async Task ResolveSymbol_LocalLabel_UsesPositionScope()
+    {
+        var text =
+            "SECTION \"Main\", ROM0\n" +
+            "funcA:\n.done:\n    jr .done\n" +
+            "funcB:\n.done:\n    jr .done\n";
+        var tree = SyntaxTree.Parse(text);
+        var compilation = Compilation.Create(tree);
+        var model = compilation.GetSemanticModel(tree);
+
+        int posA = text.IndexOf("jr .done");
+        var symA = model.ResolveSymbol(".done", posA);
+        await Assert.That(symA).IsNotNull();
+        await Assert.That(symA!.Name).IsEqualTo("funcA.done");
+
+        int posB = text.LastIndexOf("jr .done");
+        var symB = model.ResolveSymbol(".done", posB);
+        await Assert.That(symB).IsNotNull();
+        await Assert.That(symB!.Name).IsEqualTo("funcB.done");
+    }
+
+    [Test]
+    public async Task ResolveSymbol_GlobalLabel_WorksAnywhere()
+    {
+        var text = "SECTION \"Main\", ROM0\nmain:\n    jp main\n";
+        var tree = SyntaxTree.Parse(text);
+        var compilation = Compilation.Create(tree);
+        var model = compilation.GetSemanticModel(tree);
+
+        int pos = text.IndexOf("jp main");
+        var sym = model.ResolveSymbol("main", pos);
+        await Assert.That(sym).IsNotNull();
+        await Assert.That(sym!.Name).IsEqualTo("main");
+    }
+
+    [Test]
+    public async Task ResolveSymbol_LocalLabelBeforeFirstGlobal_ReturnsNull()
+    {
+        var text = "SECTION \"Main\", ROM0\n.orphan:\n    nop\nmain:\n";
+        var tree = SyntaxTree.Parse(text);
+        var compilation = Compilation.Create(tree);
+        var model = compilation.GetSemanticModel(tree);
+
+        int pos = text.IndexOf("nop");
+        var sym = model.ResolveSymbol(".orphan", pos);
+        await Assert.That(sym).IsNull();
+    }
+
+    [Test]
+    public async Task ResolveSymbol_LocalLabelBeforeDefiningGlobal_ReturnsNull()
+    {
+        var text = "SECTION \"Main\", ROM0\n    nop\nmain:\n.local:\n    jr .local\n";
+        var tree = SyntaxTree.Parse(text);
+        var compilation = Compilation.Create(tree);
+        var model = compilation.GetSemanticModel(tree);
+
+        int pos = text.IndexOf("nop");
+        var sym = model.ResolveSymbol(".local", pos);
+        await Assert.That(sym).IsNull();
+    }
+
+    [Test]
+    public async Task LabelDeclarations_AreTopLevelChildren()
+    {
+        // If parser structure changes, ResolveSymbol must be updated.
+        var tree = SyntaxTree.Parse("SECTION \"Main\", ROM0\nmain:\n.local:\n    nop\n");
+        var labels = tree.Root.ChildNodes()
+            .Where(n => n.Kind == SyntaxKind.LabelDeclaration)
+            .ToList();
+        await Assert.That(labels.Count).IsEqualTo(2);
+    }
+
+    // --- Existing tests ---
+
     [Test]
     public async Task Compilation_Create_ParsesAndBinds()
     {

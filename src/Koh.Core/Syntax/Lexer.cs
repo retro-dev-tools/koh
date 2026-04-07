@@ -36,6 +36,10 @@ public sealed class Lexer
         return (tokens, lexer.Diagnostics);
     }
 
+    /// <summary>Check whether a text string is a reserved keyword.</summary>
+    public static bool IsKeyword(string text)
+        => Keywords.ContainsKey(text);
+
     private static readonly Dictionary<string, SyntaxKind> Keywords = new(
         StringComparer.OrdinalIgnoreCase
     )
