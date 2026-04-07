@@ -342,7 +342,8 @@ internal sealed class ProjectContextManager
         // transitive includes. Without this, files that were never opened in
         // the editor won't appear in the reachable set, and therefore won't
         // get a primary owner or receive semantic diagnostics.
-        EnsureGraphPopulatedFromResolver(entrypointPath);
+        var entrypointDir = Path.GetDirectoryName(entrypointPath) ?? _folderPath;
+        EnsureGraphPopulatedFromResolver(entrypointPath, entrypointDir);
 
         var reachable = _graph.GetReachableFiles(entrypointPath);
         var compilation = BuildCompilation(entrypointPath);
@@ -354,7 +355,7 @@ internal sealed class ProjectContextManager
     /// INCLUDE directives, populating the workspace graph. This ensures that files
     /// which were never opened in the editor are still part of the include graph.
     /// </summary>
-    private void EnsureGraphPopulatedFromResolver(string filePath)
+    private void EnsureGraphPopulatedFromResolver(string filePath, string includeCwd)
     {
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var queue = new Queue<string>();
@@ -391,7 +392,7 @@ internal sealed class ProjectContextManager
                 continue;
             }
 
-            var info = _includeDiscovery.Discover(current, text, _folderPath);
+            var info = _includeDiscovery.Discover(current, text, includeCwd);
             _graph.UpsertFile(info);
             _allFiles.Add(current);
 
@@ -420,11 +421,12 @@ internal sealed class ProjectContextManager
         var source = SourceText.From(text, entrypointPath);
         var tree = SyntaxTree.Parse(source);
 
-        // RGBDS resolves includes relative to the working directory where the
-        // assembler is invoked — which is the project/workspace root, not the
-        // entrypoint's directory. E.g. INCLUDE "hardware.inc" in src/game.asm
-        // resolves to <workspace>/hardware.inc, not <workspace>/src/hardware.inc.
-        var resolver = new EntrypointResolver(_overlayResolver, _folderPath);
+        // RGBDS resolves includes relative to the CWD where the assembler is
+        // invoked plus any -I include paths. In typical projects the Makefile
+        // uses `-I src/` from the project root, making the entrypoint's
+        // directory the effective include root.
+        var entrypointDir = Path.GetDirectoryName(entrypointPath) ?? _folderPath;
+        var resolver = new EntrypointResolver(_overlayResolver, entrypointDir);
         return Compilation.Create(resolver, tree);
     }
 

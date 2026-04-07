@@ -1051,7 +1051,13 @@ public sealed class KohLanguageServer
         var offset = PositionUtilities.ToOffset(source, p.Position);
 
         var resolved = _symbolFinder.ResolveAt(_workspace, path, offset);
-        if (resolved == null) return null;
+        Log($"[prepareRename] path={path} offset={offset} resolved={resolved != null}");
+        if (resolved == null)
+        {
+            var model = _workspace.GetSemanticModel(path);
+            Log($"[prepareRename] semanticModel={model != null}");
+            return null;
+        }
 
         return new
         {
