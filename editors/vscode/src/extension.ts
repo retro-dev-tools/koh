@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 // Client lifecycle managed via context.subscriptions — no explicit deactivate needed.
+let client: LanguageClient;
 
 function findServer(): string | null {
     // 1. Check user setting
