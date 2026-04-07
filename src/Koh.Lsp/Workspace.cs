@@ -99,6 +99,26 @@ internal sealed class Workspace
         return GetOrCreateModel(compilation);
     }
 
+    /// <summary>
+    /// Get the semantic model for a specific document URI.
+    /// Returns null if the document is not open or compilation is unavailable.
+    /// </summary>
+    public SemanticModel? GetSemanticModel(string uri)
+    {
+        Compilation? compilation;
+        SyntaxTree? tree;
+        lock (_lock)
+        {
+            if (!_documents.TryGetValue(uri, out var doc))
+                return null;
+            tree = doc.Tree;
+            compilation = _compilation;
+        }
+
+        if (compilation == null) return null;
+        return compilation.GetSemanticModel(tree);
+    }
+
     public (SourceText Text, SyntaxTree Tree)? GetDocument(string uri)
     {
         lock (_lock)
