@@ -1212,7 +1212,12 @@ internal sealed class AssemblyExpander
         {
             var body = _textReplay.SubstituteMacroParams(macro.RawBody, frame, macro.ContainsShift,
                 _symbols, _expressionCache);
-            ExpandTextInline(body, output, ctx, macro.DefinitionSpan, TextReplayReason.MacroParameterConcatenation);
+            // Skip eager interpolation resolution for macro bodies. Interpolation is
+            // resolved per-node by ExpandBodyList's NeedsInterpolation check, which runs
+            // after EarlyDefineEqu has processed preceding nodes. This ensures REDEF EQUS
+            // definitions are visible to interpolations in subsequent statements.
+            ExpandTextInline(body, output, ctx, macro.DefinitionSpan, TextReplayReason.MacroParameterConcatenation,
+                skipInterpolation: true);
         }
         else
         {
@@ -1327,7 +1332,9 @@ internal sealed class AssemblyExpander
 
     /// <summary>
     /// Check if a node contains {name} interpolation patterns that need resolving.
-    /// This detects BadToken '{' in the node's children.
+    /// This detects BadToken '{' in the node's children (interpolation OUTSIDE strings).
+    /// String-embedded interpolation ({symbol} inside "...") is resolved separately
+    /// by the binder during Pass 2 (PRINTLN, db string emission).
     /// </summary>
     private bool NeedsInterpolation(SyntaxNode node)
     {
@@ -1696,7 +1703,8 @@ internal sealed class AssemblyExpander
     /// Parse and expand text inline (used for macro/REPT/FOR text-level expansion).
     /// </summary>
     private LoopControl ExpandTextInline(string text, List<ExpandedNode> output,
-        ExpansionContext ctx, TextSpan triggerSpan, TextReplayReason reason)
+        ExpansionContext ctx, TextSpan triggerSpan, TextReplayReason reason,
+        bool skipInterpolation = false)
     {
         // Resolve {symbol} interpolations before re-parsing, but ONLY if there are no
         // unresolved macro parameter references (\1..\9, \#) in the text. When macro params
@@ -1706,7 +1714,8 @@ internal sealed class AssemblyExpander
         // substituted via the ContainsMacroParam path.
         bool hasMacroParams = TextReplayService.ContainsUnresolvedMacroParam(text);
 
-        var tree = _textReplay.ParseForReplay(text, hasMacroParams, ctx, triggerSpan, reason, MaxReplayDepth);
+        var tree = _textReplay.ParseForReplay(text, hasMacroParams, ctx, triggerSpan, reason, MaxReplayDepth,
+            skipInterpolation);
         if (tree == null)
             return LoopControl.Continue;
 

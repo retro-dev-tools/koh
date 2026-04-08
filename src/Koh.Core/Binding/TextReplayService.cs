@@ -41,9 +41,9 @@ internal sealed class TextReplayService
     /// </summary>
     public SyntaxTree? ParseForReplay(string text, bool hasMacroParams,
         ExpansionContext ctx, TextSpan triggerSpan, TextReplayReason reason,
-        int maxReplayDepth)
+        int maxReplayDepth, bool skipInterpolation = false)
     {
-        if (!hasMacroParams)
+        if (!hasMacroParams && !skipInterpolation)
             text = _interpolation.Resolve(text);
 
         if (ctx.ReplayDepth >= maxReplayDepth)

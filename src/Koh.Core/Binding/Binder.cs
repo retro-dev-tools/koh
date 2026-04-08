@@ -1029,6 +1029,9 @@ public sealed class Binder
                     if (IsStringLiteral(expr.Green))
                     {
                         var text = ExtractStringText(expr.Green);
+                        // Resolve {symbol} interpolations in string content
+                        if (_expander != null && text.Contains('{'))
+                            text = _expander.ResolveInterpolations(text);
                         foreach (var b in _charMaps.EncodeString(text))
                             section.EmitByte(b);
                         continue;
