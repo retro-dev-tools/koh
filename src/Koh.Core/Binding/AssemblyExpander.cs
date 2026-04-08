@@ -900,7 +900,8 @@ internal sealed class AssemblyExpander
                 }
                 // Check for purge of already-undefined symbol
                 var sym = _symbols.Lookup(name, _ownerContext);
-                if (sym == null && !_equsConstants.ContainsKey(name))
+                var isMacro = _macros.ContainsKey(name);
+                if (sym == null && !_equsConstants.ContainsKey(name) && !isMacro)
                 {
                     _diagnostics.Report(node.FullSpan, $"PURGE: symbol '{name}' is not defined");
                     continue;
@@ -912,6 +913,7 @@ internal sealed class AssemblyExpander
                     continue;
                 }
                 _equsConstants.Remove(name);
+                _macros.Remove(name);
                 _symbols.Remove(name);
             }
         }

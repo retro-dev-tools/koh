@@ -281,8 +281,10 @@ public class SymbolOwnershipTests
     }
 
     [Test]
-    public async Task MacroAndLabel_SameName_SameOwner_ProducesDuplicate()
+    public async Task MacroAndLabel_SameName_SameOwner_Coexist()
     {
+        // Macros and labels/constants are in separate declaration spaces
+        // and do not collide (matches RGBDS behavior)
         var tree = SyntaxTree.Parse(
             SourceText.From("SECTION \"Main\", ROM0\nfoo: MACRO\n    nop\nENDM\nfoo:\n    nop\n", "main.asm"));
 
@@ -292,7 +294,7 @@ public class SymbolOwnershipTests
             .Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
-        await Assert.That(errors.Count).IsGreaterThan(0);
+        await Assert.That(errors.Count).IsEqualTo(0);
     }
 
     [Test]

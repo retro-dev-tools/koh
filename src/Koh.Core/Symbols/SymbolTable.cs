@@ -13,6 +13,13 @@ public sealed class SymbolTable
     private readonly Dictionary<(string OwnerId, string Name), Symbol> _stringConstantSymbols =
         new(OwnerNameComparer.Instance);
     private readonly Dictionary<string, Symbol> _exportedSymbols = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Separate macro namespace. Macros do not collide with constants/labels
+    /// and are not found by expression evaluation or constant/label definition.
+    /// Keyed by (OwnerId, QualifiedName) for owner-aware lookup.
+    /// </summary>
+    private readonly Dictionary<(string OwnerId, string Name), Symbol> _macroSymbols =
+        new(OwnerNameComparer.Instance);
     private readonly DiagnosticBag _diagnostics;
     private Symbol? _currentGlobalAnchor;
     private SymbolResolutionContext _currentContext;
@@ -267,6 +274,18 @@ public sealed class SymbolTable
         // Also check exported storage
         if (_exportedSymbols.Remove(key))
             removed = true;
+        // Also remove from macro namespace
+        var toRemoveMacro = new List<(string OwnerId, string Name)>();
+        foreach (var ownerKey in _macroSymbols.Keys)
+        {
+            if (string.Equals(ownerKey.Name, key, StringComparison.OrdinalIgnoreCase))
+                toRemoveMacro.Add(ownerKey);
+        }
+        foreach (var k in toRemoveMacro)
+        {
+            _macroSymbols.Remove(k);
+            removed = true;
+        }
         return removed;
     }
 
@@ -287,6 +306,7 @@ public sealed class SymbolTable
             .Concat(_ownerLocalSymbols.Values)
             .Concat(_stringConstantSymbols.Values)
             .Concat(_exportedSymbols.Values)
+            .Concat(_macroSymbols.Values)
             .Distinct();
 
     /// <summary>Count of defined symbols, for pre-scan convergence detection.</summary>
@@ -362,6 +382,9 @@ public sealed class SymbolTable
                 return local;
             if (_exportedSymbols.TryGetValue(qualifiedName, out var exported))
                 return exported;
+            // Check macro namespace (for LSP features — macros are not in expression namespace)
+            if (_macroSymbols.TryGetValue((_currentContext.OwnerId, qualifiedName), out var macro))
+                return macro;
         }
         var dict = DictFor(qualifiedName);
         dict.TryGetValue(qualifiedName, out var sym);
@@ -403,6 +426,9 @@ public sealed class SymbolTable
             return strConst;
         if (_exportedSymbols.TryGetValue(qualifiedName, out var exported))
             return exported;
+        // Check macro namespace (for LSP features — macros are not in expression namespace)
+        if (_macroSymbols.TryGetValue((context.OwnerId, qualifiedName), out var macro))
+            return macro;
         // Fall back to legacy global dict for backward compatibility
         var dict = DictFor(qualifiedName);
         dict.TryGetValue(qualifiedName, out var sym);
@@ -570,21 +596,22 @@ public sealed class SymbolTable
 
     /// <summary>
     /// Define a macro symbol within an owner context.
+    /// Macros live in a separate namespace from constants/labels and do not
+    /// collide with them. Duplicate checks apply only within the macro namespace.
     /// </summary>
     public Symbol DefineMacro(string name, SyntaxNode? site,
         SymbolResolutionContext context)
     {
         var key = QualifyName(name);
         var ownerKey = (context.OwnerId, key);
-        var existing = FindOrAdopt(key, ownerKey);
 
-        if (existing != null)
+        if (_macroSymbols.TryGetValue(ownerKey, out var existing))
         {
             if (existing.State == SymbolState.Defined)
             {
                 _diagnostics.Report(
                     site != null ? site.FullSpan : default,
-                    $"Symbol '{key}' is already defined");
+                    $"Macro '{key}' is already defined");
                 return existing;
             }
 
@@ -595,7 +622,7 @@ public sealed class SymbolTable
         var sym = new Symbol(key, SymbolKind.Macro);
         sym.Define(0, site);
         sym.OwnerId = context.OwnerId;
-        Register(sym, key, ownerKey);
+        _macroSymbols[ownerKey] = sym;
         return sym;
     }
 
@@ -701,8 +728,16 @@ public sealed class SymbolTable
             return;
         }
 
-        // Look up in owner-local storage (including string constants)
+        // Check macro namespace first — macros are not exportable
         var ownerKey = (context.OwnerId, key);
+        if (_macroSymbols.ContainsKey(ownerKey))
+        {
+            _diagnostics.Report(directiveSite.FullSpan,
+                $"Cannot export macro '{key}' — macros are not exportable.");
+            return;
+        }
+
+        // Look up in owner-local storage (including string constants)
         Symbol? sym;
         bool fromStringConstants = false;
         if (_ownerLocalSymbols.TryGetValue(ownerKey, out sym))
@@ -718,14 +753,6 @@ public sealed class SymbolTable
         {
             _diagnostics.Report(directiveSite.FullSpan,
                 $"Cannot export undefined symbol '{key}'.");
-            return;
-        }
-
-        // Check for macro
-        if (sym.Kind == SymbolKind.Macro)
-        {
-            _diagnostics.Report(directiveSite.FullSpan,
-                $"Cannot export macro '{key}' — macros are not exportable.");
             return;
         }
 
@@ -770,7 +797,8 @@ public sealed class SymbolTable
     public IEnumerable<Symbol> AllOwnerAwareSymbols =>
         _ownerLocalSymbols.Values
             .Concat(_stringConstantSymbols.Values)
-            .Concat(_exportedSymbols.Values);
+            .Concat(_exportedSymbols.Values)
+            .Concat(_macroSymbols.Values);
 
     /// <summary>
     /// Get all symbols visible to a specific owner: owner-local + all exported.
