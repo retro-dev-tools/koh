@@ -156,12 +156,12 @@ InterpolationFormat
 
 ### Failure behavior
 
-**BLOCKER: These rules must be verified against RGBDS before implementation.** Implementation must not proceed on failure semantics until confirmed with concrete RGBDS repros. The following are initial assumptions:
+**Verified against RGBDS v1.0.1.** See `tests/Koh.Compat.Tests/fixtures/interpolation-behavior/RGBDS-BEHAVIOR-MATRIX.md` for full results.
 
-- `NotFound` -> source emits diagnostic via sink, expands to **empty string**, continues lexing. The original `{...}` text is consumed, not preserved. **This assumption directly affects tokenization and parsing shape — if wrong, it creates compatibility bugs.**
-- `Error` -> source emits diagnostic via sink, expands to **empty string**, continues lexing.
-- Malformed syntax (no closing `}`) -> source emits diagnostic, treats the `{` as a literal character (does not consume further).
-- Depth overflow -> source emits diagnostic, treats the `{` as a literal character.
+- `NotFound` -> **fatal error.** Diagnostic: "Interpolated symbol `name` does not exist." Assembly aborts. No expansion occurs.
+- `Error` (format failure, wrong symbol kind) -> **fatal error.** Assembly aborts.
+- Malformed syntax (no closing `}`) -> **fatal error.** Diagnostic: "Missing '}'." Assembly aborts. Note: RGBDS may partially process the symbol value before detecting the missing brace.
+- Depth overflow -> **fatal error.** Assembly aborts.
 
 ### Lexer changes
 
@@ -250,9 +250,9 @@ Interpolation visibility follows strict declaration order:
 
 - **EQUS redefinitions** become visible to interpolation immediately after the defining replay unit is processed by the binder. The next replay unit's `InterpolationAwareSource` will see the updated value.
 - **Interpolation never reads future replay units.** It sees only symbol state established by replay units already processed.
-- **Numeric symbol visibility** depends on pass-specific resolution rules. During Pass 1, interpolation sees numeric values defined so far in Pass 1. Whether partially-resolved or forward-referenced numeric symbols are interpolation-visible must be specified explicitly before implementation, verified against RGBDS behavior.
+- **Numeric symbol visibility:** Verified against RGBDS v1.0.1 — both EQUS and numeric symbols (EQU) are immediately visible to interpolation after definition/redefinition. `DEF x EQU 42` followed by `PRINTLN "{d:x}"` prints `42`. `REDEF x EQU 2` updates the visible value immediately. No pass-specific restrictions needed.
 - **Failed/intermediate definitions** from partially processed blocks are visible only if the binder has committed them to the relevant semantic namespace before yielding to the next replay unit.
-- **BLOCKER: Numeric interpolation visibility rules must be verified against RGBDS before implementation proceeds beyond EQUS-only support.** Whether partially-resolved or forward-referenced numeric symbols are interpolation-visible is a correctness-critical question that cannot be deferred.
+- **Undefined symbols in interpolation are fatal errors.** RGBDS aborts assembly on `{undefined}`. Koh must match this behavior.
 
 ---
 
