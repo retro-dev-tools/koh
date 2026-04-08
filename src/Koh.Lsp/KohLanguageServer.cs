@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text;
 using Koh.Core.Syntax;
 using Koh.Core.Text;
@@ -7,23 +8,15 @@ using StreamJsonRpc;
 
 namespace Koh.Lsp;
 
-public sealed class KohLanguageServer
+public sealed class KohLanguageServer(JsonRpc rpc)
 {
-    private readonly JsonRpc _rpc;
     private readonly Workspace _workspace = new();
     private readonly SymbolFinder _symbolFinder = new();
     private bool _shutdownReceived;
     private string? _rootPath;
 
-    public KohLanguageServer(JsonRpc rpc)
-    {
-        _rpc = rpc;
-    }
-
-    private void Log(string message)
-    {
-        _ = _rpc.NotifyAsync("window/logMessage", new { type = 3, message }); // 3 = Info
-    }
+    private void Log(string message) =>
+        _ = rpc.NotifyAsync("window/logMessage", new { type = 3, message });
 
     // =========================================================================
     // Lifecycle
@@ -32,9 +25,9 @@ public sealed class KohLanguageServer
     [JsonRpcMethod("initialize")]
     public JToken Initialize(JToken arg)
     {
-        // Set CWD to workspace root so FileSystemResolver resolves INCLUDEs correctly
         var rootUri = arg["rootUri"]?.ToString();
         Log($"[init] rootUri = {rootUri}");
+
         if (rootUri != null)
         {
             try
@@ -78,19 +71,17 @@ public sealed class KohLanguageServer
                 RenameProvider = new RenameOptions { PrepareProvider = true },
                 CompletionProvider = new CompletionOptions
                 {
-                    TriggerCharacters = new[] { "." },
+                    TriggerCharacters = ["."],
                     ResolveProvider = false,
                 },
             },
         };
 
-        // Add capabilities not available in this version of the LSP protocol package
         var json = JToken.FromObject(result);
         json["capabilities"]!["inlayHintProvider"] = true;
-        json["capabilities"]!["signatureHelpProvider"] = JToken.FromObject(new
-        {
-            triggerCharacters = new[] { "," },
-        });
+        json["capabilities"]!["signatureHelpProvider"] = JToken.FromObject(
+            new { triggerCharacters = new[] { "," } }
+        );
         return json;
     }
 
@@ -111,16 +102,9 @@ public sealed class KohLanguageServer
     // URI / path conversion
     // =========================================================================
 
-    /// <summary>
-    /// Convert an LSP document URI to a local file path.
-    /// VS Code sends URIs like "file:///c%3A/projekty/foo" where the colon is
-    /// percent-encoded. We decode the path component and strip the leading slash
-    /// on Windows so "c:\projekty\foo" is returned instead of "/c:/projekty/foo".
-    /// </summary>
     private static string ToFilePath(Uri uri)
     {
         var path = Uri.UnescapeDataString(uri.AbsolutePath);
-        // On Windows, strip leading "/" from "/c:/..." paths
         if (path.Length >= 3 && path[0] == '/' && char.IsLetter(path[1]) && path[2] == ':')
             path = path[1..];
         return path.Replace('/', Path.DirectorySeparatorChar);
@@ -128,7 +112,7 @@ public sealed class KohLanguageServer
 
     private static string ToFilePath(string uriString) => ToFilePath(new Uri(uriString));
 
-    private static Uri ToUri(string filePath) => new Uri("file:///" + filePath.Replace('\\', '/'));
+    private static Uri ToUri(string filePath) => new("file:///" + filePath.Replace('\\', '/'));
 
     // =========================================================================
     // Text document sync
@@ -142,7 +126,9 @@ public sealed class KohLanguageServer
         Log($"[didOpen] path = {path}");
         _workspace.OpenDocument(path, p.TextDocument.Text);
         var ctx = _workspace.GetPrimaryProjectContext(path);
-        Log($"[didOpen] primaryProject = {(ctx != null ? $"{ctx.Name} (entry={ctx.EntrypointPath})" : "null")}");
+        Log(
+            $"[didOpen] primaryProject = {(ctx != null ? $"{ctx.Name} (entry={ctx.EntrypointPath})" : "null")}"
+        );
         PublishDiagnosticsForAllOpen();
     }
 
@@ -151,7 +137,6 @@ public sealed class KohLanguageServer
     {
         var p = arg.ToObject<DidChangeTextDocumentParams>()!;
         var path = ToFilePath(p.TextDocument.Uri);
-        // Full sync: client sends exactly one change with complete text
         if (p.ContentChanges.Length > 0)
             _workspace.ChangeDocument(path, p.ContentChanges[^1].Text);
         PublishDiagnosticsForAllOpen();
@@ -163,13 +148,10 @@ public sealed class KohLanguageServer
         var p = arg.ToObject<DidCloseTextDocumentParams>()!;
         var path = ToFilePath(p.TextDocument.Uri);
         _workspace.CloseDocument(path);
-        // Clear diagnostics for closed file
-        _ = _rpc.NotifyAsync("textDocument/publishDiagnostics", new PublishDiagnosticParams
-        {
-            Uri = ToUri(path),
-            Diagnostics = [],
-        });
-        // Republish diagnostics for remaining open files (closing an include may affect them)
+        _ = rpc.NotifyAsync(
+            "textDocument/publishDiagnostics",
+            new PublishDiagnosticParams { Uri = ToUri(path), Diagnostics = [] }
+        );
         PublishDiagnosticsForAllOpen();
     }
 
@@ -177,16 +159,14 @@ public sealed class KohLanguageServer
     public void DidSave(JToken arg)
     {
         var uri = arg["textDocument"]?["uri"]?.ToString();
-        if (uri == null) return;
-
+        if (uri == null)
+            return;
         var path = ToFilePath(new Uri(uri));
-
-        if (Path.GetFileName(path).Equals("koh.yaml", StringComparison.OrdinalIgnoreCase) && _rootPath != null)
-        {
+        if (
+            Path.GetFileName(path).Equals("koh.yaml", StringComparison.OrdinalIgnoreCase)
+            && _rootPath != null
+        )
             _workspace.ReloadConfiguration(_rootPath);
-        }
-
-        // Republish diagnostics for all open files (saved file may affect others)
         PublishDiagnosticsForAllOpen();
     }
 
@@ -203,24 +183,178 @@ public sealed class KohLanguageServer
     private void PublishDiagnosticsFor(string path)
     {
         var state = _workspace.GetDocumentDiagnostics(path);
-        if (state.Text == null || state.Diagnostics == null) return;
+        if (state.Text == null || state.Diagnostics == null)
+            return;
 
         Log($"[diag] {path} → {state.Diagnostics.Count} diagnostics");
-        if (state.Diagnostics.Count > 0 && state.Diagnostics.Count <= 10)
+        if (state.Diagnostics.Count is > 0 and <= 10)
         {
             foreach (var d in state.Diagnostics)
                 Log($"[diag]   {d.Severity}: {d.Message} (file={d.FilePath ?? "null"})");
         }
 
-        var lspDiags = new List<Microsoft.VisualStudio.LanguageServer.Protocol.Diagnostic>();
-        foreach (var diag in state.Diagnostics)
-            lspDiags.Add(PositionUtilities.ToLspDiagnostic(diag, state.Text));
+        _ = rpc.NotifyAsync(
+            "textDocument/publishDiagnostics",
+            new PublishDiagnosticParams
+            {
+                Uri = ToUri(path),
+                Diagnostics = state
+                    .Diagnostics.Select(d => PositionUtilities.ToLspDiagnostic(d, state.Text))
+                    .ToArray(),
+            }
+        );
+    }
 
-        _ = _rpc.NotifyAsync("textDocument/publishDiagnostics", new PublishDiagnosticParams
+    // =========================================================================
+    // Struct visitor pattern — zero-allocation tree walking
+    //
+    // WalkCore<TVisitor> is a static generic method constrained to struct so the
+    // JIT can devirtualise and inline Visit() at each call site. Passing visitor
+    // by ref avoids copying the struct on every recursive frame and allows
+    // accumulating results (e.g. a found Location) without heap allocation.
+    // Returning true from Visit() short-circuits the entire traversal.
+    // =========================================================================
+
+    private interface ITokenVisitor
+    {
+        bool Visit(SyntaxToken token, string? scope);
+    }
+
+    private static void WalkTokensWithScope<TVisitor>(SyntaxNode root, ref TVisitor visitor)
+        where TVisitor : struct, ITokenVisitor
+    {
+        string? scope = null;
+        WalkCore(root, ref visitor, ref scope);
+    }
+
+    private static bool WalkCore<TVisitor>(SyntaxNode node, ref TVisitor visitor, ref string? scope)
+        where TVisitor : struct, ITokenVisitor
+    {
+        if (node.Kind == SyntaxKind.LabelDeclaration)
         {
-            Uri = ToUri(path),
-            Diagnostics = lspDiags.ToArray(),
-        });
+            var first = node.ChildTokens().FirstOrDefault();
+            if (first?.Kind == SyntaxKind.IdentifierToken)
+                scope = first.Text;
+        }
+
+        foreach (var child in node.ChildNodesAndTokens())
+        {
+            var stop = child.IsToken
+                ? visitor.Visit(child.AsToken!, scope)
+                : WalkCore(child.AsNode!, ref visitor, ref scope);
+            if (stop)
+                return true;
+        }
+
+        return false;
+    }
+
+    private struct DefinitionFinder(
+        string name,
+        string uri,
+        SourceText source,
+        bool isLocalLabel,
+        string? requiredScope
+    ) : ITokenVisitor
+    {
+        public Location? Result;
+
+        public bool Visit(SyntaxToken token, string? scope)
+        {
+            var parent = token.Parent;
+            if (parent is null)
+                return false;
+
+            var isLabelDecl = parent.Kind == SyntaxKind.LabelDeclaration;
+            var isSymbolDecl = parent.Kind == SyntaxKind.SymbolDirective;
+            if (!isLabelDecl && !isSymbolDecl)
+                return false;
+            if (!token.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (isLocalLabel)
+            {
+                if (token.Kind != SyntaxKind.LocalLabelToken)
+                    return false;
+                if (!string.Equals(scope, requiredScope, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            else
+            {
+                if (token.Kind != SyntaxKind.IdentifierToken)
+                    return false;
+                if (
+                    isSymbolDecl
+                    && parent.ChildTokens().FirstOrDefault()?.Span.Start != token.Span.Start
+                )
+                    return false;
+            }
+
+            Result = new Location
+            {
+                Uri = new Uri(uri),
+                Range = PositionUtilities.ToLspRange(source, parent.Span),
+            };
+            return true;
+        }
+    }
+
+    private struct ReferenceFinder(
+        string name,
+        Uri documentUri,
+        SourceText source,
+        List<Location> results,
+        bool includeDeclaration,
+        bool isLocalLabel,
+        string? requiredScope
+    ) : ITokenVisitor
+    {
+        public bool Visit(SyntaxToken token, string? scope)
+        {
+            if (token.Kind is not (SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken))
+                return false;
+            if (!token.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (isLocalLabel)
+            {
+                if (token.Kind != SyntaxKind.LocalLabelToken)
+                    return false;
+                if (!string.Equals(scope, requiredScope, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            var isDecl =
+                token.Parent?.Kind is SyntaxKind.LabelDeclaration or SyntaxKind.SymbolDirective;
+            if (isDecl && !includeDeclaration)
+                return false;
+
+            results.Add(
+                new Location
+                {
+                    Uri = documentUri,
+                    Range = PositionUtilities.ToLspRange(source, token.Span),
+                }
+            );
+            return false;
+        }
+    }
+
+    private struct GlobalLabelFinder(int position) : ITokenVisitor
+    {
+        public string? LastGlobal;
+
+        public bool Visit(SyntaxToken token, string? scope)
+        {
+            if (token.Span.Start >= position)
+                return true;
+            if (
+                token.Kind == SyntaxKind.IdentifierToken
+                && token.Parent?.Kind == SyntaxKind.LabelDeclaration
+            )
+                LastGlobal = token.Text;
+            return false;
+        }
     }
 
     // =========================================================================
@@ -231,24 +365,23 @@ public sealed class KohLanguageServer
     public Hover? Hover(JToken arg)
     {
         var p = arg.ToObject<TextDocumentPositionParams>()!;
-        var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
-        if (doc == null) return null;
+        var path = ToFilePath(p.TextDocument.Uri);
+        var doc = _workspace.GetDocument(path);
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
-        var offset = PositionUtilities.ToOffset(source, p.Position);
-        var token = tree.Root.FindToken(offset);
-        if (token == null) return null;
+        var token = tree.Root.FindToken(PositionUtilities.ToOffset(source, p.Position));
+        if (token == null)
+            return null;
 
-        var content = GetHoverContent(token, ToFilePath(p.TextDocument.Uri));
-        if (content == null) return null;
+        var content = GetHoverContent(token, path);
+        if (content == null)
+            return null;
 
         return new Hover
         {
-            Contents = new MarkupContent
-            {
-                Kind = MarkupKind.Markdown,
-                Value = content,
-            },
+            Contents = new MarkupContent { Kind = MarkupKind.Markdown, Value = content },
             Range = PositionUtilities.ToLspRange(source, token.Span),
         };
     }
@@ -260,11 +393,14 @@ public sealed class KohLanguageServer
 
         if (token.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
         {
-            var model = _workspace.GetModel(path);
-            if (model == null) return null;
-            var sym = model.Symbols.FirstOrDefault(s =>
-                s.Name.Equals(token.Text, StringComparison.OrdinalIgnoreCase));
-            if (sym == null) return null;
+            var sym = _workspace
+                .GetModel(path)
+                ?.Symbols.FirstOrDefault(s =>
+                    s.Name.Equals(token.Text, StringComparison.OrdinalIgnoreCase)
+                );
+            if (sym == null)
+                return null;
+
             var sb = new StringBuilder();
             sb.AppendLine($"**{sym.Name}** ({sym.Kind})");
             sb.AppendLine($"- Value: `${sym.Value:X4}` ({sym.Value})");
@@ -283,166 +419,147 @@ public sealed class KohLanguageServer
         return null;
     }
 
-    private static string? GetInstructionHover(string mnemonic) => mnemonic switch
+    private static readonly FrozenDictionary<string, string> InstructionHovers = new Dictionary<
+        string,
+        string
+    >(StringComparer.Ordinal)
     {
-        "NOP" => "**NOP** — No operation (1 byte, 4 cycles)",
-        "LD" => "**LD** — Load (copy) value between registers/memory",
-        "LDH" => "**LDH** — Load to/from high RAM ($FF00+n)",
-        "LDI" => "**LDI** — Load and increment HL (LD [HL+], A / LD A, [HL+])",
-        "LDD" => "**LDD** — Load and decrement HL (LD [HL-], A / LD A, [HL-])",
-        "ADD" => "**ADD** — Add to accumulator or HL/SP",
-        "ADC" => "**ADC** — Add with carry",
-        "SUB" => "**SUB** — Subtract from accumulator",
-        "SBC" => "**SBC** — Subtract with carry",
-        "AND" => "**AND** — Bitwise AND with accumulator",
-        "OR" => "**OR** — Bitwise OR with accumulator",
-        "XOR" => "**XOR** — Bitwise XOR with accumulator",
-        "CP" => "**CP** — Compare with accumulator (subtract without storing result)",
-        "INC" => "**INC** — Increment register or memory",
-        "DEC" => "**DEC** — Decrement register or memory",
-        "PUSH" => "**PUSH** — Push register pair onto stack",
-        "POP" => "**POP** — Pop register pair from stack",
-        "JP" => "**JP** — Jump to address",
-        "JR" => "**JR** — Jump relative (-128 to +127)",
-        "CALL" => "**CALL** — Call subroutine (push PC, jump)",
-        "RET" => "**RET** — Return from subroutine",
-        "RETI" => "**RETI** — Return and enable interrupts",
-        "RST" => "**RST** — Restart (fast call to fixed address)",
-        "HALT" => "**HALT** — Halt CPU until interrupt",
-        "STOP" => "**STOP** — Stop CPU and LCD",
-        "DI" => "**DI** — Disable interrupts",
-        "EI" => "**EI** — Enable interrupts",
-        "DAA" => "**DAA** — Decimal adjust accumulator (BCD)",
-        "CPL" => "**CPL** — Complement accumulator (flip all bits)",
-        "CCF" => "**CCF** — Complement carry flag",
-        "SCF" => "**SCF** — Set carry flag",
-        "RLCA" => "**RLCA** — Rotate A left circular",
-        "RLA" => "**RLA** — Rotate A left through carry",
-        "RRCA" => "**RRCA** — Rotate A right circular",
-        "RRA" => "**RRA** — Rotate A right through carry",
-        "RLC" => "**RLC** — Rotate left circular",
-        "RL" => "**RL** — Rotate left through carry",
-        "RRC" => "**RRC** — Rotate right circular",
-        "RR" => "**RR** — Rotate right through carry",
-        "SLA" => "**SLA** — Shift left arithmetic",
-        "SRA" => "**SRA** — Shift right arithmetic (preserves sign)",
-        "SRL" => "**SRL** — Shift right logical",
-        "SWAP" => "**SWAP** — Swap upper and lower nibbles",
-        "BIT" => "**BIT** — Test bit",
-        "SET" => "**SET** — Set bit",
-        "RES" => "**RES** — Reset (clear) bit",
-        _ => null,
-    };
+        ["NOP"] = "**NOP** — No operation (1 byte, 4 cycles)",
+        ["LD"] = "**LD** — Load (copy) value between registers/memory",
+        ["LDH"] = "**LDH** — Load to/from high RAM ($FF00+n)",
+        ["LDI"] = "**LDI** — Load and increment HL (LD [HL+], A / LD A, [HL+])",
+        ["LDD"] = "**LDD** — Load and decrement HL (LD [HL-], A / LD A, [HL-])",
+        ["ADD"] = "**ADD** — Add to accumulator or HL/SP",
+        ["ADC"] = "**ADC** — Add with carry",
+        ["SUB"] = "**SUB** — Subtract from accumulator",
+        ["SBC"] = "**SBC** — Subtract with carry",
+        ["AND"] = "**AND** — Bitwise AND with accumulator",
+        ["OR"] = "**OR** — Bitwise OR with accumulator",
+        ["XOR"] = "**XOR** — Bitwise XOR with accumulator",
+        ["CP"] = "**CP** — Compare with accumulator (subtract without storing result)",
+        ["INC"] = "**INC** — Increment register or memory",
+        ["DEC"] = "**DEC** — Decrement register or memory",
+        ["PUSH"] = "**PUSH** — Push register pair onto stack",
+        ["POP"] = "**POP** — Pop register pair from stack",
+        ["JP"] = "**JP** — Jump to address",
+        ["JR"] = "**JR** — Jump relative (-128 to +127)",
+        ["CALL"] = "**CALL** — Call subroutine (push PC, jump)",
+        ["RET"] = "**RET** — Return from subroutine",
+        ["RETI"] = "**RETI** — Return and enable interrupts",
+        ["RST"] = "**RST** — Restart (fast call to fixed address)",
+        ["HALT"] = "**HALT** — Halt CPU until interrupt",
+        ["STOP"] = "**STOP** — Stop CPU and LCD",
+        ["DI"] = "**DI** — Disable interrupts",
+        ["EI"] = "**EI** — Enable interrupts",
+        ["DAA"] = "**DAA** — Decimal adjust accumulator (BCD)",
+        ["CPL"] = "**CPL** — Complement accumulator (flip all bits)",
+        ["CCF"] = "**CCF** — Complement carry flag",
+        ["SCF"] = "**SCF** — Set carry flag",
+        ["RLCA"] = "**RLCA** — Rotate A left circular",
+        ["RLA"] = "**RLA** — Rotate A left through carry",
+        ["RRCA"] = "**RRCA** — Rotate A right circular",
+        ["RRA"] = "**RRA** — Rotate A right through carry",
+        ["RLC"] = "**RLC** — Rotate left circular",
+        ["RL"] = "**RL** — Rotate left through carry",
+        ["RRC"] = "**RRC** — Rotate right circular",
+        ["RR"] = "**RR** — Rotate right through carry",
+        ["SLA"] = "**SLA** — Shift left arithmetic",
+        ["SRA"] = "**SRA** — Shift right arithmetic (preserves sign)",
+        ["SRL"] = "**SRL** — Shift right logical",
+        ["SWAP"] = "**SWAP** — Swap upper and lower nibbles",
+        ["BIT"] = "**BIT** — Test bit",
+        ["SET"] = "**SET** — Set bit",
+        ["RES"] = "**RES** — Reset (clear) bit",
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    private static string? GetInstructionHover(string mnemonic) =>
+        InstructionHovers.GetValueOrDefault(mnemonic);
 
     private static bool IsInstructionKeyword(SyntaxKind kind) =>
         kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.LdhKeyword;
 
     // =========================================================================
-    // Go-to-definition (recursive tree walk)
+    // Go-to-definition
     // =========================================================================
 
     [JsonRpcMethod("textDocument/definition")]
     public Location? Definition(JToken arg)
     {
         var p = arg.ToObject<TextDocumentPositionParams>()!;
-        var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
-        if (doc == null) return null;
+        var path = ToFilePath(p.TextDocument.Uri);
+        var doc = _workspace.GetDocument(path);
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
         var offset = PositionUtilities.ToOffset(source, p.Position);
         var token = tree.Root.FindToken(offset);
-        if (token == null || token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
+        if (token?.Kind is not (SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken))
             return null;
 
-        bool isLocalLabel = token.Kind == SyntaxKind.LocalLabelToken;
-
-        if (isLocalLabel)
+        if (token.Kind == SyntaxKind.LocalLabelToken)
         {
-            // Local labels are file-scoped — only search current document
-            string? scopeName = FindEnclosingGlobalLabel(tree.Root, offset);
-            return FindDefinition(tree.Root, token.Text, ToFilePath(p.TextDocument.Uri),
-                source, true, scopeName);
+            var scope = FindEnclosingGlobalLabel(tree.Root, offset);
+            return FindDefinition(tree.Root, token.Text, path, source, isLocalLabel: true, scope);
+        }
+
+        var model = _workspace.GetSemanticModel(path);
+        if (model != null)
+        {
+            var symbol = model.ResolveSymbol(token.Text, offset);
+            if (symbol?.DefinitionSite != null && symbol.DefinitionFilePath != null)
+            {
+                var defText =
+                    _workspace.GetDocument(symbol.DefinitionFilePath) is { } defDoc ? defDoc.Text
+                    : File.Exists(symbol.DefinitionFilePath)
+                        ? SourceText.From(
+                            File.ReadAllText(symbol.DefinitionFilePath),
+                            symbol.DefinitionFilePath
+                        )
+                    : null;
+
+                if (defText != null)
+                    return new Location
+                    {
+                        Uri = ToUri(symbol.DefinitionFilePath),
+                        Range = PositionUtilities.ToLspRange(
+                            defText,
+                            symbol.DefinitionSite.FullSpan
+                        ),
+                    };
+            }
         }
 
         foreach (var uri in _workspace.OpenDocumentUris)
         {
             var otherDoc = _workspace.GetDocument(uri);
-            if (otherDoc == null) continue;
+            if (otherDoc == null)
+                continue;
             var (otherSource, otherTree) = otherDoc.Value;
-
             var result = FindDefinition(otherTree.Root, token.Text, uri, otherSource);
-            if (result != null) return result;
+            if (result != null)
+                return result;
         }
 
         return null;
     }
 
-    private static Location? FindDefinition(SyntaxNode node, string name, string uri,
-        SourceText source, bool isLocalLabel = false, string? requiredScope = null)
+    private static Location? FindDefinition(
+        SyntaxNode root,
+        string name,
+        string uri,
+        SourceText source,
+        bool isLocalLabel = false,
+        string? requiredScope = null
+    )
     {
-        string? currentScope = null;
-        return FindDefinitionWalk(node, name, uri, source, isLocalLabel, requiredScope, ref currentScope);
-    }
-
-    private static Location? FindDefinitionWalk(SyntaxNode node, string name, string uri,
-        SourceText source, bool isLocalLabel, string? requiredScope, ref string? currentScope)
-    {
-        foreach (var child in node.ChildNodesAndTokens())
-        {
-            if (!child.IsNode) continue;
-            var childNode = child.AsNode!;
-
-            if (childNode.Kind == SyntaxKind.LabelDeclaration)
-            {
-                var labelToken = childNode.ChildTokens().FirstOrDefault();
-                if (labelToken != null)
-                {
-                    // Track global label scope
-                    if (labelToken.Kind == SyntaxKind.IdentifierToken)
-                        currentScope = labelToken.Text;
-
-                    if (labelToken.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        // For local labels, match only LocalLabelTokens in the same scope
-                        if (isLocalLabel)
-                        {
-                            if (labelToken.Kind != SyntaxKind.LocalLabelToken) continue;
-                            if (!string.Equals(currentScope, requiredScope, StringComparison.OrdinalIgnoreCase))
-                                continue;
-                        }
-
-                        return new Location
-                        {
-                            Uri = new Uri(uri),
-                            Range = PositionUtilities.ToLspRange(source, childNode.Span),
-                        };
-                    }
-                }
-            }
-            else if (childNode.Kind == SyntaxKind.SymbolDirective)
-            {
-                var nameToken = childNode.ChildTokens().FirstOrDefault();
-                if (nameToken != null &&
-                    nameToken.Kind == SyntaxKind.IdentifierToken &&
-                    nameToken.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return new Location
-                    {
-                        Uri = new Uri(uri),
-                        Range = PositionUtilities.ToLspRange(source, childNode.Span),
-                    };
-                }
-            }
-
-            var found = FindDefinitionWalk(childNode, name, uri, source, isLocalLabel, requiredScope, ref currentScope);
-            if (found != null) return found;
-        }
-
-        return null;
+        var finder = new DefinitionFinder(name, uri, source, isLocalLabel, requiredScope);
+        WalkTokensWithScope(root, ref finder);
+        return finder.Result;
     }
 
     // =========================================================================
-    // Find references (recursive tree walk)
+    // Find references
     // =========================================================================
 
     [JsonRpcMethod("textDocument/references")]
@@ -450,128 +567,90 @@ public sealed class KohLanguageServer
     {
         var p = arg.ToObject<ReferenceParams>()!;
         var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
-        if (doc == null) return [];
+        if (doc == null)
+            return [];
 
         var (source, tree) = doc.Value;
         var offset = PositionUtilities.ToOffset(source, p.Position);
         var token = tree.Root.FindToken(offset);
-        if (token == null || token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
+        if (token?.Kind is not (SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken))
             return [];
 
         bool includeDeclaration = p.Context?.IncludeDeclaration ?? false;
         bool isLocalLabel = token.Kind == SyntaxKind.LocalLabelToken;
-
-        string? scopeName = isLocalLabel
-            ? FindEnclosingGlobalLabel(tree.Root, offset)
-            : null;
+        string? scopeName = isLocalLabel ? FindEnclosingGlobalLabel(tree.Root, offset) : null;
 
         var locations = new List<Location>();
 
         if (isLocalLabel)
         {
-            // Local labels are file-scoped — only search the current document
-            FindReferences(tree.Root, token.Text, new Uri(ToFilePath(p.TextDocument.Uri)),
-                source, locations, includeDeclaration, true, scopeName);
+            FindReferences(
+                tree.Root,
+                token.Text,
+                new Uri(ToFilePath(p.TextDocument.Uri)),
+                source,
+                locations,
+                includeDeclaration,
+                isLocalLabel: true,
+                scopeName
+            );
         }
         else
         {
             foreach (var uri in _workspace.OpenDocumentUris)
             {
                 var otherDoc = _workspace.GetDocument(uri);
-                if (otherDoc == null) continue;
+                if (otherDoc == null)
+                    continue;
                 var (otherSource, otherTree) = otherDoc.Value;
-
-                FindReferences(otherTree.Root, token.Text, new Uri(uri), otherSource, locations,
-                    includeDeclaration, false, null);
+                FindReferences(
+                    otherTree.Root,
+                    token.Text,
+                    new Uri(uri),
+                    otherSource,
+                    locations,
+                    includeDeclaration,
+                    isLocalLabel: false,
+                    requiredScope: null
+                );
             }
         }
 
-        return locations.ToArray();
+        return [.. locations];
     }
 
-    /// <summary>
-    /// Find the name of the most recent global label before the given position.
-    /// Local labels in RGBDS are scoped to the preceding global label.
-    /// </summary>
     private static string? FindEnclosingGlobalLabel(SyntaxNode root, int position)
     {
-        string? lastGlobal = null;
-        foreach (var child in root.ChildNodesAndTokens())
-        {
-            if (!child.IsNode) continue;
-            var node = child.AsNode!;
-            if (node.Position > position) break;
-
-            if (node.Kind == SyntaxKind.LabelDeclaration)
-            {
-                var nameToken = node.ChildTokens().FirstOrDefault();
-                if (nameToken != null && nameToken.Kind == SyntaxKind.IdentifierToken)
-                    lastGlobal = nameToken.Text;
-            }
-        }
-        return lastGlobal;
+        var finder = new GlobalLabelFinder(position);
+        WalkTokensWithScope(root, ref finder);
+        return finder.LastGlobal;
     }
 
-    private static void FindReferences(SyntaxNode root, string name, Uri documentUri,
-        SourceText source, List<Location> results, bool includeDeclaration,
-        bool isLocalLabel, string? requiredScope)
+    private static void FindReferences(
+        SyntaxNode root,
+        string name,
+        Uri documentUri,
+        SourceText source,
+        List<Location> results,
+        bool includeDeclaration,
+        bool isLocalLabel,
+        string? requiredScope
+    )
     {
-        // For local labels, track the current global label scope as we walk
-        string? currentScope = null;
-        FindReferencesWalk(root, name, documentUri, source, results,
-            includeDeclaration, isLocalLabel, requiredScope, ref currentScope);
-    }
-
-    private static void FindReferencesWalk(SyntaxNode node, string name, Uri documentUri,
-        SourceText source, List<Location> results, bool includeDeclaration,
-        bool isLocalLabel, string? requiredScope, ref string? currentScope)
-    {
-        foreach (var child in node.ChildNodesAndTokens())
-        {
-            if (child.IsNode)
-            {
-                var childNode = child.AsNode!;
-                // Track global label scope changes at top level
-                if (childNode.Kind == SyntaxKind.LabelDeclaration)
-                {
-                    var labelToken = childNode.ChildTokens().FirstOrDefault();
-                    if (labelToken != null && labelToken.Kind == SyntaxKind.IdentifierToken)
-                        currentScope = labelToken.Text;
-                }
-
-                FindReferencesWalk(childNode, name, documentUri, source, results,
-                    includeDeclaration, isLocalLabel, requiredScope, ref currentScope);
-                continue;
-            }
-
-            if (!child.IsToken) continue;
-            var token = child.AsToken!;
-
-            if ((token.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken) &&
-                token.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
-            {
-                // For local labels, only match LocalLabelTokens in the same scope
-                if (isLocalLabel)
-                {
-                    if (token.Kind != SyntaxKind.LocalLabelToken) continue;
-                    if (!string.Equals(currentScope, requiredScope, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                }
-
-                bool isDecl = token.Parent?.Kind is SyntaxKind.LabelDeclaration or SyntaxKind.SymbolDirective;
-                if (isDecl && !includeDeclaration) continue;
-
-                results.Add(new Location
-                {
-                    Uri = documentUri,
-                    Range = PositionUtilities.ToLspRange(source, token.Span),
-                });
-            }
-        }
+        var finder = new ReferenceFinder(
+            name,
+            documentUri,
+            source,
+            results,
+            includeDeclaration,
+            isLocalLabel,
+            requiredScope
+        );
+        WalkTokensWithScope(root, ref finder);
     }
 
     // =========================================================================
-    // Document symbols (recursive tree walk)
+    // Document symbols
     // =========================================================================
 
     [JsonRpcMethod("textDocument/documentSymbol")]
@@ -579,19 +658,25 @@ public sealed class KohLanguageServer
     {
         var p = arg.ToObject<DocumentSymbolParams>()!;
         var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
         var symbols = new List<DocumentSymbol>();
         CollectSymbols(tree.Root, source, symbols);
-        return symbols.ToArray();
+        return [.. symbols];
     }
 
-    private static void CollectSymbols(SyntaxNode node, SourceText source, List<DocumentSymbol> symbols)
+    private static void CollectSymbols(
+        SyntaxNode node,
+        SourceText source,
+        List<DocumentSymbol> symbols
+    )
     {
         foreach (var child in node.ChildNodesAndTokens())
         {
-            if (!child.IsNode) continue;
+            if (!child.IsNode)
+                continue;
             var childNode = child.AsNode!;
 
             switch (childNode.Kind)
@@ -600,53 +685,68 @@ public sealed class KohLanguageServer
                 {
                     var nameToken = childNode.ChildTokens().FirstOrDefault();
                     if (nameToken != null)
-                    {
-                        symbols.Add(new DocumentSymbol
-                        {
-                            Name = nameToken.Text,
-                            Kind = SymbolKind.Function,
-                            Range = PositionUtilities.ToLspRange(source, childNode.Span),
-                            SelectionRange = PositionUtilities.ToLspRange(source, nameToken.Span),
-                        });
-                    }
+                        symbols.Add(
+                            new DocumentSymbol
+                            {
+                                Name = nameToken.Text,
+                                Kind = SymbolKind.Function,
+                                Range = PositionUtilities.ToLspRange(source, childNode.Span),
+                                SelectionRange = PositionUtilities.ToLspRange(
+                                    source,
+                                    nameToken.Span
+                                ),
+                            }
+                        );
                     break;
                 }
                 case SyntaxKind.SymbolDirective:
                 {
-                    var tokens = childNode.ChildTokens().ToList();
-                    if (tokens.Count >= 2 && tokens[0].Kind == SyntaxKind.IdentifierToken &&
-                        tokens[1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword)
-                    {
-                        symbols.Add(new DocumentSymbol
+                    using var e = childNode.ChildTokens().GetEnumerator();
+                    if (!e.MoveNext())
+                        break;
+                    var nameToken = e.Current;
+                    if (nameToken.Kind != SyntaxKind.IdentifierToken)
+                        break;
+                    if (!e.MoveNext())
+                        break;
+                    if (e.Current.Kind is not (SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword))
+                        break;
+                    symbols.Add(
+                        new DocumentSymbol
                         {
-                            Name = tokens[0].Text,
+                            Name = nameToken.Text,
                             Kind = SymbolKind.Constant,
                             Range = PositionUtilities.ToLspRange(source, childNode.Span),
-                            SelectionRange = PositionUtilities.ToLspRange(source, tokens[0].Span),
-                        });
-                    }
+                            SelectionRange = PositionUtilities.ToLspRange(source, nameToken.Span),
+                        }
+                    );
                     break;
                 }
                 case SyntaxKind.SectionDirective:
                 {
-                    var strToken = childNode.ChildTokens()
+                    var strToken = childNode
+                        .ChildTokens()
                         .FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
                     if (strToken != null)
                     {
-                        var sectionName = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
-                        symbols.Add(new DocumentSymbol
-                        {
-                            Name = sectionName,
-                            Kind = SymbolKind.Module,
-                            Range = PositionUtilities.ToLspRange(source, childNode.Span),
-                            SelectionRange = PositionUtilities.ToLspRange(source, strToken.Span),
-                        });
+                        var name = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
+                        symbols.Add(
+                            new DocumentSymbol
+                            {
+                                Name = name,
+                                Kind = SymbolKind.Module,
+                                Range = PositionUtilities.ToLspRange(source, childNode.Span),
+                                SelectionRange = PositionUtilities.ToLspRange(
+                                    source,
+                                    strToken.Span
+                                ),
+                            }
+                        );
                     }
                     break;
                 }
             }
 
-            // Recurse into child nodes
             CollectSymbols(childNode, source, symbols);
         }
     }
@@ -659,63 +759,167 @@ public sealed class KohLanguageServer
 
     private static CompletionItem[] BuildStaticCompletions()
     {
-        var items = new List<CompletionItem>();
+        string[] mnemonics =
+        [
+            "nop",
+            "ld",
+            "ldh",
+            "ldi",
+            "ldd",
+            "add",
+            "adc",
+            "sub",
+            "sbc",
+            "and",
+            "or",
+            "xor",
+            "cp",
+            "inc",
+            "dec",
+            "push",
+            "pop",
+            "jp",
+            "jr",
+            "call",
+            "ret",
+            "reti",
+            "rst",
+            "halt",
+            "stop",
+            "di",
+            "ei",
+            "daa",
+            "cpl",
+            "ccf",
+            "scf",
+            "rlca",
+            "rla",
+            "rrca",
+            "rra",
+            "rlc",
+            "rl",
+            "rrc",
+            "rr",
+            "sla",
+            "sra",
+            "srl",
+            "swap",
+            "bit",
+            "set",
+            "res",
+        ];
+        string[] directives =
+        [
+            "SECTION",
+            "DB",
+            "DW",
+            "DL",
+            "DS",
+            "EQU",
+            "EQUS",
+            "DEF",
+            "REDEF",
+            "MACRO",
+            "ENDM",
+            "IF",
+            "ELIF",
+            "ELSE",
+            "ENDC",
+            "REPT",
+            "FOR",
+            "ENDR",
+            "INCLUDE",
+            "INCBIN",
+            "EXPORT",
+            "PURGE",
+            "OPT",
+            "CHARMAP",
+            "NEWCHARMAP",
+            "SETCHARMAP",
+            "PUSHC",
+            "POPC",
+            "ASSERT",
+            "STATIC_ASSERT",
+            "WARN",
+            "FAIL",
+            "PRINT",
+            "PRINTLN",
+            "PUSHS",
+            "POPS",
+            "PUSHO",
+            "POPO",
+            "RSRESET",
+            "RSSET",
+            "RB",
+            "RW",
+            "RL",
+            "ALIGN",
+            "UNION",
+            "NEXTU",
+            "ENDU",
+            "LOAD",
+            "ENDL",
+        ];
+        string[] registers = ["a", "b", "c", "d", "e", "h", "l", "af", "bc", "de", "hl", "sp"];
 
-        var mnemonics = new[]
-        {
-            "nop", "ld", "ldh", "ldi", "ldd", "add", "adc", "sub", "sbc", "and", "or", "xor", "cp",
-            "inc", "dec", "push", "pop", "jp", "jr", "call", "ret", "reti", "rst",
-            "halt", "stop", "di", "ei", "daa", "cpl", "ccf", "scf",
-            "rlca", "rla", "rrca", "rra", "rlc", "rl", "rrc", "rr",
-            "sla", "sra", "srl", "swap", "bit", "set", "res",
-        };
+        var items = new List<CompletionItem>(
+            mnemonics.Length + directives.Length + registers.Length
+        );
         foreach (var m in mnemonics)
-            items.Add(new CompletionItem { Label = m, Kind = CompletionItemKind.Keyword, Detail = "SM83 instruction" });
-
-        var directives = new[]
-        {
-            "SECTION", "DB", "DW", "DL", "DS", "EQU", "EQUS", "DEF", "REDEF", "MACRO", "ENDM",
-            "IF", "ELIF", "ELSE", "ENDC", "REPT", "FOR", "ENDR",
-            "INCLUDE", "INCBIN", "EXPORT", "PURGE", "OPT",
-            "CHARMAP", "NEWCHARMAP", "SETCHARMAP", "PUSHC", "POPC",
-            "ASSERT", "STATIC_ASSERT", "WARN", "FAIL", "PRINT", "PRINTLN",
-            "PUSHS", "POPS", "PUSHO", "POPO", "RSRESET", "RSSET", "RB", "RW", "RL", "ALIGN",
-            "UNION", "NEXTU", "ENDU", "LOAD", "ENDL",
-        };
+            items.Add(
+                new CompletionItem
+                {
+                    Label = m,
+                    Kind = CompletionItemKind.Keyword,
+                    Detail = "SM83 instruction",
+                }
+            );
         foreach (var d in directives)
-            items.Add(new CompletionItem { Label = d, Kind = CompletionItemKind.Keyword, Detail = "Directive" });
-
-        var registers = new[] { "a", "b", "c", "d", "e", "h", "l", "af", "bc", "de", "hl", "sp" };
+            items.Add(
+                new CompletionItem
+                {
+                    Label = d,
+                    Kind = CompletionItemKind.Keyword,
+                    Detail = "Directive",
+                }
+            );
         foreach (var r in registers)
-            items.Add(new CompletionItem { Label = r, Kind = CompletionItemKind.Variable, Detail = "Register" });
+            items.Add(
+                new CompletionItem
+                {
+                    Label = r,
+                    Kind = CompletionItemKind.Variable,
+                    Detail = "Register",
+                }
+            );
 
-        return items.ToArray();
+        return [.. items];
     }
 
     [JsonRpcMethod("textDocument/completion")]
     public CompletionItem[]? Completion(JToken arg)
     {
         var p = arg.ToObject<CompletionParams>()!;
-        var path = ToFilePath(p.TextDocument.Uri);
-        var items = new List<CompletionItem>(StaticCompletionItems);
+        var model = _workspace.GetModel(ToFilePath(p.TextDocument.Uri));
+        if (model == null)
+            return StaticCompletionItems;
 
-        var model = _workspace.GetModel(path);
-        if (model != null)
-        {
-            foreach (var sym in model.Symbols)
+        var dynamic = model
+            .Symbols.Select(sym => new CompletionItem
             {
-                items.Add(new CompletionItem
-                {
-                    Label = sym.Name,
-                    Kind = sym.Kind == Core.Symbols.SymbolKind.Constant
+                Label = sym.Name,
+                Kind =
+                    sym.Kind == Core.Symbols.SymbolKind.Constant
                         ? CompletionItemKind.Constant
                         : CompletionItemKind.Function,
-                    Detail = $"{sym.Kind}: ${sym.Value:X4}",
-                });
-            }
-        }
+                Detail = $"{sym.Kind}: ${sym.Value:X4}",
+            })
+            .ToArray();
 
-        return items.ToArray();
+        var result = new CompletionItem[StaticCompletionItems.Length + dynamic.Length];
+        StaticCompletionItems.CopyTo(result, 0);
+        dynamic.CopyTo(result, StaticCompletionItems.Length);
+        return result;
     }
 
     // =========================================================================
@@ -726,14 +930,10 @@ public sealed class KohLanguageServer
     public SemanticTokens? SemanticTokensFull(JToken arg)
     {
         var p = arg.ToObject<SemanticTokensParams>()!;
-        var path = ToFilePath(p.TextDocument.Uri);
-        var doc = _workspace.GetDocument(path);
-        if (doc == null) return null;
-
-        var (_, tree) = doc.Value;
-        var data = SemanticTokenEncoder.Encode(tree);
-
-        return new SemanticTokens { Data = data };
+        var doc = _workspace.GetDocument(ToFilePath(p.TextDocument.Uri));
+        if (doc == null)
+            return null;
+        return new SemanticTokens { Data = SemanticTokenEncoder.Encode(doc.Value.Item2) };
     }
 
     // =========================================================================
@@ -743,94 +943,111 @@ public sealed class KohLanguageServer
     [JsonRpcMethod("textDocument/inlayHint")]
     public JToken? InlayHint(JToken arg)
     {
-        var uri = new Uri(arg["textDocument"]!["uri"]!.ToString());
-        var path = ToFilePath(uri);
+        var path = ToFilePath(new Uri(arg["textDocument"]!["uri"]!.ToString()));
         var doc = _workspace.GetDocument(path);
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
         var model = _workspace.GetSemanticModel(path);
-        if (model == null) return null;
+        if (model == null)
+            return null;
 
-        // Parse the requested range
-        var startLine = (int)arg["range"]!["start"]!["line"]!;
-        var startChar = (int)arg["range"]!["start"]!["character"]!;
-        var endLine = (int)arg["range"]!["end"]!["line"]!;
-        var endChar = (int)arg["range"]!["end"]!["character"]!;
-
-        var startOffset = PositionUtilities.ToOffset(source, new Position(startLine, startChar));
-        var endOffset = PositionUtilities.ToOffset(source, new Position(endLine, endChar));
+        var startOffset = PositionUtilities.ToOffset(
+            source,
+            new Position(
+                (int)arg["range"]!["start"]!["line"]!,
+                (int)arg["range"]!["start"]!["character"]!
+            )
+        );
+        var endOffset = PositionUtilities.ToOffset(
+            source,
+            new Position(
+                (int)arg["range"]!["end"]!["line"]!,
+                (int)arg["range"]!["end"]!["character"]!
+            )
+        );
 
         var hints = new List<JObject>();
         var seen = new HashSet<int>();
-
         CollectInlayHints(tree.Root, source, model, startOffset, endOffset, hints, seen);
 
         return hints.Count > 0 ? JToken.FromObject(hints) : new JArray();
     }
 
-    private static void CollectInlayHints(SyntaxNode node, SourceText source,
-        Core.SemanticModel model, int startOffset, int endOffset,
-        List<JObject> hints, HashSet<int> seen)
+    private static void CollectInlayHints(
+        SyntaxNode node,
+        SourceText source,
+        Core.SemanticModel model,
+        int startOffset,
+        int endOffset,
+        List<JObject> hints,
+        HashSet<int> seen
+    )
     {
         foreach (var child in node.ChildNodesAndTokens())
         {
             if (child.IsNode)
             {
-                var childNode = child.AsNode!;
-                // Skip if entirely outside range
-                if (childNode.Position + childNode.FullSpan.Length < startOffset) continue;
-                if (childNode.Position > endOffset) break;
-
-                CollectInlayHints(childNode, source, model, startOffset, endOffset, hints, seen);
+                var n = child.AsNode!;
+                if (n.Position + n.FullSpan.Length < startOffset)
+                    continue;
+                if (n.Position > endOffset)
+                    break;
+                CollectInlayHints(n, source, model, startOffset, endOffset, hints, seen);
                 continue;
             }
 
-            if (!child.IsToken) continue;
+            if (!child.IsToken)
+                continue;
             var token = child.AsToken!;
 
-            // Only identifier/local label tokens
-            if (token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
+            if (token.Kind is not (SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken))
                 continue;
-
-            // Must be within range
             if (token.Span.Start < startOffset || token.Span.Start > endOffset)
                 continue;
 
-            // Must be in a reference context, not a declaration
             var parent = token.Parent;
-            if (parent == null) continue;
-            if (parent.Kind is SyntaxKind.LabelDeclaration or SyntaxKind.SymbolDirective or SyntaxKind.MacroDefinition)
+            if (parent is null)
                 continue;
-            if (parent.Kind is not SyntaxKind.NameExpression and not SyntaxKind.LabelOperand)
+            if (
+                parent.Kind
+                is SyntaxKind.LabelDeclaration
+                    or SyntaxKind.SymbolDirective
+                    or SyntaxKind.MacroDefinition
+            )
+                continue;
+            if (parent.Kind is not (SyntaxKind.NameExpression or SyntaxKind.LabelOperand))
                 continue;
 
-            // Resolve semantically
             var symbol = model.ResolveSymbol(token.Text, token.Span.Start);
-            if (symbol == null) continue;
-
-            // Only Label and Constant get hints — not StringConstant, not Macro
-            if (symbol.Kind is not Core.Symbols.SymbolKind.Label and not Core.Symbols.SymbolKind.Constant)
+            if (symbol is null)
+                continue;
+            if (
+                symbol.Kind
+                is not (Core.Symbols.SymbolKind.Label or Core.Symbols.SymbolKind.Constant)
+            )
+                continue;
+            if (!seen.Add(token.Span.Start))
                 continue;
 
-            // Dedupe by position
-            if (!seen.Add(token.Span.Start)) continue;
-
-            // Build hint
             var pos = PositionUtilities.ToLspPosition(source, token.Span.Start + token.Span.Length);
-            string valueText;
-            if (symbol.Kind == Core.Symbols.SymbolKind.Label)
-                valueText = $"${symbol.Value:X4}";
-            else
-                valueText = $"${symbol.Value:X4} ({symbol.Value})";
+            var valueText =
+                symbol.Kind == Core.Symbols.SymbolKind.Label
+                    ? $"${symbol.Value:X4}"
+                    : $"${symbol.Value:X4} ({symbol.Value})";
 
-            hints.Add(new JObject
-            {
-                ["position"] = JToken.FromObject(new { line = pos.Line, character = pos.Character }),
-                ["label"] = $" = {valueText}",
-                ["kind"] = 1, // Type hint
-                ["paddingLeft"] = true,
-            });
+            hints.Add(
+                new JObject
+                {
+                    ["position"] = JToken.FromObject(
+                        new { line = pos.Line, character = pos.Character }
+                    ),
+                    ["label"] = $" = {valueText}",
+                    ["kind"] = 1,
+                    ["paddingLeft"] = true,
+                }
+            );
         }
     }
 
@@ -844,44 +1061,40 @@ public sealed class KohLanguageServer
         var p = arg.ToObject<TextDocumentPositionParams>()!;
         var path = ToFilePath(p.TextDocument.Uri);
         var doc = _workspace.GetDocument(path);
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
         var offset = PositionUtilities.ToOffset(source, p.Position);
 
-        // Find enclosing MacroCall node
         var token = tree.Root.FindToken(offset);
-        if (token == null) return null;
+        if (token == null)
+            return null;
 
         var macroCall = FindEnclosingMacroCall(token);
-        if (macroCall == null) return null;
+        if (macroCall == null)
+            return null;
 
-        // Resolve macro symbol
         var macroNameToken = macroCall.ChildTokens().FirstOrDefault();
-        if (macroNameToken == null || macroNameToken.Kind != SyntaxKind.IdentifierToken)
+        if (macroNameToken?.Kind != SyntaxKind.IdentifierToken)
             return null;
 
-        var model = _workspace.GetSemanticModel(path);
-        if (model == null) return null;
-
-        var symbol = model.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
-        if (symbol == null || symbol.Kind != Core.Symbols.SymbolKind.Macro)
+        var symbol = _workspace
+            .GetSemanticModel(path)
+            ?.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
+        if (symbol?.Kind != Core.Symbols.SymbolKind.Macro)
             return null;
 
-        // Determine arity from macro definition body
         int arity = GetMacroArity(symbol, tree);
-        if (arity < 0) return null;
+        if (arity < 0)
+            return null;
 
-        // Compute active parameter by counting commas before cursor
-        int activeParam = ComputeActiveParameter(macroCall, offset);
-
-        // Build parameter list \1..\N
-        var parameters = new JArray();
-        for (int i = 1; i <= arity; i++)
-            parameters.Add(new JObject
-            {
-                ["label"] = $"\\{i}",
-            });
+        int activeParam = Math.Min(
+            ComputeActiveParameter(macroCall, offset),
+            Math.Max(0, arity - 1)
+        );
+        var paramLabels = Enumerable.Range(1, arity).Select(i => $"\\{i}").ToArray();
+        var parameters = new JArray(paramLabels.Select(l => new JObject { ["label"] = l }));
 
         return new JObject
         {
@@ -889,20 +1102,20 @@ public sealed class KohLanguageServer
             {
                 new JObject
                 {
-                    ["label"] = $"{macroNameToken.Text}({string.Join(", ", Enumerable.Range(1, arity).Select(i => $"\\{i}"))})",
+                    ["label"] = $"{macroNameToken.Text}({string.Join(", ", paramLabels)})",
                     ["parameters"] = parameters,
-                    ["activeParameter"] = Math.Min(activeParam, Math.Max(0, arity - 1)),
+                    ["activeParameter"] = activeParam,
                 },
             },
             ["activeSignature"] = 0,
-            ["activeParameter"] = Math.Min(activeParam, Math.Max(0, arity - 1)),
+            ["activeParameter"] = activeParam,
         };
     }
 
     private static SyntaxNode? FindEnclosingMacroCall(SyntaxToken token)
     {
         var node = token.Parent;
-        while (node != null)
+        while (node is not null)
         {
             if (node.Kind == SyntaxKind.MacroCall)
                 return node;
@@ -911,54 +1124,39 @@ public sealed class KohLanguageServer
         return null;
     }
 
-    /// <summary>
-    /// Determine macro arity by scanning the definition body for \1..\9 references.
-    /// Returns the highest parameter index found, or 0 if no parameters are used.
-    /// </summary>
     private static int GetMacroArity(Core.Symbols.Symbol macroSymbol, SyntaxTree tree)
     {
         var definitionNode = macroSymbol.DefinitionSite;
-        if (definitionNode == null) return 0;
+        if (definitionNode == null)
+            return 0;
 
-        // The DefinitionSite may be the MacroDefinition (MACRO keyword) node.
-        // The macro body nodes are siblings between this node and the closing
-        // MacroDefinition (ENDM keyword) node in the parent CompilationUnit.
-        SyntaxNode? macroStart = null;
-        if (definitionNode.Kind == SyntaxKind.MacroDefinition)
-            macroStart = definitionNode;
-        else if (definitionNode.Kind == SyntaxKind.LabelDeclaration)
-        {
-            // Find the MacroDefinition sibling after the label
-            macroStart = FindNextSiblingOfKind(definitionNode, SyntaxKind.MacroDefinition);
-        }
+        var macroStart =
+            definitionNode.Kind == SyntaxKind.MacroDefinition
+                ? definitionNode
+                : FindNextSiblingOfKind(definitionNode, SyntaxKind.MacroDefinition);
 
-        if (macroStart == null) return 0;
+        if (macroStart?.Parent is not { } parent)
+            return 0;
 
-        // Scan all sibling nodes between MACRO and ENDM for parameter references.
-        // Red tree nodes are created on-the-fly during iteration, so compare by position.
         int maxParam = 0;
-        var parent = macroStart.Parent;
-        if (parent == null) return 0;
-
         bool inBody = false;
+
         foreach (var child in parent.ChildNodesAndTokens())
         {
-            if (!child.IsNode) continue;
-            var childNode = child.AsNode!;
+            if (!child.IsNode)
+                continue;
+            var n = child.AsNode!;
 
-            if (childNode.Kind == SyntaxKind.MacroDefinition && childNode.Position == macroStart.Position)
+            if (!inBody)
             {
-                inBody = true;
+                if (n.Kind == SyntaxKind.MacroDefinition && n.Position == macroStart.Position)
+                    inBody = true;
                 continue;
             }
-            if (inBody)
-            {
-                // Stop at the closing ENDM (another MacroDefinition)
-                if (childNode.Kind == SyntaxKind.MacroDefinition)
-                    break;
 
-                ScanMacroParams(childNode, ref maxParam);
-            }
+            if (n.Kind == SyntaxKind.MacroDefinition)
+                break;
+            ScanMacroParams(n, ref maxParam);
         }
 
         return maxParam;
@@ -966,18 +1164,23 @@ public sealed class KohLanguageServer
 
     private static SyntaxNode? FindNextSiblingOfKind(SyntaxNode node, SyntaxKind kind)
     {
-        var parent = node.Parent;
-        if (parent == null) return null;
+        if (node.Parent is not { } parent)
+            return null;
 
-        bool foundNode = false;
+        bool found = false;
         foreach (var child in parent.ChildNodesAndTokens())
         {
-            if (!child.IsNode) continue;
-            // Red tree nodes are created on-the-fly; compare by position
-            if (child.AsNode!.Position == node.Position && child.AsNode!.Kind == node.Kind)
-            { foundNode = true; continue; }
-            if (foundNode && child.AsNode!.Kind == kind)
-                return child.AsNode;
+            if (!child.IsNode)
+                continue;
+            var n = child.AsNode!;
+            if (!found)
+            {
+                if (n.Position == node.Position && n.Kind == node.Kind)
+                    found = true;
+                continue;
+            }
+            if (n.Kind == kind)
+                return n;
         }
         return null;
     }
@@ -989,12 +1192,13 @@ public sealed class KohLanguageServer
             if (child.IsToken)
             {
                 var t = child.AsToken!;
-                if (t.Kind == SyntaxKind.MacroParamToken && t.Text.Length == 2 &&
-                    t.Text[0] == '\\' && t.Text[1] >= '1' && t.Text[1] <= '9')
-                {
-                    int idx = t.Text[1] - '0';
-                    if (idx > maxParam) maxParam = idx;
-                }
+                if (
+                    t.Kind == SyntaxKind.MacroParamToken
+                    && t.Text.Length == 2
+                    && t.Text[0] == '\\'
+                    && t.Text[1] is >= '1' and <= '9'
+                )
+                    maxParam = Math.Max(maxParam, t.Text[1] - '0');
             }
             else
             {
@@ -1003,10 +1207,6 @@ public sealed class KohLanguageServer
         }
     }
 
-    /// <summary>
-    /// Count commas before the cursor position in a macro call to determine the active parameter.
-    /// Handles parenthesized expressions and nested commas correctly.
-    /// </summary>
     private static int ComputeActiveParameter(SyntaxNode macroCall, int cursorOffset)
     {
         int commaCount = 0;
@@ -1017,18 +1217,19 @@ public sealed class KohLanguageServer
             if (child.IsToken)
             {
                 var t = child.AsToken!;
-                if (t.Span.Start >= cursorOffset) break;
-
-                if (t.Kind == SyntaxKind.OpenParenToken) parenDepth++;
-                else if (t.Kind == SyntaxKind.CloseParenToken) parenDepth--;
+                if (t.Span.Start >= cursorOffset)
+                    break;
+                if (t.Kind == SyntaxKind.OpenParenToken)
+                    parenDepth++;
+                else if (t.Kind == SyntaxKind.CloseParenToken)
+                    parenDepth--;
                 else if (t.Kind == SyntaxKind.CommaToken && parenDepth == 0)
                     commaCount++;
             }
             else
             {
-                var n = child.AsNode!;
-                if (n.Position >= cursorOffset) break;
-                // Don't count commas inside nested expressions
+                if (child.AsNode!.Position >= cursorOffset)
+                    break;
             }
         }
 
@@ -1045,17 +1246,17 @@ public sealed class KohLanguageServer
         var p = arg.ToObject<TextDocumentPositionParams>()!;
         var path = ToFilePath(p.TextDocument.Uri);
         var doc = _workspace.GetDocument(path);
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, _) = doc.Value;
         var offset = PositionUtilities.ToOffset(source, p.Position);
-
         var resolved = _symbolFinder.ResolveAt(_workspace, path, offset);
         Log($"[prepareRename] path={path} offset={offset} resolved={resolved != null}");
+
         if (resolved == null)
         {
-            var model = _workspace.GetSemanticModel(path);
-            Log($"[prepareRename] semanticModel={model != null}");
+            Log($"[prepareRename] semanticModel={_workspace.GetSemanticModel(path) != null}");
             return null;
         }
 
@@ -1072,52 +1273,39 @@ public sealed class KohLanguageServer
         var p = arg.ToObject<RenameParams>()!;
         var path = ToFilePath(p.TextDocument.Uri);
         var doc = _workspace.GetDocument(path);
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, _) = doc.Value;
         var offset = PositionUtilities.ToOffset(source, p.Position);
-
         var target = _symbolFinder.ResolveAt(_workspace, path, offset);
-        if (target == null) return null;
+        if (target == null)
+            return null;
 
-        // Validate
-        var error = _symbolFinder.ValidateRename(_workspace, target, p.NewName);
-        if (error != null) return null;
+        if (_symbolFinder.ValidateRename(_workspace, target, p.NewName) != null)
+            return null;
 
-        // Find all occurrences
         var occurrences = _symbolFinder.FindAllOccurrences(_workspace, target);
-        if (occurrences.Count == 0) return null;
+        if (occurrences.Count == 0)
+            return null;
 
-        // Build WorkspaceEdit grouped by URI
-        var changes = new Dictionary<string, TextEdit[]>();
-
-        foreach (var group in occurrences.GroupBy(o => o.Uri, StringComparer.OrdinalIgnoreCase))
-        {
-            var groupUri = group.Key;
-            var groupDoc = _workspace.GetDocument(groupUri);
-            if (groupDoc == null) continue;
-            var (groupSource, _) = groupDoc.Value;
-
-            // Determine the replacement text for each occurrence
-            var edits = group.Select(occ =>
-            {
-                // For local labels, the stored name is qualified (e.g. "Global.local")
-                // but the token text is just ".local". Preserve the dot prefix form.
-                string newText;
-                if (occ.Token.Kind == Core.Syntax.SyntaxKind.LocalLabelToken)
-                    newText = p.NewName; // caller provides ".newname"
-                else
-                    newText = p.NewName;
-
-                return new TextEdit
+        var changes = occurrences
+            .GroupBy(o => o.Uri, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => ToUri(g.Key).ToString(),
+                g =>
                 {
-                    Range = PositionUtilities.ToLspRange(groupSource, occ.Token.Span),
-                    NewText = newText,
-                };
-            }).ToArray();
-
-            changes[ToUri(groupUri).ToString()] = edits;
-        }
+                    if (_workspace.GetDocument(g.Key) is not { } groupDoc)
+                        return [];
+                    var (groupSource, _) = groupDoc;
+                    return g.Select(occ => new TextEdit
+                        {
+                            Range = PositionUtilities.ToLspRange(groupSource, occ.Token.Span),
+                            NewText = p.NewName,
+                        })
+                        .ToArray();
+                }
+            );
 
         return new WorkspaceEdit { Changes = changes };
     }

@@ -33,6 +33,8 @@ public sealed class Symbol
     public long Value { get; internal set; }
     public string? Section { get; internal set; }
     public SyntaxNode? DefinitionSite { get; internal set; }
+    /// <summary>File path where this symbol was defined (set during expansion).</summary>
+    public string? DefinitionFilePath { get; internal set; }
     public string? OwnerId { get; internal set; }
 
     public (string? OwnerId, string QualifiedName) SymbolId => (
@@ -54,6 +56,11 @@ public sealed class Symbol
         Value = value;
         State = SymbolState.Defined;
         DefinitionSite ??= site;
+    }
+
+    internal void SetDefinitionFilePath(string? filePath)
+    {
+        DefinitionFilePath ??= filePath;
     }
 
     internal void AddReference(SyntaxNode site) => _referenceSites.Add(site);

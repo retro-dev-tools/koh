@@ -508,12 +508,14 @@ public sealed class SymbolTable
 
             // Forward ref being resolved
             existing.Define(pc, site);
+            existing.SetDefinitionFilePath(_diagnostics.CurrentFilePath);
             existing.Section = section;
         }
         else
         {
             existing = new Symbol(key, SymbolKind.Label);
             existing.Define(pc, site);
+            existing.SetDefinitionFilePath(_diagnostics.CurrentFilePath);
             existing.Section = section;
             existing.OwnerId = context.OwnerId;
             Register(existing, key, ownerKey);
@@ -550,11 +552,13 @@ public sealed class SymbolTable
             }
 
             existing.Define(value, site);
+            existing.SetDefinitionFilePath(_diagnostics.CurrentFilePath);
             return existing;
         }
 
         var sym = new Symbol(key, SymbolKind.Constant);
         sym.Define(value, site);
+        sym.SetDefinitionFilePath(_diagnostics.CurrentFilePath);
         sym.OwnerId = context.OwnerId;
         Register(sym, key, ownerKey);
         return sym;
@@ -616,11 +620,13 @@ public sealed class SymbolTable
             }
 
             existing.Define(0, site);
+            existing.SetDefinitionFilePath(_diagnostics.CurrentFilePath);
             return existing;
         }
 
         var sym = new Symbol(key, SymbolKind.Macro);
         sym.Define(0, site);
+        sym.SetDefinitionFilePath(_diagnostics.CurrentFilePath);
         sym.OwnerId = context.OwnerId;
         _macroSymbols[ownerKey] = sym;
         return sym;
