@@ -87,6 +87,7 @@ public sealed class Binder
         var nodes = _expander.Expand(tree);
 
         // Pass 1: symbol collection and PC tracking
+        _charMaps.ResetActiveState(); // Reset charmap to replay directives in order
         var pcTracker = new SectionPCTracker();
         foreach (var en in nodes)
         {
@@ -94,10 +95,11 @@ public sealed class Binder
             Pass1Node(en, pcTracker);
         }
 
-        // Pass 2: byte emission — reset global label scope so local labels resolve correctly
+        // Pass 2: byte emission — reset state for correct replay
         _symbols.SetGlobalAnchor(null);
         _expander.GetCurrentPC = () => _sections.ActiveSection?.CurrentPC ?? 0;
         _symbols.ResetAnonymousIndex();
+        _charMaps.ResetActiveState(); // Reset charmap to replay PUSHC/SETCHARMAP/POPC in order
         // Wire up section name resolver for {SECTION(@)} in PRINTLN interpolation
         _expander.SectionNameResolver = arg =>
         {
@@ -400,7 +402,10 @@ public sealed class Binder
                 foreach (var expr in expressions)
                 {
                     if (IsStringLiteral(expr.Green))
-                        byteCount += _charMaps.EncodeString(ExtractStringText(expr.Green)).Length;
+                    {
+                        var text = ResolveAndUnescapeString(expr.Green);
+                        byteCount += _charMaps.EncodeString(text).Length;
+                    }
                     else
                         byteCount++;
                 }
@@ -415,7 +420,10 @@ public sealed class Binder
                 foreach (var expr in expressions)
                 {
                     if (IsStringLiteral(expr.Green))
-                        byteCount += _charMaps.EncodeString(ExtractStringText(expr.Green)).Length * 2;
+                    {
+                        var text = ResolveAndUnescapeString(expr.Green);
+                        byteCount += _charMaps.EncodeString(text).Length * 2;
+                    }
                     else
                         byteCount += 2;
                 }
@@ -535,6 +543,30 @@ public sealed class Binder
     private void Pass1SymbolDirective(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
+        if (tokens.Count == 0) return;
+
+        // Replay charmap directives so Pass 1 PC tracking sees correct charmap
+        // state for db string encoding (byte count depends on charmap).
+        switch (tokens[0].Kind)
+        {
+            case SyntaxKind.SetcharmapKeyword:
+                if (tokens.Count >= 2)
+                    _charMaps.SetCharMap(tokens[1].Text.Trim('"'));
+                return;
+            case SyntaxKind.PrecharmapKeyword:
+                _charMaps.PushCharMap();
+                return;
+            case SyntaxKind.PopcharmapKeyword:
+                _charMaps.PopCharMap();
+                return;
+            case SyntaxKind.NewcharmapKeyword:
+                if (tokens.Count >= 2)
+                    _charMaps.SetCharMap(tokens[1].Text.Trim('"'));
+                return;
+            case SyntaxKind.CharmapKeyword:
+                return;
+        }
+
         if (tokens.Count < 2) return;
 
         // EXPORT: promote symbol to exported namespace with validation
@@ -616,6 +648,34 @@ public sealed class Binder
     private void Pass2SymbolDirective(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
+        if (tokens.Count == 0) return;
+
+        // Replay charmap directives in Pass 2 so that db string encoding sees
+        // the correct charmap state. The expander processes these in Pass 0, but
+        // when string interpolation is deferred to Pass 2 (for correct EQUS
+        // ordering), the charmap must also be in sync during Pass 2 emission.
+        switch (tokens[0].Kind)
+        {
+            case SyntaxKind.SetcharmapKeyword:
+                if (tokens.Count >= 2)
+                    _charMaps.SetCharMap(tokens[1].Text.Trim('"'));
+                return;
+            case SyntaxKind.PrecharmapKeyword:
+                _charMaps.PushCharMap();
+                return;
+            case SyntaxKind.PopcharmapKeyword:
+                _charMaps.PopCharMap();
+                return;
+            case SyntaxKind.NewcharmapKeyword:
+                // Map was already created in Pass 0 — just re-activate it
+                if (tokens.Count >= 2)
+                    _charMaps.SetCharMap(tokens[1].Text.Trim('"'));
+                return;
+            case SyntaxKind.CharmapKeyword:
+                // CHARMAP definitions were already processed in Pass 0
+                return;
+        }
+
         if (tokens.Count < 2) return;
 
         int nameIdx = 0;
@@ -1028,10 +1088,7 @@ public sealed class Binder
                     // String literals in DB: encode through character map
                     if (IsStringLiteral(expr.Green))
                     {
-                        var text = ExtractStringText(expr.Green);
-                        // Resolve {symbol} interpolations in string content
-                        if (_expander != null && text.Contains('{'))
-                            text = _expander.ResolveInterpolations(text);
+                        var text = ResolveAndUnescapeString(expr.Green);
                         foreach (var b in _charMaps.EncodeString(text))
                             section.EmitByte(b);
                         continue;
@@ -1749,17 +1806,39 @@ public sealed class Binder
         return false;
     }
 
-    private static string ExtractStringText(Syntax.InternalSyntax.GreenNodeBase green)
+    /// <summary>
+    /// Resolve {symbol} interpolations on the raw string (before unescaping),
+    /// then unescape. This preserves \{ as a literal brace that does NOT trigger
+    /// interpolation, matching RGBDS behavior.
+    /// </summary>
+    private string ResolveAndUnescapeString(Syntax.InternalSyntax.GreenNodeBase green)
+    {
+        var raw = ExtractRawStringContent(green);
+        if (_expander != null && raw.Contains('{'))
+            raw = _expander.ResolveInterpolations(raw);
+        return ExpressionEvaluator.UnescapeString(raw);
+    }
+
+    /// <summary>
+    /// Extract raw string content from a string literal, stripping quotes but NOT
+    /// interpreting escape sequences. Used when interpolation must be resolved
+    /// before unescaping (so \{ is preserved as an interpolation escape).
+    /// </summary>
+    private static string ExtractRawStringContent(Syntax.InternalSyntax.GreenNodeBase green)
     {
         var node = (Syntax.InternalSyntax.GreenNode)green;
         var token = (Syntax.InternalSyntax.GreenToken)node.GetChild(0)!;
         var text = token.Text;
-        // Handle raw string delimiters: #"""...""" and #"..."
         if (text.StartsWith("#\"\"\"") && text.EndsWith("\"\"\""))
             return text[4..^3];
         if (text.StartsWith("#\"") && text.EndsWith("\""))
             return text[2..^1];
-        var raw = text.Length >= 2 ? text[1..^1] : text; // strip quotes
+        return text.Length >= 2 ? text[1..^1] : text; // strip quotes only
+    }
+
+    private static string ExtractStringText(Syntax.InternalSyntax.GreenNodeBase green)
+    {
+        var raw = ExtractRawStringContent(green);
         return ExpressionEvaluator.UnescapeString(raw);
     }
 }

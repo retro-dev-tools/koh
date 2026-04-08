@@ -23,6 +23,17 @@ public sealed class CharMapManager
         _maps[""] = _activeMap;
     }
 
+    /// <summary>
+    /// Reset active charmap to "main" and clear the push/pop stack.
+    /// Used before Pass 2 so charmap state is replayed from directives in order.
+    /// </summary>
+    public void ResetActiveState()
+    {
+        _mapStack.Clear();
+        _activeMapName = "main";
+        _activeMap = _maps["main"];
+    }
+
     public void NewCharMap(string name, string? baseName = null)
     {
         if (_maps.ContainsKey(name))

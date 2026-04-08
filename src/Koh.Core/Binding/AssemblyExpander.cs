@@ -844,6 +844,8 @@ internal sealed class AssemblyExpander
                 {
                     var charStr = tokens[1].Text;
                     if (charStr.Length >= 2) charStr = charStr[1..^1];
+                    // Unescape the key so charmap lookup matches how db processes strings
+                    charStr = ExpressionEvaluator.UnescapeString(charStr);
                     // Collect all number literal tokens after the string as multi-byte value
                     var byteValues = new List<byte>();
                     for (int ci = 2; ci < tokens.Count; ci++)
