@@ -39,6 +39,11 @@ internal sealed class AssemblyExpander
     private readonly Dictionary<string, GreenNodeBase?> _expressionCache = new();
     private readonly TextReplayService _textReplay;
 
+    // Macro call-site arity tracking: keyed by Symbol reference, value is max observed arg count
+    private readonly Dictionary<Symbol, int> _macroArities = new(ReferenceEqualityComparer.Instance);
+    // Map macro name -> Symbol for looking up the symbol when expanding calls
+    private readonly Dictionary<string, Symbol> _macroSymbolsByName = new(StringComparer.OrdinalIgnoreCase);
+
     private const int MaxStructuralDepth = 64;
     private const int MaxReplayDepth = 64;
 
@@ -81,6 +86,12 @@ internal sealed class AssemblyExpander
         get => _interpolation.SectionNameResolver;
         set => _interpolation.SectionNameResolver = value;
     }
+
+    /// <summary>
+    /// Max observed call-site arg count per macro symbol. Only contains entries for macros
+    /// that were actually called at least once.
+    /// </summary>
+    internal IReadOnlyDictionary<Symbol, int> MacroArities => _macroArities;
 
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
@@ -1062,7 +1073,8 @@ internal sealed class AssemblyExpander
             var bodyText = ctx.SourceText.ToString(new TextSpan(bodyStart, bodyEnd - bodyStart)).Trim();
             _macros[macroName] = new MacroDefinition(macroName, bodyText, macroNode.FullSpan, ctx.FilePath);
             // Register macro in symbol table using root owner context (not included file's path)
-            _symbols.DefineMacro(macroName, macroNode, _ownerContext);
+            var macroSymbol = _symbols.DefineMacro(macroName, macroNode, _ownerContext);
+            _macroSymbolsByName[macroName] = macroSymbol;
         }
     }
 
@@ -1176,6 +1188,18 @@ internal sealed class AssemblyExpander
 
         // Structural depth check
         var args = CollectMacroArgs(tokens, startIndex: 1);
+
+        // Track max observed call-site arity per macro symbol
+        if (_macroSymbolsByName.TryGetValue(name, out var macroSym))
+        {
+            var arity = args.Count;
+            // If single empty arg (no args passed), treat as 0
+            if (arity == 1 && args[0].Length == 0)
+                arity = 0;
+            if (!_macroArities.TryGetValue(macroSym, out var existing) || arity > existing)
+                _macroArities[macroSym] = arity;
+        }
+
         _uniqueIdCounter++;
         var frame = new MacroFrame(args) { UniqueId = _uniqueIdCounter };
         var macroCtx = ctx.ForMacro(frame, macro);
