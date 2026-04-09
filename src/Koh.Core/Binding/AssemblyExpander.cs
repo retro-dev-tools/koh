@@ -1194,7 +1194,7 @@ internal sealed class AssemblyExpander
         {
             var arity = args.Count;
             // If single empty arg (no args passed), treat as 0
-            if (arity == 1 && args[0].Length == 0)
+            if (arity == 1 && string.IsNullOrEmpty(args[0]))
                 arity = 0;
             if (!_macroArities.TryGetValue(macroSym, out var existing) || arity > existing)
                 _macroArities[macroSym] = arity;

@@ -122,7 +122,7 @@ public sealed class Binder
         }
 
         return new BindingResult(_sections.AllSections, _symbols, _diagnostics.ToList(),
-            _expander?.MacroArities);
+            _expander.MacroArities);
     }
 
     public EmitModel BindToEmitModel(SyntaxTree tree) =>

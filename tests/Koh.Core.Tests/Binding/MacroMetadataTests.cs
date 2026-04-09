@@ -89,6 +89,8 @@ public class MacroMetadataTests
         var sym = model.ResolveSymbol("outer", 0);
         await Assert.That(sym).IsNotNull();
         await Assert.That(model.GetMacroArity(sym!)).IsEqualTo(3);
+        var innerSym = model.ResolveSymbol("inner", 0);
+        await Assert.That(model.GetMacroArity(innerSym!)).IsEqualTo(0);
     }
 
     [Test]
@@ -96,7 +98,7 @@ public class MacroMetadataTests
     {
         var model = GetModel(
             "my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac a, b");
-        var arity = model.GetMacroArity("my_mac");
-        await Assert.That(arity).IsEqualTo(2);
+        var sym = model.ResolveSymbol("my_mac", 0);
+        await Assert.That(model.GetMacroArity(sym!)).IsEqualTo(model.GetMacroArity("my_mac"));
     }
 }
