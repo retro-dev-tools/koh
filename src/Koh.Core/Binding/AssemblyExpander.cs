@@ -827,6 +827,7 @@ internal sealed class AssemblyExpander
                         }
                     }
                     _charMaps.NewCharMap(name, baseName);
+                    _symbols.DefineCharMap(name, node);
                 }
                 break;
             case SyntaxKind.SetcharmapKeyword:

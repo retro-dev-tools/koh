@@ -8,6 +8,7 @@ public enum SymbolKind
     Constant,
     StringConstant,
     Macro,
+    CharMap,
 }
 
 public enum SymbolVisibility
