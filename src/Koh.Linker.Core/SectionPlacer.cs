@@ -142,10 +142,11 @@ public sealed class SectionPlacer
                         // Fixed bank but doesn't fit
                         int used = bankUsage.GetValueOrDefault(targetBank, region.StartAddress) - region.StartAddress;
                         int free = capacity - used;
+                        int overflow = section.Data.Length - free;
                         _diagnostics.Report(default,
                             $"Section '{section.Name}' ({section.Data.Length} bytes) " +
                             $"does not fit in bank {targetBank} of {section.Type} " +
-                            $"({free} bytes free space)");
+                            $"({free} bytes free space, overflow by {overflow} bytes)");
                     }
                     else
                     {
@@ -158,10 +159,11 @@ public sealed class SectionPlacer
                             if (free > largestFree)
                                 largestFree = free;
                         }
+                        int overflow = section.Data.Length - largestFree;
                         _diagnostics.Report(default,
                             $"Section '{section.Name}' ({section.Data.Length} bytes) " +
                             $"does not fit in any {section.Type} bank " +
-                            $"(largest free space is {largestFree} bytes)");
+                            $"(largest free space is {largestFree} bytes, overflow by {overflow} bytes)");
                     }
                 }
             }

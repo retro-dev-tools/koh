@@ -57,20 +57,23 @@ public class ConstraintDiagnosticTests
     {
         var diags = new DiagnosticBag();
         var placer = new SectionPlacer(diags);
-        // ROM0 = 0x4000 capacity. A=0x2000, B=0x1800 -> used=0x3800, remaining=0x800
-        // C=0x1000 needs 4096 but only 2048 free -> overflow=2048
+        // ROM0 = 0x4000 (16384) capacity.
+        // A=0x3000 (12288), B=0xC00 (3072) -> used=0x3C00 (15360), remaining=0x400 (1024 free)
+        // C=0x600 (1536) needs 1536 but only 1024 free -> overflow = 1536 - 1024 = 512
+        // overflow (512) != free space (1024), so both values are independently testable
         placer.PlaceAll(new[]
         {
-            CreateSection("A", SectionType.Rom0, size: 0x2000),
-            CreateSection("B", SectionType.Rom0, size: 0x1800),
-            CreateSection("C", SectionType.Rom0, size: 0x1000),
+            CreateSection("A", SectionType.Rom0, size: 0x3000),
+            CreateSection("B", SectionType.Rom0, size: 0xC00),
+            CreateSection("C", SectionType.Rom0, size: 0x600),
         });
 
         var errors = diags.ToList();
         await Assert.That(errors.Count).IsEqualTo(1);
         await Assert.That(errors[0].Message).Contains("C");
-        await Assert.That(errors[0].Message).Contains("4096");
-        await Assert.That(errors[0].Message).Contains("2048");
+        await Assert.That(errors[0].Message).Contains("1536");   // section size
+        await Assert.That(errors[0].Message).Contains("1024");   // largest free space
+        await Assert.That(errors[0].Message).Contains("512");    // overflow amount (distinct from free space)
     }
 
     [Test]
@@ -139,6 +142,7 @@ public class ConstraintDiagnosticTests
         await Assert.That(errors.Count).IsEqualTo(1);
         await Assert.That(errors[0].Message).Contains("toobig");
         await Assert.That(errors[0].Message).Contains("free space");
+        await Assert.That(errors[0].Message).Contains("overflow by");
     }
 
     private static LinkerSection CreateSection(string name, SectionType type,
