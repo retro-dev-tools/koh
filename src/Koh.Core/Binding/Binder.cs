@@ -121,7 +121,8 @@ public sealed class Binder
                 _diagnostics.Report(default, $"Undefined symbol '{sym.Name}'");
         }
 
-        return new BindingResult(_sections.AllSections, _symbols, _diagnostics.ToList());
+        return new BindingResult(_sections.AllSections, _symbols, _diagnostics.ToList(),
+            _expander.MacroArities);
     }
 
     public EmitModel BindToEmitModel(SyntaxTree tree) =>

@@ -8,6 +8,11 @@ public sealed class BindingResult
     public IReadOnlyDictionary<string, SectionBuffer>? Sections { get; }
     public SymbolTable? Symbols { get; }
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
+    /// <summary>
+    /// Maps each called macro symbol to its maximum observed call-site argument count.
+    /// Macros that were defined but never called have no entry.
+    /// </summary>
+    public IReadOnlyDictionary<Symbol, int>? MacroArities { get; }
     public bool Success
     {
         get
@@ -22,10 +27,12 @@ public sealed class BindingResult
     public BindingResult(
         IReadOnlyDictionary<string, SectionBuffer>? sections,
         SymbolTable? symbols,
-        IReadOnlyList<Diagnostic> diagnostics)
+        IReadOnlyList<Diagnostic> diagnostics,
+        IReadOnlyDictionary<Symbol, int>? macroArities = null)
     {
         Sections = sections;
         Symbols = symbols;
         Diagnostics = diagnostics;
+        MacroArities = macroArities;
     }
 }

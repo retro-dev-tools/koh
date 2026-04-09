@@ -91,7 +91,18 @@ internal sealed class Workspace
         lock (_lock)
         {
             var source = SourceText.From(text, path);
-            var tree = SyntaxTree.Parse(source);
+
+            // Try incremental reparse when we have a previous tree for this document.
+            SyntaxTree tree;
+            if (_documents.TryGetValue(path, out var prev))
+            {
+                tree = prev.Tree.WithChanges(source);
+            }
+            else
+            {
+                tree = SyntaxTree.Parse(source);
+            }
+
             _documents[path] = (source, tree);
 
             if (_projectContextManager != null)

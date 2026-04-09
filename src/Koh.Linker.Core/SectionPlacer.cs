@@ -86,6 +86,27 @@ public sealed class SectionPlacer
                     bankUsage[bank] = region.StartAddress;
                 if (endAddr > bankUsage[bank])
                     bankUsage[bank] = endAddr;
+
+                // Detect overlaps with previously placed sections in the same bank
+                int secStart = section.FixedAddress.Value;
+                int secEnd = secStart + section.Data.Length;
+                foreach (var other in sections)
+                {
+                    if (ReferenceEquals(other, section) || other.PlacedAddress < 0)
+                        continue;
+                    if (other.PlacedBank != bank)
+                        continue;
+                    int otherStart = other.PlacedAddress;
+                    int otherEnd = otherStart + other.Data.Length;
+                    if (secStart < otherEnd && otherStart < secEnd)
+                    {
+                        int overlapStart = Math.Max(secStart, otherStart);
+                        int overlapEnd = Math.Min(secEnd, otherEnd);
+                        _diagnostics.Report(default,
+                            $"Section '{section.Name}' overlaps with '{other.Name}' " +
+                            $"at ${overlapStart:X4}-${overlapEnd:X4} in bank {bank}");
+                    }
+                }
             }
             else
             {
@@ -108,9 +129,42 @@ public sealed class SectionPlacer
 
                 if (!placed)
                 {
-                    _diagnostics.Report(default,
-                        $"Section '{section.Name}' ({section.Data.Length} bytes) " +
-                        $"does not fit in {section.Type} memory region");
+                    int capacity = region.EndAddress - region.StartAddress;
+                    if (section.Data.Length > capacity)
+                    {
+                        // Section exceeds single bank capacity
+                        _diagnostics.Report(default,
+                            $"Section '{section.Name}' ({section.Data.Length} bytes) " +
+                            $"exceeds {section.Type} bank capacity ({capacity} bytes)");
+                    }
+                    else if (targetBank >= 0)
+                    {
+                        // Fixed bank but doesn't fit
+                        int used = bankUsage.GetValueOrDefault(targetBank, region.StartAddress) - region.StartAddress;
+                        int free = capacity - used;
+                        int overflow = section.Data.Length - free;
+                        _diagnostics.Report(default,
+                            $"Section '{section.Name}' ({section.Data.Length} bytes) " +
+                            $"does not fit in bank {targetBank} of {section.Type} " +
+                            $"({free} bytes free space, overflow by {overflow} bytes)");
+                    }
+                    else
+                    {
+                        // Floating but no bank has room — find largest free space
+                        int largestFree = 0;
+                        for (int b = firstBank; b < bankCount; b++)
+                        {
+                            int used = bankUsage.GetValueOrDefault(b, region.StartAddress) - region.StartAddress;
+                            int free = capacity - used;
+                            if (free > largestFree)
+                                largestFree = free;
+                        }
+                        int overflow = section.Data.Length - largestFree;
+                        _diagnostics.Report(default,
+                            $"Section '{section.Name}' ({section.Data.Length} bytes) " +
+                            $"does not fit in any {section.Type} bank " +
+                            $"(largest free space is {largestFree} bytes, overflow by {overflow} bytes)");
+                    }
                 }
             }
         }

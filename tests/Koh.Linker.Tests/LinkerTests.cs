@@ -269,6 +269,6 @@ public class LinkerTests
         var result = LinkSingle($"SECTION \"Big\", HRAM\n{ds200}");
         await Assert.That(result.Success).IsFalse();
         await Assert.That(result.RomData).IsNull();
-        await Assert.That(result.Diagnostics.Any(d => d.Message.Contains("does not fit"))).IsTrue();
+        await Assert.That(result.Diagnostics.Any(d => d.Message.Contains("exceeds"))).IsTrue();
     }
 }

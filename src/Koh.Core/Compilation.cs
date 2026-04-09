@@ -1,6 +1,8 @@
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Core.Syntax;
+using Koh.Core.Text;
+using System.Threading.Tasks;
 
 namespace Koh.Core;
 
@@ -42,6 +44,14 @@ public sealed class Compilation
     /// Canonical factory that accepts a source file resolver for INCLUDE/INCBIN.
     /// Multi-tree compilations reject trees with null/empty FilePath.
     /// </summary>
+    public static Compilation CreateFromSources(IReadOnlyList<SourceText> sources,
+        BinderOptions options = default, TextWriter? printOutput = null)
+    {
+        var trees = new SyntaxTree[sources.Count];
+        Parallel.For(0, sources.Count, i => { trees[i] = SyntaxTree.Parse(sources[i]); });
+        return new Compilation(trees, binderOptions: options, printOutput: printOutput);
+    }
+
     public static Compilation Create(ISourceFileResolver resolver, params SyntaxTree[] trees)
     {
         if (trees.Length > 1)

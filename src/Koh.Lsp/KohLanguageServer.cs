@@ -1079,15 +1079,13 @@ public sealed class KohLanguageServer(JsonRpc rpc)
         if (macroNameToken?.Kind != SyntaxKind.IdentifierToken)
             return null;
 
-        var symbol = _workspace
-            .GetSemanticModel(path)
+        var semanticModel = _workspace.GetSemanticModel(path);
+        var symbol = semanticModel
             ?.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
         if (symbol?.Kind != Core.Symbols.SymbolKind.Macro)
             return null;
 
-        int arity = GetMacroArity(symbol, tree);
-        if (arity < 0)
-            return null;
+        var arity = semanticModel!.GetMacroArity(symbol) ?? 0;
 
         int activeParam = Math.Min(
             ComputeActiveParameter(macroCall, offset),
@@ -1124,88 +1122,6 @@ public sealed class KohLanguageServer(JsonRpc rpc)
         return null;
     }
 
-    private static int GetMacroArity(Core.Symbols.Symbol macroSymbol, SyntaxTree tree)
-    {
-        var definitionNode = macroSymbol.DefinitionSite;
-        if (definitionNode == null)
-            return 0;
-
-        var macroStart =
-            definitionNode.Kind == SyntaxKind.MacroDefinition
-                ? definitionNode
-                : FindNextSiblingOfKind(definitionNode, SyntaxKind.MacroDefinition);
-
-        if (macroStart?.Parent is not { } parent)
-            return 0;
-
-        int maxParam = 0;
-        bool inBody = false;
-
-        foreach (var child in parent.ChildNodesAndTokens())
-        {
-            if (!child.IsNode)
-                continue;
-            var n = child.AsNode!;
-
-            if (!inBody)
-            {
-                if (n.Kind == SyntaxKind.MacroDefinition && n.Position == macroStart.Position)
-                    inBody = true;
-                continue;
-            }
-
-            if (n.Kind == SyntaxKind.MacroDefinition)
-                break;
-            ScanMacroParams(n, ref maxParam);
-        }
-
-        return maxParam;
-    }
-
-    private static SyntaxNode? FindNextSiblingOfKind(SyntaxNode node, SyntaxKind kind)
-    {
-        if (node.Parent is not { } parent)
-            return null;
-
-        bool found = false;
-        foreach (var child in parent.ChildNodesAndTokens())
-        {
-            if (!child.IsNode)
-                continue;
-            var n = child.AsNode!;
-            if (!found)
-            {
-                if (n.Position == node.Position && n.Kind == node.Kind)
-                    found = true;
-                continue;
-            }
-            if (n.Kind == kind)
-                return n;
-        }
-        return null;
-    }
-
-    private static void ScanMacroParams(SyntaxNode node, ref int maxParam)
-    {
-        foreach (var child in node.ChildNodesAndTokens())
-        {
-            if (child.IsToken)
-            {
-                var t = child.AsToken!;
-                if (
-                    t.Kind == SyntaxKind.MacroParamToken
-                    && t.Text.Length == 2
-                    && t.Text[0] == '\\'
-                    && t.Text[1] is >= '1' and <= '9'
-                )
-                    maxParam = Math.Max(maxParam, t.Text[1] - '0');
-            }
-            else
-            {
-                ScanMacroParams(child.AsNode!, ref maxParam);
-            }
-        }
-    }
 
     private static int ComputeActiveParameter(SyntaxNode macroCall, int cursorOffset)
     {

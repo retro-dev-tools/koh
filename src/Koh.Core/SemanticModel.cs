@@ -137,6 +137,28 @@ public sealed class SemanticModel
     }
 
     /// <summary>
+    /// Get the maximum observed call-site argument count for a macro symbol.
+    /// Returns null if the macro was never called or the symbol is not a macro.
+    /// </summary>
+    public int? GetMacroArity(Symbol symbol)
+    {
+        if (symbol.Kind != SymbolKind.Macro) return null;
+        if (_result.MacroArities == null) return null;
+        return _result.MacroArities.TryGetValue(symbol, out var arity) ? arity : null;
+    }
+
+    /// <summary>
+    /// Convenience overload: resolves the macro symbol by name, then queries arity.
+    /// Returns null if the macro is not found or was never called.
+    /// </summary>
+    public int? GetMacroArity(string macroName)
+    {
+        var symbol = ResolveSymbol(macroName, 0);
+        if (symbol == null) return null;
+        return GetMacroArity(symbol);
+    }
+
+    /// <summary>
     /// Get diagnostics from the binding phase.
     /// Returns all diagnostics from the compilation. For per-file filtering in multi-file
     /// scenarios, use the Workspace.GetDocumentDiagnostics approach (SyntaxTree diagnostics
