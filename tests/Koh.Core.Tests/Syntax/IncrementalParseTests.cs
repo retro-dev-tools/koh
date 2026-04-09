@@ -12,7 +12,7 @@ public class IncrementalParseTests
 
     /// <summary>
     /// Asserts canonical tree equivalence between two syntax trees.
-    /// Checks all 8 criteria from the spec.
+    /// Checks all 9 criteria from the spec.
     /// </summary>
     private static async Task AssertCanonicalEquivalence(SyntaxTree expected, SyntaxTree actual, string context = "")
     {
@@ -484,5 +484,25 @@ public class IncrementalParseTests
             "nop",
             "halt");
         await Assert.That(wasIncremental).IsFalse();
+    }
+
+    [Test]
+    public async Task Incremental_EditInEofTrailingWhitespace_FallsBackCorrectly()
+    {
+        // Trailing whitespace after last statement — belongs to EOF trivia, no statement overlap
+        var wasIncremental = await AssertIncrementalMatchesFullReparse(
+            "nop\nhalt\n   ",
+            "nop\nhalt\n      ");
+        // Falls back because no top-level children overlap the edit (it's in EOF trivia)
+        await Assert.That(wasIncremental).IsFalse();
+    }
+
+    [Test]
+    public async Task Incremental_DeleteNewlineMergingLines_MatchesFull()
+    {
+        // Delete newline between two statements — merges them into one parse unit
+        await AssertIncrementalMatchesFullReparse(
+            "nop\nhalt\nstop\n",
+            "nophalt\nstop\n");
     }
 }
