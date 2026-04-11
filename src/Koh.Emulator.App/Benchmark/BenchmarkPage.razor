@@ -1,0 +1,38 @@
+@page "/benchmark"
+@using Koh.Emulator.App.Benchmark
+
+<h2>Phase 1 Benchmark</h2>
+
+<button @onclick="Run" disabled="@_running">Run</button>
+
+@if (_result is { } r)
+{
+    <table>
+        <tr><th>Wall seconds</th><td>@r.WallSeconds.ToString("F2")</td></tr>
+        <tr><th>System ticks</th><td>@r.SystemTicks</td></tr>
+        <tr><th>Ticks / sec</th><td>@r.TicksPerSecond.ToString("F0")</td></tr>
+        <tr><th>Real-time multiplier</th><td>@r.RealTimeMultiplier.ToString("F2")×</td></tr>
+    </table>
+
+    <p class="@(r.RealTimeMultiplier >= 2.0 ? "pass" : "fail")">
+        @(r.RealTimeMultiplier >= 2.0 ? "PASS — ≥ 2.0× real-time" : "FAIL — below 2.0× real-time threshold")
+    </p>
+}
+
+@code {
+    private BenchmarkRunner.Result? _result;
+    private bool _running;
+
+    private async Task Run()
+    {
+        _running = true;
+        _result = null;
+        StateHasChanged();
+
+        var runner = new BenchmarkRunner();
+        _result = await runner.RunAsync(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+
+        _running = false;
+        StateHasChanged();
+    }
+}
