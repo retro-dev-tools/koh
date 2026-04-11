@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <BlazorWebAssemblyJiterpreter>false</BlazorWebAssemblyJiterpreter>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
+    <ProjectReference Include="..\Koh.Debugger\Koh.Debugger.csproj" />
+  </ItemGroup>
+
+</Project>
