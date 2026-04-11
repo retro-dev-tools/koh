@@ -1,0 +1,27 @@
+@using Koh.Emulator.App.Components
+@using Koh.Emulator.App.Services
+@inject EmulatorHost EmulatorHost
+@implements IDisposable
+
+<div class="debug-shell">
+    <div class="lcd-placeholder">Koh Emulator — Phase 1: awaiting PPU</div>
+    <CpuDashboard />
+    <div class="status-bar">
+        <span>Mode: @(EmulatorHost.System?.Mode.ToString() ?? "not loaded")</span>
+        <span>Cycles: @(EmulatorHost.System?.Cpu.TotalTCycles ?? 0)</span>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        EmulatorHost.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        EmulatorHost.StateChanged -= OnStateChanged;
+    }
+}
