@@ -7,6 +7,7 @@
     <Project Path="src/Koh.Linker.Core/Koh.Linker.Core.csproj" />
     <Project Path="src/Koh.Lsp/Koh.Lsp.csproj" />
     <Project Path="src/Koh.Emulator.Core/Koh.Emulator.Core.csproj" />
+    <Project Path="src/Koh.Debugger/Koh.Debugger.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
