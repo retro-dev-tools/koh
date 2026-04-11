@@ -56,5 +56,21 @@ Task("publish-dev")
 });
 
 // ─────────────────────────────────────────────────────────────
+// Emulator app
+// ─────────────────────────────────────────────────────────────
+
+Task("publish-emulator-app")
+    .Description("Publish Koh.Emulator.App with AOT and copy into editors/vscode/dist/emulator-app")
+    .Does(() =>
+{
+    DotNet("publish src/Koh.Emulator.App -c Release -p:RunAOTCompilation=true");
+    StartProcess("npm", new ProcessSettings
+    {
+        WorkingDirectory = "editors/vscode",
+        Arguments = "run build:emulator-app:aot"
+    });
+});
+
+// ─────────────────────────────────────────────────────────────
 
 RunTarget(target);

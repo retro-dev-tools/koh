@@ -126,7 +126,11 @@
   "scripts": {
     "compile": "tsc -p ./tsconfig.json",
     "watch": "tsc -w -p ./tsconfig.json",
-    "package": "vsce package"
+    "build:emulator-app": "dotnet publish ../../src/Koh.Emulator.App -c Release -o ./.publish-emu-app && node ./scripts/copy-emu-app.js",
+    "build:emulator-app:aot": "dotnet publish ../../src/Koh.Emulator.App -c Release -p:RunAOTCompilation=true -o ./.publish-emu-app && node ./scripts/copy-emu-app.js",
+    "watch:emulator-app": "dotnet watch publish ../../src/Koh.Emulator.App -c Debug -p:RunAOTCompilation=false -o ./.publish-emu-app",
+    "verify-freshness": "node ./scripts/verify-freshness.js",
+    "package": "npm run build:emulator-app:aot && npm run verify-freshness && vsce package"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
