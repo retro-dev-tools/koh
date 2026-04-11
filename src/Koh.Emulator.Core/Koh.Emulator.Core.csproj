@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Debugger" />
+    <InternalsVisibleTo Include="Koh.Emulator.App" />
+    <InternalsVisibleTo Include="Koh.Emulator.Core.Tests" />
+    <InternalsVisibleTo Include="Koh.Debugger.Tests" />
+  </ItemGroup>
+
+</Project>
