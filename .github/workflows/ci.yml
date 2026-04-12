@@ -34,7 +34,7 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File scripts/download-test-roms.ps1
 
       - name: Run tests
-        run: dotnet test Koh.slnx --no-build --configuration Release
+        run: dotnet test --solution Koh.slnx --no-build --configuration Release
 
   emulator-app:
     runs-on: ubuntu-latest
