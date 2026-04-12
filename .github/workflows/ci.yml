@@ -36,8 +36,19 @@ jobs:
       - name: Run tests
         run: dotnet test --solution Koh.slnx --no-build --configuration Release --filter "FullyQualifiedName!~Koh.Compat.Tests"
 
-      - name: Run compat tests (Docker required)
-        if: runner.os != 'Windows'
+  compat-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build compat tests
+        run: dotnet build tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --configuration Release
+
+      - name: Run compat tests
         run: dotnet test --project tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --no-build --configuration Release
 
   emulator-app:
