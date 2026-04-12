@@ -34,7 +34,11 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File scripts/download-test-roms.ps1
 
       - name: Run tests
-        run: dotnet test --solution Koh.slnx --no-build --configuration Release --minimum-expected-tests 0
+        run: dotnet test --solution Koh.slnx --no-build --configuration Release --filter "FullyQualifiedName!~Koh.Compat.Tests"
+
+      - name: Run compat tests (Docker required)
+        if: runner.os != 'Windows'
+        run: dotnet test --project tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --no-build --configuration Release
 
   emulator-app:
     runs-on: ubuntu-latest
