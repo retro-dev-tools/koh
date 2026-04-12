@@ -18,6 +18,6 @@ public static class DapCapabilities
         SupportsDisassembleRequest = false,
         SupportsSteppingGranularity = false,
         SupportsInstructionBreakpoints = false,
-        SupportsExceptionInfoRequest = true,
+        SupportsExceptionInfoRequest = false,
     };
 }

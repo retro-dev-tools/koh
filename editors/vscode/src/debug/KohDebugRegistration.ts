@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { Logger } from '../core/Logger';
 import { KohYamlReader } from '../config/KohYamlReader';
 import { KohConfigurationProvider } from './ConfigurationProvider';
@@ -30,11 +31,18 @@ export class KohDebugRegistration {
                     queue,
                     () => panel.dispose()
                 );
-                panel.onMessageFromWebview((m: { kind: string; payload?: unknown }) => {
+                panel.onMessageFromWebview((m: { kind: string; payload?: unknown; id?: number; path?: string }) => {
                     if (m.kind === 'ready') {
                         queue.markReady((msg: unknown) => panel.postToWebview(msg));
                     } else if (m.kind === 'dap') {
                         adapter.receiveFromWebview(m.payload);
+                    } else if (m.kind === 'readFile' && m.id !== undefined && m.path) {
+                        try {
+                            const data = fs.readFileSync(m.path);
+                            panel.postToWebview({ kind: 'fileData', id: m.id, base64: data.toString('base64') });
+                        } catch {
+                            panel.postToWebview({ kind: 'fileData', id: m.id, base64: null });
+                        }
                     }
                 });
                 return new vscode.DebugAdapterInlineImplementation(adapter);

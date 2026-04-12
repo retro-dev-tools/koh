@@ -37,14 +37,28 @@ public sealed class DapTransport : IAsyncDisposable
 
     private async void OnResponseReady(ReadOnlyMemory<byte> bytes)
     {
-        var payload = Encoding.UTF8.GetString(bytes.Span);
-        await _js.InvokeVoidAsync("kohVsCodeBridge.sendToExtension", "dap", payload);
+        try
+        {
+            var payload = Encoding.UTF8.GetString(bytes.Span);
+            await _js.InvokeVoidAsync("kohVsCodeBridge.sendToExtension", "dap", payload);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DapTransport] Failed to send DAP response: {ex.Message}");
+        }
     }
 
     private async void OnEventReady(ReadOnlyMemory<byte> bytes)
     {
-        var payload = Encoding.UTF8.GetString(bytes.Span);
-        await _js.InvokeVoidAsync("kohVsCodeBridge.sendToExtension", "dap", payload);
+        try
+        {
+            var payload = Encoding.UTF8.GetString(bytes.Span);
+            await _js.InvokeVoidAsync("kohVsCodeBridge.sendToExtension", "dap", payload);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DapTransport] Failed to send DAP event: {ex.Message}");
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -1,6 +1,8 @@
 @using Koh.Emulator.App.Components
 @using Koh.Emulator.App.Services
+@using Koh.Emulator.App.DebugMode
 @inject EmulatorHost EmulatorHost
+@inject DapTransport DapTransport
 @implements IDisposable
 
 <div class="debug-shell">
@@ -13,9 +15,10 @@
 </div>
 
 @code {
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         EmulatorHost.StateChanged += OnStateChanged;
+        await DapTransport.RegisterAsync();
     }
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);

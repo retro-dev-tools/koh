@@ -15,7 +15,7 @@ public sealed class Mmu
     private readonly byte[] _hram = new byte[0x7F];
     public IoRegisters Io { get; }
 
-#pragma warning disable CS0649  // Fields assigned in Phase 2 (CGB banking)
+#pragma warning disable CS0649  // Read in Phase 1 (always bank 0/1); write-side (bank switching via VBK/SVBK registers) arrives in Phase 2
     private byte _vramBank;
     private byte _wramBank = 1;
 #pragma warning restore CS0649

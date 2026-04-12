@@ -123,7 +123,7 @@ public sealed class GameBoySystem
                 if (StopConditionMet(in condition))
                 {
                     _running = false;
-                    return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+                    return new StepResult(StopReason.Breakpoint, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
                 }
             }
         }

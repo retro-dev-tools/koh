@@ -27,6 +27,7 @@ export class EmulatorPanelHost {
 
         const panel = new EmulatorPanel(session, this.log, this.context, assetLoader);
         this.activePanels.set(session.id, panel);
+        panel.onDidDispose(() => this.activePanels.delete(session.id));
         return panel;
     }
 }

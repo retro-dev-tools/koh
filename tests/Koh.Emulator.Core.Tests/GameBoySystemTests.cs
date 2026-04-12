@@ -40,7 +40,7 @@ public class GameBoySystemTests
         var condition = StopCondition.AtPc(targetPc);
         var result = gb.RunUntil(condition);
         // Mock CPU may or may not land exactly on target PC depending on branch pattern.
-        bool validReason = result.Reason is StopReason.StopRequested or StopReason.FrameComplete;
+        bool validReason = result.Reason is StopReason.Breakpoint or StopReason.FrameComplete;
         await Assert.That(validReason).IsTrue();
     }
 }

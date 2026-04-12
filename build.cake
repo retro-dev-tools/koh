@@ -63,12 +63,13 @@ Task("publish-emulator-app")
     .Description("Publish Koh.Emulator.App with AOT and copy into editors/vscode/dist/emulator-app")
     .Does(() =>
 {
-    DotNet("publish src/Koh.Emulator.App -c Release -p:RunAOTCompilation=true");
-    StartProcess("npm", new ProcessSettings
+    var exitCode = StartProcess("npm", new ProcessSettings
     {
         WorkingDirectory = "editors/vscode",
         Arguments = "run build:emulator-app:aot"
     });
+    if (exitCode != 0)
+        throw new CakeException($"npm run build:emulator-app:aot failed with exit code {exitCode}");
 });
 
 // ─────────────────────────────────────────────────────────────

@@ -8,7 +8,10 @@ import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from './messages
 export class EmulatorPanel implements vscode.Disposable {
     private readonly panel: vscode.WebviewPanel;
     private readonly messageEmitter = new vscode.EventEmitter<WebviewToExtensionMessage>();
+    private readonly _onDidDispose = new vscode.EventEmitter<void>();
+    readonly onDidDispose = this._onDidDispose.event;
     readonly onMessageFromWebview = this.messageEmitter.event;
+    private disposed = false;
 
     constructor(
         private readonly session: vscode.DebugSession,
@@ -36,7 +39,12 @@ export class EmulatorPanel implements vscode.Disposable {
             this.messageEmitter.fire(msg);
         });
 
-        this.panel.onDidDispose(() => this.dispose());
+        this.panel.onDidDispose(() => {
+            this.disposed = true;
+            this.messageEmitter.dispose();
+            this._onDidDispose.fire();
+            this._onDidDispose.dispose();
+        });
     }
 
     postToWebview(msg: ExtensionToWebviewMessage | unknown): void {
@@ -44,7 +52,11 @@ export class EmulatorPanel implements vscode.Disposable {
     }
 
     dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
         this.messageEmitter.dispose();
+        this._onDidDispose.fire();
+        this._onDidDispose.dispose();
         this.panel.dispose();
     }
 }

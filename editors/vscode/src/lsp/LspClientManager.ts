@@ -34,6 +34,7 @@ export class LspClientManager implements vscode.Disposable {
                 { scheme: 'file', language: 'koh-asm' },
                 { scheme: 'untitled', language: 'koh-asm' },
             ],
+            outputChannel: this.log.outputChannel,
         };
 
         this.client = new LanguageClient('koh-lsp', 'Koh Language Server', serverOptions, clientOptions);
@@ -48,7 +49,7 @@ export class LspClientManager implements vscode.Disposable {
         }
     }
 
-    dispose(): void {
-        this.client?.stop();
+    async dispose(): Promise<void> {
+        await this.client?.stop();
     }
 }

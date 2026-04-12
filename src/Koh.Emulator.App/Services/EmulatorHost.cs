@@ -22,6 +22,13 @@ public sealed class EmulatorHost
         StateChanged?.Invoke();
     }
 
+    public void AttachDebugSystem(GameBoySystem system)
+    {
+        System = system;
+        IsPaused = true;
+        StateChanged?.Invoke();
+    }
+
     public async Task RunAsync()
     {
         if (System is null) return;

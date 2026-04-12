@@ -1,16 +1,16 @@
 import * as vscode from 'vscode';
 
 export class Logger {
-    private readonly channel: vscode.LogOutputChannel;
+    readonly outputChannel: vscode.LogOutputChannel;
 
     constructor(name: string) {
-        this.channel = vscode.window.createOutputChannel(name, { log: true });
+        this.outputChannel = vscode.window.createOutputChannel(name, { log: true });
     }
 
-    info(msg: string): void { this.channel.info(msg); }
-    warn(msg: string): void { this.channel.warn(msg); }
-    error(msg: string): void { this.channel.error(msg); }
-    show(): void { this.channel.show(true); }
+    info(msg: string): void { this.outputChannel.info(msg); }
+    warn(msg: string): void { this.outputChannel.warn(msg); }
+    error(msg: string): void { this.outputChannel.error(msg); }
+    show(): void { this.outputChannel.show(true); }
 
-    dispose(): void { this.channel.dispose(); }
+    dispose(): void { this.outputChannel.dispose(); }
 }
