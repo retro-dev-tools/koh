@@ -1,12 +1,14 @@
 @page "/benchmark"
 @using Koh.Emulator.App.Benchmark
 
-<h2>Phase 1 Benchmark</h2>
+<h2>Emulator Benchmark</h2>
 
-<button @onclick="Run" disabled="@_running">Run</button>
+<button @onclick="RunPhase1" disabled="@_running">Run Phase 1 Workload</button>
+<button @onclick="RunPhase2" disabled="@_running">Run Phase 2 Workload</button>
 
 @if (_result is { } r)
 {
+    <h3>@_lastKind result</h3>
     <table>
         <tr><th>Wall seconds</th><td>@r.WallSeconds.ToString("F2")</td></tr>
         <tr><th>System ticks</th><td>@r.SystemTicks</td></tr>
@@ -14,23 +16,33 @@
         <tr><th>Real-time multiplier</th><td>@r.RealTimeMultiplier.ToString("F2")×</td></tr>
     </table>
 
-    <p class="@(r.RealTimeMultiplier >= 2.0 ? "pass" : "fail")">
-        @(r.RealTimeMultiplier >= 2.0 ? "PASS — ≥ 2.0× real-time" : "FAIL — below 2.0× real-time threshold")
+    <p class="@(r.RealTimeMultiplier >= _threshold ? "pass" : "fail")">
+        @(r.RealTimeMultiplier >= _threshold
+            ? $"PASS — ≥ {_threshold:F2}× real-time"
+            : $"FAIL — below {_threshold:F2}× real-time threshold")
     </p>
 }
 
 @code {
     private BenchmarkRunner.Result? _result;
     private bool _running;
+    private string _lastKind = "";
+    private double _threshold = 2.0;
 
-    private async Task Run()
+    private Task RunPhase1() => Run("Phase 1", 2.0, (r, w, m) => r.RunAsync(w, m));
+    private Task RunPhase2() => Run("Phase 2", 1.5, (r, w, m) => r.RunPhase2WorkloadAsync(w, m));
+
+    private async Task Run(string kind, double threshold,
+        Func<BenchmarkRunner, TimeSpan, TimeSpan, Task<BenchmarkRunner.Result>> op)
     {
         _running = true;
         _result = null;
+        _lastKind = kind;
+        _threshold = threshold;
         StateHasChanged();
 
         var runner = new BenchmarkRunner();
-        _result = await runner.RunAsync(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+        _result = await op(runner, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
 
         _running = false;
         StateHasChanged();
