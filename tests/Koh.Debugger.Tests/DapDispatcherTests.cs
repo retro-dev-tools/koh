@@ -39,7 +39,7 @@ public class DapDispatcherTests
     private static JsonDocument Parse(byte[] bytes) => JsonDocument.Parse(bytes);
 
     [Test]
-    public async Task Initialize_Returns_Phase1_Capabilities()
+    public async Task Initialize_Returns_Phase2_Capabilities()
     {
         var (dispatcher, _, responses) = Build();
         dispatcher.HandleRequest(EncodeRequest(1, "initialize", new { clientID = "test" }));
@@ -50,7 +50,7 @@ public class DapDispatcherTests
         await Assert.That(root.GetProperty("success").GetBoolean()).IsTrue();
         var body = root.GetProperty("body");
         await Assert.That(body.GetProperty("supportsConfigurationDoneRequest").GetBoolean()).IsTrue();
-        await Assert.That(body.GetProperty("supportsReadMemoryRequest").GetBoolean()).IsFalse();
+        await Assert.That(body.GetProperty("supportsReadMemoryRequest").GetBoolean()).IsTrue();
         await Assert.That(body.GetProperty("supportsDisassembleRequest").GetBoolean()).IsFalse();
     }
 

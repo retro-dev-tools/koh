@@ -15,6 +15,7 @@ public static class HandlerRegistration
         var terminateHandler = new TerminateHandler(session);
         var setBpHandler = new SetBreakpointsHandler(session);
         var variablesHandler = new VariablesHandler(session);
+        var readMemoryHandler = new ReadMemoryHandler(session);
 
         dispatcher.RegisterHandler("initialize", InitializeHandler.Handle);
         dispatcher.RegisterHandler("launch", launchHandler.Handle);
@@ -26,5 +27,6 @@ public static class HandlerRegistration
         dispatcher.RegisterHandler("scopes", ScopesHandler.Handle);
         dispatcher.RegisterHandler("variables", variablesHandler.Handle);
         dispatcher.RegisterHandler("exceptionInfo", ExceptionInfoHandler.Handle);
+        dispatcher.RegisterHandler("readMemory", readMemoryHandler.Handle);
     }
 }

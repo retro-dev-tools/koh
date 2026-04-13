@@ -9,7 +9,7 @@ public static class InitializeHandler
         return new Response
         {
             Success = true,
-            Body = DapCapabilities.Phase1(),
+            Body = DapCapabilities.Phase2(),
         };
     }
 }

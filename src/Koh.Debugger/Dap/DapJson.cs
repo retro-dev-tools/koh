@@ -24,6 +24,8 @@ namespace Koh.Debugger.Dap;
 [JsonSerializable(typeof(VariablesArguments))]
 [JsonSerializable(typeof(VariablesResponseBody))]
 [JsonSerializable(typeof(Variable))]
+[JsonSerializable(typeof(ReadMemoryArguments))]
+[JsonSerializable(typeof(ReadMemoryResponseBody))]
 public sealed partial class DapJsonContext : JsonSerializerContext
 {
 }
