@@ -48,6 +48,9 @@ public sealed class Ppu
     // Previous STAT IRQ line for edge detection.
     private bool _prevStatLine;
 
+    /// <summary>Raised when the PPU transitions from Drawing to HBlank. Used by HDMA.</summary>
+    public event Action? HBlankEntered;
+
     public Ppu(HardwareMode mode, byte[] vram, byte[] oam)
     {
         _hwMode = mode;
@@ -192,6 +195,7 @@ public sealed class Ppu
                     Mode = PpuMode.HBlank;
                     _initialDiscardDone = false;
                     if (_windowTriggeredThisLine) _windowLineCounter++;
+                    HBlankEntered?.Invoke();
                 }
             }
         }

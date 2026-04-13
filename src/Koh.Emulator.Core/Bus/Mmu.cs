@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Cartridge;
+using Koh.Emulator.Core.Cgb;
 using Koh.Emulator.Core.Dma;
 
 namespace Koh.Emulator.Core.Bus;
@@ -21,10 +22,9 @@ public sealed class Mmu
     /// <summary>Direct OAM array access for the PPU (bypasses mode lockouts).</summary>
     public byte[] OamArray => _oam;
 
-#pragma warning disable CS0649  // Read in Phase 1 (always bank 0/1); write-side (bank switching via VBK/SVBK registers) arrives in Phase 2
-    private byte _vramBank;
-    private byte _wramBank = 1;
-#pragma warning restore CS0649
+    public VramWramBanking Banking { get; } = new();
+    private int VramBank => Banking.VramBank;
+    private int WramBank => Banking.WramBank;
 
     private OamDma? _oamDma;
 
@@ -58,17 +58,17 @@ public sealed class Mmu
             case 0x4: case 0x5: case 0x6: case 0x7:
                 return _cart.ReadRom(address);
             case 0x8: case 0x9:
-                return _vram[_vramBank * 0x2000 + (address - 0x8000)];
+                return _vram[VramBank * 0x2000 + (address - 0x8000)];
             case 0xA: case 0xB:
                 return _cart.ReadRam(address);
             case 0xC:
                 return _wram[address - 0xC000];
             case 0xD:
-                return _wram[_wramBank * 0x1000 + (address - 0xD000)];
+                return _wram[WramBank * 0x1000 + (address - 0xD000)];
             case 0xE:
                 return _wram[address - 0xE000];                    // echo RAM $C000-$CFFF
             case 0xF:
-                if (address < 0xFE00) return _wram[_wramBank * 0x1000 + (address - 0xF000)];  // echo RAM $D000-$DDFF
+                if (address < 0xFE00) return _wram[WramBank * 0x1000 + (address - 0xF000)];  // echo RAM $D000-$DDFF
                 if (address < 0xFEA0) return _oam[address - 0xFE00];
                 if (address < 0xFF00) return 0x00;                  // prohibited region
                 if (address == 0xFFFF) return Io.ReadIe();
@@ -99,7 +99,7 @@ public sealed class Mmu
                 _cart.WriteRom(address, value);
                 return;
             case 0x8: case 0x9:
-                _vram[_vramBank * 0x2000 + (address - 0x8000)] = value;
+                _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
                 return;
             case 0xA: case 0xB:
                 _cart.WriteRam(address, value);
@@ -108,13 +108,13 @@ public sealed class Mmu
                 _wram[address - 0xC000] = value;
                 return;
             case 0xD:
-                _wram[_wramBank * 0x1000 + (address - 0xD000)] = value;
+                _wram[WramBank * 0x1000 + (address - 0xD000)] = value;
                 return;
             case 0xE:
                 _wram[address - 0xE000] = value;
                 return;
             case 0xF:
-                if (address < 0xFE00) { _wram[_wramBank * 0x1000 + (address - 0xF000)] = value; return; }
+                if (address < 0xFE00) { _wram[WramBank * 0x1000 + (address - 0xF000)] = value; return; }
                 if (address < 0xFEA0) { _oam[address - 0xFE00] = value; return; }
                 if (address < 0xFF00) return;
                 if (address == 0xFFFF) { Io.WriteIe(value); return; }

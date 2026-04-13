@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Bus;
+using Koh.Emulator.Core.Cgb;
 using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.Dma;
 using Koh.Emulator.Core.Joypad;
@@ -17,6 +18,8 @@ public sealed class GameBoySystem
     public Sm83 Cpu { get; }
     public Ppu.Ppu Ppu { get; }
     public OamDma OamDma { get; }
+    public Hdma Hdma { get; }
+    public KeyOneRegister KeyOne { get; } = new();
     public JoypadState Joypad;
 
     public RunGuard RunGuard { get; } = new();
@@ -34,6 +37,12 @@ public sealed class GameBoySystem
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
+        Hdma = new Hdma(Mmu);
+        Ppu.HBlankEntered += Hdma.OnHBlankEntered;
+        Io.AttachPpu(Ppu);
+        Io.AttachHdma(Hdma);
+        Io.AttachKeyOne(KeyOne);
+        Io.AttachBanking(Mmu.Banking);
     }
 
     public ref CpuRegisters Registers => ref Cpu.Registers;
@@ -48,11 +57,23 @@ public sealed class GameBoySystem
     {
         Ppu.TickDot(ref Io.Interrupts);
 
+        // KEY1 double-speed state propagates to the clock.
+        Clock.DoubleSpeed = KeyOne.DoubleSpeed;
+
         int cpuT = Clock.DoubleSpeed ? 2 : 1;
         bool crossedInstructionBoundary = false;
         for (int i = 0; i < cpuT; i++)
         {
-            if (Cpu.TickT()) crossedInstructionBoundary = true;
+            // General-purpose HDMA halts the CPU; HBlank HDMA runs in parallel.
+            if (Hdma.Active && Hdma.CpuHaltedByGp)
+            {
+                Hdma.TickT();
+            }
+            else
+            {
+                if (Cpu.TickT()) crossedInstructionBoundary = true;
+                if (Hdma.Active) Hdma.TickT();
+            }
             Timer.TickT(ref Io.Interrupts);
             OamDma.TickT();
         }
