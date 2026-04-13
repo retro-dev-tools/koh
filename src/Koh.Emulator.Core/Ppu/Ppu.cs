@@ -38,7 +38,12 @@ public sealed class Ppu
 
     // OAM scan results
     private readonly ObjectAttributes[] _lineSprites = new ObjectAttributes[10];
+    private readonly bool[] _lineSpriteConsumed = new bool[10];
     private int _lineSpriteCount;
+
+    // Sprite fetcher state
+    private int _spriteFetchIndex = -1;   // -1 = no active sprite fetch
+    private int _spritePenaltyDots;
 
     // Previous STAT IRQ line for edge detection.
     private bool _prevStatLine;
@@ -97,7 +102,9 @@ public sealed class Ppu
             int spriteY = sprite.Y - 16;
             if (LY >= spriteY && LY < spriteY + height)
             {
-                _lineSprites[_lineSpriteCount++] = sprite;
+                _lineSprites[_lineSpriteCount] = sprite;
+                _lineSpriteConsumed[_lineSpriteCount] = false;
+                _lineSpriteCount++;
             }
         }
     }
@@ -108,11 +115,44 @@ public sealed class Ppu
         _fifo.Reset();
         _windowTriggeredThisLine = false;
         _initialDiscardDone = false;
+        _spriteFetchIndex = -1;
         _fetcher.ResetForScanline(SCX, SCY, LY, LcdControl.BgTileMapBase(LCDC), window: false);
     }
 
     private void TickDrawing(ref Interrupts interrupts)
     {
+        // If a sprite fetch is active, stall BG fetch + shift-out until the penalty elapses.
+        if (_spriteFetchIndex >= 0)
+        {
+            _spritePenaltyDots--;
+            if (_spritePenaltyDots <= 0)
+            {
+                var sprite = _lineSprites[_spriteFetchIndex];
+                PushSpritePixelsForCurrentLcdX(sprite);
+                _lineSpriteConsumed[_spriteFetchIndex] = true;
+                _spriteFetchIndex = -1;
+            }
+            Dot++;
+            return;
+        }
+
+        // Check whether a sprite should start fetching at the current pixel column.
+        if ((LCDC & LcdControl.ObjEnable) != 0 && _fifo.BgCount > 0)
+        {
+            for (int i = 0; i < _lineSpriteCount; i++)
+            {
+                if (_lineSpriteConsumed[i]) continue;
+                int spriteX = _lineSprites[i].X - 8;
+                if (spriteX == _lcdX)
+                {
+                    _spriteFetchIndex = i;
+                    _spritePenaltyDots = 6;  // minimum sprite-fetch penalty per §7.7
+                    Dot++;
+                    return;
+                }
+            }
+        }
+
         RunFetcher();
 
         // SCX mod 8 initial discard: first (SCX & 7) pixels of the first BG tile push
@@ -269,6 +309,36 @@ public sealed class Ppu
 
     private static byte ApplyDmgPalette(byte colorIdx, byte palette)
         => (byte)((palette >> (colorIdx * 2)) & 0x03);
+
+    private void PushSpritePixelsForCurrentLcdX(ObjectAttributes sprite)
+    {
+        int height = LcdControl.SpriteHeight(LCDC);
+        int row = LY - (sprite.Y - 16);
+        if (sprite.YFlip) row = height - 1 - row;
+
+        int tileIndex = sprite.Tile;
+        if (height == 16)
+        {
+            tileIndex &= 0xFE;
+            if (row >= 8) { tileIndex |= 1; row -= 8; }
+        }
+
+        int vramBankBit = 0;
+        if (_hwMode == HardwareMode.Cgb && sprite.CgbVramBank1) vramBankBit = 0x2000;
+
+        int tileAddr = tileIndex * 16 + row * 2;
+        byte low = _vram[vramBankBit + tileAddr];
+        byte high = _vram[vramBankBit + tileAddr + 1];
+
+        for (int px = 0; px < 8; px++)
+        {
+            int bit = sprite.XFlip ? px : (7 - px);
+            int lo = (low >> bit) & 1;
+            int hi = (high >> bit) & 1;
+            byte color = (byte)((hi << 1) | lo);
+            _fifo.PushSpritePixel(px, color, sprite.CgbPalette, sprite.Flags);
+        }
+    }
 
     private void TickHBlank(ref Interrupts interrupts)
     {
