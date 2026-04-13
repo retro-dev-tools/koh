@@ -29,7 +29,7 @@ public sealed class GameBoySystem
         Io = new IoRegisters(Timer);
         Mmu = new Mmu(cart, Io);
         Cpu = new Sm83(Mmu);
-        Ppu = new Ppu.Ppu();
+        Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
     }
 
     public ref CpuRegisters Registers => ref Cpu.Registers;

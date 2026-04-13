@@ -15,6 +15,11 @@ public sealed class Mmu
     private readonly byte[] _hram = new byte[0x7F];
     public IoRegisters Io { get; }
 
+    /// <summary>Direct VRAM array access for the PPU (bypasses mode lockouts).</summary>
+    public byte[] VramArray => _vram;
+    /// <summary>Direct OAM array access for the PPU (bypasses mode lockouts).</summary>
+    public byte[] OamArray => _oam;
+
 #pragma warning disable CS0649  // Read in Phase 1 (always bank 0/1); write-side (bank switching via VBK/SVBK registers) arrives in Phase 2
     private byte _vramBank;
     private byte _wramBank = 1;
