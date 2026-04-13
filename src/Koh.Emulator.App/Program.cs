@@ -13,6 +13,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddSingleton<RuntimeModeDetector>();
 builder.Services.AddSingleton<FramePacer>();
 builder.Services.AddSingleton<EmulatorHost>();
+builder.Services.AddSingleton<FramebufferBridge>();
 builder.Services.AddSingleton<Koh.Emulator.App.DebugMode.DebugModeBootstrapper>(sp =>
 {
     var js = sp.GetRequiredService<IJSRuntime>();

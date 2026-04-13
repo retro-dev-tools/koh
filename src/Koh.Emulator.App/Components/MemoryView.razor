@@ -1,0 +1,44 @@
+@using System.Globalization
+@using System.Text
+@using Koh.Emulator.App.Services
+@inject EmulatorHost EmulatorHost
+@implements IDisposable
+
+<div class="memory-view">
+    <h3>Memory</h3>
+    <label>Start: $<input @bind="StartHex" style="width: 64px" /></label>
+    <button @onclick="Refresh">Refresh</button>
+
+    @if (EmulatorHost.System is { } gb && TryParseStart(out ushort start))
+    {
+        <pre>@BuildDump(gb, start)</pre>
+    }
+</div>
+
+@code {
+    private string StartHex { get; set; } = "C000";
+
+    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
+
+    private Task Refresh() => InvokeAsync(StateHasChanged);
+
+    private bool TryParseStart(out ushort value)
+        => ushort.TryParse(StartHex, NumberStyles.HexNumber, null, out value);
+
+    private static string BuildDump(Koh.Emulator.Core.GameBoySystem gb, ushort start)
+    {
+        var sb = new StringBuilder();
+        for (int row = 0; row < 16; row++)
+        {
+            sb.AppendFormat("${0:X4}  ", start + row * 16);
+            for (int col = 0; col < 16; col++)
+            {
+                sb.AppendFormat("{0:X2} ", gb.Mmu.ReadByte((ushort)(start + row * 16 + col)));
+            }
+            sb.Append('\n');
+        }
+        return sb.ToString();
+    }
+}

@@ -1,0 +1,21 @@
+@using Koh.Emulator.App.Services
+@inject EmulatorHost EmulatorHost
+@implements IDisposable
+
+<div class="vram-view">
+    <h3>VRAM</h3>
+    @if (EmulatorHost.System is { } gb)
+    {
+        <div>VRAM size: @gb.Mmu.Vram.Length bytes (Phase 4 renders tiles here).</div>
+    }
+    else
+    {
+        <em>No ROM loaded.</em>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
+}
