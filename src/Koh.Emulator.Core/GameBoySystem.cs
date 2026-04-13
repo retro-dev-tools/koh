@@ -1,5 +1,6 @@
 using Koh.Emulator.Core.Bus;
 using Koh.Emulator.Core.Cpu;
+using Koh.Emulator.Core.Dma;
 using Koh.Emulator.Core.Joypad;
 using Koh.Emulator.Core.Ppu;
 
@@ -15,6 +16,7 @@ public sealed class GameBoySystem
     public Timer.Timer Timer { get; }
     public Sm83 Cpu { get; }
     public Ppu.Ppu Ppu { get; }
+    public OamDma OamDma { get; }
     public JoypadState Joypad;
 
     public RunGuard RunGuard { get; } = new();
@@ -30,6 +32,8 @@ public sealed class GameBoySystem
         Mmu = new Mmu(cart, Io);
         Cpu = new Sm83(Mmu);
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
+        OamDma = new OamDma(Mmu);
+        Mmu.AttachOamDma(OamDma);
     }
 
     public ref CpuRegisters Registers => ref Cpu.Registers;
@@ -50,7 +54,7 @@ public sealed class GameBoySystem
         {
             if (Cpu.TickT()) crossedInstructionBoundary = true;
             Timer.TickT(ref Io.Interrupts);
-            // OAM DMA and HDMA tick here in Phase 2.
+            OamDma.TickT();
         }
 
         Clock.AdvanceOne();

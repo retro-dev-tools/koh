@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Cartridge;
+using Koh.Emulator.Core.Dma;
 
 namespace Koh.Emulator.Core.Bus;
 
@@ -25,13 +26,31 @@ public sealed class Mmu
     private byte _wramBank = 1;
 #pragma warning restore CS0649
 
+    private OamDma? _oamDma;
+
     public Mmu(Cartridge.Cartridge cart, IoRegisters io)
     {
         _cart = cart;
         Io = io;
     }
 
+    public void AttachOamDma(OamDma oamDma) => _oamDma = oamDma;
+
+    /// <summary>
+    /// Read that bypasses DMA contention — used by the DMA engine itself when
+    /// sourcing bytes, and for debug reads.
+    /// </summary>
+    public byte ReadByteDirect(ushort address) => ReadByteInternal(address);
+
     public byte ReadByte(ushort address)
+    {
+        // OAM DMA contention: CPU reads from non-HRAM return $FF while the bus is locked.
+        if (_oamDma is { IsBusLocking: true } && address < 0xFF80)
+            return 0xFF;
+        return ReadByteInternal(address);
+    }
+
+    private byte ReadByteInternal(ushort address)
     {
         switch (address >> 12)
         {
@@ -61,6 +80,18 @@ public sealed class Mmu
 
     public void WriteByte(ushort address, byte value)
     {
+        // OAM DMA contention: CPU writes to non-HRAM are dropped while the bus is locked.
+        // $FF46 writes to trigger DMA bypass the lock so a re-trigger still works.
+        if (_oamDma is { IsBusLocking: true } && address < 0xFF80 && address != 0xFF46)
+            return;
+
+        // $FF46 triggers OAM DMA.
+        if (address == 0xFF46 && _oamDma is not null)
+        {
+            _oamDma.Trigger(value);
+            // Still store the value so reads return what was written.
+        }
+
         switch (address >> 12)
         {
             case 0x0: case 0x1: case 0x2: case 0x3:
