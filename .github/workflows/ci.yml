@@ -34,7 +34,7 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File scripts/download-test-roms.ps1
 
       - name: Run tests
-        run: dotnet test --solution Koh.slnx --no-build --configuration Release --filter "FullyQualifiedName!~Koh.Compat.Tests"
+        run: dotnet test --solution Koh.NoCompat.slnf --no-build --configuration Release
 
   compat-tests:
     runs-on: ubuntu-latest
