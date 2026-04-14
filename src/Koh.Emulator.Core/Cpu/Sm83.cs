@@ -16,7 +16,19 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     public bool Halted;
     public bool Stopped;
     public bool Ime;
-    private bool _pendingImeEnable;
+
+    // EI delay latch: EI sets `_eiPending = true` at its instruction boundary.
+    // At the NEXT instruction boundary, that promotes to `_eiArmed = true` (so
+    // the instruction after EI runs with IME still false). At the following
+    // boundary, `_eiArmed` applies IME = true, and dispatch is eligible.
+    private bool _eiPending;
+    private bool _eiArmed;
+    /// <summary>
+    /// HALT bug latch per §7.4: when HALT executes while IME=0 and an interrupt
+    /// is pending, HALT exits immediately but the next instruction fetch fails
+    /// to increment PC (same byte executes twice).
+    /// </summary>
+    private bool _haltBugNextFetch;
     public ulong TotalTCycles;
 
     private int _tCyclesRemainingInInstruction;
@@ -40,9 +52,7 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
             _tCyclesRemainingInInstruction--;
             if (_tCyclesRemainingInInstruction == 0)
             {
-                // Instruction boundary. Service interrupts and process EI delay.
-                if (_pendingImeEnable) { Ime = true; _pendingImeEnable = false; }
-                ServiceInterrupts();
+                OnInstructionBoundary();
                 return true;
             }
             return false;
@@ -51,11 +61,21 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         // No pending instruction — start a new one now.
         if (Halted || Stopped)
         {
-            _tCyclesRemainingInInstruction = 4;
             // Wake from HALT when a pending interrupt matches the enable mask.
-            if (Halted && (_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F) != 0)
+            bool hasPending = (_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F) != 0;
+            if (Halted && hasPending)
+            {
                 Halted = false;
-            return false;
+                // HALT bug: if IME was 0 when HALT woke, the next fetch does
+                // not increment PC.
+                if (!Ime) _haltBugNextFetch = true;
+                // Fall through to ExecuteNextInstruction this tick.
+            }
+            else
+            {
+                _tCyclesRemainingInInstruction = 4;
+                return false;
+            }
         }
 
         ExecuteNextInstruction();
@@ -65,6 +85,13 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     private void ExecuteNextInstruction()
     {
         byte opcode = ReadImmediate();
+        if (_haltBugNextFetch)
+        {
+            // Undo the PC increment so the next fetch re-reads the same byte.
+            Registers.Pc = (ushort)(Registers.Pc - 1);
+            _haltBugNextFetch = false;
+        }
+
         InstructionTable.InstructionHandler? handler;
         if (opcode == 0xCB)
         {
@@ -88,9 +115,18 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         _tCyclesRemainingInInstruction = cycles - 1;
         if (_tCyclesRemainingInInstruction <= 0)
         {
-            if (_pendingImeEnable) { Ime = true; _pendingImeEnable = false; }
-            ServiceInterrupts();
+            OnInstructionBoundary();
         }
+    }
+
+    private void OnInstructionBoundary()
+    {
+        // Promote pending EI latch by one stage. The order matters: applying
+        // _eiArmed BEFORE _eiPending advance means EI's own boundary does NOT
+        // enable IME — IME becomes true one boundary later.
+        if (_eiArmed) { Ime = true; _eiArmed = false; }
+        if (_eiPending) { _eiArmed = true; _eiPending = false; }
+        ServiceInterrupts();
     }
 
     private void ServiceInterrupts()
@@ -135,8 +171,16 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
 
     public void SetIme(bool enable)
     {
-        if (enable) _pendingImeEnable = true;  // EI takes effect after the next instruction
-        else Ime = false;
+        if (enable)
+        {
+            _eiPending = true;  // EI delay: IME enables after the instruction after EI
+        }
+        else
+        {
+            Ime = false;
+            _eiPending = false;
+            _eiArmed = false;
+        }
     }
 
     public void Halt() => Halted = true;
@@ -151,7 +195,9 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         Halted = false;
         Stopped = false;
         Ime = false;
-        _pendingImeEnable = false;
+        _eiPending = false;
+        _eiArmed = false;
+        _haltBugNextFetch = false;
         TotalTCycles = 0;
         _tCyclesRemainingInInstruction = 0;
     }

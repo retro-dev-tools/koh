@@ -4,8 +4,6 @@ public struct Interrupts
 {
     public byte IF;             // $FF0F — interrupt flag
     public byte IE;             // $FFFF — interrupt enable
-    public bool IME;            // master enable
-    public byte EiDelayLatch;   // 0=no pending; 1=will enable after next instruction
 
     public const byte VBlank = 1 << 0;
     public const byte Stat   = 1 << 1;
