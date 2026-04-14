@@ -82,9 +82,54 @@ public sealed class IoRegisters
             case 0xFF6B: return _ppu?.ObjPalette.ReadData() ?? 0xFF;
             case 0xFF6C: return _ppu is null ? _io[idx] : (byte)(_ppu.OPRI | 0xFE);
 
-            default: return _io[idx];
+            // APU registers have a fixed "unused bits read as 1" pattern per
+            // pandocs. Until Phase 4 implements the APU, return stored values
+            // OR'd with the appropriate masks.
+            case 0xFF10: return (byte)(_io[idx] | 0x80);    // NR10: bit 7 = 1
+            case 0xFF11: return (byte)(_io[idx] | 0x3F);    // NR11: bits 0-5 = 1 (only bits 6-7 readable)
+            case 0xFF13: return 0xFF;                       // NR13: write-only
+            case 0xFF14: return (byte)(_io[idx] | 0xBF);    // NR14: bits 0-5, bit 7 = 1 (only bit 6 readable)
+            case 0xFF15: return 0xFF;                       // unused
+            case 0xFF16: return (byte)(_io[idx] | 0x3F);    // NR21
+            case 0xFF18: return 0xFF;                       // NR23: write-only
+            case 0xFF19: return (byte)(_io[idx] | 0xBF);    // NR24
+            case 0xFF1A: return (byte)(_io[idx] | 0x7F);    // NR30: bits 0-6 = 1
+            case 0xFF1B: return 0xFF;                       // NR31: write-only
+            case 0xFF1C: return (byte)(_io[idx] | 0x9F);    // NR32: bits 0-4, bit 7 = 1
+            case 0xFF1D: return 0xFF;                       // NR33: write-only
+            case 0xFF1E: return (byte)(_io[idx] | 0xBF);    // NR34
+            case 0xFF1F: return 0xFF;                       // unused
+            case 0xFF20: return 0xFF;                       // NR41: write-only
+            case 0xFF23: return (byte)(_io[idx] | 0xBF);    // NR44
+            case 0xFF26: return (byte)(_io[idx] | 0x70);    // NR52: bits 4-6 = 1
+
+            // Ports in the \$FF27-\$FF2F range are unused and read \$FF.
+            case 0xFF27: case 0xFF28: case 0xFF29: case 0xFF2A:
+            case 0xFF2B: case 0xFF2C: case 0xFF2D: case 0xFF2E: case 0xFF2F:
+                return 0xFF;
+
+            // BCPS / OCPS index registers: bit 6 reads as 1.
+            // (Already returned via _ppu accessors above — this branch not reached.)
+
+            default:
+                // Unmapped I/O ports read as \$FF on real hardware.
+                if (IsUnmappedIoPort(address)) return 0xFF;
+                return _io[idx];
         }
     }
+
+    private static bool IsUnmappedIoPort(ushort address) => address switch
+    {
+        0xFF03 => true,
+        >= 0xFF08 and <= 0xFF0E => true,
+        0xFF4C => true,
+        0xFF4E => true,
+        0xFF50 => true,                              // BANK (boot ROM unmap) — write-only
+        >= 0xFF57 and <= 0xFF67 => true,
+        >= 0xFF6D and <= 0xFF6F => true,
+        >= 0xFF71 and <= 0xFF7F => true,
+        _ => false,
+    };
 
     public void Write(ushort address, byte value)
     {
