@@ -62,8 +62,29 @@ download_with_hash \
     "$REFERENCE_DIR/cgb-acid2.png" \
     "9ea9c262c5383353e77d715d021a0f7c5ccbe438f88082cb225756e50c4fdf01"
 
-# Phase 3 will add: Blargg cpu_instrs, instr_timing, mem_timing, mem_timing-2,
-#                   halt_bug, interrupt_time; Mooneye acceptance/
-# Phase 4 will add: Blargg dmg_sound
+# Phase 3: Blargg test suite zips (extracted into blargg/ subtree).
+BLARGG_DIR="$OUTPUT_DIR/blargg"
+mkdir -p "$BLARGG_DIR"
 
-echo "download-test-roms: acid2 fixtures ready under $OUTPUT_DIR"
+fetch_blargg_zip() {
+    local zipname="$1"
+    local url="https://gbdev.gg8.se/files/roms/blargg-gb-tests/$zipname.zip"
+    if [ ! -d "$BLARGG_DIR/$zipname" ] && [ ! -f "$BLARGG_DIR/$zipname.gb" ]; then
+        echo "DL  $zipname"
+        curl -fsSL -o "$BLARGG_DIR/$zipname.zip" "$url"
+        (cd "$BLARGG_DIR" && unzip -oq "$zipname.zip" && rm -f "$zipname.zip")
+    else
+        echo "OK  $zipname"
+    fi
+}
+
+fetch_blargg_zip cpu_instrs
+fetch_blargg_zip instr_timing
+fetch_blargg_zip mem_timing
+fetch_blargg_zip mem_timing-2
+fetch_blargg_zip halt_bug
+fetch_blargg_zip interrupt_time
+
+# Phase 4 will add: Blargg dmg_sound; Mooneye acceptance/
+
+echo "download-test-roms: acid2 + Blargg fixtures ready under $OUTPUT_DIR"

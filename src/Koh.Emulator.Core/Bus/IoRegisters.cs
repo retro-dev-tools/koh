@@ -2,6 +2,7 @@ using Koh.Emulator.Core.Cgb;
 using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.Dma;
 using Koh.Emulator.Core.Ppu;
+using Koh.Emulator.Core.Serial;
 
 namespace Koh.Emulator.Core.Bus;
 
@@ -14,6 +15,7 @@ public sealed class IoRegisters
     private readonly byte[] _io = new byte[0x80];
 
     public Timer.Timer Timer { get; }
+    public Serial.Serial Serial { get; } = new();
     private Interrupts _interrupts;
 
     public ref Interrupts Interrupts => ref _interrupts;
@@ -40,6 +42,8 @@ public sealed class IoRegisters
 
         switch (address)
         {
+            case 0xFF01: return Serial.ReadSB();
+            case 0xFF02: return Serial.ReadSC();
             case 0xFF04: return Timer.DIV;
             case 0xFF05: return Timer.TIMA;
             case 0xFF06: return Timer.TMA;
@@ -89,6 +93,8 @@ public sealed class IoRegisters
 
         switch (address)
         {
+            case 0xFF01: Serial.WriteSB(value); break;
+            case 0xFF02: Serial.WriteSC(value); break;
             case 0xFF04: Timer.WriteDiv(); break;
             case 0xFF05: Timer.WriteTima(value); break;
             case 0xFF06: Timer.WriteTma(value); break;
