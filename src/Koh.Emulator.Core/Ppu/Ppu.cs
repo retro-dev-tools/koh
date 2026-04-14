@@ -139,14 +139,19 @@ public sealed class Ppu
             return;
         }
 
-        // Check whether a sprite should start fetching at the current pixel column.
-        if ((LCDC & LcdControl.ObjEnable) != 0 && _fifo.BgCount > 0)
+        // Sprite trigger: runs independently of BG FIFO state. Real hardware checks
+        // every dot; requiring BG pixels here causes misses when the BG FIFO drains
+        // momentarily between fetcher pushes.
+        if ((LCDC & LcdControl.ObjEnable) != 0)
         {
             for (int i = 0; i < _lineSpriteCount; i++)
             {
                 if (_lineSpriteConsumed[i]) continue;
-                int spriteX = _lineSprites[i].X - 8;
-                if (spriteX == _lcdX)
+                int oamX = _lineSprites[i].X;
+                if (oamX == 0 || oamX >= 168) continue;  // entirely off-screen
+                int spriteX = oamX - 8;
+                int visibleStart = spriteX < 0 ? 0 : spriteX;
+                if (visibleStart == _lcdX)
                 {
                     _spriteFetchIndex = i;
                     _spritePenaltyDots = 6;  // minimum sprite-fetch penalty per §7.7
@@ -285,6 +290,11 @@ public sealed class Ppu
         int pixelIdx = (LY * Framebuffer.Width + _lcdX) * 4;
         var back = Framebuffer.Back;
 
+        // On DMG with BG-enable bit clear, BG always reads as color 0. On CGB,
+        // bit 0 instead controls master BG-OBJ priority; BG is always rendered.
+        bool bgDisabledDmg = _hwMode == HardwareMode.Dmg && (LCDC & LcdControl.BgWindowEnableOrPriority) == 0;
+        if (bgDisabledDmg) bgColor = 0;
+
         // Resolve final color index via DMG/CGB palette selection.
         byte finalColor;
         bool useSpriteColor = spriteColor != 0 && ((spriteFlags & ObjectAttributes.FlagBgPriority) == 0 || bgColor == 0);
@@ -334,13 +344,16 @@ public sealed class Ppu
         byte low = _vram[vramBankBit + tileAddr];
         byte high = _vram[vramBankBit + tileAddr + 1];
 
-        for (int px = 0; px < 8; px++)
+        // Skip N leftmost sprite pixels when OAM.X < 8 (partial off-screen left).
+        int skipLeft = sprite.X < 8 ? 8 - sprite.X : 0;
+
+        for (int px = skipLeft; px < 8; px++)
         {
             int bit = sprite.XFlip ? px : (7 - px);
             int lo = (low >> bit) & 1;
             int hi = (high >> bit) & 1;
             byte color = (byte)((hi << 1) | lo);
-            _fifo.PushSpritePixel(px, color, sprite.CgbPalette, sprite.Flags);
+            _fifo.PushSpritePixel(px - skipLeft, color, sprite.CgbPalette, sprite.Flags);
         }
     }
 

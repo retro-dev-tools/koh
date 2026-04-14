@@ -12,14 +12,12 @@ namespace Koh.Compat.Tests.Emulation;
 /// matches the published reference PNGs pixel-for-pixel. Skipped when fixtures
 /// are absent (run scripts/download-test-roms.sh to populate).
 ///
-/// These tests are the Phase 2 exit gate. They are tagged [Category("acid2")]
-/// so default CI can exclude them while PPU/CPU fidelity closes the remaining
-/// gap — set env KOH_RUN_ACID2=1 to include them.
+/// dmg-acid2 is the Phase 2 exit gate — strict zero-diff assertion, runs by
+/// default. cgb-acid2 is deferred to Phase 3 (CGB palette rendering is the
+/// Phase 3 deliverable per the plan).
 /// </summary>
 public class Acid2Tests
 {
-    private static bool SkipByDefault =>
-        Environment.GetEnvironmentVariable("KOH_RUN_ACID2") is not "1";
 
     private static readonly string FixturesRoot = LocateFixturesRoot();
 
@@ -41,12 +39,6 @@ public class Acid2Tests
     [Test]
     public async Task DmgAcid2_Framebuffer_Matches_Reference()
     {
-        if (SkipByDefault)
-        {
-            Skip.Test("Phase 2 acid2 gate excluded by default (set KOH_RUN_ACID2=1 to run).");
-            return;
-        }
-
         string romPath = RomPath("dmg-acid2.gb");
         string refPath = ReferencePath("dmg-acid2.png");
         if (!File.Exists(romPath) || !File.Exists(refPath))
@@ -67,17 +59,24 @@ public class Acid2Tests
         using var referenceImage = await Image.LoadAsync<Rgba32>(refPath);
         int diffCount = CountDiffPixels(actual, referenceImage);
 
-        Console.WriteLine($"[dmg-acid2] diff pixels: {diffCount} / {160 * 144}");
-        if (diffCount > 0) await SaveActualFrameAsync("dmg-acid2-actual.png", actual);
+        if (diffCount > 0)
+        {
+            Console.WriteLine($"[dmg-acid2] diff pixels: {diffCount} / {160 * 144}");
+            await SaveActualFrameAsync("dmg-acid2-actual.png", actual);
+            await SaveDiffFrameAsync("dmg-acid2-diff.png", actual, referenceImage);
+        }
         await Assert.That(diffCount).IsEqualTo(0);
     }
 
     [Test]
     public async Task CgbAcid2_Framebuffer_Matches_Reference()
     {
-        if (SkipByDefault)
+        // CGB palette rendering is a Phase 3 deliverable — this test is
+        // scaffolded but not gated. Enable with KOH_RUN_CGB_ACID2=1 when
+        // Phase 3 CGB palette work lands.
+        if (Environment.GetEnvironmentVariable("KOH_RUN_CGB_ACID2") is not "1")
         {
-            Skip.Test("Phase 2 acid2 gate excluded by default (set KOH_RUN_ACID2=1 to run).");
+            Skip.Test("cgb-acid2 deferred to Phase 3 (CGB palette rendering).");
             return;
         }
 
@@ -115,11 +114,32 @@ public class Acid2Tests
         await img.SaveAsPngAsync(Path.Combine(outDir, filename));
     }
 
+    private static async Task SaveDiffFrameAsync(string filename, byte[] actualRgba, Image<Rgba32> reference)
+    {
+        var outDir = Path.Combine(AppContext.BaseDirectory, "acid2-actual");
+        Directory.CreateDirectory(outDir);
+        using var diff = new Image<Rgba32>(reference.Width, reference.Height);
+        for (int y = 0; y < reference.Height; y++)
+            for (int x = 0; x < reference.Width; x++)
+            {
+                var refPx = reference[x, y];
+                int idx = (y * reference.Width + x) * 4;
+                bool differs = refPx.R != actualRgba[idx] ||
+                               refPx.G != actualRgba[idx + 1] ||
+                               refPx.B != actualRgba[idx + 2];
+                diff[x, y] = differs
+                    ? new Rgba32(255, 0, 0, 255)
+                    : new Rgba32(255, 255, 255, 255);
+            }
+        await diff.SaveAsPngAsync(Path.Combine(outDir, filename));
+    }
+
     private static int CountDiffPixels(byte[] actualRgba8888, Image<Rgba32> reference)
     {
         int diff = 0;
         int width = reference.Width;
         int height = reference.Height;
+        int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -129,9 +149,18 @@ public class Acid2Tests
                 byte ar = actualRgba8888[idx + 0];
                 byte ag = actualRgba8888[idx + 1];
                 byte ab = actualRgba8888[idx + 2];
-                if (pixel.R != ar || pixel.G != ag || pixel.B != ab) diff++;
+                if (pixel.R != ar || pixel.G != ag || pixel.B != ab)
+                {
+                    diff++;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
             }
         }
+        if (diff > 0)
+            Console.WriteLine($"[acid2] diff bbox: x={minX}..{maxX} y={minY}..{maxY}");
         return diff;
     }
 }
