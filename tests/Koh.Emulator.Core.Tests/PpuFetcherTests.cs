@@ -33,7 +33,7 @@ public class PpuFetcherTests
 
         for (int i = 0; i < 456; i++) gb.Ppu.TickDot(ref gb.Io.Interrupts);
 
-        byte[] expectedShades = { 0xE0, 0xA8, 0x58, 0x08, 0xE0, 0xA8, 0x58, 0x08 };
+        byte[] expectedShades = { 0xFF, 0xAA, 0x55, 0x00, 0xFF, 0xAA, 0x55, 0x00 };
         byte[] actual = new byte[8];
         for (int x = 0; x < 8; x++)
         {

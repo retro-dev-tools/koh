@@ -45,11 +45,33 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Download test ROMs
+        run: bash scripts/download-test-roms.sh
+
       - name: Build compat tests
         run: dotnet build tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --configuration Release
 
       - name: Run compat tests
         run: dotnet test --project tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --no-build --configuration Release
+
+  benchmark-native:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build benchmarks
+        run: dotnet build benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj --configuration Release
+
+      - name: Verify Phase 2 benchmark discovers
+        # Smoke-verifies the benchmark project builds and BDN finds the Phase 2
+        # benchmark. Real throughput runs locally (headless BDN in CI is noisy
+        # on shared runners); this gates "the benchmark harness compiles" only.
+        run: dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
 
   emulator-app:
     runs-on: ubuntu-latest

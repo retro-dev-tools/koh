@@ -297,13 +297,13 @@ public sealed class Ppu
             finalColor = ApplyDmgPalette(bgColor, BGP);
         }
 
-        // DMG greyscale mapping.
+        // DMG greyscale mapping (matches acid2 reference palette).
         byte shade = finalColor switch
         {
-            0 => (byte)0xE0,
-            1 => (byte)0xA8,
-            2 => (byte)0x58,
-            _ => (byte)0x08,
+            0 => (byte)0xFF,
+            1 => (byte)0xAA,
+            2 => (byte)0x55,
+            _ => (byte)0x00,
         };
         back[pixelIdx + 0] = shade;
         back[pixelIdx + 1] = shade;
