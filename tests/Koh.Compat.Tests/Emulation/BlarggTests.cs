@@ -53,8 +53,9 @@ public class BlarggTests
             }
         }
 
+        string finalOutput = gb.Io.Serial.ReadBufferAsString();
         throw new TimeoutException(
-            $"Blargg test {romRelPath} did not report pass/fail within {maxFrames} frames. Serial output: {gb.Io.Serial.ReadBufferAsString()}");
+            $"Blargg test {romRelPath} did not report pass/fail within {maxFrames} frames. Serial output: '{finalOutput}' (PC=${gb.Registers.Pc:X4})");
     }
 
     [Test] public Task CpuInstrs_01_Special() => RunBlarggTest("cpu_instrs/individual/01-special.gb");
@@ -82,13 +83,13 @@ public class BlarggTests
     [Test] public Task MemTiming2() => SkipOrRun("mem_timing-2/mem_timing.gb");
     [Test] public Task InterruptTime() => SkipOrRun("interrupt_time/interrupt_time.gb");
 
-    private Task SkipOrRun(string romRelPath)
+    private async Task SkipOrRun(string romRelPath)
     {
         if (Environment.GetEnvironmentVariable("KOH_RUN_BLARGG_TIMING") is not "1")
         {
             Skip.Test("Requires per-M-cycle memory timing (micro-op scheduler refactor). Set KOH_RUN_BLARGG_TIMING=1 to attempt.");
-            return Task.CompletedTask;
+            return;
         }
-        return RunBlarggTest(romRelPath);
+        await RunBlarggTest(romRelPath);
     }
 }

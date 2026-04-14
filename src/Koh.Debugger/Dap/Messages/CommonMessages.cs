@@ -49,4 +49,6 @@ public sealed class Capabilities
     [JsonPropertyName("supportsSteppingGranularity")] public bool SupportsSteppingGranularity { get; set; }
     [JsonPropertyName("supportsInstructionBreakpoints")] public bool SupportsInstructionBreakpoints { get; set; }
     [JsonPropertyName("supportsExceptionInfoRequest")] public bool SupportsExceptionInfoRequest { get; set; }
+    [JsonPropertyName("supportsBreakpointLocationsRequest")] public bool SupportsBreakpointLocationsRequest { get; set; }
+    [JsonPropertyName("supportsEvaluateForHovers")] public bool SupportsEvaluateForHovers { get; set; }
 }

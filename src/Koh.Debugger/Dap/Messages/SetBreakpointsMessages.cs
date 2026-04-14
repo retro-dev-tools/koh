@@ -30,6 +30,7 @@ public sealed class Breakpoint
     [JsonPropertyName("line")] public int? Line { get; set; }
     [JsonPropertyName("source")] public Source? Source { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
+    [JsonPropertyName("instructionReference")] public string? InstructionReference { get; set; }
 }
 
 public sealed class SetBreakpointsResponseBody

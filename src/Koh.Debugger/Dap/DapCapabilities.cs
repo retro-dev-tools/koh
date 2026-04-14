@@ -4,11 +4,11 @@ namespace Koh.Debugger.Dap;
 
 public static class DapCapabilities
 {
-    /// <summary>Phase 2 capabilities per spec §8.7.</summary>
+    /// <summary>Phase 3 capabilities per spec §8.7.</summary>
     public static Capabilities Phase2() => new()
     {
         SupportsConfigurationDoneRequest = true,
-        SupportsFunctionBreakpoints = false,
+        SupportsFunctionBreakpoints = true,
         SupportsConditionalBreakpoints = false,
         SupportsHitConditionalBreakpoints = false,
         SupportsStepBack = false,
@@ -17,7 +17,9 @@ public static class DapCapabilities
         SupportsWriteMemoryRequest = false,
         SupportsDisassembleRequest = true,
         SupportsSteppingGranularity = false,
-        SupportsInstructionBreakpoints = false,
+        SupportsInstructionBreakpoints = true,
         SupportsExceptionInfoRequest = false,
+        SupportsBreakpointLocationsRequest = true,
+        SupportsEvaluateForHovers = true,
     };
 }

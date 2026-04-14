@@ -19,6 +19,8 @@ public static class HandlerRegistration
         var stepHandlers = new StepHandlers(session);
         var stackTraceHandler = new StackTraceHandler(session);
         var disassembleHandler = new DisassembleHandler(session);
+        var evaluateHandler = new EvaluateHandler(session);
+        var bpHandlers = new BreakpointHandlers(session);
 
         dispatcher.RegisterHandler("initialize", InitializeHandler.Handle);
         dispatcher.RegisterHandler("launch", launchHandler.Handle);
@@ -36,5 +38,9 @@ public static class HandlerRegistration
         dispatcher.RegisterHandler("stepOut", stepHandlers.HandleStepOut);
         dispatcher.RegisterHandler("stackTrace", stackTraceHandler.Handle);
         dispatcher.RegisterHandler("disassemble", disassembleHandler.Handle);
+        dispatcher.RegisterHandler("evaluate", evaluateHandler.Handle);
+        dispatcher.RegisterHandler("setInstructionBreakpoints", bpHandlers.HandleSetInstructionBreakpoints);
+        dispatcher.RegisterHandler("setFunctionBreakpoints", bpHandlers.HandleSetFunctionBreakpoints);
+        dispatcher.RegisterHandler("breakpointLocations", bpHandlers.HandleBreakpointLocations);
     }
 }

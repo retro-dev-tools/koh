@@ -55,7 +55,7 @@ public class DapDispatcherTests
     }
 
     [Test]
-    public async Task Scopes_Returns_Registers_And_Hardware()
+    public async Task Scopes_Returns_Registers_Hardware_Symbols_SourceContext()
     {
         var (dispatcher, _, responses) = Build();
         dispatcher.HandleRequest(EncodeRequest(1, "scopes", new { frameId = 0 }));
@@ -63,9 +63,11 @@ public class DapDispatcherTests
         await Assert.That(responses.Count).IsEqualTo(1);
         using var doc = Parse(responses[0]);
         var scopes = doc.RootElement.GetProperty("body").GetProperty("scopes");
-        await Assert.That(scopes.GetArrayLength()).IsEqualTo(2);
+        await Assert.That(scopes.GetArrayLength()).IsEqualTo(4);
         await Assert.That(scopes[0].GetProperty("name").GetString()).IsEqualTo("Registers");
         await Assert.That(scopes[1].GetProperty("name").GetString()).IsEqualTo("Hardware");
+        await Assert.That(scopes[2].GetProperty("name").GetString()).IsEqualTo("Symbols");
+        await Assert.That(scopes[3].GetProperty("name").GetString()).IsEqualTo("Source Context");
     }
 
     [Test]
