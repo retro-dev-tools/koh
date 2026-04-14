@@ -67,11 +67,14 @@ jobs:
       - name: Build benchmarks
         run: dotnet build benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj --configuration Release
 
-      - name: Verify Phase 2 benchmark discovers
+      - name: Verify benchmarks discover
         # Smoke-verifies the benchmark project builds and BDN finds the Phase 2
-        # benchmark. Real throughput runs locally (headless BDN in CI is noisy
-        # on shared runners); this gates "the benchmark harness compiles" only.
-        run: dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
+        # and Phase 3 benchmarks. Real throughput runs locally (headless BDN in
+        # CI is noisy on shared runners); this gates "the benchmark harness
+        # compiles" only.
+        run: |
+          dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
+          dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase3*'
 
   emulator-app:
     runs-on: ubuntu-latest
