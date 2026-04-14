@@ -85,6 +85,18 @@ fetch_blargg_zip mem_timing-2
 fetch_blargg_zip halt_bug
 fetch_blargg_zip interrupt_time
 
-# Phase 4 will add: Blargg dmg_sound; Mooneye acceptance/
+# Phase 3: Mooneye test suite — used for acceptance/{bits,timer,interrupts,oam_dma}.
+MOONEYE_DIR="$OUTPUT_DIR/mooneye"
+MOONEYE_URL="https://gekkio.fi/files/mooneye-test-suite/mts-20240127-1204-74ae166/mts-20240127-1204-74ae166.tar.xz"
+if [ ! -d "$MOONEYE_DIR/mts-20240127-1204-74ae166" ]; then
+    mkdir -p "$MOONEYE_DIR"
+    echo "DL  mooneye-test-suite"
+    curl -fsSL -o "$MOONEYE_DIR/mts.tar.xz" "$MOONEYE_URL"
+    (cd "$MOONEYE_DIR" && tar -xJf mts.tar.xz && rm -f mts.tar.xz)
+else
+    echo "OK  mooneye-test-suite"
+fi
 
-echo "download-test-roms: acid2 + Blargg fixtures ready under $OUTPUT_DIR"
+# Phase 4 will add: Blargg dmg_sound.
+
+echo "download-test-roms: acid2 + Blargg + Mooneye fixtures ready under $OUTPUT_DIR"
