@@ -15,7 +15,7 @@ public static class DapCapabilities
         SupportsSetVariable = false,
         SupportsReadMemoryRequest = true,
         SupportsWriteMemoryRequest = false,
-        SupportsDisassembleRequest = false,
+        SupportsDisassembleRequest = true,
         SupportsSteppingGranularity = false,
         SupportsInstructionBreakpoints = false,
         SupportsExceptionInfoRequest = false,

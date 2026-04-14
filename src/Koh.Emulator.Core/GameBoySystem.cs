@@ -24,6 +24,12 @@ public sealed class GameBoySystem
 
     public RunGuard RunGuard { get; } = new();
 
+    /// <summary>
+    /// Optional breakpoint predicate called at each instruction boundary.
+    /// Returning true halts the run loop with <see cref="StopReason.Breakpoint"/>.
+    /// </summary>
+    public Func<ushort, bool>? BreakpointChecker;
+
     private bool _running;
 
     public GameBoySystem(HardwareMode mode, Cartridge.Cartridge cart)
@@ -92,10 +98,18 @@ public sealed class GameBoySystem
         {
             bool instrBoundary = StepOneSystemTick();
 
-            if (instrBoundary && RunGuard.StopRequested)
+            if (instrBoundary)
             {
-                _running = false;
-                return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles, Cpu.Registers.Pc);
+                if (RunGuard.StopRequested)
+                {
+                    _running = false;
+                    return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles, Cpu.Registers.Pc);
+                }
+                if (BreakpointChecker is { } check && check(Cpu.Registers.Pc))
+                {
+                    _running = false;
+                    return new StepResult(StopReason.Breakpoint, Cpu.TotalTCycles, Cpu.Registers.Pc);
+                }
             }
         }
 

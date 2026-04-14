@@ -51,7 +51,7 @@ public class DapDispatcherTests
         var body = root.GetProperty("body");
         await Assert.That(body.GetProperty("supportsConfigurationDoneRequest").GetBoolean()).IsTrue();
         await Assert.That(body.GetProperty("supportsReadMemoryRequest").GetBoolean()).IsTrue();
-        await Assert.That(body.GetProperty("supportsDisassembleRequest").GetBoolean()).IsFalse();
+        await Assert.That(body.GetProperty("supportsDisassembleRequest").GetBoolean()).IsTrue();
     }
 
     [Test]

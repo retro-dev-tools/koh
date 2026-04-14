@@ -69,7 +69,7 @@ public sealed class VariablesHandler
             new Variable { Name = "LY",   Value = H8(gb.Ppu.LY) },
             new Variable { Name = "IF",   Value = H8(gb.Io.Interrupts.IF) },
             new Variable { Name = "IE",   Value = H8(gb.Io.Interrupts.IE) },
-            new Variable { Name = "IME",  Value = gb.Io.Interrupts.IME ? "true" : "false" },
+            new Variable { Name = "IME",  Value = gb.Cpu.Ime ? "true" : "false" },
             new Variable { Name = "DIV",  Value = H8(gb.Timer.DIV) },
             new Variable { Name = "TIMA", Value = H8(gb.Timer.TIMA) },
             new Variable { Name = "TMA",  Value = H8(gb.Timer.TMA) },

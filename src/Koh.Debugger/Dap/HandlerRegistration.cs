@@ -16,6 +16,9 @@ public static class HandlerRegistration
         var setBpHandler = new SetBreakpointsHandler(session);
         var variablesHandler = new VariablesHandler(session);
         var readMemoryHandler = new ReadMemoryHandler(session);
+        var stepHandlers = new StepHandlers(session);
+        var stackTraceHandler = new StackTraceHandler(session);
+        var disassembleHandler = new DisassembleHandler(session);
 
         dispatcher.RegisterHandler("initialize", InitializeHandler.Handle);
         dispatcher.RegisterHandler("launch", launchHandler.Handle);
@@ -28,5 +31,10 @@ public static class HandlerRegistration
         dispatcher.RegisterHandler("variables", variablesHandler.Handle);
         dispatcher.RegisterHandler("exceptionInfo", ExceptionInfoHandler.Handle);
         dispatcher.RegisterHandler("readMemory", readMemoryHandler.Handle);
+        dispatcher.RegisterHandler("next", stepHandlers.HandleNext);
+        dispatcher.RegisterHandler("stepIn", stepHandlers.HandleStepIn);
+        dispatcher.RegisterHandler("stepOut", stepHandlers.HandleStepOut);
+        dispatcher.RegisterHandler("stackTrace", stackTraceHandler.Handle);
+        dispatcher.RegisterHandler("disassemble", disassembleHandler.Handle);
     }
 }

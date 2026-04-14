@@ -22,6 +22,25 @@ public sealed class Cartridge
         Mbc1_BankLow = 1;
     }
 
+    /// <summary>
+    /// Current active ROM bank for addresses in the $4000..$7FFF range. Used
+    /// by the debugger to resolve banked breakpoint addresses against PC.
+    /// </summary>
+    public byte CurrentRomBank
+    {
+        get
+        {
+            if (Kind == MapperKind.RomOnly) return 1;
+            if (Kind == MapperKind.Mbc1)
+            {
+                int bank = (Mbc1_BankHigh << 5) | (Mbc1_BankLow & 0x1F);
+                if ((bank & 0x1F) == 0) bank |= 1;
+                return (byte)bank;
+            }
+            return 1;
+        }
+    }
+
     public byte ReadRom(ushort address)
     {
         switch (Kind)
