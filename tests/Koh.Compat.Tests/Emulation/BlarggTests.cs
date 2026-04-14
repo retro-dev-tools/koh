@@ -49,7 +49,10 @@ public class BlarggTests
             if (output.Contains("Passed", StringComparison.Ordinal)) return;
             if (output.Contains("Failed", StringComparison.Ordinal))
             {
-                throw new Exception($"[Blargg {romRelPath}] Failed: {output.Trim()}");
+                // Let the test drain for a moment to capture the full failure
+                // detail — Blargg prints the test name and failed sub-tests.
+                for (int drain = 0; drain < 20; drain++) gb.RunFrame();
+                throw new Exception($"[Blargg {romRelPath}] Failed: {gb.Io.Serial.ReadBufferAsString().Trim()}");
             }
         }
 
