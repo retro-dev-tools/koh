@@ -76,6 +76,7 @@ public sealed class IoRegisters
             case 0xFF69: return _ppu?.BgPalette.ReadData() ?? 0xFF;
             case 0xFF6A: return _ppu is null ? _io[idx] : _ppu.ObjPalette.IndexRegister;
             case 0xFF6B: return _ppu?.ObjPalette.ReadData() ?? 0xFF;
+            case 0xFF6C: return _ppu is null ? _io[idx] : (byte)(_ppu.OPRI | 0xFE);
 
             default: return _io[idx];
         }
@@ -124,6 +125,7 @@ public sealed class IoRegisters
             case 0xFF69: _ppu?.BgPalette.WriteData(value); break;
             case 0xFF6A: if (_ppu is not null) _ppu.ObjPalette.IndexRegister = value; else _io[idx] = value; break;
             case 0xFF6B: _ppu?.ObjPalette.WriteData(value); break;
+            case 0xFF6C: if (_ppu is not null) _ppu.OPRI = (byte)(value & 1); break;
 
             default: _io[idx] = value; break;
         }

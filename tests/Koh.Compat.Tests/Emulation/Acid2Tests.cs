@@ -12,9 +12,8 @@ namespace Koh.Compat.Tests.Emulation;
 /// matches the published reference PNGs pixel-for-pixel. Skipped when fixtures
 /// are absent (run scripts/download-test-roms.sh to populate).
 ///
-/// dmg-acid2 is the Phase 2 exit gate — strict zero-diff assertion, runs by
-/// default. cgb-acid2 is deferred to Phase 3 (CGB palette rendering is the
-/// Phase 3 deliverable per the plan).
+/// dmg-acid2 is the Phase 2 exit gate, cgb-acid2 the Phase 3 exit gate. Both
+/// run by default with strict zero-diff assertion.
 /// </summary>
 public class Acid2Tests
 {
@@ -71,15 +70,6 @@ public class Acid2Tests
     [Test]
     public async Task CgbAcid2_Framebuffer_Matches_Reference()
     {
-        // CGB palette rendering is a Phase 3 deliverable — this test is
-        // scaffolded but not gated. Enable with KOH_RUN_CGB_ACID2=1 when
-        // Phase 3 CGB palette work lands.
-        if (Environment.GetEnvironmentVariable("KOH_RUN_CGB_ACID2") is not "1")
-        {
-            Skip.Test("cgb-acid2 deferred to Phase 3 (CGB palette rendering).");
-            return;
-        }
-
         string romPath = RomPath("cgb-acid2.gbc");
         string refPath = ReferencePath("cgb-acid2.png");
         if (!File.Exists(romPath) || !File.Exists(refPath))
@@ -99,11 +89,13 @@ public class Acid2Tests
         using var referenceImage = await Image.LoadAsync<Rgba32>(refPath);
         int diffCount = CountDiffPixels(actual, referenceImage);
 
-        // Phase 2 caveat: CGB palette-aware rendering is explicitly deferred to
-        // Phase 3 per the plan (DMG-only color mapping in Phase 2). Assert only
-        // that the test runs and is ready; the zero-diff gate tightens in
-        // Phase 3 when CGB palette-aware EmitPixel lands.
-        await Assert.That(diffCount).IsGreaterThanOrEqualTo(0);
+        if (diffCount > 0)
+        {
+            Console.WriteLine($"[cgb-acid2] diff pixels: {diffCount} / {160 * 144}");
+            await SaveActualFrameAsync("cgb-acid2-actual.png", actual);
+            await SaveDiffFrameAsync("cgb-acid2-diff.png", actual, referenceImage);
+        }
+        await Assert.That(diffCount).IsEqualTo(0);
     }
 
     private static async Task SaveActualFrameAsync(string filename, byte[] rgba8888)

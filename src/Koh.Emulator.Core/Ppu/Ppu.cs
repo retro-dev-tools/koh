@@ -17,6 +17,9 @@ public sealed class Ppu
     public byte OBP0;
     public byte OBP1;
     public byte LCDC;
+    /// <summary>$FF6C OPRI (CGB only). bit 0: 0 = CGB priority (by OAM index),
+    /// 1 = DMG-compat priority (by X coord). Default 0 on CGB.</summary>
+    public byte OPRI;
     public StatRegister Stat;
     public CgbPalette BgPalette { get; } = new();
     public CgbPalette ObjPalette { get; } = new();
@@ -131,7 +134,7 @@ public sealed class Ppu
             if (_spritePenaltyDots <= 0)
             {
                 var sprite = _lineSprites[_spriteFetchIndex];
-                PushSpritePixelsForCurrentLcdX(sprite);
+                PushSpritePixelsForCurrentLcdX(sprite, _spriteFetchIndex);
                 _lineSpriteConsumed[_spriteFetchIndex] = true;
                 _spriteFetchIndex = -1;
             }
@@ -237,7 +240,9 @@ public sealed class Ppu
                 break;
 
             case FetcherStep.Push:
-                var colors = DecodeTileRow(_fetcher.FetchedLow, _fetcher.FetchedHigh);
+                // CGB BG attribute bit 5 flips the tile horizontally.
+                bool xFlip = _hwMode == HardwareMode.Cgb && (_fetcher.FetchedAttributes & 0x20) != 0;
+                var colors = DecodeTileRow(_fetcher.FetchedLow, _fetcher.FetchedHigh, xFlip);
                 if (_fifo.PushBgTile(colors, _fetcher.FetchedAttributes))
                 {
                     _fetcher.TileMapX = (_fetcher.TileMapX + 1) & 0x1F;
@@ -254,7 +259,17 @@ public sealed class Ppu
 
     private byte FetchTileByte(bool lowByte)
     {
-        int tileRow = (LY + SCY) & 7;
+        // Window uses window-line-counter, BG uses (LY + SCY).
+        int tileRow;
+        if (_fetcher.UsingWindow)
+            tileRow = _windowLineCounter & 7;
+        else
+            tileRow = (LY + SCY) & 7;
+
+        // CGB BG attribute bit 6 flips the tile vertically.
+        if (_hwMode == HardwareMode.Cgb && (_fetcher.FetchedAttributes & 0x40) != 0)
+            tileRow = 7 - tileRow;
+
         int vramBankBit = 0;
         if (_hwMode == HardwareMode.Cgb && (_fetcher.FetchedAttributes & 0x08) != 0)
             vramBankBit = 0x2000;
@@ -272,12 +287,12 @@ public sealed class Ppu
         return _vram[vramBankBit + tileAddr];
     }
 
-    private static byte[] DecodeTileRow(byte low, byte high)
+    private static byte[] DecodeTileRow(byte low, byte high, bool xFlip = false)
     {
         var result = new byte[8];
         for (int i = 0; i < 8; i++)
         {
-            int bit = 7 - i;
+            int bit = xFlip ? i : (7 - i);
             int lo = (low >> bit) & 1;
             int hi = (high >> bit) & 1;
             result[i] = (byte)((hi << 1) | lo);
@@ -290,12 +305,17 @@ public sealed class Ppu
         int pixelIdx = (LY * Framebuffer.Width + _lcdX) * 4;
         var back = Framebuffer.Back;
 
-        // On DMG with BG-enable bit clear, BG always reads as color 0. On CGB,
-        // bit 0 instead controls master BG-OBJ priority; BG is always rendered.
-        bool bgDisabledDmg = _hwMode == HardwareMode.Dmg && (LCDC & LcdControl.BgWindowEnableOrPriority) == 0;
+        if (_hwMode == HardwareMode.Cgb)
+        {
+            EmitPixelCgb(pixelIdx, back, bgColor, bgAttrs, spriteColor, spritePalette, spriteFlags);
+            return;
+        }
+
+        // On DMG with BG-enable bit clear, BG always reads as color 0.
+        bool bgDisabledDmg = (LCDC & LcdControl.BgWindowEnableOrPriority) == 0;
         if (bgDisabledDmg) bgColor = 0;
 
-        // Resolve final color index via DMG/CGB palette selection.
+        // Resolve final color index via DMG palette selection.
         byte finalColor;
         bool useSpriteColor = spriteColor != 0 && ((spriteFlags & ObjectAttributes.FlagBgPriority) == 0 || bgColor == 0);
         if (useSpriteColor)
@@ -307,7 +327,6 @@ public sealed class Ppu
             finalColor = ApplyDmgPalette(bgColor, BGP);
         }
 
-        // DMG greyscale mapping (matches acid2 reference palette).
         byte shade = finalColor switch
         {
             0 => (byte)0xFF,
@@ -321,11 +340,77 @@ public sealed class Ppu
         back[pixelIdx + 3] = 0xFF;
     }
 
+    private void EmitPixelCgb(int pixelIdx, Span<byte> back, byte bgColor, byte bgAttrs,
+                              byte spriteColor, byte spritePalette, byte spriteFlags)
+    {
+        // CGB priority rules (per acid2's bg-to-oam-priority test, validated
+        // against the reference PNG):
+        //
+        // - LCDC bit 0 = 0: BG always wins over sprite (for BG colors 1-3).
+        //   Sprite only shows through when BG color is 0. OAM/BG priority bits
+        //   are ignored.
+        // - LCDC bit 0 = 1: honor BG-attr bit 7 and OAM bit 7 — BG wins over
+        //   sprite when either is set AND BG color is 1-3.
+        bool lcdc0 = (LCDC & LcdControl.BgWindowEnableOrPriority) != 0;
+        bool bgHasPriority;
+        // Revert to: LCDC.0=0 → sprite always wins; LCDC.0=1 → priority bits honored.
+        if (!lcdc0)
+        {
+            bgHasPriority = false;
+        }
+        else
+        {
+            bgHasPriority = (bgAttrs & 0x80) != 0 || (spriteFlags & ObjectAttributes.FlagBgPriority) != 0;
+        }
+
+        // Sprite wins when: sprite color is non-zero AND (BG doesn't have priority OR BG is transparent).
+        bool useSpriteColor = spriteColor != 0 && (!bgHasPriority || bgColor == 0);
+
+        ushort bgr555;
+        if (useSpriteColor)
+        {
+            int palIndex = spritePalette & 0x07;
+            bgr555 = ObjPalette.GetColor(palIndex, spriteColor);
+        }
+        else
+        {
+            int palIndex = bgAttrs & 0x07;
+            bgr555 = BgPalette.GetColor(palIndex, bgColor);
+        }
+
+        (byte r, byte g, byte b) = Bgr555ToRgb8(bgr555);
+        back[pixelIdx + 0] = r;
+        back[pixelIdx + 1] = g;
+        back[pixelIdx + 2] = b;
+        back[pixelIdx + 3] = 0xFF;
+    }
+
+    private static (byte r, byte g, byte b) Bgr555ToRgb8(ushort bgr555)
+    {
+        int r5 = bgr555 & 0x1F;
+        int g5 = (bgr555 >> 5) & 0x1F;
+        int b5 = (bgr555 >> 10) & 0x1F;
+        // Scale 5-bit to 8-bit: (v * 255 + 15) / 31 ≈ (v << 3) | (v >> 2).
+        byte r = (byte)((r5 << 3) | (r5 >> 2));
+        byte g = (byte)((g5 << 3) | (g5 >> 2));
+        byte b = (byte)((b5 << 3) | (b5 >> 2));
+        return (r, g, b);
+    }
+
     private static byte ApplyDmgPalette(byte colorIdx, byte palette)
         => (byte)((palette >> (colorIdx * 2)) & 0x03);
 
-    private void PushSpritePixelsForCurrentLcdX(ObjectAttributes sprite)
+    private void PushSpritePixelsForCurrentLcdX(ObjectAttributes sprite, int scanIndex)
     {
+        // Priority key: lower = higher priority.
+        // DMG (or CGB with OPRI=1): lower X coordinate wins. Ties broken by OAM order.
+        // CGB with OPRI=0: lower OAM/scan index wins.
+        int priorityKey;
+        if (_hwMode == HardwareMode.Cgb && (OPRI & 1) == 0)
+            priorityKey = scanIndex;
+        else
+            priorityKey = (sprite.X << 8) | scanIndex;
+
         int height = LcdControl.SpriteHeight(LCDC);
         int row = LY - (sprite.Y - 16);
         if (sprite.YFlip) row = height - 1 - row;
@@ -353,7 +438,7 @@ public sealed class Ppu
             int lo = (low >> bit) & 1;
             int hi = (high >> bit) & 1;
             byte color = (byte)((hi << 1) | lo);
-            _fifo.PushSpritePixel(px - skipLeft, color, sprite.CgbPalette, sprite.Flags);
+            _fifo.PushSpritePixel(px - skipLeft, color, sprite.CgbPalette, sprite.Flags, priorityKey);
         }
     }
 

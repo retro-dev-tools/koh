@@ -2,20 +2,22 @@ namespace Koh.Emulator.Core.Ppu;
 
 /// <summary>
 /// A 16-entry BG FIFO and a parallel sprite FIFO. Each entry encodes color index
-/// (0..3), palette selector, sprite-priority, and CGB-specific metadata.
+/// (0..3), palette selector, sprite-priority metadata, and a priority key used
+/// to arbitrate overlapping sprites (lower key wins on replace).
 /// </summary>
 public sealed class PixelFifo
 {
     // BG FIFO
-    private readonly byte[] _bgColors = new byte[16];       // 0..3 color index
-    private readonly byte[] _bgAttrs = new byte[16];        // CGB BG attribute byte
+    private readonly byte[] _bgColors = new byte[16];
+    private readonly byte[] _bgAttrs = new byte[16];
     private int _bgHead;
     private int _bgCount;
 
     // Sprite FIFO (overlay)
-    private readonly byte[] _spriteColors = new byte[8];    // 0..3 color index
-    private readonly byte[] _spritePalettes = new byte[8];  // CGB palette 0..7 or DMG OBP0/1
-    private readonly byte[] _spriteFlags = new byte[8];     // mirrors ObjectAttributes.Flags subset
+    private readonly byte[] _spriteColors = new byte[8];
+    private readonly byte[] _spritePalettes = new byte[8];
+    private readonly byte[] _spriteFlags = new byte[8];
+    private readonly int[] _spritePriority = new int[8];  // lower = higher priority
     private int _spriteCount;
 
     public int BgCount => _bgCount;
@@ -37,16 +39,23 @@ public sealed class PixelFifo
         return true;
     }
 
-    public void PushSpritePixel(int index, byte color, byte palette, byte flags)
+    /// <summary>
+    /// Push a sprite pixel at the given slot. Overrides an existing pixel only
+    /// when the existing slot is transparent (color 0) OR the new pixel has a
+    /// lower (better) priority key than the existing one.
+    /// </summary>
+    public void PushSpritePixel(int index, byte color, byte palette, byte flags, int priorityKey)
     {
-        // Sprite FIFO supports mixing: only overwrite if the current slot is transparent (color 0).
         if (index < _spriteCount)
         {
-            if (_spriteColors[index] == 0 && color != 0)
+            bool existingTransparent = _spriteColors[index] == 0;
+            bool newWinsOnPriority = priorityKey < _spritePriority[index];
+            if (color != 0 && (existingTransparent || newWinsOnPriority))
             {
                 _spriteColors[index] = color;
                 _spritePalettes[index] = palette;
                 _spriteFlags[index] = flags;
+                _spritePriority[index] = priorityKey;
             }
         }
         else
@@ -54,6 +63,7 @@ public sealed class PixelFifo
             _spriteColors[_spriteCount] = color;
             _spritePalettes[_spriteCount] = palette;
             _spriteFlags[_spriteCount] = flags;
+            _spritePriority[_spriteCount] = priorityKey;
             _spriteCount++;
         }
     }
@@ -76,6 +86,7 @@ public sealed class PixelFifo
                 _spriteColors[i - 1] = _spriteColors[i];
                 _spritePalettes[i - 1] = _spritePalettes[i];
                 _spriteFlags[i - 1] = _spriteFlags[i];
+                _spritePriority[i - 1] = _spritePriority[i];
             }
             _spriteCount--;
         }
