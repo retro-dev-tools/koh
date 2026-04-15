@@ -29,8 +29,9 @@ public sealed class SetBreakpointsHandler
             bool verified = addresses.Count > 0;
             if (verified)
             {
+                int hitTarget = ParseHitCondition(bp.HitCondition);
                 foreach (var addr in addresses)
-                    _session.Breakpoints.Add(addr);
+                    _session.Breakpoints.Add(addr, bp.Condition, hitTarget);
             }
             results.Add(new Breakpoint
             {
@@ -46,5 +47,16 @@ public sealed class SetBreakpointsHandler
             Success = true,
             Body = new SetBreakpointsResponseBody { Breakpoints = [.. results] },
         };
+    }
+
+    private static int ParseHitCondition(string? hit)
+    {
+        if (string.IsNullOrWhiteSpace(hit)) return 0;
+        // VS Code sends either a bare number ("5") or e.g. ">=5". Accept a bare
+        // integer; treat unrecognized formats as "always break".
+        var t = hit.Trim();
+        int i = 0;
+        while (i < t.Length && !char.IsDigit(t[i])) i++;
+        return int.TryParse(t.AsSpan(i), out var n) ? n : 0;
     }
 }

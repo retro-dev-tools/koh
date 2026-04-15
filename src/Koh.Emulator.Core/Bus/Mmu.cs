@@ -1,5 +1,6 @@
 using Koh.Emulator.Core.Cartridge;
 using Koh.Emulator.Core.Cgb;
+using Koh.Emulator.Core.Debug;
 using Koh.Emulator.Core.Dma;
 using Koh.Emulator.Core.State;
 
@@ -29,6 +30,8 @@ public sealed class Mmu
 
     private OamDma? _oamDma;
 
+    public MemoryHook? Hook { get; set; }
+
     public Mmu(Cartridge.Cartridge cart, IoRegisters io)
     {
         _cart = cart;
@@ -48,9 +51,11 @@ public sealed class Mmu
         // OAM DMA contention: during DMA, the CPU sees $FF on all "external"
         // buses (ROM/VRAM/WRAM/SRAM/OAM). HRAM and I/O registers remain
         // accessible per Mooneye oam_dma/reg_read behaviour.
-        if (_oamDma is { IsBusLocking: true } && address < 0xFF00)
-            return 0xFF;
-        return ReadByteInternal(address);
+        byte value = (_oamDma is { IsBusLocking: true } && address < 0xFF00)
+            ? (byte)0xFF
+            : ReadByteInternal(address);
+        Hook?.OnRead(address, value);
+        return value;
     }
 
     private byte ReadByteInternal(ushort address)
@@ -83,6 +88,8 @@ public sealed class Mmu
 
     public void WriteByte(ushort address, byte value)
     {
+        Hook?.OnWrite(address, value);
+
         // OAM DMA contention: CPU writes to external memory (ROM, VRAM, WRAM,
         // SRAM, OAM) are dropped while the bus is locked. HRAM and I/O
         // registers remain writable.

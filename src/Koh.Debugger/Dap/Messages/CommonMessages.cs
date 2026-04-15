@@ -51,4 +51,5 @@ public sealed class Capabilities
     [JsonPropertyName("supportsExceptionInfoRequest")] public bool SupportsExceptionInfoRequest { get; set; }
     [JsonPropertyName("supportsBreakpointLocationsRequest")] public bool SupportsBreakpointLocationsRequest { get; set; }
     [JsonPropertyName("supportsEvaluateForHovers")] public bool SupportsEvaluateForHovers { get; set; }
+    [JsonPropertyName("supportsDataBreakpoints")] public bool SupportsDataBreakpoints { get; set; }
 }

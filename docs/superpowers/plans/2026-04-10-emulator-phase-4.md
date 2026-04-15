@@ -1191,7 +1191,7 @@ git commit -m "feat(emulator): add MBC5 cartridge support"
 - Modify: `src/Koh.Emulator.Core/Debug/MemoryHook.cs`
 - Modify: `src/Koh.Emulator.Core/Bus/Mmu.cs`
 
-- [ ] **Step 1: Define the `MemoryHook` API**
+- [x] **Step 1: Define the `MemoryHook` API**
 
 ```csharp
 namespace Koh.Emulator.Core.Debug;
@@ -1203,7 +1203,7 @@ public abstract class MemoryHook
 }
 ```
 
-- [ ] **Step 2: Wire into `Mmu.ReadByte` / `WriteByte`**
+- [x] **Step 2: Wire into `Mmu.ReadByte` / `WriteByte`**
 
 ```csharp
 public MemoryHook? Hook { get; set; }
@@ -1222,7 +1222,7 @@ public void WriteByte(ushort address, byte value)
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Debug/MemoryHook.cs src/Koh.Emulator.Core/Bus/Mmu.cs
@@ -1239,7 +1239,7 @@ git commit -m "feat(emulator): plumb MemoryHook into Mmu read/write paths"
 - Create: `src/Koh.Debugger/Dap/Handlers/SetDataBreakpointsHandler.cs`
 - Create: `src/Koh.Debugger/Session/WatchpointHook.cs`
 
-- [ ] **Step 1: Create `WatchpointHook.cs`**
+- [x] **Step 1: Create `WatchpointHook.cs`**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1277,19 +1277,19 @@ public sealed class WatchpointHook : MemoryHook
 public sealed record WatchpointInfo(string DataId, string AccessType);
 ```
 
-- [ ] **Step 2: Create the DAP handlers per the DAP spec**
+- [x] **Step 2: Create the DAP handlers per the DAP spec**
 
 `dataBreakpointInfo` maps a memory reference to a `dataId` string that the client sends back in `setDataBreakpoints`. `setDataBreakpoints` registers the watchpoints with the hook.
 
-- [ ] **Step 3: Register and test**
+- [x] **Step 3: Register and test**
 
-- [ ] **Step 4: Update `DapCapabilities`**
+- [x] **Step 4: Update `DapCapabilities`**
 
 ```csharp
 SupportsDataBreakpoints = true,
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Koh.Debugger/Session/WatchpointHook.cs src/Koh.Debugger/Dap/Handlers/DataBreakpointInfoHandler.cs src/Koh.Debugger/Dap/Handlers/SetDataBreakpointsHandler.cs src/Koh.Debugger/Dap/Messages/DataBreakpointMessages.cs src/Koh.Debugger/Dap/DapCapabilities.cs tests/Koh.Debugger.Tests/WatchpointTests.cs
@@ -1305,7 +1305,7 @@ git commit -m "feat(debugger): add data breakpoints (watchpoints) via MemoryHook
 - Modify: `src/Koh.Debugger/Dap/Handlers/SetBreakpointsHandler.cs`
 - Create: `src/Koh.Debugger/Session/ExpressionEvaluator.cs`
 
-- [ ] **Step 1: Extend `BreakpointManager` with condition + hit count**
+- [x] **Step 1: Extend `BreakpointManager` with condition + hit count**
 
 ```csharp
 public sealed class BreakpointManager
@@ -1343,26 +1343,26 @@ public sealed class BreakpointManager
 }
 ```
 
-- [ ] **Step 2: Create `ExpressionEvaluator.cs`**
+- [x] **Step 2: Create `ExpressionEvaluator.cs`**
 
 Simple register/memory comparison expressions: `A == $42`, `BC > 100`, `[HL] == 0`. Parse and evaluate against the current CPU state.
 
-- [ ] **Step 3: Wire into the breakpoint hit check in `Sm83.cs`**
+- [x] **Step 3: Wire into the breakpoint hit check in `Sm83.cs`**
 
 The breakpoint checker gets a reference to `BreakpointManager.ShouldBreak` and an expression evaluator callback. Only breakpoint sites that pass the condition halt execution.
 
-- [ ] **Step 4: Update `SetBreakpointsHandler` to parse condition and hit-count from the DAP request**
+- [x] **Step 4: Update `SetBreakpointsHandler` to parse condition and hit-count from the DAP request**
 
-- [ ] **Step 5: Update capabilities**
+- [x] **Step 5: Update capabilities**
 
 ```csharp
 SupportsConditionalBreakpoints = true,
 SupportsHitConditionalBreakpoints = true,
 ```
 
-- [ ] **Step 6: Test**
+- [x] **Step 6: Test**
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/Koh.Debugger/Session/BreakpointManager.cs src/Koh.Debugger/Dap/Handlers/SetBreakpointsHandler.cs src/Koh.Debugger/Session/ExpressionEvaluator.cs src/Koh.Debugger/Dap/DapCapabilities.cs tests/Koh.Debugger.Tests/ConditionalBreakpointTests.cs
@@ -1380,7 +1380,7 @@ git commit -m "feat(debugger): add conditional and hit-count breakpoints"
 - Create: `src/Koh.Debugger/Dap/Handlers/WriteMemoryHandler.cs`
 - Modify: `src/Koh.Debugger/Dap/DapCapabilities.cs`
 
-- [ ] **Step 1: Create messages and handler**
+- [x] **Step 1: Create messages and handler**
 
 The handler calls `GameBoySystem.DebugWriteByte` per §7.10. It refuses the write if the emulator is running.
 
@@ -1412,15 +1412,15 @@ public Response Handle(Request request)
 }
 ```
 
-- [ ] **Step 2: Register and enable capability**
+- [x] **Step 2: Register and enable capability**
 
 ```csharp
 SupportsWriteMemoryRequest = true,
 ```
 
-- [ ] **Step 3: Test**
+- [x] **Step 3: Test**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/Messages/WriteMemoryMessages.cs src/Koh.Debugger/Dap/Handlers/WriteMemoryHandler.cs src/Koh.Debugger/Dap/DapCapabilities.cs tests/Koh.Debugger.Tests/WriteMemoryTests.cs

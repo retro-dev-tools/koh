@@ -21,6 +21,9 @@ public static class HandlerRegistration
         var disassembleHandler = new DisassembleHandler(session);
         var evaluateHandler = new EvaluateHandler(session);
         var bpHandlers = new BreakpointHandlers(session);
+        var setDataBpHandler = new SetDataBreakpointsHandler(session);
+        var dataBpInfoHandler = new DataBreakpointInfoHandler();
+        var writeMemoryHandler = new WriteMemoryHandler(session);
 
         dispatcher.RegisterHandler("initialize", InitializeHandler.Handle);
         dispatcher.RegisterHandler("launch", launchHandler.Handle);
@@ -42,5 +45,8 @@ public static class HandlerRegistration
         dispatcher.RegisterHandler("setInstructionBreakpoints", bpHandlers.HandleSetInstructionBreakpoints);
         dispatcher.RegisterHandler("setFunctionBreakpoints", bpHandlers.HandleSetFunctionBreakpoints);
         dispatcher.RegisterHandler("breakpointLocations", bpHandlers.HandleBreakpointLocations);
+        dispatcher.RegisterHandler("dataBreakpointInfo", dataBpInfoHandler.Handle);
+        dispatcher.RegisterHandler("setDataBreakpoints", setDataBpHandler.Handle);
+        dispatcher.RegisterHandler("writeMemory", writeMemoryHandler.Handle);
     }
 }
