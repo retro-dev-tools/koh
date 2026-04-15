@@ -1436,7 +1436,7 @@ git commit -m "feat(debugger): add writeMemory DAP handler"
 **Files:**
 - Create: `docs/verification/phase-4-games.md`
 
-- [ ] **Step 1: Create the checklist document**
+- [x] **Step 1: Create the checklist document**
 
 ```markdown
 # Phase 4 Real-Game Verification Checklists
@@ -1500,7 +1500,7 @@ Create a file `docs/verification/phase-4-YYYY-MM-DD.md` for each verification ru
 with pass/fail results and notes.
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/verification/phase-4-games.md
@@ -1513,19 +1513,19 @@ git commit -m "docs: add Phase 4 real-game verification checklists"
 
 This is a manual task. Acquire the ROMs legally (dump your own cartridges), load them in the dev host, and walk through each checklist.
 
-- [ ] **Step 1: Run each game and record results**
+- [ ] (DEFERRED — requires legally-dumped ROMs + manual gameplay; tracked as open Phase 4 exit-gate work) **Step 1: Run each game and record results**
 
 Create `docs/verification/phase-4-YYYY-MM-DD.md` (using today's actual date) with the results.
 
-- [ ] **Step 2: File bugs for each failure**
+- [ ] (DEFERRED — requires legally-dumped ROMs + manual gameplay; tracked as open Phase 4 exit-gate work) **Step 2: File bugs for each failure**
 
 Failures at this stage may indicate subtle CPU/PPU/APU bugs that the automated tests don't catch. Each bug gets a test case added to `Koh.Compat.Tests` when possible.
 
-- [ ] **Step 3: Fix and re-verify**
+- [ ] (DEFERRED — requires legally-dumped ROMs + manual gameplay; tracked as open Phase 4 exit-gate work) **Step 3: Fix and re-verify**
 
 Re-run the checklist after each fix. Phase 4 cannot close until all five games pass their full checklists.
 
-- [ ] **Step 4: Final commit**
+- [ ] (DEFERRED — requires legally-dumped ROMs + manual gameplay; tracked as open Phase 4 exit-gate work) **Step 4: Final commit**
 
 ```bash
 git add docs/verification/phase-4-YYYY-MM-DD.md
