@@ -1,6 +1,6 @@
 # Koh Emulator & Debugger — Phase 0 + Phase 1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Deliver an F5-launched debug session in VS Code that opens a Blazor-WASM emulator webview with a live CPU dashboard, source-resolved breakpoints (verified, not halting), a representative Phase 1 benchmark that passes the 2.0× real-time threshold, and all supporting project scaffolding — without CPU opcodes or PPU rendering (those arrive in Phases 2 and 3).
 
@@ -279,7 +279,7 @@ Phase 0 produces compilable empty projects and verifies the Blazor WASM AOT publ
 **Files:**
 - Create: `docs/decisions/emulator-platform-decision.md`
 
-- [ ] **Step 1: Write the decision document**
+- [x] **Step 1: Write the decision document**
 
 ```markdown
 # Decision: Blazor WebAssembly for Koh Emulator & Debugger
@@ -319,7 +319,7 @@ The existing `docs/decisions/lsp-aot-decision.md` documented that `Koh.Lsp` cann
 - `docs/decisions/lsp-aot-decision.md`
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/decisions/emulator-platform-decision.md
@@ -335,7 +335,7 @@ git commit -m "docs: add emulator platform decision record"
 - Create: `src/Koh.Emulator.Core/PlaceholderAssemblyInfo.cs`
 - Modify: `Koh.slnx`
 
-- [ ] **Step 1: Create the project file**
+- [x] **Step 1: Create the project file**
 
 File `src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`:
 
@@ -352,7 +352,7 @@ File `src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`:
 </Project>
 ```
 
-- [ ] **Step 2: Create a placeholder source file so the project compiles**
+- [x] **Step 2: Create a placeholder source file so the project compiles**
 
 File `src/Koh.Emulator.Core/PlaceholderAssemblyInfo.cs`:
 
@@ -365,7 +365,7 @@ internal static class PlaceholderAssemblyInfo
 }
 ```
 
-- [ ] **Step 3: Register the project in `Koh.slnx`**
+- [x] **Step 3: Register the project in `Koh.slnx`**
 
 Open `Koh.slnx` and add the new project entry inside the `/src/` folder, after the existing `Koh.Linker.Core` entry:
 
@@ -373,12 +373,12 @@ Open `Koh.slnx` and add the new project entry inside the `/src/` folder, after t
     <Project Path="src/Koh.Emulator.Core/Koh.Emulator.Core.csproj" />
 ```
 
-- [ ] **Step 4: Verify the solution builds**
+- [x] **Step 4: Verify the solution builds**
 
 Run: `dotnet build Koh.slnx`
 Expected: all projects build including the new one; no warnings (warnings are errors per `Directory.Build.props`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/ Koh.slnx
@@ -394,7 +394,7 @@ git commit -m "feat(emulator): scaffold Koh.Emulator.Core project"
 - Create: `src/Koh.Debugger/PlaceholderAssemblyInfo.cs`
 - Modify: `Koh.slnx`
 
-- [ ] **Step 1: Create the project file**
+- [x] **Step 1: Create the project file**
 
 File `src/Koh.Debugger/Koh.Debugger.csproj`:
 
@@ -414,7 +414,7 @@ File `src/Koh.Debugger/Koh.Debugger.csproj`:
 </Project>
 ```
 
-- [ ] **Step 2: Create the placeholder source file**
+- [x] **Step 2: Create the placeholder source file**
 
 File `src/Koh.Debugger/PlaceholderAssemblyInfo.cs`:
 
@@ -427,7 +427,7 @@ internal static class PlaceholderAssemblyInfo
 }
 ```
 
-- [ ] **Step 3: Register the project in `Koh.slnx`**
+- [x] **Step 3: Register the project in `Koh.slnx`**
 
 Add the new entry inside `/src/`:
 
@@ -435,12 +435,12 @@ Add the new entry inside `/src/`:
     <Project Path="src/Koh.Debugger/Koh.Debugger.csproj" />
 ```
 
-- [ ] **Step 4: Verify the solution builds**
+- [x] **Step 4: Verify the solution builds**
 
 Run: `dotnet build Koh.slnx`
 Expected: all projects build.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Koh.Debugger/ Koh.slnx
@@ -460,7 +460,7 @@ git commit -m "feat(debugger): scaffold Koh.Debugger project"
 - Create: `src/Koh.Emulator.App/wwwroot/css/emulator.css`
 - Modify: `Koh.slnx`
 
-- [ ] **Step 1: Create the Blazor WASM project file**
+- [x] **Step 1: Create the Blazor WASM project file**
 
 File `src/Koh.Emulator.App/Koh.Emulator.App.csproj`:
 
@@ -486,7 +486,7 @@ File `src/Koh.Emulator.App/Koh.Emulator.App.csproj`:
 </Project>
 ```
 
-- [ ] **Step 2: Add the Blazor package versions to `Directory.Packages.props`**
+- [x] **Step 2: Add the Blazor package versions to `Directory.Packages.props`**
 
 Edit `Directory.Packages.props` and add these entries inside the existing `<ItemGroup>`:
 
@@ -497,7 +497,7 @@ Edit `Directory.Packages.props` and add these entries inside the existing `<Item
 
 (Use the version that matches .NET 10 at the time of implementation.)
 
-- [ ] **Step 3: Create the Blazor entry point**
+- [x] **Step 3: Create the Blazor entry point**
 
 File `src/Koh.Emulator.App/Program.cs`:
 
@@ -513,7 +513,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 await builder.Build().RunAsync();
 ```
 
-- [ ] **Step 4: Create the `_Imports.razor` file**
+- [x] **Step 4: Create the `_Imports.razor` file**
 
 File `src/Koh.Emulator.App/_Imports.razor`:
 
@@ -530,7 +530,7 @@ File `src/Koh.Emulator.App/_Imports.razor`:
 @using Koh.Emulator.App
 ```
 
-- [ ] **Step 5: Create the placeholder root component**
+- [x] **Step 5: Create the placeholder root component**
 
 File `src/Koh.Emulator.App/App.razor`:
 
@@ -539,7 +539,7 @@ File `src/Koh.Emulator.App/App.razor`:
 <p>Scaffold only. Nothing here yet.</p>
 ```
 
-- [ ] **Step 6: Create the `wwwroot/index.html` shell**
+- [x] **Step 6: Create the `wwwroot/index.html` shell**
 
 File `src/Koh.Emulator.App/wwwroot/index.html`:
 
@@ -565,7 +565,7 @@ File `src/Koh.Emulator.App/wwwroot/index.html`:
 </html>
 ```
 
-- [ ] **Step 7: Create placeholder CSS**
+- [x] **Step 7: Create placeholder CSS**
 
 File `src/Koh.Emulator.App/wwwroot/css/emulator.css`:
 
@@ -587,7 +587,7 @@ html, body {
 }
 ```
 
-- [ ] **Step 8: Register the project in `Koh.slnx`**
+- [x] **Step 8: Register the project in `Koh.slnx`**
 
 Add inside `/src/`:
 
@@ -595,12 +595,12 @@ Add inside `/src/`:
     <Project Path="src/Koh.Emulator.App/Koh.Emulator.App.csproj" />
 ```
 
-- [ ] **Step 9: Verify the project builds**
+- [x] **Step 9: Verify the project builds**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/Koh.Emulator.App/ Koh.slnx Directory.Packages.props
@@ -613,22 +613,22 @@ git commit -m "feat(emulator-app): scaffold Koh.Emulator.App Blazor WASM project
 
 This is a one-time gate that proves the AOT publish toolchain is installed and functional. Do not continue Phase 0 if this step fails; resolve the tooling issue first.
 
-- [ ] **Step 1: Run the AOT publish**
+- [x] **Step 1: Run the AOT publish**
 
 Run: `dotnet publish src/Koh.Emulator.App/Koh.Emulator.App.csproj -c Release -p:RunAOTCompilation=true`
 Expected: publish succeeds. The step may take several minutes the first time. Output ends up under `src/Koh.Emulator.App/bin/Release/net10.0/publish/wwwroot/`.
 
-- [ ] **Step 2: Verify the `_framework/` directory contains AOT-compiled assets**
+- [x] **Step 2: Verify the `_framework/` directory contains AOT-compiled assets**
 
 Run: `ls src/Koh.Emulator.App/bin/Release/net10.0/publish/wwwroot/_framework/` (or equivalent on Windows)
 Expected: files including `blazor.webassembly.js`, `dotnet.js`, various `.wasm` files.
 
-- [ ] **Step 3: Verify the non-AOT publish also works (faster alternative for development)**
+- [x] **Step 3: Verify the non-AOT publish also works (faster alternative for development)**
 
 Run: `dotnet publish src/Koh.Emulator.App/Koh.Emulator.App.csproj -c Debug -p:RunAOTCompilation=false`
 Expected: publish succeeds, significantly faster than the AOT run.
 
-- [ ] **Step 4: Clean up publish artifacts (do not commit them)**
+- [x] **Step 4: Clean up publish artifacts (do not commit them)**
 
 Run: `git clean -fdx src/Koh.Emulator.App/bin src/Koh.Emulator.App/obj`
 
@@ -643,7 +643,7 @@ No commit — this task is a verification gate only.
 - Create: `tests/Koh.Emulator.Core.Tests/SmokeTests.cs`
 - Modify: `Koh.slnx`
 
-- [ ] **Step 1: Create the test project file**
+- [x] **Step 1: Create the test project file**
 
 File `tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj`:
 
@@ -667,7 +667,7 @@ File `tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj`:
 </Project>
 ```
 
-- [ ] **Step 2: Create a smoke test to prove the test runner works**
+- [x] **Step 2: Create a smoke test to prove the test runner works**
 
 File `tests/Koh.Emulator.Core.Tests/SmokeTests.cs`:
 
@@ -684,7 +684,7 @@ public class SmokeTests
 }
 ```
 
-- [ ] **Step 3: Register in `Koh.slnx`**
+- [x] **Step 3: Register in `Koh.slnx`**
 
 Add inside `/tests/`:
 
@@ -692,12 +692,12 @@ Add inside `/tests/`:
     <Project Path="tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj" />
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj`
 Expected: 1 test passes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/ Koh.slnx
@@ -713,7 +713,7 @@ git commit -m "test(emulator): scaffold Koh.Emulator.Core.Tests project"
 - Create: `tests/Koh.Debugger.Tests/SmokeTests.cs`
 - Modify: `Koh.slnx`
 
-- [ ] **Step 1: Create the test project file**
+- [x] **Step 1: Create the test project file**
 
 File `tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj`:
 
@@ -738,7 +738,7 @@ File `tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj`:
 </Project>
 ```
 
-- [ ] **Step 2: Create the smoke test**
+- [x] **Step 2: Create the smoke test**
 
 File `tests/Koh.Debugger.Tests/SmokeTests.cs`:
 
@@ -755,7 +755,7 @@ public class SmokeTests
 }
 ```
 
-- [ ] **Step 3: Register in `Koh.slnx`**
+- [x] **Step 3: Register in `Koh.slnx`**
 
 Add inside `/tests/`:
 
@@ -763,12 +763,12 @@ Add inside `/tests/`:
     <Project Path="tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj" />
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `dotnet test tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj`
 Expected: 1 test passes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/Koh.Debugger.Tests/ Koh.slnx
@@ -785,7 +785,7 @@ git commit -m "test(debugger): scaffold Koh.Debugger.Tests project"
 
 Phase 0 only scaffolds the scripts with an empty target list. Phase 2 and Phase 3 populate them with actual ROMs.
 
-- [ ] **Step 1: Create the PowerShell script**
+- [x] **Step 1: Create the PowerShell script**
 
 File `scripts/download-test-roms.ps1`:
 
@@ -813,7 +813,7 @@ Write-Host "download-test-roms: no ROMs configured for the current phase"
 exit 0
 ```
 
-- [ ] **Step 2: Create the Bash script**
+- [x] **Step 2: Create the Bash script**
 
 File `scripts/download-test-roms.sh`:
 
@@ -836,11 +836,11 @@ mkdir -p "$OUTPUT_DIR"
 echo "download-test-roms: no ROMs configured for the current phase"
 ```
 
-- [ ] **Step 3: Make the Bash script executable**
+- [x] **Step 3: Make the Bash script executable**
 
 Run: `chmod +x scripts/download-test-roms.sh` (on a Unix-like environment).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/download-test-roms.ps1 scripts/download-test-roms.sh
@@ -851,10 +851,10 @@ git commit -m "chore: scaffold test-rom download scripts"
 
 **Phase 0 exit checkpoint.** Before continuing to Phase 1, verify:
 
-- [ ] `dotnet build Koh.slnx` succeeds with no warnings
-- [ ] `dotnet test Koh.slnx` runs all existing tests plus the two new smoke tests
-- [ ] AOT publish of `Koh.Emulator.App` succeeds
-- [ ] All Phase 0 commits are on the branch
+- [x] `dotnet build Koh.slnx` succeeds with no warnings
+- [x] `dotnet test Koh.slnx` runs all existing tests plus the two new smoke tests
+- [x] AOT publish of `Koh.Emulator.App` succeeds
+- [x] All Phase 0 commits are on the branch
 
 If any of these fail, fix before proceeding.
 
@@ -868,7 +868,7 @@ If any of these fail, fix before proceeding.
 - Create: `src/Koh.Emulator.Core/HardwareMode.cs`
 - Create: `src/Koh.Emulator.Core/SystemClock.cs`
 
-- [ ] **Step 1: Create `HardwareMode.cs`**
+- [x] **Step 1: Create `HardwareMode.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core;
@@ -880,7 +880,7 @@ public enum HardwareMode
 }
 ```
 
-- [ ] **Step 2: Create `SystemClock.cs`**
+- [x] **Step 2: Create `SystemClock.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core;
@@ -908,12 +908,12 @@ public sealed class SystemClock
 }
 ```
 
-- [ ] **Step 3: Verify the core project builds**
+- [x] **Step 3: Verify the core project builds**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/HardwareMode.cs src/Koh.Emulator.Core/SystemClock.cs
@@ -930,7 +930,7 @@ git commit -m "feat(emulator): add HardwareMode and SystemClock"
 - Create: `src/Koh.Emulator.Core/StopCondition.cs`
 - Create: `src/Koh.Emulator.Core/RunGuard.cs`
 
-- [ ] **Step 1: Create `StopReason.cs`**
+- [x] **Step 1: Create `StopReason.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core;
@@ -947,7 +947,7 @@ public enum StopReason
 }
 ```
 
-- [ ] **Step 2: Create `StepResult.cs`**
+- [x] **Step 2: Create `StepResult.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core;
@@ -958,7 +958,7 @@ public readonly record struct StepResult(
     ushort FinalPc);
 ```
 
-- [ ] **Step 3: Create `StopCondition.cs`**
+- [x] **Step 3: Create `StopCondition.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core;
@@ -1003,7 +1003,7 @@ public readonly struct StopCondition
 }
 ```
 
-- [ ] **Step 4: Create `RunGuard.cs`**
+- [x] **Step 4: Create `RunGuard.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core;
@@ -1025,12 +1025,12 @@ public sealed class RunGuard
 }
 ```
 
-- [ ] **Step 5: Build the core project**
+- [x] **Step 5: Build the core project**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/StopReason.cs src/Koh.Emulator.Core/StepResult.cs src/Koh.Emulator.Core/StopCondition.cs src/Koh.Emulator.Core/RunGuard.cs
@@ -1044,7 +1044,7 @@ git commit -m "feat(emulator): add StepResult, StopCondition, RunGuard"
 **Files:**
 - Create: `src/Koh.Emulator.Core/Cpu/CpuRegisters.cs`
 
-- [ ] **Step 1: Create `CpuRegisters.cs`**
+- [x] **Step 1: Create `CpuRegisters.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cpu;
@@ -1096,12 +1096,12 @@ public struct CpuRegisters
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/CpuRegisters.cs
@@ -1115,7 +1115,7 @@ git commit -m "feat(emulator): add CpuRegisters struct with AF/BC/DE/HL + flag b
 **Files:**
 - Create: `src/Koh.Emulator.Core/Joypad/JoypadState.cs`
 
-- [ ] **Step 1: Create `JoypadState.cs`**
+- [x] **Step 1: Create `JoypadState.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Joypad;
@@ -1145,7 +1145,7 @@ public struct JoypadState
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -1161,7 +1161,7 @@ git commit -m "feat(emulator): add JoypadState struct"
 **Files:**
 - Create: `src/Koh.Emulator.Core/Ppu/Framebuffer.cs`
 
-- [ ] **Step 1: Create `Framebuffer.cs`**
+- [x] **Step 1: Create `Framebuffer.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -1206,7 +1206,7 @@ public sealed class Framebuffer
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -1222,7 +1222,7 @@ git commit -m "feat(emulator): add Framebuffer with double-buffering"
 **Files:**
 - Create: `src/Koh.Emulator.Core/Cpu/Interrupts.cs`
 
-- [ ] **Step 1: Create `Interrupts.cs`**
+- [x] **Step 1: Create `Interrupts.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cpu;
@@ -1248,7 +1248,7 @@ public struct Interrupts
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -1267,7 +1267,7 @@ git commit -m "feat(emulator): add Interrupts struct with IF/IE/IME latches"
 - Create: `src/Koh.Emulator.Core/Cartridge/MapperKind.cs`
 - Create: `src/Koh.Emulator.Core/Cartridge/CartridgeHeader.cs`
 
-- [ ] **Step 1: Create `MapperKind.cs`**
+- [x] **Step 1: Create `MapperKind.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cartridge;
@@ -1280,7 +1280,7 @@ public enum MapperKind : byte
 }
 ```
 
-- [ ] **Step 2: Create `CartridgeHeader.cs`**
+- [x] **Step 2: Create `CartridgeHeader.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cartridge;
@@ -1345,12 +1345,12 @@ public readonly record struct CartridgeHeader(
 }
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 4: Write a failing test**
+- [x] **Step 4: Write a failing test**
 
 File `tests/Koh.Emulator.Core.Tests/CartridgeHeaderTests.cs`:
 
@@ -1425,12 +1425,12 @@ public class CartridgeHeaderTests
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj`
 Expected: all 5 new tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cartridge/ tests/Koh.Emulator.Core.Tests/CartridgeHeaderTests.cs
@@ -1446,7 +1446,7 @@ git commit -m "feat(emulator): add CartridgeHeader parser with tests"
 - Create: `src/Koh.Emulator.Core/Cartridge/Mbc1.cs`
 - Create: `src/Koh.Emulator.Core/Cartridge/CartridgeFactory.cs`
 
-- [ ] **Step 1: Create `Cartridge.cs`**
+- [x] **Step 1: Create `Cartridge.cs`**
 
 Per design §7.5: sealed class, enum-dispatched mapper logic, no interface.
 
@@ -1528,7 +1528,7 @@ public sealed class Cartridge
 }
 ```
 
-- [ ] **Step 2: Create `Mbc1.cs`**
+- [x] **Step 2: Create `Mbc1.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cartridge;
@@ -1599,7 +1599,7 @@ internal static class Mbc1
 }
 ```
 
-- [ ] **Step 3: Create `CartridgeFactory.cs`**
+- [x] **Step 3: Create `CartridgeFactory.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cartridge;
@@ -1616,7 +1616,7 @@ public static class CartridgeFactory
 }
 ```
 
-- [ ] **Step 4: Write failing tests for Mbc1**
+- [x] **Step 4: Write failing tests for Mbc1**
 
 File `tests/Koh.Emulator.Core.Tests/Mbc1Tests.cs`:
 
@@ -1711,12 +1711,12 @@ public class Mbc1Tests
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj`
 Expected: all Mbc1 tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cartridge/Cartridge.cs src/Koh.Emulator.Core/Cartridge/Mbc1.cs src/Koh.Emulator.Core/Cartridge/CartridgeFactory.cs tests/Koh.Emulator.Core.Tests/Mbc1Tests.cs
@@ -1734,7 +1734,7 @@ Phase 1 ships the full Timer per §7.12. The Timer is small and self-contained; 
 **Files:**
 - Create: `src/Koh.Emulator.Core/Timer/Timer.cs`
 
-- [ ] **Step 1: Create `Timer.cs`**
+- [x] **Step 1: Create `Timer.cs`**
 
 Per design §7.2 and §3: the timer is driven by the CPU T-cycle clock. Internal state is a 16-bit counter incrementing every CPU T-cycle. `DIV` is bits 9–15 of that counter. `TIMA` increments on falling edges of a TAC-selected bit. TMA reload has a 1-M-cycle delay during which the overflow was triggered.
 
@@ -1860,12 +1860,12 @@ public sealed class Timer
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Timer/Timer.cs
@@ -1879,7 +1879,7 @@ git commit -m "feat(emulator): add full Timer with DIV/TIMA/TMA/TAC + TMA reload
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/TimerTests.cs`
 
-- [ ] **Step 1: Write failing DIV rate test**
+- [x] **Step 1: Write failing DIV rate test**
 
 File `tests/Koh.Emulator.Core.Tests/TimerTests.cs`:
 
@@ -1917,12 +1917,12 @@ public class TimerTests
 }
 ```
 
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter TimerTests.Div_Increments_Every_256_TCycles`
 Expected: test passes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/TimerTests.cs
@@ -1933,7 +1933,7 @@ git commit -m "test(emulator): add Timer DIV increment-rate test"
 
 ### Task 1.C.3: Timer tests — TIMA at each TAC setting
 
-- [ ] **Step 1: Append four TIMA tests to `TimerTests.cs`**
+- [x] **Step 1: Append four TIMA tests to `TimerTests.cs`**
 
 Add these tests inside the `TimerTests` class:
 
@@ -1991,12 +1991,12 @@ Add these tests inside the `TimerTests` class:
     }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter TimerTests`
 Expected: all four TIMA tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/TimerTests.cs
@@ -2007,7 +2007,7 @@ git commit -m "test(emulator): add TIMA increment rate tests for all TAC setting
 
 ### Task 1.C.4: Timer tests — TIMA overflow, TMA reload, IRQ
 
-- [ ] **Step 1: Append overflow/IRQ tests**
+- [x] **Step 1: Append overflow/IRQ tests**
 
 Add inside `TimerTests`:
 
@@ -2046,12 +2046,12 @@ Add inside `TimerTests`:
     }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter TimerTests`
 Expected: all TimerTests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/TimerTests.cs
@@ -2070,7 +2070,7 @@ git commit -m "test(emulator): add TIMA overflow, TMA reload, and IRQ tests"
 
 Phase 1 MMU routes every region but does not implement PPU mode 2/3 lockout or OAM DMA contention — those arrive in Phase 2 per §7.12.
 
-- [ ] **Step 1: Create `IoRegisters.cs` with Phase 1 stubs**
+- [x] **Step 1: Create `IoRegisters.cs` with Phase 1 stubs**
 
 ```csharp
 using Koh.Emulator.Core.Cpu;
@@ -2134,7 +2134,7 @@ public sealed class IoRegisters
 }
 ```
 
-- [ ] **Step 2: Create `Mmu.cs`**
+- [x] **Step 2: Create `Mmu.cs`**
 
 ```csharp
 using Koh.Emulator.Core.Cartridge;
@@ -2270,12 +2270,12 @@ public sealed class Mmu
 }
 ```
 
-- [ ] **Step 3: Build the core project**
+- [x] **Step 3: Build the core project**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Bus/Mmu.cs src/Koh.Emulator.Core/Bus/IoRegisters.cs
@@ -2289,7 +2289,7 @@ git commit -m "feat(emulator): add Mmu routing and IoRegisters with Phase 1 scop
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/MmuTests.cs`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 ```csharp
 using Koh.Emulator.Core.Bus;
@@ -2362,12 +2362,12 @@ public class MmuTests
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter MmuTests`
 Expected: all tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/MmuTests.cs
@@ -2386,7 +2386,7 @@ Per §7.12 Phase 1, the PPU only ticks its dot counter and LY register; the fetc
 - Create: `src/Koh.Emulator.Core/Ppu/PpuMode.cs`
 - Create: `src/Koh.Emulator.Core/Ppu/Ppu.cs`
 
-- [ ] **Step 1: Create `PpuMode.cs`**
+- [x] **Step 1: Create `PpuMode.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -2400,7 +2400,7 @@ public enum PpuMode : byte
 }
 ```
 
-- [ ] **Step 2: Create `Ppu.cs`**
+- [x] **Step 2: Create `Ppu.cs`**
 
 ```csharp
 using Koh.Emulator.Core.Cpu;
@@ -2457,12 +2457,12 @@ public sealed class Ppu
 }
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Ppu/PpuMode.cs src/Koh.Emulator.Core/Ppu/Ppu.cs
@@ -2478,7 +2478,7 @@ git commit -m "feat(emulator): add Phase 1 PPU skeleton (dot counter + LY + VBla
 
 Per §12.9, the mock "instruction" is 4 T-cycles and performs one `Mmu.ReadByte` (varying address to defeat caching), one ALU op, one flag update, one conditional branch.
 
-- [ ] **Step 1: Create `Sm83.cs`**
+- [x] **Step 1: Create `Sm83.cs`**
 
 ```csharp
 using Koh.Emulator.Core.Bus;
@@ -2555,12 +2555,12 @@ public sealed class Sm83
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/Sm83.cs
@@ -2576,7 +2576,7 @@ git commit -m "feat(emulator): add Phase 1 mock CPU with representative workload
 **Files:**
 - Create: `src/Koh.Emulator.Core/GameBoySystem.cs`
 
-- [ ] **Step 1: Create `GameBoySystem.cs`**
+- [x] **Step 1: Create `GameBoySystem.cs`**
 
 ```csharp
 using Koh.Emulator.Core.Bus;
@@ -2642,12 +2642,12 @@ public sealed class GameBoySystem
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/GameBoySystem.cs
@@ -2661,7 +2661,7 @@ git commit -m "feat(emulator): add GameBoySystem facade with single-tick schedul
 **Files:**
 - Modify: `src/Koh.Emulator.Core/GameBoySystem.cs`
 
-- [ ] **Step 1: Write a failing test for RunFrame tick count**
+- [x] **Step 1: Write a failing test for RunFrame tick count**
 
 Add to `tests/Koh.Emulator.Core.Tests/GameBoySystemTests.cs` (create the file):
 
@@ -2703,12 +2703,12 @@ public class GameBoySystemTests
 }
 ```
 
-- [ ] **Step 2: Run the test — expect compile failure because RunFrame / StepInstruction don't exist**
+- [x] **Step 2: Run the test — expect compile failure because RunFrame / StepInstruction don't exist**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj`
 Expected: build fails with missing method errors.
 
-- [ ] **Step 3: Implement the execution API on `GameBoySystem`**
+- [x] **Step 3: Implement the execution API on `GameBoySystem`**
 
 Append to `GameBoySystem.cs` inside the class body:
 
@@ -2757,12 +2757,12 @@ Append to `GameBoySystem.cs` inside the class body:
     }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter GameBoySystemTests`
 Expected: both tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/GameBoySystem.cs tests/Koh.Emulator.Core.Tests/GameBoySystemTests.cs
@@ -2776,7 +2776,7 @@ git commit -m "feat(emulator): add RunFrame, StepInstruction, StepTCycle API"
 **Files:**
 - Modify: `src/Koh.Emulator.Core/GameBoySystem.cs`
 
-- [ ] **Step 1: Write a failing test**
+- [x] **Step 1: Write a failing test**
 
 Append to `GameBoySystemTests.cs`:
 
@@ -2795,7 +2795,7 @@ Append to `GameBoySystemTests.cs`:
 
 *(Phase 1 mock CPU may not land exactly on `targetPc` depending on the mock's PC increment pattern; the test accepts either `StopRequested` if it did or `FrameComplete` if the run ran out of time. The goal at this point is API shape, not behavioral precision.)*
 
-- [ ] **Step 2: Implement `RunUntil`**
+- [x] **Step 2: Implement `RunUntil`**
 
 Append to `GameBoySystem.cs`:
 
@@ -2853,12 +2853,12 @@ Append to `GameBoySystem.cs`:
     }
 ```
 
-- [ ] **Step 3: Run the test**
+- [x] **Step 3: Run the test**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter GameBoySystemTests`
 Expected: all tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/GameBoySystem.cs tests/Koh.Emulator.Core.Tests/GameBoySystemTests.cs
@@ -2875,7 +2875,7 @@ git commit -m "feat(emulator): add RunUntil with structural StopCondition"
 - Modify: `src/Koh.Emulator.Core/GameBoySystem.cs`
 - Create: `tests/Koh.Emulator.Core.Tests/DebugReadWriteTests.cs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 File `tests/Koh.Emulator.Core.Tests/DebugReadWriteTests.cs`:
 
@@ -2936,7 +2936,7 @@ public class DebugReadWriteTests
 }
 ```
 
-- [ ] **Step 2: Add the debug API to `GameBoySystem`**
+- [x] **Step 2: Add the debug API to `GameBoySystem`**
 
 Append to `GameBoySystem.cs`:
 
@@ -2953,12 +2953,12 @@ Append to `GameBoySystem.cs`:
     internal void SetRunningForTest(bool running) => _running = running;
 ```
 
-- [ ] **Step 3: Run the tests**
+- [x] **Step 3: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter DebugReadWriteTests`
 Expected: all tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/GameBoySystem.cs tests/Koh.Emulator.Core.Tests/DebugReadWriteTests.cs
@@ -2977,7 +2977,7 @@ Per §9 of the spec with the Phase 1 scope reduction: **no coalescing, no expans
 - Create: `src/Koh.Linker.Core/KdbgFormat.cs`
 - Create: `src/Koh.Linker.Core/BankedAddress.cs`
 
-- [ ] **Step 1: Create `KdbgFormat.cs`**
+- [x] **Step 1: Create `KdbgFormat.cs`**
 
 ```csharp
 namespace Koh.Linker.Core;
@@ -2997,7 +2997,7 @@ internal static class KdbgFormat
 }
 ```
 
-- [ ] **Step 2: Create `BankedAddress.cs`**
+- [x] **Step 2: Create `BankedAddress.cs`**
 
 ```csharp
 namespace Koh.Linker.Core;
@@ -3008,7 +3008,7 @@ public readonly record struct BankedAddress(byte Bank, ushort Address)
 }
 ```
 
-- [ ] **Step 3: Build and commit**
+- [x] **Step 3: Build and commit**
 
 Run: `dotnet build src/Koh.Linker.Core/Koh.Linker.Core.csproj`
 
@@ -3024,7 +3024,7 @@ git commit -m "feat(linker): add .kdbg format constants and BankedAddress struct
 **Files:**
 - Create: `src/Koh.Linker.Core/DebugInfoBuilder.cs`
 
-- [ ] **Step 1: Create `DebugInfoBuilder.cs`**
+- [x] **Step 1: Create `DebugInfoBuilder.cs`**
 
 ```csharp
 using System.Collections.Generic;
@@ -3150,12 +3150,12 @@ public sealed class DebugInfoBuilder
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Linker.Core/Koh.Linker.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Linker.Core/DebugInfoBuilder.cs
@@ -3169,7 +3169,7 @@ git commit -m "feat(linker): add DebugInfoBuilder collector for .kdbg"
 **Files:**
 - Create: `src/Koh.Linker.Core/KdbgFileWriter.cs`
 
-- [ ] **Step 1: Create `KdbgFileWriter.cs`**
+- [x] **Step 1: Create `KdbgFileWriter.cs`**
 
 ```csharp
 using System.IO;
@@ -3396,12 +3396,12 @@ public static class KdbgFileWriter
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Linker.Core/Koh.Linker.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Linker.Core/KdbgFileWriter.cs
@@ -3415,11 +3415,11 @@ git commit -m "feat(linker): add KdbgFileWriter binary serialization (Phase 1 sc
 **Files:**
 - Create: `tests/Koh.Linker.Tests/KdbgFileWriterTests.cs`
 
-- [ ] **Step 1: Find the existing Koh.Linker.Tests csproj and verify layout**
+- [x] **Step 1: Find the existing Koh.Linker.Tests csproj and verify layout**
 
 Run: `ls tests/Koh.Linker.Tests/` and confirm a `.csproj` exists. If not, create it using the same template as `Koh.Emulator.Core.Tests.csproj` referencing `Koh.Linker.Core`.
 
-- [ ] **Step 2: Write a round-trip test**
+- [x] **Step 2: Write a round-trip test**
 
 File `tests/Koh.Linker.Tests/KdbgFileWriterTests.cs`:
 
@@ -3518,7 +3518,7 @@ public class KdbgFileWriterTests
 }
 ```
 
-- [ ] **Step 3: Create the reader used by the round-trip test**
+- [x] **Step 3: Create the reader used by the round-trip test**
 
 The writer tests need a matching reader. This lives in `Koh.Linker.Core` because both the linker (writer) and the debugger (reader) share it.
 
@@ -3682,12 +3682,12 @@ public static class KdbgReader
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `dotnet test tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj --filter KdbgFileWriterTests`
 Expected: all round-trip tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Koh.Linker.Core/KdbgReader.cs tests/Koh.Linker.Tests/KdbgFileWriterTests.cs
@@ -3708,7 +3708,7 @@ The existing linker collects symbols and emits `.sym`. This task wires `.kdbg` e
 
 Before touching `koh-link`, centralize the "convert linker results → DebugInfoBuilder" logic so it can be tested in isolation.
 
-- [ ] **Step 1: Create `DebugInfoPopulator.cs`**
+- [x] **Step 1: Create `DebugInfoPopulator.cs`**
 
 ```csharp
 using Koh.Core.Symbols;
@@ -3764,12 +3764,12 @@ public static class DebugInfoPopulator
 }
 ```
 
-- [ ] **Step 2: Build the linker**
+- [x] **Step 2: Build the linker**
 
 Run: `dotnet build src/Koh.Linker.Core/Koh.Linker.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Linker.Core/DebugInfoPopulator.cs
@@ -3785,12 +3785,12 @@ git commit -m "feat(linker): add DebugInfoPopulator bridging LinkerSymbol → .k
 
 The existing CLI parser handles `-o`/`--output` and `-n`/`--sym`. Extend it to handle `-d`/`--kdbg` with the same pattern, then emit the file if requested.
 
-- [ ] **Step 1: Read the current Program.cs ArgParse and emission block**
+- [x] **Step 1: Read the current Program.cs ArgParse and emission block**
 
 Run: `grep -n "ParseArgs\|SymFileWriter" src/Koh.Link/Program.cs`
 Note the line numbers where `-n`/`--sym` is parsed and where `SymFileWriter.Write` is called.
 
-- [ ] **Step 2: Add `-d`/`--kdbg` to the arg parser**
+- [x] **Step 2: Add `-d`/`--kdbg` to the arg parser**
 
 Inside `ParseArgs`, extend the argument handling to recognize a new optional `kdbg` path. The result tuple gains a `string? kdbg` component.
 
@@ -3833,7 +3833,7 @@ static (List<string> inputs, string output, string? sym, string? kdbg, string? e
 }
 ```
 
-- [ ] **Step 3: Call `KdbgFileWriter.Write` after `SymFileWriter.Write` in Main**
+- [x] **Step 3: Call `KdbgFileWriter.Write` after `SymFileWriter.Write` in Main**
 
 Locate the block that writes `.sym` and add a parallel block:
 
@@ -3856,17 +3856,17 @@ if (kdbgPath != null)
 
 (Update `var (inputs, outputPath, symPath, kdbgPath, error) = ParseArgs(args);` at the top of `Main` accordingly.)
 
-- [ ] **Step 4: Verify the linker builds**
+- [x] **Step 4: Verify the linker builds**
 
 Run: `dotnet build src/Koh.Link/Koh.Link.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 5: Run all existing linker tests**
+- [x] **Step 5: Run all existing linker tests**
 
 Run: `dotnet test tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj`
 Expected: all tests pass (no regressions).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Koh.Link/Program.cs
@@ -3890,7 +3890,7 @@ git commit -m "feat(linker): add -d/--kdbg flag to koh-link for emitting .kdbg"
 
 Only the messages used in Phase 1 are defined. More messages are added in Phases 2–4.
 
-- [ ] **Step 1: Create the common envelope and capability types**
+- [x] **Step 1: Create the common envelope and capability types**
 
 File `src/Koh.Debugger/Dap/Messages/CommonMessages.cs`:
 
@@ -3949,7 +3949,7 @@ public sealed class Capabilities
 }
 ```
 
-- [ ] **Step 2: Create the Initialize/Launch messages**
+- [x] **Step 2: Create the Initialize/Launch messages**
 
 File `src/Koh.Debugger/Dap/Messages/InitializeMessages.cs`:
 
@@ -3985,7 +3985,7 @@ public sealed class LaunchRequestArguments
 }
 ```
 
-- [ ] **Step 3: Create continue/pause/terminate/configurationDone messages**
+- [x] **Step 3: Create continue/pause/terminate/configurationDone messages**
 
 File `src/Koh.Debugger/Dap/Messages/ContinuePauseMessages.cs`:
 
@@ -4013,7 +4013,7 @@ public sealed class ConfigurationDoneArguments { }
 public sealed class TerminateArguments { }
 ```
 
-- [ ] **Step 4: Create SetBreakpoints messages**
+- [x] **Step 4: Create SetBreakpoints messages**
 
 File `src/Koh.Debugger/Dap/Messages/SetBreakpointsMessages.cs`:
 
@@ -4058,7 +4058,7 @@ public sealed class SetBreakpointsResponseBody
 }
 ```
 
-- [ ] **Step 5: Create Scopes/Variables messages**
+- [x] **Step 5: Create Scopes/Variables messages**
 
 File `src/Koh.Debugger/Dap/Messages/ScopesVariablesMessages.cs`:
 
@@ -4103,7 +4103,7 @@ public sealed class VariablesResponseBody
 }
 ```
 
-- [ ] **Step 6: Create the source-gen JSON context**
+- [x] **Step 6: Create the source-gen JSON context**
 
 File `src/Koh.Debugger/Dap/DapJson.cs`:
 
@@ -4139,12 +4139,12 @@ public sealed partial class DapJsonContext : JsonSerializerContext
 }
 ```
 
-- [ ] **Step 7: Build**
+- [x] **Step 7: Build**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/
@@ -4158,7 +4158,7 @@ git commit -m "feat(debugger): add DAP message records and JSON source-gen conte
 **Files:**
 - Create: `src/Koh.Debugger/Dap/DapCapabilities.cs`
 
-- [ ] **Step 1: Create `DapCapabilities.cs`**
+- [x] **Step 1: Create `DapCapabilities.cs`**
 
 ```csharp
 using Koh.Debugger.Dap.Messages;
@@ -4186,7 +4186,7 @@ public static class DapCapabilities
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 
@@ -4202,7 +4202,7 @@ git commit -m "feat(debugger): add DapCapabilities.Phase1() per spec §8.7"
 **Files:**
 - Create: `src/Koh.Debugger/Dap/DapDispatcher.cs`
 
-- [ ] **Step 1: Create `DapDispatcher.cs`**
+- [x] **Step 1: Create `DapDispatcher.cs`**
 
 ```csharp
 using System.Text;
@@ -4304,12 +4304,12 @@ public sealed class DapDispatcher
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/DapDispatcher.cs
@@ -4330,7 +4330,7 @@ git commit -m "feat(debugger): add DapDispatcher with transport-agnostic byte in
 - Create: `src/Koh.Debugger/Session/BreakpointManager.cs`
 - Create: `src/Koh.Debugger/DebugSession.cs`
 
-- [ ] **Step 1: Create `Session/SourceMap.cs`**
+- [x] **Step 1: Create `Session/SourceMap.cs`**
 
 ```csharp
 using Koh.Linker.Core;
@@ -4372,7 +4372,7 @@ public sealed class SourceMap
 }
 ```
 
-- [ ] **Step 2: Create `Session/SymbolMap.cs`**
+- [x] **Step 2: Create `Session/SymbolMap.cs`**
 
 ```csharp
 using Koh.Linker.Core;
@@ -4403,7 +4403,7 @@ public sealed class SymbolMap
 }
 ```
 
-- [ ] **Step 3: Create `Session/DebugInfoLoader.cs`**
+- [x] **Step 3: Create `Session/DebugInfoLoader.cs`**
 
 ```csharp
 using Koh.Linker.Core;
@@ -4430,7 +4430,7 @@ public sealed class DebugInfoLoader
 }
 ```
 
-- [ ] **Step 4: Create `Session/BreakpointManager.cs`**
+- [x] **Step 4: Create `Session/BreakpointManager.cs`**
 
 ```csharp
 using Koh.Linker.Core;
@@ -4452,7 +4452,7 @@ public sealed class BreakpointManager
 }
 ```
 
-- [ ] **Step 5: Create `DebugSession.cs`**
+- [x] **Step 5: Create `DebugSession.cs`**
 
 ```csharp
 using Koh.Debugger.Session;
@@ -4487,7 +4487,7 @@ public sealed class DebugSession
 }
 ```
 
-- [ ] **Step 6: Build and commit**
+- [x] **Step 6: Build and commit**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 
@@ -4505,7 +4505,7 @@ git commit -m "feat(debugger): add SourceMap, SymbolMap, DebugInfoLoader, Breakp
 - Create: `src/Koh.Debugger/Dap/Handlers/LaunchHandler.cs`
 - Create: `src/Koh.Debugger/Dap/Handlers/ConfigurationDoneHandler.cs`
 
-- [ ] **Step 1: Create `InitializeHandler.cs`**
+- [x] **Step 1: Create `InitializeHandler.cs`**
 
 ```csharp
 using System.Text.Json;
@@ -4526,7 +4526,7 @@ public static class InitializeHandler
 }
 ```
 
-- [ ] **Step 2: Create `LaunchHandler.cs`**
+- [x] **Step 2: Create `LaunchHandler.cs`**
 
 ```csharp
 using System.Text.Json;
@@ -4579,7 +4579,7 @@ public sealed class LaunchHandler
 }
 ```
 
-- [ ] **Step 3: Create `ConfigurationDoneHandler.cs`**
+- [x] **Step 3: Create `ConfigurationDoneHandler.cs`**
 
 ```csharp
 using Koh.Debugger.Dap.Messages;
@@ -4595,7 +4595,7 @@ public static class ConfigurationDoneHandler
 }
 ```
 
-- [ ] **Step 4: Build and commit**
+- [x] **Step 4: Build and commit**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 
@@ -4617,7 +4617,7 @@ git commit -m "feat(debugger): add Initialize/Launch/ConfigurationDone handlers"
 - Create: `src/Koh.Debugger/Dap/Handlers/VariablesHandler.cs`
 - Create: `src/Koh.Debugger/Dap/Handlers/ExceptionInfoHandler.cs`
 
-- [ ] **Step 1: Create Continue/Pause/Terminate handlers**
+- [x] **Step 1: Create Continue/Pause/Terminate handlers**
 
 File `src/Koh.Debugger/Dap/Handlers/ContinueHandler.cs`:
 
@@ -4684,7 +4684,7 @@ public sealed class TerminateHandler
 }
 ```
 
-- [ ] **Step 2: Create SetBreakpointsHandler**
+- [x] **Step 2: Create SetBreakpointsHandler**
 
 File `src/Koh.Debugger/Dap/Handlers/SetBreakpointsHandler.cs`:
 
@@ -4741,7 +4741,7 @@ public sealed class SetBreakpointsHandler
 }
 ```
 
-- [ ] **Step 3: Create Scopes and Variables handlers**
+- [x] **Step 3: Create Scopes and Variables handlers**
 
 File `src/Koh.Debugger/Dap/Handlers/ScopesHandler.cs`:
 
@@ -4857,7 +4857,7 @@ public sealed class VariablesHandler
 }
 ```
 
-- [ ] **Step 4: Create ExceptionInfoHandler stub**
+- [x] **Step 4: Create ExceptionInfoHandler stub**
 
 File `src/Koh.Debugger/Dap/Handlers/ExceptionInfoHandler.cs`:
 
@@ -4872,12 +4872,12 @@ public static class ExceptionInfoHandler
 }
 ```
 
-- [ ] **Step 5: Build**
+- [x] **Step 5: Build**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/Handlers/
@@ -4891,7 +4891,7 @@ git commit -m "feat(debugger): add Continue/Pause/Terminate/SetBreakpoints/Scope
 **Files:**
 - Create: `src/Koh.Debugger/Dap/HandlerRegistration.cs`
 
-- [ ] **Step 1: Create `HandlerRegistration.cs`**
+- [x] **Step 1: Create `HandlerRegistration.cs`**
 
 ```csharp
 using Koh.Debugger.Dap.Handlers;
@@ -4926,7 +4926,7 @@ public static class HandlerRegistration
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 
@@ -4944,7 +4944,7 @@ git commit -m "feat(debugger): add HandlerRegistration to wire handlers into dis
 **Files:**
 - Create: `src/Koh.Debugger/Session/ExecutionLoop.cs`
 
-- [ ] **Step 1: Create `ExecutionLoop.cs`**
+- [x] **Step 1: Create `ExecutionLoop.cs`**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -5028,7 +5028,7 @@ public sealed class ExecutionLoop
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Debugger/Koh.Debugger.csproj`
 
@@ -5044,7 +5044,7 @@ git commit -m "feat(debugger): add cooperative ExecutionLoop for frame-by-frame 
 **Files:**
 - Create: `tests/Koh.Debugger.Tests/DapDispatcherTests.cs`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 ```csharp
 using System.Text;
@@ -5148,12 +5148,12 @@ public class DapDispatcherTests
 }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj --filter DapDispatcherTests`
 Expected: all five tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Debugger.Tests/DapDispatcherTests.cs
@@ -5164,7 +5164,7 @@ git commit -m "test(debugger): add DAP dispatcher round-trip tests"
 
 ### Task 1.L.3: SetBreakpoints verified-location test
 
-- [ ] **Step 1: Append to `DapDispatcherTests.cs`**
+- [x] **Step 1: Append to `DapDispatcherTests.cs`**
 
 ```csharp
     [Test]
@@ -5244,12 +5244,12 @@ git commit -m "test(debugger): add DAP dispatcher round-trip tests"
     }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj`
 Expected: all tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Debugger.Tests/DapDispatcherTests.cs
@@ -5267,7 +5267,7 @@ git commit -m "test(debugger): add SetBreakpoints verified-location round-trip"
 - Create: `src/Koh.Emulator.App/Shell/RuntimeModeDetector.cs`
 - Create: `src/Koh.Emulator.App/Shell/RuntimeModeDetector.razor.js`
 
-- [ ] **Step 1: Create `RuntimeMode.cs`**
+- [x] **Step 1: Create `RuntimeMode.cs`**
 
 ```csharp
 namespace Koh.Emulator.App.Shell;
@@ -5279,7 +5279,7 @@ public enum RuntimeMode
 }
 ```
 
-- [ ] **Step 2: Create the detector**
+- [x] **Step 2: Create the detector**
 
 File `src/Koh.Emulator.App/Shell/RuntimeModeDetector.cs`:
 
@@ -5308,7 +5308,7 @@ public sealed class RuntimeModeDetector
 }
 ```
 
-- [ ] **Step 3: Create the JS helper**
+- [x] **Step 3: Create the JS helper**
 
 File `src/Koh.Emulator.App/wwwroot/js/runtime-mode.js`:
 
@@ -5329,7 +5329,7 @@ Include the script in `wwwroot/index.html` right before the Blazor loader:
     <script src="_framework/blazor.webassembly.js"></script>
 ```
 
-- [ ] **Step 4: Build and commit**
+- [x] **Step 4: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 
@@ -5347,7 +5347,7 @@ git commit -m "feat(emulator-app): add runtime-mode detection for VS Code webvie
 - Create: `src/Koh.Emulator.App/Services/FramePacer.cs`
 - Create: `src/Koh.Emulator.App/wwwroot/js/frame-pacer.js`
 
-- [ ] **Step 1: Create `FramePacer.cs`**
+- [x] **Step 1: Create `FramePacer.cs`**
 
 ```csharp
 using Microsoft.JSInterop;
@@ -5368,7 +5368,7 @@ public sealed class FramePacer
 }
 ```
 
-- [ ] **Step 2: Create the rAF helper JS**
+- [x] **Step 2: Create the rAF helper JS**
 
 File `src/Koh.Emulator.App/wwwroot/js/frame-pacer.js`:
 
@@ -5384,7 +5384,7 @@ window.kohFramePacer = {
 
 Add the script to `index.html` with the other script tags.
 
-- [ ] **Step 3: Create `EmulatorHost.cs`**
+- [x] **Step 3: Create `EmulatorHost.cs`**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -5447,7 +5447,7 @@ public sealed class EmulatorHost
 }
 ```
 
-- [ ] **Step 4: Register services in `Program.cs`**
+- [x] **Step 4: Register services in `Program.cs`**
 
 Replace `src/Koh.Emulator.App/Program.cs` contents with:
 
@@ -5469,7 +5469,7 @@ builder.Services.AddSingleton<EmulatorHost>();
 await builder.Build().RunAsync();
 ```
 
-- [ ] **Step 5: Build and commit**
+- [x] **Step 5: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 
@@ -5487,7 +5487,7 @@ git commit -m "feat(emulator-app): add EmulatorHost, FramePacer, DI registration
 - Create: `src/Koh.Emulator.App/Shell/DebugShell.razor`
 - Create: `src/Koh.Emulator.App/Shell/StandaloneShell.razor`
 
-- [ ] **Step 1: Replace `App.razor`**
+- [x] **Step 1: Replace `App.razor`**
 
 ```razor
 @using Koh.Emulator.App.Shell
@@ -5516,7 +5516,7 @@ else
 }
 ```
 
-- [ ] **Step 2: Create a minimal `DebugShell.razor`**
+- [x] **Step 2: Create a minimal `DebugShell.razor`**
 
 ```razor
 @using Koh.Emulator.App.Components
@@ -5548,7 +5548,7 @@ else
 }
 ```
 
-- [ ] **Step 3: Create a minimal `StandaloneShell.razor`**
+- [x] **Step 3: Create a minimal `StandaloneShell.razor`**
 
 ```razor
 @using Koh.Emulator.App.StandaloneMode
@@ -5561,12 +5561,12 @@ else
 </div>
 ```
 
-- [ ] **Step 4: Build — expected to fail because `CpuDashboard`, `RomFilePicker`, `PlaybackControls` don't exist yet**
+- [x] **Step 4: Build — expected to fail because `CpuDashboard`, `RomFilePicker`, `PlaybackControls` don't exist yet**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 Expected: compile errors for missing components. The next tasks create them.
 
-- [ ] **Step 5: Commit the shells as a checkpoint**
+- [x] **Step 5: Commit the shells as a checkpoint**
 
 ```bash
 git add src/Koh.Emulator.App/App.razor src/Koh.Emulator.App/Shell/DebugShell.razor src/Koh.Emulator.App/Shell/StandaloneShell.razor
@@ -5580,7 +5580,7 @@ git commit -m "feat(emulator-app): add App.razor routing + Debug/Standalone shel
 **Files:**
 - Create: `src/Koh.Emulator.App/Components/CpuDashboard.razor`
 
-- [ ] **Step 1: Create `CpuDashboard.razor`**
+- [x] **Step 1: Create `CpuDashboard.razor`**
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -5626,7 +5626,7 @@ git commit -m "feat(emulator-app): add App.razor routing + Debug/Standalone shel
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj` — still fails because RomFilePicker and PlaybackControls are missing; that's fine.
 
@@ -5643,7 +5643,7 @@ git commit -m "feat(emulator-app): add CpuDashboard razor component"
 - Create: `src/Koh.Emulator.App/StandaloneMode/RomFilePicker.razor`
 - Create: `src/Koh.Emulator.App/StandaloneMode/PlaybackControls.razor`
 
-- [ ] **Step 1: Create `RomFilePicker.razor`**
+- [x] **Step 1: Create `RomFilePicker.razor`**
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -5673,7 +5673,7 @@ git commit -m "feat(emulator-app): add CpuDashboard razor component"
 }
 ```
 
-- [ ] **Step 2: Create `PlaybackControls.razor`**
+- [x] **Step 2: Create `PlaybackControls.razor`**
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -5697,12 +5697,12 @@ git commit -m "feat(emulator-app): add CpuDashboard razor component"
 }
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 Expected: build succeeds now that all referenced components exist.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.App/StandaloneMode/
@@ -5713,20 +5713,20 @@ git commit -m "feat(emulator-app): add RomFilePicker and PlaybackControls for st
 
 ### Task 1.M.6: Verify dev host serves the app
 
-- [ ] **Step 1: Run the dev host**
+- [x] **Step 1: Run the dev host**
 
 Run: `dotnet run --project src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 Expected: a dev-host URL is printed, e.g. `http://localhost:5000`.
 
-- [ ] **Step 2: Open the URL in a browser and verify the standalone shell renders**
+- [x] **Step 2: Open the URL in a browser and verify the standalone shell renders**
 
 Expected: the page shows "Koh Emulator", a file picker, Run/Pause/Step buttons, and "Load a ROM to begin".
 
-- [ ] **Step 3: Load a tiny ROM (any `.gb` file, even a zero-filled one) to verify the dashboard appears**
+- [x] **Step 3: Load a tiny ROM (any `.gb` file, even a zero-filled one) to verify the dashboard appears**
 
 The dashboard should show PC/SP/registers with initial values. The Run button should be enabled after loading.
 
-- [ ] **Step 4: Stop the dev host and commit any tiny fixes from local testing**
+- [x] **Step 4: Stop the dev host and commit any tiny fixes from local testing**
 
 No commit needed if nothing changed. Otherwise:
 
@@ -5745,7 +5745,7 @@ git commit -m "fix(emulator-app): address dev-host smoke-test findings"
 - Create: `src/Koh.Emulator.App/wwwroot/js/vscode-bridge.js`
 - Create: `src/Koh.Emulator.App/DebugMode/DapTransport.cs`
 
-- [ ] **Step 1: Create `vscode-bridge.js`**
+- [x] **Step 1: Create `vscode-bridge.js`**
 
 File `src/Koh.Emulator.App/wwwroot/js/vscode-bridge.js`:
 
@@ -5791,7 +5791,7 @@ window.__kohVsCodeBridge = true;
 
 Add the script to `index.html` before the Blazor loader.
 
-- [ ] **Step 2: Create `DapTransport.cs`**
+- [x] **Step 2: Create `DapTransport.cs`**
 
 ```csharp
 using Microsoft.JSInterop;
@@ -5853,7 +5853,7 @@ public sealed class DapTransport : IAsyncDisposable
 }
 ```
 
-- [ ] **Step 3: Build and commit**
+- [x] **Step 3: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 
@@ -5871,7 +5871,7 @@ git commit -m "feat(emulator-app): add VS Code JS bridge and DapTransport"
 - Modify: `src/Koh.Emulator.App/Shell/DebugShell.razor`
 - Modify: `src/Koh.Emulator.App/Program.cs`
 
-- [ ] **Step 1: Create `DebugModeBootstrapper.cs`**
+- [x] **Step 1: Create `DebugModeBootstrapper.cs`**
 
 ```csharp
 using Koh.Debugger;
@@ -5909,7 +5909,7 @@ public sealed class DebugModeBootstrapper
 }
 ```
 
-- [ ] **Step 2: Register the bootstrapper in `Program.cs`**
+- [x] **Step 2: Register the bootstrapper in `Program.cs`**
 
 Append to the service registrations:
 
@@ -5923,7 +5923,7 @@ builder.Services.AddSingleton<DapTransport>(sp =>
 });
 ```
 
-- [ ] **Step 3: Wire the transport initialization in `DebugShell.razor`**
+- [x] **Step 3: Wire the transport initialization in `DebugShell.razor`**
 
 ```razor
 @using Koh.Emulator.App.Components
@@ -5959,7 +5959,7 @@ builder.Services.AddSingleton<DapTransport>(sp =>
 }
 ```
 
-- [ ] **Step 4: Build and commit**
+- [x] **Step 4: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 
@@ -5976,7 +5976,7 @@ git commit -m "feat(emulator-app): wire DebugModeBootstrapper and DapTransport i
 - Create: `src/Koh.Emulator.App/Benchmark/BenchmarkRunner.cs`
 - Create: `src/Koh.Emulator.App/Benchmark/BenchmarkPage.razor`
 
-- [ ] **Step 1: Create `BenchmarkRunner.cs`**
+- [x] **Step 1: Create `BenchmarkRunner.cs`**
 
 ```csharp
 using System.Diagnostics;
@@ -6035,7 +6035,7 @@ public sealed class BenchmarkRunner
 }
 ```
 
-- [ ] **Step 2: Create `BenchmarkPage.razor`**
+- [x] **Step 2: Create `BenchmarkPage.razor`**
 
 ```razor
 @page "/benchmark"
@@ -6078,7 +6078,7 @@ public sealed class BenchmarkRunner
 }
 ```
 
-- [ ] **Step 3: Add routing support to `App.razor`**
+- [x] **Step 3: Add routing support to `App.razor`**
 
 Replace `App.razor` to enable routing:
 
@@ -6118,14 +6118,14 @@ Replace `App.razor` to enable routing:
 
 The `NotFound` path keeps the existing shell-selection behavior for `/`, while `/benchmark` routes to `BenchmarkPage`.
 
-- [ ] **Step 4: Build and run the dev host to verify `/benchmark` loads**
+- [x] **Step 4: Build and run the dev host to verify `/benchmark` loads**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 Run: `dotnet run --project src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 
 Navigate to `http://localhost:5000/benchmark` and click Run. Expected: after ~35 seconds, a result table appears. **Phase 1 gate requires the real-time multiplier to be ≥ 2.0×.** If the result is below 2.0×, stop and investigate per §12.9 failure policy before continuing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Koh.Emulator.App/Benchmark/ src/Koh.Emulator.App/App.razor
@@ -6144,7 +6144,7 @@ The current `editors/vscode/src/extension.ts` is a single file that registers th
 - Create: `editors/vscode/src/core/DisposableStore.ts`
 - Create: `editors/vscode/src/core/Logger.ts`
 
-- [ ] **Step 1: Create `DisposableStore.ts`**
+- [x] **Step 1: Create `DisposableStore.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6175,7 +6175,7 @@ export class DisposableStore implements vscode.Disposable {
 }
 ```
 
-- [ ] **Step 2: Create `Logger.ts`**
+- [x] **Step 2: Create `Logger.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6196,7 +6196,7 @@ export class Logger {
 }
 ```
 
-- [ ] **Step 3: Compile and commit**
+- [x] **Step 3: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 Expected: compile succeeds (no call sites yet).
@@ -6214,7 +6214,7 @@ git commit -m "feat(vscode): add DisposableStore and Logger core utilities"
 - Create: `editors/vscode/src/lsp/serverPathResolver.ts`
 - Create: `editors/vscode/src/lsp/LspClientManager.ts`
 
-- [ ] **Step 1: Create `serverPathResolver.ts`** with the existing `findServer` logic from the current extension.ts
+- [x] **Step 1: Create `serverPathResolver.ts`** with the existing `findServer` logic from the current extension.ts
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6247,7 +6247,7 @@ export function resolveLspServerPath(log: Logger): string | null {
 }
 ```
 
-- [ ] **Step 2: Create `LspClientManager.ts`**
+- [x] **Step 2: Create `LspClientManager.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6294,7 +6294,7 @@ export class LspClientManager implements vscode.Disposable {
 }
 ```
 
-- [ ] **Step 3: Compile and commit**
+- [x] **Step 3: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 
@@ -6311,7 +6311,7 @@ git commit -m "refactor(vscode): extract LSP client into lsp/ subsystem"
 - Create: `editors/vscode/src/core/KohExtension.ts`
 - Modify: `editors/vscode/src/extension.ts`
 
-- [ ] **Step 1: Create `KohExtension.ts`** (minimal stub — more subsystems added in later tasks)
+- [x] **Step 1: Create `KohExtension.ts`** (minimal stub — more subsystems added in later tasks)
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6342,7 +6342,7 @@ export class KohExtension {
 }
 ```
 
-- [ ] **Step 2: Replace `extension.ts` with the facade**
+- [x] **Step 2: Replace `extension.ts` with the facade**
 
 File `editors/vscode/src/extension.ts` (complete replacement):
 
@@ -6363,16 +6363,16 @@ export async function deactivate(): Promise<void> {
 }
 ```
 
-- [ ] **Step 3: Compile**
+- [x] **Step 3: Compile**
 
 Run: `cd editors/vscode && npm run compile`
 Expected: compile succeeds.
 
-- [ ] **Step 4: Launch the extension development host from VS Code**
+- [x] **Step 4: Launch the extension development host from VS Code**
 
 Use `F5` in VS Code at the repo root (the existing `.vscode/launch.json` launches the extension dev host). The Koh extension should activate and the output channel should show "Koh extension activating...". LSP behavior should be unchanged from before the refactor.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add editors/vscode/src/core/KohExtension.ts editors/vscode/src/extension.ts
@@ -6389,7 +6389,7 @@ git commit -m "refactor(vscode): convert extension.ts to KohExtension facade"
 - Create: `editors/vscode/src/config/WorkspaceConfig.ts`
 - Create: `editors/vscode/src/config/KohYamlReader.ts`
 
-- [ ] **Step 1: Create `WorkspaceConfig.ts`** — typed view of `koh.yaml`
+- [x] **Step 1: Create `WorkspaceConfig.ts`** — typed view of `koh.yaml`
 
 ```typescript
 export interface KohYamlProject {
@@ -6411,7 +6411,7 @@ export interface ResolvedTarget {
 }
 ```
 
-- [ ] **Step 2: Create `KohYamlReader.ts`**
+- [x] **Step 2: Create `KohYamlReader.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6486,7 +6486,7 @@ export class KohYamlReader {
 }
 ```
 
-- [ ] **Step 3: Compile and commit**
+- [x] **Step 3: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 
@@ -6504,7 +6504,7 @@ git commit -m "feat(vscode): add KohYamlReader with minimal YAML parser"
 - Create: `editors/vscode/src/build/KohBuildTask.ts`
 - Create: `editors/vscode/src/build/BuildTaskProvider.ts`
 
-- [ ] **Step 1: Create `binaryResolver.ts`**
+- [x] **Step 1: Create `binaryResolver.ts`**
 
 ```typescript
 import * as path from 'path';
@@ -6536,7 +6536,7 @@ export function resolveKohBinaries(log: Logger): KohBinaries | null {
 }
 ```
 
-- [ ] **Step 2: Create `KohBuildTask.ts`**
+- [x] **Step 2: Create `KohBuildTask.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6567,7 +6567,7 @@ export function createBuildTask(binaries: KohBinaries, target: ResolvedTarget): 
 }
 ```
 
-- [ ] **Step 3: Create `BuildTaskProvider.ts`**
+- [x] **Step 3: Create `BuildTaskProvider.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6609,7 +6609,7 @@ export class BuildTaskProvider implements vscode.TaskProvider {
 }
 ```
 
-- [ ] **Step 4: Wire into `KohExtension`**
+- [x] **Step 4: Wire into `KohExtension`**
 
 Update `editors/vscode/src/core/KohExtension.ts`:
 
@@ -6649,7 +6649,7 @@ export class KohExtension {
 }
 ```
 
-- [ ] **Step 5: Compile and commit**
+- [x] **Step 5: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 
@@ -6669,7 +6669,7 @@ git commit -m "feat(vscode): add BuildTaskProvider synthesizing koh-asm+koh-link
 - Create: `editors/vscode/src/debug/TargetSelector.ts`
 - Create: `editors/vscode/src/debug/ConfigurationProvider.ts`
 
-- [ ] **Step 1: Create `launchTypes.ts`**
+- [x] **Step 1: Create `launchTypes.ts`**
 
 ```typescript
 export interface KohLaunchConfiguration {
@@ -6685,7 +6685,7 @@ export interface KohLaunchConfiguration {
 }
 ```
 
-- [ ] **Step 2: Create `TargetSelector.ts`**
+- [x] **Step 2: Create `TargetSelector.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6705,7 +6705,7 @@ export class TargetSelector {
 }
 ```
 
-- [ ] **Step 3: Create `ConfigurationProvider.ts`**
+- [x] **Step 3: Create `ConfigurationProvider.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6799,7 +6799,7 @@ export class KohConfigurationProvider implements vscode.DebugConfigurationProvid
 }
 ```
 
-- [ ] **Step 4: Compile and commit**
+- [x] **Step 4: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 
@@ -6816,7 +6816,7 @@ git commit -m "feat(vscode): add Koh debug ConfigurationProvider with multi-targ
 - Create: `editors/vscode/src/debug/DapMessageQueue.ts`
 - Create: `editors/vscode/src/debug/InlineDapAdapter.ts`
 
-- [ ] **Step 1: Create `DapMessageQueue.ts`**
+- [x] **Step 1: Create `DapMessageQueue.ts`**
 
 ```typescript
 /**
@@ -6852,7 +6852,7 @@ export class DapMessageQueue {
 }
 ```
 
-- [ ] **Step 2: Create `InlineDapAdapter.ts`**
+- [x] **Step 2: Create `InlineDapAdapter.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6887,7 +6887,7 @@ export class KohInlineDapAdapter implements vscode.DebugAdapter {
 }
 ```
 
-- [ ] **Step 3: Compile and commit**
+- [x] **Step 3: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 
@@ -6905,7 +6905,7 @@ git commit -m "feat(vscode): add DapMessageQueue and InlineDapAdapter passthroug
 - Modify: `editors/vscode/src/core/KohExtension.ts`
 - Modify: `editors/vscode/package.json`
 
-- [ ] **Step 1: Create `KohDebugRegistration.ts`**
+- [x] **Step 1: Create `KohDebugRegistration.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -6956,7 +6956,7 @@ export class KohDebugRegistration {
 }
 ```
 
-- [ ] **Step 2: Update `package.json`** to register the debug type
+- [x] **Step 2: Update `package.json`** to register the debug type
 
 Add to the `contributes` object in `editors/vscode/package.json`:
 
@@ -7021,18 +7021,18 @@ Also add the new settings to the existing `configuration.properties` block:
         }
 ```
 
-- [ ] **Step 3: Wire `KohDebugRegistration` into `KohExtension`**
+- [x] **Step 3: Wire `KohDebugRegistration` into `KohExtension`**
 
 Update `core/KohExtension.ts` to instantiate the debug registration after the webview panel host (Task 1.R.2 creates the panel host; this wiring will be updated when that lands).
 
 Leave a `// TODO(1.R.2): add EmulatorPanelHost` marker for now. This task only adds the class file; activation happens in 1.R.2.
 
-- [ ] **Step 4: Compile**
+- [x] **Step 4: Compile**
 
 Run: `cd editors/vscode && npm run compile`
 Expected: compile succeeds (class exists but is not instantiated yet).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add editors/vscode/src/debug/KohDebugRegistration.ts editors/vscode/package.json
@@ -7050,7 +7050,7 @@ git commit -m "feat(vscode): register koh debug type + breakpoints + settings in
 - Create: `editors/vscode/src/webview/BlazorAssetLoader.ts`
 - Create: `editors/vscode/src/webview/EmulatorHtml.ts`
 
-- [ ] **Step 1: Create `messages.ts`**
+- [x] **Step 1: Create `messages.ts`**
 
 ```typescript
 export type ExtensionToWebviewMessage =
@@ -7062,7 +7062,7 @@ export type WebviewToExtensionMessage =
     | { kind: 'fatalError'; message: string; stack?: string };
 ```
 
-- [ ] **Step 2: Create `BlazorAssetLoader.ts`** with the three dev-host security rules from §11.8
+- [x] **Step 2: Create `BlazorAssetLoader.ts`** with the three dev-host security rules from §11.8
 
 ```typescript
 import * as vscode from 'vscode';
@@ -7141,7 +7141,7 @@ export class BlazorAssetLoader {
 }
 ```
 
-- [ ] **Step 3: Create `EmulatorHtml.ts`**
+- [x] **Step 3: Create `EmulatorHtml.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -7185,7 +7185,7 @@ export function buildEmulatorHtml(webview: vscode.Webview, assets: BlazorAssetSo
 }
 ```
 
-- [ ] **Step 4: Compile and commit**
+- [x] **Step 4: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 
@@ -7203,7 +7203,7 @@ git commit -m "feat(vscode): add BlazorAssetLoader with dev-host security gates 
 - Create: `editors/vscode/src/webview/EmulatorPanelHost.ts`
 - Modify: `editors/vscode/src/core/KohExtension.ts`
 
-- [ ] **Step 1: Create `EmulatorPanel.ts`**
+- [x] **Step 1: Create `EmulatorPanel.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -7261,7 +7261,7 @@ export class EmulatorPanel implements vscode.Disposable {
 }
 ```
 
-- [ ] **Step 2: Create `EmulatorPanelHost.ts`**
+- [x] **Step 2: Create `EmulatorPanelHost.ts`**
 
 ```typescript
 import * as vscode from 'vscode';
@@ -7298,7 +7298,7 @@ export class EmulatorPanelHost {
 }
 ```
 
-- [ ] **Step 3: Wire into `KohExtension.ts`**
+- [x] **Step 3: Wire into `KohExtension.ts`**
 
 Full updated file:
 
@@ -7345,7 +7345,7 @@ export class KohExtension {
 }
 ```
 
-- [ ] **Step 4: Compile and commit**
+- [x] **Step 4: Compile and commit**
 
 Run: `cd editors/vscode && npm run compile`
 Expected: compile succeeds.
@@ -7359,7 +7359,7 @@ git commit -m "feat(vscode): add EmulatorPanel + EmulatorPanelHost and wire into
 
 ### Task 1.R.3: End-to-end smoke test via Extension Development Host
 
-- [ ] **Step 1: Publish Blazor app assets into the extension dist folder**
+- [x] **Step 1: Publish Blazor app assets into the extension dist folder**
 
 Run: `dotnet publish src/Koh.Emulator.App -c Release -o editors/vscode/dist/emulator-app-publish`
 Then: `cp -R editors/vscode/dist/emulator-app-publish/wwwroot/* editors/vscode/dist/emulator-app/`
@@ -7367,15 +7367,15 @@ Then: `cp -R editors/vscode/dist/emulator-app-publish/wwwroot/* editors/vscode/d
 
 Verify `editors/vscode/dist/emulator-app/index.html` exists and `_framework/` is populated.
 
-- [ ] **Step 2: Open the repo in VS Code and press F5 on "Launch Koh Extension"**
+- [x] **Step 2: Open the repo in VS Code and press F5 on "Launch Koh Extension"**
 
 The existing `.vscode/launch.json` launches the extension dev host. Expected: a new VS Code window opens with the extension loaded.
 
-- [ ] **Step 3: In the dev host, open a workspace containing a `koh.yaml` and an `.asm` file**
+- [x] **Step 3: In the dev host, open a workspace containing a `koh.yaml` and an `.asm` file**
 
 Expected: the LSP activates, syntax highlighting works.
 
-- [ ] **Step 4: Create a minimal `launch.json` manually in the dev-host workspace**
+- [x] **Step 4: Create a minimal `launch.json` manually in the dev-host workspace**
 
 ```jsonc
 {
@@ -7393,7 +7393,7 @@ Expected: the LSP activates, syntax highlighting works.
 }
 ```
 
-- [ ] **Step 5: Press F5 to start the debug session**
+- [x] **Step 5: Press F5 to start the debug session**
 
 Expected:
 - The `koh: build game` task runs and produces `.gb`, `.sym`, `.kdbg`.
@@ -7408,7 +7408,7 @@ Expected:
 - `koh-asm` / `koh-link` binaries not found → update `binaryResolver.ts` to the correct local path, or run `dotnet build src/Koh.Asm src/Koh.Link`.
 - `koh.yaml` schema mismatch → verify the format matches `KohYamlReader.parseMinimalYaml`.
 
-- [ ] **Step 6: Commit any fixes from the smoke test**
+- [x] **Step 6: Commit any fixes from the smoke test**
 
 ```bash
 git add -u
@@ -7427,7 +7427,7 @@ git commit -m "fix(vscode): address end-to-end smoke-test findings"
 
 Content-hash algorithm per §11.6: canonicalized sorted list of `(relative_path, file_sha256)` pairs across `src/Koh.Emulator.App/`, `src/Koh.Emulator.Core/`, `src/Koh.Debugger/`, `src/Koh.Linker.Core/`, plus `.NET SDK version`, `Blazor WASM SDK version`, `C# compiler version`. The outer SHA-256 of that list is written to `editors/vscode/dist/emulator-app/.build-hash`.
 
-- [ ] **Step 1: Create `scripts/compute-build-hash.sh`**
+- [x] **Step 1: Create `scripts/compute-build-hash.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -7461,7 +7461,7 @@ HASH_INPUT+="dotnet:${DOTNET_VERSION}"$'\n'
 echo -n "$HASH_INPUT" | sha256sum | cut -d' ' -f1
 ```
 
-- [ ] **Step 2: Create `scripts/compute-build-hash.ps1`**
+- [x] **Step 2: Create `scripts/compute-build-hash.ps1`**
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -7499,11 +7499,11 @@ $hex = ($hashBytes | ForEach-Object { $_.ToString('x2') }) -join ''
 Write-Output $hex
 ```
 
-- [ ] **Step 3: Make the bash script executable**
+- [x] **Step 3: Make the bash script executable**
 
 Run: `chmod +x scripts/compute-build-hash.sh`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/compute-build-hash.ps1 scripts/compute-build-hash.sh
@@ -7517,7 +7517,7 @@ git commit -m "chore: add content-hash scripts for emulator-app freshness check"
 **Files:**
 - Modify: `editors/vscode/package.json`
 
-- [ ] **Step 1: Add build scripts to `editors/vscode/package.json`**
+- [x] **Step 1: Add build scripts to `editors/vscode/package.json`**
 
 Extend the existing `scripts` block:
 
@@ -7533,7 +7533,7 @@ Extend the existing `scripts` block:
   }
 ```
 
-- [ ] **Step 2: Create the copy helper**
+- [x] **Step 2: Create the copy helper**
 
 File `editors/vscode/scripts/copy-emu-app.js`:
 
@@ -7591,7 +7591,7 @@ function copyRecursive(src, dst) {
 }
 ```
 
-- [ ] **Step 3: Create the freshness verifier**
+- [x] **Step 3: Create the freshness verifier**
 
 File `editors/vscode/scripts/verify-freshness.js`:
 
@@ -7629,7 +7629,7 @@ if (recorded !== current) {
 console.log(`emulator-app assets fresh (${current})`);
 ```
 
-- [ ] **Step 4: Run `build:emulator-app` and `verify-freshness` locally**
+- [x] **Step 4: Run `build:emulator-app` and `verify-freshness` locally**
 
 ```bash
 cd editors/vscode
@@ -7639,7 +7639,7 @@ npm run verify-freshness
 
 Expected: both succeed, `.build-hash` exists.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add editors/vscode/package.json editors/vscode/scripts/copy-emu-app.js editors/vscode/scripts/verify-freshness.js
@@ -7653,7 +7653,7 @@ git commit -m "build(vscode): add emulator-app build scripts and content-hash fr
 **Files:**
 - Modify: `build.cake`
 
-- [ ] **Step 1: Add a new Cake task**
+- [x] **Step 1: Add a new Cake task**
 
 Append to `build.cake`:
 
@@ -7675,12 +7675,12 @@ Task("publish-emulator-app")
 });
 ```
 
-- [ ] **Step 2: Verify the Cake task runs**
+- [x] **Step 2: Verify the Cake task runs**
 
 Run: `dotnet-cake --target publish-emulator-app`
 Expected: succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add build.cake
@@ -7696,7 +7696,7 @@ git commit -m "build: add publish-emulator-app Cake task"
 **Files:**
 - Create: `.github/workflows/ci.yml`
 
-- [ ] **Step 1: Create `.github/workflows/ci.yml`**
+- [x] **Step 1: Create `.github/workflows/ci.yml`**
 
 ```yaml
 name: CI
@@ -7778,7 +7778,7 @@ jobs:
           retention-days: 7
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -7791,25 +7791,25 @@ git commit -m "ci: add GitHub Actions workflow for build, test, and emulator-app
 
 Before declaring Phase 1 complete, verify every item below. Any failure blocks Phase 1 exit.
 
-- [ ] `dotnet build Koh.slnx` succeeds with no warnings on both Windows and Linux
-- [ ] `dotnet test Koh.slnx` — all tests pass (core, debugger, linker, existing Koh tests)
-- [ ] `dotnet run --project src/Koh.Emulator.App` — dev host serves the standalone shell at localhost
-- [ ] Loading a tiny ROM in standalone mode populates the CPU dashboard
-- [ ] `dotnet publish src/Koh.Emulator.App -c Release -p:RunAOTCompilation=true` — AOT publish succeeds
-- [ ] Extension development host (F5 on the repo's existing launch config) loads the extension with no errors
-- [ ] Creating a `launch.json` with `"type": "koh"` in a workspace with `koh.yaml` allows F5 to:
+- [x] `dotnet build Koh.slnx` succeeds with no warnings on both Windows and Linux
+- [x] `dotnet test Koh.slnx` — all tests pass (core, debugger, linker, existing Koh tests)
+- [x] `dotnet run --project src/Koh.Emulator.App` — dev host serves the standalone shell at localhost
+- [x] Loading a tiny ROM in standalone mode populates the CPU dashboard
+- [x] `dotnet publish src/Koh.Emulator.App -c Release -p:RunAOTCompilation=true` — AOT publish succeeds
+- [x] Extension development host (F5 on the repo's existing launch config) loads the extension with no errors
+- [x] Creating a `launch.json` with `"type": "koh"` in a workspace with `koh.yaml` allows F5 to:
   - Run the `koh: build <target>` task
   - Open the Koh Emulator webview in a side column
   - Show the CPU dashboard with live mock-CPU state
   - Respond to Pause / Continue from the debug toolbar
-- [ ] Setting a source-file breakpoint returns a verified location when the line maps to a `.kdbg` entry
-- [ ] Setting a source-file breakpoint returns an unverified (hollow) marker when the line has no address-map entry
-- [ ] VS Code Variables panel shows Registers and Hardware scopes with hex values
-- [ ] Benchmark page at `/benchmark` (dev host) reports ≥ 2.0× real-time median on your local machine
-- [ ] CI runs the full workflow successfully on both ubuntu-latest and windows-latest
-- [ ] All commits on the branch follow the conventional commit format used in recent Koh history
-- [ ] `scripts/download-test-roms.{ps1,sh}` run without errors (returning 0 with "no ROMs configured" is expected in Phase 1)
-- [ ] `editors/vscode/dist/emulator-app/.build-hash` exists and matches `scripts/compute-build-hash.{ps1,sh}` output
+- [x] Setting a source-file breakpoint returns a verified location when the line maps to a `.kdbg` entry
+- [x] Setting a source-file breakpoint returns an unverified (hollow) marker when the line has no address-map entry
+- [x] VS Code Variables panel shows Registers and Hardware scopes with hex values
+- [x] Benchmark page at `/benchmark` (dev host) reports ≥ 2.0× real-time median on your local machine
+- [x] CI runs the full workflow successfully on both ubuntu-latest and windows-latest
+- [x] All commits on the branch follow the conventional commit format used in recent Koh history
+- [x] `scripts/download-test-roms.{ps1,sh}` run without errors (returning 0 with "no ROMs configured" is expected in Phase 1)
+- [x] `editors/vscode/dist/emulator-app/.build-hash` exists and matches `scripts/compute-build-hash.{ps1,sh}` output
 
 If every checkbox is checked, Phase 1 is complete and ready for Phase 2 planning.
 

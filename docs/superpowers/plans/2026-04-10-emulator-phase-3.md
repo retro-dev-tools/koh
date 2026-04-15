@@ -1,6 +1,6 @@
 # Koh Emulator — Phase 3 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship the complete SM83 instruction set (256 unprefixed + 256 CB-prefixed opcodes), accurate interrupt dispatch (5 M-cycle sequence, HALT + HALT bug, EI delay slot), full Timer / Joypad IRQ, and a fully functional source-level debugger (halting breakpoints, step-over / step-in / step-out, heuristic call stack, disassembly, symbol and source-context variable scopes, instruction and function breakpoints, evaluate) — all validated against Blargg `cpu_instrs`, `instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`, `interrupt_time`, and the Mooneye `acceptance/{bits,timer,interrupts,oam_dma}` subset.
 
@@ -114,7 +114,7 @@ The `Alu` helper class (Task 3.A.2) exposes the shared arithmetic / rotate / bit
 **Files:**
 - Create: `docs/references/sm83-opcode-table.md`
 
-- [ ] **Step 1: Create the reference table**
+- [x] **Step 1: Create the reference table**
 
 ```markdown
 # SM83 Opcode Reference (Phase 3)
@@ -148,7 +148,7 @@ Derived from Pan Docs and Gekkio's complete opcode reference.
 
 The full 1024-row table is tedious but one-time work. Use Pan Docs as the source of truth. **Do not skip cycles or flag columns** — they gate the Blargg instr_timing test.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/references/sm83-opcode-table.md
@@ -162,7 +162,7 @@ git commit -m "docs: add SM83 opcode reference table for Phase 3"
 **Files:**
 - Create: `src/Koh.Emulator.Core/Cpu/Alu.cs`
 
-- [ ] **Step 1: Create `Alu.cs` with all shared primitives**
+- [x] **Step 1: Create `Alu.cs` with all shared primitives**
 
 ```csharp
 namespace Koh.Emulator.Core.Cpu;
@@ -434,11 +434,11 @@ public static class Alu
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
-- [ ] **Step 3: Write focused tests for the ALU primitives**
+- [x] **Step 3: Write focused tests for the ALU primitives**
 
 File `tests/Koh.Emulator.Core.Tests/AluTests.cs` — one test per primitive with known inputs and expected flags. Example:
 
@@ -497,7 +497,7 @@ public class AluTests
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter AluTests`
 Expected: all primitive tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/Alu.cs tests/Koh.Emulator.Core.Tests/AluTests.cs
@@ -516,7 +516,7 @@ Each task in Phase 3-B populates a family of opcodes in `InstructionTable.cs`. T
 - Modify: `src/Koh.Emulator.Core/Cpu/InstructionTable.cs`
 - Modify: `src/Koh.Emulator.Core/Cpu/Sm83.cs`
 
-- [ ] **Step 1: Add the misc handlers to `InstructionTable.BuildUnprefixedTable`**
+- [x] **Step 1: Add the misc handlers to `InstructionTable.BuildUnprefixedTable`**
 
 ```csharp
 // HALT ($76)
@@ -583,7 +583,7 @@ table[0x27] = (ref CpuRegisters r, IInstructionBus bus) =>
 };
 ```
 
-- [ ] **Step 2: Extend `IInstructionBus` with the new host callbacks**
+- [x] **Step 2: Extend `IInstructionBus` with the new host callbacks**
 
 ```csharp
 public interface IInstructionBus
@@ -601,11 +601,11 @@ public interface IInstructionBus
 }
 ```
 
-- [ ] **Step 3: Implement the new methods on `Sm83`**
+- [x] **Step 3: Implement the new methods on `Sm83`**
 
 Store an `_eiDelayArmed` flag and an `Halted` flag (already present). `SetIme(true/false)` sets `Interrupts.IME`. `ArmEiDelaySlot` sets the flag which is consumed by the next `ExecuteNextInstruction` call before interrupt checking. `EnterHalt` sets `Halted = true` and uses `HaltState.cs` logic (Task 3.A.3 below).
 
-- [ ] **Step 4: Build, test, commit**
+- [x] **Step 4: Build, test, commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs src/Koh.Emulator.Core/Cpu/Sm83.cs
@@ -619,7 +619,7 @@ git commit -m "feat(cpu): add misc family (NOP/STOP/HALT/DI/EI/CPL/CCF/SCF/DAA)"
 **Files:**
 - Modify: `src/Koh.Emulator.Core/Cpu/InstructionTable.cs`
 
-- [ ] **Step 1: Implement every `LD r,d8` (06, 0E, 16, 1E, 26, 2E, 36, 3E) and `LD rr,d16` (01, 11, 21, 31)**
+- [x] **Step 1: Implement every `LD r,d8` (06, 0E, 16, 1E, 26, 2E, 36, 3E) and `LD rr,d16` (01, 11, 21, 31)**
 
 Pattern:
 
@@ -649,7 +649,7 @@ table[0x01] = (ref CpuRegisters r, IInstructionBus bus) =>
 
 Implement all 12 opcodes (8 r,d8 + 4 rr,d16).
 
-- [ ] **Step 2: Add representative tests**
+- [x] **Step 2: Add representative tests**
 
 File `tests/Koh.Emulator.Core.Tests/ImmediateLoadTests.cs`:
 
@@ -696,7 +696,7 @@ public class ImmediateLoadTests
 }
 ```
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter ImmediateLoadTests`
 
@@ -712,7 +712,7 @@ git commit -m "feat(cpu): add 8-bit and 16-bit immediate load opcodes"
 **Files:**
 - Modify: `src/Koh.Emulator.Core/Cpu/InstructionTable.cs`
 
-- [ ] **Step 1: Implement all 63 register-to-register loads**
+- [x] **Step 1: Implement all 63 register-to-register loads**
 
 These follow a very regular pattern: bits `01 ddd sss`, where `ddd` is the destination and `sss` is the source. `(HL)` source or destination makes the instruction 8 cycles instead of 4.
 
@@ -729,7 +729,7 @@ private static InstructionHandler MakeLdReg(Action<CpuRegisters, byte> setDest, 
 
 Implement all 63 opcodes. Pay attention to `$76` being `HALT`, not `LD (HL),(HL)`.
 
-- [ ] **Step 2: Add a table-driven test**
+- [x] **Step 2: Add a table-driven test**
 
 ```csharp
 [Test]
@@ -747,7 +747,7 @@ public async Task LdRegReg(byte opcode, string dest, string src)
 
 (TUnit's `[Arguments]` attribute provides table-driven tests.)
 
-- [ ] **Step 3: Run and commit**
+- [x] **Step 3: Run and commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs tests/Koh.Emulator.Core.Tests/RegRegLoadTests.cs
@@ -763,7 +763,7 @@ git commit -m "feat(cpu): add all 63 8-bit register-to-register loads"
 
 Opcodes: `$02 LD (BC),A`, `$0A LD A,(BC)`, `$12 LD (DE),A`, `$1A LD A,(DE)`, `$22 LD (HL+),A`, `$2A LD A,(HL+)`, `$32 LD (HL-),A`, `$3A LD A,(HL-)`, `$E0 LDH (a8),A`, `$F0 LDH A,(a8)`, `$E2 LD (C),A`, `$F2 LD A,(C)`, `$EA LD (a16),A`, `$FA LD A,(a16)`, `$F8 LD HL,SP+r8`, `$F9 LD SP,HL`, `$08 LD (a16),SP`.
 
-- [ ] **Step 1: Implement each handler**
+- [x] **Step 1: Implement each handler**
 
 Example for `$22`:
 
@@ -783,11 +783,11 @@ table[0xF8] = (ref CpuRegisters r, IInstructionBus bus) =>
 };
 ```
 
-- [ ] **Step 2: Write representative tests (one per opcode, assert effect on registers/memory)**
+- [x] **Step 2: Write representative tests (one per opcode, assert effect on registers/memory)**
 
 File `tests/Koh.Emulator.Core.Tests/IndirectLoadTests.cs`.
 
-- [ ] **Step 3: Run and commit**
+- [x] **Step 3: Run and commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs tests/Koh.Emulator.Core.Tests/IndirectLoadTests.cs
@@ -809,11 +809,11 @@ Opcodes:
 - 16-bit ADD HL,rr ($09, $19, $29, $39)
 - ADD SP,r8 ($E8)
 
-- [ ] **Step 1: Implement all handlers**
+- [x] **Step 1: Implement all handlers**
 
 Each uses `Alu.Inc`, `Alu.Dec`, `Alu.AddHL`, or `Alu.AddSpRel`.
 
-- [ ] **Step 2: Write tests focused on flag side effects**
+- [x] **Step 2: Write tests focused on flag side effects**
 
 ```csharp
 [Test]
@@ -840,7 +840,7 @@ public async Task AddHL_BC_SetsCarry_On_Overflow()
 }
 ```
 
-- [ ] **Step 3: Run and commit**
+- [x] **Step 3: Run and commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs tests/Koh.Emulator.Core.Tests/IncDecArithTests.cs
@@ -851,7 +851,7 @@ git commit -m "feat(cpu): add inc/dec and 16-bit arithmetic opcodes"
 
 ### Task 3.B.6: ALU A,r and ALU A,d8 ($80-$BF, $C6, $CE, $D6, $DE, $E6, $EE, $F6, $FE)
 
-- [ ] **Step 1: Implement handlers using the `Alu` helpers**
+- [x] **Step 1: Implement handlers using the `Alu` helpers**
 
 Pattern:
 
@@ -868,7 +868,7 @@ table[0xC6] = (ref CpuRegisters r, IInstructionBus bus) => { r.A = Alu.Add(ref r
 
 All 64 ALU A,r opcodes + 8 ALU A,d8 opcodes.
 
-- [ ] **Step 2: Tests**
+- [x] **Step 2: Tests**
 
 File `tests/Koh.Emulator.Core.Tests/AluInstructionTests.cs`. Representative tests per operation:
 
@@ -879,7 +879,7 @@ File `tests/Koh.Emulator.Core.Tests/AluInstructionTests.cs`. Representative test
 // ... one per operation + one ALU A,(HL) + one ALU A,d8
 ```
 
-- [ ] **Step 3: Run and commit**
+- [x] **Step 3: Run and commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs tests/Koh.Emulator.Core.Tests/AluInstructionTests.cs
@@ -890,17 +890,17 @@ git commit -m "feat(cpu): add ALU A,r and ALU A,d8 opcodes"
 
 ### Task 3.B.7: Rotates in main table (RLCA, RLA, RRCA, RRA)
 
-- [ ] **Step 1: Implement $07, $17, $0F, $1F using `Alu.Rlc/Rl/Rrc/Rr` with `clearZ: true`**
+- [x] **Step 1: Implement $07, $17, $0F, $1F using `Alu.Rlc/Rl/Rrc/Rr` with `clearZ: true`**
 
-- [ ] **Step 2: Tests**
+- [x] **Step 2: Tests**
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ---
 
 ### Task 3.B.8: Jumps, calls, returns, RST
 
-- [ ] **Step 1: Implement all jump/call/return/RST opcodes**
+- [x] **Step 1: Implement all jump/call/return/RST opcodes**
 
 Full opcode list:
 - $C3 JP, $C2/$CA/$D2/$DA JP cc
@@ -912,7 +912,7 @@ Full opcode list:
 
 Cycle counts depend on branch taken/not-taken for conditional variants — use the cycle counts from the reference table (Task 3.A.1).
 
-- [ ] **Step 2: Write tests including conditional cycle counts**
+- [x] **Step 2: Write tests including conditional cycle counts**
 
 ```csharp
 [Test]
@@ -946,7 +946,7 @@ public async Task Rst_38H_Pushes_And_Jumps()
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs tests/Koh.Emulator.Core.Tests/JumpCallReturnTests.cs
@@ -957,7 +957,7 @@ git commit -m "feat(cpu): add jump, call, return, RST opcodes"
 
 ### Task 3.B.9: Stack ops (PUSH/POP)
 
-- [ ] **Step 1: Implement $C1/C5/D1/D5/E1/E5/F1/F5**
+- [x] **Step 1: Implement $C1/C5/D1/D5/E1/E5/F1/F5**
 
 ```csharp
 // PUSH BC ($C5) — 16 T-cycles
@@ -988,9 +988,9 @@ table[0xF1] = (ref CpuRegisters r, IInstructionBus bus) =>
 };
 ```
 
-- [ ] **Step 2: Tests**
+- [x] **Step 2: Tests**
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ---
 
@@ -998,7 +998,7 @@ table[0xF1] = (ref CpuRegisters r, IInstructionBus bus) =>
 
 These are genuinely undefined on the SM83 and should produce a halt-with-diagnostic.
 
-- [ ] **Step 1: Mark them explicitly in `InstructionTable`**
+- [x] **Step 1: Mark them explicitly in `InstructionTable`**
 
 ```csharp
 foreach (byte invalid in new byte[] { 0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD })
@@ -1013,7 +1013,7 @@ foreach (byte invalid in new byte[] { 0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 
 
 Add `void ReportUndefinedOpcode();` to `IInstructionBus` and have `Sm83` set `Halted = true` with a reason that propagates as `StopReason.HaltedBySystem`.
 
-- [ ] **Step 2: Test**
+- [x] **Step 2: Test**
 
 ```csharp
 [Test]
@@ -1025,7 +1025,7 @@ public async Task Undefined_Opcode_Halts_System()
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs src/Koh.Emulator.Core/Cpu/Sm83.cs tests/Koh.Emulator.Core.Tests/UndefinedOpcodeTests.cs
@@ -1042,7 +1042,7 @@ git commit -m "feat(cpu): handle undefined opcodes with HaltedBySystem stop reas
 - Create: `src/Koh.Emulator.Core/Cpu/CbInstructionTable.cs`
 - Modify: `src/Koh.Emulator.Core/Cpu/InstructionTable.cs` (add $CB prefix dispatch)
 
-- [ ] **Step 1: Create the CB table**
+- [x] **Step 1: Create the CB table**
 
 ```csharp
 namespace Koh.Emulator.Core.Cpu;
@@ -1086,7 +1086,7 @@ public static class CbInstructionTable
 }
 ```
 
-- [ ] **Step 2: Wire $CB dispatch in `InstructionTable`**
+- [x] **Step 2: Wire $CB dispatch in `InstructionTable`**
 
 ```csharp
 // CB prefix ($CB)
@@ -1105,11 +1105,11 @@ table[0xCB] = (ref CpuRegisters r, IInstructionBus bus) =>
 
 (The $CB prefix itself is 4 T-cycles; the CB handlers return their own cycles which include the prefix. Standard convention: `CB XX` CB handlers return the full cycle count.)
 
-- [ ] **Step 3: Tests — one per operation, pattern similar to main-table tests**
+- [x] **Step 3: Tests — one per operation, pattern similar to main-table tests**
 
 File `tests/Koh.Emulator.Core.Tests/CbRotateShiftTests.cs`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/CbInstructionTable.cs src/Koh.Emulator.Core/Cpu/InstructionTable.cs tests/Koh.Emulator.Core.Tests/CbRotateShiftTests.cs
@@ -1120,7 +1120,7 @@ git commit -m "feat(cpu): add CB-prefixed rotates and shifts ($00-$3F)"
 
 ### Task 3.C.2: BIT n,r (CB $40-$7F)
 
-- [ ] **Step 1: Implement all 64 BIT n,r handlers**
+- [x] **Step 1: Implement all 64 BIT n,r handlers**
 
 ```csharp
 // BIT 0,B ($40)
@@ -1134,15 +1134,15 @@ table[0x46] = (ref CpuRegisters r, InstructionTable.IInstructionBus bus) =>
 };
 ```
 
-- [ ] **Step 2: Tests** (representative: test each bit index × at least one register target)
+- [x] **Step 2: Tests** (representative: test each bit index × at least one register target)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ---
 
 ### Task 3.C.3: RES n,r and SET n,r (CB $80-$FF)
 
-- [ ] **Step 1: Implement 64 RES + 64 SET handlers**
+- [x] **Step 1: Implement 64 RES + 64 SET handlers**
 
 ```csharp
 // RES 0,B ($80)
@@ -1158,9 +1158,9 @@ table[0x86] = (ref CpuRegisters r, InstructionTable.IInstructionBus bus) =>
 table[0xC0] = (ref CpuRegisters r, InstructionTable.IInstructionBus bus) => { r.B = Alu.Set(r.B, 0); return 8; };
 ```
 
-- [ ] **Step 2: Tests**
+- [x] **Step 2: Tests**
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/CbInstructionTable.cs tests/Koh.Emulator.Core.Tests/CbBitOpsTests.cs
@@ -1179,7 +1179,7 @@ git commit -m "feat(cpu): add CB-prefixed BIT/RES/SET opcodes"
 
 Per spec §3 and §7.4: interrupts are serviced at instruction boundaries. The dispatch sequence is 5 M-cycles (20 T-cycles): 2 internal, 2 stack writes (PC high then low), 1 PC reload.
 
-- [ ] **Step 1: Create `InterruptDispatch.cs`**
+- [x] **Step 1: Create `InterruptDispatch.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cpu;
@@ -1225,7 +1225,7 @@ public static class InterruptDispatch
 }
 ```
 
-- [ ] **Step 2: Update `Sm83.ExecuteNextInstruction` to check interrupts first**
+- [x] **Step 2: Update `Sm83.ExecuteNextInstruction` to check interrupts first**
 
 ```csharp
 private void ExecuteNextInstruction()
@@ -1289,7 +1289,7 @@ private void ExecuteNextInstruction()
 }
 ```
 
-- [ ] **Step 3: Build, test, commit**
+- [x] **Step 3: Build, test, commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InterruptDispatch.cs src/Koh.Emulator.Core/Cpu/Sm83.cs
@@ -1303,7 +1303,7 @@ git commit -m "feat(cpu): add interrupt dispatch sequence and EI delay slot"
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/InterruptAndHaltTests.cs`
 
-- [ ] **Step 1: Write hazard tests**
+- [x] **Step 1: Write hazard tests**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1370,11 +1370,11 @@ public class InterruptAndHaltTests
 }
 ```
 
-- [ ] **Step 2: Run and iterate**
+- [x] **Step 2: Run and iterate**
 
 These tests will drive bug fixes in the dispatch logic. Iterate until all three pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/InterruptAndHaltTests.cs
@@ -1390,7 +1390,7 @@ git commit -m "test(cpu): add interrupt dispatch, EI delay, and HALT bug tests"
 **Files:**
 - Modify: `scripts/download-test-roms.sh` and `.ps1`
 
-- [ ] **Step 1: Add Blargg test ROM URLs + SHA-256 hashes**
+- [x] **Step 1: Add Blargg test ROM URLs + SHA-256 hashes**
 
 Blargg test ROMs are publicly distributed. Add these to the download script:
 
@@ -1404,9 +1404,9 @@ Blargg test ROMs are publicly distributed. Add these to the download script:
 
 Each entry follows the same `download_with_hash` pattern from Phase 2's `acid2` task.
 
-- [ ] **Step 2: Run locally and verify**
+- [x] **Step 2: Run locally and verify**
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/download-test-roms.sh scripts/download-test-roms.ps1
@@ -1423,7 +1423,7 @@ git commit -m "chore: add Blargg test ROMs to download script"
 
 Blargg ROMs report pass/fail via the serial port ($FF01 = data, $FF02 = control; writing $81 to $FF02 triggers a "serial transfer"). The emulator's serial stub buffers the bytes; the test harness reads the buffer and looks for "Passed" or "Failed".
 
-- [ ] **Step 1: Update `Serial.cs` to buffer written bytes**
+- [x] **Step 1: Update `Serial.cs` to buffer written bytes**
 
 ```csharp
 namespace Koh.Emulator.Core.Serial;
@@ -1455,7 +1455,7 @@ public sealed class Serial
 
 Wire $FF01/$FF02 in `IoRegisters` to `Serial`.
 
-- [ ] **Step 2: Create `BlarggTests.cs`**
+- [x] **Step 2: Create `BlarggTests.cs`**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1504,7 +1504,7 @@ public class BlarggTests
 }
 ```
 
-- [ ] **Step 3: Run the tests**
+- [x] **Step 3: Run the tests**
 
 Run: `bash scripts/download-test-roms.sh`
 Run: `dotnet test tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --filter BlarggTests`
@@ -1513,7 +1513,7 @@ Run: `dotnet test tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --filter Blargg
 
 Fixing these is the bulk of Phase 3's work. Budget multiple days for debugging. Commit iteratively: a commit per bug fix with a clear message about which Blargg sub-test drove the fix.
 
-- [ ] **Step 4: Final commit when all Blargg tests pass**
+- [x] **Step 4: Final commit when all Blargg tests pass**
 
 ```bash
 git add tests/Koh.Compat.Tests/Emulation/BlarggTests.cs src/Koh.Emulator.Core/Serial/Serial.cs src/Koh.Emulator.Core/Bus/IoRegisters.cs
@@ -1530,11 +1530,11 @@ git commit -m "test(compat): Blargg cpu_instrs + instr_timing + mem_timing + hal
 
 Mooneye test ROMs report pass/fail via a Fibonacci register pattern: `B=3, C=5, D=8, E=13, H=21, L=34` on success.
 
-- [ ] **Step 1: Add Mooneye ROMs to download script**
+- [x] **Step 1: Add Mooneye ROMs to download script**
 
 Subset: `acceptance/bits/*`, `acceptance/timer/*`, `acceptance/interrupts/*`, `acceptance/oam_dma/*`.
 
-- [ ] **Step 2: Create `MooneyeTests.cs`**
+- [x] **Step 2: Create `MooneyeTests.cs`**
 
 ```csharp
 public class MooneyeTests
@@ -1558,13 +1558,13 @@ public class MooneyeTests
 }
 ```
 
-- [ ] **Step 3: Run and iterate**
+- [x] **Step 3: Run and iterate**
 
 Run: `dotnet test tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --filter MooneyeTests`
 
 Expect more bug fixes. Mooneye is stricter than Blargg on timing edge cases.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/Koh.Compat.Tests/Emulation/MooneyeTests.cs scripts/download-test-roms.sh scripts/download-test-roms.ps1
@@ -1581,7 +1581,7 @@ git commit -m "test(compat): Mooneye acceptance subset (bits/timer/interrupts/oa
 - Modify: `src/Koh.Debugger/Session/BreakpointManager.cs`
 - Modify: `src/Koh.Emulator.Core/GameBoySystem.cs`
 
-- [ ] **Step 1: Expose BreakpointManager to `GameBoySystem`**
+- [x] **Step 1: Expose BreakpointManager to `GameBoySystem`**
 
 Add a `BreakpointManager` reference to `GameBoySystem` (or a lightweight interface that only exposes `Check(bank, pc)`). Check it in `RunFrame` / `RunUntil` at each instruction boundary.
 
@@ -1596,7 +1596,7 @@ if (_tCyclesRemainingInInstruction == 0 && _breakpointChecker?.Invoke(_currentBa
 
 Propagate `_breakpointHit` to `GameBoySystem.RunFrame` which returns `StopReason.Breakpoint`.
 
-- [ ] **Step 2: Wire up `_currentBank` tracking**
+- [x] **Step 2: Wire up `_currentBank` tracking**
 
 The current ROM bank for breakpoint matching comes from `Cartridge` state. Expose a helper:
 
@@ -1606,7 +1606,7 @@ public byte CurrentPcBank(ushort pc) =>
         ((Cartridge.Mbc1_BankHigh << 5) | (Cartridge.Mbc1_BankLow == 0 ? 1 : Cartridge.Mbc1_BankLow)) : 0);
 ```
 
-- [ ] **Step 3: Test — halt on breakpoint**
+- [x] **Step 3: Test — halt on breakpoint**
 
 ```csharp
 [Test]
@@ -1625,7 +1625,7 @@ public async Task Breakpoint_Halts_Execution_At_Specified_Pc()
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Debugger/Session/BreakpointManager.cs src/Koh.Emulator.Core/GameBoySystem.cs src/Koh.Emulator.Core/Cpu/Sm83.cs tests/Koh.Debugger.Tests/BreakpointHaltTests.cs
@@ -1645,7 +1645,7 @@ git commit -m "feat(debugger): make breakpoints halt execution with StopReason.B
 
 Step-over executes the current instruction and stops. For `CALL`, it runs until the matching `RET` (ideally by recording the return address and setting a temporary breakpoint there). Step-in is equivalent to `StepInstruction`. Step-out records the current SP and runs until the stack pops back above that SP.
 
-- [ ] **Step 1: Create `StepMessages.cs`**
+- [x] **Step 1: Create `StepMessages.cs`**
 
 ```csharp
 using System.Text.Json.Serialization;
@@ -1670,7 +1670,7 @@ public sealed class StepOutArguments
 }
 ```
 
-- [ ] **Step 2: Create `StepStrategy.cs`**
+- [x] **Step 2: Create `StepStrategy.cs`**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1746,7 +1746,7 @@ public static class StepStrategy
 }
 ```
 
-- [ ] **Step 3: Create the three handlers**
+- [x] **Step 3: Create the three handlers**
 
 ```csharp
 // NextHandler.cs — step-over
@@ -1768,7 +1768,7 @@ public sealed class NextHandler
 
 Create `StepInHandler` and `StepOutHandler` similarly.
 
-- [ ] **Step 4: Register handlers and update capabilities**
+- [x] **Step 4: Register handlers and update capabilities**
 
 In `DapCapabilities.Phase3()`, set:
 ```csharp
@@ -1778,11 +1778,11 @@ SupportsInstructionBreakpoints = true,
 
 In `HandlerRegistration.RegisterAll`, register `next`, `stepIn`, `stepOut`.
 
-- [ ] **Step 5: Tests**
+- [x] **Step 5: Tests**
 
 File `tests/Koh.Debugger.Tests/SteppingTests.cs` — verifies step-over skips CALL, step-in descends, step-out returns.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/Handlers/NextHandler.cs src/Koh.Debugger/Dap/Handlers/StepInHandler.cs src/Koh.Debugger/Dap/Handlers/StepOutHandler.cs src/Koh.Debugger/Dap/Messages/StepMessages.cs src/Koh.Debugger/Session/StepStrategy.cs src/Koh.Debugger/Dap/DapCapabilities.cs src/Koh.Debugger/Dap/HandlerRegistration.cs tests/Koh.Debugger.Tests/SteppingTests.cs
@@ -1800,7 +1800,7 @@ git commit -m "feat(debugger): add step-over/step-in/step-out handlers"
 
 Per spec §8.5: heuristic SP walking — for each 16-bit value on the stack that points just after a `CALL`, record a frame. Top frame = current PC.
 
-- [ ] **Step 1: Create `CallStackWalker.cs`**
+- [x] **Step 1: Create `CallStackWalker.cs`**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1870,7 +1870,7 @@ public sealed class CallStackWalker
 }
 ```
 
-- [ ] **Step 2: Create DAP messages**
+- [x] **Step 2: Create DAP messages**
 
 ```csharp
 // StackTraceMessages.cs
@@ -1881,7 +1881,7 @@ public sealed class StackFrame { public int Id; public string Name = ""; public 
 public sealed class StackTraceResponseBody { public StackFrame[] StackFrames = []; public int TotalFrames; }
 ```
 
-- [ ] **Step 3: Create `StackTraceHandler.cs`**
+- [x] **Step 3: Create `StackTraceHandler.cs`**
 
 ```csharp
 public sealed class StackTraceHandler
@@ -1905,7 +1905,7 @@ public sealed class StackTraceHandler
 }
 ```
 
-- [ ] **Step 4: Register and test**
+- [x] **Step 4: Register and test**
 
 ```bash
 git add src/Koh.Debugger/Session/CallStackWalker.cs src/Koh.Debugger/Dap/Handlers/StackTraceHandler.cs src/Koh.Debugger/Dap/Messages/StackTraceMessages.cs src/Koh.Debugger/Dap/HandlerRegistration.cs tests/Koh.Debugger.Tests/CallStackWalkerTests.cs
@@ -1921,7 +1921,7 @@ git commit -m "feat(debugger): add heuristic call-stack walker + stackTrace hand
 - Create: `src/Koh.Debugger/Dap/Handlers/DisassembleHandler.cs`
 - Create: `src/Koh.Debugger/Dap/Messages/DisassembleMessages.cs`
 
-- [ ] **Step 1: Create `Disassembler.cs`**
+- [x] **Step 1: Create `Disassembler.cs`**
 
 A simple table-driven disassembler that mirrors `InstructionTable`. Given a banked address, returns a string mnemonic with the immediate operands decoded.
 
@@ -1956,9 +1956,9 @@ public sealed class Disassembler
 
 The full implementation needs a mnemonic table covering all 512 opcodes with operand formatting. This is tedious but mechanical; budget time accordingly.
 
-- [ ] **Step 2: Create DAP messages and handler**
+- [x] **Step 2: Create DAP messages and handler**
 
-- [ ] **Step 3: Register, test, commit**
+- [x] **Step 3: Register, test, commit**
 
 ```bash
 git add src/Koh.Debugger/Session/Disassembler.cs src/Koh.Debugger/Dap/Handlers/DisassembleHandler.cs src/Koh.Debugger/Dap/Messages/DisassembleMessages.cs
@@ -1973,7 +1973,7 @@ git commit -m "feat(debugger): add disassembler + DAP disassemble handler"
 - Create: `src/Koh.Debugger/Dap/Handlers/EvaluateHandler.cs`
 - Create: `src/Koh.Debugger/Dap/Messages/EvaluateMessages.cs`
 
-- [ ] **Step 1: Create `EvaluateMessages.cs`**
+- [x] **Step 1: Create `EvaluateMessages.cs`**
 
 ```csharp
 public sealed class EvaluateArguments
@@ -1991,7 +1991,7 @@ public sealed class EvaluateResponseBody
 }
 ```
 
-- [ ] **Step 2: Create `EvaluateHandler.cs`**
+- [x] **Step 2: Create `EvaluateHandler.cs`**
 
 ```csharp
 public sealed class EvaluateHandler
@@ -2028,7 +2028,7 @@ public sealed class EvaluateHandler
 }
 ```
 
-- [ ] **Step 3: Register, test, commit**
+- [x] **Step 3: Register, test, commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/Handlers/EvaluateHandler.cs src/Koh.Debugger/Dap/Messages/EvaluateMessages.cs
@@ -2045,15 +2045,15 @@ git commit -m "feat(debugger): add evaluate handler (hex/decimal literals + symb
 - Create: `src/Koh.Debugger/Dap/Handlers/BreakpointLocationsHandler.cs`
 - Create matching message files
 
-- [ ] **Step 1: Implement the three handlers**
+- [x] **Step 1: Implement the three handlers**
 
 - `setInstructionBreakpoints`: accepts raw address strings (memory references), adds them to `BreakpointManager`.
 - `setFunctionBreakpoints`: accepts symbol names, looks them up in `SymbolMap`, adds their addresses.
 - `breakpointLocations`: returns the valid breakpoint lines in a source file (used by VS Code for the gutter hover UI).
 
-- [ ] **Step 2: Register and test**
+- [x] **Step 2: Register and test**
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/Handlers/SetInstructionBreakpointsHandler.cs src/Koh.Debugger/Dap/Handlers/SetFunctionBreakpointsHandler.cs src/Koh.Debugger/Dap/Handlers/BreakpointLocationsHandler.cs src/Koh.Debugger/Dap/Messages/ src/Koh.Debugger/Dap/HandlerRegistration.cs src/Koh.Debugger/Dap/DapCapabilities.cs
@@ -2068,7 +2068,7 @@ git commit -m "feat(debugger): add instruction/function/breakpointLocations hand
 - Modify: `src/Koh.Debugger/Dap/Handlers/ScopesHandler.cs`
 - Modify: `src/Koh.Debugger/Dap/Handlers/VariablesHandler.cs`
 
-- [ ] **Step 1: Add new scope IDs**
+- [x] **Step 1: Add new scope IDs**
 
 ```csharp
 public const int SymbolsVariablesRef = 3;
@@ -2077,7 +2077,7 @@ public const int SourceContextVariablesRef = 4;
 
 Return both new scopes from `ScopesHandler`.
 
-- [ ] **Step 2: Implement the new scope cases in `VariablesHandler`**
+- [x] **Step 2: Implement the new scope cases in `VariablesHandler`**
 
 ```csharp
 case ScopesHandler.SymbolsVariablesRef:
@@ -2096,9 +2096,9 @@ case ScopesHandler.SourceContextVariablesRef:
 
 Source Context shows the current PC's source location and macro expansion chain via `.kdbg` address-map lookup.
 
-- [ ] **Step 3: Test**
+- [x] **Step 3: Test**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Debugger/Dap/Handlers/ScopesHandler.cs src/Koh.Debugger/Dap/Handlers/VariablesHandler.cs
@@ -2116,7 +2116,7 @@ git commit -m "feat(debugger): add Symbols and Source Context variable scopes"
 
 Per §12.9 Phase 3: run Blargg `cpu_instrs/01-special.gb` in a loop, real PPU, timer, OAM DMA, interrupts enabled. Target ≥ 1.3× real-time median.
 
-- [ ] **Step 1: Create `Phase3Benchmarks.cs`**
+- [x] **Step 1: Create `Phase3Benchmarks.cs`**
 
 ```csharp
 using BenchmarkDotNet.Attributes;
@@ -2149,7 +2149,7 @@ public class Phase3Benchmarks
 }
 ```
 
-- [ ] **Step 2: Run the benchmark**
+- [x] **Step 2: Run the benchmark**
 
 ```bash
 dotnet run --project benchmarks/Koh.Benchmarks --configuration Release -- --filter '*Phase3*'
@@ -2157,9 +2157,9 @@ dotnet run --project benchmarks/Koh.Benchmarks --configuration Release -- --filt
 
 Expected: the per-op mean is below 16.742 ms × 60 / 1.3 ≈ 770 ms for 60 frames.
 
-- [ ] **Step 3: Add to CI**
+- [x] **Step 3: Add to CI**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add benchmarks/Koh.Benchmarks/Phase3Benchmarks.cs .github/workflows/ci.yml
@@ -2172,28 +2172,28 @@ git commit -m "perf(benchmark): add Phase 3 CPU+PPU workload benchmark"
 
 Before declaring Phase 3 complete, verify every item below.
 
-- [ ] `dotnet build Koh.slnx` succeeds with no warnings
-- [ ] `dotnet test Koh.slnx` — all tests pass
-- [ ] All 11 Blargg `cpu_instrs` sub-tests pass
-- [ ] Blargg `instr_timing` passes
-- [ ] Blargg `mem_timing` and `mem_timing-2` pass
-- [ ] Blargg `halt_bug` passes
-- [ ] Blargg `interrupt_time` passes
-- [ ] Mooneye acceptance/bits/* passes
-- [ ] Mooneye acceptance/timer/* passes
-- [ ] Mooneye acceptance/interrupts/* passes
-- [ ] Mooneye acceptance/oam_dma/* passes
-- [ ] Setting a breakpoint in a `.asm` file halts execution at the expected address when F5-debugging a Koh project
-- [ ] Step-over on a `CALL` runs until the matching `RET`
-- [ ] Step-in on a `CALL` descends into the called routine
-- [ ] Step-out runs until the current stack frame returns
-- [ ] Stack Trace view in VS Code shows a sensible heuristic call stack
-- [ ] Disassembly view shows decoded instructions around the current PC
-- [ ] Variables panel shows Registers, Hardware, Symbols, and Source Context scopes
-- [ ] Evaluate expression works for hex literals, decimal literals, and symbol names
-- [ ] Instruction breakpoints and function breakpoints work
-- [ ] Phase 3 benchmark meets ≥ 1.3× real-time median
-- [ ] CI passes on ubuntu-latest and windows-latest
+- [x] `dotnet build Koh.slnx` succeeds with no warnings
+- [x] `dotnet test Koh.slnx` — all tests pass
+- [x] All 11 Blargg `cpu_instrs` sub-tests pass
+- [x] Blargg `instr_timing` passes
+- [x] Blargg `mem_timing` and `mem_timing-2` pass
+- [x] Blargg `halt_bug` passes
+- [x] Blargg `interrupt_time` passes
+- [x] Mooneye acceptance/bits/* passes
+- [x] Mooneye acceptance/timer/* passes
+- [x] Mooneye acceptance/interrupts/* passes
+- [x] Mooneye acceptance/oam_dma/* passes
+- [x] Setting a breakpoint in a `.asm` file halts execution at the expected address when F5-debugging a Koh project
+- [x] Step-over on a `CALL` runs until the matching `RET`
+- [x] Step-in on a `CALL` descends into the called routine
+- [x] Step-out runs until the current stack frame returns
+- [x] Stack Trace view in VS Code shows a sensible heuristic call stack
+- [x] Disassembly view shows decoded instructions around the current PC
+- [x] Variables panel shows Registers, Hardware, Symbols, and Source Context scopes
+- [x] Evaluate expression works for hex literals, decimal literals, and symbol names
+- [x] Instruction breakpoints and function breakpoints work
+- [x] Phase 3 benchmark meets ≥ 1.3× real-time median
+- [x] CI passes on ubuntu-latest and windows-latest
 
 If every checkbox is checked, Phase 3 is complete and ready for Phase 4 planning.
 

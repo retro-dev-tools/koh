@@ -1,6 +1,6 @@
 # Koh Emulator — Phase 2 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship a cycle-accurate pixel-FIFO PPU, full OAM DMA, CGB HDMA, VRAM/OAM access lockouts, the minimal CPU opcode subset required to run `dmg-acid2` and `cgb-acid2`, CGB features (VRAM/WRAM banking, double-speed, CGB palettes), the single-copy framebuffer pipeline delivering real pixels to the webview, Razor UI components for VRAM/palette/OAM/memory inspection, the `readMemory` DAP capability, and an automated acid2 pixel-match test that gates Phase 2.
 
@@ -126,7 +126,7 @@ A new `scripts/download-test-roms.{ps1,sh}` population step downloads `dmg-acid2
 - Create: `src/Koh.Emulator.Core/Ppu/StatRegister.cs`
 - Create: `src/Koh.Emulator.Core/Ppu/ObjectAttributes.cs`
 
-- [ ] **Step 1: Create `LcdControl.cs`**
+- [x] **Step 1: Create `LcdControl.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -154,7 +154,7 @@ public static class LcdControl
 }
 ```
 
-- [ ] **Step 2: Create `StatRegister.cs`**
+- [x] **Step 2: Create `StatRegister.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -185,7 +185,7 @@ public struct StatRegister
 }
 ```
 
-- [ ] **Step 3: Create `ObjectAttributes.cs`**
+- [x] **Step 3: Create `ObjectAttributes.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -231,7 +231,7 @@ public readonly struct ObjectAttributes
 }
 ```
 
-- [ ] **Step 4: Build and commit**
+- [x] **Step 4: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -247,7 +247,7 @@ git commit -m "feat(emulator): add LcdControl, StatRegister, ObjectAttributes he
 **Files:**
 - Create: `src/Koh.Emulator.Core/Ppu/CgbPalette.cs`
 
-- [ ] **Step 1: Create `CgbPalette.cs`**
+- [x] **Step 1: Create `CgbPalette.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -285,7 +285,7 @@ public sealed class CgbPalette
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -301,7 +301,7 @@ git commit -m "feat(emulator): add CGB palette RAM with auto-increment"
 **Files:**
 - Create: `src/Koh.Emulator.Core/Ppu/PixelFifo.cs`
 
-- [ ] **Step 1: Create `PixelFifo.cs`**
+- [x] **Step 1: Create `PixelFifo.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -398,7 +398,7 @@ public sealed class PixelFifo
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -416,7 +416,7 @@ git commit -m "feat(emulator): add PixelFifo with parallel BG + sprite FIFOs"
 
 Per spec §7.7: the fetcher runs an 8-dot-per-tile pipeline (Get Tile → Get Low → Get High → Push), retrying the push until the FIFO has room. This task implements the BG/window fetcher. Sprite fetching is added in Task 2.A.6.
 
-- [ ] **Step 1: Create `Fetcher.cs`**
+- [x] **Step 1: Create `Fetcher.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Ppu;
@@ -466,7 +466,7 @@ public sealed class Fetcher
 }
 ```
 
-- [ ] **Step 2: Build and commit**
+- [x] **Step 2: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -484,7 +484,7 @@ git commit -m "feat(emulator): add Fetcher state machine skeleton"
 
 This is the biggest task in Phase 2. The Phase 1 PPU (dot counter only) is replaced with a full dot-driven state machine that runs the fetcher, shifts pixels out of the FIFO, handles window activation, and emits into the framebuffer.
 
-- [ ] **Step 1: Replace `Ppu.cs` with the algorithmic implementation**
+- [x] **Step 1: Replace `Ppu.cs` with the algorithmic implementation**
 
 ```csharp
 using Koh.Emulator.Core.Cpu;
@@ -814,7 +814,7 @@ public sealed class Ppu
 }
 ```
 
-- [ ] **Step 2: Update `GameBoySystem.cs` to pass vram/oam into the new PPU constructor**
+- [x] **Step 2: Update `GameBoySystem.cs` to pass vram/oam into the new PPU constructor**
 
 The previous PPU construction was `new Ppu.Ppu()`. Now it needs the mode + VRAM + OAM references. Expose those from `Mmu`:
 
@@ -830,12 +830,12 @@ Then in `GameBoySystem.cs` constructor:
 Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Ppu/Ppu.cs src/Koh.Emulator.Core/Bus/Mmu.cs src/Koh.Emulator.Core/GameBoySystem.cs
@@ -849,7 +849,7 @@ git commit -m "feat(emulator): rewrite PPU with algorithmic fetcher + FIFO + mod
 **Files:**
 - Modify: `src/Koh.Emulator.Core/Ppu/Ppu.cs`
 
-- [ ] **Step 1: Extend the mode 3 driver to handle sprites**
+- [x] **Step 1: Extend the mode 3 driver to handle sprites**
 
 Add sprite-fetcher logic inside `TickDrawing`: before shifting out a BG pixel, check if any sprite's X matches the current `_lcdX`. If so, run the 6-dot sprite fetch penalty (plus position penalty) and push sprite pixels into the sprite FIFO.
 
@@ -922,11 +922,11 @@ Call `CheckAndStartSpriteFetch()` and `ProgressSpriteFetch()` at the top of `Tic
 
 (The real implementation will need to preserve sprite identity across ticks — refactor `_currentSpriteIndex` to store the actual sprite rather than marking it consumed. The sketch above shows the structure; adapt field names as needed during implementation.)
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Ppu/Ppu.cs
@@ -940,7 +940,7 @@ git commit -m "feat(emulator): add sprite fetcher + sprite FIFO integration to P
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/PpuModeTimingTests.cs`
 
-- [ ] **Step 1: Write tests for mode transitions**
+- [x] **Step 1: Write tests for mode transitions**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1013,12 +1013,12 @@ public class PpuModeTimingTests
 }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter PpuModeTimingTests`
 Expected: all four tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/PpuModeTimingTests.cs
@@ -1032,7 +1032,7 @@ git commit -m "test(emulator): add PPU mode-timing tests for scanline and VBlank
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/PpuFetcherTests.cs`
 
-- [ ] **Step 1: Write tests with hand-crafted tile data**
+- [x] **Step 1: Write tests with hand-crafted tile data**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1089,12 +1089,12 @@ public class PpuFetcherTests
 }
 ```
 
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter PpuFetcherTests`
 Expected: test passes. Iterate on the PPU implementation if the pixel values don't match.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/PpuFetcherTests.cs
@@ -1112,7 +1112,7 @@ git commit -m "test(emulator): add PPU fetcher tile-decode test"
 
 Per spec §7.6: triggered by write to $FF46; 1 M-cycle start delay; 160 M-cycles transfer; CPU reads from non-HRAM return $FF during the contention window; writes dropped.
 
-- [ ] **Step 1: Create `OamDma.cs`**
+- [x] **Step 1: Create `OamDma.cs`**
 
 ```csharp
 using Koh.Emulator.Core.Bus;
@@ -1185,11 +1185,11 @@ public sealed class OamDma
 }
 ```
 
-- [ ] **Step 2: Wire OamDma into `Mmu` so I/O writes to $FF46 trigger it, and memory reads during contention return $FF**
+- [x] **Step 2: Wire OamDma into `Mmu` so I/O writes to $FF46 trigger it, and memory reads during contention return $FF**
 
 Update `Mmu.ReadByte` to check `oamDma.IsBusLocking` and return $FF if the address is not in HRAM ($FF80-$FFFE). Update `WriteByte` similarly for writes (drop them). Hook `$FF46` write to call `oamDma.Trigger(value)`.
 
-- [ ] **Step 3: Add `OamDma` field to `GameBoySystem` and tick it in `StepOneSystemTick`**
+- [x] **Step 3: Add `OamDma` field to `GameBoySystem` and tick it in `StepOneSystemTick`**
 
 ```csharp
 public OamDma OamDma { get; }
@@ -1202,7 +1202,7 @@ Mmu.AttachOamDma(OamDma);   // so Mmu can consult IsBusLocking
 OamDma.TickT();
 ```
 
-- [ ] **Step 4: Build and commit**
+- [x] **Step 4: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -1218,7 +1218,7 @@ git commit -m "feat(emulator): add OAM DMA with contention window"
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/OamDmaTests.cs`
 
-- [ ] **Step 1: Write tests per §7.6 exact timing windows**
+- [x] **Step 1: Write tests per §7.6 exact timing windows**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1284,12 +1284,12 @@ public class OamDmaTests
 }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter OamDmaTests`
 Expected: all tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/OamDmaTests.cs
@@ -1308,7 +1308,7 @@ git commit -m "test(emulator): add OAM DMA timing and contention tests"
 
 Per spec §7.6: general-purpose HDMA halts the CPU during transfer; HBlank HDMA transfers 16 bytes per HBlank. CGB only.
 
-- [ ] **Step 1: Create `Hdma.cs`**
+- [x] **Step 1: Create `Hdma.cs`**
 
 ```csharp
 using Koh.Emulator.Core.Bus;
@@ -1410,15 +1410,15 @@ public sealed class Hdma
 }
 ```
 
-- [ ] **Step 2: Wire HDMA $FF51-$FF55 into `IoRegisters`**
+- [x] **Step 2: Wire HDMA $FF51-$FF55 into `IoRegisters`**
 
 Add cases in `Read` and `Write` that route to the Hdma instance. Construct `Hdma` in `GameBoySystem` constructor and expose it.
 
-- [ ] **Step 3: Call `OnHBlankEntered()` from the PPU when mode transitions from Drawing to HBlank**
+- [x] **Step 3: Call `OnHBlankEntered()` from the PPU when mode transitions from Drawing to HBlank**
 
 In `Ppu.TickDrawing()` where it sets `Mode = PpuMode.HBlank`, also call `hdma.OnHBlankEntered()`. This requires passing an `Hdma` reference to the PPU or exposing a callback.
 
-- [ ] **Step 4: Build and commit**
+- [x] **Step 4: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -1434,7 +1434,7 @@ git commit -m "feat(emulator): add CGB HDMA (general + HBlank modes)"
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/HdmaTests.cs`
 
-- [ ] **Step 1: Write general-purpose and HBlank HDMA tests**
+- [x] **Step 1: Write general-purpose and HBlank HDMA tests**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1481,12 +1481,12 @@ public class HdmaTests
 
 (The exact tick API depends on how you wire HDMA into the system tick loop — update the test harness to call the right method.)
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter HdmaTests`
 Expected: passes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/HdmaTests.cs
@@ -1503,7 +1503,7 @@ git commit -m "test(emulator): add general-purpose HDMA transfer test"
 - Create: `src/Koh.Emulator.Core/Cgb/VramWramBanking.cs`
 - Modify: `src/Koh.Emulator.Core/Bus/Mmu.cs`
 
-- [ ] **Step 1: Create `VramWramBanking.cs`**
+- [x] **Step 1: Create `VramWramBanking.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cgb;
@@ -1525,11 +1525,11 @@ public sealed class VramWramBanking
 }
 ```
 
-- [ ] **Step 2: Modify `Mmu` to consult the banking state**
+- [x] **Step 2: Modify `Mmu` to consult the banking state**
 
 The existing Phase 1 Mmu already uses `_vramBank` and `_wramBank` fields — replace them with a `VramWramBanking` instance. Wire the $FF4F and $FF70 I/O writes to that instance.
 
-- [ ] **Step 3: Build and commit**
+- [x] **Step 3: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -1547,7 +1547,7 @@ git commit -m "feat(emulator): extract VramWramBanking and wire $FF4F/$FF70"
 - Modify: `src/Koh.Emulator.Core/SystemClock.cs`
 - Modify: `src/Koh.Emulator.Core/GameBoySystem.cs`
 
-- [ ] **Step 1: Create `KeyOneRegister.cs`**
+- [x] **Step 1: Create `KeyOneRegister.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cgb;
@@ -1580,7 +1580,7 @@ public sealed class KeyOneRegister
 }
 ```
 
-- [ ] **Step 2: Wire KEY1 into `IoRegisters` ($FF4D) and `GameBoySystem.Clock.DoubleSpeed`**
+- [x] **Step 2: Wire KEY1 into `IoRegisters` ($FF4D) and `GameBoySystem.Clock.DoubleSpeed`**
 
 In `IoRegisters`:
 ```csharp
@@ -1591,7 +1591,7 @@ case 0xFF4D: _keyOne.Write(value); break;
 
 In `GameBoySystem`, after each `StepOneSystemTick`, update `Clock.DoubleSpeed = KeyOne.DoubleSpeed;` (or read it directly in the tick loop).
 
-- [ ] **Step 3: Build and commit**
+- [x] **Step 3: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 
@@ -1607,7 +1607,7 @@ git commit -m "feat(emulator): add CGB double-speed KEY1 register"
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/CgbBankingTests.cs`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -1667,12 +1667,12 @@ public class CgbBankingTests
 }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter CgbBankingTests`
 Expected: passes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/CgbBankingTests.cs
@@ -1691,7 +1691,7 @@ Per spec §Phase 2: determine the opcode subset empirically by disassembling `dm
 - Modify: `scripts/download-test-roms.ps1`
 - Modify: `scripts/download-test-roms.sh`
 
-- [ ] **Step 1: Add acid2 ROM and reference-PNG entries to the download scripts**
+- [x] **Step 1: Add acid2 ROM and reference-PNG entries to the download scripts**
 
 Update the scripts to fetch from the canonical sources with SHA-256 verification. Example `scripts/download-test-roms.sh` body:
 
@@ -1756,12 +1756,12 @@ echo "download-test-roms: acid2 fixtures ready"
 
 Mirror the changes in `scripts/download-test-roms.ps1` using `Invoke-WebRequest` and `Get-FileHash`.
 
-- [ ] **Step 2: Run the script locally**
+- [x] **Step 2: Run the script locally**
 
 Run: `bash scripts/download-test-roms.sh` (or the PowerShell equivalent).
 Expected: ROMs and PNGs appear under `tests/fixtures/`.
 
-- [ ] **Step 3: Add the fixtures directory to `.gitignore`**
+- [x] **Step 3: Add the fixtures directory to `.gitignore`**
 
 Append to `.gitignore`:
 
@@ -1770,7 +1770,7 @@ tests/fixtures/test-roms/
 tests/fixtures/reference/
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/download-test-roms.sh scripts/download-test-roms.ps1 .gitignore
@@ -1784,11 +1784,11 @@ git commit -m "chore: populate test-rom download scripts with acid2 fixtures"
 **Files:**
 - Create: `docs/decisions/acid2-opcode-subset.md`
 
-- [ ] **Step 1: Run a disassembly of both ROMs**
+- [x] **Step 1: Run a disassembly of both ROMs**
 
 Use any Game Boy disassembler (mgbdis or similar). Record the set of unique opcode byte values that appear in the executed regions of each ROM. If you don't have a disassembler handy, a simple Python script can read the ROM bytes starting at the known entry point and record all bytes that appear in positions that look like opcodes.
 
-- [ ] **Step 2: Write the decision document**
+- [x] **Step 2: Write the decision document**
 
 File `docs/decisions/acid2-opcode-subset.md`:
 
@@ -1837,7 +1837,7 @@ from disassembly). Implementing exactly these opcodes gates Phase 2 CPU work:
 - When Phase 3 begins (full SM83 instruction set), this decision is superseded.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/decisions/acid2-opcode-subset.md
@@ -1852,7 +1852,7 @@ git commit -m "docs: record acid2 opcode subset decision"
 - Create: `src/Koh.Emulator.Core/Cpu/InstructionTable.cs`
 - Modify: `src/Koh.Emulator.Core/Cpu/Sm83.cs`
 
-- [ ] **Step 1: Create `InstructionTable.cs` with only the acid2 subset**
+- [x] **Step 1: Create `InstructionTable.cs` with only the acid2 subset**
 
 ```csharp
 namespace Koh.Emulator.Core.Cpu;
@@ -1935,7 +1935,7 @@ public static class InstructionTable
 
 Fill out the remaining opcodes identified in Task 2.E.2. This is a larger task than one commit — group related opcodes and commit incrementally (e.g., "LD register group", "arithmetic group", "jumps group").
 
-- [ ] **Step 2: Rewrite `Sm83.cs` to use the instruction table instead of the mock CPU**
+- [x] **Step 2: Rewrite `Sm83.cs` to use the instruction table instead of the mock CPU**
 
 ```csharp
 using Koh.Emulator.Core.Bus;
@@ -2006,12 +2006,12 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
 }
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `dotnet build src/Koh.Emulator.Core/Koh.Emulator.Core.csproj`
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cpu/InstructionTable.cs src/Koh.Emulator.Core/Cpu/Sm83.cs
@@ -2025,7 +2025,7 @@ git commit -m "feat(emulator): replace mock CPU with acid2 opcode subset via Ins
 **Files:**
 - Create: `tests/Koh.Emulator.Core.Tests/Acid2SubsetInstructionTests.cs`
 
-- [ ] **Step 1: Write tests per opcode**
+- [x] **Step 1: Write tests per opcode**
 
 For each opcode in the acid2 subset, write a focused test:
 
@@ -2093,13 +2093,13 @@ public class Acid2SubsetInstructionTests
 }
 ```
 
-- [ ] **Step 2: Run the tests iteratively as you add opcodes to `InstructionTable.cs`**
+- [x] **Step 2: Run the tests iteratively as you add opcodes to `InstructionTable.cs`**
 
 Run: `dotnet test tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj --filter Acid2SubsetInstructionTests`
 
 Commit incrementally: add ~10 opcodes + their tests at a time, commit, continue. This keeps each commit small and reviewable.
 
-- [ ] **Step 3: Final commit when all acid2 opcodes pass**
+- [x] **Step 3: Final commit when all acid2 opcodes pass**
 
 ```bash
 git add tests/Koh.Emulator.Core.Tests/Acid2SubsetInstructionTests.cs
@@ -2116,7 +2116,7 @@ git commit -m "test(emulator): full acid2 opcode subset per-instruction tests"
 - Create: `tests/Koh.Compat.Tests/Emulation/Acid2Tests.cs`
 - Modify: `tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj`
 
-- [ ] **Step 1: Add a project reference from Koh.Compat.Tests to Koh.Emulator.Core**
+- [x] **Step 1: Add a project reference from Koh.Compat.Tests to Koh.Emulator.Core**
 
 Update `tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj`:
 
@@ -2126,7 +2126,7 @@ Update `tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj`:
   </ItemGroup>
 ```
 
-- [ ] **Step 2: Create `Acid2Tests.cs`**
+- [x] **Step 2: Create `Acid2Tests.cs`**
 
 ```csharp
 using Koh.Emulator.Core;
@@ -2187,7 +2187,7 @@ public class Acid2Tests
 }
 ```
 
-- [ ] **Step 3: Add the ImageSharp package to Directory.Packages.props and reference it in the test project**
+- [x] **Step 3: Add the ImageSharp package to Directory.Packages.props and reference it in the test project**
 
 `Directory.Packages.props`:
 
@@ -2201,18 +2201,18 @@ public class Acid2Tests
     <PackageReference Include="SixLabors.ImageSharp" />
 ```
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `bash scripts/download-test-roms.sh` (if fixtures aren't present).
 Run: `dotnet test tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --filter Acid2Tests`
 
 Expected: DmgAcid2 test passes with zero pixel mismatch. **If it fails, the PPU implementation has bugs — iterate on the fetcher, sprite rendering, or window logic until it passes.** This is the Phase 2 acceptance gate.
 
-- [ ] **Step 5: Add the CgbAcid2 test in the same style**
+- [x] **Step 5: Add the CgbAcid2 test in the same style**
 
 Add a second `[Test]` method that loads `cgb-acid2.gb` with `HardwareMode.Cgb` and compares against `cgb-acid2.png`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tests/Koh.Compat.Tests/Emulation/Acid2Tests.cs tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj Directory.Packages.props
@@ -2231,7 +2231,7 @@ git commit -m "test(compat): add dmg-acid2 and cgb-acid2 framebuffer comparison 
 - Modify: `src/Koh.Emulator.App/Components/LcdDisplay.razor`
 - Create: `src/Koh.Emulator.App/Components/LcdDisplay.razor.js`
 
-- [ ] **Step 1: Create `framebuffer-bridge.js`**
+- [x] **Step 1: Create `framebuffer-bridge.js`**
 
 ```javascript
 // Allocates persistent ImageData + Uint8ClampedArray and exposes a single-copy
@@ -2268,7 +2268,7 @@ window.kohFramebufferBridge = (function () {
 
 Add `<script src="js/framebuffer-bridge.js"></script>` to `index.html` before the Blazor loader.
 
-- [ ] **Step 2: Create `FramebufferBridge.cs`**
+- [x] **Step 2: Create `FramebufferBridge.cs`**
 
 ```csharp
 using Microsoft.JSInterop;
@@ -2295,13 +2295,13 @@ public sealed class FramebufferBridge
 
 *Note: base64 encoding is the single-copy baseline per §10.4. A later optimization can replace this with `IJSUnmarshalledRuntime.InvokeUnmarshalled` to transfer the span directly without base64. Keep the base64 path as the portable fallback.*
 
-- [ ] **Step 3: Register `FramebufferBridge` in `Program.cs`**
+- [x] **Step 3: Register `FramebufferBridge` in `Program.cs`**
 
 ```csharp
 builder.Services.AddSingleton<FramebufferBridge>();
 ```
 
-- [ ] **Step 4: Rewrite `LcdDisplay.razor`**
+- [x] **Step 4: Rewrite `LcdDisplay.razor`**
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -2340,16 +2340,16 @@ builder.Services.AddSingleton<FramebufferBridge>();
 }
 ```
 
-- [ ] **Step 5: Replace the placeholder `<div class="lcd-placeholder">` in both `DebugShell.razor` and `StandaloneShell.razor` with `<LcdDisplay />`**
+- [x] **Step 5: Replace the placeholder `<div class="lcd-placeholder">` in both `DebugShell.razor` and `StandaloneShell.razor` with `<LcdDisplay />`**
 
-- [ ] **Step 6: Build and run the dev host**
+- [x] **Step 6: Build and run the dev host**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 Run: `dotnet run --project src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 
 Load a ROM in standalone mode. Expected: the canvas renders pixels (may be garbage until a real ROM runs).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/Koh.Emulator.App/Services/FramebufferBridge.cs src/Koh.Emulator.App/wwwroot/js/framebuffer-bridge.js src/Koh.Emulator.App/Components/LcdDisplay.razor src/Koh.Emulator.App/wwwroot/index.html src/Koh.Emulator.App/Shell/ src/Koh.Emulator.App/Program.cs
@@ -2368,7 +2368,7 @@ git commit -m "feat(emulator-app): wire single-copy framebuffer pipeline to LCD 
 
 These are debug inspection components. Each reads from `EmulatorHost.System` and re-renders on `StateChanged`.
 
-- [ ] **Step 1: Create `VramView.razor`** — renders the 256 BG tiles as an 8×32 grid of tiny canvases.
+- [x] **Step 1: Create `VramView.razor`** — renders the 256 BG tiles as an 8×32 grid of tiny canvases.
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -2400,7 +2400,7 @@ These are debug inspection components. Each reads from `EmulatorHost.System` and
 
 (Full canvas-rendering logic can be deferred; the placeholder here is fine for a Phase 2 ship with a "Refresh" button the developer clicks to see the current state. Real-time updating on every frame would thrash the UI. The component becomes fully interactive in Phase 4.)
 
-- [ ] **Step 2: Create `PaletteView.razor`**
+- [x] **Step 2: Create `PaletteView.razor`**
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -2427,7 +2427,7 @@ These are debug inspection components. Each reads from `EmulatorHost.System` and
 }
 ```
 
-- [ ] **Step 3: Create `OamView.razor`** — lists the 40 OAM entries.
+- [x] **Step 3: Create `OamView.razor`** — lists the 40 OAM entries.
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -2465,7 +2465,7 @@ These are debug inspection components. Each reads from `EmulatorHost.System` and
 }
 ```
 
-- [ ] **Step 4: Create `MemoryView.razor`** — a simple hex dump with a start-address input.
+- [x] **Step 4: Create `MemoryView.razor`** — a simple hex dump with a start-address input.
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -2505,7 +2505,7 @@ These are debug inspection components. Each reads from `EmulatorHost.System` and
 }
 ```
 
-- [ ] **Step 5: Add the components to `DebugShell.razor`**
+- [x] **Step 5: Add the components to `DebugShell.razor`**
 
 ```razor
 <div class="debug-panels">
@@ -2516,7 +2516,7 @@ These are debug inspection components. Each reads from `EmulatorHost.System` and
 </div>
 ```
 
-- [ ] **Step 6: Build and commit**
+- [x] **Step 6: Build and commit**
 
 Run: `dotnet build src/Koh.Emulator.App/Koh.Emulator.App.csproj`
 
@@ -2538,7 +2538,7 @@ git commit -m "feat(emulator-app): add VramView, PaletteView, OamView, MemoryVie
 - Modify: `src/Koh.Debugger/Dap/DapCapabilities.cs`
 - Modify: `src/Koh.Debugger/Dap/HandlerRegistration.cs`
 
-- [ ] **Step 1: Create `ReadMemoryMessages.cs`**
+- [x] **Step 1: Create `ReadMemoryMessages.cs`**
 
 ```csharp
 using System.Text.Json.Serialization;
@@ -2560,7 +2560,7 @@ public sealed class ReadMemoryResponseBody
 }
 ```
 
-- [ ] **Step 2: Create `ReadMemoryHandler.cs`**
+- [x] **Step 2: Create `ReadMemoryHandler.cs`**
 
 ```csharp
 using System.Text.Json;
@@ -2613,14 +2613,14 @@ public sealed class ReadMemoryHandler
 }
 ```
 
-- [ ] **Step 3: Register the message types in `DapJsonContext`**
+- [x] **Step 3: Register the message types in `DapJsonContext`**
 
 ```csharp
 [JsonSerializable(typeof(ReadMemoryArguments))]
 [JsonSerializable(typeof(ReadMemoryResponseBody))]
 ```
 
-- [ ] **Step 4: Update `DapCapabilities.Phase1()` → `Phase2()` enabling `SupportsReadMemoryRequest = true`**
+- [x] **Step 4: Update `DapCapabilities.Phase1()` → `Phase2()` enabling `SupportsReadMemoryRequest = true`**
 
 Rename the method and update `HandlerRegistration` to call `Phase2()`. Register the new handler:
 
@@ -2629,7 +2629,7 @@ var readMemory = new ReadMemoryHandler(session);
 dispatcher.RegisterHandler("readMemory", readMemory.Handle);
 ```
 
-- [ ] **Step 5: Write a test**
+- [x] **Step 5: Write a test**
 
 File `tests/Koh.Debugger.Tests/ReadMemoryHandlerTests.cs`:
 
@@ -2684,7 +2684,7 @@ public class ReadMemoryHandlerTests
 }
 ```
 
-- [ ] **Step 6: Run and commit**
+- [x] **Step 6: Run and commit**
 
 Run: `dotnet test tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj`
 
@@ -2703,7 +2703,7 @@ git commit -m "feat(debugger): add readMemory DAP handler for Phase 2 capability
 - Modify: `src/Koh.Emulator.App/Benchmark/BenchmarkRunner.cs`
 - Modify: `src/Koh.Emulator.App/Benchmark/BenchmarkPage.razor`
 
-- [ ] **Step 1: Add a Phase 2 workload method to `BenchmarkRunner.cs`**
+- [x] **Step 1: Add a Phase 2 workload method to `BenchmarkRunner.cs`**
 
 Per §12.9 Phase 2 row: full PPU with tile data in VRAM, 40 sprites visible across a frame, window enabled mid-frame, CGB palettes, real OAM DMA once per frame. Mock CPU from Phase 1.
 
@@ -2750,15 +2750,15 @@ private static void SetupPhase2TestState(GameBoySystem gb)
 }
 ```
 
-- [ ] **Step 2: Add a "Run Phase 2" button to `BenchmarkPage.razor` and wire it to `RunPhase2WorkloadAsync`**
+- [x] **Step 2: Add a "Run Phase 2" button to `BenchmarkPage.razor` and wire it to `RunPhase2WorkloadAsync`**
 
 The page now has two buttons: Phase 1 workload and Phase 2 workload. Each reports its multiplier separately.
 
-- [ ] **Step 3: Build, run dev host, execute Phase 2 benchmark**
+- [x] **Step 3: Build, run dev host, execute Phase 2 benchmark**
 
 Expected: ≥ 1.5× real-time median per §12.9 Phase 2 row. Hard floor 1.35×. If it fails, diagnose per §12.9 failure policy before continuing.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.App/Benchmark/
@@ -2772,7 +2772,7 @@ git commit -m "feat(benchmark): add Phase 2 PPU+sprites+window workload"
 **Files:**
 - Modify: `.github/workflows/ci.yml`
 
-- [ ] **Step 1: Add acid2 test and Phase 2 benchmark steps to the existing CI workflow**
+- [x] **Step 1: Add acid2 test and Phase 2 benchmark steps to the existing CI workflow**
 
 Add a job that:
 
@@ -2807,11 +2807,11 @@ And a new job for native benchmark:
         run: dotnet run --project benchmarks/Koh.Benchmarks --configuration Release -- --filter '*Phase2*'
 ```
 
-- [ ] **Step 2: Add a native benchmark for Phase 2**
+- [x] **Step 2: Add a native benchmark for Phase 2**
 
 Create `benchmarks/Koh.Benchmarks/Phase2Benchmarks.cs` mirroring the Blazor `BenchmarkRunner` workload but using BenchmarkDotNet attributes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add .github/workflows/ci.yml benchmarks/Koh.Benchmarks/Phase2Benchmarks.cs
@@ -2824,22 +2824,22 @@ git commit -m "ci: add acid2 tests and native Phase 2 benchmark to CI"
 
 Before declaring Phase 2 complete, verify every item below. Any failure blocks Phase 2 exit.
 
-- [ ] `dotnet build Koh.slnx` succeeds on Windows and Linux with no warnings
-- [ ] `dotnet test Koh.slnx` — all tests pass (including Phase 1 tests and new Phase 2 tests)
-- [ ] `dmg-acid2` framebuffer matches the reference PNG pixel-for-pixel
-- [ ] `cgb-acid2` framebuffer matches the reference PNG pixel-for-pixel
-- [ ] PPU mode timing tests pass (mode 2 = 80 dots, scanline = 456 dots, frame wrap)
-- [ ] OAM DMA timing tests pass (contention window, HRAM passthrough, 160-byte transfer)
-- [ ] CGB HDMA general-purpose transfer test passes
-- [ ] CGB VRAM / WRAM banking tests pass
-- [ ] All acid2 opcode subset tests pass
-- [ ] `readMemory` DAP capability is advertised in `initialize` response
-- [ ] `readMemory` handler test passes
-- [ ] Dev host renders the acid2 ROMs visually matching the reference
-- [ ] Phase 2 benchmark (native) meets ≥ 1.5× real-time median
-- [ ] VS Code extension F5 still works end-to-end (from Phase 1)
-- [ ] VRAM / Palette / OAM / Memory view components render in the debug shell
-- [ ] CI workflow passes on both ubuntu-latest and windows-latest including acid2 tests
+- [x] `dotnet build Koh.slnx` succeeds on Windows and Linux with no warnings
+- [x] `dotnet test Koh.slnx` — all tests pass (including Phase 1 tests and new Phase 2 tests)
+- [x] `dmg-acid2` framebuffer matches the reference PNG pixel-for-pixel
+- [x] `cgb-acid2` framebuffer matches the reference PNG pixel-for-pixel
+- [x] PPU mode timing tests pass (mode 2 = 80 dots, scanline = 456 dots, frame wrap)
+- [x] OAM DMA timing tests pass (contention window, HRAM passthrough, 160-byte transfer)
+- [x] CGB HDMA general-purpose transfer test passes
+- [x] CGB VRAM / WRAM banking tests pass
+- [x] All acid2 opcode subset tests pass
+- [x] `readMemory` DAP capability is advertised in `initialize` response
+- [x] `readMemory` handler test passes
+- [x] Dev host renders the acid2 ROMs visually matching the reference
+- [x] Phase 2 benchmark (native) meets ≥ 1.5× real-time median
+- [x] VS Code extension F5 still works end-to-end (from Phase 1)
+- [x] VRAM / Palette / OAM / Memory view components render in the debug shell
+- [x] CI workflow passes on both ubuntu-latest and windows-latest including acid2 tests
 
 If every checkbox is checked, Phase 2 is complete and ready for Phase 3 planning.
 
