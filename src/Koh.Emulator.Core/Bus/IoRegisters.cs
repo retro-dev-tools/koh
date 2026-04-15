@@ -25,10 +25,14 @@ public sealed class IoRegisters
     private KeyOneRegister? _keyOne;
     private VramWramBanking? _banking;
 
+    public HardwareMode HardwareMode { get; set; } = HardwareMode.Dmg;
+
     public IoRegisters(Timer.Timer timer)
     {
         Timer = timer;
     }
+
+    private bool IsCgb => HardwareMode == HardwareMode.Cgb;
 
     public void AttachPpu(Ppu.Ppu ppu) => _ppu = ppu;
     public void AttachHdma(Hdma hdma) => _hdma = hdma;
@@ -42,6 +46,13 @@ public sealed class IoRegisters
 
         switch (address)
         {
+            // JOYP ($FF00): bits 6-7 always 1. Lower nibble reads 0xF (all buttons
+            // unpressed) when no physical joypad is attached.
+            case 0xFF00:
+                {
+                    byte selectMask = (byte)(_io[0] & 0x30);  // preserve selection bits
+                    return (byte)(0xC0 | selectMask | 0x0F);
+                }
             case 0xFF01: return Serial.ReadSB();
             case 0xFF02: return Serial.ReadSC();
             case 0xFF04: return Timer.DIV;
@@ -63,24 +74,22 @@ public sealed class IoRegisters
             case 0xFF4A: return _ppu?.WY ?? _io[idx];
             case 0xFF4B: return _ppu?.WX ?? _io[idx];
 
-            // CGB banking + KEY1
-            case 0xFF4D: return _keyOne?.Read() ?? 0xFF;
-            case 0xFF4F: return _banking?.ReadVbkRegister() ?? 0xFF;
-            case 0xFF70: return _banking?.ReadSvbkRegister() ?? 0xFF;
+            // CGB-only registers read $FF on DMG.
+            case 0xFF4D: return IsCgb ? (_keyOne?.Read() ?? 0xFF) : (byte)0xFF;
+            case 0xFF4F: return IsCgb ? (_banking?.ReadVbkRegister() ?? 0xFF) : (byte)0xFF;
+            case 0xFF70: return IsCgb ? (_banking?.ReadSvbkRegister() ?? 0xFF) : (byte)0xFF;
 
-            // HDMA
-            case 0xFF51: return _hdma?.Source1 ?? 0xFF;
-            case 0xFF52: return _hdma?.Source2 ?? 0xFF;
-            case 0xFF53: return _hdma?.Dest1 ?? 0xFF;
-            case 0xFF54: return _hdma?.Dest2 ?? 0xFF;
-            case 0xFF55: return _hdma?.ReadLengthRegister() ?? 0xFF;
+            case 0xFF51: return IsCgb ? (_hdma?.Source1 ?? 0xFF) : (byte)0xFF;
+            case 0xFF52: return IsCgb ? (_hdma?.Source2 ?? 0xFF) : (byte)0xFF;
+            case 0xFF53: return IsCgb ? (_hdma?.Dest1 ?? 0xFF) : (byte)0xFF;
+            case 0xFF54: return IsCgb ? (_hdma?.Dest2 ?? 0xFF) : (byte)0xFF;
+            case 0xFF55: return IsCgb ? (_hdma?.ReadLengthRegister() ?? 0xFF) : (byte)0xFF;
 
-            // CGB palette
-            case 0xFF68: return _ppu is null ? _io[idx] : _ppu.BgPalette.IndexRegister;
-            case 0xFF69: return _ppu?.BgPalette.ReadData() ?? 0xFF;
-            case 0xFF6A: return _ppu is null ? _io[idx] : _ppu.ObjPalette.IndexRegister;
-            case 0xFF6B: return _ppu?.ObjPalette.ReadData() ?? 0xFF;
-            case 0xFF6C: return _ppu is null ? _io[idx] : (byte)(_ppu.OPRI | 0xFE);
+            case 0xFF68: return IsCgb && _ppu is not null ? _ppu.BgPalette.IndexRegister : (byte)0xFF;
+            case 0xFF69: return IsCgb ? (_ppu?.BgPalette.ReadData() ?? 0xFF) : (byte)0xFF;
+            case 0xFF6A: return IsCgb && _ppu is not null ? _ppu.ObjPalette.IndexRegister : (byte)0xFF;
+            case 0xFF6B: return IsCgb ? (_ppu?.ObjPalette.ReadData() ?? 0xFF) : (byte)0xFF;
+            case 0xFF6C: return IsCgb && _ppu is not null ? (byte)(_ppu.OPRI | 0xFE) : (byte)0xFF;
 
             // APU registers have a fixed "unused bits read as 1" pattern per
             // pandocs. Until Phase 4 implements the APU, return stored values
@@ -138,6 +147,8 @@ public sealed class IoRegisters
 
         switch (address)
         {
+            // JOYP: only bits 4-5 (button-group selection) are writable.
+            case 0xFF00: _io[0] = (byte)(value & 0x30); break;
             case 0xFF01: Serial.WriteSB(value); break;
             case 0xFF02: Serial.WriteSC(value); break;
             case 0xFF04: Timer.WriteDiv(); break;
@@ -183,5 +194,8 @@ public sealed class IoRegisters
     }
 
     public byte ReadIe() => _interrupts.IE;
-    public void WriteIe(byte value) => _interrupts.IE = (byte)(value & 0x1F);
+    // IE is a fully 8-bit-readable/writable register on DMG. Only bits 0..4
+    // affect interrupt dispatch; bits 5..7 are readable but architecturally
+    // unused.
+    public void WriteIe(byte value) => _interrupts.IE = value;
 }

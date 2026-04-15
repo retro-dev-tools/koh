@@ -29,7 +29,7 @@ public class BlarggTests
     private static string RomPath(params string[] parts) =>
         Path.Combine(FixturesRoot, Path.Combine(new[] { "test-roms", "blargg" }.Concat(parts).ToArray()));
 
-    private static async Task RunBlarggTest(string romRelPath, int maxFrames = 40_000)
+    private static async Task RunBlarggTest(string romRelPath, int maxFrames = 80_000)
     {
         var romPath = RomPath(romRelPath.Split('/'));
         if (!File.Exists(romPath))

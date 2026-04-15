@@ -19,8 +19,19 @@ public sealed class Timer
 
     public void WriteDiv()
     {
-        // Any write to DIV resets the full 16-bit counter to 0.
+        // Any write to DIV resets the full 16-bit counter to 0. If that
+        // transition makes the selected bit fall from 1→0, the falling-edge
+        // detector fires and TIMA increments.
+        bool oldBit = _lastSelectedBit;
         _internalCounter = 0;
+        bool enabled = (_tac & 0x04) != 0;
+        int selectedBit = (_tac & 0x03) switch { 0 => 9, 1 => 3, 2 => 5, _ => 7 };
+        bool newBit = enabled && ((_internalCounter >> selectedBit) & 1) != 0;  // always false after reset
+        if (oldBit && !newBit)
+        {
+            IncrementTima();
+        }
+        _lastSelectedBit = newBit;
     }
 
     public void WriteTima(byte value)
@@ -47,7 +58,20 @@ public sealed class Timer
 
     public void WriteTac(byte value)
     {
+        // Per pandocs: writing to TAC can cause a spurious TIMA increment if
+        // the selected bit (ANDed with timer-enable) transitions 1→0 as part
+        // of the write. Detect that edge here and consume it so the next
+        // TickT doesn't double-count.
+        bool oldBit = _lastSelectedBit;
         _tac = (byte)(value & 0x07);
+        bool newEnabled = (_tac & 0x04) != 0;
+        int newSelectedBit = (_tac & 0x03) switch { 0 => 9, 1 => 3, 2 => 5, _ => 7 };
+        bool newBit = newEnabled && ((_internalCounter >> newSelectedBit) & 1) != 0;
+        if (oldBit && !newBit)
+        {
+            IncrementTima();
+        }
+        _lastSelectedBit = newBit;
     }
 
     /// <summary>

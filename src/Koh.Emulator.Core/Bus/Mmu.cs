@@ -44,8 +44,10 @@ public sealed class Mmu
 
     public byte ReadByte(ushort address)
     {
-        // OAM DMA contention: CPU reads from non-HRAM return $FF while the bus is locked.
-        if (_oamDma is { IsBusLocking: true } && address < 0xFF80)
+        // OAM DMA contention: during DMA, the CPU sees $FF on all "external"
+        // buses (ROM/VRAM/WRAM/SRAM/OAM). HRAM and I/O registers remain
+        // accessible per Mooneye oam_dma/reg_read behaviour.
+        if (_oamDma is { IsBusLocking: true } && address < 0xFF00)
             return 0xFF;
         return ReadByteInternal(address);
     }
@@ -80,9 +82,10 @@ public sealed class Mmu
 
     public void WriteByte(ushort address, byte value)
     {
-        // OAM DMA contention: CPU writes to non-HRAM are dropped while the bus is locked.
-        // $FF46 writes to trigger DMA bypass the lock so a re-trigger still works.
-        if (_oamDma is { IsBusLocking: true } && address < 0xFF80 && address != 0xFF46)
+        // OAM DMA contention: CPU writes to external memory (ROM, VRAM, WRAM,
+        // SRAM, OAM) are dropped while the bus is locked. HRAM and I/O
+        // registers remain writable.
+        if (_oamDma is { IsBusLocking: true } && address < 0xFF00)
             return;
 
         // $FF46 triggers OAM DMA.

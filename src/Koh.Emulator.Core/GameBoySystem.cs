@@ -37,7 +37,7 @@ public sealed class GameBoySystem
         Mode = mode;
         Cartridge = cart;
         Timer = new Timer.Timer();
-        Io = new IoRegisters(Timer);
+        Io = new IoRegisters(Timer) { HardwareMode = mode };
         Mmu = new Mmu(cart, Io);
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
         OamDma = new OamDma(Mmu);
