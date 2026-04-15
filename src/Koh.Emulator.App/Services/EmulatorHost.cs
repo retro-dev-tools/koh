@@ -13,6 +13,8 @@ public sealed class EmulatorHost
     public event Action? FrameReady;
     public event Action? StateChanged;
 
+    public void RaiseStateChanged() => StateChanged?.Invoke();
+
     public bool IsPaused { get; set; } = true;
 
     public EmulatorHost(FramePacer framePacer, WebAudioBridge webAudio)

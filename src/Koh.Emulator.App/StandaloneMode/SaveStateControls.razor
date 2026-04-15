@@ -52,6 +52,7 @@
             ms.Position = 0;
             SaveStateFile.Load(ms, EmulatorHost.System, EmulatorHost.OriginalRom);
             _status = "loaded";
+            EmulatorHost.RaiseStateChanged();
         }
         catch (Exception ex)
         {
