@@ -522,6 +522,20 @@ public sealed class Ppu
         w.WriteBool(_prevStatLine);
         BgPalette.WriteState(w);
         ObjPalette.WriteState(w);
+
+        // Intra-scanline state for mid-frame determinism.
+        _fetcher.WriteState(w);
+        _fifo.WriteState(w);
+        w.WriteI32(_lcdX);
+        w.WriteI32(_spriteFetchIndex);
+        w.WriteI32(_spritePenaltyDots);
+        w.WriteI32(_lineSpriteCount);
+        for (int i = 0; i < _lineSprites.Length; i++)
+        {
+            var s = _lineSprites[i];
+            w.WriteByte(s.Y); w.WriteByte(s.X); w.WriteByte(s.Tile); w.WriteByte(s.Flags);
+        }
+        for (int i = 0; i < _lineSpriteConsumed.Length; i++) w.WriteBool(_lineSpriteConsumed[i]);
     }
 
     public void ReadState(StateReader r)
@@ -540,13 +554,17 @@ public sealed class Ppu
         BgPalette.ReadState(r);
         ObjPalette.ReadState(r);
 
-        // Reset intra-scanline state (fetcher/FIFO/sprite list). Save/load is
-        // only guaranteed to be deterministic at scanline boundaries.
-        _fifo.Reset();
-        _lineSpriteCount = 0;
-        _lcdX = 0;
-        _spriteFetchIndex = -1;
-        _spritePenaltyDots = 0;
-        for (int i = 0; i < _lineSpriteConsumed.Length; i++) _lineSpriteConsumed[i] = false;
+        _fetcher.ReadState(r);
+        _fifo.ReadState(r);
+        _lcdX = r.ReadI32();
+        _spriteFetchIndex = r.ReadI32();
+        _spritePenaltyDots = r.ReadI32();
+        _lineSpriteCount = r.ReadI32();
+        for (int i = 0; i < _lineSprites.Length; i++)
+        {
+            byte y = r.ReadByte(), x = r.ReadByte(), tile = r.ReadByte(), flags = r.ReadByte();
+            _lineSprites[i] = new ObjectAttributes(y, x, tile, flags);
+        }
+        for (int i = 0; i < _lineSpriteConsumed.Length; i++) _lineSpriteConsumed[i] = r.ReadBool();
     }
 }

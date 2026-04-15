@@ -1,3 +1,5 @@
+using Koh.Emulator.Core.State;
+
 namespace Koh.Emulator.Core.Ppu;
 
 /// <summary>
@@ -99,5 +101,31 @@ public sealed class PixelFifo
         _bgHead = 0;
         _bgCount = 0;
         _spriteCount = 0;
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteBytes(_bgColors);
+        w.WriteBytes(_bgAttrs);
+        w.WriteI32(_bgHead);
+        w.WriteI32(_bgCount);
+        w.WriteBytes(_spriteColors);
+        w.WriteBytes(_spritePalettes);
+        w.WriteBytes(_spriteFlags);
+        for (int i = 0; i < _spritePriority.Length; i++) w.WriteI32(_spritePriority[i]);
+        w.WriteI32(_spriteCount);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        r.ReadBytes(_bgColors.AsSpan());
+        r.ReadBytes(_bgAttrs.AsSpan());
+        _bgHead = r.ReadI32();
+        _bgCount = r.ReadI32();
+        r.ReadBytes(_spriteColors.AsSpan());
+        r.ReadBytes(_spritePalettes.AsSpan());
+        r.ReadBytes(_spriteFlags.AsSpan());
+        for (int i = 0; i < _spritePriority.Length; i++) _spritePriority[i] = r.ReadI32();
+        _spriteCount = r.ReadI32();
     }
 }

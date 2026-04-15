@@ -1,11 +1,14 @@
+using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Serial;
 
 /// <summary>
-/// Minimal serial-port stub. Test ROMs (Blargg) report pass/fail by writing
-/// ASCII to SB and triggering the shift via SC=$81. We buffer those bytes for
-/// later inspection.
+/// Serial-port with IRQ-driven shift. When SC bit 7 is set with internal clock
+/// (bit 0 = 1), 8 bits are shifted out at 8192 Hz (512 T-cycles per bit). When
+/// the transfer finishes SB is replaced with $FF (no linked peer) and the
+/// serial interrupt fires. Blargg test ROMs trigger the shift and we capture
+/// each sent byte for out-of-band reading.
 /// </summary>
 public sealed class Serial
 {
@@ -13,6 +16,12 @@ public sealed class Serial
 
     public byte SB;
     public byte SC;
+
+    private bool _transferring;
+    private int _bitsRemaining;
+    private int _tCountdown;
+
+    public bool IsTransferring => _transferring;
 
     public byte ReadSB() => SB;
     public byte ReadSC() => (byte)(SC | 0x7E);
@@ -22,12 +31,32 @@ public sealed class Serial
     public void WriteSC(byte value)
     {
         SC = value;
-        // Start-transfer-with-internal-clock triggers a byte "send"; we capture
-        // it immediately (ignoring real shift timing — sufficient for Blargg).
         if ((value & 0x81) == 0x81)
         {
+            // Start transfer with internal clock. Capture the outgoing byte
+            // immediately (Blargg harness relies on this), then let the shift
+            // countdown play out so the interrupt fires at the correct time.
             _buffer.Add(SB);
-            SC = (byte)(value & 0x7F);
+            _transferring = true;
+            _bitsRemaining = 8;
+            _tCountdown = 512;   // 512 T-cycles per bit at the DMG 8192 Hz clock
+        }
+    }
+
+    public void TickT(ref Interrupts interrupts)
+    {
+        if (!_transferring) return;
+        _tCountdown--;
+        if (_tCountdown > 0) return;
+        _tCountdown = 512;
+        _bitsRemaining--;
+        // Shift one bit of $FF in from the open bus (no peer attached).
+        SB = (byte)((SB << 1) | 1);
+        if (_bitsRemaining == 0)
+        {
+            _transferring = false;
+            SC = (byte)(SC & 0x7F);
+            interrupts.Raise(Cpu.Interrupts.Serial);
         }
     }
 
@@ -37,6 +66,9 @@ public sealed class Serial
     public void WriteState(StateWriter w)
     {
         w.WriteByte(SB); w.WriteByte(SC);
+        w.WriteBool(_transferring);
+        w.WriteI32(_bitsRemaining);
+        w.WriteI32(_tCountdown);
         w.WriteI32(_buffer.Count);
         foreach (var b in _buffer) w.WriteByte(b);
     }
@@ -44,6 +76,9 @@ public sealed class Serial
     public void ReadState(StateReader r)
     {
         SB = r.ReadByte(); SC = r.ReadByte();
+        _transferring = r.ReadBool();
+        _bitsRemaining = r.ReadI32();
+        _tCountdown = r.ReadI32();
         int n = r.ReadI32();
         _buffer.Clear();
         for (int i = 0; i < n; i++) _buffer.Add(r.ReadByte());

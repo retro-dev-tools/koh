@@ -99,6 +99,27 @@ public class SaveStateTests
     }
 
     [Test]
+    public async Task RoundTrip_Framebuffer_Determinism_After_10_Frames()
+    {
+        var (gb1, rom) = MakeSystem();
+        for (int i = 0; i < 10; i++) gb1.RunFrame();
+
+        using var ms = new MemoryStream();
+        SaveStateFile.Save(ms, gb1, rom);
+
+        var (gb2, _) = MakeSystem();
+        ms.Position = 0;
+        SaveStateFile.Load(ms, gb2, rom);
+
+        gb1.RunFrame();
+        gb2.RunFrame();
+
+        var fb1 = gb1.Framebuffer.Front.ToArray();
+        var fb2 = gb2.Framebuffer.Front.ToArray();
+        await Assert.That(fb2.AsSpan().SequenceEqual(fb1)).IsTrue();
+    }
+
+    [Test]
     public async Task Load_Rejects_Bad_Magic()
     {
         var bad = new byte[40];

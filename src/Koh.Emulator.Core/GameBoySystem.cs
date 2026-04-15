@@ -79,6 +79,7 @@ public sealed class GameBoySystem
             OamDma.TickT();
             if (Hdma.Active) Hdma.TickT();
             Apu.TickT();
+            Io.Serial.TickT(ref Io.Interrupts);
         }
 
         int ppuDots = Clock.DoubleSpeed ? 2 : 4;
