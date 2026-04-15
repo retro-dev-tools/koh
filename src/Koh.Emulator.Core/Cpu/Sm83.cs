@@ -3,13 +3,15 @@ using Koh.Emulator.Core.Bus;
 namespace Koh.Emulator.Core.Cpu;
 
 /// <summary>
-/// SM83 CPU using the InstructionTable decoder. Phase 2 implements the full
-/// unprefixed + CB-prefixed instruction set (no exact-M-cycle memory timing
-/// yet — instructions execute atomically and then sleep for their T-cycle cost).
+/// SM83 CPU with M-cycle-accurate memory access timing. Each memory operation
+/// (read, write, immediate fetch, internal cycle) advances peripherals by one
+/// M-cycle (4 T-cycles) BEFORE the access, so reads see peripheral state as it
+/// would be at that point in the real hardware's bus timing.
 /// </summary>
 public sealed class Sm83 : InstructionTable.IInstructionBus
 {
     private readonly Mmu _mmu;
+    private readonly Action _tickMCycle;
     public CpuRegisters Registers;
     public Interrupts Interrupts;
 
@@ -23,6 +25,7 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     // boundary, `_eiArmed` applies IME = true, and dispatch is eligible.
     private bool _eiPending;
     private bool _eiArmed;
+
     /// <summary>
     /// HALT bug latch per §7.4: when HALT executes while IME=0 and an interrupt
     /// is pending, HALT exits immediately but the next instruction fetch fails
@@ -31,55 +34,40 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     private bool _haltBugNextFetch;
     public ulong TotalTCycles;
 
-    private int _tCyclesRemainingInInstruction;
+    public Sm83(Mmu mmu) : this(mmu, () => { }) { }
 
-    public Sm83(Mmu mmu)
+    public Sm83(Mmu mmu, Action tickMCycle)
     {
         _mmu = mmu;
+        _tickMCycle = tickMCycle;
         Registers.Pc = 0x0100;
         Registers.Sp = 0xFFFE;
     }
 
     /// <summary>
-    /// Advance the CPU one T-cycle. Returns true if an instruction boundary was just crossed.
+    /// Advance the CPU by one full instruction (or one idle M-cycle when
+    /// halted). Peripherals tick in M-cycle chunks via the registered callback
+    /// as each memory access is performed. Always returns true, since every
+    /// call crosses an instruction-or-idle boundary.
     /// </summary>
     public bool TickT()
     {
-        TotalTCycles++;
-
-        if (_tCyclesRemainingInInstruction > 0)
-        {
-            _tCyclesRemainingInInstruction--;
-            if (_tCyclesRemainingInInstruction == 0)
-            {
-                OnInstructionBoundary();
-                return true;
-            }
-            return false;
-        }
-
-        // No pending instruction — start a new one now.
         if (Halted || Stopped)
         {
-            // Wake from HALT when a pending interrupt matches the enable mask.
+            TickMCycle();  // 4 T-cycles of idle
             bool hasPending = (_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F) != 0;
             if (Halted && hasPending)
             {
                 Halted = false;
-                // HALT bug: if IME was 0 when HALT woke, the next fetch does
-                // not increment PC.
                 if (!Ime) _haltBugNextFetch = true;
-                // Fall through to ExecuteNextInstruction this tick.
             }
-            else
-            {
-                _tCyclesRemainingInInstruction = 4;
-                return false;
-            }
+            OnInstructionBoundary();
+            return true;
         }
 
         ExecuteNextInstruction();
-        return false;
+        OnInstructionBoundary();
+        return true;
     }
 
     private void ExecuteNextInstruction()
@@ -87,7 +75,6 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         byte opcode = ReadImmediate();
         if (_haltBugNextFetch)
         {
-            // Undo the PC increment so the next fetch re-reads the same byte.
             Registers.Pc = (ushort)(Registers.Pc - 1);
             _haltBugNextFetch = false;
         }
@@ -105,25 +92,19 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
 
         if (handler is null)
         {
+            // Unimplemented — treat as HALT to avoid runaway execution.
             Halted = true;
-            _tCyclesRemainingInInstruction = 4;
             return;
         }
 
-        int cycles = handler(ref Registers, this);
-        // Decrement by one because this call consumed the first T-cycle.
-        _tCyclesRemainingInInstruction = cycles - 1;
-        if (_tCyclesRemainingInInstruction <= 0)
-        {
-            OnInstructionBoundary();
-        }
+        handler(ref Registers, this);
     }
 
     private void OnInstructionBoundary()
     {
-        // Promote pending EI latch by one stage. The order matters: applying
-        // _eiArmed BEFORE _eiPending advance means EI's own boundary does NOT
-        // enable IME — IME becomes true one boundary later.
+        // Promote pending EI latch by one stage. Applying _eiArmed BEFORE
+        // advancing _eiPending means EI's own boundary does NOT enable IME —
+        // IME becomes true one boundary later.
         if (_eiArmed) { Ime = true; _eiArmed = false; }
         if (_eiPending) { _eiArmed = true; _eiPending = false; }
         ServiceInterrupts();
@@ -135,28 +116,58 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         byte pending = (byte)(_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F);
         if (pending == 0) return;
 
-        // Find lowest-set bit.
         int bit = 0;
-        while ((pending & 1) == 0) { pending >>= 1; bit++; }
+        byte mask = pending;
+        while ((mask & 1) == 0) { mask >>= 1; bit++; }
 
         _mmu.Io.Interrupts.IF &= (byte)~(1 << bit);
         Ime = false;
         Halted = false;
 
-        // Push PC, jump to vector.
+        // Dispatch is 5 M-cycles on real hardware:
+        //   2 internal, 2 stack writes, 1 PC reload.
+        TickMCycle();
+        TickMCycle();
+
         Registers.Sp = (ushort)(Registers.Sp - 1);
+        TickMCycle();
         _mmu.WriteByte(Registers.Sp, (byte)(Registers.Pc >> 8));
+
         Registers.Sp = (ushort)(Registers.Sp - 1);
+        TickMCycle();
         _mmu.WriteByte(Registers.Sp, (byte)(Registers.Pc & 0xFF));
+
+        TickMCycle();
         Registers.Pc = (ushort)(0x40 + bit * 8);
-        _tCyclesRemainingInInstruction = 20;
     }
 
-    public byte ReadByte(ushort address) => _mmu.ReadByte(address);
-    public void WriteByte(ushort address, byte value) => _mmu.WriteByte(address, value);
+    // ─────────────────────────────────────────────────────────────
+    // IInstructionBus — each method ticks peripherals by 1 M-cycle
+    // (4 T-cycles) BEFORE the access.
+    // ─────────────────────────────────────────────────────────────
+
+    public byte ReadByte(ushort address)
+    {
+        TickMCycle();
+        return _mmu.ReadByte(address);
+    }
+
+    public void WriteByte(ushort address, byte value)
+    {
+        // Writes commit at the END of the M-cycle. To model "3 T-cycles of
+        // peripheral advance with OLD state + write + 1 T-cycle with NEW state"
+        // we advance peripherals, then write; the next memory op sees the post-
+        // write state 4 T-cycles later, which matches real-hardware timing for
+        // all non-Timer addresses. For Timer register writes specifically, we
+        // rely on the Timer's internal `_lastSelectedBit` latch to detect
+        // falling edges correctly across the write.
+        TickMCycle();
+        _mmu.WriteByte(address, value);
+    }
 
     public byte ReadImmediate()
     {
+        TickMCycle();
         byte value = _mmu.ReadByte(Registers.Pc);
         Registers.Pc = (ushort)(Registers.Pc + 1);
         return value;
@@ -169,11 +180,13 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         return (ushort)((hi << 8) | lo);
     }
 
+    public void InternalCycle() => TickMCycle();
+
     public void SetIme(bool enable)
     {
         if (enable)
         {
-            _eiPending = true;  // EI delay: IME enables after the instruction after EI
+            _eiPending = true;
         }
         else
         {
@@ -183,8 +196,28 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         }
     }
 
-    public void Halt() => Halted = true;
+    public void Halt()
+    {
+        // HALT bug: with IME=0 and a pending interrupt, the CPU does NOT halt.
+        // Instead, execution continues but the next instruction fetch re-reads
+        // the same byte (PC fails to increment). Matches pandocs §HALT.
+        bool hasPending = (_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F) != 0;
+        if (!Ime && hasPending)
+        {
+            _haltBugNextFetch = true;
+        }
+        else
+        {
+            Halted = true;
+        }
+    }
     public void Stop() => Stopped = true;
+
+    private void TickMCycle()
+    {
+        TotalTCycles += 4;
+        _tickMCycle();
+    }
 
     public void Reset()
     {
@@ -199,6 +232,5 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         _eiArmed = false;
         _haltBugNextFetch = false;
         TotalTCycles = 0;
-        _tCyclesRemainingInInstruction = 0;
     }
 }

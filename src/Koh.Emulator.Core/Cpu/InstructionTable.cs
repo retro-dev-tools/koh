@@ -11,11 +11,22 @@ public static class InstructionTable
 
     public interface IInstructionBus
     {
+        /// <summary>Reads one byte; takes 1 M-cycle (4 T-cycles).</summary>
         byte ReadByte(ushort address);
+        /// <summary>Writes one byte; takes 1 M-cycle.</summary>
         void WriteByte(ushort address, byte value);
-        byte ReadImmediate();       // reads at PC and increments PC
-        ushort ReadImmediate16();   // reads 2 bytes at PC and increments PC
-        void SetIme(bool enable);   // DI/EI
+        /// <summary>Reads byte at PC; takes 1 M-cycle; increments PC.</summary>
+        byte ReadImmediate();
+        /// <summary>Reads 2 bytes at PC; takes 2 M-cycles.</summary>
+        ushort ReadImmediate16();
+        /// <summary>
+        /// Consume one M-cycle of internal (non-memory) processing. Used for
+        /// 16-bit INC/DEC, ADD HL,rr, stack-pointer math, conditional-branch
+        /// taken paths, CALL/RET/RST internal cycles, and similar per-opcode
+        /// latencies.
+        /// </summary>
+        void InternalCycle();
+        void SetIme(bool enable);
         void Halt();
         void Stop();
     }
@@ -182,15 +193,15 @@ public static class InstructionTable
         t[0x2A] = (ref CpuRegisters r, IInstructionBus bus) => { r.A = bus.ReadByte(r.HL); r.HL = (ushort)(r.HL + 1); return 8; };
         t[0x3A] = (ref CpuRegisters r, IInstructionBus bus) => { r.A = bus.ReadByte(r.HL); r.HL = (ushort)(r.HL - 1); return 8; };
 
-        // INC/DEC 16-bit
-        t[0x03] = (ref CpuRegisters r, IInstructionBus bus) => { r.BC = (ushort)(r.BC + 1); return 8; };
-        t[0x13] = (ref CpuRegisters r, IInstructionBus bus) => { r.DE = (ushort)(r.DE + 1); return 8; };
-        t[0x23] = (ref CpuRegisters r, IInstructionBus bus) => { r.HL = (ushort)(r.HL + 1); return 8; };
-        t[0x33] = (ref CpuRegisters r, IInstructionBus bus) => { r.Sp = (ushort)(r.Sp + 1); return 8; };
-        t[0x0B] = (ref CpuRegisters r, IInstructionBus bus) => { r.BC = (ushort)(r.BC - 1); return 8; };
-        t[0x1B] = (ref CpuRegisters r, IInstructionBus bus) => { r.DE = (ushort)(r.DE - 1); return 8; };
-        t[0x2B] = (ref CpuRegisters r, IInstructionBus bus) => { r.HL = (ushort)(r.HL - 1); return 8; };
-        t[0x3B] = (ref CpuRegisters r, IInstructionBus bus) => { r.Sp = (ushort)(r.Sp - 1); return 8; };
+        // INC/DEC 16-bit — 2 M-cycles: fetch + 1 internal (address-math latency).
+        t[0x03] = (ref CpuRegisters r, IInstructionBus bus) => { r.BC = (ushort)(r.BC + 1); bus.InternalCycle(); return 8; };
+        t[0x13] = (ref CpuRegisters r, IInstructionBus bus) => { r.DE = (ushort)(r.DE + 1); bus.InternalCycle(); return 8; };
+        t[0x23] = (ref CpuRegisters r, IInstructionBus bus) => { r.HL = (ushort)(r.HL + 1); bus.InternalCycle(); return 8; };
+        t[0x33] = (ref CpuRegisters r, IInstructionBus bus) => { r.Sp = (ushort)(r.Sp + 1); bus.InternalCycle(); return 8; };
+        t[0x0B] = (ref CpuRegisters r, IInstructionBus bus) => { r.BC = (ushort)(r.BC - 1); bus.InternalCycle(); return 8; };
+        t[0x1B] = (ref CpuRegisters r, IInstructionBus bus) => { r.DE = (ushort)(r.DE - 1); bus.InternalCycle(); return 8; };
+        t[0x2B] = (ref CpuRegisters r, IInstructionBus bus) => { r.HL = (ushort)(r.HL - 1); bus.InternalCycle(); return 8; };
+        t[0x3B] = (ref CpuRegisters r, IInstructionBus bus) => { r.Sp = (ushort)(r.Sp - 1); bus.InternalCycle(); return 8; };
 
         // INC/DEC 8-bit (table reg order: B, C, D, E, H, L, (HL), A)
         t[0x04] = (ref CpuRegisters r, IInstructionBus bus) => { r.B = AluInc(ref r, r.B); return 4; };
@@ -263,22 +274,25 @@ public static class InstructionTable
             return 20;
         };
 
-        // ADD HL,rr
-        t[0x09] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.BC); return 8; };
-        t[0x19] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.DE); return 8; };
-        t[0x29] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.HL); return 8; };
-        t[0x39] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.Sp); return 8; };
+        // ADD HL,rr — 2 M-cycles: fetch + 1 internal (16-bit ALU latency).
+        t[0x09] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.BC); bus.InternalCycle(); return 8; };
+        t[0x19] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.DE); bus.InternalCycle(); return 8; };
+        t[0x29] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.HL); bus.InternalCycle(); return 8; };
+        t[0x39] = (ref CpuRegisters r, IInstructionBus bus) => { AluAddHl(ref r, r.Sp); bus.InternalCycle(); return 8; };
 
-        // STOP (CGB speed switch dispatches here)
+        // STOP. The CGB speed switch uses this. Real STOP behaviour is quirky;
+        // we consume the second byte as an immediate fetch and set the Stop flag.
         t[0x10] = (ref CpuRegisters r, IInstructionBus bus) => { bus.ReadImmediate(); bus.Stop(); return 4; };
 
-        // JR r8 / JR cc,r8
+        // JR r8 — 3 M-cycles: fetch + imm + 1 internal (branch latency).
         t[0x18] = (ref CpuRegisters r, IInstructionBus bus) =>
         {
             sbyte offset = (sbyte)bus.ReadImmediate();
             r.Pc = (ushort)(r.Pc + offset);
+            bus.InternalCycle();
             return 12;
         };
+        // JR cc,r8 — 3 M-cycles if taken, 2 if not. Internal cycle only on taken.
         for (int i = 0; i < 4; i++)
         {
             int cc = i;
@@ -289,6 +303,7 @@ public static class InstructionTable
                 if (TestCond(ref r, cc))
                 {
                     r.Pc = (ushort)(r.Pc + offset);
+                    bus.InternalCycle();
                     return 12;
                 }
                 return 8;
@@ -385,35 +400,38 @@ public static class InstructionTable
             };
         }
 
-        // RET cc
+        // RET cc — 5 M-cycles if taken (fetch + internal + 2 reads + internal),
+        //           2 M-cycles if not (fetch + internal).
         for (int i = 0; i < 4; i++)
         {
             int cc = i;
             int opcode = 0xC0 + cc * 8;
             t[opcode] = (ref CpuRegisters r, IInstructionBus bus) =>
             {
+                bus.InternalCycle();  // cc test latency
                 if (TestCond(ref r, cc))
                 {
                     r.Pc = Pop16(ref r, bus);
+                    bus.InternalCycle();  // PC load latency
                     return 20;
                 }
                 return 8;
             };
         }
 
-        // POP rr
+        // POP rr — 3 M-cycles: fetch + 2 reads (stack).
         t[0xC1] = (ref CpuRegisters r, IInstructionBus bus) => { r.BC = Pop16(ref r, bus); return 12; };
         t[0xD1] = (ref CpuRegisters r, IInstructionBus bus) => { r.DE = Pop16(ref r, bus); return 12; };
         t[0xE1] = (ref CpuRegisters r, IInstructionBus bus) => { r.HL = Pop16(ref r, bus); return 12; };
         t[0xF1] = (ref CpuRegisters r, IInstructionBus bus) => { r.AF = Pop16(ref r, bus); return 12; };
 
-        // PUSH rr
-        t[0xC5] = (ref CpuRegisters r, IInstructionBus bus) => { Push16(ref r, bus, r.BC); return 16; };
-        t[0xD5] = (ref CpuRegisters r, IInstructionBus bus) => { Push16(ref r, bus, r.DE); return 16; };
-        t[0xE5] = (ref CpuRegisters r, IInstructionBus bus) => { Push16(ref r, bus, r.HL); return 16; };
-        t[0xF5] = (ref CpuRegisters r, IInstructionBus bus) => { Push16(ref r, bus, r.AF); return 16; };
+        // PUSH rr — 4 M-cycles: fetch + 1 internal (SP dec) + 2 writes.
+        t[0xC5] = (ref CpuRegisters r, IInstructionBus bus) => { bus.InternalCycle(); Push16(ref r, bus, r.BC); return 16; };
+        t[0xD5] = (ref CpuRegisters r, IInstructionBus bus) => { bus.InternalCycle(); Push16(ref r, bus, r.DE); return 16; };
+        t[0xE5] = (ref CpuRegisters r, IInstructionBus bus) => { bus.InternalCycle(); Push16(ref r, bus, r.HL); return 16; };
+        t[0xF5] = (ref CpuRegisters r, IInstructionBus bus) => { bus.InternalCycle(); Push16(ref r, bus, r.AF); return 16; };
 
-        // JP cc,a16
+        // JP cc,a16 — 4 M-cycles if taken (fetch + 2 imm + internal), 3 if not.
         for (int i = 0; i < 4; i++)
         {
             int cc = i;
@@ -421,15 +439,15 @@ public static class InstructionTable
             t[opcode] = (ref CpuRegisters r, IInstructionBus bus) =>
             {
                 ushort target = bus.ReadImmediate16();
-                if (TestCond(ref r, cc)) { r.Pc = target; return 16; }
+                if (TestCond(ref r, cc)) { r.Pc = target; bus.InternalCycle(); return 16; }
                 return 12;
             };
         }
 
-        // JP a16
-        t[0xC3] = (ref CpuRegisters r, IInstructionBus bus) => { r.Pc = bus.ReadImmediate16(); return 16; };
+        // JP a16 — 4 M-cycles: fetch + 2 imm + 1 internal (PC load).
+        t[0xC3] = (ref CpuRegisters r, IInstructionBus bus) => { r.Pc = bus.ReadImmediate16(); bus.InternalCycle(); return 16; };
 
-        // CALL cc,a16
+        // CALL cc,a16 — 6 M-cycles if taken, 3 if not.
         for (int i = 0; i < 4; i++)
         {
             int cc = i;
@@ -437,26 +455,26 @@ public static class InstructionTable
             t[opcode] = (ref CpuRegisters r, IInstructionBus bus) =>
             {
                 ushort target = bus.ReadImmediate16();
-                if (TestCond(ref r, cc)) { Push16(ref r, bus, r.Pc); r.Pc = target; return 24; }
+                if (TestCond(ref r, cc)) { bus.InternalCycle(); Push16(ref r, bus, r.Pc); r.Pc = target; return 24; }
                 return 12;
             };
         }
 
-        // CALL a16
-        t[0xCD] = (ref CpuRegisters r, IInstructionBus bus) => { ushort target = bus.ReadImmediate16(); Push16(ref r, bus, r.Pc); r.Pc = target; return 24; };
+        // CALL a16 — 6 M-cycles: fetch + 2 imm + internal + 2 writes.
+        t[0xCD] = (ref CpuRegisters r, IInstructionBus bus) => { ushort target = bus.ReadImmediate16(); bus.InternalCycle(); Push16(ref r, bus, r.Pc); r.Pc = target; return 24; };
 
-        // RST xx
+        // RST xx — 4 M-cycles: fetch + internal + 2 writes.
         for (int i = 0; i < 8; i++)
         {
             ushort vec = (ushort)(i * 8);
             int opcode = 0xC7 + i * 8;
-            t[opcode] = (ref CpuRegisters r, IInstructionBus bus) => { Push16(ref r, bus, r.Pc); r.Pc = vec; return 16; };
+            t[opcode] = (ref CpuRegisters r, IInstructionBus bus) => { bus.InternalCycle(); Push16(ref r, bus, r.Pc); r.Pc = vec; return 16; };
         }
 
-        // RET
-        t[0xC9] = (ref CpuRegisters r, IInstructionBus bus) => { r.Pc = Pop16(ref r, bus); return 16; };
-        // RETI
-        t[0xD9] = (ref CpuRegisters r, IInstructionBus bus) => { r.Pc = Pop16(ref r, bus); bus.SetIme(true); return 16; };
+        // RET — 4 M-cycles: fetch + 2 reads + internal (PC load).
+        t[0xC9] = (ref CpuRegisters r, IInstructionBus bus) => { r.Pc = Pop16(ref r, bus); bus.InternalCycle(); return 16; };
+        // RETI — same shape as RET.
+        t[0xD9] = (ref CpuRegisters r, IInstructionBus bus) => { r.Pc = Pop16(ref r, bus); bus.InternalCycle(); bus.SetIme(true); return 16; };
 
         // ALU A,d8
         t[0xC6] = (ref CpuRegisters r, IInstructionBus bus) => { AluAdd(ref r, bus.ReadImmediate(), false); return 8; };
@@ -476,7 +494,7 @@ public static class InstructionTable
         t[0xE2] = (ref CpuRegisters r, IInstructionBus bus) => { bus.WriteByte((ushort)(0xFF00 | r.C), r.A); return 8; };
         t[0xF2] = (ref CpuRegisters r, IInstructionBus bus) => { r.A = bus.ReadByte((ushort)(0xFF00 | r.C)); return 8; };
 
-        // ADD SP,r8
+        // ADD SP,r8 — 4 M-cycles: fetch + imm + 2 internal.
         t[0xE8] = (ref CpuRegisters r, IInstructionBus bus) =>
         {
             sbyte offset = (sbyte)bus.ReadImmediate();
@@ -487,6 +505,8 @@ public static class InstructionTable
             r.SetFlag(CpuRegisters.FlagH, ((sp & 0x0F) + (offset & 0x0F)) > 0x0F);
             r.SetFlag(CpuRegisters.FlagC, ((sp & 0xFF) + (offset & 0xFF)) > 0xFF);
             r.Sp = (ushort)result;
+            bus.InternalCycle();
+            bus.InternalCycle();
             return 16;
         };
 
@@ -497,7 +517,7 @@ public static class InstructionTable
         t[0xEA] = (ref CpuRegisters r, IInstructionBus bus) => { bus.WriteByte(bus.ReadImmediate16(), r.A); return 16; };
         t[0xFA] = (ref CpuRegisters r, IInstructionBus bus) => { r.A = bus.ReadByte(bus.ReadImmediate16()); return 16; };
 
-        // LD HL,SP+r8
+        // LD HL,SP+r8 — 3 M-cycles: fetch + imm + 1 internal.
         t[0xF8] = (ref CpuRegisters r, IInstructionBus bus) =>
         {
             sbyte offset = (sbyte)bus.ReadImmediate();
@@ -508,11 +528,12 @@ public static class InstructionTable
             r.SetFlag(CpuRegisters.FlagH, ((sp & 0x0F) + (offset & 0x0F)) > 0x0F);
             r.SetFlag(CpuRegisters.FlagC, ((sp & 0xFF) + (offset & 0xFF)) > 0xFF);
             r.HL = (ushort)result;
+            bus.InternalCycle();
             return 12;
         };
 
-        // LD SP,HL
-        t[0xF9] = (ref CpuRegisters r, IInstructionBus bus) => { r.Sp = r.HL; return 8; };
+        // LD SP,HL — 2 M-cycles: fetch + 1 internal.
+        t[0xF9] = (ref CpuRegisters r, IInstructionBus bus) => { r.Sp = r.HL; bus.InternalCycle(); return 8; };
 
         // DI / EI
         t[0xF3] = (ref CpuRegisters r, IInstructionBus bus) => { bus.SetIme(false); return 4; };

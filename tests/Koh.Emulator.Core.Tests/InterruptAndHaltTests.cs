@@ -26,14 +26,14 @@ public class InterruptAndHaltTests
     [Test]
     public async Task Interrupt_Dispatch_Pushes_Pc_And_Jumps_To_Vector()
     {
-        // 00 (NOP). Then IE = VBlank, IF = VBlank pre-raised, IME = 1.
+        // NOP ; NOP. IE=VBlank, IF pre-raised, IME=1. The first NOP completes,
+        // then dispatch fires at its instruction boundary (same TickT call).
         var gb = MakeSystemWithProgram(0x00, 0x00);
         gb.Cpu.Ime = true;
         gb.Io.Interrupts.IE = Interrupts.VBlank;
         gb.Io.Interrupts.Raise(Interrupts.VBlank);
 
-        // First instruction boundary after the NOP triggers dispatch.
-        RunInstructions(gb, 2);
+        RunInstructions(gb, 1);
 
         await Assert.That(gb.Registers.Pc).IsEqualTo((ushort)0x0040);
         await Assert.That(gb.Cpu.Ime).IsFalse();
@@ -83,16 +83,17 @@ public class InterruptAndHaltTests
     [Test]
     public async Task Halt_With_Ime_Set_Wakes_And_Services_Interrupt()
     {
-        // HALT waits for IRQ; when it arrives with IME=1, CPU services the ISR.
+        // HALT waits for IRQ; when it arrives with IME=1, CPU wakes and the
+        // next TickT services the ISR.
         var gb = MakeSystemWithProgram(0x76, 0x00);
         gb.Cpu.Ime = true;
         gb.Io.Interrupts.IE = Interrupts.VBlank;
 
-        RunInstructions(gb, 1);  // HALT — CPU sleeps
+        RunInstructions(gb, 1);  // HALT — CPU sleeps (one idle M-cycle).
         await Assert.That(gb.Cpu.Halted).IsTrue();
 
         gb.Io.Interrupts.Raise(Interrupts.VBlank);
-        RunInstructions(gb, 2);  // wake + dispatch
+        RunInstructions(gb, 1);  // wake + dispatch in the same TickT.
 
         await Assert.That(gb.Registers.Pc).IsEqualTo((ushort)0x0040);
     }

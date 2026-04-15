@@ -39,7 +39,6 @@ public sealed class GameBoySystem
         Timer = new Timer.Timer();
         Io = new IoRegisters(Timer);
         Mmu = new Mmu(cart, Io);
-        Cpu = new Sm83(Mmu);
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
@@ -49,6 +48,10 @@ public sealed class GameBoySystem
         Io.AttachHdma(Hdma);
         Io.AttachKeyOne(KeyOne);
         Io.AttachBanking(Mmu.Banking);
+
+        // Sm83 drives peripheral ticks per memory access: each ReadByte /
+        // WriteByte / ReadImmediate / InternalCycle advances one M-cycle.
+        Cpu = new Sm83(Mmu, TickForMCycle);
     }
 
     public ref CpuRegisters Registers => ref Cpu.Registers;
@@ -56,36 +59,40 @@ public sealed class GameBoySystem
     public bool IsRunning => _running;
 
     /// <summary>
-    /// Advance one PPU dot. CPU ticks once per system tick in single-speed,
-    /// twice in double-speed. See §7.2 for the clocking invariant.
+    /// Advance peripherals by 1 CPU M-cycle (4 T-cycles). Called by the CPU
+    /// during memory accesses and internal cycles.
+    /// </summary>
+    private void TickForMCycle()
+    {
+        Clock.DoubleSpeed = KeyOne.DoubleSpeed;
+
+        // Per M-cycle: Timer + OamDma + Hdma always tick 4 T-cycles (these run
+        // at CPU clock rate — unchanged in double-speed). PPU and the system
+        // clock run at the base rate, so in DS they only tick 2 dots per CPU
+        // M-cycle.
+        for (int t = 0; t < 4; t++)
+        {
+            Timer.TickT(ref Io.Interrupts);
+            OamDma.TickT();
+            if (Hdma.Active) Hdma.TickT();
+        }
+
+        int ppuDots = Clock.DoubleSpeed ? 2 : 4;
+        for (int d = 0; d < ppuDots; d++)
+        {
+            Ppu.TickDot(ref Io.Interrupts);
+            Clock.AdvanceOne();
+        }
+    }
+
+    /// <summary>
+    /// Execute one full CPU step (one instruction, or one idle M-cycle when
+    /// halted). Peripherals tick internally via the M-cycle callback.
     /// </summary>
     public bool StepOneSystemTick()
     {
-        Ppu.TickDot(ref Io.Interrupts);
-
-        // KEY1 double-speed state propagates to the clock.
-        Clock.DoubleSpeed = KeyOne.DoubleSpeed;
-
-        int cpuT = Clock.DoubleSpeed ? 2 : 1;
-        bool crossedInstructionBoundary = false;
-        for (int i = 0; i < cpuT; i++)
-        {
-            // General-purpose HDMA halts the CPU; HBlank HDMA runs in parallel.
-            if (Hdma.Active && Hdma.CpuHaltedByGp)
-            {
-                Hdma.TickT();
-            }
-            else
-            {
-                if (Cpu.TickT()) crossedInstructionBoundary = true;
-                if (Hdma.Active) Hdma.TickT();
-            }
-            Timer.TickT(ref Io.Interrupts);
-            OamDma.TickT();
-        }
-
-        Clock.AdvanceOne();
-        return crossedInstructionBoundary;
+        Cpu.TickT();  // now always completes a full instruction or idle cycle
+        return true;
     }
 
     public StepResult RunFrame()
@@ -96,20 +103,17 @@ public sealed class GameBoySystem
 
         while (Clock.FrameSystemTicks < (ulong)SystemClock.SystemTicksPerFrame)
         {
-            bool instrBoundary = StepOneSystemTick();
+            Cpu.TickT();
 
-            if (instrBoundary)
+            if (RunGuard.StopRequested)
             {
-                if (RunGuard.StopRequested)
-                {
-                    _running = false;
-                    return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles, Cpu.Registers.Pc);
-                }
-                if (BreakpointChecker is { } check && check(Cpu.Registers.Pc))
-                {
-                    _running = false;
-                    return new StepResult(StopReason.Breakpoint, Cpu.TotalTCycles, Cpu.Registers.Pc);
-                }
+                _running = false;
+                return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles, Cpu.Registers.Pc);
+            }
+            if (BreakpointChecker is { } check && check(Cpu.Registers.Pc))
+            {
+                _running = false;
+                return new StepResult(StopReason.Breakpoint, Cpu.TotalTCycles, Cpu.Registers.Pc);
             }
         }
 
@@ -121,22 +125,20 @@ public sealed class GameBoySystem
     {
         _running = true;
         ulong startT = Cpu.TotalTCycles;
-        while (true)
-        {
-            if (StepOneSystemTick())
-            {
-                _running = false;
-                return new StepResult(StopReason.InstructionComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
-            }
-        }
+        Cpu.TickT();
+        _running = false;
+        return new StepResult(StopReason.InstructionComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
     }
 
     public StepResult StepTCycle()
     {
+        // With M-cycle-granular execution we no longer have a true 1-T-cycle
+        // step; fall through to StepInstruction and return its cycle count.
         _running = true;
-        StepOneSystemTick();
+        ulong startT = Cpu.TotalTCycles;
+        Cpu.TickT();
         _running = false;
-        return new StepResult(StopReason.TCycleComplete, 1, Cpu.Registers.Pc);
+        return new StepResult(StopReason.TCycleComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
     }
 
     public StepResult RunUntil(in StopCondition condition)
@@ -149,21 +151,18 @@ public sealed class GameBoySystem
 
         while (Clock.FrameSystemTicks < frameBudget)
         {
-            bool instrBoundary = StepOneSystemTick();
+            Cpu.TickT();
 
-            if (instrBoundary)
+            if (RunGuard.StopRequested)
             {
-                if (RunGuard.StopRequested)
-                {
-                    _running = false;
-                    return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
-                }
+                _running = false;
+                return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+            }
 
-                if (StopConditionMet(in condition))
-                {
-                    _running = false;
-                    return new StepResult(StopReason.Breakpoint, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
-                }
+            if (StopConditionMet(in condition))
+            {
+                _running = false;
+                return new StepResult(StopReason.Breakpoint, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
             }
         }
 

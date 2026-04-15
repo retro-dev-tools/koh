@@ -73,16 +73,14 @@ public class BlarggTests
     [Test] public Task CpuInstrs_10_Bit_Ops() => RunBlarggTest("cpu_instrs/individual/10-bit ops.gb");
     [Test] public Task CpuInstrs_11_Op_A_Hl() => RunBlarggTest("cpu_instrs/individual/11-op a,(hl).gb");
 
-    [Test] public Task HaltBug() => SkipOrRun("halt_bug.gb");
+    // After the M-cycle refactor, these Blargg timing tests pass by default.
+    [Test] public Task InstrTiming() => RunBlarggTest("instr_timing/instr_timing.gb");
+    [Test] public Task MemTiming() => RunBlarggTest("mem_timing/mem_timing.gb");
 
-    // Timing-sensitive Blargg tests. These require per-M-cycle memory access
-    // timing (each instruction splits its reads/writes across specific cycles).
-    // The current implementation executes instructions atomically and sleeps
-    // for the total cycle cost, which is correct functionally but doesn't
-    // expose intermediate bus state. A micro-op scheduler refactor is tracked
-    // as Phase 3 polish work. Skip by default; opt in with KOH_RUN_BLARGG_TIMING=1.
-    [Test] public Task InstrTiming() => SkipOrRun("instr_timing/instr_timing.gb");
-    [Test] public Task MemTiming() => SkipOrRun("mem_timing/mem_timing.gb");
+    // Still failing pending additional per-edge-case timing work; they hang
+    // or fail specific subtests. Skipped by default to keep CI green; opt in
+    // with KOH_RUN_BLARGG_TIMING=1 to investigate.
+    [Test] public Task HaltBug() => SkipOrRun("halt_bug.gb");
     [Test] public Task MemTiming2() => SkipOrRun("mem_timing-2/mem_timing.gb");
     [Test] public Task InterruptTime() => SkipOrRun("interrupt_time/interrupt_time.gb");
 
