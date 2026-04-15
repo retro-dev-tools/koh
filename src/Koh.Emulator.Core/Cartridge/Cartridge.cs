@@ -1,3 +1,5 @@
+using Koh.Emulator.Core.State;
+
 namespace Koh.Emulator.Core.Cartridge;
 
 public sealed class Cartridge
@@ -90,5 +92,26 @@ public sealed class Cartridge
                 Mbc1.WriteRam(this, address, value);
                 break;
         }
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteI32(Ram.Length);
+        if (Ram.Length > 0) w.WriteBytes(Ram);
+        w.WriteByte(Mbc1_BankLow);
+        w.WriteByte(Mbc1_BankHigh);
+        w.WriteBool(Mbc1_RamEnabled);
+        w.WriteByte(Mbc1_Mode);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        int ramLen = r.ReadI32();
+        if (ramLen != Ram.Length) throw new InvalidDataException("cartridge RAM size mismatch");
+        if (ramLen > 0) r.ReadBytes(Ram.AsSpan());
+        Mbc1_BankLow = r.ReadByte();
+        Mbc1_BankHigh = r.ReadByte();
+        Mbc1_RamEnabled = r.ReadBool();
+        Mbc1_Mode = r.ReadByte();
     }
 }

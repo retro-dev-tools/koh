@@ -1,6 +1,7 @@
 using Koh.Emulator.Core.Cartridge;
 using Koh.Emulator.Core.Cgb;
 using Koh.Emulator.Core.Dma;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Bus;
 
@@ -164,4 +165,22 @@ public sealed class Mmu
     public ReadOnlySpan<byte> Vram => _vram;
     public ReadOnlySpan<byte> Oam => _oam;
     public ReadOnlySpan<byte> Hram => _hram;
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteBytes(_vram);
+        w.WriteBytes(_wram);
+        w.WriteBytes(_oam);
+        w.WriteBytes(_hram);
+        Banking.WriteState(w);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        r.ReadBytes(_vram.AsSpan());
+        r.ReadBytes(_wram.AsSpan());
+        r.ReadBytes(_oam.AsSpan());
+        r.ReadBytes(_hram.AsSpan());
+        Banking.ReadState(r);
+    }
 }

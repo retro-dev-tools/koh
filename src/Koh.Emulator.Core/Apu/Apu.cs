@@ -1,3 +1,5 @@
+using Koh.Emulator.Core.State;
+
 namespace Koh.Emulator.Core.Apu;
 
 public sealed class Apu
@@ -231,5 +233,34 @@ public sealed class Apu
         Ch3.Enabled = false;
         Ch4.Enabled = false;
         FrameSequencer.Reset();
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteBool(Enabled);
+        w.WriteBytes(_nr);
+        w.WriteBytes(Ch3.WavePattern);
+        w.WriteI32(_frameSeqCounter);
+        w.WriteI32(_sampleCycleAccumulator);
+        w.WriteI32(FrameSequencer.Step);
+        // Channel live-state (enable + envelope volume) to resume audibly.
+        w.WriteBool(Ch1.Enabled); w.WriteI32(Ch1.Envelope.Volume); w.WriteI32(Ch1.Frequency); w.WriteI32(Ch1.DutyStep); w.WriteI32(Ch1.DutyPattern); w.WriteI32(Ch1.Length.Counter); w.WriteBool(Ch1.Length.Enabled);
+        w.WriteBool(Ch2.Enabled); w.WriteI32(Ch2.Envelope.Volume); w.WriteI32(Ch2.Frequency); w.WriteI32(Ch2.DutyStep); w.WriteI32(Ch2.DutyPattern); w.WriteI32(Ch2.Length.Counter); w.WriteBool(Ch2.Length.Enabled);
+        w.WriteBool(Ch3.Enabled); w.WriteBool(Ch3.DacEnabled); w.WriteI32(Ch3.Frequency); w.WriteI32(Ch3.VolumeShift); w.WriteI32(Ch3.Length.Counter); w.WriteBool(Ch3.Length.Enabled);
+        w.WriteBool(Ch4.Enabled); w.WriteI32(Ch4.Envelope.Volume); w.WriteI32(Ch4.ShiftRegister); w.WriteI32(Ch4.ClockShift); w.WriteBool(Ch4.WidthMode); w.WriteI32(Ch4.DivisorCode); w.WriteI32(Ch4.Length.Counter); w.WriteBool(Ch4.Length.Enabled);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        Enabled = r.ReadBool();
+        r.ReadBytes(_nr.AsSpan());
+        r.ReadBytes(Ch3.WavePattern.AsSpan());
+        _frameSeqCounter = r.ReadI32();
+        _sampleCycleAccumulator = r.ReadI32();
+        FrameSequencer.Step = r.ReadI32();
+        Ch1.Enabled = r.ReadBool(); Ch1.Envelope.Volume = r.ReadI32(); Ch1.Frequency = r.ReadI32(); Ch1.DutyStep = r.ReadI32(); Ch1.DutyPattern = r.ReadI32(); Ch1.Length.Counter = r.ReadI32(); Ch1.Length.Enabled = r.ReadBool();
+        Ch2.Enabled = r.ReadBool(); Ch2.Envelope.Volume = r.ReadI32(); Ch2.Frequency = r.ReadI32(); Ch2.DutyStep = r.ReadI32(); Ch2.DutyPattern = r.ReadI32(); Ch2.Length.Counter = r.ReadI32(); Ch2.Length.Enabled = r.ReadBool();
+        Ch3.Enabled = r.ReadBool(); Ch3.DacEnabled = r.ReadBool(); Ch3.Frequency = r.ReadI32(); Ch3.VolumeShift = r.ReadI32(); Ch3.Length.Counter = r.ReadI32(); Ch3.Length.Enabled = r.ReadBool();
+        Ch4.Enabled = r.ReadBool(); Ch4.Envelope.Volume = r.ReadI32(); Ch4.ShiftRegister = r.ReadI32(); Ch4.ClockShift = r.ReadI32(); Ch4.WidthMode = r.ReadBool(); Ch4.DivisorCode = r.ReadI32(); Ch4.Length.Counter = r.ReadI32(); Ch4.Length.Enabled = r.ReadBool();
     }
 }

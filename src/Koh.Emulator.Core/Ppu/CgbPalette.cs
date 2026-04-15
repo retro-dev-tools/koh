@@ -30,4 +30,7 @@ public sealed class CgbPalette
     }
 
     public ReadOnlySpan<byte> RawData => _data;
+
+    public void WriteState(State.StateWriter w) { w.WriteByte(IndexRegister); w.WriteBytes(_data); }
+    public void ReadState(State.StateReader r) { IndexRegister = r.ReadByte(); r.ReadBytes(_data.AsSpan()); }
 }

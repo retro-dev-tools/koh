@@ -1,3 +1,5 @@
+using Koh.Emulator.Core.State;
+
 namespace Koh.Emulator.Core.Serial;
 
 /// <summary>
@@ -31,4 +33,19 @@ public sealed class Serial
 
     public string ReadBufferAsString() => System.Text.Encoding.ASCII.GetString(_buffer.ToArray());
     public void ClearBuffer() => _buffer.Clear();
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteByte(SB); w.WriteByte(SC);
+        w.WriteI32(_buffer.Count);
+        foreach (var b in _buffer) w.WriteByte(b);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        SB = r.ReadByte(); SC = r.ReadByte();
+        int n = r.ReadI32();
+        _buffer.Clear();
+        for (int i = 0; i < n; i++) _buffer.Add(r.ReadByte());
+    }
 }

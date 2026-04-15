@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Cpu;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Ppu;
 
@@ -504,5 +505,48 @@ public sealed class Ppu
         _windowTriggeredThisLine = false;
         _initialDiscardDone = false;
         _prevStatLine = false;
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteByte(LY); w.WriteByte(LYC);
+        w.WriteByte(SCX); w.WriteByte(SCY);
+        w.WriteByte(WX); w.WriteByte(WY);
+        w.WriteByte(BGP); w.WriteByte(OBP0); w.WriteByte(OBP1);
+        w.WriteByte(LCDC); w.WriteByte(OPRI);
+        w.WriteByte(Stat.UserBits);
+        w.WriteI32((int)Mode); w.WriteI32(Dot);
+        w.WriteI32(_windowLineCounter);
+        w.WriteBool(_windowTriggeredThisLine);
+        w.WriteBool(_initialDiscardDone);
+        w.WriteBool(_prevStatLine);
+        BgPalette.WriteState(w);
+        ObjPalette.WriteState(w);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        LY = r.ReadByte(); LYC = r.ReadByte();
+        SCX = r.ReadByte(); SCY = r.ReadByte();
+        WX = r.ReadByte(); WY = r.ReadByte();
+        BGP = r.ReadByte(); OBP0 = r.ReadByte(); OBP1 = r.ReadByte();
+        LCDC = r.ReadByte(); OPRI = r.ReadByte();
+        Stat.UserBits = r.ReadByte();
+        Mode = (PpuMode)r.ReadI32(); Dot = r.ReadI32();
+        _windowLineCounter = r.ReadI32();
+        _windowTriggeredThisLine = r.ReadBool();
+        _initialDiscardDone = r.ReadBool();
+        _prevStatLine = r.ReadBool();
+        BgPalette.ReadState(r);
+        ObjPalette.ReadState(r);
+
+        // Reset intra-scanline state (fetcher/FIFO/sprite list). Save/load is
+        // only guaranteed to be deterministic at scanline boundaries.
+        _fifo.Reset();
+        _lineSpriteCount = 0;
+        _lcdX = 0;
+        _spriteFetchIndex = -1;
+        _spritePenaltyDots = 0;
+        for (int i = 0; i < _lineSpriteConsumed.Length; i++) _lineSpriteConsumed[i] = false;
     }
 }

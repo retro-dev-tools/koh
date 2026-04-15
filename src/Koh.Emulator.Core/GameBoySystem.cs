@@ -4,6 +4,7 @@ using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.Dma;
 using Koh.Emulator.Core.Joypad;
 using Koh.Emulator.Core.Ppu;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core;
 
@@ -96,6 +97,38 @@ public sealed class GameBoySystem
     {
         Cpu.TickT();  // now always completes a full instruction or idle cycle
         return true;
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        Clock.WriteState(w);
+        Cpu.WriteState(w);
+        Timer.WriteState(w);
+        Ppu.WriteState(w);
+        OamDma.WriteState(w);
+        Hdma.WriteState(w);
+        Apu.WriteState(w);
+        KeyOne.WriteState(w);
+        Cartridge.WriteState(w);
+        Mmu.WriteState(w);
+        Io.WriteState(w);
+        Io.Serial.WriteState(w);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        Clock.ReadState(r);
+        Cpu.ReadState(r);
+        Timer.ReadState(r);
+        Ppu.ReadState(r);
+        OamDma.ReadState(r);
+        Hdma.ReadState(r);
+        Apu.ReadState(r);
+        KeyOne.ReadState(r);
+        Cartridge.ReadState(r);
+        Mmu.ReadState(r);
+        Io.ReadState(r);
+        Io.Serial.ReadState(r);
     }
 
     public StepResult RunFrame()

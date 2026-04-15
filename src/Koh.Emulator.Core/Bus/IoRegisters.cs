@@ -4,6 +4,7 @@ using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.Dma;
 using Koh.Emulator.Core.Ppu;
 using Koh.Emulator.Core.Serial;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Bus;
 
@@ -205,6 +206,18 @@ public sealed class IoRegisters
 
             default: _io[idx] = value; break;
         }
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteBytes(_io);
+        w.WriteByte(_interrupts.IF); w.WriteByte(_interrupts.IE);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        r.ReadBytes(_io.AsSpan());
+        _interrupts.IF = r.ReadByte(); _interrupts.IE = r.ReadByte();
     }
 
     public byte ReadIe() => _interrupts.IE;
