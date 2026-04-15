@@ -9,6 +9,7 @@ public sealed class EmulatorHost
     private readonly WebAudioBridge _webAudio;
     private bool _audioInitialized;
     public GameBoySystem? System { get; private set; }
+    public byte[]? OriginalRom { get; private set; }
     public event Action? FrameReady;
     public event Action? StateChanged;
 
@@ -24,6 +25,7 @@ public sealed class EmulatorHost
     {
         var cart = CartridgeFactory.Load(romBytes.Span);
         System = new GameBoySystem(mode, cart);
+        OriginalRom = romBytes.ToArray();
         IsPaused = true;
         StateChanged?.Invoke();
     }

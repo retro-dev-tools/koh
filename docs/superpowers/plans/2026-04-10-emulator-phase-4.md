@@ -902,7 +902,7 @@ git commit -m "feat(emulator): add save-state serialization with determinism rou
 - Create: `src/Koh.Emulator.App/StandaloneMode/SaveStateControls.razor`
 - Modify: `src/Koh.Emulator.App/Shell/StandaloneShell.razor`
 
-- [ ] **Step 1: Create `SaveStateControls.razor`**
+- [x] **Step 1: Create `SaveStateControls.razor`**
 
 ```razor
 @using Koh.Emulator.App.Services
@@ -942,7 +942,7 @@ git commit -m "feat(emulator): add save-state serialization with determinism rou
 }
 ```
 
-- [ ] **Step 2: Add a download helper JS**
+- [x] **Step 2: Add a download helper JS**
 
 ```javascript
 window.kohDownloadFile = function (filename, base64) {
@@ -953,9 +953,9 @@ window.kohDownloadFile = function (filename, base64) {
 };
 ```
 
-- [ ] **Step 3: Add to `StandaloneShell.razor`**
+- [x] **Step 3: Add to `StandaloneShell.razor`**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.App/StandaloneMode/SaveStateControls.razor src/Koh.Emulator.App/Shell/StandaloneShell.razor src/Koh.Emulator.App/wwwroot/js/
