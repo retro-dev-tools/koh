@@ -50,6 +50,6 @@ public sealed class NoiseChannel
         DivisorCode = nr43 & 0x07;
         ShiftRegister = 0x7FFF;
         _freqCycleCounter = Divisors[DivisorCode] << ClockShift;
-        Enabled = true;
+        Enabled = (nr42 & 0xF8) != 0;   // DAC disabled → channel off on trigger
     }
 }

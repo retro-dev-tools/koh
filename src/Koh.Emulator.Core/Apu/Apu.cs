@@ -133,11 +133,20 @@ public sealed class Apu
             return;
         }
 
-        // When APU is disabled, writes to $FF10-$FF25 are ignored. NR52 + wave
-        // RAM remain writable. (Length regs $FF11/$FF16/$FF1B/$FF20 have a
-        // DMG-specific carve-out that Blargg tests; implemented conservatively.)
+        // When APU is disabled, writes to $FF10-$FF25 are ignored EXCEPT for
+        // the length-counter low bytes on DMG: NR11 / NR16 / NR1B / NR20.
+        // Those still update the length counter (not the duty bits).
         if (!Enabled && address >= 0xFF10 && address <= 0xFF25 && address != 0xFF26)
-            return;
+        {
+            switch (address)
+            {
+                case 0xFF11: Ch1.Length.Counter = Ch1.Length.MaxLength - (value & 0x3F); return;
+                case 0xFF16: Ch2.Length.Counter = Ch2.Length.MaxLength - (value & 0x3F); return;
+                case 0xFF1B: Ch3.Length.Counter = Ch3.Length.MaxLength - value; return;
+                case 0xFF20: Ch4.Length.Counter = Ch4.Length.MaxLength - (value & 0x3F); return;
+                default: return;
+            }
+        }
 
         int idx = address - 0xFF10;
         if (idx < 0 || idx >= _nr.Length) return;

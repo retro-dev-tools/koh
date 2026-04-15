@@ -46,21 +46,26 @@ public class BlarggDmgSoundTests
         var cart = CartridgeFactory.Load(rom);
         var gb = new GameBoySystem(HardwareMode.Dmg, cart);
 
+        // Blargg dmg_sound reports results via the MBC RAM byte at $A000:
+        //   $80 = running (set by init_text_out after enabling RAM);
+        //   $00 = passed; anything else (including $FF from disabled-RAM reads
+        //   before init) = failure code OR not-yet-started. Gate on observing
+        //   the $80 sentinel first so we don't misread pre-init $FF.
+        const byte RunningSentinel = 0x80;
+        bool sawRunning = false;
         for (int frame = 0; frame < maxFrames; frame++)
         {
             gb.RunFrame();
-            string output = gb.Io.Serial.ReadBufferAsString();
-            if (output.Contains("Passed", StringComparison.Ordinal)) return;
-            if (output.Contains("Failed", StringComparison.Ordinal))
-            {
-                for (int drain = 0; drain < 20; drain++) gb.RunFrame();
-                throw new Exception($"[dmg_sound {rel}] Failed: {gb.Io.Serial.ReadBufferAsString().Trim()}");
-            }
+            byte result = gb.Mmu.ReadByte(0xA000);
+            if (result == RunningSentinel) { sawRunning = true; continue; }
+            if (!sawRunning) continue;   // RAM not yet enabled
+            if (result == 0x00) return;
+            throw new Exception($"[dmg_sound {rel}] Failed with code ${result:X2} (PC=${gb.Registers.Pc:X4})");
         }
 
-        string finalOutput = gb.Io.Serial.ReadBufferAsString();
+        byte final = gb.Mmu.ReadByte(0xA000);
         throw new TimeoutException(
-            $"dmg_sound {rel} did not report pass/fail within {maxFrames} frames. Serial output: '{finalOutput}' (PC=${gb.Registers.Pc:X4})");
+            $"dmg_sound {rel} did not set final_result within {maxFrames} frames (current=${final:X2}, sawRunning={sawRunning}, PC=${gb.Registers.Pc:X4})");
     }
 
     [Test] public Task S01_Registers() => Run("01-registers.gb");

@@ -62,5 +62,8 @@ public sealed class SquareChannel
         DutyPattern = (nrx1 >> 6) & 0x03;
         _freqCycleCounter = (2048 - Frequency) * 4;
         if (HasSweep) Sweep!.Trigger(nrx0, Frequency);
+        // DAC disabled (NRx2 bits 3..7 all zero) → trigger immediately disables
+        // the channel. Per pandocs APU channel DAC behaviour.
+        if ((nrx2 & 0xF8) == 0) Enabled = false;
     }
 }
