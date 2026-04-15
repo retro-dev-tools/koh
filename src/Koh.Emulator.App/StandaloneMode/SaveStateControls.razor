@@ -1,6 +1,7 @@
 @using Koh.Emulator.App.Services
 @using Koh.Emulator.Core.State
 @using Microsoft.AspNetCore.Components.Forms
+@implements IDisposable
 @inject EmulatorHost EmulatorHost
 @inject IJSRuntime JS
 
@@ -18,6 +19,10 @@
 
 @code {
     private string? _status;
+
+    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
 
     private async Task SaveState()
     {
