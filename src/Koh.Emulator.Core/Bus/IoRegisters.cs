@@ -1,3 +1,4 @@
+using Koh.Emulator.Core.Apu;
 using Koh.Emulator.Core.Cgb;
 using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.Dma;
@@ -24,6 +25,7 @@ public sealed class IoRegisters
     private Hdma? _hdma;
     private KeyOneRegister? _keyOne;
     private VramWramBanking? _banking;
+    private Apu.Apu? _apu;
 
     public HardwareMode HardwareMode { get; set; } = HardwareMode.Dmg;
 
@@ -38,11 +40,17 @@ public sealed class IoRegisters
     public void AttachHdma(Hdma hdma) => _hdma = hdma;
     public void AttachKeyOne(KeyOneRegister keyOne) => _keyOne = keyOne;
     public void AttachBanking(VramWramBanking banking) => _banking = banking;
+    public void AttachApu(Apu.Apu apu) => _apu = apu;
 
     public byte Read(ushort address)
     {
         int idx = address - 0xFF00;
         if (idx < 0 || idx >= _io.Length) return 0xFF;
+
+        // APU range ($FF10-$FF3F) delegates to the APU when attached; otherwise
+        // the legacy reserved-bit masks below apply.
+        if (_apu is not null && address >= 0xFF10 && address <= 0xFF3F)
+            return _apu.Read(address);
 
         switch (address)
         {
@@ -144,6 +152,12 @@ public sealed class IoRegisters
     {
         int idx = address - 0xFF00;
         if (idx < 0 || idx >= _io.Length) return;
+
+        if (_apu is not null && address >= 0xFF10 && address <= 0xFF3F)
+        {
+            _apu.Write(address, value);
+            return;
+        }
 
         switch (address)
         {

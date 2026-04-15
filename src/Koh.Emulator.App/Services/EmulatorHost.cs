@@ -6,13 +6,19 @@ namespace Koh.Emulator.App.Services;
 public sealed class EmulatorHost
 {
     private readonly FramePacer _framePacer;
+    private readonly WebAudioBridge _webAudio;
+    private bool _audioInitialized;
     public GameBoySystem? System { get; private set; }
     public event Action? FrameReady;
     public event Action? StateChanged;
 
     public bool IsPaused { get; set; } = true;
 
-    public EmulatorHost(FramePacer framePacer) { _framePacer = framePacer; }
+    public EmulatorHost(FramePacer framePacer, WebAudioBridge webAudio)
+    {
+        _framePacer = framePacer;
+        _webAudio = webAudio;
+    }
 
     public void Load(ReadOnlyMemory<byte> romBytes, HardwareMode mode)
     {
@@ -34,11 +40,19 @@ public sealed class EmulatorHost
         if (System is null) return;
         IsPaused = false;
 
+        if (!_audioInitialized)
+        {
+            await _webAudio.InitAsync();
+            _audioInitialized = true;
+        }
+
         while (!IsPaused && System is not null)
         {
             var result = System.RunFrame();
             FrameReady?.Invoke();
             StateChanged?.Invoke();
+
+            await DrainAudioAsync();
 
             if (result.Reason == StopReason.Breakpoint || result.Reason == StopReason.Watchpoint)
             {
@@ -48,6 +62,16 @@ public sealed class EmulatorHost
 
             await _framePacer.WaitForNextFrameAsync();
         }
+    }
+
+    private async ValueTask DrainAudioAsync()
+    {
+        if (System is null) return;
+        int available = System.Apu.SampleBuffer.Available;
+        if (available == 0) return;
+        var buf = new short[available];
+        int n = System.Apu.SampleBuffer.Drain(buf);
+        if (n > 0) await _webAudio.PushAsync(buf.AsMemory(0, n));
     }
 
     public void StepInstruction()

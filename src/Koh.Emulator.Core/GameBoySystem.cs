@@ -19,6 +19,7 @@ public sealed class GameBoySystem
     public Ppu.Ppu Ppu { get; }
     public OamDma OamDma { get; }
     public Hdma Hdma { get; }
+    public Apu.Apu Apu { get; } = new();
     public KeyOneRegister KeyOne { get; } = new();
     public JoypadState Joypad;
 
@@ -48,6 +49,7 @@ public sealed class GameBoySystem
         Io.AttachHdma(Hdma);
         Io.AttachKeyOne(KeyOne);
         Io.AttachBanking(Mmu.Banking);
+        Io.AttachApu(Apu);
 
         // Sm83 drives peripheral ticks per memory access: each ReadByte /
         // WriteByte / ReadImmediate / InternalCycle advances one M-cycle.
@@ -75,6 +77,7 @@ public sealed class GameBoySystem
             Timer.TickT(ref Io.Interrupts);
             OamDma.TickT();
             if (Hdma.Active) Hdma.TickT();
+            Apu.TickT();
         }
 
         int ppuDots = Clock.DoubleSpeed ? 2 : 4;

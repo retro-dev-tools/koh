@@ -110,4 +110,37 @@ public class ApuTests
         for (int i = 0; i < 20_000; i++) apu.TickT();
         await Assert.That(apu.SampleBuffer.Available).IsGreaterThan(0);
     }
+
+    [Test]
+    public async Task Nr52_Power_Bit_Reports_Status()
+    {
+        var apu = new Koh.Emulator.Core.Apu.Apu();
+        // Off by default.
+        await Assert.That(apu.Read(0xFF26) & 0x80).IsEqualTo(0);
+        apu.Write(0xFF26, 0x80);
+        await Assert.That(apu.Read(0xFF26) & 0x80).IsEqualTo(0x80);
+        apu.Write(0xFF26, 0x00);
+        await Assert.That(apu.Read(0xFF26) & 0x80).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Apu_Write_Is_Ignored_When_Disabled()
+    {
+        var apu = new Koh.Emulator.Core.Apu.Apu();
+        apu.Write(0xFF12, 0xF0);  // NR12 envelope while off
+        // NR52 power on
+        apu.Write(0xFF26, 0x80);
+        // NR12 should read back as zero (previous write dropped).
+        await Assert.That(apu.Read(0xFF12)).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task WaveRam_Roundtrips_Through_FF30_FF3F()
+    {
+        var apu = new Koh.Emulator.Core.Apu.Apu();
+        apu.Write(0xFF26, 0x80);
+        for (int i = 0; i < 16; i++) apu.Write((ushort)(0xFF30 + i), (byte)(0xA0 + i));
+        for (int i = 0; i < 16; i++)
+            await Assert.That(apu.Read((ushort)(0xFF30 + i))).IsEqualTo((byte)(0xA0 + i));
+    }
 }
