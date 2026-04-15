@@ -1,0 +1,25 @@
+@using Koh.Emulator.App.Services
+@inject EmulatorHost EmulatorHost
+@implements IDisposable
+
+<div class="palette-view">
+    <h3>Palettes</h3>
+    @if (EmulatorHost.System is { } gb)
+    {
+        <div class="dmg-palette">
+            <div><strong>BGP:</strong> $@(gb.Ppu.BGP.ToString("X2"))</div>
+            <div><strong>OBP0:</strong> $@(gb.Ppu.OBP0.ToString("X2"))</div>
+            <div><strong>OBP1:</strong> $@(gb.Ppu.OBP1.ToString("X2"))</div>
+        </div>
+    }
+    else
+    {
+        <em>No ROM loaded.</em>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
+}

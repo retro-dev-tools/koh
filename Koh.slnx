@@ -6,6 +6,9 @@
     <Project Path="src/Koh.Link/Koh.Link.csproj" />
     <Project Path="src/Koh.Linker.Core/Koh.Linker.Core.csproj" />
     <Project Path="src/Koh.Lsp/Koh.Lsp.csproj" />
+    <Project Path="src/Koh.Emulator.Core/Koh.Emulator.Core.csproj" />
+    <Project Path="src/Koh.Debugger/Koh.Debugger.csproj" />
+    <Project Path="src/Koh.Emulator.App/Koh.Emulator.App.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
@@ -14,6 +17,8 @@
     <Project Path="tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj" />
     <Project Path="tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj" />
     <Project Path="tests/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj" />
+    <Project Path="tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj" />
+    <Project Path="tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />

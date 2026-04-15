@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Koh.Core/Koh.Core.csproj" />
     <ProjectReference Include="../../src/Koh.Emit/Koh.Emit.csproj" />
+    <ProjectReference Include="../../src/Koh.Emulator.Core/Koh.Emulator.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

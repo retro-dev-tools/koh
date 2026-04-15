@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore solution
+        run: dotnet restore Koh.slnx
+
+      - name: Build solution
+        run: dotnet build Koh.slnx --no-restore --configuration Release
+
+      - name: Download test ROMs (Unix)
+        if: runner.os != 'Windows'
+        run: bash scripts/download-test-roms.sh
+
+      - name: Download test ROMs (Windows)
+        if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts/download-test-roms.ps1
+
+      - name: Run tests
+        run: dotnet test --solution Koh.NoCompat.slnf --no-build --configuration Release
+
+  compat-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Download test ROMs
+        run: bash scripts/download-test-roms.sh
+
+      - name: Build compat tests
+        run: dotnet build tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --configuration Release
+
+      - name: Run compat tests
+        run: dotnet test --project tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --no-build --configuration Release
+
+  benchmark-native:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build benchmarks
+        run: dotnet build benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj --configuration Release
+
+      - name: Verify benchmarks discover
+        # Smoke-verifies the benchmark project builds and BDN finds the Phase 2
+        # and Phase 3 benchmarks. Real throughput runs locally (headless BDN in
+        # CI is noisy on shared runners); this gates "the benchmark harness
+        # compiles" only.
+        run: |
+          dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
+          dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase3*'
+
+  emulator-app:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+
+      - name: Install npm dependencies
+        run: |
+          cd editors/vscode
+          npm ci
+
+      - name: Build emulator app (AOT)
+        run: |
+          cd editors/vscode
+          npm run build:emulator-app:aot
+
+      - name: Verify freshness
+        run: |
+          cd editors/vscode
+          npm run verify-freshness
+
+      - name: Compile extension
+        run: |
+          cd editors/vscode
+          npm run compile
+
+      - name: Upload emulator-app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-app
+          path: editors/vscode/dist/emulator-app
+          retention-days: 7

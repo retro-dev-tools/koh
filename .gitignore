@@ -15,3 +15,7 @@ editors/vscode/node_modules/
 editors/vscode/out/
 editors/vscode/server/
 editors/vscode/.vscode/
+
+# Phase 2+ test fixtures
+tests/fixtures/test-roms/
+tests/fixtures/reference/

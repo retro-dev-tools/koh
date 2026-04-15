@@ -16,7 +16,7 @@ static class KohLink
         if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
             return ShowUsage(exitCode: args.Length == 0 ? 1 : 0);
 
-        var (inputs, outputPath, symPath, error) = ParseArgs(args);
+        var (inputs, outputPath, symPath, kdbgPath, error) = ParseArgs(args);
         if (error != null) return Fail(error);
         if (inputs.Count == 0) return Fail("no input files specified");
 
@@ -90,29 +90,51 @@ static class KohLink
             }
         }
 
+        // Write .kdbg file
+        if (kdbgPath != null)
+        {
+            try
+            {
+                var builder = new DebugInfoBuilder();
+                DebugInfoPopulator.PopulateFromLinkerSymbols(builder, result.Symbols);
+                using var stream = File.Create(kdbgPath);
+                KdbgFileWriter.Write(stream, builder);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Fail($"cannot write '{kdbgPath}': {ex.Message}");
+            }
+        }
+
         var noun = inputs.Count == 1 ? "object" : "objects";
         Console.WriteLine($"Linked {inputs.Count} {noun} -> {outputPath} ({result.RomData!.Length} bytes)");
         return 0;
     }
 
-    static (List<string> inputs, string output, string? sym, string? error) ParseArgs(string[] args)
+    static (List<string> inputs, string output, string? sym, string? kdbg, string? error) ParseArgs(string[] args)
     {
         var inputs = new List<string>();
-        string? output = null, sym = null;
+        string? output = null, sym = null, kdbg = null;
 
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] is "-o" or "--output")
             {
                 if (i + 1 >= args.Length)
-                    return ([], "", null, $"option '{args[i]}' requires an argument");
+                    return ([], "", null, null, $"option '{args[i]}' requires an argument");
                 output = args[++i];
             }
             else if (args[i] is "-n" or "--sym")
             {
                 if (i + 1 >= args.Length)
-                    return ([], "", null, $"option '{args[i]}' requires an argument");
+                    return ([], "", null, null, $"option '{args[i]}' requires an argument");
                 sym = args[++i];
+            }
+            else if (args[i] is "-d" or "--kdbg")
+            {
+                if (i + 1 >= args.Length)
+                    return ([], "", null, null, $"option '{args[i]}' requires an argument");
+                kdbg = args[++i];
             }
             else if (!args[i].StartsWith('-'))
             {
@@ -120,12 +142,12 @@ static class KohLink
             }
             else
             {
-                return ([], "", null, $"unknown option '{args[i]}' (try --help)");
+                return ([], "", null, null, $"unknown option '{args[i]}' (try --help)");
             }
         }
 
         output ??= Path.ChangeExtension(inputs[0], ".gb");
-        return (inputs, output, sym, null);
+        return (inputs, output, sym, kdbg, null);
     }
 
     static int Fail(string message)
@@ -152,11 +174,12 @@ static class KohLink
         var output = exitCode == 0 ? Console.Out : Console.Error;
         output.WriteLine(
             """
-            Usage: koh-link <input.kobj...> [-o output.gb] [-n symbols.sym]
+            Usage: koh-link <input.kobj...> [-o output.gb] [-n symbols.sym] [-d debug.kdbg]
 
             Options:
               -o, --output <path>  Output ROM file (default: first-input.gb)
               -n, --sym <path>     Write symbol file for emulator debugging
+              -d, --kdbg <path>    Write Koh debug info file (.kdbg)
                   --version        Show version information
               -h, --help           Show this help
             """);

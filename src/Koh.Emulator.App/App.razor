@@ -1,0 +1,31 @@
+@using Koh.Emulator.App.Shell
+@inject RuntimeModeDetector ModeDetector
+
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" />
+    </Found>
+    <NotFound>
+        @if (_mode is null)
+        {
+            <p>Loading…</p>
+        }
+        else if (_mode == RuntimeMode.Debug)
+        {
+            <DebugShell />
+        }
+        else
+        {
+            <StandaloneShell />
+        }
+    </NotFound>
+</Router>
+
+@code {
+    private RuntimeMode? _mode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _mode = await ModeDetector.DetectAsync();
+    }
+}

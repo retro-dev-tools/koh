@@ -1,0 +1,25 @@
+@using Koh.Emulator.App.Services
+@using Koh.Emulator.Core
+@using Microsoft.AspNetCore.Components.Forms
+@inject EmulatorHost EmulatorHost
+
+<div class="rom-picker">
+    <InputFile OnChange="OnFileSelected" accept=".gb,.gbc" />
+</div>
+
+@code {
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        using var stream = file.OpenReadStream(maxAllowedSize: 8 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+
+        HardwareMode mode = (bytes.Length > 0x143 && (bytes[0x143] & 0x80) != 0)
+            ? HardwareMode.Cgb
+            : HardwareMode.Dmg;
+
+        EmulatorHost.Load(bytes, mode);
+    }
+}
