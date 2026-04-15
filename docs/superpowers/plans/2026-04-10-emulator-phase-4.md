@@ -975,7 +975,7 @@ git commit -m "feat(emulator-app): add save/load state UI in standalone mode"
 - Modify: `src/Koh.Emulator.Core/Cartridge/MapperKind.cs` (add Mbc3)
 - Modify: `src/Koh.Emulator.Core/Cartridge/CartridgeHeader.cs` (recognize cart types $0F-$13)
 
-- [ ] **Step 1: Create `Rtc.cs`**
+- [x] **Step 1: Create `Rtc.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cartridge;
@@ -1029,7 +1029,7 @@ public struct Rtc
 }
 ```
 
-- [ ] **Step 2: Create `Mbc3.cs`**
+- [x] **Step 2: Create `Mbc3.cs`**
 
 ```csharp
 namespace Koh.Emulator.Core.Cartridge;
@@ -1105,13 +1105,13 @@ internal static class Mbc3
 
 Add `Mbc3_LatchLatch` and `Rtc` fields to `Cartridge.cs`.
 
-- [ ] **Step 3: Extend `Cartridge.ReadRom/WriteRom/etc.` switch cases to include Mbc3**
+- [x] **Step 3: Extend `Cartridge.ReadRom/WriteRom/etc.` switch cases to include Mbc3**
 
-- [ ] **Step 4: Extend `CartridgeHeader.Parse` to recognize MBC3 cart types ($0F-$13)**
+- [x] **Step 4: Extend `CartridgeHeader.Parse` to recognize MBC3 cart types ($0F-$13)**
 
-- [ ] **Step 5: Test MBC3 bank switching and RTC latch/read round-trip**
+- [x] **Step 5: Test MBC3 bank switching and RTC latch/read round-trip**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cartridge/Mbc3.cs src/Koh.Emulator.Core/Cartridge/Rtc.cs src/Koh.Emulator.Core/Cartridge/Cartridge.cs src/Koh.Emulator.Core/Cartridge/CartridgeHeader.cs src/Koh.Emulator.Core/Cartridge/MapperKind.cs tests/Koh.Emulator.Core.Tests/Mbc3Tests.cs
@@ -1127,7 +1127,7 @@ git commit -m "feat(emulator): add MBC3 with RTC"
 - Modify: `src/Koh.Emulator.Core/Cartridge/Cartridge.cs`
 - Modify: `src/Koh.Emulator.Core/Cartridge/MapperKind.cs`
 
-- [ ] **Step 1: Create `Mbc5.cs`**
+- [x] **Step 1: Create `Mbc5.cs`**
 
 MBC5 supports up to 512 ROM banks (9-bit bank number) and RAM up to 128 KB (16 × 8 KB). Bank switch at $2000 (low 8 bits) and $3000 (bit 9).
 
@@ -1170,11 +1170,11 @@ internal static class Mbc5
 
 Add `Mbc5_RamBank` field to `Cartridge`.
 
-- [ ] **Step 2: Extend header parsing and Cartridge dispatch**
+- [x] **Step 2: Extend header parsing and Cartridge dispatch**
 
-- [ ] **Step 3: Test**
+- [x] **Step 3: Test**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/Koh.Emulator.Core/Cartridge/Mbc5.cs src/Koh.Emulator.Core/Cartridge/Cartridge.cs src/Koh.Emulator.Core/Cartridge/CartridgeHeader.cs tests/Koh.Emulator.Core.Tests/Mbc5Tests.cs
