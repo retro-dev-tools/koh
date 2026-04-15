@@ -20,3 +20,4 @@ editors/vscode/.vscode/
 tests/fixtures/test-roms/
 tests/fixtures/reference/
 .playwright-cli/
+BenchmarkDotNet.Artifacts/
