@@ -58,10 +58,12 @@ public class MmuTests
     }
 
     [Test]
-    public async Task IE_Register_Masked_To_Lower5Bits()
+    public async Task IE_Register_Is_Fully_8Bit_Readable_Writable()
     {
+        // Per pandocs, IE at $FFFF is a plain 8-bit R/W register. Only bits
+        // 0..4 affect interrupt dispatch, but bits 5..7 read back as written.
         var mmu = MakeMmu();
         mmu.WriteByte(0xFFFF, 0xFF);
-        await Assert.That(mmu.ReadByte(0xFFFF)).IsEqualTo((byte)0x1F);
+        await Assert.That(mmu.ReadByte(0xFFFF)).IsEqualTo((byte)0xFF);
     }
 }

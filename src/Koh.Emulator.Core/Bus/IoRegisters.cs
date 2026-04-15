@@ -170,24 +170,24 @@ public sealed class IoRegisters
             case 0xFF4A: if (_ppu is not null) _ppu.WY = value; else _io[idx] = value; break;
             case 0xFF4B: if (_ppu is not null) _ppu.WX = value; else _io[idx] = value; break;
 
-            // CGB banking + KEY1
-            case 0xFF4D: _keyOne?.Write(value); break;
-            case 0xFF4F: _banking?.WriteVbkRegister(value); break;
-            case 0xFF70: _banking?.WriteSvbkRegister(value); break;
+            // CGB banking + KEY1 (inert on DMG)
+            case 0xFF4D: if (IsCgb) _keyOne?.Write(value); break;
+            case 0xFF4F: if (IsCgb) _banking?.WriteVbkRegister(value); break;
+            case 0xFF70: if (IsCgb) _banking?.WriteSvbkRegister(value); break;
 
-            // HDMA
-            case 0xFF51: if (_hdma is not null) _hdma.Source1 = value; break;
-            case 0xFF52: if (_hdma is not null) _hdma.Source2 = value; break;
-            case 0xFF53: if (_hdma is not null) _hdma.Dest1 = value; break;
-            case 0xFF54: if (_hdma is not null) _hdma.Dest2 = value; break;
-            case 0xFF55: _hdma?.WriteLengthRegister(value); break;
+            // HDMA (inert on DMG)
+            case 0xFF51: if (IsCgb && _hdma is not null) _hdma.Source1 = value; break;
+            case 0xFF52: if (IsCgb && _hdma is not null) _hdma.Source2 = value; break;
+            case 0xFF53: if (IsCgb && _hdma is not null) _hdma.Dest1 = value; break;
+            case 0xFF54: if (IsCgb && _hdma is not null) _hdma.Dest2 = value; break;
+            case 0xFF55: if (IsCgb) _hdma?.WriteLengthRegister(value); break;
 
-            // CGB palette
-            case 0xFF68: if (_ppu is not null) _ppu.BgPalette.IndexRegister = value; else _io[idx] = value; break;
-            case 0xFF69: _ppu?.BgPalette.WriteData(value); break;
-            case 0xFF6A: if (_ppu is not null) _ppu.ObjPalette.IndexRegister = value; else _io[idx] = value; break;
-            case 0xFF6B: _ppu?.ObjPalette.WriteData(value); break;
-            case 0xFF6C: if (_ppu is not null) _ppu.OPRI = (byte)(value & 1); break;
+            // CGB palette (inert on DMG)
+            case 0xFF68: if (IsCgb && _ppu is not null) _ppu.BgPalette.IndexRegister = value; break;
+            case 0xFF69: if (IsCgb) _ppu?.BgPalette.WriteData(value); break;
+            case 0xFF6A: if (IsCgb && _ppu is not null) _ppu.ObjPalette.IndexRegister = value; break;
+            case 0xFF6B: if (IsCgb) _ppu?.ObjPalette.WriteData(value); break;
+            case 0xFF6C: if (IsCgb && _ppu is not null) _ppu.OPRI = (byte)(value & 1); break;
 
             default: _io[idx] = value; break;
         }

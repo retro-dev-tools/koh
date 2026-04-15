@@ -58,8 +58,11 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
             bool hasPending = (_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F) != 0;
             if (Halted && hasPending)
             {
+                // Wake from HALT. The halt-bug only applies when HALT was
+                // entered with IME=0 && pending!=0 — that path is handled in
+                // Halt() and never sets Halted=true. Waking here is always a
+                // clean unhalt; don't re-arm the halt-bug flag.
                 Halted = false;
-                if (!Ime) _haltBugNextFetch = true;
             }
             OnInstructionBoundary();
             return true;
