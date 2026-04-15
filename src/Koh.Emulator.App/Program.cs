@@ -15,6 +15,7 @@ builder.Services.AddSingleton<FramePacer>();
 builder.Services.AddSingleton<EmulatorHost>();
 builder.Services.AddSingleton<FramebufferBridge>();
 builder.Services.AddSingleton<WebAudioBridge>();
+builder.Services.AddSingleton<KeyboardInputBridge>();
 builder.Services.AddSingleton<Koh.Emulator.App.DebugMode.DebugModeBootstrapper>(sp =>
 {
     var js = sp.GetRequiredService<IJSRuntime>();
@@ -34,4 +35,10 @@ builder.Services.AddSingleton<Koh.Emulator.App.DebugMode.DapTransport>(sp =>
     return new Koh.Emulator.App.DebugMode.DapTransport(js, boot.Dispatcher);
 });
 
-await builder.Build().RunAsync();
+var app = builder.Build();
+
+// Wire keyboard bridge into EmulatorHost so RunAsync kicks it off.
+var keyboard = app.Services.GetRequiredService<KeyboardInputBridge>();
+app.Services.GetRequiredService<EmulatorHost>().AttachKeyboard(keyboard);
+
+await app.RunAsync();

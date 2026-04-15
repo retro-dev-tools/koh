@@ -7,7 +7,10 @@ public sealed class EmulatorHost
 {
     private readonly FramePacer _framePacer;
     private readonly WebAudioBridge _webAudio;
+    private KeyboardInputBridge? _keyboard;
     private bool _audioInitialized;
+
+    public void AttachKeyboard(KeyboardInputBridge keyboard) => _keyboard = keyboard;
     public GameBoySystem? System { get; private set; }
     public byte[]? OriginalRom { get; private set; }
     public event Action? FrameReady;
@@ -47,6 +50,7 @@ public sealed class EmulatorHost
         if (!_audioInitialized)
         {
             await _webAudio.InitAsync();
+            if (_keyboard is not null) await _keyboard.EnsureRegisteredAsync();
             _audioInitialized = true;
         }
 

@@ -2,6 +2,7 @@ using Koh.Emulator.Core.Apu;
 using Koh.Emulator.Core.Cgb;
 using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.Dma;
+using Koh.Emulator.Core.Joypad;
 using Koh.Emulator.Core.Ppu;
 using Koh.Emulator.Core.Serial;
 using Koh.Emulator.Core.State;
@@ -43,6 +44,9 @@ public sealed class IoRegisters
     public void AttachBanking(VramWramBanking banking) => _banking = banking;
     public void AttachApu(Apu.Apu apu) => _apu = apu;
 
+    private Func<JoypadState>? _readJoypad;
+    public void AttachJoypad(Func<JoypadState> readJoypad) => _readJoypad = readJoypad;
+
     public byte Read(ushort address)
     {
         int idx = address - 0xFF00;
@@ -55,12 +59,33 @@ public sealed class IoRegisters
 
         switch (address)
         {
-            // JOYP ($FF00): bits 6-7 always 1. Lower nibble reads 0xF (all buttons
-            // unpressed) when no physical joypad is attached.
+            // JOYP ($FF00): bits 6-7 always 1. Buttons are active-low.
+            // Bits 4-5 select which group: bit 5=0 → action buttons (A/B/Select/Start),
+            // bit 4=0 → direction buttons (Right/Left/Up/Down).
             case 0xFF00:
                 {
-                    byte selectMask = (byte)(_io[0] & 0x30);  // preserve selection bits
-                    return (byte)(0xC0 | selectMask | 0x0F);
+                    byte selectMask = (byte)(_io[0] & 0x30);
+                    byte pressed = 0;
+                    if (_readJoypad is not null)
+                    {
+                        var j = _readJoypad();
+                        if ((selectMask & 0x10) == 0)
+                        {
+                            if (j.IsPressed(JoypadButton.Right)) pressed |= 0x01;
+                            if (j.IsPressed(JoypadButton.Left))  pressed |= 0x02;
+                            if (j.IsPressed(JoypadButton.Up))    pressed |= 0x04;
+                            if (j.IsPressed(JoypadButton.Down))  pressed |= 0x08;
+                        }
+                        if ((selectMask & 0x20) == 0)
+                        {
+                            if (j.IsPressed(JoypadButton.A))      pressed |= 0x01;
+                            if (j.IsPressed(JoypadButton.B))      pressed |= 0x02;
+                            if (j.IsPressed(JoypadButton.Select)) pressed |= 0x04;
+                            if (j.IsPressed(JoypadButton.Start))  pressed |= 0x08;
+                        }
+                    }
+                    byte lower = (byte)(~pressed & 0x0F);   // active-low
+                    return (byte)(0xC0 | selectMask | lower);
                 }
             case 0xFF01: return Serial.ReadSB();
             case 0xFF02: return Serial.ReadSC();

@@ -51,6 +51,7 @@ public sealed class GameBoySystem
         Io.AttachKeyOne(KeyOne);
         Io.AttachBanking(Mmu.Banking);
         Io.AttachApu(Apu);
+        Io.AttachJoypad(() => Joypad);
 
         // Sm83 drives peripheral ticks per memory access: each ReadByte /
         // WriteByte / ReadImmediate / InternalCycle advances one M-cycle.
@@ -226,6 +227,16 @@ public sealed class GameBoySystem
 
         return false;
     }
+
+    /// <summary>Press a joypad button and raise the Joypad interrupt on transition.</summary>
+    public void JoypadPress(Joypad.JoypadButton button)
+    {
+        if (Joypad.IsPressed(button)) return;
+        Joypad.Press(button);
+        Io.Interrupts.Raise(Interrupts.Joypad);
+    }
+
+    public void JoypadRelease(Joypad.JoypadButton button) => Joypad.Release(button);
 
     public byte DebugReadByte(ushort address) => Mmu.DebugRead(address);
 
