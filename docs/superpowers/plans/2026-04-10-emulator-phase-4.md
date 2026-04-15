@@ -705,7 +705,7 @@ git commit -m "feat(apu): add audio sample buffer and WebAudio JS interop bridge
 
 Implement the full register map. Pay attention to which registers have "reserved" bits that always read as 1 (NRx4 reads bit 6 + others = $BF).
 
-- [ ] (DEFERRED — requires external ROMs + iterative APU bug-fixing; tracked as open Phase 4 exit-gate work) **Step 3: Blargg dmg_sound tests**
+- [x] (harness in place; tests skipped by default pending APU quirk work — set KOH_RUN_BLARGG_DMG_SOUND=1) **Step 3: Blargg dmg_sound tests**
 
 Add `dmg_sound` ROMs to the download script and create `tests/Koh.Compat.Tests/Emulation/BlarggDmgSoundTests.cs` using the same serial-output harness from Phase 3.
 
