@@ -35,7 +35,7 @@ function Download-WithHash {
     if ($ExpectedSha256) {
         $actual = (Get-FileHash -Path $Output -Algorithm SHA256).Hash.ToLower()
         if ($actual -ne $ExpectedSha256.ToLower()) {
-            Write-Error "FAIL $Output: hash mismatch (expected $ExpectedSha256, got $actual)"
+            Write-Error "FAIL ${Output}: hash mismatch (expected $ExpectedSha256, got $actual)"
         }
     }
     Write-Host "DL  $Output"
