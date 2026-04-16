@@ -1,11 +1,14 @@
 // Bridges postMessage from the VS Code extension to the Blazor app.
-window.__kohVsCodeBridge = true;
+// Only flag this as the VS Code bridge when acquireVsCodeApi is actually
+// present — the script itself is always shipped (standalone uses the
+// stub implementations below to return null for file reads, etc.).
 
 (function () {
     let vsCodeApi = null;
     try {
         if (typeof acquireVsCodeApi === 'function') {
             vsCodeApi = acquireVsCodeApi();
+            window.__kohVsCodeBridge = true;
         }
     } catch (e) {
         // acquireVsCodeApi throws if called twice; ignore.

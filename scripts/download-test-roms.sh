@@ -84,6 +84,7 @@ fetch_blargg_zip mem_timing
 fetch_blargg_zip mem_timing-2
 fetch_blargg_zip halt_bug
 fetch_blargg_zip interrupt_time
+fetch_blargg_zip dmg_sound
 
 # Phase 3: Mooneye test suite — used for acceptance/{bits,timer,interrupts,oam_dma}.
 MOONEYE_DIR="$OUTPUT_DIR/mooneye"

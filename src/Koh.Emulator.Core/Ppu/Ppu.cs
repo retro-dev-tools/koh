@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Cpu;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Ppu;
 
@@ -504,5 +505,66 @@ public sealed class Ppu
         _windowTriggeredThisLine = false;
         _initialDiscardDone = false;
         _prevStatLine = false;
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteByte(LY); w.WriteByte(LYC);
+        w.WriteByte(SCX); w.WriteByte(SCY);
+        w.WriteByte(WX); w.WriteByte(WY);
+        w.WriteByte(BGP); w.WriteByte(OBP0); w.WriteByte(OBP1);
+        w.WriteByte(LCDC); w.WriteByte(OPRI);
+        w.WriteByte(Stat.UserBits);
+        w.WriteI32((int)Mode); w.WriteI32(Dot);
+        w.WriteI32(_windowLineCounter);
+        w.WriteBool(_windowTriggeredThisLine);
+        w.WriteBool(_initialDiscardDone);
+        w.WriteBool(_prevStatLine);
+        BgPalette.WriteState(w);
+        ObjPalette.WriteState(w);
+
+        // Intra-scanline state for mid-frame determinism.
+        _fetcher.WriteState(w);
+        _fifo.WriteState(w);
+        w.WriteI32(_lcdX);
+        w.WriteI32(_spriteFetchIndex);
+        w.WriteI32(_spritePenaltyDots);
+        w.WriteI32(_lineSpriteCount);
+        for (int i = 0; i < _lineSprites.Length; i++)
+        {
+            var s = _lineSprites[i];
+            w.WriteByte(s.Y); w.WriteByte(s.X); w.WriteByte(s.Tile); w.WriteByte(s.Flags);
+        }
+        for (int i = 0; i < _lineSpriteConsumed.Length; i++) w.WriteBool(_lineSpriteConsumed[i]);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        LY = r.ReadByte(); LYC = r.ReadByte();
+        SCX = r.ReadByte(); SCY = r.ReadByte();
+        WX = r.ReadByte(); WY = r.ReadByte();
+        BGP = r.ReadByte(); OBP0 = r.ReadByte(); OBP1 = r.ReadByte();
+        LCDC = r.ReadByte(); OPRI = r.ReadByte();
+        Stat.UserBits = r.ReadByte();
+        Mode = (PpuMode)r.ReadI32(); Dot = r.ReadI32();
+        _windowLineCounter = r.ReadI32();
+        _windowTriggeredThisLine = r.ReadBool();
+        _initialDiscardDone = r.ReadBool();
+        _prevStatLine = r.ReadBool();
+        BgPalette.ReadState(r);
+        ObjPalette.ReadState(r);
+
+        _fetcher.ReadState(r);
+        _fifo.ReadState(r);
+        _lcdX = r.ReadI32();
+        _spriteFetchIndex = r.ReadI32();
+        _spritePenaltyDots = r.ReadI32();
+        _lineSpriteCount = r.ReadI32();
+        for (int i = 0; i < _lineSprites.Length; i++)
+        {
+            byte y = r.ReadByte(), x = r.ReadByte(), tile = r.ReadByte(), flags = r.ReadByte();
+            _lineSprites[i] = new ObjectAttributes(y, x, tile, flags);
+        }
+        for (int i = 0; i < _lineSpriteConsumed.Length; i++) _lineSpriteConsumed[i] = r.ReadBool();
     }
 }

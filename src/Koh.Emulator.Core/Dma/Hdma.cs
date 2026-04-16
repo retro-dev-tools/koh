@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Bus;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Dma;
 
@@ -86,5 +87,25 @@ public sealed class Hdma
             Active = false;
             CpuHaltedByGp = false;
         }
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteByte(Source1); w.WriteByte(Source2);
+        w.WriteByte(Dest1); w.WriteByte(Dest2);
+        w.WriteBool(IsHBlankMode); w.WriteBool(Active); w.WriteBool(CpuHaltedByGp);
+        w.WriteU16(_currentSource); w.WriteU16(_currentDest);
+        w.WriteI32(_bytesRemaining); w.WriteI32(_byteIndexInBlock);
+        w.WriteBool(_hblockPending);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        Source1 = r.ReadByte(); Source2 = r.ReadByte();
+        Dest1 = r.ReadByte(); Dest2 = r.ReadByte();
+        IsHBlankMode = r.ReadBool(); Active = r.ReadBool(); CpuHaltedByGp = r.ReadBool();
+        _currentSource = r.ReadU16(); _currentDest = r.ReadU16();
+        _bytesRemaining = r.ReadI32(); _byteIndexInBlock = r.ReadI32();
+        _hblockPending = r.ReadBool();
     }
 }

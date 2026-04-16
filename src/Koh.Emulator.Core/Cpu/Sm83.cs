@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Bus;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Cpu;
 
@@ -13,7 +14,6 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     private readonly Mmu _mmu;
     private readonly Action _tickMCycle;
     public CpuRegisters Registers;
-    public Interrupts Interrupts;
 
     public bool Halted;
     public bool Stopped;
@@ -33,6 +33,32 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     /// </summary>
     private bool _haltBugNextFetch;
     public ulong TotalTCycles;
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteByte(Registers.A); w.WriteByte(Registers.F);
+        w.WriteByte(Registers.B); w.WriteByte(Registers.C);
+        w.WriteByte(Registers.D); w.WriteByte(Registers.E);
+        w.WriteByte(Registers.H); w.WriteByte(Registers.L);
+        w.WriteU16(Registers.Sp); w.WriteU16(Registers.Pc);
+        w.WriteBool(Halted); w.WriteBool(Stopped); w.WriteBool(Ime);
+        w.WriteBool(_eiPending); w.WriteBool(_eiArmed);
+        w.WriteBool(_haltBugNextFetch);
+        w.WriteU64(TotalTCycles);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        Registers.A = r.ReadByte(); Registers.F = r.ReadByte();
+        Registers.B = r.ReadByte(); Registers.C = r.ReadByte();
+        Registers.D = r.ReadByte(); Registers.E = r.ReadByte();
+        Registers.H = r.ReadByte(); Registers.L = r.ReadByte();
+        Registers.Sp = r.ReadU16(); Registers.Pc = r.ReadU16();
+        Halted = r.ReadBool(); Stopped = r.ReadBool(); Ime = r.ReadBool();
+        _eiPending = r.ReadBool(); _eiArmed = r.ReadBool();
+        _haltBugNextFetch = r.ReadBool();
+        TotalTCycles = r.ReadU64();
+    }
 
     public Sm83(Mmu mmu) : this(mmu, () => { }) { }
 
@@ -227,7 +253,7 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         Registers = default;
         Registers.Pc = 0x0100;
         Registers.Sp = 0xFFFE;
-        Interrupts = default;
+        _mmu.Io.Interrupts = default;
         Halted = false;
         Stopped = false;
         Ime = false;

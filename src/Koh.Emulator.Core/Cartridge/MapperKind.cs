@@ -4,5 +4,6 @@ public enum MapperKind : byte
 {
     RomOnly = 0,
     Mbc1 = 1,
-    // Mbc3 and Mbc5 are added in Phase 4. Intermediate values reserved.
+    Mbc3 = 3,
+    Mbc5 = 5,
 }

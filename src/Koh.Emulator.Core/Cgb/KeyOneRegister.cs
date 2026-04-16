@@ -1,9 +1,14 @@
+using Koh.Emulator.Core.State;
+
 namespace Koh.Emulator.Core.Cgb;
 
 public sealed class KeyOneRegister
 {
     public bool SwitchArmed;
     public bool DoubleSpeed;
+
+    public void WriteState(StateWriter w) { w.WriteBool(SwitchArmed); w.WriteBool(DoubleSpeed); }
+    public void ReadState(StateReader r) { SwitchArmed = r.ReadBool(); DoubleSpeed = r.ReadBool(); }
 
     public byte Read()
         => (byte)(0x7E | (DoubleSpeed ? 0x80 : 0) | (SwitchArmed ? 0x01 : 0));

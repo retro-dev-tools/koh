@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Bus;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Dma;
 
@@ -64,5 +65,25 @@ public sealed class OamDma
         ushort src = (ushort)((SourceHighByte << 8) | _byteIndex);
         byte value = _mmu.ReadByteDirect(src);
         _mmu.OamArray[_byteIndex] = value;
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteByte(SourceHighByte);
+        w.WriteI32(_tCountdownToStart);
+        w.WriteI32(_byteIndex);
+        w.WriteI32(_tCountdownInByte);
+        w.WriteBool(_running);
+        w.WriteBool(IsBusLocking);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        SourceHighByte = r.ReadByte();
+        _tCountdownToStart = r.ReadI32();
+        _byteIndex = r.ReadI32();
+        _tCountdownInByte = r.ReadI32();
+        _running = r.ReadBool();
+        IsBusLocking = r.ReadBool();
     }
 }

@@ -9,6 +9,9 @@ public sealed class DebugSession
     public GameBoySystem? System { get; private set; }
     public DebugInfoLoader DebugInfo { get; } = new();
     public BreakpointManager Breakpoints { get; } = new();
+    public WatchpointHook Watchpoints { get; }
+
+    public DebugSession() { Watchpoints = new WatchpointHook(this); }
 
     public volatile bool PauseRequested;
 
@@ -20,6 +23,7 @@ public sealed class DebugSession
     {
         var cart = CartridgeFactory.Load(romBytes.Span);
         System = new GameBoySystem(mode, cart);
+        System.Mmu.Hook = Watchpoints;
         DebugInfo.Load(kdbgBytes);
 
         // Wire breakpoint halting: at each instruction boundary, consult
@@ -28,7 +32,9 @@ public sealed class DebugSession
         System.BreakpointChecker = pc =>
         {
             byte bank = pc >= 0x4000 ? System.Cartridge.CurrentRomBank : (byte)0;
-            return Breakpoints.Contains(new Koh.Linker.Core.BankedAddress(bank, pc));
+            var addr = new Koh.Linker.Core.BankedAddress(bank, pc);
+            return Breakpoints.ShouldBreak(addr, cond =>
+                System is { } gb && ExpressionEvaluator.Evaluate(cond, gb));
         };
 
         Launched?.Invoke();

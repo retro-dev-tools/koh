@@ -42,6 +42,13 @@ namespace Koh.Debugger.Dap;
 [JsonSerializable(typeof(BreakpointLocationsArguments))]
 [JsonSerializable(typeof(BreakpointLocationsResponseBody))]
 [JsonSerializable(typeof(BreakpointLocation))]
+[JsonSerializable(typeof(DataBreakpointInfoArguments))]
+[JsonSerializable(typeof(DataBreakpointInfoResponseBody))]
+[JsonSerializable(typeof(SetDataBreakpointsArguments))]
+[JsonSerializable(typeof(SetDataBreakpointsResponseBody))]
+[JsonSerializable(typeof(DataBreakpoint))]
+[JsonSerializable(typeof(WriteMemoryArguments))]
+[JsonSerializable(typeof(WriteMemoryResponseBody))]
 public sealed partial class DapJsonContext : JsonSerializerContext
 {
 }

@@ -4,6 +4,7 @@ using Koh.Emulator.Core.Cpu;
 using Koh.Emulator.Core.Dma;
 using Koh.Emulator.Core.Joypad;
 using Koh.Emulator.Core.Ppu;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core;
 
@@ -19,6 +20,7 @@ public sealed class GameBoySystem
     public Ppu.Ppu Ppu { get; }
     public OamDma OamDma { get; }
     public Hdma Hdma { get; }
+    public Apu.Apu Apu { get; } = new();
     public KeyOneRegister KeyOne { get; } = new();
     public JoypadState Joypad;
 
@@ -48,6 +50,8 @@ public sealed class GameBoySystem
         Io.AttachHdma(Hdma);
         Io.AttachKeyOne(KeyOne);
         Io.AttachBanking(Mmu.Banking);
+        Io.AttachApu(Apu);
+        Io.AttachJoypad(() => Joypad);
 
         // Sm83 drives peripheral ticks per memory access: each ReadByte /
         // WriteByte / ReadImmediate / InternalCycle advances one M-cycle.
@@ -75,6 +79,8 @@ public sealed class GameBoySystem
             Timer.TickT(ref Io.Interrupts);
             OamDma.TickT();
             if (Hdma.Active) Hdma.TickT();
+            Apu.TickT();
+            Io.Serial.TickT(ref Io.Interrupts);
         }
 
         int ppuDots = Clock.DoubleSpeed ? 2 : 4;
@@ -95,6 +101,38 @@ public sealed class GameBoySystem
         return true;
     }
 
+    public void WriteState(StateWriter w)
+    {
+        Clock.WriteState(w);
+        Cpu.WriteState(w);
+        Timer.WriteState(w);
+        Ppu.WriteState(w);
+        OamDma.WriteState(w);
+        Hdma.WriteState(w);
+        Apu.WriteState(w);
+        KeyOne.WriteState(w);
+        Cartridge.WriteState(w);
+        Mmu.WriteState(w);
+        Io.WriteState(w);
+        Io.Serial.WriteState(w);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        Clock.ReadState(r);
+        Cpu.ReadState(r);
+        Timer.ReadState(r);
+        Ppu.ReadState(r);
+        OamDma.ReadState(r);
+        Hdma.ReadState(r);
+        Apu.ReadState(r);
+        KeyOne.ReadState(r);
+        Cartridge.ReadState(r);
+        Mmu.ReadState(r);
+        Io.ReadState(r);
+        Io.Serial.ReadState(r);
+    }
+
     public StepResult RunFrame()
     {
         _running = true;
@@ -108,7 +146,7 @@ public sealed class GameBoySystem
             if (RunGuard.StopRequested)
             {
                 _running = false;
-                return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles, Cpu.Registers.Pc);
+                return new StepResult(RunGuard.Reason, Cpu.TotalTCycles, Cpu.Registers.Pc);
             }
             if (BreakpointChecker is { } check && check(Cpu.Registers.Pc))
             {
@@ -156,7 +194,7 @@ public sealed class GameBoySystem
             if (RunGuard.StopRequested)
             {
                 _running = false;
-                return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+                return new StepResult(RunGuard.Reason, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
             }
 
             if (StopConditionMet(in condition))
@@ -189,6 +227,16 @@ public sealed class GameBoySystem
 
         return false;
     }
+
+    /// <summary>Press a joypad button and raise the Joypad interrupt on transition.</summary>
+    public void JoypadPress(Joypad.JoypadButton button)
+    {
+        if (Joypad.IsPressed(button)) return;
+        Joypad.Press(button);
+        Io.Interrupts.Raise(Interrupts.Joypad);
+    }
+
+    public void JoypadRelease(Joypad.JoypadButton button) => Joypad.Release(button);
 
     public byte DebugReadByte(ushort address) => Mmu.DebugRead(address);
 

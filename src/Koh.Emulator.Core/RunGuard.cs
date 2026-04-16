@@ -8,10 +8,21 @@ namespace Koh.Emulator.Core;
 public sealed class RunGuard
 {
     private volatile bool _stopRequested;
+    private volatile int _reason = (int)StopReason.StopRequested;
 
     public bool StopRequested => _stopRequested;
 
-    public void RequestStop() => _stopRequested = true;
+    public StopReason Reason => (StopReason)_reason;
 
-    public void Clear() => _stopRequested = false;
+    public void RequestStop(StopReason reason = StopReason.StopRequested)
+    {
+        _reason = (int)reason;
+        _stopRequested = true;
+    }
+
+    public void Clear()
+    {
+        _stopRequested = false;
+        _reason = (int)StopReason.StopRequested;
+    }
 }

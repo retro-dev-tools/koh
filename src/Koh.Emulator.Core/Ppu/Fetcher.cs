@@ -1,3 +1,5 @@
+using Koh.Emulator.Core.State;
+
 namespace Koh.Emulator.Core.Ppu;
 
 public enum FetcherStep : byte
@@ -41,5 +43,27 @@ public sealed class Fetcher
         TileMapY = windowLineCounter / 8;
         TileMapBase = windowTileMapBase;
         UsingWindow = true;
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteByte((byte)Step);
+        w.WriteI32(DotBudget);
+        w.WriteI32(TileMapX); w.WriteI32(TileMapY);
+        w.WriteU16(TileMapBase);
+        w.WriteBool(UsingWindow);
+        w.WriteByte(FetchedTileIndex); w.WriteByte(FetchedAttributes);
+        w.WriteByte(FetchedLow); w.WriteByte(FetchedHigh);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        Step = (FetcherStep)r.ReadByte();
+        DotBudget = r.ReadI32();
+        TileMapX = r.ReadI32(); TileMapY = r.ReadI32();
+        TileMapBase = r.ReadU16();
+        UsingWindow = r.ReadBool();
+        FetchedTileIndex = r.ReadByte(); FetchedAttributes = r.ReadByte();
+        FetchedLow = r.ReadByte(); FetchedHigh = r.ReadByte();
     }
 }

@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Cpu;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Timer;
 
@@ -133,5 +134,21 @@ public sealed class Timer
         _tac = 0;
         _reloadDelay = 0;
         _lastSelectedBit = false;
+    }
+
+    public void WriteState(StateWriter w)
+    {
+        w.WriteU16(_internalCounter);
+        w.WriteByte(_tima); w.WriteByte(_tma); w.WriteByte(_tac);
+        w.WriteI32(_reloadDelay);
+        w.WriteBool(_lastSelectedBit);
+    }
+
+    public void ReadState(StateReader r)
+    {
+        _internalCounter = r.ReadU16();
+        _tima = r.ReadByte(); _tma = r.ReadByte(); _tac = r.ReadByte();
+        _reloadDelay = r.ReadI32();
+        _lastSelectedBit = r.ReadBool();
     }
 }

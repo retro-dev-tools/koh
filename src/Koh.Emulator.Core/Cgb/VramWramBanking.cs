@@ -1,3 +1,5 @@
+using Koh.Emulator.Core.State;
+
 namespace Koh.Emulator.Core.Cgb;
 
 public sealed class VramWramBanking
@@ -14,4 +16,7 @@ public sealed class VramWramBanking
         int bank = value & 7;
         WramBank = (byte)(bank == 0 ? 1 : bank);
     }
+
+    public void WriteState(StateWriter w) { w.WriteByte(VramBank); w.WriteByte(WramBank); }
+    public void ReadState(StateReader r) { VramBank = r.ReadByte(); WramBank = r.ReadByte(); }
 }
