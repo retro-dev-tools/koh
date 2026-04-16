@@ -146,7 +146,7 @@ public sealed class GameBoySystem
             if (RunGuard.StopRequested)
             {
                 _running = false;
-                return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles, Cpu.Registers.Pc);
+                return new StepResult(RunGuard.Reason, Cpu.TotalTCycles, Cpu.Registers.Pc);
             }
             if (BreakpointChecker is { } check && check(Cpu.Registers.Pc))
             {
@@ -194,7 +194,7 @@ public sealed class GameBoySystem
             if (RunGuard.StopRequested)
             {
                 _running = false;
-                return new StepResult(StopReason.StopRequested, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+                return new StepResult(RunGuard.Reason, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
             }
 
             if (StopConditionMet(in condition))

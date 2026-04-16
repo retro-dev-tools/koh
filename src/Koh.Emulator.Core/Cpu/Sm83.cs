@@ -14,7 +14,6 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     private readonly Mmu _mmu;
     private readonly Action _tickMCycle;
     public CpuRegisters Registers;
-    public Interrupts Interrupts;
 
     public bool Halted;
     public bool Stopped;
@@ -42,7 +41,6 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         w.WriteByte(Registers.D); w.WriteByte(Registers.E);
         w.WriteByte(Registers.H); w.WriteByte(Registers.L);
         w.WriteU16(Registers.Sp); w.WriteU16(Registers.Pc);
-        w.WriteByte(Interrupts.IF); w.WriteByte(Interrupts.IE);
         w.WriteBool(Halted); w.WriteBool(Stopped); w.WriteBool(Ime);
         w.WriteBool(_eiPending); w.WriteBool(_eiArmed);
         w.WriteBool(_haltBugNextFetch);
@@ -56,7 +54,6 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         Registers.D = r.ReadByte(); Registers.E = r.ReadByte();
         Registers.H = r.ReadByte(); Registers.L = r.ReadByte();
         Registers.Sp = r.ReadU16(); Registers.Pc = r.ReadU16();
-        Interrupts.IF = r.ReadByte(); Interrupts.IE = r.ReadByte();
         Halted = r.ReadBool(); Stopped = r.ReadBool(); Ime = r.ReadBool();
         _eiPending = r.ReadBool(); _eiArmed = r.ReadBool();
         _haltBugNextFetch = r.ReadBool();
@@ -256,7 +253,7 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         Registers = default;
         Registers.Pc = 0x0100;
         Registers.Sp = 0xFFFE;
-        Interrupts = default;
+        _mmu.Io.Interrupts = default;
         Halted = false;
         Stopped = false;
         Ime = false;

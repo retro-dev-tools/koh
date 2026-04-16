@@ -33,6 +33,16 @@ public sealed class WriteMemoryHandler
             written++;
         }
 
+        if (bytes.Length > 0 && written == 0)
+        {
+            return new Response
+            {
+                Success = false,
+                Message = "writeMemory: write rejected (emulator must be paused; check memory region is writable)",
+                Body = new WriteMemoryResponseBody { Offset = args.Offset, BytesWritten = 0 },
+            };
+        }
+
         return new Response
         {
             Success = true,

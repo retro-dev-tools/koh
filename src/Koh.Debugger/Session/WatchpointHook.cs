@@ -1,3 +1,4 @@
+using Koh.Emulator.Core;
 using Koh.Emulator.Core.Debug;
 
 namespace Koh.Debugger.Session;
@@ -16,14 +17,14 @@ public sealed class WatchpointHook : MemoryHook
     {
         if (!Read.ContainsKey(address)) return;
         _session.PauseRequested = true;
-        _session.System?.RunGuard.RequestStop();
+        _session.System?.RunGuard.RequestStop(StopReason.Watchpoint);
     }
 
     public override void OnWrite(ushort address, byte value)
     {
         if (!Write.ContainsKey(address)) return;
         _session.PauseRequested = true;
-        _session.System?.RunGuard.RequestStop();
+        _session.System?.RunGuard.RequestStop(StopReason.Watchpoint);
     }
 
     public void Clear() { Read.Clear(); Write.Clear(); }

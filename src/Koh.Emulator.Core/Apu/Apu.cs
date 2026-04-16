@@ -154,7 +154,7 @@ public sealed class Apu
 
         switch (address)
         {
-            case 0xFF10: Ch1.Sweep?.Trigger(value, Ch1.Frequency); break;
+            case 0xFF10: break;   // NR10 value stored above; sweep is (re)initialized on NR14 trigger only.
             case 0xFF11: Ch1.Length.Counter = Ch1.Length.MaxLength - (value & 0x3F); break;
             case 0xFF12:
                 Ch1.Envelope.Trigger(value);
