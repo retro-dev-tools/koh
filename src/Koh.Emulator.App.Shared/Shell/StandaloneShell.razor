@@ -64,7 +64,7 @@
     </span>
     <span class="mid">@FooterMid</span>
     <span class="right">
-        <span>@CycleCount</span>
+        <span class="@(IsRunning ? "fps-live" : "fps-idle")">@FpsText</span>
         <span class="regmark"></span>
     </span>
 </footer>
@@ -102,7 +102,7 @@
         }
     }
 
-    private string CycleCount => EmulatorHost.System is null
-        ? "00000000"
-        : (EmulatorHost.System.Cpu.TotalTCycles % 100_000_000).ToString("D8");
+    private string FpsText => IsRunning
+        ? $"{EmulatorHost.Fps,5:0.0} FPS"
+        : "  --- FPS";
 }

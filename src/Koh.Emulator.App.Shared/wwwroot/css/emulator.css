@@ -377,6 +377,15 @@ body {
 .footer .regmark::before { inset: 4px 0; height: 2px; }
 .footer .regmark::after  { inset: 0 4px; width: 2px; }
 
+.footer .fps-live,
+.footer .fps-idle {
+    font-variant-numeric: tabular-nums;
+    white-space: pre;
+    letter-spacing: 0.18em;
+}
+.footer .fps-live { color: var(--cream); }
+.footer .fps-idle { color: var(--dim); }
+
 /* ─── Debug drawer ────────────────────────────────────────────────── */
 /* Opens from the bottom like a VS Code panel. Uses <details>. */
 

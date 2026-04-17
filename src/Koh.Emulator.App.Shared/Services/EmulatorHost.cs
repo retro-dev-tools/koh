@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
 
@@ -9,6 +10,12 @@ public sealed class EmulatorHost
     private readonly WebAudioBridge _webAudio;
     private KeyboardInputBridge? _keyboard;
     private bool _audioInitialized;
+
+    // Rolling FPS sampled once per second from the RunAsync loop. 0 when
+    // paused or no ROM is loaded. The Game Boy nominal refresh is ~59.73 Hz.
+    public double Fps { get; private set; }
+    private int _fpsFrameCount;
+    private long _fpsLastStamp;
 
     public void AttachKeyboard(KeyboardInputBridge keyboard) => _keyboard = keyboard;
     public GameBoySystem? System { get; private set; }
@@ -54,10 +61,24 @@ public sealed class EmulatorHost
             _audioInitialized = true;
         }
 
+        _fpsFrameCount = 0;
+        _fpsLastStamp = Stopwatch.GetTimestamp();
+
         while (!IsPaused && System is not null)
         {
             var result = System.RunFrame();
             FrameReady?.Invoke();
+
+            _fpsFrameCount++;
+            long now = Stopwatch.GetTimestamp();
+            long elapsed = now - _fpsLastStamp;
+            if (elapsed >= Stopwatch.Frequency)   // 1 second
+            {
+                Fps = _fpsFrameCount * (double)Stopwatch.Frequency / elapsed;
+                _fpsFrameCount = 0;
+                _fpsLastStamp = now;
+            }
+
             StateChanged?.Invoke();
 
             await DrainAudioAsync();
@@ -70,6 +91,8 @@ public sealed class EmulatorHost
 
             await _framePacer.WaitForNextFrameAsync();
         }
+
+        Fps = 0;
     }
 
     private async ValueTask DrainAudioAsync()
