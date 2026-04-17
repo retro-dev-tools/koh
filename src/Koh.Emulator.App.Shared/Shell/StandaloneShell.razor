@@ -5,57 +5,76 @@
 @inject EmulatorHost EmulatorHost
 @inject KeyboardInputBridge Keyboard
 
-<div class="topbar">
-    <div class="topbar-title @(IsRunning ? "is-running" : "")">
+<header class="header">
+    <div class="brand">
+        <span class="mark">Koh</span>
+        <span class="sub">Pocket Console / N°01</span>
+    </div>
+
+    <div class="state-strip @(IsRunning ? "is-running" : "")">
         <span class="dot"></span>
-        <span>Koh</span>
-    </div>
-
-    <div class="topbar-actions">
-        <RomFilePicker />
-        <PlaybackControls />
-        <SaveStateControls />
-    </div>
-</div>
-
-<div class="viewport">
-    <div class="lcd-frame">
-        <LcdDisplay Scale="3" />
-    </div>
-
-    <div class="status">
         @if (EmulatorHost.System is null)
         {
-            <span>No ROM loaded — open one to start</span>
+            <span>Insert ROM to begin</span>
         }
         else
         {
             <span class="rom-name">@CartTitle</span>
-            <span class="sep">•</span>
+            <span class="divider"></span>
             <span>@(EmulatorHost.IsPaused ? "Paused" : "Running")</span>
         }
     </div>
 
-    <div class="keymap">
-        <span class="group"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> <span class="label">D-Pad</span></span>
-        <span class="group"><kbd>Z</kbd> <span class="label">A</span></span>
-        <span class="group"><kbd>X</kbd> <span class="label">B</span></span>
-        <span class="group"><kbd>Enter</kbd> <span class="label">Start</span></span>
-        <span class="group"><kbd>Shift</kbd> <span class="label">Select</span></span>
+    <div class="header-actions">
+        <RomFilePicker />
+        <PlaybackControls />
+        <SaveStateControls />
+    </div>
+</header>
+
+<main class="stage">
+    <div class="bezel">
+        <span class="tick tl"></span>
+        <span class="tick tr"></span>
+        <span class="tick bl"></span>
+        <span class="tick br"></span>
+        <LcdDisplay Scale="3" />
     </div>
 
-    <details class="debug-panel">
-        <summary>Debug</summary>
+    <div class="keymap">
+        <span class="group"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd><span class="label">D-Pad</span></span>
+        <span class="group"><kbd>Z</kbd><span class="label">A</span></span>
+        <span class="group"><kbd>X</kbd><span class="label">B</span></span>
+        <span class="group"><kbd>Enter</kbd><span class="label">Start</span></span>
+        <span class="group"><kbd>Shift</kbd><span class="label">Select</span></span>
+    </div>
+</main>
+
+<details class="debug-panel">
+    <summary>Diagnostics</summary>
+    <div class="debug-body">
         <CpuDashboard />
-    </details>
-</div>
+    </div>
+</details>
+
+<footer class="footer">
+    <span class="left">
+        <span class="regmark"></span>
+        <span>Koh · Sans RTC</span>
+    </span>
+    <span class="mid">@FooterMid</span>
+    <span class="right">
+        <span>@CycleCount</span>
+        <span class="regmark"></span>
+    </span>
+</footer>
 
 @code {
     protected override void OnInitialized()
     {
-        // Wire keyboard → emulator here (in the WebView scope) rather than at
-        // host startup, so the IJSRuntime captured by KeyboardInputBridge is
-        // the live BlazorWebView runtime.
+        // Wire keyboard → emulator here (in the WebView scope) so the
+        // IJSRuntime captured by KeyboardInputBridge is the live BlazorWebView
+        // runtime, not a root-DI ghost.
         EmulatorHost.AttachKeyboard(Keyboard);
         EmulatorHost.StateChanged += OnStateChanged;
     }
@@ -70,7 +89,20 @@
         get
         {
             var title = EmulatorHost.System?.Cartridge.Header.Title;
-            return string.IsNullOrWhiteSpace(title) ? "Unnamed ROM" : title;
+            return string.IsNullOrWhiteSpace(title) ? "Unnamed" : title;
         }
     }
+
+    private string FooterMid
+    {
+        get
+        {
+            if (EmulatorHost.System is null) return "Ready";
+            return EmulatorHost.System.Cartridge.Header.CgbFlag ? "GBC Cartridge" : "DMG Cartridge";
+        }
+    }
+
+    private string CycleCount => EmulatorHost.System is null
+        ? "00000000"
+        : (EmulatorHost.System.Cpu.TotalTCycles % 100_000_000).ToString("D8");
 }
