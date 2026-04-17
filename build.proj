@@ -1,0 +1,52 @@
+<!--
+  Repo-level build targets. Invoke with `dotnet msbuild build.proj -t:<Target>`.
+  No external tooling required — MSBuild ships with the .NET SDK.
+
+  Quick reference:
+    dotnet msbuild build.proj -t:Test
+    dotnet msbuild build.proj -t:CompatTests
+    dotnet msbuild build.proj -t:Benchmark
+    dotnet msbuild build.proj -t:PublishDev
+    dotnet msbuild build.proj -t:PublishEmulatorApp
+    dotnet msbuild build.proj -t:PublishMaui
+    dotnet msbuild build.proj -t:RunMaui     (publish + launch Koh.Emulator.Maui)
+-->
+<Project DefaultTargets="Test">
+
+  <PropertyGroup>
+    <MauiTargetFramework>net10.0-windows10.0.19041.0</MauiTargetFramework>
+    <MauiRuntimeIdentifier>win-x64</MauiRuntimeIdentifier>
+    <MauiPublishDir>$(MSBuildThisFileDirectory)src\Koh.Emulator.Maui\bin\Release\$(MauiTargetFramework)\$(MauiRuntimeIdentifier)\publish</MauiPublishDir>
+  </PropertyGroup>
+
+  <Target Name="Test">
+    <Exec Command="dotnet test Koh.NoCompat.slnf" />
+  </Target>
+
+  <Target Name="CompatTests">
+    <Exec Command="dotnet test tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj" />
+  </Target>
+
+  <Target Name="Benchmark">
+    <Exec Command="dotnet run --project benchmarks/Koh.Benchmarks/ --configuration Release" />
+  </Target>
+
+  <Target Name="PublishDev">
+    <!-- LSP server for F5 debugging of the VS Code extension. -->
+    <Exec Command="dotnet publish src/Koh.Lsp -c Debug -o editors/vscode/server" />
+  </Target>
+
+  <Target Name="PublishEmulatorApp">
+    <!-- Blazor WASM (AOT) packaged for the VS Code extension. -->
+    <Exec Command="npm run build:emulator-app:aot" WorkingDirectory="editors/vscode" />
+  </Target>
+
+  <Target Name="PublishMaui">
+    <Exec Command="dotnet publish src/Koh.Emulator.Maui -f $(MauiTargetFramework) -r $(MauiRuntimeIdentifier) -c Release" />
+  </Target>
+
+  <Target Name="RunMaui" DependsOnTargets="PublishMaui">
+    <Exec Command="&quot;$(MauiPublishDir)\Koh.Emulator.Maui.exe&quot;" />
+  </Target>
+
+</Project>

@@ -80,25 +80,36 @@ dotnet build
 ### Test
 
 ```sh
-dotnet tool restore
-dotnet cake --target=test
+dotnet msbuild build.proj -t:Test
 ```
 
 ### Common build targets
 
-| Target         | Description                                        |
-| -------------- | -------------------------------------------------- |
-| `test`         | Run the full test suite                            |
-| `compat-tests` | Run RGBDS compatibility tests                      |
-| `benchmark`    | Run benchmarks                                     |
-| `publish-dev`  | Publish the LSP server for local VS Code debugging |
+Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
+
+| Target                | Description                                                 |
+| --------------------- | ----------------------------------------------------------- |
+| `Test`                | Run the full test suite (excludes compat)                   |
+| `CompatTests`         | Run RGBDS compatibility tests                               |
+| `Benchmark`           | Run benchmarks                                              |
+| `PublishDev`          | Publish the LSP server for local VS Code debugging          |
+| `PublishEmulatorApp`  | AOT-publish the Blazor WASM app for the VS Code extension   |
+| `PublishMaui`         | Publish the MAUI desktop shell (`net10.0-windows`, win-x64) |
+| `RunMaui`             | Publish the MAUI desktop shell and launch the `.exe`        |
+
+Quick-launch the MAUI emulator:
+
+```powershell
+./scripts/run-maui.ps1     # Windows PowerShell
+./scripts/run-maui.sh      # bash / git-bash
+```
 
 ## VS Code
 
 To run the extension locally:
 
 ```sh
-dotnet cake --target=publish-dev
+dotnet msbuild build.proj -t:PublishDev
 ```
 
 Then open `editors/vscode/` in VS Code and press `F5`.
