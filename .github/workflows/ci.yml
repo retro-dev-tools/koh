@@ -20,10 +20,12 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore solution
-        run: dotnet restore Koh.slnx
+        # Koh.Ci.slnf excludes Koh.Emulator.Maui (Windows-only MAUI project
+        # that requires the maui workload). CI builds every other project.
+        run: dotnet restore Koh.Ci.slnf
 
       - name: Build solution
-        run: dotnet build Koh.slnx --no-restore --configuration Release
+        run: dotnet build Koh.Ci.slnf --no-restore --configuration Release
 
       - name: Download test ROMs (Unix)
         if: runner.os != 'Windows'
