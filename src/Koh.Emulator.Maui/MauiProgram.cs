@@ -20,26 +20,29 @@ public static class MauiProgram
 
         // Same service graph as Koh.Emulator.App (standalone mode only — no
         // DAP transport here; the MAUI shell is for playing ROMs, not debugging).
-        builder.Services.AddSingleton<RuntimeModeDetector>();
-        builder.Services.AddSingleton<FramePacer>();
-        builder.Services.AddSingleton<EmulatorHost>();
-        builder.Services.AddSingleton<FramebufferBridge>();
-        builder.Services.AddSingleton<WebAudioBridge>();
-        builder.Services.AddSingleton<KeyboardInputBridge>();
-        builder.Services.AddSingleton<IFileSystemAccess, MauiFileSystemAccess>();
+        //
+        // Everything that takes an IJSRuntime must be Scoped in MAUI Blazor
+        // Hybrid: IJSRuntime lives in the BlazorWebView's scope, so singletons
+        // that capture it at root-scope activation wind up with a stale runtime
+        // and every later invoke throws "Cannot invoke JavaScript outside of a
+        // WebView context." Scoped works identically in Blazor WASM (single
+        // app scope), so the Shared services are safe to keep uniform.
+        builder.Services.AddScoped<RuntimeModeDetector>();
+        builder.Services.AddScoped<FramePacer>();
+        builder.Services.AddScoped<EmulatorHost>();
+        builder.Services.AddScoped<FramebufferBridge>();
+        builder.Services.AddScoped<WebAudioBridge>();
+        builder.Services.AddScoped<KeyboardInputBridge>();
+        builder.Services.AddScoped<IFileSystemAccess, MauiFileSystemAccess>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
 #endif
 
-        var app = builder.Build();
-
-        // Mirrors Koh.Emulator.App/Program.cs: keyboard bridge needs to be attached
-        // to EmulatorHost once the container is built.
-        var keyboard = app.Services.GetRequiredService<KeyboardInputBridge>();
-        app.Services.GetRequiredService<EmulatorHost>().AttachKeyboard(keyboard);
-
-        return app;
+        // Keyboard-to-emulator wiring happens lazily from StandaloneShell on
+        // first render; pre-resolving here would activate everything at root
+        // scope (no webview yet).
+        return builder.Build();
     }
 }

@@ -8,9 +8,5 @@ public partial class App : Application
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
-    {
-        var host = IPlatformApplication.Current!.Services.GetRequiredService<global::Koh.Emulator.App.Services.EmulatorHost>();
-        var window = new Window(new MainPage(host)) { Title = "Koh Emulator" };
-        return window;
-    }
+        => new Window(new MainPage()) { Title = "Koh Emulator" };
 }

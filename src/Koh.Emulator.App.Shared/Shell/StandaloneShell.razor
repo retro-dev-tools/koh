@@ -1,5 +1,8 @@
 @using Koh.Emulator.App.Components
+@using Koh.Emulator.App.Services
 @using Koh.Emulator.App.StandaloneMode
+@inject EmulatorHost EmulatorHost
+@inject KeyboardInputBridge Keyboard
 
 <div class="standalone-shell">
     <h1>Koh Emulator</h1>
@@ -9,3 +12,13 @@
     <LcdDisplay />
     <CpuDashboard />
 </div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Wire keyboard → emulator here (in the WebView scope) rather than at
+        // host startup, so the IJSRuntime captured by KeyboardInputBridge is
+        // the live BlazorWebView runtime.
+        EmulatorHost.AttachKeyboard(Keyboard);
+    }
+}
