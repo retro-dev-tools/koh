@@ -86,35 +86,41 @@ public sealed class Hdma
 
     public void OnHBlankEntered()
     {
-        if (Active && IsHBlankMode) _hblockPending = true;
-    }
+        if (!Active || !IsHBlankMode) return;
 
-    public void TickT()
-    {
-        if (!Active) { CpuHaltedByGp = false; return; }
-
-        if (IsHBlankMode && !_hblockPending) return;
-
-        // Copy one byte per T-cycle (Phase 2 approximation; real hardware is 1 byte per M-cycle,
-        // 2x rate in double-speed). This matches the acid2 gating coarse enough for pixel tests.
-        byte value = _mmu.ReadByteDirect(_currentSource);
-        _mmu.WriteByte(_currentDest, value);
-        _currentSource++;
-        _currentDest++;
-        _bytesRemaining--;
-        _byteIndexInBlock++;
-
-        if (_byteIndexInBlock >= 16)
+        // Transfer one 16-byte block atomically. On real hardware the CPU
+        // stalls for ~8 M-cycles per block, so from software's point of view
+        // the block completes as an indivisible operation inside HBlank. By
+        // doing the whole block in a single call we guarantee the CPU can't
+        // race in and flip VBK or otherwise stomp on the transfer —
+        // previously half-written blocks were the cause of garbled BG tiles
+        // / attributes in CGB games that stream mid-frame via HBlank HDMA.
+        int bytesThisBlock = Math.Min(16, _bytesRemaining);
+        for (int i = 0; i < bytesThisBlock; i++)
         {
-            _byteIndexInBlock = 0;
-            if (IsHBlankMode) _hblockPending = false;
+            _mmu.WriteByte(_currentDest, _mmu.ReadByteDirect(_currentSource));
+            _currentSource++;
+            _currentDest++;
+            _bytesRemaining--;
         }
+        _byteIndexInBlock = 0;
+        _hblockPending = false;
 
         if (_bytesRemaining <= 0)
         {
             Active = false;
-            CpuHaltedByGp = false;
         }
+    }
+
+    public void TickT()
+    {
+        // HBlank HDMA now completes each block atomically in OnHBlankEntered,
+        // and general-purpose HDMA completes synchronously in
+        // WriteLengthRegister. There is nothing for the per-T-cycle path to
+        // do — kept as a no-op so existing call sites in GameBoySystem don't
+        // need to change and so the CpuHaltedByGp flag stays false when a
+        // transfer finishes between polls.
+        if (!Active) CpuHaltedByGp = false;
     }
 
     public void WriteState(StateWriter w)
