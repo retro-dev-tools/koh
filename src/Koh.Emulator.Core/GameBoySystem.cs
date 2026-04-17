@@ -92,16 +92,21 @@ public sealed class GameBoySystem
     {
         Clock.DoubleSpeed = KeyOne.DoubleSpeed;
 
-        // Per M-cycle: Timer + OamDma + Hdma always tick 4 T-cycles (these run
-        // at CPU clock rate — unchanged in double-speed). PPU and the system
-        // clock run at the base rate, so in DS they only tick 2 dots per CPU
-        // M-cycle.
+        // Per M-cycle: Timer + OamDma + Hdma tick 4 T-cycles — these are
+        // clocked off the CPU clock, so in double-speed mode they tick 2×
+        // more per wall-second (same as real hardware: DIV increments twice
+        // as fast, HDMA transfers twice as fast, etc.).
+        //
+        // PPU and APU run at the base 4.19 MHz rate regardless of CPU
+        // speed, so in DS they only tick HALF as many times per M-cycle —
+        // across 2× as many M-cycles per wall-second that nets out to the
+        // same wall-clock rate as normal speed.
         for (int t = 0; t < 4; t++)
         {
             Timer.TickT(ref Io.Interrupts);
             OamDma.TickT();
             if (Hdma.Active) Hdma.TickT();
-            Apu.TickT();
+            if (!Clock.DoubleSpeed || (t & 1) == 0) Apu.TickT();
             Io.Serial.TickT(ref Io.Interrupts);
         }
 

@@ -20,11 +20,10 @@ public sealed class FramebufferBridge
 
     public ValueTask CommitAsync(Framebuffer framebuffer)
     {
-        // Blazor byte-array / ReadOnlyMemory<byte> marshalling hands JS a
-        // Uint8Array view without a base64 detour, which matters at 60 fps:
-        // the old Convert.ToBase64String path produced a ~123 KB string
-        // allocation per frame and was stealing visible budget from the
-        // emulator loop.
-        return _js.InvokeVoidAsync("kohFramebufferBridge.commit", framebuffer.FrontMemory);
+        // Blazor marshals byte[] as Uint8Array on the JS side. The old
+        // implementation here base64-encoded the buffer in .NET, shipped it
+        // as a string, and decoded with atob on the JS side — ~5 MB/s of
+        // UTF-16 traffic + a big allocation every frame.
+        return _js.InvokeVoidAsync("kohFramebufferBridge.commit", framebuffer.FrontArray);
     }
 }

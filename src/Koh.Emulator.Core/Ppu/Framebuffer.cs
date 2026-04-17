@@ -26,10 +26,11 @@ public sealed class Framebuffer
     public Span<byte> Back => _aIsFront ? _b : _a;
 
     /// <summary>
-    /// The front buffer as a <see cref="ReadOnlyMemory{T}"/>, suitable for
-    /// async APIs (including JS interop) that can't accept a <c>Span</c>.
+    /// The front buffer as a raw <c>byte[]</c>. Blazor's JS interop marshals
+    /// this as a <c>Uint8Array</c> efficiently; Span and ReadOnlyMemory
+    /// don't travel through the JSON serializer.
     /// </summary>
-    public ReadOnlyMemory<byte> FrontMemory => _aIsFront ? _a : _b;
+    public byte[] FrontArray => _aIsFront ? _a : _b;
 
     public void Flip() => _aIsFront = !_aIsFront;
 
