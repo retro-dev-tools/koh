@@ -50,9 +50,15 @@ public static class DebugSnapshot
 
         // ─── Runtime counters ────────────────────────────────────────────
         sb.AppendLine("### Runtime");
+        sb.Append("- Hardware: ").AppendLine(sys.Mode.ToString());
         sb.Append("- Mode: ").AppendLine(host.IsPaused ? "Paused" : "Running");
         sb.Append("- Reported FPS: ").AppendLine(host.Fps.ToString("0.00", invar));
         sb.Append("- CPU total T-cycles: ").AppendLine(sys.Cpu.TotalTCycles.ToString(invar));
+        if (sys.Mode == HardwareMode.Cgb)
+        {
+            sb.Append("- KEY1: SwitchArmed=").Append(sys.KeyOne.SwitchArmed)
+              .Append("  DoubleSpeed=").AppendLine(sys.KeyOne.DoubleSpeed.ToString());
+        }
         if (!string.IsNullOrEmpty(audioStatsJson))
             sb.Append("- Audio bridge: ").AppendLine(audioStatsJson);
         sb.AppendLine();
@@ -74,6 +80,27 @@ public static class DebugSnapshot
           .Append("  Stopped=").AppendLine(sys.Cpu.Stopped ? "1" : "0");
         var ints = sys.Mmu.Io.Interrupts;
         sb.Append("- IF=").Append(H8(ints.IF)).Append("  IE=").AppendLine(H8(ints.IE));
+
+        // Top 8 stack entries + next 8 bytes at PC — helpful for "stuck in
+        // loop" / "hit a crash opcode" diagnosis without needing a full repro.
+        sb.Append("- Stack (SP→): ");
+        for (int i = 0; i < 8; i++)
+        {
+            ushort addr = (ushort)(r.Sp + i * 2);
+            if (addr < r.Sp) break; // wrapped
+            byte lo = sys.Mmu.DebugRead(addr);
+            byte hi = sys.Mmu.DebugRead((ushort)(addr + 1));
+            sb.Append(H16((ushort)((hi << 8) | lo)));
+            if (i < 7) sb.Append(' ');
+        }
+        sb.AppendLine();
+        sb.Append("- Bytes at PC: ");
+        for (int i = 0; i < 8; i++)
+        {
+            sb.Append(H8(sys.Mmu.DebugRead((ushort)(r.Pc + i))).AsSpan(1));
+            if (i < 7) sb.Append(' ');
+        }
+        sb.AppendLine();
         sb.AppendLine();
 
         // ─── PPU ─────────────────────────────────────────────────────────
@@ -83,7 +110,17 @@ public static class DebugSnapshot
         sb.Append("- LY=").Append(H8(p.LY)).Append("  LYC=").Append(H8(p.LYC));
         sb.Append("  SCX=").Append(H8(p.SCX)).Append("  SCY=").Append(H8(p.SCY));
         sb.Append("  WX=").Append(H8(p.WX)).Append("  WY=").AppendLine(H8(p.WY));
-        sb.Append("- LCDC=").Append(H8(p.LCDC)).Append("  STAT=").Append(H8(p.Stat.Read(p.Mode, p.LY == p.LYC))).AppendLine();
+        byte lcdc = p.LCDC;
+        sb.Append("- LCDC=").Append(H8(lcdc)).Append(" [");
+        sb.Append((lcdc & 0x80) != 0 ? "LCD " : "lcd ");
+        sb.Append((lcdc & 0x40) != 0 ? "WMap:$9C00 " : "WMap:$9800 ");
+        sb.Append((lcdc & 0x20) != 0 ? "WIN " : "win ");
+        sb.Append((lcdc & 0x10) != 0 ? "TD:$8000 " : "TD:$8800 ");
+        sb.Append((lcdc & 0x08) != 0 ? "BMap:$9C00 " : "BMap:$9800 ");
+        sb.Append((lcdc & 0x04) != 0 ? "8x16 " : "8x8 ");
+        sb.Append((lcdc & 0x02) != 0 ? "OBJ " : "obj ");
+        sb.Append((lcdc & 0x01) != 0 ? "BG" : "bg");
+        sb.Append("]  STAT=").AppendLine(H8(p.Stat.Read(p.Mode, p.LY == p.LYC)));
         sb.Append("- DMG palettes: BGP=").Append(H8(p.BGP))
             .Append("  OBP0=").Append(H8(p.OBP0)).Append("  OBP1=").AppendLine(H8(p.OBP1));
         if (sys.Mode == HardwareMode.Cgb)
@@ -94,11 +131,41 @@ public static class DebugSnapshot
         }
         sb.AppendLine();
 
-        // ─── CGB banking + HDMA ──────────────────────────────────────────
+        // ─── Timer + OAM DMA + Joypad + Serial ───────────────────────────
+        var t = sys.Timer;
+        sb.AppendLine("### Timer");
+        sb.Append("- DIV=").Append(H8(t.DIV)).Append("  TIMA=").Append(H8(t.TIMA))
+          .Append("  TMA=").Append(H8(t.TMA)).Append("  TAC=").Append(H8(t.TAC));
+        sb.Append(" [").Append((t.TAC & 0x04) != 0 ? "on " : "off ");
+        sb.Append((t.TAC & 0x03) switch { 0 => "4096Hz", 1 => "262144Hz", 2 => "65536Hz", _ => "16384Hz" });
+        sb.AppendLine("]");
+        sb.AppendLine();
+
+        sb.AppendLine("### OAM DMA");
+        sb.Append("- Source high: $").Append(sys.OamDma.SourceHighByte.ToString("X2", invar)).Append("  BusLocking: ").AppendLine(sys.OamDma.IsBusLocking.ToString());
+        sb.AppendLine();
+
+        sb.AppendLine("### Joypad / Serial");
+        sb.Append("- Pressed: ").AppendLine(sys.Joypad.Pressed == 0 ? "(none)" : sys.Joypad.Pressed.ToString());
+        sb.Append("- Serial SB=").Append(H8(sys.Io.Serial.SB))
+          .Append("  SC=").Append(H8(sys.Io.Serial.SC))
+          .Append("  Transferring=").AppendLine(sys.Io.Serial.IsTransferring.ToString());
+        sb.AppendLine();
+
+        // ─── CGB banking + HDMA + VRAM occupancy ─────────────────────────
         if (sys.Mode == HardwareMode.Cgb)
         {
             sb.AppendLine("### CGB banking");
             sb.Append("- VBK (VRAM bank): ").Append(sys.Mmu.Banking.VramBank).Append("  SVBK (WRAM bank): ").AppendLine(sys.Mmu.Banking.WramBank.ToString(invar));
+
+            // VRAM bank-1 occupancy — quickly reveals "CGB attribute streaming
+            // never ran" (bank 1 all zeros) vs "game is writing bank 1 but
+            // rendering is still off".
+            var vram = sys.Mmu.VramArray;
+            int bank1Nonzero = 0;
+            for (int i = 0x2000; i < 0x4000; i++) if (vram[i] != 0) bank1Nonzero++;
+            sb.Append("- VRAM bank 1 non-zero bytes: ").Append(bank1Nonzero).Append(" / 8192 (")
+              .Append((bank1Nonzero * 100 / 8192).ToString(invar)).AppendLine("%)");
 
             var h = sys.Hdma;
             sb.AppendLine("### HDMA");
