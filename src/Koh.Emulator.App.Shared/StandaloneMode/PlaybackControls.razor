@@ -2,23 +2,39 @@
 @implements IDisposable
 @inject EmulatorHost EmulatorHost
 
-<div class="playback">
-    <button @onclick="Run" disabled="@(EmulatorHost.System is null || !EmulatorHost.IsPaused)">Run</button>
-    <button @onclick="Pause" disabled="@(EmulatorHost.IsPaused)">Pause</button>
-    <button @onclick="StepInstruction" disabled="@(EmulatorHost.System is null)">Step</button>
-</div>
+<button class="koh-btn"
+        @onclick="TogglePause"
+        disabled="@(EmulatorHost.System is null)"
+        title="@(EmulatorHost.IsPaused ? "Resume (no ROM loaded if disabled)" : "Pause")">
+    @if (EmulatorHost.IsPaused)
+    {
+        <text>▶ Resume</text>
+    }
+    else
+    {
+        <text>⏸ Pause</text>
+    }
+</button>
 
 @code {
     protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
     public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
 
-    private async Task Run()
+    private async Task TogglePause()
     {
-        await EmulatorHost.RunAsync();
+        if (EmulatorHost.System is null) return;
+        if (EmulatorHost.IsPaused)
+        {
+            // Resume — kick the run loop. Fire-and-forget: RunAsync loops
+            // until IsPaused flips back or System becomes null.
+            _ = EmulatorHost.RunAsync();
+            // Nudge UI to refresh in case RunAsync hasn't raised StateChanged yet.
+            await InvokeAsync(StateHasChanged);
+        }
+        else
+        {
+            EmulatorHost.Pause();
+        }
     }
-
-    private void Pause() => EmulatorHost.Pause();
-
-    private void StepInstruction() => EmulatorHost.StepInstruction();
 }

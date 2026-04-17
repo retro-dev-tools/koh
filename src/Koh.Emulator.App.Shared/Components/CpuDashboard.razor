@@ -5,37 +5,37 @@
 <div class="cpu-dashboard">
     @if (EmulatorHost.System is { } gb)
     {
-        <h3>CPU</h3>
+        <h3>CPU Registers</h3>
         <table>
             <tr><th>PC</th><td>@H16(gb.Registers.Pc)</td><th>SP</th><td>@H16(gb.Registers.Sp)</td></tr>
             <tr><th>A</th><td>@H8(gb.Registers.A)</td><th>F</th><td>@H8(gb.Registers.F)</td></tr>
             <tr><th>BC</th><td>@H16(gb.Registers.BC)</td><th>DE</th><td>@H16(gb.Registers.DE)</td></tr>
-            <tr><th>HL</th><td>@H16(gb.Registers.HL)</td><th>Cycles</th><td>@gb.Cpu.TotalTCycles</td></tr>
+            <tr><th>HL</th><td>@H16(gb.Registers.HL)</td><th>Cyc</th><td>@gb.Cpu.TotalTCycles</td></tr>
         </table>
         <div class="flags">
-            Z: @FlagDisplay(gb.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagZ))
-            N: @FlagDisplay(gb.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagN))
-            H: @FlagDisplay(gb.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagH))
-            C: @FlagDisplay(gb.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagC))
+            <span class="@Cls(FlagZ)">Z</span>
+            <span class="@Cls(FlagN)">N</span>
+            <span class="@Cls(FlagH)">H</span>
+            <span class="@Cls(FlagC)">C</span>
         </div>
     }
     else
     {
-        <p>No ROM loaded.</p>
+        <p style="font-size:11px;color:var(--fg-dim);margin:0;">No ROM loaded.</p>
     }
 </div>
 
 @code {
-    protected override void OnInitialized()
-    {
-        EmulatorHost.StateChanged += OnStateChanged;
-    }
-
+    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
-
     public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
 
-    private static string H8(byte v) => "$" + v.ToString("X2");
+    private static string H8(byte v)   => "$" + v.ToString("X2");
     private static string H16(ushort v) => "$" + v.ToString("X4");
-    private static string FlagDisplay(bool on) => on ? "1" : "0";
+    private static string Cls(bool on) => on ? "on" : "";
+
+    private bool FlagZ => EmulatorHost.System!.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagZ);
+    private bool FlagN => EmulatorHost.System!.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagN);
+    private bool FlagH => EmulatorHost.System!.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagH);
+    private bool FlagC => EmulatorHost.System!.Registers.FlagSet(Koh.Emulator.Core.Cpu.CpuRegisters.FlagC);
 }

@@ -4,20 +4,21 @@
 @inject EmulatorHost EmulatorHost
 @inject IFileSystemAccess FileSystem
 
-<div class="rom-picker">
-    @if (FileSystem.UsesNativeDialog)
-    {
-        <button class="rom-picker-button" @onclick="OnNativePickAsync">Open ROM…</button>
-    }
-    else
-    {
+@if (FileSystem.UsesNativeDialog)
+{
+    <button class="koh-btn is-primary" @onclick="OnNativePickAsync">Open ROM…</button>
+}
+else
+{
+    <label class="koh-btn is-primary file-button">
+        Open ROM…
         <InputFile OnChange="OnBrowserFileSelected" accept=".gb,.gbc" />
-    }
-    @if (_error is not null)
-    {
-        <span class="rom-picker-error">@_error</span>
-    }
-</div>
+    </label>
+}
+@if (_error is not null)
+{
+    <span class="status error">@_error</span>
+}
 
 @code {
     private string? _error;
@@ -61,5 +62,7 @@
             : HardwareMode.Dmg;
 
         EmulatorHost.Load(bytes, mode);
+        // Auto-start playback — no Run button, just Pause.
+        _ = EmulatorHost.RunAsync();
     }
 }

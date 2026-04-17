@@ -5,24 +5,28 @@
 @inject EmulatorHost EmulatorHost
 @inject IFileSystemAccess FileSystem
 
-<div class="save-state-controls">
-    <button @onclick="SaveState" disabled="@(EmulatorHost.System is null || EmulatorHost.OriginalRom is null)">Save State</button>
-    @if (FileSystem.UsesNativeDialog)
-    {
-        <button @onclick="LoadStateNative" disabled="@(EmulatorHost.System is null || EmulatorHost.OriginalRom is null)">Load State…</button>
-    }
-    else
-    {
-        <label>
-            Load State
-            <InputFile OnChange="LoadStateBrowser" accept=".state" />
-        </label>
-    }
-    @if (_status is not null)
-    {
-        <span class="status">@_status</span>
-    }
-</div>
+@{
+    bool canSave = EmulatorHost.System is not null && EmulatorHost.OriginalRom is not null;
+}
+
+<button class="koh-btn" @onclick="SaveState" disabled="@(!canSave)" title="Save state (.state file)">Save</button>
+
+@if (FileSystem.UsesNativeDialog)
+{
+    <button class="koh-btn" @onclick="LoadStateNative" disabled="@(!canSave)" title="Load state (.state file)">Load</button>
+}
+else
+{
+    <label class="koh-btn file-button" title="Load state (.state file)">
+        Load
+        <InputFile OnChange="LoadStateBrowser" accept=".state" disabled="@(!canSave)" />
+    </label>
+}
+
+@if (_status is not null)
+{
+    <span class="status">@_status</span>
+}
 
 @code {
     private string? _status;
@@ -41,10 +45,7 @@
             await FileSystem.SaveSaveStateAsync("koh.state", ms.ToArray());
             _status = "saved";
         }
-        catch (Exception ex)
-        {
-            _status = $"save failed: {ex.Message}";
-        }
+        catch (Exception ex) { _status = $"save failed: {ex.Message}"; }
     }
 
     private async Task LoadStateNative()
@@ -58,11 +59,10 @@
             SaveStateFile.Load(ms, EmulatorHost.System, EmulatorHost.OriginalRom);
             _status = "loaded";
             EmulatorHost.RaiseStateChanged();
+            // Resume automatically — the user just restored a running state.
+            if (EmulatorHost.IsPaused) _ = EmulatorHost.RunAsync();
         }
-        catch (Exception ex)
-        {
-            _status = $"load failed: {ex.Message}";
-        }
+        catch (Exception ex) { _status = $"load failed: {ex.Message}"; }
     }
 
     private async Task LoadStateBrowser(InputFileChangeEventArgs e)
@@ -77,10 +77,8 @@
             SaveStateFile.Load(ms, EmulatorHost.System, EmulatorHost.OriginalRom);
             _status = "loaded";
             EmulatorHost.RaiseStateChanged();
+            if (EmulatorHost.IsPaused) _ = EmulatorHost.RunAsync();
         }
-        catch (Exception ex)
-        {
-            _status = $"load failed: {ex.Message}";
-        }
+        catch (Exception ex) { _status = $"load failed: {ex.Message}"; }
     }
 }

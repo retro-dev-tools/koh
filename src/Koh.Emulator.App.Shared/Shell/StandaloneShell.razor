@@ -1,16 +1,53 @@
 @using Koh.Emulator.App.Components
 @using Koh.Emulator.App.Services
 @using Koh.Emulator.App.StandaloneMode
+@implements IDisposable
 @inject EmulatorHost EmulatorHost
 @inject KeyboardInputBridge Keyboard
 
-<div class="standalone-shell">
-    <h1>Koh Emulator</h1>
-    <RomFilePicker />
-    <PlaybackControls />
-    <SaveStateControls />
-    <LcdDisplay />
-    <CpuDashboard />
+<div class="topbar">
+    <div class="topbar-title @(IsRunning ? "is-running" : "")">
+        <span class="dot"></span>
+        <span>Koh</span>
+    </div>
+
+    <div class="topbar-actions">
+        <RomFilePicker />
+        <PlaybackControls />
+        <SaveStateControls />
+    </div>
+</div>
+
+<div class="viewport">
+    <div class="lcd-frame">
+        <LcdDisplay Scale="3" />
+    </div>
+
+    <div class="status">
+        @if (EmulatorHost.System is null)
+        {
+            <span>No ROM loaded — open one to start</span>
+        }
+        else
+        {
+            <span class="rom-name">@CartTitle</span>
+            <span class="sep">•</span>
+            <span>@(EmulatorHost.IsPaused ? "Paused" : "Running")</span>
+        }
+    </div>
+
+    <div class="keymap">
+        <span class="group"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> <span class="label">D-Pad</span></span>
+        <span class="group"><kbd>Z</kbd> <span class="label">A</span></span>
+        <span class="group"><kbd>X</kbd> <span class="label">B</span></span>
+        <span class="group"><kbd>Enter</kbd> <span class="label">Start</span></span>
+        <span class="group"><kbd>Shift</kbd> <span class="label">Select</span></span>
+    </div>
+
+    <details class="debug-panel">
+        <summary>Debug</summary>
+        <CpuDashboard />
+    </details>
 </div>
 
 @code {
@@ -20,5 +57,20 @@
         // host startup, so the IJSRuntime captured by KeyboardInputBridge is
         // the live BlazorWebView runtime.
         EmulatorHost.AttachKeyboard(Keyboard);
+        EmulatorHost.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
+
+    private bool IsRunning => EmulatorHost.System is not null && !EmulatorHost.IsPaused;
+
+    private string CartTitle
+    {
+        get
+        {
+            var title = EmulatorHost.System?.Cartridge.Header.Title;
+            return string.IsNullOrWhiteSpace(title) ? "Unnamed ROM" : title;
+        }
     }
 }

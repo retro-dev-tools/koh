@@ -1,15 +1,312 @@
+:root {
+    --bg:         #0f1115;
+    --surface:    #16181d;
+    --surface-2:  #1e2128;
+    --border:     #262932;
+    --border-hi:  #34384a;
+    --fg:         #e6e8eb;
+    --fg-muted:   #8b909a;
+    --fg-dim:     #5f646e;
+    --accent:     #9ccc65;
+    --accent-hi:  #b6da82;
+    --danger:     #ef4444;
+    --mono: "Cascadia Mono", "Consolas", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
 html, body {
     margin: 0;
     padding: 0;
-    background: #1e1e1e;
-    color: #d4d4d4;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
 }
 
 #app {
-    padding: 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
+/* ─── Top bar ──────────────────────────────────────────────────────── */
+
+.topbar {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.topbar-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.2px;
+    color: var(--fg);
+}
+
+.topbar-title .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--fg-dim);
+    transition: background 120ms ease;
+}
+
+.topbar-title.is-running .dot { background: var(--accent); }
+
+.topbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ─── Buttons ──────────────────────────────────────────────────────── */
+
+button.koh-btn {
+    appearance: none;
+    border: 1px solid var(--border-hi);
+    background: var(--surface-2);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+    line-height: 1;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+button.koh-btn:hover:not(:disabled) {
+    background: #242832;
+    border-color: #3a3f4e;
+}
+
+button.koh-btn:active:not(:disabled) { background: #1a1d24; }
+
+button.koh-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+button.koh-btn.is-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0f1115;
+    font-weight: 600;
+}
+
+button.koh-btn.is-primary:hover:not(:disabled) {
+    background: var(--accent-hi);
+    border-color: var(--accent-hi);
+}
+
+button.koh-btn.is-ghost {
+    border-color: transparent;
+    background: transparent;
+    color: var(--fg-muted);
+}
+
+button.koh-btn.is-ghost:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--fg);
+}
+
+/* The hidden file input needs a clickable label-as-button. */
+.file-button {
+    display: inline-block;
+}
+.file-button input[type="file"] {
+    position: absolute;
+    width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* ─── Main viewport ────────────────────────────────────────────────── */
+
+.viewport {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 32px 16px 24px;
+    gap: 20px;
+}
+
+.lcd-frame {
+    padding: 8px;
+    background: #05060a;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 24px 48px rgba(0,0,0,0.4);
+}
+
+#koh-lcd {
+    display: block;
+    image-rendering: pixelated;
+    background: #0b0d12;
+    border-radius: 4px;
+}
+
+.status {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    min-height: 14px;
+}
+
+.status .rom-name { color: var(--fg); text-transform: none; }
+.status .sep     { margin: 0 10px; color: var(--fg-dim); }
+.status .error   { color: var(--danger); text-transform: none; }
+
+/* ─── Keyboard hints ───────────────────────────────────────────────── */
+
+.keymap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--fg-muted);
+}
+
+.keymap .group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.keymap kbd {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 2px 6px;
+    min-width: 22px;
+    text-align: center;
+    border-radius: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-hi);
+    border-bottom-width: 2px;
+    color: var(--fg);
+    line-height: 1.4;
+}
+
+.keymap .label { letter-spacing: 0.3px; text-transform: uppercase; }
+
+/* ─── Debug panel ──────────────────────────────────────────────────── */
+
+.debug-panel {
+    width: min(640px, 100%);
+    margin-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.debug-panel summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--fg-muted);
+    padding: 10px 0;
+    user-select: none;
+}
+
+.debug-panel summary::-webkit-details-marker { display: none; }
+.debug-panel summary::before {
+    content: "▸";
+    display: inline-block;
+    width: 14px;
+    color: var(--fg-dim);
+    transition: transform 120ms ease;
+}
+.debug-panel[open] > summary::before { transform: rotate(90deg); }
+
+.debug-panel summary:hover { color: var(--fg); }
+
+.cpu-dashboard {
+    padding: 12px 0 4px;
+}
+
+.cpu-dashboard h3 {
+    margin: 0 0 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--fg-muted);
+    font-weight: 600;
+}
+
+.cpu-dashboard table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.cpu-dashboard th {
+    text-align: left;
+    color: var(--fg-muted);
+    font-weight: 500;
+    padding: 3px 14px 3px 0;
+    width: 10%;
+}
+
+.cpu-dashboard td {
+    color: var(--fg);
+    padding: 3px 28px 3px 0;
+    width: 40%;
+}
+
+.cpu-dashboard .flags {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg-muted);
+    display: flex;
+    gap: 18px;
+}
+
+.cpu-dashboard .flags .on { color: var(--accent); }
+
+/* Legacy `.standalone-shell` class kept for backwards-compat; new layout
+   uses topbar + viewport directly. */
+.standalone-shell { display: contents; }
+
+/* Error banner, Blazor default — made less shouty. */
 #blazor-error-ui {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    padding: 8px 16px;
+    background: #3d1d1d;
+    color: #fecaca;
+    font-size: 12px;
+    border-top: 1px solid #6b2626;
     display: none;
 }
+#blazor-error-ui .reload { color: inherit; text-decoration: underline; cursor: pointer; }
+#blazor-error-ui .dismiss { cursor: pointer; float: right; }
