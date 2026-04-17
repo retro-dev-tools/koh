@@ -73,12 +73,16 @@ public class Sm83InstructionTests
     [Test]
     public async Task Jr_Nz_Taken_When_Z_Clear()
     {
-        // LD A,1 (sets no Z on this path since the loader doesn't touch flags), JR NZ,+2
-        // A=1 via LD doesn't set flags; but the boot F defaults to 0 so Z is clear.
-        var gb = MakeSystemWithProgram(0x3E, 0x01, 0x20, 0x02);  // LD A,1; JR NZ,+2
-        RunInstructions(gb, 2);
-        // Pc should be 0x0106 (0x0100 + 2 bytes LD + 2 bytes JR + 2 offset)
-        await Assert.That(gb.Registers.Pc).IsEqualTo((ushort)0x0106);
+        // XOR A (clears Z via result == 0... wait no — XOR A zeros A and SETS Z.
+        // Use OR A with A=$FF-ish instead: clobber F first by loading a non-zero value
+        // and using a flag-clearing instruction. Simplest: start from post-boot F then
+        // explicitly clear Z with "INC D" (D=$FF post-boot, INC D → D=$00 with Z SET —
+        // nope that sets Z too). Use "LD A,1; CP A,0" — CP sets Z iff A==arg, so CP 0
+        // with A=1 clears Z.
+        var gb = MakeSystemWithProgram(0x3E, 0x01, 0xFE, 0x00, 0x20, 0x02);  // LD A,1; CP 0; JR NZ,+2
+        RunInstructions(gb, 3);
+        // Pc should be 0x0108 (2 bytes LD + 2 bytes CP + 2 bytes JR + 2 offset)
+        await Assert.That(gb.Registers.Pc).IsEqualTo((ushort)0x0108);
     }
 
     [Test]

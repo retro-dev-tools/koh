@@ -56,6 +56,28 @@ public sealed class GameBoySystem
         // Sm83 drives peripheral ticks per memory access: each ReadByte /
         // WriteByte / ReadImmediate / InternalCycle advances one M-cycle.
         Cpu = new Sm83(Mmu, TickForMCycle);
+
+        // Post-boot-ROM CPU state. We skip the boot ROM, so the game must
+        // see the canonical register values the boot ROM would have set —
+        // in particular A = $11 on CGB is how every CGB-aware game detects
+        // color hardware. Without this, CGB-enhanced games (Azure Dreams,
+        // Pokémon Gold/Silver, etc.) see A=0 at $0100, take their DMG code
+        // path, and never populate VRAM bank 1 attributes.
+        ref var r = ref Cpu.Registers;
+        if (mode == HardwareMode.Cgb)
+        {
+            r.A = 0x11; r.F = 0x80;
+            r.B = 0x00; r.C = 0x00;
+            r.D = 0xFF; r.E = 0x56;
+            r.H = 0x00; r.L = 0x0D;
+        }
+        else
+        {
+            r.A = 0x01; r.F = 0xB0;
+            r.B = 0x00; r.C = 0x13;
+            r.D = 0x00; r.E = 0xD8;
+            r.H = 0x01; r.L = 0x4D;
+        }
     }
 
     public ref CpuRegisters Registers => ref Cpu.Registers;
