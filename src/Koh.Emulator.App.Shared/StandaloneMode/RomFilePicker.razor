@@ -2,9 +2,17 @@
 @using Koh.Emulator.Core
 @using Microsoft.AspNetCore.Components.Forms
 @inject EmulatorHost EmulatorHost
+@inject IFileSystemAccess FileSystem
 
 <div class="rom-picker">
-    <InputFile OnChange="OnFileSelected" accept=".gb,.gbc" />
+    @if (FileSystem.UsesNativeDialog)
+    {
+        <button class="rom-picker-button" @onclick="OnNativePickAsync">Open ROM…</button>
+    }
+    else
+    {
+        <InputFile OnChange="OnBrowserFileSelected" accept=".gb,.gbc" />
+    }
     @if (_error is not null)
     {
         <span class="rom-picker-error">@_error</span>
@@ -14,7 +22,22 @@
 @code {
     private string? _error;
 
-    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    private async Task OnNativePickAsync()
+    {
+        _error = null;
+        try
+        {
+            var picked = await FileSystem.PickRomAsync();
+            if (picked is null) return;
+            Load(picked.Bytes);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load ROM: {ex.Message}";
+        }
+    }
+
+    private async Task OnBrowserFileSelected(InputFileChangeEventArgs e)
     {
         _error = null;
         try
@@ -23,17 +46,20 @@
             using var stream = file.OpenReadStream(maxAllowedSize: 8 * 1024 * 1024);
             using var ms = new MemoryStream();
             await stream.CopyToAsync(ms);
-            var bytes = ms.ToArray();
-
-            HardwareMode mode = (bytes.Length > 0x143 && (bytes[0x143] & 0x80) != 0)
-                ? HardwareMode.Cgb
-                : HardwareMode.Dmg;
-
-            EmulatorHost.Load(bytes, mode);
+            Load(ms.ToArray());
         }
         catch (Exception ex)
         {
             _error = $"Could not load ROM: {ex.Message}";
         }
+    }
+
+    private void Load(byte[] bytes)
+    {
+        HardwareMode mode = (bytes.Length > 0x143 && (bytes[0x143] & 0x80) != 0)
+            ? HardwareMode.Cgb
+            : HardwareMode.Dmg;
+
+        EmulatorHost.Load(bytes, mode);
     }
 }

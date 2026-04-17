@@ -4,6 +4,8 @@ namespace Koh.Emulator.Maui;
 
 internal sealed class MauiFileSystemAccess : IFileSystemAccess
 {
+    public bool UsesNativeDialog => true;
+
     private static readonly FilePickerFileType RomFileType = new(new Dictionary<DevicePlatform, IEnumerable<string>>
     {
         [DevicePlatform.WinUI] = new[] { ".gb", ".gbc" },

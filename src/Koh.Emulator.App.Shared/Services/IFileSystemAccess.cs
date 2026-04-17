@@ -8,6 +8,14 @@ namespace Koh.Emulator.App.Services;
 /// </summary>
 public interface IFileSystemAccess
 {
+    /// <summary>
+    /// True when <see cref="PickRomAsync"/> / <see cref="PickSaveStateAsync"/>
+    /// open a platform-native file dialog. False for browser hosts where the
+    /// UI must render an &lt;input type=file&gt; element instead (the WASM
+    /// implementation does not support programmatic pickers).
+    /// </summary>
+    bool UsesNativeDialog { get; }
+
     Task<PickedFile?> PickRomAsync();
     Task<PickedFile?> PickSaveStateAsync();
     Task SaveSaveStateAsync(string defaultName, byte[] data);
