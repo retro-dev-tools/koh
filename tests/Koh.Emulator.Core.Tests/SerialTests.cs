@@ -53,4 +53,29 @@ public class SerialTests
         await Assert.That(s.IsTransferring).IsFalse();
         await Assert.That((irq.IF & Interrupts.Serial)).IsEqualTo((byte)0);
     }
+
+    [Test]
+    public async Task Linked_Peer_Exchanges_Byte_On_Transfer()
+    {
+        var s = new Serial.Serial { Link = new LoopbackLink(peerByte: 0xA5) };
+        var irq = default(Interrupts);
+
+        s.WriteSB(0x5A);
+        s.WriteSC(0x81);
+        for (int i = 0; i < 4096; i++) s.TickT(ref irq);
+
+        // After 8 bits shifted in, SB holds the peer's byte.
+        await Assert.That(s.ReadSB()).IsEqualTo((byte)0xA5);
+        // Sent byte was observed by the loopback.
+        await Assert.That(((LoopbackLink)s.Link!).LastSent).IsEqualTo((byte)0x5A);
+        await Assert.That((irq.IF & Interrupts.Serial)).IsEqualTo(Interrupts.Serial);
+    }
+
+    private sealed class LoopbackLink : Serial.ISerialLink
+    {
+        private readonly byte _peerByte;
+        public byte LastSent;
+        public LoopbackLink(byte peerByte) { _peerByte = peerByte; }
+        public byte ExchangeByte(byte sent) { LastSent = sent; return _peerByte; }
+    }
 }
