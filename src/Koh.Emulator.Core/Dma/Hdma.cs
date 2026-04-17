@@ -46,13 +46,41 @@ public sealed class Hdma
         }
 
         int blocks = (value & 0x7F) + 1;
+        IsHBlankMode = (value & 0x80) != 0;
+        ushort src = (ushort)(((Source1 << 8) | Source2) & 0xFFF0);
+        ushort dst = (ushort)(0x8000 | (((Dest1 << 8) | Dest2) & 0x1FF0));
+
+        if (!IsHBlankMode)
+        {
+            // General-purpose HDMA halts the CPU for the full transfer. We
+            // emulate that by doing the whole copy atomically right here —
+            // the CPU therefore can't race in with a VBK flip or an
+            // unrelated VRAM write while the bytes are in flight. Without
+            // this, CGB games that chain "set VBK=N, HDMA block, set VBK=M,
+            // HDMA block" wind up with scrambled bank-1 tile data.
+            int total = blocks * 16;
+            for (int i = 0; i < total; i++)
+            {
+                _mmu.WriteByte((ushort)(dst + i), _mmu.ReadByteDirect((ushort)(src + i)));
+            }
+            Active = false;
+            CpuHaltedByGp = false;
+            _bytesRemaining = 0;
+            _byteIndexInBlock = 0;
+            _currentSource = (ushort)(src + total);
+            _currentDest = (ushort)(dst + total);
+            _hblockPending = false;
+            return;
+        }
+
+        // HBlank mode: arm the state machine; transfers happen 16 bytes per
+        // HBlank via TickT.
         _bytesRemaining = blocks * 16;
         _byteIndexInBlock = 0;
-        IsHBlankMode = (value & 0x80) != 0;
         Active = true;
-        _currentSource = (ushort)(((Source1 << 8) | Source2) & 0xFFF0);
-        _currentDest = (ushort)(0x8000 | (((Dest1 << 8) | Dest2) & 0x1FF0));
-        CpuHaltedByGp = !IsHBlankMode;
+        _currentSource = src;
+        _currentDest = dst;
+        CpuHaltedByGp = false;
         _hblockPending = false;
     }
 
