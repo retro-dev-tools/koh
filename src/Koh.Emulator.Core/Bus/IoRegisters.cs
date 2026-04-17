@@ -41,6 +41,13 @@ public sealed class IoRegisters
     public void AttachPpu(Ppu.Ppu ppu) => _ppu = ppu;
     public void AttachHdma(Hdma hdma) => _hdma = hdma;
     public void AttachKeyOne(KeyOneRegister keyOne) => _keyOne = keyOne;
+
+    /// <summary>
+    /// Exposed so the CPU can consult the KEY1 switch-armed flag from inside
+    /// the STOP instruction handler — a CGB-only flow.
+    /// </summary>
+    public KeyOneRegister? KeyOne => _keyOne;
+
     public void AttachBanking(VramWramBanking banking) => _banking = banking;
     public void AttachApu(Apu.Apu apu) => _apu = apu;
 

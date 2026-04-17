@@ -56,6 +56,28 @@ public sealed class GameBoySystem
         // Sm83 drives peripheral ticks per memory access: each ReadByte /
         // WriteByte / ReadImmediate / InternalCycle advances one M-cycle.
         Cpu = new Sm83(Mmu, TickForMCycle);
+
+        // Post-boot-ROM CPU state. We skip the boot ROM, so the game must
+        // see the canonical register values the boot ROM would have set —
+        // in particular A = $11 on CGB is how every CGB-aware game detects
+        // color hardware. Without this, CGB-enhanced games (Azure Dreams,
+        // Pokémon Gold/Silver, etc.) see A=0 at $0100, take their DMG code
+        // path, and never populate VRAM bank 1 attributes.
+        ref var r = ref Cpu.Registers;
+        if (mode == HardwareMode.Cgb)
+        {
+            r.A = 0x11; r.F = 0x80;
+            r.B = 0x00; r.C = 0x00;
+            r.D = 0xFF; r.E = 0x56;
+            r.H = 0x00; r.L = 0x0D;
+        }
+        else
+        {
+            r.A = 0x01; r.F = 0xB0;
+            r.B = 0x00; r.C = 0x13;
+            r.D = 0x00; r.E = 0xD8;
+            r.H = 0x01; r.L = 0x4D;
+        }
     }
 
     public ref CpuRegisters Registers => ref Cpu.Registers;
@@ -70,16 +92,21 @@ public sealed class GameBoySystem
     {
         Clock.DoubleSpeed = KeyOne.DoubleSpeed;
 
-        // Per M-cycle: Timer + OamDma + Hdma always tick 4 T-cycles (these run
-        // at CPU clock rate — unchanged in double-speed). PPU and the system
-        // clock run at the base rate, so in DS they only tick 2 dots per CPU
-        // M-cycle.
+        // Per M-cycle: Timer + OamDma + Hdma tick 4 T-cycles — these are
+        // clocked off the CPU clock, so in double-speed mode they tick 2×
+        // more per wall-second (same as real hardware: DIV increments twice
+        // as fast, HDMA transfers twice as fast, etc.).
+        //
+        // PPU and APU run at the base 4.19 MHz rate regardless of CPU
+        // speed, so in DS they only tick HALF as many times per M-cycle —
+        // across 2× as many M-cycles per wall-second that nets out to the
+        // same wall-clock rate as normal speed.
         for (int t = 0; t < 4; t++)
         {
             Timer.TickT(ref Io.Interrupts);
             OamDma.TickT();
             if (Hdma.Active) Hdma.TickT();
-            Apu.TickT();
+            if (!Clock.DoubleSpeed || (t & 1) == 0) Apu.TickT();
             Io.Serial.TickT(ref Io.Interrupts);
         }
 

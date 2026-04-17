@@ -10,13 +10,19 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-builder.Services.AddSingleton<RuntimeModeDetector>();
-builder.Services.AddSingleton<FramePacer>();
-builder.Services.AddSingleton<EmulatorHost>();
-builder.Services.AddSingleton<FramebufferBridge>();
-builder.Services.AddSingleton<WebAudioBridge>();
-builder.Services.AddSingleton<KeyboardInputBridge>();
-builder.Services.AddSingleton<Koh.Emulator.App.DebugMode.DebugModeBootstrapper>(sp =>
+// Scoped instead of Singleton for symmetry with the MAUI host — everything
+// that takes an IJSRuntime must live inside the webview/app scope so the
+// runtime is resolved against the active view. In Blazor WASM this is
+// effectively a singleton (one app scope), so behavior is unchanged.
+builder.Services.AddScoped<RuntimeModeDetector>();
+builder.Services.AddScoped<FramePacer>();
+builder.Services.AddScoped<EmulatorHost>();
+builder.Services.AddScoped<FramebufferBridge>();
+builder.Services.AddScoped<WebAudioBridge>();
+builder.Services.AddScoped<KeyboardInputBridge>();
+builder.Services.AddScoped<IFileSystemAccess, BrowserFileSystemAccess>();
+builder.Services.AddScoped<WebRtcLink>();
+builder.Services.AddScoped<Koh.Emulator.App.DebugMode.DebugModeBootstrapper>(sp =>
 {
     var js = sp.GetRequiredService<IJSRuntime>();
     var host = sp.GetRequiredService<EmulatorHost>();
@@ -28,17 +34,12 @@ builder.Services.AddSingleton<Koh.Emulator.App.DebugMode.DebugModeBootstrapper>(
         return Convert.FromBase64String(base64);
     });
 });
-builder.Services.AddSingleton<Koh.Emulator.App.DebugMode.DapTransport>(sp =>
+builder.Services.AddScoped<Koh.Emulator.App.DebugMode.DapTransport>(sp =>
 {
     var js = sp.GetRequiredService<IJSRuntime>();
     var boot = sp.GetRequiredService<Koh.Emulator.App.DebugMode.DebugModeBootstrapper>();
     return new Koh.Emulator.App.DebugMode.DapTransport(js, boot.Dispatcher);
 });
 
-var app = builder.Build();
-
-// Wire keyboard bridge into EmulatorHost so RunAsync kicks it off.
-var keyboard = app.Services.GetRequiredService<KeyboardInputBridge>();
-app.Services.GetRequiredService<EmulatorHost>().AttachKeyboard(keyboard);
-
-await app.RunAsync();
+// Keyboard wiring now happens in StandaloneShell.OnInitialized (webview scope).
+await builder.Build().RunAsync();

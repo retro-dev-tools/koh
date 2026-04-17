@@ -13,6 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
     <ProjectReference Include="..\Koh.Debugger\Koh.Debugger.csproj" />
+    <ProjectReference Include="..\Koh.Emulator.App.Shared\Koh.Emulator.App.Shared.csproj" />
   </ItemGroup>
 
 </Project>

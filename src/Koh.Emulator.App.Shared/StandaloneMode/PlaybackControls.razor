@@ -1,0 +1,30 @@
+@using Koh.Emulator.App.Services
+@implements IDisposable
+@inject EmulatorHost EmulatorHost
+
+<button class="koh-btn"
+        @onclick="TogglePause"
+        disabled="@(EmulatorHost.System is null)"
+        title="@(EmulatorHost.IsPaused ? "Resume" : "Pause")">
+    @(EmulatorHost.IsPaused ? "Resume" : "Pause")
+</button>
+
+@code {
+    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
+
+    private async Task TogglePause()
+    {
+        if (EmulatorHost.System is null) return;
+        if (EmulatorHost.IsPaused)
+        {
+            _ = EmulatorHost.RunAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        else
+        {
+            EmulatorHost.Pause();
+        }
+    }
+}

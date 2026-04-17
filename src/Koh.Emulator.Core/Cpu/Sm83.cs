@@ -240,7 +240,27 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
             Halted = true;
         }
     }
-    public void Stop() => Stopped = true;
+    public void Stop()
+    {
+        // CGB speed switch: if the game armed KEY1 (bit 0 = 1) before running
+        // STOP, the instruction toggles between normal and double-speed and
+        // does NOT halt the CPU. Every CGB-enhanced game uses this path
+        // during boot; without it the CPU gets stuck in STOP forever.
+        var keyOne = _mmu.Io.KeyOne;
+        if (keyOne is { SwitchArmed: true })
+        {
+            keyOne.OnStopExecuted();
+            // Pan Docs: STOP on real CGB also resets DIV to 0 as part of
+            // the speed switch. Games that read DIV immediately afterwards
+            // to calibrate timers would otherwise see stale counter data.
+            // (The ~130 k T-cycle PLL relock stall is deliberately not
+            // modelled — adding it risks regressing games tuned to our
+            // current instant-switch timing.)
+            _mmu.Io.Timer.WriteDiv();
+            return;
+        }
+        Stopped = true;
+    }
 
     private void TickMCycle()
     {
