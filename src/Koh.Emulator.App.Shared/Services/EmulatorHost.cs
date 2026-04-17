@@ -17,11 +17,31 @@ public sealed class EmulatorHost
     private int _fpsFrameCount;
     private long _fpsLastStamp;
 
+    // Task-level reentrancy guard. Calling RunAsync while a loop is already
+    // running returns the existing task; re-loading a ROM pauses + awaits the
+    // active loop before installing the new System so we never run two loops
+    // against one GameBoySystem (which doubled the emu speed, doubled audio
+    // drain, and raced on FPS bookkeeping before this fix).
+    private Task? _runningTask;
+
+    // Throttled frame signal for live debug views (CpuDashboard etc.) — fires
+    // ~15 Hz while running, vs StateChanged which fires 1 Hz for chrome that
+    // only cares about FPS / ROM title. Without this, the Diagnostics drawer
+    // strobes once per second after the 1 Hz StateChanged change.
+    private const int DebugFrameDivisor = 4;   // 60 / 4 ≈ 15 Hz
+    private int _debugFrameCounter;
+
     public void AttachKeyboard(KeyboardInputBridge keyboard) => _keyboard = keyboard;
     public GameBoySystem? System { get; private set; }
     public byte[]? OriginalRom { get; private set; }
     public event Action? FrameReady;
     public event Action? StateChanged;
+    /// <summary>
+    /// Fires ~15 Hz while running. Debug views (register dashboards, memory
+    /// viewers) should subscribe here instead of StateChanged so they stay
+    /// live without forcing the full chrome to re-render per frame.
+    /// </summary>
+    public event Action? DebugTick;
 
     public void RaiseStateChanged() => StateChanged?.Invoke();
 
@@ -33,8 +53,19 @@ public sealed class EmulatorHost
         _webAudio = webAudio;
     }
 
-    public void Load(ReadOnlyMemory<byte> romBytes, HardwareMode mode)
+    public async Task LoadAsync(ReadOnlyMemory<byte> romBytes, HardwareMode mode)
     {
+        // Park any in-flight run loop and wait for it to actually exit before
+        // swapping System — otherwise the suspended loop wakes on rAF and
+        // starts driving the new System alongside the fresh RunAsync we're
+        // about to fire.
+        Pause();
+        if (_runningTask is { IsCompleted: false } pending)
+        {
+            try { await pending; } catch { /* loop exceptions surface on next RunAsync */ }
+        }
+        _runningTask = null;
+
         var cart = CartridgeFactory.Load(romBytes.Span);
         System = new GameBoySystem(mode, cart);
         OriginalRom = romBytes.ToArray();
@@ -44,14 +75,29 @@ public sealed class EmulatorHost
 
     public void AttachDebugSystem(GameBoySystem system)
     {
+        Pause();
         System = system;
         IsPaused = true;
         StateChanged?.Invoke();
     }
 
-    public async Task RunAsync()
+    public Task RunAsync()
     {
-        if (System is null) return;
+        if (System is null) return Task.CompletedTask;
+
+        // Reentrancy guard: if a loop is already running, return its Task so
+        // the caller can still await "completion" semantically. Avoids the
+        // previous double-RunAsync race where both loops drove the same
+        // GameBoySystem at 2× real-time.
+        if (_runningTask is { IsCompleted: false } inflight)
+            return inflight;
+
+        _runningTask = RunLoopAsync();
+        return _runningTask;
+    }
+
+    private async Task RunLoopAsync()
+    {
         IsPaused = false;
 
         if (!_audioInitialized)
@@ -63,11 +109,15 @@ public sealed class EmulatorHost
 
         _fpsFrameCount = 0;
         _fpsLastStamp = Stopwatch.GetTimestamp();
+        _debugFrameCounter = 0;
 
         while (!IsPaused && System is not null)
         {
             var result = System.RunFrame();
             FrameReady?.Invoke();
+
+            if ((++_debugFrameCounter % DebugFrameDivisor) == 0)
+                DebugTick?.Invoke();
 
             _fpsFrameCount++;
             long now = Stopwatch.GetTimestamp();
@@ -78,13 +128,10 @@ public sealed class EmulatorHost
                 _fpsFrameCount = 0;
                 _fpsLastStamp = now;
 
-                // Only fire the full state-changed signal once per second so
-                // the UI can pick up FPS / ROM-title changes. Per-frame
-                // StateChanged forces every subscribed component (shell, CPU
-                // dashboard, playback controls, save-state controls) to
-                // re-render at 60 Hz — that's measurable load on the UI
-                // thread and was eating into the frame budget the audio
-                // pipeline needs to stay steady.
+                // Chrome-level state-changed (ROM title, FPS text, playback
+                // button states). Stays at 1 Hz so a full re-render of every
+                // subscribed component doesn't fire 60×/s. Live debug views
+                // use DebugTick instead.
                 StateChanged?.Invoke();
             }
 

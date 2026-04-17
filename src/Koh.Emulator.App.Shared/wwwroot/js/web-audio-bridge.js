@@ -61,16 +61,20 @@ window.kohWebAudio = (function () {
         pushSamples: function (samples) {
             if (!ring) return;
             const len = samples.length;
+            // Track overruns as EVENTS (one per push that dropped anything),
+            // matching `underruns` which increments once per starved callback
+            // block. Previously this counter bumped per dropped sample, so
+            // stats() reported overruns in the thousands while underruns were
+            // in single digits even when both conditions lasted equally long.
+            let droppedHere = 0;
             for (let i = 0; i < len; i++) {
                 if (available >= HIGH_WATER) {
-                    // Drop oldest to bound latency. Keeps the emulator from
-                    // building up seconds of lag when the frame pacer runs
-                    // faster than real time.
                     read1();
-                    overruns++;
+                    droppedHere++;
                 }
                 write1(samples[i]);
             }
+            if (droppedHere > 0) overruns++;
         },
 
         shutdown: function () {

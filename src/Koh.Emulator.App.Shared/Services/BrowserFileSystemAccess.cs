@@ -16,11 +16,19 @@ public sealed class BrowserFileSystemAccess : IFileSystemAccess
 
     public bool UsesNativeDialog => false;
 
+    // Task-returning methods report errors via a faulted Task instead of a
+    // synchronous throw. The guards in RomFilePicker / SaveStateControls make
+    // this a latent hazard today rather than an active bug, but a future
+    // Task.WhenAny / ContinueWith caller that skipped the UsesNativeDialog
+    // check would otherwise see the exception escape on the call stack
+    // instead of at the await site. Framework Design Guidelines §7.2.
     public Task<PickedFile?> PickRomAsync() =>
-        throw new NotSupportedException("BrowserFileSystemAccess does not support programmatic pickers; use <InputFile> in the UI.");
+        Task.FromException<PickedFile?>(new NotSupportedException(
+            "BrowserFileSystemAccess does not support programmatic pickers; use <InputFile> in the UI."));
 
     public Task<PickedFile?> PickSaveStateAsync() =>
-        throw new NotSupportedException("BrowserFileSystemAccess does not support programmatic pickers; use <InputFile> in the UI.");
+        Task.FromException<PickedFile?>(new NotSupportedException(
+            "BrowserFileSystemAccess does not support programmatic pickers; use <InputFile> in the UI."));
 
     public async Task SaveSaveStateAsync(string defaultName, byte[] data)
     {

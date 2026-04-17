@@ -86,8 +86,13 @@ public static class DebugSnapshot
         sb.Append("- Stack (SP→): ");
         for (int i = 0; i < 8; i++)
         {
-            ushort addr = (ushort)(r.Sp + i * 2);
-            if (addr < r.Sp) break; // wrapped
+            // addr and addr+1 must both stay ≤ 0xFFFF. The previous check
+            // only caught base-address wrap across iterations; if SP==0xFFFF
+            // (or SP==0xFFFD at i=1 etc.) the hi-byte read wrapped to 0x0000
+            // and emitted garbage from ROM bank 0.
+            int baseAddr = r.Sp + i * 2;
+            if (baseAddr >= 0xFFFF) break;   // need both addr and addr+1
+            ushort addr = (ushort)baseAddr;
             byte lo = sys.Mmu.DebugRead(addr);
             byte hi = sys.Mmu.DebugRead((ushort)(addr + 1));
             sb.Append(H16((ushort)((hi << 8) | lo)));

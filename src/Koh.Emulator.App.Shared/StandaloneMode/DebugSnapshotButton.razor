@@ -1,3 +1,5 @@
+@using System.Text.Json
+@using System.Threading
 @using Koh.Emulator.App.Services
 @implements IDisposable
 @inject EmulatorHost EmulatorHost
@@ -9,20 +11,34 @@
 
 @code {
     private string _label = "Snapshot";
-    private System.Threading.Timer? _resetTimer;
+    private CancellationTokenSource? _resetCts;
+    private bool _disposed;
 
     protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
     public void Dispose()
     {
+        _disposed = true;
         EmulatorHost.StateChanged -= OnStateChanged;
-        _resetTimer?.Dispose();
+        _resetCts?.Cancel();
+        _resetCts?.Dispose();
+        _resetCts = null;
     }
 
     private async Task CopyAsync()
     {
+        // Direct dotted-path interop instead of `JS.InvokeAsync<string>("eval", ...)`.
+        // The previous path would trip any host with a strict CSP (no
+        // 'unsafe-eval') and silently drop the audio-stats field from every
+        // snapshot. `kohWebAudio.stats()` returns a plain object which
+        // serialises fine through the default JSInterop JSON path.
         string? audioStats = null;
-        try { audioStats = await JS.InvokeAsync<string>("eval", "JSON.stringify(window.kohWebAudio?.stats?.() || null)"); }
+        try
+        {
+            var stats = await JS.InvokeAsync<JsonElement>("kohWebAudio.stats");
+            if (stats.ValueKind != JsonValueKind.Undefined && stats.ValueKind != JsonValueKind.Null)
+                audioStats = stats.GetRawText();
+        }
         catch { /* stats is best-effort */ }
 
         var text = DebugSnapshot.Build(EmulatorHost, audioStats);
@@ -33,11 +49,24 @@
         _label = ok ? "Copied" : "Copy failed";
         await InvokeAsync(StateHasChanged);
 
-        _resetTimer?.Dispose();
-        _resetTimer = new System.Threading.Timer(_ =>
+        // Cancellation-based reset instead of System.Threading.Timer. The
+        // previous Timer.Dispose() was non-blocking, so a callback already
+        // on the ThreadPool could call InvokeAsync(StateHasChanged) on a
+        // disposed component. CancellationToken's Dispose path cancels
+        // cleanly and Task.Delay propagates the cancellation before we
+        // touch Blazor state.
+        _resetCts?.Cancel();
+        _resetCts?.Dispose();
+        _resetCts = new CancellationTokenSource();
+        var token = _resetCts.Token;
+        _ = Task.Run(async () =>
         {
+            try { await Task.Delay(TimeSpan.FromSeconds(1.6), token); }
+            catch (OperationCanceledException) { return; }
+            if (_disposed || token.IsCancellationRequested) return;
             _label = "Snapshot";
-            InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromSeconds(1.6), Timeout.InfiniteTimeSpan);
+            try { await InvokeAsync(StateHasChanged); }
+            catch (ObjectDisposedException) { /* raced disposal */ }
+        });
     }
 }

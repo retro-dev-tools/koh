@@ -30,7 +30,7 @@ else
         {
             var picked = await FileSystem.PickRomAsync();
             if (picked is null) return;
-            Load(picked.Bytes);
+            await LoadAsync(picked.Bytes);
         }
         catch (Exception ex)
         {
@@ -47,7 +47,7 @@ else
             using var stream = file.OpenReadStream(maxAllowedSize: 8 * 1024 * 1024);
             using var ms = new MemoryStream();
             await stream.CopyToAsync(ms);
-            Load(ms.ToArray());
+            await LoadAsync(ms.ToArray());
         }
         catch (Exception ex)
         {
@@ -55,13 +55,16 @@ else
         }
     }
 
-    private void Load(byte[] bytes)
+    private async Task LoadAsync(byte[] bytes)
     {
         HardwareMode mode = (bytes.Length > 0x143 && (bytes[0x143] & 0x80) != 0)
             ? HardwareMode.Cgb
             : HardwareMode.Dmg;
 
-        EmulatorHost.Load(bytes, mode);
+        // LoadAsync on the host waits for any in-flight run loop to exit
+        // before installing the new System, so loading a second ROM mid-play
+        // doesn't spawn a concurrent RunAsync against the fresh GameBoySystem.
+        await EmulatorHost.LoadAsync(bytes, mode);
         // Auto-start playback — no Run button, just Pause.
         _ = EmulatorHost.RunAsync();
     }

@@ -26,9 +26,20 @@
 </div>
 
 @code {
-    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
-    private void OnStateChanged() => InvokeAsync(StateHasChanged);
-    public void Dispose() => EmulatorHost.StateChanged -= OnStateChanged;
+    protected override void OnInitialized()
+    {
+        // StateChanged covers load / pause / step / FPS-tick transitions
+        // (<= 1 Hz while running). DebugTick fires ~15 Hz while running so
+        // PC / SP / flags stay live instead of strobing once per second.
+        EmulatorHost.StateChanged += OnRefresh;
+        EmulatorHost.DebugTick   += OnRefresh;
+    }
+    private void OnRefresh() => InvokeAsync(StateHasChanged);
+    public void Dispose()
+    {
+        EmulatorHost.StateChanged -= OnRefresh;
+        EmulatorHost.DebugTick   -= OnRefresh;
+    }
 
     private static string H8(byte v)   => "$" + v.ToString("X2");
     private static string H16(ushort v) => "$" + v.ToString("X4");
