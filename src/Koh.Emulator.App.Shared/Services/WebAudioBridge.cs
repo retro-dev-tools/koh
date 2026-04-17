@@ -19,10 +19,13 @@ public sealed class WebAudioBridge : IAsyncDisposable
     public async ValueTask PushAsync(ReadOnlyMemory<short> samples)
     {
         if (!_initialized || samples.Length == 0) return;
+
+        // int16 → float32 in [-1, 1]. The array must be exactly sized; JS
+        // interop doesn't take slices, so trimming an over-sized scratch
+        // would leak trailing samples through the wire.
         var floats = new float[samples.Length];
         var span = samples.Span;
-        for (int i = 0; i < floats.Length; i++)
-            floats[i] = span[i] / 32768f;
+        for (int i = 0; i < samples.Length; i++) floats[i] = span[i] / 32768f;
 
         await _js.InvokeVoidAsync("kohWebAudio.pushSamples", floats);
     }

@@ -23,7 +23,7 @@ public sealed class Apu
     private const byte Nr44ReadMask = 0xBF;
 
     private int _frameSeqCounter;
-    private int _sampleCycleAccumulator;
+    private int _sampleAccum;
 
     public AudioSampleBuffer SampleBuffer { get; } = new();
 
@@ -55,13 +55,20 @@ public sealed class Apu
         Ch3.TickT();
         Ch4.TickT();
 
-        _sampleCycleAccumulator++;
-        if (_sampleCycleAccumulator >= 95)
+        // Fractional accumulator: emits exactly SampleHz samples per CpuHz
+        // T-cycles so the stream doesn't drift against a 44100 Hz audio
+        // device. Previously we emitted every 95 T-cycles = 44150.6 Hz,
+        // which accumulated ~50ms of extra buffered audio per minute.
+        _sampleAccum += SampleHz;
+        if (_sampleAccum >= CpuHz)
         {
-            _sampleCycleAccumulator = 0;
+            _sampleAccum -= CpuHz;
             MixAndBuffer();
         }
     }
+
+    private const int CpuHz    = 4_194_304;
+    private const int SampleHz = 44_100;
 
     private void OnLength()
     {
@@ -250,7 +257,7 @@ public sealed class Apu
         w.WriteBytes(_nr);
         w.WriteBytes(Ch3.WavePattern);
         w.WriteI32(_frameSeqCounter);
-        w.WriteI32(_sampleCycleAccumulator);
+        w.WriteI32(_sampleAccum);
         w.WriteI32(FrameSequencer.Step);
         // Channel live-state (enable + envelope volume) to resume audibly.
         w.WriteBool(Ch1.Enabled); w.WriteI32(Ch1.Envelope.Volume); w.WriteI32(Ch1.Frequency); w.WriteI32(Ch1.DutyStep); w.WriteI32(Ch1.DutyPattern); w.WriteI32(Ch1.Length.Counter); w.WriteBool(Ch1.Length.Enabled);
@@ -265,7 +272,7 @@ public sealed class Apu
         r.ReadBytes(_nr.AsSpan());
         r.ReadBytes(Ch3.WavePattern.AsSpan());
         _frameSeqCounter = r.ReadI32();
-        _sampleCycleAccumulator = r.ReadI32();
+        _sampleAccum = r.ReadI32();
         FrameSequencer.Step = r.ReadI32();
         Ch1.Enabled = r.ReadBool(); Ch1.Envelope.Volume = r.ReadI32(); Ch1.Frequency = r.ReadI32(); Ch1.DutyStep = r.ReadI32(); Ch1.DutyPattern = r.ReadI32(); Ch1.Length.Counter = r.ReadI32(); Ch1.Length.Enabled = r.ReadBool();
         Ch2.Enabled = r.ReadBool(); Ch2.Envelope.Volume = r.ReadI32(); Ch2.Frequency = r.ReadI32(); Ch2.DutyStep = r.ReadI32(); Ch2.DutyPattern = r.ReadI32(); Ch2.Length.Counter = r.ReadI32(); Ch2.Length.Enabled = r.ReadBool();
