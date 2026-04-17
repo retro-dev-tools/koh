@@ -73,5 +73,16 @@ Task("publish-emulator-app")
 });
 
 // ─────────────────────────────────────────────────────────────
+// MAUI desktop shell
+// ─────────────────────────────────────────────────────────────
+
+Task("publish-maui-windows")
+    .Description("Publish Koh.Emulator.Maui as an unpackaged Windows desktop app (win-x64)")
+    .Does(() =>
+{
+    DotNet("publish src/Koh.Emulator.Maui -f net10.0-windows10.0.19041.0 -r win-x64 -c Release");
+});
+
+// ─────────────────────────────────────────────────────────────
 
 RunTarget(target);
