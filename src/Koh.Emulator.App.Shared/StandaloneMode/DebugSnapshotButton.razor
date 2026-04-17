@@ -1,0 +1,43 @@
+@using Koh.Emulator.App.Services
+@implements IDisposable
+@inject EmulatorHost EmulatorHost
+@inject IJSRuntime JS
+
+<button class="koh-btn" @onclick="CopyAsync" title="Copy a debug state summary to the clipboard">
+    @_label
+</button>
+
+@code {
+    private string _label = "Snapshot";
+    private System.Threading.Timer? _resetTimer;
+
+    protected override void OnInitialized() => EmulatorHost.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose()
+    {
+        EmulatorHost.StateChanged -= OnStateChanged;
+        _resetTimer?.Dispose();
+    }
+
+    private async Task CopyAsync()
+    {
+        string? audioStats = null;
+        try { audioStats = await JS.InvokeAsync<string>("eval", "JSON.stringify(window.kohWebAudio?.stats?.() || null)"); }
+        catch { /* stats is best-effort */ }
+
+        var text = DebugSnapshot.Build(EmulatorHost, audioStats);
+        bool ok = false;
+        try { ok = await JS.InvokeAsync<bool>("kohClipboard.write", text); }
+        catch { ok = false; }
+
+        _label = ok ? "Copied" : "Copy failed";
+        await InvokeAsync(StateHasChanged);
+
+        _resetTimer?.Dispose();
+        _resetTimer = new System.Threading.Timer(_ =>
+        {
+            _label = "Snapshot";
+            InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(1.6), Timeout.InfiniteTimeSpan);
+    }
+}
