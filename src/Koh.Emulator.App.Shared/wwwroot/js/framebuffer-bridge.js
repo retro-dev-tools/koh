@@ -1,5 +1,5 @@
-// Allocates persistent ImageData + Uint8ClampedArray and exposes a single-copy
-// commit path from WASM to the canvas. See §10.4 of the emulator design spec.
+// Persistent ImageData allocated once; each frame copies straight from a
+// Uint8Array handed over by Blazor's byte[] marshalling — no base64 hop.
 window.kohFramebufferBridge = (function () {
     const WIDTH = 160;
     const HEIGHT = 144;
@@ -15,13 +15,11 @@ window.kohFramebufferBridge = (function () {
             imageData = ctx.createImageData(WIDTH, HEIGHT);
         },
 
-        commit: function (base64Pixels) {
+        commit: function (pixels) {
             if (!imageData || !ctx) return;
-            const raw = atob(base64Pixels);
-            const dst = imageData.data;
-            for (let i = 0; i < raw.length; i++) {
-                dst[i] = raw.charCodeAt(i);
-            }
+            // `pixels` arrives as a Uint8Array (from Blazor byte[] marshalling)
+            // or similar array-like; copy into the persistent ImageData buffer.
+            imageData.data.set(pixels);
             ctx.putImageData(imageData, 0, 0);
         }
     };

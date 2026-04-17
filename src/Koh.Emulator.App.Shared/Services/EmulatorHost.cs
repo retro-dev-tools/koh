@@ -77,9 +77,16 @@ public sealed class EmulatorHost
                 Fps = _fpsFrameCount * (double)Stopwatch.Frequency / elapsed;
                 _fpsFrameCount = 0;
                 _fpsLastStamp = now;
-            }
 
-            StateChanged?.Invoke();
+                // Only fire the full state-changed signal once per second so
+                // the UI can pick up FPS / ROM-title changes. Per-frame
+                // StateChanged forces every subscribed component (shell, CPU
+                // dashboard, playback controls, save-state controls) to
+                // re-render at 60 Hz — that's measurable load on the UI
+                // thread and was eating into the frame budget the audio
+                // pipeline needs to stay steady.
+                StateChanged?.Invoke();
+            }
 
             await DrainAudioAsync();
 

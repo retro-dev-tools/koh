@@ -25,6 +25,12 @@ public sealed class Framebuffer
     public ReadOnlySpan<byte> Front => _aIsFront ? _a : _b;
     public Span<byte> Back => _aIsFront ? _b : _a;
 
+    /// <summary>
+    /// The front buffer as a <see cref="ReadOnlyMemory{T}"/>, suitable for
+    /// async APIs (including JS interop) that can't accept a <c>Span</c>.
+    /// </summary>
+    public ReadOnlyMemory<byte> FrontMemory => _aIsFront ? _a : _b;
+
     public void Flip() => _aIsFront = !_aIsFront;
 
     private static void FillWithPlaceholderGray(byte[] buffer)

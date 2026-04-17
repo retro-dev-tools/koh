@@ -4,9 +4,10 @@ using Koh.Emulator.Core.Ppu;
 namespace Koh.Emulator.App.Services;
 
 /// <summary>
-/// Bridges the emulator framebuffer to the HTML canvas via JS interop. Phase 2
-/// uses a base64 single-copy path per §10.4; a later phase can swap to
-/// IJSUnmarshalledRuntime for a zero-copy span transfer.
+/// Bridges the emulator framebuffer to the HTML canvas via JS interop.
+/// Ships the raw RGBA bytes directly — Blazor's JS interop marshals byte[]
+/// efficiently (no base64), which matters at 60 fps: the old path produced
+/// ~5 MB/s of UTF-16 string traffic and was visibly stealing frame budget.
 /// </summary>
 public sealed class FramebufferBridge
 {
@@ -19,8 +20,11 @@ public sealed class FramebufferBridge
 
     public ValueTask CommitAsync(Framebuffer framebuffer)
     {
-        var bytes = framebuffer.Front.ToArray();
-        string base64 = Convert.ToBase64String(bytes);
-        return _js.InvokeVoidAsync("kohFramebufferBridge.commit", base64);
+        // Blazor byte-array / ReadOnlyMemory<byte> marshalling hands JS a
+        // Uint8Array view without a base64 detour, which matters at 60 fps:
+        // the old Convert.ToBase64String path produced a ~123 KB string
+        // allocation per frame and was stealing visible budget from the
+        // emulator loop.
+        return _js.InvokeVoidAsync("kohFramebufferBridge.commit", framebuffer.FrontMemory);
     }
 }
