@@ -17,6 +17,7 @@ builder.Services.AddSingleton<FramebufferBridge>();
 builder.Services.AddSingleton<WebAudioBridge>();
 builder.Services.AddSingleton<KeyboardInputBridge>();
 builder.Services.AddSingleton<IFileSystemAccess, BrowserFileSystemAccess>();
+builder.Services.AddSingleton<WebRtcLink>();
 builder.Services.AddSingleton<Koh.Emulator.App.DebugMode.DebugModeBootstrapper>(sp =>
 {
     var js = sp.GetRequiredService<IJSRuntime>();
