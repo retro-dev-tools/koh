@@ -1,0 +1,22 @@
+/* Minimal KohUI base styles. 98.css handles the bevels/chrome; this
+   sheet covers widget-specific layout (Stack directions, Label spacing)
+   that 98.css doesn't define. */
+
+body {
+    margin: 0;
+    padding: 8px;
+    background: #008080;   /* classic teal desktop */
+    font-family: "Pixelated MS Sans Serif", "MS Sans Serif", sans-serif;
+    font-size: 11px;
+}
+
+.kohui-stack {
+    display: flex;
+    gap: 4px;
+}
+.kohui-stack.kohui-stack-Vertical   { flex-direction: column; }
+.kohui-stack.kohui-stack-Horizontal { flex-direction: row; align-items: center; }
+
+.kohui-label {
+    display: inline-block;
+}

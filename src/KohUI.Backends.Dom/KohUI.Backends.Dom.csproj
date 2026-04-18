@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <IsPackable>false</IsPackable>
+    <!-- We host a library (no Program.cs); the concrete Kestrel entry lives
+         in the consuming app (samples/KohUI.Demo). -->
+    <OutputType>Library</OutputType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KohUI\KohUI.csproj" />
+  </ItemGroup>
+
+  <!-- Embed the four asset files directly into the dll: in AOT /
+       single-file scenarios Assembly.Location is empty and static-web-
+       asset discovery is brittle, but an embedded manifest works the
+       same in every deployment shape. They're <10 KB total so the
+       embedding overhead is noise. -->
+  <ItemGroup>
+    <!-- Default resource naming: wwwroot\index.html with root namespace
+         KohUI.Backends.Dom becomes resource
+         "KohUI.Backends.Dom.wwwroot.index.html". EmbeddedFileProvider
+         maps path slashes → dots so that's exactly what it wants. -->
+    <EmbeddedResource Include="wwwroot\**\*" />
+
+    <!-- The Web SDK still wants to glob wwwroot — keep it happy by
+         opting out of its default Content include. We serve the
+         embedded copy at runtime; the wwwroot folder is source only. -->
+    <Content Remove="wwwroot\**\*" />
+  </ItemGroup>
+
+</Project>
