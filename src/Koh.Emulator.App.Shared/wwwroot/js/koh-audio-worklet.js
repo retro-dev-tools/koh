@@ -27,6 +27,13 @@ class KohAudioProcessor extends AudioWorkletProcessor {
         this.lastStatsPost = 0;
         this.statsIntervalSamples = 44100 / 4 | 0; // ~250 ms
 
+        // Output silence (not counted as underrun) until the ring has this
+        // much buffered. Avoids ~200 "underruns" at AudioContext spin-up
+        // where the worklet runs before the producer has landed its first
+        // batch. Also re-engaged after reset().
+        this.primeTarget = 44100 * 150 / 1000 | 0;  // 150 ms head start
+        this.primed = false;
+
         this.port.onmessage = (e) => this._onMessage(e.data);
     }
 
@@ -57,6 +64,7 @@ class KohAudioProcessor extends AudioWorkletProcessor {
                     this.readIdx.value = this.writeIdx.value;
                 }
                 this.lastSample = 0;
+                this.primed = false;
                 break;
         }
     }
@@ -104,6 +112,18 @@ class KohAudioProcessor extends AudioWorkletProcessor {
     process(_inputs, outputs) {
         const out = outputs[0][0];
         if (!out) return true;
+
+        // Warmup gate: stay silent (not counted as underrun) until the
+        // producer has filled the ring to primeTarget. Re-engages after
+        // reset() so ROM loads / save-state loads don't spray underruns.
+        if (!this.primed) {
+            if (this._buffered() < this.primeTarget) {
+                for (let i = 0; i < out.length; i++) out[i] = 0;
+                this.samplesConsumed += out.length;
+                return true;
+            }
+            this.primed = true;
+        }
 
         let starved = false;
         for (let i = 0; i < out.length; i++) {
