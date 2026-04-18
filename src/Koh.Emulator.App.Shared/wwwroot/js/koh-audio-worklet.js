@@ -34,6 +34,12 @@ class KohAudioProcessor extends AudioWorkletProcessor {
         this.primeTarget = 44100 * 150 / 1000 | 0;  // 150 ms head start
         this.primed = false;
 
+        // Track whether the previous block was starved, so a long stretch
+        // of starvation (e.g. the emulator is paused) only counts as one
+        // underrun event, not 344 per second. Also gates lastSample reset
+        // so we DC-fade once on the transition, then emit pure silence.
+        this.wasStarved = false;
+
         this.port.onmessage = (e) => this._onMessage(e.data);
     }
 
@@ -65,6 +71,7 @@ class KohAudioProcessor extends AudioWorkletProcessor {
                 }
                 this.lastSample = 0;
                 this.primed = false;
+                this.wasStarved = false;
                 break;
         }
     }
@@ -130,18 +137,30 @@ class KohAudioProcessor extends AudioWorkletProcessor {
             const s = this._readOne();
             if (s === null) {
                 starved = true;
-                // Fade last sample toward zero over the remainder of the block.
+                // Fade last sample toward zero over the remainder of the
+                // block. We zero lastSample afterwards so continued
+                // starvation (e.g. emulator paused) outputs pure silence
+                // instead of re-fading from a DC offset every 128 samples
+                // — that was being heard as a ~344 Hz buzz.
                 const remain = out.length - i;
                 for (let j = 0; j < remain; j++) {
                     out[i + j] = this.lastSample * (1 - (j + 1) / remain);
                 }
+                this.lastSample = 0;
                 break;
             }
             const f = s / 32768;
             out[i] = f;
             this.lastSample = f;
         }
-        if (starved) this.underruns++;
+        if (starved) {
+            // Count the onset only — a prolonged starvation streak (paused
+            // emulator, tab in background) shouldn't rack up 344 counts/sec.
+            if (!this.wasStarved) this.underruns++;
+            this.wasStarved = true;
+        } else {
+            this.wasStarved = false;
+        }
 
         this.samplesConsumed += out.length;
         if (this.samplesConsumed - this.lastStatsPost >= this.statsIntervalSamples) {
