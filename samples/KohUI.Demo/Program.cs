@@ -10,7 +10,7 @@ builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, 0));
 builder.Logging.ClearProviders();
 
 var runner = new Runner<CounterModel, CounterMsg>(
-    initialModel: new CounterModel(Count: 0),
+    initialModel: new CounterModel(Count: 0, WindowOpen: true),
     update: CounterApp.Update,
     view: CounterApp.View);
 

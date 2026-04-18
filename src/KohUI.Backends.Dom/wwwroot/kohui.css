@@ -1,13 +1,18 @@
-/* Minimal KohUI base styles. 98.css handles the bevels/chrome; this
-   sheet covers widget-specific layout (Stack directions, Label spacing)
-   that 98.css doesn't define. */
+/* Widget-specific layout that 98.css doesn't cover: Stack directions,
+   base layout defaults, root wrapper positioning. */
 
 body {
     margin: 0;
-    padding: 8px;
+    padding: 0;
     background: #008080;   /* classic teal desktop */
-    font-family: "Pixelated MS Sans Serif", "MS Sans Serif", sans-serif;
+    font-family: "Pixelated MS Sans Serif", "MS Sans Serif", "Segoe UI", sans-serif;
     font-size: 11px;
+    min-height: 100vh;
+}
+
+#kohui-root {
+    position: relative;
+    min-height: 100vh;
 }
 
 .kohui-stack {
@@ -19,4 +24,14 @@ body {
 
 .kohui-label {
     display: inline-block;
+}
+
+/* Explicitly give panels a block footprint so they lay out under
+   Stack/Window without collapsing to zero-height when their only child
+   is inline. */
+.kohui-panel-Sunken,
+.kohui-panel-Raised,
+.kohui-panel-Chiseled {
+    display: block;
+    min-height: 1em;
 }

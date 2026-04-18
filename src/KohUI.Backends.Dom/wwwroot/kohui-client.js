@@ -2,8 +2,8 @@
 // the DOM, forwards DOM events back to the server.
 //
 // Protocol (server → client):
-//   {op:"replace", path:"", node:{...}}            // full tree (initial or subtree replace)
-//   {op:"batch",   patches:[...]}                  // one tick's worth of diffs
+//   {op:"replace", path:"", node:{...}}            full tree (initial or subtree replace)
+//   {op:"batch",   patches:[...]}                  one tick's worth of diffs
 //     patches are one of:
 //       {op:"replace", path, node}
 //       {op:"props",   path, set:{...}, remove:[]}
@@ -21,56 +21,182 @@
     // ─── Element creation from RenderNode ────────────────────────────
 
     function createElement(node) {
-        const tag = tagFor(node.type);
+        const { tag, className } = domSpec(node.type);
         const el = document.createElement(tag);
-
-        // Stable class hooks + data attribute so Playwright and
-        // inspectors can target nodes without relying on positions.
-        el.classList.add("kohui-" + node.type.toLowerCase());
+        el.classList.add(className, "kohui-" + node.type.toLowerCase());
         if (node.key) el.dataset.kohuiKey = node.key;
 
-        applyProps(el, node);
+        // Windows wrap a header (.title-bar) + body (.window-body);
+        // children of the C# Window become children of the body, not
+        // the window itself.
+        if (node.type === "Window") {
+            const titleBar = buildWindowTitleBar(node);
+            const body = document.createElement("div");
+            body.classList.add("window-body", "kohui-window-body");
+            el.appendChild(titleBar);
+            el.appendChild(body);
+            for (const child of (node.children || [])) {
+                body.appendChild(createElement(child));
+            }
+            applyProps(el, node);
+            return el;
+        }
 
-        if (node.children) {
-            for (const child of node.children) el.appendChild(createElement(child));
+        applyProps(el, node);
+        for (const child of (node.children || [])) {
+            el.appendChild(createElement(child));
         }
         return el;
     }
 
-    function tagFor(type) {
+    function domSpec(type) {
         switch (type) {
-            case "Button": return "button";
-            case "Label":  return "span";
-            case "Stack":  return "div";
-            default:       return "div";
+            case "Button":           return { tag: "button", className: "" };
+            case "Label":            return { tag: "span",   className: "" };
+            case "Stack":            return { tag: "div",    className: "" };
+            case "Window":           return { tag: "div",    className: "window" };
+            case "MenuBar":          return { tag: "ul",     className: "menu-bar" };
+            case "MenuItem":         return { tag: "li",     className: "menu-bar-item" };
+            case "Panel":            return { tag: "div",    className: "" };
+            case "StatusBar":        return { tag: "div",    className: "status-bar" };
+            case "StatusBarSegment": return { tag: "p",      className: "status-bar-field" };
+            default:                 return { tag: "div",    className: "" };
         }
+    }
+
+    function buildWindowTitleBar(node) {
+        const tb = document.createElement("div");
+        tb.classList.add("title-bar");
+        const text = document.createElement("div");
+        text.classList.add("title-bar-text");
+        text.textContent = (node.props && node.props.title) || "";
+        tb.appendChild(text);
+
+        const controls = document.createElement("div");
+        controls.classList.add("title-bar-controls");
+        if ((node.props || {}).onClose === true) {
+            const closeBtn = document.createElement("button");
+            closeBtn.setAttribute("aria-label", "Close");
+            closeBtn.addEventListener("click", ev => {
+                ev.stopPropagation();
+                const owner = closeBtn.closest(".kohui-window");
+                if (!owner) return;
+                ws.send(JSON.stringify({ op: "event", path: pathOf(owner), event: "close" }));
+            });
+            controls.appendChild(closeBtn);
+        }
+        tb.appendChild(controls);
+
+        makeDraggable(tb);
+        return tb;
+    }
+
+    // Client-side drag: pointer events translate the window container
+    // via CSS transforms. Position is never sent back to the server.
+    function makeDraggable(titleBar) {
+        let active = null;
+        titleBar.addEventListener("pointerdown", e => {
+            if (e.button !== 0) return;
+            const win = titleBar.closest(".kohui-window");
+            if (!win) return;
+            const rect = win.getBoundingClientRect();
+            active = { win, dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+            titleBar.setPointerCapture(e.pointerId);
+        });
+        titleBar.addEventListener("pointermove", e => {
+            if (!active) return;
+            const x = e.clientX - active.dx;
+            const y = e.clientY - active.dy;
+            active.win.style.left = x + "px";
+            active.win.style.top  = y + "px";
+        });
+        const end = e => {
+            if (active) {
+                try { titleBar.releasePointerCapture(e.pointerId); } catch {}
+                active = null;
+            }
+        };
+        titleBar.addEventListener("pointerup", end);
+        titleBar.addEventListener("pointercancel", end);
     }
 
     function applyProps(el, node) {
         const p = node.props || {};
         switch (node.type) {
-            case "Label":  el.textContent = p.text ?? ""; break;
+            case "Label":
+                el.textContent = p.text ?? "";
+                break;
+
             case "Button":
                 el.textContent = p.text ?? "";
                 el.disabled = p.enabled === false;
-                wireEventForwarder(el, "click", node);
+                wireEventForwarder(el, "click", p.onClick === true);
                 break;
+
             case "Stack":
                 el.classList.remove("kohui-stack-Vertical", "kohui-stack-Horizontal");
                 el.classList.add("kohui-stack");
                 el.classList.add("kohui-stack-" + (p.direction || "Vertical"));
                 break;
+
+            case "Window":
+                el.style.position = "absolute";
+                el.style.left  = (p.x ?? 40) + "px";
+                el.style.top   = (p.y ?? 40) + "px";
+                el.style.width = (p.width  ?? 320) + "px";
+                // Let height auto-size to content; p.height is advisory.
+                break;
+
+            case "MenuItem":
+                // Render accelerator ampersand as underline.
+                const raw = p.text ?? "";
+                el.innerHTML = renderAccelerator(raw);
+                wireEventForwarder(el, "click", p.onClick === true);
+                break;
+
+            case "Panel":
+                el.classList.remove("kohui-panel-Sunken", "kohui-panel-Raised", "kohui-panel-Chiseled", "sunken-panel");
+                const bevel = p.bevel || "Sunken";
+                el.classList.add("kohui-panel-" + bevel);
+                if (bevel === "Sunken") el.classList.add("sunken-panel");
+                break;
+
+            case "StatusBarSegment":
+                el.textContent = p.text ?? "";
+                break;
         }
     }
 
-    function wireEventForwarder(el, domEventName, node) {
-        const propName = "on" + domEventName[0].toUpperCase() + domEventName.slice(1);
-        const hasHandler = (node.props || {})[propName] === true;
-        if (!hasHandler) return;
-        el.addEventListener(domEventName, () => {
+    function renderAccelerator(text) {
+        const i = text.indexOf("&");
+        if (i < 0 || i >= text.length - 1) return escapeHtml(text);
+        return escapeHtml(text.slice(0, i))
+             + "<u>" + escapeHtml(text[i + 1]) + "</u>"
+             + escapeHtml(text.slice(i + 2));
+    }
+
+    function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, c => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+        })[c]);
+    }
+
+    function wireEventForwarder(el, domEventName, hasHandler) {
+        const marker = "_kohuiHas_" + domEventName;
+        if (!hasHandler) {
+            if (el[marker]) {
+                el.removeEventListener(domEventName, el[marker]);
+                el[marker] = null;
+            }
+            return;
+        }
+        if (el[marker]) return;   // already wired
+        const listener = () => {
             const path = pathOf(el);
             ws.send(JSON.stringify({ op: "event", path, event: domEventName }));
-        });
+        };
+        el.addEventListener(domEventName, listener);
+        el[marker] = listener;
     }
 
     // ─── Patch application ───────────────────────────────────────────
@@ -80,11 +206,9 @@
             case "replace": {
                 const target = elementAt(patch.path);
                 const fresh = createElement(patch.node);
-                // Path data-attribute is applied to the new element after
-                // it's in place — see setPathDataAttrs.
                 if (patch.path === "") {
                     document.getElementById(ROOT_ID).replaceChildren(fresh);
-                } else {
+                } else if (target) {
                     target.replaceWith(fresh);
                 }
                 setPathDataAttrs(document.getElementById(ROOT_ID).firstElementChild, "");
@@ -93,21 +217,17 @@
             case "props": {
                 const target = elementAt(patch.path);
                 if (!target) return;
-                // Reconstruct a synthetic "node" with merged props so we
-                // can reuse applyProps. For correctness we'd track the
-                // current props in a shadow tree; for v0.1 the set of
-                // widgets is small and applying the changed set directly
-                // is good enough.
                 const synthetic = {
                     type: typeOf(target),
                     props: { ...readProps(target), ...patch.set },
                 };
-                for (const removed of patch.remove) delete synthetic.props[removed];
+                for (const removed of (patch.remove || [])) delete synthetic.props[removed];
                 applyProps(target, synthetic);
                 break;
             }
             case "insert": {
-                const parent = elementAt(patch.path);
+                const parent = childContainerOf(elementAt(patch.path));
+                if (!parent) return;
                 const child = createElement(patch.node);
                 if (patch.index >= parent.children.length) parent.appendChild(child);
                 else parent.insertBefore(child, parent.children[patch.index]);
@@ -115,7 +235,8 @@
                 break;
             }
             case "remove": {
-                const parent = elementAt(patch.path);
+                const parent = childContainerOf(elementAt(patch.path));
+                if (!parent) return;
                 const victim = parent.children[patch.index];
                 if (victim) parent.removeChild(victim);
                 setPathDataAttrs(document.getElementById(ROOT_ID).firstElementChild, "");
@@ -124,13 +245,23 @@
         }
     }
 
+    // For compound widgets like Window (which own a title-bar + body
+    // pair), the "children" addressed by the server live in the body
+    // slot. Everything else uses the element itself.
+    function childContainerOf(el) {
+        if (!el) return null;
+        if (el.classList.contains("kohui-window")) return el.querySelector(":scope > .kohui-window-body");
+        return el;
+    }
+
     function elementAt(path) {
         const root = document.getElementById(ROOT_ID);
         if (path === "") return root.firstElementChild;
         let node = root.firstElementChild;
         for (const seg of path.split(".")) {
             const i = parseInt(seg, 10);
-            node = node && node.children[i];
+            const container = childContainerOf(node);
+            node = container && container.children[i];
         }
         return node;
     }
@@ -140,26 +271,36 @@
         let n = el;
         while (n && n.parentElement && n.parentElement.id !== ROOT_ID) {
             const parent = n.parentElement;
-            segs.push(Array.prototype.indexOf.call(parent.children, n).toString());
-            n = parent;
+            // Look past the .window-body wrapper so paths match the
+            // server's tree shape (Window's children are its body's
+            // children, not the title-bar/body pair).
+            const addressableParent = parent.classList.contains("kohui-window-body")
+                ? parent.parentElement
+                : parent;
+            const siblings = parent.children;
+            segs.push(Array.prototype.indexOf.call(siblings, n).toString());
+            n = addressableParent;
         }
-        // Top-level child has index 0 under the root wrapper.
         segs.reverse();
-        // The root is the single child of #kohui-root; strip its leading "0".
         return segs.join(".");
     }
 
     function setPathDataAttrs(el, path) {
         if (!el) return;
         el.dataset.kohuiPath = path;
-        for (let i = 0; i < el.children.length; i++) {
-            setPathDataAttrs(el.children[i], path === "" ? i.toString() : `${path}.${i}`);
+        const body = childContainerOf(el);
+        const children = body === el ? el.children : body ? body.children : [];
+        for (let i = 0; i < children.length; i++) {
+            setPathDataAttrs(children[i], path === "" ? i.toString() : `${path}.${i}`);
         }
     }
 
     function typeOf(el) {
         for (const c of el.classList) {
-            if (c.startsWith("kohui-") && !c.startsWith("kohui-stack-")) {
+            if (c.startsWith("kohui-")
+                && !c.startsWith("kohui-stack-")
+                && !c.startsWith("kohui-panel-")
+                && !c.startsWith("kohui-window-")) {
                 const name = c.slice("kohui-".length);
                 return name[0].toUpperCase() + name.slice(1);
             }
@@ -168,11 +309,9 @@
     }
 
     function readProps(el) {
-        // Minimal reflection of DOM state back into the shadow props. The
-        // subset we care about round-trips correctly for diff-apply.
         const props = {};
         const type = typeOf(el);
-        if (type === "Label" || type === "Button") props.text = el.textContent;
+        if (type === "Label" || type === "Button" || type === "Statusbarsegment") props.text = el.textContent;
         if (type === "Button") props.enabled = !el.disabled;
         return props;
     }
