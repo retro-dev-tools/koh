@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.JSInterop;
@@ -24,12 +25,15 @@ public sealed class AudioPipe : IAudioSink, IAsyncDisposable
     private long _underruns;
     private long _overruns;
     private int _buffered;
+    private long _counterTicks;
     private DotNetObjectReference<AudioPipe>? _selfRef;
 
-    // Counts how many samples we've shipped to JS that the worklet has not
-    // yet reported as "consumed" via UpdateCounters. Used as a fresher
-    // estimate of the device-side fill than the stale ~4 Hz callback.
+    // Samples shipped to JS since the most recent UpdateCounters callback.
+    // Combined with _buffered and elapsed-since-_counterTicks gives a fresh
+    // estimate of the device-side fill without waiting on JS interop.
     private long _pushedSinceCounter;
+
+    private const int SampleHz = 44_100;
 
     public AudioPipe(IJSRuntime js)
     {
@@ -37,9 +41,25 @@ public sealed class AudioPipe : IAudioSink, IAsyncDisposable
     }
 
     public AudioIsolationLevel IsolationLevel => _level;
-    public int Buffered => _buffered + (int)Interlocked.Read(ref _pushedSinceCounter);
     public long Underruns => Interlocked.Read(ref _underruns);
     public long Overruns  => Interlocked.Read(ref _overruns);
+
+    public int Buffered
+    {
+        get
+        {
+            long lastTicks = Interlocked.Read(ref _counterTicks);
+            if (lastTicks == 0) return 0;
+
+            int lastBuf = Volatile.Read(ref _buffered);
+            long pushed = Interlocked.Read(ref _pushedSinceCounter);
+            long elapsedTicks = Stopwatch.GetTimestamp() - lastTicks;
+            long consumed = elapsedTicks * SampleHz / Stopwatch.Frequency;
+
+            long estimate = (long)lastBuf + pushed - consumed;
+            return (int)Math.Max(0, estimate);
+        }
+    }
 
     public async ValueTask InitAsync(int sampleRate = 44_100)
     {
@@ -52,6 +72,9 @@ public sealed class AudioPipe : IAudioSink, IAsyncDisposable
             "degraded" => AudioIsolationLevel.Degraded,
             _ => AudioIsolationLevel.Muted,
         };
+        // Seed the counter reference so Buffered returns something sensible
+        // before the first UpdateCounters callback arrives (~250 ms in).
+        Interlocked.Exchange(ref _counterTicks, Stopwatch.GetTimestamp());
         _initialized = true;
     }
 
@@ -74,8 +97,9 @@ public sealed class AudioPipe : IAudioSink, IAsyncDisposable
     public void Reset()
     {
         if (!_initialized) return;
-        _buffered = 0;
+        Volatile.Write(ref _buffered, 0);
         Interlocked.Exchange(ref _pushedSinceCounter, 0);
+        Interlocked.Exchange(ref _counterTicks, Stopwatch.GetTimestamp());
         _ = _js.InvokeVoidAsync("kohAudio.reset");
     }
 
@@ -89,6 +113,7 @@ public sealed class AudioPipe : IAudioSink, IAsyncDisposable
         Interlocked.Exchange(ref _underruns, underruns);
         Interlocked.Exchange(ref _overruns, overruns);
         Volatile.Write(ref _buffered, buffered);
+        Interlocked.Exchange(ref _counterTicks, Stopwatch.GetTimestamp());
         // The JS-side count is authoritative; reset the "in-flight" estimate.
         Interlocked.Exchange(ref _pushedSinceCounter, 0);
     }
