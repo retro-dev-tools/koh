@@ -28,10 +28,9 @@ public static class MauiProgram
         // WebView context." Scoped works identically in Blazor WASM (single
         // app scope), so the Shared services are safe to keep uniform.
         builder.Services.AddScoped<RuntimeModeDetector>();
-        builder.Services.AddScoped<FramePacer>();
+        builder.Services.AddScoped<AudioPipe>();
         builder.Services.AddScoped<EmulatorHost>();
         builder.Services.AddScoped<FramebufferBridge>();
-        builder.Services.AddScoped<WebAudioBridge>();
         builder.Services.AddScoped<KeyboardInputBridge>();
         builder.Services.AddScoped<IFileSystemAccess, MauiFileSystemAccess>();
 

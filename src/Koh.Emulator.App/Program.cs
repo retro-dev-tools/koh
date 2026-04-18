@@ -15,10 +15,9 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 // runtime is resolved against the active view. In Blazor WASM this is
 // effectively a singleton (one app scope), so behavior is unchanged.
 builder.Services.AddScoped<RuntimeModeDetector>();
-builder.Services.AddScoped<FramePacer>();
+builder.Services.AddScoped<AudioPipe>();
 builder.Services.AddScoped<EmulatorHost>();
 builder.Services.AddScoped<FramebufferBridge>();
-builder.Services.AddScoped<WebAudioBridge>();
 builder.Services.AddScoped<KeyboardInputBridge>();
 builder.Services.AddScoped<IFileSystemAccess, BrowserFileSystemAccess>();
 builder.Services.AddScoped<WebRtcLink>();
