@@ -1968,3 +1968,27 @@ git commit -m "docs(plan): record audio-driven pacing verification results"
 **Placeholder scan:** No `TBD`, `TODO`, or "similar to X". Every code step contains full code. Step 4 of Task 8 explicitly comments that the happy-path assertion is all we verify (the full exception-propagation from RunFrame is deferred because it needs a real mis-decoded opcode scenario — flagged inline, not a placeholder).
 
 **Type consistency:** `IAudioSink.Push(ReadOnlySpan<short>) → int` is defined in Task 3, used identically in Tasks 4, 7, 8, 9. `EmulatorRunner.SetSystem / Resume / Pause / Dispose / StateChanged / FatalError / FrameCompleted` all match between their definition in Task 7 and their callers in Task 9. `FramePublisher.AcquireBack / PublishBack / AcquireFront / ReleaseFront` match between Task 2 and Task 9.
+
+---
+
+## Verification results (2026-04-18)
+
+MAUI Windows, Azure Dreams, Release publish via `scripts/run-maui.ps1`:
+
+- **Audio isolation:** `Degraded`. Expected — MAUI BlazorWebView2 doesn't emit COOP/COEP headers, so `crossOriginIsolated` is false and SharedArrayBuffer is unavailable. The postMessage fallback path is in use and performing fine.
+- **Frame rate:** steady ~60 fps during play, no audible jitter.
+- **Audio underruns:** 4 over ~70 s of double-speed emulation. All four are pause/resume onsets (snapshot capture) — zero in-playback starvation.
+- **Audio overruns:** 0.
+- **Pause behaviour:** dead silent (no DC buzz).
+- **Drawer-spam test:** _not exercised._
+- **Backgrounding test:** _not exercised._
+
+### Post-plan fixes applied during verification
+
+The plan assumed `IJSRuntime` is always `IJSInProcessRuntime`. In MAUI Blazor Hybrid it is not — the WebView2 runtime is async-only, and the plan's `_js.InvokeAsync(...).AsTask().GetAwaiter().GetResult()` fallback deadlocks the dispatcher thread on the first rAF callback (commit `c2985bc`). Hot-fixes:
+
+1. **FramebufferBridge.Commit** — fire-and-forget `InvokeVoidAsync`. Blazor marshals argument bytes synchronously, so the rAF callback can release the front buffer immediately after.
+2. **AudioPipe.Push** — same pattern; runner no longer blocks on the JS response. Worklet stats now include the device-side fill in its 4 Hz `UpdateCounters` callback.
+3. **AudioPipe.Buffered** — reports `last_reported + pushed_since − elapsed × 44.1` instead of `last_reported + pushed_since`. Without the drain term, `_pushedSinceCounter` inflated to ~11 k between stat updates and the runner parked every other frame (observed as ~30 fps). Commit `fc7c983`.
+4. **Worklet warmup gate** — output silence (not counted as underrun) until the ring has ~150 ms buffered. Kills the ~200 startup underruns from AudioContext spin-up running before the first sample push lands. Commit `4fbb2d7`.
+5. **Worklet pause behaviour** — fade once on the healthy→starved transition, then emit true silence (previously re-faded from a DC offset every 128-sample block, creating a ~344 Hz buzz that got louder/quieter per pause depending on the `lastSample` snapshot). Also count only onset underruns, not 344/s during a pause. Commit `38432d8`.
