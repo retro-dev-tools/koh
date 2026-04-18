@@ -6,6 +6,14 @@ window.kohFramebufferBridge = (function () {
     let imageData = null;
     let canvas = null;
     let ctx = null;
+    let rafRef = null;
+    let rafHandle = 0;
+
+    function tick() {
+        if (!rafRef) return;
+        rafRef.invokeMethodAsync('OnRaf');
+        rafHandle = requestAnimationFrame(tick);
+    }
 
     return {
         attach: function (canvasId) {
@@ -17,10 +25,18 @@ window.kohFramebufferBridge = (function () {
 
         commit: function (pixels) {
             if (!imageData || !ctx) return;
-            // `pixels` arrives as a Uint8Array (from Blazor byte[] marshalling)
-            // or similar array-like; copy into the persistent ImageData buffer.
             imageData.data.set(pixels);
             ctx.putImageData(imageData, 0, 0);
-        }
+        },
+
+        startRafLoop: function (dotNetRef) {
+            rafRef = dotNetRef;
+            if (!rafHandle) rafHandle = requestAnimationFrame(tick);
+        },
+
+        stopRafLoop: function () {
+            rafRef = null;
+            if (rafHandle) { cancelAnimationFrame(rafHandle); rafHandle = 0; }
+        },
     };
 })();

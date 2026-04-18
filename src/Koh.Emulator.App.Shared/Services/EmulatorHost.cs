@@ -4,105 +4,77 @@ using Koh.Emulator.Core.Cartridge;
 
 namespace Koh.Emulator.App.Services;
 
-public sealed class EmulatorHost
+/// <summary>
+/// Thin facade over <see cref="EmulatorRunner"/> + <see cref="AudioPipe"/>.
+/// Keeps the public surface existing callers rely on while moving the
+/// hot-loop onto a background thread and publishing frames through a
+/// <see cref="FramePublisher"/>.
+/// </summary>
+public sealed class EmulatorHost : IAsyncDisposable
 {
-    private readonly FramePacer _framePacer;
-    private readonly WebAudioBridge _webAudio;
+    private readonly EmulatorRunner _runner;
+    private readonly AudioPipe _audio;
+    private readonly FramePublisher _frames;
     private KeyboardInputBridge? _keyboard;
     private bool _audioInitialized;
 
-    // Rolling FPS sampled once per second from the RunAsync loop. 0 when
-    // paused or no ROM is loaded. The Game Boy nominal refresh is ~59.73 Hz.
-    public double Fps { get; private set; }
-    private int _fpsFrameCount;
-    private long _fpsLastStamp;
-
-    // Task-level reentrancy guard. Calling RunAsync while a loop is already
-    // running returns the existing task; re-loading a ROM pauses + awaits the
-    // active loop before installing the new System so we never run two loops
-    // against one GameBoySystem (which doubled the emu speed, doubled audio
-    // drain, and raced on FPS bookkeeping before this fix).
-    private Task? _runningTask;
-
-    // Throttled frame signal for live debug views (CpuDashboard etc.) — fires
-    // ~15 Hz while running, vs StateChanged which fires 1 Hz for chrome that
-    // only cares about FPS / ROM title. Without this, the Diagnostics drawer
-    // strobes once per second after the 1 Hz StateChanged change.
     private const int DebugFrameDivisor = 4;   // 60 / 4 ≈ 15 Hz
     private int _debugFrameCounter;
+    private long _fpsFrameCount;
+    private long _fpsLastStamp;
 
-    public void AttachKeyboard(KeyboardInputBridge keyboard) => _keyboard = keyboard;
+    public EmulatorHost(AudioPipe audio)
+    {
+        _audio = audio;
+        _frames = new FramePublisher(160 * 144 * 4);
+        _runner = new EmulatorRunner(audio);
+        _runner.StateChanged += () => StateChanged?.Invoke();
+        _runner.FatalError += ex => { LastError = ex; StateChanged?.Invoke(); };
+        _runner.FrameCompleted += OnFrameCompleted;
+    }
+
+    public double Fps { get; private set; }
+    public Exception? LastError { get; private set; }
     public GameBoySystem? System { get; private set; }
     public byte[]? OriginalRom { get; private set; }
+    public bool IsPaused => _runner.IsPaused;
+    public FramePublisher Frames => _frames;
+    public AudioPipe Audio => _audio;
+
     public event Action? FrameReady;
     public event Action? StateChanged;
-    /// <summary>
-    /// Fires ~15 Hz while running. Debug views (register dashboards, memory
-    /// viewers) should subscribe here instead of StateChanged so they stay
-    /// live without forcing the full chrome to re-render per frame.
-    /// </summary>
+    /// <summary>Fires ~15 Hz while running — for live debug views.</summary>
     public event Action? DebugTick;
 
     public void RaiseStateChanged() => StateChanged?.Invoke();
+    public void AttachKeyboard(KeyboardInputBridge keyboard) => _keyboard = keyboard;
 
-    public bool IsPaused { get; set; } = true;
-
-    public EmulatorHost(FramePacer framePacer, WebAudioBridge webAudio)
+    public Task LoadAsync(ReadOnlyMemory<byte> romBytes, HardwareMode mode)
     {
-        _framePacer = framePacer;
-        _webAudio = webAudio;
-    }
-
-    public async Task LoadAsync(ReadOnlyMemory<byte> romBytes, HardwareMode mode)
-    {
-        // Park any in-flight run loop and wait for it to actually exit before
-        // swapping System — otherwise the suspended loop wakes on rAF and
-        // starts driving the new System alongside the fresh RunAsync we're
-        // about to fire.
-        Pause();
-        if (_runningTask is { IsCompleted: false } pending)
-        {
-            try { await pending; } catch { /* loop exceptions surface on next RunAsync */ }
-        }
-        _runningTask = null;
-
+        _runner.Pause();
         var cart = CartridgeFactory.Load(romBytes.Span);
         System = new GameBoySystem(mode, cart);
         OriginalRom = romBytes.ToArray();
-        IsPaused = true;
+        _runner.SetSystem(System);
         StateChanged?.Invoke();
+        return Task.CompletedTask;
     }
 
     public void AttachDebugSystem(GameBoySystem system)
     {
-        Pause();
+        _runner.Pause();
         System = system;
-        IsPaused = true;
+        _runner.SetSystem(System);
         StateChanged?.Invoke();
     }
 
-    public Task RunAsync()
+    public async Task RunAsync()
     {
-        if (System is null) return Task.CompletedTask;
-
-        // Reentrancy guard: if a loop is already running, return its Task so
-        // the caller can still await "completion" semantically. Avoids the
-        // previous double-RunAsync race where both loops drove the same
-        // GameBoySystem at 2× real-time.
-        if (_runningTask is { IsCompleted: false } inflight)
-            return inflight;
-
-        _runningTask = RunLoopAsync();
-        return _runningTask;
-    }
-
-    private async Task RunLoopAsync()
-    {
-        IsPaused = false;
+        if (System is null) return;
 
         if (!_audioInitialized)
         {
-            await _webAudio.InitAsync();
+            await _audio.InitAsync();
             if (_keyboard is not null) await _keyboard.EnsureRegisteredAsync();
             _audioInitialized = true;
         }
@@ -110,65 +82,57 @@ public sealed class EmulatorHost
         _fpsFrameCount = 0;
         _fpsLastStamp = Stopwatch.GetTimestamp();
         _debugFrameCounter = 0;
+        _runner.Resume();
 
-        while (!IsPaused && System is not null)
+        // Keep the method awaitable for existing callers. Return when the
+        // runner parks (pause / breakpoint). Poll cadence matches the old
+        // per-frame cadence; this task is just a completion signal.
+        while (!IsPaused)
         {
-            var result = System.RunFrame();
-            FrameReady?.Invoke();
-
-            if ((++_debugFrameCounter % DebugFrameDivisor) == 0)
-                DebugTick?.Invoke();
-
-            _fpsFrameCount++;
-            long now = Stopwatch.GetTimestamp();
-            long elapsed = now - _fpsLastStamp;
-            if (elapsed >= Stopwatch.Frequency)   // 1 second
-            {
-                Fps = _fpsFrameCount * (double)Stopwatch.Frequency / elapsed;
-                _fpsFrameCount = 0;
-                _fpsLastStamp = now;
-
-                // Chrome-level state-changed (ROM title, FPS text, playback
-                // button states). Stays at 1 Hz so a full re-render of every
-                // subscribed component doesn't fire 60×/s. Live debug views
-                // use DebugTick instead.
-                StateChanged?.Invoke();
-            }
-
-            await DrainAudioAsync();
-
-            if (result.Reason == StopReason.Breakpoint || result.Reason == StopReason.Watchpoint)
-            {
-                IsPaused = true;
-                break;
-            }
-
-            await _framePacer.WaitForNextFrameAsync();
+            await Task.Delay(50);
         }
-
         Fps = 0;
     }
 
-    private async ValueTask DrainAudioAsync()
-    {
-        if (System is null) return;
-        int available = System.Apu.SampleBuffer.Available;
-        if (available == 0) return;
-        var buf = new short[available];
-        int n = System.Apu.SampleBuffer.Drain(buf);
-        if (n > 0) await _webAudio.PushAsync(buf.AsMemory(0, n));
-    }
+    public void Pause() => _runner.Pause();
 
     public void StepInstruction()
     {
-        if (System is null) return;
+        if (System is null || !IsPaused) return;
         System.StepInstruction();
         StateChanged?.Invoke();
     }
 
-    public void Pause()
+    private void OnFrameCompleted()
     {
-        IsPaused = true;
-        System?.RunGuard.RequestStop();
+        var sys = System;
+        if (sys is null) return;
+
+        // Copy PPU's front framebuffer into the publisher's back slot.
+        var back = _frames.AcquireBack();
+        sys.Framebuffer.Front.CopyTo(back);
+        _frames.PublishBack(back);
+
+        FrameReady?.Invoke();
+
+        if ((++_debugFrameCounter % DebugFrameDivisor) == 0)
+            DebugTick?.Invoke();
+
+        _fpsFrameCount++;
+        long now = Stopwatch.GetTimestamp();
+        long elapsed = now - _fpsLastStamp;
+        if (elapsed >= Stopwatch.Frequency)   // 1 second
+        {
+            Fps = _fpsFrameCount * (double)Stopwatch.Frequency / elapsed;
+            _fpsFrameCount = 0;
+            _fpsLastStamp = now;
+            StateChanged?.Invoke();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _runner.Dispose();
+        await _audio.DisposeAsync();
     }
 }

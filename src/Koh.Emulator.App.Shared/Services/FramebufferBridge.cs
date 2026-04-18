@@ -1,29 +1,53 @@
 using Microsoft.JSInterop;
-using Koh.Emulator.Core.Ppu;
 
 namespace Koh.Emulator.App.Services;
 
 /// <summary>
-/// Bridges the emulator framebuffer to the HTML canvas via JS interop.
-/// Ships the raw RGBA bytes directly — Blazor's JS interop marshals byte[]
-/// efficiently (no base64), which matters at 60 fps: the old path produced
-/// ~5 MB/s of UTF-16 string traffic and was visibly stealing frame budget.
+/// Bridges a framebuffer <c>byte[]</c> to the HTML canvas via JS interop.
+/// Commit is synchronous so the rAF loop in JS can pull a fresh front
+/// buffer from <see cref="FramePublisher"/> each tick without awaiting a
+/// Blazor Task round-trip.
 /// </summary>
 public sealed class FramebufferBridge
 {
     private readonly IJSRuntime _js;
+    private readonly IJSInProcessRuntime? _jsSync;
+    private DotNetObjectReference<FramebufferBridge>? _rafRef;
+    private Action? _onRaf;
 
-    public FramebufferBridge(IJSRuntime js) { _js = js; }
+    public FramebufferBridge(IJSRuntime js)
+    {
+        _js = js;
+        _jsSync = js as IJSInProcessRuntime;
+    }
 
     public ValueTask AttachAsync(string canvasId)
         => _js.InvokeVoidAsync("kohFramebufferBridge.attach", canvasId);
 
-    public ValueTask CommitAsync(Framebuffer framebuffer)
+    public void CommitSync(byte[] frame)
     {
-        // Blazor marshals byte[] as Uint8Array on the JS side. The old
-        // implementation here base64-encoded the buffer in .NET, shipped it
-        // as a string, and decoded with atob on the JS side — ~5 MB/s of
-        // UTF-16 traffic + a big allocation every frame.
-        return _js.InvokeVoidAsync("kohFramebufferBridge.commit", framebuffer.FrontArray);
+        if (_jsSync is not null)
+            _jsSync.InvokeVoid("kohFramebufferBridge.commit", frame);
+        else
+            _js.InvokeVoidAsync("kohFramebufferBridge.commit", frame).AsTask().GetAwaiter().GetResult();
     }
+
+    public ValueTask StartRafLoopAsync(Action onFrame)
+    {
+        _onRaf = onFrame;
+        _rafRef = DotNetObjectReference.Create(this);
+        return _js.InvokeVoidAsync("kohFramebufferBridge.startRafLoop", _rafRef);
+    }
+
+    public ValueTask StopRafLoopAsync()
+    {
+        _onRaf = null;
+        var t = _js.InvokeVoidAsync("kohFramebufferBridge.stopRafLoop");
+        _rafRef?.Dispose();
+        _rafRef = null;
+        return t;
+    }
+
+    [JSInvokable]
+    public void OnRaf() => _onRaf?.Invoke();
 }
