@@ -25,6 +25,31 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+
+    <!-- Publish-size trims. Only take effect for Release publishes;
+         Debug iteration stays fast.
+
+           SatelliteResourceLanguages=en: drops ~120 MUI satellite folders
+             (~3.7 MB + thousands of files).
+           PublishReadyToRun=false: shrinks the managed .NET DLLs by ~40-60%
+             each (the WinUI / Windows App SDK binaries are native-code so
+             they don't benefit from R2R regardless). Tradeoff: ~1-2s extra
+             JIT work on first launch.
+           InvariantGlobalization=true: drops ICU + CLDR data (~30 MB).
+             Side effect: CurrentCulture/NumberFormat become invariant —
+             we format with CultureInfo.InvariantCulture everywhere in the
+             emulator already, so this is safe.
+
+         PublishTrimmed was tried and rolled back: Blazor Hybrid's bootstrap
+         (root-component discovery, JSON contract generation, DI activation)
+         relies on reflection paths that `TrimMode=partial` still strips,
+         leaving the WebView stuck on "Loading…". A follow-up could add
+         TrimmerRootAssembly entries for the Components chain + our shared
+         project, but those savings come at the cost of reviewing every
+         reflection site in the graph, so we leave it off for now. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">false</PublishReadyToRun>
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
