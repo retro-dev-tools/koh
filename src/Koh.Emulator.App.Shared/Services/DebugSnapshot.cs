@@ -59,8 +59,19 @@ public static class DebugSnapshot
             sb.Append("- KEY1: SwitchArmed=").Append(sys.KeyOne.SwitchArmed)
               .Append("  DoubleSpeed=").AppendLine(sys.KeyOne.DoubleSpeed.ToString());
         }
+        // Rich audio status pulled directly from AudioPipe — isolation level
+        // and live worklet counters. audioStatsJson (if passed) is preserved
+        // as a raw line for tooling compatibility.
+        sb.Append("- Audio isolation: ").AppendLine(host.Audio.IsolationLevel.ToString());
+        sb.Append("- Audio buffered: ").Append(host.Audio.Buffered)
+          .Append(" samples (~").Append((host.Audio.Buffered / 44.1).ToString("0.0", invar))
+          .AppendLine(" ms)");
+        sb.Append("- Audio underruns: ").Append(host.Audio.Underruns.ToString(invar))
+          .Append("  overruns: ").AppendLine(host.Audio.Overruns.ToString(invar));
+        if (host.LastError is { } err)
+            sb.Append("- Last runner error: ").AppendLine(err.Message);
         if (!string.IsNullOrEmpty(audioStatsJson))
-            sb.Append("- Audio bridge: ").AppendLine(audioStatsJson);
+            sb.Append("- Audio bridge (raw): ").AppendLine(audioStatsJson);
         sb.AppendLine();
 
         // ─── CPU ─────────────────────────────────────────────────────────
