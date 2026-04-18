@@ -61,7 +61,7 @@ window.kohAudio = (function () {
             if (m.kind === 'stats') {
                 stats = m;
                 if (dotNetRef) {
-                    dotNetRef.invokeMethodAsync('UpdateCounters', m.underruns, m.overruns);
+                    dotNetRef.invokeMethodAsync('UpdateCounters', m.underruns, m.overruns, m.buffered | 0);
                 }
             }
         };

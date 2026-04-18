@@ -18,7 +18,7 @@
             await Bridge.StartRafLoopAsync(() =>
             {
                 var front = EmulatorHost.Frames.AcquireFront();
-                try { Bridge.CommitSync(front); }
+                try { Bridge.Commit(front); }
                 finally { EmulatorHost.Frames.ReleaseFront(front); }
             });
             _attached = true;

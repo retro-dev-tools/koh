@@ -3,33 +3,31 @@ using Microsoft.JSInterop;
 namespace Koh.Emulator.App.Services;
 
 /// <summary>
-/// Bridges a framebuffer <c>byte[]</c> to the HTML canvas via JS interop.
-/// Commit is synchronous so the rAF loop in JS can pull a fresh front
-/// buffer from <see cref="FramePublisher"/> each tick without awaiting a
-/// Blazor Task round-trip.
+/// Bridges a framebuffer byte[] to the HTML canvas via JS interop.
+///
+/// Commit is fire-and-forget async: Blazor marshals the byte[] synchronously
+/// before <see cref="IJSRuntime.InvokeVoidAsync(string, object?[])"/> returns
+/// the task, so we can drop the returned task on the floor without racing
+/// the caller who immediately releases the front buffer. We cannot block
+/// on the task: in MAUI Blazor Hybrid the JS runtime is NOT an
+/// <c>IJSInProcessRuntime</c>, so a sync-over-async wait on the dispatcher
+/// thread deadlocks the UI.
 /// </summary>
 public sealed class FramebufferBridge
 {
     private readonly IJSRuntime _js;
-    private readonly IJSInProcessRuntime? _jsSync;
     private DotNetObjectReference<FramebufferBridge>? _rafRef;
     private Action? _onRaf;
 
-    public FramebufferBridge(IJSRuntime js)
-    {
-        _js = js;
-        _jsSync = js as IJSInProcessRuntime;
-    }
+    public FramebufferBridge(IJSRuntime js) { _js = js; }
 
     public ValueTask AttachAsync(string canvasId)
         => _js.InvokeVoidAsync("kohFramebufferBridge.attach", canvasId);
 
-    public void CommitSync(byte[] frame)
+    public void Commit(byte[] frame)
     {
-        if (_jsSync is not null)
-            _jsSync.InvokeVoid("kohFramebufferBridge.commit", frame);
-        else
-            _js.InvokeVoidAsync("kohFramebufferBridge.commit", frame).AsTask().GetAwaiter().GetResult();
+        // Fire-and-forget: arguments are marshalled synchronously.
+        _ = _js.InvokeVoidAsync("kohFramebufferBridge.commit", frame);
     }
 
     public ValueTask StartRafLoopAsync(Action onFrame)
