@@ -75,14 +75,15 @@ public class EmulatorRunnerLifecycleTests
     {
         // We only verify the handler wires up and doesn't fire on normal
         // operation — the underlying cause (mis-decoded opcodes, etc.)
-        // is covered by CPU tests.
+        // is covered by CPU tests. 250ms is generous enough to survive
+        // parallel test execution scheduling lag.
         Exception? seen = null;
         var sink = new FakeSink();
         var runner = new EmulatorRunner(sink);
         runner.FatalError += ex => seen = ex;
         runner.SetSystem(NewTinySystem());
         runner.Resume();
-        await Task.Delay(50);
+        await Task.Delay(250);
 
         await Assert.That(seen).IsNull();
         await Assert.That(sink.PushCalls).IsGreaterThan(0);
