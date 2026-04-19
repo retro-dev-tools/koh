@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
+using Koh.Emulator.Core.Joypad;
 using Koh.Emulator.Core.Ppu;
 using KohUI;
 using KohUI.Widgets;
@@ -25,6 +26,8 @@ public sealed record Tick : EmulatorMsg;
 public sealed record LoadRom(string Path) : EmulatorMsg;
 public sealed record LoadRomSucceeded(GameBoySystem System, string Path) : EmulatorMsg;
 public sealed record LoadRomFailed(string Path, string Error) : EmulatorMsg;
+public sealed record JoypadDown(JoypadButton Button) : EmulatorMsg;
+public sealed record JoypadUp(JoypadButton Button) : EmulatorMsg;
 
 public static class EmulatorApp
 {
@@ -35,11 +38,44 @@ public static class EmulatorApp
         Tick                  => OnTick(m),
         LoadRomSucceeded ok   => m with { System = ok.System, RomPath = ok.Path, Status = $"Loaded {Path.GetFileName(ok.Path)}" },
         LoadRomFailed fail    => m with { Status = $"Load failed: {fail.Error}" },
+        JoypadDown d          => OnJoypadDown(m, d.Button),
+        JoypadUp u            => OnJoypadUp(m, u.Button),
         // LoadRom is handled imperatively at the boot site; keeping the
         // msg in the discriminated union so the dispatcher still accepts
         // it without the compiler complaining.
         LoadRom               => m,
         _                     => m,
+    };
+
+    private static EmulatorModel OnJoypadDown(EmulatorModel m, JoypadButton button)
+    {
+        m.System?.JoypadPress(button);
+        return m;
+    }
+
+    private static EmulatorModel OnJoypadUp(EmulatorModel m, JoypadButton button)
+    {
+        m.System?.JoypadRelease(button);
+        return m;
+    }
+
+    /// <summary>
+    /// Keyboard → joypad mapping following the arcade-style default
+    /// (WASD / arrows for the d-pad, Z/X for B/A, Enter/RShift for
+    /// Start/Select). Returns null for unmapped keys so the runner's
+    /// default handling (focus, menus) still works for them.
+    /// </summary>
+    public static JoypadButton? MapKey(string keyName) => keyName switch
+    {
+        "ArrowUp"     => JoypadButton.Up,
+        "ArrowDown"   => JoypadButton.Down,
+        "ArrowLeft"   => JoypadButton.Left,
+        "ArrowRight"  => JoypadButton.Right,
+        "KeyZ"        => JoypadButton.B,
+        "KeyX"        => JoypadButton.A,
+        "Enter"       => JoypadButton.Start,
+        "ShiftRight"  => JoypadButton.Select,
+        _             => null,
     };
 
     private static EmulatorModel OnTick(EmulatorModel m)

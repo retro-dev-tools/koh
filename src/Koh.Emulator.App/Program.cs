@@ -28,7 +28,9 @@ runner.Dispatch(EmulatorApp.LoadRomFromDisk(romPath, mode));
 var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
     runner,
     title: "Koh Emulator",
-    onTick: () => new Tick());
+    onTick: () => new Tick(),
+    onKeyDown: name => EmulatorApp.MapKey(name) is { } btn ? new JoypadDown(btn) : null,
+    onKeyUp:   name => EmulatorApp.MapKey(name) is { } btn ? new JoypadUp(btn)   : null);
 
 backend.Run();
 await runner.DisposeAsync();

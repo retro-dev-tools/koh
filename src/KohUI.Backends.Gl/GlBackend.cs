@@ -21,6 +21,8 @@ public sealed class GlBackend<TModel, TMsg>
     private readonly int _width;
     private readonly int _height;
     private readonly Func<TMsg>? _onTick;
+    private readonly Func<string, TMsg?>? _onKeyDown;
+    private readonly Func<string, TMsg?>? _onKeyUp;
 
     /// <param name="onTick">
     /// Optional message factory invoked once per rendered frame. Use
@@ -30,13 +32,23 @@ public sealed class GlBackend<TModel, TMsg>
     /// <see cref="Runner{TModel, TMsg}.Dispatch"/> like any other, so
     /// they interleave with mouse/keyboard events in the update loop.
     /// </param>
+    /// <param name="onKeyDown">
+    /// Optional key-press hook. Receives a DOM-style key name (e.g.
+    /// "ArrowUp", "KeyZ", "Enter"); returns a message to dispatch or
+    /// null to let the default handling run (Tab focus, accelerators,
+    /// Enter/Space click, TextBox typing). Fires for every Press AND
+    /// Repeat action so held keys auto-repeat.
+    /// </param>
+    /// <param name="onKeyUp">Mirror of <paramref name="onKeyDown"/> for release events.</param>
     public GlBackend(
         Runner<TModel, TMsg> runner,
         Win98Theme? theme = null,
         string title = "KohUI",
         int width = 0,
         int height = 0,
-        Func<TMsg>? onTick = null)
+        Func<TMsg>? onTick = null,
+        Func<string, TMsg?>? onKeyDown = null,
+        Func<string, TMsg?>? onKeyUp = null)
     {
         _runner = runner;
         _theme = theme ?? Win98Theme.Default;
@@ -44,6 +56,8 @@ public sealed class GlBackend<TModel, TMsg>
         _width = width;
         _height = height;
         _onTick = onTick;
+        _onKeyDown = onKeyDown;
+        _onKeyUp = onKeyUp;
     }
 
     public unsafe void Run()
@@ -159,7 +173,23 @@ public sealed class GlBackend<TModel, TMsg>
         });
         glfw.SetKeyCallback(window, (_, key, _, action, mods) =>
         {
+            string name = KeyName(key);
+            if (action == InputAction.Release)
+            {
+                if (_onKeyUp is not null && _onKeyUp(name) is TMsg msgUp) _runner.Dispatch(msgUp);
+                return;
+            }
             if (action != InputAction.Press && action != InputAction.Repeat) return;
+
+            // App hook gets first dibs. Returning a message consumes the
+            // key — no focus cycling, no click dispatch. Return null to
+            // pass through to default handling.
+            if (_onKeyDown is not null && _onKeyDown(name) is TMsg msg)
+            {
+                _runner.Dispatch(msg);
+                return;
+            }
+
             if (key == Keys.Escape) { escapePressed = true; return; }
             HandleKeyDown(key, mods, lastLayout, ref focusPath);
         });
@@ -344,4 +374,50 @@ public sealed class GlBackend<TModel, TMsg>
         if (!node.Source.Props.TryGetValue("onClick", out var v) || v is not Delegate d) return;
         InvokeHandler(d, path, kind);
     }
+
+    /// <summary>
+    /// Map a GLFW key to a DOM-style key name. The subset covered here
+    /// is "keys an app is likely to bind" — letters, digits, arrows,
+    /// common punctuation, modifiers, Enter/Space/Esc/Tab/Backspace.
+    /// Unmapped keys return an empty string rather than throwing; app
+    /// hooks check by value so an unknown key is harmless.
+    /// </summary>
+    private static string KeyName(Keys key) => key switch
+    {
+        >= Keys.A and <= Keys.Z                 => "Key" + (char)('A' + (key - Keys.A)),
+        >= Keys.Number0 and <= Keys.Number9     => "Digit" + (char)('0' + (key - Keys.Number0)),
+        Keys.Up       => "ArrowUp",
+        Keys.Down     => "ArrowDown",
+        Keys.Left     => "ArrowLeft",
+        Keys.Right    => "ArrowRight",
+        Keys.Enter    => "Enter",
+        Keys.KeypadEnter => "Enter",
+        Keys.Space    => "Space",
+        Keys.Escape   => "Escape",
+        Keys.Tab      => "Tab",
+        Keys.Backspace => "Backspace",
+        Keys.Delete   => "Delete",
+        Keys.Home     => "Home",
+        Keys.End      => "End",
+        Keys.PageUp   => "PageUp",
+        Keys.PageDown => "PageDown",
+        Keys.ShiftLeft     => "ShiftLeft",
+        Keys.ShiftRight    => "ShiftRight",
+        Keys.ControlLeft   => "ControlLeft",
+        Keys.ControlRight  => "ControlRight",
+        Keys.AltLeft       => "AltLeft",
+        Keys.AltRight      => "AltRight",
+        Keys.Minus    => "Minus",
+        Keys.Equal    => "Equal",
+        Keys.Comma    => "Comma",
+        Keys.Period   => "Period",
+        Keys.Slash    => "Slash",
+        Keys.Semicolon => "Semicolon",
+        Keys.Apostrophe => "Quote",
+        Keys.GraveAccent => "Backquote",
+        Keys.LeftBracket  => "BracketLeft",
+        Keys.RightBracket => "BracketRight",
+        Keys.BackSlash    => "Backslash",
+        _ => "",
+    };
 }
