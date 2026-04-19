@@ -76,6 +76,17 @@ public class CounterDemoE2ETests
         // Reopen resets the count to 0.
         await page.Locator("button", new() { HasTextString = "Reopen" }).ClickAsync();
         await page.Locator(".kohui-label", new() { HasTextString = "Count: 0" }).WaitForAsync();
+
+        // TextBox round-trip: fill the Name field, status bar echoes.
+        // Playwright's `fill` dispatches a single `input` event that our
+        // JS listener forwards to the server; the server updates the
+        // model and re-renders, the status bar patch arrives, "Hi, X!"
+        // appears.
+        var nameInput = page.Locator("input[type='text']").First;
+        await nameInput.FillAsync("Mike");
+        await page.Locator(".status-bar-field").Filter(new() { HasTextString = "Hi, Mike!" }).WaitForAsync();
+        await nameInput.FillAsync("Bob");
+        await page.Locator(".status-bar-field").Filter(new() { HasTextString = "Hi, Bob!" }).WaitForAsync();
     }
 
     // ─── Subprocess plumbing ─────────────────────────────────────────

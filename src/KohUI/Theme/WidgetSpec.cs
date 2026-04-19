@@ -143,6 +143,19 @@ public static class WidgetSpecs
         b["CheckBox"]    = new WidgetSpec();
         b["RadioButton"] = new WidgetSpec();
 
+        // TextBox is a sunken white field. The painter paints the input
+        // background itself (distinct from the theme's panel bg); the
+        // spec just captures the structural metrics.
+        b["TextBox"] = new WidgetSpec
+        {
+            Bevel = BevelStyle.Sunken,
+            BevelInset = t.BevelWidth,
+            PaddingX = 3,
+            PaddingY = 3,
+            MinWidth = 60,
+            MinHeight = t.ButtonMinHeight,
+        };
+
         // ─── Containers that wrap one child ──────────────────────────
         b["Window"] = new WidgetSpec
         {

@@ -67,6 +67,7 @@
             case "StatusBarSegment": return { tag: "p",      className: "status-bar-field" };
             case "CheckBox":         return { tag: "label",  className: "" };
             case "RadioButton":      return { tag: "label",  className: "" };
+            case "TextBox":          return { tag: "input",  className: "" };
             default:                 return { tag: "div",    className: "" };
         }
     }
@@ -181,6 +182,16 @@
                 el.textContent = p.text ?? "";
                 break;
 
+            case "TextBox":
+                el.type = "text";
+                // Only overwrite el.value when it differs from the
+                // server-authoritative text — avoids clobbering the
+                // caret/selection on the echo patch that immediately
+                // follows the user's own `input` event.
+                if (el.value !== (p.text ?? "")) el.value = p.text ?? "";
+                wireInputForwarder(el, p.onChange === true);
+                break;
+
             case "CheckBox":
             case "RadioButton": {
                 // <label><input type=checkbox|radio> <span>text</span></label>
@@ -216,6 +227,27 @@
         return s.replace(/[&<>"']/g, c => ({
             "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
         })[c]);
+    }
+
+    // Text-input forwarder. Distinct from the click-style forwarder
+    // because the message carries the element's `value` — the server
+    // binds `onChange` as a Func<string, TMsg>.
+    function wireInputForwarder(el, hasHandler) {
+        const marker = "_kohuiHas_input";
+        if (!hasHandler) {
+            if (el[marker]) {
+                el.removeEventListener("input", el[marker]);
+                el[marker] = null;
+            }
+            return;
+        }
+        if (el[marker]) return;
+        const listener = () => {
+            const path = pathOf(el);
+            ws.send(JSON.stringify({ op: "event", path, event: "change", value: el.value }));
+        };
+        el.addEventListener("input", listener);
+        el[marker] = listener;
     }
 
     function wireEventForwarder(el, domEventName, hasHandler) {
@@ -340,7 +372,18 @@
         const props = {};
         const type = typeOf(el);
         if (type === "Label" || type === "Button" || type === "StatusBarSegment") props.text = el.textContent;
-        if (type === "Button") props.enabled = !el.disabled;
+        if (type === "Button") {
+            props.enabled = !el.disabled;
+            // Preserve the click listener across prop-only patches. C#
+            // caches non-capturing lambdas, so the reconciler often
+            // omits `onClick` from updates — without this, the next
+            // applyProps would unwire us.
+            if (el._kohuiHas_click) props.onClick = true;
+        }
+        if (type === "TextBox") {
+            props.text = el.value;
+            if (el._kohuiHas_input) props.onChange = true;
+        }
         if (type === "CheckBox" || type === "RadioButton") {
             // The label's textContent concatenates input (empty) + span (" "+text).
             // Strip the leading space so round-trip preserves the server's view.

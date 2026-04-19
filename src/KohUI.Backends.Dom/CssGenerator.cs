@@ -35,6 +35,7 @@ internal static class CssGenerator
         EmitStack(sb, ".kohui-menubar",   specs["MenuBar"],   t);
         EmitStack(sb, ".kohui-statusbar", specs["StatusBar"], t);
         EmitCheckAndRadio(sb, t);
+        EmitTextBox(sb, specs["TextBox"], t);
         EmitWindowChrome(sb, t);
 
         return sb.ToString();
@@ -189,6 +190,27 @@ internal static class CssGenerator
         sb.Append(selector).AppendLine(".kohui-stack-Vertical   { flex-direction: column; }");
         sb.Append(selector).AppendLine(".kohui-stack-Horizontal { flex-direction: row; align-items: center; }");
         sb.Append(selector).AppendLine(".kohui-stack-stretch > * { flex: 1; }");
+    }
+
+    private static void EmitTextBox(StringBuilder sb, WidgetSpec spec, Win98Theme t)
+    {
+        // Target both .kohui-textbox (the inline class the client adds)
+        // and input[type=text] under the kohui root, so the styling
+        // wins over browser defaults without !important noise.
+        sb.Append("\ninput.kohui-textbox, .kohui-textbox input, .kohui-textbox {")
+          .AppendLine()
+          .Append("    background: ").Append(t.InputBackground.ToHex()).AppendLine(";")
+          .Append("    color: ").Append(t.Text.ToHex()).AppendLine(";")
+          .AppendLine("    font-family: inherit;")
+          .AppendLine("    font-size: inherit;")
+          .AppendLine("    border: none;")
+          .AppendLine("    outline: none;")
+          .Append("    padding: ").Append(spec.PaddingY).Append("px ").Append(spec.PaddingX).AppendLine("px;")
+          .Append("    box-sizing: content-box;")
+          .AppendLine()
+          .Append("    min-width: ").Append(spec.MinWidth).AppendLine("px;")
+          .Append("    box-shadow: ").Append(BevelShadow(t, spec.Bevel, spec.BevelInset)).AppendLine(";")
+          .AppendLine("}");
     }
 
     private static void EmitCheckAndRadio(StringBuilder sb, Win98Theme t)

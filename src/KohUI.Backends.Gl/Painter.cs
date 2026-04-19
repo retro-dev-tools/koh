@@ -15,7 +15,7 @@ internal sealed class Painter
     private readonly QuadBatch _batch;
     private readonly BitmapFont _font;
 
-    private readonly KohColor _bg, _hi, _sh, _dk, _text, _dis, _titleBg, _titleBgEnd, _titleText;
+    private readonly KohColor _bg, _hi, _sh, _dk, _text, _dis, _titleBg, _titleBgEnd, _titleText, _inputBg;
 
     public Painter(Win98Theme theme, QuadBatch batch, BitmapFont font)
     {
@@ -31,21 +31,24 @@ internal sealed class Painter
         _titleBg = theme.TitleBarStart;
         _titleBgEnd = theme.TitleBarEnd;
         _titleText = theme.TitleBarText;
+        _inputBg = theme.InputBackground;
     }
 
     /// <summary>
     /// Paint the tree. <paramref name="pressedPath"/> is the button path
     /// currently held down (inverted bevel). <paramref name="focusPath"/>
     /// is the focused widget (dotted focus ring on buttons; blue
-    /// highlight on menu items).
+    /// highlight on menu items). <paramref name="caretOn"/> toggles the
+    /// TextBox caret on for this frame (the run loop flips it on a
+    /// ~530 ms cadence).
     /// </summary>
-    public void Paint(LayoutNode node, string? pressedPath = null, string? focusPath = null)
+    public void Paint(LayoutNode node, string? pressedPath = null, string? focusPath = null, bool caretOn = true)
     {
-        Draw(node, pressedPath, focusPath);
-        foreach (var child in node.Children) Paint(child, pressedPath, focusPath);
+        Draw(node, pressedPath, focusPath, caretOn);
+        foreach (var child in node.Children) Paint(child, pressedPath, focusPath, caretOn);
     }
 
-    private void Draw(LayoutNode node, string? pressedPath, string? focusPath)
+    private void Draw(LayoutNode node, string? pressedPath, string? focusPath, bool caretOn)
     {
         var r = node.Bounds;
         bool pressed = pressedPath is not null && pressedPath == node.Path;
@@ -97,6 +100,10 @@ internal sealed class Painter
                 DrawRadioButton(r, Layouter.GetString(node.Source, "text"),
                     selected: node.Source.Props.TryGetValue("selected", out var sl) && sl is true,
                     focused);
+                break;
+
+            case "TextBox":
+                DrawTextBox(r, Layouter.GetString(node.Source, "text"), focused, caretOn);
                 break;
         }
     }
@@ -209,6 +216,26 @@ internal sealed class Painter
             var ringR = new Rect(textR.X - 2, textR.Y + (textR.H - BitmapFont.GlyphH) / 2 - 1,
                                  tw + 4, BitmapFont.GlyphH + 2);
             DrawFocusRing(ringR);
+        }
+    }
+
+    // ─── TextBox ─────────────────────────────────────────────────────
+
+    private void DrawTextBox(Rect r, string text, bool focused, bool caretOn)
+    {
+        Fill(r, _inputBg);
+        DrawBevel(r, outerTL: _sh, outerBR: _hi, innerTL: _dk, innerBR: _bg);
+
+        // Content sits inside the 2-pixel bevel + 3-pixel padding.
+        int contentX = r.X + _theme.BevelWidth + 3;
+        int contentY = r.Y + (r.H - BitmapFont.GlyphH) / 2;
+        if (!string.IsNullOrEmpty(text))
+            _font.DrawString(_batch, text, contentX, contentY, _text.R, _text.G, _text.B);
+
+        if (focused && caretOn)
+        {
+            int caretX = contentX + _font.Measure(text);
+            Fill(new Rect(caretX, contentY, 1, BitmapFont.GlyphH), _text);
         }
     }
 

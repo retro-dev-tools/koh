@@ -98,20 +98,22 @@ public sealed class DomBackend<TModel, TMsg>
 
     private void HandleInboundEvent(ReadOnlySpan<byte> json)
     {
-        // Shape: {"op":"event","path":"0.1","event":"click"}
+        // Shape: {"op":"event","path":"0.1","event":"click"}  (no value)
+        //    or: {"op":"event","path":"0.3","event":"change","value":"hi"}
         var reader = new Utf8JsonReader(json);
-        string? op = null, path = null, evt = null;
+        string? op = null, path = null, evt = null, value = null;
         while (reader.Read())
         {
             if (reader.TokenType != JsonTokenType.PropertyName) continue;
             var name = reader.GetString();
             reader.Read();
-            var value = reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
+            var s = reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
             switch (name)
             {
-                case "op":    op = value;    break;
-                case "path":  path = value;  break;
-                case "event": evt = value;   break;
+                case "op":    op = s;    break;
+                case "path":  path = s;  break;
+                case "event": evt = s;   break;
+                case "value": value = s; break;
             }
         }
         if (op != "event" || path is null || evt is null) return;
@@ -121,7 +123,13 @@ public sealed class DomBackend<TModel, TMsg>
 
         try
         {
-            if (handler.DynamicInvoke() is TMsg msg)
+            // Dispatch shape depends on the event: change events carry
+            // a string payload (TextBox.OnChange is Func<string, TMsg>);
+            // click / close are zero-arg (Func<TMsg>).
+            object? result = value is not null
+                ? handler.DynamicInvoke(value)
+                : handler.DynamicInvoke();
+            if (result is TMsg msg)
                 _runner.Dispatch(msg);
         }
         catch (Exception ex)

@@ -152,6 +152,13 @@ public sealed class GlBackend<TModel, TMsg>
             if (key == Keys.Escape) { escapePressed = true; return; }
             HandleKeyDown(key, mods, lastLayout, ref focusPath);
         });
+        // Unicode-typed characters arrive here (GLFW's equivalent of
+        // WM_CHAR). Only printable ASCII lands in our 6×8 atlas; the
+        // TextBox append path filters to 32..126 before dispatching.
+        glfw.SetCharCallback(window, (_, codepoint) =>
+        {
+            HandleCharInput(codepoint, lastLayout, focusPath);
+        });
         glfw.SetWindowCloseCallback(window, _ => { closeRequested = true; });
 
         while (!glfw.WindowShouldClose(window))
@@ -194,7 +201,9 @@ public sealed class GlBackend<TModel, TMsg>
             gl.Gl.ClearColor(_theme.Background.R / 255f, _theme.Background.G / 255f, _theme.Background.B / 255f, 1f);
             gl.Gl.Clear(ClearBufferMask.ColorBufferBit);
             batch.BeginFrame(w, h);
-            painter.Paint(layout, pressedPath, focusPath);
+            // Caret blink: ~530 ms on / 530 ms off (Windows default).
+            bool caretOn = (Environment.TickCount64 % 1060) < 530;
+            painter.Paint(layout, pressedPath, focusPath, caretOn);
             batch.Flush();
             gl.SwapBuffers();
         }
@@ -274,9 +283,45 @@ public sealed class GlBackend<TModel, TMsg>
             bool shift = (mods & KeyModifiers.Shift) != 0;
             focusPath = shift ? Focus.Prev(order, focusPath) : Focus.Next(order, focusPath);
         }
+        else if (key == Keys.Backspace)
+        {
+            // Only meaningful on a focused TextBox; silent on everything
+            // else so Backspace doesn't double-fire as a "click".
+            if (focusPath is null) return;
+            var node = Focus.FindByPath(layout, focusPath);
+            if (node is null || node.Source.Type != "TextBox") return;
+            if (!node.Source.Props.TryGetValue("onChange", out var v) || v is not Delegate d) return;
+            string current = Layouter.GetString(node.Source, "text");
+            if (current.Length == 0) return;
+            DispatchChange(d, focusPath, current[..^1]);
+        }
         else if (key == Keys.Enter || key == Keys.KeypadEnter || key == Keys.Space)
         {
             if (focusPath is not null) InvokeByPath(layout, focusPath, "key");
+        }
+    }
+
+    private void HandleCharInput(uint codepoint, LayoutNode? layout, string? focusPath)
+    {
+        if (layout is null || focusPath is null) return;
+        if (codepoint < 32 || codepoint > 126) return;       // fits our 6×8 atlas
+        var node = Focus.FindByPath(layout, focusPath);
+        if (node is null || node.Source.Type != "TextBox") return;
+        if (!node.Source.Props.TryGetValue("onChange", out var v) || v is not Delegate d) return;
+        string current = Layouter.GetString(node.Source, "text");
+        DispatchChange(d, focusPath, current + (char)codepoint);
+    }
+
+    private void DispatchChange(Delegate d, string path, string next)
+    {
+        try
+        {
+            if (d.DynamicInvoke(next) is TMsg msg)
+                _runner.Dispatch(msg);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[kohui-gl] change handler threw at '{path}': {ex.Message}");
         }
     }
 

@@ -4,7 +4,7 @@ using KohUI.Widgets;
 
 namespace KohUI.Demo;
 
-public readonly record struct CounterModel(int Count, int Step, bool AllowNegative, bool WindowOpen);
+public readonly record struct CounterModel(int Count, int Step, bool AllowNegative, bool WindowOpen, string Name);
 
 public abstract record CounterMsg;
 public sealed record Increment : CounterMsg;
@@ -12,6 +12,7 @@ public sealed record Decrement : CounterMsg;
 public sealed record Reset : CounterMsg;
 public sealed record SetStep(int Step) : CounterMsg;
 public sealed record SetAllowNegative(bool Allow) : CounterMsg;
+public sealed record SetName(string Name) : CounterMsg;
 public sealed record CloseWindow : CounterMsg;
 public sealed record Reopen : CounterMsg;
 
@@ -24,6 +25,7 @@ public static class CounterApp
         Reset                => m with { Count = 0 },
         SetStep s            => m with { Step = s.Step },
         SetAllowNegative a   => m with { AllowNegative = a.Allow, Count = Clamp(m.Count, a.Allow) },
+        SetName n            => m with { Name = n.Name },
         CloseWindow          => m with { WindowOpen = false },
         Reopen               => m with { WindowOpen = true, Count = 0 },
         _ => m,
@@ -72,15 +74,22 @@ public static class CounterApp
             Checked: m.AllowNegative,
             OnToggle: v => new SetAllowNegative(v));
 
+        var nameRow = new ForEach<CounterMsg>(
+            StackDirection.Horizontal,
+            ImmutableArray.Create<IView<CounterMsg>>(
+                new Label<CounterMsg>("Name:"),
+                new TextBox<CounterMsg>(m.Name, OnChange: v => new SetName(v))));
+
         var body = new Panel<CounterMsg,
                              ForEach<CounterMsg>>(
             PanelBevel.Raised,
             new ForEach<CounterMsg>(
                 StackDirection.Vertical,
-                ImmutableArray.Create<IView<CounterMsg>>(display, buttons, steps, allowNeg)));
+                ImmutableArray.Create<IView<CounterMsg>>(display, buttons, steps, allowNeg, nameRow)));
 
+        var greeting = string.IsNullOrEmpty(m.Name) ? "Ready" : $"Hi, {m.Name}!";
         var status = new StatusBar<CounterMsg>(ImmutableArray.Create(
-            "Ready",
+            greeting,
             $"Value: {m.Count}",
             $"Step: {m.Step}"));
 

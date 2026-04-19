@@ -2,8 +2,10 @@ namespace KohUI.Backends.Gl;
 
 /// <summary>
 /// Resolves a window-local point to the deepest <see cref="LayoutNode"/>
-/// whose bounds contain it and whose source carries an <c>onClick</c>
-/// delegate. Walks children last-first so siblings drawn on top win.
+/// whose bounds contain it and whose source carries an interactive
+/// event delegate (<c>onClick</c> for buttons/menu items,
+/// <c>onChange</c> for text input). Walks children last-first so
+/// siblings drawn on top win.
 /// </summary>
 public static class HitTest
 {
@@ -22,5 +24,9 @@ public static class HitTest
     }
 
     private static bool HasHandler(LayoutNode node)
-        => node.Source.Props.TryGetValue("onClick", out var v) && v is Delegate;
+    {
+        if (node.Source.Props.TryGetValue("onClick", out var v1) && v1 is Delegate) return true;
+        if (node.Source.Props.TryGetValue("onChange", out var v2) && v2 is Delegate) return true;
+        return false;
+    }
 }

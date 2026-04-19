@@ -46,6 +46,9 @@ public sealed record Win98Theme
     /// <summary>Default text on panel backgrounds. "ButtonText" / "WindowText".</summary>
     public required KohColor Text { get; init; }
 
+    /// <summary>Text-input background ("Window" in Win98 — always pure white on the default scheme).</summary>
+    public required KohColor InputBackground { get; init; }
+
     /// <summary>Text on disabled controls.</summary>
     public required KohColor DisabledText { get; init; }
 
@@ -104,6 +107,7 @@ public sealed record Win98Theme
         BevelShadow      = new(0x80, 0x80, 0x80),
         BevelDarkShadow  = new(0x00, 0x00, 0x00),
         Text             = new(0x00, 0x00, 0x00),
+        InputBackground  = new(0xff, 0xff, 0xff),
         DisabledText     = new(0x7e, 0x7e, 0x7e),
         TitleBarStart    = new(0x00, 0x00, 0x80),
         TitleBarEnd      = new(0x10, 0x84, 0xd0),

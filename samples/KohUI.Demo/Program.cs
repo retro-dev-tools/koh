@@ -25,7 +25,7 @@ bool previewOnly = args.Contains("--preview") || args.Contains("--headless");
 bool nativeOnly  = args.Contains("--native");
 
 var runner = new Runner<CounterModel, CounterMsg>(
-    initialModel: new CounterModel(Count: 0, Step: 1, AllowNegative: true, WindowOpen: true),
+    initialModel: new CounterModel(Count: 0, Step: 1, AllowNegative: true, WindowOpen: true, Name: ""),
     update: CounterApp.Update,
     view: CounterApp.View);
 

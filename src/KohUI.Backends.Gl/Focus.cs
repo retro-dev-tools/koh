@@ -29,8 +29,13 @@ internal static class Focus
 
     public static bool IsFocusable(LayoutNode node)
     {
-        if (!node.Source.Props.TryGetValue("onClick", out var v)) return false;
-        return v is Delegate;
+        // A widget is focusable if it carries *any* event delegate the
+        // user could address via keyboard — clickable for buttons/menu
+        // items, onChange for text input. Add more slots here as
+        // widgets with their own event shapes land.
+        if (node.Source.Props.TryGetValue("onClick", out var v1) && v1 is Delegate) return true;
+        if (node.Source.Props.TryGetValue("onChange", out var v2) && v2 is Delegate) return true;
+        return false;
     }
 
     public static string? Next(ImmutableArray<string> order, string? current)
