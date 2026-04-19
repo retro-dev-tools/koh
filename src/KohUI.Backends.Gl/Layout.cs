@@ -74,6 +74,10 @@ public sealed class Layouter(Win98Theme theme)
         if (node.Type == "CheckBox" || node.Type == "RadioButton")
             return MeasureGlyphed(node, _theme.CheckRadioSize, textGap: 6);
 
+        // Image's size is content-driven — pixel width × integer scale.
+        if (node.Type == "Image")
+            return MeasureImage(node);
+
         var spec = SpecOf(node.Type);
         return spec.Layout switch
         {
@@ -82,6 +86,14 @@ public sealed class Layouter(Win98Theme theme)
             LayoutKind.Stack  => MeasureStack(node, spec),
             _                 => MeasureLeaf(node, spec),
         };
+    }
+
+    private static (int W, int H) MeasureImage(RenderNode node)
+    {
+        int w = node.Props.TryGetValue("width", out var wv) && wv is int wi ? wi : 0;
+        int h = node.Props.TryGetValue("height", out var hv) && hv is int hi ? hi : 0;
+        int s = node.Props.TryGetValue("scale", out var sv) && sv is int si && si > 0 ? si : 1;
+        return (w * s, h * s);
     }
 
     private (int W, int H) MeasureText(string text)

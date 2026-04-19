@@ -156,6 +156,12 @@ public static class WidgetSpecs
             MinHeight = t.ButtonMinHeight,
         };
 
+        // Image is measured from its pixel props (width × scale, height
+        // × scale) rather than the spec — the spec entry just anchors
+        // the dispatch so the layouter recognises the type. Painter
+        // uploads and draws it as a textured quad.
+        b["Image"] = new WidgetSpec();
+
         // ─── Containers that wrap one child ──────────────────────────
         b["Window"] = new WidgetSpec
         {

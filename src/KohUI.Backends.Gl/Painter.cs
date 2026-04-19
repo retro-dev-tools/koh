@@ -1,5 +1,6 @@
 using KohUI;
 using KohUI.Theme;
+using Silk.NET.OpenGL;
 
 namespace KohUI.Backends.Gl;
 
@@ -9,19 +10,26 @@ namespace KohUI.Backends.Gl;
 /// (text). Bevels are plain 1-pixel rects over the OpenGL vertex stream —
 /// the full Win98 look from a single shader.
 /// </summary>
-internal sealed class Painter
+internal sealed class Painter : IDisposable
 {
     private readonly Win98Theme _theme;
     private readonly QuadBatch _batch;
     private readonly BitmapFont _font;
+    private readonly GL _gl;
+    // One GL texture per Image node, keyed on layout path. Reused across
+    // frames — an emulator Image uploads 160×144 RGBA (~92 KB) per paint,
+    // so keeping the texture handle around avoids GenTexture churn.
+    private readonly Dictionary<string, ImageTexture> _imageTextures = [];
+    private readonly HashSet<string> _seenImagePaths = [];
 
     private readonly KohColor _bg, _hi, _sh, _dk, _text, _dis, _titleBg, _titleBgEnd, _titleText, _inputBg;
 
-    public Painter(Win98Theme theme, QuadBatch batch, BitmapFont font)
+    public Painter(Win98Theme theme, QuadBatch batch, BitmapFont font, GL gl)
     {
         _theme = theme;
         _batch = batch;
         _font = font;
+        _gl = gl;
         _bg = theme.Background;
         _hi = theme.BevelHilite;
         _sh = theme.BevelShadow;
@@ -44,8 +52,15 @@ internal sealed class Painter
     /// </summary>
     public void Paint(LayoutNode node, string? pressedPath = null, string? focusPath = null, bool caretOn = true)
     {
+        _seenImagePaths.Clear();
+        PaintNode(node, pressedPath, focusPath, caretOn);
+        PruneStaleImageTextures();
+    }
+
+    private void PaintNode(LayoutNode node, string? pressedPath, string? focusPath, bool caretOn)
+    {
         Draw(node, pressedPath, focusPath, caretOn);
-        foreach (var child in node.Children) Paint(child, pressedPath, focusPath, caretOn);
+        foreach (var child in node.Children) PaintNode(child, pressedPath, focusPath, caretOn);
     }
 
     private void Draw(LayoutNode node, string? pressedPath, string? focusPath, bool caretOn)
@@ -104,6 +119,10 @@ internal sealed class Painter
 
             case "TextBox":
                 DrawTextBox(r, Layouter.GetString(node.Source, "text"), focused, caretOn);
+                break;
+
+            case "Image":
+                DrawImage(node);
                 break;
         }
     }
@@ -218,6 +237,79 @@ internal sealed class Painter
             DrawFocusRing(ringR);
         }
     }
+
+    // ─── Image ───────────────────────────────────────────────────────
+
+    private unsafe void DrawImage(LayoutNode node)
+    {
+        if (node.Source.Props.TryGetValue("pixels", out var pv) is false || pv is not byte[] pixels) return;
+        int width  = node.Source.Props.TryGetValue("width",  out var wv) && wv is int wi ? wi : 0;
+        int height = node.Source.Props.TryGetValue("height", out var hv) && hv is int hi ? hi : 0;
+        if (width <= 0 || height <= 0) return;
+        if (pixels.Length < width * height * 4) return;
+
+        _seenImagePaths.Add(node.Path);
+
+        if (!_imageTextures.TryGetValue(node.Path, out var tex) || tex.Width != width || tex.Height != height)
+        {
+            if (_imageTextures.TryGetValue(node.Path, out var old)) _gl.DeleteTexture(old.Handle);
+
+            uint handle = _gl.GenTexture();
+            _gl.BindTexture(TextureTarget.Texture2D, handle);
+            _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+            fixed (byte* p = pixels)
+                _gl.TexImage2D(TextureTarget.Texture2D, 0, (int)InternalFormat.Rgba8,
+                    (uint)width, (uint)height, 0,
+                    PixelFormat.Rgba, PixelType.UnsignedByte, p);
+            // Nearest-neighbor for pixel-perfect retro scaling.
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+            tex = new ImageTexture(handle, width, height);
+            _imageTextures[node.Path] = tex;
+        }
+        else
+        {
+            // Same dimensions → reuse the texture, just push new pixels.
+            _gl.BindTexture(TextureTarget.Texture2D, tex.Handle);
+            _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+            fixed (byte* p = pixels)
+                _gl.TexSubImage2D(TextureTarget.Texture2D, 0, 0, 0,
+                    (uint)width, (uint)height,
+                    PixelFormat.Rgba, PixelType.UnsignedByte, p);
+        }
+
+        var r = node.Bounds;
+        _batch.SetTexture(tex.Handle);
+        _batch.TexturedQuad(r.X, r.Y, r.W, r.H, 0f, 0f, 1f, 1f, 255, 255, 255);
+    }
+
+    private void PruneStaleImageTextures()
+    {
+        if (_imageTextures.Count == _seenImagePaths.Count) return;
+        List<string>? stale = null;
+        foreach (var key in _imageTextures.Keys)
+        {
+            if (_seenImagePaths.Contains(key)) continue;
+            stale ??= [];
+            stale.Add(key);
+        }
+        if (stale is null) return;
+        foreach (var key in stale)
+        {
+            _gl.DeleteTexture(_imageTextures[key].Handle);
+            _imageTextures.Remove(key);
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var tex in _imageTextures.Values) _gl.DeleteTexture(tex.Handle);
+        _imageTextures.Clear();
+    }
+
+    private readonly record struct ImageTexture(uint Handle, int Width, int Height);
 
     // ─── TextBox ─────────────────────────────────────────────────────
 

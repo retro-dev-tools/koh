@@ -20,19 +20,30 @@ public sealed class GlBackend<TModel, TMsg>
     private readonly string _initialTitle;
     private readonly int _width;
     private readonly int _height;
+    private readonly Func<TMsg>? _onTick;
 
+    /// <param name="onTick">
+    /// Optional message factory invoked once per rendered frame. Use
+    /// this for MVU apps that need a wall-clock cadence (animations,
+    /// emulator step loops) rather than event-only redraws — the runner
+    /// is otherwise entirely reactive. Tick messages go through
+    /// <see cref="Runner{TModel, TMsg}.Dispatch"/> like any other, so
+    /// they interleave with mouse/keyboard events in the update loop.
+    /// </param>
     public GlBackend(
         Runner<TModel, TMsg> runner,
         Win98Theme? theme = null,
         string title = "KohUI",
         int width = 0,
-        int height = 0)
+        int height = 0,
+        Func<TMsg>? onTick = null)
     {
         _runner = runner;
         _theme = theme ?? Win98Theme.Default;
         _initialTitle = title;
         _width = width;
         _height = height;
+        _onTick = onTick;
     }
 
     public unsafe void Run()
@@ -113,7 +124,7 @@ public sealed class GlBackend<TModel, TMsg>
     {
         using var batch = new QuadBatch(gl.Gl);
         using var font  = new BitmapFont(gl.Gl);
-        var painter = new Painter(_theme, batch, font);
+        using var painter = new Painter(_theme, batch, font, gl.Gl);
         var layouter = new Layouter(_theme);
 
         string lastTitle = "";
@@ -164,6 +175,7 @@ public sealed class GlBackend<TModel, TMsg>
         while (!glfw.WindowShouldClose(window))
         {
             glfw.PollEvents();
+            if (_onTick is not null) _runner.Dispatch(_onTick());
 
             if (closeRequested)
             {
