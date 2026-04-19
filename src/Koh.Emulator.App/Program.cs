@@ -18,7 +18,7 @@ using var audio = new AudioSink();
 using var loop  = new EmulatorLoop(audio);
 
 var runner = new Runner<EmulatorModel, EmulatorMsg>(
-    initialModel: new EmulatorModel(Loop: loop, RomPath: null, FrameCount: 0, Status: "Loading..."),
+    initialModel: new EmulatorModel(Loop: loop, RomPath: null, FrameCount: 0, Status: "Loading...", ShowDebug: false),
     update: EmulatorApp.Update,
     view: EmulatorApp.View);
 

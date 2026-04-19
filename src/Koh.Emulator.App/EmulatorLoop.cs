@@ -66,6 +66,13 @@ public sealed class EmulatorLoop : IDisposable
     public long FrameCount => Volatile.Read(ref _frameCount);
     public bool IsPaused => _paused;
 
+    // Per-frame CPU snapshot for the debug UI. Published after every
+    // RunFrame on the loop thread; readers get a consistent snapshot
+    // with a single volatile reference read. `null` until the first
+    // ROM has booted.
+    private CpuSnapshot? _cpuSnapshot;
+    public CpuSnapshot? CurrentCpu => Volatile.Read(ref _cpuSnapshot);
+
     /// <summary>
     /// Latest front framebuffer produced by the emulator, or an empty
     /// grey buffer before the first ROM boots. Reference is
@@ -220,6 +227,7 @@ public sealed class EmulatorLoop : IDisposable
 
                 var stop = sys.RunFrame();
                 Volatile.Write(ref _publishedFrame, sys.Ppu.Framebuffer.FrontArray);
+                Volatile.Write(ref _cpuSnapshot, CpuSnapshot.From(sys));
                 Interlocked.Increment(ref _frameCount);
 
                 int available = sys.Apu.SampleBuffer.Available;

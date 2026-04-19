@@ -230,6 +230,7 @@ public sealed class GlBackend<TModel, TMsg>
             if (tree is null) continue;
 
             SyncWindowTitle(glfw, window, tree, ref lastTitle);
+            SyncWindowSize(glfw, window, tree);
             var layout = layouter.Layout(tree, w, h);
             lastLayout = layout;
 
@@ -300,6 +301,25 @@ public sealed class GlBackend<TModel, TMsg>
         if (title == lastTitle) return;
         glfw.SetWindowTitle(window, title);
         lastTitle = title;
+    }
+
+    /// <summary>
+    /// If the root Window's <c>width</c>/<c>height</c> props change
+    /// from what the OS window is currently sized to, push the new
+    /// size down to GLFW. Lets an app resize its own window (e.g.
+    /// toggling a debug side-panel) without manual GLFW calls.
+    /// </summary>
+    private static unsafe void SyncWindowSize(Glfw glfw, WindowHandle* window, RenderNode tree)
+    {
+        if (tree.Type != "Window") return;
+        bool hasW = tree.Props.TryGetValue("width",  out var wv) && wv is int ww && ww > 0;
+        bool hasH = tree.Props.TryGetValue("height", out var hv) && hv is int hh && hh > 0;
+        if (!hasW && !hasH) return;
+        glfw.GetWindowSize(window, out int curW, out int curH);
+        int desiredW = hasW ? (int)wv! : curW;
+        int desiredH = hasH ? (int)hv! : curH;
+        if (desiredW == curW && desiredH == curH) return;
+        glfw.SetWindowSize(window, desiredW, desiredH);
     }
 
     private void HandleKeyDown(Keys key, KeyModifiers mods, LayoutNode? layout, ref string? focusPath)

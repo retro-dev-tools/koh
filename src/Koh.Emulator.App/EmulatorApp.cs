@@ -20,7 +20,8 @@ public readonly record struct EmulatorModel(
     EmulatorLoop? Loop,
     string? RomPath,
     long FrameCount,
-    string Status);
+    string Status,
+    bool ShowDebug);
 
 public abstract record EmulatorMsg;
 public sealed record Tick : EmulatorMsg;
@@ -32,6 +33,7 @@ public sealed record JoypadDown(JoypadButton Button) : EmulatorMsg;
 public sealed record JoypadUp(JoypadButton Button) : EmulatorMsg;
 public sealed record TogglePause : EmulatorMsg;
 public sealed record Reset : EmulatorMsg;
+public sealed record ToggleDebug : EmulatorMsg;
 
 public static class EmulatorApp
 {
@@ -46,6 +48,7 @@ public static class EmulatorApp
         JoypadUp u            => OnJoypadUp(m, u.Button),
         TogglePause           => OnTogglePause(m),
         Reset                 => OnReset(m),
+        ToggleDebug           => m with { ShowDebug = !m.ShowDebug },
         LoadRom               => m,   // handled imperatively at boot
         Noop                  => m,
         _                     => m,
@@ -140,6 +143,7 @@ public static class EmulatorApp
     {
         "KeyP" => new TogglePause(),
         "KeyR" => new Reset(),
+        "KeyD" => new ToggleDebug(),
         _      => null,
     };
 
@@ -153,12 +157,22 @@ public static class EmulatorApp
         var display = new Image<EmulatorMsg>(
             pixels, Framebuffer.Width, Framebuffer.Height, DisplayScale);
 
+        // Display area — the LCD alone, or the LCD next to the debug
+        // panel when toggled on. The horizontal stack keeps them
+        // side-by-side; vertical sizing comes from the tallest child.
+        IView<EmulatorMsg> displayArea = m.ShowDebug
+            ? new ForEach<EmulatorMsg>(
+                StackDirection.Horizontal,
+                ImmutableArray.Create<IView<EmulatorMsg>>(display, BuildCpuPanel(m.Loop?.CurrentCpu)))
+            : display;
+
         bool paused = m.Loop?.IsPaused ?? true;
         var controls = new ForEach<EmulatorMsg>(
             StackDirection.Horizontal,
             ImmutableArray.Create<IView<EmulatorMsg>>(
                 new Button<EmulatorMsg>(paused ? "Resume" : "Pause", OnClick: () => new TogglePause()),
-                new Button<EmulatorMsg>("Reset", OnClick: () => new Reset())));
+                new Button<EmulatorMsg>("Reset", OnClick: () => new Reset()),
+                new Button<EmulatorMsg>(m.ShowDebug ? "Hide Debug" : "Show Debug", OnClick: () => new ToggleDebug())));
 
         var status = new StatusBar<EmulatorMsg>(ImmutableArray.Create(
             m.Status,
@@ -166,13 +180,51 @@ public static class EmulatorApp
 
         var body = new ForEach<EmulatorMsg>(
             StackDirection.Vertical,
-            ImmutableArray.Create<IView<EmulatorMsg>>(menu, display, controls, status));
+            ImmutableArray.Create<IView<EmulatorMsg>>(menu, displayArea, controls, status));
+
+        // Window widens when the debug panel is visible — 180px extra
+        // fits the register labels comfortably at 6×8 font.
+        int windowWidth = Framebuffer.Width * DisplayScale + 16 + (m.ShowDebug ? 180 : 0);
 
         return new Window<EmulatorMsg, ForEach<EmulatorMsg>>(
             Title: m.RomPath is null ? "Koh Emulator" : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
             Child: body,
             X: 40, Y: 40,
-            Width: Framebuffer.Width * DisplayScale + 16);
+            Width: windowWidth);
+    }
+
+    /// <summary>
+    /// Register/flags panel rendered from a <see cref="CpuSnapshot"/>.
+    /// Eight register rows + a flag strip. The emulator thread
+    /// publishes snapshots per-frame; View reads whatever was current
+    /// at render time — no live/dead distinction since flags and
+    /// 16-bit registers are copied into an immutable struct.
+    /// </summary>
+    private static IView<EmulatorMsg> BuildCpuPanel(CpuSnapshot? cpu)
+    {
+        if (cpu is null)
+        {
+            return new Panel<EmulatorMsg, Label<EmulatorMsg>>(
+                PanelBevel.Sunken,
+                new Label<EmulatorMsg>("(no ROM)"));
+        }
+
+        var c = cpu;
+        var rows = ImmutableArray.Create<IView<EmulatorMsg>>(
+            new Label<EmulatorMsg>($"PC  ${c.Pc:X4}"),
+            new Label<EmulatorMsg>($"SP  ${c.Sp:X4}"),
+            new Label<EmulatorMsg>($"A   ${c.A:X2}"),
+            new Label<EmulatorMsg>($"F   ${c.F:X2}"),
+            new Label<EmulatorMsg>($"BC  ${c.BC:X4}"),
+            new Label<EmulatorMsg>($"DE  ${c.DE:X4}"),
+            new Label<EmulatorMsg>($"HL  ${c.HL:X4}"),
+            new Label<EmulatorMsg>($"Cyc {c.TotalTCycles}"),
+            new Label<EmulatorMsg>(
+                $"{(c.FlagZ ? "Z" : "-")}{(c.FlagN ? "N" : "-")}{(c.FlagH ? "H" : "-")}{(c.FlagC ? "C" : "-")}"));
+
+        return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
+            PanelBevel.Sunken,
+            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows));
     }
 
     /// <summary>
