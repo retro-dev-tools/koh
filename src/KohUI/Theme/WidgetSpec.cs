@@ -162,6 +162,9 @@ public static class WidgetSpecs
         // uploads and draws it as a textured quad.
         b["Image"] = new WidgetSpec();
 
+        // ColorSwatch is measured from its size prop, same pattern.
+        b["ColorSwatch"] = new WidgetSpec();
+
         // ─── Containers that wrap one child ──────────────────────────
         b["Window"] = new WidgetSpec
         {

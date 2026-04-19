@@ -124,7 +124,26 @@ internal sealed class Painter : IDisposable
             case "Image":
                 DrawImage(node);
                 break;
+
+            case "ColorSwatch":
+                DrawColorSwatch(node);
+                break;
         }
+    }
+
+    private void DrawColorSwatch(LayoutNode node)
+    {
+        byte r = (byte)(node.Source.Props.TryGetValue("r", out var rv) && rv is int ri ? ri : 0);
+        byte g = (byte)(node.Source.Props.TryGetValue("g", out var gv) && gv is int gi ? gi : 0);
+        byte b = (byte)(node.Source.Props.TryGetValue("b", out var bv) && bv is int bi ? bi : 0);
+        var rect = node.Bounds;
+        Fill(rect, new KohColor(r, g, b));
+        // Single-pixel dark outline so light swatches are still
+        // distinguishable against a light background.
+        Fill(new Rect(rect.X, rect.Y,               rect.W, 1), _dk);
+        Fill(new Rect(rect.X, rect.Bottom - 1,      rect.W, 1), _dk);
+        Fill(new Rect(rect.X, rect.Y,               1, rect.H), _dk);
+        Fill(new Rect(rect.Right - 1, rect.Y,       1, rect.H), _dk);
     }
 
     // ─── Panels ──────────────────────────────────────────────────────

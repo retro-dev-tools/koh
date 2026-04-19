@@ -68,6 +68,7 @@
             case "CheckBox":         return { tag: "label",  className: "" };
             case "RadioButton":      return { tag: "label",  className: "" };
             case "TextBox":          return { tag: "input",  className: "" };
+            case "ColorSwatch":      return { tag: "div",    className: "" };
             default:                 return { tag: "div",    className: "" };
         }
     }
@@ -181,6 +182,16 @@
             case "StatusBarSegment":
                 el.textContent = p.text ?? "";
                 break;
+
+            case "ColorSwatch": {
+                const s = p.size ?? 12;
+                el.style.width = s + "px";
+                el.style.height = s + "px";
+                el.style.background = `rgb(${p.r ?? 0},${p.g ?? 0},${p.b ?? 0})`;
+                el.style.border = "1px solid #000";
+                el.style.boxSizing = "border-box";
+                break;
+            }
 
             case "TextBox":
                 el.type = "text";

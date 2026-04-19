@@ -4,6 +4,7 @@ using Koh.Emulator.Core.Cartridge;
 using Koh.Emulator.Core.Joypad;
 using Koh.Emulator.Core.Ppu;
 using KohUI;
+using KohUI.Theme;
 using KohUI.Widgets;
 
 namespace Koh.Emulator.App;
@@ -158,13 +159,26 @@ public static class EmulatorApp
             pixels, Framebuffer.Width, Framebuffer.Height, DisplayScale);
 
         // Display area — the LCD alone, or the LCD next to the debug
-        // panel when toggled on. The horizontal stack keeps them
-        // side-by-side; vertical sizing comes from the tallest child.
-        IView<EmulatorMsg> displayArea = m.ShowDebug
-            ? new ForEach<EmulatorMsg>(
+        // side-panel when toggled on. The side panel is itself a
+        // vertical stack of individual debug views (CPU registers,
+        // palettes, …) so more panes can slot in without reflowing
+        // the top-level layout.
+        IView<EmulatorMsg> displayArea;
+        if (m.ShowDebug)
+        {
+            var debugPanes = new ForEach<EmulatorMsg>(
+                StackDirection.Vertical,
+                ImmutableArray.Create<IView<EmulatorMsg>>(
+                    BuildCpuPanel(m.Loop?.CurrentCpu),
+                    BuildPalettePanel(m.Loop?.CurrentPalettes)));
+            displayArea = new ForEach<EmulatorMsg>(
                 StackDirection.Horizontal,
-                ImmutableArray.Create<IView<EmulatorMsg>>(display, BuildCpuPanel(m.Loop?.CurrentCpu)))
-            : display;
+                ImmutableArray.Create<IView<EmulatorMsg>>(display, debugPanes));
+        }
+        else
+        {
+            displayArea = display;
+        }
 
         bool paused = m.Loop?.IsPaused ?? true;
         var controls = new ForEach<EmulatorMsg>(
@@ -225,6 +239,56 @@ public static class EmulatorApp
         return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
             PanelBevel.Sunken,
             new ForEach<EmulatorMsg>(StackDirection.Vertical, rows));
+    }
+
+    /// <summary>
+    /// Palette panel: one row of 4 swatches per palette. DMG has 3
+    /// fixed palettes (BG / OBJ0 / OBJ1). CGB has 8 of each plus a
+    /// separator label, so 8 BG rows + 8 OBJ rows; the snapshot
+    /// already decoded BGR555 → RGB8 so we just wire swatches up.
+    /// </summary>
+    private static IView<EmulatorMsg> BuildPalettePanel(PaletteSnapshot? pal)
+    {
+        if (pal is null)
+        {
+            return new Panel<EmulatorMsg, Label<EmulatorMsg>>(
+                PanelBevel.Sunken,
+                new Label<EmulatorMsg>("(no ROM)"));
+        }
+
+        var rows = ImmutableArray.CreateBuilder<IView<EmulatorMsg>>();
+        rows.Add(new Label<EmulatorMsg>("Palettes"));
+        if (pal.IsCgb)
+        {
+            rows.Add(new Label<EmulatorMsg>("BG"));
+            for (int p = 0; p < 8; p++) rows.Add(BuildPaletteRow(pal.BgColors, p * 4));
+            rows.Add(new Label<EmulatorMsg>("OBJ"));
+            for (int p = 0; p < 8; p++) rows.Add(BuildPaletteRow(pal.ObjColors, p * 4));
+        }
+        else
+        {
+            rows.Add(new Label<EmulatorMsg>($"BGP  ${pal.Bgp:X2}"));
+            rows.Add(BuildPaletteRow(pal.BgColors, 0));
+            rows.Add(new Label<EmulatorMsg>($"OBP0 ${pal.Obp0:X2}"));
+            rows.Add(BuildPaletteRow(pal.ObjColors, 0));
+            rows.Add(new Label<EmulatorMsg>($"OBP1 ${pal.Obp1:X2}"));
+            rows.Add(BuildPaletteRow(pal.ObjColors, 4));
+        }
+
+        return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
+            PanelBevel.Sunken,
+            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows.ToImmutable()));
+    }
+
+    private static IView<EmulatorMsg> BuildPaletteRow(KohColor[] colors, int baseIndex)
+    {
+        var swatches = ImmutableArray.CreateBuilder<IView<EmulatorMsg>>(4);
+        for (int i = 0; i < 4; i++)
+        {
+            var c = baseIndex + i < colors.Length ? colors[baseIndex + i] : new KohColor(0, 0, 0);
+            swatches.Add(new ColorSwatch<EmulatorMsg>(c, Size: 12));
+        }
+        return new ForEach<EmulatorMsg>(StackDirection.Horizontal, swatches.ToImmutable());
     }
 
     /// <summary>

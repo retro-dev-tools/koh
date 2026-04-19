@@ -78,6 +78,12 @@ public sealed class Layouter(Win98Theme theme)
         if (node.Type == "Image")
             return MeasureImage(node);
 
+        if (node.Type == "ColorSwatch")
+        {
+            int size = node.Props.TryGetValue("size", out var sv) && sv is int si && si > 0 ? si : 12;
+            return (size, size);
+        }
+
         var spec = SpecOf(node.Type);
         return spec.Layout switch
         {

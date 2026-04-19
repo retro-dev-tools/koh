@@ -73,6 +73,9 @@ public sealed class EmulatorLoop : IDisposable
     private CpuSnapshot? _cpuSnapshot;
     public CpuSnapshot? CurrentCpu => Volatile.Read(ref _cpuSnapshot);
 
+    private PaletteSnapshot? _paletteSnapshot;
+    public PaletteSnapshot? CurrentPalettes => Volatile.Read(ref _paletteSnapshot);
+
     /// <summary>
     /// Latest front framebuffer produced by the emulator, or an empty
     /// grey buffer before the first ROM boots. Reference is
@@ -228,6 +231,7 @@ public sealed class EmulatorLoop : IDisposable
                 var stop = sys.RunFrame();
                 Volatile.Write(ref _publishedFrame, sys.Ppu.Framebuffer.FrontArray);
                 Volatile.Write(ref _cpuSnapshot, CpuSnapshot.From(sys));
+                Volatile.Write(ref _paletteSnapshot, PaletteSnapshot.From(sys));
                 Interlocked.Increment(ref _frameCount);
 
                 int available = sys.Apu.SampleBuffer.Available;
