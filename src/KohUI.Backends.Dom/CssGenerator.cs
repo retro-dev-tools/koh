@@ -137,6 +137,8 @@ internal static class CssGenerator
         if (spec.DrawBackground) sb.AppendLine("    background: var(--win98-bg);");
         if (spec.PaddingX > 0 || spec.PaddingY > 0)
             sb.Append("    padding: ").Append(spec.PaddingY).Append("px ").Append(spec.PaddingX).AppendLine("px;");
+        if (spec.BevelInset > 0)
+            sb.Append("    box-shadow: ").Append(BevelShadow(t, spec.Bevel, spec.BevelInset)).AppendLine(";");
         sb.AppendLine("    color: var(--win98-text);");
         sb.AppendLine("    user-select: none;");
         sb.AppendLine("}");
@@ -177,6 +179,12 @@ internal static class CssGenerator
         sb.Append('\n').Append(selector).AppendLine(" {");
         sb.AppendLine("    display: flex;");
         sb.Append("    gap: ").Append(spec.ChildrenGap).AppendLine("px;");
+        // Some stack types ride on <ul> for semantics (menu bar). Zero
+        // out the browser's default list margins/padding/bullets
+        // unconditionally — these rules are no-ops on <div>-backed stacks.
+        sb.AppendLine("    list-style: none;");
+        sb.AppendLine("    margin: 0;");
+        sb.AppendLine("    padding: 0;");
         sb.AppendLine("}");
         sb.Append(selector).AppendLine(".kohui-stack-Vertical   { flex-direction: column; }");
         sb.Append(selector).AppendLine(".kohui-stack-Horizontal { flex-direction: row; align-items: center; }");

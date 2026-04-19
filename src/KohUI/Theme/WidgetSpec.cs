@@ -147,6 +147,8 @@ public static class WidgetSpecs
         b["Window"] = new WidgetSpec
         {
             Layout = LayoutKind.Border,
+            Bevel = BevelStyle.Raised,
+            BevelInset = t.BevelWidth,
             DrawBackground = true,
             PaddingX = t.Padding,
             PaddingY = t.Padding,
