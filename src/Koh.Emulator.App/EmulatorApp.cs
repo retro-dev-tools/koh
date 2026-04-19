@@ -30,6 +30,8 @@ public sealed record LoadRomSucceeded(GameBoySystem System, string Path) : Emula
 public sealed record LoadRomFailed(string Path, string Error) : EmulatorMsg;
 public sealed record JoypadDown(JoypadButton Button) : EmulatorMsg;
 public sealed record JoypadUp(JoypadButton Button) : EmulatorMsg;
+public sealed record TogglePause : EmulatorMsg;
+public sealed record Reset : EmulatorMsg;
 
 public static class EmulatorApp
 {
@@ -42,10 +44,40 @@ public static class EmulatorApp
         LoadRomFailed fail    => m with { Status = $"Load failed: {fail.Error}" },
         JoypadDown d          => OnJoypadDown(m, d.Button),
         JoypadUp u            => OnJoypadUp(m, u.Button),
+        TogglePause           => OnTogglePause(m),
+        Reset                 => OnReset(m),
         LoadRom               => m,   // handled imperatively at boot
         Noop                  => m,
         _                     => m,
     };
+
+    private static EmulatorModel OnTogglePause(EmulatorModel m)
+    {
+        if (m.Loop is null) return m;
+        if (m.Loop.IsPaused)
+        {
+            m.Loop.Resume();
+            return m with { Status = "Running" };
+        }
+        else
+        {
+            m.Loop.Pause();
+            return m with { Status = "Paused" };
+        }
+    }
+
+    private static EmulatorModel OnReset(EmulatorModel m)
+    {
+        // Re-load the original ROM from disk. Simpler than snapshotting
+        // initial state; the Cartridge + System reconstruction is fast
+        // enough to be unnoticeable.
+        if (m.RomPath is null) return m;
+        var mode = string.Equals(Path.GetExtension(m.RomPath), ".gbc", StringComparison.OrdinalIgnoreCase)
+            ? HardwareMode.Cgb
+            : HardwareMode.Dmg;
+        var msg = LoadRomFromDisk(m.RomPath, mode);
+        return msg is LoadRomSucceeded ok ? OnLoadSuccess(m with { Status = "Reset" }, ok) : m;
+    }
 
     private static EmulatorModel OnTick(EmulatorModel m)
     {
@@ -97,6 +129,20 @@ public static class EmulatorApp
         _             => null,
     };
 
+    /// <summary>
+    /// Global keyboard shortcuts that aren't joypad bindings. Returns
+    /// null for keys we don't claim so the joypad mapper and default
+    /// backend handling can still take them. Called from
+    /// <c>Program.cs</c>'s GL <c>onKeyDown</c> hook; evaluated before
+    /// <see cref="MapKey"/> so a shortcut wins over the joypad path.
+    /// </summary>
+    public static EmulatorMsg? MapShortcut(string keyName) => keyName switch
+    {
+        "KeyP" => new TogglePause(),
+        "KeyR" => new Reset(),
+        _      => null,
+    };
+
     public static IView<EmulatorMsg> View(EmulatorModel m)
     {
         byte[] pixels = m.Loop?.CurrentFramebuffer ?? s_placeholder;
@@ -107,13 +153,20 @@ public static class EmulatorApp
         var display = new Image<EmulatorMsg>(
             pixels, Framebuffer.Width, Framebuffer.Height, DisplayScale);
 
+        bool paused = m.Loop?.IsPaused ?? true;
+        var controls = new ForEach<EmulatorMsg>(
+            StackDirection.Horizontal,
+            ImmutableArray.Create<IView<EmulatorMsg>>(
+                new Button<EmulatorMsg>(paused ? "Resume" : "Pause", OnClick: () => new TogglePause()),
+                new Button<EmulatorMsg>("Reset", OnClick: () => new Reset())));
+
         var status = new StatusBar<EmulatorMsg>(ImmutableArray.Create(
             m.Status,
             m.Loop is null ? "No ROM" : $"Frame {m.FrameCount}"));
 
         var body = new ForEach<EmulatorMsg>(
             StackDirection.Vertical,
-            ImmutableArray.Create<IView<EmulatorMsg>>(menu, display, status));
+            ImmutableArray.Create<IView<EmulatorMsg>>(menu, display, controls, status));
 
         return new Window<EmulatorMsg, ForEach<EmulatorMsg>>(
             Title: m.RomPath is null ? "Koh Emulator" : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
