@@ -50,9 +50,16 @@ internal sealed class Painter : IDisposable
     /// TextBox caret on for this frame (the run loop flips it on a
     /// ~530 ms cadence).
     /// </summary>
+    // Clip rectangle for the current subtree, if any. Nested ScrollPanels
+    // intersect: the effective clip is the AND of every ancestor's clip,
+    // so content is only drawn where all enclosing scroll viewports show
+    // something.
+    private Rect? _clip;
+
     public void Paint(LayoutNode node, string? pressedPath = null, string? focusPath = null, bool caretOn = true)
     {
         _seenImagePaths.Clear();
+        _clip = null;
         PaintNode(node, pressedPath, focusPath, caretOn);
         PruneStaleImageTextures();
     }
@@ -60,7 +67,28 @@ internal sealed class Painter : IDisposable
     private void PaintNode(LayoutNode node, string? pressedPath, string? focusPath, bool caretOn)
     {
         Draw(node, pressedPath, focusPath, caretOn);
-        foreach (var child in node.Children) PaintNode(child, pressedPath, focusPath, caretOn);
+        if (node.Source.Type == "ScrollPanel")
+        {
+            var prev = _clip;
+            _clip = Intersect(_clip, node.Bounds);
+            foreach (var child in node.Children) PaintNode(child, pressedPath, focusPath, caretOn);
+            _clip = prev;
+        }
+        else
+        {
+            foreach (var child in node.Children) PaintNode(child, pressedPath, focusPath, caretOn);
+        }
+    }
+
+    private static Rect? Intersect(Rect? outer, Rect inner)
+    {
+        if (outer is null) return inner;
+        var o = outer.Value;
+        int x1 = Math.Max(o.X,      inner.X);
+        int y1 = Math.Max(o.Y,      inner.Y);
+        int x2 = Math.Min(o.Right,  inner.Right);
+        int y2 = Math.Min(o.Bottom, inner.Bottom);
+        return x2 <= x1 || y2 <= y1 ? new Rect(0, 0, 0, 0) : new Rect(x1, y1, x2 - x1, y2 - y1);
     }
 
     private void Draw(LayoutNode node, string? pressedPath, string? focusPath, bool caretOn)
@@ -416,7 +444,19 @@ internal sealed class Painter : IDisposable
     // ─── Primitives ──────────────────────────────────────────────────
 
     private void Fill(Rect r, KohColor c)
-        => _batch.FillRect(r.X, r.Y, r.W, r.H, c.R, c.G, c.B);
+    {
+        if (_clip is { } clip)
+        {
+            int x1 = Math.Max(r.X,      clip.X);
+            int y1 = Math.Max(r.Y,      clip.Y);
+            int x2 = Math.Min(r.Right,  clip.Right);
+            int y2 = Math.Min(r.Bottom, clip.Bottom);
+            if (x2 <= x1 || y2 <= y1) return;
+            _batch.FillRect(x1, y1, x2 - x1, y2 - y1, c.R, c.G, c.B);
+            return;
+        }
+        _batch.FillRect(r.X, r.Y, r.W, r.H, c.R, c.G, c.B);
+    }
 
     /// <summary>
     /// Classic Win98 2-pixel bevel: outer top+left, outer bottom+right,
@@ -443,6 +483,16 @@ internal sealed class Painter : IDisposable
         int tw = _font.Measure(text);
         int x = center ? r.X + (r.W - tw) / 2 : r.X + 4;
         int y = r.Y + (r.H - BitmapFont.GlyphH) / 2;
+        // Row-granular clipping: if the glyph row falls outside an
+        // active scroll clip, skip the whole string rather than
+        // half-drawing it. Row-aligned content (debug views) loses no
+        // information; non-aligned text just can't straddle clip
+        // boundaries without going through the full per-glyph UV
+        // rewriter, which v1 doesn't have.
+        if (_clip is { } clip &&
+            (y + BitmapFont.GlyphH <= clip.Y || y >= clip.Bottom ||
+             x + tw <= clip.X            || x >= clip.Right))
+            return;
         _font.DrawString(_batch, text, x, y, colour.R, colour.G, colour.B);
     }
 

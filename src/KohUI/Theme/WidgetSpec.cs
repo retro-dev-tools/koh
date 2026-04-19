@@ -165,6 +165,11 @@ public static class WidgetSpecs
         // ColorSwatch is measured from its size prop, same pattern.
         b["ColorSwatch"] = new WidgetSpec();
 
+        // ScrollPanel reports its own viewport size via props; child
+        // layout is driven by the Layouter's specialised routine, not
+        // this spec. Entry is just a dispatch anchor.
+        b["ScrollPanel"] = new WidgetSpec();
+
         // ─── Containers that wrap one child ──────────────────────────
         b["Window"] = new WidgetSpec
         {

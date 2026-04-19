@@ -87,9 +87,9 @@ public sealed class EmulatorLoop : IDisposable
     private MemorySnapshot? _memorySnapshot;
     public MemorySnapshot? CurrentMemory => Volatile.Read(ref _memorySnapshot);
 
-    // Memory view's current base address. Written by the UI thread
-    // via MemoryViewAddress; read by the loop each frame to rescan
-    // the right window. volatile for publish semantics.
+    // Sliding-window base address for the memory view. Written by
+    // the runner thread (ScrollMemory handler); read by the loop
+    // thread every frame at snapshot time.
     private int _memoryViewAddress;
     public ushort MemoryViewAddress
     {

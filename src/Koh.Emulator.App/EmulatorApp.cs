@@ -88,10 +88,9 @@ public static class EmulatorApp
     private static EmulatorModel OnScrollMemory(EmulatorModel m, int deltaBytes)
     {
         if (m.Loop is null) return m;
-        // 16-bit wraparound is deliberate: past $FFFF / before $0000
-        // we loop around so the scroll never dead-ends. Games
-        // occasionally store data near $FFFE (HRAM top), so ending
-        // the scroll there would hide interesting memory.
+        // 16-bit wraparound: past $FFFF / before $0000 we loop around
+        // so the scroll never dead-ends. HRAM top ($FFFE) is worth
+        // keeping reachable.
         int next = (m.Loop.MemoryViewAddress + deltaBytes) & 0xFFFF;
         m.Loop.MemoryViewAddress = (ushort)next;
         return m;
@@ -278,7 +277,7 @@ public static class EmulatorApp
         {
             // Keep below 1000 px so the window fits on a 1080p display
             // with the OS taskbar visible. On CGB the VRAM bank-1 grid
-            // plus the memory hex page would otherwise push over.
+            // is the tallest contributor and fixes the budget.
             bool cgb = m.Loop?.CurrentPalettes is { IsCgb: true };
             windowHeight = cgb ? 960 : 820;
         }
@@ -384,12 +383,14 @@ public static class EmulatorApp
     }
 
     /// <summary>
-    /// Hex memory view — a 256-byte window starting at the loop's
-    /// current MemoryViewAddress. 16 rows × 16 bytes, with address
-    /// column on the left and ASCII gutter on the right. PageUp /
-    /// PageDown scroll by ±256, Home jumps to $0000. No scrollbar
-    /// widget yet (would be a meaningful KohUI addition); keyboard
-    /// navigation is enough for a first cut.
+    /// Hex memory view — a 256-byte sliding window driven by the
+    /// loop's MemoryViewAddress. 16 rows × 16 bytes; PageUp/PageDown
+    /// shift the window by 256, Home jumps to $0000. The snapshot is
+    /// taken on the emulator thread, so we only pay for 256 reads
+    /// per frame even though the full address space is reachable.
+    /// The window contents sit inside a ScrollPanel so rows outside
+    /// its viewport clip cleanly (useful when the debug area is tight
+    /// or when future scroll primitives want to animate).
     /// </summary>
     private static IView<EmulatorMsg> BuildMemoryPanel(MemorySnapshot? mem)
     {
@@ -400,8 +401,7 @@ public static class EmulatorApp
                 new Label<EmulatorMsg>("(no ROM)"));
         }
 
-        var rows = ImmutableArray.CreateBuilder<IView<EmulatorMsg>>(MemorySnapshot.Rows + 1);
-        rows.Add(new Label<EmulatorMsg>($"Memory ${mem.BaseAddress:X4}  (PgUp/PgDn)"));
+        var rows = ImmutableArray.CreateBuilder<IView<EmulatorMsg>>(MemorySnapshot.Rows);
         var sb = new StringBuilder(3 * MemorySnapshot.BytesPerRow + MemorySnapshot.BytesPerRow + 16);
         for (int r = 0; r < MemorySnapshot.Rows; r++)
         {
@@ -422,9 +422,19 @@ public static class EmulatorApp
             }
             rows.Add(new Label<EmulatorMsg>(sb.ToString()));
         }
+
+        var stack = new ForEach<EmulatorMsg>(StackDirection.Vertical, rows.ToImmutable());
+        var header = new Label<EmulatorMsg>($"Memory ${mem.BaseAddress:X4}  (PgUp/PgDn/Home)");
+        // 180 px viewport holds ~16 rows at the bitmap font's effective
+        // line height. The ScrollPanel clips off-viewport rows so if
+        // future layout tightens further, rendering stays correct.
+        var scroller = new ScrollPanel<EmulatorMsg, ForEach<EmulatorMsg>>(
+            stack, ViewportWidth: 430, ViewportHeight: 180, ScrollY: 0);
         return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
             PanelBevel.Sunken,
-            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows.ToImmutable()));
+            new ForEach<EmulatorMsg>(
+                StackDirection.Vertical,
+                ImmutableArray.Create<IView<EmulatorMsg>>(header, scroller)));
     }
 
     private static IView<EmulatorMsg> BuildPaletteRow(KohColor[] colors, int baseIndex)

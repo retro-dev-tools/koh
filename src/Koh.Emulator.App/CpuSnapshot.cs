@@ -206,13 +206,21 @@ public sealed record VramSnapshot(
 /// respects MBC banking — the same 0x4000-0x7FFF page shows different
 /// bytes as the current ROM bank changes.
 /// </summary>
+/// <summary>
+/// A 256-byte window into the Game Boy's $0000-$FFFF address space.
+/// Naively snapshotting the full 64 KB every frame (a "just use a
+/// ScrollPanel with 4096 rows" approach) costs ~65K DebugReadByte
+/// calls per frame — enough to starve the emulator thread and
+/// visibly stall the LCD. Sliding window costs 256 reads and keeps
+/// the pacer in the clear.
+/// </summary>
 public sealed record MemorySnapshot(
     ushort BaseAddress,
     byte[] Bytes)
 {
     public const int BytesPerRow = 16;
-    public const int Rows = 8;
-    public const int WindowSize = Rows * BytesPerRow;   // 128 bytes
+    public const int Rows = 16;
+    public const int WindowSize = Rows * BytesPerRow;   // 256 bytes
 
     public static MemorySnapshot From(GameBoySystem sys, ushort baseAddress, MemorySnapshot? existing = null)
     {

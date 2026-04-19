@@ -84,6 +84,20 @@ public sealed class Layouter(Win98Theme theme)
             return (size, size);
         }
 
+        if (node.Type == "ScrollPanel")
+        {
+            int vw = node.Props.TryGetValue("viewportW", out var vwv) && vwv is int vwi && vwi > 0 ? vwi : 0;
+            int vh = node.Props.TryGetValue("viewportH", out var vhv) && vhv is int vhi && vhi > 0 ? vhi : 0;
+            // If the caller didn't set a viewport width, fall back to
+            // the measured child width so the panel never reports 0.
+            if (vw == 0 && node.Children.Length == 1)
+            {
+                var (cw, _) = Measure(node.Children[0]);
+                vw = cw;
+            }
+            return (vw, vh);
+        }
+
         var spec = SpecOf(node.Type);
         return spec.Layout switch
         {
@@ -183,6 +197,9 @@ public sealed class Layouter(Win98Theme theme)
         if (node.Type == "CheckBox" || node.Type == "RadioButton")
             return Leaf(node, path, bounds);
 
+        if (node.Type == "ScrollPanel")
+            return ArrangeScrollPanel(node, path, bounds);
+
         var spec = SpecOf(node.Type);
         var children = spec.Layout switch
         {
@@ -195,6 +212,30 @@ public sealed class Layouter(Win98Theme theme)
 
     private LayoutNode Leaf(RenderNode node, string path, Rect bounds)
         => new() { Source = node, Path = path, Bounds = bounds, Children = ImmutableArray<LayoutNode>.Empty };
+
+    /// <summary>
+    /// ScrollPanel child is laid out at its measured size but
+    /// vertically offset by -ScrollY, so the visible slice of the
+    /// viewport corresponds to <c>[ScrollY, ScrollY+ViewportH)</c> in
+    /// the child's own space. Painter clips to <paramref name="bounds"/>
+    /// at render time so rows above/below the viewport don't bleed.
+    /// </summary>
+    private LayoutNode ArrangeScrollPanel(RenderNode node, string path, Rect bounds)
+    {
+        if (node.Children.Length != 1)
+            return Leaf(node, path, bounds);
+
+        int scrollY = node.Props.TryGetValue("scrollY", out var sv) && sv is int si ? si : 0;
+        var child = node.Children[0];
+        var (cw, ch) = Measure(child);
+        // Content gets its natural size; the panel only CLIPS — it
+        // doesn't squash the child to viewport width. This matters
+        // when the caller wants horizontal overflow visible inside a
+        // vertically-scrolling viewport.
+        var childBounds = new Rect(bounds.X, bounds.Y - scrollY, cw, ch);
+        var laid = ImmutableArray.Create(Arrange(child, Join(path, 0), childBounds));
+        return new LayoutNode { Source = node, Path = path, Bounds = bounds, Children = laid };
+    }
 
     private ImmutableArray<LayoutNode> ArrangeStack(RenderNode node, string path, Rect bounds, WidgetSpec spec)
     {
