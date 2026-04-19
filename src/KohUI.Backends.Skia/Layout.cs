@@ -32,37 +32,37 @@ public sealed class LayoutNode
 }
 
 /// <summary>
-/// Two-pass, hand-rolled layout:
+/// Two-pass, spec-driven layout. Each widget's structural rules
+/// (padding, gap, bevel inset, min sizes) come from
+/// <see cref="WidgetSpecs.ForTheme"/>, not hardcoded switch statements.
+/// The DomBackend's generated CSS reads the same specs, so a numeric
+/// change there propagates to both surfaces.
 ///
 /// <list type="number">
-///   <item><b>Measure</b> every node bottom-up and record its preferred
-///         (w, h). Leaf widgets ask the <see cref="SKFont"/> for text
-///         metrics; containers sum their children along their axis.</item>
-///   <item><b>Arrange</b> every node top-down, assigning concrete
-///         (x, y) positions and (for containers) distributing leftover
-///         space per a simple stretch rule.</item>
+///   <item><b>Measure</b> bottom-up: each node reports its preferred
+///         (w, h). Leaf widgets ask the font; container widgets sum
+///         their children along an axis and wrap with inset + padding.</item>
+///   <item><b>Arrange</b> top-down: assigns concrete (x, y) to each
+///         node and distributes Stack stretch space where requested.</item>
 /// </list>
 ///
-/// Deliberately not Flexbox. For a retro UI with ~20 controls the
-/// payoff of Yoga's layout algebra is small, the binary cost is
-/// noticeable, and reaching for it now makes "swap Yoga in later" a
-/// simple drop-in if we hit a case this simple layouter doesn't serve.
+/// A few widgets (CheckBox, RadioButton) have specialised compound
+/// layouts that aren't expressible as Border/Stack — for those the
+/// measure step falls back to a small hand-written routine. Everything
+/// else flows through the spec.
 /// </summary>
 public sealed class Layouter(SKFont font, Win98Theme theme)
 {
     private readonly SKFont _font = font;
-    private readonly int _padding = theme.Padding;
-    private readonly int _gap = theme.Gap;
-    private readonly int _bevel = theme.BevelWidth;
-    private readonly int _buttonMinW = theme.ButtonMinWidth;
-    private readonly int _buttonMinH = theme.ButtonMinHeight;
-    private readonly int _checkRadioSize = theme.CheckRadioSize;
+    private readonly Win98Theme _theme = theme;
+    private readonly ImmutableDictionary<string, WidgetSpec> _specs = WidgetSpecs.ForTheme(theme);
+
+    private WidgetSpec SpecOf(string type) =>
+        _specs.TryGetValue(type, out var s) ? s : new WidgetSpec();
 
     public LayoutNode Layout(RenderNode root, int viewportW, int viewportH)
     {
         var (w, h) = Measure(root);
-        // Root fits at (0,0) inside viewport; clamp to viewport to avoid
-        // content disappearing off-screen on an unexpectedly-tight window.
         int clampedW = Math.Min(w, viewportW);
         int clampedH = Math.Min(h, viewportH);
         return Arrange(root, "", new Rect(0, 0, clampedW, clampedH));
@@ -72,20 +72,18 @@ public sealed class Layouter(SKFont font, Win98Theme theme)
 
     private (int W, int H) Measure(RenderNode node)
     {
-        return node.Type switch
+        // Specialised compound widgets (glyph + label). Small and fixed;
+        // don't warrant shoehorning into the generic spec layout.
+        if (node.Type == "CheckBox" || node.Type == "RadioButton")
+            return MeasureGlyphed(node, _theme.CheckRadioSize, textGap: 6);
+
+        var spec = SpecOf(node.Type);
+        return spec.Layout switch
         {
-            "Label"             => MeasureText(GetString(node, "text")),
-            "Button"            => MeasureButton(node),
-            "CheckBox"          => MeasureGlyphed(node, glyphSize: _checkRadioSize, textGap: 6),
-            "RadioButton"       => MeasureGlyphed(node, glyphSize: _checkRadioSize, textGap: 6),
-            "MenuItem"          => Pad(MeasureText(StripAccelerator(GetString(node, "text"))), px: 8, py: 2),
-            "StatusBarSegment"  => Pad(MeasureText(GetString(node, "text")), px: 4, py: 2),
-            "Stack"             => MeasureStack(node),
-            "Panel"             => MeasureBorder(node, border: _bevel),
-            "MenuBar"           => MeasureStack(node, horizontal: true, pad: 0, gap: 0),
-            "StatusBar"         => MeasureStack(node, horizontal: true, pad: 0, gap: 2),
-            "Window"            => MeasureBorder(node, border: 0),
-            _                   => MeasureBorder(node, border: 0),
+            LayoutKind.Leaf   => MeasureLeaf(node, spec),
+            LayoutKind.Border => MeasureBorder(node, spec),
+            LayoutKind.Stack  => MeasureStack(node, spec),
+            _                 => MeasureLeaf(node, spec),
         };
     }
 
@@ -96,55 +94,23 @@ public sealed class Layouter(SKFont font, Win98Theme theme)
         return ((int)MathF.Ceiling(width), (int)MathF.Ceiling(height));
     }
 
-    private (int W, int H) MeasureButton(RenderNode node)
+    private (int W, int H) MeasureLeaf(RenderNode node, WidgetSpec spec)
     {
-        var (tw, th) = MeasureText(GetString(node, "text"));
-        // Horizontal padding (12 px each side) is a 98.css constant; the
-        // minimum W / H come from the theme so the DOM and Skia builds
-        // stay pixel-consistent.
-        return (Math.Max(_buttonMinW, tw + 24), Math.Max(_buttonMinH, th + 6));
+        // Default: measure from the node's text prop, pad by the spec,
+        // clamp to minimum. Widgets without text (none in v0.1) would
+        // return (0, 0) pre-clamp, which is fine.
+        string raw = GetString(node, "text");
+        string shown = node.Type == "MenuItem" ? StripAccelerator(raw) : raw;
+        var (tw, th) = MeasureText(shown);
+
+        int w = tw + spec.PaddingX * 2;
+        int h = th + spec.PaddingY * 2;
+        if (spec.BevelInset > 0) { w += spec.BevelInset * 2; h += spec.BevelInset * 2; }
+        return (Math.Max(spec.MinWidth, w), Math.Max(spec.MinHeight, h));
     }
 
-    /// <summary>
-    /// CheckBox / RadioButton: fixed-size glyph box + gap + text.
-    /// Height clamps to the max of glyph and text ascender/descender
-    /// so the baseline aligns cleanly against the box.
-    /// </summary>
-    private (int W, int H) MeasureGlyphed(RenderNode node, int glyphSize, int textGap)
+    private (int W, int H) MeasureBorder(RenderNode node, WidgetSpec spec)
     {
-        var (tw, th) = MeasureText(GetString(node, "text"));
-        return (glyphSize + textGap + tw, Math.Max(glyphSize, th));
-    }
-
-    private (int W, int H) MeasureStack(RenderNode node, bool? horizontal = null, int? pad = null, int? gap = null)
-    {
-        bool h = horizontal ?? GetString(node, "direction") == "Horizontal";
-        int p = pad ?? 0;
-        int g = gap ?? _gap;
-
-        int main = 0, cross = 0;
-        for (int i = 0; i < node.Children.Length; i++)
-        {
-            var (cw, ch) = Measure(node.Children[i]);
-            if (h)
-            {
-                if (i > 0) main += g;
-                main += cw;
-                cross = Math.Max(cross, ch);
-            }
-            else
-            {
-                if (i > 0) main += g;
-                main += ch;
-                cross = Math.Max(cross, cw);
-            }
-        }
-        return h ? (main + p * 2, cross + p * 2) : (cross + p * 2, main + p * 2);
-    }
-
-    private (int W, int H) MeasureBorder(RenderNode node, int border)
-    {
-        // Panel-like: wrap the single child (or first child) with padding.
         int contentW = 0, contentH = 0;
         foreach (var c in node.Children)
         {
@@ -152,52 +118,84 @@ public sealed class Layouter(SKFont font, Win98Theme theme)
             contentW = Math.Max(contentW, cw);
             contentH += ch;
         }
-        int pad = border + _padding;
-        return (contentW + pad * 2, contentH + pad * 2);
+        int inset = spec.BevelInset + spec.PaddingX; // PaddingY for vertical is symmetric below
+        int insetY = spec.BevelInset + spec.PaddingY;
+        int w = contentW + inset * 2;
+        int h = contentH + insetY * 2;
+        return (Math.Max(spec.MinWidth, w), Math.Max(spec.MinHeight, h));
     }
 
-    private static (int W, int H) Pad((int W, int H) size, int px, int py)
-        => (size.W + px * 2, size.H + py * 2);
+    private (int W, int H) MeasureStack(RenderNode node, WidgetSpec spec)
+    {
+        bool h = GetString(node, "direction") == "Horizontal";
+        int main = 0, cross = 0;
+        for (int i = 0; i < node.Children.Length; i++)
+        {
+            var (cw, ch) = Measure(node.Children[i]);
+            if (h)
+            {
+                if (i > 0) main += spec.ChildrenGap;
+                main += cw;
+                cross = Math.Max(cross, ch);
+            }
+            else
+            {
+                if (i > 0) main += spec.ChildrenGap;
+                main += ch;
+                cross = Math.Max(cross, cw);
+            }
+        }
+        int w = h ? main : cross;
+        int hh = h ? cross : main;
+        // Stacks don't bevel themselves by default, but if a specific
+        // stack subclass ever did, the inset is already expressed here.
+        if (spec.BevelInset > 0) { w += spec.BevelInset * 2; hh += spec.BevelInset * 2; }
+        return (w + spec.PaddingX * 2, hh + spec.PaddingY * 2);
+    }
+
+    /// <summary>CheckBox / RadioButton: fixed-size glyph + gap + text.</summary>
+    private (int W, int H) MeasureGlyphed(RenderNode node, int glyphSize, int textGap)
+    {
+        var (tw, th) = MeasureText(GetString(node, "text"));
+        return (glyphSize + textGap + tw, Math.Max(glyphSize, th));
+    }
 
     // ─── Arrange pass ────────────────────────────────────────────────
 
     private LayoutNode Arrange(RenderNode node, string path, Rect bounds)
     {
-        var children = node.Type switch
+        if (node.Type == "CheckBox" || node.Type == "RadioButton")
+            return Leaf(node, path, bounds);
+
+        var spec = SpecOf(node.Type);
+        var children = spec.Layout switch
         {
-            "Stack"    => ArrangeStack(node, path, bounds),
-            "MenuBar"  => ArrangeStack(node, path, bounds, horizontal: true, pad: 0, gap: 0),
-            "StatusBar"=> ArrangeStack(node, path, bounds, horizontal: true, pad: 0, gap: 2),
-            "Panel"    => ArrangeBorder(node, path, bounds, border: _bevel),
-            "Window"   => ArrangeBorder(node, path, bounds, border: 0),
-            _          => ArrangeBorder(node, path, bounds, border: 0),
+            LayoutKind.Border => ArrangeBorder(node, path, bounds, spec),
+            LayoutKind.Stack  => ArrangeStack(node, path, bounds, spec),
+            _                 => ImmutableArray<LayoutNode>.Empty,
         };
         return new LayoutNode { Source = node, Path = path, Bounds = bounds, Children = children };
     }
 
-    private ImmutableArray<LayoutNode> ArrangeStack(
-        RenderNode node, string path, Rect bounds,
-        bool? horizontal = null, int? pad = null, int? gap = null)
+    private LayoutNode Leaf(RenderNode node, string path, Rect bounds)
+        => new() { Source = node, Path = path, Bounds = bounds, Children = ImmutableArray<LayoutNode>.Empty };
+
+    private ImmutableArray<LayoutNode> ArrangeStack(RenderNode node, string path, Rect bounds, WidgetSpec spec)
     {
-        bool h = horizontal ?? GetString(node, "direction") == "Horizontal";
-        int p = pad ?? 0;
-        int g = gap ?? _gap;
+        bool horizontal = GetString(node, "direction") == "Horizontal";
+        int gap = spec.ChildrenGap;
+        int p = spec.PaddingX;                     // same on both axes for stacks today
         bool stretch = node.Props.TryGetValue("stretch", out var sv) && sv is true;
 
-        // When stretching, divide any main-axis space left over after the
-        // gaps among children equally. With N children there are (N-1)
-        // gaps; the remaining slack bumps each child's measured main
-        // dimension by the same integer amount (last child absorbs any
-        // pixel rounding).
-        int mainTotal = h ? bounds.W - p * 2 : bounds.H - p * 2;
-        int gapsTotal = node.Children.Length > 0 ? (node.Children.Length - 1) * g : 0;
+        int mainTotal = horizontal ? bounds.W - p * 2 : bounds.H - p * 2;
+        int gapsTotal = node.Children.Length > 0 ? (node.Children.Length - 1) * gap : 0;
         int measuredMainSum = 0;
         if (stretch)
         {
             for (int i = 0; i < node.Children.Length; i++)
             {
                 var (cw, ch) = Measure(node.Children[i]);
-                measuredMainSum += h ? cw : ch;
+                measuredMainSum += horizontal ? cw : ch;
             }
         }
         int slack = stretch ? Math.Max(0, mainTotal - gapsTotal - measuredMainSum) : 0;
@@ -205,29 +203,31 @@ public sealed class Layouter(SKFont font, Win98Theme theme)
         int slackRemainder = slack - slackPerChild * node.Children.Length;
 
         var result = ImmutableArray.CreateBuilder<LayoutNode>(node.Children.Length);
-        int cursor = h ? bounds.X + p : bounds.Y + p;
-        int crossStart = h ? bounds.Y + p : bounds.X + p;
-        int crossSize  = h ? bounds.H - p * 2 : bounds.W - p * 2;
+        int cursor = horizontal ? bounds.X + p : bounds.Y + p;
+        int crossStart = horizontal ? bounds.Y + p : bounds.X + p;
+        int crossSize  = horizontal ? bounds.H - p * 2 : bounds.W - p * 2;
 
         for (int i = 0; i < node.Children.Length; i++)
         {
             var (cw, ch) = Measure(node.Children[i]);
             int bump = slackPerChild + (i == node.Children.Length - 1 ? slackRemainder : 0);
-            if (h) cw += bump; else ch += bump;
+            if (horizontal) cw += bump; else ch += bump;
 
-            Rect childBounds = h
+            Rect childBounds = horizontal
                 ? new Rect(cursor, crossStart, cw, crossSize)
                 : new Rect(crossStart, cursor, crossSize, ch);
             result.Add(Arrange(node.Children[i], Join(path, i), childBounds));
-            cursor += (h ? cw : ch) + g;
+            cursor += (horizontal ? cw : ch) + gap;
         }
         return result.ToImmutable();
     }
 
-    private ImmutableArray<LayoutNode> ArrangeBorder(RenderNode node, string path, Rect bounds, int border)
+    private ImmutableArray<LayoutNode> ArrangeBorder(RenderNode node, string path, Rect bounds, WidgetSpec spec)
     {
-        int pad = border + _padding;
-        var inner = new Rect(bounds.X + pad, bounds.Y + pad, bounds.W - pad * 2, bounds.H - pad * 2);
+        int padX = spec.BevelInset + spec.PaddingX;
+        int padY = spec.BevelInset + spec.PaddingY;
+        var inner = new Rect(bounds.X + padX, bounds.Y + padY,
+                             bounds.W - padX * 2, bounds.H - padY * 2);
 
         var result = ImmutableArray.CreateBuilder<LayoutNode>(node.Children.Length);
         int y = inner.Y;

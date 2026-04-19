@@ -1,6 +1,5 @@
 using System.Net.WebSockets;
 using System.Reflection;
-using System.Text;
 using KohUI;
 using KohUI.Theme;
 using Microsoft.AspNetCore.Builder;
@@ -44,15 +43,15 @@ public static class DomBackendExtensions
 
         app.UseWebSockets();
 
-        // Theme CSS: served dynamically from the Win98Theme record so the
-        // palette is a single source of truth shared with SkiaBackend.
-        // 98.css's hand-maintained rules still reference var(--win98-*);
-        // this endpoint emits the custom-property block on :root.
-        var themeCss = BuildThemeCss(activeTheme);
-        app.MapGet("/_kohui/theme.css", (HttpContext ctx) =>
+        // The full stylesheet is generated from the theme + WidgetSpecs —
+        // no hand-written CSS on disk. Both backends consume the same
+        // spec table, so a change to a padding or bevel width here
+        // lands in Skia and DOM simultaneously.
+        var generatedCss = CssGenerator.Build(activeTheme);
+        app.MapGet("/_kohui/kohui.css", (HttpContext ctx) =>
         {
             ctx.Response.ContentType = "text/css; charset=utf-8";
-            return ctx.Response.WriteAsync(themeCss);
+            return ctx.Response.WriteAsync(generatedCss);
         });
 
         // Serve bundled KohUI static assets from the embedded manifest.
@@ -90,33 +89,4 @@ public static class DomBackendExtensions
         });
     }
 
-    private static string BuildThemeCss(Win98Theme t)
-    {
-        var sb = new StringBuilder(768);
-        sb.AppendLine(":root {");
-        // Colours
-        sb.Append("    --win98-bg:            ").Append(t.Background.ToHex()).AppendLine(";");
-        sb.Append("    --win98-hilite:        ").Append(t.BevelHilite.ToHex()).AppendLine(";");
-        sb.Append("    --win98-shadow:        ").Append(t.BevelShadow.ToHex()).AppendLine(";");
-        sb.Append("    --win98-dark-shadow:   ").Append(t.BevelDarkShadow.ToHex()).AppendLine(";");
-        sb.Append("    --win98-text:          ").Append(t.Text.ToHex()).AppendLine(";");
-        sb.Append("    --win98-disabled-text: ").Append(t.DisabledText.ToHex()).AppendLine(";");
-        sb.Append("    --win98-title-bg:      ").Append(t.TitleBarStart.ToHex()).AppendLine(";");
-        sb.Append("    --win98-title-bg-end:  ").Append(t.TitleBarEnd.ToHex()).AppendLine(";");
-        sb.Append("    --win98-title-text:    ").Append(t.TitleBarText.ToHex()).AppendLine(";");
-        sb.Append("    --win98-desktop:       ").Append(t.Desktop.ToHex()).AppendLine(";");
-        // Typography
-        sb.Append("    --win98-ui-font:       ").Append('"').Append(t.UiFontFamily).Append("\", \"Segoe UI\", sans-serif;").AppendLine();
-        sb.Append("    --win98-ui-font-size:  ").Append(t.UiFontSize).AppendLine("px;");
-        // Metrics — shared with the Skia Layouter so both backends
-        // compute identical box sizes from one source of truth.
-        sb.Append("    --win98-padding:       ").Append(t.Padding).AppendLine("px;");
-        sb.Append("    --win98-gap:           ").Append(t.Gap).AppendLine("px;");
-        sb.Append("    --win98-bevel:         ").Append(t.BevelWidth).AppendLine("px;");
-        sb.Append("    --win98-button-min-w:  ").Append(t.ButtonMinWidth).AppendLine("px;");
-        sb.Append("    --win98-button-min-h:  ").Append(t.ButtonMinHeight).AppendLine("px;");
-        sb.Append("    --win98-check-size:    ").Append(t.CheckRadioSize).AppendLine("px;");
-        sb.AppendLine("}");
-        return sb.ToString();
-    }
 }

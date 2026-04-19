@@ -16,6 +16,9 @@ public readonly struct StatusBar<TMsg>(ImmutableArray<string> Segments) : IView<
         var children = ImmutableArray.CreateBuilder<RenderNode>(Segments.Length);
         foreach (var text in Segments)
             children.Add(RenderNode.Leaf("StatusBarSegment", Props.Of(("text", text))));
-        return RenderNode.WithChildren("StatusBar", children.MoveToImmutable());
+        // StatusBar is a horizontal stack by construction; see MenuBar
+        // for the rationale behind emitting the "direction" prop.
+        return RenderNode.WithChildren("StatusBar", children.MoveToImmutable(),
+            Props.Of(("direction", "Horizontal")));
     }
 }
