@@ -197,3 +197,30 @@ public sealed record VramSnapshot(
         new(0x00, 0x00, 0x00),   // 11 → black
     ];
 }
+
+/// <summary>
+/// A 256-byte window into the Game Boy's $0000-$FFFF address space for
+/// the hex debug panel. The window base wraps around $FFFF so
+/// PageDown / PageUp past the ends stays in-bounds. Each snapshot is
+/// re-sampled from <see cref="GameBoySystem.DebugReadByte"/>, which
+/// respects MBC banking — the same 0x4000-0x7FFF page shows different
+/// bytes as the current ROM bank changes.
+/// </summary>
+public sealed record MemorySnapshot(
+    ushort BaseAddress,
+    byte[] Bytes)
+{
+    public const int BytesPerRow = 16;
+    public const int Rows = 8;
+    public const int WindowSize = Rows * BytesPerRow;   // 128 bytes
+
+    public static MemorySnapshot From(GameBoySystem sys, ushort baseAddress, MemorySnapshot? existing = null)
+    {
+        byte[] bytes = existing is not null && existing.Bytes.Length == WindowSize
+            ? existing.Bytes
+            : new byte[WindowSize];
+        for (int i = 0; i < WindowSize; i++)
+            bytes[i] = sys.DebugReadByte((ushort)(baseAddress + i));
+        return new MemorySnapshot(baseAddress, bytes);
+    }
+}

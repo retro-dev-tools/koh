@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
 using Koh.Emulator.Core.Joypad;
@@ -37,6 +38,7 @@ public sealed record Reset : EmulatorMsg;
 public sealed record ToggleDebug : EmulatorMsg;
 public sealed record SaveState : EmulatorMsg;
 public sealed record LoadState : EmulatorMsg;
+public sealed record ScrollMemory(int DeltaBytes) : EmulatorMsg;
 
 public static class EmulatorApp
 {
@@ -54,6 +56,7 @@ public static class EmulatorApp
         ToggleDebug           => OnToggleDebug(m),
         SaveState             => OnSaveState(m),
         LoadState             => OnLoadState(m),
+        ScrollMemory s        => OnScrollMemory(m, s.DeltaBytes),
         LoadRom               => m,   // handled imperatively at boot
         Noop                  => m,
         _                     => m,
@@ -72,6 +75,18 @@ public static class EmulatorApp
             m.Loop.Pause();
             return m with { Status = "Paused" };
         }
+    }
+
+    private static EmulatorModel OnScrollMemory(EmulatorModel m, int deltaBytes)
+    {
+        if (m.Loop is null) return m;
+        // 16-bit wraparound is deliberate: past $FFFF / before $0000
+        // we loop around so the scroll never dead-ends. Games
+        // occasionally store data near $FFFE (HRAM top), so ending
+        // the scroll there would hide interesting memory.
+        int next = (m.Loop.MemoryViewAddress + deltaBytes) & 0xFFFF;
+        m.Loop.MemoryViewAddress = (ushort)next;
+        return m;
     }
 
     private static EmulatorModel OnToggleDebug(EmulatorModel m)
@@ -181,12 +196,15 @@ public static class EmulatorApp
     /// </summary>
     public static EmulatorMsg? MapShortcut(string keyName) => keyName switch
     {
-        "KeyP" => new TogglePause(),
-        "KeyR" => new Reset(),
-        "KeyD" => new ToggleDebug(),
-        "F5"   => new SaveState(),
-        "F9"   => new LoadState(),
-        _      => null,
+        "KeyP"     => new TogglePause(),
+        "KeyR"     => new Reset(),
+        "KeyD"     => new ToggleDebug(),
+        "F5"       => new SaveState(),
+        "F9"       => new LoadState(),
+        "PageUp"   => new ScrollMemory(-MemorySnapshot.WindowSize),
+        "PageDown" => new ScrollMemory(+MemorySnapshot.WindowSize),
+        "Home"     => new ScrollMemory(-0x10000),   // wraps to $0000
+        _          => null,
     };
 
     public static IView<EmulatorMsg> View(EmulatorModel m)
@@ -212,7 +230,8 @@ public static class EmulatorApp
                 ImmutableArray.Create<IView<EmulatorMsg>>(
                     BuildCpuPanel(m.Loop?.CurrentCpu),
                     BuildPalettePanel(m.Loop?.CurrentPalettes),
-                    BuildVramPanel(m.Loop?.CurrentVram)));
+                    BuildVramPanel(m.Loop?.CurrentVram),
+                    BuildMemoryPanel(m.Loop?.CurrentMemory)));
             displayArea = new ForEach<EmulatorMsg>(
                 StackDirection.Horizontal,
                 ImmutableArray.Create<IView<EmulatorMsg>>(display, debugPanes));
@@ -238,18 +257,22 @@ public static class EmulatorApp
             StackDirection.Vertical,
             ImmutableArray.Create<IView<EmulatorMsg>>(menu, displayArea, controls, status));
 
-        // Width: LCD + 16 px chrome, plus 180 px for the debug side
-        // panel when open.
+        // Width: LCD + 16 px chrome, plus ~440 px for the debug side
+        // panel when open. The memory hex view needs room for the
+        // address + 16 hex bytes + ASCII gutter — about 65 columns at
+        // the 6 px bitmap font, which is ~390 px on its own.
         // Height: LCD + ~80 px for menu/controls/status at the top and
-        // bottom; grows further when debug is on so the CPU + palettes
-        // + VRAM stack doesn't clip. CGB doubles the VRAM height so we
-        // tack on a conservative extra 200 px when a CGB ROM is live.
-        int windowWidth = Framebuffer.Width * DisplayScale + 16 + (m.ShowDebug ? 180 : 0);
+        // bottom; grows further when debug is on so the CPU +
+        // palettes + VRAM + memory stack doesn't clip.
+        int windowWidth = Framebuffer.Width * DisplayScale + 16 + (m.ShowDebug ? 440 : 0);
         int windowHeight = 0;   // 0 = auto-size when debug is off
         if (m.ShowDebug)
         {
+            // Keep below 1000 px so the window fits on a 1080p display
+            // with the OS taskbar visible. On CGB the VRAM bank-1 grid
+            // plus the memory hex page would otherwise push over.
             bool cgb = m.Loop?.CurrentPalettes is { IsCgb: true };
-            windowHeight = cgb ? 920 : 720;
+            windowHeight = cgb ? 960 : 820;
         }
 
         return new Window<EmulatorMsg, ForEach<EmulatorMsg>>(
@@ -350,6 +373,50 @@ public static class EmulatorApp
                     new Label<EmulatorMsg>("VRAM Tiles"),
                     new Image<EmulatorMsg>(vram.Rgba, vram.Width, vram.Height, Scale: 1)));
         return new Panel<EmulatorMsg, IView<EmulatorMsg>>(PanelBevel.Sunken, body);
+    }
+
+    /// <summary>
+    /// Hex memory view — a 256-byte window starting at the loop's
+    /// current MemoryViewAddress. 16 rows × 16 bytes, with address
+    /// column on the left and ASCII gutter on the right. PageUp /
+    /// PageDown scroll by ±256, Home jumps to $0000. No scrollbar
+    /// widget yet (would be a meaningful KohUI addition); keyboard
+    /// navigation is enough for a first cut.
+    /// </summary>
+    private static IView<EmulatorMsg> BuildMemoryPanel(MemorySnapshot? mem)
+    {
+        if (mem is null)
+        {
+            return new Panel<EmulatorMsg, Label<EmulatorMsg>>(
+                PanelBevel.Sunken,
+                new Label<EmulatorMsg>("(no ROM)"));
+        }
+
+        var rows = ImmutableArray.CreateBuilder<IView<EmulatorMsg>>(MemorySnapshot.Rows + 1);
+        rows.Add(new Label<EmulatorMsg>($"Memory ${mem.BaseAddress:X4}  (PgUp/PgDn)"));
+        var sb = new StringBuilder(3 * MemorySnapshot.BytesPerRow + MemorySnapshot.BytesPerRow + 16);
+        for (int r = 0; r < MemorySnapshot.Rows; r++)
+        {
+            sb.Clear();
+            int rowAddr = (mem.BaseAddress + r * MemorySnapshot.BytesPerRow) & 0xFFFF;
+            sb.Append($"{rowAddr:X4} ");
+            for (int c = 0; c < MemorySnapshot.BytesPerRow; c++)
+            {
+                int idx = r * MemorySnapshot.BytesPerRow + c;
+                sb.Append($"{mem.Bytes[idx]:X2} ");
+            }
+            sb.Append(' ');
+            for (int c = 0; c < MemorySnapshot.BytesPerRow; c++)
+            {
+                int idx = r * MemorySnapshot.BytesPerRow + c;
+                byte b = mem.Bytes[idx];
+                sb.Append(b is >= 0x20 and < 0x7F ? (char)b : '.');
+            }
+            rows.Add(new Label<EmulatorMsg>(sb.ToString()));
+        }
+        return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
+            PanelBevel.Sunken,
+            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows.ToImmutable()));
     }
 
     private static IView<EmulatorMsg> BuildPaletteRow(KohColor[] colors, int baseIndex)

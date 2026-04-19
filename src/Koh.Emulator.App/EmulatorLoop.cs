@@ -84,6 +84,19 @@ public sealed class EmulatorLoop : IDisposable
     private VramSnapshot? _vramSnapshot;
     public VramSnapshot? CurrentVram => Volatile.Read(ref _vramSnapshot);
 
+    private MemorySnapshot? _memorySnapshot;
+    public MemorySnapshot? CurrentMemory => Volatile.Read(ref _memorySnapshot);
+
+    // Memory view's current base address. Written by the UI thread
+    // via MemoryViewAddress; read by the loop each frame to rescan
+    // the right window. volatile for publish semantics.
+    private int _memoryViewAddress;
+    public ushort MemoryViewAddress
+    {
+        get => (ushort)Volatile.Read(ref _memoryViewAddress);
+        set => Volatile.Write(ref _memoryViewAddress, value);
+    }
+
     // Gate the expensive debug publishers (palette, VRAM) on whether
     // the UI is actually showing them. CPU snapshot is tiny so we
     // always publish it — covers the "Frame N" counter even when the
@@ -380,6 +393,7 @@ public sealed class EmulatorLoop : IDisposable
                     // long enough to drop audio samples.
                     Volatile.Write(ref _paletteSnapshot, PaletteSnapshot.From(sys, _paletteSnapshot));
                     Volatile.Write(ref _vramSnapshot, VramSnapshot.From(sys, _vramSnapshot));
+                    Volatile.Write(ref _memorySnapshot, MemorySnapshot.From(sys, MemoryViewAddress, _memorySnapshot));
                 }
                 Interlocked.Increment(ref _frameCount);
 
