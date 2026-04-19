@@ -23,7 +23,12 @@
     function createElement(node) {
         const { tag, className } = domSpec(node.type);
         const el = document.createElement(tag);
-        el.classList.add(className, "kohui-" + node.type.toLowerCase());
+        if (className) el.classList.add(className);
+        el.classList.add("kohui-" + node.type.toLowerCase());
+        // Store the original pascal-case type verbatim so patch handlers
+        // can key on it without guessing from lowercased class names —
+        // "StatusBarSegment" ≠ "Statusbarsegment" when case matters.
+        el.dataset.kohuiType = node.type;
         if (node.key) el.dataset.kohuiKey = node.key;
 
         // Windows wrap a header (.title-bar) + body (.window-body);
@@ -93,10 +98,18 @@
 
     // Client-side drag: pointer events translate the window container
     // via CSS transforms. Position is never sent back to the server.
+    //
+    // Crucially, drag starts only when the pointer-down happens on
+    // empty title-bar space — NOT on a control button. Earlier bug:
+    // setPointerCapture on the whole title bar stole clicks from the
+    // inline close button, so the close-button's click listener never
+    // fired (the subsequent click event dispatched to the title bar
+    // instead, because it owned pointer capture).
     function makeDraggable(titleBar) {
         let active = null;
         titleBar.addEventListener("pointerdown", e => {
             if (e.button !== 0) return;
+            if (e.target instanceof Element && e.target.closest(".title-bar-controls")) return;
             const win = titleBar.closest(".kohui-window");
             if (!win) return;
             const rect = win.getBoundingClientRect();
@@ -296,22 +309,13 @@
     }
 
     function typeOf(el) {
-        for (const c of el.classList) {
-            if (c.startsWith("kohui-")
-                && !c.startsWith("kohui-stack-")
-                && !c.startsWith("kohui-panel-")
-                && !c.startsWith("kohui-window-")) {
-                const name = c.slice("kohui-".length);
-                return name[0].toUpperCase() + name.slice(1);
-            }
-        }
-        return "";
+        return (el && el.dataset && el.dataset.kohuiType) || "";
     }
 
     function readProps(el) {
         const props = {};
         const type = typeOf(el);
-        if (type === "Label" || type === "Button" || type === "Statusbarsegment") props.text = el.textContent;
+        if (type === "Label" || type === "Button" || type === "StatusBarSegment") props.text = el.textContent;
         if (type === "Button") props.enabled = !el.disabled;
         return props;
     }
@@ -331,5 +335,13 @@
         ws.onerror = () => { /* onclose runs next */ };
     }
 
-    document.addEventListener("DOMContentLoaded", connect);
+    // kohui-client.js is loaded at the end of <body>, so DOMContentLoaded
+    // has typically fired by the time this script parses. Queue connect()
+    // immediately in that case; only defer if we're somehow earlier in
+    // the load cycle.
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", connect);
+    } else {
+        connect();
+    }
 })();
