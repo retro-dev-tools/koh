@@ -58,6 +58,38 @@
         }
       ]
     },
+    "breakpoints": [
+      { "language": "koh-asm" }
+    ],
+    "debuggers": [
+      {
+        "type": "koh",
+        "label": "Koh Game Boy Debugger",
+        "languages": ["koh-asm"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program":        { "type": "string", "description": "Path to .gb / .gbc ROM" },
+              "debugInfo":      { "type": "string", "description": "Path to .kdbg (phase 3+)" },
+              "emulatorPath":   { "type": "string", "description": "Override path to Koh.Emulator.App executable" },
+              "hardwareMode":   { "type": "string", "enum": ["auto", "dmg", "cgb"], "default": "auto" },
+              "stopOnEntry":    { "type": "boolean", "default": false },
+              "preLaunchTask":  { "type": "string" }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "koh",
+            "request": "launch",
+            "name": "Debug Koh ROM",
+            "program": "${workspaceFolder}/out/game.gb",
+            "stopOnEntry": false
+          }
+        ]
+      }
+    ],
     "configuration": {
       "title": "Koh Assembly",
       "properties": {

@@ -4,6 +4,7 @@ import { Logger } from './Logger';
 import { LspClientManager } from '../lsp/LspClientManager';
 import { KohYamlReader } from '../config/KohYamlReader';
 import { BuildTaskProvider } from '../build/BuildTaskProvider';
+import { KohDapAdapterFactory } from '../debug/KohDapAdapterFactory';
 import { generateConfigCommand, maybePromptGenerateConfig } from '../commands/GenerateConfigCommand';
 
 export class KohExtension {
@@ -32,6 +33,10 @@ export class KohExtension {
         this.disposables.add(this.lsp);
 
         this.disposables.add(this.buildTasks.register());
+
+        this.disposables.add(vscode.debug.registerDebugAdapterDescriptorFactory(
+            'koh',
+            new KohDapAdapterFactory(this.log)));
 
         await maybePromptGenerateConfig(this.log);
     }

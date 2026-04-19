@@ -7,7 +7,23 @@ using KohUI.Backends.Gl;
 // fixture so the emulator window opens on something interesting —
 // file-picker UI comes in phase 2. CLI arg override keeps local
 // debugging flexible.
-string romPath = args.Length > 0 ? args[0] : FindDefaultRom();
+// Parse --dap=<pipe> before anything else so it can be ignored by
+// the ROM-path arg logic. Everything else is still positional.
+string? dapPipe = null;
+var positional = new List<string>();
+foreach (var arg in args)
+{
+    if (arg.StartsWith("--dap=", StringComparison.Ordinal)) dapPipe = arg["--dap=".Length..];
+    else positional.Add(arg);
+}
+
+string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
+
+// When VS Code launches us in debug mode it passes --dap=<pipe>.
+// The server runs on its own thread and stays open for the whole
+// emulator lifetime; Dispose shuts it down cleanly when the window
+// closes.
+using var dapServer = dapPipe is not null ? new DapServerHost(dapPipe) : null;
 
 // AudioSink owns the OpenAL context; EmulatorLoop runs the emulator
 // core on its own thread and paces against the sink's buffer depth.
