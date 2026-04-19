@@ -24,6 +24,7 @@ public readonly record struct EmulatorModel(
 
 public abstract record EmulatorMsg;
 public sealed record Tick : EmulatorMsg;
+public sealed record Noop : EmulatorMsg;
 public sealed record LoadRom(string Path) : EmulatorMsg;
 public sealed record LoadRomSucceeded(GameBoySystem System, string Path) : EmulatorMsg;
 public sealed record LoadRomFailed(string Path, string Error) : EmulatorMsg;
@@ -42,6 +43,7 @@ public static class EmulatorApp
         JoypadDown d          => OnJoypadDown(m, d.Button),
         JoypadUp u            => OnJoypadUp(m, u.Button),
         LoadRom               => m,   // handled imperatively at boot
+        Noop                  => m,
         _                     => m,
     };
 
@@ -99,6 +101,9 @@ public static class EmulatorApp
     {
         byte[] pixels = m.Loop?.CurrentFramebuffer ?? s_placeholder;
 
+        var menu = new MenuBar<EmulatorMsg>(ImmutableArray.Create(
+            new MenuItem<EmulatorMsg>("&File", OnClick: OpenRomClick)));
+
         var display = new Image<EmulatorMsg>(
             pixels, Framebuffer.Width, Framebuffer.Height, DisplayScale);
 
@@ -108,13 +113,32 @@ public static class EmulatorApp
 
         var body = new ForEach<EmulatorMsg>(
             StackDirection.Vertical,
-            ImmutableArray.Create<IView<EmulatorMsg>>(display, status));
+            ImmutableArray.Create<IView<EmulatorMsg>>(menu, display, status));
 
         return new Window<EmulatorMsg, ForEach<EmulatorMsg>>(
             Title: m.RomPath is null ? "Koh Emulator" : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
             Child: body,
             X: 40, Y: 40,
             Width: Framebuffer.Width * DisplayScale + 16);
+    }
+
+    /// <summary>
+    /// MenuItem OnClick handler: opens the native file dialog, reads
+    /// the selected ROM off disk, and returns either a
+    /// <see cref="LoadRomSucceeded"/> / <see cref="LoadRomFailed"/>
+    /// message. The dialog runs on the runner's invoke thread (same
+    /// thread the event callback fires on), which is fine because
+    /// GetOpenFileName is reentrant and doesn't need the GLFW loop
+    /// pumping during its lifetime.
+    /// </summary>
+    private static EmulatorMsg OpenRomClick()
+    {
+        string? path = FileDialog.OpenRom();
+        if (path is null) return new Noop();
+        var mode = string.Equals(Path.GetExtension(path), ".gbc", StringComparison.OrdinalIgnoreCase)
+            ? HardwareMode.Cgb
+            : HardwareMode.Dmg;
+        return LoadRomFromDisk(path, mode);
     }
 
     private static readonly byte[] s_placeholder = BuildPlaceholder();
