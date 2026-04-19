@@ -9,13 +9,16 @@ using KohUI.Backends.Gl;
 // debugging flexible.
 string romPath = args.Length > 0 ? args[0] : FindDefaultRom();
 
-// Owned by the model; `Update` calls Push(audio) after each emulated
-// frame so samples keep flowing without a dedicated audio thread. The
-// runner serialises messages, so Update never reenters AudioSink.
+// AudioSink owns the OpenAL context; EmulatorLoop runs the emulator
+// core on its own thread and paces against the sink's buffer depth.
+// This keeps emulated speed locked to the audio hardware clock (not
+// monitor vsync), which matters because GB is 59.73 Hz and a 60 Hz
+// display would otherwise introduce slow pitch drift.
 using var audio = new AudioSink();
+using var loop  = new EmulatorLoop(audio);
 
 var runner = new Runner<EmulatorModel, EmulatorMsg>(
-    initialModel: new EmulatorModel(System: null, RomPath: null, FrameCount: 0, Status: "Loading...", Audio: audio),
+    initialModel: new EmulatorModel(Loop: loop, RomPath: null, FrameCount: 0, Status: "Loading..."),
     update: EmulatorApp.Update,
     view: EmulatorApp.View);
 

@@ -9,18 +9,18 @@ using KohUI.Widgets;
 namespace Koh.Emulator.App;
 
 /// <summary>
-/// The MVU-side of the emulator app. The model holds a reference to
-/// the live <see cref="GameBoySystem"/> (mutable — an emulator core is
-/// not functional) and a frame counter for diff-detection. The update
-/// reacts to a wall-clock <c>Tick</c> message that the GL backend
-/// dispatches once per vsync; each tick advances one emulated frame.
+/// The MVU-side of the emulator. Since phase 3.5, the emulator core
+/// runs on a dedicated background thread (<see cref="EmulatorLoop"/>),
+/// paced against the audio sink. The MVU model no longer advances the
+/// emulator — <c>Tick</c> is a lightweight "sample the live state for
+/// the UI" message the GL backend dispatches once per vsync so the
+/// frame-count label and title bar stay fresh.
 /// </summary>
 public readonly record struct EmulatorModel(
-    GameBoySystem? System,
+    EmulatorLoop? Loop,
     string? RomPath,
     long FrameCount,
-    string Status,
-    AudioSink? Audio);
+    string Status);
 
 public abstract record EmulatorMsg;
 public sealed record Tick : EmulatorMsg;
@@ -37,35 +37,51 @@ public static class EmulatorApp
     public static EmulatorModel Update(EmulatorMsg msg, EmulatorModel m) => msg switch
     {
         Tick                  => OnTick(m),
-        LoadRomSucceeded ok   => m with { System = ok.System, RomPath = ok.Path, Status = $"Loaded {Path.GetFileName(ok.Path)}" },
+        LoadRomSucceeded ok   => OnLoadSuccess(m, ok),
         LoadRomFailed fail    => m with { Status = $"Load failed: {fail.Error}" },
         JoypadDown d          => OnJoypadDown(m, d.Button),
         JoypadUp u            => OnJoypadUp(m, u.Button),
-        // LoadRom is handled imperatively at the boot site; keeping the
-        // msg in the discriminated union so the dispatcher still accepts
-        // it without the compiler complaining.
-        LoadRom               => m,
+        LoadRom               => m,   // handled imperatively at boot
         _                     => m,
     };
 
+    private static EmulatorModel OnTick(EmulatorModel m)
+    {
+        // Sample the loop's live state into the model so the UI can
+        // re-render. Emulator frames advance on the EmulatorLoop
+        // thread; here we just snapshot the counter.
+        long live = m.Loop?.FrameCount ?? 0;
+        if (live == m.FrameCount) return m;   // no-op: skip patch work
+        return m with { FrameCount = live };
+    }
+
+    private static EmulatorModel OnLoadSuccess(EmulatorModel m, LoadRomSucceeded ok)
+    {
+        // Swap the system into the loop. Pause first so the drain
+        // thread isn't mid-RunFrame on the outgoing System; Resume
+        // after SetSystem installs the new one.
+        m.Loop?.Pause();
+        m.Loop?.SetSystem(ok.System);
+        m.Loop?.Resume();
+        return m with { RomPath = ok.Path, FrameCount = 0, Status = $"Loaded {Path.GetFileName(ok.Path)}" };
+    }
+
     private static EmulatorModel OnJoypadDown(EmulatorModel m, JoypadButton button)
     {
-        m.System?.JoypadPress(button);
+        // We don't hold the GameBoySystem in the model anymore; reach
+        // through the Loop. Loop's SetSystem is the only thing that
+        // mutates _system, and it's called from this same update loop,
+        // so the read is safe.
+        m.Loop?.Send(sys => sys.JoypadPress(button));
         return m;
     }
 
     private static EmulatorModel OnJoypadUp(EmulatorModel m, JoypadButton button)
     {
-        m.System?.JoypadRelease(button);
+        m.Loop?.Send(sys => sys.JoypadRelease(button));
         return m;
     }
 
-    /// <summary>
-    /// Keyboard → joypad mapping following the arcade-style default
-    /// (WASD / arrows for the d-pad, Z/X for B/A, Enter/RShift for
-    /// Start/Select). Returns null for unmapped keys so the runner's
-    /// default handling (focus, menus) still works for them.
-    /// </summary>
     public static JoypadButton? MapKey(string keyName) => keyName switch
     {
         "ArrowUp"     => JoypadButton.Up,
@@ -79,46 +95,28 @@ public static class EmulatorApp
         _             => null,
     };
 
-    private static EmulatorModel OnTick(EmulatorModel m)
-    {
-        if (m.System is null) return m;
-        m.System.RunFrame();
-        m.Audio?.Push(m.System.Apu.SampleBuffer);
-        return m with { FrameCount = m.FrameCount + 1 };
-    }
-
     public static IView<EmulatorMsg> View(EmulatorModel m)
     {
-        // When no ROM is loaded yet (or load failed) the Image carries a
-        // placeholder grey buffer from Framebuffer's ctor. This keeps
-        // the widget tree shape stable across load events so the layout
-        // doesn't reflow every time the user picks a new ROM.
-        byte[] pixels = m.System?.Ppu.Framebuffer.FrontArray ?? s_placeholder;
+        byte[] pixels = m.Loop?.CurrentFramebuffer ?? s_placeholder;
 
         var display = new Image<EmulatorMsg>(
             pixels, Framebuffer.Width, Framebuffer.Height, DisplayScale);
 
         var status = new StatusBar<EmulatorMsg>(ImmutableArray.Create(
             m.Status,
-            m.System is null ? "No ROM" : $"Frame {m.FrameCount}"));
+            m.Loop is null ? "No ROM" : $"Frame {m.FrameCount}"));
 
         var body = new ForEach<EmulatorMsg>(
             StackDirection.Vertical,
             ImmutableArray.Create<IView<EmulatorMsg>>(display, status));
 
         return new Window<EmulatorMsg, ForEach<EmulatorMsg>>(
-            Title: m.System is null ? "Koh Emulator" : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
+            Title: m.RomPath is null ? "Koh Emulator" : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
             Child: body,
             X: 40, Y: 40,
             Width: Framebuffer.Width * DisplayScale + 16);
     }
 
-    /// <summary>
-    /// Placeholder grey block used before the first ROM is loaded —
-    /// same (0x2e, 0x2e, 0x2e, 0xff) fill the PPU's Framebuffer uses so
-    /// the window doesn't flash between "initial paint" and "emulator
-    /// actually running".
-    /// </summary>
     private static readonly byte[] s_placeholder = BuildPlaceholder();
 
     private static byte[] BuildPlaceholder()
@@ -134,11 +132,6 @@ public static class EmulatorApp
         return buf;
     }
 
-    /// <summary>
-    /// Side-effecting ROM load. Called off the UI path at startup (and
-    /// later, from a file-open dialog in phase 2). Produces a success
-    /// or failure message for the update loop.
-    /// </summary>
     public static EmulatorMsg LoadRomFromDisk(string path, HardwareMode mode)
     {
         try
