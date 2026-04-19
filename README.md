@@ -93,15 +93,14 @@ Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
 | `CompatTests`         | Run RGBDS compatibility tests                               |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
-| `PublishEmulatorApp`  | AOT-publish the Blazor WASM app for the VS Code extension   |
-| `PublishMaui`         | Publish the MAUI desktop shell (`net10.0-windows`, win-x64) |
-| `RunMaui`             | Publish the MAUI desktop shell and launch the `.exe`        |
+| `PublishEmulatorApp`  | NativeAOT-publish the KohUI emulator (`-r <rid>`; default `win-x64`) |
+| `RunEmulator`         | Publish the emulator and launch the `.exe`                  |
 
-Quick-launch the MAUI emulator:
+Quick-launch the emulator:
 
 ```powershell
-./scripts/run-maui.ps1     # Windows PowerShell
-./scripts/run-maui.sh      # bash / git-bash
+./scripts/run-emulator.ps1     # Windows PowerShell
+./scripts/run-emulator.sh      # bash / git-bash
 ```
 
 ## VS Code

@@ -8,15 +8,13 @@
     dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
-    dotnet msbuild build.proj -t:PublishMaui
-    dotnet msbuild build.proj -t:RunMaui     (publish + launch Koh.Emulator.Maui)
+    dotnet msbuild build.proj -t:RunEmulator   (publish + launch Koh.Emulator.App)
 -->
 <Project DefaultTargets="Test">
 
   <PropertyGroup>
-    <MauiTargetFramework>net10.0-windows10.0.19041.0</MauiTargetFramework>
-    <MauiRuntimeIdentifier>win-x64</MauiRuntimeIdentifier>
-    <MauiPublishDir>$(MSBuildThisFileDirectory)src\Koh.Emulator.Maui\bin\Release\$(MauiTargetFramework)\$(MauiRuntimeIdentifier)\publish</MauiPublishDir>
+    <EmulatorRuntimeIdentifier Condition="'$(EmulatorRuntimeIdentifier)' == ''">win-x64</EmulatorRuntimeIdentifier>
+    <EmulatorPublishDir>$(MSBuildThisFileDirectory)src\Koh.Emulator.App\bin\Release\net10.0\$(EmulatorRuntimeIdentifier)\publish</EmulatorPublishDir>
   </PropertyGroup>
 
   <Target Name="Test">
@@ -37,16 +35,12 @@
   </Target>
 
   <Target Name="PublishEmulatorApp">
-    <!-- Blazor WASM (AOT) packaged for the VS Code extension. -->
-    <Exec Command="npm run build:emulator-app:aot" WorkingDirectory="editors/vscode" />
+    <!-- NativeAOT publish of the KohUI-based emulator. -->
+    <Exec Command="dotnet publish src/Koh.Emulator.App -c Release -r $(EmulatorRuntimeIdentifier)" />
   </Target>
 
-  <Target Name="PublishMaui">
-    <Exec Command="dotnet publish src/Koh.Emulator.Maui -f $(MauiTargetFramework) -r $(MauiRuntimeIdentifier) -c Release" />
-  </Target>
-
-  <Target Name="RunMaui" DependsOnTargets="PublishMaui">
-    <Exec Command="&quot;$(MauiPublishDir)\Koh.Emulator.Maui.exe&quot;" />
+  <Target Name="RunEmulator" DependsOnTargets="PublishEmulatorApp">
+    <Exec Command="&quot;$(EmulatorPublishDir)\Koh.Emulator.App.exe&quot;" />
   </Target>
 
 </Project>
