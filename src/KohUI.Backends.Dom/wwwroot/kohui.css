@@ -22,6 +22,13 @@ body {
 .kohui-stack.kohui-stack-Vertical   { flex-direction: column; }
 .kohui-stack.kohui-stack-Horizontal { flex-direction: row; align-items: center; }
 
+/* Stretch: every direct child gets flex:1 so remaining main-axis
+   space is divided equally. Matches the Skia Layouter's stretch
+   algorithm. */
+.kohui-stack.kohui-stack-stretch > * {
+    flex: 1;
+}
+
 .kohui-label {
     display: inline-block;
 }

@@ -182,6 +182,27 @@ public sealed class Layouter(SKFont font, Win98Theme theme)
         bool h = horizontal ?? GetString(node, "direction") == "Horizontal";
         int p = pad ?? 0;
         int g = gap ?? _gap;
+        bool stretch = node.Props.TryGetValue("stretch", out var sv) && sv is true;
+
+        // When stretching, divide any main-axis space left over after the
+        // gaps among children equally. With N children there are (N-1)
+        // gaps; the remaining slack bumps each child's measured main
+        // dimension by the same integer amount (last child absorbs any
+        // pixel rounding).
+        int mainTotal = h ? bounds.W - p * 2 : bounds.H - p * 2;
+        int gapsTotal = node.Children.Length > 0 ? (node.Children.Length - 1) * g : 0;
+        int measuredMainSum = 0;
+        if (stretch)
+        {
+            for (int i = 0; i < node.Children.Length; i++)
+            {
+                var (cw, ch) = Measure(node.Children[i]);
+                measuredMainSum += h ? cw : ch;
+            }
+        }
+        int slack = stretch ? Math.Max(0, mainTotal - gapsTotal - measuredMainSum) : 0;
+        int slackPerChild = node.Children.Length > 0 ? slack / node.Children.Length : 0;
+        int slackRemainder = slack - slackPerChild * node.Children.Length;
 
         var result = ImmutableArray.CreateBuilder<LayoutNode>(node.Children.Length);
         int cursor = h ? bounds.X + p : bounds.Y + p;
@@ -191,6 +212,9 @@ public sealed class Layouter(SKFont font, Win98Theme theme)
         for (int i = 0; i < node.Children.Length; i++)
         {
             var (cw, ch) = Measure(node.Children[i]);
+            int bump = slackPerChild + (i == node.Children.Length - 1 ? slackRemainder : 0);
+            if (h) cw += bump; else ch += bump;
+
             Rect childBounds = h
                 ? new Rect(cursor, crossStart, cw, crossSize)
                 : new Rect(crossStart, cursor, crossSize, ch);

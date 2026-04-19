@@ -149,9 +149,10 @@
                 break;
 
             case "Stack":
-                el.classList.remove("kohui-stack-Vertical", "kohui-stack-Horizontal");
+                el.classList.remove("kohui-stack-Vertical", "kohui-stack-Horizontal", "kohui-stack-stretch");
                 el.classList.add("kohui-stack");
                 el.classList.add("kohui-stack-" + (p.direction || "Vertical"));
+                if (p.stretch === true) el.classList.add("kohui-stack-stretch");
                 break;
 
             case "Window":

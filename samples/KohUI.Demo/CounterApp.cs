@@ -53,7 +53,8 @@ public static class CounterApp
         var buttons = new Stack<CounterMsg, Button<CounterMsg>, Button<CounterMsg>>(
             StackDirection.Horizontal,
             new Button<CounterMsg>("-", OnClick: () => new Decrement()),
-            new Button<CounterMsg>("+", OnClick: () => new Increment()));
+            new Button<CounterMsg>("+", OnClick: () => new Increment()),
+            Stretch: true);
 
         // Radios in a group — exactly one Selected at a time. Handler sets
         // the new step size, update flips the model, re-render makes the

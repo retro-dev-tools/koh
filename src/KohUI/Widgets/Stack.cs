@@ -12,19 +12,30 @@ public enum StackDirection { Vertical, Horizontal }
 /// generic form (monomorphises cleanly) for the common binary case;
 /// deeper compositions use nested stacks. For truly dynamic lists use
 /// <see cref="ForEach{TMsg, TItem}"/> which boxes deliberately.
+///
+/// <para>
+/// When <see cref="Stretch"/> is set, any leftover space along the
+/// main axis is distributed equally among the children — a button
+/// row with <c>Stretch=true</c> fills the whole panel, while the
+/// default packs children at their measured minimums at the leading
+/// edge (the Win98-authentic behaviour).
+/// </para>
 /// </summary>
-public readonly struct Stack<TMsg, TA, TB>(StackDirection Direction, TA First, TB Second) : IView<TMsg>
+public readonly struct Stack<TMsg, TA, TB>(StackDirection Direction, TA First, TB Second, bool Stretch = false) : IView<TMsg>
     where TA : IView<TMsg>
     where TB : IView<TMsg>
 {
     public readonly StackDirection Direction = Direction;
     public readonly TA First = First;
     public readonly TB Second = Second;
+    public readonly bool Stretch = Stretch;
 
     public RenderNode Render()
     {
         var children = ImmutableArray.Create(First.Render(), Second.Render());
-        var props = Props.Of(("direction", Direction.ToString()));
+        var props = Props.Of(
+            ("direction", Direction.ToString()),
+            ("stretch", Stretch));
         return RenderNode.WithChildren("Stack", children, props);
     }
 }
@@ -35,16 +46,19 @@ public readonly struct Stack<TMsg, TA, TB>(StackDirection Direction, TA First, T
 /// repeating rows). For fixed-shape UIs prefer <see cref="Stack{TMsg,
 /// TA, TB}"/> composition.
 /// </summary>
-public readonly struct ForEach<TMsg>(StackDirection Direction, ImmutableArray<IView<TMsg>> Items) : IView<TMsg>
+public readonly struct ForEach<TMsg>(StackDirection Direction, ImmutableArray<IView<TMsg>> Items, bool Stretch = false) : IView<TMsg>
 {
     public readonly StackDirection Direction = Direction;
     public readonly ImmutableArray<IView<TMsg>> Items = Items;
+    public readonly bool Stretch = Stretch;
 
     public RenderNode Render()
     {
         var children = ImmutableArray.CreateBuilder<RenderNode>(Items.Length);
         foreach (var item in Items) children.Add(item.Render());
-        var props = Props.Of(("direction", Direction.ToString()));
+        var props = Props.Of(
+            ("direction", Direction.ToString()),
+            ("stretch", Stretch));
         return RenderNode.WithChildren("Stack", children.MoveToImmutable(), props);
     }
 }
