@@ -138,7 +138,7 @@ public static class EmulatorApp
         // thread isn't mid-RunFrame on the outgoing System; Resume
         // after SetSystem installs the new one.
         m.Loop?.Pause();
-        m.Loop?.SetSystem(ok.System);
+        m.Loop?.SetSystem(ok.System, ok.Path);
         m.Loop?.Resume();
         return m with { RomPath = ok.Path, FrameCount = 0, Status = $"Loaded {Path.GetFileName(ok.Path)}" };
     }

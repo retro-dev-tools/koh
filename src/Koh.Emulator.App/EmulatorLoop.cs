@@ -53,6 +53,11 @@ public sealed class EmulatorLoop : IDisposable
     // Interrupts.Raise from another thread would otherwise tear state.
     private readonly ConcurrentQueue<Action<GameBoySystem>> _inbox = new();
 
+    // Path of the ROM backing the current _system, if any. Retained so
+    // we can write the battery-backed SRAM to "<rom>.sav" on ROM swap
+    // and app exit without reaching back through the model.
+    private string? _currentRomPath;
+
     // Published by the loop after each frame so the UI can render a
     // coherent snapshot without reaching into the live GameBoySystem.
     // Reference-stable: the PPU mutates the same byte[] in place, this
@@ -141,12 +146,70 @@ public sealed class EmulatorLoop : IDisposable
     /// Install (or replace) the <see cref="GameBoySystem"/> the loop
     /// operates on. Caller is expected to pause first; the loop holds
     /// a reference for the thread, so swapping mid-run would race.
+    ///
+    /// <para>
+    /// Writes the outgoing system's battery-backed SRAM to its
+    /// <c>.sav</c> path before dropping the reference, and attempts to
+    /// load the incoming ROM's <c>.sav</c> into the new system's
+    /// cartridge RAM — so save data carries across ROM swaps and
+    /// relaunches without the app having to orchestrate it.
+    /// </para>
     /// </summary>
-    public void SetSystem(GameBoySystem? system)
+    public void SetSystem(GameBoySystem? system, string? romPath = null)
     {
+        if (_system is not null && _currentRomPath is not null) SaveSramNow(_system, _currentRomPath);
         _system = system;
+        _currentRomPath = romPath;
+        if (system is not null && romPath is not null) LoadSramInto(system, romPath);
         _sink.Reset();
         Volatile.Write(ref _frameCount, 0);
+    }
+
+    /// <summary>
+    /// Atomically persist the battery-backed SRAM. The write lands as
+    /// <c>&lt;romPath&gt;.tmp</c> first, then renames over the final
+    /// <c>.sav</c> — a crash mid-write can leave the temp file behind
+    /// but never a half-written save.
+    /// </summary>
+    private static void SaveSramNow(GameBoySystem sys, string romPath)
+    {
+        var ram = sys.Cartridge.Ram;
+        if (ram.Length == 0) return;
+        string savPath = romPath + ".sav";
+        string tmp = savPath + ".tmp";
+        try
+        {
+            File.WriteAllBytes(tmp, ram);
+            if (File.Exists(savPath)) File.Delete(savPath);
+            File.Move(tmp, savPath);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[koh-emu-loop] SRAM save failed ({savPath}): {ex.Message}");
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
+        }
+    }
+
+    private static void LoadSramInto(GameBoySystem sys, string romPath)
+    {
+        var ram = sys.Cartridge.Ram;
+        if (ram.Length == 0) return;
+        string savPath = romPath + ".sav";
+        if (!File.Exists(savPath)) return;
+        try
+        {
+            var bytes = File.ReadAllBytes(savPath);
+            // Tolerate size mismatches: copy what fits, zero-fill if
+            // the .sav is shorter (SRAM was already zero-initialised
+            // at cart construction, so a short read leaves the tail
+            // untouched).
+            int copy = Math.Min(bytes.Length, ram.Length);
+            Buffer.BlockCopy(bytes, 0, ram, 0, copy);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[koh-emu-loop] SRAM load failed ({savPath}): {ex.Message}");
+        }
     }
 
     public void Pause()
@@ -171,6 +234,11 @@ public sealed class EmulatorLoop : IDisposable
         Post(Command.Quit);
         _runGate.Set();
         _exited.Wait(TimeSpan.FromSeconds(1));
+        // Flush the last SRAM after the loop exits so we're not racing
+        // the background thread's final RunFrame (which may have
+        // written fresh bytes into cart.Ram just before Quit).
+        if (_system is not null && _currentRomPath is not null)
+            SaveSramNow(_system, _currentRomPath);
         if (_timerResolutionRaised && OperatingSystem.IsWindows())
             _ = TimeEndPeriod(1);
     }
