@@ -65,6 +65,8 @@
             case "Panel":            return { tag: "div",    className: "" };
             case "StatusBar":        return { tag: "div",    className: "status-bar" };
             case "StatusBarSegment": return { tag: "p",      className: "status-bar-field" };
+            case "CheckBox":         return { tag: "label",  className: "" };
+            case "RadioButton":      return { tag: "label",  className: "" };
             default:                 return { tag: "div",    className: "" };
         }
     }
@@ -177,6 +179,27 @@
             case "StatusBarSegment":
                 el.textContent = p.text ?? "";
                 break;
+
+            case "CheckBox":
+            case "RadioButton": {
+                // <label><input type=checkbox|radio> <span>text</span></label>
+                // Rebuild each time — cheap for this cardinality, and keeps
+                // the click forwarder wired to the <label>, which is the
+                // natural hit target for both the box and the text.
+                el.replaceChildren();
+                const input = document.createElement("input");
+                input.type = node.type === "CheckBox" ? "checkbox" : "radio";
+                input.checked = node.type === "CheckBox" ? (p.checked === true) : (p.selected === true);
+                // Intercept the native change so the MVU loop stays the
+                // source of truth — no flicker if the dispatch is a no-op.
+                input.addEventListener("click", ev => ev.preventDefault());
+                el.appendChild(input);
+                const span = document.createElement("span");
+                span.textContent = " " + (p.text ?? "");
+                el.appendChild(span);
+                wireEventForwarder(el, "click", p.onClick === true);
+                break;
+            }
         }
     }
 
@@ -317,6 +340,17 @@
         const type = typeOf(el);
         if (type === "Label" || type === "Button" || type === "StatusBarSegment") props.text = el.textContent;
         if (type === "Button") props.enabled = !el.disabled;
+        if (type === "CheckBox" || type === "RadioButton") {
+            // The label's textContent concatenates input (empty) + span (" "+text).
+            // Strip the leading space so round-trip preserves the server's view.
+            const span = el.querySelector(":scope > span");
+            if (span) props.text = span.textContent.replace(/^ /, "");
+            const input = el.querySelector(":scope > input");
+            if (input) {
+                if (type === "CheckBox")    props.checked = input.checked;
+                if (type === "RadioButton") props.selected = input.checked;
+            }
+        }
         return props;
     }
 

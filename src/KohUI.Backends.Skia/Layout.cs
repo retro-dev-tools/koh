@@ -71,6 +71,8 @@ public sealed class Layouter(SKFont font, int padding = 4, int gap = 4)
         {
             "Label"             => MeasureText(GetString(node, "text")),
             "Button"            => MeasureButton(node),
+            "CheckBox"          => MeasureGlyphed(node, glyphSize: 13, textGap: 6),
+            "RadioButton"       => MeasureGlyphed(node, glyphSize: 13, textGap: 6),
             "MenuItem"          => Pad(MeasureText(StripAccelerator(GetString(node, "text"))), px: 8, py: 2),
             "StatusBarSegment"  => Pad(MeasureText(GetString(node, "text")), px: 4, py: 2),
             "Stack"             => MeasureStack(node),
@@ -94,6 +96,17 @@ public sealed class Layouter(SKFont font, int padding = 4, int gap = 4)
         var (tw, th) = MeasureText(GetString(node, "text"));
         // 98.css: min-width 75, min-height 23; padding 0 12 on the x axis.
         return (Math.Max(75, tw + 24), Math.Max(23, th + 6));
+    }
+
+    /// <summary>
+    /// CheckBox / RadioButton: fixed-size glyph box + gap + text.
+    /// Height clamps to the max of glyph and text ascender/descender
+    /// so the baseline aligns cleanly against the box.
+    /// </summary>
+    private (int W, int H) MeasureGlyphed(RenderNode node, int glyphSize, int textGap)
+    {
+        var (tw, th) = MeasureText(GetString(node, "text"));
+        return (glyphSize + textGap + tw, Math.Max(glyphSize, th));
     }
 
     private (int W, int H) MeasureStack(RenderNode node, bool? horizontal = null, int? pad = null, int? gap = null)

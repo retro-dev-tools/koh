@@ -88,6 +88,20 @@ public sealed class Painter : IDisposable
                              focused: focusPath is not null && focusPath == node.Path);
                 break;
 
+            case "CheckBox":
+                DrawCheckBox(canvas, r,
+                             Layouter.GetString(node.Source, "text"),
+                             isChecked: node.Source.Props.TryGetValue("checked", out var c) && c is true,
+                             focused: focusPath is not null && focusPath == node.Path);
+                break;
+
+            case "RadioButton":
+                DrawRadioButton(canvas, r,
+                                Layouter.GetString(node.Source, "text"),
+                                selected: node.Source.Props.TryGetValue("selected", out var s) && s is true,
+                                focused: focusPath is not null && focusPath == node.Path);
+                break;
+
             case "StatusBarSegment":
                 DrawPanel(canvas, r, "Sunken");
                 DrawText(canvas, Layouter.GetString(node.Source, "text"), r, _textPaint);
@@ -194,6 +208,152 @@ public sealed class Painter : IDisposable
 
     private static Rect Inset(Rect r, int by)
         => new(r.X + by, r.Y + by, Math.Max(0, r.W - by * 2), Math.Max(0, r.H - by * 2));
+
+    private void DrawCheckBox(SKCanvas canvas, Rect r, string text, bool isChecked, bool focused)
+    {
+        // Sunken 13×13 box on a white fill (Win98 field background), with
+        // a hand-drawn check glyph. Text to the right, vertically centred
+        // against the box.
+        const int GlyphSize = 13;
+        const int TextGap = 6;
+        int glyphY = r.Y + (r.H - GlyphSize) / 2;
+        var glyph = new Rect(r.X, glyphY, GlyphSize, GlyphSize);
+
+        using var fieldFill = new SKPaint { Color = new SKColor(0xff, 0xff, 0xff), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(glyph.ToSKRect(), fieldFill);
+        DrawBevel(canvas, glyph,
+            outerTL: _shadowPaint,     outerBR: _hilitePaint,
+            innerTL: _darkShadowPaint, innerBR: _bgPaint);
+
+        if (isChecked) DrawCheckGlyph(canvas, glyph);
+
+        var textR = new Rect(r.X + GlyphSize + TextGap, r.Y, r.W - GlyphSize - TextGap, r.H);
+        DrawText(canvas, text, textR, _textPaint);
+
+        if (focused)
+        {
+            // Dotted ring hugs the label for keyboard visibility — matches
+            // how Win98 renders the focus indicator on checkboxes.
+            int tw = (int)_font.MeasureText(text);
+            var ringR = new Rect(textR.X - 2, textR.Y + (textR.H - (int)_font.Spacing) / 2 - 1,
+                                 tw + 4, (int)_font.Spacing + 2);
+            DrawFocusRing(canvas, ringR);
+        }
+    }
+
+    private void DrawRadioButton(SKCanvas canvas, Rect r, string text, bool selected, bool focused)
+    {
+        const int GlyphSize = 13;
+        const int TextGap = 6;
+        int glyphY = r.Y + (r.H - GlyphSize) / 2;
+        var glyph = new Rect(r.X, glyphY, GlyphSize, GlyphSize);
+
+        // Outer ring: darkshadow on top-left, hilite on bottom-right.
+        // Inner ring: shadow on top-left, bg on bottom-right. White fill
+        // inside. No Skia arc primitive at 13 px — hand-plot the pixels to
+        // avoid the anti-aliased blur that makes small circles look off at
+        // this scale.
+        DrawRadioGlyph(canvas, glyph, selected);
+
+        var textR = new Rect(r.X + GlyphSize + TextGap, r.Y, r.W - GlyphSize - TextGap, r.H);
+        DrawText(canvas, text, textR, _textPaint);
+
+        if (focused)
+        {
+            int tw = (int)_font.MeasureText(text);
+            var ringR = new Rect(textR.X - 2, textR.Y + (textR.H - (int)_font.Spacing) / 2 - 1,
+                                 tw + 4, (int)_font.Spacing + 2);
+            DrawFocusRing(canvas, ringR);
+        }
+    }
+
+    /// <summary>
+    /// Eleven-pixel diagonal zig-zag that reads as a Win98 check mark at
+    /// the tiny 13-px box size. Hand-laid coordinates; anti-aliased
+    /// strokes smear into noise at this density.
+    /// </summary>
+    private void DrawCheckGlyph(SKCanvas canvas, Rect box)
+    {
+        int bx = box.X + 3;
+        int by = box.Y + 3;
+        var paint = _textPaint;
+        // Down-right stroke from (0,2) to (3,5), then up-right to (7,1).
+        // Each step draws a 2-pixel tall dab to weight the stroke.
+        (int x, int y)[] pts =
+        [
+            (0, 2), (0, 3),
+            (1, 3), (1, 4),
+            (2, 4), (2, 5),
+            (3, 5), (3, 6),
+            (3, 4), (4, 4),
+            (4, 3), (5, 3),
+            (5, 2), (6, 2),
+            (6, 1), (7, 1),
+            (7, 0),
+        ];
+        foreach (var (x, y) in pts)
+            canvas.DrawRect(new SKRect(bx + x, by + y, bx + x + 1, by + y + 1), paint);
+    }
+
+    /// <summary>
+    /// Approximation of the Win98 13×13 radio circle: outer bevel drawn
+    /// pixel by pixel so the "O" reads cleanly instead of blurring. Fill
+    /// is white; dot (when selected) is a 3×3 centred square — Win98 used
+    /// a square-ish dot too at this size.
+    /// </summary>
+    private void DrawRadioGlyph(SKCanvas canvas, Rect box, bool selected)
+    {
+        // Table of pixel colours along each row of the 13×13 glyph. 'D'
+        // = dark shadow, 'S' = shadow, 'H' = hilite, 'B' = bg, 'W' =
+        // white fill, '.' = transparent (leave background alone).
+        string[] rows =
+        [
+            "....DDDDD....",
+            "..DDSSSSSHH..",
+            ".DSSWWWWWBBH.",
+            ".DSWWWWWWBBB.",
+            "DSWWWWWWWWWBH",
+            "DSWWWWWWWWWBH",
+            "DSWWWWWWWWWBH",
+            "DSWWWWWWWWWBH",
+            "DSWWWWWWWWWBH",
+            ".DSWWWWWWWBB.",
+            ".HSSWWWWWBBB.",
+            "..HHSSSSSBB..",
+            "....HHHHH....",
+        ];
+
+        for (int ry = 0; ry < rows.Length; ry++)
+        {
+            string row = rows[ry];
+            for (int cx = 0; cx < row.Length; cx++)
+            {
+                SKPaint? p = row[cx] switch
+                {
+                    'D' => _darkShadowPaint,
+                    'S' => _shadowPaint,
+                    'H' => _hilitePaint,
+                    'B' => _bgPaint,
+                    'W' => null, // white handled separately so we only create the paint once
+                    _   => null,
+                };
+                if (p is not null)
+                    canvas.DrawRect(new SKRect(box.X + cx, box.Y + ry, box.X + cx + 1, box.Y + ry + 1), p);
+            }
+        }
+
+        // Fill the interior with white in one rect so the inner shape is
+        // solid rather than striped.
+        using var whiteFill = new SKPaint { Color = new SKColor(0xff, 0xff, 0xff), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(new SKRect(box.X + 3, box.Y + 2, box.X + 10, box.Y + 11), whiteFill);
+        canvas.DrawRect(new SKRect(box.X + 2, box.Y + 3, box.X + 11, box.Y + 10), whiteFill);
+
+        if (selected)
+        {
+            // 3×3 centred dot.
+            canvas.DrawRect(new SKRect(box.X + 5, box.Y + 5, box.X + 8, box.Y + 8), _textPaint);
+        }
+    }
 
     /// <summary>
     /// Draws the canonical Win98 2-pixel bevel: outer top+left one colour,

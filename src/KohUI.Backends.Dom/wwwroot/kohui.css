@@ -35,3 +35,18 @@ body {
     display: block;
     min-height: 1em;
 }
+
+/* CheckBox / RadioButton: tight label wrapping an <input> + <span>.
+   Cursor is default to match Win98's non-hover-distinct chrome. */
+.kohui-checkbox,
+.kohui-radiobutton {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    cursor: default;
+    user-select: none;
+}
+.kohui-checkbox input,
+.kohui-radiobutton input {
+    margin: 0 4px 0 0;
+}

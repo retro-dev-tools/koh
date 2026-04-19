@@ -53,6 +53,20 @@ public class CounterDemoE2ETests
         await Assert.That((await page.Locator(".status-bar-field").Nth(1).TextContentAsync()) ?? "")
             .IsEqualTo("Value: 2");
 
+        // Switch the step to 5 via the radio buttons, then +1 click → +5 → 7.
+        await page.Locator(".kohui-radiobutton").Filter(new() { HasTextString = "5" }).ClickAsync();
+        await incrementBtn.ClickAsync();
+        await page.Locator(".kohui-label", new() { HasTextString = "Count: 7" }).WaitForAsync();
+
+        // Toggle the AllowNegative checkbox off, then decrement past zero —
+        // the update pass clamps Count to 0 so we observe "Count: 0".
+        var allowNegCb = page.Locator(".kohui-checkbox").Filter(new() { HasTextString = "Allow negative values" });
+        await allowNegCb.ClickAsync();   // now false
+        var decrementBtn = page.Locator("button", new() { HasTextString = "-" });
+        await decrementBtn.ClickAsync();   // 7 - 5 = 2
+        await decrementBtn.ClickAsync();   // 2 - 5 would be -3, clamped to 0
+        await page.Locator(".kohui-label", new() { HasTextString = "Count: 0" }).WaitForAsync();
+
         // Click the window close button. Window disappears; a "Reopen"
         // UI takes its place.
         await page.Locator(".title-bar-controls button[aria-label='Close']").ClickAsync();

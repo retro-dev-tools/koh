@@ -17,7 +17,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 var preview = args.Contains("--preview") || args.Contains("--headless");
 
 var runner = new Runner<CounterModel, CounterMsg>(
-    initialModel: new CounterModel(Count: 0, WindowOpen: true),
+    initialModel: new CounterModel(Count: 0, Step: 1, AllowNegative: true, WindowOpen: true),
     update: CounterApp.Update,
     view: CounterApp.View);
 
