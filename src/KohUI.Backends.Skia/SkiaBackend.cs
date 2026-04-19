@@ -1,18 +1,18 @@
 using KohUI;
 using KohUI.Theme;
-using SDL;
+using Silk.NET.GLFW;
 using Silk.NET.OpenGL;
-using static SDL.SDL3;
 
 namespace KohUI.Backends.Skia;
 
 /// <summary>
-/// Cross-platform native backend. SDL3 owns the window + input; the
-/// GL 3.3 core context is created via SDL and bound to a
+/// Cross-platform native backend. GLFW owns the window + input; the
+/// GL 3.3 core context is created via GLFW and bound to a
 /// <see cref="Silk.NET.OpenGL.GL"/> instance. Drawing goes through
 /// a <see cref="QuadBatch"/> (solid and textured rectangles) and
 /// <see cref="BitmapFont"/> (an embedded 6×8 ASCII atlas). No Skia in
-/// the graph — the 11 MB libSkiaSharp.dll is no longer shipped.
+/// the graph — the 11 MB libSkiaSharp.dll is no longer shipped; the
+/// GLFW native (~400 KB) replaces SDL3.dll (~2.6 MB).
 /// </summary>
 public sealed class SkiaBackend<TModel, TMsg>
 {
@@ -38,33 +38,37 @@ public sealed class SkiaBackend<TModel, TMsg>
 
     public unsafe void Run()
     {
-        if (!SDL_Init(SDL_InitFlags.SDL_INIT_VIDEO))
-            throw new InvalidOperationException("SDL_Init failed: " + (SDL_GetError() ?? ""));
+        var glfw = Glfw.GetApi();
+        if (!glfw.Init())
+            throw new InvalidOperationException("glfwInit failed");
 
         try
         {
-            var (initialW, initialH, title) = ResolveInitialWindowSpec();
+            glfw.WindowHint(WindowHintInt.ContextVersionMajor, 3);
+            glfw.WindowHint(WindowHintInt.ContextVersionMinor, 3);
+            glfw.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core);
+            glfw.WindowHint(WindowHintBool.OpenGLForwardCompat, true);
+            glfw.WindowHint(WindowHintBool.DoubleBuffer, true);
+            glfw.WindowHint(WindowHintBool.Resizable, true);
 
-            SDL_Window* window;
-            fixed (byte* titleUtf8 = System.Text.Encoding.UTF8.GetBytes(title + "\0"))
-                window = SDL_CreateWindow(titleUtf8, initialW, initialH,
-                    SDL_WindowFlags.SDL_WINDOW_RESIZABLE | SDL_WindowFlags.SDL_WINDOW_OPENGL);
+            var (initialW, initialH, title) = ResolveInitialWindowSpec();
+            var window = glfw.CreateWindow(initialW, initialH, title, null, null);
             if (window is null)
-                throw new InvalidOperationException("SDL_CreateWindow failed: " + (SDL_GetError() ?? ""));
+                throw new InvalidOperationException("glfwCreateWindow failed");
 
             try
             {
-                using var gl = new GlContext(window);
-                RunLoop(window, gl);
+                using var gl = new GlContext(glfw, window);
+                RunLoop(glfw, window, gl);
             }
             finally
             {
-                SDL_DestroyWindow(window);
+                glfw.DestroyWindow(window);
             }
         }
         finally
         {
-            SDL_Quit();
+            glfw.Terminate();
         }
     }
 
@@ -106,7 +110,7 @@ public sealed class SkiaBackend<TModel, TMsg>
         return (node.Bounds.W, node.Bounds.H);
     }
 
-    private unsafe void RunLoop(SDL_Window* window, GlContext gl)
+    private unsafe void RunLoop(Glfw glfw, WindowHandle* window, GlContext gl)
     {
         using var batch = new QuadBatch(gl.Gl);
         using var font  = new BitmapFont(gl.Gl);
@@ -114,88 +118,86 @@ public sealed class SkiaBackend<TModel, TMsg>
         var layouter = new Layouter(_theme);
 
         string lastTitle = "";
-        bool running = true;
         string? pressedPath = null;
         string? focusPath = null;
         LayoutNode? lastLayout = null;
-        int mouseX = 0, mouseY = 0;
+        double mouseX = 0, mouseY = 0;
+        bool closeRequested = false;
+        bool escapePressed = false;
 
-        var ev = default(SDL_Event);
-        while (running)
+        // GLFW input comes in via callbacks. Capture them with closures
+        // that flip state the loop body then consumes.
+        glfw.SetCursorPosCallback(window, (_, x, y) => { mouseX = x; mouseY = y; });
+        glfw.SetMouseButtonCallback(window, (_, btn, action, _) =>
         {
-            while (SDL_PollEvent(&ev))
+            if (btn != MouseButton.Left) return;
+            int ix = (int)mouseX, iy = (int)mouseY;
+            if (action == InputAction.Press)
             {
-                switch ((SDL_EventType)ev.type)
+                pressedPath = FindClickTarget(lastLayout, ix, iy);
+                if (pressedPath is not null) focusPath = pressedPath;
+            }
+            else if (action == InputAction.Release)
+            {
+                if (pressedPath is not null
+                    && FindClickTarget(lastLayout, ix, iy) == pressedPath)
                 {
-                    case SDL_EventType.SDL_EVENT_QUIT:
-                        running = false;
-                        break;
-
-                    case SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-                        if (!TryDispatchClose(lastLayout)) running = false;
-                        break;
-
-                    case SDL_EventType.SDL_EVENT_MOUSE_MOTION:
-                        mouseX = (int)ev.motion.x; mouseY = (int)ev.motion.y;
-                        break;
-
-                    case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN:
-                        if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
-                        {
-                            mouseX = (int)ev.button.x; mouseY = (int)ev.button.y;
-                            pressedPath = FindClickTarget(lastLayout, mouseX, mouseY);
-                            if (pressedPath is not null) focusPath = pressedPath;
-                        }
-                        break;
-
-                    case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP:
-                        if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
-                        {
-                            mouseX = (int)ev.button.x; mouseY = (int)ev.button.y;
-                            if (pressedPath is not null
-                                && FindClickTarget(lastLayout, mouseX, mouseY) == pressedPath)
-                            {
-                                TryDispatchClick(mouseX, mouseY, lastLayout);
-                            }
-                            pressedPath = null;
-                        }
-                        break;
-
-                    case SDL_EventType.SDL_EVENT_KEY_DOWN:
-                        HandleKeyDown(ev.key, lastLayout, ref focusPath);
-                        break;
+                    TryDispatchClick(ix, iy, lastLayout);
                 }
+                pressedPath = null;
+            }
+        });
+        glfw.SetKeyCallback(window, (_, key, _, action, mods) =>
+        {
+            if (action != InputAction.Press && action != InputAction.Repeat) return;
+            if (key == Keys.Escape) { escapePressed = true; return; }
+            HandleKeyDown(key, mods, lastLayout, ref focusPath);
+        });
+        glfw.SetWindowCloseCallback(window, _ => { closeRequested = true; });
+
+        while (!glfw.WindowShouldClose(window))
+        {
+            glfw.PollEvents();
+
+            if (closeRequested)
+            {
+                closeRequested = false;
+                if (!TryDispatchClose(lastLayout))
+                {
+                    glfw.SetWindowShouldClose(window, true);
+                    break;
+                }
+            }
+            if (escapePressed)
+            {
+                escapePressed = false;
+                TryDispatchClose(lastLayout);
             }
 
             int w, h;
-            SDL_GetWindowSize(window, &w, &h);
-            if (w <= 0 || h <= 0) { SDL_Delay(16); continue; }
+            glfw.GetFramebufferSize(window, out w, out h);
+            if (w <= 0 || h <= 0) { continue; }
 
             var tree = _runner.CurrentRender;
-            if (tree is not null)
-            {
-                SyncWindowTitle(window, tree, ref lastTitle);
-                var layout = layouter.Layout(tree, w, h);
-                lastLayout = layout;
+            if (tree is null) continue;
 
-                if (focusPath is not null && FindByPath(layout, focusPath) is null) focusPath = null;
-                if (pressedPath is not null && FindByPath(layout, pressedPath) is null) pressedPath = null;
-                if (focusPath is null)
-                {
-                    foreach (var p in EnumerateFocusable(layout)) { focusPath = p; break; }
-                }
+            SyncWindowTitle(glfw, window, tree, ref lastTitle);
+            var layout = layouter.Layout(tree, w, h);
+            lastLayout = layout;
 
-                gl.Gl.Clear(ClearBufferMask.ColorBufferBit);
-                gl.Gl.ClearColor(_theme.Background.R / 255f, _theme.Background.G / 255f, _theme.Background.B / 255f, 1f);
-                batch.BeginFrame(w, h);
-                painter.Paint(layout, pressedPath, focusPath);
-                batch.Flush();
-                gl.SwapBuffers();
-            }
-            else
+            if (focusPath is not null && FindByPath(layout, focusPath) is null) focusPath = null;
+            if (pressedPath is not null && FindByPath(layout, pressedPath) is null) pressedPath = null;
+            if (focusPath is null)
             {
-                SDL_Delay(16);
+                foreach (var p in EnumerateFocusable(layout)) { focusPath = p; break; }
             }
+
+            gl.Gl.ClearColor(_theme.Background.R / 255f, _theme.Background.G / 255f, _theme.Background.B / 255f, 1f);
+            gl.Gl.Clear(ClearBufferMask.ColorBufferBit);
+            batch.BeginFrame(w, h);
+            painter.Paint(layout, pressedPath, focusPath);
+            batch.Flush();
+            gl.SwapBuffers();
         }
     }
 
@@ -241,26 +243,23 @@ public sealed class SkiaBackend<TModel, TMsg>
         foreach (var p in Focus.Enumerate(root)) yield return p;
     }
 
-    private static unsafe void SyncWindowTitle(SDL_Window* window, RenderNode tree, ref string lastTitle)
+    private static unsafe void SyncWindowTitle(Glfw glfw, WindowHandle* window, RenderNode tree, ref string lastTitle)
     {
         if (tree.Type != "Window") return;
         if (!tree.Props.TryGetValue("title", out var t) || t is not string title) return;
         if (title == lastTitle) return;
-        fixed (byte* utf8 = System.Text.Encoding.UTF8.GetBytes(title + "\0"))
-            SDL_SetWindowTitle(window, utf8);
+        glfw.SetWindowTitle(window, title);
         lastTitle = title;
     }
 
-    private void HandleKeyDown(SDL_KeyboardEvent key, LayoutNode? layout, ref string? focusPath)
+    private void HandleKeyDown(Keys key, KeyModifiers mods, LayoutNode? layout, ref string? focusPath)
     {
         if (layout is null) return;
-        uint keyCode = (uint)key.key;
-        uint mod = (uint)key.mod;
 
-        bool altHeld = (mod & (uint)SDL_Keymod.SDL_KMOD_ALT) != 0;
-        if (altHeld && keyCode >= SDLK_A && keyCode <= SDLK_Z)
+        bool altHeld = (mods & KeyModifiers.Alt) != 0;
+        if (altHeld && key >= Keys.A && key <= Keys.Z)
         {
-            char ch = (char)(keyCode - SDLK_A + 'A');
+            char ch = (char)(key - Keys.A + 'A');
             var path = Focus.ResolveAccelerator(layout, ch);
             if (path is not null)
             {
@@ -270,19 +269,15 @@ public sealed class SkiaBackend<TModel, TMsg>
             return;
         }
 
-        if (keyCode == SDLK_TAB)
+        if (key == Keys.Tab)
         {
             var order = Focus.Enumerate(layout);
-            bool shift = (mod & (uint)SDL_Keymod.SDL_KMOD_SHIFT) != 0;
+            bool shift = (mods & KeyModifiers.Shift) != 0;
             focusPath = shift ? Focus.Prev(order, focusPath) : Focus.Next(order, focusPath);
         }
-        else if (keyCode == SDLK_RETURN || keyCode == SDLK_KP_ENTER || keyCode == SDLK_SPACE)
+        else if (key == Keys.Enter || key == Keys.KeypadEnter || key == Keys.Space)
         {
             if (focusPath is not null) InvokeByPath(layout, focusPath, "key");
-        }
-        else if (keyCode == SDLK_ESCAPE)
-        {
-            TryDispatchClose(layout);
         }
     }
 

@@ -6,6 +6,12 @@
     <IsAotCompatible>true</IsAotCompatible>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishAot>true</PublishAot>
+    <!-- We publish as a folder (not single-file), so Silk.NET.Core's
+         reflection-based native-asset discovery works fine. The AOT
+         compiler still emits IL3000/IL3002 single-file warnings for
+         those call sites — suppress just those to keep the publish
+         clean without hiding real AOT incompatibility. -->
+    <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
     <StripSymbols>true</StripSymbols>
     <NativeDebugSymbols>false</NativeDebugSymbols>
     <DebuggerSupport>false</DebuggerSupport>
