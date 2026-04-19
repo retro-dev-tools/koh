@@ -9,8 +9,13 @@ using KohUI.Backends.Gl;
 // debugging flexible.
 string romPath = args.Length > 0 ? args[0] : FindDefaultRom();
 
+// Owned by the model; `Update` calls Push(audio) after each emulated
+// frame so samples keep flowing without a dedicated audio thread. The
+// runner serialises messages, so Update never reenters AudioSink.
+using var audio = new AudioSink();
+
 var runner = new Runner<EmulatorModel, EmulatorMsg>(
-    initialModel: new EmulatorModel(System: null, RomPath: null, FrameCount: 0, Status: "Loading..."),
+    initialModel: new EmulatorModel(System: null, RomPath: null, FrameCount: 0, Status: "Loading...", Audio: audio),
     update: EmulatorApp.Update,
     view: EmulatorApp.View);
 

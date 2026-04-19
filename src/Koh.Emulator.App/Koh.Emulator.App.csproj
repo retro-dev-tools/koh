@@ -16,12 +16,18 @@
     <DebuggerSupport>false</DebuggerSupport>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
     <ProjectReference Include="..\..\src\KohUI\KohUI.csproj" />
     <ProjectReference Include="..\..\src\KohUI.Backends.Gl\KohUI.Backends.Gl.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.OpenAL" />
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
   </ItemGroup>
 
 </Project>

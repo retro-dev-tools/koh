@@ -19,7 +19,8 @@ public readonly record struct EmulatorModel(
     GameBoySystem? System,
     string? RomPath,
     long FrameCount,
-    string Status);
+    string Status,
+    AudioSink? Audio);
 
 public abstract record EmulatorMsg;
 public sealed record Tick : EmulatorMsg;
@@ -82,9 +83,7 @@ public static class EmulatorApp
     {
         if (m.System is null) return m;
         m.System.RunFrame();
-        // No audio sink wired up in phase 1. The APU's AudioSampleBuffer
-        // is a fixed-capacity ring that overwrites oldest on overflow,
-        // so letting it fill is harmless — nothing reads from it.
+        m.Audio?.Push(m.System.Apu.SampleBuffer);
         return m with { FrameCount = m.FrameCount + 1 };
     }
 
