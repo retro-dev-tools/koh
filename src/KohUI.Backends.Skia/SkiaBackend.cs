@@ -96,13 +96,15 @@ public sealed class SkiaBackend<TModel, TMsg>
         // area. When the user resizes, we reallocate lazily.
         var pixelState = new PixelState();
         string lastTitle = "";
+        bool running = true;
+        string? pressedPath = null;   // button path held down by the mouse
+        int mouseX = 0, mouseY = 0;
 
         SDL_Texture* texture = null;
 
         try
         {
             var ev = default(SDL_Event);
-            bool running = true;
             while (running)
             {
                 // ─── Event pump ───────────────────────────────────────
@@ -114,12 +116,46 @@ public sealed class SkiaBackend<TModel, TMsg>
                             running = false;
                             break;
 
+                        case SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+                            // Give the app a chance to intercept: if the root
+                            // Window has an onClose delegate, route it through
+                            // the MVU loop. Otherwise fall back to quitting.
+                            if (!TryDispatchClose(pixelState.LastLayout))
+                                running = false;
+                            break;
+
+                        case SDL_EventType.SDL_EVENT_MOUSE_MOTION:
+                            mouseX = (int)ev.motion.x;
+                            mouseY = (int)ev.motion.y;
+                            break;
+
+                        case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN:
+                            if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
+                            {
+                                mouseX = (int)ev.button.x;
+                                mouseY = (int)ev.button.y;
+                                pressedPath = FindClickTarget(pixelState.LastLayout, mouseX, mouseY);
+                            }
+                            break;
+
                         case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP:
                             // SDLButton is an enum wrapper; SDL_BUTTON_LEFT == 1 is the
                             // C-level constant. Cast once to compare without depending
                             // on the enum's runtime-unstable symbolic names.
                             if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
-                                TryDispatchClick((int)ev.button.x, (int)ev.button.y, pixelState.LastLayout);
+                            {
+                                mouseX = (int)ev.button.x;
+                                mouseY = (int)ev.button.y;
+                                // Fire click only if the mouse-up lands on the same
+                                // target that captured mouse-down — matches the Win98
+                                // "abort click by dragging off" behaviour.
+                                if (pressedPath is not null
+                                    && FindClickTarget(pixelState.LastLayout, mouseX, mouseY) == pressedPath)
+                                {
+                                    TryDispatchClick(mouseX, mouseY, pixelState.LastLayout);
+                                }
+                                pressedPath = null;
+                            }
                             break;
                     }
                 }
@@ -157,7 +193,7 @@ public sealed class SkiaBackend<TModel, TMsg>
                     var surface = pixelState.Surface;
                     var canvas = surface.Canvas;
                     canvas.Clear(new SKColor(_theme.Background.R, _theme.Background.G, _theme.Background.B));
-                    painter.Paint(canvas, layout);
+                    painter.Paint(canvas, layout, pressedPath);
                     surface.Flush();
                 }
 
@@ -181,17 +217,46 @@ public sealed class SkiaBackend<TModel, TMsg>
         var hit = HitTest.Find(lastLayout, x, y);
         if (hit is null) return;
         if (hit.Source.Props.TryGetValue("onClick", out var v) && v is Delegate d)
+            InvokeHandler(d, hit.Path, "click");
+    }
+
+    /// <summary>
+    /// Returns true if the app wanted to handle close itself (via
+    /// root-level Window.onClose). False means "no handler, safe to
+    /// quit".
+    /// </summary>
+    private bool TryDispatchClose(LayoutNode? lastLayout)
+    {
+        var root = lastLayout?.Source;
+        if (root is null || root.Type != "Window") return false;
+        if (!root.Props.TryGetValue("onClose", out var v) || v is not Delegate d) return false;
+        InvokeHandler(d, "", "close");
+        return true;
+    }
+
+    private void InvokeHandler(Delegate d, string path, string kind)
+    {
+        try
         {
-            try
-            {
-                if (d.DynamicInvoke() is TMsg msg)
-                    _runner.Dispatch(msg);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[kohui-skia] click handler threw at {hit.Path}: {ex.Message}");
-            }
+            if (d.DynamicInvoke() is TMsg msg)
+                _runner.Dispatch(msg);
         }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[kohui-skia] {kind} handler threw at '{path}': {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Layout-path of the node that would receive a click at (x, y), or
+    /// null if none. Used both to drive the pressed-bevel visual and to
+    /// abort-click if the cursor leaves the original target before the
+    /// button is released.
+    /// </summary>
+    private static string? FindClickTarget(LayoutNode? lastLayout, int x, int y)
+    {
+        if (lastLayout is null) return null;
+        return HitTest.Find(lastLayout, x, y)?.Path;
     }
 
     private static unsafe void SyncWindowTitle(SDL_Window* window, RenderNode tree, ref string lastTitle)

@@ -32,13 +32,18 @@ public sealed class Painter : IDisposable
         _darkShadowPaint = new SKPaint { Color = Convert(theme.BevelDarkShadow),Style = SKPaintStyle.Fill };
     }
 
-    public void Paint(SKCanvas canvas, LayoutNode node)
+    /// <summary>
+    /// Paint the tree. <paramref name="pressedPath"/> is the layout path
+    /// of the button currently held down by the mouse — drawn with the
+    /// inverted Win98 bevel when non-null and matching.
+    /// </summary>
+    public void Paint(SKCanvas canvas, LayoutNode node, string? pressedPath = null)
     {
-        Draw(canvas, node);
-        foreach (var child in node.Children) Paint(canvas, child);
+        Draw(canvas, node, pressedPath);
+        foreach (var child in node.Children) Paint(canvas, child, pressedPath);
     }
 
-    private void Draw(SKCanvas canvas, LayoutNode node)
+    private void Draw(SKCanvas canvas, LayoutNode node, string? pressedPath)
     {
         var r = node.Bounds;
         switch (node.Source.Type)
@@ -71,7 +76,8 @@ public sealed class Painter : IDisposable
 
             case "Button":
                 DrawButton(canvas, r, Layouter.GetString(node.Source, "text"),
-                           enabled: node.Source.Props.TryGetValue("enabled", out var en) is false || en is not false);
+                           enabled: node.Source.Props.TryGetValue("enabled", out var en) is false || en is not false,
+                           pressed: pressedPath is not null && pressedPath == node.Path);
                 break;
 
             case "MenuItem":
@@ -99,14 +105,30 @@ public sealed class Painter : IDisposable
         }
     }
 
-    private void DrawButton(SKCanvas canvas, Rect r, string text, bool enabled)
+    private void DrawButton(SKCanvas canvas, Rect r, string text, bool enabled, bool pressed)
     {
         canvas.DrawRect(r.ToSKRect(), _bgPaint);
-        // Raised button: outer top-left = hilite, outer bottom-right = dark
-        // shadow; inner one pixel in = bg-on-top-left, shadow-on-bottom-right.
-        DrawBevel(canvas, r, outerTL: _hilitePaint, outerBR: _darkShadowPaint, innerTL: _bgPaint, innerBR: _shadowPaint);
+        if (pressed)
+        {
+            // Inverted bevel on mouse-down: outer top-left is dark, outer
+            // bottom-right is hilite (authentic Win98 "pushed in" look).
+            DrawBevel(canvas, r,
+                outerTL: _darkShadowPaint, outerBR: _hilitePaint,
+                innerTL: _shadowPaint,     innerBR: _bgPaint);
+        }
+        else
+        {
+            // Raised button: outer top-left = hilite, outer bottom-right =
+            // dark shadow; inner one pixel in inverts for the bg/shadow pair.
+            DrawBevel(canvas, r,
+                outerTL: _hilitePaint, outerBR: _darkShadowPaint,
+                innerTL: _bgPaint,     innerBR: _shadowPaint);
+        }
+
+        // Win98 shifts the label 1px down-right while the button is held.
+        var textR = pressed ? new Rect(r.X + 1, r.Y + 1, r.W, r.H) : r;
         var paint = enabled ? _textPaint : new SKPaint { Color = Convert(_theme.DisabledText), IsAntialias = true };
-        DrawText(canvas, text, r, paint);
+        DrawText(canvas, text, textR, paint);
     }
 
     /// <summary>
