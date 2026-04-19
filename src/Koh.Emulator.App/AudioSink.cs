@@ -29,6 +29,14 @@ public sealed unsafe class AudioSink : IDisposable
     private const int BufferCount = 8;
     private const int SamplesPerBuffer = 512;
 
+    // Don't start the OpenAL source until this many samples are queued.
+    // Starting immediately with one buffer creates an audible "pop-pop-
+    // pop" on boot: hardware drains 512 samples faster than the
+    // emulator produces the next buffer, source stops, we push more,
+    // it restarts, drains again, underrun, restart. Four buffers worth
+    // gives the emulator enough head start to stay ahead of the drain.
+    private const int WarmupSamples = 4 * SamplesPerBuffer;
+
     private readonly ALContext _alc;
     private readonly AL _al;
     private readonly Device* _device;
@@ -42,6 +50,7 @@ public sealed unsafe class AudioSink : IDisposable
     // here until we can emit another full buffer.
     private readonly short[] _staging = new short[SamplesPerBuffer];
     private int _stagingFill;
+    private bool _warmedUp;
 
     public AudioSink()
     {
@@ -67,6 +76,12 @@ public sealed unsafe class AudioSink : IDisposable
             _freeBuffers.Enqueue(_al.GenBuffer());
     }
 
+    // Rolling counters for trace logging. Not thread-safe overall, but
+    // only mutated under _sync; read without lock for reporting.
+    public int Underruns { get; private set; }
+    public int TotalPushes { get; private set; }
+    public int TotalSamplesIn { get; private set; }
+
     /// <summary>
     /// Push <paramref name="samples"/> at 44.1 kHz mono int16. Returns
     /// the number of samples currently buffered by OpenAL (queued but
@@ -78,6 +93,8 @@ public sealed unsafe class AudioSink : IDisposable
     {
         lock (_sync)
         {
+            TotalPushes++;
+            TotalSamplesIn += samples.Length;
             RecycleProcessed();
 
             // Emit fixed-size buffers, combining the staging remainder
@@ -107,14 +124,29 @@ public sealed unsafe class AudioSink : IDisposable
                 _stagingFill = 0;
             }
 
-            // Kick the source back into playing after an underrun. OpenAL
-            // transitions the source to Stopped when all queued buffers
-            // finish; if we keep pushing, it doesn't auto-resume.
+            // Start the source once we've queued enough to ride out the
+            // typical emulator push cadence; restart it after an actual
+            // underrun. Before the warmup threshold we accept silence —
+            // the cost of waiting ~46 ms for audio to begin is one-time
+            // and avoids the audible machine-gun on cold start.
             _al.GetSourceProperty(_source, GetSourceInteger.SourceState, out int state);
             if ((SourceState)state != SourceState.Playing)
             {
                 _al.GetSourceProperty(_source, GetSourceInteger.BuffersQueued, out int queued);
-                if (queued > 0) _al.SourcePlay(_source);
+                int queuedSamples = queued * SamplesPerBuffer;
+                if (_warmedUp)
+                {
+                    if (queuedSamples > 0)
+                    {
+                        if ((SourceState)state == SourceState.Stopped) Underruns++;
+                        _al.SourcePlay(_source);
+                    }
+                }
+                else if (queuedSamples >= WarmupSamples)
+                {
+                    _warmedUp = true;
+                    _al.SourcePlay(_source);
+                }
             }
 
             return BufferedSamples();
@@ -153,6 +185,7 @@ public sealed unsafe class AudioSink : IDisposable
                 if (buf != 0) _freeBuffers.Enqueue(buf);
             }
             _stagingFill = 0;
+            _warmedUp = false;
         }
     }
 

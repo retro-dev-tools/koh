@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Ppu;
 
@@ -76,6 +77,20 @@ public sealed class EmulatorLoop : IDisposable
     public EmulatorLoop(AudioSink sink)
     {
         _sink = sink;
+        // Raise Windows timer resolution so Thread.Sleep(1) actually
+        // sleeps ~1 ms instead of the default ~15 ms quantum. Our pacer
+        // overshoot is proportional to Sleep granularity: with 15 ms
+        // sleeps, the sink depth can overshoot TargetFill by ~660
+        // samples per Sleep call, and any OS scheduling jitter past
+        // that is enough to underrun. 1 ms resolution keeps the
+        // overshoot < 50 samples. Corresponding timeEndPeriod runs in
+        // Dispose — unbalanced calls would leave the whole process at
+        // 1 ms resolution (mild battery impact on laptops).
+        if (OperatingSystem.IsWindows())
+        {
+            _ = TimeBeginPeriod(1);
+            _timerResolutionRaised = true;
+        }
         _thread = new Thread(Run)
         {
             IsBackground = true,
@@ -83,6 +98,14 @@ public sealed class EmulatorLoop : IDisposable
         };
         _thread.Start();
     }
+
+    private readonly bool _timerResolutionRaised;
+
+    [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
+    private static extern uint TimeBeginPeriod(uint uMilliseconds);
+
+    [DllImport("winmm.dll", EntryPoint = "timeEndPeriod")]
+    private static extern uint TimeEndPeriod(uint uMilliseconds);
 
     /// <summary>
     /// Install (or replace) the <see cref="GameBoySystem"/> the loop
@@ -118,6 +141,8 @@ public sealed class EmulatorLoop : IDisposable
         Post(Command.Quit);
         _runGate.Set();
         _exited.Wait(TimeSpan.FromSeconds(1));
+        if (_timerResolutionRaised && OperatingSystem.IsWindows())
+            _ = TimeEndPeriod(1);
     }
 
     /// <summary>
@@ -134,11 +159,43 @@ public sealed class EmulatorLoop : IDisposable
     {
         int lastBufferedAfterPush = 0;
         long lastPushTimestampTicks = 0;
+        long lastLogTicks = Stopwatch.GetTimestamp();
+        long lastLogFrames = 0;
+        int lastLogUnderruns = 0;
+        int lastLogPushes = 0;
+        int lastLogSamples = 0;
+        // Minimum / maximum buffer depth seen across the reporting window.
+        // Useful for spotting "buffer briefly emptied" events even when
+        // the post-push depth looks healthy.
+        int windowMinDepth = int.MaxValue;
+        int windowMaxDepth = 0;
 
         try
         {
             while (!_disposed)
             {
+                long sinceLog = Stopwatch.GetTimestamp() - lastLogTicks;
+                if (sinceLog > Stopwatch.Frequency)
+                {
+                    long now = Interlocked.Read(ref _frameCount);
+                    int urNow = _sink.Underruns;
+                    int pushesNow = _sink.TotalPushes;
+                    int samplesNow = _sink.TotalSamplesIn;
+                    double fps = (now - lastLogFrames) * (double)Stopwatch.Frequency / sinceLog;
+                    int newUnderruns = urNow - lastLogUnderruns;
+                    int windowPushes = pushesNow - lastLogPushes;
+                    int windowSamples = samplesNow - lastLogSamples;
+                    Console.WriteLine(
+                        $"[pace] fps={fps:F1}  buf[last={lastBufferedAfterPush} min={windowMinDepth} max={windowMaxDepth}]  "
+                        + $"pushes={windowPushes} samples={windowSamples} underruns={newUnderruns}");
+                    lastLogFrames = now;
+                    lastLogTicks = Stopwatch.GetTimestamp();
+                    lastLogUnderruns = urNow;
+                    lastLogPushes = pushesNow;
+                    lastLogSamples = samplesNow;
+                    windowMinDepth = int.MaxValue;
+                    windowMaxDepth = 0;
+                }
                 if (_paused || _system is null)
                 {
                     _runGate.Wait();
@@ -172,6 +229,8 @@ public sealed class EmulatorLoop : IDisposable
                     int n = sys.Apu.SampleBuffer.Drain(_drainScratch.AsSpan(0, available));
                     lastBufferedAfterPush = _sink.Push(_drainScratch.AsSpan(0, n));
                     lastPushTimestampTicks = Stopwatch.GetTimestamp();
+                    if (lastBufferedAfterPush < windowMinDepth) windowMinDepth = lastBufferedAfterPush;
+                    if (lastBufferedAfterPush > windowMaxDepth) windowMaxDepth = lastBufferedAfterPush;
                 }
 
                 if (stop.Reason is StopReason.Breakpoint or StopReason.Watchpoint)
@@ -181,10 +240,15 @@ public sealed class EmulatorLoop : IDisposable
                     continue;
                 }
 
-                // Pace by estimated buffer depth. Estimating locally
-                // (rather than re-querying the sink each iteration)
-                // avoids hammering OpenAL with state reads while we're
-                // in the inner wait loop.
+                // Pace by estimated buffer depth. Below HighWater we
+                // burn CPU running the next frame — the emulator needs
+                // headroom when the hardware hasn't accumulated too
+                // many samples yet. A Thread.Sleep(0) "just in case"
+                // yield looked harmless but costs ~15 ms on Windows
+                // with default timer granularity, which is enough to
+                // starve the sink during startup (fps drops to 47 and
+                // we chew through the warmup buffer before audio
+                // stabilises).
                 if (lastBufferedAfterPush > HighWater)
                 {
                     while (!_disposed && !_paused)
@@ -194,11 +258,6 @@ public sealed class EmulatorLoop : IDisposable
                         Thread.Sleep(1);
                     }
                 }
-                else if (lastBufferedAfterPush > LowWater)
-                {
-                    Thread.Sleep(0);
-                }
-                // Below LowWater → no sleep, catch up.
             }
         }
         finally
