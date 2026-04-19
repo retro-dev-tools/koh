@@ -134,7 +134,12 @@ public sealed class SkiaBackend<TModel, TMsg>
                     pixelState.Resize(w, h);
                     if (texture is not null) SDL_DestroyTexture(texture);
                     texture = SDL_CreateTexture(renderer,
-                        SDL_PixelFormat.SDL_PIXELFORMAT_BGRA8888,
+                        // Want: memory order [B][G][R][A] matching Skia's SKColorType.Bgra8888.
+                // On little-endian that's packed 0xAARRGGBB == SDL's ARGB8888.
+                // (SDL_PIXELFORMAT_BGRA32 is a C macro alias for exactly this on
+                // little-endian hosts but the alias doesn't make it through the
+                // managed binding, so we spell out the packed form.)
+                SDL_PixelFormat.SDL_PIXELFORMAT_ARGB8888,
                         SDL_TextureAccess.SDL_TEXTUREACCESS_STREAMING,
                         w, h);
                     if (texture is null)
