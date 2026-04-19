@@ -22,3 +22,4 @@ tests/fixtures/reference/
 .playwright-cli/
 BenchmarkDotNet.Artifacts/
 tests/fixtures/screenshots/
+scriptrun.log
