@@ -76,6 +76,9 @@ public sealed class EmulatorLoop : IDisposable
     private PaletteSnapshot? _paletteSnapshot;
     public PaletteSnapshot? CurrentPalettes => Volatile.Read(ref _paletteSnapshot);
 
+    private VramSnapshot? _vramSnapshot;
+    public VramSnapshot? CurrentVram => Volatile.Read(ref _vramSnapshot);
+
     /// <summary>
     /// Latest front framebuffer produced by the emulator, or an empty
     /// grey buffer before the first ROM boots. Reference is
@@ -232,6 +235,13 @@ public sealed class EmulatorLoop : IDisposable
                 Volatile.Write(ref _publishedFrame, sys.Ppu.Framebuffer.FrontArray);
                 Volatile.Write(ref _cpuSnapshot, CpuSnapshot.From(sys));
                 Volatile.Write(ref _paletteSnapshot, PaletteSnapshot.From(sys));
+                // VRAM snapshot allocates ~96 KB (DMG) or ~192 KB (CGB)
+                // per frame. At 60 fps that's 6–12 MB/sec of gen-0
+                // allocations, well within the GC's steady-state
+                // comfort zone — if it starts causing audio jitter we
+                // can switch to a reusable buffer, but in measurements
+                // there's no impact on pacer output.
+                Volatile.Write(ref _vramSnapshot, VramSnapshot.From(sys));
                 Interlocked.Increment(ref _frameCount);
 
                 int available = sys.Apu.SampleBuffer.Available;

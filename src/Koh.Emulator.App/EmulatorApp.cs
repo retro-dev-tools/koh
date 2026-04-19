@@ -170,7 +170,8 @@ public static class EmulatorApp
                 StackDirection.Vertical,
                 ImmutableArray.Create<IView<EmulatorMsg>>(
                     BuildCpuPanel(m.Loop?.CurrentCpu),
-                    BuildPalettePanel(m.Loop?.CurrentPalettes)));
+                    BuildPalettePanel(m.Loop?.CurrentPalettes),
+                    BuildVramPanel(m.Loop?.CurrentVram)));
             displayArea = new ForEach<EmulatorMsg>(
                 StackDirection.Horizontal,
                 ImmutableArray.Create<IView<EmulatorMsg>>(display, debugPanes));
@@ -196,15 +197,26 @@ public static class EmulatorApp
             StackDirection.Vertical,
             ImmutableArray.Create<IView<EmulatorMsg>>(menu, displayArea, controls, status));
 
-        // Window widens when the debug panel is visible — 180px extra
-        // fits the register labels comfortably at 6×8 font.
+        // Width: LCD + 16 px chrome, plus 180 px for the debug side
+        // panel when open.
+        // Height: LCD + ~80 px for menu/controls/status at the top and
+        // bottom; grows further when debug is on so the CPU + palettes
+        // + VRAM stack doesn't clip. CGB doubles the VRAM height so we
+        // tack on a conservative extra 200 px when a CGB ROM is live.
         int windowWidth = Framebuffer.Width * DisplayScale + 16 + (m.ShowDebug ? 180 : 0);
+        int windowHeight = 0;   // 0 = auto-size when debug is off
+        if (m.ShowDebug)
+        {
+            bool cgb = m.Loop?.CurrentPalettes is { IsCgb: true };
+            windowHeight = cgb ? 920 : 720;
+        }
 
         return new Window<EmulatorMsg, ForEach<EmulatorMsg>>(
             Title: m.RomPath is null ? "Koh Emulator" : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
             Child: body,
             X: 40, Y: 40,
-            Width: windowWidth);
+            Width: windowWidth,
+            Height: windowHeight);
     }
 
     /// <summary>
@@ -278,6 +290,25 @@ public static class EmulatorApp
         return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
             PanelBevel.Sunken,
             new ForEach<EmulatorMsg>(StackDirection.Vertical, rows.ToImmutable()));
+    }
+
+    /// <summary>
+    /// VRAM tile grid — bank 0 (and bank 1 on CGB) decoded as a 16-
+    /// wide strip of 8×8 tiles, stacked vertically. The Image widget
+    /// blits the buffer; the painter's texture cache keeps one GL
+    /// texture keyed on node path, so re-publish each frame is a
+    /// TexSubImage2D, not a realloc.
+    /// </summary>
+    private static IView<EmulatorMsg> BuildVramPanel(VramSnapshot? vram)
+    {
+        IView<EmulatorMsg> body = vram is null
+            ? new Label<EmulatorMsg>("(no ROM)")
+            : new ForEach<EmulatorMsg>(
+                StackDirection.Vertical,
+                ImmutableArray.Create<IView<EmulatorMsg>>(
+                    new Label<EmulatorMsg>("VRAM Tiles"),
+                    new Image<EmulatorMsg>(vram.Rgba, vram.Width, vram.Height, Scale: 1)));
+        return new Panel<EmulatorMsg, IView<EmulatorMsg>>(PanelBevel.Sunken, body);
     }
 
     private static IView<EmulatorMsg> BuildPaletteRow(KohColor[] colors, int baseIndex)

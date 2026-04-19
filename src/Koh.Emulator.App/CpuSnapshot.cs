@@ -111,3 +111,76 @@ public sealed record PaletteSnapshot(
         return new KohColor(r, g, b);
     }
 }
+
+/// <summary>
+/// Snapshot of VRAM tile data as a ready-to-blit RGBA image. Tile
+/// data lives at 0x8000–0x97FF within each bank (384 tiles × 16 bytes);
+/// we decode all of it into a 128 × (192 or 384) RGBA buffer — 16
+/// tiles per row at 8 × 8 px each. CGB stacks bank 1 below bank 0
+/// so the debug panel can show both at once without swapping UI
+/// state.
+/// </summary>
+public sealed record VramSnapshot(
+    byte[] Rgba,
+    int Width,
+    int Height)
+{
+    private const int TilesPerRow = 16;
+    private const int TilesPerBank = 384;
+    private const int PixelsPerTile = 8;
+
+    public static VramSnapshot From(GameBoySystem sys)
+    {
+        int banks = sys.Mode == HardwareMode.Cgb ? 2 : 1;
+        int rowsPerBank = TilesPerBank / TilesPerRow;   // 24
+        int width  = TilesPerRow * PixelsPerTile;        // 128
+        int height = banks * rowsPerBank * PixelsPerTile; // 192 or 384
+        var rgba = new byte[width * height * 4];
+
+        var vram = sys.Mmu.VramArray;
+        for (int bank = 0; bank < banks; bank++)
+        {
+            int bankBase = bank * 0x2000;
+            int bankYOffset = bank * rowsPerBank * PixelsPerTile;
+            for (int tile = 0; tile < TilesPerBank; tile++)
+            {
+                int tileByteBase = bankBase + tile * 16;
+                int gridCol = tile % TilesPerRow;
+                int gridRow = tile / TilesPerRow;
+                int tileX = gridCol * PixelsPerTile;
+                int tileY = bankYOffset + gridRow * PixelsPerTile;
+
+                for (int r = 0; r < PixelsPerTile; r++)
+                {
+                    byte low  = vram[tileByteBase + r * 2];
+                    byte high = vram[tileByteBase + r * 2 + 1];
+                    for (int c = 0; c < PixelsPerTile; c++)
+                    {
+                        int bit = 7 - c;
+                        int colorIndex = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
+                        var shade = s_shades[colorIndex];
+                        int px = ((tileY + r) * width + (tileX + c)) * 4;
+                        rgba[px + 0] = shade.R;
+                        rgba[px + 1] = shade.G;
+                        rgba[px + 2] = shade.B;
+                        rgba[px + 3] = 0xff;
+                    }
+                }
+            }
+        }
+
+        return new VramSnapshot(rgba, width, height);
+    }
+
+    // Fixed grayscale shades for the debug view — not using BGP because
+    // the same tile byte can map to any shade depending on which
+    // palette the background layer uses at render time. A neutral
+    // gradient lets the eye identify tiles independently of palette.
+    private static readonly KohColor[] s_shades =
+    [
+        new(0xff, 0xff, 0xff),   // 00 → white
+        new(0xc0, 0xc0, 0xc0),
+        new(0x60, 0x60, 0x60),
+        new(0x00, 0x00, 0x00),   // 11 → black
+    ];
+}
