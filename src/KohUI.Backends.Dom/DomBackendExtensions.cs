@@ -92,8 +92,9 @@ public static class DomBackendExtensions
 
     private static string BuildThemeCss(Win98Theme t)
     {
-        var sb = new StringBuilder(512);
+        var sb = new StringBuilder(768);
         sb.AppendLine(":root {");
+        // Colours
         sb.Append("    --win98-bg:            ").Append(t.Background.ToHex()).AppendLine(";");
         sb.Append("    --win98-hilite:        ").Append(t.BevelHilite.ToHex()).AppendLine(";");
         sb.Append("    --win98-shadow:        ").Append(t.BevelShadow.ToHex()).AppendLine(";");
@@ -104,8 +105,17 @@ public static class DomBackendExtensions
         sb.Append("    --win98-title-bg-end:  ").Append(t.TitleBarEnd.ToHex()).AppendLine(";");
         sb.Append("    --win98-title-text:    ").Append(t.TitleBarText.ToHex()).AppendLine(";");
         sb.Append("    --win98-desktop:       ").Append(t.Desktop.ToHex()).AppendLine(";");
+        // Typography
         sb.Append("    --win98-ui-font:       ").Append('"').Append(t.UiFontFamily).Append("\", \"Segoe UI\", sans-serif;").AppendLine();
         sb.Append("    --win98-ui-font-size:  ").Append(t.UiFontSize).AppendLine("px;");
+        // Metrics — shared with the Skia Layouter so both backends
+        // compute identical box sizes from one source of truth.
+        sb.Append("    --win98-padding:       ").Append(t.Padding).AppendLine("px;");
+        sb.Append("    --win98-gap:           ").Append(t.Gap).AppendLine("px;");
+        sb.Append("    --win98-bevel:         ").Append(t.BevelWidth).AppendLine("px;");
+        sb.Append("    --win98-button-min-w:  ").Append(t.ButtonMinWidth).AppendLine("px;");
+        sb.Append("    --win98-button-min-h:  ").Append(t.ButtonMinHeight).AppendLine("px;");
+        sb.Append("    --win98-check-size:    ").Append(t.CheckRadioSize).AppendLine("px;");
         sb.AppendLine("}");
         return sb.ToString();
     }

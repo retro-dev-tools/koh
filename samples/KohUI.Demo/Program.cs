@@ -98,10 +98,9 @@ static async Task RunPreviewOnlyAsync(Runner<CounterModel, CounterMsg> runner)
 
 static void RunNative(Runner<CounterModel, CounterMsg> runner)
 {
-    var backend = new SkiaBackend<CounterModel, CounterMsg>(
-        runner,
-        title: "KohUI Demo",
-        width: 360,
-        height: 280);
+    // No width/height — SkiaBackend measures the root view and opens
+    // the SDL window at content-size. Override only when the demo
+    // wants a specific layout box regardless of content.
+    var backend = new SkiaBackend<CounterModel, CounterMsg>(runner, title: "KohUI Demo");
     backend.Run();
 }

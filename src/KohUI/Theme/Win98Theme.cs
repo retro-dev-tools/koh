@@ -66,6 +66,29 @@ public sealed record Win98Theme
     /// <summary>Face name of the default UI font. Falls back to platform defaults if absent.</summary>
     public required string UiFontFamily { get; init; }
 
+    // ─── Layout metrics ──────────────────────────────────────────────
+    // Values shared by both backends so a number-change in one place
+    // propagates to the Skia layout pass AND the CSS variable block that
+    // drives the DomBackend. Historical Win98 defaults where applicable.
+
+    /// <summary>Inner content padding for panels / windows / containers.</summary>
+    public required int Padding { get; init; }
+
+    /// <summary>Gap inserted between children of a Stack.</summary>
+    public required int Gap { get; init; }
+
+    /// <summary>Bevel ring thickness (outer hilite/shadow + inner hilite/shadow = 2 rings × 1 px).</summary>
+    public required int BevelWidth { get; init; }
+
+    /// <summary>Minimum button width in px. Win98 standard: 75.</summary>
+    public required int ButtonMinWidth { get; init; }
+
+    /// <summary>Minimum button height in px. Win98 standard: 23.</summary>
+    public required int ButtonMinHeight { get; init; }
+
+    /// <summary>Glyph box size for CheckBox / RadioButton in px. Win98 standard: 13.</summary>
+    public required int CheckRadioSize { get; init; }
+
     /// <summary>
     /// The canonical Win98 palette. Values lifted from the Display
     /// Properties &gt; Appearance &gt; Windows Standard scheme, matched
@@ -86,5 +109,11 @@ public sealed record Win98Theme
         Desktop          = new(0x00, 0x80, 0x80),
         UiFontSize       = 11f,
         UiFontFamily     = "MS Sans Serif",
+        Padding          = 4,
+        Gap              = 4,
+        BevelWidth       = 2,
+        ButtonMinWidth   = 75,
+        ButtonMinHeight  = 23,
+        CheckRadioSize   = 13,
     };
 }

@@ -13,14 +13,14 @@
 button,
 .kohui-button {
     box-sizing: content-box;
-    min-width: 75px;
-    min-height: 23px;
+    min-width: var(--win98-button-min-w);
+    min-height: var(--win98-button-min-h);
     padding: 0 12px;
     border: none;
     background: var(--win98-bg);
     color: var(--win98-text);
     font-family: inherit;
-    font-size: 11px;
+    font-size: inherit;
     box-shadow:
         inset -1px -1px 0 0 var(--win98-dark-shadow),
         inset 1px 1px 0 0 var(--win98-hilite),
@@ -101,7 +101,7 @@ button:disabled,
 
 .window-body {
     margin: 2px;
-    padding: 4px;
+    padding: var(--win98-padding);
 }
 
 /* ─── Menu bar ────────────────────────────────────────────────────── */
@@ -128,7 +128,7 @@ button:disabled,
 .sunken-panel,
 .kohui-panel-Sunken {
     background: #ffffff;
-    padding: 4px;
+    padding: var(--win98-padding);
     box-shadow:
         inset -1px -1px 0 0 var(--win98-hilite),
         inset 1px 1px 0 0 var(--win98-shadow),
@@ -138,7 +138,7 @@ button:disabled,
 
 .kohui-panel-Raised {
     background: var(--win98-bg);
-    padding: 4px;
+    padding: var(--win98-padding);
     box-shadow:
         inset -1px -1px 0 0 var(--win98-dark-shadow),
         inset 1px 1px 0 0 var(--win98-hilite),
@@ -148,7 +148,7 @@ button:disabled,
 
 .kohui-panel-Chiseled {
     background: var(--win98-bg);
-    padding: 4px;
+    padding: var(--win98-padding);
     /* Double-line etched border — outer: shadow→hilite, inner: hilite→shadow */
     box-shadow:
         inset 1px 1px 0 0 var(--win98-shadow),

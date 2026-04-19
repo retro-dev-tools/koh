@@ -17,7 +17,7 @@ body {
 
 .kohui-stack {
     display: flex;
-    gap: 4px;
+    gap: var(--win98-gap);
 }
 .kohui-stack.kohui-stack-Vertical   { flex-direction: column; }
 .kohui-stack.kohui-stack-Horizontal { flex-direction: row; align-items: center; }

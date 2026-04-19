@@ -42,8 +42,8 @@ public sealed class SkiaBackend<TModel, TMsg>
         Runner<TModel, TMsg> runner,
         Win98Theme? theme = null,
         string title = "KohUI",
-        int width = 640,
-        int height = 480)
+        int width = 0,
+        int height = 0)
     {
         _runner = runner;
         _theme = theme ?? Win98Theme.Default;
@@ -59,9 +59,14 @@ public sealed class SkiaBackend<TModel, TMsg>
 
         try
         {
+            // Pre-compute the window size before creating the SDL window:
+            // in preference order, Window widget's Width/Height → any
+            // ctor-supplied override → measured content + chrome fallback.
+            var (initialW, initialH, title) = ResolveInitialWindowSpec();
+
             SDL_Window* window;
-            fixed (byte* titleUtf8 = System.Text.Encoding.UTF8.GetBytes(_initialTitle + "\0"))
-                window = SDL_CreateWindow(titleUtf8, _width, _height, SDL_WindowFlags.SDL_WINDOW_RESIZABLE);
+            fixed (byte* titleUtf8 = System.Text.Encoding.UTF8.GetBytes(title + "\0"))
+                window = SDL_CreateWindow(titleUtf8, initialW, initialH, SDL_WindowFlags.SDL_WINDOW_RESIZABLE);
             if (window is null)
                 throw new InvalidOperationException("SDL_CreateWindow failed: " + SDL_GetError());
 
@@ -85,12 +90,47 @@ public sealed class SkiaBackend<TModel, TMsg>
         }
     }
 
+    /// <summary>
+    /// Pick the initial SDL window size. Prefers the root Window widget's
+    /// explicit <c>Width</c>/<c>Height</c>, falls back to the ctor-
+    /// supplied values, then to a measured size, then to a last-resort
+    /// 640×480 default.
+    /// </summary>
+    private (int W, int H, string Title) ResolveInitialWindowSpec()
+    {
+        int w = _width, h = _height;
+        string title = _initialTitle;
+
+        var tree = _runner.CurrentRender;
+        if (tree is not null)
+        {
+            if (tree.Props.TryGetValue("title", out var tv) && tv is string tstr) title = tstr;
+            if (w <= 0 && tree.Type == "Window" && tree.Props.TryGetValue("width",  out var wv) && wv is int wi && wi > 0) w = wi;
+            if (h <= 0 && tree.Type == "Window" && tree.Props.TryGetValue("height", out var hv) && hv is int hi && hi > 0) h = hi;
+
+            if (w <= 0 || h <= 0)
+            {
+                // Borrow the runtime font to do a one-shot measure.
+                using var typeface = SKTypeface.FromFamilyName(_theme.UiFontFamily) ?? SKTypeface.Default;
+                using var font = new SKFont(typeface, _theme.UiFontSize);
+                var layouter = new Layouter(font, _theme);
+                var measured = layouter.Layout(tree, 4096, 4096);   // unbounded viewport
+                if (w <= 0) w = measured.Bounds.W;
+                if (h <= 0) h = measured.Bounds.H;
+            }
+        }
+
+        if (w <= 0) w = 640;
+        if (h <= 0) h = 480;
+        return (w, h, title);
+    }
+
     private unsafe void RunLoop(SDL_Window* window, SDL_Renderer* renderer)
     {
         using var typeface = SKTypeface.FromFamilyName(_theme.UiFontFamily) ?? SKTypeface.Default;
-        using var font = new SKFont(typeface, _theme.UiFontSize + 2f);
+        using var font = new SKFont(typeface, _theme.UiFontSize);
         using var painter = new Painter(_theme, font);
-        var layouter = new Layouter(font);
+        var layouter = new Layouter(font, _theme);
 
         // Pixel buffer + Skia surface sized to match the window's client
         // area. When the user resizes, we reallocate lazily.

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using KohUI;
+using KohUI.Theme;
 using SkiaSharp;
 
 namespace KohUI.Backends.Skia;
@@ -47,11 +48,15 @@ public sealed class LayoutNode
 /// noticeable, and reaching for it now makes "swap Yoga in later" a
 /// simple drop-in if we hit a case this simple layouter doesn't serve.
 /// </summary>
-public sealed class Layouter(SKFont font, int padding = 4, int gap = 4)
+public sealed class Layouter(SKFont font, Win98Theme theme)
 {
     private readonly SKFont _font = font;
-    private readonly int _padding = padding;
-    private readonly int _gap = gap;
+    private readonly int _padding = theme.Padding;
+    private readonly int _gap = theme.Gap;
+    private readonly int _bevel = theme.BevelWidth;
+    private readonly int _buttonMinW = theme.ButtonMinWidth;
+    private readonly int _buttonMinH = theme.ButtonMinHeight;
+    private readonly int _checkRadioSize = theme.CheckRadioSize;
 
     public LayoutNode Layout(RenderNode root, int viewportW, int viewportH)
     {
@@ -71,12 +76,12 @@ public sealed class Layouter(SKFont font, int padding = 4, int gap = 4)
         {
             "Label"             => MeasureText(GetString(node, "text")),
             "Button"            => MeasureButton(node),
-            "CheckBox"          => MeasureGlyphed(node, glyphSize: 13, textGap: 6),
-            "RadioButton"       => MeasureGlyphed(node, glyphSize: 13, textGap: 6),
+            "CheckBox"          => MeasureGlyphed(node, glyphSize: _checkRadioSize, textGap: 6),
+            "RadioButton"       => MeasureGlyphed(node, glyphSize: _checkRadioSize, textGap: 6),
             "MenuItem"          => Pad(MeasureText(StripAccelerator(GetString(node, "text"))), px: 8, py: 2),
             "StatusBarSegment"  => Pad(MeasureText(GetString(node, "text")), px: 4, py: 2),
             "Stack"             => MeasureStack(node),
-            "Panel"             => MeasureBorder(node, border: 2),
+            "Panel"             => MeasureBorder(node, border: _bevel),
             "MenuBar"           => MeasureStack(node, horizontal: true, pad: 0, gap: 0),
             "StatusBar"         => MeasureStack(node, horizontal: true, pad: 0, gap: 2),
             "Window"            => MeasureBorder(node, border: 0),
@@ -94,8 +99,10 @@ public sealed class Layouter(SKFont font, int padding = 4, int gap = 4)
     private (int W, int H) MeasureButton(RenderNode node)
     {
         var (tw, th) = MeasureText(GetString(node, "text"));
-        // 98.css: min-width 75, min-height 23; padding 0 12 on the x axis.
-        return (Math.Max(75, tw + 24), Math.Max(23, th + 6));
+        // Horizontal padding (12 px each side) is a 98.css constant; the
+        // minimum W / H come from the theme so the DOM and Skia builds
+        // stay pixel-consistent.
+        return (Math.Max(_buttonMinW, tw + 24), Math.Max(_buttonMinH, th + 6));
     }
 
     /// <summary>
@@ -161,7 +168,7 @@ public sealed class Layouter(SKFont font, int padding = 4, int gap = 4)
             "Stack"    => ArrangeStack(node, path, bounds),
             "MenuBar"  => ArrangeStack(node, path, bounds, horizontal: true, pad: 0, gap: 0),
             "StatusBar"=> ArrangeStack(node, path, bounds, horizontal: true, pad: 0, gap: 2),
-            "Panel"    => ArrangeBorder(node, path, bounds, border: 2),
+            "Panel"    => ArrangeBorder(node, path, bounds, border: _bevel),
             "Window"   => ArrangeBorder(node, path, bounds, border: 0),
             _          => ArrangeBorder(node, path, bounds, border: 0),
         };
