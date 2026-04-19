@@ -14,12 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="ppy.SDL3-CS" />
-    <PackageReference Include="SkiaSharp" />
-    <!-- Native SkiaSharp shims per RID; the publish pipeline picks the
-         right one based on the RuntimeIdentifier. -->
-    <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
-    <PackageReference Include="SkiaSharp.NativeAssets.macOS" />
+    <PackageReference Include="Silk.NET.OpenGL" />
   </ItemGroup>
 
 </Project>

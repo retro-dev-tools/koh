@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using KohUI;
 using KohUI.Theme;
-using SkiaSharp;
 
 namespace KohUI.Backends.Skia;
 
@@ -14,7 +13,6 @@ public readonly record struct Rect(int X, int Y, int W, int H)
     public int Right  => X + W;
     public int Bottom => Y + H;
     public bool Contains(int px, int py) => px >= X && py >= Y && px < Right && py < Bottom;
-    public SKRect ToSKRect() => new(X, Y, X + W, Y + H);
 }
 
 /// <summary>
@@ -51,9 +49,8 @@ public sealed class LayoutNode
 /// measure step falls back to a small hand-written routine. Everything
 /// else flows through the spec.
 /// </summary>
-public sealed class Layouter(SKFont font, Win98Theme theme)
+public sealed class Layouter(Win98Theme theme)
 {
-    private readonly SKFont _font = font;
     private readonly Win98Theme _theme = theme;
     private readonly ImmutableDictionary<string, WidgetSpec> _specs = WidgetSpecs.ForTheme(theme);
 
@@ -89,9 +86,11 @@ public sealed class Layouter(SKFont font, Win98Theme theme)
 
     private (int W, int H) MeasureText(string text)
     {
-        float width = _font.MeasureText(text);
-        float height = _font.Spacing;
-        return ((int)MathF.Ceiling(width), (int)MathF.Ceiling(height));
+        // Bitmap font is fixed-width: 6 × 8. Both backends share this
+        // constant — the Skia/SkiaSharp-backed font measured via
+        // SKFont.MeasureText / Spacing; the GL backend uses the same
+        // pixel metrics because the glyph atlas is literally 6 × 8.
+        return (text.Length * BitmapFont.GlyphW, BitmapFont.GlyphH);
     }
 
     private (int W, int H) MeasureLeaf(RenderNode node, WidgetSpec spec)

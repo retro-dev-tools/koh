@@ -1,34 +1,18 @@
-using System.Runtime.InteropServices;
 using KohUI;
 using KohUI.Theme;
 using SDL;
-using SkiaSharp;
+using Silk.NET.OpenGL;
 using static SDL.SDL3;
 
 namespace KohUI.Backends.Skia;
 
 /// <summary>
-/// Cross-platform native backend. Opens one SDL3 window with OS-native
-/// chrome (option 1 — title bar from the OS, body painted by Skia),
-/// runs a three-phase per-frame loop:
-///
-/// <list type="number">
-///   <item><see cref="Layouter"/> walks the current
-///         <see cref="Runner{TModel, TMsg}.CurrentRender"/> tree and
-///         assigns pixel bounds to every widget.</item>
-///   <item><see cref="Painter"/> rasterises the laid-out tree into a
-///         software <see cref="SKSurface"/> whose pixels live in a
-///         pinned managed byte[].</item>
-///   <item>SDL uploads those pixels to a streaming texture and blits to
-///         the window.</item>
-/// </list>
-///
-/// Mouse button-up events are resolved against the layout tree via
-/// <see cref="HitTest.Find"/>; if the hit node has an <c>onClick</c>
-/// delegate prop, it's invoked and the returned message goes through
-/// <see cref="Runner{TModel, TMsg}.Dispatch"/>, which triggers
-/// re-rendering automatically. The SDL window title syncs with the
-/// root <c>Window</c>'s <c>Title</c> prop each tick.
+/// Cross-platform native backend. SDL3 owns the window + input; the
+/// GL 3.3 core context is created via SDL and bound to a
+/// <see cref="Silk.NET.OpenGL.GL"/> instance. Drawing goes through
+/// a <see cref="QuadBatch"/> (solid and textured rectangles) and
+/// <see cref="BitmapFont"/> (an embedded 6×8 ASCII atlas). No Skia in
+/// the graph — the 11 MB libSkiaSharp.dll is no longer shipped.
 /// </summary>
 public sealed class SkiaBackend<TModel, TMsg>
 {
@@ -55,32 +39,26 @@ public sealed class SkiaBackend<TModel, TMsg>
     public unsafe void Run()
     {
         if (!SDL_Init(SDL_InitFlags.SDL_INIT_VIDEO))
-            throw new InvalidOperationException("SDL_Init failed: " + SDL_GetError());
+            throw new InvalidOperationException("SDL_Init failed: " + (SDL_GetError() ?? ""));
 
         try
         {
-            // Pre-compute the window size before creating the SDL window:
-            // in preference order, Window widget's Width/Height → any
-            // ctor-supplied override → measured content + chrome fallback.
             var (initialW, initialH, title) = ResolveInitialWindowSpec();
 
             SDL_Window* window;
             fixed (byte* titleUtf8 = System.Text.Encoding.UTF8.GetBytes(title + "\0"))
-                window = SDL_CreateWindow(titleUtf8, initialW, initialH, SDL_WindowFlags.SDL_WINDOW_RESIZABLE);
+                window = SDL_CreateWindow(titleUtf8, initialW, initialH,
+                    SDL_WindowFlags.SDL_WINDOW_RESIZABLE | SDL_WindowFlags.SDL_WINDOW_OPENGL);
             if (window is null)
-                throw new InvalidOperationException("SDL_CreateWindow failed: " + SDL_GetError());
-
-            SDL_Renderer* renderer = SDL_CreateRenderer(window, (byte*)null);
-            if (renderer is null)
-                throw new InvalidOperationException("SDL_CreateRenderer failed: " + SDL_GetError());
+                throw new InvalidOperationException("SDL_CreateWindow failed: " + (SDL_GetError() ?? ""));
 
             try
             {
-                RunLoop(window, renderer);
+                using var gl = new GlContext(window);
+                RunLoop(window, gl);
             }
             finally
             {
-                SDL_DestroyRenderer(renderer);
                 SDL_DestroyWindow(window);
             }
         }
@@ -90,12 +68,6 @@ public sealed class SkiaBackend<TModel, TMsg>
         }
     }
 
-    /// <summary>
-    /// Pick the initial SDL window size. Prefers the root Window widget's
-    /// explicit <c>Width</c>/<c>Height</c>, falls back to the ctor-
-    /// supplied values, then to a measured size, then to a last-resort
-    /// 640×480 default.
-    /// </summary>
     private (int W, int H, string Title) ResolveInitialWindowSpec()
     {
         int w = _width, h = _height;
@@ -110,13 +82,9 @@ public sealed class SkiaBackend<TModel, TMsg>
 
             if (w <= 0 || h <= 0)
             {
-                // Borrow the runtime font to do a one-shot measure.
-                using var typeface = SKTypeface.FromFamilyName(_theme.UiFontFamily) ?? SKTypeface.Default;
-                using var font = new SKFont(typeface, _theme.UiFontSize);
-                var layouter = new Layouter(font, _theme);
-                var measured = layouter.Layout(tree, 4096, 4096);   // unbounded viewport
-                if (w <= 0) w = measured.Bounds.W;
-                if (h <= 0) h = measured.Bounds.H;
+                var measured = MeasureOnce(tree);
+                if (w <= 0) w = measured.W;
+                if (h <= 0) h = measured.H;
             }
         }
 
@@ -125,152 +93,109 @@ public sealed class SkiaBackend<TModel, TMsg>
         return (w, h, title);
     }
 
-    private unsafe void RunLoop(SDL_Window* window, SDL_Renderer* renderer)
+    /// <summary>
+    /// Measure the root without needing a live GL context. The font's
+    /// glyph dimensions are constants; we compute label / button sizes
+    /// from those + the theme's padding + min-sizes, matching what the
+    /// Painter will lay down later.
+    /// </summary>
+    private (int W, int H) MeasureOnce(RenderNode root)
     {
-        using var typeface = SKTypeface.FromFamilyName(_theme.UiFontFamily) ?? SKTypeface.Default;
-        using var font = new SKFont(typeface, _theme.UiFontSize);
-        using var painter = new Painter(_theme, font);
-        var layouter = new Layouter(font, _theme);
+        var layouter = new Layouter(_theme);
+        var node = layouter.Layout(root, 4096, 4096);
+        return (node.Bounds.W, node.Bounds.H);
+    }
 
-        // Pixel buffer + Skia surface sized to match the window's client
-        // area. When the user resizes, we reallocate lazily.
-        var pixelState = new PixelState();
+    private unsafe void RunLoop(SDL_Window* window, GlContext gl)
+    {
+        using var batch = new QuadBatch(gl.Gl);
+        using var font  = new BitmapFont(gl.Gl);
+        var painter = new Painter(_theme, batch, font);
+        var layouter = new Layouter(_theme);
+
         string lastTitle = "";
         bool running = true;
-        string? pressedPath = null;   // button path held down by the mouse
-        string? focusPath = null;     // currently focused widget
+        string? pressedPath = null;
+        string? focusPath = null;
+        LayoutNode? lastLayout = null;
         int mouseX = 0, mouseY = 0;
 
-        SDL_Texture* texture = null;
-
-        try
+        var ev = default(SDL_Event);
+        while (running)
         {
-            var ev = default(SDL_Event);
-            while (running)
+            while (SDL_PollEvent(&ev))
             {
-                // ─── Event pump ───────────────────────────────────────
-                while (SDL_PollEvent(&ev))
+                switch ((SDL_EventType)ev.type)
                 {
-                    switch ((SDL_EventType)ev.type)
-                    {
-                        case SDL_EventType.SDL_EVENT_QUIT:
-                            running = false;
-                            break;
+                    case SDL_EventType.SDL_EVENT_QUIT:
+                        running = false;
+                        break;
 
-                        case SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-                            // Give the app a chance to intercept: if the root
-                            // Window has an onClose delegate, route it through
-                            // the MVU loop. Otherwise fall back to quitting.
-                            if (!TryDispatchClose(pixelState.LastLayout))
-                                running = false;
-                            break;
+                    case SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+                        if (!TryDispatchClose(lastLayout)) running = false;
+                        break;
 
-                        case SDL_EventType.SDL_EVENT_MOUSE_MOTION:
-                            mouseX = (int)ev.motion.x;
-                            mouseY = (int)ev.motion.y;
-                            break;
+                    case SDL_EventType.SDL_EVENT_MOUSE_MOTION:
+                        mouseX = (int)ev.motion.x; mouseY = (int)ev.motion.y;
+                        break;
 
-                        case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN:
-                            if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
+                    case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN:
+                        if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
+                        {
+                            mouseX = (int)ev.button.x; mouseY = (int)ev.button.y;
+                            pressedPath = FindClickTarget(lastLayout, mouseX, mouseY);
+                            if (pressedPath is not null) focusPath = pressedPath;
+                        }
+                        break;
+
+                    case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP:
+                        if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
+                        {
+                            mouseX = (int)ev.button.x; mouseY = (int)ev.button.y;
+                            if (pressedPath is not null
+                                && FindClickTarget(lastLayout, mouseX, mouseY) == pressedPath)
                             {
-                                mouseX = (int)ev.button.x;
-                                mouseY = (int)ev.button.y;
-                                pressedPath = FindClickTarget(pixelState.LastLayout, mouseX, mouseY);
-                                // Mouse click also transfers focus to the target,
-                                // matching every native toolkit's behaviour.
-                                if (pressedPath is not null) focusPath = pressedPath;
+                                TryDispatchClick(mouseX, mouseY, lastLayout);
                             }
-                            break;
+                            pressedPath = null;
+                        }
+                        break;
 
-                        case SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP:
-                            // SDLButton is an enum wrapper; SDL_BUTTON_LEFT == 1 is the
-                            // C-level constant. Cast once to compare without depending
-                            // on the enum's runtime-unstable symbolic names.
-                            if ((byte)ev.button.Button == SDL_BUTTON_LEFT)
-                            {
-                                mouseX = (int)ev.button.x;
-                                mouseY = (int)ev.button.y;
-                                // Fire click only if the mouse-up lands on the same
-                                // target that captured mouse-down — matches the Win98
-                                // "abort click by dragging off" behaviour.
-                                if (pressedPath is not null
-                                    && FindClickTarget(pixelState.LastLayout, mouseX, mouseY) == pressedPath)
-                                {
-                                    TryDispatchClick(mouseX, mouseY, pixelState.LastLayout);
-                                }
-                                pressedPath = null;
-                            }
-                            break;
-
-                        case SDL_EventType.SDL_EVENT_KEY_DOWN:
-                            HandleKeyDown(ev.key, pixelState.LastLayout, ref focusPath);
-                            break;
-                    }
+                    case SDL_EventType.SDL_EVENT_KEY_DOWN:
+                        HandleKeyDown(ev.key, lastLayout, ref focusPath);
+                        break;
                 }
-
-                // ─── Resize check ─────────────────────────────────────
-                int w, h;
-                SDL_GetWindowSize(window, &w, &h);
-                if (w <= 0 || h <= 0) { SDL_Delay(16); continue; }
-
-                if (pixelState.Width != w || pixelState.Height != h || texture is null)
-                {
-                    pixelState.Resize(w, h);
-                    if (texture is not null) SDL_DestroyTexture(texture);
-                    texture = SDL_CreateTexture(renderer,
-                        // Want: memory order [B][G][R][A] matching Skia's SKColorType.Bgra8888.
-                // On little-endian that's packed 0xAARRGGBB == SDL's ARGB8888.
-                // (SDL_PIXELFORMAT_BGRA32 is a C macro alias for exactly this on
-                // little-endian hosts but the alias doesn't make it through the
-                // managed binding, so we spell out the packed form.)
-                SDL_PixelFormat.SDL_PIXELFORMAT_ARGB8888,
-                        SDL_TextureAccess.SDL_TEXTUREACCESS_STREAMING,
-                        w, h);
-                    if (texture is null)
-                        throw new InvalidOperationException("SDL_CreateTexture failed: " + SDL_GetError());
-                }
-
-                // ─── Layout + paint ───────────────────────────────────
-                var tree = _runner.CurrentRender;
-                if (tree is not null)
-                {
-                    SyncWindowTitle(window, tree, ref lastTitle);
-                    var layout = layouter.Layout(tree, w, h);
-                    pixelState.LastLayout = layout;
-
-                    // If focus pointed at a path that no longer exists in the
-                    // new layout (widget went away), clear rather than point
-                    // at nothing. Same for the pressed path.
-                    if (focusPath is not null && Focus.FindByPath(layout, focusPath) is null) focusPath = null;
-                    if (pressedPath is not null && Focus.FindByPath(layout, pressedPath) is null) pressedPath = null;
-
-                    // Seed initial focus on the first focusable widget so
-                    // keyboard navigation works without first requiring a
-                    // Tab press.
-                    if (focusPath is null)
-                    {
-                        var order = Focus.Enumerate(layout);
-                        if (!order.IsEmpty) focusPath = order[0];
-                    }
-
-                    var surface = pixelState.Surface;
-                    var canvas = surface.Canvas;
-                    canvas.Clear(new SKColor(_theme.Background.R, _theme.Background.G, _theme.Background.B));
-                    painter.Paint(canvas, layout, pressedPath, focusPath);
-                    surface.Flush();
-                }
-
-                // ─── Upload + present ─────────────────────────────────
-                SDL_UpdateTexture(texture, null, pixelState.PixelsPtr, pixelState.RowBytes);
-                SDL_RenderClear(renderer);
-                SDL_RenderTexture(renderer, texture, null, null);
-                SDL_RenderPresent(renderer);
             }
-        }
-        finally
-        {
-            if (texture is not null) SDL_DestroyTexture(texture);
-            pixelState.Dispose();
+
+            int w, h;
+            SDL_GetWindowSize(window, &w, &h);
+            if (w <= 0 || h <= 0) { SDL_Delay(16); continue; }
+
+            var tree = _runner.CurrentRender;
+            if (tree is not null)
+            {
+                SyncWindowTitle(window, tree, ref lastTitle);
+                var layout = layouter.Layout(tree, w, h);
+                lastLayout = layout;
+
+                if (focusPath is not null && FindByPath(layout, focusPath) is null) focusPath = null;
+                if (pressedPath is not null && FindByPath(layout, pressedPath) is null) pressedPath = null;
+                if (focusPath is null)
+                {
+                    foreach (var p in EnumerateFocusable(layout)) { focusPath = p; break; }
+                }
+
+                gl.Gl.Clear(ClearBufferMask.ColorBufferBit);
+                gl.Gl.ClearColor(_theme.Background.R / 255f, _theme.Background.G / 255f, _theme.Background.B / 255f, 1f);
+                batch.BeginFrame(w, h);
+                painter.Paint(layout, pressedPath, focusPath);
+                batch.Flush();
+                gl.SwapBuffers();
+            }
+            else
+            {
+                SDL_Delay(16);
+            }
         }
     }
 
@@ -283,11 +208,6 @@ public sealed class SkiaBackend<TModel, TMsg>
             InvokeHandler(d, hit.Path, "click");
     }
 
-    /// <summary>
-    /// Returns true if the app wanted to handle close itself (via
-    /// root-level Window.onClose). False means "no handler, safe to
-    /// quit".
-    /// </summary>
     private bool TryDispatchClose(LayoutNode? lastLayout)
     {
         var root = lastLayout?.Source;
@@ -306,32 +226,37 @@ public sealed class SkiaBackend<TModel, TMsg>
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[kohui-skia] {kind} handler threw at '{path}': {ex.Message}");
+            Console.Error.WriteLine($"[kohui-gl] {kind} handler threw at '{path}': {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Layout-path of the node that would receive a click at (x, y), or
-    /// null if none. Used both to drive the pressed-bevel visual and to
-    /// abort-click if the cursor leaves the original target before the
-    /// button is released.
-    /// </summary>
     private static string? FindClickTarget(LayoutNode? lastLayout, int x, int y)
+        => lastLayout is null ? null : HitTest.Find(lastLayout, x, y)?.Path;
+
+    private static LayoutNode? FindByPath(LayoutNode root, string path)
+        => Focus.FindByPath(root, path);
+
+    private static IEnumerable<string> EnumerateFocusable(LayoutNode root)
     {
-        if (lastLayout is null) return null;
-        return HitTest.Find(lastLayout, x, y)?.Path;
+        foreach (var p in Focus.Enumerate(root)) yield return p;
+    }
+
+    private static unsafe void SyncWindowTitle(SDL_Window* window, RenderNode tree, ref string lastTitle)
+    {
+        if (tree.Type != "Window") return;
+        if (!tree.Props.TryGetValue("title", out var t) || t is not string title) return;
+        if (title == lastTitle) return;
+        fixed (byte* utf8 = System.Text.Encoding.UTF8.GetBytes(title + "\0"))
+            SDL_SetWindowTitle(window, utf8);
+        lastTitle = title;
     }
 
     private void HandleKeyDown(SDL_KeyboardEvent key, LayoutNode? layout, ref string? focusPath)
     {
         if (layout is null) return;
-
-        // Alt-letter accelerators first. Win98 convention: Alt selects the
-        // menu item whose underlined char matches; we extend that by firing
-        // its onClick directly rather than opening a dropdown (dropdowns
-        // are a later phase).
         uint keyCode = (uint)key.key;
         uint mod = (uint)key.mod;
+
         bool altHeld = (mod & (uint)SDL_Keymod.SDL_KMOD_ALT) != 0;
         if (altHeld && keyCode >= SDLK_A && keyCode <= SDLK_Z)
         {
@@ -357,8 +282,6 @@ public sealed class SkiaBackend<TModel, TMsg>
         }
         else if (keyCode == SDLK_ESCAPE)
         {
-            // Esc on a Window with an onClose delegate dispatches it —
-            // common Win98 dialog gesture.
             TryDispatchClose(layout);
         }
     }
@@ -369,56 +292,5 @@ public sealed class SkiaBackend<TModel, TMsg>
         if (node is null) return;
         if (!node.Source.Props.TryGetValue("onClick", out var v) || v is not Delegate d) return;
         InvokeHandler(d, path, kind);
-    }
-
-    private static unsafe void SyncWindowTitle(SDL_Window* window, RenderNode tree, ref string lastTitle)
-    {
-        if (tree.Type != "Window") return;
-        if (!tree.Props.TryGetValue("title", out var t) || t is not string title) return;
-        if (title == lastTitle) return;
-        fixed (byte* utf8 = System.Text.Encoding.UTF8.GetBytes(title + "\0"))
-            SDL_SetWindowTitle(window, utf8);
-        lastTitle = title;
-    }
-
-    /// <summary>
-    /// Holds the pinned pixel array and matching Skia surface. Managed
-    /// by the backend rather than the painter because its size tracks
-    /// the native window.
-    /// </summary>
-    private sealed class PixelState : IDisposable
-    {
-        public int Width { get; private set; }
-        public int Height { get; private set; }
-        public int RowBytes { get; private set; }
-        public IntPtr PixelsPtr { get; private set; }
-        public SKSurface Surface { get; private set; } = null!;
-        public LayoutNode? LastLayout { get; set; }
-
-        private GCHandle _handle;
-        private byte[]? _pixels;
-
-        public void Resize(int w, int h)
-        {
-            Dispose();
-            Width = w;
-            Height = h;
-            var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-            RowBytes = info.RowBytes;
-            _pixels = new byte[info.BytesSize];
-            _handle = GCHandle.Alloc(_pixels, GCHandleType.Pinned);
-            PixelsPtr = _handle.AddrOfPinnedObject();
-            Surface = SKSurface.Create(info, PixelsPtr, info.RowBytes)
-                ?? throw new InvalidOperationException("SKSurface.Create returned null on resize");
-        }
-
-        public void Dispose()
-        {
-            Surface?.Dispose();
-            if (_handle.IsAllocated) _handle.Free();
-            _pixels = null;
-            PixelsPtr = IntPtr.Zero;
-            Surface = null!;
-        }
     }
 }
