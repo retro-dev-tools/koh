@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\KohUI\KohUI.csproj" />
     <ProjectReference Include="..\..\src\KohUI.Backends.Dom\KohUI.Backends.Dom.csproj" />
+    <ProjectReference Include="..\..\src\KohUI.Backends.Skia\KohUI.Backends.Skia.csproj" />
   </ItemGroup>
 
 </Project>

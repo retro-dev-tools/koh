@@ -1,20 +1,12 @@
 /* Subset of jdan/98.css (MIT) — enough for KohUI Phase 1a widgets. The
    full stylesheet will be vendored once the widget library stabilises;
    for now we hand-maintain the pieces we actually use so single-file
-   publish stays minimal. */
+   publish stays minimal.
 
-:root {
-    --win98-bg:            #c0c0c0;
-    --win98-hilite:        #ffffff;
-    --win98-shadow:        #808080;
-    --win98-dark-shadow:   #000000;
-    --win98-text:          #000000;
-    --win98-disabled-text: #7e7e7e;
-    --win98-hilite-text:   #ffffff;
-    --win98-title-bg:      #000080;
-    --win98-title-bg-end:  #1084d0;
-    --win98-title-text:    #ffffff;
-}
+   Palette values come from /_kohui/theme.css, which is generated from
+   the Win98Theme record on the server side. Changing a colour there
+   propagates to both DomBackend (via the CSS var) and SkiaBackend
+   (which reads the same record directly). */
 
 /* ─── Buttons ─────────────────────────────────────────────────────── */
 

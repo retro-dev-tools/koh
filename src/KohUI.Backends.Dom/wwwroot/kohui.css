@@ -4,9 +4,9 @@
 body {
     margin: 0;
     padding: 0;
-    background: #008080;   /* classic teal desktop */
-    font-family: "Pixelated MS Sans Serif", "MS Sans Serif", "Segoe UI", sans-serif;
-    font-size: 11px;
+    background: var(--win98-desktop, #008080);
+    font-family: var(--win98-ui-font, "MS Sans Serif", "Segoe UI", sans-serif);
+    font-size: var(--win98-ui-font-size, 11px);
     min-height: 100vh;
 }
 

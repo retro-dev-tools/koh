@@ -1,6 +1,8 @@
 using System.Net.WebSockets;
 using System.Reflection;
+using System.Text;
 using KohUI;
+using KohUI.Theme;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.StaticFiles;
@@ -32,11 +34,26 @@ public static class DomBackendExtensions
 
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
 
-    public static void UseKohUI<TModel, TMsg>(this WebApplication app, Runner<TModel, TMsg> runner)
+    public static void UseKohUI<TModel, TMsg>(
+        this WebApplication app,
+        Runner<TModel, TMsg> runner,
+        Win98Theme? theme = null)
     {
+        var activeTheme = theme ?? Win98Theme.Default;
         var backend = new DomBackend<TModel, TMsg>(runner);
 
         app.UseWebSockets();
+
+        // Theme CSS: served dynamically from the Win98Theme record so the
+        // palette is a single source of truth shared with SkiaBackend.
+        // 98.css's hand-maintained rules still reference var(--win98-*);
+        // this endpoint emits the custom-property block on :root.
+        var themeCss = BuildThemeCss(activeTheme);
+        app.MapGet("/_kohui/theme.css", (HttpContext ctx) =>
+        {
+            ctx.Response.ContentType = "text/css; charset=utf-8";
+            return ctx.Response.WriteAsync(themeCss);
+        });
 
         // Serve bundled KohUI static assets from the embedded manifest.
         app.UseStaticFiles(new StaticFileOptions
@@ -71,5 +88,25 @@ public static class DomBackendExtensions
             using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
             await backend.HandleAsync(socket, ctx.RequestAborted);
         });
+    }
+
+    private static string BuildThemeCss(Win98Theme t)
+    {
+        var sb = new StringBuilder(512);
+        sb.AppendLine(":root {");
+        sb.Append("    --win98-bg:            ").Append(t.Background.ToHex()).AppendLine(";");
+        sb.Append("    --win98-hilite:        ").Append(t.BevelHilite.ToHex()).AppendLine(";");
+        sb.Append("    --win98-shadow:        ").Append(t.BevelShadow.ToHex()).AppendLine(";");
+        sb.Append("    --win98-dark-shadow:   ").Append(t.BevelDarkShadow.ToHex()).AppendLine(";");
+        sb.Append("    --win98-text:          ").Append(t.Text.ToHex()).AppendLine(";");
+        sb.Append("    --win98-disabled-text: ").Append(t.DisabledText.ToHex()).AppendLine(";");
+        sb.Append("    --win98-title-bg:      ").Append(t.TitleBarStart.ToHex()).AppendLine(";");
+        sb.Append("    --win98-title-bg-end:  ").Append(t.TitleBarEnd.ToHex()).AppendLine(";");
+        sb.Append("    --win98-title-text:    ").Append(t.TitleBarText.ToHex()).AppendLine(";");
+        sb.Append("    --win98-desktop:       ").Append(t.Desktop.ToHex()).AppendLine(";");
+        sb.Append("    --win98-ui-font:       ").Append('"').Append(t.UiFontFamily).Append("\", \"Segoe UI\", sans-serif;").AppendLine();
+        sb.Append("    --win98-ui-font-size:  ").Append(t.UiFontSize).AppendLine("px;");
+        sb.AppendLine("}");
+        return sb.ToString();
     }
 }
