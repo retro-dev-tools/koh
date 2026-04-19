@@ -98,6 +98,7 @@ public sealed class SkiaBackend<TModel, TMsg>
         string lastTitle = "";
         bool running = true;
         string? pressedPath = null;   // button path held down by the mouse
+        string? focusPath = null;     // currently focused widget
         int mouseX = 0, mouseY = 0;
 
         SDL_Texture* texture = null;
@@ -135,6 +136,9 @@ public sealed class SkiaBackend<TModel, TMsg>
                                 mouseX = (int)ev.button.x;
                                 mouseY = (int)ev.button.y;
                                 pressedPath = FindClickTarget(pixelState.LastLayout, mouseX, mouseY);
+                                // Mouse click also transfers focus to the target,
+                                // matching every native toolkit's behaviour.
+                                if (pressedPath is not null) focusPath = pressedPath;
                             }
                             break;
 
@@ -156,6 +160,10 @@ public sealed class SkiaBackend<TModel, TMsg>
                                 }
                                 pressedPath = null;
                             }
+                            break;
+
+                        case SDL_EventType.SDL_EVENT_KEY_DOWN:
+                            HandleKeyDown(ev.key, pixelState.LastLayout, ref focusPath);
                             break;
                     }
                 }
@@ -190,10 +198,25 @@ public sealed class SkiaBackend<TModel, TMsg>
                     var layout = layouter.Layout(tree, w, h);
                     pixelState.LastLayout = layout;
 
+                    // If focus pointed at a path that no longer exists in the
+                    // new layout (widget went away), clear rather than point
+                    // at nothing. Same for the pressed path.
+                    if (focusPath is not null && Focus.FindByPath(layout, focusPath) is null) focusPath = null;
+                    if (pressedPath is not null && Focus.FindByPath(layout, pressedPath) is null) pressedPath = null;
+
+                    // Seed initial focus on the first focusable widget so
+                    // keyboard navigation works without first requiring a
+                    // Tab press.
+                    if (focusPath is null)
+                    {
+                        var order = Focus.Enumerate(layout);
+                        if (!order.IsEmpty) focusPath = order[0];
+                    }
+
                     var surface = pixelState.Surface;
                     var canvas = surface.Canvas;
                     canvas.Clear(new SKColor(_theme.Background.R, _theme.Background.G, _theme.Background.B));
-                    painter.Paint(canvas, layout, pressedPath);
+                    painter.Paint(canvas, layout, pressedPath, focusPath);
                     surface.Flush();
                 }
 
@@ -257,6 +280,55 @@ public sealed class SkiaBackend<TModel, TMsg>
     {
         if (lastLayout is null) return null;
         return HitTest.Find(lastLayout, x, y)?.Path;
+    }
+
+    private void HandleKeyDown(SDL_KeyboardEvent key, LayoutNode? layout, ref string? focusPath)
+    {
+        if (layout is null) return;
+
+        // Alt-letter accelerators first. Win98 convention: Alt selects the
+        // menu item whose underlined char matches; we extend that by firing
+        // its onClick directly rather than opening a dropdown (dropdowns
+        // are a later phase).
+        uint keyCode = (uint)key.key;
+        uint mod = (uint)key.mod;
+        bool altHeld = (mod & (uint)SDL_Keymod.SDL_KMOD_ALT) != 0;
+        if (altHeld && keyCode >= SDLK_A && keyCode <= SDLK_Z)
+        {
+            char ch = (char)(keyCode - SDLK_A + 'A');
+            var path = Focus.ResolveAccelerator(layout, ch);
+            if (path is not null)
+            {
+                focusPath = path;
+                InvokeByPath(layout, path, "accelerator");
+            }
+            return;
+        }
+
+        if (keyCode == SDLK_TAB)
+        {
+            var order = Focus.Enumerate(layout);
+            bool shift = (mod & (uint)SDL_Keymod.SDL_KMOD_SHIFT) != 0;
+            focusPath = shift ? Focus.Prev(order, focusPath) : Focus.Next(order, focusPath);
+        }
+        else if (keyCode == SDLK_RETURN || keyCode == SDLK_KP_ENTER || keyCode == SDLK_SPACE)
+        {
+            if (focusPath is not null) InvokeByPath(layout, focusPath, "key");
+        }
+        else if (keyCode == SDLK_ESCAPE)
+        {
+            // Esc on a Window with an onClose delegate dispatches it —
+            // common Win98 dialog gesture.
+            TryDispatchClose(layout);
+        }
+    }
+
+    private void InvokeByPath(LayoutNode layout, string path, string kind)
+    {
+        var node = Focus.FindByPath(layout, path);
+        if (node is null) return;
+        if (!node.Source.Props.TryGetValue("onClick", out var v) || v is not Delegate d) return;
+        InvokeHandler(d, path, kind);
     }
 
     private static unsafe void SyncWindowTitle(SDL_Window* window, RenderNode tree, ref string lastTitle)

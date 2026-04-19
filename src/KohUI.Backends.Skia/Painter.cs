@@ -33,17 +33,19 @@ public sealed class Painter : IDisposable
     }
 
     /// <summary>
-    /// Paint the tree. <paramref name="pressedPath"/> is the layout path
-    /// of the button currently held down by the mouse — drawn with the
-    /// inverted Win98 bevel when non-null and matching.
+    /// Paint the tree.
+    /// <paramref name="pressedPath"/> is the layout path of the button
+    /// currently held down by the mouse (inverted Win98 bevel when set).
+    /// <paramref name="focusPath"/> is the focused widget (dashed focus
+    /// ring inside the bounds).
     /// </summary>
-    public void Paint(SKCanvas canvas, LayoutNode node, string? pressedPath = null)
+    public void Paint(SKCanvas canvas, LayoutNode node, string? pressedPath = null, string? focusPath = null)
     {
-        Draw(canvas, node, pressedPath);
-        foreach (var child in node.Children) Paint(canvas, child, pressedPath);
+        Draw(canvas, node, pressedPath, focusPath);
+        foreach (var child in node.Children) Paint(canvas, child, pressedPath, focusPath);
     }
 
-    private void Draw(SKCanvas canvas, LayoutNode node, string? pressedPath)
+    private void Draw(SKCanvas canvas, LayoutNode node, string? pressedPath, string? focusPath)
     {
         var r = node.Bounds;
         switch (node.Source.Type)
@@ -77,11 +79,13 @@ public sealed class Painter : IDisposable
             case "Button":
                 DrawButton(canvas, r, Layouter.GetString(node.Source, "text"),
                            enabled: node.Source.Props.TryGetValue("enabled", out var en) is false || en is not false,
-                           pressed: pressedPath is not null && pressedPath == node.Path);
+                           pressed: pressedPath is not null && pressedPath == node.Path,
+                           focused: focusPath is not null && focusPath == node.Path);
                 break;
 
             case "MenuItem":
-                DrawText(canvas, Layouter.StripAccelerator(Layouter.GetString(node.Source, "text")), r, _textPaint);
+                DrawMenuItem(canvas, Layouter.GetString(node.Source, "text"), r,
+                             focused: focusPath is not null && focusPath == node.Path);
                 break;
 
             case "StatusBarSegment":
@@ -105,7 +109,7 @@ public sealed class Painter : IDisposable
         }
     }
 
-    private void DrawButton(SKCanvas canvas, Rect r, string text, bool enabled, bool pressed)
+    private void DrawButton(SKCanvas canvas, Rect r, string text, bool enabled, bool pressed, bool focused)
     {
         canvas.DrawRect(r.ToSKRect(), _bgPaint);
         if (pressed)
@@ -129,7 +133,67 @@ public sealed class Painter : IDisposable
         var textR = pressed ? new Rect(r.X + 1, r.Y + 1, r.W, r.H) : r;
         var paint = enabled ? _textPaint : new SKPaint { Color = Convert(_theme.DisabledText), IsAntialias = true };
         DrawText(canvas, text, textR, paint);
+
+        if (focused) DrawFocusRing(canvas, Inset(r, 4));
     }
+
+    private void DrawMenuItem(SKCanvas canvas, string text, Rect r, bool focused)
+    {
+        // Focused MenuItem shows the Win98 inverted-selection look: blue
+        // fill + white text. Keeps text readable without pixel-fighting
+        // the dotted focus ring inside a tight menu-bar slot.
+        if (focused)
+        {
+            using var selFill = new SKPaint { Color = Convert(_theme.TitleBarStart), Style = SKPaintStyle.Fill };
+            canvas.DrawRect(r.ToSKRect(), selFill);
+        }
+
+        var stripped = Layouter.StripAccelerator(text);
+        var textPaint = focused
+            ? new SKPaint { Color = Convert(_theme.TitleBarText), IsAntialias = true }
+            : _textPaint;
+        DrawText(canvas, stripped, r, textPaint);
+
+        // Win98 underlines the accelerator character. We lay it out left-
+        // aligned (DrawText's default for non-centred boxes), so the
+        // underline's x position = DrawText x + width of prefix.
+        int amp = text.IndexOf('&');
+        if (amp < 0 || amp >= text.Length - 1) return;
+        string prefix = stripped.Substring(0, amp);
+        char accel = stripped[amp];
+        float prefixW = _font.MeasureText(prefix);
+        float accelW = _font.MeasureText(accel.ToString());
+        float baselineY = r.Y + (r.H - _font.Spacing) / 2f - _font.Metrics.Ascent;
+        float underlineY = baselineY + 1;   // 1 px below the glyph baseline
+        float x0 = r.X + 4 + prefixW;
+        float x1 = x0 + accelW;
+        canvas.DrawRect(new SKRect(x0, underlineY, x1, underlineY + 1), textPaint);
+
+        if (focused && textPaint != _textPaint) textPaint.Dispose();
+    }
+
+    private void DrawFocusRing(SKCanvas canvas, Rect r)
+    {
+        // Classic Win98 focus rect: alternating 1-pixel black dots, drawn
+        // just inside the widget. We fake the "dotted line" by painting
+        // every other pixel around the perimeter.
+        var paint = _textPaint;
+        // Top + bottom edges.
+        for (int x = r.X; x < r.Right; x += 2)
+        {
+            canvas.DrawRect(new SKRect(x, r.Y, x + 1, r.Y + 1), paint);
+            canvas.DrawRect(new SKRect(x, r.Bottom - 1, x + 1, r.Bottom), paint);
+        }
+        // Left + right edges (skip the already-drawn corners).
+        for (int y = r.Y + 2; y < r.Bottom - 2; y += 2)
+        {
+            canvas.DrawRect(new SKRect(r.X, y, r.X + 1, y + 1), paint);
+            canvas.DrawRect(new SKRect(r.Right - 1, y, r.Right, y + 1), paint);
+        }
+    }
+
+    private static Rect Inset(Rect r, int by)
+        => new(r.X + by, r.Y + by, Math.Max(0, r.W - by * 2), Math.Max(0, r.H - by * 2));
 
     /// <summary>
     /// Draws the canonical Win98 2-pixel bevel: outer top+left one colour,
