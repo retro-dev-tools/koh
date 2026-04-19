@@ -37,9 +37,14 @@ var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
     runner,
     title: "Koh Emulator",
     onTick: () => new Tick(),
-    onKeyDown: name => EmulatorApp.MapShortcut(name)
-                    ?? (EmulatorApp.MapKey(name) is { } btn ? new JoypadDown(btn) : null),
-    onKeyUp:   name => EmulatorApp.MapKey(name) is { } btn ? new JoypadUp(btn)   : null);
+    // Key resolution order: fast-forward hold (Tab) wins over
+    // everything so it stays responsive even if Tab overlaps a
+    // keyboard-focus cycle; one-shot shortcuts next; joypad last.
+    onKeyDown: name => name == "Tab" ? new SetFastForward(true)
+                    : EmulatorApp.MapShortcut(name)
+                   ?? (EmulatorApp.MapKey(name) is { } btn ? new JoypadDown(btn) : null),
+    onKeyUp:   name => name == "Tab" ? new SetFastForward(false)
+                    : (EmulatorApp.MapKey(name) is { } btn ? new JoypadUp(btn) : null));
 
 backend.Run();
 await runner.DisposeAsync();

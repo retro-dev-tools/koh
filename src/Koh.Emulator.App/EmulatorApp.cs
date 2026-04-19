@@ -39,6 +39,7 @@ public sealed record ToggleDebug : EmulatorMsg;
 public sealed record SaveState : EmulatorMsg;
 public sealed record LoadState : EmulatorMsg;
 public sealed record ScrollMemory(int DeltaBytes) : EmulatorMsg;
+public sealed record SetFastForward(bool On) : EmulatorMsg;
 
 public static class EmulatorApp
 {
@@ -57,6 +58,7 @@ public static class EmulatorApp
         SaveState             => OnSaveState(m),
         LoadState             => OnLoadState(m),
         ScrollMemory s        => OnScrollMemory(m, s.DeltaBytes),
+        SetFastForward f      => OnSetFastForward(m, f.On),
         LoadRom               => m,   // handled imperatively at boot
         Noop                  => m,
         _                     => m,
@@ -75,6 +77,12 @@ public static class EmulatorApp
             m.Loop.Pause();
             return m with { Status = "Paused" };
         }
+    }
+
+    private static EmulatorModel OnSetFastForward(EmulatorModel m, bool on)
+    {
+        if (m.Loop is not null) m.Loop.FastForward = on;
+        return m;   // status bar could show "[FF]" here later; keep quiet for now
     }
 
     private static EmulatorModel OnScrollMemory(EmulatorModel m, int deltaBytes)

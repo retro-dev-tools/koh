@@ -109,6 +109,20 @@ public sealed class EmulatorLoop : IDisposable
         set => _publishDebugSnapshots = value;
     }
 
+    // Hold-to-run-uncapped fast-forward. Set from the UI thread while
+    // the user holds the fast-forward key; cleared on release. While
+    // true the pacer skips its HighWater sleep — the emulator runs as
+    // fast as the CPU allows. Audio keeps being pushed but samples
+    // beyond the sink's capacity are dropped (OpenAL's free-buffer
+    // pool is small), so playback simply chops into near-silence
+    // until Tab is released and the pacer catches up.
+    private volatile bool _fastForward;
+    public bool FastForward
+    {
+        get => _fastForward;
+        set => _fastForward = value;
+    }
+
     /// <summary>
     /// Latest front framebuffer produced by the emulator, or an empty
     /// grey buffer before the first ROM boots. Reference is
@@ -424,9 +438,9 @@ public sealed class EmulatorLoop : IDisposable
                 // starve the sink during startup (fps drops to 47 and
                 // we chew through the warmup buffer before audio
                 // stabilises).
-                if (lastBufferedAfterPush > HighWater)
+                if (lastBufferedAfterPush > HighWater && !_fastForward)
                 {
-                    while (!_disposed && !_paused)
+                    while (!_disposed && !_paused && !_fastForward)
                     {
                         int est = EstimateBuffered(lastBufferedAfterPush, lastPushTimestampTicks);
                         if (est <= TargetFill) break;
