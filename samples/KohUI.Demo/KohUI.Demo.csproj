@@ -11,12 +11,26 @@
     <DebuggerSupport>false</DebuggerSupport>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+
+    <!-- The dev preview (Kestrel + DomBackend + Playwright drivability)
+         is Debug-only by default. A Release-published binary ships
+         native-only: no HTTP listener, no Blazor-style static assets,
+         no ASP.NET Core in the graph. Override with
+         /p:KohUIDevPreview=true on the command line if you want the
+         preview available on a Release build for diagnostics. -->
+    <KohUIDevPreview Condition="'$(KohUIDevPreview)' == '' and '$(Configuration)' == 'Debug'">true</KohUIDevPreview>
+    <KohUIDevPreview Condition="'$(KohUIDevPreview)' == ''">false</KohUIDevPreview>
+    <DefineConstants Condition="'$(KohUIDevPreview)' == 'true'">$(DefineConstants);KOHUI_DEV_PREVIEW</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\KohUI\KohUI.csproj" />
-    <ProjectReference Include="..\..\src\KohUI.Backends.Dom\KohUI.Backends.Dom.csproj" />
     <ProjectReference Include="..\..\src\KohUI.Backends.Skia\KohUI.Backends.Skia.csproj" />
+    <!-- DomBackend is only linked when KohUIDevPreview is on so Release
+         publishes don't drag Kestrel + static-web-assets into the AOT
+         binary. -->
+    <ProjectReference Include="..\..\src\KohUI.Backends.Dom\KohUI.Backends.Dom.csproj"
+                      Condition="'$(KohUIDevPreview)' == 'true'" />
   </ItemGroup>
 
 </Project>
