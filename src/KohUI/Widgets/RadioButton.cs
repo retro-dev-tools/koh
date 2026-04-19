@@ -12,8 +12,8 @@ namespace KohUI.Widgets;
 /// new RadioButton&lt;Msg&gt;("Advance",  m.Mode == Advance,  () =&gt; new SetMode(Advance))
 /// </code>
 ///
-/// Both backends render the same layout; Skia paints the sunken 13×13
-/// circle and the center dot, DomBackend uses
+/// Both backends render the same layout; GlBackend paints the sunken
+/// 13×13 circle and the center dot, DomBackend uses
 /// <c>&lt;input type="radio"&gt;</c>.
 /// </summary>
 public readonly struct RadioButton<TMsg>(string Text, bool Selected, Func<TMsg>? OnSelect = null) : IView<TMsg>

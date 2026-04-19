@@ -11,9 +11,9 @@ namespace KohUI.Widgets;
 /// new CheckBox&lt;Msg&gt;("Enabled", m.Enabled, OnToggle: v =&gt; new SetEnabled(v))
 /// </code>
 ///
-/// Both backends render the same layout; Skia paints the sunken box and
-/// ✓ glyph, DomBackend emits <c>&lt;input type="checkbox"&gt;</c> styled
-/// to match.
+/// Both backends render the same layout; GlBackend paints the sunken
+/// box and ✓ glyph, DomBackend emits <c>&lt;input type="checkbox"&gt;</c>
+/// styled to match.
 /// </summary>
 public readonly struct CheckBox<TMsg>(string Text, bool Checked, Func<bool, TMsg>? OnToggle = null) : IView<TMsg>
 {

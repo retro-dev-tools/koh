@@ -46,7 +46,7 @@ public static class DomBackendExtensions
         // The full stylesheet is generated from the theme + WidgetSpecs —
         // no hand-written CSS on disk. Both backends consume the same
         // spec table, so a change to a padding or bevel width here
-        // lands in Skia and DOM simultaneously.
+        // lands in the GL and DOM surfaces simultaneously.
         var generatedCss = CssGenerator.Build(activeTheme);
         app.MapGet("/_kohui/kohui.css", (HttpContext ctx) =>
         {

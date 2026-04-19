@@ -2,8 +2,8 @@ namespace KohUI.Theme;
 
 /// <summary>
 /// Packed 24-bit color. Ordered R-G-B so both backends can trivially
-/// lift it to their target format (CSS <c>#rrggbb</c> hex; Skia
-/// <c>SKColor(r,g,b)</c>; SDL <c>SDL_Color</c>).
+/// lift it to their target format (CSS <c>#rrggbb</c> hex for the DOM,
+/// byte triple for the OpenGL vertex colour attribute).
 /// </summary>
 public readonly record struct KohColor(byte R, byte G, byte B)
 {
@@ -19,9 +19,10 @@ public readonly record struct KohColor(byte R, byte G, byte B)
 ///         on <c>:root</c> so 98.css rules continue to read
 ///         <c>var(--win98-bg)</c> and friends — keeping the hand-written
 ///         subset in sync with the theme.</item>
-///   <item><b>SkiaBackend</b> (Phase 2+) turns the fields into
-///         <c>SKPaint</c> instances and reuses them across every window
-///         frame, button bevel, and panel outline it draws.</item>
+///   <item><b>GlBackend</b> maps the fields to RGB byte triples and
+///         feeds them into the per-vertex colour attribute of a shared
+///         OpenGL quad batch — bevels, panels, text tint all share the
+///         same one-shader pipeline.</item>
 /// </list>
 ///
 /// Colour names follow Win98's own palette tokens from the Display
@@ -68,8 +69,9 @@ public sealed record Win98Theme
 
     // ─── Layout metrics ──────────────────────────────────────────────
     // Values shared by both backends so a number-change in one place
-    // propagates to the Skia layout pass AND the CSS variable block that
-    // drives the DomBackend. Historical Win98 defaults where applicable.
+    // propagates to the GL backend's layout pass AND the CSS variable
+    // block that drives the DomBackend. Historical Win98 defaults
+    // where applicable.
 
     /// <summary>Inner content padding for panels / windows / containers.</summary>
     public required int Padding { get; init; }

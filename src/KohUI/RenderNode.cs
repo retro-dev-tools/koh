@@ -6,9 +6,8 @@ namespace KohUI;
 /// Serialisable, backend-agnostic description of a rendered widget: the
 /// element type, its properties, and its children. Views produce these;
 /// the reconciler diffs old vs new trees and emits patches for backends
-/// to consume. Both DomBackend (HTML patches over WebSocket) and the
-/// future SkiaBackend (AccessKit nodes + Skia draws) consume the same
-/// tree.
+/// to consume. Both DomBackend (HTML patches over WebSocket) and
+/// GlBackend (OpenGL quads + bitmap-font text) consume the same tree.
 ///
 /// Properties are a flat <c>string → object?</c> map rather than a
 /// strongly-typed record so reconciliation can diff by key without

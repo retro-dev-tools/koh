@@ -1,13 +1,13 @@
 using KohUI;
 using KohUI.Theme;
 
-namespace KohUI.Backends.Skia;
+namespace KohUI.Backends.Gl;
 
 /// <summary>
-/// Walks a <see cref="LayoutNode"/> tree and submits the drawing calls
-/// to a <see cref="QuadBatch"/> (solid rectangles) and
-/// <see cref="BitmapFont"/> (text). Replaces the old SKCanvas-based
-/// painter — no Skia in the graph.
+/// Walks a <see cref="LayoutNode"/> tree and submits drawing calls to a
+/// <see cref="QuadBatch"/> (solid rectangles) and <see cref="BitmapFont"/>
+/// (text). Bevels are plain 1-pixel rects over the OpenGL vertex stream —
+/// the full Win98 look from a single shader.
 /// </summary>
 internal sealed class Painter
 {
@@ -214,8 +214,8 @@ internal sealed class Painter
 
     private void DrawCheckGlyph(Rect box)
     {
-        // Hand-plotted ✓ at 13 px. Same coordinate table the SkiaSharp
-        // painter used — still readable at this scale.
+        // Hand-plotted ✓ at 13 px — readable at this scale without
+        // needing a vector check-glyph asset.
         int bx = box.X + 3;
         int by = box.Y + 3;
         (int x, int y)[] pts =

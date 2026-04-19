@@ -3,9 +3,9 @@
 ## Goals, in priority order
 
 1. **NativeAOT** from day one. Publish a single self-contained executable; zero runtime reflection on hot paths; AOT analyzer clean across the whole graph.
-2. **Single-file dependency surface.** `PublishSingleFile=true` + `EnableCompressionInSingleFile=true` produce one `.exe` per RID. KohUI's own assets (HTML shell, 98.css, patch-applier JS) live as embedded resources — never as loose files next to the binary. Third-party native libs (SDL3, Skia) get bundled as `RuntimeHostConfigurationOption` single-file extractions, not separate files the user can drop or break.
+2. **Single-file dependency surface.** `PublishSingleFile=true` + `EnableCompressionInSingleFile=true` produce one `.exe` per RID. KohUI's own assets (HTML shell, 98.css, patch-applier JS) live as embedded resources — never as loose files next to the binary. Third-party native libs (GLFW) get bundled as `RuntimeHostConfigurationOption` single-file extractions, not separate files the user can drop or break.
 3. **Dev-time web preview.** Same binary boots into a browser-visible mode so coding agents (Playwright / WebDriver-BiDi / MCP) can drive the real application tree at DOM level without any mock runtime. Preview and production share the reconciler and view code; only the backend differs.
-4. **Performance.** 60 fps on a 100-node tree on laptop integrated graphics. Zero allocations per frame in steady state on the Skia path; the DOM path amortises the patch-list allocation to "one array of records per dispatched message".
+4. **Performance.** 60 fps on a 100-node tree on laptop integrated graphics. Zero allocations per frame in steady state on the GL path; the DOM path amortises the patch-list allocation to "one array of records per dispatched message".
 5. **Windows-98 aesthetic** for the retro-dev-tool scene. Bevels, chiseled borders, Chicago font, menu bars, modeless child windows — shipped as a first-class theme, not an add-on.
 
 The UI surface matters, but the first four items are what make KohUI worth building rather than reusing. If we ship a beautiful 98 theme on top of a 120 MB Avalonia binary that can't NativeAOT, we've missed the point.
@@ -28,11 +28,11 @@ The UI surface matters, but the first four items are what make KohUI worth build
                                                                                       │
                                                   ┌───────────────────────────────────┴───────────────────────────────────┐
                                                   ▼                                                                       ▼
-                                  SkiaBackend (native, later)                                           DomBackend (web preview, v0.1 focus)
+                                  GlBackend (native)                                                   DomBackend (web preview, v0.1 focus)
                                   ────────────────────────────                                           ────────────────────────────────
-                                  SDL3 (window + input, all OSes)                                        Kestrel Minimal API + WebSocket
-                                  SkiaSharp SKCanvas                                                     98.css static page
-                                  Yoga layout                                                            HTML patch applier
+                                  GLFW (window + input, all OSes)                                        Kestrel Minimal API + WebSocket
+                                  Silk.NET.OpenGL 3.3 core + quad batcher                                98.css static page
+                                  Spec-driven layouter                                                   HTML patch applier
                                   Hand-drawn Win98 bevels                                                Playwright-drivable at DOM level
 ```
 
@@ -87,9 +87,9 @@ Any KohUI app exposes its UI tree through **two** independent interfaces; both a
 | Backend | Drivable via | Agent workflow |
 |---|---|---|
 | DomBackend | DOM (real `<div>`s with stable `data-kohui-id`) | Playwright / any WebDriver-BiDi client |
-| SkiaBackend | **AccessKit** — bridges to UIA (Win), AT-SPI (Linux), NSAccessibility (macOS) | Any OS a11y automation tool; screen readers for free; MCP server on top is trivial |
+| GlBackend | **AccessKit** — bridges to UIA (Win), AT-SPI (Linux), NSAccessibility (macOS) | Any OS a11y automation tool; screen readers for free; MCP server on top is trivial |
 
-The reconciler emits the same node tree to both. DomBackend serialises to HTML, SkiaBackend serialises to `accesskit::Node` updates. **A coding agent gets a structured, semantically-typed view of the UI whether the app is running in native or preview mode.**
+The reconciler emits the same node tree to both. DomBackend serialises to HTML, GlBackend serialises to `accesskit::Node` updates. **A coding agent gets a structured, semantically-typed view of the UI whether the app is running in native or preview mode.**
 
 This is the piece that's genuinely novel — no other .NET UI framework ships proper a11y, let alone unified a11y + web-preview automation.
 
@@ -97,7 +97,7 @@ This is the piece that's genuinely novel — no other .NET UI framework ships pr
 
 One binary, two modes:
 
-- `kohui-app` → both backends: Skia window opens + Kestrel on localhost. Dev workflow.
+- `kohui-app` → both backends: GL window opens + Kestrel on localhost. Dev workflow.
 - `kohui-app --dev` → DomBackend only. Kestrel on localhost prints URL. Playwright attaches. Headless CI-friendly.
 - `kohui-app --headless` → DomBackend only, no browser launch. Same as `--dev` but for automation.
 
@@ -140,22 +140,22 @@ Client-side JS (small, ~500 LOC, no framework):
 |---|---|---|
 | MVU runtime | hand-rolled, ~300 LOC | No external reactive framework needed; Model→Msg→Model is trivial. |
 | Reconciler | hand-rolled, ~500 LOC | Key-based diff with positional fallback. |
-| Layout (v0.1 DOM-only) | browser CSS | 98.css handles everything for preview mode. |
-| Layout (Skia, later) | Yoga.NET | Flexbox, C P/Invoke, AOT-safe, identical behaviour on every OS. |
-| 2D rendering (Skia, later) | SkiaSharp 3.x | Same API native and WASM; Win/Linux/macOS all work from the same C# call site. |
-| Windowing + input (Skia, later) | SDL3-CS (ppy fork) | Blittable P/Invoke → AOT-safe. Handles HWND / X11 window / NSWindow creation, keyboard, mouse, IME, clipboard, cursor, game-pad — everything we don't want to write thrice. Ship each platform's native SDL3 binary as a RID-specific NativeAssets.* asset. |
+| Layout (DOM) | browser CSS | 98.css (+ generated per-widget rules) handles preview mode. |
+| Layout (GL) | hand-rolled spec-driven Layouter | Two-pass measure/arrange, metrics sourced from the same `WidgetSpec` table the CSS generator reads. |
+| 2D rendering (GL) | Silk.NET.OpenGL 3.3 core | Single-shader quad batcher + 6×8 bitmap-font atlas. AOT-clean (`LibraryImport` source-gen). |
+| Windowing + input (GL) | Silk.NET.GLFW | GLFW native (~230 KB) per RID covers HWND / X11 / NSWindow creation, keyboard, mouse, cursor. Blittable P/Invoke → AOT-safe. |
 | DomBackend server | ASP.NET Core Minimal API + WebSocket | Already AOT-proven; cross-platform by construction. |
 | Visual spec | [98.css](https://jdan.github.io/98.css/) | Vendored into DomBackend wwwroot. |
 | A11y / agent surface | [AccessKit](https://accesskit.dev/) | Rust lib with C bindings; MIT/Apache. Used by egui / Slint / Makepad / Zed. Bound via `LibraryImport` + `StructLayout.Sequential`. |
 | Tests | TUnit | Same as rest of Koh repo. |
 
-**Platform matrix for the SkiaBackend publish target:**
+**Platform matrix for the GlBackend publish target:**
 
 | RID | Native deps bundled | Notes |
 |---|---|---|
-| `win-x64`, `win-arm64` | `SDL3.dll`, `libSkiaSharp.dll` | Primary target; smallest (~15 MB). |
-| `linux-x64`, `linux-arm64` | `libSDL3.so`, `libSkiaSharp.so` | Requires GL / X11 or Wayland libraries present on host (standard on any desktop distro). |
-| `osx-x64`, `osx-arm64` | `libSDL3.dylib`, `libSkiaSharp.dylib` | Needs code-signing for distribution, same as any other .NET desktop app. |
+| `win-x64`, `win-arm64` | `glfw3.dll` | Primary target; ~4.7 MB total (AOT exe + glfw3). |
+| `linux-x64`, `linux-arm64` | `libglfw.so.3` | Requires GL + X11/Wayland libraries on host (standard on any desktop distro). |
+| `osx-x64`, `osx-arm64` | `libglfw.3.dylib` | Needs code-signing for distribution, same as any other .NET desktop app. |
 
 ## Project layout (monorepo)
 
@@ -179,8 +179,13 @@ src/
       98.css                # Vendored from jdan/98.css
       kohui-client.js       # WebSocket + patch applier
 
-  KohUI.Backends.Skia/      # Native backend (stubbed out for v0.1; Phase 2+)
-    (not created yet)
+  KohUI.Backends.Gl/        # Native backend (GLFW + OpenGL 3.3 core)
+    GlBackend.cs
+    GlContext.cs
+    QuadBatch.cs            # One-shader quad batcher
+    BitmapFont.cs           # Embedded 6×8 ASCII atlas
+    Layout.cs               # Two-pass spec-driven layouter
+    Painter.cs              # Walks LayoutNode → quads + glyphs
 
 samples/
   KohUI.Demo/               # Gallery + counter demo
@@ -198,7 +203,7 @@ tests/
 - Input: `Button`, `TextBox`, `CheckBox`, `RadioButton`
 - Data: `ListBox`, `TreeView`
 
-Deferred to v0.2+: `ComboBox`, `ProgressBar`, `Dialog`, `Scrollbar` as first-class (HTML gives it for free, Skia needs it), `Slider`, `GroupBox`, `NumericUpDown`.
+Deferred to v0.2+: `ComboBox`, `ProgressBar`, `Dialog`, `Scrollbar` as first-class (HTML gives it for free, GL backend needs it), `Slider`, `GroupBox`, `NumericUpDown`.
 
 ## Timeline
 
@@ -207,7 +212,7 @@ Deferred to v0.2+: `ComboBox`, `ProgressBar`, `Dialog`, `Scrollbar` as first-cla
 | 0 | MVU core + DomBackend + counter demo; Playwright smoke test | 2-3 days |
 | 1 | Window chrome (title bar, drag, z-order), MenuBar, Panel, first real sample app | 1 week |
 | 2 | Remaining v0.1 widgets + TreeView/ListView hooked to reactive collections | 1 week |
-| 3 | SkiaBackend: SDL3 window/input + Yoga + bevel paint library + parity with DomBackend; publish-size check on all six RIDs | 2 weeks |
+| 3 | GlBackend: GLFW window/input + hand-rolled Layouter + bevel paint library + parity with DomBackend; publish-size check on all six RIDs | 2 weeks |
 | 4 | Port emulator UI from Blazor to KohUI as the first real consumer | 1 week |
 
 ## Open questions

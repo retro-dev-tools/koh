@@ -1,12 +1,12 @@
 using Silk.NET.GLFW;
 using Silk.NET.OpenGL;
 
-namespace KohUI.Backends.Skia;
+namespace KohUI.Backends.Gl;
 
 /// <summary>
 /// Owns the GLFW-created OpenGL context and a <see cref="Silk.NET.OpenGL.GL"/>
 /// binding to it. The backend calls GL through this — no renderer, no
-/// pixel buffer, no Skia.
+/// pixel buffer, no intermediate canvas library.
 ///
 /// <para>
 /// OpenGL 3.3 core profile is the target — widely supported on every

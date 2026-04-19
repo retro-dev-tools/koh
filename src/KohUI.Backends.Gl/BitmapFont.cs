@@ -1,6 +1,6 @@
 using Silk.NET.OpenGL;
 
-namespace KohUI.Backends.Skia;
+namespace KohUI.Backends.Gl;
 
 /// <summary>
 /// Tiny 6×8 bitmap font covering printable ASCII (32–126). Data is a

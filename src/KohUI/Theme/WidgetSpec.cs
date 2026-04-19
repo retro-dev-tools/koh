@@ -3,9 +3,9 @@ using System.Collections.Immutable;
 namespace KohUI.Theme;
 
 /// <summary>
-/// The canonical Win98 bevel families. All four backends (DOM, Skia,
-/// eventual AccessKit, any future custom renderer) consume this enum
-/// instead of open-coding their own bevel notion.
+/// The canonical Win98 bevel families. All backends (DOM, GL, any
+/// future custom renderer) consume this enum instead of open-coding
+/// their own bevel notion.
 /// </summary>
 public enum BevelStyle
 {
@@ -42,10 +42,10 @@ public enum LayoutKind
 /// backends consume the same dictionary:
 ///
 /// <list type="bullet">
-///   <item><b>Skia Layouter</b> — <see cref="Layout"/>, <see cref="BevelInset"/>,
+///   <item><b>GL Layouter</b> — <see cref="Layout"/>, <see cref="BevelInset"/>,
 ///         <see cref="PaddingX"/>/<see cref="PaddingY"/>, <see cref="ChildrenGap"/>,
 ///         <see cref="MinWidth"/>/<see cref="MinHeight"/> drive measure/arrange.</item>
-///   <item><b>Skia Painter</b> — <see cref="Bevel"/>, <see cref="DrawBackground"/>,
+///   <item><b>GL Painter</b> — <see cref="Bevel"/>, <see cref="DrawBackground"/>,
 ///         <see cref="TextAlign"/> drive the paint pass.</item>
 ///   <item><b>DomBackend CSS generator</b> — projects the spec into
 ///         selector blocks, emitting padding, flex-direction, box-shadow

@@ -1,5 +1,5 @@
 using KohUI;
-using KohUI.Backends.Skia;
+using KohUI.Backends.Gl;
 using KohUI.Demo;
 #if KOHUI_DEV_PREVIEW
 using System.Net;
@@ -98,9 +98,9 @@ static async Task RunPreviewOnlyAsync(Runner<CounterModel, CounterMsg> runner)
 
 static void RunNative(Runner<CounterModel, CounterMsg> runner)
 {
-    // No width/height — SkiaBackend measures the root view and opens
-    // the SDL window at content-size. Override only when the demo
-    // wants a specific layout box regardless of content.
-    var backend = new SkiaBackend<CounterModel, CounterMsg>(runner, title: "KohUI Demo");
+    // No width/height — GlBackend measures the root view and opens the
+    // GLFW window at content-size. Override only when the demo wants a
+    // specific layout box regardless of content.
+    var backend = new GlBackend<CounterModel, CounterMsg>(runner, title: "KohUI Demo");
     backend.Run();
 }

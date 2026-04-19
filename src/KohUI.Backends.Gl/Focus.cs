@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace KohUI.Backends.Skia;
+namespace KohUI.Backends.Gl;
 
 /// <summary>
 /// Focus-cycle helpers. The focus "ring" is a single path into the

@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using KohUI;
 using KohUI.Theme;
 
-namespace KohUI.Backends.Skia;
+namespace KohUI.Backends.Gl;
 
 /// <summary>
 /// Rectangular box. Integer pixels — Win98 widgets are pixel-snapped by
@@ -86,10 +86,9 @@ public sealed class Layouter(Win98Theme theme)
 
     private (int W, int H) MeasureText(string text)
     {
-        // Bitmap font is fixed-width: 6 × 8. Both backends share this
-        // constant — the Skia/SkiaSharp-backed font measured via
-        // SKFont.MeasureText / Spacing; the GL backend uses the same
-        // pixel metrics because the glyph atlas is literally 6 × 8.
+        // Bitmap font is fixed-width: 6 × 8. The DOM backend uses the
+        // same pixel metrics via CSS so widget sizes match the GL
+        // backend's glyph atlas exactly.
         return (text.Length * BitmapFont.GlyphW, BitmapFont.GlyphH);
     }
 

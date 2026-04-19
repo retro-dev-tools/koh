@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using Silk.NET.OpenGL;
 
-namespace KohUI.Backends.Skia;
+namespace KohUI.Backends.Gl;
 
 /// <summary>
 /// Minimal immediate-mode quad batcher on top of GL 3.3 core. Accumulates

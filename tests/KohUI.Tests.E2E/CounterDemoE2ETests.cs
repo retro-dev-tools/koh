@@ -88,10 +88,10 @@ public class CounterDemoE2ETests
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",
-            // --preview → run with DomBackend only (no SDL window). The E2E
-            // test drives the DOM preview explicitly; the SkiaBackend path
-            // is the default production shape but can't be steered by
-            // Playwright.
+            // --preview → run with DomBackend only (no native window).
+            // The E2E test drives the DOM preview explicitly; the
+            // GlBackend path is the default production shape but can't
+            // be steered by Playwright.
             Arguments = "run --project \"" + demoDir + "\" --no-build --configuration Debug -- --preview",
             RedirectStandardOutput = true,
             RedirectStandardError = true,

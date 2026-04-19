@@ -3,18 +3,17 @@ using KohUI.Theme;
 using Silk.NET.GLFW;
 using Silk.NET.OpenGL;
 
-namespace KohUI.Backends.Skia;
+namespace KohUI.Backends.Gl;
 
 /// <summary>
 /// Cross-platform native backend. GLFW owns the window + input; the
 /// GL 3.3 core context is created via GLFW and bound to a
 /// <see cref="Silk.NET.OpenGL.GL"/> instance. Drawing goes through
 /// a <see cref="QuadBatch"/> (solid and textured rectangles) and
-/// <see cref="BitmapFont"/> (an embedded 6×8 ASCII atlas). No Skia in
-/// the graph — the 11 MB libSkiaSharp.dll is no longer shipped; the
-/// GLFW native (~400 KB) replaces SDL3.dll (~2.6 MB).
+/// <see cref="BitmapFont"/> (an embedded 6×8 ASCII atlas). The full
+/// native footprint is a single ~230 KB glfw3 binary plus the AOT exe.
 /// </summary>
-public sealed class SkiaBackend<TModel, TMsg>
+public sealed class GlBackend<TModel, TMsg>
 {
     private readonly Runner<TModel, TMsg> _runner;
     private readonly Win98Theme _theme;
@@ -22,7 +21,7 @@ public sealed class SkiaBackend<TModel, TMsg>
     private readonly int _width;
     private readonly int _height;
 
-    public SkiaBackend(
+    public GlBackend(
         Runner<TModel, TMsg> runner,
         Win98Theme? theme = null,
         string title = "KohUI",
