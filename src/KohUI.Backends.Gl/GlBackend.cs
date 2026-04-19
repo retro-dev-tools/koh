@@ -406,6 +406,7 @@ public sealed class GlBackend<TModel, TMsg>
     {
         >= Keys.A and <= Keys.Z                 => "Key" + (char)('A' + (key - Keys.A)),
         >= Keys.Number0 and <= Keys.Number9     => "Digit" + (char)('0' + (key - Keys.Number0)),
+        >= Keys.F1 and <= Keys.F12              => "F" + (1 + (key - Keys.F1)),
         Keys.Up       => "ArrowUp",
         Keys.Down     => "ArrowDown",
         Keys.Left     => "ArrowLeft",

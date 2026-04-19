@@ -79,6 +79,18 @@ public sealed class EmulatorLoop : IDisposable
     private VramSnapshot? _vramSnapshot;
     public VramSnapshot? CurrentVram => Volatile.Read(ref _vramSnapshot);
 
+    // Gate the expensive debug publishers (palette, VRAM) on whether
+    // the UI is actually showing them. CPU snapshot is tiny so we
+    // always publish it — covers the "Frame N" counter even when the
+    // debug panel is hidden. Writing during frame N is fine; worst case
+    // one frame of stale data.
+    private volatile bool _publishDebugSnapshots;
+    public bool PublishDebugSnapshots
+    {
+        get => _publishDebugSnapshots;
+        set => _publishDebugSnapshots = value;
+    }
+
     /// <summary>
     /// Latest front framebuffer produced by the emulator, or an empty
     /// grey buffer before the first ROM boots. Reference is
@@ -108,6 +120,11 @@ public sealed class EmulatorLoop : IDisposable
         {
             IsBackground = true,
             Name = "koh-emu-loop",
+            // AboveNormal so a background GC thread or an unrelated
+            // Task.Run pool worker can't preempt us at the wrong ms
+            // and starve the sink. The emulator still yields on the
+            // HighWater sleep, so this doesn't peg a core.
+            Priority = ThreadPriority.AboveNormal,
         };
         _thread.Start();
     }
@@ -165,6 +182,56 @@ public sealed class EmulatorLoop : IDisposable
     /// live <see cref="GameBoySystem"/> as its argument.
     /// </summary>
     public void Send(Action<GameBoySystem> action) => _inbox.Enqueue(action);
+
+    /// <summary>
+    /// Serialise the full System state to <paramref name="path"/>.
+    /// Runs on the emulator thread between frames; the file is
+    /// complete-or-absent (written atomically via temp + rename) so a
+    /// crash mid-write can't leave a half-written save.
+    /// </summary>
+    public void SaveState(string path) => _inbox.Enqueue(sys =>
+    {
+        string tmp = path + ".tmp";
+        try
+        {
+            using (var fs = File.Create(tmp))
+            using (var w = new Core.State.StateWriter(fs))
+            {
+                sys.WriteState(w);
+            }
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(tmp, path);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[koh-emu-loop] save state failed: {ex.Message}");
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
+        }
+    });
+
+    /// <summary>
+    /// Restore a previously-saved state. Silently no-ops if the path
+    /// doesn't exist so the hotkey doesn't spam errors when the user
+    /// hits Load before they've ever saved.
+    /// </summary>
+    public void LoadState(string path) => _inbox.Enqueue(sys =>
+    {
+        if (!File.Exists(path)) return;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            using var r = new Core.State.StateReader(fs);
+            sys.ReadState(r);
+            // Audio queued before the load doesn't belong to the
+            // restored world — drop it so the new state's first
+            // samples aren't preceded by stale tail.
+            _sink.Reset();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[koh-emu-loop] load state failed: {ex.Message}");
+        }
+    });
 
     private void Post(Command cmd) => Interlocked.Exchange(ref _command, (int)cmd);
 
@@ -234,14 +301,18 @@ public sealed class EmulatorLoop : IDisposable
                 var stop = sys.RunFrame();
                 Volatile.Write(ref _publishedFrame, sys.Ppu.Framebuffer.FrontArray);
                 Volatile.Write(ref _cpuSnapshot, CpuSnapshot.From(sys));
-                Volatile.Write(ref _paletteSnapshot, PaletteSnapshot.From(sys));
-                // VRAM snapshot allocates ~96 KB (DMG) or ~192 KB (CGB)
-                // per frame. At 60 fps that's 6–12 MB/sec of gen-0
-                // allocations, well within the GC's steady-state
-                // comfort zone — if it starts causing audio jitter we
-                // can switch to a reusable buffer, but in measurements
-                // there's no impact on pacer output.
-                Volatile.Write(ref _vramSnapshot, VramSnapshot.From(sys));
+                if (_publishDebugSnapshots)
+                {
+                    // Reuse buffers across frames: the "new" snapshot
+                    // mutates the existing backing arrays in place and
+                    // returns a new record pointing at the same memory.
+                    // Without in-place reuse, 12 MB/sec of gen-0
+                    // allocation pressure (mostly from VRAM's 192 KB
+                    // RGBA buffer on CGB) causes periodic GC pauses
+                    // long enough to drop audio samples.
+                    Volatile.Write(ref _paletteSnapshot, PaletteSnapshot.From(sys, _paletteSnapshot));
+                    Volatile.Write(ref _vramSnapshot, VramSnapshot.From(sys, _vramSnapshot));
+                }
                 Interlocked.Increment(ref _frameCount);
 
                 int available = sys.Apu.SampleBuffer.Available;

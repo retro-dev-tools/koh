@@ -35,6 +35,8 @@ public sealed record JoypadUp(JoypadButton Button) : EmulatorMsg;
 public sealed record TogglePause : EmulatorMsg;
 public sealed record Reset : EmulatorMsg;
 public sealed record ToggleDebug : EmulatorMsg;
+public sealed record SaveState : EmulatorMsg;
+public sealed record LoadState : EmulatorMsg;
 
 public static class EmulatorApp
 {
@@ -49,7 +51,9 @@ public static class EmulatorApp
         JoypadUp u            => OnJoypadUp(m, u.Button),
         TogglePause           => OnTogglePause(m),
         Reset                 => OnReset(m),
-        ToggleDebug           => m with { ShowDebug = !m.ShowDebug },
+        ToggleDebug           => OnToggleDebug(m),
+        SaveState             => OnSaveState(m),
+        LoadState             => OnLoadState(m),
         LoadRom               => m,   // handled imperatively at boot
         Noop                  => m,
         _                     => m,
@@ -69,6 +73,41 @@ public static class EmulatorApp
             return m with { Status = "Paused" };
         }
     }
+
+    private static EmulatorModel OnToggleDebug(EmulatorModel m)
+    {
+        bool next = !m.ShowDebug;
+        // Flip the loop's publish gate so palette / VRAM snapshots
+        // only run when the UI is actually consuming them. Without
+        // this, the 192 KB VRAM buffer allocation and the BGR555
+        // decode happen every frame regardless of panel visibility.
+        if (m.Loop is not null) m.Loop.PublishDebugSnapshots = next;
+        return m with { ShowDebug = next };
+    }
+
+    private static EmulatorModel OnSaveState(EmulatorModel m)
+    {
+        if (m.Loop is null || m.RomPath is null) return m;
+        m.Loop.SaveState(StatePathFor(m.RomPath));
+        return m with { Status = "Saved state" };
+    }
+
+    private static EmulatorModel OnLoadState(EmulatorModel m)
+    {
+        if (m.Loop is null || m.RomPath is null) return m;
+        var path = StatePathFor(m.RomPath);
+        if (!File.Exists(path)) return m with { Status = "No save state" };
+        m.Loop.LoadState(path);
+        return m with { Status = "Loaded state" };
+    }
+
+    /// <summary>
+    /// Save-state path: ROM path with <c>.state</c> appended. Keeps the
+    /// save next to the ROM so moving a ROM folder takes its saves
+    /// along, and distinguishes from SRAM (<c>.sav</c>) which MBCs
+    /// with battery-backed RAM use.
+    /// </summary>
+    private static string StatePathFor(string romPath) => romPath + ".state";
 
     private static EmulatorModel OnReset(EmulatorModel m)
     {
@@ -145,6 +184,8 @@ public static class EmulatorApp
         "KeyP" => new TogglePause(),
         "KeyR" => new Reset(),
         "KeyD" => new ToggleDebug(),
+        "F5"   => new SaveState(),
+        "F9"   => new LoadState(),
         _      => null,
     };
 

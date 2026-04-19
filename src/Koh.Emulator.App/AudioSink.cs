@@ -30,12 +30,17 @@ public sealed unsafe class AudioSink : IDisposable
     private const int SamplesPerBuffer = 512;
 
     // Don't start the OpenAL source until this many samples are queued.
-    // Starting immediately with one buffer creates an audible "pop-pop-
-    // pop" on boot: hardware drains 512 samples faster than the
-    // emulator produces the next buffer, source stops, we push more,
-    // it restarts, drains again, underrun, restart. Four buffers worth
-    // gives the emulator enough head start to stay ahead of the drain.
-    private const int WarmupSamples = 4 * SamplesPerBuffer;
+    // Needs to cover two hazards:
+    //   1. Emulator → hardware rate mismatch if we started after one
+    //      buffer — drain catches up before next push, chain-restarts.
+    //   2. JIT warmup: the SM83 instruction dispatch and hot loops
+    //      take the first 100-200 ms of real time to compile. During
+    //      that window the emulator runs below real-time, undersupply-
+    //      ing the sink. If audio is already playing, that's an
+    //      underrun storm.
+    // Seven buffers (~80 ms) gets through JIT warmup on modest
+    // machines with margin left over for normal pacing overshoot.
+    private const int WarmupSamples = 7 * SamplesPerBuffer;
 
     private readonly ALContext _alc;
     private readonly AL _al;
@@ -75,6 +80,7 @@ public sealed unsafe class AudioSink : IDisposable
         for (int i = 0; i < BufferCount; i++)
             _freeBuffers.Enqueue(_al.GenBuffer());
     }
+
 
     // Rolling counters for trace logging. Not thread-safe overall, but
     // only mutated under _sync; read without lock for reporting.
