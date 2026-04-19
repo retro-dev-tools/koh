@@ -1,5 +1,7 @@
 using System.IO.Pipes;
 using System.Text;
+using System.Text.Json;
+using Koh.Debugger;
 using Koh.Debugger.Dap;
 using Koh.Debugger.Dap.Handlers;
 using Koh.Debugger.Dap.Messages;
@@ -14,23 +16,49 @@ namespace Koh.Emulator.App;
 ///
 /// <para>
 /// <see cref="Koh.Debugger.Dap.DapDispatcher"/> already knows how to
-/// parse the request/response JSON and route commands to handlers —
+/// parse request / response JSON and route commands to handlers —
 /// this class is a thin framing layer (Content-Length headers + pipe
-/// I/O) plus a minimal Phase-1 handler set. Future phases wire the
-/// remaining handlers (from <see cref="HandlerRegistration"/>) and
-/// teach them to drive the live <see cref="EmulatorLoop"/>.
+/// I/O) plus the session glue that adopts the emulator's live
+/// <see cref="Koh.Emulator.Core.GameBoySystem"/> into the
+/// <see cref="DebugSession"/> so Koh.Debugger's handlers read a
+/// consistent snapshot instead of building their own.
 /// </para>
 /// </summary>
 internal sealed class DapServerHost : IDisposable
 {
     private readonly string _pipeName;
+    private readonly EmulatorLoop _loop;
+    private readonly DebugSession _session = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Thread _thread;
     private NamedPipeServerStream? _pipe;
+    private DapDispatcher? _dispatcher;
+    private readonly object _writeLock = new();
+    private bool _stopOnEntry;
 
-    public DapServerHost(string pipeName)
+    public DapServerHost(string pipeName, EmulatorLoop loop)
     {
         _pipeName = pipeName;
+        _loop = loop;
+
+        // Attach hooks onto every system the emulator installs. The
+        // event fires on whatever thread SetSystem runs on (runner
+        // thread for model-driven loads); DebugSession.AdoptSystem is
+        // safe to call from there because the loop is paused across
+        // SetSystem.
+        _loop.SystemInstalled += system => _session.AdoptSystem(system);
+
+        // Loop pause because of a hit breakpoint / watchpoint → tell
+        // VS Code. The event fires on the emulator thread, so we
+        // build and send the DAP event from there; WriteFramed takes
+        // the write-lock so a racing response doesn't interleave.
+        _loop.PausedOnBreak += reason => SendStoppedEvent(reason switch
+        {
+            Koh.Emulator.Core.StopReason.Breakpoint => "breakpoint",
+            Koh.Emulator.Core.StopReason.Watchpoint => "data breakpoint",
+            _ => "paused",
+        });
+
         _thread = new Thread(Run) { IsBackground = true, Name = "koh-dap" };
         _thread.Start();
     }
@@ -51,25 +79,11 @@ internal sealed class DapServerHost : IDisposable
             Console.Error.WriteLine("[koh-dap] client connected");
 
             var dispatcher = new DapDispatcher();
-            // Transport callbacks: dispatcher hands us raw JSON bytes
-            // for every response/event; we frame them with
-            // Content-Length and write to the pipe. Serialised via a
-            // lock because ResponseReady and EventReady can race — an
-            // event fired from another thread while we're still
-            // mid-response write would otherwise interleave.
-            var writeLock = new object();
-            dispatcher.ResponseReady += bytes => WriteFramed(_pipe, bytes.Span, writeLock);
-            dispatcher.EventReady    += bytes => WriteFramed(_pipe, bytes.Span, writeLock);
+            _dispatcher = dispatcher;
+            dispatcher.ResponseReady += bytes => WriteFramed(_pipe, bytes.Span);
+            dispatcher.EventReady    += bytes => WriteFramed(_pipe, bytes.Span);
 
-            // Phase 1 handlers: enough to complete VS Code's initialize
-            // → launch → configurationDone → disconnect handshake. The
-            // emulator runs normally throughout — no breakpoint / step
-            // behaviour yet.
-            dispatcher.RegisterHandler("initialize", InitializeHandler.Handle);
-            dispatcher.RegisterHandler("launch", NoopSuccessHandler);
-            dispatcher.RegisterHandler("configurationDone", NoopSuccessHandler);
-            dispatcher.RegisterHandler("disconnect", NoopSuccessHandler);
-            dispatcher.RegisterHandler("threads", ThreadsHandler);
+            RegisterHandlers(dispatcher);
 
             var reader = new FramedReader(_pipe);
             while (!_cts.IsCancellationRequested)
@@ -90,26 +104,107 @@ internal sealed class DapServerHost : IDisposable
         }
     }
 
-    private static Response NoopSuccessHandler(Request req)
-        => new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-
-    private static Response ThreadsHandler(Request req)
+    private void RegisterHandlers(DapDispatcher dispatcher)
     {
-        // VS Code asks for threads before it displays anything — we
-        // report a single synthetic "CPU" thread so the debug UI
-        // doesn't show "no threads". Real thread-id is invented; the
-        // emulator only ever has one.
-        var resp = new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-        resp.Body = new ThreadsResponseBody
+        // Initialize is handled as-is (capabilities are a static
+        // response); we follow up with the "initialized" event that
+        // tells VS Code it can start sending breakpoint configuration.
+        dispatcher.RegisterHandler("initialize", req =>
         {
-            Threads = [new DapThread { Id = 1, Name = "CPU" }],
-        };
-        return resp;
+            var resp = InitializeHandler.Handle(req);
+            // Defer the initialized event until after this response
+            // hits the wire — the write-lock keeps framing honest
+            // even if we fire it inline, but the spec asks for the
+            // response first.
+            Task.Run(() => dispatcher.SendEvent("initialized", body: null));
+            return resp;
+        });
+
+        // Launch: the emulator already loaded its ROM from the CLI
+        // arg; here we just accept launch options. stopOnEntry is
+        // honoured in configurationDone (the canonical "we're about
+        // to start executing" point).
+        dispatcher.RegisterHandler("launch", req =>
+        {
+            _stopOnEntry = req.Arguments is JsonElement arg
+                && arg.ValueKind == JsonValueKind.Object
+                && arg.TryGetProperty("stopOnEntry", out var soe)
+                && soe.ValueKind == JsonValueKind.True;
+            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
+        });
+
+        dispatcher.RegisterHandler("configurationDone", req =>
+        {
+            if (_stopOnEntry)
+            {
+                _loop.Pause();
+                Task.Run(() => SendStoppedEvent("entry"));
+            }
+            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
+        });
+
+        dispatcher.RegisterHandler("disconnect", req =>
+            new Response { RequestSeq = req.Seq, Command = req.Command, Success = true });
+
+        // Threads: one synthetic "CPU" thread so VS Code has something
+        // to pin the stack trace to.
+        dispatcher.RegisterHandler("threads", req =>
+        {
+            var resp = new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
+            resp.Body = new ThreadsResponseBody { Threads = [new DapThread { Id = 1, Name = "CPU" }] };
+            return resp;
+        });
+
+        // Control handlers — drive our EmulatorLoop, not the old
+        // ExecutionLoop inside DebugSession.
+        dispatcher.RegisterHandler("continue", req =>
+        {
+            _loop.Resume();
+            var resp = new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
+            resp.Body = new ContinueResponseBody { AllThreadsContinued = true };
+            return resp;
+        });
+        dispatcher.RegisterHandler("pause", req =>
+        {
+            _loop.Pause();
+            Task.Run(() => SendStoppedEvent("pause"));
+            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
+        });
+        dispatcher.RegisterHandler("terminate", req =>
+        {
+            _loop.Pause();
+            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
+        });
+
+        // Read-only inspection handlers — these are pure functions of
+        // GameBoySystem state and Koh.Debugger's implementations work
+        // unchanged against an adopted system.
+        var stackTrace = new StackTraceHandler(_session);
+        var variables  = new VariablesHandler(_session);
+        var readMemH   = new ReadMemoryHandler(_session);
+        var disasm     = new DisassembleHandler(_session);
+        var evaluate   = new EvaluateHandler(_session);
+        dispatcher.RegisterHandler("stackTrace", stackTrace.Handle);
+        dispatcher.RegisterHandler("scopes",     ScopesHandler.Handle);
+        dispatcher.RegisterHandler("variables",  variables.Handle);
+        dispatcher.RegisterHandler("readMemory", readMemH.Handle);
+        dispatcher.RegisterHandler("disassemble", disasm.Handle);
+        dispatcher.RegisterHandler("evaluate",   evaluate.Handle);
     }
 
-    private static void WriteFramed(Stream stream, ReadOnlySpan<byte> body, object writeLock)
+    private void SendStoppedEvent(string reason)
     {
-        lock (writeLock)
+        _dispatcher?.SendEvent("stopped", new StoppedEventBody
+        {
+            Reason = reason,
+            ThreadId = 1,
+            AllThreadsStopped = true,
+        });
+    }
+
+    private void WriteFramed(Stream stream, ReadOnlySpan<byte> body)
+    {
+        lock (_writeLock)
         {
             var header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
             stream.Write(header);
@@ -144,10 +239,6 @@ internal sealed class FramedReader
 
     public ReadOnlyMemory<byte>? ReadNext(CancellationToken ct)
     {
-        // Header terminator = \r\n\r\n (four bytes). Scan the header
-        // buffer as bytes arrive; once we see the terminator, parse
-        // Content-Length and shift any body bytes we over-read to the
-        // start of the next body buffer.
         int terminator = -1;
         while (!ct.IsCancellationRequested)
         {
@@ -179,7 +270,7 @@ internal sealed class FramedReader
                 if (int.TryParse(line.AsSpan(idx + 1).Trim(), out var n)) contentLength = n;
             }
         }
-        _headerFill = 0;   // reset for next frame
+        _headerFill = 0;
         if (contentLength < 0) throw new IOException("DAP frame missing Content-Length");
 
         var body = new byte[contentLength];

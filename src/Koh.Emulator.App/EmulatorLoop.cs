@@ -131,6 +131,24 @@ public sealed class EmulatorLoop : IDisposable
     /// </summary>
     public byte[] CurrentFramebuffer => Volatile.Read(ref _publishedFrame);
 
+    /// <summary>
+    /// Fires on the runner / UI thread whenever <see cref="SetSystem"/>
+    /// installs a new live <see cref="GameBoySystem"/>. Consumers that
+    /// need to attach hooks (debugger's watchpoint + breakpoint
+    /// checker, snapshot tap, etc.) subscribe here instead of racing
+    /// the loop thread for the <c>_system</c> field.
+    /// </summary>
+    public event Action<GameBoySystem>? SystemInstalled;
+
+    /// <summary>
+    /// Fires on the emulator thread when a frame ends with a
+    /// breakpoint or watchpoint. The loop itself already flipped
+    /// itself to paused by the time this fires; listeners typically
+    /// notify external debuggers (DAP "stopped" event) or update
+    /// status UI.
+    /// </summary>
+    public event Action<StopReason>? PausedOnBreak;
+
     public EmulatorLoop(AudioSink sink)
     {
         _sink = sink;
@@ -190,6 +208,7 @@ public sealed class EmulatorLoop : IDisposable
         if (system is not null && romPath is not null) LoadSramInto(system, romPath);
         _sink.Reset();
         Volatile.Write(ref _frameCount, 0);
+        if (system is not null) SystemInstalled?.Invoke(system);
     }
 
     /// <summary>
@@ -426,6 +445,7 @@ public sealed class EmulatorLoop : IDisposable
                 {
                     _paused = true;
                     _runGate.Reset();
+                    PausedOnBreak?.Invoke(stop.Reason);
                     continue;
                 }
 

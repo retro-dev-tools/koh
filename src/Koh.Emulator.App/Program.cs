@@ -23,7 +23,9 @@ string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
 // The server runs on its own thread and stays open for the whole
 // emulator lifetime; Dispose shuts it down cleanly when the window
 // closes.
-using var dapServer = dapPipe is not null ? new DapServerHost(dapPipe) : null;
+// DapServerHost takes the loop so it can adopt every installed
+// System and drive pause/resume in response to DAP control commands.
+// Constructed later (below) because the loop has to exist first.
 
 // AudioSink owns the OpenAL context; EmulatorLoop runs the emulator
 // core on its own thread and paces against the sink's buffer depth.
@@ -32,6 +34,7 @@ using var dapServer = dapPipe is not null ? new DapServerHost(dapPipe) : null;
 // display would otherwise introduce slow pitch drift.
 using var audio = new AudioSink();
 using var loop  = new EmulatorLoop(audio);
+using var dapServer = dapPipe is not null ? new DapServerHost(dapPipe, loop) : null;
 
 var runner = new Runner<EmulatorModel, EmulatorMsg>(
     initialModel: new EmulatorModel(Loop: loop, RomPath: null, FrameCount: 0, Status: "Loading...", ShowDebug: false),
