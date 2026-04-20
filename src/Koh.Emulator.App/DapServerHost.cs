@@ -122,14 +122,34 @@ internal sealed class DapServerHost : IDisposable
 
         // Launch: the emulator already loaded its ROM from the CLI
         // arg; here we just accept launch options. stopOnEntry is
-        // honoured in configurationDone (the canonical "we're about
-        // to start executing" point).
+        // honoured in configurationDone; debugInfo is loaded now so
+        // that setBreakpoints (which follows shortly) can resolve
+        // source lines against the SourceMap.
         dispatcher.RegisterHandler("launch", req =>
         {
-            _stopOnEntry = req.Arguments is JsonElement arg
-                && arg.ValueKind == JsonValueKind.Object
-                && arg.TryGetProperty("stopOnEntry", out var soe)
-                && soe.ValueKind == JsonValueKind.True;
+            _stopOnEntry = false;
+            if (req.Arguments is JsonElement arg && arg.ValueKind == JsonValueKind.Object)
+            {
+                if (arg.TryGetProperty("stopOnEntry", out var soe) && soe.ValueKind == JsonValueKind.True)
+                    _stopOnEntry = true;
+                if (arg.TryGetProperty("debugInfo", out var diArg) && diArg.ValueKind == JsonValueKind.String)
+                {
+                    var diPath = diArg.GetString();
+                    if (!string.IsNullOrEmpty(diPath))
+                    {
+                        try
+                        {
+                            var bytes = File.ReadAllBytes(diPath);
+                            _session.DebugInfo.Load(bytes);
+                            Console.Error.WriteLine($"[koh-dap] loaded .kdbg from {diPath}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"[koh-dap] failed to load .kdbg ({diPath}): {ex.Message}");
+                        }
+                    }
+                }
+            }
             return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
         });
 
@@ -184,12 +204,24 @@ internal sealed class DapServerHost : IDisposable
         var readMemH   = new ReadMemoryHandler(_session);
         var disasm     = new DisassembleHandler(_session);
         var evaluate   = new EvaluateHandler(_session);
+        var setBpH     = new SetBreakpointsHandler(_session);
+        var bpLocsH    = new BreakpointHandlers(_session);
         dispatcher.RegisterHandler("stackTrace", stackTrace.Handle);
         dispatcher.RegisterHandler("scopes",     ScopesHandler.Handle);
         dispatcher.RegisterHandler("variables",  variables.Handle);
         dispatcher.RegisterHandler("readMemory", readMemH.Handle);
         dispatcher.RegisterHandler("disassemble", disasm.Handle);
         dispatcher.RegisterHandler("evaluate",   evaluate.Handle);
+        // Breakpoints: SetBreakpointsHandler resolves source line →
+        // BankedAddress via DebugInfo.SourceMap and installs into
+        // BreakpointManager. Our DebugSession.AdoptSystem wired
+        // System.BreakpointChecker to consult BreakpointManager
+        // every instruction, so the emulator thread halts with
+        // StopReason.Breakpoint the next time execution hits a
+        // resolved address — PausedOnBreak then sends the stopped
+        // event to VS Code.
+        dispatcher.RegisterHandler("setBreakpoints",       setBpH.Handle);
+        dispatcher.RegisterHandler("breakpointLocations",  bpLocsH.HandleBreakpointLocations);
     }
 
     private void SendStoppedEvent(string reason)
