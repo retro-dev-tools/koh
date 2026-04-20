@@ -8,7 +8,17 @@ set -euo pipefail
 require() { command -v "$1" >/dev/null 2>&1 || { echo "$1 not found on PATH" >&2; exit 1; }; }
 require dotnet
 require npm
-require code
+
+# VS Code CLI is called `code` everywhere except Windows-native
+# installs, where the PATH often has the GUI `code.exe` ahead of
+# the CLI `code.cmd` wrapper (git-bash resolves `code` to the
+# former). Prefer the explicit .cmd when present.
+CODE_CLI=code
+if [[ -n "${LOCALAPPDATA:-}" ]]; then
+    cand="$LOCALAPPDATA/Programs/Microsoft VS Code/bin/code.cmd"
+    [[ -x "$cand" ]] && CODE_CLI="$cand"
+fi
+command -v "$CODE_CLI" >/dev/null 2>&1 || { echo "VS Code CLI not found (looked for '$CODE_CLI')" >&2; exit 1; }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 repo_root="$(cd -- "$script_dir/.." &>/dev/null && pwd)"
@@ -47,11 +57,18 @@ vsix=$(ls -t ./*.vsix 2>/dev/null | head -n1)
 [[ -f "$vsix" ]] || { echo "vsce package produced no .vsix" >&2; exit 1; }
 
 echo "── code --install-extension $vsix ──"
-code --install-extension "$vsix" --force
+"$CODE_CLI" --install-extension "$vsix" --force
 
 exe_name="Koh.Emulator.App"
 [[ "$rid" == win-* ]] && exe_name="Koh.Emulator.App.exe"
 emu_exe="$repo_root/src/Koh.Emulator.App/bin/Release/net10.0/$rid/publish/$exe_name"
+
+# Convert MSYS / git-bash POSIX paths (/c/foo) to Windows form
+# (C:/foo) so the output is copy-pasteable into VS Code's
+# settings.json on Windows hosts.
+if [[ "$rid" == win-* ]] && command -v cygpath >/dev/null 2>&1; then
+    emu_exe=$(cygpath -m "$emu_exe")
+fi
 
 echo
 echo "Installed: $(basename "$vsix")"
