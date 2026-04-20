@@ -10,7 +10,7 @@ repo_root="$(cd -- "$script_dir/.." &>/dev/null && pwd)"
 
 case "$(uname -s)" in
     Linux*)    rid=linux-x64 ;;
-    Darwin*)   rid=osx-x64 ;;
+    Darwin*)   rid=$([[ "$(uname -m)" == arm64 ]] && echo osx-arm64 || echo osx-x64) ;;
     MINGW*|MSYS*|CYGWIN*) rid=win-x64 ;;
     *)         rid=linux-x64 ;;
 esac

@@ -32,19 +32,11 @@ public sealed class DomBackend<TModel, TMsg>
 {
     private readonly Runner<TModel, TMsg> _runner;
     private readonly ConcurrentDictionary<Guid, WebSocket> _connections = new();
-    private byte[]? _lastInitialRenderJson;
 
     public DomBackend(Runner<TModel, TMsg> runner)
     {
         _runner = runner;
-        _runner.OnInitialRender += OnInitialRender;
         _runner.OnPatchesReady += OnPatchesReady;
-        if (runner.CurrentRender is { } already) OnInitialRender(already);
-    }
-
-    private void OnInitialRender(RenderNode root)
-    {
-        _lastInitialRenderJson = JsonPatchSerializer.SerializeInitial(root);
     }
 
     private void OnPatchesReady(IReadOnlyList<Patch> patches)
@@ -71,8 +63,12 @@ public sealed class DomBackend<TModel, TMsg>
 
         try
         {
-            if (_lastInitialRenderJson is { } initial)
-                await SendAsync(socket, initial, ct);
+            // Serialise the live tree at connect time. Using a cached
+            // t=0 snapshot would desync mid-session clients: subsequent
+            // patches are addressed against the *current* tree, so a
+            // fresh client needs the current tree as its baseline.
+            if (_runner.CurrentRender is { } current)
+                await SendAsync(socket, JsonPatchSerializer.SerializeInitial(current), ct);
 
             var buffer = new byte[8 * 1024];
             while (!ct.IsCancellationRequested && socket.State == WebSocketState.Open)

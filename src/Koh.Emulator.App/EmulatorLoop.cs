@@ -235,8 +235,11 @@ public sealed class EmulatorLoop : IDisposable
         try
         {
             File.WriteAllBytes(tmp, ram);
-            if (File.Exists(savPath)) File.Delete(savPath);
-            File.Move(tmp, savPath);
+            // Single-syscall rename: atomic on POSIX (rename(2)); on
+            // Windows (MoveFileEx + MOVEFILE_REPLACE_EXISTING) it
+            // eliminates the user-visible missing-file window that a
+            // Delete + Move pair would leave on crash/power-loss.
+            File.Move(tmp, savPath, overwrite: true);
         }
         catch (Exception ex)
         {
@@ -337,8 +340,7 @@ public sealed class EmulatorLoop : IDisposable
             {
                 sys.WriteState(w);
             }
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(tmp, path);
+            File.Move(tmp, path, overwrite: true);
         }
         catch (Exception ex)
         {

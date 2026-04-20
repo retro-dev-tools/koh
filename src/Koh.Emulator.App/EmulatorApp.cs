@@ -39,6 +39,7 @@ public sealed record ToggleDebug : EmulatorMsg;
 public sealed record SaveState : EmulatorMsg;
 public sealed record LoadState : EmulatorMsg;
 public sealed record ScrollMemory(int DeltaBytes) : EmulatorMsg;
+public sealed record SetMemoryAddress(ushort Address) : EmulatorMsg;
 public sealed record SetFastForward(bool On) : EmulatorMsg;
 
 public static class EmulatorApp
@@ -58,6 +59,7 @@ public static class EmulatorApp
         SaveState             => OnSaveState(m),
         LoadState             => OnLoadState(m),
         ScrollMemory s        => OnScrollMemory(m, s.DeltaBytes),
+        SetMemoryAddress a    => OnSetMemoryAddress(m, a.Address),
         SetFastForward f      => OnSetFastForward(m, f.On),
         LoadRom               => m,   // handled imperatively at boot
         Noop                  => m,
@@ -93,6 +95,13 @@ public static class EmulatorApp
         // keeping reachable.
         int next = (m.Loop.MemoryViewAddress + deltaBytes) & 0xFFFF;
         m.Loop.MemoryViewAddress = (ushort)next;
+        return m;
+    }
+
+    private static EmulatorModel OnSetMemoryAddress(EmulatorModel m, ushort address)
+    {
+        if (m.Loop is null) return m;
+        m.Loop.MemoryViewAddress = address;
         return m;
     }
 
@@ -210,7 +219,7 @@ public static class EmulatorApp
         "F9"       => new LoadState(),
         "PageUp"   => new ScrollMemory(-MemorySnapshot.WindowSize),
         "PageDown" => new ScrollMemory(+MemorySnapshot.WindowSize),
-        "Home"     => new ScrollMemory(-0x10000),   // wraps to $0000
+        "Home"     => new SetMemoryAddress(0),
         _          => null,
     };
 
