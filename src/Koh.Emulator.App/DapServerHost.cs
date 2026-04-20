@@ -54,8 +54,9 @@ internal sealed class DapServerHost : IDisposable
         // the write-lock so a racing response doesn't interleave.
         _loop.PausedOnBreak += reason => SendStoppedEvent(reason switch
         {
-            Koh.Emulator.Core.StopReason.Breakpoint => "breakpoint",
-            Koh.Emulator.Core.StopReason.Watchpoint => "data breakpoint",
+            Koh.Emulator.Core.StopReason.Breakpoint          => "breakpoint",
+            Koh.Emulator.Core.StopReason.Watchpoint          => "data breakpoint",
+            Koh.Emulator.Core.StopReason.InstructionComplete => "step",
             _ => "paused",
         });
 
@@ -196,6 +197,17 @@ internal sealed class DapServerHost : IDisposable
             return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
         });
 
+        // Stepping. Phase 4 treats next / stepIn / stepOut as all
+        // "step one instruction" — the SM83's single-instruction
+        // granularity matches VS Code's stepIn semantics exactly.
+        // Differentiated step-over (run until SP ≥ snapshot, so CALL
+        // runs to the matching RET) and step-out (run until SP >
+        // snapshot by one frame) land in a refinement pass along
+        // with conditional stop points.
+        dispatcher.RegisterHandler("next",    req => StepResponse(req));
+        dispatcher.RegisterHandler("stepIn",  req => StepResponse(req));
+        dispatcher.RegisterHandler("stepOut", req => StepResponse(req));
+
         // Read-only inspection handlers — these are pure functions of
         // GameBoySystem state and Koh.Debugger's implementations work
         // unchanged against an adopted system.
@@ -222,6 +234,12 @@ internal sealed class DapServerHost : IDisposable
         // event to VS Code.
         dispatcher.RegisterHandler("setBreakpoints",       setBpH.Handle);
         dispatcher.RegisterHandler("breakpointLocations",  bpLocsH.HandleBreakpointLocations);
+    }
+
+    private Response StepResponse(Request req)
+    {
+        _loop.StepOne();
+        return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
     }
 
     private void SendStoppedEvent(string reason)

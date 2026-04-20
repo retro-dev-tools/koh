@@ -298,6 +298,21 @@ public sealed class EmulatorLoop : IDisposable
     public void Send(Action<GameBoySystem> action) => _inbox.Enqueue(action);
 
     /// <summary>
+    /// Single-step exactly one instruction. The loop must be paused
+    /// (<see cref="IsPaused"/>); execution happens on the caller's
+    /// thread because we're holding the run gate closed anyway. Fires
+    /// <see cref="PausedOnBreak"/> with <see cref="StopReason.InstructionComplete"/>
+    /// so listeners can distinguish step completion from a real
+    /// breakpoint hit.
+    /// </summary>
+    public void StepOne()
+    {
+        if (_system is null || !_paused) return;
+        _system.StepInstruction();
+        PausedOnBreak?.Invoke(StopReason.InstructionComplete);
+    }
+
+    /// <summary>
     /// Serialise the full System state to <paramref name="path"/>.
     /// Runs on the emulator thread between frames; the file is
     /// complete-or-absent (written atomically via temp + rename) so a
