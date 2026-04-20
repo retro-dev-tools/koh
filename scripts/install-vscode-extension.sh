@@ -31,6 +31,19 @@ case "$(uname -s)" in
     *)                   rid=linux-x64 ;;
 esac
 
+# NativeAOT on Windows links via MSVC. The MSBuild target runs
+# vcvarsall.bat, which in turn invokes `vswhere.exe` (bare name)
+# to locate the VS install — so vswhere has to be reachable on
+# PATH. It ships in the VS Installer directory, which is rarely
+# on a default PATH. Prepend it so vcvarsall.bat finds it cleanly;
+# otherwise the "vswhere.exe is not recognized" stderr leaks into
+# _FindVCVarsallOutput and corrupts the CppLinker path the target
+# hands back to the linker invocation.
+if [[ "$rid" == win-x64 ]]; then
+    vs_installer="${PROGRAMFILES_X86:-/c/Program Files (x86)}/Microsoft Visual Studio/Installer"
+    [[ -x "$vs_installer/vswhere.exe" ]] && PATH="$vs_installer:$PATH"
+fi
+
 cd "$repo_root"
 
 echo "── Publishing koh-lsp ──"

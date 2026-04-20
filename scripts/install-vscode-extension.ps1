@@ -25,6 +25,17 @@ Require-Tool dotnet
 Require-Tool npm
 Require-Tool code
 
+# NativeAOT on Windows links via MSVC. The MSBuild target runs
+# vcvarsall.bat, which invokes bare `vswhere.exe` to locate the
+# VS install. vswhere ships in the VS Installer dir which is
+# rarely on PATH; when it isn't, the "not recognized" stderr
+# leaks into the captured tools-dir string and corrupts the
+# CppLinker path. Prepend the Installer dir for this process.
+$vsInstaller = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+if (Test-Path (Join-Path $vsInstaller 'vswhere.exe')) {
+    $env:PATH = "$vsInstaller;$env:PATH"
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $extDir   = Join-Path $repoRoot 'editors/vscode'
 

@@ -17,7 +17,9 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:koh-asm"
+    "onLanguage:koh-asm",
+    "onDebugResolve:koh",
+    "onDebugDynamicConfigurations:koh"
   ],
   "contributes": {
     "languages": [

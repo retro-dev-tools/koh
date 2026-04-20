@@ -15,6 +15,13 @@ case "$(uname -s)" in
     *)         rid=linux-x64 ;;
 esac
 
+# See scripts/install-vscode-extension.sh for the story — vcvarsall.bat
+# calls bare `vswhere.exe` so the VS Installer dir must be on PATH.
+if [[ "$rid" == win-x64 ]]; then
+    vs_installer="${PROGRAMFILES_X86:-/c/Program Files (x86)}/Microsoft Visual Studio/Installer"
+    [[ -x "$vs_installer/vswhere.exe" ]] && PATH="$vs_installer:$PATH"
+fi
+
 publish_dir="$repo_root/src/Koh.Emulator.App/bin/Release/net10.0/$rid/publish"
 exe_name="Koh.Emulator.App"
 [[ "$rid" == win-* ]] && exe_name="Koh.Emulator.App.exe"
