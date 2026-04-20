@@ -262,8 +262,29 @@ internal sealed class DapServerHost : IDisposable
         // StopReason.Breakpoint the next time execution hits a
         // resolved address — PausedOnBreak then sends the stopped
         // event to VS Code.
-        dispatcher.RegisterHandler("setBreakpoints",       setBpH.Handle);
-        dispatcher.RegisterHandler("breakpointLocations",  bpLocsH.HandleBreakpointLocations);
+        dispatcher.RegisterHandler("setBreakpoints",            setBpH.Handle);
+        dispatcher.RegisterHandler("breakpointLocations",       bpLocsH.HandleBreakpointLocations);
+        dispatcher.RegisterHandler("setInstructionBreakpoints", bpLocsH.HandleSetInstructionBreakpoints);
+        dispatcher.RegisterHandler("setFunctionBreakpoints",    bpLocsH.HandleSetFunctionBreakpoints);
+
+        // Data breakpoints (watchpoints): VS Code calls
+        // dataBreakpointInfo to ask "is this expression watchable?",
+        // then setDataBreakpoints to install. DebugSession's
+        // WatchpointHook picks them up via System.Mmu.Hook (wired in
+        // AdoptSystem) and halts with StopReason.Watchpoint.
+        dispatcher.RegisterHandler("dataBreakpointInfo",  new DataBreakpointInfoHandler().Handle);
+        dispatcher.RegisterHandler("setDataBreakpoints",  new SetDataBreakpointsHandler(_session).Handle);
+
+        // Write memory: the VS Code hex-editor extension lets the
+        // user poke bytes into WRAM / HRAM / IO registers. Useful
+        // for "what if this flag were true" debugging.
+        dispatcher.RegisterHandler("writeMemory", new WriteMemoryHandler(_session).Handle);
+
+        // exceptionInfo is an advanced feature; no-op stub keeps VS
+        // Code quiet if it asks after an unhandled exception event,
+        // which this emulator never sends. Returning a plain success
+        // with null body is well-formed.
+        dispatcher.RegisterHandler("exceptionInfo", ExceptionInfoHandler.Handle);
     }
 
     private static Response Ok(Request req) =>
