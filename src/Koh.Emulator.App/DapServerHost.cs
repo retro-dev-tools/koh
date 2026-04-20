@@ -5,6 +5,8 @@ using Koh.Debugger;
 using Koh.Debugger.Dap;
 using Koh.Debugger.Dap.Handlers;
 using Koh.Debugger.Dap.Messages;
+using Koh.Emulator.Core;
+using Koh.Linker.Core;
 
 namespace Koh.Emulator.App;
 
@@ -36,6 +38,12 @@ internal sealed class DapServerHost : IDisposable
     private readonly object _writeLock = new();
     private bool _stopOnEntry;
 
+    // Packed banked-address set of one-shot breakpoints installed by
+    // step-over / step-out. The PausedOnBreak handler translates hits
+    // on these addresses into "step" events and removes the breakpoint
+    // so the run-to-here isn't permanent.
+    private readonly HashSet<uint> _oneShotAddrs = new();
+
     public DapServerHost(string pipeName, EmulatorLoop loop)
     {
         _pipeName = pipeName;
@@ -52,13 +60,31 @@ internal sealed class DapServerHost : IDisposable
         // VS Code. The event fires on the emulator thread, so we
         // build and send the DAP event from there; WriteFramed takes
         // the write-lock so a racing response doesn't interleave.
-        _loop.PausedOnBreak += reason => SendStoppedEvent(reason switch
+        _loop.PausedOnBreak += reason =>
         {
-            Koh.Emulator.Core.StopReason.Breakpoint          => "breakpoint",
-            Koh.Emulator.Core.StopReason.Watchpoint          => "data breakpoint",
-            Koh.Emulator.Core.StopReason.InstructionComplete => "step",
-            _ => "paused",
-        });
+            // If the halt was on an address we installed for step-over
+            // / step-out, remove the breakpoint and report it as a
+            // step rather than a breakpoint hit.
+            if (reason == StopReason.Breakpoint && _loop.CurrentSystem is { } sys)
+            {
+                ushort pc = sys.Cpu.Registers.Pc;
+                byte bank = pc >= 0x4000 ? sys.Cartridge.CurrentRomBank : (byte)0;
+                var addr = new BankedAddress(bank, pc);
+                if (_oneShotAddrs.Remove(addr.Packed))
+                {
+                    _session.Breakpoints.Remove(addr);
+                    SendStoppedEvent("step");
+                    return;
+                }
+            }
+            SendStoppedEvent(reason switch
+            {
+                StopReason.Breakpoint          => "breakpoint",
+                StopReason.Watchpoint          => "data breakpoint",
+                StopReason.InstructionComplete => "step",
+                _ => "paused",
+            });
+        };
 
         _thread = new Thread(Run) { IsBackground = true, Name = "koh-dap" };
         _thread.Start();
@@ -197,16 +223,20 @@ internal sealed class DapServerHost : IDisposable
             return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
         });
 
-        // Stepping. Phase 4 treats next / stepIn / stepOut as all
-        // "step one instruction" — the SM83's single-instruction
-        // granularity matches VS Code's stepIn semantics exactly.
-        // Differentiated step-over (run until SP ≥ snapshot, so CALL
-        // runs to the matching RET) and step-out (run until SP >
-        // snapshot by one frame) land in a refinement pass along
-        // with conditional stop points.
-        dispatcher.RegisterHandler("next",    req => StepResponse(req));
-        dispatcher.RegisterHandler("stepIn",  req => StepResponse(req));
-        dispatcher.RegisterHandler("stepOut", req => StepResponse(req));
+        // Stepping:
+        //   stepIn (F11)    → single-instruction step, dives into CALLs.
+        //   next   (F10)    → step-over; CALL / RST install a one-shot
+        //                     breakpoint at PC + length and continue
+        //                     until that return address. Non-control-
+        //                     flow instructions fall back to single
+        //                     step.
+        //   stepOut (Shift-F11) → install a one-shot breakpoint at the
+        //                     return address read from [SP] and
+        //                     continue until the current function
+        //                     returns.
+        dispatcher.RegisterHandler("stepIn",  req => { _loop.StepOne();              return Ok(req); });
+        dispatcher.RegisterHandler("next",    req => { StepOver();                    return Ok(req); });
+        dispatcher.RegisterHandler("stepOut", req => { StepOut();                     return Ok(req); });
 
         // Read-only inspection handlers — these are pure functions of
         // GameBoySystem state and Koh.Debugger's implementations work
@@ -236,10 +266,63 @@ internal sealed class DapServerHost : IDisposable
         dispatcher.RegisterHandler("breakpointLocations",  bpLocsH.HandleBreakpointLocations);
     }
 
-    private Response StepResponse(Request req)
+    private static Response Ok(Request req) =>
+        new() { RequestSeq = req.Seq, Command = req.Command, Success = true };
+
+    /// <summary>
+    /// DAP <c>next</c> / "step over". For CALL / RST instructions we
+    /// don't want to dive into the called function; install a one-
+    /// shot breakpoint at the return address and resume. Everything
+    /// else single-steps — we don't need the whole roundtrip cost.
+    /// </summary>
+    private void StepOver()
     {
-        _loop.StepOne();
-        return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
+        var sys = _loop.CurrentSystem;
+        if (sys is null) { _loop.StepOne(); return; }
+
+        ushort pc = sys.Cpu.Registers.Pc;
+        var (mnemonic, length) = Disassembler.DecodeOne(a => sys.DebugReadByte(a), pc);
+        bool isControlFlow = mnemonic.StartsWith("CALL", StringComparison.Ordinal)
+                          || mnemonic.StartsWith("RST",  StringComparison.Ordinal);
+        if (!isControlFlow) { _loop.StepOne(); return; }
+
+        ushort ret = (ushort)(pc + length);
+        RunUntilPc(sys, ret);
+    }
+
+    /// <summary>
+    /// DAP <c>stepOut</c>. Reads the return address from the top of
+    /// stack (SM83 stack: pushed little-endian, so the two bytes at
+    /// [SP] + [SP+1] form the 16-bit return PC), installs a one-shot
+    /// breakpoint there, and resumes. Works for ordinary CALL /
+    /// RST / interrupt frames; fancy tricks that manipulate SP or
+    /// the return value on the stack fall through and step out to
+    /// the modified target, which is usually what the user wants.
+    /// </summary>
+    private void StepOut()
+    {
+        var sys = _loop.CurrentSystem;
+        if (sys is null) { _loop.StepOne(); return; }
+
+        ushort sp = sys.Cpu.Registers.Sp;
+        byte lo = sys.DebugReadByte(sp);
+        byte hi = sys.DebugReadByte((ushort)(sp + 1));
+        ushort ret = (ushort)(lo | (hi << 8));
+        RunUntilPc(sys, ret);
+    }
+
+    /// <summary>
+    /// Install a one-shot breakpoint at <paramref name="targetPc"/>
+    /// and resume execution. The PausedOnBreak handler removes the
+    /// breakpoint and reports the hit as a "step" stopped event.
+    /// </summary>
+    private void RunUntilPc(GameBoySystem sys, ushort targetPc)
+    {
+        byte bank = targetPc >= 0x4000 ? sys.Cartridge.CurrentRomBank : (byte)0;
+        var addr = new BankedAddress(bank, targetPc);
+        _session.Breakpoints.Add(addr);
+        _oneShotAddrs.Add(addr.Packed);
+        _loop.Resume();
     }
 
     private void SendStoppedEvent(string reason)

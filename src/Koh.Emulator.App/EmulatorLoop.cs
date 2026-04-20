@@ -71,6 +71,15 @@ public sealed class EmulatorLoop : IDisposable
     public long FrameCount => Volatile.Read(ref _frameCount);
     public bool IsPaused => _paused;
 
+    /// <summary>
+    /// The live <see cref="GameBoySystem"/> the loop is driving, or
+    /// null if no ROM is loaded. Safe to read from any thread; only
+    /// safe to MUTATE while the loop is paused (peek at registers,
+    /// install breakpoints, read memory) — anything else races the
+    /// emulator thread's RunFrame.
+    /// </summary>
+    public GameBoySystem? CurrentSystem => _system;
+
     // Per-frame CPU snapshot for the debug UI. Published after every
     // RunFrame on the loop thread; readers get a consistent snapshot
     // with a single volatile reference read. `null` until the first
