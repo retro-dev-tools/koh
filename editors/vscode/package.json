@@ -98,6 +98,12 @@
           "default": "",
           "scope": "machine",
           "markdownDescription": "Path to `koh-lsp` binary. Leave empty to auto-detect."
+        },
+        "koh.emulator.exePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Absolute path to `Koh.Emulator.App` binary for debug-adapter sessions. Leave empty to fall back to the extension-relative dev-host path. Overridden per-session by `emulatorPath` in `launch.json`."
         }
       }
     }

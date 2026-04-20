@@ -57,15 +57,20 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
     }
 
     private resolveEmulatorPath(cfg: vscode.DebugConfiguration): string {
-        // Allow an explicit override so dev iteration can point at a
-        // freshly-built debug exe without re-installing the extension.
+        // Precedence:
+        //   1. `emulatorPath` in the launch.json entry — per-session override.
+        //   2. `koh.emulator.exePath` user / workspace setting — survives
+        //      launch-config edits and is what scripts/install-vscode-
+        //      extension.* tells the user to point at the repo's
+        //      Release publish.
+        //   3. A path relative to the extension (for dev-host F5 runs
+        //      where __dirname is in the repo, not an installed copy).
         if (typeof cfg.emulatorPath === 'string' && cfg.emulatorPath.length > 0) {
             return cfg.emulatorPath;
         }
-        // Default: the repo-published binary next to the extension. For
-        // now we assume a local dev install and look for the repo's
-        // Release publish output. Shipping a bundled copy happens when
-        // we properly package the extension.
+        const setting = vscode.workspace.getConfiguration('koh.emulator').get<string>('exePath');
+        if (setting && setting.length > 0) return setting;
+
         const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
         const exe = process.platform === 'win32' ? 'Koh.Emulator.App.exe' : 'Koh.Emulator.App';
         return path.join(repoRoot, 'src', 'Koh.Emulator.App', 'bin', 'Release', 'net10.0', 'win-x64', 'publish', exe);
