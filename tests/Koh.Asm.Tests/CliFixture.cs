@@ -22,8 +22,8 @@ internal static class CliFixture
             ReflectionAssembly.GetExecutingAssembly().Location)!;
 
         var exeName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? "Koh.Asm.exe"
-            : "Koh.Asm";
+            ? "koh-asm.exe"
+            : "koh-asm";
 
         var candidate = Path.Combine(testAssemblyDir, exeName);
 
