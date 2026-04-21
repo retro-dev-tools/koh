@@ -9,78 +9,77 @@ permissions:
   contents: write
 
 jobs:
-  build-emu-aot:
+  build-platform:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  rid: linux-x64 }
-          - { os: windows-latest, rid: win-x64 }
-          - { os: macos-latest,   rid: osx-arm64 }
+          - { os: ubuntu-latest,  rid: linux-x64,  vsce_target: linux-x64,    archive: tar.gz }
+          - { os: windows-latest, rid: win-x64,    vsce_target: win32-x64,    archive: zip }
+          - { os: macos-latest,   rid: osx-arm64,  vsce_target: darwin-arm64, archive: tar.gz }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-
-      - name: Publish Koh.Emulator.App (NativeAOT)
-        run: dotnet publish src/Koh.Emulator.App -c Release -r ${{ matrix.rid }}
-
-      - name: Package publish output
-        shell: bash
-        run: |
-          pub="src/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish"
-          case "${{ matrix.rid }}" in
-            win-*)
-              out="koh-emu-${{ github.ref_name }}-${{ matrix.rid }}.zip"
-              python -c "import shutil, sys; shutil.make_archive(sys.argv[1][:-4], 'zip', sys.argv[2])" "$out" "$pub"
-              ;;
-            *)
-              out="koh-emu-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz"
-              tar -czf "$out" -C "$pub" .
-              ;;
-          esac
-          ls -lh "$out"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: emu-${{ matrix.rid }}
-          path: |
-            koh-emu-*.zip
-            koh-emu-*.tar.gz
-          if-no-files-found: error
-
-  build-vsix:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
-      - name: Install deps
+      - name: Publish Koh.Emulator.App (NativeAOT)
+        run: dotnet publish src/Koh.Emulator.App -c Release -r ${{ matrix.rid }}
+
+      - name: Package emulator archive
+        shell: bash
+        run: |
+          pub="src/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish"
+          case "${{ matrix.archive }}" in
+            zip)
+              out="koh-emu-${{ github.ref_name }}-${{ matrix.rid }}.zip"
+              python -c "import shutil, sys; shutil.make_archive(sys.argv[1][:-4], 'zip', sys.argv[2])" "$out" "$pub"
+              ;;
+            tar.gz)
+              out="koh-emu-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz"
+              tar -czf "$out" -C "$pub" .
+              ;;
+          esac
+          ls -lh "$out"
+
+      - name: Publish koh-lsp (self-contained)
+        run: dotnet publish src/Koh.Lsp -c Release -r ${{ matrix.rid }} --self-contained -o editors/vscode/server
+
+      - name: Publish koh-asm (NativeAOT)
+        run: dotnet publish src/Koh.Asm -c Release -r ${{ matrix.rid }} -o editors/vscode/server
+
+      - name: Publish koh-link (NativeAOT)
+        run: dotnet publish src/Koh.Link -c Release -r ${{ matrix.rid }} -o editors/vscode/server
+
+      - name: Install node deps
         working-directory: editors/vscode
         run: npm ci
 
-      - name: Compile
+      - name: Compile TypeScript
         working-directory: editors/vscode
         run: npm run compile
 
       - name: Package VSIX
         working-directory: editors/vscode
-        run: npx vsce package
+        run: npx vsce package --target ${{ matrix.vsce_target }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: vsix
-          path: editors/vscode/*.vsix
+          name: dist-${{ matrix.rid }}
+          path: |
+            koh-emu-*.zip
+            koh-emu-*.tar.gz
+            editors/vscode/*.vsix
           if-no-files-found: error
 
   release:
-    needs: [build-emu-aot, build-vsix]
+    needs: build-platform
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
