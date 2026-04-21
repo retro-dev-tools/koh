@@ -109,5 +109,9 @@ jobs:
           if [[ "${{ steps.pre.outputs.prerelease }}" == "true" ]]; then
             flags+=(--prerelease)
           fi
-          ls -lh artifacts/
-          gh release create "$tag" "${flags[@]}" artifacts/*
+          # Artifacts from build-platform preserve their workspace-relative
+          # paths, so the VSIXes land under artifacts/editors/vscode/. Glob
+          # with `find` so we pass files, not the intermediate directory.
+          find artifacts -type f -print
+          mapfile -t assets < <(find artifacts -type f)
+          gh release create "$tag" "${flags[@]}" "${assets[@]}"
