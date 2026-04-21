@@ -2,7 +2,7 @@
   "name": "koh-asm",
   "displayName": "Koh Assembly",
   "description": "Language support for Game Boy assembly — diagnostics, hover, go-to-definition, completion, document symbols",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "publisher": "retro-dev-tools",
   "repository": {

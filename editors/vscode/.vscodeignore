@@ -3,8 +3,8 @@ src/**
 tsconfig.json
 **/*.map
 
-# Dev tooling
-node_modules/**
+# Dev tooling — vsce walks `dependencies` in package.json and
+# includes only runtime deps, so we don't blanket-ignore node_modules.
 .vscode/**
 scripts/**
 .gitignore

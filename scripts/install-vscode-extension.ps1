@@ -72,7 +72,7 @@ try {
     # Remove any stale .vsix so we pick the freshly-built one by
     # glob below without having to track vsce's output name.
     Get-ChildItem -Filter '*.vsix' | Remove-Item -ErrorAction SilentlyContinue
-    npx vsce package --no-dependencies
+    npx vsce package
     if ($LASTEXITCODE -ne 0) { throw "vsce package failed ($LASTEXITCODE)" }
 
     $vsix = Get-ChildItem -Filter '*.vsix' | Sort-Object LastWriteTime -Descending | Select-Object -First 1

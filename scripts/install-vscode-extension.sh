@@ -64,7 +64,7 @@ npm run compile
 
 echo "── vsce package ──"
 rm -f ./*.vsix
-npx vsce package --no-dependencies
+npx vsce package
 
 vsix=$(ls -t ./*.vsix 2>/dev/null | head -n1)
 [[ -f "$vsix" ]] || { echo "vsce package produced no .vsix" >&2; exit 1; }
