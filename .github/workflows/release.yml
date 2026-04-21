@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-emu-aot:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  rid: linux-x64 }
+          - { os: windows-latest, rid: win-x64 }
+          - { os: macos-latest,   rid: osx-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Koh.Emulator.App (NativeAOT)
+        run: dotnet publish src/Koh.Emulator.App -c Release -r ${{ matrix.rid }}
+
+      - name: Package publish output
+        shell: bash
+        run: |
+          pub="src/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish"
+          case "${{ matrix.rid }}" in
+            win-*)
+              out="koh-emu-${{ github.ref_name }}-${{ matrix.rid }}.zip"
+              python -c "import shutil, sys; shutil.make_archive(sys.argv[1][:-4], 'zip', sys.argv[2])" "$out" "$pub"
+              ;;
+            *)
+              out="koh-emu-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz"
+              tar -czf "$out" -C "$pub" .
+              ;;
+          esac
+          ls -lh "$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emu-${{ matrix.rid }}
+          path: |
+            koh-emu-*.zip
+            koh-emu-*.tar.gz
+          if-no-files-found: error
+
+  build-vsix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Compile
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Package VSIX
+        working-directory: editors/vscode
+        run: npx vsce package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: editors/vscode/*.vsix
+          if-no-files-found: error
+
+  release:
+    needs: [build-emu-aot, build-vsix]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Detect prerelease
+        id: pre
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          # v0.x.x and anything with a pre-release suffix (v1.0.0-rc.1) are prereleases.
+          if [[ "$tag" =~ ^v0\. ]] || [[ "$tag" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          flags=(--repo "${{ github.repository }}" --generate-notes --verify-tag --title "$tag")
+          if [[ "${{ steps.pre.outputs.prerelease }}" == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          ls -lh artifacts/
+          gh release create "$tag" "${flags[@]}" artifacts/*
