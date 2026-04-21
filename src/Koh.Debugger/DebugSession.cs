@@ -22,13 +22,27 @@ public sealed class DebugSession
     public void Launch(ReadOnlyMemory<byte> romBytes, ReadOnlyMemory<byte> kdbgBytes, HardwareMode mode)
     {
         var cart = CartridgeFactory.Load(romBytes.Span);
-        System = new GameBoySystem(mode, cart);
-        System.Mmu.Hook = Watchpoints;
+        var system = new GameBoySystem(mode, cart);
         DebugInfo.Load(kdbgBytes);
+        AdoptSystem(system);
+    }
+
+    /// <summary>
+    /// Install an already-constructed <see cref="GameBoySystem"/> and
+    /// wire the session's watchpoints + breakpoint checker onto it.
+    /// Use this instead of <see cref="Launch"/> when the emulator
+    /// host owns the system lifecycle and the debugger is attaching
+    /// to an existing instance (the typical KohUI-emulator + DAP
+    /// adapter flow) rather than booting the ROM itself.
+    /// </summary>
+    public void AdoptSystem(GameBoySystem system)
+    {
+        System = system;
+        System.Mmu.Hook = Watchpoints;
 
         // Wire breakpoint halting: at each instruction boundary, consult
-        // the BreakpointManager using the current PC. We only have a bank
-        // byte for banked addresses >= 0x4000; below that, bank 0 is fixed.
+        // the BreakpointManager using the current PC. Below $4000 is
+        // fixed bank 0; above that the MBC reports the active bank.
         System.BreakpointChecker = pc =>
         {
             byte bank = pc >= 0x4000 ? System.Cartridge.CurrentRomBank : (byte)0;

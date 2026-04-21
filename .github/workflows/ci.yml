@@ -20,8 +20,8 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore solution
-        # Koh.Ci.slnf excludes Koh.Emulator.Maui (Windows-only MAUI project
-        # that requires the maui workload). CI builds every other project.
+        # Koh.Ci.slnf is the full solution minus the compat tests (which
+        # need downloaded ROMs and run as a dedicated job below).
         run: dotnet restore Koh.Ci.slnf
 
       - name: Build solution
@@ -56,6 +56,39 @@ jobs:
       - name: Run compat tests
         run: dotnet test --project tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --no-build --configuration Release
 
+  # NativeAOT publishes of the emulator on each host runner. The AOT
+  # compiler can't cross-OS, so each target's binary is produced on
+  # its native runner. This job catches RID-specific build breakage
+  # (missing native assets, platform API gaps) before it reaches a
+  # user trying to ship.
+  emulator-aot-publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  rid: linux-x64 }
+          - { os: windows-latest, rid: win-x64 }
+          - { os: macos-latest,   rid: osx-arm64 }
+    runs-on: ${{ matrix.os }}
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Koh.Emulator.App (NativeAOT)
+        run: dotnet publish src/Koh.Emulator.App -c Release -r ${{ matrix.rid }}
+
+      - name: Report publish size
+        shell: bash
+        run: |
+          pub=src/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
+          echo "── publish contents ──"
+          ls -lh "$pub"
+          echo "── total ──"
+          du -sh "$pub"
+
   benchmark-native:
     runs-on: ubuntu-latest
     needs: build-and-test
@@ -77,47 +110,3 @@ jobs:
         run: |
           dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
           dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase3*'
-
-  emulator-app:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install wasm-tools workload
-        run: dotnet workload install wasm-tools
-
-      - name: Install npm dependencies
-        run: |
-          cd editors/vscode
-          npm ci
-
-      - name: Build emulator app (AOT)
-        run: |
-          cd editors/vscode
-          npm run build:emulator-app:aot
-
-      - name: Verify freshness
-        run: |
-          cd editors/vscode
-          npm run verify-freshness
-
-      - name: Compile extension
-        run: |
-          cd editors/vscode
-          npm run compile
-
-      - name: Upload emulator-app artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: emulator-app
-          path: editors/vscode/dist/emulator-app
-          retention-days: 7

@@ -8,9 +8,7 @@
     <Project Path="src/Koh.Lsp/Koh.Lsp.csproj" />
     <Project Path="src/Koh.Emulator.Core/Koh.Emulator.Core.csproj" />
     <Project Path="src/Koh.Debugger/Koh.Debugger.csproj" />
-    <Project Path="src/Koh.Emulator.App.Shared/Koh.Emulator.App.Shared.csproj" />
     <Project Path="src/Koh.Emulator.App/Koh.Emulator.App.csproj" />
-    <Project Path="src/Koh.Emulator.Maui/Koh.Emulator.Maui.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />

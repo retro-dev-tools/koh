@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>KohUI.Demo</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <!-- We publish as a folder (not single-file), so Silk.NET.Core's
+         reflection-based native-asset discovery works fine. The AOT
+         compiler still emits IL3000/IL3002 single-file warnings for
+         those call sites — suppress just those to keep the publish
+         clean without hiding real AOT incompatibility. -->
+    <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
+    <StripSymbols>true</StripSymbols>
+    <NativeDebugSymbols>false</NativeDebugSymbols>
+    <DebuggerSupport>false</DebuggerSupport>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+
+    <!-- The dev preview (Kestrel + DomBackend + Playwright drivability)
+         is Debug-only by default. A Release-published binary ships
+         native-only: no HTTP listener, no Blazor-style static assets,
+         no ASP.NET Core in the graph. Override with
+         /p:KohUIDevPreview=true on the command line if you want the
+         preview available on a Release build for diagnostics. -->
+    <KohUIDevPreview Condition="'$(KohUIDevPreview)' == '' and '$(Configuration)' == 'Debug'">true</KohUIDevPreview>
+    <KohUIDevPreview Condition="'$(KohUIDevPreview)' == ''">false</KohUIDevPreview>
+    <DefineConstants Condition="'$(KohUIDevPreview)' == 'true'">$(DefineConstants);KOHUI_DEV_PREVIEW</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KohUI\KohUI.csproj" />
+    <ProjectReference Include="..\..\src\KohUI.Backends.Gl\KohUI.Backends.Gl.csproj" />
+    <!-- DomBackend is only linked when KohUIDevPreview is on so Release
+         publishes don't drag Kestrel + static-web-assets into the AOT
+         binary. -->
+    <ProjectReference Include="..\..\src\KohUI.Backends.Dom\KohUI.Backends.Dom.csproj"
+                      Condition="'$(KohUIDevPreview)' == 'true'" />
+  </ItemGroup>
+
+</Project>

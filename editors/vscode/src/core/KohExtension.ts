@@ -4,9 +4,7 @@ import { Logger } from './Logger';
 import { LspClientManager } from '../lsp/LspClientManager';
 import { KohYamlReader } from '../config/KohYamlReader';
 import { BuildTaskProvider } from '../build/BuildTaskProvider';
-import { EmulatorPanelHost } from '../webview/EmulatorPanelHost';
-import { KohDebugRegistration } from '../debug/KohDebugRegistration';
-import { LspHighlightBridge } from '../debug/LspHighlightBridge';
+import { KohDapAdapterFactory } from '../debug/KohDapAdapterFactory';
 import { generateConfigCommand, maybePromptGenerateConfig } from '../commands/GenerateConfigCommand';
 
 export class KohExtension {
@@ -15,9 +13,6 @@ export class KohExtension {
     private readonly yamlReader: KohYamlReader;
     private readonly lsp: LspClientManager;
     private readonly buildTasks: BuildTaskProvider;
-    private readonly panelHost: EmulatorPanelHost;
-    private readonly debugRegistration: KohDebugRegistration;
-    private readonly highlightBridge: LspHighlightBridge;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.log = new Logger('Koh');
@@ -25,9 +20,6 @@ export class KohExtension {
         this.yamlReader = new KohYamlReader(this.log);
         this.lsp = new LspClientManager(this.log);
         this.buildTasks = new BuildTaskProvider(this.log, this.yamlReader);
-        this.panelHost = new EmulatorPanelHost(context, this.log);
-        this.debugRegistration = new KohDebugRegistration(context, this.log, this.yamlReader, this.panelHost);
-        this.highlightBridge = new LspHighlightBridge(this.log);
     }
 
     async start(): Promise<void> {
@@ -41,8 +33,10 @@ export class KohExtension {
         this.disposables.add(this.lsp);
 
         this.disposables.add(this.buildTasks.register());
-        this.disposables.add(this.debugRegistration.register());
-        this.disposables.add(this.highlightBridge);
+
+        this.disposables.add(vscode.debug.registerDebugAdapterDescriptorFactory(
+            'koh',
+            new KohDapAdapterFactory(this.log)));
 
         await maybePromptGenerateConfig(this.log);
     }

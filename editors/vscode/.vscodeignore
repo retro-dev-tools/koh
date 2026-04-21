@@ -1,0 +1,14 @@
+# Source — only compiled out/ ships
+src/**
+tsconfig.json
+**/*.map
+
+# Dev tooling — vsce walks `dependencies` in package.json and
+# includes only runtime deps, so we don't blanket-ignore node_modules.
+.vscode/**
+scripts/**
+.gitignore
+**/*.ts
+
+# VSCE meta that doesn't belong in the package
+*.vsix

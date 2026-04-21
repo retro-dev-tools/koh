@@ -2,7 +2,7 @@
   "name": "koh-asm",
   "displayName": "Koh Assembly",
   "description": "Language support for Game Boy assembly — diagnostics, hover, go-to-definition, completion, document symbols",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "publisher": "retro-dev-tools",
   "repository": {
@@ -17,7 +17,9 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:koh-asm"
+    "onLanguage:koh-asm",
+    "onDebugResolve:koh",
+    "onDebugDynamicConfigurations:koh"
   ],
   "contributes": {
     "languages": [
@@ -68,14 +70,14 @@
         "languages": ["koh-asm"],
         "configurationAttributes": {
           "launch": {
-            "required": [],
+            "required": ["program"],
             "properties": {
-              "target":       { "type": "string", "description": "koh.yaml target name" },
-              "program":      { "type": "string", "description": "Path to .gb ROM" },
-              "debugInfo":    { "type": "string", "description": "Path to .kdbg" },
-              "hardwareMode": { "type": "string", "enum": ["auto", "dmg", "cgb"], "default": "auto" },
-              "stopOnEntry":  { "type": "boolean", "default": false },
-              "preLaunchTask":{ "type": "string" }
+              "program":        { "type": "string", "description": "Path to .gb / .gbc ROM" },
+              "debugInfo":      { "type": "string", "description": "Path to .kdbg (phase 3+)" },
+              "emulatorPath":   { "type": "string", "description": "Override path to Koh.Emulator.App executable" },
+              "hardwareMode":   { "type": "string", "enum": ["auto", "dmg", "cgb"], "default": "auto" },
+              "stopOnEntry":    { "type": "boolean", "default": false },
+              "preLaunchTask":  { "type": "string" }
             }
           }
         },
@@ -84,7 +86,7 @@
             "type": "koh",
             "request": "launch",
             "name": "Debug Koh ROM",
-            "hardwareMode": "auto",
+            "program": "${workspaceFolder}/out/game.gb",
             "stopOnEntry": false
           }
         ]
@@ -99,26 +101,11 @@
           "scope": "machine",
           "markdownDescription": "Path to `koh-lsp` binary. Leave empty to auto-detect."
         },
-        "koh.emulator.showDashboard": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the CPU dashboard in the emulator webview."
-        },
-        "koh.emulator.scale": {
-          "type": "number",
-          "enum": [1, 2, 3, 4],
-          "default": 3,
-          "description": "LCD pixel scale factor."
-        },
-        "koh.emulator.devHostUrl": {
+        "koh.emulator.exePath": {
           "type": "string",
           "default": "",
-          "description": "Dev-host URL for Blazor asset loading. Only honored in extension development mode."
-        },
-        "koh.debugger.logDapTraffic": {
-          "type": "boolean",
-          "default": false,
-          "description": "Log DAP messages to the Koh output channel."
+          "scope": "machine",
+          "markdownDescription": "Absolute path to `Koh.Emulator.App` binary for debug-adapter sessions. Leave empty to fall back to the extension-relative dev-host path. Overridden per-session by `emulatorPath` in `launch.json`."
         }
       }
     }
@@ -126,11 +113,7 @@
   "scripts": {
     "compile": "tsc -p ./tsconfig.json",
     "watch": "tsc -w -p ./tsconfig.json",
-    "build:emulator-app": "dotnet publish ../../src/Koh.Emulator.App -c Release -o ./.publish-emu-app && node ./scripts/copy-emu-app.js",
-    "build:emulator-app:aot": "dotnet publish ../../src/Koh.Emulator.App -c Release -p:RunAOTCompilation=true -o ./.publish-emu-app && node ./scripts/copy-emu-app.js",
-    "watch:emulator-app": "dotnet watch publish ../../src/Koh.Emulator.App -c Debug -p:RunAOTCompilation=false -o ./.publish-emu-app",
-    "verify-freshness": "node ./scripts/verify-freshness.js",
-    "package": "npm run build:emulator-app:aot && npm run verify-freshness && vsce package"
+    "package": "vsce package"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
