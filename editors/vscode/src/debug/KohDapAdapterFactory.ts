@@ -1,11 +1,23 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn as realSpawn, ChildProcess, SpawnOptions } from 'child_process';
 import { randomUUID } from 'crypto';
 import { Logger } from '../core/Logger';
 import { ToolchainResolver } from '../toolchain/ToolchainResolver';
 import { executableName } from '../toolchain/paths';
 import { waitForDapReady } from './waitForDapReady';
+
+/**
+ * Signature matching child_process.spawn — injected via the constructor
+ * so integration tests can supply a fake that returns a controllable
+ * ChildProcess (EventEmitter with stdout/stderr) without spinning up a
+ * real emulator binary.
+ */
+export type Spawner = (
+    command: string,
+    args: readonly string[],
+    options: SpawnOptions,
+) => ChildProcess;
 
 /**
  * Adapter factory for the `koh` debug type. On F5, VS Code asks us to
@@ -27,6 +39,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
     constructor(
         private readonly log: Logger,
         private readonly toolchain: ToolchainResolver,
+        private readonly spawner: Spawner = realSpawn,
     ) {}
 
     async createDebugAdapterDescriptor(session: vscode.DebugSession): Promise<vscode.DebugAdapterDescriptor> {
@@ -45,7 +58,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
 
         const pipeName = `koh-dap-${randomUUID()}`;
         this.log.info(`spawning emulator: ${emuPath} --dap=${pipeName} ${rom}`);
-        const child: ChildProcess = spawn(emuPath, [`--dap=${pipeName}`, rom], {
+        const child: ChildProcess = this.spawner(emuPath, [`--dap=${pipeName}`, rom], {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
 
