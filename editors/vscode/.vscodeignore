@@ -18,3 +18,8 @@ scripts/**
 # binaries at runtime — there's no more server/ or bin/ to ship.
 server/**
 bin/**
+
+# Tests — run via `npm test`, not shipped in the VSIX.
+out/test/**
+.vscode-test.mjs
+.vscode-test/**

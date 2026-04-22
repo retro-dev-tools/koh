@@ -89,6 +89,38 @@ jobs:
           echo "── total ──"
           du -sh "$pub"
 
+  # VS Code extension tests run under a headless VS Code instance via
+  # @vscode/test-cli. Linux needs xvfb-run because VS Code's test host
+  # always opens a window even in "headless" mode; Windows and macOS
+  # runners have a session that VS Code is happy to render into.
+  extension-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Run tests (xvfb on Linux)
+        if: runner.os == 'Linux'
+        working-directory: editors/vscode
+        run: xvfb-run -a npm test
+
+      - name: Run tests
+        if: runner.os != 'Linux'
+        working-directory: editors/vscode
+        run: npm test
+
   benchmark-native:
     runs-on: ubuntu-latest
     needs: build-and-test
