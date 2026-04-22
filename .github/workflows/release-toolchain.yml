@@ -128,14 +128,20 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create GitHub release
+      - name: Create GitHub release (draft)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
+        # Releases are created as drafts — invisible to the public
+        # releases page and to anonymous GitHub API queries (which is
+        # what the extension's auto-updater uses). A maintainer tests
+        # the drafted assets via `gh release download <tag>` and
+        # promotes with `gh release edit <tag> --draft=false` (or
+        # `scripts/publish-release.sh <tag>`) once verified.
         run: |
           tag="${{ github.ref_name }}"
           version="${tag#tools-v}"
-          flags=(--repo "${{ github.repository }}" --generate-notes --verify-tag --title "Toolchain $version")
+          flags=(--repo "${{ github.repository }}" --draft --generate-notes --verify-tag --title "Toolchain $version")
           if [[ "${{ steps.pre.outputs.prerelease }}" == "true" ]]; then
             flags+=(--prerelease)
           fi

@@ -61,14 +61,17 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create GitHub release
+      - name: Create GitHub release (draft)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
+        # Drafts-by-default: see release-toolchain.yml for the
+        # rationale. Publish with `scripts/publish-release.sh <tag>`
+        # after verifying the VSIX installs and activates cleanly.
         run: |
           tag="${{ github.ref_name }}"
           version="${tag#ext-v}"
-          flags=(--repo "${{ github.repository }}" --generate-notes --verify-tag --title "Extension $version")
+          flags=(--repo "${{ github.repository }}" --draft --generate-notes --verify-tag --title "Extension $version")
           if [[ "${{ steps.pre.outputs.prerelease }}" == "true" ]]; then
             flags+=(--prerelease)
           fi
