@@ -2,7 +2,7 @@
   "name": "koh-asm",
   "displayName": "Koh Assembly",
   "description": "Language support for Game Boy assembly — diagnostics, hover, go-to-definition, completion, document symbols",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "license": "MIT",
   "publisher": "retro-dev-tools",
   "repository": {
@@ -50,6 +50,22 @@
       {
         "command": "koh.generateConfig",
         "title": "Koh: Generate koh.yaml"
+      },
+      {
+        "command": "koh.installToolchain",
+        "title": "Koh: Install Toolchain"
+      },
+      {
+        "command": "koh.updateToolchain",
+        "title": "Koh: Update Toolchain"
+      },
+      {
+        "command": "koh.showToolchainInfo",
+        "title": "Koh: Show Toolchain Info"
+      },
+      {
+        "command": "koh.selectActiveToolchain",
+        "title": "Koh: Select Active Toolchain"
       }
     ],
     "menus": {
@@ -95,17 +111,24 @@
     "configuration": {
       "title": "Koh Assembly",
       "properties": {
-        "koh.serverPath": {
+        "koh.toolchainPath": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "markdownDescription": "Path to `koh-lsp` binary. Leave empty to auto-detect."
+          "markdownDescription": "Override path to a Koh toolchain `bin/` (or version root). Leave empty to use the managed install under `%LOCALAPPDATA%\\Koh\\toolchain` (Windows) / `~/.local/share/koh/toolchain` (Linux) / `~/Library/Application Support/Koh/toolchain` (macOS)."
+        },
+        "koh.toolchain.updateCheck": {
+          "type": "string",
+          "enum": ["prompt", "never"],
+          "default": "prompt",
+          "scope": "machine",
+          "markdownDescription": "When to check GitHub for a newer toolchain release. `prompt` checks on each activation and shows a non-modal message if one exists; `never` skips the check."
         },
         "koh.emulator.exePath": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "markdownDescription": "Absolute path to `Koh.Emulator.App` binary for debug-adapter sessions. Leave empty to fall back to the extension-relative dev-host path. Overridden per-session by `emulatorPath` in `launch.json`."
+          "markdownDescription": "Absolute path to `Koh.Emulator.App` binary for debug-adapter sessions. Leave empty to use the emulator shipped with the active toolchain. Overridden per-session by `emulatorPath` in `launch.json`."
         }
       }
     }
@@ -116,11 +139,15 @@
     "package": "vsce package"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "tar": "^7.4.3",
+    "vscode-languageclient": "^9.0.1",
+    "yauzl": "^3.2.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "@types/tar": "^6.1.13",
     "@types/vscode": "^1.82.0",
+    "@types/yauzl": "^2.10.3",
     "@vscode/vsce": "^3.0.0",
     "typescript": "^5.0.0"
   }

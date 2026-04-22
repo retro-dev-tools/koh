@@ -12,3 +12,9 @@ scripts/**
 
 # VSCE meta that doesn't belong in the package
 *.vsix
+
+# Stale local-build dirs left over from older workflows (pre-decoupled
+# toolchain). The extension is now platform-agnostic and fetches its
+# binaries at runtime — there's no more server/ or bin/ to ship.
+server/**
+bin/**

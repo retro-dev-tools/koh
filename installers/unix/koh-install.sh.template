@@ -1,0 +1,74 @@
+#!/bin/sh
+# Koh toolchain installer — per-user, no sudo.
+# CI replaces __VERSION__ at release time. Run with:
+#   curl -sSfL https://github.com/retro-dev-tools/koh/releases/download/tools-v<ver>/koh-install.sh | sh
+
+set -eu
+
+VERSION="__VERSION__"
+REPO="retro-dev-tools/koh"
+
+os="$(uname -s)"
+arch="$(uname -m)"
+case "$os" in
+    Linux*)
+        case "$arch" in
+            x86_64|amd64) rid=linux-x64 ;;
+            *) echo "Koh doesn't publish a Linux build for $arch" >&2; exit 1 ;;
+        esac
+        root="${XDG_DATA_HOME:-$HOME/.local/share}/koh/toolchain"
+        ;;
+    Darwin*)
+        case "$arch" in
+            arm64) rid=osx-arm64 ;;
+            *) echo "Koh publishes only osx-arm64 builds; $arch is not supported" >&2; exit 1 ;;
+        esac
+        root="$HOME/Library/Application Support/Koh/toolchain"
+        ;;
+    *)
+        echo "unsupported OS: $os (use koh-setup-<ver>-win-x64.exe on Windows)" >&2
+        exit 1
+        ;;
+esac
+
+archive="koh-toolchain-$VERSION-$rid.tar.gz"
+url="https://github.com/$REPO/releases/download/tools-v$VERSION/$archive"
+checksums_url="https://github.com/$REPO/releases/download/tools-v$VERSION/SHA256SUMS.txt"
+
+mkdir -p "$root"
+target="$root/$VERSION"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+echo "Downloading $archive …"
+curl -sSfL -o "$tmp/$archive" "$url"
+curl -sSfL -o "$tmp/SHA256SUMS.txt" "$checksums_url"
+
+echo "Verifying checksum …"
+expected=$(grep " $archive\$" "$tmp/SHA256SUMS.txt" | awk '{print $1}')
+if [ -z "$expected" ]; then
+    echo "checksum for $archive not listed in SHA256SUMS.txt" >&2
+    exit 1
+fi
+actual=$(sha256sum "$tmp/$archive" | awk '{print $1}')
+if [ "$expected" != "$actual" ]; then
+    echo "checksum mismatch: expected $expected got $actual" >&2
+    exit 1
+fi
+
+rm -rf "$target"
+mkdir -p "$target/bin"
+tar -xzf "$tmp/$archive" -C "$target/bin"
+
+# Metadata file + current pointer — same layout the VS Code extension
+# and Windows Inno Setup installer use, so all three paths converge.
+cat > "$target/version.json" <<EOF
+{"version":"$VERSION","rid":"$rid","installedAt":"$(date -u +%FT%TZ)"}
+EOF
+printf '%s' "$VERSION" > "$root/current"
+
+echo
+echo "Koh toolchain $VERSION installed to $target"
+echo "Add to PATH if you want to run the tools from a shell:"
+echo "  export PATH=\"$target/bin:\$PATH\""

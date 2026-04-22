@@ -1,0 +1,144 @@
+name: Release Toolchain
+
+on:
+  push:
+    tags:
+      - 'tools-v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  rid: linux-x64,  archive: tar.gz }
+          - { os: windows-latest, rid: win-x64,    archive: zip }
+          - { os: macos-latest,   rid: osx-arm64,  archive: tar.gz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Parse version from tag
+        id: ver
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#tools-v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish toolchain binaries into staging/bin
+        shell: bash
+        run: |
+          bin=staging/bin
+          rm -rf staging
+          mkdir -p "$bin"
+          # koh-lsp is managed .NET + can't AOT yet (StreamJsonRpc +
+          # YamlDotNet use runtime reflection); ship self-contained so
+          # users don't need .NET 10 on PATH.
+          dotnet publish src/Koh.Lsp          -c Release -r ${{ matrix.rid }} --self-contained -o "$bin"
+          # koh-asm, koh-link, Koh.Emulator.App are all NativeAOT in
+          # their csprojs → single-file native binaries land in $bin.
+          dotnet publish src/Koh.Asm          -c Release -r ${{ matrix.rid }} -o "$bin"
+          dotnet publish src/Koh.Link         -c Release -r ${{ matrix.rid }} -o "$bin"
+          dotnet publish src/Koh.Emulator.App -c Release -r ${{ matrix.rid }} -o "$bin"
+
+      - name: Pack raw archive
+        shell: bash
+        run: |
+          ver="${{ steps.ver.outputs.version }}"
+          case "${{ matrix.archive }}" in
+            zip)
+              out="koh-toolchain-$ver-${{ matrix.rid }}.zip"
+              python -c "import shutil, sys; shutil.make_archive(sys.argv[1][:-4], 'zip', sys.argv[2])" "$out" "staging/bin"
+              ;;
+            tar.gz)
+              out="koh-toolchain-$ver-${{ matrix.rid }}.tar.gz"
+              tar -czf "$out" -C staging/bin .
+              ;;
+          esac
+          ls -lh "$out"
+
+      - name: Build Windows installer (Inno Setup)
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          New-Item -ItemType Directory -Path installers\windows\payload -Force | Out-Null
+          Copy-Item -Recurse -Force staging\bin\* installers\windows\payload\
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$ver" installers\windows\koh-setup.iss
+          Get-ChildItem koh-setup-*.exe
+
+      - name: Stage Unix install.sh
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        run: |
+          ver="${{ steps.ver.outputs.version }}"
+          sed "s/__VERSION__/$ver/g" installers/unix/koh-install.sh.template > koh-install.sh
+          chmod +x koh-install.sh
+          head -3 koh-install.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toolchain-${{ matrix.rid }}
+          path: |
+            koh-toolchain-*.zip
+            koh-toolchain-*.tar.gz
+            koh-setup-*.exe
+            koh-install.sh
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS.txt
+        shell: bash
+        working-directory: artifacts
+        run: |
+          # Leave filenames bare (no ./ prefix) so `sha256sum -c` works
+          # when run from a directory containing the assets.
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt \
+            | sed 's|^\./||' \
+            | sort \
+            | xargs -I{} sha256sum {} \
+            > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Detect prerelease
+        id: pre
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#tools-v}"
+          # 0.x.x and tags with a pre-release suffix are flagged as prereleases.
+          if [[ "$version" =~ ^0\. ]] || [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#tools-v}"
+          flags=(--repo "${{ github.repository }}" --generate-notes --verify-tag --title "Toolchain $version")
+          if [[ "${{ steps.pre.outputs.prerelease }}" == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          mapfile -t assets < <(find artifacts -maxdepth 1 -type f | sort)
+          ls -lh "${assets[@]}"
+          gh release create "$tag" "${flags[@]}" "${assets[@]}"

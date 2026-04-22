@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Build + install the Koh VS Code extension locally. See the
-# PowerShell counterpart for the chain of steps; this is the POSIX
-# port with macOS / Linux RID auto-selection.
+# Build + install the Koh VS Code extension locally against a dev
+# toolchain. See install-vscode-extension.ps1 for the narrative; this
+# is the POSIX port with RID + canonical-path auto-selection.
+#
+# Lays out binaries at the same per-user canonical path the installer
+# and the extension's auto-installer use:
+#   Linux  : $XDG_DATA_HOME/koh/toolchain   (default ~/.local/share)
+#   macOS  : ~/Library/Application Support/Koh/toolchain
+#   Windows: %LOCALAPPDATA%/Koh/toolchain   (git-bash / WSL users)
 
 set -euo pipefail
 
@@ -25,11 +31,27 @@ repo_root="$(cd -- "$script_dir/.." &>/dev/null && pwd)"
 ext_dir="$repo_root/editors/vscode"
 
 case "$(uname -s)" in
-    Linux*)              rid=linux-x64 ;;
-    Darwin*)             rid=$([[ "$(uname -m)" == arm64 ]] && echo osx-arm64 || echo osx-x64) ;;
-    MINGW*|MSYS*|CYGWIN*) rid=win-x64 ;;
-    *)                   rid=linux-x64 ;;
+    Linux*)
+        rid=linux-x64
+        toolchain_root="${XDG_DATA_HOME:-$HOME/.local/share}/koh/toolchain"
+        ;;
+    Darwin*)
+        rid=$([[ "$(uname -m)" == arm64 ]] && echo osx-arm64 || echo osx-x64)
+        toolchain_root="$HOME/Library/Application Support/Koh/toolchain"
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        rid=win-x64
+        toolchain_root="${LOCALAPPDATA:-$HOME/AppData/Local}/Koh/toolchain"
+        ;;
+    *)
+        echo "unsupported OS: $(uname -s)" >&2
+        exit 1
+        ;;
 esac
+
+dev_version=dev
+dev_bin="$toolchain_root/$dev_version/bin"
+mkdir -p "$dev_bin"
 
 # NativeAOT on Windows links via MSVC. The MSBuild target runs
 # vcvarsall.bat, which in turn invokes `vswhere.exe` (bare name)
@@ -46,11 +68,16 @@ fi
 
 cd "$repo_root"
 
-echo "── Publishing koh-lsp ──"
-dotnet publish src/Koh.Lsp -c Release -o "$ext_dir/server"
+echo "── Publishing toolchain into $dev_bin ($rid) ──"
+dotnet publish src/Koh.Lsp          -c Release -r "$rid" --self-contained -o "$dev_bin"
+dotnet publish src/Koh.Asm          -c Release -r "$rid" -o "$dev_bin"
+dotnet publish src/Koh.Link         -c Release -r "$rid" -o "$dev_bin"
+dotnet publish src/Koh.Emulator.App -c Release -r "$rid" -o "$dev_bin"
 
-echo "── Publishing Koh.Emulator.App (NativeAOT, $rid) ──"
-dotnet publish src/Koh.Emulator.App -c Release -r "$rid"
+cat > "$toolchain_root/$dev_version/version.json" <<EOF
+{"version":"$dev_version","rid":"$rid","installedAt":""}
+EOF
+printf '%s' "$dev_version" > "$toolchain_root/current"
 
 cd "$ext_dir"
 
@@ -72,20 +99,7 @@ vsix=$(ls -t ./*.vsix 2>/dev/null | head -n1)
 echo "── code --install-extension $vsix ──"
 "$CODE_CLI" --install-extension "$vsix" --force
 
-exe_name="Koh.Emulator.App"
-[[ "$rid" == win-* ]] && exe_name="Koh.Emulator.App.exe"
-emu_exe="$repo_root/src/Koh.Emulator.App/bin/Release/net10.0/$rid/publish/$exe_name"
-
-# Convert MSYS / git-bash POSIX paths (/c/foo) to Windows form
-# (C:/foo) so the output is copy-pasteable into VS Code's
-# settings.json on Windows hosts.
-if [[ "$rid" == win-* ]] && command -v cygpath >/dev/null 2>&1; then
-    emu_exe=$(cygpath -m "$emu_exe")
-fi
-
 echo
 echo "Installed: $(basename "$vsix")"
+echo "Dev toolchain at: $dev_bin"
 echo "Reload any open VS Code windows for the new build to take effect."
-echo
-echo "Set this in your VS Code settings so F5 can find the emulator:"
-echo "  \"koh.emulator.exePath\": \"$emu_exe\""
