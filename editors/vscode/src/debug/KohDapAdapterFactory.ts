@@ -28,7 +28,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         private readonly toolchain: ToolchainResolver,
     ) {}
 
-    createDebugAdapterDescriptor(session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
+    async createDebugAdapterDescriptor(session: vscode.DebugSession): Promise<vscode.DebugAdapterDescriptor> {
         const cfg = session.configuration;
         const rom: string | undefined = cfg.program ?? cfg.rom;
         if (!rom) {
@@ -47,6 +47,14 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         const child: ChildProcess = spawn(emuPath, [`--dap=${pipeName}`, rom], {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
+
+        // Wire the ready-probe BEFORE the log forwarder so we can't
+        // miss the `[koh-dap] listening on` line the emulator prints
+        // once the pipe server is up. Without waiting, VS Code's DAP
+        // client races the ~200ms emulator startup and gets ENOENT
+        // on the pipe before Koh.Emulator.App registers the server.
+        const ready = this.waitForDapReady(child, 15_000);
+
         child.stdout?.on('data', data => this.log.info(`[emu] ${String(data).trimEnd()}`));
         child.stderr?.on('data', data => this.log.info(`[emu] ${String(data).trimEnd()}`));
         // A missing exe shows up as an `error` event with ENOENT before any
@@ -55,7 +63,43 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         child.on('error', err => this.log.error(`emulator spawn failed: ${err}`));
         child.on('exit', (code, sig) => this.log.info(`emulator exited code=${code} signal=${sig}`));
 
+        await ready;
         return new vscode.DebugAdapterNamedPipeServer(this.pipePath(pipeName));
+    }
+
+    /**
+     * Resolve when the emulator prints its "listening on" banner on
+     * stdout, reject if the process exits or the timeout elapses
+     * first. Matching on the log string rather than probing the pipe
+     * avoids the "test-connect steals the single NamedPipeServerStream
+     * instance" problem on Windows.
+     */
+    private waitForDapReady(child: ChildProcess, timeoutMs: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            let done = false;
+            const settle = (err?: Error) => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                child.stdout?.off('data', onStdout);
+                child.off('exit', onExit);
+                err ? reject(err) : resolve();
+            };
+            const onStdout = (data: Buffer | string) => {
+                const s = Buffer.isBuffer(data) ? data.toString('utf8') : data;
+                if (s.includes('[koh-dap] listening on')) settle();
+            };
+            const onExit = (code: number | null) => settle(
+                new Error(`emulator exited (code=${code}) before DAP server was listening`),
+            );
+            const timer = setTimeout(
+                () => settle(new Error(`emulator DAP server didn't start within ${timeoutMs}ms`)),
+                timeoutMs,
+            );
+
+            child.stdout?.on('data', onStdout);
+            child.on('exit', onExit);
+        });
     }
 
     private pipePath(pipeName: string): string {
