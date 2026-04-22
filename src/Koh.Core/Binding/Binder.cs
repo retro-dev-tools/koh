@@ -110,6 +110,12 @@ public sealed class Binder
         foreach (var en in nodes)
         {
             _diagnostics.CurrentFilePath = en.SourceFilePath;
+            // Attribute any bytes emitted by Pass2Node to this expanded
+            // node's source line. Bytes emitted without a prior set
+            // (pre-pass synthetic writes, etc.) are simply not mapped.
+            _sections.ActiveSection?.SetSourceLocation(
+                en.SourceLine == 0 ? null : en.SourceFilePath,
+                en.SourceLine);
             Pass2Node(en);
         }
 

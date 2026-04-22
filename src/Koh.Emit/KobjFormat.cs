@@ -8,7 +8,13 @@ namespace Koh.Emit;
 internal static class KobjFormat
 {
     public static ReadOnlySpan<byte> Magic => "KOH\0"u8;
-    public const byte Version = 1;
+    /// <summary>
+    /// Bumped to 2 when per-section line maps landed. v1 files have no
+    /// line-map payload after each section's patch list; v2 writes one
+    /// (possibly empty). Readers accept both.
+    /// </summary>
+    public const byte Version = 2;
+    public const byte MinReadableVersion = 1;
 
     // Top-level block tags
     public const byte TagSections = 0x01;

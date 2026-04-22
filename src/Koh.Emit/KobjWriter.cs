@@ -60,6 +60,17 @@ public sealed class KobjWriter
                 bw.Write(patch.DiagnosticSpan.Start);
                 bw.Write(patch.DiagnosticSpan.Length);
             }
+
+            // Line map for this section (v2+). Empty sections still write
+            // a zero count, which v2 readers tolerate cleanly.
+            bw.Write(section.LineMap.Count);
+            foreach (var entry in section.LineMap)
+            {
+                bw.Write(entry.Offset);
+                bw.Write(entry.ByteCount);
+                bw.Write(entry.File);
+                bw.Write(entry.Line);
+            }
         }
 
         // Symbols

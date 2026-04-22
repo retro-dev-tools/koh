@@ -20,7 +20,7 @@ public sealed class KobjReader
             throw new InvalidDataException("Not a valid .kobj file (bad magic)");
 
         var version = br.ReadByte();
-        if (version != KobjFormat.Version)
+        if (version < KobjFormat.MinReadableVersion || version > KobjFormat.Version)
             throw new InvalidDataException($"Unsupported .kobj version: {version}");
 
         var sections = new List<SectionData>();
@@ -32,7 +32,7 @@ public sealed class KobjReader
             switch (tag)
             {
                 case KobjFormat.TagSections:
-                    ReadSections(br, sections);
+                    ReadSections(br, version, sections);
                     break;
                 case KobjFormat.TagSymbols:
                     ReadSymbols(br, symbols);
@@ -47,7 +47,7 @@ public sealed class KobjReader
         }
     }
 
-    private static void ReadSections(BinaryReader br, List<SectionData> sections)
+    private static void ReadSections(BinaryReader br, byte version, List<SectionData> sections)
     {
         var count = br.ReadUInt16();
         for (int i = 0; i < count; i++)
@@ -79,7 +79,31 @@ public sealed class KobjReader
                 });
             }
 
-            sections.Add(new SectionData(name, type, fixedAddress, bank, data, patches));
+            // v2+ carries a per-section line map right after patches.
+            // v1 readers don't know about it, so files from the old
+            // toolchain simply show no line info (and the .kdbg falls
+            // back to the symbol-only address map).
+            IReadOnlyList<LineMapEntry> lineMap;
+            if (version >= 2)
+            {
+                var lineCount = br.ReadInt32();
+                var entries = new LineMapEntry[lineCount];
+                for (int e = 0; e < lineCount; e++)
+                {
+                    var offset = br.ReadInt32();
+                    var byteCount = br.ReadInt32();
+                    var file = br.ReadString();
+                    var line = br.ReadUInt32();
+                    entries[e] = new LineMapEntry(offset, byteCount, file, line);
+                }
+                lineMap = entries;
+            }
+            else
+            {
+                lineMap = Array.Empty<LineMapEntry>();
+            }
+
+            sections.Add(new SectionData(name, type, fixedAddress, bank, data, patches, lineMap));
         }
     }
 

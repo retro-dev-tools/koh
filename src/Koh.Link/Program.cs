@@ -96,7 +96,7 @@ static class KohLink
             try
             {
                 var builder = new DebugInfoBuilder();
-                DebugInfoPopulator.PopulateFromLinkerSymbols(builder, result.Symbols);
+                DebugInfoPopulator.Populate(builder, result);
                 using var stream = File.Create(kdbgPath);
                 KdbgFileWriter.Write(stream, builder);
             }

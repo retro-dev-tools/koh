@@ -14,6 +14,7 @@ public sealed class LinkerSection
     public int? Bank { get; }
     public byte[] Data { get; }
     public IReadOnlyList<PatchEntry> Patches { get; }
+    public IReadOnlyList<LineMapEntry> LineMap { get; }
     public string SourceFile { get; }
 
     /// <summary>Assigned by the section placer. -1 if not yet placed.</summary>
@@ -30,6 +31,7 @@ public sealed class LinkerSection
         Bank = section.Bank;
         Data = section.Data;
         Patches = section.Patches;
+        LineMap = section.LineMap;
         SourceFile = sourceFile;
     }
 }

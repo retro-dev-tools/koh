@@ -11,14 +11,23 @@ public sealed class LinkResult
     public byte[]? RomData { get; }
     public IReadOnlyList<LinkerSymbol> Symbols { get; }
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
+    /// <summary>
+    /// All line-map runs from every input section, resolved to absolute
+    /// (bank, windowed GB address). Empty when no inputs carry line
+    /// info (v1 kobj, or the assembler didn't set source locations).
+    /// DebugInfoPopulator turns these into .kdbg AddressMap entries.
+    /// </summary>
+    public IReadOnlyList<ResolvedLineMapEntry> LineMap { get; }
     public bool Success { get; }
 
     internal LinkResult(byte[]? romData, IReadOnlyList<LinkerSymbol> symbols,
-        IReadOnlyList<Diagnostic> diagnostics)
+        IReadOnlyList<Diagnostic> diagnostics,
+        IReadOnlyList<ResolvedLineMapEntry> lineMap)
     {
         RomData = romData;
         Symbols = symbols;
         Diagnostics = diagnostics;
+        LineMap = lineMap;
 
         Success = true;
         for (int i = 0; i < diagnostics.Count; i++)
@@ -65,7 +74,32 @@ public sealed class Linker
         if (!HasErrors())
             rom = RomWriter.BuildRom(sections);
 
-        return new LinkResult(rom, resolver.AllSymbols, _diagnostics.ToList());
+        // 6. Resolve each input section's per-byte line map into the
+        //    bank + 16-bit windowed-address form the .kdbg expects. Done
+        //    after placement so every section has a PlacedAddress.
+        var resolvedLineMap = ResolveLineMap(sections);
+
+        return new LinkResult(rom, resolver.AllSymbols, _diagnostics.ToList(), resolvedLineMap);
+    }
+
+    private static IReadOnlyList<ResolvedLineMapEntry> ResolveLineMap(List<LinkerSection> sections)
+    {
+        var result = new List<ResolvedLineMapEntry>();
+        foreach (var section in sections)
+        {
+            if (section.PlacedAddress < 0 || section.LineMap.Count == 0) continue;
+            byte bank = (byte)section.PlacedBank;
+            foreach (var entry in section.LineMap)
+            {
+                // PlacedAddress is the windowed GB address of offset 0 in the
+                // section (0x0000–0x3FFF for ROM0, 0x4000–0x7FFF for ROMX, etc.).
+                // Offsets add directly; we keep only the low 16 bits because
+                // that's what NamedPipe DAP + .kdbg use to drive breakpoints.
+                ushort address = (ushort)((section.PlacedAddress + entry.Offset) & 0xFFFF);
+                result.Add(new ResolvedLineMapEntry(bank, address, entry.ByteCount, entry.File, entry.Line));
+            }
+        }
+        return result;
     }
 
     private void ApplyPatches(List<LinkerSection> sections, SymbolResolver resolver)

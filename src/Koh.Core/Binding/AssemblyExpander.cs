@@ -9,10 +9,20 @@ namespace Koh.Core.Binding;
 /// <summary>
 /// A single effective statement after all macro/REPT/IF expansion.
 /// SourceFilePath tracks which file the node came from (for INCBIN path resolution).
+/// SourceLine is the 1-based line of the node's start in that file, or 0 when we
+/// couldn't compute one (synthetic nodes from REPT loops or when the expander had
+/// no SourceText handy); the binder uses it to attribute emitted bytes to source
+/// lines so the .kdbg debug info can drive line-based breakpoints.
 /// FromMacroBody is true when the node was produced inside a macro body expansion —
 /// used to allow local labels without a preceding global anchor (RGBDS behavior).
 /// </summary>
-public sealed record ExpandedNode(SyntaxNode Node, string SourceFilePath, bool WasInConditional, bool FromMacroBody, ExpansionTrace Trace);
+public sealed record ExpandedNode(
+    SyntaxNode Node,
+    string SourceFilePath,
+    uint SourceLine,
+    bool WasInConditional,
+    bool FromMacroBody,
+    ExpansionTrace Trace);
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -46,6 +56,25 @@ internal sealed class AssemblyExpander
 
     private const int MaxStructuralDepth = 64;
     private const int MaxReplayDepth = 64;
+
+    /// <summary>
+    /// 1-based line of <paramref name="node"/>'s first significant
+    /// character in the file it originated from. Returns 0 when the
+    /// context has no SourceText — happens for synthesized nodes
+    /// produced deep inside REPT/FOR expansion — callers treat 0 as
+    /// "unknown" and skip line-map recording.
+    /// </summary>
+    private static uint ComputeLine(ExpansionContext ctx, SyntaxNode node)
+    {
+        var text = ctx.SourceText;
+        if (text is null) return 0;
+        // Use Span.Start (without leading trivia) so a node that sits after
+        // blank/comment lines maps to the line of its first real token,
+        // not the start of the preceding whitespace.
+        int start = node.Span.Start;
+        if (start < 0 || start >= text.Length) return 0;
+        return (uint)(text.GetLineIndex(start) + 1);
+    }
 
     public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols,
         ISourceFileResolver? fileResolver = null, CharMapManager? charMaps = null,
@@ -388,7 +417,7 @@ internal sealed class AssemblyExpander
                 if (kw?.Kind == SyntaxKind.IncludeKeyword)
                     ExpandInclude(node, output, ctx);
                 else if (kw?.Kind == SyntaxKind.IncbinKeyword)
-                    output.Add(new ExpandedNode(node, ctx.FilePath, _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace)); // INCBIN handled by binder Pass 2
+                    output.Add(new ExpandedNode(node, ctx.FilePath, ComputeLine(ctx, node), _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace)); // INCBIN handled by binder Pass 2
                 i++;
                 continue;
             }
@@ -502,7 +531,7 @@ internal sealed class AssemblyExpander
                     _diagnostics.Report(node.FullSpan, $"Macro argument {macroParam} used outside of a macro");
             }
 
-            output.Add(new ExpandedNode(node, ctx.FilePath, _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace));
+            output.Add(new ExpandedNode(node, ctx.FilePath, ComputeLine(ctx, node), _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace));
             i++;
         }
         return LoopControl.Continue;
@@ -1668,7 +1697,7 @@ internal sealed class AssemblyExpander
                 // Emit a synthetic REDEF node so Pass 1 and Pass 2 re-evaluate the symbol.
                 // Uses iterCtx.Trace (the iteration context), not ctx.Trace.
                 var synthNode = BuildSyntheticRedef(varName, v);
-                output.Add(new ExpandedNode(synthNode, iterCtx.FilePath,
+                output.Add(new ExpandedNode(synthNode, iterCtx.FilePath, ComputeLine(iterCtx, synthNode),
                     _conditional.Depth > 0, iterCtx.MacroBodyDepth > 0, iterCtx.Trace));
             }
 
