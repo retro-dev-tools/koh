@@ -129,6 +129,20 @@ internal sealed class DapServerHost : IDisposable
         {
             try { _pipe?.Dispose(); } catch { }
         }
+
+        // We only reach this point when the DAP client disconnected (or
+        // crashed). In --dap mode the emulator is a slave of VS Code's
+        // debug session; outliving the client orphans a GUI process the
+        // user has no way to reconnect to. Tear the whole process down
+        // so killing VS Code reliably kills the emulator too, even
+        // when the extension's explicit child.kill() never arrives
+        // (VS Code force-close, host crash, Windows session logout).
+        // Suppress during cooperative shutdown (Dispose set _cts).
+        if (!_cts.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("[koh-dap] client disconnected; exiting emulator");
+            Environment.Exit(0);
+        }
     }
 
     private void RegisterHandlers(DapDispatcher dispatcher)

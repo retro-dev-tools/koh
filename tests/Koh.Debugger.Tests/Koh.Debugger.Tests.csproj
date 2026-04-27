@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Koh.Debugger\Koh.Debugger.csproj" />
+    <ProjectReference Include="..\..\src\Koh.Core\Koh.Core.csproj" />
+    <ProjectReference Include="..\..\src\Koh.Emit\Koh.Emit.csproj" />
     <ProjectReference Include="..\..\src\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
     <ProjectReference Include="..\..\src\Koh.Linker.Core\Koh.Linker.Core.csproj" />
   </ItemGroup>

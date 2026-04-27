@@ -19,6 +19,7 @@ public sealed class StackFrame
 {
     [JsonPropertyName("id")] public int Id { get; set; }
     [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("source")] public Source? Source { get; set; }
     [JsonPropertyName("line")] public int Line { get; set; }
     [JsonPropertyName("column")] public int Column { get; set; } = 1;
     [JsonPropertyName("instructionPointerReference")] public string? InstructionPointerReference { get; set; }

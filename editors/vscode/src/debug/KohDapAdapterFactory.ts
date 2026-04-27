@@ -34,8 +34,16 @@ export type Spawner = (
  * The emulator itself hosts the debug adapter (see
  * src/Koh.Emulator.App/DapServerHost.cs); this extension only owns
  * launch and teardown.
+ *
+ * Teardown: the factory tracks every spawned emulator by session id
+ * and kills it when VS Code terminates the session. Extension dispose
+ * sweeps any stragglers. The emulator *also* self-exits when the DAP
+ * pipe disconnects (see DapServerHost.Run), which catches the VS-Code-
+ * crashed / extension-host-killed case where `dispose()` never runs.
  */
-export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
+export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactory, vscode.Disposable {
+    private readonly children = new Map<string, ChildProcess>();
+
     constructor(
         private readonly log: Logger,
         private readonly toolchain: ToolchainResolver,
@@ -61,6 +69,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         const child: ChildProcess = this.spawner(emuPath, [`--dap=${pipeName}`, rom], {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
+        this.children.set(session.id, child);
 
         // Wire the ready-probe BEFORE the log forwarder so we can't
         // miss the `[koh-dap] listening on` line the emulator prints
@@ -75,10 +84,44 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         // `exit`; surface it so users see the real cause instead of only the
         // downstream "connect ENOENT \\.\pipe\..." from VS Code's DAP client.
         child.on('error', err => this.log.error(`emulator spawn failed: ${err}`));
-        child.on('exit', (code, sig) => this.log.info(`emulator exited code=${code} signal=${sig}`));
+        child.on('exit', (code, sig) => {
+            this.log.info(`emulator exited code=${code} signal=${sig}`);
+            this.children.delete(session.id);
+        });
 
         await ready;
         return new vscode.DebugAdapterNamedPipeServer(this.pipePath(pipeName));
+    }
+
+    /**
+     * Called from KohExtension's `onDidTerminateDebugSession` subscription
+     * when the user stops the session, the emulator crashes, or VS Code
+     * tears the session down for any other reason. Without this, the
+     * spawned emulator keeps running — on Windows in particular, a child
+     * process is not automatically killed when its parent exits.
+     */
+    terminateSession(sessionId: string): void {
+        const child = this.children.get(sessionId);
+        if (!child || child.killed || child.exitCode !== null) return;
+        this.log.info(`killing emulator for session ${sessionId} (pid=${child.pid})`);
+        try { child.kill(); } catch (err) { this.log.warn(`kill failed: ${err}`); }
+        // Escalate if the child hasn't exited within a short grace window.
+        // Shouldn't normally happen — the emulator self-exits on pipe
+        // disconnect — but guards against a hung process ignoring SIGTERM.
+        const graceMs = 2000;
+        setTimeout(() => {
+            if (!child.killed && child.exitCode === null) {
+                this.log.warn(`emulator pid=${child.pid} did not exit within ${graceMs}ms; SIGKILL`);
+                try { child.kill('SIGKILL'); } catch { /* already gone */ }
+            }
+        }, graceMs).unref?.();
+    }
+
+    dispose(): void {
+        for (const [sessionId] of this.children) {
+            this.terminateSession(sessionId);
+        }
+        this.children.clear();
     }
 
 

@@ -57,9 +57,17 @@ export class KohExtension {
             await this.lsp.start();
             this.disposables.add(this.lsp);
             this.disposables.add(this.buildTasks.register());
-            this.disposables.add(vscode.debug.registerDebugAdapterDescriptorFactory(
-                'koh',
-                new KohDapAdapterFactory(this.log, this.toolchain)));
+            const dapFactory = new KohDapAdapterFactory(this.log, this.toolchain);
+            this.disposables.add(vscode.debug.registerDebugAdapterDescriptorFactory('koh', dapFactory));
+            // Kill the spawned emulator when its debug session ends. VS Code
+            // doesn't do this for us — on Windows especially, orphaned child
+            // processes outlive the extension host unless we reap them. The
+            // emulator itself also self-exits on pipe disconnect, which
+            // covers the "VS Code force-closed" path where dispose never runs.
+            this.disposables.add(dapFactory);
+            this.disposables.add(vscode.debug.onDidTerminateDebugSession(session => {
+                if (session.type === 'koh') dapFactory.terminateSession(session.id);
+            }));
             // Fire-and-forget update check only once we already have
             // something installed — first-run installs have just
             // grabbed the latest, so polling GH again is pointless.

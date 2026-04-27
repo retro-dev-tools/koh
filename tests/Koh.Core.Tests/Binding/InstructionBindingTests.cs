@@ -754,6 +754,48 @@ public class InstructionBindingTests
     }
 
     [Test]
+    public async Task JrForwardExplicitLocalLabel()
+    {
+        var bytes = GetBytes("""
+            Parent:
+                jr Parent.child
+                nop
+            .child:
+                nop
+            """);
+        await Assert.That(bytes[0]).IsEqualTo((byte)0x18);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+    }
+
+    [Test]
+    public async Task ExplicitLocalDeclaration_DoesNotChangeLocalScope()
+    {
+        var bytes = GetBytes("""
+            Parent:
+            Parent.child:
+            .local:
+                jr Parent.local
+            """);
+        await Assert.That(bytes[0]).IsEqualTo((byte)0x18);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0xFE);
+    }
+
+    [Test]
+    public async Task LabelOperand_DoesNotCombineWithLocalLabelOnNextLine()
+    {
+        var bytes = GetBytes("""
+            call Target
+            .local:
+                nop
+            Target:
+                ret
+            """);
+        await Assert.That(bytes[0]).IsEqualTo((byte)0xCD);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x04);
+        await Assert.That(bytes[2]).IsEqualTo((byte)0x00);
+    }
+
+    [Test]
     public async Task JrCondNZ_ForwardLabel()
     {
         var bytes = GetBytes("jr nz, .skip\nnop\n.skip:\nnop");

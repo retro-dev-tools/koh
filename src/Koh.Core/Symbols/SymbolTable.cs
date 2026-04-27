@@ -148,7 +148,7 @@ public sealed class SymbolTable
             Track(existing);
         }
 
-        if (!name.StartsWith('.'))
+        if (!name.StartsWith('.') && !name.Contains('.'))
             _currentGlobalAnchor = existing;
         return existing;
     }
@@ -488,7 +488,7 @@ public sealed class SymbolTable
             Register(existing, key, ownerKey);
         }
 
-        if (!name.StartsWith('.'))
+        if (!name.StartsWith('.') && !name.Contains('.'))
             _currentGlobalAnchor = existing;
         return existing;
     }
