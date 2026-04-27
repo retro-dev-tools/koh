@@ -110,7 +110,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         // disconnect — but guards against a hung process ignoring SIGTERM.
         const graceMs = 2000;
         setTimeout(() => {
-            if (!child.killed && child.exitCode === null) {
+            if (child.exitCode === null) {
                 this.log.warn(`emulator pid=${child.pid} did not exit within ${graceMs}ms; SIGKILL`);
                 try { child.kill('SIGKILL'); } catch { /* already gone */ }
             }
