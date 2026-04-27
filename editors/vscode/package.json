@@ -2,7 +2,7 @@
   "name": "koh-asm",
   "displayName": "Koh Assembly",
   "description": "Language support for Game Boy assembly — diagnostics, hover, go-to-definition, completion, document symbols",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "license": "MIT",
   "publisher": "retro-dev-tools",
   "repository": {
@@ -50,6 +50,22 @@
       {
         "command": "koh.generateConfig",
         "title": "Koh: Generate koh.yaml"
+      },
+      {
+        "command": "koh.installToolchain",
+        "title": "Koh: Install Toolchain"
+      },
+      {
+        "command": "koh.updateToolchain",
+        "title": "Koh: Update Toolchain"
+      },
+      {
+        "command": "koh.showToolchainInfo",
+        "title": "Koh: Show Toolchain Info"
+      },
+      {
+        "command": "koh.selectActiveToolchain",
+        "title": "Koh: Select Active Toolchain"
       }
     ],
     "menus": {
@@ -61,23 +77,51 @@
       ]
     },
     "breakpoints": [
-      { "language": "koh-asm" }
+      {
+        "language": "koh-asm"
+      }
     ],
     "debuggers": [
       {
         "type": "koh",
         "label": "Koh Game Boy Debugger",
-        "languages": ["koh-asm"],
+        "languages": [
+          "koh-asm"
+        ],
         "configurationAttributes": {
           "launch": {
-            "required": ["program"],
+            "required": [
+              "program"
+            ],
             "properties": {
-              "program":        { "type": "string", "description": "Path to .gb / .gbc ROM" },
-              "debugInfo":      { "type": "string", "description": "Path to .kdbg (phase 3+)" },
-              "emulatorPath":   { "type": "string", "description": "Override path to Koh.Emulator.App executable" },
-              "hardwareMode":   { "type": "string", "enum": ["auto", "dmg", "cgb"], "default": "auto" },
-              "stopOnEntry":    { "type": "boolean", "default": false },
-              "preLaunchTask":  { "type": "string" }
+              "program": {
+                "type": "string",
+                "description": "Path to .gb / .gbc ROM"
+              },
+              "debugInfo": {
+                "type": "string",
+                "description": "Path to .kdbg (phase 3+)"
+              },
+              "emulatorPath": {
+                "type": "string",
+                "description": "Override path to Koh.Emulator.App executable"
+              },
+              "hardwareMode": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "dmg",
+                  "cgb"
+                ],
+                "default": "auto"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": false
+              },
+              "preLaunchTask": {
+                "type": "string"
+              }
             }
           }
         },
@@ -95,17 +139,27 @@
     "configuration": {
       "title": "Koh Assembly",
       "properties": {
-        "koh.serverPath": {
+        "koh.toolchainPath": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "markdownDescription": "Path to `koh-lsp` binary. Leave empty to auto-detect."
+          "markdownDescription": "Override path to a Koh toolchain `bin/` (or version root). Leave empty to use the managed install under `%LOCALAPPDATA%\\Koh\\toolchain` (Windows) / `~/.local/share/koh/toolchain` (Linux) / `~/Library/Application Support/Koh/toolchain` (macOS)."
+        },
+        "koh.toolchain.updateCheck": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "never"
+          ],
+          "default": "prompt",
+          "scope": "machine",
+          "markdownDescription": "When to check GitHub for a newer toolchain release. `prompt` checks on each activation and shows a non-modal message if one exists; `never` skips the check."
         },
         "koh.emulator.exePath": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "markdownDescription": "Absolute path to `Koh.Emulator.App` binary for debug-adapter sessions. Leave empty to fall back to the extension-relative dev-host path. Overridden per-session by `emulatorPath` in `launch.json`."
+          "markdownDescription": "Absolute path to `Koh.Emulator.App` binary for debug-adapter sessions. Leave empty to use the emulator shipped with the active toolchain. Overridden per-session by `emulatorPath` in `launch.json`."
         }
       }
     }
@@ -113,15 +167,25 @@
   "scripts": {
     "compile": "tsc -p ./tsconfig.json",
     "watch": "tsc -w -p ./tsconfig.json",
+    "pretest": "npm run compile",
+    "test": "vscode-test",
     "package": "vsce package"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "tar": "^7.4.3",
+    "vscode-languageclient": "^9.0.1",
+    "yauzl": "^3.2.0"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^25.5.2",
+    "@types/tar": "^6.1.13",
     "@types/vscode": "^1.82.0",
+    "@types/yauzl": "^2.10.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.0.0",
+    "mocha": "^11.7.5",
     "typescript": "^5.0.0"
   }
 }

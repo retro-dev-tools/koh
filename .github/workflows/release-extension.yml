@@ -1,0 +1,80 @@
+name: Release Extension
+
+on:
+  push:
+    tags:
+      - 'ext-v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Package VSIX (platform-agnostic)
+        working-directory: editors/vscode
+        # The VSIX carries only TS + node_modules; all native binaries
+        # are fetched by the extension from the toolchain release at
+        # runtime, so we ship a single platform-neutral package.
+        run: npx vsce package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: editors/vscode/*.vsix
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Detect prerelease
+        id: pre
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#ext-v}"
+          if [[ "$version" =~ ^0\. ]] || [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release (draft)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        # Drafts-by-default: see release-toolchain.yml for the
+        # rationale. Publish with `scripts/publish-release.sh <tag>`
+        # after verifying the VSIX installs and activates cleanly.
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#ext-v}"
+          flags=(--repo "${{ github.repository }}" --draft --generate-notes --verify-tag --title "Extension $version")
+          if [[ "${{ steps.pre.outputs.prerelease }}" == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          mapfile -t assets < <(find artifacts -maxdepth 1 -type f | sort)
+          ls -lh "${assets[@]}"
+          gh release create "$tag" "${flags[@]}" "${assets[@]}"

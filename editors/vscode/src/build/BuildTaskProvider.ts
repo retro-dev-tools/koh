@@ -1,18 +1,28 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { Logger } from '../core/Logger';
 import { KohYamlReader } from '../config/KohYamlReader';
-import { resolveKohBinaries } from './binaryResolver';
-import { createBuildTask } from './KohBuildTask';
+import { ToolchainResolver } from '../toolchain/ToolchainResolver';
+import { executableName } from '../toolchain/paths';
+import { createBuildTask, KohBinaries } from './KohBuildTask';
 
 export class BuildTaskProvider implements vscode.TaskProvider {
     constructor(
         private readonly log: Logger,
-        private readonly yamlReader: KohYamlReader
+        private readonly yamlReader: KohYamlReader,
+        private readonly toolchain: ToolchainResolver,
     ) {}
 
     async provideTasks(): Promise<vscode.Task[]> {
-        const binaries = resolveKohBinaries(this.log);
-        if (!binaries) return [];
+        const loc = this.toolchain.resolve();
+        if (!loc) {
+            this.log.warn('no toolchain resolved — koh build tasks unavailable');
+            return [];
+        }
+        const binaries: KohBinaries = {
+            asm: path.join(loc.binDir, executableName('koh-asm')),
+            link: path.join(loc.binDir, executableName('koh-link')),
+        };
 
         const tasks: vscode.Task[] = [];
         for (const folder of vscode.workspace.workspaceFolders ?? []) {

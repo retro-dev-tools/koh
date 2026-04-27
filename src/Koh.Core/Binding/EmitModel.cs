@@ -66,7 +66,8 @@ public sealed class EmitModel
                 sections.Add(new SectionData(
                     name, buf.Type, buf.FixedAddress, buf.Bank,
                     buf.Bytes.ToArray(),
-                    buf.Patches.ToList()));
+                    buf.Patches.ToList(),
+                    buf.LineMap.ToList()));
             }
         }
 
@@ -106,9 +107,17 @@ public sealed class SectionData
     public int? Bank { get; }
     public byte[] Data { get; }
     public IReadOnlyList<PatchEntry> Patches { get; }
+    /// <summary>
+    /// Per-byte source location map, coalesced into ranges. Survives
+    /// round-trip through .kobj v2; the linker converts each entry's
+    /// section-relative offset into an absolute bank+address when it
+    /// builds the .kdbg debug info.
+    /// </summary>
+    public IReadOnlyList<LineMapEntry> LineMap { get; }
 
-    internal SectionData(string name, SectionType type, int? fixedAddress, int? bank,
-        byte[] data, IReadOnlyList<PatchEntry> patches)
+    public SectionData(string name, SectionType type, int? fixedAddress, int? bank,
+        byte[] data, IReadOnlyList<PatchEntry> patches,
+        IReadOnlyList<LineMapEntry>? lineMap = null)
     {
         Name = name;
         Type = type;
@@ -116,6 +125,7 @@ public sealed class SectionData
         Bank = bank;
         Data = data;
         Patches = patches;
+        LineMap = lineMap ?? Array.Empty<LineMapEntry>();
     }
 }
 

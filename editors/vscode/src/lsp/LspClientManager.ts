@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     LanguageClient,
@@ -5,24 +6,26 @@ import {
     ServerOptions,
 } from 'vscode-languageclient/node';
 import { Logger } from '../core/Logger';
-import { resolveLspServerPath } from './serverPathResolver';
+import { ToolchainResolver } from '../toolchain/ToolchainResolver';
+import { executableName } from '../toolchain/paths';
 
 export class LspClientManager implements vscode.Disposable {
     private client: LanguageClient | undefined;
 
-    constructor(private readonly log: Logger) {}
+    constructor(
+        private readonly log: Logger,
+        private readonly toolchain: ToolchainResolver,
+    ) {}
 
     async start(): Promise<void> {
-        const serverPath = resolveLspServerPath(this.log);
-        if (!serverPath) {
-            const msg = 'Koh language server (koh-lsp) not found. Set koh.serverPath in settings, or build with: dotnet publish src/Koh.Lsp -c Release -o editors/vscode/server';
-            this.log.error(msg);
-            this.log.show();
-            vscode.window.showWarningMessage(msg);
+        const loc = this.toolchain.resolve();
+        if (!loc) {
+            // Activation flow should have prompted already; log and bail.
+            this.log.warn('no toolchain resolved — LSP not starting');
             return;
         }
-
-        this.log.info(`Using server: ${serverPath}`);
+        const serverPath = path.join(loc.binDir, executableName('koh-lsp'));
+        this.log.info(`using koh-lsp (${loc.source}, ${loc.version}): ${serverPath}`);
 
         const serverOptions: ServerOptions = {
             command: serverPath,

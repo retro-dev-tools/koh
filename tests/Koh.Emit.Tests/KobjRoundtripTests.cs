@@ -199,6 +199,88 @@ public class KobjRoundtripTests
     }
 
     [Test]
+    public async Task Roundtrip_LineMap_PreservesEntries()
+    {
+        // Build a section with a hand-crafted line map to exercise the
+        // v2 payload without needing to assemble real source.
+        var lineMap = new[]
+        {
+            new LineMapEntry(0, 3, "foo.asm", 10u),
+            new LineMapEntry(3, 1, "foo.asm", 11u),
+            new LineMapEntry(4, 2, "bar.inc", 5u),
+        };
+        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
+            new byte[] { 0x21, 0xEF, 0xBE, 0x00, 0x00, 0x00 },
+            Array.Empty<PatchEntry>(), lineMap);
+        var original = new EmitModel([sectionData], [], success: true);
+
+        var restored = RoundTrip(original);
+
+        var map = restored.Sections[0].LineMap;
+        await Assert.That(map.Count).IsEqualTo(3);
+        await Assert.That(map[0]).IsEqualTo(new LineMapEntry(0, 3, "foo.asm", 10u));
+        await Assert.That(map[1]).IsEqualTo(new LineMapEntry(3, 1, "foo.asm", 11u));
+        await Assert.That(map[2]).IsEqualTo(new LineMapEntry(4, 2, "bar.inc", 5u));
+    }
+
+    [Test]
+    public async Task Roundtrip_LineMap_EmptySection_IsZeroEntries()
+    {
+        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
+            new byte[] { 0x00 }, Array.Empty<PatchEntry>());
+        var original = new EmitModel([sectionData], [], success: true);
+        var restored = RoundTrip(original);
+        await Assert.That(restored.Sections[0].LineMap.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Roundtrip_LineMap_FromRealSource()
+    {
+        // Assemble real source and round-trip through kobj — verifies
+        // the line map the binder produces survives serialization.
+        var tree = SyntaxTree.Parse(Koh.Core.Text.SourceText.From(
+            "SECTION \"Main\", ROM0\n__main__:\nnop\nnop\n",
+            "test.asm"));
+        var original = Compilation.Create(tree).Emit();
+
+        var restored = RoundTrip(original);
+
+        var map = restored.Sections[0].LineMap;
+        await Assert.That(map.Count).IsEqualTo(2);
+        await Assert.That(map[0].File).IsEqualTo("test.asm");
+        await Assert.That(map[0].Line).IsEqualTo(3u);
+        await Assert.That(map[1].Line).IsEqualTo(4u);
+    }
+
+    [Test]
+    public async Task V1KobjWithoutLineMap_Reads_LineMapEmpty()
+    {
+        // Hand-craft a v1-style payload (no line map appended after
+        // patches) to confirm the reader still accepts old files.
+        using var ms = new MemoryStream();
+        using (var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            bw.Write("KOH\0"u8);
+            bw.Write((byte)1);                              // version 1
+            bw.Write((byte)0x01);                           // TagSections
+            bw.Write((ushort)1);                            // 1 section
+            bw.Write("Main");
+            bw.Write((byte)SectionType.Rom0);
+            bw.Write(false);                                // no fixed address
+            bw.Write(false);                                // no bank
+            bw.Write(1);                                    // data len
+            bw.Write((byte)0x00);
+            bw.Write((ushort)0);                            // no patches
+            // (no line map — this is the v1 shape)
+            bw.Write((byte)0xFF);                           // TagEnd
+        }
+        ms.Position = 0;
+        var model = KobjReader.Read(ms);
+        await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
+        await Assert.That(model.Sections[0].LineMap.Count).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Roundtrip_ConstantSection_IsNull()
     {
         var original = EmitFromSource("MY_CONST EQU $42\nSECTION \"Main\", ROM0\nnop");

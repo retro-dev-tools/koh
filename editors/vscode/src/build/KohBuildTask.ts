@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { KohBinaries } from './binaryResolver';
 import { ResolvedTarget } from '../config/WorkspaceConfig';
+
+export interface KohBinaries {
+    readonly asm: string;
+    readonly link: string;
+}
 
 export function createBuildTask(binaries: KohBinaries, target: ResolvedTarget): vscode.Task {
     const kobjPath = path.join(path.dirname(target.romPath), `${target.name}.kobj`);

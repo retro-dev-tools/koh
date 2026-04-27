@@ -14,7 +14,9 @@ benchmarks/Koh.Benchmarks/BenchmarkDotNet.Artifacts/
 editors/vscode/node_modules/
 editors/vscode/out/
 editors/vscode/server/
+editors/vscode/bin/
 editors/vscode/.vscode/
+editors/vscode/.vscode-test/
 editors/vscode/*.vsix
 
 # Phase 2+ test fixtures

@@ -1,17 +1,18 @@
-# Build + install the Koh VS Code extension locally. Does the full
-# chain end-to-end so a fresh clone becomes a working install with
-# one invocation:
+# Build + install the Koh VS Code extension locally against a dev
+# toolchain. Does the full chain end-to-end so a fresh clone becomes
+# a working install with one invocation:
 #
-#   1. Publish koh-lsp into editors/vscode/server (the extension's
-#      LSP-auto-detect path).
-#   2. NativeAOT-publish Koh.Emulator.App so F5 in a koh-asm file
-#      can spawn the binary for the DAP session.
+#   1. Publish koh-lsp (self-contained), koh-asm, koh-link, and
+#      Koh.Emulator.App into the canonical per-user toolchain path
+#      (%LOCALAPPDATA%\Koh\toolchain\dev\bin). This mirrors what the
+#      Windows installer would do — extension auto-discovers it.
+#   2. Point %LOCALAPPDATA%\Koh\toolchain\current at the "dev" version.
 #   3. npm ci + tsc → editors/vscode/out/
 #   4. vsce package → editors/vscode/koh-asm-<version>.vsix
 #   5. code --install-extension <vsix> --force
 #
-# Rerun after any extension / emulator / LSP change to pick the
-# rebuild up in VS Code.
+# Rerun after any toolchain or extension change to pick the rebuild
+# up in VS Code.
 
 $ErrorActionPreference = 'Stop'
 
@@ -36,21 +37,35 @@ if (Test-Path (Join-Path $vsInstaller 'vswhere.exe')) {
     $env:PATH = "$vsInstaller;$env:PATH"
 }
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
-$extDir   = Join-Path $repoRoot 'editors/vscode'
+$repoRoot       = Resolve-Path (Join-Path $PSScriptRoot '..')
+$extDir         = Join-Path $repoRoot 'editors/vscode'
+$toolchainRoot  = Join-Path $env:LOCALAPPDATA 'Koh\toolchain'
+$devVersion     = 'dev'
+$devBin         = Join-Path $toolchainRoot "$devVersion\bin"
+
+New-Item -ItemType Directory -Path $devBin -Force | Out-Null
 
 Push-Location $repoRoot
 try {
-    Write-Host '─── Publishing koh-lsp ───' -ForegroundColor Cyan
-    dotnet publish src/Koh.Lsp -c Release -o (Join-Path $extDir 'server')
+    Write-Host "─── Publishing toolchain into $devBin ───" -ForegroundColor Cyan
+
+    dotnet publish src/Koh.Lsp -c Release -r win-x64 --self-contained -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-lsp publish failed ($LASTEXITCODE)" }
 
-    Write-Host '─── Publishing Koh.Emulator.App (NativeAOT) ───' -ForegroundColor Cyan
-    # The extension's KohDapAdapterFactory resolves the emulator
-    # under src/Koh.Emulator.App/bin/Release/net10.0/win-x64/publish
-    # by default, matching what this target produces.
-    dotnet publish src/Koh.Emulator.App -c Release -r win-x64
+    dotnet publish src/Koh.Asm -c Release -r win-x64 -o $devBin
+    if ($LASTEXITCODE -ne 0) { throw "koh-asm publish failed ($LASTEXITCODE)" }
+
+    dotnet publish src/Koh.Link -c Release -r win-x64 -o $devBin
+    if ($LASTEXITCODE -ne 0) { throw "koh-link publish failed ($LASTEXITCODE)" }
+
+    dotnet publish src/Koh.Emulator.App -c Release -r win-x64 -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "emulator publish failed ($LASTEXITCODE)" }
+
+    # Metadata file + current pointer — same layout the Inno Setup
+    # installer and the extension's auto-installer write.
+    $meta = '{"version":"' + $devVersion + '","rid":"win-x64","installedAt":""}'
+    Set-Content -Path (Join-Path (Split-Path $devBin -Parent) 'version.json') -Value $meta -Encoding utf8 -NoNewline
+    Set-Content -Path (Join-Path $toolchainRoot 'current') -Value $devVersion -Encoding utf8 -NoNewline
 }
 finally {
     Pop-Location
@@ -82,13 +97,10 @@ try {
     code --install-extension $vsix.FullName --force
     if ($LASTEXITCODE -ne 0) { throw "code install failed ($LASTEXITCODE)" }
 
-    $emuExe = Join-Path $repoRoot 'src/Koh.Emulator.App/bin/Release/net10.0/win-x64/publish/Koh.Emulator.App.exe'
     Write-Host ''
     Write-Host "Installed: $($vsix.Name)" -ForegroundColor Green
+    Write-Host "Dev toolchain at: $devBin"
     Write-Host 'Reload any open VS Code windows for the new build to take effect.'
-    Write-Host ''
-    Write-Host 'Set this in your VS Code settings so F5 can find the emulator:' -ForegroundColor Yellow
-    Write-Host "  `"koh.emulator.exePath`": `"$($emuExe -replace '\\', '/')`""
 }
 finally {
     Pop-Location
