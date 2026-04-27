@@ -41,6 +41,7 @@ export function waitForDapReady(child: ChildProcess, timeoutMs: number): Promise
             child.stdout?.off('data', onData);
             child.stderr?.off('data', onData);
             child.off('exit', onExit);
+            child.off('error', onError);
             err ? reject(err) : resolve();
         };
         const onData = (data: Buffer | string) => {
@@ -56,6 +57,7 @@ export function waitForDapReady(child: ChildProcess, timeoutMs: number): Promise
         const onExit = (code: number | null) => settle(
             new Error(`emulator exited (code=${code}) before DAP server was listening`),
         );
+        const onError = (err: Error) => settle(err);
         const timer = setTimeout(
             () => settle(new Error(`emulator DAP server didn't start within ${timeoutMs}ms`)),
             timeoutMs,
@@ -64,5 +66,6 @@ export function waitForDapReady(child: ChildProcess, timeoutMs: number): Promise
         child.stdout?.on('data', onData);
         child.stderr?.on('data', onData);
         child.on('exit', onExit);
+        child.on('error', onError);
     });
 }

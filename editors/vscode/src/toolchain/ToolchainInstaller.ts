@@ -182,7 +182,14 @@ function extractZipBuffer(buf: Buffer, destDir: string): Promise<void> {
             zip.on('end', resolve);
             zip.readEntry();
             zip.on('entry', entry => {
-                const target = path.join(destDir, entry.fileName);
+                let target: string;
+                try {
+                    target = resolveArchiveEntryTarget(destDir, entry.fileName);
+                } catch (err) {
+                    reject(err);
+                    zip.close();
+                    return;
+                }
                 // Zip entries ending with '/' are directories.
                 if (/\/$/.test(entry.fileName)) {
                     fs.mkdirSync(target, { recursive: true });
@@ -201,4 +208,24 @@ function extractZipBuffer(buf: Buffer, destDir: string): Promise<void> {
             });
         });
     });
+}
+
+export function resolveArchiveEntryTarget(destDir: string, entryName: string): string {
+    const normalized = entryName.replace(/\\/g, '/');
+    if (path.isAbsolute(normalized)) {
+        throw new Error(`archive entry uses absolute path: ${entryName}`);
+    }
+
+    const parts = normalized.split('/').filter(part => part.length > 0);
+    if (parts.some(part => part === '..')) {
+        throw new Error(`archive entry escapes destination: ${entryName}`);
+    }
+
+    const root = path.resolve(destDir);
+    const target = path.resolve(root, ...parts);
+    const relative = path.relative(root, target);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error(`archive entry escapes destination: ${entryName}`);
+    }
+    return target;
 }

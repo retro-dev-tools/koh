@@ -10,7 +10,13 @@ import { DAP_LISTENING_MARKER, waitForDapReady } from '../debug/waitForDapReady'
  * EventEmitter with PassThrough streams covers the contract without
  * spawning a real process.
  */
-function fakeChild(): { child: ChildProcess; stdout: PassThrough; stderr: PassThrough; emitExit: (code: number | null) => void } {
+function fakeChild(): {
+    child: ChildProcess;
+    stdout: PassThrough;
+    stderr: PassThrough;
+    emitExit: (code: number | null) => void;
+    emitError: (err: Error) => void;
+} {
     const ee: any = new EventEmitter();
     ee.stdout = new PassThrough();
     ee.stderr = new PassThrough();
@@ -22,6 +28,7 @@ function fakeChild(): { child: ChildProcess; stdout: PassThrough; stderr: PassTh
         stdout: ee.stdout,
         stderr: ee.stderr,
         emitExit: (code) => ee.emit('exit', code, null),
+        emitError: (err) => ee.emit('error', err),
     };
 }
 
@@ -66,6 +73,13 @@ suite('waitForDapReady', () => {
         const ready = waitForDapReady(child, 5_000);
         emitExit(127);
         await assert.rejects(ready, /exited \(code=127\).*before DAP server was listening/);
+    });
+
+    test('rejects immediately when the emulator spawn emits error', async () => {
+        const { child, emitError } = fakeChild();
+        const ready = waitForDapReady(child, 5_000);
+        emitError(new Error('spawn ENOENT'));
+        await assert.rejects(ready, /spawn ENOENT/);
     });
 
     test('rejects when the timeout fires before the marker', async () => {
