@@ -334,7 +334,7 @@ public sealed class Binder
         }
 
         var name = first.Text;
-        if (!name.StartsWith('.'))
+        if (!name.StartsWith('.') && !name.Contains('.'))
         {
             var sym = _symbols.Lookup(name, _ownerContext);
             if (sym != null)

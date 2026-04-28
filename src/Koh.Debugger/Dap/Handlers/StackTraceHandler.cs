@@ -1,4 +1,5 @@
 using Koh.Debugger.Dap.Messages;
+using Koh.Linker.Core;
 
 namespace Koh.Debugger.Dap.Handlers;
 
@@ -23,7 +24,7 @@ public sealed class StackTraceHandler
 
         var frames = new List<StackFrame>
         {
-            new() { Id = 0, Name = $"${gb.Registers.Pc:X4}", Line = 0, InstructionPointerReference = "0x" + gb.Registers.Pc.ToString("X4") },
+            CreateFrame(_session, gb.Cartridge.CurrentRomBank, gb.Registers.Pc, 0),
         };
 
         // Walk stack: each frame's return address is a 16-bit little-endian
@@ -36,13 +37,7 @@ public sealed class StackTraceHandler
             byte hi = gb.Mmu.DebugRead((ushort)(sp + 1));
             ushort retPc = (ushort)((hi << 8) | lo);
             if (retPc == 0) break;  // probably not a valid frame
-            frames.Add(new StackFrame
-            {
-                Id = frames.Count,
-                Name = $"${retPc:X4}",
-                Line = 0,
-                InstructionPointerReference = "0x" + retPc.ToString("X4"),
-            });
+            frames.Add(CreateFrame(_session, gb.Cartridge.CurrentRomBank, retPc, frames.Count));
             sp = (ushort)(sp + 2);
         }
 
@@ -54,6 +49,29 @@ public sealed class StackTraceHandler
                 StackFrames = frames.ToArray(),
                 TotalFrames = frames.Count,
             },
+        };
+    }
+
+    private static StackFrame CreateFrame(DebugSession session, byte currentRomBank, ushort pc, int id)
+    {
+        byte bank = pc >= 0x4000 ? currentRomBank : (byte)0;
+        var location = session.DebugInfo.SourceMap.Lookup(new BankedAddress(bank, pc));
+        string name = location is null
+            ? $"${pc:X4}"
+            : $"{Path.GetFileName(location.File)}:{location.Line}";
+
+        return new StackFrame
+        {
+            Id = id,
+            Name = name,
+            Source = location is null ? null : new Source
+            {
+                Name = Path.GetFileName(location.File),
+                Path = location.File,
+            },
+            Line = location is null ? 1 : checked((int)location.Line),
+            Column = 1,
+            InstructionPointerReference = "0x" + pc.ToString("X4"),
         };
     }
 }

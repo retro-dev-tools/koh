@@ -17,6 +17,7 @@ namespace Koh.Debugger.Dap;
 [JsonSerializable(typeof(TerminateArguments))]
 [JsonSerializable(typeof(SetBreakpointsArguments))]
 [JsonSerializable(typeof(SetBreakpointsResponseBody))]
+[JsonSerializable(typeof(Source))]
 [JsonSerializable(typeof(Breakpoint))]
 [JsonSerializable(typeof(ScopesArguments))]
 [JsonSerializable(typeof(ScopesResponseBody))]

@@ -563,7 +563,8 @@ internal sealed class Parser
         // Compound label: Identifier + LocalLabel (e.g. Alpha.local1)
         if (Current.Kind == SyntaxKind.LocalLabelToken &&
             children[0] is GreenToken firstToken &&
-            firstToken.Kind == SyntaxKind.IdentifierToken)
+            firstToken.Kind == SyntaxKind.IdentifierToken &&
+            !HasNewlineTrivia(firstToken))
         {
             var localToken = Advance();
             children[0] = new GreenToken(SyntaxKind.IdentifierToken,
@@ -698,6 +699,16 @@ internal sealed class Parser
     private GreenNode ParseLabelOperand()
     {
         var children = new List<GreenNodeBase> { Advance() };
+        if (Current.Kind == SyntaxKind.LocalLabelToken &&
+            children[0] is GreenToken firstToken &&
+            firstToken.Kind == SyntaxKind.IdentifierToken &&
+            !HasNewlineTrivia(firstToken))
+        {
+            var localToken = Advance();
+            children[0] = new GreenToken(SyntaxKind.IdentifierToken,
+                firstToken.Text + localToken.Text,
+                firstToken.LeadingTrivia, localToken.TrailingTrivia);
+        }
         // \@ suffix is part of the label — consuming it here ensures its width
         // is included in FullWidth sums (critical for position calculations).
         if (Current.Kind == SyntaxKind.MacroParamToken)
@@ -789,6 +800,15 @@ internal sealed class Parser
             case SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken:
             {
                 var name = Advance();
+                if (Current.Kind == SyntaxKind.LocalLabelToken &&
+                    name.Kind == SyntaxKind.IdentifierToken &&
+                    !HasNewlineTrivia(name))
+                {
+                    var localToken = Advance();
+                    name = new GreenToken(SyntaxKind.IdentifierToken,
+                        name.Text + localToken.Text,
+                        name.LeadingTrivia, localToken.TrailingTrivia);
+                }
                 if (Current.Kind == SyntaxKind.MacroParamToken)
                     return new GreenNode(SyntaxKind.NameExpression, [name, Advance()]);
                 return new GreenNode(SyntaxKind.NameExpression, [name]);

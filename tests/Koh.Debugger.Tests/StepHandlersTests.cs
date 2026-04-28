@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
+using Koh.Linker.Core;
 using Koh.Emulator.Core.Cartridge;
 
 namespace Koh.Debugger.Tests;
@@ -105,5 +106,34 @@ public class StepHandlersTests
         await Assert.That(frames.GetArrayLength()).IsGreaterThanOrEqualTo(1);
         string firstName = frames[0].GetProperty("name").GetString() ?? "";
         await Assert.That(firstName).IsEqualTo("$0100");
+    }
+
+    [Test]
+    public async Task StackTrace_Includes_Source_When_DebugInfo_Maps_Current_Pc()
+    {
+        var builder = new DebugInfoBuilder();
+        builder.AddAddressMapping(bank: 0, address: 0x0100, byteCount: 1,
+            sourceFile: "src/main.asm", line: 12);
+        using var kdbgStream = new MemoryStream();
+        KdbgFileWriter.Write(kdbgStream, builder);
+
+        var rom = new byte[0x8000];
+        rom[0x147] = 0x00;
+        rom[0x100] = 0x00;
+
+        var dispatcher = new DapDispatcher();
+        var session = new DebugSession();
+        session.Launch(rom, kdbgStream.ToArray(), Koh.Emulator.Core.HardwareMode.Dmg);
+        HandlerRegistration.RegisterAll(dispatcher, session, _ => Array.Empty<byte>());
+
+        var responses = new List<byte[]>();
+        dispatcher.ResponseReady += data => responses.Add(data.ToArray());
+
+        dispatcher.HandleRequest(Encode(1, "stackTrace"));
+
+        using var doc = JsonDocument.Parse(responses[0]);
+        var frame = doc.RootElement.GetProperty("body").GetProperty("stackFrames")[0];
+        await Assert.That(frame.GetProperty("line").GetInt32()).IsEqualTo(12);
+        await Assert.That(frame.GetProperty("source").GetProperty("path").GetString()).IsEqualTo("src/main.asm");
     }
 }

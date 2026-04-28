@@ -187,6 +187,73 @@ suite('KohDapAdapterFactory', () => {
         await resultPromise;
     });
 
+    test('terminateSession kills the child and drops it from the tracking map', async () => {
+        // Regression guard for the "emulator stays running after VS Code
+        // closes" bug. The factory must track the spawned child by
+        // session id and SIGTERM it when the debug session ends;
+        // otherwise the emulator process orphans (especially on Windows
+        // where child procs are not killed with their parent).
+        const { spawner, calls } = makeSpawner();
+        const factory = new KohDapAdapterFactory(log, fakeResolver({
+            version: 'dev', binDir: '/fake/bin', source: 'managedInstall',
+        }), spawner);
+
+        const session = fakeSession({ type: 'koh', request: 'launch', name: 's1', program: '/roms/foo.gb' });
+        // Nudge the factory by pretending VS Code wired session.id = 's1-id'.
+        (session as { id: string }).id = 's1-id';
+
+        const resultPromise = factory.createDebugAdapterDescriptor(session);
+        calls[0].stdout.write(`${DAP_LISTENING_MARKER} x\n`);
+        await resultPromise;
+
+        // Spy on kill — the fake child inherits from EventEmitter, so
+        // attach a kill() method that records invocation and flips the
+        // `killed` flag like a real ChildProcess would.
+        let killed = false;
+        (calls[0].child as unknown as { kill: (sig?: string) => boolean }).kill = () => { killed = true; return true; };
+        Object.defineProperty(calls[0].child, 'killed', { get: () => killed });
+        Object.defineProperty(calls[0].child, 'exitCode', { get: () => killed ? 0 : null });
+
+        factory.terminateSession('s1-id');
+        assert.strictEqual(killed, true, 'terminateSession must kill the tracked child');
+
+        // Second call is a no-op (child.exitCode is non-null now).
+        factory.terminateSession('s1-id');
+    });
+
+    test('dispose terminates every tracked session', async () => {
+        // Two concurrent debug sessions — e.g. user opened two
+        // launch.json configs — must BOTH be torn down on extension
+        // deactivate, not just the first.
+        const { spawner, calls } = makeSpawner();
+        const factory = new KohDapAdapterFactory(log, fakeResolver({
+            version: 'dev', binDir: '/fake/bin', source: 'managedInstall',
+        }), spawner);
+
+        const sA = fakeSession({ type: 'koh', request: 'launch', name: 'A', program: '/a.gb' });
+        const sB = fakeSession({ type: 'koh', request: 'launch', name: 'B', program: '/b.gb' });
+        (sA as { id: string }).id = 'A-id';
+        (sB as { id: string }).id = 'B-id';
+
+        const [pA, pB] = [
+            factory.createDebugAdapterDescriptor(sA),
+            factory.createDebugAdapterDescriptor(sB),
+        ];
+        for (const c of calls) c.stdout.write(`${DAP_LISTENING_MARKER} x\n`);
+        await Promise.all([pA, pB]);
+
+        const killed = [false, false];
+        for (let i = 0; i < calls.length; i++) {
+            const idx = i;
+            (calls[i].child as unknown as { kill: () => boolean }).kill = () => { killed[idx] = true; return true; };
+            Object.defineProperty(calls[i].child, 'killed', { get: () => killed[idx] });
+            Object.defineProperty(calls[i].child, 'exitCode', { get: () => killed[idx] ? 0 : null });
+        }
+
+        factory.dispose();
+        assert.deepStrictEqual(killed, [true, true], 'both children should be killed on dispose');
+    });
+
     test('rejects when the emulator exits before the banner appears', async () => {
         // Catches "emulator path is wrong / crashes immediately" — the
         // user should see the real exit code in the error, not a

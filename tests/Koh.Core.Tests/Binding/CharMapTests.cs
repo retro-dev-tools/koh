@@ -272,6 +272,29 @@ public class CharMapTests
     }
 
     [Test]
+    public async Task Macro_RedefEqus_Interpolation_IsResolved_PerExpansion()
+    {
+        var model = Emit("""
+            NEWCHARMAP mte
+            CHARMAP "One", $80, $00
+            CHARMAP "Four", $80, $01
+            SETCHARMAP mte
+
+            MACRO entry
+                REDEF _TEXT EQUS REVCHAR(\1, \2)
+                db STRLEN("{_TEXT}")
+            ENDM
+
+            SECTION "Main", ROM0
+                entry $80, $00
+                entry $80, $01
+            """);
+
+        await Assert.That(model.Success).IsTrue();
+        await Assert.That(model.Sections[0].Data).IsEquivalentTo(new byte[] { 3, 4 });
+    }
+
+    [Test]
     public async Task Revchar_NoMatch_ReportsError()
     {
         var model = Emit("""

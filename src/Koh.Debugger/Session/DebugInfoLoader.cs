@@ -17,7 +17,7 @@ public sealed class DebugInfoLoader
         {
             if (entry.SourceFile is null) continue;
             var addr = new BankedAddress(entry.Bank, entry.Address);
-            SourceMap.Add(entry.SourceFile, entry.Line, addr);
+            SourceMap.Add(entry.SourceFile, entry.Line, addr, entry.ByteCount);
         }
     }
 }

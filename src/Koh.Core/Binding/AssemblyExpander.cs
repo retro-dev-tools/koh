@@ -293,10 +293,13 @@ internal sealed class AssemblyExpander
             // {EQUS} interpolation — DEF {prefix}banana EQU 1, PURGE {prefix}banana, etc.
             // Skip block-structured nodes for the same reason as the macro param path above:
             // they need sibling context and have dedicated expansion handlers.
-            if (!isBlockNode && !_conditional.IsSuppressed && ctx.SourceText != null && NeedsInterpolation(node))
+            if (!isBlockNode && !_conditional.IsSuppressed && ctx.SourceText != null &&
+                (NeedsInterpolation(node) || NeedsDataStringInterpolation(node)))
             {
                 var rawText = ctx.SourceText.ToString(node.FullSpan);
-                var resolved = ResolveInterpolations(rawText);
+                var resolved = node.Kind == SyntaxKind.DataDirective
+                    ? ResolveDataDirectiveStringInterpolations(node, rawText)
+                    : ResolveInterpolations(rawText);
                 if (resolved != rawText)
                 {
                     var lc = ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.EqusReplay);
@@ -1405,6 +1408,93 @@ internal sealed class AssemblyExpander
             if (NeedsInterpolation(child))
                 return true;
         }
+        return false;
+    }
+
+    private string ResolveDataDirectiveStringInterpolations(SyntaxNode node, string rawText)
+    {
+        var replacements = new List<(int Start, int Length, string Text)>();
+        CollectStringLiteralReplacements(node, node.FullSpan.Start, replacements);
+        if (replacements.Count == 0)
+            return rawText;
+
+        var sb = new System.Text.StringBuilder(rawText);
+        foreach (var (start, length, text) in replacements.OrderByDescending(r => r.Start))
+        {
+            sb.Remove(start, length);
+            sb.Insert(start, text);
+        }
+        return sb.ToString();
+    }
+
+    private void CollectStringLiteralReplacements(
+        SyntaxNode node,
+        int baseStart,
+        List<(int Start, int Length, string Text)> replacements)
+    {
+        foreach (var tok in node.ChildTokens())
+        {
+            if (tok.Kind != SyntaxKind.StringLiteral || !HasUnescapedInterpolation(tok.Text))
+                continue;
+
+            var interpreted = ExpressionEvaluator.InterpretStringLiteral(tok.Text);
+            var resolved = ResolveInterpolations(interpreted);
+            if (resolved == interpreted)
+                continue;
+
+            replacements.Add((
+                tok.FullSpan.Start - baseStart,
+                tok.FullSpan.Length,
+                "\"" + EscapeStringLiteral(resolved) + "\""));
+        }
+
+        foreach (var child in node.ChildNodes())
+            CollectStringLiteralReplacements(child, baseStart, replacements);
+    }
+
+    private static string EscapeStringLiteral(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal)
+             .Replace("\"", "\\\"", StringComparison.Ordinal);
+
+    private bool NeedsDataStringInterpolation(SyntaxNode node)
+    {
+        if (node.Kind != SyntaxKind.DataDirective)
+            return false;
+
+        return ContainsStringInterpolation(node);
+    }
+
+    private bool ContainsStringInterpolation(SyntaxNode node)
+    {
+        foreach (var tok in node.ChildTokens())
+        {
+            if (tok.Kind == SyntaxKind.StringLiteral && HasUnescapedInterpolation(tok.Text))
+                return true;
+        }
+
+        foreach (var child in node.ChildNodes())
+        {
+            if (ContainsStringInterpolation(child))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasUnescapedInterpolation(string text)
+    {
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '{' || (i > 0 && text[i - 1] == '\\'))
+                continue;
+
+            for (int j = i + 1; j < text.Length; j++)
+            {
+                if (text[j] == '}' && text[j - 1] != '\\')
+                    return true;
+            }
+        }
+
         return false;
     }
 
