@@ -162,6 +162,8 @@ Boot:
     jr z, .playing
     cp GS_ANIMATING
     jr z, .animating
+    cp GS_WIN
+    jr z, .win
     cp GS_GAMEOVER
     jr z, .gameover
     jr .main_loop
@@ -174,9 +176,12 @@ Boot:
 .animating:
     farcall 1, AnimTick
     jr .main_loop
+.win:
+    farcall 3, WinTick
+    jr .main_loop
 .gameover:
     farcall 3, GameOverTick
-    jr .main_loop
+    jp .main_loop
 
 WaitForVBlankFlag:
 .wait:
@@ -230,6 +235,7 @@ INCLUDE "game/render.asm"
 INCLUDE "game/anim.asm"
 INCLUDE "screens/title.asm"
 INCLUDE "screens/gameover.asm"
+INCLUDE "screens/win.asm"
 
 ; -----------------------------------------------------------------------------
 ; Playing Logic — D-pad input dispatches to direction-specific move wrappers.

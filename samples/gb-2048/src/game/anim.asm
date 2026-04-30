@@ -61,8 +61,7 @@ AnimTick::
     jr nz, .no_win
     ld a, 1
     ld [wWonOnce], a
-    ld a, GS_WIN
-    ld [wGameState], a
+    farcall 3, WinEnter
     ret
 
 .no_win:
