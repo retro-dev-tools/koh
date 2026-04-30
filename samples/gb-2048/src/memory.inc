@@ -21,7 +21,7 @@ SECTION "OAM Buffer", WRAM0[$C100]
 wOAMBuffer:   ds 160        ; 40 sprites × 4 bytes — must be 256-byte aligned
 
 SECTION "HRAM", HRAM
-hOAMDMA::      ds 8         ; trampoline copied from ROM at boot
+hOAMDMA::      ds 10        ; trampoline copied from ROM at boot
 hFrameCounter: ds 1
 hSysFlags:     ds 1
 hScratch:      ds 4

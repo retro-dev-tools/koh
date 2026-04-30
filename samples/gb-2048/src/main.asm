@@ -116,6 +116,9 @@ Boot:
     ld bc, 160
     call MemClear
 
+    ; Install the OAM DMA trampoline.
+    call InstallOAMDMA
+
     ; 6. Initial state.
     xor a
     ld [wCurrentBank], a       ; bank 0 active by default
@@ -161,3 +164,5 @@ VBlankIRQ::
 SECTION "Stat", ROM0
 StatIRQ::
     reti
+
+INCLUDE "engine/oam_dma.asm"
