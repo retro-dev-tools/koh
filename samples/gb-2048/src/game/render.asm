@@ -246,76 +246,73 @@ DrawHud::
     ret
 
 ; -----------------------------------------------------------------------------
-; DrawBoardFull:: — write 16 cells (2x2 tiles each) to BG tilemap.
-; Board occupies rows 4..11, cols 6..13 of the 32-col tilemap.
-; Each cell is 2 columns × 2 rows of tiles = 4 tiles.
+; DrawBoardFull:: — write 16 cells to BG tilemap at row 4, cols 12..15.
+;
+; Each cell renders as a single 8×8 tile (one tile per cell) using a
+; logarithmic single-character representation:
+;   wBoard value 0  → TILE_FONT_SPACE  (empty)
+;   wBoard value 1  → TILE_DIGIT_1     (represents 2)
+;   wBoard value 2  → TILE_DIGIT_2     (represents 4)
+;   ...
+;   wBoard value 9  → TILE_DIGIT_9     (represents 512)
+;   wBoard value 10 → TILE_FONT_A      (represents 1024)
+;   wBoard value 11 → TILE_FONT_B      (represents 2048 — WIN tile)
+;   wBoard value 12 → TILE_FONT_C      (represents 4096)
+;
+; The 4×4 board occupies tilemap rows 4..7, cols 12..15 (centred on the
+; 20-column visible area). Each row of 4 cells is written in order; after
+; every 4 cells (col 15) the pointer advances to the next tilemap row by
+; adding 28 (32 − 4 = skip the remaining 28 columns to land on col 12 of
+; the next row). Clobbers AF, BC, DE, HL.
 ; -----------------------------------------------------------------------------
 DrawBoardFull::
-    ; 4 rows of cells, each cell row = 2 tilemap rows
-    ld b, 4                     ; cell rows (0..3)
-    ld c, 4                     ; cell row index
-.row_loop:
-    ld a, c                     ; cell_row (0-based)
-    ; Each cell row uses 2 tilemap rows. Base tilemap row = 4 + cell_row*2.
-    ; Row offset in tilemap = row * 32. We'll compute HL for top and bottom.
-
-    ; Compute top tilemap row address for this cell row.
-    ; top_row = 4 + cell_row_idx * 2, where cell_row_idx = 4 - b.
+    ld hl, _SCRN0 + 4*32 + 12  ; row 4, col 12
+    ld c, 0                    ; cell index 0..15
+.next_cell:
+    ; Read wBoard[c] → A.
     push bc
-    ld a, 4
-    sub b                       ; a = cell_row_idx (0..3)
-    add a, a                    ; a = cell_row_idx * 2
-    add a, 4                    ; a = top tilemap row index
-    ; HL = $9800 + row * 32 + col_start(6)
-    ; row * 32 = a << 5
-    ld h, 0
-    ld l, a
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl                  ; HL = row * 32
-    ld de, $9800 + 6
-    add hl, de                  ; HL = tilemap addr of (row, col=6)
-
-    ; Write 4 cells across, 2 tiles wide each = 8 tiles per tilemap row.
-    ; Top tilemap row of this cell row:
-    ld d, h
-    ld e, l                     ; DE = top row base addr
-    ; Write top row (8 tiles)
-    ld a, TILE_FONT_SPACE
-    ld [de], a
-    inc de
-    ld [de], a
-    inc de
-    ld [de], a
-    inc de
-    ld [de], a
-    inc de
-    ld [de], a
-    inc de
-    ld [de], a
-    inc de
-    ld [de], a
-    inc de
-    ld [de], a
-
-    ; Advance HL to next tilemap row (add 32 bytes)
-    ld de, 32
-    add hl, de                  ; HL = bottom row of this cell row (same cols)
-    ; Write bottom row (8 tiles)
-    ld a, TILE_FONT_SPACE
-    ld [hl+], a
-    ld [hl+], a
-    ld [hl+], a
-    ld [hl+], a
-    ld [hl+], a
-    ld [hl+], a
-    ld [hl+], a
-    ld [hl+], a
-
+    ld b, 0                    ; BC = c (zero-extend)
+    ld de, wBoard
+    push hl
+    ld h, d
+    ld l, e
+    add hl, bc                 ; HL = &wBoard[c]
+    ld a, [hl]
+    pop hl
     pop bc
-    dec b
-    jr nz, .row_loop
 
+    ; Convert wBoard value to tile id.
+    or a
+    jr z, .write_empty         ; 0 → space
+    cp 10
+    jr c, .write_digit         ; 1..9 → digit tile
+    ; 10..12 → font letter A/B/C
+    sub 10                     ; 0=A, 1=B, 2=C
+    add TILE_FONT_A
+    jr .write
+
+.write_digit:
+    ; A is 1..9; TILE_DIGIT_1 = TILE_DIGIT_0 + 1.
+    add TILE_DIGIT_0           ; 1 → TILE_DIGIT_1, ..., 9 → TILE_DIGIT_9
+    jr .write
+
+.write_empty:
+    ld a, TILE_FONT_SPACE
+
+.write:
+    ld [hl+], a
+
+    ; After every 4 cells (col boundary), skip to next tilemap row.
+    inc c
+    ld a, c
+    and $03
+    jr nz, .next_cell_cont
+    ; End of a row of 4 cells: hl currently points col 16.
+    ; Advance by 28 to reach col 12 of the next tilemap row.
+    ld de, 28
+    add hl, de
+.next_cell_cont:
+    ld a, c
+    cp 16
+    jr nz, .next_cell
     ret
