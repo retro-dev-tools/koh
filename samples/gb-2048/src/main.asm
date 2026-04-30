@@ -1,4 +1,5 @@
 INCLUDE "hardware.inc"
+INCLUDE "macros.inc"
 
 ; 2048 — Game Boy Color
 ;
