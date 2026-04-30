@@ -24,7 +24,7 @@ SECTION "HRAM", HRAM
 hOAMDMA::      ds 10        ; trampoline copied from ROM at boot
 hFrameCounter: ds 1
 hSysFlags:     ds 1
-hScratch:      ds 4
+hScratch:      ds 8         ; +0..3 running value, +4..5 output ptr, +6..7 reserved
 
 SECTION "SRAM", SRAM, BANK[0]
 sMagic:        ds 4         ; "K248"
