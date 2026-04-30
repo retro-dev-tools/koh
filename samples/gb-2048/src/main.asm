@@ -126,6 +126,17 @@ Boot:
     xor a
     ld [wCurrentBank], a       ; bank 0 active by default
 
+    ; Enable VBlank IRQ. STAT IRQ enabled by title screen later.
+    xor a
+    ldh [rIF], a
+    ld a, IEF_VBLANK
+    ldh [rIE], a
+    ei
+
+    ; Minimal LCD-on so VBlank fires. Real LCDC value set by render init later.
+    ld a, LCDCF_ON
+    ldh [rLCDC], a
+
     ; 7. T8 stop point. Real init continues in later tasks.
 .halt:
     halt
@@ -157,16 +168,6 @@ MemClear:
     jr nz, .loop
     ret
 
-; -----------------------------------------------------------------------------
-; Temporary interrupt handler stubs (will be replaced in T11).
-; -----------------------------------------------------------------------------
-SECTION "VBlank", ROM0
-VBlankIRQ::
-    reti
-
-SECTION "Stat", ROM0
-StatIRQ::
-    reti
-
 INCLUDE "engine/oam_dma.asm"
 INCLUDE "engine/vblank_queue.asm"
+INCLUDE "engine/irq.asm"
