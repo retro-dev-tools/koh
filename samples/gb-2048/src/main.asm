@@ -1,3 +1,5 @@
+INCLUDE "hardware.inc"
+
 ; 2048 — Game Boy Color
 ;
 ; Boot stub — Phase 0 only. Real entry replaces this in Phase 1.
