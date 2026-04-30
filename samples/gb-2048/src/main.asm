@@ -128,6 +128,7 @@ Boot:
     ldh a, [rDIV]
     ld l, a
     farcall 1, RngSeed
+    farcall 1, SaveLoad
 
     ; 6. Initial state.
     xor a
@@ -194,3 +195,4 @@ INCLUDE "engine/hdma.asm"
 INCLUDE "engine/rng.asm"
 INCLUDE "game/score.asm"
 INCLUDE "game/board.asm"
+INCLUDE "game/save.asm"
