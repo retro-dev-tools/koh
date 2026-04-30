@@ -70,10 +70,86 @@ SECTION "Header", ROM0[$0104]
 SECTION "Boot", ROM0
 Boot:
     di
-    ld sp, $E000               ; top of WRAM
+    ld sp, $E000
+
+    ; 1. Disable LCD before touching VRAM. Wait for VBlank first to avoid the
+    ;    well-known GBC LCD-off-mid-frame issue.
+    ldh a, [rLY]
+    cp 144
+    jr c, .wait_vblank
+    xor a
+    ldh [rLCDC], a
+    jr .lcd_off
+.wait_vblank:
+    ldh a, [rLY]
+    cp 144
+    jr c, .wait_vblank
+    xor a
+    ldh [rLCDC], a
+.lcd_off:
+
+    ; 2. Switch to double speed. KEY1 prepare → STOP.
+    ld a, $30                  ; P1F_GET_NONE — pad disabled
+    ldh [rP1], a
+    ld a, %0000_0001           ; bit 0 = prepare speed switch
+    ldh [rKEY1], a
+    stop
+    nop                        ; safety nop after STOP
+
+    ; 3. Clear VRAM bank 0 ($8000..$9FFF) and bank 1.
+    xor a
+    ldh [rVBK], a
+    call ClearVram
+    ld a, 1
+    ldh [rVBK], a
+    call ClearVram
+    xor a
+    ldh [rVBK], a
+
+    ; 4. Clear WRAM ($C000..$DFFF). Skip OAM buffer? Cleared anyway.
+    ld hl, $C000
+    ld bc, $2000
+    call MemClear
+
+    ; 5. Clear OAM (write to OAM directly; rDMA copies wOAMBuffer next VBlank).
+    ld hl, _OAMRAM
+    ld bc, 160
+    call MemClear
+
+    ; 6. Initial state.
+    xor a
+    ld [wCurrentBank], a       ; bank 0 active by default
+
+    ; 7. T8 stop point. Real init continues in later tasks.
 .halt:
     halt
     jr .halt
+
+ClearVram:
+    ld hl, $8000
+    ld bc, $2000
+.loop:
+    xor a
+    ld [hl+], a
+    dec bc
+    ld a, b
+    or c
+    jr nz, .loop
+    ret
+
+; -----------------------------------------------------------------------------
+; MemClear — fill HL..HL+BC-1 with zero. Clobbers A, BC, HL.
+; -----------------------------------------------------------------------------
+SECTION "MemClear", ROM0
+MemClear:
+    xor a
+.loop:
+    ld [hl+], a
+    dec bc
+    ld a, b
+    or c
+    jr nz, .loop
+    ret
 
 ; -----------------------------------------------------------------------------
 ; Temporary interrupt handler stubs (will be replaced in T11).
