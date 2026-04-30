@@ -18,3 +18,4 @@ Output: `build/2048.gbc`. Open in BGB, SameBoy, or mGBA.
 ## Notes
 
 - Public labels use `::` syntax (Koh supports RGBDS-compatible exported-label syntax).
+- `koh-link` automatically patches the GB header checksum at `$014D` and global checksum at `$014E–$014F`.
