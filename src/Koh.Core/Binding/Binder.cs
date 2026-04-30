@@ -138,9 +138,17 @@ public sealed class Binder
     /// Create an ExpressionEvaluator with all resolvers wired up.
     /// </summary>
     private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC)
+        => CreateEvaluator(getCurrentPC, null);
+
+    /// <summary>
+    /// Create an ExpressionEvaluator with all resolvers wired up, with section context for
+    /// cross-section deferral.
+    /// </summary>
+    private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC, SectionBuffer? section)
     {
         var eval = new ExpressionEvaluator(_symbols, _diagnostics, getCurrentPC, _fracBits,
-            _charMaps, _expander != null ? _expander.ResolveInterpolations : null)
+            _charMaps, _expander != null ? _expander.ResolveInterpolations : null,
+            section?.Name, section?.BaseAddress ?? 0)
         {
             FracBits = _fracBits,
             EqusResolver = name => _expander?.LookupEqus(name),
@@ -1060,7 +1068,7 @@ public sealed class Binder
 
         var keyword = node.ChildTokens().First();
         var expressions = node.ChildNodes().ToList();
-        var evaluator = CreateEvaluator(() => section.CurrentPC);
+        var evaluator = CreateEvaluator(() => section.CurrentPC, section);
 
         // Check: data (db/dw/dl) in RAM sections (only ds is allowed)
         if (keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword)
@@ -1233,7 +1241,7 @@ public sealed class Binder
         }
         var exprNodes = node.ChildNodes().ToList();
         if (exprNodes.Count == 0) return;
-        var evaluator = CreateEvaluator(() => section.CurrentPC);
+        var evaluator = CreateEvaluator(() => section.CurrentPC, section);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
 
@@ -1690,7 +1698,7 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan, "ALIGN requires an alignment value");
             return;
         }
-        var evaluator = CreateEvaluator(() => section.CurrentPC);
+        var evaluator = CreateEvaluator(() => section.CurrentPC, section);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
         {

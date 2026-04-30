@@ -78,7 +78,8 @@ internal sealed class InstructionEncoder
     public void Encode(SyntaxNode node, InstructionDescriptor desc, SectionBuffer section)
     {
         int instructionPC = section.CurrentPC;
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => instructionPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => instructionPC,
+            section.Name, section.BaseAddress);
 
         int opcodeOffset = section.CurrentOffset;
 
@@ -131,6 +132,7 @@ internal sealed class InstructionEncoder
                                 Kind = PatchKind.Absolute8,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = ExtractSingleIdentifier(operandGreen),
                             });
                     }
                     break;
@@ -150,6 +152,7 @@ internal sealed class InstructionEncoder
                                 Kind = PatchKind.Absolute16,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = ExtractSingleIdentifier(operandGreen),
                             });
                     }
                     break;
@@ -157,6 +160,7 @@ internal sealed class InstructionEncoder
                 case EmitRuleKind.AppendRelative8:
                     if (value.HasValue)
                     {
+                        // value.Value is an absolute address (evaluator already adds section base).
                         long rel = value.Value - (section.CurrentPC + 1);
                         if (rel < -128 || rel > 127)
                         {
@@ -179,9 +183,12 @@ internal sealed class InstructionEncoder
                                 Offset = offset,
                                 Expression = operandGreen,
                                 Kind = PatchKind.Relative8,
-                                PCAfterInstruction = section.CurrentPC,
+                                // Store section-relative offset of the byte after this instruction.
+                                // PatchResolver adds section.BaseAddress to recover absolute PC.
+                                PCAfterInstruction = section.CurrentOffset,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = ExtractSingleIdentifier(operandGreen),
                             });
                     }
                     break;
@@ -257,4 +264,31 @@ internal sealed class InstructionEncoder
         SyntaxKind.RegisterOperand or SyntaxKind.ImmediateOperand or
         SyntaxKind.IndirectOperand or SyntaxKind.ConditionOperand or
         SyntaxKind.LabelOperand;
+
+    /// <summary>
+    /// Returns the identifier name if <paramref name="expression"/> is a bare identifier.
+    /// Handles both a <see cref="SyntaxKind.NameExpression"/> (wrapping a single token)
+    /// and a raw <see cref="SyntaxKind.IdentifierToken"/> or
+    /// <see cref="SyntaxKind.LocalLabelToken"/> (produced by LabelOperand unwrapping).
+    /// Returns <c>null</c> for complex expressions (binary, unary, function calls, etc.).
+    /// </summary>
+    private static string? ExtractSingleIdentifier(GreenNodeBase expression)
+    {
+        // Raw token (e.g. child of LabelOperand after GetChild(0))
+        if (expression is GreenToken rawToken)
+        {
+            if (rawToken.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
+                return rawToken.Text;
+            return null;
+        }
+
+        if (expression is not GreenNode nameExpr) return null;
+        if (nameExpr.Kind != SyntaxKind.NameExpression) return null;
+        if (nameExpr.ChildCount != 1) return null;
+        var token = nameExpr.GetChild(0) as GreenToken;
+        if (token is null) return null;
+        if (token.Kind is not (SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken))
+            return null;
+        return token.Text;
+    }
 }

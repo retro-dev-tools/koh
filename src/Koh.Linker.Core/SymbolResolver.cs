@@ -57,6 +57,32 @@ public sealed class SymbolResolver
     }
 
     /// <summary>
+    /// Look up a symbol by name, searching local symbols from the given source file
+    /// in addition to globally exported symbols. Used by the linker to resolve
+    /// cross-section patches within the same object file.
+    /// </summary>
+    public LinkerSymbol? Lookup(string name, string? sourceFile)
+    {
+        // Prefer a file-local symbol match (handles intra-file cross-section refs)
+        if (sourceFile != null)
+        {
+            foreach (var sym in _allSymbols)
+            {
+                if (sym.Visibility != SymbolVisibility.Imported &&
+                    StringComparer.OrdinalIgnoreCase.Equals(sym.SourceFile, sourceFile) &&
+                    StringComparer.OrdinalIgnoreCase.Equals(sym.Name, name))
+                {
+                    return sym;
+                }
+            }
+        }
+
+        // Fall back to globally exported symbols
+        _globals.TryGetValue(name, out var globalSym);
+        return globalSym;
+    }
+
+    /// <summary>
     /// Update absolute addresses for all symbols after section placement.
     /// Label symbols get their section's placed address + their section-relative value.
     /// Constants keep their original value.
