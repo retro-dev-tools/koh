@@ -66,13 +66,10 @@ AnimTick::
     ret
 
 .no_win:
-    ; Check lose: Z set if board is full with no moves remaining.
     call CheckLose
     jr nz, .no_lose
-    ld a, GS_GAMEOVER
-    ld [wGameState], a
+    farcall 3, GameOverEnter
     ret
-
 .no_lose:
     ld a, GS_PLAYING
     ld [wGameState], a
