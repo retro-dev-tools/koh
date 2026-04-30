@@ -122,6 +122,21 @@ Boot:
     ; Clear the VBlank queue.
     call QueueClear
 
+    ; Seed RNG from DIV (will be re-seeded by first input later).
+    ldh a, [rDIV]
+    ld h, a
+    ldh a, [rDIV]
+    ld l, a
+    ld a, [wCurrentBank]
+    push af
+    ld a, 1
+    ld [wCurrentBank], a
+    ld [rROMB0], a
+    call RngSeed
+    pop af
+    ld [wCurrentBank], a
+    ld [rROMB0], a
+
     ; 6. Initial state.
     xor a
     ld [wCurrentBank], a       ; bank 0 active by default
@@ -184,3 +199,4 @@ INCLUDE "engine/vblank_queue.asm"
 INCLUDE "engine/irq.asm"
 INCLUDE "engine/input.asm"
 INCLUDE "engine/hdma.asm"
+INCLUDE "engine/rng.asm"
