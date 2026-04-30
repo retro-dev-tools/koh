@@ -119,6 +119,9 @@ Boot:
     ; Install the OAM DMA trampoline.
     call InstallOAMDMA
 
+    ; Clear the VBlank queue.
+    call QueueClear
+
     ; 6. Initial state.
     xor a
     ld [wCurrentBank], a       ; bank 0 active by default
@@ -166,3 +169,4 @@ StatIRQ::
     reti
 
 INCLUDE "engine/oam_dma.asm"
+INCLUDE "engine/vblank_queue.asm"
