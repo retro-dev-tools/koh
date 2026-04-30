@@ -157,7 +157,9 @@ internal sealed class InstructionEncoder
                 case EmitRuleKind.AppendRelative8:
                     if (value.HasValue)
                     {
-                        long rel = value.Value - (section.CurrentPC + 1);
+                        // value.Value is a section-relative offset; convert to absolute for the
+                        // relative-branch calculation by adding the section's base address.
+                        long rel = (section.BaseAddress + value.Value) - (section.CurrentPC + 1);
                         if (rel < -128 || rel > 127)
                         {
                             _diagnostics.Report(node.FullSpan,

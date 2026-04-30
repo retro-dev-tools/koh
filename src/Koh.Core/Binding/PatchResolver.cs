@@ -66,7 +66,9 @@ internal sealed class PatchResolver
                         section.ApplyPatchLong(patch.Offset, (uint)(value.Value & 0xFFFFFFFF));
                         break;
                     case PatchKind.Relative8:
-                        long rel = value.Value - patch.PCAfterInstruction;
+                        // value.Value is a section-relative offset; convert to absolute for
+                        // the relative-branch calculation by adding the section's base address.
+                        long rel = (section.BaseAddress + value.Value) - patch.PCAfterInstruction;
                         if (rel < -128 || rel > 127)
                         {
                             _diagnostics.Report(patch.DiagnosticSpan,

@@ -210,12 +210,12 @@ public class BinderSymbolTests
     [Test]
     public async Task Section_FixedAddress_LabelHasCorrectPC()
     {
-        // SECTION at $0100 — label defined immediately should have PC = $0100
+        // SECTION at $0100 — label defined immediately should have section-relative offset = 0
         var result = Bind("SECTION \"Entry\", ROM0[$0100]\nentry:\nnop");
         await Assert.That(result.Success).IsTrue();
         var sym = result.Symbols!.Lookup("entry");
         await Assert.That(sym).IsNotNull();
-        await Assert.That(sym!.Value).IsEqualTo(0x0100);
+        await Assert.That(sym!.Value).IsEqualTo(0);
     }
 
     [Test]
@@ -225,7 +225,7 @@ public class BinderSymbolTests
         await Assert.That(result.Success).IsTrue();
         var sym = result.Symbols!.Lookup("end");
         await Assert.That(sym).IsNotNull();
-        await Assert.That(sym!.Value).IsEqualTo(0x0102); // $0100 + 2 nops
+        await Assert.That(sym!.Value).IsEqualTo(2); // 2 nops in section
     }
 
     [Test]

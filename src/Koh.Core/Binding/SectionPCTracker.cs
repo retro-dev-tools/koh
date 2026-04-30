@@ -122,15 +122,25 @@ internal sealed class SectionPCTracker
     /// <summary>Section name used for label addresses (switches during LOAD).</summary>
     public string? LabelSectionName => _loadSection ?? _activeSection;
 
-    /// <summary>PC for label placement (uses load section PC if in a LOAD block).</summary>
-    public int LabelPC => _loadSection != null && _sectionPCs.TryGetValue(_loadSection, out var pc)
-        ? pc : CurrentPC;
+    /// <summary>Section-relative offset for label placement (uses load section offset if in a LOAD block).</summary>
+    public int LabelPC
+    {
+        get
+        {
+            if (_loadSection != null
+                && _sectionPCs.TryGetValue(_loadSection, out var lpc)
+                && _sectionBasePCs.TryGetValue(_loadSection, out var lbase))
+                return lpc - lbase;
+            return ActiveSectionOffset;
+        }
+    }
 
     public void BeginLoad(string loadSectionName, int basePC)
     {
         if (_loadSection != null) return; // nested LOAD not supported
         _loadSection = loadSectionName;
         _sectionPCs.TryAdd(loadSectionName, basePC);
+        _sectionBasePCs.TryAdd(loadSectionName, basePC);
     }
 
     public bool EndLoad()
