@@ -14,3 +14,7 @@ Output: `build/2048.gbc`. Open in BGB, SameBoy, or mGBA.
 ## Controls
 
 (Filled in once gameplay is wired up.)
+
+## Notes
+
+- Public labels use `::` syntax (Koh supports RGBDS-compatible exported-label syntax).
