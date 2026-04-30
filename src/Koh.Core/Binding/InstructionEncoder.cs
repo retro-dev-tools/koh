@@ -132,6 +132,7 @@ internal sealed class InstructionEncoder
                                 Kind = PatchKind.Absolute8,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = ExtractSingleIdentifier(operandGreen),
                             });
                     }
                     break;
@@ -151,6 +152,7 @@ internal sealed class InstructionEncoder
                                 Kind = PatchKind.Absolute16,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = ExtractSingleIdentifier(operandGreen),
                             });
                     }
                     break;
@@ -181,9 +183,12 @@ internal sealed class InstructionEncoder
                                 Offset = offset,
                                 Expression = operandGreen,
                                 Kind = PatchKind.Relative8,
-                                PCAfterInstruction = section.CurrentPC,
+                                // Store section-relative offset of the byte after this instruction.
+                                // PatchResolver adds section.BaseAddress to recover absolute PC.
+                                PCAfterInstruction = section.CurrentOffset,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = ExtractSingleIdentifier(operandGreen),
                             });
                     }
                     break;
@@ -259,4 +264,22 @@ internal sealed class InstructionEncoder
         SyntaxKind.RegisterOperand or SyntaxKind.ImmediateOperand or
         SyntaxKind.IndirectOperand or SyntaxKind.ConditionOperand or
         SyntaxKind.LabelOperand;
+
+    /// <summary>
+    /// Returns the identifier name if <paramref name="expression"/> is a bare
+    /// <see cref="SyntaxKind.NameExpression"/> with exactly one child token
+    /// (an IdentifierToken or LocalLabelToken and no MacroParamToken sibling).
+    /// Returns <c>null</c> for complex expressions (binary, unary, function calls, etc.).
+    /// </summary>
+    private static string? ExtractSingleIdentifier(GreenNodeBase expression)
+    {
+        if (expression is not GreenNode nameExpr) return null;
+        if (nameExpr.Kind != SyntaxKind.NameExpression) return null;
+        if (nameExpr.ChildCount != 1) return null;
+        var token = nameExpr.GetChild(0) as GreenToken;
+        if (token is null) return null;
+        if (token.Kind is not (SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken))
+            return null;
+        return token.Text;
+    }
 }

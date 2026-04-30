@@ -68,7 +68,8 @@ internal sealed class PatchResolver
                         break;
                     case PatchKind.Relative8:
                         // value.Value is an absolute address (evaluator adds section base).
-                        long rel = value.Value - patch.PCAfterInstruction;
+                        // PCAfterInstruction is section-relative; add BaseAddress to get absolute.
+                        long rel = value.Value - (section.BaseAddress + patch.PCAfterInstruction);
                         if (rel < -128 || rel > 127)
                         {
                             _diagnostics.Report(patch.DiagnosticSpan,
