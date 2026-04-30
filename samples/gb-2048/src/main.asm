@@ -129,6 +129,7 @@ Boot:
     ld l, a
     farcall 1, RngSeed
     farcall 1, SaveLoad
+    call SoundInit
 
     ; 6. Initial state.
     xor a
@@ -193,6 +194,7 @@ INCLUDE "engine/irq.asm"
 INCLUDE "engine/input.asm"
 INCLUDE "engine/hdma.asm"
 INCLUDE "engine/rng.asm"
+INCLUDE "engine/sound.asm"
 INCLUDE "game/score.asm"
 INCLUDE "game/board.asm"
 INCLUDE "game/save.asm"
