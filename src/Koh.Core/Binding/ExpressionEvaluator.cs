@@ -24,6 +24,8 @@ public sealed class ExpressionEvaluator
     private readonly int _fracBits;
     private readonly CharMapManager? _charMaps;
     private readonly Func<string, string>? _resolveInterpolations;
+    private readonly string? _currentSectionName;
+    private readonly int _currentSectionBaseAddress;
 
     /// <summary>Fixed-point fractional bits (Q.N). Default is 16.</summary>
     public int FracBits { get; set; } = 16;
@@ -56,13 +58,24 @@ public sealed class ExpressionEvaluator
 
     public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
         Func<int> getCurrentPC, int fracBits = 0)
-        : this(symbols, diagnostics, getCurrentPC, fracBits, null, null)
+        : this(symbols, diagnostics, getCurrentPC, fracBits, null, null, null, 0)
+    {
+    }
+
+    /// <summary>
+    /// Construct an evaluator that knows which section is currently being assembled,
+    /// enabling cross-section deferral (returns null for labels in other sections).
+    /// </summary>
+    public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
+        Func<int> getCurrentPC, string? currentSectionName, int currentSectionBaseAddress)
+        : this(symbols, diagnostics, getCurrentPC, 0, null, null, currentSectionName, currentSectionBaseAddress)
     {
     }
 
     internal ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
         Func<int> getCurrentPC, int fracBits, CharMapManager? charMaps,
-        Func<string, string>? resolveInterpolations = null)
+        Func<string, string>? resolveInterpolations = null,
+        string? currentSectionName = null, int currentSectionBaseAddress = 0)
     {
         _symbols = symbols;
         _diagnostics = diagnostics;
@@ -70,6 +83,8 @@ public sealed class ExpressionEvaluator
         _fracBits = fracBits;
         _charMaps = charMaps;
         _resolveInterpolations = resolveInterpolations;
+        _currentSectionName = currentSectionName;
+        _currentSectionBaseAddress = currentSectionBaseAddress;
     }
 
     public long? TryEvaluate(GreenNodeBase node)
@@ -253,7 +268,20 @@ public sealed class ExpressionEvaluator
             return null;
         }
 
-        return sym.State == SymbolState.Defined ? sym.Value : null;
+        if (sym.State != SymbolState.Defined)
+            return null;
+
+        // Constants (EQU / EQUS / RS) have no section — return verbatim.
+        if (sym.Section == null)
+            return sym.Value;
+
+        // Label in a different section: defer to a patch (linker resolves it).
+        if (_currentSectionName != null && sym.Section != _currentSectionName)
+            return null;
+
+        // Same-section label (or no section context set): add the section base so the
+        // caller gets an absolute address.
+        return sym.Value + _currentSectionBaseAddress;
     }
 
     /// <summary>
@@ -266,9 +294,18 @@ public sealed class ExpressionEvaluator
         int count = text.Length - 1; // subtract the colon
         int offset = forward ? count : -count;
         var sym = _symbols.ResolveAnonymousRef(offset);
-        if (sym != null && sym.State == SymbolState.Defined)
+        if (sym == null || sym.State != SymbolState.Defined)
+            return null;
+
+        // Constants have no section — return verbatim.
+        if (sym.Section == null)
             return sym.Value;
-        return null;
+
+        // Cross-section anonymous label ref: defer.
+        if (_currentSectionName != null && sym.Section != _currentSectionName)
+            return null;
+
+        return sym.Value + _currentSectionBaseAddress;
     }
 
     private long? EvaluateBinary(GreenNodeBase node)

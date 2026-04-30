@@ -78,7 +78,8 @@ internal sealed class InstructionEncoder
     public void Encode(SyntaxNode node, InstructionDescriptor desc, SectionBuffer section)
     {
         int instructionPC = section.CurrentPC;
-        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => instructionPC);
+        var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => instructionPC,
+            section.Name, section.BaseAddress);
 
         int opcodeOffset = section.CurrentOffset;
 
@@ -157,9 +158,8 @@ internal sealed class InstructionEncoder
                 case EmitRuleKind.AppendRelative8:
                     if (value.HasValue)
                     {
-                        // value.Value is a section-relative offset; convert to absolute for the
-                        // relative-branch calculation by adding the section's base address.
-                        long rel = (section.BaseAddress + value.Value) - (section.CurrentPC + 1);
+                        // value.Value is an absolute address (evaluator already adds section base).
+                        long rel = value.Value - (section.CurrentPC + 1);
                         if (rel < -128 || rel > 127)
                         {
                             _diagnostics.Report(node.FullSpan,
