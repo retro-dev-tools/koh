@@ -137,10 +137,21 @@ Boot:
     ld a, LCDCF_ON
     ldh [rLCDC], a
 
-    ; 7. T8 stop point. Real init continues in later tasks.
-.halt:
+    ; 7. Main loop — wait for VBlank flag then poll input.
+.main_loop:
+    call WaitForVBlankFlag
+    call ReadInput
+    jr .main_loop
+
+WaitForVBlankFlag:
+.wait:
     halt
-    jr .halt
+    ld a, [wVBlankFlag]
+    or a
+    jr z, .wait
+    xor a
+    ld [wVBlankFlag], a
+    ret
 
 ClearVram:
     ld hl, $8000
@@ -171,3 +182,4 @@ MemClear:
 INCLUDE "engine/oam_dma.asm"
 INCLUDE "engine/vblank_queue.asm"
 INCLUDE "engine/irq.asm"
+INCLUDE "engine/input.asm"
