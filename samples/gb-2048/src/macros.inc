@@ -1,14 +1,9 @@
 ; Common macros.
-
-; Wait for VBlank by spinning until rLY hits 144.
-; Clobbers A. Use ONLY with interrupts disabled or with VBlank IRQ handler that
-; doesn't enable other interrupts mid-wait.
-WAIT_VBLANK: MACRO
-.\@_wait\@:
-    ldh a, [rLY]
-    cp 144
-    jr c, .\@_wait\@
-ENDM
+;
+; Note: The repository uses WaitForVBlankFlag (a regular subroutine) for
+; VBlank waits, not a macro. A WAIT_VBLANK macro using the \@ unique-suffix
+; idiom triggers a Koh tokenizer bug that corrupts subsequent macro
+; definitions, so we omit it here.
 
 ; farcall <bank>, <symbol>
 ;   Save current ROM bank, switch to \1, call \2, restore previous bank.
