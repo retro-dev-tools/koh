@@ -266,13 +266,22 @@ internal sealed class InstructionEncoder
         SyntaxKind.LabelOperand;
 
     /// <summary>
-    /// Returns the identifier name if <paramref name="expression"/> is a bare
-    /// <see cref="SyntaxKind.NameExpression"/> with exactly one child token
-    /// (an IdentifierToken or LocalLabelToken and no MacroParamToken sibling).
+    /// Returns the identifier name if <paramref name="expression"/> is a bare identifier.
+    /// Handles both a <see cref="SyntaxKind.NameExpression"/> (wrapping a single token)
+    /// and a raw <see cref="SyntaxKind.IdentifierToken"/> or
+    /// <see cref="SyntaxKind.LocalLabelToken"/> (produced by LabelOperand unwrapping).
     /// Returns <c>null</c> for complex expressions (binary, unary, function calls, etc.).
     /// </summary>
     private static string? ExtractSingleIdentifier(GreenNodeBase expression)
     {
+        // Raw token (e.g. child of LabelOperand after GetChild(0))
+        if (expression is GreenToken rawToken)
+        {
+            if (rawToken.Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
+                return rawToken.Text;
+            return null;
+        }
+
         if (expression is not GreenNode nameExpr) return null;
         if (nameExpr.Kind != SyntaxKind.NameExpression) return null;
         if (nameExpr.ChildCount != 1) return null;
