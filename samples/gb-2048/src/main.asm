@@ -146,10 +146,32 @@ Boot:
     ld a, LCDCF_ON
     ldh [rLCDC], a
 
-    ; 7. Main loop — wait for VBlank flag then poll input.
+    ; Initialize render state and enter title screen.
+    farcall 1, RenderInit
+    farcall 3, TitleEnter
+
+    ; 7. Main loop — dispatch on wGameState each frame.
 .main_loop:
     call WaitForVBlankFlag
     call ReadInput
+
+    ld a, [wGameState]
+    cp GS_TITLE
+    jr z, .title
+    cp GS_PLAYING
+    jr z, .playing
+    cp GS_ANIMATING
+    jr z, .animating
+    ; GS_WIN and GS_GAMEOVER: handled in T25/T26 — for now just loop.
+    jr .main_loop
+.title:
+    farcall 3, TitleTick
+    jr .main_loop
+.playing:
+    call PlayingTick
+    jr .main_loop
+.animating:
+    farcall 1, AnimTick
     jr .main_loop
 
 WaitForVBlankFlag:
@@ -202,3 +224,32 @@ INCLUDE "gfx/tiles.asm"
 INCLUDE "gfx/font.asm"
 INCLUDE "game/render.asm"
 INCLUDE "game/anim.asm"
+INCLUDE "screens/title.asm"
+
+; -----------------------------------------------------------------------------
+; Playing Logic — D-pad input dispatches to direction-specific move wrappers.
+; -----------------------------------------------------------------------------
+SECTION "Playing Logic", ROM0
+PlayingTick:
+    ld a, [wInput+2]           ; edge bits
+    bit 4, a                   ; Right
+    jr nz, .move_right
+    bit 5, a                   ; Left
+    jr nz, .move_left
+    bit 6, a                   ; Up
+    jr nz, .move_up
+    bit 7, a                   ; Down
+    jr nz, .move_down
+    ret
+.move_left:
+    farcall 1, MoveLeft_DirLeft
+    ret
+.move_right:
+    farcall 1, MoveLeft_DirRight
+    ret
+.move_up:
+    farcall 1, MoveLeft_DirUp
+    ret
+.move_down:
+    farcall 1, MoveLeft_DirDown
+    ret

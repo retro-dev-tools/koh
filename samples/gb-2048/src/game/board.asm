@@ -577,3 +577,42 @@ CheckLose::
 .cl_not_lose:
     or 1                    ; NZ
     ret
+
+; ----------------------------------------------------------------------------
+; Move Helpers — direction-specific wrappers called via farcall from bank 0.
+;   Each sets HL to the appropriate direction table, calls MoveLeft, then
+;   calls AnimStart if the move changed the board (wSlideValid != 0).
+; ----------------------------------------------------------------------------
+SECTION "Move Helpers", ROMX, BANK[1]
+
+MoveLeft_DirLeft::
+    ld hl, DirLeft
+    call MoveLeft
+    call MaybeStartAnim
+    ret
+
+MoveLeft_DirRight::
+    ld hl, DirRight
+    call MoveLeft
+    call MaybeStartAnim
+    ret
+
+MoveLeft_DirUp::
+    ld hl, DirUp
+    call MoveLeft
+    call MaybeStartAnim
+    ret
+
+MoveLeft_DirDown::
+    ld hl, DirDown
+    call MoveLeft
+    call MaybeStartAnim
+    ret
+
+; MaybeStartAnim -- if wSlideValid != 0, start animation phase.
+MaybeStartAnim::
+    ld a, [wSlideValid]
+    or a
+    ret z
+    call AnimStart
+    ret
