@@ -44,11 +44,13 @@ ScoreAdd::
     ld [wScore+3], a
     ret
 
-; ScoreToDigits -- convert 32-bit wScore to 7 ASCII digits at buffer BC.
-;   BC = pointer to 7-byte output buffer; digits written most-significant first.
+; ScoreToDigits -- convert 32-bit value to 7 tile-ID digits at buffer BC.
+;   HL = pointer to 32-bit source value (little-endian, 4 bytes).
+;   BC = pointer to 7-byte output buffer; tile IDs written most-significant first.
+;   Each output byte = TILE_DIGIT_0 + digit (= 35 + digit).
 ;   Clobbers AF, BC, DE, HL.
 ;   HRAM usage:
-;     hScratch+0..3  running 32-bit value (copy of wScore, decremented)
+;     hScratch+0..3  running 32-bit value (copy of source, decremented)
 ;     hScratch+4     output ptr low byte
 ;     hScratch+5     output ptr high byte
 ;     hScratch+6     current digit count
@@ -61,21 +63,21 @@ ScoreAdd::
 ;     4. Subtract BCDE from hScratch+0..3 (32-bit in-place); digit++; go to 3.
 ;     5. Pop HL (next-entry ptr).
 ;        Restore output ptr into HL from hScratch+4..5.
-;        Write (digit+'0') to [HL]; HL++.
+;        Write (digit+35) to [HL]; HL++.
 ;        Save updated output ptr back to hScratch+4..5.
 ;        Restore table ptr into HL (from stack... but already popped).
 ;
 ; Revised step 5 avoids double-use of HL by keeping table ptr on stack and
 ; output ptr in hScratch, swapping HL between the two roles only as needed.
 ScoreToDigits::
-    ; Copy wScore to hScratch+0..3.
-    ld a, [wScore+0]
+    ; Copy source (HL) to hScratch+0..3.
+    ld a, [hl+]
     ldh [hScratch+0], a
-    ld a, [wScore+1]
+    ld a, [hl+]
     ldh [hScratch+1], a
-    ld a, [wScore+2]
+    ld a, [hl+]
     ldh [hScratch+2], a
-    ld a, [wScore+3]
+    ld a, [hl+]
     ldh [hScratch+3], a
 
     ; Save output ptr BC to hScratch+4..5.
@@ -158,9 +160,9 @@ ScoreToDigits::
     ld e, a
     ldh a, [hScratch+5]
     ld d, a
-    ; A = digit + '0'.
+    ; A = digit + TILE_DIGIT_0 (= 35).
     ldh a, [hScratch+6]
-    add a, '0'
+    add a, 35
     ; Write to [DE] and advance DE.
     ld [de], a
     inc de

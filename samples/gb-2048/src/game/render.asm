@@ -148,6 +148,15 @@ RenderInit::
     ; --- Draw initial board ---
     call DrawBoardFull
 
+    ; --- Set window position: WY=0, WX=7 (window at x=0, y=0) ---
+    ld a, 0
+    ldh [rWY], a
+    ld a, 7                    ; WX=7 means window starts at pixel column 0
+    ldh [rWX], a
+
+    ; --- Draw HUD on window layer ---
+    call DrawHud
+
     ; --- Enable LCD ---
     ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON | LCDCF_OBJ16 | LCDCF_OBJON | LCDCF_WINON | LCDCF_WIN9C00
     ldh [rLCDC], a
@@ -165,6 +174,76 @@ RenderInit::
     inc de
     dec bc
     jr .copy_loop
+
+; -----------------------------------------------------------------------------
+; DrawHud:: — write HUD top row to window tilemap _SCRN1 ($9C00).
+; Row 0 layout (32 columns):
+;   "BEST " (5) + 7 digits best score + "  SCORE " (8) + 7 digits score
+;   + 5 trailing spaces = 32 total.
+; Calls ScoreToDigits (HL=source, BC=output buffer) for each score.
+; Clobbers AF, BC, DE, HL.
+; -----------------------------------------------------------------------------
+DrawHud::
+    ; HL = start of window tilemap row 0.
+    ld hl, _SCRN1
+
+    ; Write "BEST " (5 tiles).
+    ld a, TILE_FONT_B
+    ld [hl+], a
+    ld a, TILE_FONT_E
+    ld [hl+], a
+    ld a, TILE_FONT_S
+    ld [hl+], a
+    ld a, TILE_FONT_T
+    ld [hl+], a
+    ld a, TILE_FONT_SPACE
+    ld [hl+], a
+
+    ; Write 7 digits of wBestScore.
+    ; BC = current HL (output pointer into tilemap).
+    ld b, h
+    ld c, l
+    ; HL = source = wBestScore.
+    ld hl, wBestScore
+    call ScoreToDigits
+    ; ScoreToDigits wrote 7 bytes starting at old BC.
+    ; Reconstruct write pointer: BC was _SCRN1+5, now advance to _SCRN1+12.
+    ld hl, _SCRN1 + 12
+
+    ; Write "  SCORE " (8 tiles).
+    ld a, TILE_FONT_SPACE
+    ld [hl+], a
+    ld [hl+], a
+    ld a, TILE_FONT_S
+    ld [hl+], a
+    ld a, TILE_FONT_C
+    ld [hl+], a
+    ld a, TILE_FONT_O
+    ld [hl+], a
+    ld a, TILE_FONT_R
+    ld [hl+], a
+    ld a, TILE_FONT_E
+    ld [hl+], a
+    ld a, TILE_FONT_SPACE
+    ld [hl+], a
+
+    ; Write 7 digits of wScore.
+    ; BC = current HL (output pointer = _SCRN1+20).
+    ld b, h
+    ld c, l
+    ; HL = source = wScore.
+    ld hl, wScore
+    call ScoreToDigits
+    ; Now at _SCRN1+27. Write 5 trailing spaces.
+    ld hl, _SCRN1 + 27
+    ld a, TILE_FONT_SPACE
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+
+    ret
 
 ; -----------------------------------------------------------------------------
 ; DrawBoardFull:: — write 16 cells (2x2 tiles each) to BG tilemap.
