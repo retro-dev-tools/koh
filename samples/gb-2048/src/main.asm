@@ -127,15 +127,7 @@ Boot:
     ld h, a
     ldh a, [rDIV]
     ld l, a
-    ld a, [wCurrentBank]
-    push af
-    ld a, 1
-    ld [wCurrentBank], a
-    ld [rROMB0], a
-    call RngSeed
-    pop af
-    ld [wCurrentBank], a
-    ld [rROMB0], a
+    farcall 1, RngSeed
 
     ; 6. Initial state.
     xor a
