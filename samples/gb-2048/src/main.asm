@@ -106,9 +106,16 @@ Boot:
     xor a
     ldh [rVBK], a
 
-    ; 4. Clear WRAM ($C000..$DFFF). Skip OAM buffer? Cleared anyway.
+    ; 4. Clear WRAM ($C000..$DFFF). MemClear correctly preserves A inside the
+    ; loop, so it doesn't matter that the stack lives near the end of WRAM:
+    ; each iteration writes 0 (not the BC count), so even though the cleared
+    ; range includes the active stack slot holding MemClear's return address,
+    ; the byte being written *is* 0 and the next pop will read it correctly...
+    ; *but* the return-address bytes would still be overwritten with 0, so
+    ; `ret` would jump to $0000. Stop just shy of the stack top to keep the
+    ; live return address intact.
     ld hl, $C000
-    ld bc, $2000
+    ld bc, $1F00
     call MemClear
 
     ; 5. Clear OAM (write to OAM directly; rDMA copies wOAMBuffer next VBlank).
@@ -142,11 +149,9 @@ Boot:
     ldh [rIE], a
     ei
 
-    ; Minimal LCD-on so VBlank fires. Real LCDC value set by render init later.
-    ld a, LCDCF_ON
-    ldh [rLCDC], a
-
-    ; Initialize render state and enter title screen.
+    ; LCD stays OFF until RenderInit finishes. RenderInit assumes the LCD is
+    ; off so its VRAM writes (font/tile copy, palette load, BG clear) all
+    ; succeed; it re-enables the LCD with the final LCDC value at the end.
     farcall 1, RenderInit
     farcall 3, TitleEnter
 
@@ -210,8 +215,12 @@ ClearVram:
 ; -----------------------------------------------------------------------------
 SECTION "MemClear", ROM0
 MemClear:
-    xor a
 .loop:
+    ; A must be reset to 0 each iteration: `ld a, b` below clobbers it, so
+    ; reading A from outside the loop would leave us writing the BC-count
+    ; pattern as garbage from byte 1 onward (every odd byte $FF, every even
+    ; $FE, etc.) — observed empirically against the gb-2048 boot.
+    xor a
     ld [hl+], a
     dec bc
     ld a, b
@@ -219,19 +228,54 @@ MemClear:
     jr nz, .loop
     ret
 
+; -----------------------------------------------------------------------------
+; CopyFromBank — read bytes from a banked ROM window into VRAM (or WRAM).
+;   A  = source ROM bank (the $4000-$7FFF window will be mapped to it)
+;   HL = source address ($4000-$7FFF)
+;   DE = destination address
+;   BC = byte count
+;
+; This helper lives in ROM0 because rROMB0 changes the $4000-$7FFF mapping —
+; code that executes from the banked region while rROMB0 changes underneath
+; it ends up fetching garbage bytes from the new bank. ROM0 is always mapped,
+; so the loop instructions stay accessible.
+;
+; rROMB0 is restored to wCurrentBank on return.
+; Clobbers AF, BC, DE, HL.
+; -----------------------------------------------------------------------------
+SECTION "CopyFromBank", ROM0
+CopyFromBank::
+    ld [rROMB0], a
+.loop:
+    ld a, b
+    or c
+    jr z, .done
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec bc
+    jr .loop
+.done:
+    ld a, [wCurrentBank]
+    ld [rROMB0], a
+    ret
+
 INCLUDE "engine/oam_dma.asm"
 INCLUDE "engine/vblank_queue.asm"
 INCLUDE "engine/irq.asm"
 INCLUDE "engine/input.asm"
 INCLUDE "engine/hdma.asm"
+INCLUDE "engine/farcall.asm"
 INCLUDE "engine/rng.asm"
 INCLUDE "engine/sound.asm"
 INCLUDE "game/score.asm"
 INCLUDE "game/board.asm"
+INCLUDE "game/intents.asm"
 INCLUDE "game/save.asm"
 INCLUDE "gfx/tiles.asm"
 INCLUDE "gfx/font.asm"
 INCLUDE "game/render.asm"
+INCLUDE "game/sprites.asm"
 INCLUDE "game/anim.asm"
 INCLUDE "screens/title.asm"
 INCLUDE "screens/gameover.asm"

@@ -87,29 +87,28 @@ BgPaletteData::
 ; 5. Sets LCDC to enable LCD with BG, OBJ, and window.
 ; -----------------------------------------------------------------------------
 RenderInit::
-    ; --- Switch to bank 2 to access tile data ---
-    ld a, [wCurrentBank]
-    push af
+    ; --- Copy font + tile data from bank 2 into VRAM. ---
+    ; CopyFromBank lives in ROM0 because switching rROMB0 while executing from
+    ; $4000-$7FFF maps a different bank under PC and the next instruction fetch
+    ; reads garbage from the new bank. The helper restores rROMB0 to
+    ; wCurrentBank (= the caller's bank, set by farcall) before returning, so
+    ; the ret lands back in our bank correctly.
+    ;
+    ; Sizes are literal byte counts because Koh's linker does not yet evaluate
+    ; cross-section label arithmetic (FONT_DATA_END - FONT_DATA_START would
+    ; silently resolve to 0). FONT_DATA_SIZE = 30 tiles * 16 bytes = $1E0;
+    ; TILE_DATA_SIZE = 15 tiles * 16 bytes = $F0.
     ld a, 2
-    ld [wCurrentBank], a
-    ld [rROMB0], a
-
-    ; Copy font data: FONT_DATA_START .. FONT_DATA_END -> VRAM $8000
     ld hl, FONT_DATA_START
     ld de, $8000
-    ld bc, FONT_DATA_END - FONT_DATA_START
-    call .copy_loop
+    ld bc, $01E0
+    call CopyFromBank
 
-    ; Copy tile data: TILE_DATA_START .. TILE_DATA_END -> VRAM $8000 + font size
+    ld a, 2
     ld hl, TILE_DATA_START
-    ld de, $8000 + (FONT_DATA_END - FONT_DATA_START)
-    ld bc, TILE_DATA_END - TILE_DATA_START
-    call .copy_loop
-
-    ; Restore previous bank
-    pop af
-    ld [wCurrentBank], a
-    ld [rROMB0], a
+    ld de, $8000 + $01E0
+    ld bc, $00F0
+    call CopyFromBank
 
     ; --- Set BG palettes ---
     ld a, BCPSF_AUTOINC | 0
@@ -145,8 +144,9 @@ RenderInit::
     ld a, TILE_FONT_SPACE
     jr nz, .clear_map_loop
 
-    ; --- Draw initial board ---
+    ; --- Draw initial board (tiles + per-value palette attributes) ---
     call DrawBoardFull
+    call DrawBoardAttrs
 
     ; --- Set window position: WY=0, WX=7 (window at x=0, y=0) ---
     ld a, 0
@@ -158,7 +158,14 @@ RenderInit::
     call DrawHud
 
     ; --- Enable LCD ---
-    ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON | LCDCF_OBJ16 | LCDCF_OBJON | LCDCF_WINON | LCDCF_WIN9C00
+    ; OBJ8 mode: each sprite is 8x8 — matches the single-tile board cells used
+    ; by the OAM-sprite slide animation in game/anim.asm.
+    ;
+    ; The HUD window layer is disabled here for now: STAT IRQ is not wired
+    ; up to clip the window after the first tile row, so enabling WIN with
+    ; WY=0 covers the whole screen with the (mostly blank) window tilemap and
+    ; hides BG.
+    ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON | LCDCF_OBJ8 | LCDCF_OBJON
     ldh [rLCDC], a
 
     ret
@@ -243,6 +250,54 @@ DrawHud::
     ld [hl+], a
     ld [hl+], a
 
+    ret
+
+; -----------------------------------------------------------------------------
+; DrawBoardAttrs:: — write CGB BG attribute bytes for the 4x4 board region.
+; Each cell gets attribute = min(wBoard[i], 7), placing it in BG palette 1..7
+; (or palette 0 for empty cells). All other attribute bits are zero (tile bank
+; 0, no flip, sprites take priority).
+;
+; Attribute bytes live in VRAM bank 1 at the same addresses as the tilemap
+; ($9800..$9BFF). Switches rVBK to 1 around the writes and restores it to 0.
+; Walks the same 4x4 region as DrawBoardFull. Clobbers AF, BC, DE, HL.
+; -----------------------------------------------------------------------------
+DrawBoardAttrs::
+    ld a, 1
+    ldh [rVBK], a
+    ld hl, _SCRN0 + 4*32 + 12
+    ld c, 0
+.next_cell:
+    push bc
+    ld b, 0
+    ld de, wBoard
+    push hl
+    ld h, d
+    ld l, e
+    add hl, bc
+    ld a, [hl]
+    pop hl
+    pop bc
+
+    cp 8
+    jr c, .pal_ok
+    ld a, 7
+.pal_ok:
+    ld [hl+], a
+
+    inc c
+    ld a, c
+    and $03
+    jr nz, .next_cell_cont
+    ld de, 28
+    add hl, de
+.next_cell_cont:
+    ld a, c
+    cp 16
+    jr nz, .next_cell
+
+    xor a
+    ldh [rVBK], a
     ret
 
 ; -----------------------------------------------------------------------------

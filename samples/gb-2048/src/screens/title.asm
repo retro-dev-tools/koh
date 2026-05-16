@@ -7,7 +7,9 @@ TitleEnter::
     ld a, GS_TITLE
     ld [wGameState], a
 
-    ; Wait for VBlank before writing to VRAM.
+    ; Wait for VBlank before writing to VRAM. Without this, BG writes happen
+    ; mid-frame and some land during PPU mode 3 (silently dropped) — leaving
+    ; the title text either partial or invisible.
     call WaitForVBlankFlag
 
     ; Write "KOH 2048" centered at row 7, col 6.
@@ -63,9 +65,8 @@ TitleTick::
     bit 3, a                   ; START button = bit 3
     ret z
 
-    ; START pressed -- start a new game.
-    farcall 1, ScoreReset
-    farcall 1, BoardInit
+    ; START pressed -- start a new game (reset, board init, and BG redraw).
+    farcall 1, StartNewGame
     ld a, GS_PLAYING
     ld [wGameState], a
     ret

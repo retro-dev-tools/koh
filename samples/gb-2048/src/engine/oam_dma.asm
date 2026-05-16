@@ -4,7 +4,11 @@
 
 SECTION "OAM DMA Source", ROM0
 OAMDMASource:
-    ld a, HIGH(wOAMBuffer)
+    ; HIGH(wOAMBuffer) — wOAMBuffer is anchored at $C100 in memory.inc, so the
+    ; high byte is the literal $C1. Koh's linker doesn't currently evaluate
+    ; cross-section function-call expressions (HIGH/LOW/etc.) for serialised
+    ; patches; writing the literal here avoids that limitation.
+    ld a, $C1
     ldh [rDMA], a
     ld a, $28                  ; 40 cycles
 .wait:

@@ -2,9 +2,13 @@
 ; Hand-authored subset — only what the game actually touches.
 
 ; --- Joypad ---
+; Per Pan Docs: writing 0 to P15 (bit 5) selects action buttons; writing 0 to
+; P14 (bit 4) selects the D-pad. So to read a group, write 1 to the OTHER bit
+; (gating it off) and 0 to its own bit. The previous version had the names
+; swapped, which made TitleTick read Down where it expected Start.
 rP1                EQU $FF00
-P1F_GET_BTN        EQU %0010_0000
-P1F_GET_DPAD       EQU %0001_0000
+P1F_GET_DPAD       EQU %0010_0000   ; P15=1 (no buttons), P14=0 (dpad active)
+P1F_GET_BTN        EQU %0001_0000   ; P14=1 (no dpad), P15=0 (buttons active)
 P1F_GET_NONE       EQU %0011_0000
 
 ; --- Interrupts ---

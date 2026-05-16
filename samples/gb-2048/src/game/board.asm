@@ -43,6 +43,33 @@ BoardInit::
     ret
 
 ; ----------------------------------------------------------------------------
+; StartNewGame -- single farcall entry point used by TitleTick. Resets the
+;   score, populates a fresh board, and redraws the board BG (tiles + per-
+;   value attribute bytes). The redraw is needed because title-screen text
+;   overlaps board cells 12 and 13 on tilemap row 7.
+;   Clobbers AF, BC, DE, HL.
+; ----------------------------------------------------------------------------
+StartNewGame::
+    call ScoreReset
+    call BoardInit
+    ; Clear the BG tilemap so title-screen text doesn't bleed into the playing
+    ; field. DrawBoardFull / DrawBoardAttrs / DrawHud below repaint everything
+    ; the game needs.
+    ld hl, $9800
+    ld bc, $0400
+.clear_bg:
+    xor a
+    ld [hl+], a
+    dec bc
+    ld a, b
+    or c
+    jr nz, .clear_bg
+    call DrawBoardFull
+    call DrawBoardAttrs
+    call DrawHud
+    ret
+
+; ----------------------------------------------------------------------------
 ; SpawnTile -- place a new tile on a random empty cell of wBoard.
 ;   Count empty cells; if zero, return immediately.
 ;   Choose RngRange(empty_count) to pick which empty cell (0-indexed).
@@ -588,31 +615,43 @@ SECTION "Move Helpers", ROMX, BANK[1]
 MoveLeft_DirLeft::
     ld hl, DirLeft
     call MoveLeft
-    call MaybeStartAnim
+    ld a, [wSlideValid]
+    or a
+    ret z
+    ld hl, DirLeft
+    call FillMoveIntents
+    call AnimStart
     ret
 
 MoveLeft_DirRight::
     ld hl, DirRight
     call MoveLeft
-    call MaybeStartAnim
+    ld a, [wSlideValid]
+    or a
+    ret z
+    ld hl, DirRight
+    call FillMoveIntents
+    call AnimStart
     ret
 
 MoveLeft_DirUp::
     ld hl, DirUp
     call MoveLeft
-    call MaybeStartAnim
+    ld a, [wSlideValid]
+    or a
+    ret z
+    ld hl, DirUp
+    call FillMoveIntents
+    call AnimStart
     ret
 
 MoveLeft_DirDown::
     ld hl, DirDown
     call MoveLeft
-    call MaybeStartAnim
-    ret
-
-; MaybeStartAnim -- if wSlideValid != 0, start animation phase.
-MaybeStartAnim::
     ld a, [wSlideValid]
     or a
     ret z
+    ld hl, DirDown
+    call FillMoveIntents
     call AnimStart
     ret

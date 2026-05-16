@@ -6,21 +6,18 @@
 ; definitions, so we omit it here.
 
 ; farcall <bank>, <symbol>
-;   Save current ROM bank, switch to \1, call \2, restore previous bank.
-;   Caller must have at least 4 bytes of stack headroom. Clobbers nothing
-;   directly visible (saves A and BC around the call).
-;   wCurrentBank holds the active bank for the duration of the call so any
-;   nested farcall restores correctly.
+;   Switch to bank \1, call \2 (a label in that bank), restore the previous
+;   bank. The actual bank-switch + call is performed by FarcallTrampoline in
+;   ROM0 (engine/farcall.asm) — doing it inline from a banked section would
+;   re-map the $4000-$7FFF window underneath PC at the moment of the CALL,
+;   leaving the CPU executing bytes from the wrong bank.
+;
+;   Caller stack: pushes 6 bytes (return addr + 2 saves inside the helper).
+;   Clobbers A, BC.
 farcall: MACRO
-    ld a, [wCurrentBank]
-    push af
     ld a, \1
-    ld [wCurrentBank], a
-    ld [rROMB0], a
-    call \2
-    pop af
-    ld [wCurrentBank], a
-    ld [rROMB0], a
+    ld bc, \2
+    call FarcallTrampoline
 ENDM
 
 ; 2bpp tile-row encode. \1 = high-bit byte (0/1 per pixel), \2 = low-bit byte.
