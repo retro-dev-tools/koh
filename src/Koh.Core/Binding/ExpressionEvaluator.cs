@@ -26,6 +26,7 @@ public sealed class ExpressionEvaluator
     private readonly Func<string, string>? _resolveInterpolations;
     private readonly string? _currentSectionName;
     private readonly int _currentSectionBaseAddress;
+    private readonly bool _currentSectionIsFloating;
 
     /// <summary>Fixed-point fractional bits (Q.N). Default is 16.</summary>
     public int FracBits { get; set; } = 16;
@@ -66,16 +67,26 @@ public sealed class ExpressionEvaluator
     /// Construct an evaluator that knows which section is currently being assembled,
     /// enabling cross-section deferral (returns null for labels in other sections).
     /// </summary>
+    /// <param name="currentSectionIsFloating">
+    /// True when the current section has no fixed address (its placement is decided
+    /// by the linker). Same-section label refs in floating sections are deferred to
+    /// patches so the linker can rewrite them with the final placed address. Without
+    /// this, intra-section <c>call Label</c> bytes would carry section-relative
+    /// offsets — landing inside the cartridge header for ROM0 placements.
+    /// </param>
     public ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
-        Func<int> getCurrentPC, string? currentSectionName, int currentSectionBaseAddress)
-        : this(symbols, diagnostics, getCurrentPC, 0, null, null, currentSectionName, currentSectionBaseAddress)
+        Func<int> getCurrentPC, string? currentSectionName, int currentSectionBaseAddress,
+        bool currentSectionIsFloating = false)
+        : this(symbols, diagnostics, getCurrentPC, 0, null, null,
+            currentSectionName, currentSectionBaseAddress, currentSectionIsFloating)
     {
     }
 
     internal ExpressionEvaluator(SymbolTable symbols, DiagnosticBag diagnostics,
         Func<int> getCurrentPC, int fracBits, CharMapManager? charMaps,
         Func<string, string>? resolveInterpolations = null,
-        string? currentSectionName = null, int currentSectionBaseAddress = 0)
+        string? currentSectionName = null, int currentSectionBaseAddress = 0,
+        bool currentSectionIsFloating = false)
     {
         _symbols = symbols;
         _diagnostics = diagnostics;
@@ -85,6 +96,7 @@ public sealed class ExpressionEvaluator
         _resolveInterpolations = resolveInterpolations;
         _currentSectionName = currentSectionName;
         _currentSectionBaseAddress = currentSectionBaseAddress;
+        _currentSectionIsFloating = currentSectionIsFloating;
     }
 
     public long? TryEvaluate(GreenNodeBase node)
@@ -279,6 +291,12 @@ public sealed class ExpressionEvaluator
         if (_currentSectionName != null && sym.Section != _currentSectionName)
             return null;
 
+        // Same-section label in a floating section: BaseAddress isn't final
+        // until the linker places the section. Defer so the linker can rewrite
+        // the patch with the absolute address.
+        if (_currentSectionName != null && _currentSectionIsFloating)
+            return null;
+
         // Same-section label (or no section context set): add the section base so the
         // caller gets an absolute address.
         return sym.Value + _currentSectionBaseAddress;
@@ -303,6 +321,10 @@ public sealed class ExpressionEvaluator
 
         // Cross-section anonymous label ref: defer.
         if (_currentSectionName != null && sym.Section != _currentSectionName)
+            return null;
+
+        // Same-section anon ref in a floating section: defer (see EvaluateRawIdentifier).
+        if (_currentSectionName != null && _currentSectionIsFloating)
             return null;
 
         return sym.Value + _currentSectionBaseAddress;

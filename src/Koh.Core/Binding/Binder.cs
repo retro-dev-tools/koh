@@ -148,7 +148,8 @@ public sealed class Binder
     {
         var eval = new ExpressionEvaluator(_symbols, _diagnostics, getCurrentPC, _fracBits,
             _charMaps, _expander != null ? _expander.ResolveInterpolations : null,
-            section?.Name, section?.BaseAddress ?? 0)
+            section?.Name, section?.BaseAddress ?? 0,
+            currentSectionIsFloating: section != null && section.FixedAddress == null)
         {
             FracBits = _fracBits,
             EqusResolver = name => _expander?.LookupEqus(name),

@@ -69,10 +69,17 @@ public sealed class KobjReader
                 var spanStart = br.ReadInt32();
                 var spanLen = br.ReadInt32();
                 string? symbolName = null;
+                int symbolOffset = 0;
                 if (version >= 3)
                 {
                     var raw = br.ReadString();
                     symbolName = string.IsNullOrEmpty(raw) ? null : raw;
+                }
+                int symbolShift = 0;
+                if (version >= 4)
+                {
+                    symbolOffset = br.ReadInt32();
+                    symbolShift = br.ReadInt32();
                 }
                 patches.Add(new PatchEntry
                 {
@@ -83,6 +90,8 @@ public sealed class KobjReader
                     PCAfterInstruction = pcAfter,
                     DiagnosticSpan = new TextSpan(spanStart, spanLen),
                     SymbolName = symbolName,
+                    SymbolOffset = symbolOffset,
+                    SymbolShift = symbolShift,
                 });
             }
 

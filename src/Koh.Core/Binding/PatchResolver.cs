@@ -49,7 +49,8 @@ internal sealed class PatchResolver
 
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
                     () => section.BaseAddress + patch.Offset,
-                    section.Name, section.BaseAddress);
+                    section.Name, section.BaseAddress,
+                    currentSectionIsFloating: section.FixedAddress == null);
                 var value = evaluator.TryEvaluate(patch.Expression);
                 if (value == null) continue; // keep for linker
 

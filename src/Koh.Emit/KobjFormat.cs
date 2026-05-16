@@ -15,8 +15,11 @@ internal static class KobjFormat
     /// Bumped to 3 when PatchEntry.SymbolName was added. v2 patches have no
     /// SymbolName field; v3 appends a length-prefixed UTF-8 string after
     /// DiagnosticSpan (empty string = null). Readers accept v1/v2/v3.
+    /// Bumped to 4 when PatchEntry.SymbolOffset was added. v3 patches don't
+    /// carry an explicit symbol offset; v4 appends a 32-bit signed int after
+    /// SymbolName. Readers accept v1..v4 (older versions default offset to 0).
     /// </summary>
-    public const byte Version = 3;
+    public const byte Version = 4;
     public const byte MinReadableVersion = 1;
 
     // Top-level block tags

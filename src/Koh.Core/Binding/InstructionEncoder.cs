@@ -79,7 +79,7 @@ internal sealed class InstructionEncoder
     {
         int instructionPC = section.CurrentPC;
         var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => instructionPC,
-            section.Name, section.BaseAddress);
+            section.Name, section.BaseAddress, currentSectionIsFloating: section.FixedAddress == null);
 
         int opcodeOffset = section.CurrentOffset;
 
@@ -124,6 +124,8 @@ internal sealed class InstructionEncoder
                     {
                         int offset = section.ReserveByte();
                         if (operandGreen != null)
+                        {
+                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen);
                             section.RecordPatch(new PatchEntry
                             {
                                 SectionName = section.Name,
@@ -132,8 +134,11 @@ internal sealed class InstructionEncoder
                                 Kind = PatchKind.Absolute8,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
-                                SymbolName = ExtractSingleIdentifier(operandGreen),
+                                SymbolName = sn,
+                                SymbolOffset = so,
+                                SymbolShift = sh,
                             });
+                        }
                     }
                     break;
 
@@ -144,6 +149,8 @@ internal sealed class InstructionEncoder
                     {
                         int offset = section.ReserveWord();
                         if (operandGreen != null)
+                        {
+                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen);
                             section.RecordPatch(new PatchEntry
                             {
                                 SectionName = section.Name,
@@ -152,8 +159,11 @@ internal sealed class InstructionEncoder
                                 Kind = PatchKind.Absolute16,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
-                                SymbolName = ExtractSingleIdentifier(operandGreen),
+                                SymbolName = sn,
+                                SymbolOffset = so,
+                                SymbolShift = sh,
                             });
+                        }
                     }
                     break;
 
@@ -177,6 +187,8 @@ internal sealed class InstructionEncoder
                     {
                         int offset = section.ReserveByte();
                         if (operandGreen != null)
+                        {
+                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen);
                             section.RecordPatch(new PatchEntry
                             {
                                 SectionName = section.Name,
@@ -188,8 +200,11 @@ internal sealed class InstructionEncoder
                                 PCAfterInstruction = section.CurrentOffset,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
-                                SymbolName = ExtractSingleIdentifier(operandGreen),
+                                SymbolName = sn,
+                                SymbolOffset = so,
+                                SymbolShift = sh,
                             });
+                        }
                     }
                     break;
 
@@ -272,7 +287,154 @@ internal sealed class InstructionEncoder
     /// <see cref="SyntaxKind.LocalLabelToken"/> (produced by LabelOperand unwrapping).
     /// Returns <c>null</c> for complex expressions (binary, unary, function calls, etc.).
     /// </summary>
-    private static string? ExtractSingleIdentifier(GreenNodeBase expression)
+    private string? ExtractSingleIdentifier(GreenNodeBase expression) =>
+        ExtractIdentifierAndOffset(expression).name;
+
+    /// <summary>
+    /// Recognises <c>Name</c>, <c>Name + N</c>, <c>N + Name</c>, <c>Name - N</c>,
+    /// <c>HIGH(...)</c>, and <c>LOW(...)</c> patterns (where <c>...</c> is one of
+    /// the supported simple forms). Returns the qualified symbol name (local
+    /// labels are prefixed with the current global anchor), the signed integer
+    /// offset to add, and a right-shift to apply to the resolved value
+    /// (8 for <c>HIGH</c>, 0 otherwise). Returns <c>(null, 0, 0)</c> for anything
+    /// else.
+    ///
+    /// This lets the linker resolve operands like <c>ldh [hScratch+4], a</c> and
+    /// <c>cp HIGH(.pow10_end)</c> when the label lives in a different section than
+    /// the calling code: the per-byte expression evaluator can't combine a
+    /// cross-section label with a constant, so we record the parts and the
+    /// linker computes <c>((sym.AbsoluteAddress + offset) &gt;&gt; shift) &amp; 0xFF</c>
+    /// (or the 16-bit equivalent) at patch time.
+    /// </summary>
+    private (string? name, int offset, int shift) ExtractIdentifierAndOffset(GreenNodeBase expression)
+    {
+        // HIGH(arg) / LOW(arg)
+        if (expression is GreenNode call && call.Kind == SyntaxKind.FunctionCallExpression
+            && call.ChildCount >= 1 && call.GetChild(0) is GreenToken kw)
+        {
+            int shift = kw.Kind switch
+            {
+                SyntaxKind.HighKeyword => 8,
+                SyntaxKind.LowKeyword => 0,
+                _ => -1,
+            };
+            if (shift >= 0)
+            {
+                // Locate the single argument inside the call.
+                GreenNodeBase? arg = null;
+                for (int i = 1; i < call.ChildCount; i++)
+                {
+                    var c = call.GetChild(i);
+                    if (c is GreenToken t && t.Kind is SyntaxKind.OpenParenToken
+                        or SyntaxKind.CloseParenToken or SyntaxKind.CommaToken)
+                        continue;
+                    arg = c; break;
+                }
+                if (arg != null)
+                {
+                    var inner = ExtractIdentifierAndOffset(arg);
+                    if (inner.name != null)
+                        return (inner.name, inner.offset, kw.Kind == SyntaxKind.HighKeyword ? 8 : 0);
+                }
+            }
+        }
+
+        // Plain identifier or NameExpression wrapping one.
+        var direct = ExtractSingleIdentifierText(expression);
+        if (direct != null)
+            return (QualifyLocal(direct), 0, 0);
+
+        if (expression is not GreenNode binExpr) return (null, 0, 0);
+        if (binExpr.Kind != SyntaxKind.BinaryExpression) return (null, 0, 0);
+        if (binExpr.ChildCount != 3) return (null, 0, 0);
+
+        var left = binExpr.GetChild(0);
+        var op = binExpr.GetChild(1) as GreenToken;
+        var right = binExpr.GetChild(2);
+        if (op is null) return (null, 0, 0);
+
+        // Try (Name) op (Number).
+        var nameLeft = left != null ? ExtractSingleIdentifierText(left) : null;
+        var numRight = right != null ? TryParseConstant(right) : null;
+        if (nameLeft != null && numRight.HasValue)
+        {
+            if (op.Kind == SyntaxKind.PlusToken)
+                return (QualifyLocal(nameLeft), checked((int)numRight.Value), 0);
+            if (op.Kind == SyntaxKind.MinusToken)
+                return (QualifyLocal(nameLeft), checked((int)(-numRight.Value)), 0);
+        }
+
+        // Try (Number) + (Name). Subtraction with the name on the right doesn't
+        // produce a "label + offset" pattern (it's "constant - label"), so skip.
+        var numLeft = left != null ? TryParseConstant(left) : null;
+        var nameRight = right != null ? ExtractSingleIdentifierText(right) : null;
+        if (numLeft.HasValue && nameRight != null && op.Kind == SyntaxKind.PlusToken)
+            return (QualifyLocal(nameRight), checked((int)numLeft.Value), 0);
+
+        return (null, 0, 0);
+    }
+
+    private string QualifyLocal(string text)
+    {
+        if (!text.StartsWith('.')) return text;
+        var anchor = _symbols.CurrentGlobalAnchorName;
+        return anchor != null ? string.Concat(anchor, text) : text;
+    }
+
+    /// <summary>
+    /// Parses a constant number literal (raw NumberLiteral token or a
+    /// NameExpression that resolves to an EQU constant). Returns null otherwise.
+    /// </summary>
+    private long? TryParseConstant(GreenNodeBase node)
+    {
+        if (node is GreenToken tok && tok.Kind == SyntaxKind.NumberLiteral)
+            return ParseNumberLiteral(tok.Text);
+
+        if (node is GreenNode literalNode && literalNode.Kind == SyntaxKind.LiteralExpression
+            && literalNode.ChildCount == 1
+            && literalNode.GetChild(0) is GreenToken litTok
+            && litTok.Kind == SyntaxKind.NumberLiteral)
+            return ParseNumberLiteral(litTok.Text);
+
+        // EQU constants are stored in the symbol table without a Section.
+        if (node is GreenNode nameNode && nameNode.Kind == SyntaxKind.NameExpression
+            && nameNode.ChildCount == 1
+            && nameNode.GetChild(0) is GreenToken nameTok
+            && nameTok.Kind is SyntaxKind.IdentifierToken)
+        {
+            var sym = _symbols.Lookup(nameTok.Text);
+            if (sym is not null && sym.Section == null
+                && sym.State == Koh.Core.Symbols.SymbolState.Defined)
+                return sym.Value;
+        }
+
+        return null;
+    }
+
+    private static long? ParseNumberLiteral(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+        try
+        {
+            if (text.StartsWith('$'))
+                return Convert.ToInt64(text[1..].Replace("_", ""), 16);
+            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                return Convert.ToInt64(text[2..].Replace("_", ""), 16);
+            if (text.StartsWith('%'))
+                return Convert.ToInt64(text[1..].Replace("_", ""), 2);
+            if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+                return Convert.ToInt64(text[2..].Replace("_", ""), 2);
+            if (text.StartsWith('&'))
+                return Convert.ToInt64(text[1..].Replace("_", ""), 8);
+            return long.Parse(text.Replace("_", ""), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractSingleIdentifierText(GreenNodeBase expression)
     {
         // Raw token (e.g. child of LabelOperand after GetChild(0))
         if (expression is GreenToken rawToken)

@@ -133,7 +133,9 @@ public sealed class Linker
                     continue;
                 }
 
-                long absValue = sym.AbsoluteAddress;
+                long absValue = sym.AbsoluteAddress + patch.SymbolOffset;
+                if (patch.SymbolShift != 0)
+                    absValue >>= patch.SymbolShift;
 
                 switch (patch.Kind)
                 {
