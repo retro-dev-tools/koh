@@ -52,18 +52,52 @@ BoardInit::
 StartNewGame::
     call ScoreReset
     call BoardInit
-    ; Clear the BG tilemap so title-screen text doesn't bleed into the playing
-    ; field. DrawBoardFull / DrawBoardAttrs / DrawHud below repaint everything
-    ; the game needs.
-    ld hl, $9800
-    ld bc, $0400
-.clear_bg:
+    ; Wipe BG tilemap + attribute map with the LCD off so the 2 KiB of
+    ; writes always land (a 1 KiB FillVram alone overflows one VBlank).
+    ; Then re-paint HUD divider, board, and HUD.
     xor a
+    ldh [rLCDC], a
+    ld hl, _SCRN0
+    ld bc, $0400
+    ld a, TILE_FONT_SPACE
+    call FillVram
+    ld a, 1
+    ldh [rVBK], a
+    ; HUD rows 0-2 -> palette 0 (white plate).
+    ld hl, _SCRN0
+    ld bc, 3 * 32
+    xor a
+    call FillVram
+    ; Board rows 3-17 -> palette 1 (dark slate frame).
+    ld hl, _SCRN0 + 3 * 32
+    ld bc, 15 * 32
+    ld a, 1
+    call FillVram
+    xor a
+    ldh [rVBK], a
+    ; HUD divider rule across row 2.
+    ld hl, _SCRN0 + 2 * 32
+    ld b, 20
+    ld a, TILE_HUD_RULE
+.rule_loop:
     ld [hl+], a
-    dec bc
-    ld a, b
-    or c
-    jr nz, .clear_bg
+    dec b
+    jr nz, .rule_loop
+    call RecomputeScoreCache    ; refresh digits — score was just reset
+    call DrawBoardFull
+    call DrawHud
+    ; LCD back on.
+    ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON | LCDCF_OBJ8 | LCDCF_OBJON
+    ldh [rLCDC], a
+    ret
+
+; ----------------------------------------------------------------------------
+; ResumeAfterWin -- repaint the board + HUD after the win screen cleared
+;   it. Does not reset state or spawn tiles; just makes the saved board
+;   state visible again so the player can keep playing toward 4096.
+;   Clobbers AF, BC, DE, HL.
+; ----------------------------------------------------------------------------
+ResumeAfterWin::
     call DrawBoardFull
     call DrawBoardAttrs
     call DrawHud

@@ -1,13 +1,21 @@
 ; game/sprites.asm — OAM-sprite slide animation for the 2048 board.
 ;
-; During the 8-frame slide phase (wAnimFrame in 0..7), each non-empty original
-; cell is rendered as an 8x8 sprite at an interpolated position between its
-; pre-move location and its destination. The board's BG tilemap is cleared at
-; the start of the animation; DrawBoardFull restores it at the commit frame.
+; Cell layout (must match render.asm's gapless board): each cell is 4 tiles
+; wide × 3 tiles tall and the cells touch with no gap. Cell (r,c)'s top-left
+; tile is at tilemap (row 4 + r*3, col 2 + c*4), so the strides are 4 cols =
+; 32 px horizontally and 3 rows = 24 px vertically.
 ;
-; OAM slot mapping: slot i corresponds to original board cell i (i in 0..15).
-; Cells whose intent.dst == $FF (empty before the move) leave slot i hidden
-; (y = 0). Slots 16..39 are kept hidden by SpriteRenderClear.
+; During the slide phase we render each non-empty pre-move cell as a single
+; representative 8x8 sprite (its leading digit) that travels from its src cell
+; to its destination over 8 frames. We aim the sprite at where the BG renders
+; that digit — col 1 of the cell (pixel x = 24 + c*32) and the middle tile-row
+; (pixel y = 40 + r*24) — so it lands seamlessly when the BG commits at frame 8.
+;
+; OAM coordinates are pixel + 16 (Y) / pixel + 8 (X), giving the origin/stride
+; constants below; the per-frame loop linearly interpolates between src and dst.
+;
+; Slot mapping: slot i corresponds to original cell i.  Slots 16..39 are
+; kept hidden by SpriteRenderClear.
 ;
 ; hScratch layout used by SpriteRenderTick:
 ;   +0  frame (0..8)
@@ -19,11 +27,19 @@
 
 SECTION "Sprites", ROMX, BANK[1]
 
+; OAM origin of cell (0,0)'s leading digit = pixel (24, 40) + OAM offsets
+; (8, 16) = (32, 56). Per-cell stride: 32 px X (4 tiles), 24 px Y (3 tiles).
+SPRITE_ORIGIN_X EQU 32
+SPRITE_ORIGIN_Y EQU 56
+SPRITE_STRIDE_X EQU 32
+SPRITE_STRIDE_Y EQU 24
+
 ; ----------------------------------------------------------------------------
 ; SpriteRenderClear -- hide all 40 OAM sprites by setting y = 0.
 ; Clobbers AF, B, HL.
 ; ----------------------------------------------------------------------------
 SpriteRenderClear::
+    ; --- Clear wOAMBuffer (DMA'd to OAM at next VBlank IRQ) ---
     ld hl, wOAMBuffer
     ld b, 40
     xor a
@@ -34,47 +50,76 @@ SpriteRenderClear::
     inc hl                 ; attr
     dec b
     jr nz, .loop
+
+    ; --- Also clear OAM directly so the just-rendered frame doesn't show
+    ;     ghost sprites left over from the slide phase. The next VBlank's
+    ;     OAM DMA only reaches OAM 1-2 frames later, leaving sprites visible
+    ;     on top of the freshly-committed BG cells if we don't wipe OAM now.
+    ;     We're running during VBlank (main loop only runs after
+    ;     WaitForVBlankFlag), so OAM writes are race-free.
+    ld hl, _OAMRAM
+    ld b, 40
+    xor a
+.oam_loop:
+    ld [hl+], a            ; y
+    inc hl
+    inc hl
+    inc hl
+    dec b
+    jr nz, .oam_loop
     ret
 
 ; ----------------------------------------------------------------------------
-; ClearBoardBg -- write TILE_FONT_SPACE to the 4x4 board region of the BG
-;   tilemap (_SCRN0, rows 4..7, cols 12..15). Mirrors DrawBoardFull's walk.
-;   Clobbers AF, BC, DE, HL.
+; ClearBoardBg -- snap the board region to the static empty grid for the slide.
+;   HDMAs wEmptyBgBuf (tiles, bank 0) and wEmptyAttrBuf (palette 1, bank 1)
+;   over rows 3..17 so the grid frame stays visible while the numbered tiles
+;   travel as OAM sprites — instead of the whole board blanking out. GDMA
+;   bypasses PPU mode-3 lockout, so this is safe and ~3x cheaper than the old
+;   per-byte CPU clear. Mirrors CommitBoardHdma's transfer (480 bytes = 29+1
+;   blocks each). Clobbers AF.
 ; ----------------------------------------------------------------------------
 ClearBoardBg::
-    ld hl, _SCRN0 + 4*32 + 12
-    ld d, 4                ; rows
-.row:
-    ld c, 4                ; cols
-    ld a, TILE_FONT_SPACE
-.col:
-    ld [hl+], a
-    dec c
-    jr nz, .col
-    ; HL now points at col 16. Advance to col 12 of the next row (+28).
-    ld a, l
-    add 28
-    ld l, a
-    jr nc, .no_carry
-    inc h
-.no_carry:
-    dec d
-    jr nz, .row
+    ; --- BG tiles (bank 0) ---
+    ld a, HIGH(wEmptyBgBuf)
+    ldh [rHDMA1], a
+    ld a, LOW(wEmptyBgBuf)
+    ldh [rHDMA2], a
+    ld a, HIGH(_SCRN0 + 3 * 32)
+    ldh [rHDMA3], a
+    ld a, LOW(_SCRN0 + 3 * 32)
+    ldh [rHDMA4], a
+    ld a, 29                   ; (480 / 16) - 1 = 29; bit 7 = 0 -> GDMA
+    ldh [rHDMA5], a
+
+    ; --- Attr bytes (bank 1) ---
+    ld a, 1
+    ldh [rVBK], a
+    ld a, HIGH(wEmptyAttrBuf)
+    ldh [rHDMA1], a
+    ld a, LOW(wEmptyAttrBuf)
+    ldh [rHDMA2], a
+    ld a, HIGH(_SCRN0 + 3 * 32)
+    ldh [rHDMA3], a
+    ld a, LOW(_SCRN0 + 3 * 32)
+    ldh [rHDMA4], a
+    ld a, 29
+    ldh [rHDMA5], a
+    xor a
+    ldh [rVBK], a
     ret
 
 ; ----------------------------------------------------------------------------
 ; SpriteRenderTick -- update all 16 board sprites for the given frame.
-;   Input: A = frame (0..7). 0 = src positions, 7 = one step before dst,
-;          8 (handled at commit) = dst positions (caller normally hides instead).
+;   Input: A = frame (0..7). 0 = src positions, 7 = one step before dst.
 ;   For each cell i:
 ;     If wMoveIntents[i].dst == $FF: hide slot i (y = 0).
 ;     Else: write y, x, tile, attr for sprite slot i.
 ;   Clobbers AF, BC, DE, HL, hScratch+0..5.
 ; ----------------------------------------------------------------------------
 SpriteRenderTick::
-    ldh [hScratch+0], a    ; save frame
+    ldh [hScratch+0], a
     xor a
-    ldh [hScratch+1], a    ; i = 0
+    ldh [hScratch+1], a
 
 .cell_loop:
     call _RenderOneCell
@@ -88,6 +133,11 @@ SpriteRenderTick::
 ; ----------------------------------------------------------------------------
 ; _RenderOneCell -- render OAM slot hScratch+1 from wMoveIntents.
 ;   Reads frame from hScratch+0, i from hScratch+1.
+;   Position formula:
+;     oam_x = origin_x_src + (d_col * SPRITE_STRIDE_X * frame) / 8
+;     oam_y = origin_y_src + (d_row * SPRITE_STRIDE_Y * frame) / 8
+;   We compute (d * frame) once (max 3 * 7 = 21 cells*frames) then multiply
+;   by stride / 8 (= 5 for X, 4 for Y) via add-loops.
 ;   Clobbers AF, BC, DE, HL; uses hScratch+2..5.
 ; ----------------------------------------------------------------------------
 _RenderOneCell:
@@ -99,168 +149,198 @@ _RenderOneCell:
     ld b, 0
     ld hl, wMoveIntents
     add hl, bc
-    ld a, [hl+]            ; A = dst
+    ld a, [hl+]
     ldh [hScratch+2], a
-    ld a, [hl]             ; A = value
+    ld a, [hl]
     ldh [hScratch+3], a
 
     ; --- Sprite[i] pointer in HL ---
     ldh a, [hScratch+1]
     add a
-    add a                  ; i * 4
+    add a
     ld c, a
     ld b, 0
     ld hl, wOAMBuffer
     add hl, bc
 
-    ldh a, [hScratch+2]    ; dst
+    ldh a, [hScratch+2]
     cp $FF
     jr nz, .visible
 
-    ; Hide sprite slot.
+    ; Hide sprite.
     xor a
-    ld [hl+], a            ; y = 0
-    ld [hl+], a            ; x
-    ld [hl+], a            ; tile
-    ld [hl], a             ; attr
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl], a
     ret
 
 .visible:
-    ; Save OAM pointer (currently at sprite[i].y).
+    ; Save OAM pointer.
     ld a, h
     ldh [hScratch+4], a
     ld a, l
     ldh [hScratch+5], a
 
-    ; --- Compute oam_y ---
-    ; origin_y = 48 + src_row * 8;  d_row = dst_row - src_row;
-    ; oam_y    = origin_y + d_row * frame
-    ldh a, [hScratch+1]    ; i
+    ; --- Compute Y ---
+    ; src_row = i >> 2, dst_row = dst >> 2, d_row = dst_row - src_row.
+    ldh a, [hScratch+1]
     srl a
-    srl a                  ; src_row
+    srl a
     ld b, a                ; B = src_row
 
-    ; origin_y in C.
-    add a
-    add a
-    add a                  ; src_row * 8
-    add 48
+    ; origin_y = SPRITE_ORIGIN_Y + src_row * SPRITE_STRIDE_Y.
+    ld c, 0
+    or a
+    jr z, .y_origin_done
+    ld d, a                ; D = src_row
+.y_origin_loop:
+    ld a, c
+    add SPRITE_STRIDE_Y
+    ld c, a
+    dec d
+    jr nz, .y_origin_loop
+.y_origin_done:
+    ld a, c
+    add SPRITE_ORIGIN_Y
     ld c, a                ; C = origin_y
 
-    ldh a, [hScratch+2]    ; dst
+    ldh a, [hScratch+2]
     srl a
     srl a                  ; dst_row
-    sub b                  ; A = d_row signed
-    ld b, a                ; B = d_row
+    sub b                  ; A = signed d_row
 
-    ldh a, [hScratch+0]    ; frame
-    ld e, a                ; E = frame counter (loop)
-
-    ld a, b                ; A = d_row
+    ; Pixel delta = d_row * SPRITE_STRIDE_Y * frame / 8 = d_row * 4 * frame.
+    ld b, a
     or a
-    jr z, .y_zero
+    jr z, .y_apply_zero
     bit 7, a
     jr nz, .y_neg
 
-    ld d, a                ; D = abs(d_row)
-    xor a                  ; A = product accumulator
-    or e                   ; if frame == 0, skip multiply
-    jr z, .y_zero
+    ; Positive: pixel_delta = b * 4 * frame.
+    ldh a, [hScratch+0]
+    ld e, a                ; E = frame (0..7)
+    or a
+    jr z, .y_apply_zero
+    ld d, b                ; D = |d_row|
+    xor a
 .y_pos_loop:
     add d
     dec e
     jr nz, .y_pos_loop
-    add c                  ; oam_y = origin + product
+    ; A = |d_row| * frame. Multiply by 3 (SPRITE_STRIDE_Y / 8 = 3). E = 0 here.
+    ld e, a
+    add a
+    add e                  ; *3
+    add c                  ; + origin_y
     jr .y_write
 
 .y_neg:
     cpl
-    inc a                  ; A = abs(d_row)
-    ld d, a
+    inc a
+    ld d, a                ; D = |d_row|
+    ldh a, [hScratch+0]
+    ld e, a
+    or a
+    jr z, .y_apply_zero
     xor a
-    or e
-    jr z, .y_zero
 .y_neg_loop:
     add d
     dec e
     jr nz, .y_neg_loop
-    ld d, a                ; D = abs product
+    ld e, a
+    add a
+    add e                  ; *3 (SPRITE_STRIDE_Y / 8 = 3). E = 0 before this.
+    ld d, a
     ld a, c
-    sub d                  ; oam_y = origin - product
+    sub d
     jr .y_write
 
-.y_zero:
-    ld a, c                ; just origin_y
+.y_apply_zero:
+    ld a, c
 
 .y_write:
-    ; A = oam_y. Restore OAM ptr and write y; HL ends at sprite[i].x.
     ld c, a
     ldh a, [hScratch+4]
     ld h, a
     ldh a, [hScratch+5]
     ld l, a
     ld a, c
-    ld [hl+], a            ; write y
+    ld [hl+], a
     ld a, h
     ldh [hScratch+4], a
     ld a, l
     ldh [hScratch+5], a
 
-    ; --- Compute oam_x ---
-    ; origin_x = 104 + src_col * 8;  d_col = dst_col - src_col;
-    ; oam_x    = origin_x + d_col * frame
+    ; --- Compute X ---
     ldh a, [hScratch+1]
-    and 3                  ; src_col
-    ld b, a
+    and 3
+    ld b, a                ; B = src_col
 
-    add a
-    add a
-    add a                  ; src_col * 8
-    add 104
+    ; origin_x = SPRITE_ORIGIN_X + src_col * SPRITE_STRIDE_X (40).
+    ld c, 0
+    or a
+    jr z, .x_origin_done
+    ld d, a
+.x_origin_loop:
+    ld a, c
+    add SPRITE_STRIDE_X
+    ld c, a
+    dec d
+    jr nz, .x_origin_loop
+.x_origin_done:
+    ld a, c
+    add SPRITE_ORIGIN_X
     ld c, a                ; C = origin_x
 
     ldh a, [hScratch+2]
     and 3                  ; dst_col
-    sub b                  ; A = d_col signed
+    sub b                  ; A = signed d_col
+
+    ; Pixel delta = d_col * 5 * frame (SPRITE_STRIDE_X / 8 = 5).
     ld b, a
-
-    ldh a, [hScratch+0]
-    ld e, a
-
-    ld a, b
     or a
-    jr z, .x_zero
+    jr z, .x_apply_zero
     bit 7, a
     jr nz, .x_neg
 
-    ld d, a
+    ldh a, [hScratch+0]
+    ld e, a
+    or a
+    jr z, .x_apply_zero
+    ld d, b
     xor a
-    or e
-    jr z, .x_zero
 .x_pos_loop:
     add d
     dec e
     jr nz, .x_pos_loop
-    add c
+    ; A = |d_col| * frame. Multiply by 4 (SPRITE_STRIDE_X / 8 = 4).
+    add a
+    add a                  ; *4
+    add c                  ; + origin_x
     jr .x_write
 
 .x_neg:
     cpl
     inc a
     ld d, a
+    ldh a, [hScratch+0]
+    ld e, a
+    or a
+    jr z, .x_apply_zero
     xor a
-    or e
-    jr z, .x_zero
 .x_neg_loop:
     add d
     dec e
     jr nz, .x_neg_loop
+    add a
+    add a                  ; *4 (SPRITE_STRIDE_X / 8 = 4)
     ld d, a
     ld a, c
     sub d
     jr .x_write
 
-.x_zero:
+.x_apply_zero:
     ld a, c
 
 .x_write:
@@ -270,25 +350,31 @@ _RenderOneCell:
     ldh a, [hScratch+5]
     ld l, a
     ld a, c
-    ld [hl+], a            ; write x; HL -> tile slot
+    ld [hl+], a            ; write x, HL -> tile slot
 
-    ; --- Tile id from value (same scheme as DrawBoardFull) ---
-    ldh a, [hScratch+3]    ; value
-    cp 10
-    jr c, .digit
-    sub 10
-    add TILE_FONT_A        ; 10 -> 'A', 11 -> 'B', 12 -> 'C'
-    jr .write_tile
-.digit:
-    add TILE_DIGIT_0       ; 1..9 -> TILE_DIGIT_1..9
-.write_tile:
+    ; --- Tile id from value via ValueToSpriteTile lookup (leading digit) ---
+    ldh a, [hScratch+3]        ; A = value (1..12)
+    ld e, a
+    ld d, 0
+    push hl
+    ld hl, ValueToSpriteTile
+    add hl, de
+    ld a, [hl]
+    pop hl
     ld [hl+], a
 
-    ; --- Attribute: low 3 bits = OBJ palette index (1..7, capped) ---
+    ; --- Attribute: ValueToPalette[value] for matching cell colour ---
     ldh a, [hScratch+3]
-    cp 8
-    jr c, .pal_ok
-    ld a, 7
-.pal_ok:
+    cp 13
+    jr c, .val_ok
+    ld a, 12
+.val_ok:
+    ld d, 0
+    ld e, a
+    push hl
+    ld hl, ValueToPalette
+    add hl, de
+    ld a, [hl]
+    pop hl
     ld [hl], a
     ret

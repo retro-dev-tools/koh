@@ -4,37 +4,41 @@ WinEnter::
     ld a, GS_WIN
     ld [wGameState], a
 
-    ; Play win jingle (CH3 wave channel). PlayWinJingle is in bank 0.
+    ; Play win jingle (CH3 wave channel) — PlayWinJingle lives in bank 0.
     call PlayWinJingle
 
-    ; Wait for VBlank before drawing.
     call WaitForVBlankFlag
+    call LcdOff
+    call ClearBoardArea
 
-    ; Draw "YOU WIN!" banner at row 8, col 7 (centered).
-    ld hl, _SCRN0 + 8*32 + 7
-    ld a, TILE_FONT_Y
-    ld [hl+], a
-    ld a, TILE_FONT_O
-    ld [hl+], a
-    ld a, TILE_FONT_U
-    ld [hl+], a
-    ld a, TILE_FONT_SPACE
-    ld [hl+], a
-    ld a, TILE_FONT_W
-    ld [hl+], a
-    ld a, TILE_FONT_I
-    ld [hl+], a
-    ld a, TILE_FONT_N
-    ld [hl+], a
-    ld a, TILE_FONT_EXCL
-    ld [hl+], a
+    ld hl, _SCRN0 + 8 * 32 + 6
+    ld de, .str_banner
+    call DrawString
+    ld hl, _SCRN0 + 8 * 32 + 6
+    ld bc, 8
+    xor a
+    call FillAttr
+
+    ld hl, _SCRN0 + 13 * 32 + 7
+    ld de, .str_prompt
+    call DrawString
+    ld hl, _SCRN0 + 13 * 32 + 7
+    ld bc, 7
+    xor a
+    call FillAttr
+    call LcdOn
     ret
 
+.str_banner: db "YOU WIN!", STR_END
+.str_prompt: db "PRESS A", STR_END
+
 WinTick::
-    ld a, [wInput+2]           ; edge bits
-    bit 0, a                   ; A button = bit 0
+    ld a, [wInput+2]
+    bit 0, a                   ; A button
     ret z
-    ; A pressed → return to PLAYING (continue past 2048).
+    ; A pressed → return to PLAYING (continue past 2048).  Win cleared the
+    ; board area, so we have to repaint it before play resumes.
+    farcall 1, ResumeAfterWin
     ld a, GS_PLAYING
     ld [wGameState], a
     ret

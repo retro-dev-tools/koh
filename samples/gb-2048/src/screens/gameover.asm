@@ -4,39 +4,38 @@ GameOverEnter::
     ld a, GS_GAMEOVER
     ld [wGameState], a
 
-    ; Play game-over sfx (id 2). PlaySfx is in bank 0.
+    ; Play game-over sfx (id 2) — PlaySfx lives in bank 0.
     ld a, 2
     call PlaySfx
 
-    ; Wait for VBlank before drawing.
     call WaitForVBlankFlag
+    call LcdOff
+    call ClearBoardArea
 
-    ; Draw "GAME OVER" banner at row 8, col 6 (centered).
-    ld hl, _SCRN0 + 8*32 + 6
-    ld a, TILE_FONT_G
-    ld [hl+], a
-    ld a, TILE_FONT_A
-    ld [hl+], a
-    ld a, TILE_FONT_M
-    ld [hl+], a
-    ld a, TILE_FONT_E
-    ld [hl+], a
-    ld a, TILE_FONT_SPACE
-    ld [hl+], a
-    ld a, TILE_FONT_O
-    ld [hl+], a
-    ld a, TILE_FONT_V
-    ld [hl+], a
-    ld a, TILE_FONT_E
-    ld [hl+], a
-    ld a, TILE_FONT_R
-    ld [hl+], a
+    ld hl, _SCRN0 + 8 * 32 + 5
+    ld de, .str_banner
+    call DrawString
+    ld hl, _SCRN0 + 8 * 32 + 5
+    ld bc, 9
+    xor a
+    call FillAttr
+
+    ld hl, _SCRN0 + 13 * 32 + 4
+    ld de, .str_prompt
+    call DrawString
+    ld hl, _SCRN0 + 13 * 32 + 4
+    ld bc, 11
+    xor a
+    call FillAttr
+    call LcdOn
     ret
 
+.str_banner: db "GAME OVER", STR_END
+.str_prompt: db "PRESS START", STR_END
+
 GameOverTick::
-    ld a, [wInput+2]           ; edge bits
-    bit 3, a                   ; START
+    ld a, [wInput+2]
+    bit 3, a
     ret z
-    ; START pressed -> return to title.
     farcall 3, TitleEnter
     ret

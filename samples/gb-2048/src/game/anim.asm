@@ -9,8 +9,15 @@ GS_WIN       EQU 3
 GS_GAMEOVER  EQU 4
 
 ; Animation lasts ANIM_TOTAL_FRAMES frames.
-; Frame 8 commits the board (DrawBoardFull + SpawnTile).
-; Frame ANIM_TOTAL_FRAMES triggers win/lose checks and state transition.
+; Frames 1..6 : slide (sprite movement + cleared BG).
+; Frame  7    : last slide step + SpawnTile + BuildBoardBuffers (all WRAM
+;               work — no VRAM access yet, so no PPU mode constraints).
+; Frame  8    : SpriteRenderClear + CommitBoardHdma + DrawHud — every
+;               VRAM write here is either HDMA (bypasses PPU lockout) or
+;               tiny enough to land inside one VBlank, so the board never
+;               overlaps with PPU mode 3 on real hardware.
+; Frames 9-11 : idle.
+; Frame  12   : win/lose checks + state transition.
 ANIM_TOTAL_FRAMES EQU 12
 
 SECTION "Animation", ROMX, BANK[1]
@@ -82,14 +89,22 @@ AnimTick::
     jp z, .finalize
     cp 8
     jp z, .commit
-    jr nc, .post_commit    ; frames 9..11: idle
+    cp 7
+    jp z, .prebuild
+    jr nc, .post_commit    ; never reached (handled above)
 
     ; Frame 1: OAM DMA has now copied src-position sprites to OAM, so the
     ; sprites are visible. Safe to clear the BG cells they slide over.
+    ; This is also a good time to precompute the HUD digit cache for the
+    ; new score — RecomputeScoreCache writes only to WRAM so no VBlank /
+    ; PPU mode constraints, and it gets the cache ready well before commit.
     cp 1
-    call z, ClearBoardBg
+    jr nz, .not_frame1
+    call ClearBoardBg
+    call RecomputeScoreCache
+.not_frame1:
 
-    ; Frames 1..7: advance the slide by one step.
+    ; Frames 1..6: advance the slide by one step.
     ld a, [wAnimFrame]
     call SpriteRenderTick
     ret
@@ -97,14 +112,29 @@ AnimTick::
 .post_commit:
     ret
 
-.commit:
-    ; Hide all sprites, commit the slid board, refresh palette attributes,
-    ; spawn the next tile, and refresh the HUD (score may have grown on merge).
-    call SpriteRenderClear
-    call DrawBoardFull
-    call DrawBoardAttrs
+.prebuild:
+    ; Last slide step + heavy WRAM work that doesn't need VBlank: we spawn
+    ; the next tile and rebuild the shadow buffers here so that the commit
+    ; frame only has to do an HDMA copy (≈ 960 T per call, bus-locking) and
+    ; a couple of cheap VRAM writes.
+    ld a, 7
+    call SpriteRenderTick
     call SpawnTile
+    call BuildBoardBuffers
+    ret
+
+.commit:
+    ; Frame 8: actual visible commit.
+    ;   * SpriteRenderClear (~970 T) hides the slide sprites.
+    ;   * DrawHud (~1500 T) refreshes the score — CPU→VRAM writes, runs
+    ;     while we're solidly inside the VBlank window.
+    ;   * CommitBoardHdma (~960 T, bus-locking) snaps the whole board area
+    ;     to VRAM via HDMA last — HDMA bypasses PPU mode 3 lockout so the
+    ;     last bytes can extend past VBlank if needed without corruption.
+    ; Total ≈ 3500 T, comfortably inside one CGB VBlank.
+    call SpriteRenderClear
     call DrawHud
+    call CommitBoardHdma
     ret
 
 .finalize:

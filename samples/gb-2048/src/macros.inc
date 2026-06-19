@@ -33,3 +33,37 @@ REPT \1
     db \2
 ENDR
 ENDM
+
+; Write 4 copies of \1 to [HL+] (advances HL by 4). Used heavily by the
+; board renderer to fill the top/bottom edge of each 4-wide cell.
+;   \1 — tile id (or any 8-bit value loadable via `ld a, \1`).
+;   Clobbers A.
+FILL4_HL: MACRO       ; \1 = value
+    ld a, \1
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+ENDM
+
+; Same idea, but \1 is already in A — useful when the value was computed by
+; the caller and shouldn't be reloaded.
+FILL4_HL_A: MACRO
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+    ld [hl+], a
+ENDM
+
+; One 32-byte tilemap row of the static empty-cell grid (board cols 2..17).
+; \1 = normal tile, \2 = right-border variant. 2 left-margin SPACEs, then the
+; four 4-wide cells (each ends with the right-border variant), then SPACE out
+; to the 32-col stride. Used to assemble EmptyGridBgTemplate.
+GRID_CELLROW: MACRO
+    db TILE_FONT_SPACE, TILE_FONT_SPACE
+    db \1, \1, \1, \2
+    db \1, \1, \1, \2
+    db \1, \1, \1, \2
+    db \1, \1, \1, \2
+    FILL_BYTES 14, TILE_FONT_SPACE
+ENDM

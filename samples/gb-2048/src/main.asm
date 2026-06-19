@@ -1,6 +1,7 @@
 INCLUDE "hardware.inc"
 INCLUDE "macros.inc"
 INCLUDE "memory.inc"
+INCLUDE "gfx/tiles.inc"
 
 ; -----------------------------------------------------------------------------
 ; Reset vectors. RST $00..$38 are 8 bytes apart; we use $38 only.
@@ -208,6 +209,109 @@ ClearVram:
     ld a, b
     or c
     jr nz, .loop
+    ret
+
+; -----------------------------------------------------------------------------
+; DrawString — write a CHARMAP-encoded string into the tilemap.
+;   HL = destination tilemap address (advanced as bytes are written).
+;   DE = source string (terminated by STR_END / $FF).
+;   Clobbers AF, DE, HL.
+; -----------------------------------------------------------------------------
+SECTION "DrawString", ROM0
+DrawString::
+.loop:
+    ld a, [de]
+    cp STR_END
+    ret z
+    ld [hl+], a
+    inc de
+    jr .loop
+
+; -----------------------------------------------------------------------------
+; FillVram — fill BC bytes at HL with value A.
+;   Doesn't touch rVBK: the caller chooses bank 0 or bank 1.
+;   Clobbers AF, BC, DE, HL.
+; -----------------------------------------------------------------------------
+SECTION "FillVram", ROM0
+FillVram::
+    ld d, a                    ; preserve value across the B/C test below
+.loop:
+    ld a, b
+    or c
+    ret z
+    ld a, d
+    ld [hl+], a
+    dec bc
+    jr .loop
+
+; -----------------------------------------------------------------------------
+; ClearBoardArea — clear the 15-row board region (rows 3..17, all 32 cols
+;   of the tilemap line including the off-screen columns) of both BG tiles
+;   and CGB attribute bytes. Restores VBK to bank 0 on return.
+;
+;   Turns the LCD off for the duration of the clear so the writes always
+;   land. Two 480-byte fills at the FillVram cost (~11 T-cycles/byte) total
+;   roughly 10K T-cycles, more than twice a CGB VBlank window — without
+;   LCD off the late writes happen during PPU mode 3 and are silently
+;   dropped on real hardware (and accurate emulators like mGBA / BGB),
+;   leaving the title text / banner partially blank.
+;
+;   Re-enables the LCD with the standard game LCDC at the end. Only safe
+;   to call while in VBlank (main loop runs only after WaitForVBlankFlag).
+;   Clobbers AF, BC, DE, HL.
+; -----------------------------------------------------------------------------
+SECTION "ClearBoardArea", ROM0
+ClearBoardArea::
+    ; Caller is responsible for turning the LCD off + on around this routine
+    ; (LcdOff / LcdOn). The board area attribute defaults to palette 1
+    ; (dark slate frame) so the gap region between cells still reads as
+    ; the frame even after a clear.
+    ld hl, _SCRN0 + 3 * 32
+    ld bc, 15 * 32
+    ld a, TILE_FONT_SPACE
+    call FillVram
+
+    ld a, 1
+    ldh [rVBK], a
+    ld hl, _SCRN0 + 3 * 32
+    ld bc, 15 * 32
+    ld a, 1                     ; palette 1 = frame
+    call FillVram
+    xor a
+    ldh [rVBK], a
+    ret
+
+; -----------------------------------------------------------------------------
+; LcdOff / LcdOn — utility entry points for screen transitions that need to
+; freely write VRAM. Only safe while we're already in VBlank (main loop only
+; runs after WaitForVBlankFlag); turning the LCD off mid-render can damage
+; real GBC hardware.
+; -----------------------------------------------------------------------------
+SECTION "Lcd Utils", ROM0
+LcdOff::
+    xor a
+    ldh [rLCDC], a
+    ret
+LcdOn::
+    ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON | LCDCF_OBJ8 | LCDCF_OBJON
+    ldh [rLCDC], a
+    ret
+
+; -----------------------------------------------------------------------------
+; FillAttr — write BC bytes at HL in VRAM bank 1 with value A. Used to apply
+; an explicit palette to a tilemap region (the title and banner text need
+; palette 0 so their white plates contrast with the dark frame they sit on).
+; Restores VBK to bank 0. Clobbers AF, BC, DE, HL.
+; -----------------------------------------------------------------------------
+SECTION "FillAttr", ROM0
+FillAttr::
+    ld d, a
+    ld a, 1
+    ldh [rVBK], a
+    ld a, d
+    call FillVram
+    xor a
+    ldh [rVBK], a
     ret
 
 ; -----------------------------------------------------------------------------

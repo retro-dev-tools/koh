@@ -20,6 +20,31 @@ wVBlankQueue: ds 64
 SECTION "OAM Buffer", WRAM0[$C100]
 wOAMBuffer:   ds 160        ; 40 sprites × 4 bytes — must be 256-byte aligned
 
+SECTION "Board Buffers", WRAM0[$C200]
+; Shadow copies of the board's tilemap region (rows 3..17, 32 cols each).
+; AnimTick fills these progressively during the animation, then a single
+; HDMA copy lands the whole 480-byte block into VRAM in one shot — so the
+; board doesn't wipe in row by row and the LCD never has to be turned off.
+wBoardBgBuf:    ds 480
+wBoardAttrBuf:  ds 480
+
+; Static "empty grid" mirror of the board region: all 16 cells drawn empty
+; (value 0). ClearBoardBg HDMAs these over the board during the slide so the
+; grid stays put while the numbered tiles travel as OAM sprites, instead of
+; the whole board blanking out. Built once at boot by BuildEmptyGridBuffers.
+; Fixed at $C600 so both buffers are 16-byte aligned ($C600, $C7E0) — HDMA
+; masks the low 4 bits of the source, so an unaligned source would corrupt.
+SECTION "Empty Grid Buffers", WRAM0[$C600]
+wEmptyBgBuf:    ds 480
+wEmptyAttrBuf:  ds 480
+
+; Cached HUD digit tiles. ScoreToDigits is too slow (~2-4 K T-cycles for
+; values up to 2048) to run inside the commit VBlank without overflowing
+; into PPU mode 3, so we precompute the 7 digit tile-ids once during the
+; slide phase and just blit the cache in DrawHud_FromCache.
+wScoreDigits:     ds 7
+wBestScoreDigits: ds 7
+
 SECTION "HRAM", HRAM
 hOAMDMA::      ds 10        ; trampoline copied from ROM at boot
 hFrameCounter: ds 1

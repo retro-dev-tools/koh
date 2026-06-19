@@ -47,7 +47,7 @@ ScoreAdd::
 ; ScoreToDigits -- convert 32-bit value to 7 tile-ID digits at buffer BC.
 ;   HL = pointer to 32-bit source value (little-endian, 4 bytes).
 ;   BC = pointer to 7-byte output buffer; tile IDs written most-significant first.
-;   Each output byte = TILE_DIGIT_0 + digit (= 35 + digit).
+;   Each output byte = TILE_DIGIT_0 + digit.
 ;   Clobbers AF, BC, DE, HL.
 ;   HRAM usage:
 ;     hScratch+0..3  running 32-bit value (copy of source, decremented)
@@ -160,9 +160,9 @@ ScoreToDigits::
     ld e, a
     ldh a, [hScratch+5]
     ld d, a
-    ; A = digit + TILE_DIGIT_0 (= 35).
+    ; A = digit + TILE_DIGIT_0.
     ldh a, [hScratch+6]
-    add a, 35
+    add a, TILE_DIGIT_0
     ; Write to [DE] and advance DE.
     ld [de], a
     inc de

@@ -41,7 +41,10 @@ public class SaveStateTests
     public async Task RoundTrip_Preserves_Memory_Contents()
     {
         var (gb, rom) = MakeSystem();
-        // Stash marker bytes in WRAM + HRAM + OAM.
+        // Stash marker bytes in WRAM + HRAM + OAM. OAM is only freely
+        // writable with the LCD off (otherwise the PPU mode-2/3 lockout drops
+        // the write, per real hardware), so disable the LCD first.
+        gb.Mmu.WriteByte(0xFF40, 0x00);  // LCDC: LCD off → OAM accessible
         gb.Mmu.WriteByte(0xC123, 0x42);
         gb.Mmu.WriteByte(0xFF85, 0xAB);
         gb.Mmu.WriteByte(0xFE10, 0x7E);

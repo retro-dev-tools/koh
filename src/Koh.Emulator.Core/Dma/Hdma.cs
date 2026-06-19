@@ -61,7 +61,10 @@ public sealed class Hdma
             int total = blocks * 16;
             for (int i = 0; i < total; i++)
             {
-                _mmu.WriteByte((ushort)(dst + i), _mmu.ReadByteDirect((ushort)(src + i)));
+                // HDMA bypasses PPU mode lockout — on real hardware the
+                // transfer engine has its own bus path and isn't subject
+                // to mode-3 VRAM blocking.
+                _mmu.WriteByteDirect((ushort)(dst + i), _mmu.ReadByteDirect((ushort)(src + i)));
             }
             Active = false;
             CpuHaltedByGp = false;
@@ -98,7 +101,7 @@ public sealed class Hdma
         int bytesThisBlock = Math.Min(16, _bytesRemaining);
         for (int i = 0; i < bytesThisBlock; i++)
         {
-            _mmu.WriteByte(_currentDest, _mmu.ReadByteDirect(_currentSource));
+            _mmu.WriteByteDirect(_currentDest, _mmu.ReadByteDirect(_currentSource));
             _currentSource++;
             _currentDest++;
             _bytesRemaining--;

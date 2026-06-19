@@ -2,159 +2,348 @@ SECTION "Tiles", ROMX, BANK[2]
 
 TILE_DATA_START::
 
-; Tile 0: blank cell interior — solid color (color 1 in palette).
-T_EMPTY::
+; Tile bit-plane convention — see font.asm for full discussion.
+; All tiles in this file use bp1 = $FF so they render with colour 2 (cell
+; tint) as the background; bp0 selects colour 3 (text) for the pixels that
+; should appear in the foreground.
+
+; T_CELL_FILL — solid cell tint (colour 2 everywhere). Used for cell body
+; rows (top/bottom of each 4x3 cell) and as padding around digits in the
+; centre row.
+T_CELL_FILL::
     REPT 8
     db $00, $FF
     ENDR
 
-; Tile 1: top-left rounded corner.
-T_CORNER_TL::
-    db $00, $03
-    db $00, $07
-    db $00, $0F
-    db $00, $1F
-    db $00, $3F
-    db $00, $3F
-    db $00, $7F
-    db $00, $7F
+; T_CELL_TOP_EDGE — top row in colour 1 (highlight bevel), rest in colour 2
+; (cell tint). Gives every cell a 1-px lighter rim at the top so it looks
+; lit-from-above rather than a flat block.
+T_CELL_TOP_EDGE::
+    db $FF, $00
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
 
-; Tile 2: top-right.
-T_CORNER_TR::
-    db $00, $C0
-    db $00, $E0
-    db $00, $F0
-    db $00, $F8
-    db $00, $FC
-    db $00, $FC
-    db $00, $FE
-    db $00, $FE
+; T_CELL_BOT_EDGE — symmetrical bottom row.
+T_CELL_BOT_EDGE::
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $00, $FF
+    db $FF, $FF
 
-; Tile 3: bottom-left.
-T_CORNER_BL::
-    db $00, $7F
-    db $00, $7F
-    db $00, $3F
-    db $00, $3F
-    db $00, $1F
-    db $00, $0F
-    db $00, $07
-    db $00, $03
+; T_CELL_TL — top-left corner: top row + left column in colour 3.
+T_CELL_TL::
+    db $FF, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
 
-; Tile 4: bottom-right.
-T_CORNER_BR::
-    db $00, $FE
-    db $00, $FE
-    db $00, $FC
-    db $00, $FC
-    db $00, $F8
-    db $00, $F0
-    db $00, $E0
-    db $00, $C0
+; T_CELL_TR — top-right corner.
+T_CELL_TR::
+    db $FF, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
 
-; Tiles 5..14: digits 0-9, 5x7 in an 8x8 tile, dark on light background.
-; Format (per row): db <bp0>, <bp1>. Both bitplanes equal so the digit
-; appears in color 3 on the "color 1" background.
-; Pattern: 1 = dark digit pixel, 0 = light cell background.
+; T_CELL_BL — bottom-left.
+T_CELL_BL::
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $80, $FF
+    db $FF, $FF
+
+; T_CELL_BR — bottom-right.
+T_CELL_BR::
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $FF, $FF
+
+; T_CELL_LEFT_EDGE — left column in colour 3, used by the digit row of cells
+; in column 0..3 (always — every cell has a left edge to separate it from
+; its neighbour or outside area).
+T_CELL_LEFT_EDGE::
+    REPT 8
+    db $80, $FF
+    ENDR
+
+; T_CELL_RIGHT_EDGE — right column in colour 3.
+T_CELL_RIGHT_EDGE::
+    REPT 8
+    db $01, $FF
+    ENDR
+
+; T_HUD_RULE — single horizontal rule pixel row, drawn in colour 3, used as
+; the divider between the HUD (rows 0-1) and the board (rows 3+).
+T_HUD_RULE::
+    db $00, $00
+    db $00, $00
+    db $00, $00
+    db $FF, $FF
+    db $00, $00
+    db $00, $00
+    db $00, $00
+    db $00, $00
+
+; Digit tiles 0-9. Glyphs are 5x7 in an 8x8 tile, centred horizontally
+; (cols 1-5) and bottom-aligned with a 1-pixel base gap. bp1 = $FF
+; throughout so the non-digit pixels sit on colour 2 (cell tint).
 
 T_DIGIT_0::
-    db %00111100, %00111100
-    db %01000010, %01000010
-    db %01000110, %01000110
-    db %01001010, %01001010
-    db %01010010, %01010010
-    db %01000010, %01000010
-    db %00111100, %00111100
-    db $00, $00
+    db $00, $FF
+    db %00111100, $FF
+    db %01100110, $FF
+    db %01100110, $FF
+    db %01100110, $FF
+    db %01100110, $FF
+    db %00111100, $FF
+    db $00, $FF
 
 T_DIGIT_1::
-    db %00011000, %00011000
-    db %00101000, %00101000
-    db %00001000, %00001000
-    db %00001000, %00001000
-    db %00001000, %00001000
-    db %00001000, %00001000
-    db %00111110, %00111110
-    db $00, $00
+    db $00, $FF
+    db %00011000, $FF
+    db %00111000, $FF
+    db %00011000, $FF
+    db %00011000, $FF
+    db %00011000, $FF
+    db %01111110, $FF
+    db $00, $FF
 
 T_DIGIT_2::
-    db %00111100, %00111100
-    db %01000010, %01000010
-    db %00000100, %00000100
-    db %00001000, %00001000
-    db %00010000, %00010000
-    db %00100000, %00100000
-    db %01111110, %01111110
-    db $00, $00
+    db $00, $FF
+    db %00111100, $FF
+    db %01100110, $FF
+    db %00000110, $FF
+    db %00111100, $FF
+    db %01100000, $FF
+    db %01111110, $FF
+    db $00, $FF
 
 T_DIGIT_3::
-    db %00111100, %00111100
-    db %01000010, %01000010
-    db %00000010, %00000010
-    db %00011100, %00011100
-    db %00000010, %00000010
-    db %01000010, %01000010
-    db %00111100, %00111100
-    db $00, $00
+    db $00, $FF
+    db %00111100, $FF
+    db %01100110, $FF
+    db %00001100, $FF
+    db %00000110, $FF
+    db %01100110, $FF
+    db %00111100, $FF
+    db $00, $FF
 
 T_DIGIT_4::
-    db %00001100, %00001100
-    db %00010100, %00010100
-    db %00100100, %00100100
-    db %01000100, %01000100
-    db %01111110, %01111110
-    db %00000100, %00000100
-    db %00000100, %00000100
-    db $00, $00
+    db $00, $FF
+    db %00001100, $FF
+    db %00011100, $FF
+    db %00111100, $FF
+    db %01101100, $FF
+    db %01111110, $FF
+    db %00001100, $FF
+    db $00, $FF
 
 T_DIGIT_5::
-    db %01111110, %01111110
-    db %01000000, %01000000
-    db %01111100, %01111100
-    db %00000010, %00000010
-    db %00000010, %00000010
-    db %01000010, %01000010
-    db %00111100, %00111100
-    db $00, $00
+    db $00, $FF
+    db %01111110, $FF
+    db %01100000, $FF
+    db %01111100, $FF
+    db %00000110, $FF
+    db %01100110, $FF
+    db %00111100, $FF
+    db $00, $FF
 
 T_DIGIT_6::
-    db %00111100, %00111100
-    db %01000010, %01000010
-    db %01000000, %01000000
-    db %01111100, %01111100
-    db %01000010, %01000010
-    db %01000010, %01000010
-    db %00111100, %00111100
-    db $00, $00
+    db $00, $FF
+    db %00111100, $FF
+    db %01100000, $FF
+    db %01111100, $FF
+    db %01100110, $FF
+    db %01100110, $FF
+    db %00111100, $FF
+    db $00, $FF
 
 T_DIGIT_7::
-    db %01111110, %01111110
-    db %00000010, %00000010
-    db %00000100, %00000100
-    db %00001000, %00001000
-    db %00010000, %00010000
-    db %00100000, %00100000
-    db %00100000, %00100000
-    db $00, $00
+    db $00, $FF
+    db %01111110, $FF
+    db %00000110, $FF
+    db %00001100, $FF
+    db %00011000, $FF
+    db %00110000, $FF
+    db %00110000, $FF
+    db $00, $FF
 
 T_DIGIT_8::
-    db %00111100, %00111100
-    db %01000010, %01000010
-    db %01000010, %01000010
-    db %00111100, %00111100
-    db %01000010, %01000010
-    db %01000010, %01000010
-    db %00111100, %00111100
-    db $00, $00
+    db $00, $FF
+    db %00111100, $FF
+    db %01100110, $FF
+    db %00111100, $FF
+    db %01100110, $FF
+    db %01100110, $FF
+    db %00111100, $FF
+    db $00, $FF
 
 T_DIGIT_9::
-    db %00111100, %00111100
-    db %01000010, %01000010
-    db %01000010, %01000010
-    db %00111110, %00111110
-    db %00000010, %00000010
-    db %01000010, %01000010
-    db %00111100, %00111100
-    db $00, $00
+    db $00, $FF
+    db %00111100, $FF
+    db %01100110, $FF
+    db %01100110, $FF
+    db %00111110, $FF
+    db %00000110, $FF
+    db %00111100, $FF
+    db $00, $FF
+
+; -----------------------------------------------------------------------------
+; "_R" variants — same as the base tile but with pixel column 7 forced to
+; colour 3 (a 1-px right border). Used for the rightmost tile of every cell
+; so that horizontally-touching cells get a 1-px separator without needing a
+; full gap tile between them. Defined after the regular digits so the
+; canonical TILE_DIGIT_X ids stay 40..49.
+; -----------------------------------------------------------------------------
+
+; T_CELL_TOP_EDGE_R — top-row highlight + 1-px right border.
+T_CELL_TOP_EDGE_R::
+    db $FF, $01
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+
+; T_CELL_BOT_EDGE_R — fill + right border above, full colour-3 bottom row.
+T_CELL_BOT_EDGE_R::
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $01, $FF
+    db $FF, $FF
+
+; Right-border digit variants. bp0 = original pattern OR $01 so col 7 has
+; bp0=bp1=1 → colour 3.
+
+T_DIGIT_0_R::
+    db %00000001, $FF
+    db %00111101, $FF
+    db %01100111, $FF
+    db %01100111, $FF
+    db %01100111, $FF
+    db %01100111, $FF
+    db %00111101, $FF
+    db %00000001, $FF
+
+T_DIGIT_1_R::
+    db %00000001, $FF
+    db %00011001, $FF
+    db %00111001, $FF
+    db %00011001, $FF
+    db %00011001, $FF
+    db %00011001, $FF
+    db %01111111, $FF
+    db %00000001, $FF
+
+T_DIGIT_2_R::
+    db %00000001, $FF
+    db %00111101, $FF
+    db %01100111, $FF
+    db %00000111, $FF
+    db %00111101, $FF
+    db %01100001, $FF
+    db %01111111, $FF
+    db %00000001, $FF
+
+T_DIGIT_3_R::
+    db %00000001, $FF
+    db %00111101, $FF
+    db %01100111, $FF
+    db %00001101, $FF
+    db %00000111, $FF
+    db %01100111, $FF
+    db %00111101, $FF
+    db %00000001, $FF
+
+T_DIGIT_4_R::
+    db %00000001, $FF
+    db %00001101, $FF
+    db %00011101, $FF
+    db %00111101, $FF
+    db %01101101, $FF
+    db %01111111, $FF
+    db %00001101, $FF
+    db %00000001, $FF
+
+T_DIGIT_5_R::
+    db %00000001, $FF
+    db %01111111, $FF
+    db %01100001, $FF
+    db %01111101, $FF
+    db %00000111, $FF
+    db %01100111, $FF
+    db %00111101, $FF
+    db %00000001, $FF
+
+T_DIGIT_6_R::
+    db %00000001, $FF
+    db %00111101, $FF
+    db %01100001, $FF
+    db %01111101, $FF
+    db %01100111, $FF
+    db %01100111, $FF
+    db %00111101, $FF
+    db %00000001, $FF
+
+T_DIGIT_7_R::
+    db %00000001, $FF
+    db %01111111, $FF
+    db %00000111, $FF
+    db %00001101, $FF
+    db %00011001, $FF
+    db %00110001, $FF
+    db %00110001, $FF
+    db %00000001, $FF
+
+T_DIGIT_8_R::
+    db %00000001, $FF
+    db %00111101, $FF
+    db %01100111, $FF
+    db %00111101, $FF
+    db %01100111, $FF
+    db %01100111, $FF
+    db %00111101, $FF
+    db %00000001, $FF
+
+T_DIGIT_9_R::
+    db %00000001, $FF
+    db %00111101, $FF
+    db %01100111, $FF
+    db %01100111, $FF
+    db %00111111, $FF
+    db %00000111, $FF
+    db %00111101, $FF
+    db %00000001, $FF
 
 TILE_DATA_END::

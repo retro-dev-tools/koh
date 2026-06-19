@@ -44,6 +44,7 @@ public sealed class GameBoySystem
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
+        Mmu.AttachPpu(Ppu);
         Hdma = new Hdma(Mmu);
         Ppu.HBlankEntered += Hdma.OnHBlankEntered;
         Io.AttachPpu(Ppu);

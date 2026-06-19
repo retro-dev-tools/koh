@@ -1,71 +1,45 @@
 SECTION "Title Screen", ROMX, BANK[3]
 
-; TitleEnter -- set up the title screen.
-;   Writes a static "KOH 2048 / PRESS START" message to the BG tilemap.
-;   Sets game state to TITLE.
+; TitleEnter -- show a clean title screen.
+;   The HUD (rows 0-2) stays visible from RenderInit; we wipe the board area
+;   below so the title text reads cleanly on a white background.
 TitleEnter::
     ld a, GS_TITLE
     ld [wGameState], a
 
-    ; Wait for VBlank before writing to VRAM. Without this, BG writes happen
-    ; mid-frame and some land during PPU mode 3 (silently dropped) — leaving
-    ; the title text either partial or invisible.
     call WaitForVBlankFlag
+    call LcdOff                 ; keep LCD off through ALL of our VRAM writes
+    call ClearBoardArea
 
-    ; Write "KOH 2048" centered at row 7, col 6.
-    ld hl, _SCRN0 + 7*32 + 6
-    ld a, TILE_FONT_K
-    ld [hl+], a
-    ld a, TILE_FONT_O
-    ld [hl+], a
-    ld a, TILE_FONT_H
-    ld [hl+], a
-    ld a, TILE_FONT_SPACE
-    ld [hl+], a
-    ld a, TILE_DIGIT_2
-    ld [hl+], a
-    ld a, TILE_DIGIT_0
-    ld [hl+], a
-    ld a, TILE_DIGIT_4
-    ld [hl+], a
-    ld a, TILE_DIGIT_8
-    ld [hl+], a
+    ld hl, _SCRN0 + 8 * 32 + 6
+    ld de, .str_title
+    call DrawString
+    ; Set palette 0 (white plate, black text) for the 8 title tiles so they
+    ; contrast against the dark frame they sit on.
+    ld hl, _SCRN0 + 8 * 32 + 6
+    ld bc, 8
+    xor a
+    call FillAttr
 
-    ; Write "PRESS START" at row 12, col 4.
-    ld hl, _SCRN0 + 12*32 + 4
-    ld a, TILE_FONT_P
-    ld [hl+], a
-    ld a, TILE_FONT_R
-    ld [hl+], a
-    ld a, TILE_FONT_E
-    ld [hl+], a
-    ld a, TILE_FONT_S
-    ld [hl+], a
-    ld a, TILE_FONT_S
-    ld [hl+], a
-    ld a, TILE_FONT_SPACE
-    ld [hl+], a
-    ld a, TILE_FONT_S
-    ld [hl+], a
-    ld a, TILE_FONT_T
-    ld [hl+], a
-    ld a, TILE_FONT_A
-    ld [hl+], a
-    ld a, TILE_FONT_R
-    ld [hl+], a
-    ld a, TILE_FONT_T
-    ld [hl+], a
-
+    ld hl, _SCRN0 + 13 * 32 + 4
+    ld de, .str_prompt
+    call DrawString
+    ld hl, _SCRN0 + 13 * 32 + 4
+    ld bc, 11
+    xor a
+    call FillAttr
+    call LcdOn
     ret
 
-; TitleTick -- called every frame while in TITLE state.
-;   On START button edge -> reset board, init game, transition to PLAYING.
+.str_title:  db "KOH 2048", STR_END
+.str_prompt: db "PRESS START", STR_END
+
+; TitleTick -- on START edge: reset board, init game, transition to PLAYING.
 TitleTick::
-    ld a, [wInput+2]           ; edge bits
-    bit 3, a                   ; START button = bit 3
+    ld a, [wInput+2]
+    bit 3, a
     ret z
 
-    ; START pressed -- start a new game (reset, board init, and BG redraw).
     farcall 1, StartNewGame
     ld a, GS_PLAYING
     ld [wGameState], a
