@@ -28,7 +28,10 @@ T_CELL_TOP_EDGE::
     db $00, $FF
     db $00, $FF
 
-; T_CELL_BOT_EDGE — symmetrical bottom row.
+; T_CELL_BOT_EDGE — fill, then a 1-px board-tone (colour 0) separator on the
+; bottom row so vertically-touching cells get a consistent tan gap regardless
+; of tile value. (Colour 3 here read as white on the bright 8/16/32+ tiles,
+; making them look clipped.)
 T_CELL_BOT_EDGE::
     db $00, $FF
     db $00, $FF
@@ -37,7 +40,7 @@ T_CELL_BOT_EDGE::
     db $00, $FF
     db $00, $FF
     db $00, $FF
-    db $FF, $FF
+    db $00, $00
 
 ; T_CELL_TL — top-left corner: top row + left column in colour 3.
 T_CELL_TL::
@@ -91,10 +94,11 @@ T_CELL_LEFT_EDGE::
     db $80, $FF
     ENDR
 
-; T_CELL_RIGHT_EDGE — right column in colour 3.
+; T_CELL_RIGHT_EDGE — right column in colour 0 (board-tone separator) so
+; horizontally-touching cells get a consistent tan gap on every tile value.
 T_CELL_RIGHT_EDGE::
     REPT 8
-    db $01, $FF
+    db $00, $FE
     ENDR
 
 ; T_HUD_RULE — single horizontal rule pixel row, drawn in colour 3, used as
@@ -221,129 +225,133 @@ T_DIGIT_9::
 ; canonical TILE_DIGIT_X ids stay 40..49.
 ; -----------------------------------------------------------------------------
 
-; T_CELL_TOP_EDGE_R — top-row highlight + 1-px right border.
+; T_CELL_TOP_EDGE_R — top-row highlight (colour 1) + 1-px board-tone (colour 0)
+; right separator.
 T_CELL_TOP_EDGE_R::
-    db $FF, $01
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
+    db $FE, $00
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
 
-; T_CELL_BOT_EDGE_R — fill + right border above, full colour-3 bottom row.
+; T_CELL_BOT_EDGE_R — fill + 1-px board-tone (colour 0) right separator, plus a
+; board-tone bottom row. Bottom-right corner of every cell.
 T_CELL_BOT_EDGE_R::
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $01, $FF
-    db $FF, $FF
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $FE
+    db $00, $00
 
-; Right-border digit variants. bp0 = original pattern OR $01 so col 7 has
-; bp0=bp1=1 → colour 3.
+; Right-border digit variants — identical glyph to the base digit, but bp1 has
+; column 7 cleared ($FE) so the rightmost pixel renders as colour 0 (board
+; tone): a consistent tan separator instead of the colour-3 strip that read as
+; white on the bright 1024/2048/4096 palettes.
 
 T_DIGIT_0_R::
-    db %00000001, $FF
-    db %00111101, $FF
-    db %01100111, $FF
-    db %01100111, $FF
-    db %01100111, $FF
-    db %01100111, $FF
-    db %00111101, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00111100, $FE
+    db %01100110, $FE
+    db %01100110, $FE
+    db %01100110, $FE
+    db %01100110, $FE
+    db %00111100, $FE
+    db $00, $FE
 
 T_DIGIT_1_R::
-    db %00000001, $FF
-    db %00011001, $FF
-    db %00111001, $FF
-    db %00011001, $FF
-    db %00011001, $FF
-    db %00011001, $FF
-    db %01111111, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00011000, $FE
+    db %00111000, $FE
+    db %00011000, $FE
+    db %00011000, $FE
+    db %00011000, $FE
+    db %01111110, $FE
+    db $00, $FE
 
 T_DIGIT_2_R::
-    db %00000001, $FF
-    db %00111101, $FF
-    db %01100111, $FF
-    db %00000111, $FF
-    db %00111101, $FF
-    db %01100001, $FF
-    db %01111111, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00111100, $FE
+    db %01100110, $FE
+    db %00000110, $FE
+    db %00111100, $FE
+    db %01100000, $FE
+    db %01111110, $FE
+    db $00, $FE
 
 T_DIGIT_3_R::
-    db %00000001, $FF
-    db %00111101, $FF
-    db %01100111, $FF
-    db %00001101, $FF
-    db %00000111, $FF
-    db %01100111, $FF
-    db %00111101, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00111100, $FE
+    db %01100110, $FE
+    db %00001100, $FE
+    db %00000110, $FE
+    db %01100110, $FE
+    db %00111100, $FE
+    db $00, $FE
 
 T_DIGIT_4_R::
-    db %00000001, $FF
-    db %00001101, $FF
-    db %00011101, $FF
-    db %00111101, $FF
-    db %01101101, $FF
-    db %01111111, $FF
-    db %00001101, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00001100, $FE
+    db %00011100, $FE
+    db %00111100, $FE
+    db %01101100, $FE
+    db %01111110, $FE
+    db %00001100, $FE
+    db $00, $FE
 
 T_DIGIT_5_R::
-    db %00000001, $FF
-    db %01111111, $FF
-    db %01100001, $FF
-    db %01111101, $FF
-    db %00000111, $FF
-    db %01100111, $FF
-    db %00111101, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %01111110, $FE
+    db %01100000, $FE
+    db %01111100, $FE
+    db %00000110, $FE
+    db %01100110, $FE
+    db %00111100, $FE
+    db $00, $FE
 
 T_DIGIT_6_R::
-    db %00000001, $FF
-    db %00111101, $FF
-    db %01100001, $FF
-    db %01111101, $FF
-    db %01100111, $FF
-    db %01100111, $FF
-    db %00111101, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00111100, $FE
+    db %01100000, $FE
+    db %01111100, $FE
+    db %01100110, $FE
+    db %01100110, $FE
+    db %00111100, $FE
+    db $00, $FE
 
 T_DIGIT_7_R::
-    db %00000001, $FF
-    db %01111111, $FF
-    db %00000111, $FF
-    db %00001101, $FF
-    db %00011001, $FF
-    db %00110001, $FF
-    db %00110001, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %01111110, $FE
+    db %00000110, $FE
+    db %00001100, $FE
+    db %00011000, $FE
+    db %00110000, $FE
+    db %00110000, $FE
+    db $00, $FE
 
 T_DIGIT_8_R::
-    db %00000001, $FF
-    db %00111101, $FF
-    db %01100111, $FF
-    db %00111101, $FF
-    db %01100111, $FF
-    db %01100111, $FF
-    db %00111101, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00111100, $FE
+    db %01100110, $FE
+    db %00111100, $FE
+    db %01100110, $FE
+    db %01100110, $FE
+    db %00111100, $FE
+    db $00, $FE
 
 T_DIGIT_9_R::
-    db %00000001, $FF
-    db %00111101, $FF
-    db %01100111, $FF
-    db %01100111, $FF
-    db %00111111, $FF
-    db %00000111, $FF
-    db %00111101, $FF
-    db %00000001, $FF
+    db $00, $FE
+    db %00111100, $FE
+    db %01100110, $FE
+    db %01100110, $FE
+    db %00111110, $FE
+    db %00000110, $FE
+    db %00111100, $FE
+    db $00, $FE
 
 TILE_DATA_END::

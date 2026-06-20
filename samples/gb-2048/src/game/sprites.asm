@@ -39,7 +39,7 @@ SPRITE_STRIDE_Y EQU 24
 ; Clobbers AF, B, HL.
 ; ----------------------------------------------------------------------------
 SpriteRenderClear::
-    ; --- Clear wOAMBuffer (DMA'd to OAM at next VBlank IRQ) ---
+    ; --- Clear wOAMBuffer (the OAM DMA source) ---
     ld hl, wOAMBuffer
     ld b, 40
     xor a
@@ -51,22 +51,14 @@ SpriteRenderClear::
     dec b
     jr nz, .loop
 
-    ; --- Also clear OAM directly so the just-rendered frame doesn't show
-    ;     ghost sprites left over from the slide phase. The next VBlank's
-    ;     OAM DMA only reaches OAM 1-2 frames later, leaving sprites visible
-    ;     on top of the freshly-committed BG cells if we don't wipe OAM now.
-    ;     We're running during VBlank (main loop only runs after
-    ;     WaitForVBlankFlag), so OAM writes are race-free.
-    ld hl, _OAMRAM
-    ld b, 40
-    xor a
-.oam_loop:
-    ld [hl+], a            ; y
-    inc hl
-    inc hl
-    inc hl
-    dec b
-    jr nz, .oam_loop
+    ; --- Push the cleared buffer to OAM *this* frame so the freshly-committed
+    ;     board never shows the slide sprites on top of it. We trigger the OAM
+    ;     DMA directly instead of writing OAM with the CPU: the DMA engine
+    ;     reaches OAM regardless of PPU mode, whereas CPU OAM writes are dropped
+    ;     when OAM is locked (modes 2/3) — which on real hardware left a stray
+    ;     slide digit parked over the committed board for a frame. (The IRQ's
+    ;     per-frame OAM DMA would otherwise only catch up 1-2 frames later.)
+    call hOAMDMA
     ret
 
 ; ----------------------------------------------------------------------------
