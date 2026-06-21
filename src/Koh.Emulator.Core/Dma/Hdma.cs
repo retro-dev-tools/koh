@@ -85,8 +85,9 @@ public sealed class Hdma
     /// <summary>
     /// Transfer one 16-byte block of an armed general-purpose transfer. The
     /// caller (GameBoySystem) burns the block's dot cost while ticking the PPU
-    /// after each call, so the bytes land interleaved with rendering. HDMA
-    /// bypasses PPU mode lockout (its own bus path), hence WriteByteDirect.
+    /// after each call, so the bytes land interleaved with rendering. Writes go
+    /// through WriteByteHdma, which respects the PPU mode-3 VRAM lock and drops
+    /// blocks that overran their window — matching real CGB hardware.
     /// Clears <see cref="CpuHaltedByGp"/>/<see cref="Active"/> on the last block.
     /// </summary>
     public void TransferOneGpBlock()
@@ -147,12 +148,12 @@ public sealed class Hdma
 
     public void TickT()
     {
-        // HBlank HDMA now completes each block atomically in OnHBlankEntered,
-        // and general-purpose HDMA completes synchronously in
-        // WriteLengthRegister. There is nothing for the per-T-cycle path to
-        // do — kept as a no-op so existing call sites in GameBoySystem don't
-        // need to change and so the CpuHaltedByGp flag stays false when a
-        // transfer finishes between polls.
+        // HBlank HDMA completes each block atomically in OnHBlankEntered, and
+        // general-purpose HDMA is drained block-by-block by GameBoySystem (via
+        // TransferOneGpBlock) — it's only armed in WriteLengthRegister. There is
+        // nothing for the per-T-cycle path to do — kept as a no-op so existing
+        // call sites in GameBoySystem don't need to change and so the
+        // CpuHaltedByGp flag stays false when a transfer finishes between polls.
         if (!Active) CpuHaltedByGp = false;
     }
 
