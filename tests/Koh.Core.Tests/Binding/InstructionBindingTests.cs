@@ -14,7 +14,10 @@ public class InstructionBindingTests
 
     private static IReadOnlyList<byte> GetBytes(string source)
     {
-        var result = Bind($"SECTION \"Main\", ROM0\n__main__:\n{source}");
+        // Fixed-address section: same-section refs resolve at assemble time. In a
+        // floating section they defer to the linker (see ExpressionEvaluator), and
+        // the assemble-time bytes these tests inspect would be 0x00 placeholders.
+        var result = Bind($"SECTION \"Main\", ROM0[$0000]\n__main__:\n{source}");
         if (!result.Success)
             throw new Exception($"Binding failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}");
         return result.Sections!["Main"].Bytes;

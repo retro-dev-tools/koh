@@ -159,7 +159,7 @@ public class BinderSymbolTests
         // A label referenced in a DW before it appears in source is resolved by Pass 1.
         // By the time Pass 2 emits the DW, the symbol is already defined — no patch needed.
         // 'target' is at offset 2 (after the 2-byte DW placeholder).
-        var result = Bind("SECTION \"Main\", ROM0\ndw target\ntarget:\n    nop");
+        var result = Bind("SECTION \"Main\", ROM0[$0000]\ndw target\ntarget:\n    nop");
         await Assert.That(result.Success).IsTrue();
         var sym = result.Symbols!.Lookup("target");
         await Assert.That(sym).IsNotNull();
@@ -210,12 +210,12 @@ public class BinderSymbolTests
     [Test]
     public async Task Section_FixedAddress_LabelHasCorrectPC()
     {
-        // SECTION at $0100 — label defined immediately should have PC = $0100
+        // SECTION at $0100 — label defined immediately should have section-relative offset = 0
         var result = Bind("SECTION \"Entry\", ROM0[$0100]\nentry:\nnop");
         await Assert.That(result.Success).IsTrue();
         var sym = result.Symbols!.Lookup("entry");
         await Assert.That(sym).IsNotNull();
-        await Assert.That(sym!.Value).IsEqualTo(0x0100);
+        await Assert.That(sym!.Value).IsEqualTo(0);
     }
 
     [Test]
@@ -225,7 +225,7 @@ public class BinderSymbolTests
         await Assert.That(result.Success).IsTrue();
         var sym = result.Symbols!.Lookup("end");
         await Assert.That(sym).IsNotNull();
-        await Assert.That(sym!.Value).IsEqualTo(0x0102); // $0100 + 2 nops
+        await Assert.That(sym!.Value).IsEqualTo(2); // 2 nops in section
     }
 
     [Test]
@@ -290,7 +290,7 @@ public class BinderSymbolTests
     public async Task LocalLabel_WithoutColon_JrTarget()
     {
         var result = Bind("""
-            SECTION "Main", ROM0
+            SECTION "Main", ROM0[$0000]
             main:
                 jr .target
                 nop
@@ -338,7 +338,7 @@ public class BinderSymbolTests
         // Pass 2 must track the global anchor so .loop resolves
         // to the correct scope in each context.
         var result = Bind("""
-            SECTION "Main", ROM0
+            SECTION "Main", ROM0[$0000]
             FuncA:
             .loop:
                 nop
@@ -384,16 +384,17 @@ public class BinderSymbolTests
     }
 
     /// <summary>
-    /// Regression: PatchResolver must restore the global anchor from the patch site
-    /// before evaluating deferred local label references. Without this, forward-referenced
-    /// local labels in multi-scope code resolve against the wrong global scope.
+    /// Regression: forward-referenced local labels in multi-scope code must resolve
+    /// against the correct global scope. In a floating section the two `dw .end`
+    /// refs defer to the linker, so each deferred patch must carry its own
+    /// scope-qualified symbol name — otherwise both would resolve against FuncB
+    /// (the last global label). End-to-end linked resolution of this case is
+    /// covered by AssemblerLinkerGoldenIntegrationTests (floating section, scoped
+    /// local labels).
     /// </summary>
     [Test]
-    public async Task PatchResolver_DeferredLocalLabel_ResolvesInCorrectScope()
+    public async Task DeferredLocalLabel_QualifiesToCorrectScope()
     {
-        // FuncA and FuncB each have a forward-referenced .end via dw.
-        // The dw patches are deferred to PatchResolver. Without anchor restoration,
-        // both patches would resolve against FuncB (the last global label).
         var result = Bind("""
             SECTION "Main", ROM0
             FuncA:
@@ -410,16 +411,17 @@ public class BinderSymbolTests
         await Assert.That(result.Success).IsTrue();
         await Assert.That(result.Diagnostics).IsEmpty();
 
-        var bytes = result.Sections!["Main"].Bytes;
-        // FuncA: dw .end(2) + nop(1) = 3 bytes before .end label at offset 3
-        // FuncA.end address = 3
-        await Assert.That(bytes[0]).IsEqualTo((byte)0x03); // low byte of FuncA.end
-        await Assert.That(bytes[1]).IsEqualTo((byte)0x00); // high byte
-
-        // FuncB starts at offset 4 (after ret): dw .end(2) + nop(1) = offset 7 for .end
-        // FuncB.end address = 4 + 3 = 7
-        await Assert.That(bytes[4]).IsEqualTo((byte)0x07); // low byte of FuncB.end
-        await Assert.That(bytes[5]).IsEqualTo((byte)0x00); // high byte
+        // Floating section: each `dw .end` defers to the linker (bytes are
+        // placeholders here). The patch must carry a scope-qualified SymbolName so
+        // the linker resolves each `.end` against its own function — without it
+        // both would resolve against FuncB (and data patches wouldn't link at all).
+        var symbols = result.Sections!["Main"].Patches
+            .Where(p => p.Kind == PatchKind.Absolute16)
+            .Select(p => p.SymbolName)
+            .ToList();
+        await Assert.That(symbols.Count).IsEqualTo(2);
+        await Assert.That(symbols).Contains("FuncA.end");
+        await Assert.That(symbols).Contains("FuncB.end");
     }
 
     // =========================================================================

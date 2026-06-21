@@ -43,4 +43,12 @@
     <Exec Command="&quot;$(EmulatorPublishDir)\Koh.Emulator.App.exe&quot;" />
   </Target>
 
+  <Target Name="BuildSample2048">
+    <MakeDir Directories="samples/gb-2048/build" />
+    <Exec Command="dotnet run --project src/Koh.Asm -- samples/gb-2048/src/main.asm -o samples/gb-2048/build/2048.kobj" />
+    <Exec Command="dotnet run --project src/Koh.Link -- samples/gb-2048/build/2048.kobj -o samples/gb-2048/build/2048.gbc -n samples/gb-2048/build/2048.sym" />
+    <Error Condition="!Exists('samples/gb-2048/build/2048.gbc')" Text="2048.gbc was not produced" />
+    <Message Importance="high" Text="Built samples/gb-2048/build/2048.gbc" />
+  </Target>
+
 </Project>

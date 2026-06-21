@@ -29,6 +29,7 @@ public sealed class Mmu
     private int WramBank => Banking.WramBank;
 
     private OamDma? _oamDma;
+    private Ppu.Ppu? _ppu;
 
     public MemoryHook? Hook { get; set; }
 
@@ -39,6 +40,17 @@ public sealed class Mmu
     }
 
     public void AttachOamDma(OamDma oamDma) => _oamDma = oamDma;
+    public void AttachPpu(Ppu.Ppu ppu) => _ppu = ppu;
+
+    /// <summary>True when the PPU has VRAM locked (mode 3 with LCD on).</summary>
+    private bool VramLocked => _ppu is not null
+        && (_ppu.LCDC & 0x80) != 0
+        && _ppu.Mode == Ppu.PpuMode.Drawing;
+
+    /// <summary>True when the PPU has OAM locked (modes 2/3 with LCD on).</summary>
+    private bool OamLocked => _ppu is not null
+        && (_ppu.LCDC & 0x80) != 0
+        && (_ppu.Mode == Ppu.PpuMode.Drawing || _ppu.Mode == Ppu.PpuMode.OamScan);
 
     /// <summary>
     /// Read that bypasses DMA contention — used by the DMA engine itself when
@@ -46,14 +58,62 @@ public sealed class Mmu
     /// </summary>
     public byte ReadByteDirect(ushort address) => ReadByteInternal(address);
 
+    /// <summary>
+    /// Write that bypasses PPU/DMA lockouts. Used for debug pokes and for DMA
+    /// destinations that are genuinely unaffected by PPU mode (e.g. OAM DMA,
+    /// which has its own bus).
+    /// </summary>
+    public void WriteByteDirect(ushort address, byte value)
+    {
+        switch (address >> 12)
+        {
+            case 0x8: case 0x9:
+                _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
+                return;
+            default:
+                // For non-VRAM destinations fall back to the regular path.
+                WriteByte(address, value);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// VRAM write for an HDMA/GDMA transfer. Unlike <see cref="WriteByteDirect"/>
+    /// this RESPECTS the mode-3 VRAM lock: on real CGB hardware the HDMA engine
+    /// shares the CPU's bus path to VRAM, so a transfer byte that lands while the
+    /// PPU owns VRAM (mode 3) is silently dropped and the destination keeps its
+    /// old value (Pan Docs: GDMA "blindly attempts to copy ... even if the LCD
+    /// controller is currently accessing VRAM"). Modeling this makes a GDMA that
+    /// overruns VBlank into active rendering leave the stale tiles/attributes it
+    /// leaves on hardware, instead of an always-succeeding copy hiding the bug.
+    /// </summary>
+    public void WriteByteHdma(ushort address, byte value)
+    {
+        if (address >= 0x8000 && address < 0xA000)
+        {
+            if (!VramLocked)
+                _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
+            return;
+        }
+        WriteByteDirect(address, value);  // GDMA targets are always VRAM; be safe.
+    }
+
     public byte ReadByte(ushort address)
     {
         // OAM DMA contention: during DMA, the CPU sees $FF on all "external"
         // buses (ROM/VRAM/WRAM/SRAM/OAM). HRAM and I/O registers remain
         // accessible per Mooneye oam_dma/reg_read behaviour.
-        byte value = (_oamDma is { IsBusLocking: true } && address < 0xFF00)
-            ? (byte)0xFF
-            : ReadByteInternal(address);
+        byte value;
+        if (_oamDma is { IsBusLocking: true } && address < 0xFF00)
+            value = 0xFF;
+        // PPU mode lockouts: VRAM is unreadable during mode 3, OAM during
+        // modes 2 and 3. Reads return $FF (real-hardware behaviour).
+        else if (address >= 0x8000 && address < 0xA000 && VramLocked)
+            value = 0xFF;
+        else if (address >= 0xFE00 && address < 0xFEA0 && OamLocked)
+            value = 0xFF;
+        else
+            value = ReadByteInternal(address);
         Hook?.OnRead(address, value);
         return value;
     }
@@ -110,7 +170,11 @@ public sealed class Mmu
                 _cart.WriteRom(address, value);
                 return;
             case 0x8: case 0x9:
-                _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
+                // VRAM writes during PPU mode 3 are silently dropped on real
+                // hardware; modeling this lets ROM-side bugs (e.g. board
+                // commits that overflow VBlank) show up in verification.
+                if (!VramLocked)
+                    _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
                 return;
             case 0xA: case 0xB:
                 _cart.WriteRam(address, value);
@@ -126,7 +190,11 @@ public sealed class Mmu
                 return;
             case 0xF:
                 if (address < 0xFE00) { _wram[WramBank * 0x1000 + (address - 0xF000)] = value; return; }
-                if (address < 0xFEA0) { _oam[address - 0xFE00] = value; return; }
+                if (address < 0xFEA0)
+                {
+                    if (!OamLocked) _oam[address - 0xFE00] = value;
+                    return;
+                }
                 if (address < 0xFF00) return;
                 if (address == 0xFFFF) { Io.WriteIe(value); return; }
                 if (address >= 0xFF80) { _hram[address - 0xFF80] = value; return; }
@@ -139,7 +207,11 @@ public sealed class Mmu
     /// Raw debug read. Bypasses access restrictions (none in Phase 1).
     /// Phase 2 adds bypass of PPU mode lockout.
     /// </summary>
-    public byte DebugRead(ushort address) => ReadByte(address);
+    /// <summary>Debug/inspector read that bypasses OAM-DMA bus contention.
+    /// Tools want to see actual memory values regardless of what the CPU
+    /// would see at that moment. ReadByte returns $FF for ext-bus reads
+    /// during DMA; DebugRead always returns the underlying byte.</summary>
+    public byte DebugRead(ushort address) => ReadByteInternal(address);
 
     /// <summary>
     /// Raw debug write per §7.10. Caller is responsible for enforcing the paused-only rule.

@@ -1,0 +1,162 @@
+; game/anim.asm — Slide animation state machine (BANK 1).
+;
+; Game-state constants (referenced by main loop in main.asm and other modules).
+; EQU constants need no SECTION.
+GS_TITLE     EQU 0
+GS_PLAYING   EQU 1
+GS_ANIMATING EQU 2
+GS_WIN       EQU 3
+GS_GAMEOVER  EQU 4
+
+; Animation lasts ANIM_TOTAL_FRAMES frames.
+; Frames 1..6 : slide (sprite movement + cleared BG).
+; Frame  7    : last slide step + SpawnTile + BuildBoardBuffers (all WRAM
+;               work — no VRAM access yet, so no PPU mode constraints).
+; Frame  8    : SpriteRenderClear + CommitBoardHdma + DrawHud — every
+;               VRAM write here is either HDMA (bypasses PPU lockout) or
+;               tiny enough to land inside one VBlank, so the board never
+;               overlaps with PPU mode 3 on real hardware.
+; Frames 9-11 : idle.
+; Frame  12   : win/lose checks + state transition.
+ANIM_TOTAL_FRAMES EQU 12
+
+SECTION "Animation", ROMX, BANK[1]
+
+; ----------------------------------------------------------------------------
+; AnimStart:: — call after a valid move (with wMoveIntents already filled).
+;   - Sets wGameState = GS_ANIMATING, resets wAnimFrame to 0.
+;   - Writes wOAMBuffer with sprites at pre-move (src) positions; the next
+;     VBlank's OAM DMA will make them visible.
+;   - Plays the move/merge SFX.
+;
+;   The BG board region is NOT cleared here. ClearBoardBg runs on the first
+;   AnimTick instead, by which point the OAM DMA has already copied the src-
+;   position sprites to OAM. Clearing earlier would leave one frame where the
+;   board area is blank (BG cleared, sprites not yet DMA'd).
+;
+;   Clobbers AF, BC, DE, HL, hScratch+0..5.
+; ----------------------------------------------------------------------------
+AnimStart::
+    ld a, GS_ANIMATING
+    ld [wGameState], a
+    xor a
+    ld [wAnimFrame], a
+    xor a                  ; frame = 0
+    call SpriteRenderTick
+    call PickAndPlayMoveSfx
+    ret
+
+; ----------------------------------------------------------------------------
+; PickAndPlayMoveSfx -- play merge SFX if any wMoveIntents entry has its
+;   merge flag set, otherwise play the plain move SFX. PlaySfx is in ROM0
+;   and reachable via a plain call from BANK[1].
+;   Clobbers AF, BC, HL.
+; ----------------------------------------------------------------------------
+PickAndPlayMoveSfx::
+    ld hl, wMoveIntents + 2    ; merge-flag byte of intent 0
+    ld bc, 4
+    ld d, 16
+.scan:
+    ld a, [hl]
+    or a
+    jr nz, .merge
+    add hl, bc
+    dec d
+    jr nz, .scan
+    xor a                      ; sfx id 0 = move
+    call PlaySfx
+    ret
+.merge:
+    ld a, 1                    ; sfx id 1 = merge
+    call PlaySfx
+    ret
+
+; ----------------------------------------------------------------------------
+; AnimTick:: — call once per frame while wGameState == GS_ANIMATING.
+;   Frames 1..7  : interpolate sprite positions (slide animation).
+;   Frame  8     : hide sprites, commit board to BG, spawn a new tile.
+;   Frames 9..11 : nothing — board is shown via BG.
+;   Frame  12    : win/lose checks, transition to GS_WIN / GS_GAMEOVER /
+;                  GS_PLAYING.
+;   Clobbers AF, HL (+ whatever the called routines use).
+; ----------------------------------------------------------------------------
+AnimTick::
+    ld a, [wAnimFrame]
+    inc a
+    ld [wAnimFrame], a
+
+    cp ANIM_TOTAL_FRAMES
+    jp z, .finalize
+    cp 8
+    jp z, .commit
+    cp 7
+    jp z, .prebuild
+    jr nc, .post_commit    ; never reached (handled above)
+
+    ; Frame 1: OAM DMA has now copied src-position sprites to OAM, so the
+    ; sprites are visible. Safe to clear the BG cells they slide over.
+    ; This is also a good time to precompute the HUD digit cache for the
+    ; new score — RecomputeScoreCache writes only to WRAM so no VBlank /
+    ; PPU mode constraints, and it gets the cache ready well before commit.
+    cp 1
+    jr nz, .not_frame1
+    call ClearBoardBg
+    call RecomputeScoreCache
+.not_frame1:
+
+    ; Frames 1..6: advance the slide by one step.
+    ld a, [wAnimFrame]
+    call SpriteRenderTick
+    ret
+
+.post_commit:
+    ret
+
+.prebuild:
+    ; Last slide step + heavy WRAM work that doesn't need VBlank: we spawn
+    ; the next tile and rebuild the shadow buffers here so that the commit
+    ; frame only has to do an HDMA copy (≈ 960 T per call, bus-locking) and
+    ; a couple of cheap VRAM writes.
+    ld a, 7
+    call SpriteRenderTick
+    call SpawnTile
+    call BuildBoardBuffers
+    ret
+
+.commit:
+    ; Frame 8: actual visible commit. CommitBoardHdma runs FIRST, at the very
+    ; top of VBlank, so its 60-block GDMA (tiles + attributes, ~1920 dots)
+    ; finishes before the PPU resumes rendering. Run last (after SpriteRenderClear
+    ; + DrawHud) it started too late and the attribute pass spilled into PPU
+    ; mode 3 — where VRAM writes are dropped on real hardware (Pan Docs) — leaving
+    ; board cells with the pale empty-grid palette ("not fully coloured").
+    ;   * CommitBoardHdma (~1920 dots, bus-locking) — board tiles + attributes.
+    ;   * SpriteRenderClear (~970 T) — hides the slide sprites.
+    ;   * DrawHud (~300 T cached) — refreshes the score.
+    call CommitBoardHdma
+    call SpriteRenderClear
+    call DrawHud
+    ret
+
+.finalize:
+    ; Check win: Z set if a cell value == 11 (represents 2048).
+    call CheckWin
+    jr nz, .no_win
+    ; Only trigger GS_WIN once (wWonOnce guards repeated win screens).
+    ld a, [wWonOnce]
+    or a
+    jr nz, .no_win
+    ld a, 1
+    ld [wWonOnce], a
+    farcall 3, WinEnter
+    ret
+
+.no_win:
+    call CheckLose
+    jr nz, .no_lose
+    farcall 3, GameOverEnter
+    ret
+.no_lose:
+    ld a, GS_PLAYING
+    ld [wGameState], a
+    ret

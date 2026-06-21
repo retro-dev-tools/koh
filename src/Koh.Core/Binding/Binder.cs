@@ -138,9 +138,18 @@ public sealed class Binder
     /// Create an ExpressionEvaluator with all resolvers wired up.
     /// </summary>
     private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC)
+        => CreateEvaluator(getCurrentPC, null);
+
+    /// <summary>
+    /// Create an ExpressionEvaluator with all resolvers wired up, with section context for
+    /// cross-section deferral.
+    /// </summary>
+    private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC, SectionBuffer? section)
     {
         var eval = new ExpressionEvaluator(_symbols, _diagnostics, getCurrentPC, _fracBits,
-            _charMaps, _expander != null ? _expander.ResolveInterpolations : null)
+            _charMaps, _expander != null ? _expander.ResolveInterpolations : null,
+            section?.Name, section?.BaseAddress ?? 0,
+            currentSectionIsFloating: section != null && section.FixedAddress == null)
         {
             FracBits = _fracBits,
             EqusResolver = name => _expander?.LookupEqus(name),
@@ -1060,7 +1069,7 @@ public sealed class Binder
 
         var keyword = node.ChildTokens().First();
         var expressions = node.ChildNodes().ToList();
-        var evaluator = CreateEvaluator(() => section.CurrentPC);
+        var evaluator = CreateEvaluator(() => section.CurrentPC, section);
 
         // Check: data (db/dw/dl) in RAM sections (only ds is allowed)
         if (keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword)
@@ -1114,12 +1123,14 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveByte();
+                        var (sn8, so8, sh8) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
                         section.RecordPatch(new PatchEntry
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute8,
                             FilePath = _diagnostics.CurrentFilePath,
                             GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                            SymbolName = sn8, SymbolOffset = so8, SymbolShift = sh8,
                         });
                     }
                 }
@@ -1149,12 +1160,14 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveWord();
+                        var (sn16, so16, sh16) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
                         section.RecordPatch(new PatchEntry
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute16,
                             FilePath = _diagnostics.CurrentFilePath,
                             GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                            SymbolName = sn16, SymbolOffset = so16, SymbolShift = sh16,
                         });
                     }
                 }
@@ -1169,12 +1182,14 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveLong();
+                        var (sn32, so32, sh32) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
                         section.RecordPatch(new PatchEntry
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute32,
                             FilePath = _diagnostics.CurrentFilePath,
                             GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                            SymbolName = sn32, SymbolOffset = so32, SymbolShift = sh32,
                         });
                     }
                 }
@@ -1233,7 +1248,7 @@ public sealed class Binder
         }
         var exprNodes = node.ChildNodes().ToList();
         if (exprNodes.Count == 0) return;
-        var evaluator = CreateEvaluator(() => section.CurrentPC);
+        var evaluator = CreateEvaluator(() => section.CurrentPC, section);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
 
@@ -1690,7 +1705,7 @@ public sealed class Binder
             _diagnostics.Report(node.FullSpan, "ALIGN requires an alignment value");
             return;
         }
-        var evaluator = CreateEvaluator(() => section.CurrentPC);
+        var evaluator = CreateEvaluator(() => section.CurrentPC, section);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
         if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
         {

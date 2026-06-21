@@ -52,23 +52,21 @@ public sealed class Hdma
 
         if (!IsHBlankMode)
         {
-            // General-purpose HDMA halts the CPU for the full transfer. We
-            // emulate that by doing the whole copy atomically right here —
-            // the CPU therefore can't race in with a VBK flip or an
-            // unrelated VRAM write while the bytes are in flight. Without
-            // this, CGB games that chain "set VBK=N, HDMA block, set VBK=M,
-            // HDMA block" wind up with scrambled bank-1 tile data.
-            int total = blocks * 16;
-            for (int i = 0; i < total; i++)
-            {
-                _mmu.WriteByte((ushort)(dst + i), _mmu.ReadByteDirect((ushort)(src + i)));
-            }
-            Active = false;
-            CpuHaltedByGp = false;
-            _bytesRemaining = 0;
+            // General-purpose HDMA halts the CPU for the full transfer — on
+            // hardware ~8 µs per 16-byte block (Pan Docs), the same wall-clock
+            // cost in single and double speed. We *arm* it here and let the
+            // system drive it block-by-block (GameBoySystem drains it while
+            // ticking the PPU), so a transfer that runs past VBlank tears
+            // exactly as on hardware. The CPU stays frozen for the WHOLE
+            // transfer (drain runs to completion before the CPU resumes), so
+            // it still can't race in with a VBK flip mid-transfer — the chained
+            // "VBK=N, block, VBK=M, block" pattern stays correct.
+            _bytesRemaining = blocks * 16;
             _byteIndexInBlock = 0;
-            _currentSource = (ushort)(src + total);
-            _currentDest = (ushort)(dst + total);
+            Active = true;
+            CpuHaltedByGp = true;
+            _currentSource = src;
+            _currentDest = dst;
             _hblockPending = false;
             return;
         }
@@ -82,6 +80,38 @@ public sealed class Hdma
         _currentDest = dst;
         CpuHaltedByGp = false;
         _hblockPending = false;
+    }
+
+    /// <summary>
+    /// Transfer one 16-byte block of an armed general-purpose transfer. The
+    /// caller (GameBoySystem) burns the block's dot cost while ticking the PPU
+    /// after each call, so the bytes land interleaved with rendering. Writes go
+    /// through WriteByteHdma, which respects the PPU mode-3 VRAM lock and drops
+    /// blocks that overran their window — matching real CGB hardware.
+    /// Clears <see cref="CpuHaltedByGp"/>/<see cref="Active"/> on the last block.
+    /// </summary>
+    public void TransferOneGpBlock()
+    {
+        if (!CpuHaltedByGp) return;
+
+        int bytesThisBlock = Math.Min(16, _bytesRemaining);
+        for (int i = 0; i < bytesThisBlock; i++)
+        {
+            // WriteByteHdma respects the mode-3 VRAM lock: a block that lands
+            // while the PPU owns VRAM (a transfer that overran its window) is
+            // dropped, matching real CGB hardware. HBlank-mode blocks run in
+            // mode 0 (VRAM free), so theirs still land.
+            _mmu.WriteByteHdma(_currentDest, _mmu.ReadByteDirect(_currentSource));
+            _currentSource++;
+            _currentDest++;
+            _bytesRemaining--;
+        }
+
+        if (_bytesRemaining <= 0)
+        {
+            Active = false;
+            CpuHaltedByGp = false;
+        }
     }
 
     public void OnHBlankEntered()
@@ -98,7 +128,11 @@ public sealed class Hdma
         int bytesThisBlock = Math.Min(16, _bytesRemaining);
         for (int i = 0; i < bytesThisBlock; i++)
         {
-            _mmu.WriteByte(_currentDest, _mmu.ReadByteDirect(_currentSource));
+            // WriteByteHdma respects the mode-3 VRAM lock: a block that lands
+            // while the PPU owns VRAM (a transfer that overran its window) is
+            // dropped, matching real CGB hardware. HBlank-mode blocks run in
+            // mode 0 (VRAM free), so theirs still land.
+            _mmu.WriteByteHdma(_currentDest, _mmu.ReadByteDirect(_currentSource));
             _currentSource++;
             _currentDest++;
             _bytesRemaining--;
@@ -114,12 +148,12 @@ public sealed class Hdma
 
     public void TickT()
     {
-        // HBlank HDMA now completes each block atomically in OnHBlankEntered,
-        // and general-purpose HDMA completes synchronously in
-        // WriteLengthRegister. There is nothing for the per-T-cycle path to
-        // do — kept as a no-op so existing call sites in GameBoySystem don't
-        // need to change and so the CpuHaltedByGp flag stays false when a
-        // transfer finishes between polls.
+        // HBlank HDMA completes each block atomically in OnHBlankEntered, and
+        // general-purpose HDMA is drained block-by-block by GameBoySystem (via
+        // TransferOneGpBlock) — it's only armed in WriteLengthRegister. There is
+        // nothing for the per-T-cycle path to do — kept as a no-op so existing
+        // call sites in GameBoySystem don't need to change and so the
+        // CpuHaltedByGp flag stays false when a transfer finishes between polls.
         if (!Active) CpuHaltedByGp = false;
     }
 

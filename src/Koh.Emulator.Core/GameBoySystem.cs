@@ -44,6 +44,7 @@ public sealed class GameBoySystem
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
+        Mmu.AttachPpu(Ppu);
         Hdma = new Hdma(Mmu);
         Ppu.HBlankEntered += Hdma.OnHBlankEntered;
         Io.AttachPpu(Ppu);
@@ -91,7 +92,12 @@ public sealed class GameBoySystem
     private void TickForMCycle()
     {
         Clock.DoubleSpeed = KeyOne.DoubleSpeed;
+        TickOneMCycle();
+    }
 
+    /// <summary>Advance every peripheral and the PPU by one CPU M-cycle.</summary>
+    private void TickOneMCycle()
+    {
         // Per M-cycle: Timer + OamDma + Hdma tick 4 T-cycles — these are
         // clocked off the CPU clock, so in double-speed mode they tick 2×
         // more per wall-second (same as real hardware: DIV increments twice
@@ -119,12 +125,32 @@ public sealed class GameBoySystem
     }
 
     /// <summary>
+    /// Run one CPU instruction, then drain any general-purpose GDMA it armed.
+    /// A GP transfer halts the CPU until it finishes (~8 µs / 16-byte block,
+    /// Pan Docs — the same wall-clock cost in single and double speed). We burn
+    /// each block's dot cost while ticking the PPU, so a transfer that runs
+    /// past VBlank corrupts the scanlines drawn during it, exactly as on
+    /// hardware. The CPU is frozen for the whole loop, so it can't race in with
+    /// a VBK flip or VRAM write mid-transfer.
+    /// </summary>
+    private void StepCpu()
+    {
+        Cpu.TickT();
+        while (Hdma.CpuHaltedByGp)
+        {
+            Hdma.TransferOneGpBlock();
+            int blockMCycles = Clock.DoubleSpeed ? 16 : 8;  // ×(2 or 4) dots = 32 dots/block
+            for (int m = 0; m < blockMCycles; m++) TickOneMCycle();
+        }
+    }
+
+    /// <summary>
     /// Execute one full CPU step (one instruction, or one idle M-cycle when
     /// halted). Peripherals tick internally via the M-cycle callback.
     /// </summary>
     public bool StepOneSystemTick()
     {
-        Cpu.TickT();  // now always completes a full instruction or idle cycle
+        StepCpu();  // now always completes a full instruction or idle cycle
         return true;
     }
 
@@ -168,7 +194,7 @@ public sealed class GameBoySystem
 
         while (Clock.FrameSystemTicks < (ulong)SystemClock.SystemTicksPerFrame)
         {
-            Cpu.TickT();
+            StepCpu();
 
             if (RunGuard.StopRequested)
             {
@@ -190,7 +216,7 @@ public sealed class GameBoySystem
     {
         _running = true;
         ulong startT = Cpu.TotalTCycles;
-        Cpu.TickT();
+        StepCpu();
         _running = false;
         return new StepResult(StopReason.InstructionComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
     }
@@ -201,7 +227,7 @@ public sealed class GameBoySystem
         // step; fall through to StepInstruction and return its cycle count.
         _running = true;
         ulong startT = Cpu.TotalTCycles;
-        Cpu.TickT();
+        StepCpu();
         _running = false;
         return new StepResult(StopReason.TCycleComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
     }
@@ -216,7 +242,7 @@ public sealed class GameBoySystem
 
         while (Clock.FrameSystemTicks < frameBudget)
         {
-            Cpu.TickT();
+            StepCpu();
 
             if (RunGuard.StopRequested)
             {

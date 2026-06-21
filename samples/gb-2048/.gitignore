@@ -1,0 +1,7 @@
+build/
+verify/bin/
+verify/obj/
+*.kobj
+*.sym
+*.gb
+*.gbc

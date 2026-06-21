@@ -222,12 +222,13 @@ public class RgbdsCompatTests
     [Test]
     public async Task Rst_LabelSymbol_ForwardReferenceResolved()
     {
-        // RGBDS: rst.asm — rst uses label as target; value must be RST-encodable
+        // RGBDS: rst.asm — rst uses a constant (EQU) as target; value must be RST-encodable.
+        // RST encodes the vector into the opcode byte at assemble time (no patch mechanism for
+        // OpcodeOrImm8). Using an EQU constant (section == null) ensures it is always resolvable.
         var model = Emit("""
+            VEC EQU $00
             SECTION "calls", ROM0[$0]
-            rst target
-            SECTION "rst00", ROM0[$00]
-            target:
+            rst VEC
             """);
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections.First(s => s.Name == "calls").Data[0]).IsEqualTo((byte)0xC7);

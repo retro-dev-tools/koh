@@ -486,7 +486,7 @@ public class UnionLoadTests
         var sram2 = model.Symbols.FirstOrDefault(s => s.Name == "SramLabel2");
         await Assert.That(sram1).IsNotNull();
         await Assert.That(sram2).IsNotNull();
-        await Assert.That(sram1!.Value).IsEqualTo(0xBEADL);
+        await Assert.That(sram1!.Value).IsEqualTo(0L); // section-relative offset within SRAM[$BEAD]
     }
 
     // =========================================================================

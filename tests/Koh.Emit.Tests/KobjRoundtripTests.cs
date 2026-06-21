@@ -281,6 +281,83 @@ public class KobjRoundtripTests
     }
 
     [Test]
+    public async Task Roundtrip_Patch_SymbolName_NonNull()
+    {
+        var patchEntry = new PatchEntry
+        {
+            SectionName = "Main",
+            Offset = 1,
+            Expression = null,
+            Kind = PatchKind.Absolute16,
+            PCAfterInstruction = 3,
+            DiagnosticSpan = new TextSpan(0, 2),
+            SymbolName = "Boot",
+        };
+        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
+            new byte[] { 0xC3, 0x00, 0x00 }, [patchEntry]);
+        var original = new EmitModel([sectionData], [], success: true);
+        var restored = RoundTrip(original);
+
+        await Assert.That(restored.Sections[0].Patches[0].SymbolName).IsEqualTo("Boot");
+    }
+
+    [Test]
+    public async Task Roundtrip_Patch_SymbolName_Null()
+    {
+        var patchEntry = new PatchEntry
+        {
+            SectionName = "Main",
+            Offset = 1,
+            Expression = null,
+            Kind = PatchKind.Absolute16,
+            PCAfterInstruction = 3,
+            DiagnosticSpan = new TextSpan(0, 2),
+            SymbolName = null,
+        };
+        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
+            new byte[] { 0xC3, 0x00, 0x00 }, [patchEntry]);
+        var original = new EmitModel([sectionData], [], success: true);
+        var restored = RoundTrip(original);
+
+        await Assert.That(restored.Sections[0].Patches[0].SymbolName).IsNull();
+    }
+
+    [Test]
+    public async Task V2KobjWithPatches_Reads_SymbolNameNull()
+    {
+        // Hand-craft a v2-style payload (no SymbolName in patches) to confirm
+        // the reader defaults SymbolName to null for old files.
+        using var ms = new MemoryStream();
+        using (var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            bw.Write("KOH\0"u8);
+            bw.Write((byte)2);                              // version 2
+            bw.Write((byte)0x01);                           // TagSections
+            bw.Write((ushort)1);                            // 1 section
+            bw.Write("Main");
+            bw.Write((byte)SectionType.Rom0);
+            bw.Write(false);                                // no fixed address
+            bw.Write(false);                                // no bank
+            bw.Write(3);                                    // data len
+            bw.Write(new byte[] { 0xC3, 0x00, 0x00 });
+            bw.Write((ushort)1);                            // 1 patch
+            // patch fields (v2: no SymbolName)
+            bw.Write((int)1);                               // offset
+            bw.Write((byte)PatchKind.Absolute16);           // kind
+            bw.Write((int)3);                               // PCAfterInstruction
+            bw.Write((int)0);                               // DiagnosticSpan.Start
+            bw.Write((int)2);                               // DiagnosticSpan.Length
+            // line map (v2)
+            bw.Write((int)0);                               // 0 line map entries
+            bw.Write((byte)0xFF);                           // TagEnd
+        }
+        ms.Position = 0;
+        var model = KobjReader.Read(ms);
+        await Assert.That(model.Sections[0].Patches.Count).IsEqualTo(1);
+        await Assert.That(model.Sections[0].Patches[0].SymbolName).IsNull();
+    }
+
+    [Test]
     public async Task Roundtrip_ConstantSection_IsNull()
     {
         var original = EmitFromSource("MY_CONST EQU $42\nSECTION \"Main\", ROM0\nnop");

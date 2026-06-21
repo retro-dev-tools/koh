@@ -48,7 +48,9 @@ internal sealed class PatchResolver
                 }
 
                 var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-                    () => section.BaseAddress + patch.Offset);
+                    () => section.BaseAddress + patch.Offset,
+                    section.Name, section.BaseAddress,
+                    currentSectionIsFloating: section.FixedAddress == null);
                 var value = evaluator.TryEvaluate(patch.Expression);
                 if (value == null) continue; // keep for linker
 
@@ -66,7 +68,9 @@ internal sealed class PatchResolver
                         section.ApplyPatchLong(patch.Offset, (uint)(value.Value & 0xFFFFFFFF));
                         break;
                     case PatchKind.Relative8:
-                        long rel = value.Value - patch.PCAfterInstruction;
+                        // value.Value is an absolute address (evaluator adds section base).
+                        // PCAfterInstruction is section-relative; add BaseAddress to get absolute.
+                        long rel = value.Value - (section.BaseAddress + patch.PCAfterInstruction);
                         if (rel < -128 || rel > 127)
                         {
                             _diagnostics.Report(patch.DiagnosticSpan,

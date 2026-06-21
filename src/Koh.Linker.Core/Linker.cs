@@ -106,24 +106,70 @@ public sealed class Linker
     {
         foreach (var section in sections)
         {
+            if (section.PlacedAddress < 0) continue; // not placed; skip
+
             foreach (var patch in section.Patches)
             {
-                // Expression trees are not serialised in .kobj yet.
-                // Single-file assembly is unaffected: PatchResolver resolves all
-                // intra-file forward references before the .kobj is written, so
-                // every patch that reaches this linker has Expression == null.
-                //
-                // Cross-file references via .kobj require expression serialization
-                // in KobjWriter/KobjReader. For RGBDS output, use --format rgbds
-                // which handles cross-file refs via RPN patches in the .o format.
-                // A non-null expression here means the patch was not resolved by
-                // PatchResolver — report it as an error.
-                if (patch.Expression == null) continue;
+                // Patches with Expression!=null but no SymbolName are unresolvable
+                // (RPN ASTs are not serialised in .kobj). Report and skip.
+                if (patch.SymbolName == null)
+                {
+                    if (patch.Expression != null)
+                    {
+                        _diagnostics.Report(patch.DiagnosticSpan,
+                            $"Unresolved cross-file/cross-section patch at offset " +
+                            $"${patch.Offset:X4} in section '{section.Name}': " +
+                            "complex expressions are not yet supported in cross-section refs.");
+                    }
+                    continue;
+                }
 
-                _diagnostics.Report(patch.DiagnosticSpan,
-                    $"Unresolved cross-file patch at offset {patch.Offset} in section " +
-                    $"'{patch.SectionName}': expression trees are not serialised in " +
-                    ".kobj yet — cross-file references are not supported in this version.");
+                var sym = resolver.Lookup(patch.SymbolName, section.SourceFile);
+                if (sym == null)
+                {
+                    _diagnostics.Report(patch.DiagnosticSpan,
+                        $"Undefined symbol '{patch.SymbolName}' " +
+                        $"referenced from section '{section.Name}'");
+                    continue;
+                }
+
+                long absValue = sym.AbsoluteAddress + patch.SymbolOffset;
+                if (patch.SymbolShift != 0)
+                    absValue >>= patch.SymbolShift;
+
+                switch (patch.Kind)
+                {
+                    case PatchKind.Absolute8:
+                        section.Data[patch.Offset] = (byte)(absValue & 0xFF);
+                        break;
+                    case PatchKind.Absolute16:
+                        // Use only the windowed 16-bit address (handles banked ROMs correctly)
+                        long addr16 = absValue & 0xFFFF;
+                        section.Data[patch.Offset]     = (byte)(addr16 & 0xFF);
+                        section.Data[patch.Offset + 1] = (byte)((addr16 >> 8) & 0xFF);
+                        break;
+                    case PatchKind.Absolute32:
+                        section.Data[patch.Offset]     = (byte)(absValue & 0xFF);
+                        section.Data[patch.Offset + 1] = (byte)((absValue >> 8) & 0xFF);
+                        section.Data[patch.Offset + 2] = (byte)((absValue >> 16) & 0xFF);
+                        section.Data[patch.Offset + 3] = (byte)((absValue >> 24) & 0xFF);
+                        break;
+                    case PatchKind.Relative8:
+                        long absPCAfterInstr = section.PlacedAddress + patch.PCAfterInstruction;
+                        long rel = absValue - absPCAfterInstr;
+                        if (rel < -128 || rel > 127)
+                        {
+                            _diagnostics.Report(patch.DiagnosticSpan,
+                                $"JR target out of range: offset {rel} does not fit in signed byte");
+                            continue;
+                        }
+                        section.Data[patch.Offset] = (byte)(sbyte)rel;
+                        break;
+                    default:
+                        _diagnostics.Report(patch.DiagnosticSpan,
+                            $"Unhandled patch kind {patch.Kind}");
+                        break;
+                }
             }
         }
     }

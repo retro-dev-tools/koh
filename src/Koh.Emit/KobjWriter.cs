@@ -59,6 +59,9 @@ public sealed class KobjWriter
                 // PatchResolver before writing. For cross-file linking, use --format rgbds.
                 bw.Write(patch.DiagnosticSpan.Start);
                 bw.Write(patch.DiagnosticSpan.Length);
+                bw.Write(patch.SymbolName ?? "");
+                bw.Write(patch.SymbolOffset);
+                bw.Write(patch.SymbolShift);
             }
 
             // Line map for this section (v2+). Empty sections still write
