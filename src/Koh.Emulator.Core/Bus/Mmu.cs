@@ -59,8 +59,9 @@ public sealed class Mmu
     public byte ReadByteDirect(ushort address) => ReadByteInternal(address);
 
     /// <summary>
-    /// Write that bypasses PPU/DMA lockouts. Used by HDMA/GDMA engines that
-    /// run "outside" the CPU and aren't subject to mode-3 VRAM blocking.
+    /// Write that bypasses PPU/DMA lockouts. Used for debug pokes and for DMA
+    /// destinations that are genuinely unaffected by PPU mode (e.g. OAM DMA,
+    /// which has its own bus).
     /// </summary>
     public void WriteByteDirect(ushort address, byte value)
     {
@@ -74,6 +75,27 @@ public sealed class Mmu
                 WriteByte(address, value);
                 return;
         }
+    }
+
+    /// <summary>
+    /// VRAM write for an HDMA/GDMA transfer. Unlike <see cref="WriteByteDirect"/>
+    /// this RESPECTS the mode-3 VRAM lock: on real CGB hardware the HDMA engine
+    /// shares the CPU's bus path to VRAM, so a transfer byte that lands while the
+    /// PPU owns VRAM (mode 3) is silently dropped and the destination keeps its
+    /// old value (Pan Docs: GDMA "blindly attempts to copy ... even if the LCD
+    /// controller is currently accessing VRAM"). Modeling this makes a GDMA that
+    /// overruns VBlank into active rendering leave the stale tiles/attributes it
+    /// leaves on hardware, instead of an always-succeeding copy hiding the bug.
+    /// </summary>
+    public void WriteByteHdma(ushort address, byte value)
+    {
+        if (address >= 0x8000 && address < 0xA000)
+        {
+            if (!VramLocked)
+                _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
+            return;
+        }
+        WriteByteDirect(address, value);  // GDMA targets are always VRAM; be safe.
     }
 
     public byte ReadByte(ushort address)

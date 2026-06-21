@@ -96,7 +96,11 @@ public sealed class Hdma
         int bytesThisBlock = Math.Min(16, _bytesRemaining);
         for (int i = 0; i < bytesThisBlock; i++)
         {
-            _mmu.WriteByteDirect(_currentDest, _mmu.ReadByteDirect(_currentSource));
+            // WriteByteHdma respects the mode-3 VRAM lock: a block that lands
+            // while the PPU owns VRAM (a transfer that overran its window) is
+            // dropped, matching real CGB hardware. HBlank-mode blocks run in
+            // mode 0 (VRAM free), so theirs still land.
+            _mmu.WriteByteHdma(_currentDest, _mmu.ReadByteDirect(_currentSource));
             _currentSource++;
             _currentDest++;
             _bytesRemaining--;
@@ -123,7 +127,11 @@ public sealed class Hdma
         int bytesThisBlock = Math.Min(16, _bytesRemaining);
         for (int i = 0; i < bytesThisBlock; i++)
         {
-            _mmu.WriteByteDirect(_currentDest, _mmu.ReadByteDirect(_currentSource));
+            // WriteByteHdma respects the mode-3 VRAM lock: a block that lands
+            // while the PPU owns VRAM (a transfer that overran its window) is
+            // dropped, matching real CGB hardware. HBlank-mode blocks run in
+            // mode 0 (VRAM free), so theirs still land.
+            _mmu.WriteByteHdma(_currentDest, _mmu.ReadByteDirect(_currentSource));
             _currentSource++;
             _currentDest++;
             _bytesRemaining--;

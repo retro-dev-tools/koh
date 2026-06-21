@@ -84,6 +84,39 @@ public class HdmaTests
     }
 
     [Test]
+    public async Task GeneralPurpose_Vram_Write_During_Mode3_Is_Dropped()
+    {
+        var gb = MakeCgbSystem();
+
+        // Seed the destination sentinel with LCD off (VRAM freely writable).
+        gb.Mmu.WriteByte(0xFF40, 0x00);
+        gb.Mmu.WriteByte(0x8000, 0xEE);
+        for (int i = 0; i < 16; i++) gb.Mmu.WriteByte((ushort)(0xC100 + i), 0x55);
+        gb.Mmu.WriteByte(0xFF51, 0xC1);
+        gb.Mmu.WriteByte(0xFF52, 0x00);
+        gb.Mmu.WriteByte(0xFF53, 0x80);
+        gb.Mmu.WriteByte(0xFF54, 0x00);
+
+        // Turn the LCD on and spin (JR -2) until the PPU is mid-Drawing (mode 3).
+        gb.Mmu.WriteByte(0xFF40, 0x91);
+        gb.Mmu.WriteByte(0xC000, 0x18);   // JR -2 (tight self-loop)
+        gb.Mmu.WriteByte(0xC001, 0xFE);
+        gb.Registers.Pc = 0xC000;
+        int guard = 0;
+        while (gb.Ppu.Mode != Koh.Emulator.Core.Ppu.PpuMode.Drawing && guard++ < 4000)
+            gb.StepInstruction();
+        await Assert.That(gb.Ppu.Mode).IsEqualTo(Koh.Emulator.Core.Ppu.PpuMode.Drawing);
+
+        // Arm a 1-block GP transfer and run the block now, in mode 3.
+        gb.Mmu.WriteByte(0xFF55, 0x00);
+        gb.Hdma.TransferOneGpBlock();
+
+        // Real CGB hardware drops VRAM writes that land during mode 3 (the DMA
+        // engine shares the CPU bus path) — the destination keeps its old value.
+        await Assert.That(gb.Mmu.VramArray[0]).IsEqualTo((byte)0xEE);
+    }
+
+    [Test]
     public async Task HBlank_Transfer_Needs_HBlank_Trigger()
     {
         var gb = MakeCgbSystem();
