@@ -1123,12 +1123,14 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveByte();
+                        var (sn8, so8, sh8) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
                         section.RecordPatch(new PatchEntry
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute8,
                             FilePath = _diagnostics.CurrentFilePath,
                             GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                            SymbolName = sn8, SymbolOffset = so8, SymbolShift = sh8,
                         });
                     }
                 }
@@ -1158,12 +1160,14 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveWord();
+                        var (sn16, so16, sh16) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
                         section.RecordPatch(new PatchEntry
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute16,
                             FilePath = _diagnostics.CurrentFilePath,
                             GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                            SymbolName = sn16, SymbolOffset = so16, SymbolShift = sh16,
                         });
                     }
                 }
@@ -1178,12 +1182,14 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveLong();
+                        var (sn32, so32, sh32) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
                         section.RecordPatch(new PatchEntry
                         {
                             SectionName = section.Name, Offset = offset,
                             Expression = expr.Green, Kind = PatchKind.Absolute32,
                             FilePath = _diagnostics.CurrentFilePath,
                             GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                            SymbolName = sn32, SymbolOffset = so32, SymbolShift = sh32,
                         });
                     }
                 }

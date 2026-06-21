@@ -125,7 +125,7 @@ internal sealed class InstructionEncoder
                         int offset = section.ReserveByte();
                         if (operandGreen != null)
                         {
-                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen);
+                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen, _symbols);
                             section.RecordPatch(new PatchEntry
                             {
                                 SectionName = section.Name,
@@ -150,7 +150,7 @@ internal sealed class InstructionEncoder
                         int offset = section.ReserveWord();
                         if (operandGreen != null)
                         {
-                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen);
+                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen, _symbols);
                             section.RecordPatch(new PatchEntry
                             {
                                 SectionName = section.Name,
@@ -188,7 +188,7 @@ internal sealed class InstructionEncoder
                         int offset = section.ReserveByte();
                         if (operandGreen != null)
                         {
-                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen);
+                            var (sn, so, sh) = ExtractIdentifierAndOffset(operandGreen, _symbols);
                             section.RecordPatch(new PatchEntry
                             {
                                 SectionName = section.Name,
@@ -288,7 +288,7 @@ internal sealed class InstructionEncoder
     /// Returns <c>null</c> for complex expressions (binary, unary, function calls, etc.).
     /// </summary>
     private string? ExtractSingleIdentifier(GreenNodeBase expression) =>
-        ExtractIdentifierAndOffset(expression).name;
+        ExtractIdentifierAndOffset(expression, _symbols).name;
 
     /// <summary>
     /// Recognises <c>Name</c>, <c>Name + N</c>, <c>N + Name</c>, <c>Name - N</c>,
@@ -306,7 +306,8 @@ internal sealed class InstructionEncoder
     /// linker computes <c>((sym.AbsoluteAddress + offset) &gt;&gt; shift) &amp; 0xFF</c>
     /// (or the 16-bit equivalent) at patch time.
     /// </summary>
-    private (string? name, int offset, int shift) ExtractIdentifierAndOffset(GreenNodeBase expression)
+    internal static (string? name, int offset, int shift) ExtractIdentifierAndOffset(
+        GreenNodeBase expression, SymbolTable symbols)
     {
         // HIGH(arg) / LOW(arg)
         if (expression is GreenNode call && call.Kind == SyntaxKind.FunctionCallExpression
@@ -332,7 +333,7 @@ internal sealed class InstructionEncoder
                 }
                 if (arg != null)
                 {
-                    var inner = ExtractIdentifierAndOffset(arg);
+                    var inner = ExtractIdentifierAndOffset(arg, symbols);
                     if (inner.name != null)
                         return (inner.name, inner.offset, kw.Kind == SyntaxKind.HighKeyword ? 8 : 0);
                 }
@@ -342,7 +343,7 @@ internal sealed class InstructionEncoder
         // Plain identifier or NameExpression wrapping one.
         var direct = ExtractSingleIdentifierText(expression);
         if (direct != null)
-            return (QualifyLocal(direct), 0, 0);
+            return (QualifyLocal(direct, symbols), 0, 0);
 
         if (expression is not GreenNode binExpr) return (null, 0, 0);
         if (binExpr.Kind != SyntaxKind.BinaryExpression) return (null, 0, 0);
@@ -355,29 +356,29 @@ internal sealed class InstructionEncoder
 
         // Try (Name) op (Number).
         var nameLeft = left != null ? ExtractSingleIdentifierText(left) : null;
-        var numRight = right != null ? TryParseConstant(right) : null;
+        var numRight = right != null ? TryParseConstant(right, symbols) : null;
         if (nameLeft != null && numRight.HasValue)
         {
             if (op.Kind == SyntaxKind.PlusToken)
-                return (QualifyLocal(nameLeft), checked((int)numRight.Value), 0);
+                return (QualifyLocal(nameLeft, symbols), checked((int)numRight.Value), 0);
             if (op.Kind == SyntaxKind.MinusToken)
-                return (QualifyLocal(nameLeft), checked((int)(-numRight.Value)), 0);
+                return (QualifyLocal(nameLeft, symbols), checked((int)(-numRight.Value)), 0);
         }
 
         // Try (Number) + (Name). Subtraction with the name on the right doesn't
         // produce a "label + offset" pattern (it's "constant - label"), so skip.
-        var numLeft = left != null ? TryParseConstant(left) : null;
+        var numLeft = left != null ? TryParseConstant(left, symbols) : null;
         var nameRight = right != null ? ExtractSingleIdentifierText(right) : null;
         if (numLeft.HasValue && nameRight != null && op.Kind == SyntaxKind.PlusToken)
-            return (QualifyLocal(nameRight), checked((int)numLeft.Value), 0);
+            return (QualifyLocal(nameRight, symbols), checked((int)numLeft.Value), 0);
 
         return (null, 0, 0);
     }
 
-    private string QualifyLocal(string text)
+    private static string QualifyLocal(string text, SymbolTable symbols)
     {
         if (!text.StartsWith('.')) return text;
-        var anchor = _symbols.CurrentGlobalAnchorName;
+        var anchor = symbols.CurrentGlobalAnchorName;
         return anchor != null ? string.Concat(anchor, text) : text;
     }
 
@@ -385,7 +386,7 @@ internal sealed class InstructionEncoder
     /// Parses a constant number literal (raw NumberLiteral token or a
     /// NameExpression that resolves to an EQU constant). Returns null otherwise.
     /// </summary>
-    private long? TryParseConstant(GreenNodeBase node)
+    private static long? TryParseConstant(GreenNodeBase node, SymbolTable symbols)
     {
         if (node is GreenToken tok && tok.Kind == SyntaxKind.NumberLiteral)
             return ParseNumberLiteral(tok.Text);
@@ -402,7 +403,7 @@ internal sealed class InstructionEncoder
             && nameNode.GetChild(0) is GreenToken nameTok
             && nameTok.Kind is SyntaxKind.IdentifierToken)
         {
-            var sym = _symbols.Lookup(nameTok.Text);
+            var sym = symbols.Lookup(nameTok.Text);
             if (sym is not null && sym.Section == null
                 && sym.State == Koh.Core.Symbols.SymbolState.Defined)
                 return sym.Value;

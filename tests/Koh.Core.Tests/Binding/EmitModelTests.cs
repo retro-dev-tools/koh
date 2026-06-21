@@ -79,7 +79,7 @@ public class EmitModelTests
     public async Task EmitModel_ForwardRefResolved()
     {
         // dw target → target is defined after, should be resolved by PatchResolver
-        var model = Emit("SECTION \"Main\", ROM0\ndw target\ntarget:\nnop");
+        var model = Emit("SECTION \"Main\", ROM0[$0000]\ndw target\ntarget:\nnop");
         await Assert.That(model.Success).IsTrue();
         // target at offset 2 (after the 2-byte DW)
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x02);
@@ -127,7 +127,7 @@ public class EmitModelTests
     public async Task EmitModel_ForwardRefResolved_Db()
     {
         // db target — forward ref to a label, resolved as Absolute8
-        var model = Emit("SECTION \"Main\", ROM0\ndb target\ntarget:\nnop");
+        var model = Emit("SECTION \"Main\", ROM0[$0000]\ndb target\ntarget:\nnop");
         await Assert.That(model.Success).IsTrue();
         // target at offset 1 (after the 1-byte DB placeholder)
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x01);
@@ -154,7 +154,7 @@ public class EmitModelTests
     public async Task EmitModel_ForwardRefResolved_Jr()
     {
         // jr target — forward ref with relative offset resolved by PatchResolver
-        var model = Emit("SECTION \"Main\", ROM0\njr target\nnop\ntarget:\nnop");
+        var model = Emit("SECTION \"Main\", ROM0[$0000]\njr target\nnop\ntarget:\nnop");
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x18); // JR opcode
         // target at offset 3 (jr=2 + nop=1), PC after JR = 2, offset = 3 - 2 = 1
@@ -167,7 +167,7 @@ public class EmitModelTests
     {
         // jr to a target beyond signed byte range
         var nops = string.Concat(Enumerable.Repeat("nop\n", 200));
-        var model = Emit($"SECTION \"Main\", ROM0\njr target\n{nops}target:\nnop");
+        var model = Emit($"SECTION \"Main\", ROM0[$0000]\njr target\n{nops}target:\nnop");
         await Assert.That(model.Success).IsFalse();
         // Either "out of range" or "No valid encoding" — both indicate the error
         await Assert.That(model.Diagnostics.Any(d =>
