@@ -124,17 +124,18 @@ AnimTick::
     ret
 
 .commit:
-    ; Frame 8: actual visible commit.
-    ;   * SpriteRenderClear (~970 T) hides the slide sprites.
-    ;   * DrawHud (~1500 T) refreshes the score — CPU→VRAM writes, runs
-    ;     while we're solidly inside the VBlank window.
-    ;   * CommitBoardHdma (~960 T, bus-locking) snaps the whole board area
-    ;     to VRAM via HDMA last — HDMA bypasses PPU mode 3 lockout so the
-    ;     last bytes can extend past VBlank if needed without corruption.
-    ; Total ≈ 3500 T, comfortably inside one CGB VBlank.
+    ; Frame 8: actual visible commit. CommitBoardHdma runs FIRST, at the very
+    ; top of VBlank, so its 60-block GDMA (tiles + attributes, ~1920 dots)
+    ; finishes before the PPU resumes rendering. Run last (after SpriteRenderClear
+    ; + DrawHud) it started too late and the attribute pass spilled into PPU
+    ; mode 3 — where VRAM writes are dropped on real hardware (Pan Docs) — leaving
+    ; board cells with the pale empty-grid palette ("not fully coloured").
+    ;   * CommitBoardHdma (~1920 dots, bus-locking) — board tiles + attributes.
+    ;   * SpriteRenderClear (~970 T) — hides the slide sprites.
+    ;   * DrawHud (~300 T cached) — refreshes the score.
+    call CommitBoardHdma
     call SpriteRenderClear
     call DrawHud
-    call CommitBoardHdma
     ret
 
 .finalize:
