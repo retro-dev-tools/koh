@@ -103,6 +103,47 @@ public class Sm83ControlFlowTests
     public async Task I16_Eq_False() =>
         await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Eq, I16(7), I16(8))))).IsEqualTo((byte)0);
 
+    // ---- multiply / divide / remainder -------------------------------------
+
+    [Test]
+    public async Task Mul_I8() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Mul(I8(6), I8(7))))).IsEqualTo((byte)42);
+
+    [Test]
+    public async Task Mul_I16() =>
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Mul(I16(300), I16(4))))).IsEqualTo((ushort)1200);
+
+    [Test]
+    public async Task Mul_Signed_I8_LowByteMatches() =>
+        // -3 * 4 = -12 = 0xF4 (unsigned low byte identical for two's complement)
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Mul(I8(-3), I8(4))))).IsEqualTo((byte)0xF4);
+
+    [Test]
+    public async Task UDiv_I16() =>
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.UDiv, I16(1000), I16(7))))).IsEqualTo((ushort)142);
+
+    [Test]
+    public async Task URem_I16() =>
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.URem, I16(1000), I16(7))))).IsEqualTo((ushort)6);
+
+    [Test]
+    public async Task UDiv_I8() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.UDiv, I8(100), I8(9))))).IsEqualTo((byte)11);
+
+    [Test]
+    public async Task SDiv_I16_NegativeDividend() =>
+        // -1000 / 7 = -142 = 0xFF72
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SDiv, I16(-1000), I16(7))))).IsEqualTo((ushort)0xFF72);
+
+    [Test]
+    public async Task SRem_I16_SignOfDividend() =>
+        // -1000 % 7 = -6 = 0xFFFA
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SRem, I16(-1000), I16(7))))).IsEqualTo((ushort)0xFFFA);
+
+    [Test]
+    public async Task SDiv_I16_BothNegative() =>
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SDiv, I16(-1000), I16(-7))))).IsEqualTo((ushort)142);
+
     // ---- shifts -------------------------------------------------------------
 
     [Test]

@@ -72,6 +72,14 @@ public sealed class Sm83Backend : IBackend
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
         }
 
+        // Emit runtime helper routines that generated code referenced (signed divide needs the
+        // unsigned one). They are appended after all functions and only entered via CALL.
+        if (emitter.NeededRoutines.Contains("sdivmod16"))
+            emitter.NeededRoutines.Add("udivmod16");
+        if (emitter.NeededRoutines.Contains("mul16")) EmitMul16(emitter);
+        if (emitter.NeededRoutines.Contains("udivmod16")) EmitUDivMod16(emitter);
+        if (emitter.NeededRoutines.Contains("sdivmod16")) EmitSDivMod16(emitter);
+
         emitter.Resolve(CodeBase);
 
         var section = new SectionData(
@@ -117,6 +125,119 @@ public sealed class Sm83Backend : IBackend
                     "SM83 backend does not support recursion (functions use static WRAM frames).");
     }
 
+    // Fixed scratch for the (non-reentrant) runtime routines.
+    private const int RtCount = 0xDF00;     // division bit counter
+    private const int RtSignRem = 0xDF01;   // signed division: remainder sign
+    private const int RtSignQuot = 0xDF02;  // signed division: quotient sign
+
+    /// <summary>__mul16: HL = DE * BC (low 16 bits) by shift-and-add. Sign-agnostic.</summary>
+    private static void EmitMul16(Emitter e)
+    {
+        e.PlaceRoutine("mul16");
+        e.U8(0x21); e.U8(0x00); e.U8(0x00);      // ld hl, 0
+        var loop = new Label();
+        var noadd = new Label();
+        e.Place(loop);
+        e.U8(0x78);                              // ld a, b
+        e.U8(0xB1);                              // or c
+        e.U8(0xC8);                              // ret z     (BC == 0 -> done)
+        e.U8(0xCB); e.U8(0x38);                  // srl b
+        e.U8(0xCB); e.U8(0x19);                  // rr c      (BC >>= 1, carry = old bit0)
+        e.Jump(0xD2, noadd);                     // jp nc, noadd
+        e.U8(0x19);                              // add hl, de
+        e.Place(noadd);
+        e.U8(0xCB); e.U8(0x23);                  // sla e
+        e.U8(0xCB); e.U8(0x12);                  // rl d      (DE <<= 1)
+        e.Jump(0xC3, loop);                      // jp loop
+    }
+
+    /// <summary>__udivmod16: DE / BC -> quotient in DE, remainder in HL (unsigned, restoring).</summary>
+    private static void EmitUDivMod16(Emitter e)
+    {
+        e.PlaceRoutine("udivmod16");
+        e.U8(0x21); e.U8(0x00); e.U8(0x00);      // ld hl, 0     (remainder)
+        e.U8(0x3E); e.U8(0x10);                  // ld a, 16
+        e.U8(0xEA); e.U8(RtCount & 0xFF); e.U8(RtCount >> 8); // ld (RtCount), a
+        var loop = new Label();
+        var dosub = new Label();
+        var skip = new Label();
+        e.Place(loop);
+        e.U8(0xCB); e.U8(0x23);                  // sla e
+        e.U8(0xCB); e.U8(0x12);                  // rl d
+        e.U8(0xCB); e.U8(0x15);                  // rl l
+        e.U8(0xCB); e.U8(0x14);                  // rl h    (shift HL:DE left; quotient bit in E.0)
+        e.Jump(0xDA, dosub);                     // jp c, dosub   (bit16 set -> remainder >= divisor)
+        e.U8(0x7D); e.U8(0x91);                  // ld a, l ; sub c
+        e.U8(0x7C); e.U8(0x98);                  // ld a, h ; sbc a, b   (carry = HL < BC)
+        e.Jump(0xDA, skip);                      // jp c, skip
+        e.Place(dosub);
+        e.U8(0x7D); e.U8(0x91); e.U8(0x6F);      // ld a, l ; sub c ; ld l, a
+        e.U8(0x7C); e.U8(0x98); e.U8(0x67);      // ld a, h ; sbc a, b ; ld h, a
+        e.U8(0xCB); e.U8(0xC3);                  // set 0, e   (quotient bit)
+        e.Place(skip);
+        e.U8(0xFA); e.U8(RtCount & 0xFF); e.U8(RtCount >> 8); // ld a, (RtCount)
+        e.U8(0x3D);                              // dec a
+        e.U8(0xEA); e.U8(RtCount & 0xFF); e.U8(RtCount >> 8); // ld (RtCount), a
+        e.Jump(0xC2, loop);                      // jp nz, loop
+        e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>__sdivmod16: signed DE / BC -> quotient DE, remainder HL, via unsigned + sign fixup.</summary>
+    private static void EmitSDivMod16(Emitter e)
+    {
+        e.PlaceRoutine("sdivmod16");
+        e.U8(0x7A);                              // ld a, d
+        e.U8(0xEA); e.U8(RtSignRem & 0xFF); e.U8(RtSignRem >> 8);   // ld (RtSignRem), a   (dividend sign)
+        e.U8(0xA8);                              // xor b
+        e.U8(0xEA); e.U8(RtSignQuot & 0xFF); e.U8(RtSignQuot >> 8); // ld (RtSignQuot), a  (sign(D)^sign(B))
+
+        var dePos = new Label();
+        e.U8(0x7A); e.U8(0xE6); e.U8(0x80);      // ld a, d ; and 0x80
+        e.Jump(0xCA, dePos);                     // jp z, dePos
+        NegateDE(e);
+        e.Place(dePos);
+
+        var bcPos = new Label();
+        e.U8(0x78); e.U8(0xE6); e.U8(0x80);      // ld a, b ; and 0x80
+        e.Jump(0xCA, bcPos);                     // jp z, bcPos
+        NegateBC(e);
+        e.Place(bcPos);
+
+        e.Jump(0xCD, e.RoutineLabel("udivmod16"));  // call __udivmod16
+
+        var qPos = new Label();
+        e.U8(0xFA); e.U8(RtSignQuot & 0xFF); e.U8(RtSignQuot >> 8); e.U8(0xE6); e.U8(0x80); // ld a,(RtSignQuot); and 0x80
+        e.Jump(0xCA, qPos);
+        NegateDE(e);
+        e.Place(qPos);
+
+        var rPos = new Label();
+        e.U8(0xFA); e.U8(RtSignRem & 0xFF); e.U8(RtSignRem >> 8); e.U8(0xE6); e.U8(0x80);   // ld a,(RtSignRem); and 0x80
+        e.Jump(0xCA, rPos);
+        NegateHL(e);
+        e.Place(rPos);
+
+        e.U8(0xC9);                              // ret
+    }
+
+    private static void NegateDE(Emitter e)
+    {
+        e.U8(0xAF); e.U8(0x93); e.U8(0x5F);      // xor a ; sub e ; ld e, a
+        e.U8(0x3E); e.U8(0x00); e.U8(0x9A); e.U8(0x57); // ld a, 0 ; sbc a, d ; ld d, a
+    }
+
+    private static void NegateBC(Emitter e)
+    {
+        e.U8(0xAF); e.U8(0x91); e.U8(0x4F);      // xor a ; sub c ; ld c, a
+        e.U8(0x3E); e.U8(0x00); e.U8(0x98); e.U8(0x47); // ld a, 0 ; sbc a, b ; ld b, a
+    }
+
+    private static void NegateHL(Emitter e)
+    {
+        e.U8(0xAF); e.U8(0x95); e.U8(0x6F);      // xor a ; sub l ; ld l, a
+        e.U8(0x3E); e.U8(0x00); e.U8(0x9C); e.U8(0x67); // ld a, 0 ; sbc a, h ; ld h, a
+    }
+
     internal static int SizeOf(IrType type) => type.Kind switch
     {
         IrTypeKind.Void => 0,
@@ -134,7 +255,11 @@ public sealed class Sm83Backend : IBackend
     {
         public readonly List<byte> Code = [];
         private readonly Dictionary<IrBasicBlock, Label> _blocks = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<string, Label> _routines = new(StringComparer.Ordinal);
         private readonly List<(int Pos, Label Target)> _fixups = [];
+
+        /// <summary>Runtime helper routines referenced by generated code (emitted on demand).</summary>
+        public readonly HashSet<string> NeededRoutines = new(StringComparer.Ordinal);
 
         public void U8(int value) => Code.Add((byte)value);
 
@@ -144,6 +269,16 @@ public sealed class Sm83Backend : IBackend
                 _blocks[block] = label = new Label();
             return label;
         }
+
+        public Label RoutineLabel(string name)
+        {
+            if (!_routines.TryGetValue(name, out var label))
+                _routines[name] = label = new Label();
+            NeededRoutines.Add(name);
+            return label;
+        }
+
+        public void PlaceRoutine(string name) => Place(RoutineLabel(name));
 
         public void Place(Label label) => label.Offset = Code.Count;
 
@@ -312,6 +447,13 @@ public sealed class Sm83Backend : IBackend
                 return;
             }
 
+            if (b.Op is IrBinaryOp.Mul or IrBinaryOp.UDiv or IrBinaryOp.SDiv
+                or IrBinaryOp.URem or IrBinaryOp.SRem)
+            {
+                EmitMulDivRem(b);
+                return;
+            }
+
             int n = SizeOf(b.Type);
             int dst = _slot[b];
             bool rightConst = b.Right is IrConstInt;
@@ -409,6 +551,73 @@ public sealed class Sm83Backend : IBackend
                     break;
                 default:
                     throw new NotSupportedException($"not a shift: {op}");
+            }
+        }
+
+        /// <summary>
+        /// Lower multiply/divide/remainder to the shared runtime routines. Operands are widened to
+        /// 16 bits (sign-extended for signed divide/remainder, zero-extended otherwise) and passed
+        /// in DE (left) and BC (right); the result comes back in DE (quotient) or HL (product /
+        /// remainder) and is truncated back to the operation width.
+        /// </summary>
+        private void EmitMulDivRem(BinaryInstruction b)
+        {
+            int n = SizeOf(b.Type);
+            int dst = _slot[b];
+            bool signedDiv = b.Op is IrBinaryOp.SDiv or IrBinaryOp.SRem;
+
+            LoadToPair(b.Left, n, hi: 0x57, lo: 0x5F, signedDiv);   // -> D:E
+            LoadToPair(b.Right, n, hi: 0x47, lo: 0x4F, signedDiv);  // -> B:C
+
+            string routine = b.Op switch
+            {
+                IrBinaryOp.Mul => "mul16",
+                IrBinaryOp.UDiv or IrBinaryOp.URem => "udivmod16",
+                _ => "sdivmod16",
+            };
+            _e.Jump(0xCD, _e.RoutineLabel(routine));
+
+            bool resultInHL = b.Op is IrBinaryOp.Mul or IrBinaryOp.URem or IrBinaryOp.SRem;
+            if (resultInHL)
+                StoreRegPair(dst, n, hi: 0x7C, lo: 0x7D);  // LD A,H / LD A,L
+            else
+                StoreRegPair(dst, n, hi: 0x7A, lo: 0x7B);  // LD A,D / LD A,E
+        }
+
+        /// <summary>Load a value into a register pair, widening an i8 to 16 bits.</summary>
+        /// <param name="lo">opcode for <c>LD lo, A</c>; <param name="hi">opcode for <c>LD hi, A</c>.</param>
+        private void LoadToPair(IrValue value, int n, int hi, int lo, bool signExtend)
+        {
+            LoadByteToA(value, 0);
+            _e.U8(lo);
+            if (n == 2)
+            {
+                LoadByteToA(value, 1);
+                _e.U8(hi);
+            }
+            else if (signExtend)
+            {
+                LoadByteToA(value, 0);
+                _e.U8(0x87);   // ADD A, A  -> carry = sign bit
+                _e.U8(0x9F);   // SBC A, A  -> 0xFF / 0x00
+                _e.U8(hi);
+            }
+            else
+            {
+                _e.U8(hi == 0x57 ? 0x16 : 0x06); // LD D,0 / LD B,0
+                _e.U8(0x00);
+            }
+        }
+
+        /// <summary>Store a register pair to a slot, low byte first.</summary>
+        private void StoreRegPair(int dst, int n, int hi, int lo)
+        {
+            _e.U8(lo);
+            StoreAToAddr(dst);
+            if (n == 2)
+            {
+                _e.U8(hi);
+                StoreAToAddr(dst + 1);
             }
         }
 
