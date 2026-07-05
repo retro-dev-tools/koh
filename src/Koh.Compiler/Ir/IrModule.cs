@@ -4,11 +4,7 @@ namespace Koh.Compiler.Ir;
 
 /// <summary>
 /// A frontend's output and a backend's input: the complete, target-independent program.
-/// A module owns its functions and global data. The instruction/SSA-block layer of each
-/// function is specified in the design doc and lands in Phase 1 (see
-/// <c>docs/superpowers/specs/2026-07-05-csharp-frontend-compiler-platform-design.md</c>);
-/// this type establishes the stable module/function/global contract that frontends and
-/// backends agree on.
+/// A module owns its functions and global data.
 /// </summary>
 public sealed class IrModule
 {
@@ -17,9 +13,18 @@ public sealed class IrModule
     public List<IrGlobal> Globals { get; } = [];
 
     public IrModule(string name) => Name = name;
+
+    public IrFunction? FindFunction(string name) =>
+        Functions.FirstOrDefault(f => f.Name == name);
+
+    public IrGlobal? FindGlobal(string name) =>
+        Globals.FirstOrDefault(g => g.Name == name);
 }
 
-/// <summary>A named function signature. The SSA body arrives in Phase 1.</summary>
+/// <summary>
+/// A function: a signature plus, for non-external functions, a body of basic blocks in an
+/// SSA control-flow graph. The first block is the entry.
+/// </summary>
 public sealed class IrFunction
 {
     public string Name { get; }
@@ -31,6 +36,9 @@ public sealed class IrFunction
 
     /// <summary>True for an <c>extern</c> declaration (e.g. an assembly symbol) with no body.</summary>
     public bool IsExternal { get; }
+
+    /// <summary>Basic blocks in program order; empty for external functions.</summary>
+    public List<IrBasicBlock> Blocks { get; } = [];
 
     public IrFunction(
         string name,
@@ -45,12 +53,31 @@ public sealed class IrFunction
         Bank = bank;
         IsExternal = isExternal;
     }
+
+    public IrBasicBlock? EntryBlock => Blocks.Count > 0 ? Blocks[0] : null;
+
+    /// <summary>Create a block, append it to this function, and return it.</summary>
+    public IrBasicBlock AppendBlock(string? name = null)
+    {
+        var block = new IrBasicBlock(this) { Name = name };
+        Blocks.Add(block);
+        return block;
+    }
 }
 
-/// <summary>A function parameter.</summary>
-/// <param name="Name">Source name, for diagnostics and debug info.</param>
-/// <param name="Type">Parameter type.</param>
-public sealed record IrParameter(string Name, IrType Type);
+/// <summary>A basic block: a straight-line instruction sequence ending in a terminator.</summary>
+public sealed class IrBasicBlock
+{
+    public string? Name { get; set; }
+    public IrFunction Parent { get; }
+    public List<IrInstruction> Instructions { get; } = [];
+
+    public IrBasicBlock(IrFunction parent) => Parent = parent;
+
+    /// <summary>The block's terminator if the last instruction is one, else null.</summary>
+    public IrInstruction? Terminator =>
+        Instructions.Count > 0 && Instructions[^1].IsTerminator ? Instructions[^1] : null;
+}
 
 /// <summary>A module-level global variable, placed by address space (and optionally bank/section).</summary>
 public sealed class IrGlobal

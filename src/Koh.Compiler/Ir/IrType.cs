@@ -63,6 +63,15 @@ public sealed class IrType
     public static IrType Array(IrType element, int length) =>
         new(IrTypeKind.Array, 0, AddressSpace.Default, element, length);
 
+    /// <summary>Structural equality: same kind, width, address space, and element shape.</summary>
+    public bool StructurallyEquals(IrType other) =>
+        Kind == other.Kind
+        && Bits == other.Bits
+        && AddressSpace == other.AddressSpace
+        && ArrayLength == other.ArrayLength
+        && ((Element is null && other.Element is null)
+            || (Element is not null && other.Element is not null && Element.StructurallyEquals(other.Element)));
+
     public override string ToString() => Kind switch
     {
         IrTypeKind.Void => "void",

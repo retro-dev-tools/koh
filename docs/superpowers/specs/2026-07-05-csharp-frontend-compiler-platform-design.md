@@ -158,7 +158,7 @@ src/Koh.Compiler/
 
 Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written IR, before any frontend exists.
 
-1. **IR core + textual form + verifier.** `Ir/`, `Targets/` (SM83 DataLayout), interfaces, registry, driver skeleton. Hand-writable, printable, verifiable IR. *(This is the scaffold landed alongside this spec.)*
+1. **IR core + textual form + verifier.** ✅ *Landed.* `Ir/` (typed SSA value/instruction model — arithmetic, compares, conversions, `alloca`/`load`/`store`/`gep`, `call`, `phi`, `ret`/`br`/`condbr`/`switch`), `IrBuilder`, `IrPrinter` (textual form), `IrParser` (round-trips the printer), `IrVerifier` (CFG + operand-type checks), `Targets/` (SM83 `DataLayout`), interfaces, registry, driver. Covered by `Koh.Compiler.Tests` (parse/verify/round-trip stability + builder loop-with-phi + negative verifier cases).
 2. **SM83 backend MVP.** Hand-written IR → legalize → naive codegen (everything through `A`/`HL`, static locals, far-call trampolines) → `.kobj` → link → **run in the emulator**. Correctness before optimization. Golden-ROM tests against the emulator.
 3. **C# frontend MVP.** Roslyn parse/bind → subset gate → lower to IR: `static` methods, `byte`/`ushort`, `if`/`while`/`for`, arrays, pointers, hardware intrinsics, `extern` asm interop. Snapshot-test IR output.
 4. **IR optimization passes.** Const-fold, DCE, copy/coalesce, SM83 peephole on the emitted stream. Introduce full SSA-based opt if/when the optimizer needs it.

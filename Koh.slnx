@@ -14,6 +14,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
+    <Project Path="tests/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj" />
     <Project Path="tests/Koh.Core.Tests/Koh.Core.Tests.csproj" />
     <Project Path="tests/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />
     <Project Path="tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj" />
