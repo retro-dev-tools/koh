@@ -7,27 +7,32 @@ using Koh.Core.Symbols;
 namespace Koh.Compiler.Backends.Sm83;
 
 /// <summary>
-/// The hand-written SM83 backend. This is the Phase 2 MVP: correctness-first, non-optimizing
-/// code generation for single-block <c>i8</c> functions, proving the whole pipeline end to end
-/// (IR → machine code → <see cref="EmitModel"/> → linker → ROM → emulator).
+/// The hand-written SM83 backend (Phase 2). Correctness-first, non-optimizing code generation.
 ///
-/// The allocation model is the simplest form of the NESFab-style static allocation the design
-/// calls for: every value-producing instruction gets its own fixed WRAM byte, and every
-/// operation flows through the accumulator (load operands into <c>A</c>/<c>B</c>, compute,
-/// store the result back to its slot). It emits terrible code on purpose — the point of the MVP
-/// is a trustworthy, observable pipeline, not tight output. Register allocation, wider integer
-/// legalization, control flow, calls, and instruction selection over
-/// <see cref="Koh.Core.Encoding.Sm83InstructionTable"/> are later Phase 2 increments.
+/// Allocation model — the simplest form of the NESFab-style static allocation the design calls
+/// for: every parameter and every value-producing instruction gets fixed WRAM storage, and
+/// every operation flows through the accumulator. Pointers from <c>alloca</c> and
+/// constant-index <c>gep</c> are compile-time-known addresses, so <c>load</c>/<c>store</c> use
+/// absolute addressing. It emits deliberately poor code; the goal is a trustworthy, observable
+/// pipeline, not tight output.
 ///
-/// Unsupported IR throws <see cref="NotSupportedException"/> so the MVP's boundary is explicit.
+/// Supported today: <c>i8</c>/<c>i16</c> arithmetic (add/sub via ADC/SBC chains, and/or/xor),
+/// unsigned + eq/ne comparisons, integer conversions (trunc/zext/sext), control flow
+/// (br/condbr/phi with critical-edge-split phi copies), and static-address memory ops. Not yet:
+/// signed comparisons, dynamic-pointer load/store, <c>switch</c>, calls, multiply/divide/shift,
+/// and instruction selection through <see cref="Koh.Core.Encoding.Sm83InstructionTable"/>.
+///
+/// Calling convention (MVP): parameters occupy WRAM from <see cref="WramBase"/> in declaration
+/// order; an <c>i8</c> result is returned in <c>A</c>, an <c>i16</c> result in <c>HL</c>.
+/// Unsupported IR throws <see cref="NotSupportedException"/> so the boundary stays explicit.
 /// </summary>
 public sealed class Sm83Backend : IBackend
 {
-    /// <summary>Fixed ROM address the emitted code section is placed at (MVP: one section).</summary>
+    /// <summary>Fixed ROM address the emitted code section is placed at.</summary>
     public const int CodeBase = 0x0150;
 
-    /// <summary>First WRAM byte used for statically-allocated SSA value slots.</summary>
-    private const int WramBase = 0xC000;
+    /// <summary>First WRAM byte used for parameters and statically-allocated SSA storage.</summary>
+    public const int WramBase = 0xC000;
 
     private const string CodeSectionName = "CODE";
 
@@ -37,7 +42,7 @@ public sealed class Sm83Backend : IBackend
 
     public EmitModel Compile(IrModule module, DiagnosticBag diagnostics)
     {
-        var code = new List<byte>();
+        var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
         foreach (var fn in module.Functions)
@@ -45,127 +50,499 @@ public sealed class Sm83Backend : IBackend
             if (fn.IsExternal)
                 continue;
 
-            int funcStart = CodeBase + code.Count;
-            CompileFunction(fn, code);
+            int funcStart = CodeBase + emitter.Code.Count;
+            new FunctionEmitter(emitter, fn).Compile();
             symbols.Add(new SymbolData(
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
         }
 
+        emitter.Resolve(CodeBase);
+
         var section = new SectionData(
             CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
-            data: code.ToArray(), patches: Array.Empty<PatchEntry>());
+            data: emitter.Code.ToArray(), patches: Array.Empty<PatchEntry>());
 
         return new EmitModel([section], symbols, Array.Empty<Diagnostic>());
     }
 
-    private static void CompileFunction(IrFunction fn, List<byte> code)
+    internal static int SizeOf(IrType type) => type.Kind switch
     {
-        if (fn.Blocks.Count != 1)
-            throw new NotSupportedException(
-                $"MVP SM83 backend supports single-block functions only ('@{fn.Name}' has {fn.Blocks.Count}).");
+        IrTypeKind.Void => 0,
+        IrTypeKind.Int => (type.Bits + 7) / 8,
+        IrTypeKind.Pointer => 2,
+        IrTypeKind.Array => type.ArrayLength * SizeOf(type.Element!),
+        _ => throw new NotSupportedException($"SM83 backend cannot size type {type}."),
+    };
 
-        var block = fn.Blocks[0];
+    /// <summary>A forward reference resolved to an absolute address once its target is placed.</summary>
+    private sealed class Label { public int Offset = -1; }
 
-        // Static allocation: one fixed WRAM byte per value-producing instruction.
-        var slots = new Dictionary<IrInstruction, int>(ReferenceEqualityComparer.Instance);
-        int next = WramBase;
-        foreach (var instr in block.Instructions)
-            if (instr.Type.Kind != IrTypeKind.Void)
-                slots[instr] = next++;
+    /// <summary>A growable code buffer with block labels and absolute-address fixups.</summary>
+    private sealed class Emitter
+    {
+        public readonly List<byte> Code = [];
+        private readonly Dictionary<IrBasicBlock, Label> _blocks = new(ReferenceEqualityComparer.Instance);
+        private readonly List<(int Pos, Label Target)> _fixups = [];
 
-        foreach (var instr in block.Instructions)
+        public void U8(int value) => Code.Add((byte)value);
+
+        public Label BlockLabel(IrBasicBlock block)
         {
-            switch (instr)
+            if (!_blocks.TryGetValue(block, out var label))
+                _blocks[block] = label = new Label();
+            return label;
+        }
+
+        public void Place(Label label) => label.Offset = Code.Count;
+
+        /// <summary>Emit a jump opcode plus a two-byte placeholder patched to the label's address.</summary>
+        public void Jump(int opcode, Label target)
+        {
+            Code.Add((byte)opcode);
+            _fixups.Add((Code.Count, target));
+            Code.Add(0);
+            Code.Add(0);
+        }
+
+        public void Resolve(int codeBase)
+        {
+            foreach (var (pos, target) in _fixups)
             {
-                case BinaryInstruction b:
-                    EmitBinary(b, code, slots);
-                    break;
-                case RetInstruction r:
-                    if (r.Value is not null)
-                        LoadToA(r.Value, code, slots);
-                    code.Add(0xC9); // RET
-                    break;
-                default:
-                    throw new NotSupportedException(
-                        $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{fn.Name}').");
+                if (target.Offset < 0)
+                    throw new InvalidOperationException("unplaced jump target");
+                int addr = codeBase + target.Offset;
+                Code[pos] = (byte)(addr & 0xFF);
+                Code[pos + 1] = (byte)(addr >> 8);
             }
         }
     }
 
-    private static void EmitBinary(
-        BinaryInstruction b, List<byte> code, Dictionary<IrInstruction, int> slots)
+    /// <summary>Lowers one function into the shared emitter using the static-allocation model.</summary>
+    private sealed class FunctionEmitter
     {
-        if (b.Type.Bits != 8)
-            throw new NotSupportedException(
-                $"MVP SM83 backend supports i8 arithmetic only (got {b.Type} for '{b.Mnemonic}').");
+        private readonly Emitter _e;
+        private readonly IrFunction _fn;
+        private readonly Dictionary<IrValue, int> _slot = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<IrValue, int> _staticAddr = new(ReferenceEqualityComparer.Instance);
 
-        if (b.Right is IrConstInt rc)
+        public FunctionEmitter(Emitter emitter, IrFunction fn)
         {
-            LoadToA(b.Left, code, slots);
-            code.Add(AluImmOpcode(b.Op));
-            code.Add((byte)rc.Value);
-        }
-        else
-        {
-            LoadToB(b.Right, code, slots); // B = right
-            LoadToA(b.Left, code, slots);  // A = left
-            code.Add(AluRegOpcode(b.Op));  // A = A op B
+            _e = emitter;
+            _fn = fn;
         }
 
-        StoreA(slots[b], code);
-    }
-
-    /// <summary>Load a value into <c>A</c>: constants become immediates, results load from their slot.</summary>
-    private static void LoadToA(IrValue value, List<byte> code, Dictionary<IrInstruction, int> slots)
-    {
-        switch (value)
+        public void Compile()
         {
-            case IrConstInt c:
-                code.Add(0x3E);            // LD A, d8
-                code.Add((byte)c.Value);
-                break;
-            case IrInstruction instr when slots.TryGetValue(instr, out int addr):
-                code.Add(0xFA);            // LD A, (a16)
-                code.Add((byte)(addr & 0xFF));
-                code.Add((byte)(addr >> 8));
-                break;
-            default:
-                throw new NotSupportedException(
-                    "MVP SM83 backend operands must be i8 constants or prior instruction results.");
+            Allocate();
+            foreach (var block in _fn.Blocks)
+            {
+                _e.Place(_e.BlockLabel(block));
+                foreach (var instr in block.Instructions)
+                    EmitInstruction(block, instr);
+            }
         }
+
+        private void Allocate()
+        {
+            int wram = WramBase;
+
+            foreach (var p in _fn.Parameters)
+            {
+                _slot[p] = wram;
+                wram += SizeOf(p.Type);
+            }
+
+            foreach (var block in _fn.Blocks)
+                foreach (var instr in block.Instructions)
+                {
+                    switch (instr)
+                    {
+                        case AllocaInstruction a:
+                            _staticAddr[a] = wram;
+                            wram += SizeOf(a.Allocated);
+                            break;
+                        case GetElementPtrInstruction g:
+                            _staticAddr[g] = StaticBase(g.BasePointer)
+                                + ConstIndex(g) * SizeOf(g.ElementType);
+                            break;
+                        default:
+                            if (instr.Type.Kind != IrTypeKind.Void)
+                            {
+                                _slot[instr] = wram;
+                                wram += SizeOf(instr.Type);
+                            }
+                            break;
+                    }
+                }
+        }
+
+        private int StaticBase(IrValue pointer) =>
+            _staticAddr.TryGetValue(pointer, out int addr)
+                ? addr
+                : throw new NotSupportedException(
+                    "MVP SM83 backend supports only static pointers (alloca / constant-index gep).");
+
+        private static int ConstIndex(GetElementPtrInstruction g) =>
+            g.Index is IrConstInt c
+                ? (int)c.Value
+                : throw new NotSupportedException("MVP SM83 backend supports constant gep indices only.");
+
+        private void EmitInstruction(IrBasicBlock block, IrInstruction instr)
+        {
+            switch (instr)
+            {
+                case BinaryInstruction b: EmitBinary(b); break;
+                case CompareInstruction c: EmitCompare(c); break;
+                case ConvInstruction cv: EmitConv(cv); break;
+                case LoadInstruction l: EmitLoad(l); break;
+                case StoreInstruction s: EmitStore(s); break;
+                case AllocaInstruction: break;               // storage pre-assigned
+                case GetElementPtrInstruction: break;        // static address pre-assigned
+                case PhiInstruction: break;                  // realized by predecessor edge copies
+                case RetInstruction r: EmitRet(r); break;
+                case BrInstruction br: EmitBr(block, br); break;
+                case CondBrInstruction cb: EmitCondBr(block, cb); break;
+                default:
+                    throw new NotSupportedException(
+                        $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_fn.Name}').");
+            }
+        }
+
+        // ---- Arithmetic ----------------------------------------------------
+
+        private void EmitBinary(BinaryInstruction b)
+        {
+            int n = SizeOf(b.Type);
+            int dst = _slot[b];
+            bool rightConst = b.Right is IrConstInt;
+
+            for (int k = 0; k < n; k++)
+            {
+                if (rightConst)
+                {
+                    LoadByteToA(b.Left, k);
+                    _e.U8(AluImmOpcode(b.Op, k));
+                    _e.U8(ByteOf(b.Right, k));
+                }
+                else
+                {
+                    LoadByteToB(b.Right, k);
+                    LoadByteToA(b.Left, k);
+                    _e.U8(AluRegOpcode(b.Op, k));
+                }
+                StoreAToAddr(dst + k);
+            }
+        }
+
+        private void EmitCompare(CompareInstruction c)
+        {
+            var (pred, swap) = Normalize(c.Op);
+            IrValue left = swap ? c.Right : c.Left;
+            IrValue right = swap ? c.Left : c.Right;
+            int n = SizeOf(c.Left.Type);
+            int dst = _slot[c];
+            bool rightConst = right is IrConstInt;
+
+            int falseJump;
+            if (pred is IrCompareOp.Ult or IrCompareOp.Uge)
+            {
+                // Full-width subtract; the final carry is the unsigned borrow (left < right).
+                for (int k = 0; k < n; k++)
+                {
+                    if (rightConst)
+                    {
+                        LoadByteToA(left, k);
+                        _e.U8(k == 0 ? 0xD6 : 0xDE);   // SUB d8 / SBC A, d8
+                        _e.U8(ByteOf(right, k));
+                    }
+                    else
+                    {
+                        LoadByteToB(right, k);
+                        LoadByteToA(left, k);
+                        _e.U8(k == 0 ? 0x90 : 0x98);   // SUB B / SBC A, B
+                    }
+                }
+                falseJump = pred == IrCompareOp.Ult ? 0xD2 /*JP NC*/ : 0xDA /*JP C*/;
+            }
+            else
+            {
+                // Eq/Ne: OR together the per-byte XOR differences; Z is set iff all bytes match.
+                for (int k = 0; k < n; k++)
+                {
+                    if (rightConst)
+                    {
+                        LoadByteToA(left, k);
+                        _e.U8(0xEE);                   // XOR d8
+                        _e.U8(ByteOf(right, k));
+                    }
+                    else
+                    {
+                        LoadByteToB(right, k);
+                        LoadByteToA(left, k);
+                        _e.U8(0xA8);                   // XOR B
+                    }
+                    if (k == 0)
+                    {
+                        _e.U8(0x4F);                   // LD C, A
+                    }
+                    else
+                    {
+                        _e.U8(0xB1);                   // OR C
+                        _e.U8(0x4F);                   // LD C, A
+                    }
+                }
+                falseJump = pred == IrCompareOp.Eq ? 0xC2 /*JP NZ*/ : 0xCA /*JP Z*/;
+            }
+
+            MaterializeBoolean(falseJump, dst);
+        }
+
+        /// <summary>A = 1 if the predicate holds (flags already set), else 0; stored to <paramref name="dst"/>.</summary>
+        private void MaterializeBoolean(int falseJumpOpcode, int dst)
+        {
+            var done = new Label();
+            _e.U8(0x3E); _e.U8(0x00);          // LD A, 0     (does not disturb flags)
+            _e.Jump(falseJumpOpcode, done);    // predicate false -> keep 0
+            _e.U8(0x3E); _e.U8(0x01);          // LD A, 1
+            _e.Place(done);
+            StoreAToAddr(dst);
+        }
+
+        private void EmitConv(ConvInstruction cv)
+        {
+            int srcBytes = SizeOf(cv.Operand.Type);
+            int dstBytes = SizeOf(cv.Type);
+            int dst = _slot[cv];
+
+            switch (cv.Op)
+            {
+                case IrConvOp.Trunc:
+                    for (int k = 0; k < dstBytes; k++)
+                    {
+                        LoadByteToA(cv.Operand, k);
+                        StoreAToAddr(dst + k);
+                    }
+                    break;
+
+                case IrConvOp.ZExt:
+                    for (int k = 0; k < srcBytes; k++)
+                    {
+                        LoadByteToA(cv.Operand, k);
+                        StoreAToAddr(dst + k);
+                    }
+                    for (int k = srcBytes; k < dstBytes; k++)
+                    {
+                        _e.U8(0x3E); _e.U8(0x00);   // LD A, 0
+                        StoreAToAddr(dst + k);
+                    }
+                    break;
+
+                case IrConvOp.SExt:
+                    for (int k = 0; k < srcBytes; k++)
+                    {
+                        LoadByteToA(cv.Operand, k);
+                        StoreAToAddr(dst + k);
+                    }
+                    LoadByteToA(cv.Operand, srcBytes - 1);
+                    _e.U8(0x87);                    // ADD A, A  -> carry = sign bit
+                    _e.U8(0x9F);                    // SBC A, A  -> A = 0xFF if sign else 0x00
+                    for (int k = srcBytes; k < dstBytes; k++)
+                        StoreAToAddr(dst + k);       // LD (nn), A preserves A
+                    break;
+
+                default:
+                    throw new NotSupportedException($"SM83 backend cannot lower conversion {cv.Op}.");
+            }
+        }
+
+        // ---- Memory --------------------------------------------------------
+
+        private void EmitLoad(LoadInstruction l)
+        {
+            int addr = StaticBase(l.Pointer);
+            int dst = _slot[l];
+            int n = SizeOf(l.Type);
+            for (int k = 0; k < n; k++)
+            {
+                LoadAFromAddr(addr + k);
+                StoreAToAddr(dst + k);
+            }
+        }
+
+        private void EmitStore(StoreInstruction s)
+        {
+            int addr = StaticBase(s.Pointer);
+            int n = SizeOf(s.Value.Type);
+            for (int k = 0; k < n; k++)
+            {
+                LoadByteToA(s.Value, k);
+                StoreAToAddr(addr + k);
+            }
+        }
+
+        // ---- Control flow --------------------------------------------------
+
+        private void EmitRet(RetInstruction r)
+        {
+            if (r.Value is null)
+            {
+                _e.U8(0xC9); // RET
+                return;
+            }
+
+            int n = SizeOf(r.Value.Type);
+            switch (n)
+            {
+                case 1:
+                    LoadByteToA(r.Value, 0);
+                    break;
+                case 2:
+                    LoadByteToA(r.Value, 0);
+                    _e.U8(0x6F);            // LD L, A
+                    LoadByteToA(r.Value, 1);
+                    _e.U8(0x67);            // LD H, A
+                    break;
+                default:
+                    throw new NotSupportedException(
+                        $"SM83 backend can only return i8 (A) or i16 (HL), not {r.Value.Type}.");
+            }
+            _e.U8(0xC9); // RET
+        }
+
+        private void EmitBr(IrBasicBlock source, BrInstruction br)
+        {
+            EmitPhiCopies(source, br.Target);
+            _e.Jump(0xC3, _e.BlockLabel(br.Target)); // JP a16
+        }
+
+        private void EmitCondBr(IrBasicBlock source, CondBrInstruction cb)
+        {
+            LoadByteToA(cb.Condition, 0);
+            _e.U8(0xA7);                                 // AND A -> Z set iff false
+            var trueEdge = new Label();
+            _e.Jump(0xC2, trueEdge);                     // JP NZ, <true edge>
+
+            // False edge (fall-through): copy phis then jump.
+            EmitPhiCopies(source, cb.IfFalse);
+            _e.Jump(0xC3, _e.BlockLabel(cb.IfFalse));
+
+            // True edge.
+            _e.Place(trueEdge);
+            EmitPhiCopies(source, cb.IfTrue);
+            _e.Jump(0xC3, _e.BlockLabel(cb.IfTrue));
+        }
+
+        /// <summary>Copy each phi's incoming value for this edge into the phi's slot (edge is split).</summary>
+        private void EmitPhiCopies(IrBasicBlock source, IrBasicBlock target)
+        {
+            foreach (var instr in target.Instructions)
+            {
+                if (instr is not PhiInstruction phi)
+                    break; // phis lead the block
+
+                IrValue value = FindIncoming(phi, source);
+                int slot = _slot[phi];
+                int n = SizeOf(phi.Type);
+                for (int k = 0; k < n; k++)
+                {
+                    LoadByteToA(value, k);
+                    StoreAToAddr(slot + k);
+                }
+            }
+        }
+
+        private static IrValue FindIncoming(PhiInstruction phi, IrBasicBlock source)
+        {
+            foreach (var (value, block) in phi.Incomings)
+                if (ReferenceEquals(block, source))
+                    return value;
+            throw new NotSupportedException("phi has no incoming for a predecessor edge.");
+        }
+
+        // ---- Byte-level helpers -------------------------------------------
+
+        /// <summary>Load byte <paramref name="k"/> (0 = low) of a value into <c>A</c>.</summary>
+        private void LoadByteToA(IrValue value, int k)
+        {
+            switch (value)
+            {
+                case IrConstInt c:
+                    _e.U8(0x3E);                 // LD A, d8
+                    _e.U8(ByteOf(value, k));
+                    break;
+                default:
+                    if (_slot.TryGetValue(value, out int addr))
+                    {
+                        LoadAFromAddr(addr + k);
+                    }
+                    else if (_staticAddr.TryGetValue(value, out int ptr))
+                    {
+                        _e.U8(0x3E);             // pointer literal: LD A, <byte k of address>
+                        _e.U8((byte)(ptr >> (8 * k)));
+                    }
+                    else
+                    {
+                        throw new NotSupportedException(
+                            "SM83 backend operand must be a constant, parameter, or prior result.");
+                    }
+                    break;
+            }
+        }
+
+        private void LoadByteToB(IrValue value, int k)
+        {
+            LoadByteToA(value, k);
+            _e.U8(0x47); // LD B, A
+        }
+
+        private void LoadAFromAddr(int addr)
+        {
+            _e.U8(0xFA);                 // LD A, (a16)
+            _e.U8(addr & 0xFF);
+            _e.U8(addr >> 8);
+        }
+
+        private void StoreAToAddr(int addr)
+        {
+            _e.U8(0xEA);                 // LD (a16), A
+            _e.U8(addr & 0xFF);
+            _e.U8(addr >> 8);
+        }
+
+        private static byte ByteOf(IrValue value, int k) =>
+            value is IrConstInt c
+                ? (byte)(c.Value >> (8 * k))
+                : throw new NotSupportedException("expected a constant operand.");
+
+        private static (IrCompareOp Pred, bool Swap) Normalize(IrCompareOp op) => op switch
+        {
+            IrCompareOp.Eq => (IrCompareOp.Eq, false),
+            IrCompareOp.Ne => (IrCompareOp.Ne, false),
+            IrCompareOp.Ult => (IrCompareOp.Ult, false),
+            IrCompareOp.Uge => (IrCompareOp.Uge, false),
+            IrCompareOp.Ugt => (IrCompareOp.Ult, true),  // a > b  <=>  b < a
+            IrCompareOp.Ule => (IrCompareOp.Uge, true),  // a <= b <=>  b >= a
+            _ => throw new NotSupportedException($"SM83 backend does not support signed comparison {op}."),
+        };
+
+        private static byte AluImmOpcode(IrBinaryOp op, int k) => op switch
+        {
+            IrBinaryOp.Add => (byte)(k == 0 ? 0xC6 : 0xCE), // ADD A,d8 / ADC A,d8
+            IrBinaryOp.Sub => (byte)(k == 0 ? 0xD6 : 0xDE), // SUB d8   / SBC A,d8
+            IrBinaryOp.And => 0xE6,
+            IrBinaryOp.Or => 0xF6,
+            IrBinaryOp.Xor => 0xEE,
+            _ => throw new NotSupportedException($"SM83 backend does not support '{op}'."),
+        };
+
+        private static byte AluRegOpcode(IrBinaryOp op, int k) => op switch
+        {
+            IrBinaryOp.Add => (byte)(k == 0 ? 0x80 : 0x88), // ADD A,B / ADC A,B
+            IrBinaryOp.Sub => (byte)(k == 0 ? 0x90 : 0x98), // SUB B   / SBC A,B
+            IrBinaryOp.And => 0xA0,
+            IrBinaryOp.Or => 0xB0,
+            IrBinaryOp.Xor => 0xA8,
+            _ => throw new NotSupportedException($"SM83 backend does not support '{op}'."),
+        };
     }
-
-    /// <summary>Load a value into <c>B</c> (via <c>A</c>).</summary>
-    private static void LoadToB(IrValue value, List<byte> code, Dictionary<IrInstruction, int> slots)
-    {
-        LoadToA(value, code, slots);
-        code.Add(0x47); // LD B, A
-    }
-
-    private static void StoreA(int addr, List<byte> code)
-    {
-        code.Add(0xEA); // LD (a16), A
-        code.Add((byte)(addr & 0xFF));
-        code.Add((byte)(addr >> 8));
-    }
-
-    private static byte AluImmOpcode(IrBinaryOp op) => op switch
-    {
-        IrBinaryOp.Add => 0xC6,
-        IrBinaryOp.Sub => 0xD6,
-        IrBinaryOp.And => 0xE6,
-        IrBinaryOp.Or => 0xF6,
-        IrBinaryOp.Xor => 0xEE,
-        _ => throw new NotSupportedException($"MVP SM83 backend does not support '{op}'."),
-    };
-
-    private static byte AluRegOpcode(IrBinaryOp op) => op switch
-    {
-        IrBinaryOp.Add => 0x80, // ADD A, B
-        IrBinaryOp.Sub => 0x90, // SUB B
-        IrBinaryOp.And => 0xA0, // AND B
-        IrBinaryOp.Or => 0xB0,  // OR B
-        IrBinaryOp.Xor => 0xA8, // XOR B
-        _ => throw new NotSupportedException($"MVP SM83 backend does not support '{op}'."),
-    };
 }
