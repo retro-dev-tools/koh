@@ -88,6 +88,12 @@ public sealed class IrGlobal
     public int? Bank { get; }
     public string? Section { get; }
 
+    /// <summary>
+    /// A pinned absolute address, overriding address-space placement. Used to bind a global to a
+    /// memory-mapped hardware register (e.g. LCDC at 0xFF40), so load/store become MMIO.
+    /// </summary>
+    public int? FixedAddress { get; }
+
     /// <summary>Initial bytes for ROM globals; null for uninitialized RAM globals.</summary>
     public byte[]? Initializer { get; }
 
@@ -97,7 +103,8 @@ public sealed class IrGlobal
         AddressSpace addressSpace,
         int? bank = null,
         string? section = null,
-        byte[]? initializer = null)
+        byte[]? initializer = null,
+        int? fixedAddress = null)
     {
         Name = name;
         Type = type;
@@ -105,5 +112,6 @@ public sealed class IrGlobal
         Bank = bank;
         Section = section;
         Initializer = initializer;
+        FixedAddress = fixedAddress;
     }
 }

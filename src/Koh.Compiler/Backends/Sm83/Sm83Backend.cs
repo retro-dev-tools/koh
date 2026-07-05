@@ -55,7 +55,11 @@ public sealed class Sm83Backend : IBackend
         int wramGlobals = WramBase, hramGlobals = 0xFF80, sramGlobals = 0xA000;
         foreach (var g in module.Globals)
         {
-            if (g.AddressSpace == AddressSpace.Rom || g.Initializer is not null)
+            if (g.FixedAddress is int pinned)
+            {
+                globalAddresses[g] = pinned; // memory-mapped register / explicit placement
+            }
+            else if (g.AddressSpace == AddressSpace.Rom || g.Initializer is not null)
             {
                 globalAddresses[g] = DataBase + romData.Count;
                 var bytes = g.Initializer ?? new byte[SizeOf(g.Type)];
@@ -95,12 +99,19 @@ public sealed class Sm83Backend : IBackend
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
+        // The cartridge boots into "main" (or the first function if there is none).
+        var entryFunction = module.Functions.FirstOrDefault(f => !f.IsExternal && f.Name == "main")
+            ?? module.Functions.FirstOrDefault(f => !f.IsExternal);
+        int entryAddress = CodeBase;
+
         foreach (var fn in module.Functions)
         {
             if (fn.IsExternal)
                 continue;
 
             int funcStart = CodeBase + emitter.Code.Count;
+            if (ReferenceEquals(fn, entryFunction))
+                entryAddress = funcStart;
             new FunctionEmitter(emitter, fn, allocations, globalAddresses).Compile();
             symbols.Add(new SymbolData(
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
@@ -125,12 +136,50 @@ public sealed class Sm83Backend : IBackend
             sections.Add(new SectionData(
                 "RODATA", SectionType.Rom0, fixedAddress: DataBase, bank: 0,
                 data: romData.ToArray(), patches: Array.Empty<PatchEntry>()));
+        if (entryFunction is not null)
+            sections.Add(new SectionData(
+                "HEADER", SectionType.Rom0, fixedAddress: 0x0100, bank: 0,
+                data: BuildHeader(entryAddress), patches: Array.Empty<PatchEntry>()));
 
         foreach (var (g, addr) in globalAddresses)
             symbols.Add(new SymbolData(
                 g.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
 
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
+    }
+
+    /// <summary>The 48-byte Nintendo logo the boot ROM verifies at 0x0104.</summary>
+    private static ReadOnlySpan<byte> NintendoLogo =>
+    [
+        0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+        0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+        0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+    ];
+
+    /// <summary>
+    /// Build the 80-byte cartridge header spanning 0x0100..0x014F: a <c>nop; jp entry</c> boot
+    /// vector, the Nintendo logo, ROM-only cartridge fields, and the header checksum. This makes
+    /// the emitted image a bootable cartridge rather than a bare code blob.
+    /// </summary>
+    private static byte[] BuildHeader(int entryAddress)
+    {
+        var header = new byte[0x50]; // 0x0100..0x014F
+
+        header[0x00] = 0x00;                          // nop
+        header[0x01] = 0xC3;                          // jp a16
+        header[0x02] = (byte)(entryAddress & 0xFF);
+        header[0x03] = (byte)(entryAddress >> 8);
+
+        NintendoLogo.CopyTo(header.AsSpan(0x04));      // 0x0104..0x0133
+
+        // Title bytes (0x0134..) left zero; cartridge type/ROM/RAM sizes 0 => ROM-only, 32 KB.
+        // Header checksum over 0x0134..0x014C (indices 0x34..0x4C).
+        byte checksum = 0;
+        for (int i = 0x34; i <= 0x4C; i++)
+            checksum = (byte)(checksum - header[i] - 1);
+        header[0x4D] = checksum;
+
+        return header;
     }
 
     /// <summary>Static frame allocation cannot support recursion; reject cyclic call graphs.</summary>

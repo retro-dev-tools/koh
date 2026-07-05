@@ -40,6 +40,8 @@ public static class IrPrinter
             sb.Append(" addrspace(").Append(SpaceName(g.AddressSpace)).Append(')');
         if (g.Bank is int bank)
             sb.Append(" bank(").Append(bank).Append(')');
+        if (g.FixedAddress is int fixedAddress)
+            sb.Append(" addr(0x").Append(fixedAddress.ToString("x4", CultureInfo.InvariantCulture)).Append(')');
         if (g.Section is string section)
             sb.Append(" section(\"").Append(section).Append("\")");
         if (g.Initializer is byte[] init)

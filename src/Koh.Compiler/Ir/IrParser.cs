@@ -96,6 +96,7 @@ public static class IrParser
         var space = AddressSpace.Default;
         int? bank = null;
         string? section = null;
+        int? fixedAddress = null;
         byte[]? initializer = null;
 
         while (!r.End && r.Peek != "=")
@@ -110,6 +111,11 @@ public static class IrParser
                 case "bank":
                     r.Expect("(");
                     bank = (int)ParseLong(r.Next().Text);
+                    r.Expect(")");
+                    break;
+                case "addr":
+                    r.Expect("(");
+                    fixedAddress = (int)ParseLong(r.Next().Text);
                     r.Expect(")");
                     break;
                 case "section":
@@ -130,7 +136,7 @@ public static class IrParser
             initializer = bytes.ToArray();
         }
 
-        module.Globals.Add(new IrGlobal(name, type, space, bank, section, initializer));
+        module.Globals.Add(new IrGlobal(name, type, space, bank, section, initializer, fixedAddress));
     }
 
     private static IrFunction ParseFunctionHeader(TokenReader r, IrModule module)

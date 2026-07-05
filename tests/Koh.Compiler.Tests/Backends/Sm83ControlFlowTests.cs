@@ -376,6 +376,61 @@ public class Sm83ControlFlowTests
         await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 7))).IsEqualTo((byte)99);
     }
 
+    // ---- bootable ROM + MMIO ------------------------------------------------
+
+    [Test]
+    public async Task Header_IsBootableCartridge()
+    {
+        var link = new LinkerType().Link([new LinkerInput("mvp", Compile(Fn(IrType.I8, b => I8(7))))]);
+        var rom = link.RomData!;
+
+        // Boot vector: nop ; jp 0x0150
+        await Assert.That(rom[0x100]).IsEqualTo((byte)0x00);
+        await Assert.That(rom[0x101]).IsEqualTo((byte)0xC3);
+        await Assert.That(rom[0x102]).IsEqualTo((byte)0x50);
+        await Assert.That(rom[0x103]).IsEqualTo((byte)0x01);
+        // Nintendo logo bounds
+        await Assert.That(rom[0x104]).IsEqualTo((byte)0xCE);
+        await Assert.That(rom[0x133]).IsEqualTo((byte)0x3E);
+        await Assert.That(rom[0x147]).IsEqualTo((byte)0x00); // ROM-only
+
+        byte checksum = 0;
+        for (int i = 0x134; i <= 0x14C; i++)
+            checksum = (byte)(checksum - rom[i] - 1);
+        await Assert.That(rom[0x14D]).IsEqualTo(checksum); // valid header checksum
+    }
+
+    [Test]
+    public async Task Boots_FromEntryVector()
+    {
+        // Start at 0x0100 like real hardware; the vector jumps into main, which returns 42.
+        var gb = Load(Compile(Fn(IrType.I8, b => b.Add(I8(40), I8(2)))), out int s, out int l);
+        gb.Registers.Pc = 0x0100;
+        for (int i = 0; i < 10 && (gb.Registers.Pc < s || gb.Registers.Pc >= s + l); i++)
+            gb.StepInstruction();
+        Run(gb, s, l);
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Mmio_StoreReachesHardwareRegister()
+    {
+        // A global pinned to SCY (0xFF42) is a memory-mapped register: storing to it writes hardware.
+        var m = new IrModule("t");
+        var scy = new IrGlobal("SCY", IrType.I8, AddressSpace.Default, fixedAddress: 0xFF42);
+        m.Globals.Add(scy);
+        var main = new IrFunction("main", IrType.Void, []);
+        m.Functions.Add(main);
+        var b = new IrBuilder();
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        b.Store(I8(0x37), IrBuilder.GlobalRef(scy));
+        b.Ret();
+
+        var gb = Load(Compile(m), out int s, out int l);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte(0xFF42)).IsEqualTo((byte)0x37);
+    }
+
     // ---- globals ------------------------------------------------------------
 
     [Test]
