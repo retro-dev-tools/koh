@@ -246,7 +246,7 @@ public sealed class Sm83Backend : IBackend
 
         private void EmitCompare(CompareInstruction c)
         {
-            var (pred, swap) = Normalize(c.Op);
+            var (pred, swap, signed) = Normalize(c.Op);
             IrValue left = swap ? c.Right : c.Left;
             IrValue right = swap ? c.Left : c.Right;
             int n = SizeOf(c.Left.Type);
@@ -256,20 +256,27 @@ public sealed class Sm83Backend : IBackend
             int falseJump;
             if (pred is IrCompareOp.Ult or IrCompareOp.Uge)
             {
-                // Full-width subtract; the final carry is the unsigned borrow (left < right).
+                // Full-width subtract; the final carry is the borrow (left < right). For a signed
+                // comparison, flipping the sign bit of the top byte of both operands turns the
+                // signed ordering into the same unsigned/borrow test.
                 for (int k = 0; k < n; k++)
                 {
+                    bool flip = signed && k == n - 1;
                     if (rightConst)
                     {
                         LoadByteToA(left, k);
-                        _e.U8(k == 0 ? 0xD6 : 0xDE);   // SUB d8 / SBC A, d8
-                        _e.U8(ByteOf(right, k));
+                        if (flip) { _e.U8(0xEE); _e.U8(0x80); }   // XOR 0x80
+                        _e.U8(k == 0 ? 0xD6 : 0xDE);              // SUB d8 / SBC A, d8
+                        _e.U8((byte)(ByteOf(right, k) ^ (flip ? 0x80 : 0x00)));
                     }
                     else
                     {
-                        LoadByteToB(right, k);
+                        LoadByteToA(right, k);
+                        if (flip) { _e.U8(0xEE); _e.U8(0x80); }
+                        _e.U8(0x47);                              // LD B, A
                         LoadByteToA(left, k);
-                        _e.U8(k == 0 ? 0x90 : 0x98);   // SUB B / SBC A, B
+                        if (flip) { _e.U8(0xEE); _e.U8(0x80); }
+                        _e.U8(k == 0 ? 0x90 : 0x98);              // SUB B / SBC A, B
                     }
                 }
                 falseJump = pred == IrCompareOp.Ult ? 0xD2 /*JP NC*/ : 0xDA /*JP C*/;
@@ -593,15 +600,24 @@ public sealed class Sm83Backend : IBackend
                 ? (byte)(c.Value >> (8 * k))
                 : throw new NotSupportedException("expected a constant operand.");
 
-        private static (IrCompareOp Pred, bool Swap) Normalize(IrCompareOp op) => op switch
+        /// <summary>
+        /// Reduce any predicate to a base carry/eq test plus operand-swap and sign flags:
+        /// <c>Ugt/Ule</c> swap into <c>Ult/Uge</c>; signed predicates map to the same base with
+        /// <c>Signed = true</c> (handled by flipping the top byte's sign bit).
+        /// </summary>
+        private static (IrCompareOp Pred, bool Swap, bool Signed) Normalize(IrCompareOp op) => op switch
         {
-            IrCompareOp.Eq => (IrCompareOp.Eq, false),
-            IrCompareOp.Ne => (IrCompareOp.Ne, false),
-            IrCompareOp.Ult => (IrCompareOp.Ult, false),
-            IrCompareOp.Uge => (IrCompareOp.Uge, false),
-            IrCompareOp.Ugt => (IrCompareOp.Ult, true),  // a > b  <=>  b < a
-            IrCompareOp.Ule => (IrCompareOp.Uge, true),  // a <= b <=>  b >= a
-            _ => throw new NotSupportedException($"SM83 backend does not support signed comparison {op}."),
+            IrCompareOp.Eq => (IrCompareOp.Eq, false, false),
+            IrCompareOp.Ne => (IrCompareOp.Ne, false, false),
+            IrCompareOp.Ult => (IrCompareOp.Ult, false, false),
+            IrCompareOp.Uge => (IrCompareOp.Uge, false, false),
+            IrCompareOp.Ugt => (IrCompareOp.Ult, true, false),  // a > b  <=>  b < a
+            IrCompareOp.Ule => (IrCompareOp.Uge, true, false),  // a <= b <=>  b >= a
+            IrCompareOp.Slt => (IrCompareOp.Ult, false, true),
+            IrCompareOp.Sge => (IrCompareOp.Uge, false, true),
+            IrCompareOp.Sgt => (IrCompareOp.Ult, true, true),   // a > b  <=>  b < a
+            IrCompareOp.Sle => (IrCompareOp.Uge, true, true),   // a <= b <=>  b >= a
+            _ => throw new NotSupportedException($"SM83 backend cannot lower comparison {op}."),
         };
 
         private static byte AluImmOpcode(IrBinaryOp op, int k) => op switch

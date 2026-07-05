@@ -102,6 +102,28 @@ public class Sm83ControlFlowTests
     public async Task I16_Eq_False() =>
         await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Eq, I16(7), I16(8))))).IsEqualTo((byte)0);
 
+    // ---- signed comparisons -------------------------------------------------
+
+    [Test]
+    public async Task Slt_Signed_NegativeLessThanPositive() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I8(-5), I8(3))))).IsEqualTo((byte)1);
+
+    [Test]
+    public async Task Sgt_Signed_NegativeOrdering() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Sgt, I8(-1), I8(-2))))).IsEqualTo((byte)1);
+
+    [Test]
+    public async Task SignedVsUnsigned_DifferForNegatives()
+    {
+        // -1 < 1 signed is true; as unsigned (0xFF < 1) it is false.
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I8(-1), I8(1))))).IsEqualTo((byte)1);
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Ult, I8(-1), I8(1))))).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Slt_Signed_I16() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(-1000), I16(5))))).IsEqualTo((byte)1);
+
     // ---- conversions --------------------------------------------------------
 
     [Test]
