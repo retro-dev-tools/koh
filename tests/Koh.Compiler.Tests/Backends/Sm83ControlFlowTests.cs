@@ -184,6 +184,44 @@ public class Sm83ControlFlowTests
         return module;
     }
 
+    /// <summary>Two phis that swap each other across the back-edge — miscompiles without a temp.</summary>
+    private static IrModule SwapLoop()
+    {
+        var module = new IrModule("t");
+        var fn = new IrFunction("main", IrType.I16, []);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var loop = fn.AppendBlock("loop");
+        var done = fn.AppendBlock("done");
+        var b = new IrBuilder();
+
+        b.PositionAtEnd(entry);
+        b.Br(loop);
+
+        b.PositionAtEnd(loop);
+        var a = b.Phi(IrType.I16);
+        var c = b.Phi(IrType.I16);
+        var i = b.Phi(IrType.I16);
+        var iNext = b.Add(i, I16(1));
+        var cond = b.Compare(IrCompareOp.Ult, iNext, I16(3)); // two back-edge traversals
+        b.CondBr(cond, loop, done);
+
+        a.AddIncoming(I16(1), entry); a.AddIncoming(c, loop); // a, c = c, a  (swap)
+        c.AddIncoming(I16(2), entry); c.AddIncoming(a, loop);
+        i.AddIncoming(I16(0), entry); i.AddIncoming(iNext, loop);
+
+        b.PositionAtEnd(done);
+        b.Ret(a);
+        return module;
+    }
+
+    [Test]
+    public async Task PhiSwap_RealizedInParallel()
+    {
+        // a starts at 1, swaps with c twice -> back to 1. Sequential copies would wrongly give 2.
+        await Assert.That(RunHL(SwapLoop())).IsEqualTo((ushort)1);
+    }
+
     [Test]
     public async Task SumLoop_RunsToCompletion()
     {

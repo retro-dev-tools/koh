@@ -124,6 +124,7 @@ public sealed class Sm83Backend : IBackend
         private readonly IrFunction _fn;
         private readonly Dictionary<IrValue, int> _slot = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<IrValue, int> _staticAddr = new(ReferenceEqualityComparer.Instance);
+        private int _phiTempBase;
 
         public FunctionEmitter(Emitter emitter, IrFunction fn)
         {
@@ -174,6 +175,15 @@ public sealed class Sm83Backend : IBackend
                             break;
                     }
                 }
+
+            // Reserve scratch for breaking phi copy cycles: at most one temp (<= 2 bytes) per phi.
+            int phiCount = 0;
+            foreach (var block in _fn.Blocks)
+                foreach (var instr in block.Instructions)
+                    if (instr is PhiInstruction)
+                        phiCount++;
+            _phiTempBase = wram;
+            wram += 2 * phiCount;
         }
 
         private int StaticBase(IrValue pointer) =>
@@ -432,22 +442,91 @@ public sealed class Sm83Backend : IBackend
             _e.Jump(0xC3, _e.BlockLabel(cb.IfTrue));
         }
 
-        /// <summary>Copy each phi's incoming value for this edge into the phi's slot (edge is split).</summary>
+        /// <summary>
+        /// Realize the phi nodes of <paramref name="target"/> for the edge from
+        /// <paramref name="source"/> as a parallel copy: all reads observe the values that held
+        /// on entry to the edge. Copies whose destination is still needed as a source are deferred,
+        /// and cycles (e.g. a swap <c>a,b = b,a</c>) are broken by staging one value through a temp.
+        /// </summary>
         private void EmitPhiCopies(IrBasicBlock source, IrBasicBlock target)
         {
+            var pending = new List<PhiCopy>();
             foreach (var instr in target.Instructions)
             {
                 if (instr is not PhiInstruction phi)
                     break; // phis lead the block
+                pending.Add(new PhiCopy(phi, _slot[phi], SizeOf(phi.Type), FindIncoming(phi, source)));
+            }
+            if (pending.Count == 0)
+                return;
 
-                IrValue value = FindIncoming(phi, source);
-                int slot = _slot[phi];
-                int n = SizeOf(phi.Type);
-                for (int k = 0; k < n; k++)
+            int temp = _phiTempBase;
+
+            while (pending.Count > 0)
+            {
+                int before = pending.Count;
+
+                for (int i = pending.Count - 1; i >= 0; i--)
                 {
-                    LoadByteToA(value, k);
-                    StoreAToAddr(slot + k);
+                    var c = pending[i];
+                    bool neededAsSource = pending.Any(o =>
+                        o != c && o.Src is not null && ReferenceEquals(o.Src, c.DestPhi));
+                    if (!neededAsSource)
+                    {
+                        EmitMove(c);
+                        pending.RemoveAt(i);
+                    }
                 }
+
+                if (pending.Count == before)
+                {
+                    // Every remaining copy is part of a cycle: stage one destination through a temp,
+                    // redirect its readers there, then let the next pass drain the now-open chain.
+                    var c = pending[0];
+                    int tempAddr = temp;
+                    temp += c.N;
+                    for (int k = 0; k < c.N; k++)
+                    {
+                        LoadAFromAddr(c.DestSlot + k);
+                        StoreAToAddr(tempAddr + k);
+                    }
+                    foreach (var o in pending)
+                        if (o != c && o.Src is not null && ReferenceEquals(o.Src, c.DestPhi))
+                        {
+                            o.Src = null;
+                            o.TempSrc = tempAddr;
+                        }
+                }
+            }
+        }
+
+        private void EmitMove(PhiCopy c)
+        {
+            for (int k = 0; k < c.N; k++)
+            {
+                if (c.TempSrc >= 0)
+                    LoadAFromAddr(c.TempSrc + k);
+                else
+                    LoadByteToA(c.Src!, k);
+                StoreAToAddr(c.DestSlot + k);
+            }
+        }
+
+        /// <summary>One pending phi realization: write <see cref="N"/> bytes from a source into a slot.</summary>
+        private sealed class PhiCopy
+        {
+            public IrValue DestPhi { get; }
+            public int DestSlot { get; }
+            public int N { get; }
+            public IrValue? Src { get; set; }   // value source; null once redirected to a temp
+            public int TempSrc { get; set; } = -1;
+
+            public PhiCopy(IrValue destPhi, int destSlot, int n, IrValue src)
+            {
+                DestPhi = destPhi;
+                DestSlot = destSlot;
+                N = n;
+                Src = src;
             }
         }
 
