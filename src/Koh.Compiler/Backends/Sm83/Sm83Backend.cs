@@ -306,6 +306,12 @@ public sealed class Sm83Backend : IBackend
 
         private void EmitBinary(BinaryInstruction b)
         {
+            if (b.Op is IrBinaryOp.Shl or IrBinaryOp.LShr or IrBinaryOp.AShr)
+            {
+                EmitShift(b);
+                return;
+            }
+
             int n = SizeOf(b.Type);
             int dst = _slot[b];
             bool rightConst = b.Right is IrConstInt;
@@ -325,6 +331,84 @@ public sealed class Sm83Backend : IBackend
                     _e.U8(AluRegOpcode(b.Op, k));
                 }
                 StoreAToAddr(dst + k);
+            }
+        }
+
+        /// <summary>
+        /// Lower a shift. The value is shifted in <c>E</c> (i8) or <c>D:E</c> (i16), one bit per
+        /// step: constant amounts are unrolled; a variable amount loops with the count in <c>B</c>.
+        /// </summary>
+        private void EmitShift(BinaryInstruction b)
+        {
+            int n = SizeOf(b.Type);
+            int dst = _slot[b];
+
+            if (b.Right is IrConstInt amount)
+            {
+                LoadWorking(b.Left, n);
+                int steps = Math.Min((int)amount.Value, n * 8);
+                for (int s = 0; s < steps; s++)
+                    ShiftWorkingOnce(b.Op, n);
+                StoreWorking(dst, n);
+                return;
+            }
+
+            // Variable amount: count in B, value in the working register(s).
+            LoadByteToA(b.Right, 0);
+            _e.U8(0x47);                 // LD B, A
+            LoadWorking(b.Left, n);
+            var loop = new Label();
+            var done = new Label();
+            _e.Place(loop);
+            _e.U8(0x78); _e.U8(0xA7);    // LD A, B ; AND A  (Z iff count == 0)
+            _e.Jump(0xCA, done);         // JP Z, done
+            ShiftWorkingOnce(b.Op, n);
+            _e.U8(0x05);                 // DEC B
+            _e.Jump(0xC3, loop);         // JP loop
+            _e.Place(done);
+            StoreWorking(dst, n);
+        }
+
+        private void LoadWorking(IrValue value, int n)
+        {
+            LoadByteToA(value, 0);
+            _e.U8(0x5F);                 // LD E, A  (low byte)
+            if (n == 2)
+            {
+                LoadByteToA(value, 1);
+                _e.U8(0x57);             // LD D, A  (high byte)
+            }
+        }
+
+        private void StoreWorking(int dst, int n)
+        {
+            _e.U8(0x7B);                 // LD A, E
+            StoreAToAddr(dst);
+            if (n == 2)
+            {
+                _e.U8(0x7A);             // LD A, D
+                StoreAToAddr(dst + 1);
+            }
+        }
+
+        private void ShiftWorkingOnce(IrBinaryOp op, int n)
+        {
+            switch (op)
+            {
+                case IrBinaryOp.Shl:
+                    _e.U8(0xCB); _e.U8(0x23);                 // SLA E
+                    if (n == 2) { _e.U8(0xCB); _e.U8(0x12); } // RL D
+                    break;
+                case IrBinaryOp.LShr:
+                    if (n == 2) { _e.U8(0xCB); _e.U8(0x3A); } // SRL D
+                    _e.U8(0xCB); _e.U8(n == 2 ? 0x1B : 0x3B); // RR E (i16) / SRL E (i8)
+                    break;
+                case IrBinaryOp.AShr:
+                    if (n == 2) { _e.U8(0xCB); _e.U8(0x2A); } // SRA D
+                    _e.U8(0xCB); _e.U8(n == 2 ? 0x1B : 0x2B); // RR E (i16) / SRA E (i8)
+                    break;
+                default:
+                    throw new NotSupportedException($"not a shift: {op}");
             }
         }
 

@@ -103,6 +103,54 @@ public class Sm83ControlFlowTests
     public async Task I16_Eq_False() =>
         await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Eq, I16(7), I16(8))))).IsEqualTo((byte)0);
 
+    // ---- shifts -------------------------------------------------------------
+
+    [Test]
+    public async Task Shl_Const_I8() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.Shl, I8(1), I8(4))))).IsEqualTo((byte)16);
+
+    [Test]
+    public async Task LShr_Const_I8() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.LShr, I8(0x80), I8(3))))).IsEqualTo((byte)0x10);
+
+    [Test]
+    public async Task AShr_Const_I8_SignFills() =>
+        // 0xF8 (-8) >> 1 arithmetic = 0xFC (-4)
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.AShr, I8(-8), I8(1))))).IsEqualTo((byte)0xFC);
+
+    [Test]
+    public async Task Shl_Const_I16() =>
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.Shl, I16(1), I16(12))))).IsEqualTo((ushort)4096);
+
+    [Test]
+    public async Task LShr_Const_I16() =>
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.LShr, I16(0x8000), I16(15))))).IsEqualTo((ushort)1);
+
+    [Test]
+    public async Task AShr_Const_I16_SignFills() =>
+        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.AShr, I16(-16), I16(2))))).IsEqualTo((ushort)0xFFFC);
+
+    [Test]
+    public async Task Shl_Variable()
+    {
+        // vshift(v, sh) = v << sh, amount supplied at runtime; 3 << 4 = 48
+        var m = new IrModule("t");
+        var v = new IrParameter("v", IrType.I8);
+        var sh = new IrParameter("sh", IrType.I8);
+        var fn = new IrFunction("main", IrType.I8, [v, sh]);
+        m.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        b.Ret(b.Binary(IrBinaryOp.Shl, v, sh));
+
+        byte result = RunA(m, gb =>
+        {
+            gb.DebugWriteByte(Sm83Backend.WramBase, 3);      // v
+            gb.DebugWriteByte(Sm83Backend.WramBase + 1, 4);  // sh
+        });
+        await Assert.That(result).IsEqualTo((byte)48);
+    }
+
     // ---- signed comparisons -------------------------------------------------
 
     [Test]
