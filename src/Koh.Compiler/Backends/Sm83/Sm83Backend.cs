@@ -42,6 +42,22 @@ public sealed class Sm83Backend : IBackend
 
     public EmitModel Compile(IrModule module, DiagnosticBag diagnostics)
     {
+        CheckNoRecursion(module);
+
+        // Give every function a disjoint WRAM frame so a caller's live values and a callee's
+        // storage never overlap (correct for a non-recursive call graph; frames are not yet
+        // reused across functions that can't be live simultaneously).
+        var allocations = new Dictionary<IrFunction, FunctionAllocation>(ReferenceEqualityComparer.Instance);
+        int wram = WramBase;
+        foreach (var fn in module.Functions)
+        {
+            if (fn.IsExternal)
+                continue;
+            var allocation = FunctionAllocation.For(fn, wram);
+            allocations[fn] = allocation;
+            wram = allocation.FrameEnd;
+        }
+
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
@@ -51,7 +67,7 @@ public sealed class Sm83Backend : IBackend
                 continue;
 
             int funcStart = CodeBase + emitter.Code.Count;
-            new FunctionEmitter(emitter, fn).Compile();
+            new FunctionEmitter(emitter, fn, allocations).Compile();
             symbols.Add(new SymbolData(
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
         }
@@ -63,6 +79,42 @@ public sealed class Sm83Backend : IBackend
             data: emitter.Code.ToArray(), patches: Array.Empty<PatchEntry>());
 
         return new EmitModel([section], symbols, Array.Empty<Diagnostic>());
+    }
+
+    /// <summary>Static frame allocation cannot support recursion; reject cyclic call graphs.</summary>
+    private static void CheckNoRecursion(IrModule module)
+    {
+        var callees = new Dictionary<IrFunction, List<IrFunction>>(ReferenceEqualityComparer.Instance);
+        foreach (var fn in module.Functions)
+        {
+            var list = new List<IrFunction>();
+            foreach (var block in fn.Blocks)
+                foreach (var instr in block.Instructions)
+                    if (instr is CallInstruction call && !call.Callee.IsExternal)
+                        list.Add(call.Callee);
+            callees[fn] = list;
+        }
+
+        var state = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance); // 0 unseen, 1 on-stack, 2 done
+
+        bool HasCycle(IrFunction fn)
+        {
+            state.TryGetValue(fn, out int s);
+            if (s == 1) return true;
+            if (s == 2) return false;
+            state[fn] = 1;
+            if (callees.TryGetValue(fn, out var next))
+                foreach (var callee in next)
+                    if (HasCycle(callee))
+                        return true;
+            state[fn] = 2;
+            return false;
+        }
+
+        foreach (var fn in module.Functions)
+            if (HasCycle(fn))
+                throw new NotSupportedException(
+                    "SM83 backend does not support recursion (functions use static WRAM frames).");
     }
 
     internal static int SizeOf(IrType type) => type.Kind switch
@@ -117,24 +169,102 @@ public sealed class Sm83Backend : IBackend
         }
     }
 
+    /// <summary>
+    /// The WRAM layout of one function's frame: fixed addresses for parameters and SSA values,
+    /// compile-time addresses for <c>alloca</c>/constant-<c>gep</c> pointers, and scratch for
+    /// phi-cycle breaking. Computed for the whole module before any code is emitted so a caller
+    /// knows where to place a callee's arguments.
+    /// </summary>
+    private sealed class FunctionAllocation
+    {
+        public required Dictionary<IrValue, int> Slot { get; init; }
+        public required Dictionary<IrValue, int> StaticAddr { get; init; }
+        public required int PhiTempBase { get; init; }
+        public required int FrameEnd { get; init; }
+
+        public static FunctionAllocation For(IrFunction fn, int baseAddr)
+        {
+            var slot = new Dictionary<IrValue, int>(ReferenceEqualityComparer.Instance);
+            var staticAddr = new Dictionary<IrValue, int>(ReferenceEqualityComparer.Instance);
+            int wram = baseAddr;
+
+            foreach (var p in fn.Parameters)
+            {
+                slot[p] = wram;
+                wram += SizeOf(p.Type);
+            }
+
+            int phiCount = 0;
+            foreach (var block in fn.Blocks)
+                foreach (var instr in block.Instructions)
+                {
+                    switch (instr)
+                    {
+                        case AllocaInstruction a:
+                            staticAddr[a] = wram;
+                            wram += SizeOf(a.Allocated);
+                            break;
+                        case GetElementPtrInstruction g:
+                            staticAddr[g] = (staticAddr.TryGetValue(g.BasePointer, out int b)
+                                ? b
+                                : throw new NotSupportedException(
+                                    "MVP SM83 backend supports only static pointers (alloca / constant-index gep)."))
+                                + ConstIndex(g) * SizeOf(g.ElementType);
+                            break;
+                        default:
+                            if (instr is PhiInstruction)
+                                phiCount++;
+                            if (instr.Type.Kind != IrTypeKind.Void)
+                            {
+                                slot[instr] = wram;
+                                wram += SizeOf(instr.Type);
+                            }
+                            break;
+                    }
+                }
+
+            int phiTempBase = wram;
+            wram += 2 * phiCount; // at most one temp (<= 2 bytes) per phi
+
+            return new FunctionAllocation
+            {
+                Slot = slot,
+                StaticAddr = staticAddr,
+                PhiTempBase = phiTempBase,
+                FrameEnd = wram,
+            };
+        }
+
+        private static int ConstIndex(GetElementPtrInstruction g) =>
+            g.Index is IrConstInt c
+                ? (int)c.Value
+                : throw new NotSupportedException("MVP SM83 backend supports constant gep indices only.");
+    }
+
     /// <summary>Lowers one function into the shared emitter using the static-allocation model.</summary>
     private sealed class FunctionEmitter
     {
         private readonly Emitter _e;
         private readonly IrFunction _fn;
-        private readonly Dictionary<IrValue, int> _slot = new(ReferenceEqualityComparer.Instance);
-        private readonly Dictionary<IrValue, int> _staticAddr = new(ReferenceEqualityComparer.Instance);
-        private int _phiTempBase;
+        private readonly IReadOnlyDictionary<IrFunction, FunctionAllocation> _allocations;
+        private readonly Dictionary<IrValue, int> _slot;
+        private readonly Dictionary<IrValue, int> _staticAddr;
+        private readonly int _phiTempBase;
 
-        public FunctionEmitter(Emitter emitter, IrFunction fn)
+        public FunctionEmitter(
+            Emitter emitter, IrFunction fn, IReadOnlyDictionary<IrFunction, FunctionAllocation> allocations)
         {
             _e = emitter;
             _fn = fn;
+            _allocations = allocations;
+            var allocation = allocations[fn];
+            _slot = allocation.Slot;
+            _staticAddr = allocation.StaticAddr;
+            _phiTempBase = allocation.PhiTempBase;
         }
 
         public void Compile()
         {
-            Allocate();
             foreach (var block in _fn.Blocks)
             {
                 _e.Place(_e.BlockLabel(block));
@@ -143,59 +273,11 @@ public sealed class Sm83Backend : IBackend
             }
         }
 
-        private void Allocate()
-        {
-            int wram = WramBase;
-
-            foreach (var p in _fn.Parameters)
-            {
-                _slot[p] = wram;
-                wram += SizeOf(p.Type);
-            }
-
-            foreach (var block in _fn.Blocks)
-                foreach (var instr in block.Instructions)
-                {
-                    switch (instr)
-                    {
-                        case AllocaInstruction a:
-                            _staticAddr[a] = wram;
-                            wram += SizeOf(a.Allocated);
-                            break;
-                        case GetElementPtrInstruction g:
-                            _staticAddr[g] = StaticBase(g.BasePointer)
-                                + ConstIndex(g) * SizeOf(g.ElementType);
-                            break;
-                        default:
-                            if (instr.Type.Kind != IrTypeKind.Void)
-                            {
-                                _slot[instr] = wram;
-                                wram += SizeOf(instr.Type);
-                            }
-                            break;
-                    }
-                }
-
-            // Reserve scratch for breaking phi copy cycles: at most one temp (<= 2 bytes) per phi.
-            int phiCount = 0;
-            foreach (var block in _fn.Blocks)
-                foreach (var instr in block.Instructions)
-                    if (instr is PhiInstruction)
-                        phiCount++;
-            _phiTempBase = wram;
-            wram += 2 * phiCount;
-        }
-
         private int StaticBase(IrValue pointer) =>
             _staticAddr.TryGetValue(pointer, out int addr)
                 ? addr
                 : throw new NotSupportedException(
                     "MVP SM83 backend supports only static pointers (alloca / constant-index gep).");
-
-        private static int ConstIndex(GetElementPtrInstruction g) =>
-            g.Index is IrConstInt c
-                ? (int)c.Value
-                : throw new NotSupportedException("MVP SM83 backend supports constant gep indices only.");
 
         private void EmitInstruction(IrBasicBlock block, IrInstruction instr)
         {
@@ -213,6 +295,7 @@ public sealed class Sm83Backend : IBackend
                 case BrInstruction br: EmitBr(block, br); break;
                 case CondBrInstruction cb: EmitCondBr(block, cb); break;
                 case SwitchInstruction sw: EmitSwitch(block, sw); break;
+                case CallInstruction call: EmitCall(call); break;
                 default:
                     throw new NotSupportedException(
                         $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_fn.Name}').");
@@ -425,6 +508,52 @@ public sealed class Sm83Backend : IBackend
                         $"SM83 backend can only return i8 (A) or i16 (HL), not {r.Value.Type}.");
             }
             _e.U8(0xC9); // RET
+        }
+
+        /// <summary>
+        /// Lower a direct call: write each argument into the callee's parameter slots (its frame
+        /// is disjoint), <c>CALL</c> the callee's entry, then capture the return (<c>A</c> for i8,
+        /// <c>HL</c> for i16) into this call's slot.
+        /// </summary>
+        private void EmitCall(CallInstruction call)
+        {
+            var callee = call.Callee;
+            if (callee.IsExternal || callee.EntryBlock is null)
+                throw new NotSupportedException(
+                    $"SM83 backend cannot yet call external function '@{callee.Name}'.");
+
+            var calleeAllocation = _allocations[callee];
+            for (int i = 0; i < call.Arguments.Count; i++)
+            {
+                var param = callee.Parameters[i];
+                int paramSlot = calleeAllocation.Slot[param];
+                int n = SizeOf(param.Type);
+                for (int k = 0; k < n; k++)
+                {
+                    LoadByteToA(call.Arguments[i], k);
+                    StoreAToAddr(paramSlot + k);
+                }
+            }
+
+            _e.Jump(0xCD, _e.BlockLabel(callee.EntryBlock)); // CALL a16
+
+            if (call.Type.Kind == IrTypeKind.Void)
+                return;
+
+            int dst = _slot[call];
+            switch (SizeOf(call.Type))
+            {
+                case 1:
+                    StoreAToAddr(dst);                    // result in A
+                    break;
+                case 2:
+                    _e.U8(0x7D); StoreAToAddr(dst);       // LD A, L ; store low
+                    _e.U8(0x7C); StoreAToAddr(dst + 1);   // LD A, H ; store high
+                    break;
+                default:
+                    throw new NotSupportedException(
+                        $"SM83 backend can only capture i8/i16 return values, not {call.Type}.");
+            }
         }
 
         private void EmitBr(IrBasicBlock source, BrInstruction br)

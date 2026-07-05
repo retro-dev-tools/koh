@@ -170,6 +170,91 @@ public class Sm83ControlFlowTests
         }))).IsEqualTo((byte)30);
     }
 
+    // ---- calls --------------------------------------------------------------
+
+    [Test]
+    public async Task Call_PassesArgs_ReturnsI8()
+    {
+        var m = new IrModule("t");
+        var main = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(main); // entry point must be first
+        var a = new IrParameter("a", IrType.I8);
+        var bb = new IrParameter("b", IrType.I8);
+        var cc = new IrParameter("c", IrType.I8);
+        var add3 = new IrFunction("add3", IrType.I8, [a, bb, cc]);
+        m.Functions.Add(add3);
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(add3.AppendBlock("entry"));
+        b.Ret(b.Add(b.Add(a, bb), cc));
+
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        b.Ret(b.Call(add3, [I8(10), I8(20), I8(12)]));
+
+        await Assert.That(RunA(m)).IsEqualTo((byte)42); // 10 + 20 + 12
+    }
+
+    [Test]
+    public async Task Call_ReturnsI16_InHL()
+    {
+        var m = new IrModule("t");
+        var main = new IrFunction("main", IrType.I16, []);
+        m.Functions.Add(main);
+        var a = new IrParameter("a", IrType.I16);
+        var bb = new IrParameter("b", IrType.I16);
+        var sum2 = new IrFunction("sum2", IrType.I16, [a, bb]);
+        m.Functions.Add(sum2);
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(sum2.AppendBlock("entry"));
+        b.Ret(b.Add(a, bb));
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        b.Ret(b.Call(sum2, [I16(300), I16(250)]));
+
+        await Assert.That(RunHL(m)).IsEqualTo((ushort)550);
+    }
+
+    [Test]
+    public async Task Call_Nested_ChainOfFrames()
+    {
+        // g(x) = x + 1 ; f(x) = g(g(x)) = x + 2 ; main = f(40) = 42
+        var m = new IrModule("t");
+        var main = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(main);
+        var fx = new IrParameter("x", IrType.I8);
+        var f = new IrFunction("f", IrType.I8, [fx]);
+        m.Functions.Add(f);
+        var gx = new IrParameter("x", IrType.I8);
+        var g = new IrFunction("g", IrType.I8, [gx]);
+        m.Functions.Add(g);
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(g.AppendBlock("entry"));
+        b.Ret(b.Add(gx, I8(1)));
+        b.PositionAtEnd(f.AppendBlock("entry"));
+        b.Ret(b.Call(g, [b.Call(g, [fx])]));
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        b.Ret(b.Call(f, [I8(40)]));
+
+        await Assert.That(RunA(m)).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Recursion_IsRejected()
+    {
+        var m = new IrModule("t");
+        var self = new IrFunction("self", IrType.I8, []);
+        m.Functions.Add(self);
+        var b = new IrBuilder();
+        b.PositionAtEnd(self.AppendBlock("entry"));
+        b.Ret(b.Call(self, []));
+
+        bool threw = false;
+        try { Compile(m); }
+        catch (NotSupportedException) { threw = true; }
+        await Assert.That(threw).IsTrue();
+    }
+
     // ---- switch -------------------------------------------------------------
 
     /// <summary>@classify(x) = 11 if x==1, 22 if x==2, else 99.</summary>
