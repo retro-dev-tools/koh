@@ -37,9 +37,10 @@ public class Sm83ControlFlowTests
         }
     }
 
-    private static byte RunA(IrModule module)
+    private static byte RunA(IrModule module, Action<GameBoySystem>? setup = null)
     {
         var gb = Load(Compile(module), out int s, out int l);
+        setup?.Invoke(gb);
         Run(gb, s, l);
         return gb.Registers.A;
     }
@@ -167,6 +168,37 @@ public class Sm83ControlFlowTests
             b.Store(I8(20), p2);
             return b.Add(b.Load(p0), b.Load(p2));
         }))).IsEqualTo((byte)30);
+    }
+
+    // ---- switch -------------------------------------------------------------
+
+    /// <summary>@classify(x) = 11 if x==1, 22 if x==2, else 99.</summary>
+    private static IrModule Classify()
+    {
+        var module = new IrModule("t");
+        var x = new IrParameter("x", IrType.I8);
+        var fn = new IrFunction("classify", IrType.I8, [x]);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var one = fn.AppendBlock("one");
+        var two = fn.AppendBlock("two");
+        var other = fn.AppendBlock("other");
+        var b = new IrBuilder();
+
+        b.PositionAtEnd(entry);
+        b.Switch(x, other, [(I8(1), one), (I8(2), two)]);
+        b.PositionAtEnd(one); b.Ret(I8(11));
+        b.PositionAtEnd(two); b.Ret(I8(22));
+        b.PositionAtEnd(other); b.Ret(I8(99));
+        return module;
+    }
+
+    [Test]
+    public async Task Switch_SelectsCaseOrDefault()
+    {
+        await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 1))).IsEqualTo((byte)11);
+        await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 2))).IsEqualTo((byte)22);
+        await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 7))).IsEqualTo((byte)99);
     }
 
     // ---- control flow: a real loop -----------------------------------------

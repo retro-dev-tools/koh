@@ -212,6 +212,7 @@ public sealed class Sm83Backend : IBackend
                 case RetInstruction r: EmitRet(r); break;
                 case BrInstruction br: EmitBr(block, br); break;
                 case CondBrInstruction cb: EmitCondBr(block, cb); break;
+                case SwitchInstruction sw: EmitSwitch(block, sw); break;
                 default:
                     throw new NotSupportedException(
                         $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_fn.Name}').");
@@ -447,6 +448,51 @@ public sealed class Sm83Backend : IBackend
             _e.Place(trueEdge);
             EmitPhiCopies(source, cb.IfTrue);
             _e.Jump(0xC3, _e.BlockLabel(cb.IfTrue));
+        }
+
+        /// <summary>Lower a switch as a chain of equality tests, each branching to a split edge.</summary>
+        private void EmitSwitch(IrBasicBlock source, SwitchInstruction sw)
+        {
+            int n = SizeOf(sw.Value.Type);
+            var edges = new List<(Label Edge, IrBasicBlock Target)>();
+
+            foreach (var (caseConst, target) in sw.Cases)
+            {
+                EmitEqualityZ(sw.Value, caseConst, n); // Z set iff value == caseConst
+                var edge = new Label();
+                _e.Jump(0xCA, edge);                   // JP Z, <edge>
+                edges.Add((edge, target));
+            }
+
+            // No case matched: fall through to the default edge.
+            EmitPhiCopies(source, sw.Default);
+            _e.Jump(0xC3, _e.BlockLabel(sw.Default));
+
+            foreach (var (edge, target) in edges)
+            {
+                _e.Place(edge);
+                EmitPhiCopies(source, target);
+                _e.Jump(0xC3, _e.BlockLabel(target));
+            }
+        }
+
+        /// <summary>Leave Z set iff <paramref name="value"/> equals <paramref name="caseConst"/>.</summary>
+        private void EmitEqualityZ(IrValue value, IrConstInt caseConst, int n)
+        {
+            for (int k = 0; k < n; k++)
+            {
+                LoadByteToA(value, k);
+                _e.U8(0xEE); _e.U8(ByteOf(caseConst, k));  // XOR d8
+                if (k == 0)
+                {
+                    _e.U8(0x4F);                            // LD C, A
+                }
+                else
+                {
+                    _e.U8(0xB1);                            // OR C
+                    _e.U8(0x4F);                            // LD C, A
+                }
+            }
         }
 
         /// <summary>
