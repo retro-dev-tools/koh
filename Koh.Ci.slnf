@@ -3,6 +3,7 @@
     "path": "Koh.slnx",
     "projects": [
       "src\\Koh.Asm\\Koh.Asm.csproj",
+      "src\\Koh.Compiler\\Koh.Compiler.csproj",
       "src\\Koh.Core\\Koh.Core.csproj",
       "src\\Koh.Emit\\Koh.Emit.csproj",
       "src\\Koh.Link\\Koh.Link.csproj",

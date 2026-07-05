@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Koh.Core\Koh.Core.csproj" />
+    <ProjectReference Include="..\Koh.Emit\Koh.Emit.csproj" />
+    <ProjectReference Include="..\Koh.Linker.Core\Koh.Linker.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Compiler.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Koh.Asm/Koh.Asm.csproj" />
+    <Project Path="src/Koh.Compiler/Koh.Compiler.csproj" />
     <Project Path="src/Koh.Core/Koh.Core.csproj" />
     <Project Path="src/Koh.Emit/Koh.Emit.csproj" />
     <Project Path="src/Koh.Link/Koh.Link.csproj" />
