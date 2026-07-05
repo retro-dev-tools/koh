@@ -31,6 +31,9 @@ public sealed class Sm83Backend : IBackend
     /// <summary>Fixed ROM address the emitted code section is placed at.</summary>
     public const int CodeBase = 0x0150;
 
+    /// <summary>Fixed ROM address of the read-only data section (initialized globals).</summary>
+    public const int DataBase = 0x2000;
+
     /// <summary>First WRAM byte used for parameters and statically-allocated SSA storage.</summary>
     public const int WramBase = 0xC000;
 
@@ -44,11 +47,42 @@ public sealed class Sm83Backend : IBackend
     {
         CheckNoRecursion(module);
 
+        // Assign global addresses. Initialized (or ROM-space) globals live in a fixed ROM data
+        // section; RAM globals get fixed WRAM/HRAM/SRAM addresses. Function frames are placed
+        // after the WRAM globals so nothing overlaps.
+        var globalAddresses = new Dictionary<IrGlobal, int>(ReferenceEqualityComparer.Instance);
+        var romData = new List<byte>();
+        int wramGlobals = WramBase, hramGlobals = 0xFF80, sramGlobals = 0xA000;
+        foreach (var g in module.Globals)
+        {
+            if (g.AddressSpace == AddressSpace.Rom || g.Initializer is not null)
+            {
+                globalAddresses[g] = DataBase + romData.Count;
+                var bytes = g.Initializer ?? new byte[SizeOf(g.Type)];
+                romData.AddRange(bytes);
+            }
+            else if (g.AddressSpace == AddressSpace.Hram)
+            {
+                globalAddresses[g] = hramGlobals;
+                hramGlobals += SizeOf(g.Type);
+            }
+            else if (g.AddressSpace == AddressSpace.Sram)
+            {
+                globalAddresses[g] = sramGlobals;
+                sramGlobals += SizeOf(g.Type);
+            }
+            else
+            {
+                globalAddresses[g] = wramGlobals;
+                wramGlobals += SizeOf(g.Type);
+            }
+        }
+
         // Give every function a disjoint WRAM frame so a caller's live values and a callee's
         // storage never overlap (correct for a non-recursive call graph; frames are not yet
         // reused across functions that can't be live simultaneously).
         var allocations = new Dictionary<IrFunction, FunctionAllocation>(ReferenceEqualityComparer.Instance);
-        int wram = WramBase;
+        int wram = wramGlobals;
         foreach (var fn in module.Functions)
         {
             if (fn.IsExternal)
@@ -67,7 +101,7 @@ public sealed class Sm83Backend : IBackend
                 continue;
 
             int funcStart = CodeBase + emitter.Code.Count;
-            new FunctionEmitter(emitter, fn, allocations).Compile();
+            new FunctionEmitter(emitter, fn, allocations, globalAddresses).Compile();
             symbols.Add(new SymbolData(
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
         }
@@ -82,11 +116,21 @@ public sealed class Sm83Backend : IBackend
 
         emitter.Resolve(CodeBase);
 
-        var section = new SectionData(
-            CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
-            data: emitter.Code.ToArray(), patches: Array.Empty<PatchEntry>());
+        var sections = new List<SectionData>
+        {
+            new(CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
+                data: emitter.Code.ToArray(), patches: Array.Empty<PatchEntry>()),
+        };
+        if (romData.Count > 0)
+            sections.Add(new SectionData(
+                "RODATA", SectionType.Rom0, fixedAddress: DataBase, bank: 0,
+                data: romData.ToArray(), patches: Array.Empty<PatchEntry>()));
 
-        return new EmitModel([section], symbols, Array.Empty<Diagnostic>());
+        foreach (var (g, addr) in globalAddresses)
+            symbols.Add(new SymbolData(
+                g.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
+
+        return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
     }
 
     /// <summary>Static frame allocation cannot support recursion; reject cyclic call graphs.</summary>
@@ -383,20 +427,36 @@ public sealed class Sm83Backend : IBackend
         private readonly Emitter _e;
         private readonly IrFunction _fn;
         private readonly IReadOnlyDictionary<IrFunction, FunctionAllocation> _allocations;
+        private readonly IReadOnlyDictionary<IrGlobal, int> _globals;
         private readonly Dictionary<IrValue, int> _slot;
         private readonly Dictionary<IrValue, int> _staticAddr;
         private readonly int _phiTempBase;
 
         public FunctionEmitter(
-            Emitter emitter, IrFunction fn, IReadOnlyDictionary<IrFunction, FunctionAllocation> allocations)
+            Emitter emitter,
+            IrFunction fn,
+            IReadOnlyDictionary<IrFunction, FunctionAllocation> allocations,
+            IReadOnlyDictionary<IrGlobal, int> globals)
         {
             _e = emitter;
             _fn = fn;
             _allocations = allocations;
+            _globals = globals;
             var allocation = allocations[fn];
             _slot = allocation.Slot;
             _staticAddr = allocation.StaticAddr;
             _phiTempBase = allocation.PhiTempBase;
+        }
+
+        /// <summary>A compile-time-known address: an alloca/constant-gep, or a global's address.</summary>
+        private bool TryStaticAddr(IrValue value, out int addr)
+        {
+            if (_staticAddr.TryGetValue(value, out addr))
+                return true;
+            if (value is IrGlobalRef g && _globals.TryGetValue(g.Global, out addr))
+                return true;
+            addr = 0;
+            return false;
         }
 
         public void Compile()
@@ -754,7 +814,7 @@ public sealed class Sm83Backend : IBackend
             int dst = _slot[l];
             int n = SizeOf(l.Type);
 
-            if (_staticAddr.TryGetValue(l.Pointer, out int addr))
+            if (TryStaticAddr(l.Pointer, out int addr))
             {
                 for (int k = 0; k < n; k++)
                 {
@@ -777,7 +837,7 @@ public sealed class Sm83Backend : IBackend
         {
             int n = SizeOf(s.Value.Type);
 
-            if (_staticAddr.TryGetValue(s.Pointer, out int addr))
+            if (TryStaticAddr(s.Pointer, out int addr))
             {
                 for (int k = 0; k < n; k++)
                 {
@@ -843,7 +903,7 @@ public sealed class Sm83Backend : IBackend
         /// <summary>Load a pointer value into HL: a static address as an immediate, else from its slot.</summary>
         private void LoadPointerToHL(IrValue pointer)
         {
-            if (_staticAddr.TryGetValue(pointer, out int addr))
+            if (TryStaticAddr(pointer, out int addr))
             {
                 _e.U8(0x21); _e.U8(addr & 0xFF); _e.U8(addr >> 8);   // LD HL, addr
             }
@@ -1128,7 +1188,7 @@ public sealed class Sm83Backend : IBackend
                     {
                         LoadAFromAddr(addr + k);
                     }
-                    else if (_staticAddr.TryGetValue(value, out int ptr))
+                    else if (TryStaticAddr(value, out int ptr))
                     {
                         _e.U8(0x3E);             // pointer literal: LD A, <byte k of address>
                         _e.U8((byte)(ptr >> (8 * k)));
@@ -1136,7 +1196,7 @@ public sealed class Sm83Backend : IBackend
                     else
                     {
                         throw new NotSupportedException(
-                            "SM83 backend operand must be a constant, parameter, or prior result.");
+                            "SM83 backend operand must be a constant, parameter, prior result, or global.");
                     }
                     break;
             }

@@ -1,5 +1,6 @@
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Ir;
+using Koh.Compiler.Targets;
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Emulator.Core;
@@ -373,6 +374,65 @@ public class Sm83ControlFlowTests
         await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 1))).IsEqualTo((byte)11);
         await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 2))).IsEqualTo((byte)22);
         await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 7))).IsEqualTo((byte)99);
+    }
+
+    // ---- globals ------------------------------------------------------------
+
+    [Test]
+    public async Task Global_RomTable_IndexedRead()
+    {
+        var m = new IrModule("t");
+        var table = new IrGlobal("table", IrType.Array(IrType.I8, 4), AddressSpace.Rom,
+            initializer: new byte[] { 5, 10, 15, 20 });
+        m.Globals.Add(table);
+        var fn = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        b.Ret(b.Load(b.Gep(IrBuilder.GlobalRef(table), I16(2), IrType.I8)));
+
+        await Assert.That(RunA(m)).IsEqualTo((byte)15); // table[2]
+    }
+
+    [Test]
+    public async Task Global_RomI16Constant()
+    {
+        var m = new IrModule("t");
+        var val = new IrGlobal("val", IrType.I16, AddressSpace.Rom, initializer: new byte[] { 0xE8, 0x03 }); // 1000 LE
+        m.Globals.Add(val);
+        var fn = new IrFunction("main", IrType.I16, []);
+        m.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        b.Ret(b.Load(IrBuilder.GlobalRef(val)));
+
+        await Assert.That(RunHL(m)).IsEqualTo((ushort)1000);
+    }
+
+    [Test]
+    public async Task Global_WramState_MutatedAcrossCalls()
+    {
+        // counter = 0 ; inc() twice ; return counter  => 2 (shared mutable module state)
+        var m = new IrModule("t");
+        var counter = new IrGlobal("counter", IrType.I8, AddressSpace.Wram);
+        m.Globals.Add(counter);
+        var main = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(main);
+        var inc = new IrFunction("inc", IrType.Void, []);
+        m.Functions.Add(inc);
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(inc.AppendBlock("entry"));
+        b.Store(b.Add(b.Load(IrBuilder.GlobalRef(counter)), I8(1)), IrBuilder.GlobalRef(counter));
+        b.Ret();
+
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        b.Store(I8(0), IrBuilder.GlobalRef(counter));
+        b.Call(inc, []);
+        b.Call(inc, []);
+        b.Ret(b.Load(IrBuilder.GlobalRef(counter)));
+
+        await Assert.That(RunA(m)).IsEqualTo((byte)2);
     }
 
     // ---- runtime pointers / dynamic gep ------------------------------------
