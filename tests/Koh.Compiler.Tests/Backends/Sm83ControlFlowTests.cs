@@ -375,6 +375,86 @@ public class Sm83ControlFlowTests
         await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 7))).IsEqualTo((byte)99);
     }
 
+    // ---- runtime pointers / dynamic gep ------------------------------------
+
+    [Test]
+    public async Task Gep_DynamicIndex_I8Array()
+    {
+        // a[i] = (i+1)*10 ; return a[idx] with idx supplied at runtime; idx=2 -> 30
+        var m = new IrModule("t");
+        var idx = new IrParameter("idx", IrType.I8);
+        var fn = new IrFunction("main", IrType.I8, [idx]);
+        m.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        var arr = b.Alloca(IrType.Array(IrType.I8, 4));
+        for (int i = 0; i < 4; i++)
+            b.Store(I8((i + 1) * 10), b.Gep(arr, I16(i), IrType.I8));
+        b.Ret(b.Load(b.Gep(arr, idx, IrType.I8))); // dynamic index
+
+        await Assert.That(RunA(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 2))).IsEqualTo((byte)30);
+    }
+
+    [Test]
+    public async Task Gep_DynamicIndex_I16Array_ScalesBySize()
+    {
+        // i16 elements -> index scaled by 2; a = {100,200,300}; idx=1 -> 200
+        var m = new IrModule("t");
+        var idx = new IrParameter("idx", IrType.I8);
+        var fn = new IrFunction("main", IrType.I16, [idx]);
+        m.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        var arr = b.Alloca(IrType.Array(IrType.I16, 3));
+        b.Store(I16(100), b.Gep(arr, I16(0), IrType.I16));
+        b.Store(I16(200), b.Gep(arr, I16(1), IrType.I16));
+        b.Store(I16(300), b.Gep(arr, I16(2), IrType.I16));
+        b.Ret(b.Load(b.Gep(arr, idx, IrType.I16)));
+
+        await Assert.That(RunHL(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 1))).IsEqualTo((ushort)200);
+    }
+
+    [Test]
+    public async Task Pointer_Parameter_Dereferences()
+    {
+        // main allocs a byte, stores 77, passes its address to deref(p) = *p
+        var m = new IrModule("t");
+        var main = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(main);
+        var p = new IrParameter("p", IrType.Pointer(IrType.I8));
+        var deref = new IrFunction("deref", IrType.I8, [p]);
+        m.Functions.Add(deref);
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(deref.AppendBlock("entry"));
+        b.Ret(b.Load(p));
+
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        var cell = b.Alloca(IrType.I8);
+        b.Store(I8(77), cell);
+        b.Ret(b.Call(deref, [cell]));
+
+        await Assert.That(RunA(m)).IsEqualTo((byte)77);
+    }
+
+    [Test]
+    public async Task Store_ThroughDynamicPointer_RoundTrips()
+    {
+        // a[idx] = 99 ; return a[idx]  (both through the same runtime pointer)
+        var m = new IrModule("t");
+        var idx = new IrParameter("idx", IrType.I8);
+        var fn = new IrFunction("main", IrType.I8, [idx]);
+        m.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        var arr = b.Alloca(IrType.Array(IrType.I8, 4));
+        var pd = b.Gep(arr, idx, IrType.I8);
+        b.Store(I8(99), pd);
+        b.Ret(b.Load(pd));
+
+        await Assert.That(RunA(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 3))).IsEqualTo((byte)99);
+    }
+
     // ---- control flow: a real loop -----------------------------------------
 
     /// <summary>@sum(n) = 0+1+...+(n-1) — a loop with two i16 phis and an unsigned compare.</summary>

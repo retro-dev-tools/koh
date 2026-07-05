@@ -340,11 +340,17 @@ public sealed class Sm83Backend : IBackend
                             wram += SizeOf(a.Allocated);
                             break;
                         case GetElementPtrInstruction g:
-                            staticAddr[g] = (staticAddr.TryGetValue(g.BasePointer, out int b)
-                                ? b
-                                : throw new NotSupportedException(
-                                    "MVP SM83 backend supports only static pointers (alloca / constant-index gep)."))
-                                + ConstIndex(g) * SizeOf(g.ElementType);
+                            // A constant index off a compile-time-known base stays a static
+                            // address; anything else becomes a runtime pointer computed into a slot.
+                            if (g.Index is IrConstInt ci && staticAddr.TryGetValue(g.BasePointer, out int b))
+                            {
+                                staticAddr[g] = b + (int)ci.Value * SizeOf(g.ElementType);
+                            }
+                            else
+                            {
+                                slot[g] = wram;
+                                wram += 2;
+                            }
                             break;
                         default:
                             if (instr is PhiInstruction)
@@ -369,11 +375,6 @@ public sealed class Sm83Backend : IBackend
                 FrameEnd = wram,
             };
         }
-
-        private static int ConstIndex(GetElementPtrInstruction g) =>
-            g.Index is IrConstInt c
-                ? (int)c.Value
-                : throw new NotSupportedException("MVP SM83 backend supports constant gep indices only.");
     }
 
     /// <summary>Lowers one function into the shared emitter using the static-allocation model.</summary>
@@ -408,12 +409,6 @@ public sealed class Sm83Backend : IBackend
             }
         }
 
-        private int StaticBase(IrValue pointer) =>
-            _staticAddr.TryGetValue(pointer, out int addr)
-                ? addr
-                : throw new NotSupportedException(
-                    "MVP SM83 backend supports only static pointers (alloca / constant-index gep).");
-
         private void EmitInstruction(IrBasicBlock block, IrInstruction instr)
         {
             switch (instr)
@@ -424,7 +419,10 @@ public sealed class Sm83Backend : IBackend
                 case LoadInstruction l: EmitLoad(l); break;
                 case StoreInstruction s: EmitStore(s); break;
                 case AllocaInstruction: break;               // storage pre-assigned
-                case GetElementPtrInstruction: break;        // static address pre-assigned
+                case GetElementPtrInstruction g:
+                    if (_slot.ContainsKey(g))                // dynamic: compute the pointer at runtime
+                        EmitGep(g);
+                    break;                                   // static: address pre-assigned
                 case PhiInstruction: break;                  // realized by predecessor edge copies
                 case RetInstruction r: EmitRet(r); break;
                 case BrInstruction br: EmitBr(block, br); break;
@@ -753,25 +751,126 @@ public sealed class Sm83Backend : IBackend
 
         private void EmitLoad(LoadInstruction l)
         {
-            int addr = StaticBase(l.Pointer);
             int dst = _slot[l];
             int n = SizeOf(l.Type);
+
+            if (_staticAddr.TryGetValue(l.Pointer, out int addr))
+            {
+                for (int k = 0; k < n; k++)
+                {
+                    LoadAFromAddr(addr + k);
+                    StoreAToAddr(dst + k);
+                }
+                return;
+            }
+
+            LoadPointerToHL(l.Pointer);
             for (int k = 0; k < n; k++)
             {
-                LoadAFromAddr(addr + k);
+                _e.U8(0x7E);                     // LD A, (HL)
                 StoreAToAddr(dst + k);
+                if (k < n - 1) _e.U8(0x23);      // INC HL
             }
         }
 
         private void EmitStore(StoreInstruction s)
         {
-            int addr = StaticBase(s.Pointer);
             int n = SizeOf(s.Value.Type);
+
+            if (_staticAddr.TryGetValue(s.Pointer, out int addr))
+            {
+                for (int k = 0; k < n; k++)
+                {
+                    LoadByteToA(s.Value, k);
+                    StoreAToAddr(addr + k);
+                }
+                return;
+            }
+
+            LoadPointerToHL(s.Pointer);          // (LoadByteToA below only touches A, not HL)
             for (int k = 0; k < n; k++)
             {
                 LoadByteToA(s.Value, k);
-                StoreAToAddr(addr + k);
+                _e.U8(0x77);                     // LD (HL), A
+                if (k < n - 1) _e.U8(0x23);      // INC HL
             }
+        }
+
+        /// <summary>Compute a dynamic pointer <c>base + index * sizeof(element)</c> into its slot.</summary>
+        private void EmitGep(GetElementPtrInstruction g)
+        {
+            int size = SizeOf(g.ElementType);
+
+            LoadIndexToDE(g.Index);              // offset = index (widened to 16 bits)
+            if (size != 1)
+            {
+                if (IsPowerOfTwo(size))
+                {
+                    for (int s = 0; s < Log2(size); s++)
+                    {
+                        _e.U8(0xCB); _e.U8(0x23);   // SLA E
+                        _e.U8(0xCB); _e.U8(0x12);   // RL D   (DE <<= 1)
+                    }
+                }
+                else
+                {
+                    _e.U8(0x01); _e.U8(size & 0xFF); _e.U8(size >> 8); // LD BC, size
+                    _e.Jump(0xCD, _e.RoutineLabel("mul16"));          // HL = DE * size
+                    _e.U8(0x54); _e.U8(0x5D);                         // LD D,H ; LD E,L  (offset -> DE)
+                }
+            }
+
+            LoadPointerToHL(g.BasePointer);      // HL = base
+            _e.U8(0x19);                         // ADD HL, DE
+            StoreHLToSlot(_slot[g]);
+        }
+
+        private void LoadIndexToDE(IrValue index)
+        {
+            LoadByteToA(index, 0);
+            _e.U8(0x5F);                         // LD E, A
+            if (SizeOf(index.Type) == 2)
+            {
+                LoadByteToA(index, 1);
+                _e.U8(0x57);                     // LD D, A
+            }
+            else
+            {
+                _e.U8(0x16); _e.U8(0x00);        // LD D, 0
+            }
+        }
+
+        /// <summary>Load a pointer value into HL: a static address as an immediate, else from its slot.</summary>
+        private void LoadPointerToHL(IrValue pointer)
+        {
+            if (_staticAddr.TryGetValue(pointer, out int addr))
+            {
+                _e.U8(0x21); _e.U8(addr & 0xFF); _e.U8(addr >> 8);   // LD HL, addr
+            }
+            else if (_slot.TryGetValue(pointer, out int slot))
+            {
+                LoadAFromAddr(slot); _e.U8(0x6F);       // LD A, (slot)   ; LD L, A
+                LoadAFromAddr(slot + 1); _e.U8(0x67);   // LD A, (slot+1) ; LD H, A
+            }
+            else
+            {
+                throw new NotSupportedException("SM83 backend cannot resolve this pointer operand.");
+            }
+        }
+
+        private void StoreHLToSlot(int slot)
+        {
+            _e.U8(0x7D); StoreAToAddr(slot);        // LD A, L ; store low
+            _e.U8(0x7C); StoreAToAddr(slot + 1);    // LD A, H ; store high
+        }
+
+        private static bool IsPowerOfTwo(int n) => n > 0 && (n & (n - 1)) == 0;
+
+        private static int Log2(int n)
+        {
+            int k = 0;
+            while ((1 << k) < n) k++;
+            return k;
         }
 
         // ---- Control flow --------------------------------------------------
