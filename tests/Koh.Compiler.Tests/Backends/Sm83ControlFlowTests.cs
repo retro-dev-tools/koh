@@ -68,6 +68,15 @@ public class Sm83ControlFlowTests
 
     private static IrConstInt I16(int v) => IrBuilder.ConstInt(IrType.I16, v);
     private static IrConstInt I8(int v) => IrBuilder.ConstInt(IrType.I8, v);
+    private static IrConstInt I32(long v) => IrBuilder.ConstInt(IrType.I32, v);
+
+    /// <summary>Run @main returning i32 (low word in HL, high word in DE) and reassemble it.</summary>
+    private static uint RunI32(IrModule module)
+    {
+        var gb = Load(Compile(module), out int s, out int l);
+        Run(gb, s, l);
+        return ((uint)gb.Registers.DE << 16) | gb.Registers.HL;
+    }
 
     // ---- 16-bit arithmetic --------------------------------------------------
 
@@ -214,6 +223,40 @@ public class Sm83ControlFlowTests
     [Test]
     public async Task Slt_Signed_I16() =>
         await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(-1000), I16(5))))).IsEqualTo((byte)1);
+
+    [Test]
+    public async Task Slt_Signed_CloseValuesWithLowByteBorrow()
+    {
+        // 299 < 300 with equal top bytes and a low-byte borrow — the sign-flip must not clear the
+        // borrow carry mid-chain (it did when the flip was an inline XOR).
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(299), I16(300))))).IsEqualTo((byte)1);
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(300), I16(299))))).IsEqualTo((byte)0);
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(-300), I16(-299))))).IsEqualTo((byte)1);
+    }
+
+    // ---- 32-bit integers ----------------------------------------------------
+
+    [Test]
+    public async Task I32_Add_CarriesAcrossFourBytes() =>
+        await Assert.That(RunI32(Fn(IrType.I32, b => b.Add(I32(70000), I32(100))))).IsEqualTo(70100u);
+
+    [Test]
+    public async Task I32_Sub_BorrowsAcrossFourBytes() =>
+        await Assert.That(RunI32(Fn(IrType.I32, b => b.Sub(I32(100000), I32(1))))).IsEqualTo(99999u);
+
+    [Test]
+    public async Task I32_Bitwise_And() =>
+        await Assert.That(RunI32(Fn(IrType.I32, b => b.Binary(IrBinaryOp.And, I32(0x00FF00FF), I32(0x0F0F0F0F)))))
+            .IsEqualTo(0x000F000Fu);
+
+    [Test]
+    public async Task I32_SignedCompare_AcrossBoundary() =>
+        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Sgt, I32(100000), I32(99999))))).IsEqualTo((byte)1);
+
+    [Test]
+    public async Task I32_ZeroExtendFromByte() =>
+        await Assert.That(RunI32(Fn(IrType.I32, b => b.Conv(IrConvOp.ZExt, I8(unchecked((int)0xFF)), IrType.I32))))
+            .IsEqualTo(255u); // byte 0xFF zero-extends to 0x000000FF, not sign-extended
 
     // ---- conversions --------------------------------------------------------
 

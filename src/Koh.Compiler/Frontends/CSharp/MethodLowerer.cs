@@ -516,7 +516,12 @@ internal sealed class MethodLowerer
         long value = Convert.ToInt64(lit.Token.Value);
         // With no expected type, size the literal to its value so a wide constant isn't truncated
         // to a neighbouring narrow type (e.g. `1000 == x`), and a small one still stays 8-bit.
-        var type = expected ?? (value is >= 0 and <= 0xFF ? CsType.U8 : CsType.U16);
+        var type = expected ?? value switch
+        {
+            >= 0 and <= 0xFF => CsType.U8,
+            >= 0 and <= 0xFFFF => CsType.U16,
+            _ => CsType.U32,
+        };
         return (IrBuilder.ConstInt(type.Ir, value), type);
     }
 
@@ -654,8 +659,12 @@ internal sealed class MethodLowerer
         {
             // Lower each operand by its own type (not the outer `expected`, which is the Bool result
             // type and would truncate a literal operand); a common type reconciles the two.
-            var (left, lt) = LowerExpression(binary.Left, expected: null);
-            var (right, rt) = LowerExpression(binary.Right, expected: null);
+            var leftOp = LowerExpression(binary.Left, expected: null);
+            var rightOp = LowerExpression(binary.Right, expected: null);
+            leftOp = AdoptConstant(leftOp, rightOp.Type);
+            rightOp = AdoptConstant(rightOp, leftOp.Type);
+            var (left, lt) = leftOp;
+            var (right, rt) = rightOp;
             if (lt.Ir.Kind == IrTypeKind.Pointer || rt.Ir.Kind == IrTypeKind.Pointer)
             {
                 // Compare two addresses as unsigned 16-bit integers (icmp stays integer-only).
@@ -691,15 +700,56 @@ internal sealed class MethodLowerer
 
         // A shift result follows its left operand; the count is an independent operand.
         if (kind is SyntaxKind.LeftShiftExpression or SyntaxKind.RightShiftExpression)
+        {
+            RejectWide32(kind, ltype, binary);
             return (_b.Binary(ArithOp(kind, ltype.Signed), l, Coerce((r, rtype), ltype)), ltype);
+        }
 
         // Otherwise both operands convert to their common type (C-like usual arithmetic
         // conversions), which also selects signed vs. unsigned div/rem and avoids narrowing the
         // wider operand to the left's width. Signedness only affects div/rem (and comparisons).
+        (l, ltype) = AdoptConstant((l, ltype), rtype);
+        (r, rtype) = AdoptConstant((r, rtype), ltype);
         bool signMatters = kind is SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression;
         var common = CommonType(ltype, rtype, signMatters, binary);
+        RejectWide32(kind, common, binary);
         return (_b.Binary(ArithOp(kind, common.Signed),
             Coerce((l, ltype), common), Coerce((r, rtype), common)), common);
+    }
+
+    /// <summary>If <paramref name="operand"/> is a constant whose value fits <paramref name="other"/>,
+    /// retype it to that type. This mirrors C#'s constant conversions: a bare literal (which defaults
+    /// to the smallest unsigned type holding it) adopts the signedness/width of the value it is used
+    /// with, so `intVar &lt; 1000` stays a signed compare instead of becoming a mixed-sign one.</summary>
+    private static (IrValue Value, CsType Type) AdoptConstant((IrValue Value, CsType Type) operand, CsType other)
+    {
+        if (operand.Value is IrConstInt c && other.Ir.Kind == IrTypeKind.Int && Fits(c.Value, other))
+            return (IrBuilder.ConstInt(other.Ir, c.Value), other);
+        return operand;
+    }
+
+    private static bool Fits(long value, CsType type)
+    {
+        int bits = type.Ir.SizeInBits;
+        if (type.Signed)
+            return value >= -(1L << (bits - 1)) && value <= (1L << (bits - 1)) - 1;
+        return value >= 0 && (bits >= 64 || value <= (1L << bits) - 1);
+    }
+
+    /// <summary>The SM83 backend has no 32-bit multiply/divide/remainder/shift (those use 16-bit
+    /// register pairs), so reject them at the source with a diagnostic instead of crashing later.</summary>
+    private static void RejectWide32(SyntaxKind op, CsType type, ExpressionSyntax site)
+    {
+        bool wide = type.Ir.SizeInBytes > 2;
+        bool hard = op is SyntaxKind.MultiplyExpression or SyntaxKind.DivideExpression
+            or SyntaxKind.ModuloExpression or SyntaxKind.LeftShiftExpression or SyntaxKind.RightShiftExpression
+            or SyntaxKind.MultiplyAssignmentExpression or SyntaxKind.DivideAssignmentExpression
+            or SyntaxKind.ModuloAssignmentExpression or SyntaxKind.LeftShiftAssignmentExpression
+            or SyntaxKind.RightShiftAssignmentExpression;
+        if (wide && hard)
+            throw new CSharpNotSupportedException(
+                "32-bit multiply, divide, remainder, and shift are not supported on this target "
+                + "(add/subtract/bitwise/compare on int/uint are); narrow to 16 bits first.", site.GetLocation());
     }
 
     /// <summary>
@@ -773,6 +823,7 @@ internal sealed class MethodLowerer
         else if (kind is SyntaxKind.LeftShiftAssignmentExpression or SyntaxKind.RightShiftAssignmentExpression)
         {
             // Shift: the count is independent and the result keeps the target's width.
+            RejectWide32(kind, type, assign);
             var current = _b.Load(pointer);
             var amount = Coerce(LowerExpression(assign.Right, type), type);
             result = _b.Binary(CompoundOp(kind, type.Signed), current, amount);
@@ -785,6 +836,7 @@ internal sealed class MethodLowerer
             var (rhsVal, rhsType) = LowerExpression(assign.Right, expected: null);
             bool signMatters = kind is SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression;
             var common = CommonType(type, rhsType, signMatters, assign);
+            RejectWide32(kind, common, assign);
             var opResult = _b.Binary(CompoundOp(kind, common.Signed),
                 Coerce((current, type), common), Coerce((rhsVal, rhsType), common));
             result = Coerce((opResult, common), type);

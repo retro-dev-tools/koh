@@ -15,6 +15,8 @@ internal readonly record struct CsType(IrType Ir, bool Signed)
     public static readonly CsType I8 = new(IrType.I8, true);
     public static readonly CsType U16 = new(IrType.I16, false);
     public static readonly CsType I16 = new(IrType.I16, true);
+    public static readonly CsType U32 = new(IrType.I32, false);
+    public static readonly CsType I32 = new(IrType.I32, true);
 
     public int Bits => Ir.Bits;
 
@@ -25,6 +27,8 @@ internal readonly record struct CsType(IrType Ir, bool Signed)
         SyntaxKind.SByteKeyword => I8,
         SyntaxKind.UShortKeyword => U16,
         SyntaxKind.ShortKeyword => I16,
+        SyntaxKind.UIntKeyword => U32,
+        SyntaxKind.IntKeyword => I32,
         SyntaxKind.BoolKeyword => Bool,
         _ => null,
     };

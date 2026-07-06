@@ -59,6 +59,14 @@ public class CSharpEndToEndTests
         return gb.Registers.HL;
     }
 
+    private static uint RunI32(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(Compile(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        return ((uint)gb.Registers.DE << 16) | gb.Registers.HL; // i32: high word DE, low word HL
+    }
+
     private static void W8(GameBoySystem gb, int offset, int value) =>
         gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset), (byte)value);
 
@@ -66,6 +74,12 @@ public class CSharpEndToEndTests
     {
         gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset), (byte)(value & 0xFF));
         gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset + 1), (byte)((value >> 8) & 0xFF));
+    }
+
+    private static void W32(GameBoySystem gb, int offset, long value)
+    {
+        for (int i = 0; i < 4; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset + i), (byte)((value >> (8 * i)) & 0xFF));
     }
 
     [Test]
@@ -644,6 +658,59 @@ static byte Main() {
     }
 
     [Test]
+    public async Task Int32_AccumulateBeyond16Bits()
+    {
+        // A running total that overflows 16 bits stays correct in an int.
+        const string src = @"
+static int Main() {
+    int sum = 0;
+    for (int i = 0; i < 1000; i++) sum = sum + i;
+    return sum;
+}";
+        await Assert.That(RunI32(src)).IsEqualTo(499500u); // 0+1+...+999
+    }
+
+    [Test]
+    public async Task Int32_ParamsAndReturnThroughCall()
+    {
+        const string src = @"
+static int Main() { return Add(65000, 5000); }
+static int Add(int a, int b) { return a + b; }";
+        await Assert.That(RunI32(src)).IsEqualTo(70000u);
+    }
+
+    [Test]
+    public async Task UInt32_BitwiseAcrossWords()
+    {
+        const string src = @"
+static uint Main() {
+    uint a = 0x00FF00FF;
+    uint b = 0x0F0F0F0F;
+    return a & b;
+}";
+        await Assert.That(RunI32(src)).IsEqualTo(0x000F000Fu);
+    }
+
+    [Test]
+    public async Task Int32_SignedComparisonAcrossBoundary()
+    {
+        const string src = "static byte F(int a, int b) { if (a < b) return 1; return 0; }";
+        await Assert.That(RunA(src, gb => { W32(gb, 0, 5); W32(gb, 4, 100000); })).IsEqualTo((byte)1);
+        await Assert.That(RunA(src, gb => { W32(gb, 0, 100000); W32(gb, 4, 5); })).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Int32_MultiplyReportedAsDiagnostic()
+    {
+        // The SM83 backend has no 32-bit multiply/divide/shift; it must diagnose, not crash.
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("static int Main() { int a = 1000; int b = 1000; return a * b; }", "game.cs"),
+            diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
+    [Test]
     public async Task Comparison_LeftHandLiteralIsNotTruncated()
     {
         // `1000 == x` must type the left literal by its value, not by the Bool result context
@@ -721,9 +788,9 @@ static byte Main() {
     [Test]
     public async Task UnsupportedConstruct_ReportedAsDiagnostic()
     {
-        // 'int' is unsupported: reported into the bag with a location, not thrown.
+        // 'long' is unsupported: reported into the bag with a location, not thrown.
         var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(SourceText.From("static int Bad() { return 0; }", "game.cs"), diagnostics);
+        new CSharpFrontend().Lower(SourceText.From("static long Bad() { return 0; }", "game.cs"), diagnostics);
         await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
     }
 

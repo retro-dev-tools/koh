@@ -229,6 +229,8 @@ public sealed class Sm83Backend : IBackend
     private const int RtCount = 0xDF00;     // division bit counter
     private const int RtSignRem = 0xDF01;   // signed division: remainder sign
     private const int RtSignQuot = 0xDF02;  // signed division: quotient sign
+    private const int RtCmpLeft = 0xDF03;   // signed compare: sign-flipped top byte of the left operand
+    private const int RtCmpRight = 0xDF04;  // signed compare: sign-flipped top byte of the right operand
 
     /// <summary>__mul16: HL = DE * BC (low 16 bits) by shift-and-add. Sign-agnostic.</summary>
     private static void EmitMul16(Emitter e)
@@ -975,25 +977,28 @@ public sealed class Sm83Backend : IBackend
             if (pred is IrCompareOp.Ult or IrCompareOp.Uge)
             {
                 // Full-width subtract; the final carry is the borrow (left < right). For a signed
-                // comparison, flipping the sign bit of the top byte of both operands turns the
-                // signed ordering into the same unsigned/borrow test.
+                // comparison, flip the sign bit of the top byte of both operands so the signed
+                // ordering becomes the same unsigned/borrow test. The flip must happen *before* the
+                // borrow chain — an inline XOR would clear the carry mid-chain and drop the borrow.
+                if (signed)
+                {
+                    LoadByteToA(left, n - 1); _e.U8(0xEE); _e.U8(0x80); StoreAToAddr(RtCmpLeft);
+                    if (!rightConst) { LoadByteToA(right, n - 1); _e.U8(0xEE); _e.U8(0x80); StoreAToAddr(RtCmpRight); }
+                }
                 for (int k = 0; k < n; k++)
                 {
-                    bool flip = signed && k == n - 1;
+                    bool top = signed && k == n - 1;
                     if (rightConst)
                     {
-                        LoadByteToA(left, k);
-                        if (flip) { _e.U8(0xEE); _e.U8(0x80); }   // XOR 0x80
+                        if (top) LoadAFromAddr(RtCmpLeft); else LoadByteToA(left, k);
                         _e.U8(k == 0 ? 0xD6 : 0xDE);              // SUB d8 / SBC A, d8
-                        _e.U8((byte)(ByteOf(right, k) ^ (flip ? 0x80 : 0x00)));
+                        _e.U8((byte)(ByteOf(right, k) ^ (top ? 0x80 : 0x00)));
                     }
                     else
                     {
-                        LoadByteToA(right, k);
-                        if (flip) { _e.U8(0xEE); _e.U8(0x80); }
+                        if (top) LoadAFromAddr(RtCmpRight); else LoadByteToA(right, k);
                         _e.U8(0x47);                              // LD B, A
-                        LoadByteToA(left, k);
-                        if (flip) { _e.U8(0xEE); _e.U8(0x80); }
+                        if (top) LoadAFromAddr(RtCmpLeft); else LoadByteToA(left, k);
                         _e.U8(k == 0 ? 0x90 : 0x98);              // SUB B / SBC A, B
                     }
                 }
@@ -1234,9 +1239,16 @@ public sealed class Sm83Backend : IBackend
                         LoadByteToA(r.Value, 1);
                         _e.U8(0x67);            // LD H, A
                         break;
+                    case 4:
+                        // i32: low word in HL, high word in DE.
+                        LoadByteToA(r.Value, 0); _e.U8(0x6F); // LD L, A
+                        LoadByteToA(r.Value, 1); _e.U8(0x67); // LD H, A
+                        LoadByteToA(r.Value, 2); _e.U8(0x5F); // LD E, A
+                        LoadByteToA(r.Value, 3); _e.U8(0x57); // LD D, A
+                        break;
                     default:
                         throw new NotSupportedException(
-                            $"SM83 backend can only return i8 (A) or i16 (HL), not {r.Value.Type}.");
+                            $"SM83 backend can only return i8 (A), i16 (HL), or i32 (DE:HL), not {r.Value.Type}.");
                 }
             }
 
@@ -1307,9 +1319,15 @@ public sealed class Sm83Backend : IBackend
                     _e.U8(0x7D); StoreAToAddr(dst);       // LD A, L ; store low
                     _e.U8(0x7C); StoreAToAddr(dst + 1);   // LD A, H ; store high
                     break;
+                case 4:
+                    _e.U8(0x7D); StoreAToAddr(dst);       // LD A, L
+                    _e.U8(0x7C); StoreAToAddr(dst + 1);   // LD A, H
+                    _e.U8(0x7B); StoreAToAddr(dst + 2);   // LD A, E
+                    _e.U8(0x7A); StoreAToAddr(dst + 3);   // LD A, D
+                    break;
                 default:
                     throw new NotSupportedException(
-                        $"SM83 backend can only capture i8/i16 return values, not {call.Type}.");
+                        $"SM83 backend can only capture i8/i16/i32 return values, not {call.Type}.");
             }
         }
 
