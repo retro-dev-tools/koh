@@ -47,7 +47,30 @@ public sealed class Sm83Backend : IBackend
 
     public TargetInfo Target => TargetInfo.Sm83;
 
+    /// <summary>
+    /// A size/capacity limit of the target that a user program can hit (e.g. a function too large
+    /// for a ROM bank, a recursive frame past the software-stack limit). Unlike an internal
+    /// <see cref="NotSupportedException"/> — which signals a compiler bug or out-of-subset IR — this
+    /// is driven by legal input, so <see cref="Compile"/> catches it and reports a diagnostic rather
+    /// than letting it escape the driver.
+    /// </summary>
+    private sealed class Sm83LimitException(string message) : Exception(message);
+
     public EmitModel Compile(IrModule module, DiagnosticBag diagnostics)
+    {
+        try
+        {
+            return CompileCore(module, diagnostics);
+        }
+        catch (Sm83LimitException ex)
+        {
+            diagnostics.Report(new Koh.Core.Syntax.TextSpan(0, 0), ex.Message);
+            return new EmitModel(
+                Array.Empty<SectionData>(), Array.Empty<SymbolData>(), diagnostics.ToArray());
+        }
+    }
+
+    private EmitModel CompileCore(IrModule module, DiagnosticBag diagnostics)
     {
         var recursive = FindRecursiveFunctions(module);
         CheckNoInterruptReentrancy(module);
@@ -136,7 +159,7 @@ public sealed class Sm83Backend : IBackend
         if (total > rom0Budget)
         {
             if (bankData.Count > 0)
-                throw new NotSupportedException(
+                throw new Sm83LimitException(
                     "a program cannot bank both code and read-only data (the code bank must stay mapped, "
                     + "which precludes switching to a data bank).");
 
@@ -272,7 +295,7 @@ public sealed class Sm83Backend : IBackend
         {
             int s = size[f];
             if (s > BankSize)
-                throw new NotSupportedException(
+                throw new Sm83LimitException(
                     $"function '{f.Name}' is {s} bytes — larger than a 16 KB ROM bank.");
             if (bankUsed + s > BankSize) { bank++; bankUsed = 0; }
             bankOf[f] = bank;
@@ -312,7 +335,7 @@ public sealed class Sm83Backend : IBackend
 
         int rom0End = emitter.Code.Count;
         if (rom0End > DataBase - CodeBase)
-            throw new NotSupportedException(
+            throw new Sm83LimitException(
                 $"ROM0 code (entry, handlers, runtime, and {bankedList.Count} far-call thunks) is "
                 + $"{rom0End} bytes — more than the {DataBase - CodeBase}-byte ROM0 code window holds.");
 
@@ -432,7 +455,7 @@ public sealed class Sm83Backend : IBackend
     private static int PlaceRomData(byte[] bytes, List<byte> rom0, List<List<byte>> banks)
     {
         if (bytes.Length > BankSize)
-            throw new NotSupportedException(
+            throw new Sm83LimitException(
                 $"ROM global of {bytes.Length} bytes exceeds one {BankSize}-byte ROM bank.");
 
         if (DataBase + rom0.Count + bytes.Length <= Rom0DataEnd)
@@ -1515,7 +1538,7 @@ public sealed class Sm83Backend : IBackend
             if (IsRecursive)
             {
                 if (_frameSize > 255)
-                    throw new NotSupportedException(
+                    throw new Sm83LimitException(
                         $"recursive function '{_fn.Name}' frame is {_frameSize} bytes; the software-stack "
                         + "save supports up to 255.");
                 // Save the caller's copy of the shared static frame, then install this call's arguments

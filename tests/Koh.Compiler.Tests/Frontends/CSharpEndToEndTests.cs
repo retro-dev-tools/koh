@@ -102,6 +102,15 @@ public class CSharpEndToEndTests
         return diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
     }
 
+    /// <summary>True when the backend reports an error diagnostic (a target limit hit by legal input,
+    /// e.g. a bank overflow) rather than throwing.</summary>
+    private static bool BackendHasError(string src)
+    {
+        var diagnostics = new DiagnosticBag();
+        new Sm83Backend().Compile(Frontend(src), diagnostics);
+        return diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
+    }
+
     private static void W8(GameBoySystem gb, int offset, int value) =>
         gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset), (byte)value);
 
@@ -1518,7 +1527,7 @@ static readonly byte[] Mark = { 0xAB };";
     public async Task CodeAndDataBanking_BothOverflow_IsRejected()
     {
         // Code and data banking are mutually exclusive (the code bank must stay mapped), so a program
-        // that overflows both must be a clean NotSupportedException, not a miscompile.
+        // that overflows both must be a clean diagnostic, not a miscompile or an uncaught throw.
         var sb = new System.Text.StringBuilder();
         sb.Append("static byte Main() { return Target(); }\n");
         for (int i = 0; i < 320; i++)
@@ -1527,7 +1536,7 @@ static readonly byte[] Mark = { 0xAB };";
         sb.Append("static byte Target() { return 123; }\n");
         sb.Append("static readonly byte[] F0 = new byte[8192];\n");
         sb.Append("static readonly byte[] F1 = new byte[16384];\n");
-        await Assert.That(() => Compile(sb.ToString())).Throws<NotSupportedException>();
+        await Assert.That(BackendHasError(sb.ToString())).IsTrue();
     }
 
     [Test]
@@ -1652,6 +1661,30 @@ static byte Main() { return (byte)Double<byte>(20); }
 static T Id<T>(T x) { return x; }
 static T Double<T>(T x) { return (T)(Id<T>(x) + Id<T>(x)); }";
         await Assert.That(RunA(src)).IsEqualTo((byte)40);
+    }
+
+    [Test]
+    public async Task Generics_SameNameDifferentArity()
+    {
+        // Two generic methods share a name but differ in type-parameter count. They are distinct
+        // templates keyed by (name, arity); an invocation's type-argument count selects the right one.
+        const string src = @"
+static byte Main() { return (byte)(Pick<byte>(5) + Pick<byte, ushort>(7, 9)); }
+static T Pick<T>(T a) { return a; }
+static T Pick<T, U>(T a, U b) { return a; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)12); // 5 + 7
+    }
+
+    [Test]
+    public async Task Generics_OverloadedByValueArity_IsDiagnostic()
+    {
+        // Two generic methods with the same name AND type-parameter count would mangle to the same
+        // specialized name; that is reported instead of silently mis-specializing to the first.
+        const string src = @"
+static byte Main() { return (byte)Max<byte>(1, 2); }
+static T Max<T>(T a, T b) { return a; }
+static T Max<T>(T a, T b, T c) { return a; }";
+        await Assert.That(HasError(src)).IsTrue();
     }
 
     [Test]

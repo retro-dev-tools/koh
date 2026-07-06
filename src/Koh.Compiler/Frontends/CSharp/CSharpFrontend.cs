@@ -115,11 +115,21 @@ public sealed class CSharpFrontend : IFrontend
 
         // Pass 0.7: monomorphize generic methods — synthesize a specialized copy per concrete
         // instantiation. Generic templates themselves are not lowered; the specializations are.
-        var genericMethods = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+        // Key templates by (name, type-parameter count): an invocation carries a name and a type-argument
+        // count, and that pair selects the template — so `Wrap<T>` and `Wrap<T,U>` stay distinct. Two
+        // templates sharing both (a value-arity overload like `Max<T>(T,T)` vs `Max<T>(T,T,T)`) would
+        // mangle to the same specialized name, so that is reported rather than silently mis-specialized.
+        var genericMethods = new Dictionary<(string Name, int Arity), MethodDeclarationSyntax>();
+        foreach (var m in root.DescendantNodes().OfType<MethodDeclarationSyntax>()
             .Where(m => m.TypeParameterList is { Parameters.Count: > 0 }
-                && m.Parent is ClassDeclarationSyntax { Identifier.Text: "__KohProgram" })
-            .GroupBy(m => m.Identifier.Text)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+                && m.Parent is ClassDeclarationSyntax { Identifier.Text: "__KohProgram" }))
+        {
+            var key = (m.Identifier.Text, m.TypeParameterList!.Parameters.Count);
+            if (!genericMethods.TryAdd(key, m))
+                Report(diagnostics,
+                    $"generic method '{m.Identifier.Text}' with {key.Item2} type parameter(s) is declared "
+                    + "more than once; overloaded generic methods are not supported.", m.Identifier.GetLocation());
+        }
         var genericInstances = SynthesizeGenericInstances(root, genericMethods);
 
         // Pass 1: signatures, so calls resolve regardless of source order. Accept both class methods
@@ -630,7 +640,7 @@ public sealed class CSharpFrontend : IFrontend
     /// a specialized copy (type parameters substituted, mangled name). A work-list handles transitive
     /// instantiation — a specialized body may name further generic instances.</summary>
     private static List<MethodDeclarationSyntax> SynthesizeGenericInstances(
-        CompilationUnitSyntax root, IReadOnlyDictionary<string, MethodDeclarationSyntax> generics)
+        CompilationUnitSyntax root, IReadOnlyDictionary<(string Name, int Arity), MethodDeclarationSyntax> generics)
     {
         var done = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
         var work = new Queue<(string Name, TypeArgumentListSyntax Args)>();
@@ -639,7 +649,7 @@ public sealed class CSharpFrontend : IFrontend
         // Seed from concrete instantiations only — invocations inside a generic template still name
         // type parameters (e.g. Id<T>), which become concrete once the template is specialized.
         foreach (var (name, args, node) in FindGenericInvocations(root))
-            if (generics.ContainsKey(name)
+            if (generics.ContainsKey((name, args.Arguments.Count))
                 && !node.Ancestors().OfType<MethodDeclarationSyntax>().Any(templates.Contains))
                 work.Enqueue((name, args));
 
@@ -649,7 +659,7 @@ public sealed class CSharpFrontend : IFrontend
             var mangled = MangleGeneric(name, args.Arguments);
             if (done.ContainsKey(mangled))
                 continue;
-            var template = generics[name];
+            var template = generics[(name, args.Arguments.Count)];
             var map = new Dictionary<string, TypeSyntax>(StringComparer.Ordinal);
             var tps = template.TypeParameterList!.Parameters;
             for (int i = 0; i < tps.Count && i < args.Arguments.Count; i++)
@@ -663,7 +673,7 @@ public sealed class CSharpFrontend : IFrontend
 
             // The specialized body's generic invocations are now concrete; instantiate them too.
             foreach (var (n2, a2, _) in FindGenericInvocations(specialized))
-                if (generics.ContainsKey(n2)) work.Enqueue((n2, a2));
+                if (generics.ContainsKey((n2, a2.Arguments.Count))) work.Enqueue((n2, a2));
         }
         return done.Values.ToList();
     }

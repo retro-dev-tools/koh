@@ -384,6 +384,7 @@ public class Sm83ControlFlowTests
         b.PositionAtEnd(self.AppendBlock("entry"));
         b.Ret(b.Call(self, []));
 
+        await Assert.That(IrVerifier.Verify(m)).IsEmpty();
         var model = Compile(m);
         await Assert.That(model.Sections).IsNotEmpty();
     }
