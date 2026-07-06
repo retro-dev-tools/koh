@@ -66,17 +66,33 @@ public class Sm83BackendTests
 
         var data = Compile(module).Sections[0].Data;
 
-        // The reload of each result immediately after its store is elided (A still holds it).
+        // Reloads are elided (A still holds it), and %1 reuses %0's slot (their ranges don't overlap).
         byte[] expected =
         [
             0x3E, 0x03,             // LD A, 3
             0xC6, 0x04,             // ADD A, 4
-            0xEA, 0x00, 0xC0,       // LD (C000), A     ; %0   (reload of %0 elided)
+            0xEA, 0x00, 0xC0,       // LD (C000), A     ; %0
             0xC6, 0x64,             // ADD A, 100
-            0xEA, 0x01, 0xC0,       // LD (C001), A     ; %1   (reload of %1 elided)
+            0xEA, 0x00, 0xC0,       // LD (C000), A     ; %1 reuses %0's slot
             0xC9,                   // RET
         ];
         await Assert.That(data).IsEquivalentTo(expected);
+    }
+
+    [Test]
+    public async Task Allocation_ReusesSlotsForNonOverlappingValues()
+    {
+        var fn = new IrFunction("chain", IrType.I8, []);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        IrValue acc = IrBuilder.ConstInt(IrType.I8, 0);
+        for (int i = 0; i < 10; i++)
+            acc = b.Add(acc, IrBuilder.ConstInt(IrType.I8, 1)); // each temp dies once the next consumes it
+        b.Ret(acc);
+
+        var allocation = Sm83Backend.FunctionAllocation.For(fn, 0xC000);
+        // Ten temporaries, never two live at once -> they share a single WRAM byte (was 10 bytes).
+        await Assert.That(allocation.FrameEnd - 0xC000).IsLessThanOrEqualTo(2);
     }
 
     [Test]
