@@ -1554,6 +1554,33 @@ static readonly byte[] Mark = { 0xAB };";
             .IsEqualTo(((UInt128)1_000_000_000 * 1_000_000_000) / 7);
     }
 
+    [Test]
+    public async Task PointerIndexing_DerefsThroughOffset()
+    {
+        // p[i] is *(p + i): a raw pointer can be indexed like an array.
+        await Assert.That(RunA(
+            "static byte Main() { byte* a = Mem.Alloc(8); a[0] = 3; a[3] = 40; return (byte)(a[0] + a[3]); }"))
+            .IsEqualTo((byte)43);
+    }
+
+    [Test]
+    public async Task Arena_AllocatesDistinctBlocks()
+    {
+        // Mem.Alloc bumps a heap pointer; two allocations are distinct, writable, and independent.
+        await Assert.That(RunA(
+            "static byte Main() { byte* a = Mem.Alloc(4); byte* b = Mem.Alloc(4); "
+            + "a[0] = 11; b[0] = 22; return (byte)(a[0] + b[0] + (a == b ? 100 : 0)); }")).IsEqualTo((byte)33);
+    }
+
+    [Test]
+    public async Task Arena_ResetReclaimsEverything()
+    {
+        // Mem.Reset() frees the whole arena at once, so the next allocation reuses the same address.
+        await Assert.That(RunA(
+            "static byte Main() { byte* a = Mem.Alloc(4); a[0] = 5; Mem.Reset(); byte* b = Mem.Alloc(4); "
+            + "return (byte)(a == b ? 42 : 0); }")).IsEqualTo((byte)42);
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();

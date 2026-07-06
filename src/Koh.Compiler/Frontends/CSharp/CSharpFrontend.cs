@@ -38,6 +38,17 @@ public sealed class CSharpFrontend : IFrontend
 
     private const string WrapperPrefix = "static class __KohProgram {\n";
 
+    /// <summary>Name of the synthesized heap-pointer global, and the top of the heap region it starts
+    /// at. Allocation (<c>Mem.Alloc</c>, <c>new</c>) bumps the pointer downward from here; the region
+    /// grows toward the function frames and recursion stack below it.</summary>
+    internal const string HeapPointerName = "__heap";
+    internal const int HeapTop = 0xDE00;
+
+    /// <summary>Whether the program calls into the arena allocator (<c>Mem.Alloc</c> / <c>Mem.Reset</c>).</summary>
+    private static bool UsesHeap(CompilationUnitSyntax root) =>
+        root.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(inv =>
+            inv.Expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax { Identifier.Text: "Mem" } });
+
     public IrModule Lower(SourceText source, DiagnosticBag diagnostics)
     {
         var module = new IrModule(source.FilePath.Length > 0 ? source.FilePath : "csharp");
@@ -81,6 +92,16 @@ public sealed class CSharpFrontend : IFrontend
 
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
         var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(root, enums, module, diagnostics);
+
+        // Pass 0.6: if the program allocates (Mem.Alloc/Reset or `new` of a class), give it a heap-
+        // pointer global seeded to the top of the heap region; allocation bumps it down.
+        if (UsesHeap(root) || root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>().Any())
+        {
+            var heap = new IrGlobal(HeapPointerName, IrType.I16, AddressSpace.Wram);
+            module.Globals.Add(heap);
+            globals[HeapPointerName] = (heap, CsType.U16);
+            staticInits.Add((heap, HeapTop, CsType.U16));
+        }
 
         var hardware = new HardwareRegisters(module);
 

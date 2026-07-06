@@ -290,13 +290,22 @@ internal sealed class MethodLowerer
             }
     }
 
-    /// <summary>Compute the pointer to <c>arr[index]</c>.</summary>
+    /// <summary>Compute the pointer to <c>arr[index]</c> or <c>ptr[index]</c> (the latter is
+    /// <c>*(ptr + index)</c>, so a pointer local can be indexed like an array).</summary>
     private (IrValue Pointer, CsType Element) ArrayElementPointer(ElementAccessExpressionSyntax access)
     {
-        if (access.Expression is not IdentifierNameSyntax id || !_arrays.TryGetValue(id.Identifier.Text, out var arr))
-            throw new CSharpNotSupportedException("indexing requires an array variable.");
-        var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
-        return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
+        if (access.Expression is IdentifierNameSyntax id)
+        {
+            var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
+            if (_arrays.TryGetValue(id.Identifier.Text, out var arr))
+                return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
+            if (_locals.TryGetValue(id.Identifier.Text, out var local) && local.Type.Ir.Kind == IrTypeKind.Pointer)
+            {
+                var elementIr = Pointee(local.Type);
+                return (_b.Gep(_b.Load(local.Slot), index, elementIr), new CsType(elementIr, Signed: false));
+            }
+        }
+        throw new CSharpNotSupportedException("indexing requires an array or pointer variable.");
     }
 
     /// <summary>An assignable member: a struct field or a hardware register.</summary>
@@ -1068,6 +1077,12 @@ internal sealed class MethodLowerer
             return (_b.Intrinsic(intrinsic), CsType.U8);
         }
 
+        // Arena allocator: Mem.Alloc(size) bumps the heap pointer down and returns a byte*; Mem.Reset()
+        // frees everything at once by resetting the pointer to the top of the heap.
+        if (call.Expression is MemberAccessExpressionSyntax mem
+            && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" })
+            return LowerMemCall(mem.Name.Identifier.Text, call);
+
         if (call.Expression is not IdentifierNameSyntax id || !_methods.TryGetValue(id.Identifier.Text, out var callee))
             throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
 
@@ -1098,6 +1113,32 @@ internal sealed class MethodLowerer
 
         var result = _b.Call(callee.Fn, args);
         return (result, callee.Return ?? CsType.U8);
+    }
+
+    /// <summary>Lower an arena-allocator call. <c>Mem.Alloc(n)</c> bumps the heap pointer down by n and
+    /// returns the new pointer as a <c>byte*</c>; <c>Mem.Reset()</c> restores it to the top of the heap
+    /// (freeing every prior allocation at once — the arena's whole-region free).</summary>
+    private (IrValue, CsType) LowerMemCall(string method, InvocationExpressionSyntax call)
+    {
+        var heap = IrBuilder.GlobalRef(_globals[CSharpFrontend.HeapPointerName].Global);
+        var bytePtr = new CsType(IrType.Pointer(IrType.I8), Signed: false);
+        switch (method)
+        {
+            case "Alloc":
+            {
+                if (call.ArgumentList.Arguments.Count != 1)
+                    throw new CSharpNotSupportedException("Mem.Alloc takes one argument (a byte count).");
+                var size = Coerce(LowerExpression(call.ArgumentList.Arguments[0].Expression, CsType.U16), CsType.U16);
+                var updated = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), size);
+                _b.Store(updated, heap);
+                return (_b.Conv(IrConvOp.Bitcast, updated, bytePtr.Ir), bytePtr);
+            }
+            case "Reset":
+                _b.Store(IrBuilder.ConstInt(IrType.I16, CSharpFrontend.HeapTop), heap);
+                return (IrBuilder.ConstInt(IrType.I8, 0), CsType.U8);
+            default:
+                throw new CSharpNotSupportedException($"unknown Mem method '{method}'.");
+        }
     }
 
     // ---- Types & operators -------------------------------------------------
