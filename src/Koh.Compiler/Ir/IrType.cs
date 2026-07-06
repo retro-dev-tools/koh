@@ -77,6 +77,11 @@ public sealed class IrType
         IrTypeKind.Int => (Bits + 7) / 8,
         IrTypeKind.Pointer => DataLayout.Sm83.PointerSize,
         IrTypeKind.Array => (Element?.SizeInBytes ?? 0) * ArrayLength,
+        // No struct IR type is constructible today (the C# frontend lowers structs to byte buffers,
+        // never to struct-typed values). Fail loudly rather than silently sizing a struct at 0 bytes,
+        // which would turn a struct-typed load/store/alloca into a no-op.
+        IrTypeKind.Struct => throw new NotSupportedException(
+            "struct IR types have no defined storage size on this target"),
         _ => 0,
     };
 

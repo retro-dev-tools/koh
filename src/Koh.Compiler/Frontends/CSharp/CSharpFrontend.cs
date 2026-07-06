@@ -74,13 +74,13 @@ public sealed class CSharpFrontend : IFrontend
         var bodies = new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
 
         // Pass 0: enums (named constants), so their types and members resolve everywhere.
-        var enums = CollectEnums(root);
+        var enums = CollectEnums(root, diagnostics);
 
         // Pass 0.4: struct layouts (value types with scalar fields).
-        var structs = CollectStructs(root, enums);
+        var structs = CollectStructs(root, enums, diagnostics);
 
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
-        var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(root, enums, module);
+        var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(root, enums, module, diagnostics);
 
         var hardware = new HardwareRegisters(module);
 
@@ -122,9 +122,16 @@ public sealed class CSharpFrontend : IFrontend
             {
                 InterruptVector = InterruptVectorOf(decl),
             };
-            module.Functions.Add(fn);
             var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs);
-            methods[name] = method;
+            // Duplicate names would silently overwrite the earlier binding (and emit two IR functions
+            // with the same name); keep the first definition and report the rest.
+            if (!methods.TryAdd(name, method))
+            {
+                Report(diagnostics, $"duplicate function '{name}' (only the first definition is used).",
+                    IdentifierLocation(decl));
+                continue;
+            }
+            module.Functions.Add(fn);
             bodies.Add((method, body, arrow));
         }
 
@@ -148,6 +155,13 @@ public sealed class CSharpFrontend : IFrontend
             }
         }
     }
+
+    private static Location IdentifierLocation(SyntaxNode decl) => decl switch
+    {
+        MethodDeclarationSyntax m => m.Identifier.GetLocation(),
+        LocalFunctionStatementSyntax f => f.Identifier.GetLocation(),
+        _ => decl.GetLocation(),
+    };
 
     private static SyntaxNode? FindDeclaration(SyntaxNode root, string name) =>
         CollectMethods(root).FirstOrDefault(d => d is MethodDeclarationSyntax m
@@ -238,7 +252,7 @@ public sealed class CSharpFrontend : IFrontend
         return ResolveType(type, enums);
     }
 
-    private static Dictionary<string, CsEnum> CollectEnums(CompilationUnitSyntax root)
+    private static Dictionary<string, CsEnum> CollectEnums(CompilationUnitSyntax root, DiagnosticBag diagnostics)
     {
         var enums = new Dictionary<string, CsEnum>(StringComparer.Ordinal);
         foreach (var decl in root.DescendantNodes().OfType<EnumDeclarationSyntax>())
@@ -257,7 +271,10 @@ public sealed class CSharpFrontend : IFrontend
                 members[member.Identifier.Text] = value;
                 next = value + 1;
             }
-            enums[decl.Identifier.Text] = new CsEnum(underlying, members);
+            var name = decl.Identifier.Text;
+            if (!enums.TryAdd(name, new CsEnum(underlying, members)))
+                Report(diagnostics, $"duplicate enum '{name}' (only the first definition is used).",
+                    decl.Identifier.GetLocation());
         }
         return enums;
     }
@@ -266,7 +283,8 @@ public sealed class CSharpFrontend : IFrontend
                     Dictionary<string, (CsType Type, long Value)> Consts,
                     List<(IrGlobal Global, long Value, CsType Type)> Inits,
                     Dictionary<string, (IrGlobal Global, CsType Element, int Length)> Arrays)
-        CollectStatics(CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums, IrModule module)
+        CollectStatics(CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums, IrModule module,
+                       DiagnosticBag diagnostics)
     {
         var globals = new Dictionary<string, (IrGlobal, CsType)>(StringComparer.Ordinal);
         var consts = new Dictionary<string, (CsType, long)>(StringComparer.Ordinal);
@@ -274,6 +292,18 @@ public sealed class CSharpFrontend : IFrontend
         var arrays = new Dictionary<string, (IrGlobal, CsType, int)>(StringComparer.Ordinal);
 
         long? ConstLookup(string n) => consts.TryGetValue(n, out var c) ? c.Item2 : null;
+
+        // Statics (consts, scalar globals, data arrays) share one field namespace; a duplicate name
+        // would collide across these dictionaries and emit two globals with the same name. Keep the
+        // first definition and report the rest.
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+        bool Redeclared(string n, Location loc)
+        {
+            if (declared.Add(n))
+                return false;
+            Report(diagnostics, $"duplicate static field '{n}' (only the first definition is used).", loc);
+            return true;
+        }
 
         // Only class-level fields are statics; fields inside a struct are its members.
         foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>()
@@ -288,7 +318,11 @@ public sealed class CSharpFrontend : IFrontend
             {
                 var element = ResolveType(arrayType.ElementType, enums);
                 foreach (var v in field.Declaration.Variables)
+                {
+                    if (Redeclared(v.Identifier.Text, v.Identifier.GetLocation()))
+                        continue;
                     CollectStaticArray(v, element, isReadonly, ConstLookup, module, arrays);
+                }
                 continue;
             }
 
@@ -298,6 +332,8 @@ public sealed class CSharpFrontend : IFrontend
             foreach (var v in field.Declaration.Variables)
             {
                 var name = v.Identifier.Text;
+                if (Redeclared(name, v.Identifier.GetLocation()))
+                    continue;
                 if (isConst)
                 {
                     if (v.Initializer is null)
@@ -386,11 +422,13 @@ public sealed class CSharpFrontend : IFrontend
     }
 
     private static Dictionary<string, CsStruct> CollectStructs(
-        CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums)
+        CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums, DiagnosticBag diagnostics)
     {
         var decls = new Dictionary<string, StructDeclarationSyntax>(StringComparer.Ordinal);
         foreach (var decl in root.DescendantNodes().OfType<StructDeclarationSyntax>())
-            decls[decl.Identifier.Text] = decl;
+            if (!decls.TryAdd(decl.Identifier.Text, decl))
+                Report(diagnostics, $"duplicate struct '{decl.Identifier.Text}' (only the first definition is used).",
+                    decl.Identifier.GetLocation());
 
         var structs = new Dictionary<string, CsStruct>(StringComparer.Ordinal);
         var inProgress = new HashSet<string>(StringComparer.Ordinal);

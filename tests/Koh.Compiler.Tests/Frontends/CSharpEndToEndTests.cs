@@ -1115,6 +1115,83 @@ static void Main() { Bump(); Hardware.EnableInterrupts(); }";
         await Assert.That(CompilesClean(mainOnly)).IsTrue();
     }
 
+    [Test]
+    public async Task BitwiseComplement_Byte()
+    {
+        // ~x must be implemented (it was referenced in InferType but not lowered, so it fell through
+        // to "unsupported unary operator"). ~0x0F over a byte is 0xF0.
+        await Assert.That(RunA("static byte Main() { byte x = 0x0F; return (byte)~x; }")).IsEqualTo((byte)0xF0);
+        // Constant operands fold: ~0x0F narrowed to a byte is still 0xF0.
+        await Assert.That(RunA("static byte Main() { return (byte)~0x0F; }")).IsEqualTo((byte)0xF0);
+    }
+
+    [Test]
+    public async Task BitwiseComplement_Ushort()
+    {
+        // The all-ones mask must match the operand width: ~0x00FF over a ushort is 0xFF00, not 0x00FF.
+        await Assert.That(RunHL("static ushort Main() { ushort x = 0x00FF; return (ushort)~x; }"))
+            .IsEqualTo((ushort)0xFF00);
+    }
+
+    [Test]
+    public async Task VariableShift_NormalCount()
+    {
+        // A variable shift count below the type width shifts by exactly that amount.
+        await Assert.That(RunHL("static ushort Main() { ushort x = 5; ushort n = 3; return (ushort)(x << n); }"))
+            .IsEqualTo((ushort)40);
+        await Assert.That(RunHL("static ushort Main() { ushort x = 0x0140; ushort n = 4; return (ushort)(x >> n); }"))
+            .IsEqualTo((ushort)0x0014);
+    }
+
+    [Test]
+    public async Task VariableShift_CountHighByteNotTruncated()
+    {
+        // The count shares the value's (16-bit) type, so loading only its low byte truncated it: a count
+        // of 257 shifted by 1 (0x0101 & 0xFF) instead of saturating to the width. The clamp must shift a
+        // count that meets or exceeds the width all the way out (16 bits -> 0), not by its low byte.
+        await Assert.That(RunHL("static ushort Main() { ushort x = 1; ushort n = 257; return (ushort)(x << n); }"))
+            .IsEqualTo((ushort)0); // would be 2 (1 << 1) if the high byte were dropped
+        await Assert.That(RunHL("static ushort Main() { ushort x = 1; ushort n = 256; return (ushort)(x << n); }"))
+            .IsEqualTo((ushort)0); // would be 1 (1 << 0) if the high byte were dropped
+    }
+
+    [Test]
+    public async Task VariableShift_ArithmeticRightSaturates()
+    {
+        // An arithmetic right shift by at least the width fills with the sign bit; the clamp must preserve
+        // that (0x8000 >> 16 -> 0xFFFF), not shift by a truncated low byte.
+        await Assert.That(RunHL(
+            "static short Main() { short x = -32768; short n = 300; return (short)(x >> n); }"))
+            .IsEqualTo(unchecked((ushort)-1));
+    }
+
+    [Test]
+    public async Task DuplicateFunction_ReportedAsDiagnostic()
+    {
+        // Two functions with the same name silently overwrote the earlier binding (and emitted two IR
+        // functions with the same name); the duplicate must be a diagnostic instead.
+        await Assert.That(HasError(
+            "static byte F() { return 1; }\nstatic byte F() { return 2; }\nstatic byte Main() { return F(); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task DuplicateStaticField_ReportedAsDiagnostic()
+    {
+        // Duplicate static fields (which share one namespace across consts/globals/arrays) emitted two
+        // globals with the same name; the duplicate must be a diagnostic.
+        await Assert.That(HasError("static byte g;\nstatic byte g;\nstatic byte Main() { return g; }")).IsTrue();
+        await Assert.That(HasError("const byte k = 1;\nstatic byte k;\nstatic byte Main() { return k; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task DuplicateStructAndEnum_ReportedAsDiagnostic()
+    {
+        await Assert.That(HasError(
+            "struct P { byte x; }\nstruct P { byte y; }\nstatic byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError(
+            "enum E { A }\nenum E { B }\nstatic byte Main() { return 0; }")).IsTrue();
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();

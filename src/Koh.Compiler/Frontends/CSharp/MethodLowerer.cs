@@ -620,12 +620,22 @@ internal sealed class MethodLowerer
         return unary.Kind() switch
         {
             SyntaxKind.UnaryMinusExpression => LowerNegate(value, type, expected),
+            SyntaxKind.BitwiseNotExpression => LowerComplement(value, type),
             SyntaxKind.LogicalNotExpression =>
                 (_b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(IrType.I8, 1)), CsType.Bool),
             SyntaxKind.UnaryPlusExpression => (value, type),
             _ => throw new CSharpNotSupportedException($"unsupported unary operator '{unary.OperatorToken.Text}'."),
         };
     }
+
+    /// <summary>Lower bitwise complement <c>~x</c> as an xor with an all-ones mask of the operand's
+    /// width, folding a constant operand. The result keeps the operand's type (width and signedness),
+    /// matching how <see cref="InferType"/> sizes it; the backend's per-byte xor masks each byte, so
+    /// a <c>-1</c> constant complements every width correctly.</summary>
+    private (IrValue, CsType) LowerComplement(IrValue value, CsType type) =>
+        value is IrConstInt k
+            ? (IrBuilder.ConstInt(type.Ir, ~k.Value), type)
+            : (_b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(type.Ir, -1)), type);
 
     /// <summary>Lower unary minus. A negated value is signed — C# promotes <c>-x</c> to a signed type —
     /// and a negated literal folds to a signed constant so it sign-extends correctly and can adopt a

@@ -894,9 +894,28 @@ public sealed class Sm83Backend : IBackend
                 return;
             }
 
-            // Variable amount: count in B, value in the working register(s).
+            // Variable amount. The count shares the value's type, so it is n bytes wide; loading only
+            // its low byte would shift by a truncated amount. The loop shifts one bit per step and
+            // reaches a fixed point at n*8 bits (0 for Shl/LShr, sign fill for AShr), so clamp the
+            // count to n*8: a count whose high byte is set, or whose value meets/exceeds the width,
+            // saturates to n*8 rather than looping by its truncated low byte.
+            int width = n * 8;
             LoadByteToA(b.Right, 0);
-            _e.U8(0x47);                 // LD B, A
+            _e.U8(0x47);                 // LD B, A  (tentative count = low byte)
+            var saturate = new Label();
+            var counted = new Label();
+            if (n == 2)
+            {
+                LoadByteToA(b.Right, 1);
+                _e.U8(0xB7);                     // OR A            (Z iff high byte == 0)
+                _e.Jump(0xC2, saturate);         // JP NZ, saturate (high bits set => count >= width)
+            }
+            _e.U8(0x78);                         // LD A, B
+            _e.U8(0xFE); _e.U8((byte)width);     // CP width        (carry iff count < width)
+            _e.Jump(0xDA, counted);              // JP C, counted   (count < width => use as-is)
+            _e.Place(saturate);
+            _e.U8(0x06); _e.U8((byte)width);     // LD B, width     (saturate)
+            _e.Place(counted);
             LoadWorking(b.Left, n);
             var loop = new Label();
             var done = new Label();
