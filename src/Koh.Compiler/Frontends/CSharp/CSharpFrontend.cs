@@ -93,7 +93,8 @@ public sealed class CSharpFrontend : IFrontend
         foreach (var (method, body, arrow) in bodies)
         {
             var inits = ReferenceEquals(method, entry) ? staticInits : [];
-            new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts, hardware, inits).Lower();
+            new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts,
+                hardware, module.Name, inits).Lower();
         }
 
         return module;

@@ -460,6 +460,16 @@ static byte Main() {
     }
 
     [Test]
+    public async Task DebugInfo_MapsCSharpSourceLines()
+    {
+        // Line 1 = signature, line 2 = the add, line 3 = the return.
+        const string src = "static byte Add(byte a, byte b) {\n    byte c = a + b;\n    return c;\n}";
+        var lineMap = Compile(src).Sections[0].LineMap;
+        await Assert.That(lineMap.Any(e => e.File == "game.cs" && e.Line == 2)).IsTrue();
+        await Assert.That(lineMap.Any(e => e.File == "game.cs" && e.Line == 3)).IsTrue();
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;

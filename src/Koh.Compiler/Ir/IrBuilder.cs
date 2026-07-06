@@ -15,10 +15,14 @@ public sealed class IrBuilder
     public IrBasicBlock CurrentBlock =>
         _block ?? throw new InvalidOperationException("IrBuilder has no insertion block.");
 
+    /// <summary>Source location stamped onto each appended instruction (for debug line maps).</summary>
+    public IrSourceLocation? CurrentSource { get; set; }
+
     private T Append<T>(T instruction) where T : IrInstruction
     {
         var block = CurrentBlock;
         instruction.Parent = block;
+        instruction.Source ??= CurrentSource;
         block.Instructions.Add(instruction);
         return instruction;
     }

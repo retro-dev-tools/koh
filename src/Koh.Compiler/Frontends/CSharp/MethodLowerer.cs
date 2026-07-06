@@ -21,6 +21,7 @@ internal sealed class MethodLowerer
     private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> _globals;
     private readonly IReadOnlyDictionary<string, (CsType Type, long Value)> _moduleConsts;
     private readonly HardwareRegisters _hardware;
+    private readonly string _file;
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
@@ -40,8 +41,10 @@ internal sealed class MethodLowerer
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> globals,
         IReadOnlyDictionary<string, (CsType Type, long Value)> moduleConsts,
         HardwareRegisters hardware,
+        string file,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits)
     {
+        _file = file;
         _method = method;
         _body = body;
         _arrow = arrow;
@@ -100,6 +103,11 @@ internal sealed class MethodLowerer
 
     private void LowerStatement(StatementSyntax stmt)
     {
+        // Stamp instructions with this statement's source line. The source was wrapped in a
+        // one-line `static class {` prefix, so the wrapped 0-based line equals the user's 1-based line.
+        _b.CurrentSource = new IrSourceLocation(
+            _file, (uint)stmt.GetLocation().GetLineSpan().StartLinePosition.Line);
+
         switch (stmt)
         {
             case BlockSyntax block:
