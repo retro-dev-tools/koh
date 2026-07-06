@@ -159,7 +159,17 @@ src/Koh.Compiler/
 Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written IR, before any frontend exists.
 
 1. **IR core + textual form + verifier.** ✅ *Landed.* `Ir/` (typed SSA value/instruction model — arithmetic, compares, conversions, `alloca`/`load`/`store`/`gep`, `call`, `phi`, `ret`/`br`/`condbr`/`switch`), `IrBuilder`, `IrPrinter` (textual form), `IrParser` (round-trips the printer), `IrVerifier` (CFG + operand-type checks), `Targets/` (SM83 `DataLayout`), interfaces, registry, driver. Covered by `Koh.Compiler.Tests` (parse/verify/round-trip stability + builder loop-with-phi + negative verifier cases).
-2. **SM83 backend.** 🚧 *Substantially landed.* Static-allocation codegen (parameters + SSA values in fixed WRAM, everything through `A`) covering: `i8`/`i16` arithmetic (add/sub as ADC/SBC chains, and/or/xor), unsigned + eq/ne comparisons, integer conversions (trunc/zext/sext), full control flow (`br`/`condbr`/`phi` with critical-edge-split phi copies and absolute-address backpatching), and static-address memory ops (`alloca`/`load`/`store`/constant-index `gep`). Emits an `EmitModel` → **linked to a ROM and executed in the emulator**: golden-byte tests plus run-and-check tests including a real loop (`sum(n)` with two `i16` phis and an unsigned compare → 45). Remaining: signed comparisons, dynamic-pointer memory, `switch`, calls + far-call trampolines, wider-than-16-bit ints, and routing instruction selection through `Sm83InstructionTable`.
+2. **SM83 backend.** ✅ *Landed (non-optimizing).* Static-allocation codegen emitting bootable, debuggable ROMs, verified end-to-end on the emulator (64 tests). Covers:
+   - **Arithmetic:** `i8`/`i16` add/sub (ADC/SBC chains), and/or/xor; **multiply/divide/remainder** via on-demand runtime routines (`__mul16`/`__udivmod16`/`__sdivmod16`, signed and unsigned); **shifts** (constant unrolled, variable looped).
+   - **Comparisons:** unsigned, signed (sign-bit-flip), and eq/ne, at `i8`/`i16`.
+   - **Conversions:** trunc/zext/sext.
+   - **Control flow:** `br`/`condbr`/`switch`, and `phi` realized as parallel edge copies (cycle-safe via temps), with absolute-address backpatching.
+   - **Calls:** disjoint per-function WRAM frames (composable, non-recursive — recursion rejected), args in param slots, returns in `A`/`HL`.
+   - **Memory:** `alloca`, static- and dynamic-address `load`/`store`, constant- and runtime-index `gep` (HL-indirect), pointer parameters.
+   - **Globals:** ROM data sections + RAM globals; `IrGlobal.FixedAddress` pins a global to an MMIO register (I/O page is memory-mapped, so no intrinsic node needed).
+   - **Real ROM:** cartridge header at `$0100` (boot vector, Nintendo logo, valid checksum) → a bootable cartridge.
+   - **Debug:** source line maps threaded to `.kdbg`.
+   - **Quality:** opcodes pinned to `Sm83InstructionTable` by a cross-check test; a safe accumulator-reuse peephole. Remaining (deferred): graph-coloring register allocation, and wider-than-16-bit integers.
 3. **C# frontend MVP.** Roslyn parse/bind → subset gate → lower to IR: `static` methods, `byte`/`ushort`, `if`/`while`/`for`, arrays, pointers, hardware intrinsics, `extern` asm interop. Snapshot-test IR output.
 4. **IR optimization passes.** Const-fold, DCE, copy/coalesce, SM83 peephole on the emitted stream. Introduce full SSA-based opt if/when the optimizer needs it.
 5. **Editor tooling.** Diagnostics/hover/go-to for Koh C#, reusing the LSP architecture and/or Roslyn.
