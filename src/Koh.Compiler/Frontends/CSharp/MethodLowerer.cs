@@ -1137,14 +1137,21 @@ internal sealed class MethodLowerer
             && self.Info.Methods.ContainsKey(bare.Identifier.Text))
             return LowerInstanceCall(self.Info, self.Slot, bare.Identifier.Text, call.ArgumentList.Arguments);
 
-        if (call.Expression is not IdentifierNameSyntax id || !_methods.TryGetValue(id.Identifier.Text, out var callee))
+        // A plain call, or a generic call `Foo<int>(...)` routed to its monomorphized instance `Foo$int`.
+        string? calleeName = call.Expression switch
+        {
+            IdentifierNameSyntax idn => idn.Identifier.Text,
+            GenericNameSyntax gn => CSharpFrontend.MangleGeneric(gn.Identifier.Text, gn.TypeArgumentList.Arguments),
+            _ => null,
+        };
+        if (calleeName is null || !_methods.TryGetValue(calleeName, out var callee))
             throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
 
         var args = new List<IrValue>();
         var argList = call.ArgumentList.Arguments;
         if (argList.Count != callee.Params.Count)
             throw new CSharpNotSupportedException(
-                $"'{id.Identifier.Text}' takes {callee.Params.Count} argument(s), but {argList.Count} were given.",
+                $"'{calleeName}' takes {callee.Params.Count} argument(s), but {argList.Count} were given.",
                 call.GetLocation());
         for (int i = 0; i < argList.Count; i++)
         {

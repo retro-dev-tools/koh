@@ -108,9 +108,21 @@ public sealed class CSharpFrontend : IFrontend
 
         var hardware = new HardwareRegisters(module);
 
+        // Pass 0.7: monomorphize generic methods — synthesize a specialized copy per concrete
+        // instantiation. Generic templates themselves are not lowered; the specializations are.
+        var genericMethods = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Where(m => m.TypeParameterList is { Parameters.Count: > 0 }
+                && m.Parent is ClassDeclarationSyntax { Identifier.Text: "__KohProgram" })
+            .GroupBy(m => m.Identifier.Text)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var genericInstances = SynthesizeGenericInstances(root, genericMethods);
+
         // Pass 1: signatures, so calls resolve regardless of source order. Accept both class methods
         // and top-level `static T F(...) {...}` functions (which Roslyn parses as local functions).
-        foreach (var decl in CollectMethods(root))
+        var methodDecls = CollectMethods(root)
+            .Where(d => d is not MethodDeclarationSyntax { TypeParameterList.Parameters.Count: > 0 })
+            .Concat(genericInstances);
+        foreach (var decl in methodDecls)
         {
             var (name, returnSyntax, parameterList, body, arrow) = Describe(decl);
             var returnType = ResolveReturnType(returnSyntax, enums);
@@ -541,6 +553,70 @@ public sealed class CSharpFrontend : IFrontend
         foreach (var name in decls.Keys)
             Layout(name);
         return structs;
+    }
+
+    /// <summary>Rewrites a generic method's syntax, replacing each type-parameter name with the concrete
+    /// type it is instantiated at (monomorphization).</summary>
+    private sealed class TypeParamRewriter : Microsoft.CodeAnalysis.CSharp.CSharpSyntaxRewriter
+    {
+        private readonly IReadOnlyDictionary<string, TypeSyntax> _map;
+        public TypeParamRewriter(IReadOnlyDictionary<string, TypeSyntax> map) => _map = map;
+        public override SyntaxNode? VisitIdentifierName(IdentifierNameSyntax node) =>
+            _map.TryGetValue(node.Identifier.Text, out var t) ? t.WithTriviaFrom(node) : base.VisitIdentifierName(node);
+    }
+
+    /// <summary>The mangled name of a generic method instantiated at concrete type arguments, e.g.
+    /// <c>Max&lt;int&gt;</c> becomes <c>Max$int</c>. Both the synthesized function and its call sites use it.</summary>
+    internal static string MangleGeneric(string name, IEnumerable<TypeSyntax> typeArgs) =>
+        name + "$" + string.Join("_", typeArgs.Select(t => t.ToString()));
+
+    private static IEnumerable<(string Name, TypeArgumentListSyntax Args, InvocationExpressionSyntax Node)>
+        FindGenericInvocations(SyntaxNode node) =>
+        node.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .Where(inv => inv.Expression is GenericNameSyntax)
+            .Select(inv => (((GenericNameSyntax)inv.Expression).Identifier.Text,
+                            ((GenericNameSyntax)inv.Expression).TypeArgumentList, inv));
+
+    /// <summary>Monomorphize: for every generic method invoked with concrete type arguments, synthesize
+    /// a specialized copy (type parameters substituted, mangled name). A work-list handles transitive
+    /// instantiation — a specialized body may name further generic instances.</summary>
+    private static List<MethodDeclarationSyntax> SynthesizeGenericInstances(
+        CompilationUnitSyntax root, IReadOnlyDictionary<string, MethodDeclarationSyntax> generics)
+    {
+        var done = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
+        var work = new Queue<(string Name, TypeArgumentListSyntax Args)>();
+        var templates = new HashSet<MethodDeclarationSyntax>(generics.Values);
+
+        // Seed from concrete instantiations only — invocations inside a generic template still name
+        // type parameters (e.g. Id<T>), which become concrete once the template is specialized.
+        foreach (var (name, args, node) in FindGenericInvocations(root))
+            if (generics.ContainsKey(name)
+                && !node.Ancestors().OfType<MethodDeclarationSyntax>().Any(templates.Contains))
+                work.Enqueue((name, args));
+
+        while (work.Count > 0)
+        {
+            var (name, args) = work.Dequeue();
+            var mangled = MangleGeneric(name, args.Arguments);
+            if (done.ContainsKey(mangled))
+                continue;
+            var template = generics[name];
+            var map = new Dictionary<string, TypeSyntax>(StringComparer.Ordinal);
+            var tps = template.TypeParameterList!.Parameters;
+            for (int i = 0; i < tps.Count && i < args.Arguments.Count; i++)
+                map[tps[i].Identifier.Text] = args.Arguments[i];
+
+            var specialized = (MethodDeclarationSyntax)new TypeParamRewriter(map).Visit(template)!;
+            specialized = specialized
+                .WithIdentifier(Microsoft.CodeAnalysis.CSharp.SyntaxFactory.Identifier(mangled))
+                .WithTypeParameterList(null);
+            done[mangled] = specialized;
+
+            // The specialized body's generic invocations are now concrete; instantiate them too.
+            foreach (var (n2, a2, _) in FindGenericInvocations(specialized))
+                if (generics.ContainsKey(n2)) work.Enqueue((n2, a2));
+        }
+        return done.Values.ToList();
     }
 
     /// <summary>Collect user classes (reference types) nested in the program wrapper: lay out their

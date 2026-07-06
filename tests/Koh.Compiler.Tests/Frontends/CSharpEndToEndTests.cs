@@ -1630,6 +1630,30 @@ class Rect { byte w; byte h; byte Area() { return (byte)(w * h); } }";
             + "class Point { byte x; byte y; }")).IsEqualTo((byte)59);
     }
 
+    [Test]
+    public async Task Generics_Monomorphized()
+    {
+        // A generic method is specialized per concrete type argument (Max$byte, Max$ushort).
+        await Assert.That(RunA(
+            "static byte Main() { return (byte)Max<byte>(3, 7); }\n"
+            + "static T Max<T>(T a, T b) { if (a > b) return a; return b; }")).IsEqualTo((byte)7);
+        await Assert.That(RunHL(
+            "static ushort Main() { return Max<ushort>(300, 100); }\n"
+            + "static T Max<T>(T a, T b) { if (a > b) return a; return b; }")).IsEqualTo((ushort)300);
+    }
+
+    [Test]
+    public async Task Generics_TransitiveInstantiation()
+    {
+        // A specialized body may name further generic instances (Double<byte> uses Id<byte>); the
+        // work-list instantiates them transitively.
+        const string src = @"
+static byte Main() { return (byte)Double<byte>(20); }
+static T Id<T>(T x) { return x; }
+static T Double<T>(T x) { return (T)(Id<T>(x) + Id<T>(x)); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)40);
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();
