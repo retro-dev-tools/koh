@@ -511,21 +511,18 @@ public static class IrParser
             : throw new IrParseException($"unknown address space '{name}'");
 
     // The textual mnemonics are the enum member names lower-cased (see IrPrinter), so all three
-    // parse case-insensitively straight back to the enum.
-    private static IrBinaryOp ParseBinaryOp(string op) =>
-        Enum.TryParse<IrBinaryOp>(op, ignoreCase: true, out var b)
-            ? b
-            : throw new IrParseException($"unknown binary op '{op}'");
-
-    private static IrCompareOp ParseCompareOp(string op) =>
-        Enum.TryParse<IrCompareOp>(op, ignoreCase: true, out var c)
-            ? c
-            : throw new IrParseException($"unknown compare predicate '{op}'");
-
-    private static IrConvOp ParseConvOp(string op) =>
-        Enum.TryParse<IrConvOp>(op, ignoreCase: true, out var v)
+    // parse case-insensitively straight back to the enum. The leading-letter guard rejects numeric
+    // tokens, which Enum.TryParse would otherwise accept as raw underlying values.
+    private static T ParseMnemonic<T>(string op, string kind) where T : struct, Enum =>
+        op.Length > 0 && char.IsLetter(op[0]) && Enum.TryParse<T>(op, ignoreCase: true, out var v)
             ? v
-            : throw new IrParseException($"unknown conversion '{op}'");
+            : throw new IrParseException($"unknown {kind} '{op}'");
+
+    private static IrBinaryOp ParseBinaryOp(string op) => ParseMnemonic<IrBinaryOp>(op, "binary op");
+
+    private static IrCompareOp ParseCompareOp(string op) => ParseMnemonic<IrCompareOp>(op, "compare predicate");
+
+    private static IrConvOp ParseConvOp(string op) => ParseMnemonic<IrConvOp>(op, "conversion");
 
     private static long ParseLong(string text)
     {

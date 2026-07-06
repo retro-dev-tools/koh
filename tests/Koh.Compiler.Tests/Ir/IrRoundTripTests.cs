@@ -106,6 +106,29 @@ public class IrRoundTripTests
     }
 
     [Test]
+    public async Task Parser_RejectsNumericOpToken()
+    {
+        // Enum.TryParse would accept a bare number as a raw enum value; the parser must reject it.
+        bool threw = false;
+        try
+        {
+            IrParser.Parse("""
+                module "t"
+                func @f(%a : i8) : i8 {
+                entry:
+                  %r = 3 i8 %a, %a
+                  ret i8 %r
+                }
+                """);
+        }
+        catch (IrParseException)
+        {
+            threw = true;
+        }
+        await Assert.That(threw).IsTrue();
+    }
+
+    [Test]
     public async Task Bitcast_RejectsMismatchedSize()
     {
         // i8 (1 byte) cannot bitcast to i16 (2 bytes): sizes must match.

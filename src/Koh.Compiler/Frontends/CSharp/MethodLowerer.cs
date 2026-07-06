@@ -505,8 +505,10 @@ internal sealed class MethodLowerer
         if (lit.Kind() == SyntaxKind.FalseLiteralExpression)
             return (IrBuilder.ConstInt(IrType.I8, 0), CsType.Bool);
 
-        var type = expected ?? CsType.U16;
         long value = Convert.ToInt64(lit.Token.Value);
+        // With no expected type, size the literal to its value so a wide constant isn't truncated
+        // to a neighbouring narrow type (e.g. `1000 == x`), and a small one still stays 8-bit.
+        var type = expected ?? (value is >= 0 and <= 0xFF ? CsType.U8 : CsType.U16);
         return (IrBuilder.ConstInt(type.Ir, value), type);
     }
 
@@ -642,9 +644,11 @@ internal sealed class MethodLowerer
 
         if (IsComparison(kind))
         {
-            var (left, lt) = LowerExpression(binary.Left, expected);
-            var (right, rt) = LowerExpression(binary.Right, lt);
-            if (lt.Ir.Kind == IrTypeKind.Pointer)
+            // Lower each operand by its own type (not the outer `expected`, which is the Bool result
+            // type and would truncate a literal operand); a common type reconciles the two.
+            var (left, lt) = LowerExpression(binary.Left, expected: null);
+            var (right, rt) = LowerExpression(binary.Right, expected: null);
+            if (lt.Ir.Kind == IrTypeKind.Pointer || rt.Ir.Kind == IrTypeKind.Pointer)
             {
                 // Compare two addresses as unsigned 16-bit integers (icmp stays integer-only).
                 var li = Coerce((left, lt), CsType.U16);
@@ -653,12 +657,16 @@ internal sealed class MethodLowerer
             }
             // Convert both to their common type, then the predicate's signedness follows it — so a
             // mixed comparison like `sbyte < byte` isn't silently governed by the left operand.
-            var cmpType = CommonType(lt, rt, signMatters: true, binary);
+            // Ordering needs signedness; equality does not (it is a pure bit test).
+            bool ordering = kind is not (SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression);
+            var cmpType = CommonType(lt, rt, signMatters: ordering, binary);
             return (_b.Compare(CompareOp(kind, cmpType.Signed),
                 Coerce((left, lt), cmpType), Coerce((right, rt), cmpType)), CsType.Bool);
         }
 
-        var (l, ltype) = LowerExpression(binary.Left, expected);
+        // The outer `expected` types int literals for width promotion, but a pointer expectation
+        // would mistype an integer literal operand as a pointer — drop it in that case.
+        var (l, ltype) = LowerExpression(binary.Left, expected?.Ir.Kind == IrTypeKind.Pointer ? null : expected);
 
         // Pointer arithmetic (p + i / p - i) lowers to a gep: the index is scaled by the pointee
         // size and widened to the 16-bit address. A plain add would instead try to coerce the index
@@ -689,28 +697,32 @@ internal sealed class MethodLowerer
     /// <summary>
     /// The common type two operands convert to, following C-like usual arithmetic conversions over
     /// the Koh numeric types: the wider storage width wins. When the operands' signedness differs
-    /// <em>and</em> it affects the result (comparison, divide, remainder), the pair is promoted to a
-    /// signed type wide enough to hold both ranges (so <c>sbyte</c> vs <c>byte</c> compares as a
-    /// signed <c>short</c>, matching C#); if no such type exists on the target (anything mixed with
-    /// <c>ushort</c>), that is a diagnostic asking for an explicit cast. For sign-agnostic operators
-    /// (+, -, *, bitwise) the bits are identical either way, so the common width is used directly.
+    /// <em>and</em> it affects the result, the pair is promoted to a signed type wide enough to hold
+    /// both ranges (so <c>sbyte</c> vs <c>byte</c> becomes a signed <c>short</c>, matching C#). When
+    /// no such type exists on the target (anything mixed with <c>ushort</c>): if the operator's
+    /// signedness affects the result (divide, remainder, ordering) that is a diagnostic asking for an
+    /// explicit cast; otherwise the common width is used unsigned, since the bits are identical.
     /// </summary>
     private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site)
     {
         int width = Math.Max(a.Ir.SizeInBits, b.Ir.SizeInBits);
         if (a.Signed == b.Signed)
             return new CsType(IrType.Int(width), a.Signed);
-        if (!signMatters)
-            return new CsType(IrType.Int(width), Signed: false); // identical bits; sign is moot
 
-        // Mixed sign where it matters: need a signed type holding the unsigned operand's range too.
+        // Mixed signedness: prefer a signed type wide enough to hold the unsigned operand's range,
+        // because the result's signedness governs how a later widening sign- vs. zero-extends it —
+        // so `(sbyte)a + (byte)b` must stay signed even though the add's bits don't depend on sign.
         var unsignedOp = a.Signed ? b : a;
         int need = Math.Max(width, unsignedOp.Ir.SizeInBits + 1);
-        if (need > 16)
+        if (need <= 16)
+            return new CsType(IrType.I16, Signed: true);
+
+        // No wide-enough signed type on this target.
+        if (signMatters)
             throw new CSharpNotSupportedException(
                 $"mixed signed/unsigned operation on '{a.Ir}' and '{b.Ir}' needs a wider signed type "
                 + "than this target provides; cast one operand explicitly.", site.GetLocation());
-        return new CsType(IrType.I16, Signed: true);
+        return new CsType(IrType.Int(width), Signed: false);
     }
 
     /// <summary>Offset a pointer by an index expression via a gep (scaled by the pointee size).</summary>
@@ -750,11 +762,24 @@ internal sealed class MethodLowerer
             var current = _b.Load(pointer);
             result = PointerOffset(current, type, assign.Right, subtract: kind == SyntaxKind.SubtractAssignmentExpression);
         }
+        else if (kind is SyntaxKind.LeftShiftAssignmentExpression or SyntaxKind.RightShiftAssignmentExpression)
+        {
+            // Shift: the count is independent and the result keeps the target's width.
+            var current = _b.Load(pointer);
+            var amount = Coerce(LowerExpression(assign.Right, type), type);
+            result = _b.Binary(CompoundOp(kind, type.Signed), current, amount);
+        }
         else
         {
+            // `x OP= y` computes `x OP y` in the operands' common type (usual arithmetic conversions),
+            // then narrows back to x — so /= and %= match `x = x / y` rather than truncating y first.
             var current = _b.Load(pointer);
-            var rhs = Coerce(LowerExpression(assign.Right, type), type);
-            result = _b.Binary(CompoundOp(kind, type.Signed), current, rhs);
+            var (rhsVal, rhsType) = LowerExpression(assign.Right, expected: null);
+            bool signMatters = kind is SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression;
+            var common = CommonType(type, rhsType, signMatters, assign);
+            var opResult = _b.Binary(CompoundOp(kind, common.Signed),
+                Coerce((current, type), common), Coerce((rhsVal, rhsType), common));
+            result = Coerce((opResult, common), type);
         }
 
         _b.Store(result, pointer);

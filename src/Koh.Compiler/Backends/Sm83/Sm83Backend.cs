@@ -463,7 +463,7 @@ public sealed class Sm83Backend : IBackend
             var staticAddr = new Dictionary<IrValue, int>(Eq);
             var slot = new Dictionary<IrValue, int>(Eq);
             int wram = baseAddr;
-            int phiCount = 0;
+            int phiTempBytes = 0;
 
             // Parameters get fixed slots first: the caller writes them at these addresses, so they
             // are a stable ABI and are never reused by colouring.
@@ -478,7 +478,7 @@ public sealed class Sm83Backend : IBackend
                 foreach (var instr in block.Instructions)
                 {
                     if (instr is PhiInstruction)
-                        phiCount++;
+                        phiTempBytes += SizeOf(instr.Type); // cycle-breaking may stage one temp per phi
                     switch (instr)
                     {
                         case AllocaInstruction a:
@@ -534,7 +534,7 @@ public sealed class Sm83Backend : IBackend
 
             wram = colorEnd;
             int phiTempBase = wram;
-            wram += 2 * phiCount; // at most one temp (<= 2 bytes) per phi
+            wram += phiTempBytes; // cycle-breaking stages at most one temp per phi, sized to its type
 
             return new FunctionAllocation
             {
@@ -710,13 +710,19 @@ public sealed class Sm83Backend : IBackend
             _phiTempBase = allocation.PhiTempBase;
         }
 
-        /// <summary>A compile-time-known address: an alloca/constant-gep, or a global's address.</summary>
+        /// <summary>A compile-time-known address: an alloca/constant-gep, a global's address, or a
+        /// constant-address pointer (e.g. <c>(byte*)0xFF40</c> for direct MMIO).</summary>
         private bool TryStaticAddr(IrValue value, out int addr)
         {
             if (_staticAddr.TryGetValue(value, out addr))
                 return true;
             if (value is IrGlobalRef g && _globals.TryGetValue(g.Global, out addr))
                 return true;
+            if (value is IrConstInt c && value.Type.Kind == IrTypeKind.Pointer)
+            {
+                addr = (int)c.Value;
+                return true;
+            }
             addr = 0;
             return false;
         }
@@ -1426,10 +1432,13 @@ public sealed class Sm83Backend : IBackend
                         StoreAToAddr(tempAddr + k);
                     }
                     foreach (var o in pending)
-                        if (o != c && SourceOverlaps(o, c.DestSlot, c.N))
+                        if (o != c && SourceSlot(o, out int srcAddr)
+                            && srcAddr < c.DestSlot + c.N && c.DestSlot < srcAddr + o.N)
                         {
+                            // Read from the staged copy at the source's offset within the range, so a
+                            // source coalesced at a non-zero position inside the slot still reads right.
                             o.Src = null;
-                            o.TempSrc = tempAddr;
+                            o.TempSrc = tempAddr + (srcAddr - c.DestSlot);
                         }
                 }
             }
@@ -1437,14 +1446,17 @@ public sealed class Sm83Backend : IBackend
 
         /// <summary>Whether pending copy <paramref name="o"/> reads a slot range overlapping
         /// <c>[start, start + n)</c>. Constants and temp-staged sources read no live slot.</summary>
-        private bool SourceOverlaps(PhiCopy o, int start, int n)
+        private bool SourceOverlaps(PhiCopy o, int start, int n) =>
+            SourceSlot(o, out int srcAddr) && srcAddr < start + n && start < srcAddr + o.N;
+
+        /// <summary>The WRAM address a pending copy reads from, if it reads a slot (not a constant or
+        /// a value already staged into a temp).</summary>
+        private bool SourceSlot(PhiCopy o, out int srcAddr)
         {
+            srcAddr = 0;
             if (o.TempSrc >= 0 || o.Src is null or IrConstInt)
                 return false;
-            int srcAddr;
-            if (!TryStaticAddr(o.Src, out srcAddr) && !_slot.TryGetValue(o.Src, out srcAddr))
-                return false;
-            return srcAddr < start + n && start < srcAddr + o.N;
+            return TryStaticAddr(o.Src, out srcAddr) || _slot.TryGetValue(o.Src, out srcAddr);
         }
 
         private void EmitMove(PhiCopy c)

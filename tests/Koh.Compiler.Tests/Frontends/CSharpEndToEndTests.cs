@@ -593,6 +593,60 @@ static byte Main() {
     }
 
     [Test]
+    public async Task Comparison_LeftHandLiteralIsNotTruncated()
+    {
+        // `1000 == x` must type the left literal by its value, not by the Bool result context
+        // (which is i8 and would truncate 1000 -> 232).
+        const string src = "static byte F(ushort x) { if (1000 == x) return 1; return 0; }";
+        await Assert.That(RunA(src, gb => W16(gb, 0, 1000))).IsEqualTo((byte)1);
+        await Assert.That(RunA(src, gb => W16(gb, 0, 232))).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Comparison_ByteAgainstOutOfRangeConstant()
+    {
+        // A byte is always < 256; the constant must not truncate to 0.
+        const string src = "static byte F(byte x) { if (x < 256) return 1; return 0; }";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 200))).IsEqualTo((byte)1);
+        await Assert.That(RunA(src, gb => W8(gb, 0, 0))).IsEqualTo((byte)1);
+    }
+
+    [Test]
+    public async Task MixedSign_AddThenWidenKeepsSign()
+    {
+        // (sbyte)-1 + (byte)0 widens to a signed short = -1 (0xFFFF), not zero-extended 255.
+        const string src = "static short F(sbyte a, byte b) { short s = a + b; return s; }";
+        await Assert.That(RunHL(src, gb => { W8(gb, 0, 0xFF); W8(gb, 1, 0); })).IsEqualTo((ushort)0xFFFF);
+    }
+
+    [Test]
+    public async Task Equality_MixedSign16BitCompiles()
+    {
+        // ushort == short is a pure bit test, so it must not demand a wider signed type.
+        const string src = "static byte F(ushort a, short b) { if (a == b) return 1; return 0; }";
+        await Assert.That(RunA(src, gb => { W16(gb, 0, 5); W16(gb, 2, 5); })).IsEqualTo((byte)1);
+        await Assert.That(RunA(src, gb => { W16(gb, 0, 5); W16(gb, 2, 6); })).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Pointer_ConstantAddressDerefIsDirectMmio()
+    {
+        // *(byte*)0xFF42 reads/writes the address directly (no slot), the idiomatic MMIO form.
+        await Assert.That(RunA("static byte Main() { return *(byte*)0xFF42; }",
+            gb => gb.DebugWriteByte(0xFF42, 0x55))).IsEqualTo((byte)0x55);
+        await Assert.That(RunThenRead("static void Main() { *(byte*)0xFF47 = 0xE4; }", 0xFF47)).IsEqualTo((byte)0xE4);
+    }
+
+    [Test]
+    public async Task CompoundDivide_WidensLikePlainDivide()
+    {
+        // x /= y must compute in the common type (x=10 / y=256 = 0), not truncate y to a byte first
+        // (which would be a divide-by-zero).
+        const string src = "static byte F(byte x, ushort y) { x /= y; return x; }";
+        await Assert.That(RunA(src, gb => { W8(gb, 0, 10); W16(gb, 1, 256); })).IsEqualTo((byte)0);
+    }
+
+    [Test]
     public async Task MixedSign_WithUshort_ReportedAsDiagnostic()
     {
         // short / ushort has no wider signed type on this target, so it needs an explicit cast.
