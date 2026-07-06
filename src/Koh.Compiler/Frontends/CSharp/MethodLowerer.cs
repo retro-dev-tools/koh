@@ -97,6 +97,10 @@ internal sealed class MethodLowerer
                 LowerDo(doStmt);
                 break;
 
+            case SwitchStatementSyntax switchStmt:
+                LowerSwitch(switchStmt);
+                break;
+
             case BreakStatementSyntax:
                 if (_loops.Count == 0)
                     throw new CSharpNotSupportedException("'break' outside a loop.");
@@ -194,6 +198,51 @@ internal sealed class MethodLowerer
 
         _b.PositionAtEnd(condBlock);
         _b.CondBr(Coerce(LowerExpression(doStmt.Condition, CsType.Bool), CsType.Bool), bodyBlock, endBlock);
+
+        _b.PositionAtEnd(endBlock);
+    }
+
+    private void LowerSwitch(SwitchStatementSyntax sw)
+    {
+        var (value, valueType) = LowerExpression(sw.Expression, expected: null);
+        var endBlock = _method.Fn.AppendBlock("switch.end");
+        IrBasicBlock? defaultBlock = null;
+        var cases = new List<(IrConstInt, IrBasicBlock)>();
+        var sections = new List<(SwitchSectionSyntax Section, IrBasicBlock Block)>();
+
+        foreach (var section in sw.Sections)
+        {
+            var block = _method.Fn.AppendBlock("switch.case");
+            sections.Add((section, block));
+            foreach (var label in section.Labels)
+            {
+                if (label is CaseSwitchLabelSyntax c)
+                {
+                    var (v, _) = LowerExpression(c.Value, valueType);
+                    if (v is not IrConstInt constant)
+                        throw new CSharpNotSupportedException("switch case label must be a constant.");
+                    cases.Add((constant, block));
+                }
+                else if (label is DefaultSwitchLabelSyntax)
+                {
+                    defaultBlock = block;
+                }
+            }
+        }
+
+        _b.Switch(value, defaultBlock ?? endBlock, cases);
+
+        var continueTarget = _loops.Count > 0 ? _loops.Peek().Continue : endBlock;
+        foreach (var (section, block) in sections)
+        {
+            _b.PositionAtEnd(block);
+            _loops.Push((endBlock, continueTarget)); // break -> switch end; continue -> enclosing loop
+            foreach (var stmt in section.Statements)
+                LowerStatement(stmt);
+            _loops.Pop();
+            if (_b.CurrentBlock.Terminator is null)
+                _b.Br(endBlock);
+        }
 
         _b.PositionAtEnd(endBlock);
     }

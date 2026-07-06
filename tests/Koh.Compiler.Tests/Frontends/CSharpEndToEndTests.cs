@@ -197,6 +197,37 @@ static byte Count(byte n) {
     }
 
     [Test]
+    public async Task Switch_WithBreakAndDefault()
+    {
+        const string src = @"
+static byte Pick(byte x) {
+    byte r = 0;
+    switch (x) {
+        case 1: r = 11; break;
+        case 2: r = 22; break;
+        default: r = 99; break;
+    }
+    return r;
+}";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 2))).IsEqualTo((byte)22);
+        await Assert.That(RunA(src, gb => W8(gb, 0, 9))).IsEqualTo((byte)99);
+    }
+
+    [Test]
+    public async Task Switch_WithReturns()
+    {
+        const string src = @"
+static byte Classify(byte x) {
+    switch (x) {
+        case 1: return 10;
+        case 2: return 20;
+        default: return 99;
+    }
+}";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 1))).IsEqualTo((byte)10);
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;
