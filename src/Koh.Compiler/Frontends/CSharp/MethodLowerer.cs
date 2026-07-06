@@ -17,12 +17,14 @@ internal sealed class MethodLowerer
     private readonly ArrowExpressionClauseSyntax? _arrow;
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
     private readonly IReadOnlyDictionary<string, CsEnum> _enums;
+    private readonly IReadOnlyDictionary<string, CsStruct> _structs;
     private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> _globals;
     private readonly IReadOnlyDictionary<string, (CsType Type, long Value)> _moduleConsts;
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (IrValue BasePtr, CsStruct Info)> _structLocals = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
@@ -32,6 +34,7 @@ internal sealed class MethodLowerer
         ArrowExpressionClauseSyntax? arrow,
         IReadOnlyDictionary<string, CsMethod> methods,
         IReadOnlyDictionary<string, CsEnum> enums,
+        IReadOnlyDictionary<string, CsStruct> structs,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> globals,
         IReadOnlyDictionary<string, (CsType Type, long Value)> moduleConsts,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits)
@@ -41,6 +44,7 @@ internal sealed class MethodLowerer
         _arrow = arrow;
         _methods = methods;
         _enums = enums;
+        _structs = structs;
         _globals = globals;
         _moduleConsts = moduleConsts;
         _staticInits = staticInits;
@@ -152,6 +156,14 @@ internal sealed class MethodLowerer
             return;
         }
 
+        // A struct-typed local: reserve its bytes; fields default to zero (WRAM/emulator-zeroed).
+        if (decl.Type is IdentifierNameSyntax typeName && _structs.TryGetValue(typeName.Identifier.Text, out var structInfo))
+        {
+            foreach (var v in decl.Variables)
+                _structLocals[v.Identifier.Text] = (_b.Alloca(IrType.Array(IrType.I8, structInfo.Size)), structInfo);
+            return;
+        }
+
         var type = CSharpFrontend.ResolveType(decl.Type, _enums);
         foreach (var v in decl.Variables)
         {
@@ -219,6 +231,23 @@ internal sealed class MethodLowerer
             throw new CSharpNotSupportedException("indexing requires an array variable.");
         var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
         return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
+    }
+
+    /// <summary>Compute the pointer to a struct local's field <c>s.field</c>.</summary>
+    private (IrValue Pointer, CsType Type)? StructFieldPointer(MemberAccessExpressionSyntax member)
+    {
+        if (member.Expression is not IdentifierNameSyntax id || !_structLocals.TryGetValue(id.Identifier.Text, out var s))
+            return null;
+
+        var fieldName = member.Name.Identifier.Text;
+        foreach (var field in s.Info.Fields)
+            if (field.Name == fieldName)
+            {
+                // The offset is aligned to the field size, so index = offset / size is exact.
+                int index = field.Offset / ((field.Type.Ir.Bits + 7) / 8);
+                return (_b.Gep(s.BasePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
+            }
+        throw new CSharpNotSupportedException($"struct has no field '{fieldName}'.");
     }
 
     private void LowerIf(IfStatementSyntax ifStmt)
@@ -567,8 +596,10 @@ internal sealed class MethodLowerer
             (pointer, type) = place;
         else if (assign.Left is ElementAccessExpressionSyntax access)
             (pointer, type) = ArrayElementPointer(access);
+        else if (assign.Left is MemberAccessExpressionSyntax fieldAccess && StructFieldPointer(fieldAccess) is { } field)
+            (pointer, type) = field;
         else
-            throw new CSharpNotSupportedException("assignment target must be a variable or array element.");
+            throw new CSharpNotSupportedException("assignment target must be a variable, array element, or struct field.");
 
         IrValue result;
         if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression)
@@ -588,6 +619,10 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerMemberAccess(MemberAccessExpressionSyntax member, CsType? expected)
     {
+        // Struct field read.
+        if (StructFieldPointer(member) is { } field)
+            return (_b.Load(field.Pointer), field.Type);
+
         if (member.Expression is IdentifierNameSyntax subject)
         {
             // Enum member reference, e.g. Color.Red.

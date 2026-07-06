@@ -48,6 +48,9 @@ public sealed class CSharpFrontend : IFrontend
         // Pass 0: enums (named constants), so their types and members resolve everywhere.
         var enums = CollectEnums(root);
 
+        // Pass 0.4: struct layouts (value types with scalar fields).
+        var structs = CollectStructs(root, enums);
+
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts.
         var (globals, moduleConsts, staticInits) = CollectStatics(root, enums, module);
 
@@ -81,7 +84,7 @@ public sealed class CSharpFrontend : IFrontend
         foreach (var (method, body, arrow) in bodies)
         {
             var inits = ReferenceEquals(method, entry) ? staticInits : [];
-            new MethodLowerer(method, body, arrow, methods, enums, globals, moduleConsts, inits).Lower();
+            new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts, inits).Lower();
         }
 
         return module;
@@ -158,7 +161,9 @@ public sealed class CSharpFrontend : IFrontend
 
         long? ConstLookup(string n) => consts.TryGetValue(n, out var c) ? c.Item2 : null;
 
-        foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
+        // Only class-level fields are statics; fields inside a struct are its members.
+        foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>()
+                     .Where(f => f.Parent is ClassDeclarationSyntax))
         {
             bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
             bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
@@ -193,6 +198,33 @@ public sealed class CSharpFrontend : IFrontend
         }
         return (globals, consts, inits);
     }
+
+    private static Dictionary<string, CsStruct> CollectStructs(
+        CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums)
+    {
+        var structs = new Dictionary<string, CsStruct>(StringComparer.Ordinal);
+        foreach (var decl in root.DescendantNodes().OfType<StructDeclarationSyntax>())
+        {
+            var fields = new List<CsField>();
+            int offset = 0, align = 1;
+            foreach (var member in decl.Members.OfType<FieldDeclarationSyntax>())
+            {
+                var type = ResolveType(member.Declaration.Type, enums);
+                int size = (type.Ir.Bits + 7) / 8;
+                foreach (var v in member.Declaration.Variables)
+                {
+                    offset = RoundUp(offset, size); // align each field to its own size
+                    fields.Add(new CsField(v.Identifier.Text, type, offset));
+                    offset += size;
+                    align = Math.Max(align, size);
+                }
+            }
+            structs[decl.Identifier.Text] = new CsStruct(fields, RoundUp(offset, align));
+        }
+        return structs;
+    }
+
+    private static int RoundUp(int value, int alignment) => (value + alignment - 1) / alignment * alignment;
 
     private static byte[] ToLittleEndian(long value, int size)
     {
@@ -237,6 +269,12 @@ public sealed class CSharpFrontend : IFrontend
 
 /// <summary>An enum: its underlying Koh C# type and member values.</summary>
 internal sealed record CsEnum(CsType Underlying, IReadOnlyDictionary<string, long> Members);
+
+/// <summary>A value-type struct: scalar fields with byte offsets, and its total size.</summary>
+internal sealed record CsStruct(IReadOnlyList<CsField> Fields, int Size);
+
+/// <summary>One struct field: name, type, and byte offset within the struct.</summary>
+internal sealed record CsField(string Name, CsType Type, int Offset);
 
 /// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).</summary>
 internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params);

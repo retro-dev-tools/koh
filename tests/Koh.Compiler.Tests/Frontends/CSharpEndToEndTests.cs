@@ -353,6 +353,36 @@ static byte Get(byte i) {
     }
 
     [Test]
+    public async Task Struct_FieldsReadWrite()
+    {
+        // A struct with a byte and a ushort field, exercising aligned layout.
+        const string src = @"
+struct Sprite { byte x; ushort score; }
+static ushort Run() {
+    Sprite s;
+    s.x = 7;
+    s.score = 1000;
+    s.score += s.x;
+    return s.score;
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)1007);
+    }
+
+    [Test]
+    public async Task Struct_MixedFields()
+    {
+        const string src = @"
+struct Point { byte x; byte y; }
+static byte Run() {
+    Point p;
+    p.x = 12;
+    p.y = 30;
+    return (byte)(p.x + p.y);
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;
