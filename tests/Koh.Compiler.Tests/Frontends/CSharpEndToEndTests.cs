@@ -1400,6 +1400,57 @@ static readonly byte[] Mark = { 0xAB };";
         await Assert.That((link2.RomData ?? [])[0x0147]).IsEqualTo((byte)0x00);
     }
 
+    [Test]
+    public async Task CodeBanking_OverflowFunctionsRunFromBank1()
+    {
+        // Generate more code than the ~7.8KB ROM0 code window holds, so trailing functions (and the
+        // runtime) move into ROM bank 1. Main (in ROM0) calls Target, which lands in bank 1; bank 1 is
+        // mapped by default and never switched, so the direct call reaches it. A correct 123 proves the
+        // banked function executed and returned across the ROM0/bank-1 boundary.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return Target(); }\n");
+        for (int i = 0; i < 320; i++)
+            sb.Append($"static byte P{i}() {{ byte a = 1; byte b = 2; byte c = 3; byte d = 4; "
+                + $"return (byte)(a + b + c + d + {i % 200}); }}\n");
+        sb.Append("static byte Target() { return 123; }\n");
+        string src = sb.ToString();
+
+        // The cartridge must have banked (MBC1 header) for Target to be in bank 1.
+        var model = Compile(src);
+        var link = new LinkerType().Link([new LinkerInput("cs", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        await Assert.That(rom[0x0147]).IsEqualTo((byte)0x01); // MBC1 => banking activated
+        await Assert.That(model.Sections.Any(s => s.Name == "CODEX")).IsTrue();
+
+        // Run allowing PC across the ROM0 code window and the bank-1 window (0x4000-0x7FFF).
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 500_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000) break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)123);
+    }
+
+    [Test]
+    public async Task CodeAndDataBanking_BothOverflow_IsRejected()
+    {
+        // Code and data banking are mutually exclusive (the code bank must stay mapped), so a program
+        // that overflows both must be a clean NotSupportedException, not a miscompile.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return Target(); }\n");
+        for (int i = 0; i < 320; i++)
+            sb.Append($"static byte P{i}() {{ byte a = 1; byte b = 2; byte c = 3; byte d = 4; "
+                + $"return (byte)(a + b + c + d + {i % 200}); }}\n");
+        sb.Append("static byte Target() { return 123; }\n");
+        sb.Append("static readonly byte[] F0 = new byte[8192];\n");
+        sb.Append("static readonly byte[] F1 = new byte[16384];\n");
+        await Assert.That(() => Compile(sb.ToString())).Throws<NotSupportedException>();
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();

@@ -114,24 +114,16 @@ public sealed class Sm83Backend : IBackend
         var entryFunction = module.Functions.FirstOrDefault(f =>
                 !f.IsExternal && string.Equals(f.Name, "main", StringComparison.OrdinalIgnoreCase))
             ?? module.Functions.FirstOrDefault(f => !f.IsExternal);
-        int entryAddress = CodeBase;
-        var interruptHandlers = new List<(int Vector, int Address)>();
-
+        var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {
             if (fn.IsExternal)
                 continue;
-
-            int funcStart = CodeBase + emitter.Code.Count;
-            if (ReferenceEquals(fn, entryFunction))
-                entryAddress = funcStart;
-            if (fn.InterruptVector is int vector)
-                interruptHandlers.Add((vector, funcStart));
+            funcOffsets.Add((fn, emitter.Code.Count));
             new FunctionEmitter(emitter, fn, allocations, globalAddresses,
                 recursive, ReferenceEquals(fn, entryFunction), softStackBase).Compile();
-            symbols.Add(new SymbolData(
-                fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
         }
+        int funcsEnd = emitter.Code.Count;
 
         // Emit runtime helper routines that generated code referenced (signed divide needs the
         // unsigned one). They are appended after all functions and only entered via CALL.
@@ -160,21 +152,76 @@ public sealed class Sm83Backend : IBackend
         if (emitter.NeededRoutines.Contains("rt.pushframe")) EmitPushFrame(emitter);
         if (emitter.NeededRoutines.Contains("rt.popframe")) EmitPopFrame(emitter);
 
-        emitter.Resolve(CodeBase);
+        // Code that overflows the fixed ROM0 code window ([CodeBase, DataBase)) — the trailing functions
+        // and the runtime routines — moves into ROM bank 1. That is the bank MBC1 maps by default and
+        // this code never switches away from it, so every call stays a direct CALL (no trampolines).
+        int total = emitter.Code.Count;
+        int rom0Budget = DataBase - CodeBase;
+        int codeSplit = total;
+        if (total > rom0Budget)
+        {
+            codeSplit = 0;
+            foreach (var (_, offset) in funcOffsets)
+                if (offset <= rom0Budget) codeSplit = offset;
+            if (funcsEnd <= rom0Budget) codeSplit = funcsEnd; // all functions fit; only runtime banks
+            if (total - codeSplit > BankSize)
+                throw new NotSupportedException(
+                    $"program code is {total} bytes — more than ROM0 plus one 16 KB bank holds "
+                    + "(multi-bank code with far-call trampolines is not yet implemented).");
+            if (bankData.Count > 0)
+                throw new NotSupportedException(
+                    "a program cannot bank both code and read-only data (the code bank must stay mapped, "
+                    + "which precludes switching to a data bank).");
+        }
+
+        int AddressOf(int offset) =>
+            offset < codeSplit ? CodeBase + offset : BankWindow + (offset - codeSplit);
+
+        int entryAddress = CodeBase;
+        var interruptHandlers = new List<(int Vector, int Address)>();
+        foreach (var (fn, offset) in funcOffsets)
+        {
+            int addr = AddressOf(offset);
+            if (ReferenceEquals(fn, entryFunction))
+                entryAddress = addr;
+            if (fn.InterruptVector is int vector)
+                interruptHandlers.Add((vector, addr));
+            symbols.Add(new SymbolData(
+                fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
+        }
+
+        emitter.Resolve(CodeBase, codeSplit, BankWindow);
+
+        int extraBanks = (codeSplit < total ? 1 : 0) + bankData.Count;
+        var rom0Code = emitter.Code.GetRange(0, codeSplit).ToArray();
+        var rom0Lines = emitter.LineMap.Where(e => e.Offset < codeSplit).ToList();
 
         var sections = new List<SectionData>
         {
             new(CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
-                data: emitter.Code.ToArray(), patches: Array.Empty<PatchEntry>(),
-                lineMap: emitter.LineMap),
+                data: rom0Code, patches: Array.Empty<PatchEntry>(), lineMap: rom0Lines),
         };
+
+        // Overflow code in bank 1 (windowed at 0x4000).
+        if (codeSplit < total)
+        {
+            var bankCode = emitter.Code.GetRange(codeSplit, total - codeSplit).ToArray();
+            var bankLines = emitter.LineMap
+                .Where(e => e.Offset >= codeSplit)
+                .Select(e => e with { Offset = e.Offset - codeSplit })
+                .ToList();
+            sections.Add(new SectionData(
+                "CODEX", SectionType.RomX, fixedAddress: BankWindow, bank: 1,
+                data: bankCode, patches: Array.Empty<PatchEntry>(), lineMap: bankLines));
+        }
+
         if (romData.Count > 0)
             sections.Add(new SectionData(
                 "RODATA", SectionType.Rom0, fixedAddress: DataBase, bank: 0,
                 data: romData.ToArray(), patches: Array.Empty<PatchEntry>()));
 
-        // Switchable ROM banks (bank i+1, all windowed at 0x4000). Their presence turns the cartridge
-        // into an MBC1 of the right size so the emulator/hardware bank-switch on writes to 0x2000.
+        // Switchable ROM data banks (bank i+1, all windowed at 0x4000). Present only when code is not
+        // banked (the two are mutually exclusive); code reads them after selecting the bank via 0x2000.
         for (int i = 0; i < bankData.Count; i++)
             sections.Add(new SectionData(
                 $"ROMX_{i + 1}", SectionType.RomX, fixedAddress: BankWindow, bank: i + 1,
@@ -183,7 +230,7 @@ public sealed class Sm83Backend : IBackend
         if (entryFunction is not null)
             sections.Add(new SectionData(
                 "HEADER", SectionType.Rom0, fixedAddress: 0x0100, bank: 0,
-                data: BuildHeader(entryAddress, bankData.Count), patches: Array.Empty<PatchEntry>()));
+                data: BuildHeader(entryAddress, extraBanks), patches: Array.Empty<PatchEntry>()));
 
         // Interrupt vectors: `jp <handler>` at 0x40/0x48/0x50/0x58/0x60.
         foreach (var (vector, address) in interruptHandlers)
@@ -912,13 +959,18 @@ public sealed class Sm83Backend : IBackend
             _aValidCount = -1; // control leaves; do not carry A across the branch
         }
 
-        public void Resolve(int codeBase)
+        /// <summary>Patch every fixup to its target's absolute address. Code up to <paramref name="split"/>
+        /// is at <paramref name="rom0Base"/> (physical ROM0); code from <paramref name="split"/> on lives
+        /// in a switchable bank and is addressed through the <paramref name="bankBase"/> window.</summary>
+        public void Resolve(int rom0Base, int split, int bankBase)
         {
             foreach (var (pos, target) in _fixups)
             {
                 if (target.Offset < 0)
                     throw new InvalidOperationException("unplaced jump target");
-                int addr = codeBase + target.Offset;
+                int addr = target.Offset < split
+                    ? rom0Base + target.Offset
+                    : bankBase + (target.Offset - split);
                 Code[pos] = (byte)(addr & 0xFF);
                 Code[pos + 1] = (byte)(addr >> 8);
             }

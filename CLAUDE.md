@@ -70,11 +70,16 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   byte-by-byte, so it *interferes with its own operands* (a partial slot overlap would clobber
   a source mid-read). Phi parallel-copies detect clobbers by *allocated slot*, not SSA identity.
   If you add or change a wide-result emitter, keep it consistent with this rule.
-- **ROM banking**: read-only data past the fixed ROM0 window (`[0x2000, 0x4000)`) spills into
-  switchable MBC1 banks (windowed at `0x4000`), and the header becomes MBC1 with the right ROM
-  size. A banked global's address is only valid while its bank is mapped, so code must select the
-  bank first (`*(byte*)0x2000 = bank;`). Code itself is not yet banked (must fit ROM0); automatic
-  cross-bank calls (ROM0 far-call thunks) are a follow-up.
+- **ROM banking** (MBC1, emitted automatically when a program overflows a single 32KB ROM):
+  - *Data*: read-only data past the fixed ROM0 window (`[0x2000, 0x4000)`) spills into switchable
+    banks (windowed at `0x4000`). A banked global's address is only valid while its bank is mapped,
+    so code selects the bank first (`*(byte*)0x2000 = bank;`).
+  - *Code*: functions past the ROM0 code window (`[CodeBase, 0x2000)`), plus the runtime routines,
+    move into bank 1 — the bank MBC1 maps by default and this code never switches away from, so all
+    calls stay direct (no far-call trampolines). Addresses resolve per region in `Emitter.Resolve`.
+  - The two are **mutually exclusive** (banked code needs bank 1 permanently mapped, banked data
+    needs to switch away) and each is capped at one extra 16KB bank; overflowing further is a
+    diagnostic. Multi-bank code with ROM0 far-call thunks is the next extension.
 - **Mixed signed/unsigned** binary ops go through `MethodLowerer.CommonType` (usual-arithmetic
   conversions: wider width wins; a mixed pair whose sign matters promotes to a signed type wide
   enough, else a diagnostic). Do not take signedness/width from the left operand alone.
