@@ -1323,6 +1323,48 @@ static void Main() { Bump(); Hardware.EnableInterrupts(); }";
             .IsEqualTo((byte)1);
     }
 
+    [Test]
+    public async Task Recursion_Factorial()
+    {
+        // Direct recursion: each invocation saves/restores its shared static frame on the software stack.
+        // Main must be first — the harness boots at the first emitted function.
+        const string src = @"
+static ushort Main() { return Fact(6); }
+static ushort Fact(ushort n) {
+    if (n <= 1) return 1;
+    return (ushort)(n * Fact((ushort)(n - 1)));
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)720);
+    }
+
+    [Test]
+    public async Task Recursion_Fibonacci()
+    {
+        // Tree recursion (two self-calls per frame) stresses the save/restore ordering.
+        const string src = @"
+static ushort Main() { return Fib(10); }
+static ushort Fib(ushort n) {
+    if (n < 2) return n;
+    return (ushort)(Fib((ushort)(n - 1)) + Fib((ushort)(n - 2)));
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)55);
+    }
+
+    [Test]
+    public async Task Recursion_Mutual()
+    {
+        // Mutual recursion: IsEven/IsOdd call each other, so both are in the cycle.
+        const string src = @"
+static byte Main() { return IsEven(10); }
+static byte IsEven(byte n) { if (n == 0) return 1; return IsOdd((byte)(n - 1)); }
+static byte IsOdd(byte n) { if (n == 0) return 0; return IsEven((byte)(n - 1)); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)1);
+        await Assert.That(RunA(
+            "static byte Main() { return IsEven(7); }\n"
+            + "static byte IsEven(byte n) { if (n == 0) return 1; return IsOdd((byte)(n - 1)); }\n"
+            + "static byte IsOdd(byte n) { if (n == 0) return 0; return IsEven((byte)(n - 1)); }")).IsEqualTo((byte)0);
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();

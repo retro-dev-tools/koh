@@ -49,7 +49,7 @@ public sealed class Sm83Backend : IBackend
 
     public EmitModel Compile(IrModule module, DiagnosticBag diagnostics)
     {
-        CheckNoRecursion(module);
+        var recursive = FindRecursiveFunctions(module);
         CheckNoInterruptReentrancy(module);
 
         // Assign global addresses. Initialized (or ROM-space) globals live in a fixed ROM data
@@ -101,6 +101,10 @@ public sealed class Sm83Backend : IBackend
             wram = allocation.FrameEnd;
         }
 
+        // The software stack (for recursive frame save/restore) occupies WRAM above all static frames,
+        // growing up toward the fixed runtime scratch at 0xDF00.
+        int softStackBase = wram;
+
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
@@ -121,7 +125,8 @@ public sealed class Sm83Backend : IBackend
                 entryAddress = funcStart;
             if (fn.InterruptVector is int vector)
                 interruptHandlers.Add((vector, funcStart));
-            new FunctionEmitter(emitter, fn, allocations, globalAddresses).Compile();
+            new FunctionEmitter(emitter, fn, allocations, globalAddresses,
+                recursive, ReferenceEquals(fn, entryFunction), softStackBase).Compile();
             symbols.Add(new SymbolData(
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
         }
@@ -150,6 +155,8 @@ public sealed class Sm83Backend : IBackend
         if (emitter.NeededRoutines.Contains("rt.addmem")) EmitAddMem(emitter);
         if (emitter.NeededRoutines.Contains("rt.submem")) EmitSubMem(emitter);
         if (emitter.NeededRoutines.Contains("rt.negmem")) EmitNegMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.pushframe")) EmitPushFrame(emitter);
+        if (emitter.NeededRoutines.Contains("rt.popframe")) EmitPopFrame(emitter);
 
         emitter.Resolve(CodeBase);
 
@@ -227,29 +234,34 @@ public sealed class Sm83Backend : IBackend
         return callees;
     }
 
-    private static void CheckNoRecursion(IrModule module)
+    /// <summary>The set of functions that are part of a call cycle (directly or mutually recursive).
+    /// A function is recursive if it can reach itself through the call graph. Recursive functions save
+    /// and restore their static frame around each entry (see <see cref="FunctionEmitter"/>), so the
+    /// shared static frame survives re-entry.</summary>
+    private static HashSet<IrFunction> FindRecursiveFunctions(IrModule module)
     {
         var callees = BuildCalleeGraph(module);
-        var state = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance); // 0 unseen, 1 on-stack, 2 done
+        var recursive = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
 
-        bool HasCycle(IrFunction fn)
-        {
-            state.TryGetValue(fn, out int s);
-            if (s == 1) return true;
-            if (s == 2) return false;
-            state[fn] = 1;
-            if (callees.TryGetValue(fn, out var next))
-                foreach (var callee in next)
-                    if (HasCycle(callee))
-                        return true;
-            state[fn] = 2;
-            return false;
-        }
-
+        // A function is recursive iff it can reach itself. Run a reachability walk from each function.
         foreach (var fn in module.Functions)
-            if (HasCycle(fn))
-                throw new NotSupportedException(
-                    "SM83 backend does not support recursion (functions use static WRAM frames).");
+        {
+            var seen = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
+            var stack = new Stack<IrFunction>();
+            if (callees.TryGetValue(fn, out var direct))
+                foreach (var c in direct)
+                    stack.Push(c);
+            while (stack.Count > 0)
+            {
+                var cur = stack.Pop();
+                if (ReferenceEquals(cur, fn)) { recursive.Add(fn); break; }
+                if (!seen.Add(cur)) continue;
+                if (callees.TryGetValue(cur, out var next))
+                    foreach (var c in next)
+                        stack.Push(c);
+            }
+        }
+        return recursive;
     }
 
     /// <summary>Static WRAM frames are not reentrant. An interrupt handler can preempt main-line code
@@ -312,8 +324,15 @@ public sealed class Sm83Backend : IBackend
     private const int RtAcc = 0xDF20;       // product / remainder
 
     /// <summary>Where an i64 return value is passed: it does not fit the register file, so an i64 is
-    /// returned in this fixed 8-byte scratch (little-endian). Public so tests can read it.</summary>
+    /// returned in this fixed 8-byte scratch (little-endian). Public so tests can read it. A recursive
+    /// function returns its value here at every width, so the epilogue's frame restore cannot clobber it.</summary>
     public const int ReturnScratch = 0xDF28;
+
+    // Recursion support: recursive functions save their static frame to a software stack on entry and
+    // restore it before return, receive arguments through a fixed staging area (so the caller's own
+    // frame is not disturbed), and return via ReturnScratch.
+    private const int SoftSp = 0xDF05;      // software-stack pointer (2 bytes)
+    private const int ArgScratch = 0xDE80;  // recursive-call argument staging (little-endian, packed)
 
     /// <summary>__mul16: HL = DE * BC (low 16 bits) by shift-and-add. Sign-agnostic.</summary>
     private static void EmitMul16(Emitter e)
@@ -530,6 +549,44 @@ public sealed class Sm83Backend : IBackend
         e.U8(0x05);                              // dec b
         e.Jump(0xC2, loop);                      // jp nz, loop
         e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>rt.pushframe: save B bytes at (DE) to the software stack, advancing SoftSp. Used by a
+    /// recursive function's prologue to preserve the caller's copy of the shared static frame.</summary>
+    private static void EmitPushFrame(Emitter e)
+    {
+        e.PlaceRoutine("rt.pushframe");
+        LdAAbs(e, SoftSp); e.U8(0x6F);                   // ld a,(SoftSp)   ; ld l,a
+        LdAAbs(e, SoftSp + 1); e.U8(0x67);               // ld a,(SoftSp+1) ; ld h,a   -> HL = SoftSp
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0x1A);                                      // ld a,(de)
+        e.U8(0x22);                                      // ld (hl+),a
+        e.U8(0x13);                                      // inc de
+        e.U8(0x05);                                      // dec b
+        e.Jump(0xC2, loop);                              // jp nz, loop
+        e.U8(0x7D); StAAbs(e, SoftSp);                   // ld a,l ; ld (SoftSp),a
+        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a
+        e.U8(0xC9);                                      // ret
+    }
+
+    /// <summary>rt.popframe: retreat SoftSp by B, then restore B bytes from the software stack to (DE).
+    /// Used by a recursive function's epilogue to put the caller's frame back before returning.</summary>
+    private static void EmitPopFrame(Emitter e)
+    {
+        e.PlaceRoutine("rt.popframe");
+        LdAAbs(e, SoftSp); e.U8(0x90); e.U8(0x6F);       // ld a,(SoftSp) ; sub b ; ld l,a
+        LdAAbs(e, SoftSp + 1); e.U8(0xDE); e.U8(0x00); e.U8(0x67); // ld a,(SoftSp+1) ; sbc a,0 ; ld h,a -> HL = SoftSp-B
+        e.U8(0x7D); StAAbs(e, SoftSp);                   // ld a,l ; ld (SoftSp),a
+        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0x2A);                                      // ld a,(hl+)
+        e.U8(0x12);                                      // ld (de),a
+        e.U8(0x13);                                      // inc de
+        e.U8(0x05);                                      // dec b
+        e.Jump(0xC2, loop);                              // jp nz, loop
+        e.U8(0xC9);                                      // ret
     }
 
     /// <summary>Load RtBits with N*8 (the full-width bit count).</summary>
@@ -757,6 +814,17 @@ public sealed class Sm83Backend : IBackend
             return label;
         }
 
+        private readonly Dictionary<IrFunction, Label> _funcs = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The label at a function's true entry (before any prologue), which is what a CALL
+        /// targets — distinct from the entry basic block's label, which a recursive prologue precedes.</summary>
+        public Label FunctionLabel(IrFunction fn)
+        {
+            if (!_funcs.TryGetValue(fn, out var label))
+                _funcs[fn] = label = new Label();
+            return label;
+        }
+
         public Label RoutineLabel(string name)
         {
             if (!_routines.TryGetValue(name, out var label))
@@ -816,6 +884,7 @@ public sealed class Sm83Backend : IBackend
         public required Dictionary<IrValue, int> Slot { get; init; }
         public required Dictionary<IrValue, int> StaticAddr { get; init; }
         public required int PhiTempBase { get; init; }
+        public required int FrameBase { get; init; }
         public required int FrameEnd { get; init; }
 
         public static FunctionAllocation For(IrFunction fn, int baseAddr)
@@ -901,6 +970,7 @@ public sealed class Sm83Backend : IBackend
                 Slot = slot,
                 StaticAddr = staticAddr,
                 PhiTempBase = phiTempBase,
+                FrameBase = baseAddr,
                 FrameEnd = wram,
             };
         }
@@ -1053,12 +1123,20 @@ public sealed class Sm83Backend : IBackend
         private readonly Dictionary<IrValue, int> _slot;
         private readonly Dictionary<IrValue, int> _staticAddr;
         private readonly int _phiTempBase;
+        private readonly IReadOnlySet<IrFunction> _recursive;
+        private readonly bool _isEntry;
+        private readonly int _softStackBase;
+        private readonly int _frameBase;
+        private readonly int _frameSize;
 
         public FunctionEmitter(
             Emitter emitter,
             IrFunction fn,
             IReadOnlyDictionary<IrFunction, FunctionAllocation> allocations,
-            IReadOnlyDictionary<IrGlobal, int> globals)
+            IReadOnlyDictionary<IrGlobal, int> globals,
+            IReadOnlySet<IrFunction> recursive,
+            bool isEntry,
+            int softStackBase)
         {
             _e = emitter;
             _fn = fn;
@@ -1068,6 +1146,22 @@ public sealed class Sm83Backend : IBackend
             _slot = allocation.Slot;
             _staticAddr = allocation.StaticAddr;
             _phiTempBase = allocation.PhiTempBase;
+            _recursive = recursive;
+            _isEntry = isEntry;
+            _softStackBase = softStackBase;
+            _frameBase = allocation.FrameBase;
+            _frameSize = allocation.FrameEnd - allocation.FrameBase;
+        }
+
+        private bool IsRecursive => _recursive.Contains(_fn);
+
+        /// <summary>Total bytes of a function's parameters (contiguous at its frame base).</summary>
+        private static int ParamBytes(IrFunction fn)
+        {
+            int bytes = 0;
+            foreach (var p in fn.Parameters)
+                bytes += SizeOf(p.Type);
+            return bytes;
         }
 
         /// <summary>A compile-time-known address: an alloca/constant-gep, a global's address, or a
@@ -1089,6 +1183,9 @@ public sealed class Sm83Backend : IBackend
 
         public void Compile()
         {
+            // The CALL target is here, before any prologue (the entry block label follows the prologue).
+            _e.Place(_e.FunctionLabel(_fn));
+
             // Interrupt handlers must preserve everything they touch; push at entry, pop before RETI.
             if (_fn.InterruptVector is not null)
             {
@@ -1096,6 +1193,34 @@ public sealed class Sm83Backend : IBackend
                 _e.U8(0xC5); // PUSH BC
                 _e.U8(0xD5); // PUSH DE
                 _e.U8(0xE5); // PUSH HL
+            }
+
+            if (_isEntry && _recursive.Count > 0)
+            {
+                // Initialize the software-stack pointer once at boot (only needed when some function
+                // recurses and therefore saves its frame there).
+                _e.U8(0x21); _e.U8(_softStackBase & 0xFF); _e.U8(_softStackBase >> 8); // LD HL, softStackBase
+                _e.U8(0x7D); _e.StoreA(SoftSp);       // LD A, L ; LD (SoftSp), A
+                _e.U8(0x7C); _e.StoreA(SoftSp + 1);   // LD A, H ; LD (SoftSp+1), A
+            }
+
+            if (IsRecursive)
+            {
+                if (_frameSize > 255)
+                    throw new NotSupportedException(
+                        $"recursive function '{_fn.Name}' frame is {_frameSize} bytes; the software-stack "
+                        + "save supports up to 255.");
+                // Save the caller's copy of the shared static frame, then install this call's arguments
+                // (staged in ArgScratch) into the parameter slots at the frame base.
+                _e.U8(0x11); _e.U8(_frameBase & 0xFF); _e.U8(_frameBase >> 8); // LD DE, frameBase
+                _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
+                _e.Jump(0xCD, _e.RoutineLabel("rt.pushframe"));
+                int paramBytes = ParamBytes(_fn);
+                for (int k = 0; k < paramBytes; k++)
+                {
+                    _e.LoadA(ArgScratch + k);
+                    _e.StoreA(_frameBase + k);
+                }
             }
 
             foreach (var block in _fn.Blocks)
@@ -1708,6 +1833,26 @@ public sealed class Sm83Backend : IBackend
 
         private void EmitRet(RetInstruction r)
         {
+            if (IsRecursive)
+            {
+                // Return via ReturnScratch (memory) so restoring the caller's frame cannot clobber it,
+                // then restore the frame and RET.
+                if (r.Value is not null)
+                {
+                    int n = SizeOf(r.Value.Type);
+                    for (int k = 0; k < n; k++)
+                    {
+                        LoadByteToA(r.Value, k);
+                        StoreAToAddr(ReturnScratch + k);
+                    }
+                }
+                _e.U8(0x11); _e.U8(_frameBase & 0xFF); _e.U8(_frameBase >> 8); // LD DE, frameBase
+                _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
+                _e.Jump(0xCD, _e.RoutineLabel("rt.popframe"));
+                _e.U8(0xC9);                                                   // RET
+                return;
+            }
+
             if (r.Value is not null)
             {
                 switch (SizeOf(r.Value.Type))
@@ -1782,6 +1927,35 @@ public sealed class Sm83Backend : IBackend
                 throw new NotSupportedException(
                     $"SM83 backend cannot yet call external function '@{callee.Name}'.");
 
+            if (_recursive.Contains(callee))
+            {
+                // A recursive callee shares its static frame across invocations, so it takes arguments
+                // through the ArgScratch staging area (leaving our own frame intact) and returns via
+                // ReturnScratch; writing straight into its parameter slots would corrupt an ancestor.
+                int off = 0;
+                for (int i = 0; i < call.Arguments.Count; i++)
+                {
+                    int n = SizeOf(callee.Parameters[i].Type);
+                    for (int k = 0; k < n; k++)
+                    {
+                        LoadByteToA(call.Arguments[i], k);
+                        StoreAToAddr(ArgScratch + off + k);
+                    }
+                    off += n;
+                }
+                _e.Jump(0xCD, _e.FunctionLabel(callee)); // CALL true entry (before prologue)
+                if (call.Type.Kind == IrTypeKind.Void)
+                    return;
+                int rdst = _slot[call];
+                int rn = SizeOf(call.Type);
+                for (int k = 0; k < rn; k++)
+                {
+                    LoadAFromAddr(ReturnScratch + k);
+                    StoreAToAddr(rdst + k);
+                }
+                return;
+            }
+
             var calleeAllocation = _allocations[callee];
             for (int i = 0; i < call.Arguments.Count; i++)
             {
@@ -1795,7 +1969,7 @@ public sealed class Sm83Backend : IBackend
                 }
             }
 
-            _e.Jump(0xCD, _e.BlockLabel(callee.EntryBlock)); // CALL a16
+            _e.Jump(0xCD, _e.FunctionLabel(callee)); // CALL a16
 
             if (call.Type.Kind == IrTypeKind.Void)
                 return;

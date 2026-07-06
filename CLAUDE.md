@@ -62,9 +62,10 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   the backend, which may "work by accident." Assert `IrVerifier.Verify(module).IsEmpty()` in
   tests for new lowering.
 - **SM83 backend is an accumulator machine**: everything flows through `A`; `HL` is the
-  pointer register; static WRAM allocation (NESFab-style, no stack frames); non-recursive
-  (recursion is rejected). i8 returns in `A`, i16 in `HL`, i32 in `DE:HL`, i64 in memory
-  (`Sm83Backend.ReturnScratch`).
+  pointer register; static WRAM allocation (NESFab-style). Recursion is supported: a function
+  in a call cycle saves/restores its shared static frame on a software stack (`SoftSp`) around
+  each entry, takes its args via `ArgScratch`, and returns via `ReturnScratch`. i8 returns in
+  `A`, i16 in `HL`, i32 in `DE:HL`, i64 (and any recursive return) in memory (`ReturnScratch`).
 - **Register allocator (`FunctionAllocation`)**: a multi-byte result is written in place
   byte-by-byte, so it *interferes with its own operands* (a partial slot overlap would clobber
   a source mid-read). Phi parallel-copies detect clobbers by *allocated slot*, not SSA identity.
@@ -91,8 +92,8 @@ static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref
 `&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
 (mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,
 `static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
-`[Interrupt("VBlank")]` handlers. Out by design: 128-bit+, classes/GC/generics/async/LINQ/recursion.
-Out-of-subset constructs are reported as diagnostics.
+`[Interrupt("VBlank")]` handlers, and recursion (direct and mutual). Out by design: 128-bit+,
+classes/GC/generics/async/LINQ. Out-of-subset constructs are reported as diagnostics.
 
 ## Gotchas
 
