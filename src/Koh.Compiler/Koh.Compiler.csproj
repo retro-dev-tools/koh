@@ -7,6 +7,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Koh.Compiler.Tests" />
   </ItemGroup>
 

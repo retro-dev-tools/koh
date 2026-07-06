@@ -1,0 +1,347 @@
+using Koh.Compiler.Ir;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+namespace Koh.Compiler.Frontends.CSharp;
+
+/// <summary>
+/// Lowers one method body to an IR function. Parameters and locals become <c>alloca</c>s read via
+/// <c>load</c> and written via <c>store</c>, so control flow (if/while) only needs br/condbr — no
+/// phi construction. Expression types are tracked with C-like rules (8-bit arithmetic stays 8-bit)
+/// and drive signed vs. unsigned operation selection.
+/// </summary>
+internal sealed class MethodLowerer
+{
+    private readonly CsMethod _method;
+    private readonly BlockSyntax? _body;
+    private readonly ArrowExpressionClauseSyntax? _arrow;
+    private readonly IReadOnlyDictionary<string, CsMethod> _methods;
+    private readonly IrBuilder _b = new();
+    private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
+
+    public MethodLowerer(
+        CsMethod method,
+        BlockSyntax? body,
+        ArrowExpressionClauseSyntax? arrow,
+        IReadOnlyDictionary<string, CsMethod> methods)
+    {
+        _method = method;
+        _body = body;
+        _arrow = arrow;
+        _methods = methods;
+    }
+
+    public void Lower()
+    {
+        var entry = _method.Fn.AppendBlock("entry");
+        _b.PositionAtEnd(entry);
+
+        // Give every parameter a mutable slot seeded with its incoming value.
+        for (int i = 0; i < _method.Fn.Parameters.Count; i++)
+        {
+            var p = _method.Fn.Parameters[i];
+            var slot = _b.Alloca(p.Type);
+            _b.Store(p, slot);
+            _locals[p.Name!] = (slot, _method.Params[i]);
+        }
+
+        if (_body is { } body)
+            foreach (var stmt in body.Statements)
+                LowerStatement(stmt);
+        else if (_arrow is { } arrow)
+            EmitReturn(arrow.Expression);
+
+        // Ensure the final block is terminated (fell off the end).
+        if (_b.CurrentBlock.Terminator is null)
+        {
+            if (_method.Return is { } rt)
+                _b.Ret(IrBuilder.ConstInt(rt.Ir, 0));
+            else
+                _b.Ret();
+        }
+    }
+
+    // ---- Statements --------------------------------------------------------
+
+    private void LowerStatement(StatementSyntax stmt)
+    {
+        switch (stmt)
+        {
+            case BlockSyntax block:
+                foreach (var s in block.Statements)
+                    LowerStatement(s);
+                break;
+
+            case LocalDeclarationStatementSyntax local:
+                LowerLocalDeclaration(local.Declaration);
+                break;
+
+            case ExpressionStatementSyntax expr:
+                LowerExpression(expr.Expression, expected: null);
+                break;
+
+            case IfStatementSyntax ifStmt:
+                LowerIf(ifStmt);
+                break;
+
+            case WhileStatementSyntax whileStmt:
+                LowerWhile(whileStmt);
+                break;
+
+            case ReturnStatementSyntax ret:
+                if (ret.Expression is { } value)
+                    EmitReturn(value);
+                else
+                    _b.Ret();
+                break;
+
+            default:
+                throw new CSharpNotSupportedException($"unsupported statement '{stmt.Kind()}'.");
+        }
+    }
+
+    private void LowerLocalDeclaration(VariableDeclarationSyntax decl)
+    {
+        var type = CSharpFrontend.MapType(decl.Type);
+        foreach (var v in decl.Variables)
+        {
+            var slot = _b.Alloca(type.Ir);
+            _locals[v.Identifier.Text] = (slot, type);
+            if (v.Initializer is { } init)
+                _b.Store(Coerce(LowerExpression(init.Value, type), type), slot);
+        }
+    }
+
+    private void LowerIf(IfStatementSyntax ifStmt)
+    {
+        var cond = Coerce(LowerExpression(ifStmt.Condition, CsType.Bool), CsType.Bool);
+        var thenBlock = _method.Fn.AppendBlock("if.then");
+        var elseBlock = ifStmt.Else is not null ? _method.Fn.AppendBlock("if.else") : null;
+        var endBlock = _method.Fn.AppendBlock("if.end");
+
+        _b.CondBr(cond, thenBlock, elseBlock ?? endBlock);
+
+        _b.PositionAtEnd(thenBlock);
+        LowerStatement(ifStmt.Statement);
+        if (_b.CurrentBlock.Terminator is null)
+            _b.Br(endBlock);
+
+        if (elseBlock is not null)
+        {
+            _b.PositionAtEnd(elseBlock);
+            LowerStatement(ifStmt.Else!.Statement);
+            if (_b.CurrentBlock.Terminator is null)
+                _b.Br(endBlock);
+        }
+
+        _b.PositionAtEnd(endBlock);
+    }
+
+    private void LowerWhile(WhileStatementSyntax whileStmt)
+    {
+        var condBlock = _method.Fn.AppendBlock("while.cond");
+        var bodyBlock = _method.Fn.AppendBlock("while.body");
+        var endBlock = _method.Fn.AppendBlock("while.end");
+
+        _b.Br(condBlock);
+        _b.PositionAtEnd(condBlock);
+        _b.CondBr(Coerce(LowerExpression(whileStmt.Condition, CsType.Bool), CsType.Bool), bodyBlock, endBlock);
+
+        _b.PositionAtEnd(bodyBlock);
+        LowerStatement(whileStmt.Statement);
+        if (_b.CurrentBlock.Terminator is null)
+            _b.Br(condBlock);
+
+        _b.PositionAtEnd(endBlock);
+    }
+
+    private void EmitReturn(ExpressionSyntax value)
+    {
+        if (_method.Return is not { } rt)
+            throw new CSharpNotSupportedException("return with a value from a void method.");
+        _b.Ret(Coerce(LowerExpression(value, rt), rt));
+    }
+
+    // ---- Expressions -------------------------------------------------------
+
+    /// <summary>Lower an expression, returning its value and Koh C# type. <paramref name="expected"/>
+    /// types otherwise-ambiguous literals.</summary>
+    private (IrValue Value, CsType Type) LowerExpression(ExpressionSyntax expr, CsType? expected)
+    {
+        switch (expr)
+        {
+            case ParenthesizedExpressionSyntax paren:
+                return LowerExpression(paren.Expression, expected);
+
+            case LiteralExpressionSyntax lit:
+                return LowerLiteral(lit, expected);
+
+            case IdentifierNameSyntax id:
+            {
+                if (!_locals.TryGetValue(id.Identifier.Text, out var local))
+                    throw new CSharpNotSupportedException($"unknown identifier '{id.Identifier.Text}'.");
+                return (_b.Load(local.Slot), local.Type);
+            }
+
+            case CastExpressionSyntax cast:
+            {
+                var target = CSharpFrontend.MapType(cast.Type);
+                return (Coerce(LowerExpression(cast.Expression, target), target), target);
+            }
+
+            case PrefixUnaryExpressionSyntax unary:
+                return LowerUnary(unary, expected);
+
+            case BinaryExpressionSyntax binary:
+                return LowerBinary(binary, expected);
+
+            case AssignmentExpressionSyntax assign:
+                return LowerAssignment(assign);
+
+            case InvocationExpressionSyntax call:
+                return LowerCall(call);
+
+            default:
+                throw new CSharpNotSupportedException($"unsupported expression '{expr.Kind()}'.");
+        }
+    }
+
+    private (IrValue, CsType) LowerLiteral(LiteralExpressionSyntax lit, CsType? expected)
+    {
+        if (lit.Kind() == SyntaxKind.TrueLiteralExpression)
+            return (IrBuilder.ConstInt(IrType.I8, 1), CsType.Bool);
+        if (lit.Kind() == SyntaxKind.FalseLiteralExpression)
+            return (IrBuilder.ConstInt(IrType.I8, 0), CsType.Bool);
+
+        var type = expected ?? CsType.U16;
+        long value = Convert.ToInt64(lit.Token.Value);
+        return (IrBuilder.ConstInt(type.Ir, value), type);
+    }
+
+    private (IrValue, CsType) LowerUnary(PrefixUnaryExpressionSyntax unary, CsType? expected)
+    {
+        var (value, type) = LowerExpression(unary.Operand, expected);
+        return unary.Kind() switch
+        {
+            SyntaxKind.UnaryMinusExpression =>
+                (_b.Sub(IrBuilder.ConstInt(type.Ir, 0), value), type),
+            SyntaxKind.LogicalNotExpression =>
+                (_b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(IrType.I8, 1)), CsType.Bool),
+            SyntaxKind.UnaryPlusExpression => (value, type),
+            _ => throw new CSharpNotSupportedException($"unsupported unary operator '{unary.OperatorToken.Text}'."),
+        };
+    }
+
+    private (IrValue, CsType) LowerBinary(BinaryExpressionSyntax binary, CsType? expected)
+    {
+        var kind = binary.Kind();
+
+        if (IsComparison(kind))
+        {
+            var (left, lt) = LowerExpression(binary.Left, expected);
+            var (right, rt) = LowerExpression(binary.Right, lt);
+            return (_b.Compare(CompareOp(kind, lt.Signed), left, Coerce((right, rt), lt)), CsType.Bool);
+        }
+
+        var (l, ltype) = LowerExpression(binary.Left, expected);
+        var (r, rtype) = LowerExpression(binary.Right, ltype);
+        var rc = Coerce((r, rtype), ltype);
+        return (_b.Binary(ArithOp(kind, ltype.Signed), l, rc), ltype);
+    }
+
+    private (IrValue, CsType) LowerAssignment(AssignmentExpressionSyntax assign)
+    {
+        if (assign.Left is not IdentifierNameSyntax id || !_locals.TryGetValue(id.Identifier.Text, out var local))
+            throw new CSharpNotSupportedException("assignment target must be a local variable.");
+
+        IrValue result;
+        if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression)
+        {
+            result = Coerce(LowerExpression(assign.Right, local.Type), local.Type);
+        }
+        else
+        {
+            var current = _b.Load(local.Slot);
+            var rhs = Coerce(LowerExpression(assign.Right, local.Type), local.Type);
+            result = _b.Binary(CompoundOp(assign.Kind(), local.Type.Signed), current, rhs);
+        }
+
+        _b.Store(result, local.Slot);
+        return (result, local.Type);
+    }
+
+    private (IrValue, CsType) LowerCall(InvocationExpressionSyntax call)
+    {
+        if (call.Expression is not IdentifierNameSyntax id || !_methods.TryGetValue(id.Identifier.Text, out var callee))
+            throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
+
+        var args = new List<IrValue>();
+        var argList = call.ArgumentList.Arguments;
+        for (int i = 0; i < argList.Count; i++)
+        {
+            var paramType = callee.Params[i];
+            args.Add(Coerce(LowerExpression(argList[i].Expression, paramType), paramType));
+        }
+
+        var result = _b.Call(callee.Fn, args);
+        return (result, callee.Return ?? CsType.U8);
+    }
+
+    // ---- Types & operators -------------------------------------------------
+
+    /// <summary>Widen/narrow a value to <paramref name="target"/> using its source signedness.</summary>
+    private IrValue Coerce((IrValue Value, CsType Type) source, CsType target)
+    {
+        if (source.Type.Ir.Bits == target.Ir.Bits)
+            return source.Value;
+        if (target.Ir.Bits < source.Type.Ir.Bits)
+            return _b.Conv(IrConvOp.Trunc, source.Value, target.Ir);
+        return _b.Conv(source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt, source.Value, target.Ir);
+    }
+
+    private static bool IsComparison(SyntaxKind kind) => kind is
+        SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression or
+        SyntaxKind.GreaterThanExpression or SyntaxKind.GreaterThanOrEqualExpression or
+        SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression;
+
+    private static IrCompareOp CompareOp(SyntaxKind kind, bool signed) => kind switch
+    {
+        SyntaxKind.EqualsExpression => IrCompareOp.Eq,
+        SyntaxKind.NotEqualsExpression => IrCompareOp.Ne,
+        SyntaxKind.LessThanExpression => signed ? IrCompareOp.Slt : IrCompareOp.Ult,
+        SyntaxKind.LessThanOrEqualExpression => signed ? IrCompareOp.Sle : IrCompareOp.Ule,
+        SyntaxKind.GreaterThanExpression => signed ? IrCompareOp.Sgt : IrCompareOp.Ugt,
+        SyntaxKind.GreaterThanOrEqualExpression => signed ? IrCompareOp.Sge : IrCompareOp.Uge,
+        _ => throw new CSharpNotSupportedException($"unsupported comparison '{kind}'."),
+    };
+
+    private static IrBinaryOp ArithOp(SyntaxKind kind, bool signed) => kind switch
+    {
+        SyntaxKind.AddExpression => IrBinaryOp.Add,
+        SyntaxKind.SubtractExpression => IrBinaryOp.Sub,
+        SyntaxKind.MultiplyExpression => IrBinaryOp.Mul,
+        SyntaxKind.DivideExpression => signed ? IrBinaryOp.SDiv : IrBinaryOp.UDiv,
+        SyntaxKind.ModuloExpression => signed ? IrBinaryOp.SRem : IrBinaryOp.URem,
+        SyntaxKind.BitwiseAndExpression => IrBinaryOp.And,
+        SyntaxKind.BitwiseOrExpression => IrBinaryOp.Or,
+        SyntaxKind.ExclusiveOrExpression => IrBinaryOp.Xor,
+        SyntaxKind.LeftShiftExpression => IrBinaryOp.Shl,
+        SyntaxKind.RightShiftExpression => signed ? IrBinaryOp.AShr : IrBinaryOp.LShr,
+        _ => throw new CSharpNotSupportedException($"unsupported operator '{kind}'."),
+    };
+
+    private static IrBinaryOp CompoundOp(SyntaxKind kind, bool signed) => kind switch
+    {
+        SyntaxKind.AddAssignmentExpression => IrBinaryOp.Add,
+        SyntaxKind.SubtractAssignmentExpression => IrBinaryOp.Sub,
+        SyntaxKind.MultiplyAssignmentExpression => IrBinaryOp.Mul,
+        SyntaxKind.DivideAssignmentExpression => signed ? IrBinaryOp.SDiv : IrBinaryOp.UDiv,
+        SyntaxKind.ModuloAssignmentExpression => signed ? IrBinaryOp.SRem : IrBinaryOp.URem,
+        SyntaxKind.AndAssignmentExpression => IrBinaryOp.And,
+        SyntaxKind.OrAssignmentExpression => IrBinaryOp.Or,
+        SyntaxKind.ExclusiveOrAssignmentExpression => IrBinaryOp.Xor,
+        SyntaxKind.LeftShiftAssignmentExpression => IrBinaryOp.Shl,
+        SyntaxKind.RightShiftAssignmentExpression => signed ? IrBinaryOp.AShr : IrBinaryOp.LShr,
+        _ => throw new CSharpNotSupportedException($"unsupported compound assignment '{kind}'."),
+    };
+}
