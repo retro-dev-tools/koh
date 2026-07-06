@@ -441,12 +441,14 @@ public sealed class Sm83Backend : IBackend
         e.U8(0xC9);                                                        // RET
     }
 
-    /// <summary>End of the fixed ROM0 data window; data past this spills into switchable banks.</summary>
-    private const int Rom0DataEnd = 0x4000;
-
-    /// <summary>Base of the switchable ROM-bank window (0x4000–0x7FFF).</summary>
+    /// <summary>Base of the switchable ROM-bank window (0x4000–0x7FFF). This is also the end of the
+    /// fixed ROM0 data window: read-only data past here spills into switchable banks.</summary>
     private const int BankWindow = 0x4000;
     private const int BankSize = 0x4000;
+
+    /// <summary>End of the fixed ROM0 data window; data past this spills into switchable banks (the
+    /// window ends exactly where the switchable bank window begins).</summary>
+    private const int Rom0DataEnd = BankWindow;
 
     /// <summary>Place a read-only global's bytes into ROM0 data, or — once that 16KB window is full —
     /// into a switchable ROM bank, and return the (windowed) address the global is addressed at. A
@@ -2169,14 +2171,7 @@ public sealed class Sm83Backend : IBackend
                 // Return via ReturnScratch (memory) so neither the recursive frame restore nor the far-call
                 // thunk's bank restore can clobber it. A recursive function also restores its frame here.
                 if (r.Value is not null)
-                {
-                    int n = SizeOf(r.Value.Type);
-                    for (int k = 0; k < n; k++)
-                    {
-                        LoadByteToA(r.Value, k);
-                        StoreAToAddr(ReturnScratch + k);
-                    }
-                }
+                    CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
                 if (IsRecursive)
                 {
                     _e.U8(0x11); _e.U8(_frameBase & 0xFF); _e.U8(_frameBase >> 8); // LD DE, frameBase
@@ -2210,11 +2205,7 @@ public sealed class Sm83Backend : IBackend
                     case 8:
                     case 16:
                         // i64/i128 have no register room; return in the fixed ReturnScratch (little-endian).
-                        for (int k = 0; k < SizeOf(r.Value.Type); k++)
-                        {
-                            LoadByteToA(r.Value, k);
-                            StoreAToAddr(ReturnScratch + k);
-                        }
+                        CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
                         break;
                     default:
                         throw new NotSupportedException(
@@ -2310,12 +2301,7 @@ public sealed class Sm83Backend : IBackend
             // A recursive or banked callee returns through ReturnScratch (memory); read it back.
             if (calleeRecursive || calleeBanked)
             {
-                int rn = SizeOf(call.Type);
-                for (int k = 0; k < rn; k++)
-                {
-                    LoadAFromAddr(ReturnScratch + k);
-                    StoreAToAddr(dst + k);
-                }
+                CopyFromScratch(ReturnScratch, dst, SizeOf(call.Type));
                 return;
             }
 
@@ -2336,11 +2322,8 @@ public sealed class Sm83Backend : IBackend
                     break;
                 case 8:
                 case 16:
-                    for (int k = 0; k < SizeOf(call.Type); k++)   // i64/i128 come back in ReturnScratch
-                    {
-                        LoadAFromAddr(ReturnScratch + k);
-                        StoreAToAddr(dst + k);
-                    }
+                    // i64/i128 come back in ReturnScratch.
+                    CopyFromScratch(ReturnScratch, dst, SizeOf(call.Type));
                     break;
                 default:
                     throw new NotSupportedException(
