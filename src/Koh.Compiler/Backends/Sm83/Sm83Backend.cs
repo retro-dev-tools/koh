@@ -311,8 +311,7 @@ public sealed class Sm83Backend : IBackend
         // --- ROM0 block: boot stub, entry, handlers, runtime, thunks (contiguous, physically based). ---
         // Boot: seed the current-bank shadow and jump to the entry function.
         emitter.U8(0x3E); emitter.U8(0x01);                                             // LD A, 1
-        emitter.U8(0xEA); emitter.U8(CurBank & 0xFF); emitter.U8(CurBank >> 8);          // LD (CurBank), A
-        emitter.U8(0xEA); emitter.U8(MbcBankSelect & 0xFF); emitter.U8(MbcBankSelect >> 8); // LD (0x2000), A
+        SelectBank(emitter);                                                            // seed current-bank shadow + MBC1
         emitter.Jump(0xC3, emitter.FunctionLabel(entryFunction));                       // JP entry
 
         void EmitFunc(IrFunction f, int addr)
@@ -424,20 +423,26 @@ public sealed class Sm83Backend : IBackend
         if (emitter.NeededRoutines.Contains("rt.popframe")) EmitPopFrame(emitter);
     }
 
+    /// <summary>Given the bank number in <c>A</c>, make it current: write it to both the CurBank shadow
+    /// and the MBC1 bank-select register (0x2000).</summary>
+    private static void SelectBank(Emitter e)
+    {
+        StAAbs(e, CurBank);        // LD (CurBank), A
+        StAAbs(e, MbcBankSelect);  // LD (0x2000), A  (MBC1 switches on this write)
+    }
+
     /// <summary>Emit a ROM0 far-call thunk: save the current bank, map the callee's bank, CALL it
     /// through the 0x4000 window, then restore the caller's bank and return. The callee returns via
     /// ReturnScratch, so clobbering A here is safe.</summary>
     private static void EmitThunk(Emitter e, int bank, Label target)
     {
-        e.U8(0xFA); e.U8(CurBank & 0xFF); e.U8(CurBank >> 8);              // LD A, (CurBank)
+        LdAAbs(e, CurBank);                                               // LD A, (CurBank)
         e.U8(0xF5);                                                        // PUSH AF   (save caller bank)
         e.U8(0x3E); e.U8(bank);                                            // LD A, bank
-        e.U8(0xEA); e.U8(CurBank & 0xFF); e.U8(CurBank >> 8);              // LD (CurBank), A
-        e.U8(0xEA); e.U8(MbcBankSelect & 0xFF); e.U8(MbcBankSelect >> 8);  // LD (0x2000), A  (switch)
+        SelectBank(e);                                                     // map callee's bank
         e.Jump(0xCD, target);                                             // CALL callee (windowed)
         e.U8(0xF1);                                                        // POP AF    (caller bank)
-        e.U8(0xEA); e.U8(CurBank & 0xFF); e.U8(CurBank >> 8);              // LD (CurBank), A
-        e.U8(0xEA); e.U8(MbcBankSelect & 0xFF); e.U8(MbcBankSelect >> 8);  // LD (0x2000), A  (restore)
+        SelectBank(e);                                                     // restore caller's bank
         e.U8(0xC9);                                                        // RET
     }
 
@@ -541,22 +546,72 @@ public sealed class Sm83Backend : IBackend
         var callees = BuildCalleeGraph(module);
         var recursive = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
 
-        // A function is recursive iff it can reach itself. Run a reachability walk from each function.
-        foreach (var fn in module.Functions)
+        // One Tarjan strongly-connected-components pass over the call graph: a function is recursive iff
+        // it lies on a call cycle — it belongs to an SCC of more than one function, or it calls itself
+        // directly (a self-edge, which forms a single-node cycle Tarjan does not flag on component size).
+        var index = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
+        var low = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
+        var onStack = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
+        var component = new Stack<IrFunction>();
+        int next = 0;
+
+        foreach (var start in module.Functions)
         {
-            var seen = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
-            var stack = new Stack<IrFunction>();
-            if (callees.TryGetValue(fn, out var direct))
-                foreach (var c in direct)
-                    stack.Push(c);
-            while (stack.Count > 0)
+            if (index.ContainsKey(start))
+                continue;
+
+            // Explicit DFS stack of (node, next-callee-index): simulating the recursion iteratively
+            // avoids overflowing the native stack on a deep call chain.
+            var dfs = new Stack<(IrFunction Fn, int Ci)>();
+            dfs.Push((start, 0));
+            while (dfs.Count > 0)
             {
-                var cur = stack.Pop();
-                if (ReferenceEquals(cur, fn)) { recursive.Add(fn); break; }
-                if (!seen.Add(cur)) continue;
-                if (callees.TryGetValue(cur, out var next))
-                    foreach (var c in next)
-                        stack.Push(c);
+                var (fn, ci) = dfs.Pop();
+                var list = callees.TryGetValue(fn, out var cs)
+                    ? (IReadOnlyList<IrFunction>)cs : Array.Empty<IrFunction>();
+
+                if (ci == 0)
+                {
+                    index[fn] = low[fn] = next++;
+                    component.Push(fn);
+                    onStack.Add(fn);
+                }
+                else
+                {
+                    // The callee we descended into (list[ci-1]) has finished; fold its low-link back.
+                    low[fn] = Math.Min(low[fn], low[list[ci - 1]]);
+                }
+
+                bool descended = false;
+                for (int i = ci; i < list.Count; i++)
+                {
+                    var w = list[i];
+                    if (!index.ContainsKey(w))
+                    {
+                        dfs.Push((fn, i + 1)); // resume fn after w's subtree completes...
+                        dfs.Push((w, 0));      // ...having visited w first
+                        descended = true;
+                        break;
+                    }
+                    if (onStack.Contains(w))
+                        low[fn] = Math.Min(low[fn], index[w]);
+                }
+                if (descended)
+                    continue;
+
+                // fn roots an SCC when its low-link never escaped its own index; pop the component.
+                if (low[fn] == index[fn])
+                {
+                    var members = new List<IrFunction>();
+                    IrFunction m;
+                    do { m = component.Pop(); onStack.Remove(m); members.Add(m); }
+                    while (!ReferenceEquals(m, fn));
+
+                    bool cyclic = members.Count > 1
+                        || (callees.TryGetValue(fn, out var self) && self.Any(c => ReferenceEquals(c, fn)));
+                    if (cyclic)
+                        foreach (var f in members) recursive.Add(f);
+                }
             }
         }
         return recursive;
@@ -663,7 +718,7 @@ public sealed class Sm83Backend : IBackend
         e.PlaceRoutine("udivmod16");
         e.U8(0x21); e.U8(0x00); e.U8(0x00);      // ld hl, 0     (remainder)
         e.U8(0x3E); e.U8(0x10);                  // ld a, 16
-        e.U8(0xEA); e.U8(RtCount & 0xFF); e.U8(RtCount >> 8); // ld (RtCount), a
+        StAAbs(e, RtCount);                                  // ld (RtCount), a
         var loop = new Label();
         var dosub = new Label();
         var skip = new Label();
@@ -681,9 +736,9 @@ public sealed class Sm83Backend : IBackend
         e.U8(0x7C); e.U8(0x98); e.U8(0x67);      // ld a, h ; sbc a, b ; ld h, a
         e.U8(0xCB); e.U8(0xC3);                  // set 0, e   (quotient bit)
         e.Place(skip);
-        e.U8(0xFA); e.U8(RtCount & 0xFF); e.U8(RtCount >> 8); // ld a, (RtCount)
+        LdAAbs(e, RtCount);                                  // ld a, (RtCount)
         e.U8(0x3D);                              // dec a
-        e.U8(0xEA); e.U8(RtCount & 0xFF); e.U8(RtCount >> 8); // ld (RtCount), a
+        StAAbs(e, RtCount);                                  // ld (RtCount), a
         e.Jump(0xC2, loop);                      // jp nz, loop
         e.U8(0xC9);                              // ret
     }
@@ -693,9 +748,9 @@ public sealed class Sm83Backend : IBackend
     {
         e.PlaceRoutine("sdivmod16");
         e.U8(0x7A);                              // ld a, d
-        e.U8(0xEA); e.U8(RtSignRem & 0xFF); e.U8(RtSignRem >> 8);   // ld (RtSignRem), a   (dividend sign)
+        StAAbs(e, RtSignRem);                                      // ld (RtSignRem), a   (dividend sign)
         e.U8(0xA8);                              // xor b
-        e.U8(0xEA); e.U8(RtSignQuot & 0xFF); e.U8(RtSignQuot >> 8); // ld (RtSignQuot), a  (sign(D)^sign(B))
+        StAAbs(e, RtSignQuot);                                     // ld (RtSignQuot), a  (sign(D)^sign(B))
 
         var dePos = new Label();
         e.U8(0x7A); e.U8(0xE6); e.U8(0x80);      // ld a, d ; and 0x80
@@ -712,13 +767,13 @@ public sealed class Sm83Backend : IBackend
         e.Jump(0xCD, e.RoutineLabel("udivmod16"));  // call __udivmod16
 
         var qPos = new Label();
-        e.U8(0xFA); e.U8(RtSignQuot & 0xFF); e.U8(RtSignQuot >> 8); e.U8(0xE6); e.U8(0x80); // ld a,(RtSignQuot); and 0x80
+        LdAAbs(e, RtSignQuot); e.U8(0xE6); e.U8(0x80);             // ld a,(RtSignQuot); and 0x80
         e.Jump(0xCA, qPos);
         NegateDE(e);
         e.Place(qPos);
 
         var rPos = new Label();
-        e.U8(0xFA); e.U8(RtSignRem & 0xFF); e.U8(RtSignRem >> 8); e.U8(0xE6); e.U8(0x80);   // ld a,(RtSignRem); and 0x80
+        LdAAbs(e, RtSignRem); e.U8(0xE6); e.U8(0x80);             // ld a,(RtSignRem); and 0x80
         e.Jump(0xCA, rPos);
         NegateHL(e);
         e.Place(rPos);
@@ -746,9 +801,10 @@ public sealed class Sm83Backend : IBackend
     // helpers (rt.*) walk with HL as the byte pointer and B as the byte counter; DEC B / INC HL / LD do
     // not touch carry, so the carry chains cleanly across bytes.
 
-    private static void LdHL(Emitter e, int imm16) { e.U8(0x21); e.U8(imm16 & 0xFF); e.U8(imm16 >> 8); }
-    private static void LdAAbs(Emitter e, int addr) { e.U8(0xFA); e.U8(addr & 0xFF); e.U8(addr >> 8); }
-    private static void StAAbs(Emitter e, int addr) { e.U8(0xEA); e.U8(addr & 0xFF); e.U8(addr >> 8); }
+    private static void LdHL(Emitter e, int imm16) { e.U8(0x21); e.U16(imm16); }
+    private static void LdDE(Emitter e, int imm16) { e.U8(0x11); e.U16(imm16); }
+    private static void LdAAbs(Emitter e, int addr) { e.U8(0xFA); e.U16(addr); }
+    private static void StAAbs(Emitter e, int addr) { e.U8(0xEA); e.U16(addr); }
     private static void LdBFromN(Emitter e) { LdAAbs(e, RtN); e.U8(0x47); }   // A=(RtN); LD B,A
 
     /// <summary>HL += (RtN - 1), so a pointer at an operand's low byte moves to its high byte.</summary>
@@ -935,7 +991,7 @@ public sealed class Sm83Backend : IBackend
         e.Jump(0xD2, noadd);                          // jp nc, noadd
         LdBFromN(e);                                  // B = N
         LdHL(e, RtAcc);                               // HL = RtAcc
-        e.U8(0x11); e.U8(RtOpA & 0xFF); e.U8(RtOpA >> 8); // ld de, RtOpA
+        LdDE(e, RtOpA);                               // ld de, RtOpA
         e.U8(0xCD); AddRoutineCall(e, "rt.addmem");   // RtAcc += RtOpA
         e.Place(noadd);
         ShlOpAOnce(e);                                // RtOpA <<= 1
@@ -962,14 +1018,14 @@ public sealed class Sm83Backend : IBackend
         e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");    // RtAcc <<= 1 with carry-in
         // Try remainder -= divisor.
         LdBFromN(e); LdHL(e, RtAcc);
-        e.U8(0x11); e.U8(RtOpB & 0xFF); e.U8(RtOpB >> 8); // ld de, RtOpB
+        LdDE(e, RtOpB);                               // ld de, RtOpB
         e.U8(0xCD); AddRoutineCall(e, "rt.submem");   // RtAcc -= RtOpB, carry = borrow
         e.Jump(0xDA, restore);                        // jp c, restore   (remainder < divisor)
         LdAAbs(e, RtOpA); e.U8(0xF6); e.U8(0x01); StAAbs(e, RtOpA); // set quotient bit0
         e.Jump(0xC3, next);                           // jp next
         e.Place(restore);
         LdBFromN(e); LdHL(e, RtAcc);
-        e.U8(0x11); e.U8(RtOpB & 0xFF); e.U8(RtOpB >> 8); // ld de, RtOpB
+        LdDE(e, RtOpB);                               // ld de, RtOpB
         e.U8(0xCD); AddRoutineCall(e, "rt.addmem");   // restore remainder
         e.Place(next);
         LdAAbs(e, RtBits); e.U8(0x3D); StAAbs(e, RtBits);
@@ -1071,14 +1127,21 @@ public sealed class Sm83Backend : IBackend
 
         public void U8(int value) => Code.Add((byte)value);
 
+        /// <summary>Emit a 16-bit value little-endian (low byte then high) — the SM83 encoding for every
+        /// immediate address and 16-bit immediate operand.</summary>
+        public void U16(int value)
+        {
+            Code.Add((byte)(value & 0xFF));
+            Code.Add((byte)(value >> 8));
+        }
+
         /// <summary>Emit <c>LD A, (addr)</c>, unless A already holds that slot's value.</summary>
         public void LoadA(int addr)
         {
             if (_aSlot == addr && _aValidCount == Code.Count)
                 return; // A already mirrors (addr); nothing ran since it was set
             Code.Add(0xFA);
-            Code.Add((byte)(addr & 0xFF));
-            Code.Add((byte)(addr >> 8));
+            U16(addr);
             _aSlot = addr;
             _aValidCount = Code.Count;
         }
@@ -1087,8 +1150,7 @@ public sealed class Sm83Backend : IBackend
         public void StoreA(int addr)
         {
             Code.Add(0xEA);
-            Code.Add((byte)(addr & 0xFF));
-            Code.Add((byte)(addr >> 8));
+            U16(addr);
             _aSlot = addr;
             _aValidCount = Code.Count;
         }
@@ -1532,7 +1594,7 @@ public sealed class Sm83Backend : IBackend
             {
                 // Initialize the software-stack pointer once at boot (only needed when some function
                 // recurses and therefore saves its frame there).
-                _e.U8(0x21); _e.U8(_softStackBase & 0xFF); _e.U8(_softStackBase >> 8); // LD HL, softStackBase
+                _e.U8(0x21); _e.U16(_softStackBase); // LD HL, softStackBase
                 _e.U8(0x7D); _e.StoreA(SoftSp);       // LD A, L ; LD (SoftSp), A
                 _e.U8(0x7C); _e.StoreA(SoftSp + 1);   // LD A, H ; LD (SoftSp+1), A
             }
@@ -1545,7 +1607,7 @@ public sealed class Sm83Backend : IBackend
                         + "save supports up to 255.");
                 // Save the caller's copy of the shared static frame, then install this call's arguments
                 // (staged in ArgScratch) into the parameter slots at the frame base.
-                _e.U8(0x11); _e.U8(_frameBase & 0xFF); _e.U8(_frameBase >> 8); // LD DE, frameBase
+                _e.U8(0x11); _e.U16(_frameBase); // LD DE, frameBase
                 _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
                 _e.Jump(0xCD, _e.RoutineLabel("rt.pushframe"));
                 int paramBytes = ParamBytes(_fn);
@@ -2101,7 +2163,7 @@ public sealed class Sm83Backend : IBackend
                 }
                 else
                 {
-                    _e.U8(0x01); _e.U8(size & 0xFF); _e.U8(size >> 8); // LD BC, size
+                    _e.U8(0x01); _e.U16(size); // LD BC, size
                     _e.Jump(0xCD, _e.RoutineLabel("mul16"));          // HL = DE * size
                     _e.U8(0x54); _e.U8(0x5D);                         // LD D,H ; LD E,L  (offset -> DE)
                 }
@@ -2134,7 +2196,7 @@ public sealed class Sm83Backend : IBackend
         {
             if (TryStaticAddr(pointer, out int addr))
             {
-                _e.U8(0x21); _e.U8(addr & 0xFF); _e.U8(addr >> 8);   // LD HL, addr
+                _e.U8(0x21); _e.U16(addr);   // LD HL, addr
             }
             else if (_slot.TryGetValue(pointer, out int slot))
             {
@@ -2174,7 +2236,7 @@ public sealed class Sm83Backend : IBackend
                     CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
                 if (IsRecursive)
                 {
-                    _e.U8(0x11); _e.U8(_frameBase & 0xFF); _e.U8(_frameBase >> 8); // LD DE, frameBase
+                    _e.U8(0x11); _e.U16(_frameBase); // LD DE, frameBase
                     _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
                     _e.Jump(0xCD, _e.RoutineLabel("rt.popframe"));
                 }
