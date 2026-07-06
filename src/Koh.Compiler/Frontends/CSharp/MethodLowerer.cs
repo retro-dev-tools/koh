@@ -645,6 +645,19 @@ internal sealed class MethodLowerer
         }
 
         var (l, ltype) = LowerExpression(binary.Left, expected);
+
+        // Pointer arithmetic (p + i / p - i) lowers to a gep: the index is scaled by the pointee
+        // size and widened to the 16-bit address. A plain add would instead try to coerce the index
+        // *into* the pointer type, which is not a valid integer conversion and drops the high byte.
+        if (ltype.Ir.Kind == IrTypeKind.Pointer
+            && kind is SyntaxKind.AddExpression or SyntaxKind.SubtractExpression)
+        {
+            var index = Coerce(LowerExpression(binary.Right, CsType.U16), CsType.U16);
+            if (kind == SyntaxKind.SubtractExpression)
+                index = _b.Binary(IrBinaryOp.Sub, IrBuilder.ConstInt(IrType.I16, 0), index);
+            return (_b.Gep(l, index, ltype.Ir.Element!), ltype);
+        }
+
         var (r, rtype) = LowerExpression(binary.Right, ltype);
         var rc = Coerce((r, rtype), ltype);
         return (_b.Binary(ArithOp(kind, ltype.Signed), l, rc), ltype);
@@ -748,15 +761,21 @@ internal sealed class MethodLowerer
 
     // ---- Types & operators -------------------------------------------------
 
-    /// <summary>Widen/narrow a value to <paramref name="target"/> using its source signedness.</summary>
+    /// <summary>Widen/narrow a value to <paramref name="target"/> using its source signedness.
+    /// A pointer counts as a 16-bit address, so pointer/pointer and pointer/ushort coercions (e.g.
+    /// a <c>(byte*)0x9800</c> cast) collapse to no-ops rather than a bogus integer conversion.</summary>
     private IrValue Coerce((IrValue Value, CsType Type) source, CsType target)
     {
-        if (source.Type.Ir.Bits == target.Ir.Bits)
+        int sourceBits = EffectiveBits(source.Type.Ir);
+        int targetBits = EffectiveBits(target.Ir);
+        if (sourceBits == targetBits)
             return source.Value;
-        if (target.Ir.Bits < source.Type.Ir.Bits)
+        if (targetBits < sourceBits)
             return _b.Conv(IrConvOp.Trunc, source.Value, target.Ir);
         return _b.Conv(source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt, source.Value, target.Ir);
     }
+
+    private static int EffectiveBits(IrType t) => t.Kind == IrTypeKind.Pointer ? 16 : t.Bits;
 
     private static bool IsComparison(SyntaxKind kind) => kind is
         SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression or

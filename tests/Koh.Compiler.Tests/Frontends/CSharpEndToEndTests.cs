@@ -460,6 +460,41 @@ static byte Main() {
     }
 
     [Test]
+    public async Task Pointer_IndexedStoreWithVariableOffset()
+    {
+        // p + i must widen the byte index to the full 16-bit address (via a gep), not truncate it
+        // into the pointer's high byte. A read-modify-write on p+i followed by a store to p+i+1 was
+        // the case that regressed: the second store's address kept a stale high byte.
+        const string src = @"
+static byte Main() {
+    byte[] a = new byte[4];
+    a[0] = 1; a[1] = 9;
+    byte* p = &a[0];
+    byte i = 0;
+    *(p + i) = (byte)(*(p + i) + 1);
+    *(p + i + 1) = 0;
+    return (byte)(a[0] * 16 + a[1]);
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)0x20); // a[0]=2, a[1]=0
+    }
+
+    [Test]
+    public async Task Pointer_ArithmeticWalksAnArray()
+    {
+        // Sum a[0..3] by advancing a pointer, exercising p + i reads across the whole array.
+        const string src = @"
+static byte Main() {
+    byte[] a = new byte[4];
+    a[0] = 3; a[1] = 5; a[2] = 7; a[3] = 11;
+    byte* p = &a[0];
+    byte sum = 0;
+    for (byte i = 0; i < 4; i++) sum += *(p + i);
+    return sum;
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)26);
+    }
+
+    [Test]
     public async Task DebugInfo_MapsCSharpSourceLines()
     {
         // Line 1 = signature, line 2 = the add, line 3 = the return.

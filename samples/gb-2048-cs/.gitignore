@@ -1,0 +1,7 @@
+build/bin/
+build/obj/
+build/2048.gb
+*.kobj
+*.sym
+*.gb
+*.gbc
