@@ -311,6 +311,10 @@ public sealed class Sm83Backend : IBackend
     private const int RtOpB = 0xDF18;       // multiplier / divisor
     private const int RtAcc = 0xDF20;       // product / remainder
 
+    /// <summary>Where an i64 return value is passed: it does not fit the register file, so an i64 is
+    /// returned in this fixed 8-byte scratch (little-endian). Public so tests can read it.</summary>
+    public const int ReturnScratch = 0xDF28;
+
     /// <summary>__mul16: HL = DE * BC (low 16 bits) by shift-and-add. Sign-agnostic.</summary>
     private static void EmitMul16(Emitter e)
     {
@@ -1724,9 +1728,18 @@ public sealed class Sm83Backend : IBackend
                         LoadByteToA(r.Value, 2); _e.U8(0x5F); // LD E, A
                         LoadByteToA(r.Value, 3); _e.U8(0x57); // LD D, A
                         break;
+                    case 8:
+                        // i64 has no register room; return it in the fixed ReturnScratch (little-endian).
+                        for (int k = 0; k < 8; k++)
+                        {
+                            LoadByteToA(r.Value, k);
+                            StoreAToAddr(ReturnScratch + k);
+                        }
+                        break;
                     default:
                         throw new NotSupportedException(
-                            $"SM83 backend can only return i8 (A), i16 (HL), or i32 (DE:HL), not {r.Value.Type}.");
+                            $"SM83 backend can only return i8 (A), i16 (HL), i32 (DE:HL), or i64 (memory), "
+                            + $"not {r.Value.Type}.");
                 }
             }
 
@@ -1803,9 +1816,16 @@ public sealed class Sm83Backend : IBackend
                     _e.U8(0x7B); StoreAToAddr(dst + 2);   // LD A, E
                     _e.U8(0x7A); StoreAToAddr(dst + 3);   // LD A, D
                     break;
+                case 8:
+                    for (int k = 0; k < 8; k++)            // i64 comes back in ReturnScratch
+                    {
+                        LoadAFromAddr(ReturnScratch + k);
+                        StoreAToAddr(dst + k);
+                    }
+                    break;
                 default:
                     throw new NotSupportedException(
-                        $"SM83 backend can only capture i8/i16/i32 return values, not {call.Type}.");
+                        $"SM83 backend can only capture i8/i16/i32/i64 return values, not {call.Type}.");
             }
         }
 

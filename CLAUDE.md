@@ -63,7 +63,8 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   tests for new lowering.
 - **SM83 backend is an accumulator machine**: everything flows through `A`; `HL` is the
   pointer register; static WRAM allocation (NESFab-style, no stack frames); non-recursive
-  (recursion is rejected). i8 returns in `A`, i16 in `HL`.
+  (recursion is rejected). i8 returns in `A`, i16 in `HL`, i32 in `DE:HL`, i64 in memory
+  (`Sm83Backend.ReturnScratch`).
 - **Register allocator (`FunctionAllocation`)**: a multi-byte result is written in place
   byte-by-byte, so it *interferes with its own operands* (a partial slot overlap would clobber
   a source mid-read). Phi parallel-copies detect clobbers by *allocated slot*, not SSA identity.
@@ -80,16 +81,18 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 
 ### The "Koh C#" subset
 
-Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`bool` (i32 arithmetic/compare is real;
-i32 mul/div/rem/shift are rejected — the runtime routines are 16-bit), `char`/string literals
-(strings only as `byte[]` initializers), `enum` (custom base), `const`, pointers (`T*` incl.
-arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed arrays (local + static ROM/WRAM data),
-value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); `if`/`while`/`do`/`for`/
-`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare, `&&`/`||`/`?:`/`++`/`--`,
-compound assignment, usual-arithmetic conversions on mixed signed/unsigned; static methods +
-top-level functions, `static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register
-surface and `[Interrupt("VBlank")]` handlers. Out by design: `long`/64-bit (needs a wider backend),
-classes/GC/generics/async/LINQ/recursion. Out-of-subset constructs are reported as diagnostics.
+Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`long`/`ulong`/`bool` (full arithmetic
+including mul/div/rem/shift at every width — i8/i16 via register routines, i32/i64 via generic
+width-N memory routines; i64 has no register room so it returns via `Sm83Backend.ReturnScratch`),
+`char`/string literals (strings only as `byte[]` initializers), `enum` (custom base), `const`,
+pointers (`T*` incl. arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed arrays (local +
+static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed);
+`if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
+`&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
+(mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,
+`static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
+`[Interrupt("VBlank")]` handlers. Out by design: 128-bit+, classes/GC/generics/async/LINQ/recursion.
+Out-of-subset constructs are reported as diagnostics.
 
 ## Gotchas
 

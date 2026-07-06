@@ -67,6 +67,23 @@ public class CSharpEndToEndTests
         return ((uint)gb.Registers.DE << 16) | gb.Registers.HL; // i32: high word DE, low word HL
     }
 
+    private static ulong RunI64(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(Compile(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        ulong result = 0; // i64 is returned little-endian in ReturnScratch memory
+        for (int i = 0; i < 8; i++)
+            result |= (ulong)gb.DebugReadByte((ushort)(Sm83Backend.ReturnScratch + i)) << (8 * i);
+        return result;
+    }
+
+    private static void W64(GameBoySystem gb, int offset, long value)
+    {
+        for (int i = 0; i < 8; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset + i), (byte)((value >> (8 * i)) & 0xFF));
+    }
+
     private static bool HasError(string src)
     {
         var diagnostics = new DiagnosticBag();
@@ -977,9 +994,9 @@ static uint Main() {
     [Test]
     public async Task UnsupportedConstruct_ReportedAsDiagnostic()
     {
-        // 'long' is unsupported: reported into the bag with a location, not thrown.
+        // 'float' is unsupported: reported into the bag with a location, not thrown.
         var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(SourceText.From("static long Bad() { return 0; }", "game.cs"), diagnostics);
+        new CSharpFrontend().Lower(SourceText.From("static float Bad() { return 0; }", "game.cs"), diagnostics);
         await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
     }
 
@@ -1269,6 +1286,41 @@ static void Main() { Bump(); Hardware.EnableInterrupts(); }";
         // Arithmetic right shift of a negative int fills with the sign bit.
         await Assert.That(RunI32("static int A(int a, int n) { return a >> n; }",
             gb => { W32(gb, 0, -16); W32(gb, 4, 2); })).IsEqualTo(unchecked((uint)(-4)));
+    }
+
+    [Test]
+    public async Task Int64_AddAndReturn()
+    {
+        // i64 add/sub run through the width-agnostic byte chains; i64 is returned via memory scratch.
+        await Assert.That(RunI64("static long Add(long a, long b) { return a + b; }",
+            gb => { W64(gb, 0, 0x1_0000_0000L); W64(gb, 8, 0x2_0000_0002L); })).IsEqualTo(0x3_0000_0002UL);
+        await Assert.That(RunI64("static ulong Big() { ulong x = 0x0102030405060708; return x; }"))
+            .IsEqualTo(0x0102030405060708UL);
+    }
+
+    [Test]
+    public async Task Int64_MultiplyDivideRemainder()
+    {
+        // The generic width-N runtime routines serve N=8 unchanged.
+        await Assert.That(RunI64("static long Mul(long a, long b) { return a * b; }",
+            gb => { W64(gb, 0, 1_000_000L); W64(gb, 8, 1_000_000L); })).IsEqualTo(1_000_000_000_000UL);
+        await Assert.That(RunI64("static ulong Div(ulong a, ulong b) { return a / b; }",
+            gb => { W64(gb, 0, 1_000_000_000_000L); W64(gb, 8, 7); })).IsEqualTo(142_857_142_857UL);
+        await Assert.That(RunI64("static long Rem(long a, long b) { return a % b; }",
+            gb => { W64(gb, 0, -1_000_000_000_000L); W64(gb, 8, 7); })).IsEqualTo(unchecked((ulong)(-1L)));
+    }
+
+    [Test]
+    public async Task Int64_ShiftAndCompare()
+    {
+        await Assert.That(RunI64("static ulong Shl(ulong a, int n) { return a << n; }",
+            gb => { W64(gb, 0, 1); W32(gb, 8, 40); })).IsEqualTo(1UL << 40);
+        await Assert.That(RunI64("static long Sar(long a, int n) { return a >> n; }",
+            gb => { W64(gb, 0, -1_000_000_000_000L); W32(gb, 8, 8); })).IsEqualTo(unchecked((ulong)(-1_000_000_000_000L >> 8)));
+        // 64-bit ordering: 0x1_0000_0000 > 0xFFFF_FFFF must hold across the 32-bit boundary.
+        await Assert.That(RunA(
+            "static byte Main() { long a = 0x100000000; long b = 0xFFFFFFFF; return (byte)(a > b ? 1 : 0); }"))
+            .IsEqualTo((byte)1);
     }
 
     private static bool CompilesClean(string src)
