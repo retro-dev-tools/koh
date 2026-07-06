@@ -66,15 +66,14 @@ public class Sm83BackendTests
 
         var data = Compile(module).Sections[0].Data;
 
+        // The reload of each result immediately after its store is elided (A still holds it).
         byte[] expected =
         [
             0x3E, 0x03,             // LD A, 3
             0xC6, 0x04,             // ADD A, 4
-            0xEA, 0x00, 0xC0,       // LD (C000), A     ; %0
-            0xFA, 0x00, 0xC0,       // LD A, (C000)
+            0xEA, 0x00, 0xC0,       // LD (C000), A     ; %0   (reload of %0 elided)
             0xC6, 0x64,             // ADD A, 100
-            0xEA, 0x01, 0xC0,       // LD (C001), A     ; %1
-            0xFA, 0x01, 0xC0,       // LD A, (C001)
+            0xEA, 0x01, 0xC0,       // LD (C001), A     ; %1   (reload of %1 elided)
             0xC9,                   // RET
         ];
         await Assert.That(data).IsEquivalentTo(expected);

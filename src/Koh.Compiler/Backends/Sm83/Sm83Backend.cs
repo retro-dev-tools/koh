@@ -358,7 +358,36 @@ public sealed class Sm83Backend : IBackend
         /// <summary>Coalesced source-line ranges over the code section, for .kdbg debug info.</summary>
         public readonly List<LineMapEntry> LineMap = [];
 
+        // Accumulator tracking for redundant-load elimination: the slot address A currently mirrors,
+        // valid only while nothing has been emitted since (Code.Count unchanged). Any other emit
+        // advances Code.Count and any label/branch clears it, so a skip is only ever taken when A
+        // provably still holds the value.
+        private int _aSlot = -1;
+        private int _aValidCount = -1;
+
         public void U8(int value) => Code.Add((byte)value);
+
+        /// <summary>Emit <c>LD A, (addr)</c>, unless A already holds that slot's value.</summary>
+        public void LoadA(int addr)
+        {
+            if (_aSlot == addr && _aValidCount == Code.Count)
+                return; // A already mirrors (addr); nothing ran since it was set
+            Code.Add(0xFA);
+            Code.Add((byte)(addr & 0xFF));
+            Code.Add((byte)(addr >> 8));
+            _aSlot = addr;
+            _aValidCount = Code.Count;
+        }
+
+        /// <summary>Emit <c>LD (addr), A</c>; A now also mirrors that slot.</summary>
+        public void StoreA(int addr)
+        {
+            Code.Add(0xEA);
+            Code.Add((byte)(addr & 0xFF));
+            Code.Add((byte)(addr >> 8));
+            _aSlot = addr;
+            _aValidCount = Code.Count;
+        }
 
         /// <summary>Record that <paramref name="count"/> bytes at <paramref name="offset"/> came
         /// from one source line, extending the previous run when adjacent and identical.</summary>
@@ -393,7 +422,11 @@ public sealed class Sm83Backend : IBackend
 
         public void PlaceRoutine(string name) => Place(RoutineLabel(name));
 
-        public void Place(Label label) => label.Offset = Code.Count;
+        public void Place(Label label)
+        {
+            label.Offset = Code.Count;
+            _aValidCount = -1; // a label is a control-flow join; A's contents are unknown here
+        }
 
         /// <summary>Emit a jump opcode plus a two-byte placeholder patched to the label's address.</summary>
         public void Jump(int opcode, Label target)
@@ -402,6 +435,7 @@ public sealed class Sm83Backend : IBackend
             _fixups.Add((Code.Count, target));
             Code.Add(0);
             Code.Add(0);
+            _aValidCount = -1; // control leaves; do not carry A across the branch
         }
 
         public void Resolve(int codeBase)
@@ -1282,19 +1316,9 @@ public sealed class Sm83Backend : IBackend
             _e.U8(0x47); // LD B, A
         }
 
-        private void LoadAFromAddr(int addr)
-        {
-            _e.U8(0xFA);                 // LD A, (a16)
-            _e.U8(addr & 0xFF);
-            _e.U8(addr >> 8);
-        }
+        private void LoadAFromAddr(int addr) => _e.LoadA(addr);   // may be elided if A already holds it
 
-        private void StoreAToAddr(int addr)
-        {
-            _e.U8(0xEA);                 // LD (a16), A
-            _e.U8(addr & 0xFF);
-            _e.U8(addr >> 8);
-        }
+        private void StoreAToAddr(int addr) => _e.StoreA(addr);
 
         private static byte ByteOf(IrValue value, int k) =>
             value is IrConstInt c
