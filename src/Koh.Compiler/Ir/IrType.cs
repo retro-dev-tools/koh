@@ -63,6 +63,23 @@ public sealed class IrType
     public static IrType Array(IrType element, int length) =>
         new(IrTypeKind.Array, 0, AddressSpace.Default, element, length);
 
+    /// <summary>
+    /// Storage width of this type in bits. A pointer is the target's address width; the compiler
+    /// currently has a single target, so this reads <see cref="DataLayout.Sm83"/> (the one place
+    /// that width is defined). A future multi-target build would thread the active DataLayout here.
+    /// </summary>
+    public int SizeInBits => Kind == IrTypeKind.Pointer ? DataLayout.Sm83.PointerBits : Bits;
+
+    /// <summary>Storage size of this type in bytes (see <see cref="SizeInBits"/> for pointers).</summary>
+    public int SizeInBytes => Kind switch
+    {
+        IrTypeKind.Void => 0,
+        IrTypeKind.Int => (Bits + 7) / 8,
+        IrTypeKind.Pointer => DataLayout.Sm83.PointerSize,
+        IrTypeKind.Array => (Element?.SizeInBytes ?? 0) * ArrayLength,
+        _ => 0,
+    };
+
     /// <summary>Structural equality: same kind, width, address space, and element shape.</summary>
     public bool StructurallyEquals(IrType other) =>
         Kind == other.Kind

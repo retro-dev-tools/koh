@@ -85,6 +85,14 @@ public static class IrVerifier
                     err($"block '{label}': 'icmp' requires matching integer operands");
                 break;
 
+            case ConvInstruction { Op: IrConvOp.Bitcast } bc:
+                // A reinterpret: operand and result must occupy the same storage (int<->pointer of
+                // the address width, or two pointer types).
+                if (bc.Type.SizeInBytes != bc.Operand.Type.SizeInBytes)
+                    err($"block '{label}': 'bitcast' requires equal-size operand and result "
+                        + $"({bc.Operand.Type} vs {bc.Type})");
+                break;
+
             case ConvInstruction cv:
                 if (!IsInt(cv.Operand.Type) || !IsInt(cv.Type))
                     err($"block '{label}': '{cv.Mnemonic}' requires integer operand and result");

@@ -82,4 +82,41 @@ public class IrRoundTripTests
         var second = IrPrinter.Print(IrParser.Parse(first));
         await Assert.That(second).IsEqualTo(first);
     }
+
+    /// <summary>A pointer and an integer of the address width reinterpret via <c>bitcast</c>.</summary>
+    private const string BitcastModule = """
+        module "t"
+
+        func @reinterpret(%a : i16) : i16 {
+        entry:
+          %p = bitcast i16 %a to i8*
+          %b = bitcast i8* %p to i16
+          ret i16 %b
+        }
+        """;
+
+    [Test]
+    public async Task Bitcast_RoundTripsAndVerifies()
+    {
+        var module = IrParser.Parse(BitcastModule);
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+        var printed = IrPrinter.Print(module);
+        await Assert.That(printed).Contains("bitcast i16 %a to i8*");
+        await Assert.That(IrPrinter.Print(IrParser.Parse(printed))).IsEqualTo(printed);
+    }
+
+    [Test]
+    public async Task Bitcast_RejectsMismatchedSize()
+    {
+        // i8 (1 byte) cannot bitcast to i16 (2 bytes): sizes must match.
+        var module = IrParser.Parse("""
+            module "t"
+            func @bad(%a : i8) : i16 {
+            entry:
+              %b = bitcast i8 %a to i16
+              ret i16 %b
+            }
+            """);
+        await Assert.That(IrVerifier.Verify(module)).IsNotEmpty();
+    }
 }

@@ -271,7 +271,7 @@ public static class IrParser
                 instr = builder.Compare(pred, lhs, rhs);
                 break;
             }
-            case "zext" or "sext" or "trunc":
+            case "zext" or "sext" or "trunc" or "bitcast":
             {
                 var srcType = ParseType(r);
                 var val = ParseOperand(r, srcType, module, env);
@@ -510,36 +510,22 @@ public static class IrParser
             ? s
             : throw new IrParseException($"unknown address space '{name}'");
 
-    private static IrBinaryOp ParseBinaryOp(string op) => op switch
-    {
-        "add" => IrBinaryOp.Add,
-        "sub" => IrBinaryOp.Sub,
-        "mul" => IrBinaryOp.Mul,
-        "udiv" => IrBinaryOp.UDiv,
-        "sdiv" => IrBinaryOp.SDiv,
-        "urem" => IrBinaryOp.URem,
-        "srem" => IrBinaryOp.SRem,
-        "and" => IrBinaryOp.And,
-        "or" => IrBinaryOp.Or,
-        "xor" => IrBinaryOp.Xor,
-        "shl" => IrBinaryOp.Shl,
-        "lshr" => IrBinaryOp.LShr,
-        "ashr" => IrBinaryOp.AShr,
-        _ => throw new IrParseException($"unknown binary op '{op}'"),
-    };
+    // The textual mnemonics are the enum member names lower-cased (see IrPrinter), so all three
+    // parse case-insensitively straight back to the enum.
+    private static IrBinaryOp ParseBinaryOp(string op) =>
+        Enum.TryParse<IrBinaryOp>(op, ignoreCase: true, out var b)
+            ? b
+            : throw new IrParseException($"unknown binary op '{op}'");
 
     private static IrCompareOp ParseCompareOp(string op) =>
         Enum.TryParse<IrCompareOp>(op, ignoreCase: true, out var c)
             ? c
             : throw new IrParseException($"unknown compare predicate '{op}'");
 
-    private static IrConvOp ParseConvOp(string op) => op switch
-    {
-        "trunc" => IrConvOp.Trunc,
-        "zext" => IrConvOp.ZExt,
-        "sext" => IrConvOp.SExt,
-        _ => throw new IrParseException($"unknown conversion '{op}'"),
-    };
+    private static IrConvOp ParseConvOp(string op) =>
+        Enum.TryParse<IrConvOp>(op, ignoreCase: true, out var v)
+            ? v
+            : throw new IrParseException($"unknown conversion '{op}'");
 
     private static long ParseLong(string text)
     {

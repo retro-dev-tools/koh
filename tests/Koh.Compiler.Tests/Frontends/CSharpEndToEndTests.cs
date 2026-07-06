@@ -495,6 +495,78 @@ static byte Main() {
     }
 
     [Test]
+    public async Task Pointer_IncrementAndCompoundStepByElement()
+    {
+        // p++ and p += n advance a byte pointer by whole elements (a gep, not a raw add).
+        const string incr = @"
+static byte Main() {
+    byte[] a = new byte[4];
+    a[0] = 1; a[1] = 2; a[2] = 3;
+    byte* p = &a[0];
+    p++; p++;
+    return *p;
+}";
+        await Assert.That(RunA(incr)).IsEqualTo((byte)3);
+
+        const string compound = @"
+static byte Main() {
+    byte[] a = new byte[8];
+    a[5] = 42;
+    byte* p = &a[0];
+    p += 5;
+    return *p;
+}";
+        await Assert.That(RunA(compound)).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Pointer_ComparisonWalksAnArray()
+    {
+        // A `while (p < end) { ...; p++; }` walk — pointer comparison lowers to an unsigned icmp.
+        const string src = @"
+static byte Main() {
+    byte[] a = new byte[4];
+    a[0] = 1; a[1] = 2; a[2] = 3; a[3] = 4;
+    byte* p = &a[0];
+    byte* end = &a[4];
+    byte sum = 0;
+    while (p < end) { sum += *p; p++; }
+    return sum;
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)10);
+        await Assert.That(IrVerifier.Verify(Frontend(src))).IsEmpty();
+    }
+
+    [Test]
+    public async Task Struct_WithPointerFieldCompiles()
+    {
+        // A struct carrying a pointer field used to divide-by-zero in layout (pointer size was 0).
+        const string src = @"
+struct Node { byte* next; byte value; }
+static byte Main() {
+    Node n;
+    n.value = 7;
+    return n.value;
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)7);
+        await Assert.That(IrVerifier.Verify(Frontend(src))).IsEmpty();
+    }
+
+    [Test]
+    public async Task Pointer_CastToAndFromIntegerRoundTrips()
+    {
+        // (byte*)addr and (byte)ptr reinterpret through a bitcast, not a bogus zext/trunc-to-pointer.
+        const string src = @"
+static byte Main() {
+    byte b = 7;
+    byte* p = (byte*)b;
+    return (byte)p;
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)7);
+        await Assert.That(IrVerifier.Verify(Frontend(src))).IsEmpty();
+    }
+
+    [Test]
     public async Task DebugInfo_MapsCSharpSourceLines()
     {
         // Line 1 = signature, line 2 = the add, line 3 = the return.

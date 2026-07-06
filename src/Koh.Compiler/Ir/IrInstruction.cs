@@ -25,9 +25,10 @@ public enum IrCompareOp
 /// <summary>Integer width conversions.</summary>
 public enum IrConvOp
 {
-    Trunc,  // to a narrower type
-    ZExt,   // zero-extend to a wider type
-    SExt,   // sign-extend to a wider type
+    Trunc,   // to a narrower type
+    ZExt,    // zero-extend to a wider type
+    SExt,    // sign-extend to a wider type
+    Bitcast, // reinterpret between same-size types (e.g. pointer <-> integer of the address width)
 }
 
 /// <summary>

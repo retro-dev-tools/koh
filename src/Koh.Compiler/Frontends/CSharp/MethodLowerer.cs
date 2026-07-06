@@ -276,7 +276,7 @@ internal sealed class MethodLowerer
             if (field.Name == fieldName)
             {
                 // The offset is aligned to the field size, so index = offset / size is exact.
-                int index = field.Offset / ((field.Type.Ir.Bits + 7) / 8);
+                int index = field.Offset / field.Type.Ir.SizeInBytes;
                 return (_b.Gep(s.BasePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
             }
         throw new CSharpNotSupportedException($"struct has no field '{fieldName}'.");
@@ -548,7 +548,10 @@ internal sealed class MethodLowerer
             throw new CSharpNotSupportedException("++/-- requires a variable.");
 
         var old = _b.Load(place.Pointer);
-        var updated = _b.Binary(increment ? IrBinaryOp.Add : IrBinaryOp.Sub, old, IrBuilder.ConstInt(place.Type.Ir, 1));
+        // A pointer steps by one element (scaled by the pointee size via gep); an integer by one.
+        IrValue updated = place.Type.Ir.Kind == IrTypeKind.Pointer
+            ? _b.Gep(old, IrBuilder.ConstInt(IrType.I16, increment ? 1 : -1), Pointee(place.Type))
+            : _b.Binary(increment ? IrBinaryOp.Add : IrBinaryOp.Sub, old, IrBuilder.ConstInt(place.Type.Ir, 1));
         _b.Store(updated, place.Pointer);
         return (prefix ? updated : old, place.Type);
     }
@@ -641,6 +644,13 @@ internal sealed class MethodLowerer
         {
             var (left, lt) = LowerExpression(binary.Left, expected);
             var (right, rt) = LowerExpression(binary.Right, lt);
+            if (lt.Ir.Kind == IrTypeKind.Pointer)
+            {
+                // Compare two addresses as unsigned 16-bit integers (icmp stays integer-only).
+                var li = Coerce((left, lt), CsType.U16);
+                var ri = Coerce((right, rt), CsType.U16);
+                return (_b.Compare(CompareOp(kind, signed: false), li, ri), CsType.Bool);
+            }
             return (_b.Compare(CompareOp(kind, lt.Signed), left, Coerce((right, rt), lt)), CsType.Bool);
         }
 
@@ -651,16 +661,25 @@ internal sealed class MethodLowerer
         // *into* the pointer type, which is not a valid integer conversion and drops the high byte.
         if (ltype.Ir.Kind == IrTypeKind.Pointer
             && kind is SyntaxKind.AddExpression or SyntaxKind.SubtractExpression)
-        {
-            var index = Coerce(LowerExpression(binary.Right, CsType.U16), CsType.U16);
-            if (kind == SyntaxKind.SubtractExpression)
-                index = _b.Binary(IrBinaryOp.Sub, IrBuilder.ConstInt(IrType.I16, 0), index);
-            return (_b.Gep(l, index, ltype.Ir.Element!), ltype);
-        }
+            return (PointerOffset(l, ltype, binary.Right, subtract: kind == SyntaxKind.SubtractExpression), ltype);
 
         var (r, rtype) = LowerExpression(binary.Right, ltype);
+
+        // Commuted form: i + p. The pointer is on the right; gep from it with the left as the index.
+        if (kind == SyntaxKind.AddExpression && rtype.Ir.Kind == IrTypeKind.Pointer)
+            return (_b.Gep(r, Coerce((l, ltype), CsType.U16), Pointee(rtype)), rtype);
+
         var rc = Coerce((r, rtype), ltype);
         return (_b.Binary(ArithOp(kind, ltype.Signed), l, rc), ltype);
+    }
+
+    /// <summary>Offset a pointer by an index expression via a gep (scaled by the pointee size).</summary>
+    private IrValue PointerOffset(IrValue pointer, CsType pointerType, ExpressionSyntax indexExpr, bool subtract)
+    {
+        var index = Coerce(LowerExpression(indexExpr, CsType.U16), CsType.U16);
+        if (subtract)
+            index = _b.Binary(IrBinaryOp.Sub, IrBuilder.ConstInt(IrType.I16, 0), index);
+        return _b.Gep(pointer, index, Pointee(pointerType));
     }
 
     private (IrValue, CsType) LowerAssignment(AssignmentExpressionSyntax assign)
@@ -678,16 +697,24 @@ internal sealed class MethodLowerer
         else
             throw new CSharpNotSupportedException("assignment target must be a variable, array element, struct field, or *pointer.");
 
+        var kind = assign.Kind();
         IrValue result;
-        if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression)
+        if (kind == SyntaxKind.SimpleAssignmentExpression)
         {
             result = Coerce(LowerExpression(assign.Right, type), type);
+        }
+        else if (type.Ir.Kind == IrTypeKind.Pointer
+                 && kind is SyntaxKind.AddAssignmentExpression or SyntaxKind.SubtractAssignmentExpression)
+        {
+            // p += n / p -= n step by whole elements, so lower through a gep like `p + n`.
+            var current = _b.Load(pointer);
+            result = PointerOffset(current, type, assign.Right, subtract: kind == SyntaxKind.SubtractAssignmentExpression);
         }
         else
         {
             var current = _b.Load(pointer);
             var rhs = Coerce(LowerExpression(assign.Right, type), type);
-            result = _b.Binary(CompoundOp(assign.Kind(), type.Signed), current, rhs);
+            result = _b.Binary(CompoundOp(kind, type.Signed), current, rhs);
         }
 
         _b.Store(result, pointer);
@@ -762,20 +789,44 @@ internal sealed class MethodLowerer
     // ---- Types & operators -------------------------------------------------
 
     /// <summary>Widen/narrow a value to <paramref name="target"/> using its source signedness.
-    /// A pointer counts as a 16-bit address, so pointer/pointer and pointer/ushort coercions (e.g.
-    /// a <c>(byte*)0x9800</c> cast) collapse to no-ops rather than a bogus integer conversion.</summary>
+    /// Pointers and integers of the address width share storage, so casts between them (e.g.
+    /// <c>(byte*)someUshort</c>, <c>(byte)ptr</c>) go through a <c>bitcast</c> reinterpret — a
+    /// resize as an integer first when the widths differ — which keeps the IR well-typed rather
+    /// than emitting a <c>zext</c>/<c>trunc</c> onto a pointer type.</summary>
     private IrValue Coerce((IrValue Value, CsType Type) source, CsType target)
     {
-        int sourceBits = EffectiveBits(source.Type.Ir);
-        int targetBits = EffectiveBits(target.Ir);
-        if (sourceBits == targetBits)
+        var s = source.Type.Ir;
+        var t = target.Ir;
+        if (s.StructurallyEquals(t))
             return source.Value;
-        if (targetBits < sourceBits)
-            return _b.Conv(IrConvOp.Trunc, source.Value, target.Ir);
-        return _b.Conv(source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt, source.Value, target.Ir);
+
+        if (s.Kind == IrTypeKind.Pointer || t.Kind == IrTypeKind.Pointer)
+        {
+            if (s.SizeInBytes == t.SizeInBytes)
+                return _b.Conv(IrConvOp.Bitcast, source.Value, t); // pure reinterpret
+
+            // Different widths: resize as an integer of the source's storage, then reinterpret.
+            var value = source.Value;
+            var asInt = s.Kind == IrTypeKind.Pointer ? IrType.Int(s.SizeInBits) : s;
+            if (s.Kind == IrTypeKind.Pointer)
+                value = _b.Conv(IrConvOp.Bitcast, value, asInt);
+            int targetIntBits = t.SizeInBits;
+            if (targetIntBits != asInt.Bits)
+                value = _b.Conv(
+                    targetIntBits < asInt.Bits ? IrConvOp.Trunc
+                        : source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt,
+                    value, IrType.Int(targetIntBits));
+            return t.Kind == IrTypeKind.Pointer ? _b.Conv(IrConvOp.Bitcast, value, t) : value;
+        }
+
+        if (t.Bits < s.Bits)
+            return _b.Conv(IrConvOp.Trunc, source.Value, t);
+        return _b.Conv(source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt, source.Value, t);
     }
 
-    private static int EffectiveBits(IrType t) => t.Kind == IrTypeKind.Pointer ? 16 : t.Bits;
+    /// <summary>The pointee type of a pointer, or a diagnostic if it has none (e.g. a bare address).</summary>
+    private static IrType Pointee(CsType pointer) =>
+        pointer.Ir.Element ?? throw new CSharpNotSupportedException("pointer arithmetic requires a typed pointee.");
 
     private static bool IsComparison(SyntaxKind kind) => kind is
         SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression or
@@ -808,18 +859,20 @@ internal sealed class MethodLowerer
         _ => throw new CSharpNotSupportedException($"unsupported operator '{kind}'."),
     };
 
-    private static IrBinaryOp CompoundOp(SyntaxKind kind, bool signed) => kind switch
+    /// <summary>A compound assignment (<c>+=</c> etc.) uses the same operator table as its plain
+    /// form; map the assignment kind to the base binary kind and reuse <see cref="ArithOp"/>.</summary>
+    private static IrBinaryOp CompoundOp(SyntaxKind kind, bool signed) => ArithOp(kind switch
     {
-        SyntaxKind.AddAssignmentExpression => IrBinaryOp.Add,
-        SyntaxKind.SubtractAssignmentExpression => IrBinaryOp.Sub,
-        SyntaxKind.MultiplyAssignmentExpression => IrBinaryOp.Mul,
-        SyntaxKind.DivideAssignmentExpression => signed ? IrBinaryOp.SDiv : IrBinaryOp.UDiv,
-        SyntaxKind.ModuloAssignmentExpression => signed ? IrBinaryOp.SRem : IrBinaryOp.URem,
-        SyntaxKind.AndAssignmentExpression => IrBinaryOp.And,
-        SyntaxKind.OrAssignmentExpression => IrBinaryOp.Or,
-        SyntaxKind.ExclusiveOrAssignmentExpression => IrBinaryOp.Xor,
-        SyntaxKind.LeftShiftAssignmentExpression => IrBinaryOp.Shl,
-        SyntaxKind.RightShiftAssignmentExpression => signed ? IrBinaryOp.AShr : IrBinaryOp.LShr,
+        SyntaxKind.AddAssignmentExpression => SyntaxKind.AddExpression,
+        SyntaxKind.SubtractAssignmentExpression => SyntaxKind.SubtractExpression,
+        SyntaxKind.MultiplyAssignmentExpression => SyntaxKind.MultiplyExpression,
+        SyntaxKind.DivideAssignmentExpression => SyntaxKind.DivideExpression,
+        SyntaxKind.ModuloAssignmentExpression => SyntaxKind.ModuloExpression,
+        SyntaxKind.AndAssignmentExpression => SyntaxKind.BitwiseAndExpression,
+        SyntaxKind.OrAssignmentExpression => SyntaxKind.BitwiseOrExpression,
+        SyntaxKind.ExclusiveOrAssignmentExpression => SyntaxKind.ExclusiveOrExpression,
+        SyntaxKind.LeftShiftAssignmentExpression => SyntaxKind.LeftShiftExpression,
+        SyntaxKind.RightShiftAssignmentExpression => SyntaxKind.RightShiftExpression,
         _ => throw new CSharpNotSupportedException($"unsupported compound assignment '{kind}'."),
-    };
+    }, signed);
 }

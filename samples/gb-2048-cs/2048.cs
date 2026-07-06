@@ -27,9 +27,9 @@
 // Runs the canonical three-step algorithm: compact, merge equal neighbours,
 // compact again. Merging zeroes the absorbed cell, so a run like 2 2 2 2 folds
 // into two 4s (never a single 8), exactly like the real game.
-static void SlideLine(byte* a)
+// Pull every non-empty cell down toward index 0, leaving the freed high cells zero.
+static void Compact(byte* a)
 {
-    // 1. Compact: pull every non-empty cell down toward index 0.
     byte write = 0;
     for (byte read = 0; read < 4; read++)
     {
@@ -41,6 +41,12 @@ static void SlideLine(byte* a)
             write++;
         }
     }
+}
+
+static void SlideLine(byte* a)
+{
+    // 1. Compact so the cells are packed against index 0.
+    Compact(a);
 
     // 2. Merge: fold each equal adjacent pair once (left-biased). Zeroing the
     //    right cell means the next iteration skips it, so triples merge once.
@@ -54,17 +60,7 @@ static void SlideLine(byte* a)
     }
 
     // 3. Compact again to close the gaps the merge opened.
-    byte w2 = 0;
-    for (byte r2 = 0; r2 < 4; r2++)
-    {
-        if (*(a + r2) != 0)
-        {
-            byte v2 = *(a + r2);
-            *(a + r2) = 0;
-            *(a + w2) = v2;
-            w2++;
-        }
-    }
+    Compact(a);
 }
 
 // Map a line position to a board index for one of the four move directions.

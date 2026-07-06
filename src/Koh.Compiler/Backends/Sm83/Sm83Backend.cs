@@ -170,8 +170,9 @@ public sealed class Sm83Backend : IBackend
 
     /// <summary>
     /// Build the 80-byte cartridge header spanning 0x0100..0x014F: a <c>nop; jp entry</c> boot
-    /// vector, the Nintendo logo, ROM-only cartridge fields, and the header checksum. This makes
-    /// the emitted image a bootable cartridge rather than a bare code blob.
+    /// vector, the Nintendo logo, and ROM-only cartridge fields. This makes the emitted image a
+    /// bootable cartridge rather than a bare code blob. The header and global checksums ($014D and
+    /// $014E-F) are filled in by the linker's <c>RomWriter</c>, so they are left zero here.
     /// </summary>
     private static byte[] BuildHeader(int entryAddress)
     {
@@ -185,12 +186,6 @@ public sealed class Sm83Backend : IBackend
         NintendoLogo.CopyTo(header.AsSpan(0x04));      // 0x0104..0x0133
 
         // Title bytes (0x0134..) left zero; cartridge type/ROM/RAM sizes 0 => ROM-only, 32 KB.
-        // Header checksum over 0x0134..0x014C (indices 0x34..0x4C).
-        byte checksum = 0;
-        for (int i = 0x34; i <= 0x4C; i++)
-            checksum = (byte)(checksum - header[i] - 1);
-        header[0x4D] = checksum;
-
         return header;
     }
 
@@ -325,32 +320,18 @@ public sealed class Sm83Backend : IBackend
         e.U8(0xC9);                              // ret
     }
 
-    private static void NegateDE(Emitter e)
+    /// <summary>Two's-complement a 16-bit register pair: <c>xor a; sub lo; ld lo,a; ld a,0; sbc a,hi; ld hi,a</c>.</summary>
+    private static void NegatePair(Emitter e, int subLo, int storeLo, int sbcHi, int storeHi)
     {
-        e.U8(0xAF); e.U8(0x93); e.U8(0x5F);      // xor a ; sub e ; ld e, a
-        e.U8(0x3E); e.U8(0x00); e.U8(0x9A); e.U8(0x57); // ld a, 0 ; sbc a, d ; ld d, a
+        e.U8(0xAF); e.U8(subLo); e.U8(storeLo);                 // xor a ; sub lo ; ld lo, a
+        e.U8(0x3E); e.U8(0x00); e.U8(sbcHi); e.U8(storeHi);     // ld a, 0 ; sbc a, hi ; ld hi, a
     }
 
-    private static void NegateBC(Emitter e)
-    {
-        e.U8(0xAF); e.U8(0x91); e.U8(0x4F);      // xor a ; sub c ; ld c, a
-        e.U8(0x3E); e.U8(0x00); e.U8(0x98); e.U8(0x47); // ld a, 0 ; sbc a, b ; ld b, a
-    }
+    private static void NegateDE(Emitter e) => NegatePair(e, 0x93, 0x5F, 0x9A, 0x57); // sub e/ld e/sbc d/ld d
+    private static void NegateBC(Emitter e) => NegatePair(e, 0x91, 0x4F, 0x98, 0x47); // sub c/ld c/sbc b/ld b
+    private static void NegateHL(Emitter e) => NegatePair(e, 0x95, 0x6F, 0x9C, 0x67); // sub l/ld l/sbc h/ld h
 
-    private static void NegateHL(Emitter e)
-    {
-        e.U8(0xAF); e.U8(0x95); e.U8(0x6F);      // xor a ; sub l ; ld l, a
-        e.U8(0x3E); e.U8(0x00); e.U8(0x9C); e.U8(0x67); // ld a, 0 ; sbc a, h ; ld h, a
-    }
-
-    internal static int SizeOf(IrType type) => type.Kind switch
-    {
-        IrTypeKind.Void => 0,
-        IrTypeKind.Int => (type.Bits + 7) / 8,
-        IrTypeKind.Pointer => 2,
-        IrTypeKind.Array => type.ArrayLength * SizeOf(type.Element!),
-        _ => throw new NotSupportedException($"SM83 backend cannot size type {type}."),
-    };
+    internal static int SizeOf(IrType type) => type.SizeInBytes;
 
     /// <summary>A forward reference resolved to an absolute address once its target is placed.</summary>
     private sealed class Label { public int Offset = -1; }
@@ -671,9 +652,20 @@ public sealed class Sm83Backend : IBackend
                             Interfere(instr, w);
                         live.Remove(instr);
                     }
+                    // A multi-byte result is emitted byte-by-byte in place (see EmitBinary/EmitConv/
+                    // EmitShift), so it must not share a slot with any operand it reads: a partial
+                    // overlap would clobber a source byte before it is read. Force disjointness by
+                    // interfering the result with its colored operands. (An i8 result reads/writes a
+                    // single byte, so full-coincidence or disjoint are both safe — leave it free to
+                    // coalesce with a dying operand.)
+                    bool wideResult = colored.Contains(instr) && SizeOf(instr.Type) >= 2;
                     foreach (var op in instr.Operands)
                         if (colored.Contains(op))
+                        {
+                            if (wideResult)
+                                Interfere(instr, op);
                             live.Add(op);
+                        }
                 }
                 var blockPhis = phis[b];
                 foreach (var p in blockPhis)
@@ -1053,6 +1045,7 @@ public sealed class Sm83Backend : IBackend
 
             switch (cv.Op)
             {
+                case IrConvOp.Bitcast: // same-size reinterpret: copy the bytes through
                 case IrConvOp.Trunc:
                     for (int k = 0; k < dstBytes; k++)
                     {
@@ -1409,9 +1402,11 @@ public sealed class Sm83Backend : IBackend
                 for (int i = pending.Count - 1; i >= 0; i--)
                 {
                     var c = pending[i];
-                    bool neededAsSource = pending.Any(o =>
-                        o != c && o.Src is not null && ReferenceEquals(o.Src, c.DestPhi));
-                    if (!neededAsSource)
+                    // Emitting c writes its destination bytes; defer if that would clobber a slot
+                    // another pending copy still has to read. This is by *slot*, not SSA identity:
+                    // register coalescing can put an unrelated source in a phi-destination's slot.
+                    bool clobbersPendingSource = pending.Any(o => o != c && SourceOverlaps(o, c.DestSlot, c.N));
+                    if (!clobbersPendingSource)
                     {
                         EmitMove(c);
                         pending.RemoveAt(i);
@@ -1421,7 +1416,7 @@ public sealed class Sm83Backend : IBackend
                 if (pending.Count == before)
                 {
                     // Every remaining copy is part of a cycle: stage one destination through a temp,
-                    // redirect its readers there, then let the next pass drain the now-open chain.
+                    // redirect readers of that slot there, then let the next pass drain the chain.
                     var c = pending[0];
                     int tempAddr = temp;
                     temp += c.N;
@@ -1431,13 +1426,25 @@ public sealed class Sm83Backend : IBackend
                         StoreAToAddr(tempAddr + k);
                     }
                     foreach (var o in pending)
-                        if (o != c && o.Src is not null && ReferenceEquals(o.Src, c.DestPhi))
+                        if (o != c && SourceOverlaps(o, c.DestSlot, c.N))
                         {
                             o.Src = null;
                             o.TempSrc = tempAddr;
                         }
                 }
             }
+        }
+
+        /// <summary>Whether pending copy <paramref name="o"/> reads a slot range overlapping
+        /// <c>[start, start + n)</c>. Constants and temp-staged sources read no live slot.</summary>
+        private bool SourceOverlaps(PhiCopy o, int start, int n)
+        {
+            if (o.TempSrc >= 0 || o.Src is null or IrConstInt)
+                return false;
+            int srcAddr;
+            if (!TryStaticAddr(o.Src, out srcAddr) && !_slot.TryGetValue(o.Src, out srcAddr))
+                return false;
+            return srcAddr < start + n && start < srcAddr + o.N;
         }
 
         private void EmitMove(PhiCopy c)

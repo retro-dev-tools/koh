@@ -264,7 +264,7 @@ public sealed class CSharpFrontend : IFrontend
             bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
             bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
             var type = ResolveType(field.Declaration.Type, enums);
-            int size = (type.Ir.Bits + 7) / 8;
+            int size = type.Ir.SizeInBytes;
 
             foreach (var v in field.Declaration.Variables)
             {
@@ -306,7 +306,7 @@ public sealed class CSharpFrontend : IFrontend
             foreach (var member in decl.Members.OfType<FieldDeclarationSyntax>())
             {
                 var type = ResolveType(member.Declaration.Type, enums);
-                int size = (type.Ir.Bits + 7) / 8;
+                int size = type.Ir.SizeInBytes;
                 foreach (var v in member.Declaration.Variables)
                 {
                     offset = RoundUp(offset, size); // align each field to its own size
