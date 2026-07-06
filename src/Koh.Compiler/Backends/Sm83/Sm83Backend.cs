@@ -100,9 +100,11 @@ public sealed class Sm83Backend : IBackend
         var symbols = new List<SymbolData>();
 
         // The cartridge boots into "main" (or the first function if there is none).
-        var entryFunction = module.Functions.FirstOrDefault(f => !f.IsExternal && f.Name == "main")
+        var entryFunction = module.Functions.FirstOrDefault(f =>
+                !f.IsExternal && string.Equals(f.Name, "main", StringComparison.OrdinalIgnoreCase))
             ?? module.Functions.FirstOrDefault(f => !f.IsExternal);
         int entryAddress = CodeBase;
+        var interruptHandlers = new List<(int Vector, int Address)>();
 
         foreach (var fn in module.Functions)
         {
@@ -112,6 +114,8 @@ public sealed class Sm83Backend : IBackend
             int funcStart = CodeBase + emitter.Code.Count;
             if (ReferenceEquals(fn, entryFunction))
                 entryAddress = funcStart;
+            if (fn.InterruptVector is int vector)
+                interruptHandlers.Add((vector, funcStart));
             new FunctionEmitter(emitter, fn, allocations, globalAddresses).Compile();
             symbols.Add(new SymbolData(
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcStart));
@@ -141,6 +145,13 @@ public sealed class Sm83Backend : IBackend
             sections.Add(new SectionData(
                 "HEADER", SectionType.Rom0, fixedAddress: 0x0100, bank: 0,
                 data: BuildHeader(entryAddress), patches: Array.Empty<PatchEntry>()));
+
+        // Interrupt vectors: `jp <handler>` at 0x40/0x48/0x50/0x58/0x60.
+        foreach (var (vector, address) in interruptHandlers)
+            sections.Add(new SectionData(
+                $"VEC_{vector:X2}", SectionType.Rom0, fixedAddress: vector, bank: 0,
+                data: [0xC3, (byte)(address & 0xFF), (byte)(address >> 8)],
+                patches: Array.Empty<PatchEntry>()));
 
         foreach (var (g, addr) in globalAddresses)
             symbols.Add(new SymbolData(
@@ -564,6 +575,15 @@ public sealed class Sm83Backend : IBackend
 
         public void Compile()
         {
+            // Interrupt handlers must preserve everything they touch; push at entry, pop before RETI.
+            if (_fn.InterruptVector is not null)
+            {
+                _e.U8(0xF5); // PUSH AF
+                _e.U8(0xC5); // PUSH BC
+                _e.U8(0xD5); // PUSH DE
+                _e.U8(0xE5); // PUSH HL
+            }
+
             foreach (var block in _fn.Blocks)
             {
                 _e.Place(_e.BlockLabel(block));
@@ -597,6 +617,7 @@ public sealed class Sm83Backend : IBackend
                 case CondBrInstruction cb: EmitCondBr(block, cb); break;
                 case SwitchInstruction sw: EmitSwitch(block, sw); break;
                 case CallInstruction call: EmitCall(call); break;
+                case IntrinsicInstruction intr: EmitIntrinsic(intr); break;
                 default:
                     throw new NotSupportedException(
                         $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_fn.Name}').");
@@ -1045,29 +1066,50 @@ public sealed class Sm83Backend : IBackend
 
         private void EmitRet(RetInstruction r)
         {
-            if (r.Value is null)
+            if (r.Value is not null)
             {
-                _e.U8(0xC9); // RET
-                return;
+                switch (SizeOf(r.Value.Type))
+                {
+                    case 1:
+                        LoadByteToA(r.Value, 0);
+                        break;
+                    case 2:
+                        LoadByteToA(r.Value, 0);
+                        _e.U8(0x6F);            // LD L, A
+                        LoadByteToA(r.Value, 1);
+                        _e.U8(0x67);            // LD H, A
+                        break;
+                    default:
+                        throw new NotSupportedException(
+                            $"SM83 backend can only return i8 (A) or i16 (HL), not {r.Value.Type}.");
+                }
             }
 
-            int n = SizeOf(r.Value.Type);
-            switch (n)
+            if (_fn.InterruptVector is not null)
             {
-                case 1:
-                    LoadByteToA(r.Value, 0);
-                    break;
-                case 2:
-                    LoadByteToA(r.Value, 0);
-                    _e.U8(0x6F);            // LD L, A
-                    LoadByteToA(r.Value, 1);
-                    _e.U8(0x67);            // LD H, A
-                    break;
-                default:
-                    throw new NotSupportedException(
-                        $"SM83 backend can only return i8 (A) or i16 (HL), not {r.Value.Type}.");
+                _e.U8(0xE1); // POP HL
+                _e.U8(0xD1); // POP DE
+                _e.U8(0xC1); // POP BC
+                _e.U8(0xF1); // POP AF
+                _e.U8(0xD9); // RETI
             }
-            _e.U8(0xC9); // RET
+            else
+            {
+                _e.U8(0xC9); // RET
+            }
+        }
+
+        private void EmitIntrinsic(IntrinsicInstruction instr)
+        {
+            switch (instr.Intrinsic)
+            {
+                case "ei": _e.U8(0xFB); break;
+                case "di": _e.U8(0xF3); break;
+                case "halt": _e.U8(0x76); _e.U8(0x00); break; // HALT + NOP (halt-bug guard)
+                case "nop": _e.U8(0x00); break;
+                default:
+                    throw new NotSupportedException($"unknown intrinsic '{instr.Intrinsic}'.");
+            }
         }
 
         /// <summary>

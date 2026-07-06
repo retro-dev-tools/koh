@@ -274,6 +274,17 @@ public sealed class CallInstruction : IrInstruction
     public override string Mnemonic => "call";
 }
 
+/// <summary>A named hardware/runtime intrinsic with no operands (e.g. <c>ei</c>, <c>di</c>, <c>halt</c>).</summary>
+public sealed class IntrinsicInstruction : IrInstruction
+{
+    public string Intrinsic { get; }
+
+    public IntrinsicInstruction(string intrinsic) : base(IrType.Void) => Intrinsic = intrinsic;
+
+    public override IEnumerable<IrValue> Operands => [];
+    public override string Mnemonic => "intrinsic";
+}
+
 /// <summary><c>phi</c> — selects a value based on the predecessor block control came from.</summary>
 public sealed class PhiInstruction : IrInstruction
 {

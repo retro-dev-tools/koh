@@ -137,6 +137,9 @@ public static class IrPrinter
                 }
                 sb.Append(')');
                 break;
+            case IntrinsicInstruction intr:
+                sb.Append("intrinsic \"").Append(intr.Intrinsic).Append('"');
+                break;
             case PhiInstruction phi:
                 sb.Append("phi ").Append(phi.Type).Append(' ');
                 for (int i = 0; i < phi.Incomings.Count; i++)

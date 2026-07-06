@@ -54,6 +54,8 @@ public sealed class CSharpFrontend : IFrontend
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts.
         var (globals, moduleConsts, staticInits) = CollectStatics(root, enums, module);
 
+        var hardware = new HardwareRegisters(module);
+
         // Pass 1: signatures, so calls resolve regardless of source order. Accept both class methods
         // and top-level `static T F(...) {...}` functions (which Roslyn parses as local functions).
         foreach (var decl in CollectMethods(root))
@@ -69,7 +71,10 @@ public sealed class CSharpFrontend : IFrontend
                 parameters.Add(new IrParameter(p.Identifier.Text, t.Ir));
             }
 
-            var fn = new IrFunction(name, returnType?.Ir ?? IrType.Void, parameters);
+            var fn = new IrFunction(name, returnType?.Ir ?? IrType.Void, parameters)
+            {
+                InterruptVector = InterruptVectorOf(decl),
+            };
             module.Functions.Add(fn);
             var method = new CsMethod(fn, returnType, paramTypes);
             methods[name] = method;
@@ -77,17 +82,46 @@ public sealed class CSharpFrontend : IFrontend
         }
 
         // The entry function (main, else first) runs the static-field initializers in its prologue.
-        var entry = bodies.FirstOrDefault(b => b.Method.Fn.Name == "main").Method
+        var entry = bodies.FirstOrDefault(b =>
+                string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)).Method
             ?? (bodies.Count > 0 ? bodies[0].Method : null);
 
         // Pass 2: bodies.
         foreach (var (method, body, arrow) in bodies)
         {
             var inits = ReferenceEquals(method, entry) ? staticInits : [];
-            new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts, inits).Lower();
+            new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts, hardware, inits).Lower();
         }
 
         return module;
+    }
+
+    private static int? InterruptVectorOf(SyntaxNode decl)
+    {
+        SyntaxList<AttributeListSyntax> lists = decl switch
+        {
+            MethodDeclarationSyntax m => m.AttributeLists,
+            LocalFunctionStatementSyntax f => f.AttributeLists,
+            _ => default,
+        };
+
+        foreach (var list in lists)
+            foreach (var attr in list.Attributes)
+            {
+                var attrName = attr.Name.ToString();
+                if (attrName is not ("Interrupt" or "InterruptAttribute"))
+                    continue;
+                var arg = attr.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
+                var kind = arg switch
+                {
+                    MemberAccessExpressionSyntax ma => ma.Name.Identifier.Text,
+                    IdentifierNameSyntax id => id.Identifier.Text,
+                    LiteralExpressionSyntax lit => lit.Token.ValueText,
+                    _ => null,
+                };
+                return HardwareRegisters.InterruptVector(kind);
+            }
+        return null;
     }
 
     private static IEnumerable<SyntaxNode> CollectMethods(SyntaxNode root)

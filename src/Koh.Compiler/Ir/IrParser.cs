@@ -360,6 +360,14 @@ public static class IrParser
                 instr = phi;
                 break;
             }
+            case "intrinsic":
+            {
+                var token = r.Next();
+                if (!token.IsString)
+                    throw new IrParseException("intrinsic expects a quoted name");
+                instr = builder.Intrinsic(token.Text);
+                break;
+            }
             case "ret":
                 if (r.Peek == "void")
                 {

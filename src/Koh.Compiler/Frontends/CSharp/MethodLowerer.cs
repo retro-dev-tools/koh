@@ -20,6 +20,7 @@ internal sealed class MethodLowerer
     private readonly IReadOnlyDictionary<string, CsStruct> _structs;
     private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> _globals;
     private readonly IReadOnlyDictionary<string, (CsType Type, long Value)> _moduleConsts;
+    private readonly HardwareRegisters _hardware;
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
@@ -37,6 +38,7 @@ internal sealed class MethodLowerer
         IReadOnlyDictionary<string, CsStruct> structs,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> globals,
         IReadOnlyDictionary<string, (CsType Type, long Value)> moduleConsts,
+        HardwareRegisters hardware,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits)
     {
         _method = method;
@@ -47,6 +49,7 @@ internal sealed class MethodLowerer
         _structs = structs;
         _globals = globals;
         _moduleConsts = moduleConsts;
+        _hardware = hardware;
         _staticInits = staticInits;
     }
 
@@ -231,6 +234,18 @@ internal sealed class MethodLowerer
             throw new CSharpNotSupportedException("indexing requires an array variable.");
         var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
         return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
+    }
+
+    /// <summary>An assignable member: a struct field or a hardware register.</summary>
+    private (IrValue Pointer, CsType Type)? MemberPointer(MemberAccessExpressionSyntax member)
+    {
+        if (StructFieldPointer(member) is { } field)
+            return field;
+        if (member.Expression is IdentifierNameSyntax subject
+            && subject.Identifier.Text == "Hardware"
+            && _hardware.IsRegister(member.Name.Identifier.Text))
+            return (IrBuilder.GlobalRef(_hardware.Register(member.Name.Identifier.Text)), CsType.U8);
+        return null;
     }
 
     /// <summary>Compute the pointer to a struct local's field <c>s.field</c>.</summary>
@@ -596,7 +611,7 @@ internal sealed class MethodLowerer
             (pointer, type) = place;
         else if (assign.Left is ElementAccessExpressionSyntax access)
             (pointer, type) = ArrayElementPointer(access);
-        else if (assign.Left is MemberAccessExpressionSyntax fieldAccess && StructFieldPointer(fieldAccess) is { } field)
+        else if (assign.Left is MemberAccessExpressionSyntax fieldAccess && MemberPointer(fieldAccess) is { } field)
             (pointer, type) = field;
         else
             throw new CSharpNotSupportedException("assignment target must be a variable, array element, or struct field.");
@@ -625,6 +640,10 @@ internal sealed class MethodLowerer
 
         if (member.Expression is IdentifierNameSyntax subject)
         {
+            // Hardware register read, e.g. Hardware.LCDC.
+            if (subject.Identifier.Text == "Hardware" && _hardware.IsRegister(member.Name.Identifier.Text))
+                return (_b.Load(IrBuilder.GlobalRef(_hardware.Register(member.Name.Identifier.Text))), CsType.U8);
+
             // Enum member reference, e.g. Color.Red.
             if (_enums.TryGetValue(subject.Identifier.Text, out var e))
             {
@@ -646,6 +665,21 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerCall(InvocationExpressionSyntax call)
     {
+        // Hardware control intrinsics: Hardware.EnableInterrupts(), etc.
+        if (call.Expression is MemberAccessExpressionSyntax hw
+            && hw.Expression is IdentifierNameSyntax hwId && hwId.Identifier.Text == "Hardware")
+        {
+            var intrinsic = hw.Name.Identifier.Text switch
+            {
+                "EnableInterrupts" => "ei",
+                "DisableInterrupts" => "di",
+                "Halt" => "halt",
+                "Nop" => "nop",
+                _ => throw new CSharpNotSupportedException($"unknown Hardware method '{hw.Name.Identifier.Text}'."),
+            };
+            return (_b.Intrinsic(intrinsic), CsType.U8);
+        }
+
         if (call.Expression is not IdentifierNameSyntax id || !_methods.TryGetValue(id.Identifier.Text, out var callee))
             throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
 

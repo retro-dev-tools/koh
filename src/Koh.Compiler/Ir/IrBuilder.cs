@@ -57,6 +57,9 @@ public sealed class IrBuilder
     public PhiInstruction Phi(IrType type) =>
         Append(new PhiInstruction(type));
 
+    public IntrinsicInstruction Intrinsic(string name) =>
+        Append(new IntrinsicInstruction(name));
+
     public RetInstruction Ret(IrValue? value = null) =>
         Append(new RetInstruction(value));
 

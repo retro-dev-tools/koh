@@ -37,6 +37,9 @@ public sealed class IrFunction
     /// <summary>True for an <c>extern</c> declaration (e.g. an assembly symbol) with no body.</summary>
     public bool IsExternal { get; }
 
+    /// <summary>If set, this function is an interrupt handler placed at the given vector address.</summary>
+    public int? InterruptVector { get; set; }
+
     /// <summary>Basic blocks in program order; empty for external functions.</summary>
     public List<IrBasicBlock> Blocks { get; } = [];
 

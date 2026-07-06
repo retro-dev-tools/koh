@@ -382,6 +382,43 @@ static byte Run() {
         await Assert.That(RunA(src)).IsEqualTo((byte)42);
     }
 
+    private static byte RunThenRead(string src, int address)
+    {
+        var gb = Load(Compile(src), out int s, out int l);
+        Run(gb, s, l);
+        return gb.DebugReadByte((ushort)address);
+    }
+
+    [Test]
+    public async Task Hardware_WriteRegister()
+    {
+        // Writing Hardware.BGP reaches the DMG background-palette register (0xFF47).
+        const string src = "static void Main() { Hardware.BGP = 0xE4; }";
+        await Assert.That(RunThenRead(src, 0xFF47)).IsEqualTo((byte)0xE4);
+    }
+
+    [Test]
+    public async Task Hardware_ReadRegister()
+    {
+        // Read SCY (0xFF42) back through the Hardware surface.
+        const string src = "static byte Main() { return Hardware.SCY; }";
+        await Assert.That(RunA(src, gb => gb.DebugWriteByte(0xFF42, 0x55))).IsEqualTo((byte)0x55);
+    }
+
+    [Test]
+    public async Task Interrupt_EmitsVectorAndReti()
+    {
+        const string src = @"
+static byte counter;
+[Interrupt(""VBlank"")]
+static void OnVBlank() { counter++; }
+static void Main() { Hardware.EnableInterrupts(); }";
+        var link = new LinkerType().Link([new LinkerInput("cs", Compile(src))]);
+        var rom = link.RomData!;
+        await Assert.That(rom[0x40]).IsEqualTo((byte)0xC3);                      // jp <handler> at the VBlank vector
+        await Assert.That(Array.IndexOf(rom, (byte)0xD9, Sm83Backend.CodeBase) >= 0).IsTrue(); // RETI present
+    }
+
     [Test]
     public async Task UnsupportedType_Throws()
     {
