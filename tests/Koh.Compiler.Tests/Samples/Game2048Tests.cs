@@ -205,4 +205,22 @@ public class Game2048Tests
         await Assert.That(Run("static ushort Main(){ byte[] b=new byte[16]; b[7]=10; return HasWon(&b[0]); }"))
             .IsEqualTo((ushort)0);
     }
+
+    [Test]
+    public async Task Render_PaintsBottomRowCellsToTheCorrectTilemapAddress()
+    {
+        // The bottom-right board cell (r=3, c=3) maps to tilemap (row 12, col 15) = $9800 + 399.
+        // Regression: the offset row*32 used to be computed in 8-bit and truncate (399 -> 143), so
+        // the lower board rows scribbled over the wrong cells. Read the tile back through VRAM with
+        // the LCD off, so the PPU is not blocking VRAM access.
+        const string src = @"static ushort Main() {
+            Hardware.LCDC = 0;
+            byte[] b = new byte[16];
+            b[15] = 9;
+            Render(&b[0]);
+            byte* map = (byte*)0x9800;
+            return *(map + 12 * 32 + 15);
+        }";
+        await Assert.That(Run(src)).IsEqualTo((ushort)9);
+    }
 }

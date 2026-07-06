@@ -218,7 +218,10 @@ static void Render(byte* board)
             for (byte dr = 0; dr < 2; dr++)
                 for (byte dc = 0; dc < 2; dc++)
                 {
-                    ushort off = (ushort)((baseRow + dr) * 32 + (baseCol + dc));
+                    // Force 16-bit math: a tilemap row is 32 tiles, so row*32 overflows a byte
+                    // for the lower rows (8-bit arithmetic would truncate before the widening cast).
+                    ushort row = (ushort)(baseRow + dr);
+                    ushort off = (ushort)(row * 32 + baseCol + dc);
                     *(map + off) = tile;
                 }
         }
