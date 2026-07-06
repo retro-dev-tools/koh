@@ -98,9 +98,10 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 
 ### The "Koh C#" subset
 
-Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`long`/`ulong`/`bool` (full arithmetic
-including mul/div/rem/shift at every width — i8/i16 via register routines, i32/i64 via generic
-width-N memory routines; i64 has no register room so it returns via `Sm83Backend.ReturnScratch`),
+Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`long`/`ulong`/`Int128`/`UInt128`/`bool`
+(full arithmetic including mul/div/rem/shift at every width — i8/i16 via register routines, i32/i64/
+i128 via generic width-N memory routines; i64/i128 have no register room so they return via
+`Sm83Backend.ReturnScratch`),
 `char`/string literals (strings only as `byte[]` initializers), `enum` (custom base), `const`,
 pointers (`T*` incl. arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed arrays (local +
 static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed);

@@ -84,6 +84,17 @@ public class CSharpEndToEndTests
             gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset + i), (byte)((value >> (8 * i)) & 0xFF));
     }
 
+    private static UInt128 RunI128(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(Compile(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        UInt128 result = 0; // i128 is returned little-endian in ReturnScratch memory (16 bytes)
+        for (int i = 0; i < 16; i++)
+            result |= (UInt128)gb.DebugReadByte((ushort)(Sm83Backend.ReturnScratch + i)) << (8 * i);
+        return result;
+    }
+
     private static bool HasError(string src)
     {
         var diagnostics = new DiagnosticBag();
@@ -1517,6 +1528,30 @@ static readonly byte[] Mark = { 0xAB };";
         sb.Append("static readonly byte[] F0 = new byte[8192];\n");
         sb.Append("static readonly byte[] F1 = new byte[16384];\n");
         await Assert.That(() => Compile(sb.ToString())).Throws<NotSupportedException>();
+    }
+
+    [Test]
+    public async Task Int128_MultiplyBeyond64Bits()
+    {
+        // The generic width-N routines serve N=16 unchanged: 2^32 * 2^32 = 2^64, a product no 64-bit
+        // type can hold, returned in the 16-byte ReturnScratch.
+        await Assert.That(RunI128("static UInt128 Mul(ulong a, ulong b) { return (UInt128)a * (UInt128)b; }",
+            gb => { W64(gb, 0, 0x100000000L); W64(gb, 8, 0x100000000L); }))
+            .IsEqualTo((UInt128)1 << 64);
+    }
+
+    [Test]
+    public async Task Int128_AddShiftDivide()
+    {
+        await Assert.That(RunI128("static UInt128 Add(ulong a, ulong b) { return (UInt128)a + (UInt128)b; }",
+            gb => { W64(gb, 0, unchecked((long)0xFFFFFFFFFFFFFFFF)); W64(gb, 8, 1); }))
+            .IsEqualTo((UInt128)1 << 64); // 2^64-1 + 1 = 2^64
+        await Assert.That(RunI128("static UInt128 Shl(ulong a, int n) { return (UInt128)a << n; }",
+            gb => { W64(gb, 0, 1); W32(gb, 8, 100); }))
+            .IsEqualTo((UInt128)1 << 100);
+        await Assert.That(RunI128("static UInt128 Div(ulong a, ulong b) { return ((UInt128)a * (UInt128)a) / (UInt128)b; }",
+            gb => { W64(gb, 0, 1_000_000_000L); W64(gb, 8, 7); }))
+            .IsEqualTo(((UInt128)1_000_000_000 * 1_000_000_000) / 7);
     }
 
     private static bool CompilesClean(string src)

@@ -925,9 +925,11 @@ internal sealed class MethodLowerer
             return new CsType(IrType.I32, Signed: true); // e.g. ushort vs sbyte -> signed int
         if (need <= 64)
             return new CsType(IrType.I64, Signed: true); // e.g. uint vs int -> signed long
+        if (need <= 128)
+            return new CsType(IrType.Int(128), Signed: true); // e.g. ulong vs long -> signed Int128
 
-        // No usable wider signed type exists on the target (64-bit unsigned mixed with signed would
-        // need a 128-bit signed type). If the operator's signedness affects the result it needs an
+        // No usable wider signed type exists on the target (128-bit unsigned mixed with signed would
+        // need a 256-bit signed type). If the operator's signedness affects the result it needs an
         // explicit cast; otherwise use the common width unsigned, since the bits are identical.
         if (signMatters)
             throw new CSharpNotSupportedException(

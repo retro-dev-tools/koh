@@ -244,6 +244,11 @@ public sealed class CSharpFrontend : IFrontend
     {
         if (type is PredefinedTypeSyntax predefined && CsType.FromKeyword(predefined.Keyword.Kind()) is { } t)
             return t;
+        // Int128/UInt128 have no keyword; they arrive as type names.
+        if (type is IdentifierNameSyntax { Identifier.Text: "Int128" })
+            return CsType.I128;
+        if (type is IdentifierNameSyntax { Identifier.Text: "UInt128" })
+            return CsType.U128;
         if (type is IdentifierNameSyntax id && enums.TryGetValue(id.Identifier.Text, out var e))
             return e.Underlying;
         if (type is PointerTypeSyntax pointer)

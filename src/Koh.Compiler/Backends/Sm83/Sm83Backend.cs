@@ -588,18 +588,18 @@ public sealed class Sm83Backend : IBackend
     private const int RtCmpLeft = 0xDF03;   // signed compare: sign-flipped top byte of the left operand
     private const int RtCmpRight = 0xDF04;  // signed compare: sign-flipped top byte of the right operand
 
-    // Scratch for the generic width-N (32-/64-bit) memory routines. Operand areas are 8 bytes so the
-    // same code serves i32 (N=4) and i64 (N=8); N and the loop counter live in single bytes.
-    private const int RtN = 0xDF08;         // operand width in bytes (4 or 8)
+    // Scratch for the generic width-N memory routines. Operand areas are 16 bytes so the same code
+    // serves i32 (N=4), i64 (N=8), and i128 (N=16); N and the loop counter live in single bytes.
+    private const int RtN = 0xDF08;         // operand width in bytes (4, 8, or 16)
     private const int RtBits = 0xDF09;      // shift/division loop counter
-    private const int RtOpA = 0xDF10;       // multiplicand / dividend -> quotient / shift subject
-    private const int RtOpB = 0xDF18;       // multiplier / divisor
-    private const int RtAcc = 0xDF20;       // product / remainder
+    private const int RtOpA = 0xDF10;       // multiplicand / dividend -> quotient / shift subject (16 bytes)
+    private const int RtOpB = 0xDF20;       // multiplier / divisor (16 bytes)
+    private const int RtAcc = 0xDF30;       // product / remainder (16 bytes)
 
-    /// <summary>Where an i64 return value is passed: it does not fit the register file, so an i64 is
-    /// returned in this fixed 8-byte scratch (little-endian). Public so tests can read it. A recursive
-    /// function returns its value here at every width, so the epilogue's frame restore cannot clobber it.</summary>
-    public const int ReturnScratch = 0xDF28;
+    /// <summary>Where a return value too wide for the register file (i64, i128) is passed: a fixed
+    /// 16-byte scratch (little-endian). Public so tests can read it. A recursive or banked function
+    /// returns its value here at every width, so the frame/bank restore cannot clobber it.</summary>
+    public const int ReturnScratch = 0xDF40;
 
     // Recursion support: recursive functions save their static frame to a software stack on entry and
     // restore it before return, receive arguments through a fixed staging area (so the caller's own
@@ -2185,8 +2185,9 @@ public sealed class Sm83Backend : IBackend
                         LoadByteToA(r.Value, 3); _e.U8(0x57); // LD D, A
                         break;
                     case 8:
-                        // i64 has no register room; return it in the fixed ReturnScratch (little-endian).
-                        for (int k = 0; k < 8; k++)
+                    case 16:
+                        // i64/i128 have no register room; return in the fixed ReturnScratch (little-endian).
+                        for (int k = 0; k < SizeOf(r.Value.Type); k++)
                         {
                             LoadByteToA(r.Value, k);
                             StoreAToAddr(ReturnScratch + k);
@@ -2194,8 +2195,8 @@ public sealed class Sm83Backend : IBackend
                         break;
                     default:
                         throw new NotSupportedException(
-                            $"SM83 backend can only return i8 (A), i16 (HL), i32 (DE:HL), or i64 (memory), "
-                            + $"not {r.Value.Type}.");
+                            $"SM83 backend can only return i8 (A), i16 (HL), i32 (DE:HL), or i64/i128 "
+                            + $"(memory), not {r.Value.Type}.");
                 }
             }
 
@@ -2311,7 +2312,8 @@ public sealed class Sm83Backend : IBackend
                     _e.U8(0x7A); StoreAToAddr(dst + 3);   // LD A, D
                     break;
                 case 8:
-                    for (int k = 0; k < 8; k++)            // i64 comes back in ReturnScratch
+                case 16:
+                    for (int k = 0; k < SizeOf(call.Type); k++)   // i64/i128 come back in ReturnScratch
                     {
                         LoadAFromAddr(ReturnScratch + k);
                         StoreAToAddr(dst + k);
@@ -2319,7 +2321,7 @@ public sealed class Sm83Backend : IBackend
                     break;
                 default:
                     throw new NotSupportedException(
-                        $"SM83 backend can only capture i8/i16/i32/i64 return values, not {call.Type}.");
+                        $"SM83 backend can only capture i8/i16/i32/i64/i128 return values, not {call.Type}.");
             }
         }
 
