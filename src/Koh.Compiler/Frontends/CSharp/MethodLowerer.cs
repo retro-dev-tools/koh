@@ -163,7 +163,7 @@ internal sealed class MethodLowerer
                 break;
 
             default:
-                throw new CSharpNotSupportedException($"unsupported statement '{stmt.Kind()}'.");
+                throw new CSharpNotSupportedException($"unsupported statement '{stmt.Kind()}'.", stmt.GetLocation());
         }
     }
 
@@ -494,7 +494,7 @@ internal sealed class MethodLowerer
                 return LowerCall(call);
 
             default:
-                throw new CSharpNotSupportedException($"unsupported expression '{expr.Kind()}'.");
+                throw new CSharpNotSupportedException($"unsupported expression '{expr.Kind()}'.", expr.GetLocation());
         }
     }
 

@@ -470,11 +470,19 @@ static byte Main() {
     }
 
     [Test]
-    public async Task UnsupportedType_Throws()
+    public async Task UnsupportedConstruct_ReportedAsDiagnostic()
     {
-        bool threw = false;
-        try { Frontend("static int Bad() { return 0; }"); }
-        catch (CSharpNotSupportedException) { threw = true; }
-        await Assert.That(threw).IsTrue();
+        // 'int' is unsupported: reported into the bag with a location, not thrown.
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(SourceText.From("static int Bad() { return 0; }", "game.cs"), diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
+    [Test]
+    public async Task ParseError_ReportedAsDiagnostic()
+    {
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(SourceText.From("static byte F( { return 0 }", "game.cs"), diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
     }
 }

@@ -8,10 +8,18 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Koh.Compiler.Frontends.CSharp;
 
-/// <summary>Thrown when a C# construct falls outside the supported "Koh C#" subset.</summary>
+/// <summary>
+/// Thrown internally when a C# construct falls outside the supported "Koh C#" subset. The
+/// frontend catches these at the module/method boundary and reports them into the diagnostic
+/// bag; it does not escape <see cref="CSharpFrontend.Lower"/>.
+/// </summary>
 public sealed class CSharpNotSupportedException : Exception
 {
-    public CSharpNotSupportedException(string message) : base(message) { }
+    /// <summary>The offending syntax location, if known (in the wrapped source).</summary>
+    public Location? Location { get; }
+
+    public CSharpNotSupportedException(string message, Location? location = null) : base(message) =>
+        Location = location;
 }
 
 /// <summary>
@@ -28,20 +36,40 @@ public sealed class CSharpFrontend : IFrontend
 
     public IReadOnlyList<string> Extensions => [".cs"];
 
+    private const string WrapperPrefix = "static class __KohProgram {\n";
+
     public IrModule Lower(SourceText source, DiagnosticBag diagnostics)
+    {
+        var module = new IrModule(source.FilePath.Length > 0 ? source.FilePath : "csharp");
+        try
+        {
+            LowerCore(source, module, diagnostics);
+        }
+        catch (CSharpNotSupportedException ex)
+        {
+            Report(diagnostics, ex);
+        }
+        return module;
+    }
+
+    private static void LowerCore(SourceText source, IrModule module, DiagnosticBag diagnostics)
     {
         // Wrap in an implicit static class so plain `static T F(...)` methods and enum/struct
         // declarations coexist without hitting C#'s "top-level statements first" rule. (Source
         // lines shift by one; accounted for when line maps are emitted.)
-        var wrapped = "static class __KohProgram {\n" + source.ToString() + "\n}";
+        var wrapped = WrapperPrefix + source.ToString() + "\n}";
         var tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
         var root = tree.GetCompilationUnitRoot();
 
+        bool hasParseError = false;
         foreach (var diag in tree.GetDiagnostics())
             if (diag.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
-                throw new CSharpNotSupportedException($"C# parse error: {diag.GetMessage()}");
-
-        var module = new IrModule(source.FilePath.Length > 0 ? source.FilePath : "csharp");
+            {
+                Report(diagnostics, $"C# parse error: {diag.GetMessage()}", diag.Location);
+                hasParseError = true;
+            }
+        if (hasParseError)
+            return;
         var methods = new Dictionary<string, CsMethod>(StringComparer.Ordinal);
         var bodies = new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
 
@@ -89,15 +117,42 @@ public sealed class CSharpFrontend : IFrontend
                 string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)).Method
             ?? (bodies.Count > 0 ? bodies[0].Method : null);
 
-        // Pass 2: bodies.
+        // Pass 2: bodies. Report per-method so one bad method doesn't sink the whole compile.
         foreach (var (method, body, arrow) in bodies)
         {
             var inits = ReferenceEquals(method, entry) ? staticInits : [];
-            new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts,
-                hardware, module.Name, inits).Lower();
+            try
+            {
+                new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts,
+                    hardware, module.Name, inits).Lower();
+            }
+            catch (CSharpNotSupportedException ex)
+            {
+                Report(diagnostics, ex, fallback: FindDeclaration(root, method.Fn.Name)?.GetLocation());
+            }
         }
+    }
 
-        return module;
+    private static SyntaxNode? FindDeclaration(SyntaxNode root, string name) =>
+        CollectMethods(root).FirstOrDefault(d => d is MethodDeclarationSyntax m
+            ? m.Identifier.Text == name
+            : ((LocalFunctionStatementSyntax)d).Identifier.Text == name);
+
+    private static void Report(DiagnosticBag diagnostics, CSharpNotSupportedException ex, Location? fallback = null) =>
+        Report(diagnostics, ex.Message, ex.Location ?? fallback);
+
+    private static void Report(DiagnosticBag diagnostics, string message, Location? location)
+    {
+        if (location is { IsInSource: true } loc)
+        {
+            var span = loc.SourceSpan;
+            int start = Math.Max(0, span.Start - WrapperPrefix.Length); // map past the class wrapper
+            diagnostics.Report(new Koh.Core.Syntax.TextSpan(start, span.Length), message);
+        }
+        else
+        {
+            diagnostics.Report(new Koh.Core.Syntax.TextSpan(0, 0), message);
+        }
     }
 
     private static int? InterruptVectorOf(SyntaxNode decl)
@@ -156,7 +211,8 @@ public sealed class CSharpFrontend : IFrontend
         if (type is PointerTypeSyntax pointer)
             return new CsType(IrType.Pointer(ResolveType(pointer.ElementType, enums).Ir), Signed: false);
         throw new CSharpNotSupportedException(
-            $"unsupported type '{type}' (Koh C# supports byte/sbyte/ushort/short/bool, enums, and pointers).");
+            $"unsupported type '{type}' (Koh C# supports byte/sbyte/ushort/short/bool, enums, and pointers).",
+            type.GetLocation());
     }
 
     private static CsType? ResolveReturnType(TypeSyntax type, IReadOnlyDictionary<string, CsEnum> enums)
