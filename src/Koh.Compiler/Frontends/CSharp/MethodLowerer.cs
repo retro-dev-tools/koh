@@ -569,6 +569,10 @@ internal sealed class MethodLowerer
                     return (IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value), moduleConst.Type);
                 if (WritePlace(name) is { } place)
                     return (_b.Load(place.Pointer), place.Type);
+                // A class-instance local used as a value: its slot holds the heap pointer (so it can be
+                // returned or passed as byte*). Field/method access goes through ClassLocalOf instead.
+                if (_classLocals.TryGetValue(name, out var classLocal))
+                    return (_b.Load(classLocal.Slot), new CsType(IrType.Pointer(IrType.I8), false));
                 throw new CSharpNotSupportedException($"unknown identifier '{name}'.");
             }
 

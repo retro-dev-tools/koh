@@ -1735,6 +1735,53 @@ static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 
     }
 
     [Test]
+    public async Task Coroutine_CountedForLoop()
+    {
+        // A single counted for-loop iterator lowers to a resumable state machine (state 0 runs the
+        // initializer, later re-entries run the increment). Sum of i*i for i in 0..3 = 0+1+4+9 = 14.
+        const string src = @"
+static byte Main() {
+    Sq__Iter g = Sq();
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Sq() { for (byte i = 0; i < 4; i++) yield return (byte)(i * i); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)14);
+    }
+
+    [Test]
+    public async Task Coroutine_ParameterizedRange()
+    {
+        // An iterator that references its parameter: the argument is captured into the state object by
+        // the factory, so the loop bound survives across MoveNext calls. Range(5) yields 0..4 = 10.
+        const string src = @"
+static byte Main() {
+    Range__Iter g = Range(5);
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Range(byte n) { for (byte i = 0; i < n; i++) yield return i; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)10);
+    }
+
+    [Test]
+    public async Task Coroutine_FlatYieldReferencesParameter()
+    {
+        // Straight-line yields that read the parameter also capture it. Two(7) yields 7 then 8 = 15.
+        const string src = @"
+static byte Main() {
+    Two__Iter g = Two(7);
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Two(byte a) { yield return a; yield return (byte)(a + 1); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)15);
+    }
+
+    [Test]
     public async Task Bcl_BitOperationsPopCount()
     {
         // The verbatim software fallback from System.Numerics.BitOperations.PopCount(uint) — real BCL
