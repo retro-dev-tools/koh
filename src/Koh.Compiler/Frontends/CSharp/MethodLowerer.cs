@@ -651,7 +651,11 @@ internal sealed class MethodLowerer
                 var ri = Coerce((right, rt), CsType.U16);
                 return (_b.Compare(CompareOp(kind, signed: false), li, ri), CsType.Bool);
             }
-            return (_b.Compare(CompareOp(kind, lt.Signed), left, Coerce((right, rt), lt)), CsType.Bool);
+            // Convert both to their common type, then the predicate's signedness follows it — so a
+            // mixed comparison like `sbyte < byte` isn't silently governed by the left operand.
+            var cmpType = CommonType(lt, rt, signMatters: true, binary);
+            return (_b.Compare(CompareOp(kind, cmpType.Signed),
+                Coerce((left, lt), cmpType), Coerce((right, rt), cmpType)), CsType.Bool);
         }
 
         var (l, ltype) = LowerExpression(binary.Left, expected);
@@ -669,8 +673,44 @@ internal sealed class MethodLowerer
         if (kind == SyntaxKind.AddExpression && rtype.Ir.Kind == IrTypeKind.Pointer)
             return (_b.Gep(r, Coerce((l, ltype), CsType.U16), Pointee(rtype)), rtype);
 
-        var rc = Coerce((r, rtype), ltype);
-        return (_b.Binary(ArithOp(kind, ltype.Signed), l, rc), ltype);
+        // A shift result follows its left operand; the count is an independent operand.
+        if (kind is SyntaxKind.LeftShiftExpression or SyntaxKind.RightShiftExpression)
+            return (_b.Binary(ArithOp(kind, ltype.Signed), l, Coerce((r, rtype), ltype)), ltype);
+
+        // Otherwise both operands convert to their common type (C-like usual arithmetic
+        // conversions), which also selects signed vs. unsigned div/rem and avoids narrowing the
+        // wider operand to the left's width. Signedness only affects div/rem (and comparisons).
+        bool signMatters = kind is SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression;
+        var common = CommonType(ltype, rtype, signMatters, binary);
+        return (_b.Binary(ArithOp(kind, common.Signed),
+            Coerce((l, ltype), common), Coerce((r, rtype), common)), common);
+    }
+
+    /// <summary>
+    /// The common type two operands convert to, following C-like usual arithmetic conversions over
+    /// the Koh numeric types: the wider storage width wins. When the operands' signedness differs
+    /// <em>and</em> it affects the result (comparison, divide, remainder), the pair is promoted to a
+    /// signed type wide enough to hold both ranges (so <c>sbyte</c> vs <c>byte</c> compares as a
+    /// signed <c>short</c>, matching C#); if no such type exists on the target (anything mixed with
+    /// <c>ushort</c>), that is a diagnostic asking for an explicit cast. For sign-agnostic operators
+    /// (+, -, *, bitwise) the bits are identical either way, so the common width is used directly.
+    /// </summary>
+    private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site)
+    {
+        int width = Math.Max(a.Ir.SizeInBits, b.Ir.SizeInBits);
+        if (a.Signed == b.Signed)
+            return new CsType(IrType.Int(width), a.Signed);
+        if (!signMatters)
+            return new CsType(IrType.Int(width), Signed: false); // identical bits; sign is moot
+
+        // Mixed sign where it matters: need a signed type holding the unsigned operand's range too.
+        var unsignedOp = a.Signed ? b : a;
+        int need = Math.Max(width, unsignedOp.Ir.SizeInBits + 1);
+        if (need > 16)
+            throw new CSharpNotSupportedException(
+                $"mixed signed/unsigned operation on '{a.Ir}' and '{b.Ir}' needs a wider signed type "
+                + "than this target provides; cast one operand explicitly.", site.GetLocation());
+        return new CsType(IrType.I16, Signed: true);
     }
 
     /// <summary>Offset a pointer by an index expression via a gep (scaled by the pointee size).</summary>

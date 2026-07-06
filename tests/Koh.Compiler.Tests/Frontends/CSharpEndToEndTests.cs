@@ -567,6 +567,43 @@ static byte Main() {
     }
 
     [Test]
+    public async Task MixedSign_ComparisonPromotesToSigned()
+    {
+        // sbyte(-1) vs byte(1): C# promotes both and compares signed -> -1 < 1 is true. The result
+        // must not be governed by the left operand's signedness alone.
+        const string ltSrc = "static byte F(sbyte a, byte b) { if (a < b) return 1; return 0; }";
+        await Assert.That(RunA(ltSrc, gb => { W8(gb, 0, 0xFF); W8(gb, 1, 1); })).IsEqualTo((byte)1); // -1 < 1
+        await Assert.That(RunA(ltSrc, gb => { W8(gb, 0, 5); W8(gb, 1, 1); })).IsEqualTo((byte)0);    //  5 < 1
+    }
+
+    [Test]
+    public async Task MixedWidth_ArithmeticDoesNotNarrow()
+    {
+        // byte + ushort must compute in 16 bits; the ushort operand is not truncated to a byte.
+        const string src = "static ushort Add(byte a, ushort b) { return (ushort)(a + b); }";
+        await Assert.That(RunHL(src, gb => { W8(gb, 0, 5); W16(gb, 1, 1000); })).IsEqualTo((ushort)1005);
+    }
+
+    [Test]
+    public async Task MixedSign_DivideIsSigned()
+    {
+        // sbyte(-6) / byte(3): promotes to a signed common type -> -2 (0xFE), not an unsigned divide.
+        const string src = "static sbyte Div(sbyte a, byte b) { return (sbyte)(a / b); }";
+        await Assert.That(RunA(src, gb => { W8(gb, 0, 0xFA); W8(gb, 1, 3); })).IsEqualTo((byte)0xFE); // -6/3 = -2
+    }
+
+    [Test]
+    public async Task MixedSign_WithUshort_ReportedAsDiagnostic()
+    {
+        // short / ushort has no wider signed type on this target, so it needs an explicit cast.
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("static ushort F(short a, ushort b) { return (ushort)(a / b); }", "game.cs"),
+            diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
+    [Test]
     public async Task DebugInfo_MapsCSharpSourceLines()
     {
         // Line 1 = signature, line 2 = the add, line 3 = the return.
