@@ -108,7 +108,8 @@ static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref
 (heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`);
 dynamic allocation (`Mem.Alloc`/`Mem.Reset`); generic methods (monomorphized — specialized per
 concrete type argument, transitively); array LINQ reductions (`Where`/`Select` pipelines ending in
-`Sum`/`Count`/`Max`/`Min`/`Any`/`All`, compiled to a loop with inlined lambdas);
+`Sum`/`Count`/`Max`/`Min`/`Any`/`All`, compiled to a loop with inlined lambdas); cooperative
+coroutines (`yield return` iterators lowered to a MoveNext/Current state-machine class);
 `if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
 `&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
 (mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,

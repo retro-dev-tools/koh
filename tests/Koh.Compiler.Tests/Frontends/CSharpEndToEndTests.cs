@@ -1677,6 +1677,22 @@ static T Double<T>(T x) { return (T)(Id<T>(x) + Id<T>(x)); }";
         await Assert.That(RunA("static byte Main() { return (byte)Data.Where(x => (byte)(x % 2) == 0).Select(x => (byte)(x * 2)).Sum(); }" + data)).IsEqualTo((byte)24);
     }
 
+    [Test]
+    public async Task Coroutine_YieldReturnStateMachine()
+    {
+        // A `yield return` iterator becomes a cooperative-coroutine state machine (MoveNext advances
+        // one step per call, suspending between yields). The caller drives it to sum 10+20+30 = 60.
+        const string src = @"
+static byte Main() {
+    Gen__Iter g = Gen();
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 30; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)60);
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();
