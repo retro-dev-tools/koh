@@ -1436,6 +1436,74 @@ static readonly byte[] Mark = { 0xAB };";
     }
 
     [Test]
+    public async Task CodeBanking_MultiBankFarCalls()
+    {
+        // Enough code to need two or more overflow banks, which forces the far-call-thunk model: the
+        // entry stays in ROM0 and every other function is banked. Main -> A -> B -> ... -> L, each in a
+        // switchable bank reached through its ROM0 thunk (which maps the bank, calls, and restores it),
+        // returning 77 back up the chain across bank boundaries.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return A0(); }\n");
+        const int fns = 12;
+        for (int i = 0; i < fns; i++)
+        {
+            sb.Append($"static byte A{i}() {{ byte x = 1;\n");
+            for (int j = 0; j < 200; j++) sb.Append($"x = (byte)(x + {j % 7});\n"); // padding to bulk up
+            sb.Append(i + 1 < fns ? $"return A{i + 1}();\n}}\n" : "return 77;\n}\n");
+        }
+        string src = sb.ToString();
+
+        var model = Compile(src);
+        // Two or more banked code sections => the multi-bank far-call path ran.
+        await Assert.That(model.Sections.Count(s => s.Name.StartsWith("CODEX"))).IsGreaterThanOrEqualTo(2);
+        var link = new LinkerType().Link([new LinkerInput("cs", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        await Assert.That(rom[0x0147]).IsEqualTo((byte)0x01); // MBC1
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 2_000_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000) break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)77);
+    }
+
+    [Test]
+    public async Task CodeBanking_RecursiveBankedFunction()
+    {
+        // A recursive function that is also banked exercises every convention at once: args via
+        // ArgScratch, frame save/restore on the software stack, the far-call thunk, and ReturnScratch.
+        // Padding forces the multi-bank model; Fact (banked, recursive) computes 5! = 120.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return Fact(5); }\n");
+        sb.Append("static byte Fact(byte n) { if (n <= 1) return 1; return (byte)(n * Fact((byte)(n - 1))); }\n");
+        for (int i = 0; i < 12; i++)
+        {
+            sb.Append($"static byte P{i}() {{ byte x = 1;\n");
+            for (int j = 0; j < 200; j++) sb.Append($"x = (byte)(x + {j % 7});\n");
+            sb.Append("return x;\n}\n");
+        }
+        var model = Compile(sb.ToString());
+        await Assert.That(model.Sections.Count(s => s.Name.StartsWith("CODEX"))).IsGreaterThanOrEqualTo(2);
+        var link = new LinkerType().Link([new LinkerInput("cs", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 2_000_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000) break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)120);
+    }
+
+    [Test]
     public async Task CodeAndDataBanking_BothOverflow_IsRejected()
     {
         // Code and data banking are mutually exclusive (the code bank must stay mapped), so a program

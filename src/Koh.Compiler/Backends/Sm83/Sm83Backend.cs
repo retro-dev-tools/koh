@@ -125,32 +125,7 @@ public sealed class Sm83Backend : IBackend
         }
         int funcsEnd = emitter.Code.Count;
 
-        // Emit runtime helper routines that generated code referenced (signed divide needs the
-        // unsigned one). They are appended after all functions and only entered via CALL.
-        if (emitter.NeededRoutines.Contains("sdivmod16"))
-            emitter.NeededRoutines.Add("udivmod16");
-        if (emitter.NeededRoutines.Contains("mul16")) EmitMul16(emitter);
-        if (emitter.NeededRoutines.Contains("udivmod16")) EmitUDivMod16(emitter);
-        if (emitter.NeededRoutines.Contains("sdivmod16")) EmitSDivMod16(emitter);
-
-        // Generic width-N (32-/64-bit) routines. Emit the top-level ones first (they reference the leaf
-        // rt.* memory helpers, adding them to NeededRoutines), then the helpers, so every referenced
-        // label is placed before Resolve.
-        if (emitter.NeededRoutines.Contains("sdivmod_wide")) emitter.NeededRoutines.Add("udivmod_wide");
-        if (emitter.NeededRoutines.Contains("mul_wide")) EmitMulWide(emitter);
-        if (emitter.NeededRoutines.Contains("udivmod_wide")) EmitUDivWide(emitter);
-        if (emitter.NeededRoutines.Contains("sdivmod_wide")) EmitSDivWide(emitter);
-        if (emitter.NeededRoutines.Contains("shl_wide")) EmitShiftWide(emitter, "shl_wide", IrBinaryOp.Shl);
-        if (emitter.NeededRoutines.Contains("lshr_wide")) EmitShiftWide(emitter, "lshr_wide", IrBinaryOp.LShr);
-        if (emitter.NeededRoutines.Contains("ashr_wide")) EmitShiftWide(emitter, "ashr_wide", IrBinaryOp.AShr);
-        if (emitter.NeededRoutines.Contains("rt.clracc")) EmitClrAcc(emitter);
-        if (emitter.NeededRoutines.Contains("rt.rlmem")) EmitRlMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.rrmem")) EmitRrMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.addmem")) EmitAddMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.submem")) EmitSubMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.negmem")) EmitNegMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.pushframe")) EmitPushFrame(emitter);
-        if (emitter.NeededRoutines.Contains("rt.popframe")) EmitPopFrame(emitter);
+        EmitRuntimeRoutines(emitter);
 
         // Code that overflows the fixed ROM0 code window ([CodeBase, DataBase)) — the trailing functions
         // and the runtime routines — moves into ROM bank 1. That is the bank MBC1 maps by default and
@@ -160,18 +135,21 @@ public sealed class Sm83Backend : IBackend
         int codeSplit = total;
         if (total > rom0Budget)
         {
-            codeSplit = 0;
-            foreach (var (_, offset) in funcOffsets)
-                if (offset <= rom0Budget) codeSplit = offset;
-            if (funcsEnd <= rom0Budget) codeSplit = funcsEnd; // all functions fit; only runtime banks
-            if (total - codeSplit > BankSize)
-                throw new NotSupportedException(
-                    $"program code is {total} bytes — more than ROM0 plus one 16 KB bank holds "
-                    + "(multi-bank code with far-call trampolines is not yet implemented).");
             if (bankData.Count > 0)
                 throw new NotSupportedException(
                     "a program cannot bank both code and read-only data (the code bank must stay mapped, "
                     + "which precludes switching to a data bank).");
+
+            codeSplit = 0;
+            foreach (var (_, offset) in funcOffsets)
+                if (offset <= rom0Budget) codeSplit = offset;
+            if (funcsEnd <= rom0Budget) codeSplit = funcsEnd; // all functions fit; only runtime banks
+
+            // A single overflow bank stays mapped (no trampolines); more than one needs far-call thunks,
+            // which the multi-bank path builds by re-emitting with bank-aware call routing.
+            if (total - codeSplit > BankSize)
+                return CompileMultiBank(module, funcOffsets, funcsEnd, allocations, globalAddresses,
+                    romData, recursive, entryFunction, softStackBase, emitter.NeededRoutines);
         }
 
         int AddressOf(int offset) =>
@@ -190,7 +168,10 @@ public sealed class Sm83Backend : IBackend
                 fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
         }
 
-        emitter.Resolve(CodeBase, codeSplit, BankWindow);
+        var codeRegions = new List<(int Start, int Base)> { (0, CodeBase) };
+        if (codeSplit < total)
+            codeRegions.Add((codeSplit, BankWindow));
+        emitter.Resolve(codeRegions);
 
         int extraBanks = (codeSplit < total ? 1 : 0) + bankData.Count;
         var rom0Code = emitter.Code.GetRange(0, codeSplit).ToArray();
@@ -244,6 +225,197 @@ public sealed class Sm83Backend : IBackend
                 g.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
 
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
+    }
+
+    /// <summary>
+    /// Compile a program whose code needs more than one overflow bank. ROM0 holds a boot stub, the
+    /// entry function, interrupt handlers, the runtime, and one far-call thunk per banked function;
+    /// every other function is packed into switchable banks. A call to a banked function goes through
+    /// its ROM0 thunk, which maps the callee's bank, CALLs it through the 0x4000 window, and restores
+    /// the caller's bank on return (tracked in <see cref="CurBank"/>). Banked functions return via
+    /// <see cref="ReturnScratch"/> so the thunk's bank restore cannot clobber the result.
+    /// </summary>
+    private EmitModel CompileMultiBank(
+        IrModule module,
+        List<(IrFunction Fn, int Offset)> funcOffsets,
+        int funcsEnd,
+        Dictionary<IrFunction, FunctionAllocation> allocations,
+        Dictionary<IrGlobal, int> globalAddresses,
+        List<byte> romData,
+        HashSet<IrFunction> recursive,
+        IrFunction? entryFunction,
+        int softStackBase,
+        HashSet<string> neededRoutines)
+    {
+        if (entryFunction is null)
+            throw new NotSupportedException("a banked program needs an entry function.");
+
+        // Sizes from the measurement pass.
+        var order = new List<IrFunction>();
+        var size = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < funcOffsets.Count; i++)
+        {
+            int end = i + 1 < funcOffsets.Count ? funcOffsets[i + 1].Offset : funcsEnd;
+            size[funcOffsets[i].Fn] = end - funcOffsets[i].Offset;
+            order.Add(funcOffsets[i].Fn);
+        }
+
+        // Entry and interrupt handlers stay in ROM0 (the entry returns in registers; a handler must be
+        // mapped for its vector). Everything else is banked, packed into 16KB banks.
+        bool IsRom0(IrFunction f) => ReferenceEquals(f, entryFunction) || f.InterruptVector is not null;
+        var bankedList = order.Where(f => !IsRom0(f)).ToList();
+        var banked = new HashSet<IrFunction>(bankedList, ReferenceEqualityComparer.Instance);
+
+        var bankOf = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
+        int bank = 1, bankUsed = 0;
+        foreach (var f in bankedList)
+        {
+            int s = size[f];
+            if (s > BankSize)
+                throw new NotSupportedException(
+                    $"function '{f.Name}' is {s} bytes — larger than a 16 KB ROM bank.");
+            if (bankUsed + s > BankSize) { bank++; bankUsed = 0; }
+            bankOf[f] = bank;
+            bankUsed += s;
+        }
+        int bankCount = bankedList.Count == 0 ? 0 : bank;
+
+        var emitter = new Emitter();
+        foreach (var r in neededRoutines) emitter.NeededRoutines.Add(r);
+        var symbols = new List<SymbolData>();
+        var funcAddr = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
+
+        // --- ROM0 block: boot stub, entry, handlers, runtime, thunks (contiguous, physically based). ---
+        // Boot: seed the current-bank shadow and jump to the entry function.
+        emitter.U8(0x3E); emitter.U8(0x01);                                             // LD A, 1
+        emitter.U8(0xEA); emitter.U8(CurBank & 0xFF); emitter.U8(CurBank >> 8);          // LD (CurBank), A
+        emitter.U8(0xEA); emitter.U8(MbcBankSelect & 0xFF); emitter.U8(MbcBankSelect >> 8); // LD (0x2000), A
+        emitter.Jump(0xC3, emitter.FunctionLabel(entryFunction));                       // JP entry
+
+        void EmitFunc(IrFunction f, int addr)
+        {
+            funcAddr[f] = addr;
+            new FunctionEmitter(emitter, f, allocations, globalAddresses, recursive,
+                ReferenceEquals(f, entryFunction), softStackBase, banked).Compile();
+        }
+
+        foreach (var f in order.Where(IsRom0))
+            EmitFunc(f, CodeBase + emitter.Code.Count);
+
+        EmitRuntimeRoutines(emitter);
+
+        foreach (var f in bankedList)
+        {
+            emitter.Place(emitter.ThunkLabel(f));
+            EmitThunk(emitter, bankOf[f], emitter.FunctionLabel(f));
+        }
+
+        int rom0End = emitter.Code.Count;
+        if (rom0End > DataBase - CodeBase)
+            throw new NotSupportedException(
+                $"ROM0 code (entry, handlers, runtime, and {bankedList.Count} far-call thunks) is "
+                + $"{rom0End} bytes — more than the {DataBase - CodeBase}-byte ROM0 code window holds.");
+
+        // --- Bank blocks: banked functions grouped by bank, windowed at 0x4000. ---
+        var regions = new List<(int Start, int Base)> { (0, CodeBase) };
+        var bankSpans = new List<(int Bank, int Start, int End)>();
+        for (int b = 1; b <= bankCount; b++)
+        {
+            int start = emitter.Code.Count;
+            regions.Add((start, BankWindow));
+            foreach (var f in bankedList.Where(x => bankOf[x] == b))
+                EmitFunc(f, BankWindow + (emitter.Code.Count - start));
+            bankSpans.Add((b, start, emitter.Code.Count));
+        }
+        int total = emitter.Code.Count;
+
+        emitter.Resolve(regions);
+
+        foreach (var f in order)
+            symbols.Add(new SymbolData(
+                f.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcAddr[f]));
+        foreach (var (g, addr) in globalAddresses)
+            symbols.Add(new SymbolData(
+                g.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
+
+        List<LineMapEntry> LinesIn(int start, int end) => emitter.LineMap
+            .Where(e => e.Offset >= start && e.Offset < end)
+            .Select(e => e with { Offset = e.Offset - start })
+            .ToList();
+
+        var sections = new List<SectionData>
+        {
+            new(CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
+                data: emitter.Code.GetRange(0, rom0End).ToArray(),
+                patches: Array.Empty<PatchEntry>(), lineMap: LinesIn(0, rom0End)),
+        };
+        foreach (var (b, start, end) in bankSpans)
+            sections.Add(new SectionData(
+                $"CODEX_{b}", SectionType.RomX, fixedAddress: BankWindow, bank: b,
+                data: emitter.Code.GetRange(start, end - start).ToArray(),
+                patches: Array.Empty<PatchEntry>(), lineMap: LinesIn(start, end)));
+
+        if (romData.Count > 0)
+            sections.Add(new SectionData(
+                "RODATA", SectionType.Rom0, fixedAddress: DataBase, bank: 0,
+                data: romData.ToArray(), patches: Array.Empty<PatchEntry>()));
+
+        sections.Add(new SectionData(
+            "HEADER", SectionType.Rom0, fixedAddress: 0x0100, bank: 0,
+            data: BuildHeader(CodeBase, bankCount), patches: Array.Empty<PatchEntry>()));
+
+        foreach (var f in order.Where(x => x.InterruptVector is not null))
+            sections.Add(new SectionData(
+                $"VEC_{f.InterruptVector:X2}", SectionType.Rom0, fixedAddress: f.InterruptVector!.Value,
+                bank: 0, data: [0xC3, (byte)(funcAddr[f] & 0xFF), (byte)(funcAddr[f] >> 8)],
+                patches: Array.Empty<PatchEntry>()));
+
+        return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
+    }
+
+    /// <summary>Emit the runtime helper routines that generated code referenced. Top-level routines
+    /// come first (they reference the leaf rt.* memory helpers, adding them to NeededRoutines), then
+    /// the helpers, so every referenced label is placed before Resolve.</summary>
+    private static void EmitRuntimeRoutines(Emitter emitter)
+    {
+        if (emitter.NeededRoutines.Contains("sdivmod16"))
+            emitter.NeededRoutines.Add("udivmod16");
+        if (emitter.NeededRoutines.Contains("mul16")) EmitMul16(emitter);
+        if (emitter.NeededRoutines.Contains("udivmod16")) EmitUDivMod16(emitter);
+        if (emitter.NeededRoutines.Contains("sdivmod16")) EmitSDivMod16(emitter);
+
+        if (emitter.NeededRoutines.Contains("sdivmod_wide")) emitter.NeededRoutines.Add("udivmod_wide");
+        if (emitter.NeededRoutines.Contains("mul_wide")) EmitMulWide(emitter);
+        if (emitter.NeededRoutines.Contains("udivmod_wide")) EmitUDivWide(emitter);
+        if (emitter.NeededRoutines.Contains("sdivmod_wide")) EmitSDivWide(emitter);
+        if (emitter.NeededRoutines.Contains("shl_wide")) EmitShiftWide(emitter, "shl_wide", IrBinaryOp.Shl);
+        if (emitter.NeededRoutines.Contains("lshr_wide")) EmitShiftWide(emitter, "lshr_wide", IrBinaryOp.LShr);
+        if (emitter.NeededRoutines.Contains("ashr_wide")) EmitShiftWide(emitter, "ashr_wide", IrBinaryOp.AShr);
+        if (emitter.NeededRoutines.Contains("rt.clracc")) EmitClrAcc(emitter);
+        if (emitter.NeededRoutines.Contains("rt.rlmem")) EmitRlMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.rrmem")) EmitRrMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.addmem")) EmitAddMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.submem")) EmitSubMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.negmem")) EmitNegMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.pushframe")) EmitPushFrame(emitter);
+        if (emitter.NeededRoutines.Contains("rt.popframe")) EmitPopFrame(emitter);
+    }
+
+    /// <summary>Emit a ROM0 far-call thunk: save the current bank, map the callee's bank, CALL it
+    /// through the 0x4000 window, then restore the caller's bank and return. The callee returns via
+    /// ReturnScratch, so clobbering A here is safe.</summary>
+    private static void EmitThunk(Emitter e, int bank, Label target)
+    {
+        e.U8(0xFA); e.U8(CurBank & 0xFF); e.U8(CurBank >> 8);              // LD A, (CurBank)
+        e.U8(0xF5);                                                        // PUSH AF   (save caller bank)
+        e.U8(0x3E); e.U8(bank);                                            // LD A, bank
+        e.U8(0xEA); e.U8(CurBank & 0xFF); e.U8(CurBank >> 8);              // LD (CurBank), A
+        e.U8(0xEA); e.U8(MbcBankSelect & 0xFF); e.U8(MbcBankSelect >> 8);  // LD (0x2000), A  (switch)
+        e.Jump(0xCD, target);                                             // CALL callee (windowed)
+        e.U8(0xF1);                                                        // POP AF    (caller bank)
+        e.U8(0xEA); e.U8(CurBank & 0xFF); e.U8(CurBank >> 8);              // LD (CurBank), A
+        e.U8(0xEA); e.U8(MbcBankSelect & 0xFF); e.U8(MbcBankSelect >> 8);  // LD (0x2000), A  (restore)
+        e.U8(0xC9);                                                        // RET
     }
 
     /// <summary>End of the fixed ROM0 data window; data past this spills into switchable banks.</summary>
@@ -433,7 +605,11 @@ public sealed class Sm83Backend : IBackend
     // restore it before return, receive arguments through a fixed staging area (so the caller's own
     // frame is not disturbed), and return via ReturnScratch.
     private const int SoftSp = 0xDF05;      // software-stack pointer (2 bytes)
+    private const int CurBank = 0xDF07;     // currently-mapped ROM bank, for far-call thunks
     private const int ArgScratch = 0xDE80;  // recursive-call argument staging (little-endian, packed)
+
+    /// <summary>MBC1 ROM-bank select register (a write here maps that bank into 0x4000-0x7FFF).</summary>
+    private const int MbcBankSelect = 0x2000;
 
     /// <summary>__mul16: HL = DE * BC (low 16 bits) by shift-and-add. Sign-agnostic.</summary>
     private static void EmitMul16(Emitter e)
@@ -934,6 +1110,17 @@ public sealed class Sm83Backend : IBackend
             return label;
         }
 
+        private readonly Dictionary<IrFunction, Label> _thunks = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The ROM0 far-call thunk for a banked function: it switches to the callee's bank,
+        /// CALLs it through the 0x4000 window, and restores the caller's bank on return.</summary>
+        public Label ThunkLabel(IrFunction fn)
+        {
+            if (!_thunks.TryGetValue(fn, out var label))
+                _thunks[fn] = label = new Label();
+            return label;
+        }
+
         public void PlaceRoutine(string name) => Place(RoutineLabel(name));
 
         public void Place(Label label)
@@ -959,18 +1146,25 @@ public sealed class Sm83Backend : IBackend
             _aValidCount = -1; // control leaves; do not carry A across the branch
         }
 
-        /// <summary>Patch every fixup to its target's absolute address. Code up to <paramref name="split"/>
-        /// is at <paramref name="rom0Base"/> (physical ROM0); code from <paramref name="split"/> on lives
-        /// in a switchable bank and is addressed through the <paramref name="bankBase"/> window.</summary>
-        public void Resolve(int rom0Base, int split, int bankBase)
+        /// <summary>Patch every fixup to its target's absolute address. The buffer is partitioned into
+        /// contiguous regions given as (bufferStart, base) pairs sorted by start; an offset in a region
+        /// resolves to <c>base + (offset - bufferStart)</c>. ROM0 uses its physical base; each banked
+        /// region uses the 0x4000 window base.</summary>
+        public void Resolve(IReadOnlyList<(int Start, int Base)> regions)
         {
+            int RegionBaseFor(int offset)
+            {
+                int best = regions[0].Base, bestStart = regions[0].Start;
+                foreach (var (start, baseAddr) in regions)
+                    if (start <= offset && start >= bestStart) { best = baseAddr; bestStart = start; }
+                return best + (offset - bestStart);
+            }
+
             foreach (var (pos, target) in _fixups)
             {
                 if (target.Offset < 0)
                     throw new InvalidOperationException("unplaced jump target");
-                int addr = target.Offset < split
-                    ? rom0Base + target.Offset
-                    : bankBase + (target.Offset - split);
+                int addr = RegionBaseFor(target.Offset);
                 Code[pos] = (byte)(addr & 0xFF);
                 Code[pos + 1] = (byte)(addr >> 8);
             }
@@ -1230,6 +1424,7 @@ public sealed class Sm83Backend : IBackend
         private readonly Dictionary<IrValue, int> _staticAddr;
         private readonly int _phiTempBase;
         private readonly IReadOnlySet<IrFunction> _recursive;
+        private readonly IReadOnlySet<IrFunction> _banked;
         private readonly bool _isEntry;
         private readonly int _softStackBase;
         private readonly int _frameBase;
@@ -1242,7 +1437,8 @@ public sealed class Sm83Backend : IBackend
             IReadOnlyDictionary<IrGlobal, int> globals,
             IReadOnlySet<IrFunction> recursive,
             bool isEntry,
-            int softStackBase)
+            int softStackBase,
+            IReadOnlySet<IrFunction>? banked = null)
         {
             _e = emitter;
             _fn = fn;
@@ -1253,6 +1449,7 @@ public sealed class Sm83Backend : IBackend
             _staticAddr = allocation.StaticAddr;
             _phiTempBase = allocation.PhiTempBase;
             _recursive = recursive;
+            _banked = banked ?? System.Collections.Immutable.ImmutableHashSet<IrFunction>.Empty;
             _isEntry = isEntry;
             _softStackBase = softStackBase;
             _frameBase = allocation.FrameBase;
@@ -1260,6 +1457,11 @@ public sealed class Sm83Backend : IBackend
         }
 
         private bool IsRecursive => _recursive.Contains(_fn);
+
+        /// <summary>Whether this function returns its value through <see cref="ReturnScratch"/> rather
+        /// than registers: recursive functions (so the frame restore cannot clobber it) and banked
+        /// functions (so the far-call thunk's bank restore cannot clobber it).</summary>
+        private bool UsesMemoryReturn(IrFunction fn) => _recursive.Contains(fn) || _banked.Contains(fn);
 
         /// <summary>Total bytes of a function's parameters (contiguous at its frame base).</summary>
         private static int ParamBytes(IrFunction fn)
@@ -1939,10 +2141,10 @@ public sealed class Sm83Backend : IBackend
 
         private void EmitRet(RetInstruction r)
         {
-            if (IsRecursive)
+            if (UsesMemoryReturn(_fn))
             {
-                // Return via ReturnScratch (memory) so restoring the caller's frame cannot clobber it,
-                // then restore the frame and RET.
+                // Return via ReturnScratch (memory) so neither the recursive frame restore nor the far-call
+                // thunk's bank restore can clobber it. A recursive function also restores its frame here.
                 if (r.Value is not null)
                 {
                     int n = SizeOf(r.Value.Type);
@@ -1952,10 +2154,13 @@ public sealed class Sm83Backend : IBackend
                         StoreAToAddr(ReturnScratch + k);
                     }
                 }
-                _e.U8(0x11); _e.U8(_frameBase & 0xFF); _e.U8(_frameBase >> 8); // LD DE, frameBase
-                _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
-                _e.Jump(0xCD, _e.RoutineLabel("rt.popframe"));
-                _e.U8(0xC9);                                                   // RET
+                if (IsRecursive)
+                {
+                    _e.U8(0x11); _e.U8(_frameBase & 0xFF); _e.U8(_frameBase >> 8); // LD DE, frameBase
+                    _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
+                    _e.Jump(0xCD, _e.RoutineLabel("rt.popframe"));
+                }
+                _e.U8(0xC9);                                                   // RET (a banked fn is never a handler)
                 return;
             }
 
@@ -2033,11 +2238,14 @@ public sealed class Sm83Backend : IBackend
                 throw new NotSupportedException(
                     $"SM83 backend cannot yet call external function '@{callee.Name}'.");
 
-            if (_recursive.Contains(callee))
+            bool calleeRecursive = _recursive.Contains(callee);
+            bool calleeBanked = _banked.Contains(callee);
+
+            if (calleeRecursive)
             {
                 // A recursive callee shares its static frame across invocations, so it takes arguments
-                // through the ArgScratch staging area (leaving our own frame intact) and returns via
-                // ReturnScratch; writing straight into its parameter slots would corrupt an ancestor.
+                // through the ArgScratch staging area; writing straight into its parameter slots would
+                // corrupt an ancestor.
                 int off = 0;
                 for (int i = 0; i < call.Arguments.Count; i++)
                 {
@@ -2049,38 +2257,44 @@ public sealed class Sm83Backend : IBackend
                     }
                     off += n;
                 }
-                _e.Jump(0xCD, _e.FunctionLabel(callee)); // CALL true entry (before prologue)
-                if (call.Type.Kind == IrTypeKind.Void)
-                    return;
-                int rdst = _slot[call];
-                int rn = SizeOf(call.Type);
-                for (int k = 0; k < rn; k++)
-                {
-                    LoadAFromAddr(ReturnScratch + k);
-                    StoreAToAddr(rdst + k);
-                }
-                return;
             }
-
-            var calleeAllocation = _allocations[callee];
-            for (int i = 0; i < call.Arguments.Count; i++)
+            else
             {
-                var param = callee.Parameters[i];
-                int paramSlot = calleeAllocation.Slot[param];
-                int n = SizeOf(param.Type);
-                for (int k = 0; k < n; k++)
+                var calleeAllocation = _allocations[callee];
+                for (int i = 0; i < call.Arguments.Count; i++)
                 {
-                    LoadByteToA(call.Arguments[i], k);
-                    StoreAToAddr(paramSlot + k);
+                    var param = callee.Parameters[i];
+                    int paramSlot = calleeAllocation.Slot[param];
+                    int n = SizeOf(param.Type);
+                    for (int k = 0; k < n; k++)
+                    {
+                        LoadByteToA(call.Arguments[i], k);
+                        StoreAToAddr(paramSlot + k);
+                    }
                 }
             }
 
-            _e.Jump(0xCD, _e.FunctionLabel(callee)); // CALL a16
+            // A banked callee is reached through its ROM0 far-call thunk (which maps the callee's bank);
+            // an unbanked one is called directly at its entry.
+            _e.Jump(0xCD, calleeBanked ? _e.ThunkLabel(callee) : _e.FunctionLabel(callee));
 
             if (call.Type.Kind == IrTypeKind.Void)
                 return;
 
             int dst = _slot[call];
+
+            // A recursive or banked callee returns through ReturnScratch (memory); read it back.
+            if (calleeRecursive || calleeBanked)
+            {
+                int rn = SizeOf(call.Type);
+                for (int k = 0; k < rn; k++)
+                {
+                    LoadAFromAddr(ReturnScratch + k);
+                    StoreAToAddr(dst + k);
+                }
+                return;
+            }
+
             switch (SizeOf(call.Type))
             {
                 case 1:

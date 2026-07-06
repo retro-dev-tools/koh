@@ -74,12 +74,18 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   - *Data*: read-only data past the fixed ROM0 window (`[0x2000, 0x4000)`) spills into switchable
     banks (windowed at `0x4000`). A banked global's address is only valid while its bank is mapped,
     so code selects the bank first (`*(byte*)0x2000 = bank;`).
-  - *Code*: functions past the ROM0 code window (`[CodeBase, 0x2000)`), plus the runtime routines,
-    move into bank 1 — the bank MBC1 maps by default and this code never switches away from, so all
-    calls stay direct (no far-call trampolines). Addresses resolve per region in `Emitter.Resolve`.
-  - The two are **mutually exclusive** (banked code needs bank 1 permanently mapped, banked data
-    needs to switch away) and each is capped at one extra 16KB bank; overflowing further is a
-    diagnostic. Multi-bank code with ROM0 far-call thunks is the next extension.
+  - *Code*: when the overflow fits one extra bank, functions past the ROM0 code window
+    (`[CodeBase, 0x2000)`) plus the runtime move into bank 1 — the bank MBC1 maps by default and this
+    code never switches away from, so all calls stay direct. When the overflow needs 2+ banks,
+    `CompileMultiBank` re-emits with the far-call-thunk model: ROM0 keeps the entry, interrupt
+    handlers, the runtime, and one thunk per banked function; every other function is packed into
+    switchable banks. A call to a banked function goes through its ROM0 thunk, which maps the callee's
+    bank (`CurBank` tracks the current one), CALLs it through the `0x4000` window, and restores the
+    caller's bank; banked functions return via `ReturnScratch` so the restore can't clobber the result.
+    Addresses resolve per region in `Emitter.Resolve`.
+  - Code and data banking are **mutually exclusive** (banked code needs its bank mapped, banked data
+    needs to switch away). A single banked function can't exceed 16KB, and the ROM0 thunk table must
+    fit the ROM0 code window; overflowing either is a diagnostic.
 - **Mixed signed/unsigned** binary ops go through `MethodLowerer.CommonType` (usual-arithmetic
   conversions: wider width wins; a mixed pair whose sign matters promotes to a signed type wide
   enough, else a diagnostic). Do not take signedness/width from the left operand alone.
