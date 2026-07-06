@@ -18,6 +18,7 @@ internal sealed class MethodLowerer
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
+    private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
     public MethodLowerer(
         CsMethod method,
@@ -88,6 +89,26 @@ internal sealed class MethodLowerer
                 LowerWhile(whileStmt);
                 break;
 
+            case ForStatementSyntax forStmt:
+                LowerFor(forStmt);
+                break;
+
+            case DoStatementSyntax doStmt:
+                LowerDo(doStmt);
+                break;
+
+            case BreakStatementSyntax:
+                if (_loops.Count == 0)
+                    throw new CSharpNotSupportedException("'break' outside a loop.");
+                _b.Br(_loops.Peek().Break);
+                break;
+
+            case ContinueStatementSyntax:
+                if (_loops.Count == 0)
+                    throw new CSharpNotSupportedException("'continue' outside a loop.");
+                _b.Br(_loops.Peek().Continue);
+                break;
+
             case ReturnStatementSyntax ret:
                 if (ret.Expression is { } value)
                     EmitReturn(value);
@@ -148,9 +169,66 @@ internal sealed class MethodLowerer
         _b.CondBr(Coerce(LowerExpression(whileStmt.Condition, CsType.Bool), CsType.Bool), bodyBlock, endBlock);
 
         _b.PositionAtEnd(bodyBlock);
+        _loops.Push((endBlock, condBlock));
         LowerStatement(whileStmt.Statement);
+        _loops.Pop();
         if (_b.CurrentBlock.Terminator is null)
             _b.Br(condBlock);
+
+        _b.PositionAtEnd(endBlock);
+    }
+
+    private void LowerDo(DoStatementSyntax doStmt)
+    {
+        var bodyBlock = _method.Fn.AppendBlock("do.body");
+        var condBlock = _method.Fn.AppendBlock("do.cond");
+        var endBlock = _method.Fn.AppendBlock("do.end");
+
+        _b.Br(bodyBlock);
+        _b.PositionAtEnd(bodyBlock);
+        _loops.Push((endBlock, condBlock));
+        LowerStatement(doStmt.Statement);
+        _loops.Pop();
+        if (_b.CurrentBlock.Terminator is null)
+            _b.Br(condBlock);
+
+        _b.PositionAtEnd(condBlock);
+        _b.CondBr(Coerce(LowerExpression(doStmt.Condition, CsType.Bool), CsType.Bool), bodyBlock, endBlock);
+
+        _b.PositionAtEnd(endBlock);
+    }
+
+    private void LowerFor(ForStatementSyntax forStmt)
+    {
+        // Initializers.
+        if (forStmt.Declaration is { } decl)
+            LowerLocalDeclaration(decl);
+        foreach (var init in forStmt.Initializers)
+            LowerExpression(init, expected: null);
+
+        var condBlock = _method.Fn.AppendBlock("for.cond");
+        var bodyBlock = _method.Fn.AppendBlock("for.body");
+        var incrBlock = _method.Fn.AppendBlock("for.incr");
+        var endBlock = _method.Fn.AppendBlock("for.end");
+
+        _b.Br(condBlock);
+        _b.PositionAtEnd(condBlock);
+        if (forStmt.Condition is { } cond)
+            _b.CondBr(Coerce(LowerExpression(cond, CsType.Bool), CsType.Bool), bodyBlock, endBlock);
+        else
+            _b.Br(bodyBlock); // for(;;)
+
+        _b.PositionAtEnd(bodyBlock);
+        _loops.Push((endBlock, incrBlock)); // continue runs the incrementors
+        LowerStatement(forStmt.Statement);
+        _loops.Pop();
+        if (_b.CurrentBlock.Terminator is null)
+            _b.Br(incrBlock);
+
+        _b.PositionAtEnd(incrBlock);
+        foreach (var incr in forStmt.Incrementors)
+            LowerExpression(incr, expected: null);
+        _b.Br(condBlock);
 
         _b.PositionAtEnd(endBlock);
     }

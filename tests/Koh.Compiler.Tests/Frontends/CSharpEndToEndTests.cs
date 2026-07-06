@@ -150,6 +150,53 @@ static byte Triple(byte x) { return x + x + x; }";
     }
 
     [Test]
+    public async Task For_Loop()
+    {
+        // sum 1..n with a for loop; n=5 -> 15
+        const string src = @"
+static byte SumTo(byte n) {
+    byte acc = 0;
+    for (byte i = 1; i <= n; i = i + 1) { acc = acc + i; }
+    return acc;
+}";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)15);
+    }
+
+    [Test]
+    public async Task Break_And_Continue()
+    {
+        // sum even numbers below n, stop at 100; skips odds via continue, break at >=100
+        const string src = @"
+static byte F(byte n) {
+    byte acc = 0;
+    byte i = 0;
+    while (i < n) {
+        i = i + 1;
+        if (i > 6) break;
+        if (i == 3) continue;
+        acc = acc + i;
+    }
+    return acc;
+}";
+        // i=1..: add 1,2,(skip 3),4,5,6, then i=7>6 break => 1+2+4+5+6 = 18
+        await Assert.That(RunA(src, gb => W8(gb, 0, 20))).IsEqualTo((byte)18);
+    }
+
+    [Test]
+    public async Task DoWhile_RunsBodyFirst()
+    {
+        const string src = @"
+static byte Count(byte n) {
+    byte c = 0;
+    do { c = c + 1; n = n - 1; } while (n > 0);
+    return c;
+}";
+        // n=0: body runs once (c=1), n becomes 255, 255>0 true... careful: n=0 -> n-1 wraps to 255
+        // use n=4: c increments to 4
+        await Assert.That(RunA(src, gb => W8(gb, 0, 4))).IsEqualTo((byte)4);
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;
