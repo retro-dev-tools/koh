@@ -1693,6 +1693,77 @@ static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 
         await Assert.That(RunA(src)).IsEqualTo((byte)60);
     }
 
+    [Test]
+    public async Task Bcl_BitOperationsPopCount()
+    {
+        // The verbatim software fallback from System.Numerics.BitOperations.PopCount(uint) — real BCL
+        // source, now compilable since 32-bit multiply/shift work.
+        const string popcount = @"
+static uint PopCount(uint value) {
+    const uint c1 = 0x55555555u;
+    const uint c2 = 0x33333333u;
+    const uint c3 = 0x0F0F0F0Fu;
+    const uint c4 = 0x01010101u;
+    value -= (value >> 1) & c1;
+    value = (value & c2) + ((value >> 2) & c2);
+    value = (uint)((((value + (value >> 4)) & c3) * c4) >> 24);
+    return value;
+}";
+        await Assert.That(RunI32("static uint Main() { return PopCount(0xFF); }" + popcount)).IsEqualTo(8u);
+        await Assert.That(RunI32("static uint Main() { return PopCount(0xFFFFFFFF); }" + popcount)).IsEqualTo(32u);
+        await Assert.That(RunI32("static uint Main() { return PopCount(0xDEADBEEF); }" + popcount))
+            .IsEqualTo((uint)System.Numerics.BitOperations.PopCount(0xDEADBEEF));
+    }
+
+    [Test]
+    public async Task Bcl_XoshiroRotateLeft()
+    {
+        // System.Random's xoshiro core relies on 64-bit rotate-left; verify it against the BCL.
+        // inline, constant shifts
+        await Assert.That(RunI64("static ulong Main() { ulong x = 0x0123456789ABCDEF; return (x << 40) | (x >> 24); }"))
+            .IsEqualTo(System.Numerics.BitOperations.RotateLeft(0x0123456789ABCDEFUL, 40));
+        // inline, variable shift
+        await Assert.That(RunI64("static ulong Main() { ulong x = 0x0123456789ABCDEF; int k = 40; return (x << k) | (x >> (64 - k)); }"))
+            .IsEqualTo(System.Numerics.BitOperations.RotateLeft(0x0123456789ABCDEFUL, 40));
+        // i64 return captured from a call
+        await Assert.That(RunI64("static ulong Main() { return Id(0x0123456789ABCDEF); }\nstatic ulong Id(ulong x) { return x; }"))
+            .IsEqualTo(0x0123456789ABCDEFUL);
+        // computed i64 return from a call with an i64 + i32 arg (Main first: the harness boots at CodeBase)
+        const string src = @"
+static ulong Main() { return RotateLeft(0x0123456789ABCDEF, 40); }
+static ulong RotateLeft(ulong x, int k) { return (x << k) | (x >> (64 - k)); }";
+        await Assert.That(RunI64(src)).IsEqualTo(System.Numerics.BitOperations.RotateLeft(0x0123456789ABCDEFUL, 40));
+    }
+
+    [Test]
+    public async Task Bcl_BitOperationsLog2()
+    {
+        // The de Bruijn software fallback from System.Numerics.BitOperations.Log2(uint), with the
+        // exact BCL table and magic constant. MemoryMarshal/Unsafe become a plain static ROM array,
+        // and the BCL's (nint) index cast becomes a (ushort) cast for the 16-bit address space; the
+        // arithmetic (fold-right, 32-bit multiply, shift, table index) is verbatim BCL.
+        const string log2 = @"
+static readonly byte[] Log2DeBruijn = {
+    0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
+    8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31 };
+static uint Log2(uint value) {
+    value |= value >> 1;
+    value |= value >> 2;
+    value |= value >> 4;
+    value |= value >> 8;
+    value |= value >> 16;
+    return Log2DeBruijn[(ushort)((value * 0x07C4ACDDu) >> 27)];
+}";
+        await Assert.That(RunI32("static uint Main() { return Log2(1); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(1));
+        await Assert.That(RunI32("static uint Main() { return Log2(0xFF); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(0xFF));
+        await Assert.That(RunI32("static uint Main() { return Log2(0x80000000u); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(0x80000000u));
+        await Assert.That(RunI32("static uint Main() { return Log2(0xDEADBEEFu); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(0xDEADBEEF));
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();
