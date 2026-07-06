@@ -63,12 +63,15 @@ public sealed class CSharpFrontend : IFrontend
             var (name, returnSyntax, parameterList, body, arrow) = Describe(decl);
             var returnType = ResolveReturnType(returnSyntax, enums);
             var paramTypes = new List<CsType>();
+            var refFlags = new List<bool>();
             var parameters = new List<IrParameter>();
             foreach (var p in parameterList.Parameters)
             {
                 var t = ResolveType(p.Type!, enums);
+                bool isRef = p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in");
                 paramTypes.Add(t);
-                parameters.Add(new IrParameter(p.Identifier.Text, t.Ir));
+                refFlags.Add(isRef);
+                parameters.Add(new IrParameter(p.Identifier.Text, isRef ? IrType.Pointer(t.Ir) : t.Ir));
             }
 
             var fn = new IrFunction(name, returnType?.Ir ?? IrType.Void, parameters)
@@ -76,7 +79,7 @@ public sealed class CSharpFrontend : IFrontend
                 InterruptVector = InterruptVectorOf(decl),
             };
             module.Functions.Add(fn);
-            var method = new CsMethod(fn, returnType, paramTypes);
+            var method = new CsMethod(fn, returnType, paramTypes, refFlags);
             methods[name] = method;
             bodies.Add((method, body, arrow));
         }
@@ -149,8 +152,10 @@ public sealed class CSharpFrontend : IFrontend
             return t;
         if (type is IdentifierNameSyntax id && enums.TryGetValue(id.Identifier.Text, out var e))
             return e.Underlying;
+        if (type is PointerTypeSyntax pointer)
+            return new CsType(IrType.Pointer(ResolveType(pointer.ElementType, enums).Ir), Signed: false);
         throw new CSharpNotSupportedException(
-            $"unsupported type '{type}' (Koh C# supports byte/sbyte/ushort/short/bool and enums).");
+            $"unsupported type '{type}' (Koh C# supports byte/sbyte/ushort/short/bool, enums, and pointers).");
     }
 
     private static CsType? ResolveReturnType(TypeSyntax type, IReadOnlyDictionary<string, CsEnum> enums)
@@ -311,4 +316,4 @@ internal sealed record CsStruct(IReadOnlyList<CsField> Fields, int Size);
 internal sealed record CsField(string Name, CsType Type, int Offset);
 
 /// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).</summary>
-internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params);
+internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params, IReadOnlyList<bool> RefParams);

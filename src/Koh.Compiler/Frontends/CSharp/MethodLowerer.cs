@@ -24,6 +24,7 @@ internal sealed class MethodLowerer
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (IrValue Address, CsType Element)> _refs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue BasePtr, CsStruct Info)> _structLocals = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
@@ -58,13 +59,21 @@ internal sealed class MethodLowerer
         var entry = _method.Fn.AppendBlock("entry");
         _b.PositionAtEnd(entry);
 
-        // Give every parameter a mutable slot seeded with its incoming value.
+        // Parameters: a normal one gets a mutable slot seeded with its value; a ref/out parameter
+        // arrives as an address, so its "place" is that address itself (reads/writes deref it).
         for (int i = 0; i < _method.Fn.Parameters.Count; i++)
         {
             var p = _method.Fn.Parameters[i];
-            var slot = _b.Alloca(p.Type);
-            _b.Store(p, slot);
-            _locals[p.Name!] = (slot, _method.Params[i]);
+            if (_method.RefParams[i])
+            {
+                _refs[p.Name!] = (p, _method.Params[i]);
+            }
+            else
+            {
+                var slot = _b.Alloca(p.Type);
+                _b.Store(p, slot);
+                _locals[p.Name!] = (slot, _method.Params[i]);
+            }
         }
 
         // Entry function only: apply static-field initializers.
@@ -501,6 +510,16 @@ internal sealed class MethodLowerer
                 return LowerIncDec(unary.Operand, increment: true, prefix: true);
             case SyntaxKind.PreDecrementExpression:
                 return LowerIncDec(unary.Operand, increment: false, prefix: true);
+            case SyntaxKind.AddressOfExpression:
+            {
+                var address = LvalueAddress(unary.Operand);
+                return (address, new CsType(address.Type, Signed: false));
+            }
+            case SyntaxKind.PointerIndirectionExpression: // *p
+            {
+                var place = DerefPlace(unary.Operand);
+                return (_b.Load(place.Pointer), place.Type);
+            }
         }
 
         var (value, type) = LowerExpression(unary.Operand, expected);
@@ -531,10 +550,30 @@ internal sealed class MethodLowerer
     {
         if (_locals.TryGetValue(name, out var local))
             return (local.Slot, local.Type);
+        if (_refs.TryGetValue(name, out var reference))
+            return (reference.Address, reference.Element); // ref param: the address is the place
         if (_globals.TryGetValue(name, out var global))
             return (IrBuilder.GlobalRef(global.Global), global.Type);
         return null;
     }
+
+    /// <summary>The place denoted by <c>*ptr</c>: the pointer's value is the address to load/store.</summary>
+    private (IrValue Pointer, CsType Type) DerefPlace(ExpressionSyntax pointerExpr)
+    {
+        var (pointerValue, pointerType) = LowerExpression(pointerExpr, expected: null);
+        if (pointerType.Ir.Element is not { } element)
+            throw new CSharpNotSupportedException("'*' requires a pointer.");
+        return (pointerValue, new CsType(element, Signed: false));
+    }
+
+    /// <summary>The address of an lvalue, for taking a reference (ref argument or &amp;).</summary>
+    private IrValue LvalueAddress(ExpressionSyntax expr) => expr switch
+    {
+        IdentifierNameSyntax id when WritePlace(id.Identifier.Text) is { } p => p.Pointer,
+        ElementAccessExpressionSyntax ea => ArrayElementPointer(ea).Pointer,
+        MemberAccessExpressionSyntax ma when MemberPointer(ma) is { } mp => mp.Pointer,
+        _ => throw new CSharpNotSupportedException($"cannot take a reference to '{expr}'."),
+    };
 
     /// <summary>Short-circuit <c>&amp;&amp;</c>/<c>||</c> via a result slot and a conditional branch.</summary>
     private (IrValue, CsType) LowerLogical(BinaryExpressionSyntax binary, bool isAnd)
@@ -613,8 +652,10 @@ internal sealed class MethodLowerer
             (pointer, type) = ArrayElementPointer(access);
         else if (assign.Left is MemberAccessExpressionSyntax fieldAccess && MemberPointer(fieldAccess) is { } field)
             (pointer, type) = field;
+        else if (assign.Left is PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.PointerIndirectionExpression } deref)
+            (pointer, type) = DerefPlace(deref.Operand);
         else
-            throw new CSharpNotSupportedException("assignment target must be a variable, array element, or struct field.");
+            throw new CSharpNotSupportedException("assignment target must be a variable, array element, struct field, or *pointer.");
 
         IrValue result;
         if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression)
@@ -687,8 +728,10 @@ internal sealed class MethodLowerer
         var argList = call.ArgumentList.Arguments;
         for (int i = 0; i < argList.Count; i++)
         {
-            var paramType = callee.Params[i];
-            args.Add(Coerce(LowerExpression(argList[i].Expression, paramType), paramType));
+            if (callee.RefParams[i])
+                args.Add(LvalueAddress(argList[i].Expression)); // ref/out: pass the address
+            else
+                args.Add(Coerce(LowerExpression(argList[i].Expression, callee.Params[i]), callee.Params[i]));
         }
 
         var result = _b.Call(callee.Fn, args);

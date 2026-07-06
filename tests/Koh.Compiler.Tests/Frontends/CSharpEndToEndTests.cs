@@ -420,6 +420,46 @@ static void Main() { Hardware.EnableInterrupts(); }";
     }
 
     [Test]
+    public async Task RefParameters_Swap()
+    {
+        const string src = @"
+static byte Main() {
+    byte x = 3;
+    byte y = 7;
+    Swap(ref x, ref y);
+    return (byte)(x * 10 + y);
+}
+static void Swap(ref byte a, ref byte b) { byte t = a; a = b; b = t; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)73); // swapped: x=7, y=3
+    }
+
+    [Test]
+    public async Task OutParameter_Writes()
+    {
+        const string src = @"
+static byte Main() {
+    byte r;
+    SetTo42(out r);
+    return r;
+}
+static void SetTo42(out byte v) { v = 42; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Pointer_AddressOfAndDeref()
+    {
+        const string src = @"
+static byte Main() {
+    byte x = 5;
+    byte* p = &x;
+    *p = 42;
+    return x;
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;
