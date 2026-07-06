@@ -30,7 +30,7 @@ public sealed class CSharpNotSupportedException : Exception
 /// <c>alloca</c>s (so control flow needs no phi construction here — mutable state lives in memory,
 /// and the backend statically allocates it).
 /// </summary>
-public sealed class CSharpFrontend : IFrontend
+public sealed partial class CSharpFrontend : IFrontend
 {
     public string Name => "csharp";
 
@@ -570,114 +570,6 @@ public sealed class CSharpFrontend : IFrontend
         return structs;
     }
 
-    /// <summary>Transform each <c>yield return</c> iterator into a cooperative-coroutine state machine:
-    /// a state class with <c>__state</c>/<c>__current</c> fields, a <c>MoveNext()</c> that advances one
-    /// step per call (a switch over the state), a <c>Current()</c> accessor, and a factory that replaces
-    /// the original method. The caller drives it with <c>while (it.MoveNext() != 0) use(it.Current());</c>.
-    /// Minimal form: a linear body of top-level <c>yield return</c> statements.</summary>
-    private static CompilationUnitSyntax TransformIterators(CompilationUnitSyntax root)
-    {
-        var wrapper = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
-            .FirstOrDefault(c => c.Identifier.Text == "__KohProgram");
-        if (wrapper is null)
-            return root;
-
-        var iterators = wrapper.Members.OfType<MethodDeclarationSyntax>()
-            .Where(m => m.Body is { } b && b.Statements.Count > 0 && b.Statements.All(s => s is YieldStatementSyntax))
-            .ToList();
-        if (iterators.Count == 0)
-            return root;
-
-        var factories = new Dictionary<MethodDeclarationSyntax, MemberDeclarationSyntax>();
-        var stateClasses = new List<MemberDeclarationSyntax>();
-        foreach (var m in iterators)
-        {
-            string name = m.Identifier.Text;
-            string stateName = name + "__Iter";
-            // Element type from IEnumerable<T> / IEnumerator<T>; default byte.
-            string elem = m.ReturnType is GenericNameSyntax { TypeArgumentList.Arguments: [var ta] } ? ta.ToString() : "byte";
-            var yields = m.Body!.Statements.Cast<YieldStatementSyntax>()
-                .Where(y => y.Expression is not null).Select(y => y.Expression!.ToString()).ToList();
-
-            var sb = new System.Text.StringBuilder();
-            sb.Append($"class {stateName} {{ {elem} __current; byte __state; ");
-            sb.Append($"{elem} Current() {{ return __current; }} ");
-            sb.Append("byte MoveNext() { switch (__state) { ");
-            for (int i = 0; i < yields.Count; i++)
-                sb.Append($"case {i}: __current = {yields[i]}; __state = {i + 1}; return 1; ");
-            sb.Append("} return 0; } }");
-            stateClasses.Add(SyntaxFactory.ParseMemberDeclaration(sb.ToString())!);
-            factories[m] = SyntaxFactory.ParseMemberDeclaration($"byte* {name}() {{ return new {stateName}(); }}")!;
-        }
-
-        var newWrapper = wrapper.ReplaceNodes(iterators, (orig, _) => factories[orig]).AddMembers(stateClasses.ToArray());
-        return root.ReplaceNode(wrapper, newWrapper);
-    }
-
-    /// <summary>Rewrites a generic method's syntax, replacing each type-parameter name with the concrete
-    /// type it is instantiated at (monomorphization).</summary>
-    private sealed class TypeParamRewriter : Microsoft.CodeAnalysis.CSharp.CSharpSyntaxRewriter
-    {
-        private readonly IReadOnlyDictionary<string, TypeSyntax> _map;
-        public TypeParamRewriter(IReadOnlyDictionary<string, TypeSyntax> map) => _map = map;
-        public override SyntaxNode? VisitIdentifierName(IdentifierNameSyntax node) =>
-            _map.TryGetValue(node.Identifier.Text, out var t) ? t.WithTriviaFrom(node) : base.VisitIdentifierName(node);
-    }
-
-    /// <summary>The mangled name of a generic method instantiated at concrete type arguments, e.g.
-    /// <c>Max&lt;int&gt;</c> becomes <c>Max$int</c>. Both the synthesized function and its call sites use it.</summary>
-    internal static string MangleGeneric(string name, IEnumerable<TypeSyntax> typeArgs) =>
-        name + "$" + string.Join("_", typeArgs.Select(t => t.ToString()));
-
-    private static IEnumerable<(string Name, TypeArgumentListSyntax Args, InvocationExpressionSyntax Node)>
-        FindGenericInvocations(SyntaxNode node) =>
-        node.DescendantNodes().OfType<InvocationExpressionSyntax>()
-            .Where(inv => inv.Expression is GenericNameSyntax)
-            .Select(inv => (((GenericNameSyntax)inv.Expression).Identifier.Text,
-                            ((GenericNameSyntax)inv.Expression).TypeArgumentList, inv));
-
-    /// <summary>Monomorphize: for every generic method invoked with concrete type arguments, synthesize
-    /// a specialized copy (type parameters substituted, mangled name). A work-list handles transitive
-    /// instantiation — a specialized body may name further generic instances.</summary>
-    private static List<MethodDeclarationSyntax> SynthesizeGenericInstances(
-        CompilationUnitSyntax root, IReadOnlyDictionary<(string Name, int Arity), MethodDeclarationSyntax> generics)
-    {
-        var done = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
-        var work = new Queue<(string Name, TypeArgumentListSyntax Args)>();
-        var templates = new HashSet<MethodDeclarationSyntax>(generics.Values);
-
-        // Seed from concrete instantiations only — invocations inside a generic template still name
-        // type parameters (e.g. Id<T>), which become concrete once the template is specialized.
-        foreach (var (name, args, node) in FindGenericInvocations(root))
-            if (generics.ContainsKey((name, args.Arguments.Count))
-                && !node.Ancestors().OfType<MethodDeclarationSyntax>().Any(templates.Contains))
-                work.Enqueue((name, args));
-
-        while (work.Count > 0)
-        {
-            var (name, args) = work.Dequeue();
-            var mangled = MangleGeneric(name, args.Arguments);
-            if (done.ContainsKey(mangled))
-                continue;
-            var template = generics[(name, args.Arguments.Count)];
-            var map = new Dictionary<string, TypeSyntax>(StringComparer.Ordinal);
-            var tps = template.TypeParameterList!.Parameters;
-            for (int i = 0; i < tps.Count && i < args.Arguments.Count; i++)
-                map[tps[i].Identifier.Text] = args.Arguments[i];
-
-            var specialized = (MethodDeclarationSyntax)new TypeParamRewriter(map).Visit(template)!;
-            specialized = specialized
-                .WithIdentifier(Microsoft.CodeAnalysis.CSharp.SyntaxFactory.Identifier(mangled))
-                .WithTypeParameterList(null);
-            done[mangled] = specialized;
-
-            // The specialized body's generic invocations are now concrete; instantiate them too.
-            foreach (var (n2, a2, _) in FindGenericInvocations(specialized))
-                if (generics.ContainsKey((n2, a2.Arguments.Count))) work.Enqueue((n2, a2));
-        }
-        return done.Values.ToList();
-    }
-
     /// <summary>Collect user classes (reference types) nested in the program wrapper: lay out their
     /// non-static scalar fields like a struct and record their instance methods.</summary>
     private static Dictionary<string, CsClass> CollectClasses(
@@ -759,23 +651,3 @@ public sealed class CSharpFrontend : IFrontend
         };
     }
 }
-
-/// <summary>An enum: its underlying Koh C# type and member values.</summary>
-internal sealed record CsEnum(CsType Underlying, IReadOnlyDictionary<string, long> Members);
-
-/// <summary>A value-type struct: scalar fields with byte offsets, and its total size.</summary>
-internal sealed record CsStruct(IReadOnlyList<CsField> Fields, int Size);
-
-/// <summary>One struct field: name, type, and byte offset within the struct. A field whose type is
-/// itself a struct carries its layout in <paramref name="Struct"/> (its <see cref="Type"/> is unused).</summary>
-internal sealed record CsField(string Name, CsType Type, int Offset, CsStruct? Struct = null);
-
-/// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).
-/// An instance method has a non-null <paramref name="ThisClass"/> and an implicit first parameter
-/// (<c>this</c>, a pointer to the instance); its user parameters follow.</summary>
-internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params,
-    IReadOnlyList<bool> RefParams, IReadOnlyList<CsStruct?> ParamStructs, CsClass? ThisClass = null);
-
-/// <summary>A reference type (heap-allocated, `new`): its field layout (like a struct) and the
-/// instance methods declared on it. An instance reference is a pointer to <see cref="Layout"/> bytes.</summary>
-internal sealed record CsClass(string Name, CsStruct Layout, IReadOnlyDictionary<string, MethodDeclarationSyntax> Methods);
