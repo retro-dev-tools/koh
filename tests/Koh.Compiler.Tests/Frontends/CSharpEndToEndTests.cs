@@ -367,6 +367,39 @@ static byte Get(byte i) {
     }
 
     [Test]
+    public async Task CharLiteral_IsItsCode()
+    {
+        // Char literals are byte codes; char arithmetic gives font/tile offsets.
+        await Assert.That(RunA("static byte Main() { byte c = 'A'; return c; }")).IsEqualTo((byte)65);
+        await Assert.That(RunA("static byte Main() { return (byte)('Z' - 'A'); }")).IsEqualTo((byte)25);
+    }
+
+    [Test]
+    public async Task StringLiteral_LocalByteArray()
+    {
+        const string src = @"
+static byte Main() {
+    byte[] s = ""HELLO"";
+    return (byte)(s[0] + s.Length); // 'H'(72) + 5
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)77);
+    }
+
+    [Test]
+    public async Task StringLiteral_RomTextTable()
+    {
+        // `static readonly byte[] = "..."` is ROM character data (for HUD/menu text).
+        const string src = @"
+static byte Main() {
+    ushort sum = 0;
+    for (byte i = 0; i < Label.Length; i++) sum = (ushort)(sum + Label[i]);
+    return (byte)sum;
+}
+static readonly byte[] Label = ""AB""; // 65 + 66 = 131";
+        await Assert.That(RunA(src)).IsEqualTo((byte)131);
+    }
+
+    [Test]
     public async Task StaticArray_RomTable_IndexedAndSummed()
     {
         // `static readonly T[]` is a ROM data table, visible in every method.

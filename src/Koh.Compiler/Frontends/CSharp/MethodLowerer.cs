@@ -234,6 +234,18 @@ internal sealed class MethodLowerer
         }
 
         var element = CSharpFrontend.ResolveType(arrayType.ElementType, _enums);
+
+        // A string literal initializes a byte array with its characters' codes (`byte[] s = "HI"`).
+        if (initializer?.Value is LiteralExpressionSyntax { Token.Value: string text })
+        {
+            var strPtr = _b.Alloca(IrType.Array(element.Ir, text.Length));
+            _arrays[name] = (strPtr, element, text.Length);
+            for (int i = 0; i < text.Length; i++)
+                _b.Store(IrBuilder.ConstInt(element.Ir, (byte)text[i]),
+                    _b.Gep(strPtr, IrBuilder.ConstInt(IrType.I16, i), element.Ir));
+            return;
+        }
+
         List<ExpressionSyntax>? elements = null;
         int length;
 

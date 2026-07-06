@@ -316,6 +316,22 @@ public sealed class CSharpFrontend : IFrontend
     {
         var name = v.Identifier.Text;
         int elemSize = element.Ir.SizeInBytes;
+
+        // A string literal is ROM character data: `static readonly byte[] Msg = "SCORE";`.
+        if (v.Initializer?.Value is LiteralExpressionSyntax { Token.Value: string text })
+        {
+            if (!isReadonly)
+                throw new CSharpNotSupportedException(
+                    $"string-initialized static array '{name}' must be 'static readonly' (it lives in ROM).");
+            var strBytes = new List<byte>(text.Length * elemSize);
+            foreach (var ch in text)
+                strBytes.AddRange(ToLittleEndian(ch, elemSize));
+            var strRom = new IrGlobal(name, IrType.Array(element.Ir, text.Length), AddressSpace.Rom, initializer: strBytes.ToArray());
+            module.Globals.Add(strRom);
+            arrays[name] = (strRom, element, text.Length);
+            return;
+        }
+
         List<ExpressionSyntax>? elements = v.Initializer?.Value switch
         {
             InitializerExpressionSyntax bare => bare.Expressions.ToList(),                 // = { ... }
