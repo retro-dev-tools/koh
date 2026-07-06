@@ -581,6 +581,16 @@ public sealed partial class CSharpFrontend : IFrontend
             if (decl.Identifier.Text == "__KohProgram")
                 continue; // the synthesized program wrapper, not a user class
 
+            // `Mem` is the reserved arena-allocator intrinsic (Mem.Alloc/Mem.Reset). A user class of
+            // that name would have its member calls hijacked by the allocator lowering, so reject it
+            // rather than mis-compile silently.
+            if (decl.Identifier.Text == "Mem")
+            {
+                Report(diagnostics, "'Mem' is reserved for the arena-allocator intrinsic and cannot name a class.",
+                    decl.Identifier.GetLocation());
+                continue;
+            }
+
             var fields = new List<CsField>();
             int offset = 0, align = 1;
             foreach (var member in decl.Members.OfType<FieldDeclarationSyntax>())

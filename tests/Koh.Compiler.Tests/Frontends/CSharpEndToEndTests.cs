@@ -1591,6 +1591,14 @@ static readonly byte[] Mark = { 0xAB };";
     }
 
     [Test]
+    public async Task Arena_MemIsReservedClassName_IsDiagnostic()
+    {
+        // A user class named `Mem` would have its calls hijacked by the allocator lowering, so it is
+        // reported rather than silently mis-compiled.
+        await Assert.That(HasError("class Mem { byte x; } static byte Main() { return 0; }")).IsTrue();
+    }
+
+    [Test]
     public async Task Class_NewAndFields()
     {
         // A class is heap-allocated (new bump-allocates and zeroes it); fields are accessed through the
