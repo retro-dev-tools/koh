@@ -67,6 +67,13 @@ public class CSharpEndToEndTests
         return ((uint)gb.Registers.DE << 16) | gb.Registers.HL; // i32: high word DE, low word HL
     }
 
+    private static bool HasError(string src)
+    {
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), diagnostics);
+        return diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
+    }
+
     private static void W8(GameBoySystem gb, int offset, int value) =>
         gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset), (byte)value);
 
@@ -987,5 +994,48 @@ static uint Main() {
         var diagnostics = new DiagnosticBag();
         new CSharpFrontend().Lower(SourceText.From("static byte F( { return 0 }", "game.cs"), diagnostics);
         await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
+    [Test]
+    public async Task CallArityMismatch_ReportedAsDiagnostic()
+    {
+        // A call whose argument count differs from the callee's parameter count is a diagnostic,
+        // not a crash while binding positional arguments.
+        await Assert.That(HasError(
+            "static byte Add(byte a, byte b) { return a + b; }\nstatic byte Main() { return Add(1, 2, 3); }")).IsTrue();
+        await Assert.That(HasError(
+            "static byte Add(byte a, byte b) { return a + b; }\nstatic byte Main() { return Add(1); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task StringLiteralInScalarContext_ReportedAsDiagnostic()
+    {
+        // A string literal is only valid as a byte[] initializer; used as a scalar it is a diagnostic,
+        // not a FormatException while converting the token value to a number.
+        await Assert.That(HasError("static byte Main() { byte x = \"hi\"; return x; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task MixedSign_UshortPlusSbyte_PromotesToSignedInt()
+    {
+        // (ushort)0 + (sbyte)-1 must promote to signed i32 (-1 == 0xFFFFFFFF), not stay u16 (65535).
+        const string src = "static uint Main() { ushort a = 0; sbyte b = -1; return (uint)(a + b); }";
+        await Assert.That(RunI32(src)).IsEqualTo(0xFFFFFFFFu);
+    }
+
+    [Test]
+    public async Task Ternary_WithoutExpectedType_InfersFromBranches()
+    {
+        // A ternary with no target type must infer its result type from its branches. Two i32 branches
+        // must not be truncated to u16.
+        const string src = "static uint Main() { bool c = true; return (uint)(c ? 100000 : 0); }";
+        await Assert.That(RunI32(src)).IsEqualTo(100000u);
+    }
+
+    [Test]
+    public async Task NegativeArrayLength_ReportedAsDiagnostic()
+    {
+        // A negative static-array size is a diagnostic, not a negative IrType.Array length.
+        await Assert.That(HasError("static byte[] Buf = new byte[-1];\nstatic byte Main() { return 0; }")).IsTrue();
     }
 }

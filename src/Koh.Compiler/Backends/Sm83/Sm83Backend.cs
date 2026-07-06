@@ -826,6 +826,8 @@ public sealed class Sm83Backend : IBackend
         private void EmitShift(BinaryInstruction b)
         {
             int n = SizeOf(b.Type);
+            if (n > 2)
+                throw new NotSupportedException($"SM83 backend has no {n * 8}-bit shift (working register is 16-bit).");
             int dst = _slot[b];
 
             if (b.Right is IrConstInt amount)
@@ -906,6 +908,9 @@ public sealed class Sm83Backend : IBackend
         private void EmitMulDivRem(BinaryInstruction b)
         {
             int n = SizeOf(b.Type);
+            if (n > 2)
+                throw new NotSupportedException(
+                    $"SM83 backend has no {n * 8}-bit multiply/divide/remainder (runtime routines are 16-bit).");
             int dst = _slot[b];
             bool signedDiv = b.Op is IrBinaryOp.SDiv or IrBinaryOp.SRem;
 
@@ -1176,6 +1181,8 @@ public sealed class Sm83Backend : IBackend
 
         private void LoadIndexToDE(IrValue index)
         {
+            if (SizeOf(index.Type) > 2)
+                throw new NotSupportedException("SM83 backend gep index must be <= 16-bit.");
             LoadByteToA(index, 0);
             _e.U8(0x5F);                         // LD E, A
             if (SizeOf(index.Type) == 2)

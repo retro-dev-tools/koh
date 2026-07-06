@@ -573,6 +573,13 @@ internal sealed class MethodLowerer
         if (lit.Kind() == SyntaxKind.FalseLiteralExpression)
             return (IrBuilder.ConstInt(IrType.I8, 0), CsType.Bool);
 
+        // A string literal is only valid as a byte-array initializer (handled in LowerArrayLocal);
+        // elsewhere `Convert.ToInt64` would throw or silently parse it, so report it cleanly.
+        if (lit.Token.Value is not (long or int or char or byte or short or ushort or uint or sbyte))
+            throw new CSharpNotSupportedException(
+                $"a {lit.Kind()} is not a value here (string literals are only allowed as byte[] initializers).",
+                lit.GetLocation());
+
         long value = Convert.ToInt64(lit.Token.Value);
         // With no expected type, size the literal to its value so a wide constant isn't truncated
         // to a neighbouring narrow type (e.g. `1000 == x`), and a small one still stays 8-bit.
@@ -685,9 +692,45 @@ internal sealed class MethodLowerer
         return (_b.Load(result), CsType.Bool);
     }
 
+    /// <summary>Best-effort static type of an expression without emitting IR, for sizing a result
+    /// slot (e.g. a ternary with no expected type). Returns null when the type isn't obvious, and the
+    /// caller falls back to a default.</summary>
+    private CsType? InferType(ExpressionSyntax expr)
+    {
+        switch (expr)
+        {
+            case ParenthesizedExpressionSyntax p:
+                return InferType(p.Expression);
+            case CastExpressionSyntax cast:
+                try { return CSharpFrontend.ResolveType(cast.Type, _enums); }
+                catch (CSharpNotSupportedException) { return null; }
+            case LiteralExpressionSyntax lit when lit.Token.Value is long or int or char or byte or short or ushort or uint or sbyte:
+                long v = Convert.ToInt64(lit.Token.Value);
+                return v switch { >= 0 and <= 0xFF => CsType.U8, >= 0 and <= 0xFFFF => CsType.U16, _ => CsType.U32 };
+            case IdentifierNameSyntax id:
+                if (_locals.TryGetValue(id.Identifier.Text, out var local)) return local.Type;
+                if (_refs.TryGetValue(id.Identifier.Text, out var reference)) return reference.Element;
+                if (_consts.TryGetValue(id.Identifier.Text, out var c)) return c.Type;
+                if (_moduleConsts.TryGetValue(id.Identifier.Text, out var mc)) return mc.Type;
+                if (_globals.TryGetValue(id.Identifier.Text, out var g)) return g.Type;
+                return null;
+            default:
+                return null;
+        }
+    }
+
     private (IrValue, CsType) LowerConditional(ConditionalExpressionSyntax cond, CsType? expected)
     {
-        var type = expected ?? CsType.U16;
+        // The result slot must be sized before the branches run, so when there is no expected type
+        // infer one from the branches (else a wide branch, e.g. an int, would truncate to the default).
+        var type = expected
+            ?? (InferType(cond.WhenTrue), InferType(cond.WhenFalse)) switch
+            {
+                ({ } t, { } f) => CommonType(t, f, signMatters: false, cond),
+                ({ } t, null) => t,
+                (null, { } f) => f,
+                _ => CsType.U16,
+            };
         var result = _b.Alloca(type.Ir);
         var c = Coerce(LowerExpression(cond.Condition, CsType.Bool), CsType.Bool);
 
@@ -836,6 +879,8 @@ internal sealed class MethodLowerer
         int need = Math.Max(width, unsignedOp.Ir.SizeInBits + 1);
         if (need <= 16)
             return new CsType(IrType.I16, Signed: true);
+        if (need <= 32)
+            return new CsType(IrType.I32, Signed: true); // e.g. ushort vs sbyte -> signed int
 
         // No wide-enough signed type on this target.
         if (signMatters)
@@ -982,6 +1027,10 @@ internal sealed class MethodLowerer
 
         var args = new List<IrValue>();
         var argList = call.ArgumentList.Arguments;
+        if (argList.Count != callee.Params.Count)
+            throw new CSharpNotSupportedException(
+                $"'{id.Identifier.Text}' takes {callee.Params.Count} argument(s), but {argList.Count} were given.",
+                call.GetLocation());
         for (int i = 0; i < argList.Count; i++)
         {
             if (callee.ParamStructs[i] is not null)

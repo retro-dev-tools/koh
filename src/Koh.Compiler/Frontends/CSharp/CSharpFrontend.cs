@@ -378,6 +378,8 @@ public sealed class CSharpFrontend : IFrontend
                 => (int)ConstEval(size, constLookup),
             _ => throw new CSharpNotSupportedException($"static array '{name}' needs an initializer or a size."),
         };
+        if (length < 0)
+            throw new CSharpNotSupportedException($"static array '{name}' has a negative length ({length}).");
         var g = new IrGlobal(name, IrType.Array(element.Ir, length), isReadonly ? AddressSpace.Rom : AddressSpace.Wram);
         module.Globals.Add(g);
         arrays[name] = (g, element, length);
