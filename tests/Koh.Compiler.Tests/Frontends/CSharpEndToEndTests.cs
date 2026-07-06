@@ -267,6 +267,37 @@ static byte SumTo(byte n) {
     }
 
     [Test]
+    public async Task Enum_And_Const()
+    {
+        const string src = @"
+enum Dir : byte { Up, Down, Left = 10, Right }
+static byte Step(byte d) {
+    const byte Bonus = 3;
+    if (d == Dir.Right) return Bonus + 100;
+    if (d == Dir.Up) return 1;
+    return 0;
+}";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 11))).IsEqualTo((byte)103); // Right = 11, +Bonus(3)+100
+        await Assert.That(RunA(src, gb => W8(gb, 0, 0))).IsEqualTo((byte)1);   // Up = 0
+    }
+
+    [Test]
+    public async Task Enum_InSwitch()
+    {
+        const string src = @"
+enum Tile : byte { Empty, Wall, Coin = 5 }
+static byte Value(byte t) {
+    switch (t) {
+        case Tile.Wall: return 1;
+        case Tile.Coin: return 50;
+        default: return 0;
+    }
+}";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)50); // Coin
+        await Assert.That(RunA(src, gb => W8(gb, 0, 1))).IsEqualTo((byte)1);  // Wall
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;

@@ -7,7 +7,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <!-- Exclude the analyzers that ship with the package: they target analyzer authors (RS**** rules)
+         and would trip TreatWarningsAsErrors on ordinary Roslyn API usage. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" ExcludeAssets="analyzers" />
   </ItemGroup>
 
   <ItemGroup>

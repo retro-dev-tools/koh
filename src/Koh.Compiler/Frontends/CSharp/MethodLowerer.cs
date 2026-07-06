@@ -16,20 +16,24 @@ internal sealed class MethodLowerer
     private readonly BlockSyntax? _body;
     private readonly ArrowExpressionClauseSyntax? _arrow;
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
+    private readonly IReadOnlyDictionary<string, CsEnum> _enums;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
     public MethodLowerer(
         CsMethod method,
         BlockSyntax? body,
         ArrowExpressionClauseSyntax? arrow,
-        IReadOnlyDictionary<string, CsMethod> methods)
+        IReadOnlyDictionary<string, CsMethod> methods,
+        IReadOnlyDictionary<string, CsEnum> enums)
     {
         _method = method;
         _body = body;
         _arrow = arrow;
         _methods = methods;
+        _enums = enums;
     }
 
     public void Lower()
@@ -74,7 +78,7 @@ internal sealed class MethodLowerer
                 break;
 
             case LocalDeclarationStatementSyntax local:
-                LowerLocalDeclaration(local.Declaration);
+                LowerLocalDeclaration(local.Declaration, local.Modifiers.Any(m => m.ValueText == "const"));
                 break;
 
             case ExpressionStatementSyntax expr:
@@ -125,17 +129,28 @@ internal sealed class MethodLowerer
         }
     }
 
-    private void LowerLocalDeclaration(VariableDeclarationSyntax decl)
+    private void LowerLocalDeclaration(VariableDeclarationSyntax decl, bool isConst)
     {
-        var type = CSharpFrontend.MapType(decl.Type);
+        var type = CSharpFrontend.ResolveType(decl.Type, _enums);
         foreach (var v in decl.Variables)
         {
+            if (isConst)
+            {
+                if (v.Initializer is null)
+                    throw new CSharpNotSupportedException($"const '{v.Identifier.Text}' needs an initializer.");
+                _consts[v.Identifier.Text] = (type, CSharpFrontend.ConstEval(v.Initializer.Value, ResolveConst));
+                continue;
+            }
+
             var slot = _b.Alloca(type.Ir);
             _locals[v.Identifier.Text] = (slot, type);
             if (v.Initializer is { } init)
                 _b.Store(Coerce(LowerExpression(init.Value, type), type), slot);
         }
     }
+
+    /// <summary>Resolve a bare name to a constant value (local const), for constant folding.</summary>
+    private long? ResolveConst(string name) => _consts.TryGetValue(name, out var c) ? c.Value : null;
 
     private void LowerIf(IfStatementSyntax ifStmt)
     {
@@ -251,7 +266,7 @@ internal sealed class MethodLowerer
     {
         // Initializers.
         if (forStmt.Declaration is { } decl)
-            LowerLocalDeclaration(decl);
+            LowerLocalDeclaration(decl, isConst: false);
         foreach (var init in forStmt.Initializers)
             LowerExpression(init, expected: null);
 
@@ -305,14 +320,19 @@ internal sealed class MethodLowerer
 
             case IdentifierNameSyntax id:
             {
-                if (!_locals.TryGetValue(id.Identifier.Text, out var local))
-                    throw new CSharpNotSupportedException($"unknown identifier '{id.Identifier.Text}'.");
-                return (_b.Load(local.Slot), local.Type);
+                if (_consts.TryGetValue(id.Identifier.Text, out var constant))
+                    return (IrBuilder.ConstInt(constant.Type.Ir, constant.Value), constant.Type);
+                if (_locals.TryGetValue(id.Identifier.Text, out var local))
+                    return (_b.Load(local.Slot), local.Type);
+                throw new CSharpNotSupportedException($"unknown identifier '{id.Identifier.Text}'.");
             }
+
+            case MemberAccessExpressionSyntax member:
+                return LowerMemberAccess(member);
 
             case CastExpressionSyntax cast:
             {
-                var target = CSharpFrontend.MapType(cast.Type);
+                var target = CSharpFrontend.ResolveType(cast.Type, _enums);
                 return (Coerce(LowerExpression(cast.Expression, target), target), target);
             }
 
@@ -470,6 +490,19 @@ internal sealed class MethodLowerer
 
         _b.Store(result, local.Slot);
         return (result, local.Type);
+    }
+
+    private (IrValue, CsType) LowerMemberAccess(MemberAccessExpressionSyntax member)
+    {
+        // Enum member reference, e.g. Color.Red.
+        if (member.Expression is IdentifierNameSyntax typeId && _enums.TryGetValue(typeId.Identifier.Text, out var e))
+        {
+            var name = member.Name.Identifier.Text;
+            if (!e.Members.TryGetValue(name, out long value))
+                throw new CSharpNotSupportedException($"enum '{typeId.Identifier.Text}' has no member '{name}'.");
+            return (IrBuilder.ConstInt(e.Underlying.Ir, value), e.Underlying);
+        }
+        throw new CSharpNotSupportedException($"unsupported member access '{member}'.");
     }
 
     private (IrValue, CsType) LowerCall(InvocationExpressionSyntax call)
