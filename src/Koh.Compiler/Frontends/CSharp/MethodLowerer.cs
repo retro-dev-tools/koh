@@ -18,6 +18,7 @@ internal sealed class MethodLowerer
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
     private readonly IReadOnlyDictionary<string, CsEnum> _enums;
     private readonly IReadOnlyDictionary<string, CsStruct> _structs;
+    private readonly IReadOnlyDictionary<string, CsClass> _classes;
     private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> _globals;
     private readonly IReadOnlyDictionary<string, (CsType Type, long Value)> _moduleConsts;
     private readonly HardwareRegisters _hardware;
@@ -29,6 +30,8 @@ internal sealed class MethodLowerer
     private readonly Dictionary<string, (IrValue Address, CsType Element)> _refs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue BasePtr, CsStruct Info)> _structLocals = new(StringComparer.Ordinal);
+    // A class local holds a pointer to its heap instance; field access loads that pointer as the base.
+    private readonly Dictionary<string, (IrValue Slot, CsClass Info)> _classLocals = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue ArrayPtr, CsStruct Info, int Length)> _structArrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
@@ -45,7 +48,8 @@ internal sealed class MethodLowerer
         HardwareRegisters hardware,
         string file,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits,
-        IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays)
+        IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays,
+        IReadOnlyDictionary<string, CsClass> classes)
     {
         _file = file;
         _method = method;
@@ -54,6 +58,7 @@ internal sealed class MethodLowerer
         _methods = methods;
         _enums = enums;
         _structs = structs;
+        _classes = classes;
         _globals = globals;
         _moduleConsts = moduleConsts;
         _hardware = hardware;
@@ -76,6 +81,16 @@ internal sealed class MethodLowerer
         for (int i = 0; i < _method.Fn.Parameters.Count; i++)
         {
             var p = _method.Fn.Parameters[i];
+            // The implicit `this` of an instance method: a pointer to the instance, registered so field
+            // access (this.f or bare f) resolves against the class layout.
+            if (i == 0 && _method.ThisClass is { } thisClass)
+            {
+                var thisSlot = _b.Alloca(p.Type);
+                _b.Store(p, thisSlot);
+                _locals["this"] = (thisSlot, new CsType(IrType.Pointer(IrType.I8), Signed: false));
+                _classLocals["this"] = (thisSlot, thisClass);
+                continue;
+            }
             if (_method.ParamStructs[i] is { } structParam)
             {
                 _structLocals[p.Name!] = (p, structParam); // the param value is the struct's address
@@ -194,6 +209,19 @@ internal sealed class MethodLowerer
         {
             foreach (var v in decl.Variables)
                 _structLocals[v.Identifier.Text] = (_b.Alloca(IrType.Array(IrType.I8, structInfo.Size)), structInfo);
+            return;
+        }
+
+        // A class-typed local: a slot holding a pointer to the heap instance (e.g. from `new C()`).
+        if (decl.Type is IdentifierNameSyntax className && _classes.TryGetValue(className.Identifier.Text, out var classInfo))
+        {
+            foreach (var v in decl.Variables)
+            {
+                var slot = _b.Alloca(IrType.Pointer(IrType.I8));
+                _classLocals[v.Identifier.Text] = (slot, classInfo);
+                if (v.Initializer is { } init)
+                    _b.Store(_b.Conv(IrConvOp.Bitcast, LowerExpression(init.Value, null).Item1, IrType.Pointer(IrType.I8)), slot);
+            }
             return;
         }
 
@@ -346,6 +374,9 @@ internal sealed class MethodLowerer
     {
         if (expr is IdentifierNameSyntax id && _structLocals.TryGetValue(id.Identifier.Text, out var s))
             return (s.BasePtr, s.Info);
+        // A class local (or `this`): the instance base is the pointer it holds, loaded each access.
+        if (ClassLocalOf(expr) is { } c)
+            return (_b.Conv(IrConvOp.Bitcast, _b.Load(c.Slot), IrType.Pointer(IrType.I8)), c.Info.Layout);
         if (expr is ElementAccessExpressionSyntax access
             && access.Expression is IdentifierNameSyntax arrayId
             && _structArrays.TryGetValue(arrayId.Identifier.Text, out var arr))
@@ -550,6 +581,9 @@ internal sealed class MethodLowerer
             case MemberAccessExpressionSyntax member:
                 return LowerMemberAccess(member, expected);
 
+            case ObjectCreationExpressionSyntax objNew:
+                return LowerNew(objNew);
+
             case CastExpressionSyntax cast:
             {
                 var target = CSharpFrontend.ResolveType(cast.Type, _enums);
@@ -690,6 +724,15 @@ internal sealed class MethodLowerer
             return (reference.Address, reference.Element); // ref param: the address is the place
         if (_globals.TryGetValue(name, out var global))
             return (IrBuilder.GlobalRef(global.Global), global.Type);
+        // A bare field reference inside an instance method resolves against `this`.
+        if (_classLocals.TryGetValue("this", out var self))
+            foreach (var field in self.Info.Layout.Fields)
+                if (field.Name == name && field.Struct is null)
+                {
+                    var basePtr = _b.Conv(IrConvOp.Bitcast, _b.Load(self.Slot), IrType.Pointer(IrType.I8));
+                    int index = field.Offset / field.Type.Ir.SizeInBytes;
+                    return (_b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
+                }
         return null;
     }
 
@@ -1083,6 +1126,17 @@ internal sealed class MethodLowerer
             && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" })
             return LowerMemCall(mem.Name.Identifier.Text, call);
 
+        // Instance method call: obj.Method(args) or this.Method(args).
+        if (call.Expression is MemberAccessExpressionSyntax instCall
+            && ClassLocalOf(instCall.Expression) is { } recv)
+            return LowerInstanceCall(recv.Info, recv.Slot, instCall.Name.Identifier.Text, call.ArgumentList.Arguments);
+
+        // Bare Method(args) inside an instance method resolves against `this`.
+        if (call.Expression is IdentifierNameSyntax bare && !_methods.ContainsKey(bare.Identifier.Text)
+            && _classLocals.TryGetValue("this", out var self)
+            && self.Info.Methods.ContainsKey(bare.Identifier.Text))
+            return LowerInstanceCall(self.Info, self.Slot, bare.Identifier.Text, call.ArgumentList.Arguments);
+
         if (call.Expression is not IdentifierNameSyntax id || !_methods.TryGetValue(id.Identifier.Text, out var callee))
             throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
 
@@ -1113,6 +1167,51 @@ internal sealed class MethodLowerer
 
         var result = _b.Call(callee.Fn, args);
         return (result, callee.Return ?? CsType.U8);
+    }
+
+    /// <summary>The class local (or <c>this</c>) an expression denotes, if any.</summary>
+    private (IrValue Slot, CsClass Info)? ClassLocalOf(ExpressionSyntax expr) =>
+        expr is IdentifierNameSyntax id && _classLocals.TryGetValue(id.Identifier.Text, out var c) ? c
+        : expr is ThisExpressionSyntax && _classLocals.TryGetValue("this", out var t) ? t
+        : null;
+
+    /// <summary>Lower an instance-method call: pass the receiver pointer as the implicit <c>this</c>,
+    /// then the user arguments, and call the <c>Class.Method</c> function.</summary>
+    private (IrValue, CsType) LowerInstanceCall(
+        CsClass cls, IrValue thisSlot, string methodName,
+        Microsoft.CodeAnalysis.SeparatedSyntaxList<ArgumentSyntax> args)
+    {
+        var qualified = $"{cls.Name}.{methodName}";
+        if (!_methods.TryGetValue(qualified, out var callee))
+            throw new CSharpNotSupportedException($"class '{cls.Name}' has no method '{methodName}'.");
+        if (args.Count != callee.Params.Count - 1)
+            throw new CSharpNotSupportedException(
+                $"'{qualified}' takes {callee.Params.Count - 1} argument(s), but {args.Count} were given.");
+
+        var callArgs = new List<IrValue> { _b.Load(thisSlot) };
+        for (int i = 0; i < args.Count; i++)
+            callArgs.Add(Coerce(LowerExpression(args[i].Expression, callee.Params[i + 1]), callee.Params[i + 1]));
+        return (_b.Call(callee.Fn, callArgs), callee.Return ?? CsType.U8);
+    }
+
+    /// <summary>Lower <c>new C()</c>: bump-allocate the instance from the arena, zero its fields (heap
+    /// memory is uninitialized), and return the instance pointer. Constructor arguments are not yet
+    /// supported — initialize fields after construction.</summary>
+    private (IrValue, CsType) LowerNew(ObjectCreationExpressionSyntax objNew)
+    {
+        if (objNew.Type is not IdentifierNameSyntax cn || !_classes.TryGetValue(cn.Identifier.Text, out var cls))
+            throw new CSharpNotSupportedException($"'new {objNew.Type}' is not supported (only class instances are).");
+        if (objNew.ArgumentList is { Arguments.Count: > 0 })
+            throw new CSharpNotSupportedException(
+                $"'new {cn.Identifier.Text}(...)' with constructor arguments is not supported; set fields after.");
+
+        var heap = IrBuilder.GlobalRef(_globals[CSharpFrontend.HeapPointerName].Global);
+        var raw = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), IrBuilder.ConstInt(IrType.I16, cls.Layout.Size));
+        _b.Store(raw, heap);
+        var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
+        for (int k = 0; k < cls.Layout.Size; k++)
+            _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, k), IrType.I8));
+        return (basePtr, new CsType(IrType.Pointer(IrType.I8), Signed: false));
     }
 
     /// <summary>Lower an arena-allocator call. <c>Mem.Alloc(n)</c> bumps the heap pointer down by n and

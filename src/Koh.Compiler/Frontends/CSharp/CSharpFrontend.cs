@@ -90,6 +90,9 @@ public sealed class CSharpFrontend : IFrontend
         // Pass 0.4: struct layouts (value types with scalar fields).
         var structs = CollectStructs(root, enums, diagnostics);
 
+        // Pass 0.45: class layouts (reference types, heap-allocated) and their instance methods.
+        var classes = CollectClasses(root, enums, diagnostics);
+
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
         var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(root, enums, module, diagnostics);
 
@@ -156,6 +159,36 @@ public sealed class CSharpFrontend : IFrontend
             bodies.Add((method, body, arrow));
         }
 
+        // Pass 1.5: instance methods. Each becomes a function `Class.Method` with an implicit `this`
+        // pointer prepended to its parameters.
+        foreach (var cls in classes.Values)
+            foreach (var (mname, mdecl) in cls.Methods)
+            {
+                var returnType = ResolveReturnType(mdecl.ReturnType, enums);
+                var paramTypes = new List<CsType> { CsType.U16 };
+                var refFlags = new List<bool> { false };
+                var paramStructs = new List<CsStruct?> { null };
+                var parameters = new List<IrParameter> { new("this", IrType.Pointer(IrType.I8)) };
+                foreach (var p in mdecl.ParameterList.Parameters)
+                {
+                    var t = ResolveType(p.Type!, enums);
+                    paramTypes.Add(t);
+                    refFlags.Add(false);
+                    paramStructs.Add(null);
+                    parameters.Add(new IrParameter(p.Identifier.Text, t.Ir));
+                }
+                var qualified = $"{cls.Name}.{mname}";
+                var fn = new IrFunction(qualified, returnType?.Ir ?? IrType.Void, parameters);
+                var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs, cls);
+                if (!methods.TryAdd(qualified, method))
+                {
+                    Report(diagnostics, $"duplicate method '{qualified}'.", mdecl.Identifier.GetLocation());
+                    continue;
+                }
+                module.Functions.Add(fn);
+                bodies.Add((method, mdecl.Body, mdecl.ExpressionBody));
+            }
+
         // The entry function (main, else first) runs the static-field initializers in its prologue.
         var entry = bodies.FirstOrDefault(b =>
                 string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)).Method
@@ -168,7 +201,7 @@ public sealed class CSharpFrontend : IFrontend
             try
             {
                 new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts,
-                    hardware, module.Name, inits, moduleArrays).Lower();
+                    hardware, module.Name, inits, moduleArrays, classes).Lower();
             }
             catch (CSharpNotSupportedException ex)
             {
@@ -246,7 +279,9 @@ public sealed class CSharpFrontend : IFrontend
     {
         foreach (var node in root.DescendantNodes())
         {
-            if (node is MethodDeclarationSyntax)
+            // Only methods directly in the program wrapper are top-level functions; methods inside a
+            // user class are instance methods, collected separately with an implicit `this`.
+            if (node is MethodDeclarationSyntax { Parent: ClassDeclarationSyntax { Identifier.Text: "__KohProgram" } })
                 yield return node;
             else if (node is LocalFunctionStatementSyntax fn && fn.Parent is GlobalStatementSyntax)
                 yield return node; // top-level function
@@ -340,8 +375,10 @@ public sealed class CSharpFrontend : IFrontend
         }
 
         // Only class-level fields are statics; fields inside a struct are its members.
+        // Only fields at the program (wrapper) level are statics; a user class's fields are its
+        // per-instance members, laid out per instance rather than as global storage.
         foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>()
-                     .Where(f => f.Parent is ClassDeclarationSyntax))
+                     .Where(f => f.Parent is ClassDeclarationSyntax { Identifier.Text: "__KohProgram" }))
         {
             bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
             bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
@@ -506,6 +543,45 @@ public sealed class CSharpFrontend : IFrontend
         return structs;
     }
 
+    /// <summary>Collect user classes (reference types) nested in the program wrapper: lay out their
+    /// non-static scalar fields like a struct and record their instance methods.</summary>
+    private static Dictionary<string, CsClass> CollectClasses(
+        CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums, DiagnosticBag diagnostics)
+    {
+        var classes = new Dictionary<string, CsClass>(StringComparer.Ordinal);
+        foreach (var decl in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
+        {
+            if (decl.Identifier.Text == "__KohProgram")
+                continue; // the synthesized program wrapper, not a user class
+
+            var fields = new List<CsField>();
+            int offset = 0, align = 1;
+            foreach (var member in decl.Members.OfType<FieldDeclarationSyntax>())
+            {
+                if (member.Modifiers.Any(m => m.ValueText == "static"))
+                    continue; // a static field is program-global, not per-instance
+                var type = ResolveType(member.Declaration.Type, enums);
+                int fsize = type.Ir.SizeInBytes;
+                foreach (var v in member.Declaration.Variables)
+                {
+                    offset = RoundUp(offset, fsize);
+                    fields.Add(new CsField(v.Identifier.Text, type, offset));
+                    offset += fsize;
+                    align = Math.Max(align, fsize);
+                }
+            }
+            var methods = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
+            foreach (var m in decl.Members.OfType<MethodDeclarationSyntax>())
+                methods.TryAdd(m.Identifier.Text, m);
+
+            var cls = new CsClass(decl.Identifier.Text, new CsStruct(fields, RoundUp(offset, align)), methods);
+            if (!classes.TryAdd(decl.Identifier.Text, cls))
+                Report(diagnostics, $"duplicate class '{decl.Identifier.Text}' (only the first definition is used).",
+                    decl.Identifier.GetLocation());
+        }
+        return classes;
+    }
+
     private static int RoundUp(int value, int alignment) => (value + alignment - 1) / alignment * alignment;
 
     private static byte[] ToLittleEndian(long value, int size)
@@ -559,6 +635,12 @@ internal sealed record CsStruct(IReadOnlyList<CsField> Fields, int Size);
 /// itself a struct carries its layout in <paramref name="Struct"/> (its <see cref="Type"/> is unused).</summary>
 internal sealed record CsField(string Name, CsType Type, int Offset, CsStruct? Struct = null);
 
-/// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).</summary>
+/// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).
+/// An instance method has a non-null <paramref name="ThisClass"/> and an implicit first parameter
+/// (<c>this</c>, a pointer to the instance); its user parameters follow.</summary>
 internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params,
-    IReadOnlyList<bool> RefParams, IReadOnlyList<CsStruct?> ParamStructs);
+    IReadOnlyList<bool> RefParams, IReadOnlyList<CsStruct?> ParamStructs, CsClass? ThisClass = null);
+
+/// <summary>A reference type (heap-allocated, `new`): its field layout (like a struct) and the
+/// instance methods declared on it. An instance reference is a pointer to <see cref="Layout"/> bytes.</summary>
+internal sealed record CsClass(string Name, CsStruct Layout, IReadOnlyDictionary<string, MethodDeclarationSyntax> Methods);

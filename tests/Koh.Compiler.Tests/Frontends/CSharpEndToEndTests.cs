@@ -1581,6 +1581,55 @@ static readonly byte[] Mark = { 0xAB };";
             + "return (byte)(a == b ? 42 : 0); }")).IsEqualTo((byte)42);
     }
 
+    [Test]
+    public async Task Class_NewAndFields()
+    {
+        // A class is heap-allocated (new bump-allocates and zeroes it); fields are accessed through the
+        // instance pointer.
+        await Assert.That(RunA(
+            "static byte Main() { Point p = new Point(); p.x = 10; p.y = 20; return (byte)(p.x + p.y); }\n"
+            + "class Point { byte x; byte y; }")).IsEqualTo((byte)30);
+    }
+
+    [Test]
+    public async Task Class_InstanceMethods()
+    {
+        // Instance methods receive an implicit `this`; a method body reads/writes fields bare and can
+        // call other instance methods.
+        const string src = @"
+static byte Main() { Counter c = new Counter(); c.Add(10); c.Bump(); return c.Get(); }
+class Counter {
+    byte n;
+    void Add(byte v) { n = (byte)(n + v); }
+    void Bump() { Add(1); }
+    byte Get() { return n; }
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)11);
+    }
+
+    [Test]
+    public async Task Class_MethodComputesOverFields()
+    {
+        // A method computing from several fields, called on two independent instances.
+        const string src = @"
+static byte Main() {
+    Rect a = new Rect(); a.w = 3; a.h = 4;
+    Rect b = new Rect(); b.w = 5; b.h = 6;
+    return (byte)(a.Area() + b.Area());
+}
+class Rect { byte w; byte h; byte Area() { return (byte)(w * h); } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42); // 12 + 30
+    }
+
+    [Test]
+    public async Task Class_IndependentInstances()
+    {
+        // Two instances are distinct heap objects with independent fields.
+        await Assert.That(RunA(
+            "static byte Main() { Point a = new Point(); Point b = new Point(); a.x = 5; b.x = 9; return (byte)(a.x * 10 + b.x); }\n"
+            + "class Point { byte x; byte y; }")).IsEqualTo((byte)59);
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();
