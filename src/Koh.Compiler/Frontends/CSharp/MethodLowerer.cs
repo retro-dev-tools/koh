@@ -76,7 +76,11 @@ internal sealed class MethodLowerer
         for (int i = 0; i < _method.Fn.Parameters.Count; i++)
         {
             var p = _method.Fn.Parameters[i];
-            if (_method.RefParams[i])
+            if (_method.ParamStructs[i] is { } structParam)
+            {
+                _structLocals[p.Name!] = (p, structParam); // the param value is the struct's address
+            }
+            else if (_method.RefParams[i])
             {
                 _refs[p.Name!] = (p, _method.Params[i]);
             }
@@ -651,6 +655,8 @@ internal sealed class MethodLowerer
     /// <summary>The address of an lvalue, for taking a reference (ref argument or &amp;).</summary>
     private IrValue LvalueAddress(ExpressionSyntax expr) => expr switch
     {
+        // A struct value (local, array element, or nested field) is referenced by its base address.
+        _ when StructBaseOf(expr) is { } s => s.Base,
         IdentifierNameSyntax id when WritePlace(id.Identifier.Text) is { } p => p.Pointer,
         ElementAccessExpressionSyntax ea => ArrayElementPointer(ea).Pointer,
         MemberAccessExpressionSyntax ma when MemberPointer(ma) is { } mp => mp.Pointer,
@@ -978,10 +984,21 @@ internal sealed class MethodLowerer
         var argList = call.ArgumentList.Arguments;
         for (int i = 0; i < argList.Count; i++)
         {
-            if (callee.RefParams[i])
+            if (callee.ParamStructs[i] is not null)
+            {
+                // A struct is passed by its address; reinterpret to the parameter's exact pointer
+                // type so the call is well-typed (a nested field's base is typed i8*, not [N x i8]*).
+                var address = LvalueAddress(argList[i].Expression);
+                args.Add(_b.Conv(IrConvOp.Bitcast, address, callee.Fn.Parameters[i].Type));
+            }
+            else if (callee.RefParams[i])
+            {
                 args.Add(LvalueAddress(argList[i].Expression)); // ref/out: pass the address
+            }
             else
+            {
                 args.Add(Coerce(LowerExpression(argList[i].Expression, callee.Params[i]), callee.Params[i]));
+            }
         }
 
         var result = _b.Call(callee.Fn, args);

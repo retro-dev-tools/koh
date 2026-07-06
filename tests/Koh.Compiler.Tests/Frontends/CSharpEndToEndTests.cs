@@ -517,6 +517,53 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task RefStructParam_MutatesCaller()
+    {
+        // A function can operate on an entity via `ref` — the callee shares the caller's storage.
+        const string src = @"
+struct Point { byte x; byte y; }
+static byte Run() {
+    Point p;
+    p.x = 5;
+    p.y = 10;
+    Move(ref p);
+    return (byte)(p.x + p.y); // 6 + 12
+}
+static void Move(ref Point q) { q.x = (byte)(q.x + 1); q.y = (byte)(q.y + 2); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)18);
+    }
+
+    [Test]
+    public async Task RefStructParam_ArrayElementAndNestedField()
+    {
+        // `ref` works on a struct-array element and on a nested struct field.
+        const string src = @"
+struct Point { byte x; byte y; }
+struct Entity { Point pos; byte hp; }
+static byte Run() {
+    Entity[] es = new Entity[4];
+    es[2].hp = 50;
+    Damage(ref es[2], 20);        // ref array element
+    Bump(ref es[2].pos);          // ref nested field
+    return (byte)(es[2].hp + es[2].pos.x); // 30 + 9
+}
+static void Damage(ref Entity e, byte amt) { e.hp = (byte)(e.hp - amt); }
+static void Bump(ref Point p) { p.x = (byte)(p.x + 9); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)39);
+    }
+
+    [Test]
+    public async Task StructParam_ByValueIsDiagnostic()
+    {
+        // A by-value struct parameter would need a copy the backend can't make; require ref/in/out.
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("struct P { byte x; } static byte Read(P q) { return q.x; }", "game.cs"),
+            diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
+    [Test]
     public async Task NestedStruct_CyclicIsDiagnostic()
     {
         var diagnostics = new DiagnosticBag();

@@ -92,12 +92,28 @@ public sealed class CSharpFrontend : IFrontend
             var returnType = ResolveReturnType(returnSyntax, enums);
             var paramTypes = new List<CsType>();
             var refFlags = new List<bool>();
+            var paramStructs = new List<CsStruct?>();
             var parameters = new List<IrParameter>();
             foreach (var p in parameterList.Parameters)
             {
-                var t = ResolveType(p.Type!, enums);
                 bool isRef = p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in");
+                // A struct parameter is passed by address (ref/in/out), so the callee shares the
+                // caller's storage — value semantics would need a copy the backend can't make yet.
+                if (p.Type is IdentifierNameSyntax structName && structs.TryGetValue(structName.Identifier.Text, out var ps))
+                {
+                    if (!isRef)
+                        throw new CSharpNotSupportedException(
+                            $"struct parameter '{p.Identifier.Text}' must be passed by ref/in/out.", p.GetLocation());
+                    paramTypes.Add(CsType.U8);
+                    paramStructs.Add(ps);
+                    refFlags.Add(true);
+                    parameters.Add(new IrParameter(p.Identifier.Text, IrType.Pointer(IrType.Array(IrType.I8, ps.Size))));
+                    continue;
+                }
+
+                var t = ResolveType(p.Type!, enums);
                 paramTypes.Add(t);
+                paramStructs.Add(null);
                 refFlags.Add(isRef);
                 parameters.Add(new IrParameter(p.Identifier.Text, isRef ? IrType.Pointer(t.Ir) : t.Ir));
             }
@@ -107,7 +123,7 @@ public sealed class CSharpFrontend : IFrontend
                 InterruptVector = InterruptVectorOf(decl),
             };
             module.Functions.Add(fn);
-            var method = new CsMethod(fn, returnType, paramTypes, refFlags);
+            var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs);
             methods[name] = method;
             bodies.Add((method, body, arrow));
         }
@@ -470,4 +486,5 @@ internal sealed record CsStruct(IReadOnlyList<CsField> Fields, int Size);
 internal sealed record CsField(string Name, CsType Type, int Offset, CsStruct? Struct = null);
 
 /// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).</summary>
-internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params, IReadOnlyList<bool> RefParams);
+internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params,
+    IReadOnlyList<bool> RefParams, IReadOnlyList<CsStruct?> ParamStructs);
