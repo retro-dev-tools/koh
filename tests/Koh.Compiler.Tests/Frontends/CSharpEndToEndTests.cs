@@ -1654,6 +1654,29 @@ static T Double<T>(T x) { return (T)(Id<T>(x) + Id<T>(x)); }";
         await Assert.That(RunA(src)).IsEqualTo((byte)40);
     }
 
+    [Test]
+    public async Task Linq_ReductionsOverArray()
+    {
+        const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5, 9, 2, 6 };";
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Sum(); }" + data)).IsEqualTo((byte)31);
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Where(x => x > 3).Sum(); }" + data)).IsEqualTo((byte)24); // 4+5+9+6
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Select(x => (byte)(x * 2)).Sum(); }" + data)).IsEqualTo((byte)62);
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Count(x => x > 3); }" + data)).IsEqualTo((byte)4);
+        await Assert.That(RunA("static byte Main() { return Data.Max(); }" + data)).IsEqualTo((byte)9);
+        await Assert.That(RunA("static byte Main() { return Data.Min(); }" + data)).IsEqualTo((byte)1);
+    }
+
+    [Test]
+    public async Task Linq_AnyAllAndChain()
+    {
+        const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5, 9, 2, 6 };";
+        await Assert.That(RunA("static byte Main() { return (byte)(Data.Any(x => x > 8) ? 1 : 0); }" + data)).IsEqualTo((byte)1);
+        await Assert.That(RunA("static byte Main() { return (byte)(Data.All(x => x > 0) ? 1 : 0); }" + data)).IsEqualTo((byte)1);
+        await Assert.That(RunA("static byte Main() { return (byte)(Data.All(x => x > 3) ? 1 : 0); }" + data)).IsEqualTo((byte)0);
+        // Where + Select + Sum chain: even values doubled, summed => (4+2+6)*2 = 24
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Where(x => (byte)(x % 2) == 0).Select(x => (byte)(x * 2)).Sum(); }" + data)).IsEqualTo((byte)24);
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();

@@ -1126,6 +1126,11 @@ internal sealed class MethodLowerer
             && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" })
             return LowerMemCall(mem.Name.Identifier.Text, call);
 
+        // Array LINQ: a Where/Select pipeline ending in a reduction (Sum/Count/Max/Min/Any/All),
+        // compiled to a loop with the lambdas inlined.
+        if (TryLowerLinq(call) is { } linq)
+            return linq;
+
         // Instance method call: obj.Method(args) or this.Method(args).
         if (call.Expression is MemberAccessExpressionSyntax instCall
             && ClassLocalOf(instCall.Expression) is { } recv)
@@ -1220,6 +1225,154 @@ internal sealed class MethodLowerer
             _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, k), IrType.I8));
         return (basePtr, new CsType(IrType.Pointer(IrType.I8), Signed: false));
     }
+
+    /// <summary>Inline an expression lambda: bind its parameter to <paramref name="arg"/> in a temporary
+    /// slot, lower its body, then unbind. Non-capturing or value-referencing bodies work; there are no
+    /// heap closures.</summary>
+    private (IrValue Value, CsType Type) InlineLambda(
+        ExpressionSyntax lambdaExpr, IrValue arg, CsType argType, CsType? expected)
+    {
+        var lambda = lambdaExpr as LambdaExpressionSyntax
+            ?? throw new CSharpNotSupportedException("a LINQ operator expects a lambda.");
+        string pname = lambda switch
+        {
+            SimpleLambdaExpressionSyntax s => s.Parameter.Identifier.Text,
+            ParenthesizedLambdaExpressionSyntax { ParameterList.Parameters.Count: 1 } p
+                => p.ParameterList.Parameters[0].Identifier.Text,
+            _ => throw new CSharpNotSupportedException("a LINQ lambda must take exactly one parameter."),
+        };
+        if (lambda.Body is not ExpressionSyntax body)
+            throw new CSharpNotSupportedException("a LINQ lambda must be an expression (no statement body).");
+
+        var slot = _b.Alloca(argType.Ir);
+        _b.Store(arg, slot);
+        bool had = _locals.TryGetValue(pname, out var saved);
+        _locals[pname] = (slot, argType);
+        var result = LowerExpression(body, expected);
+        if (had) _locals[pname] = saved; else _locals.Remove(pname);
+        return result;
+    }
+
+    private static readonly HashSet<string> LinqTerminals = new(StringComparer.Ordinal)
+        { "Sum", "Count", "Max", "Min", "Any", "All" };
+
+    /// <summary>Lower an array LINQ chain (<c>arr.Where(..).Select(..).Sum()</c> and similar) to a loop
+    /// with inlined lambdas, or return null when the call is not such a chain. Reductions only — no
+    /// materializing operators — so no result buffer is needed.</summary>
+    private (IrValue, CsType)? TryLowerLinq(InvocationExpressionSyntax call)
+    {
+        var ops = new List<(string Op, ExpressionSyntax? Arg)>();
+        ExpressionSyntax cur = call;
+        while (cur is InvocationExpressionSyntax inv && inv.Expression is MemberAccessExpressionSyntax ma)
+        {
+            ops.Add((ma.Name.Identifier.Text,
+                inv.ArgumentList.Arguments.Count > 0 ? inv.ArgumentList.Arguments[0].Expression : null));
+            cur = ma.Expression;
+        }
+        if (cur is not IdentifierNameSyntax srcId || !_arrays.TryGetValue(srcId.Identifier.Text, out var src))
+            return null;
+        ops.Reverse(); // source order: [Where|Select]* then a terminal
+        if (ops.Count == 0 || !LinqTerminals.Contains(ops[^1].Op)
+            || ops.Take(ops.Count - 1).Any(o => o.Op is not ("Where" or "Select")))
+            return null;
+
+        var (termOp, termArg) = ops[^1];
+        var pipeline = ops.Take(ops.Count - 1).ToList();
+        var fn = _method.Fn;
+        bool isMinMax = termOp is "Max" or "Min";
+        var accType = termOp switch { "Count" => CsType.U16, "Any" or "All" => CsType.Bool, _ => src.Element };
+
+        var acc = _b.Alloca(accType.Ir);
+        var iSlot = _b.Alloca(IrType.I16);
+        // Max/Min seed the accumulator with element 0 and start at 1 (requires a non-empty source).
+        int start = isMinMax ? 1 : 0;
+        _b.Store(IrBuilder.ConstInt(IrType.I16, start), iSlot);
+        _b.Store(isMinMax ? ElementAt(src, 0)
+            : IrBuilder.ConstInt(accType.Ir, termOp == "All" ? 1 : 0), acc);
+
+        var head = fn.AppendBlock("linq.head");
+        var body = fn.AppendBlock("linq.body");
+        var cont = fn.AppendBlock("linq.cont");
+        var done = fn.AppendBlock("linq.done");
+        _b.Br(head);
+
+        _b.PositionAtEnd(head);
+        _b.CondBr(_b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, src.Length)), body, done);
+
+        _b.PositionAtEnd(body);
+        IrValue e = _b.Load(_b.Gep(src.ArrayPtr, _b.Load(iSlot), src.Element.Ir));
+        var eType = src.Element;
+        foreach (var (op, lambda) in pipeline)
+        {
+            if (op == "Where")
+            {
+                var keep = Coerce(InlineLambda(lambda!, e, eType, CsType.Bool), CsType.Bool);
+                var take = fn.AppendBlock("linq.take");
+                _b.CondBr(keep, take, cont);
+                _b.PositionAtEnd(take);
+            }
+            else // Select
+            {
+                (e, eType) = InlineLambda(lambda!, e, eType, null);
+            }
+        }
+
+        switch (termOp)
+        {
+            case "Sum":
+                if (termArg is not null) (e, eType) = InlineLambda(termArg, e, eType, null);
+                _b.Store(_b.Add(_b.Load(acc), Coerce((e, eType), accType)), acc);
+                break;
+            case "Count":
+                if (termArg is not null)
+                {
+                    var keep = Coerce(InlineLambda(termArg, e, eType, CsType.Bool), CsType.Bool);
+                    var take = fn.AppendBlock("linq.take");
+                    _b.CondBr(keep, take, cont);
+                    _b.PositionAtEnd(take);
+                }
+                _b.Store(_b.Add(_b.Load(acc), IrBuilder.ConstInt(IrType.I16, 1)), acc);
+                break;
+            case "Max":
+            case "Min":
+            {
+                var pred = accType.Signed
+                    ? (termOp == "Max" ? IrCompareOp.Sgt : IrCompareOp.Slt)
+                    : (termOp == "Max" ? IrCompareOp.Ugt : IrCompareOp.Ult);
+                var replace = fn.AppendBlock("linq.rep");
+                _b.CondBr(_b.Compare(pred, Coerce((e, eType), accType), _b.Load(acc)), replace, cont);
+                _b.PositionAtEnd(replace);
+                _b.Store(Coerce((e, eType), accType), acc);
+                break;
+            }
+            case "Any":
+            case "All":
+            {
+                var keep = Coerce(InlineLambda(termArg!, e, eType, CsType.Bool), CsType.Bool);
+                // Any: set to 1 when the predicate holds; All: set to 0 when it fails.
+                var hit = fn.AppendBlock("linq.hit");
+                if (termOp == "Any")
+                    _b.CondBr(keep, hit, cont);
+                else
+                    _b.CondBr(keep, cont, hit);
+                _b.PositionAtEnd(hit);
+                _b.Store(IrBuilder.ConstInt(IrType.I8, termOp == "Any" ? 1 : 0), acc);
+                break;
+            }
+        }
+        _b.Br(cont);
+
+        _b.PositionAtEnd(cont);
+        _b.Store(_b.Add(_b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)), iSlot);
+        _b.Br(head);
+
+        _b.PositionAtEnd(done);
+        return (_b.Load(acc), accType);
+    }
+
+    /// <summary>Load the element at a constant index of a data array.</summary>
+    private IrValue ElementAt((IrValue ArrayPtr, CsType Element, int Length) src, int index) =>
+        _b.Load(_b.Gep(src.ArrayPtr, IrBuilder.ConstInt(IrType.I16, index), src.Element.Ir));
 
     /// <summary>Lower an arena-allocator call. <c>Mem.Alloc(n)</c> bumps the heap pointer down by n and
     /// returns the new pointer as a <c>byte*</c>; <c>Mem.Reset()</c> restores it to the top of the heap

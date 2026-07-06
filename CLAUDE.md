@@ -107,7 +107,8 @@ pointers (`T*` incl. arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed 
 static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es
 (heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`);
 dynamic allocation (`Mem.Alloc`/`Mem.Reset`); generic methods (monomorphized — specialized per
-concrete type argument, transitively);
+concrete type argument, transitively); array LINQ reductions (`Where`/`Select` pipelines ending in
+`Sum`/`Count`/`Max`/`Min`/`Any`/`All`, compiled to a loop with inlined lambdas);
 `if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
 `&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
 (mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,
