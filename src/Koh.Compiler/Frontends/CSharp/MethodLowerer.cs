@@ -17,6 +17,9 @@ internal sealed class MethodLowerer
     private readonly ArrowExpressionClauseSyntax? _arrow;
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
     private readonly IReadOnlyDictionary<string, CsEnum> _enums;
+    private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> _globals;
+    private readonly IReadOnlyDictionary<string, (CsType Type, long Value)> _moduleConsts;
+    private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
@@ -27,13 +30,19 @@ internal sealed class MethodLowerer
         BlockSyntax? body,
         ArrowExpressionClauseSyntax? arrow,
         IReadOnlyDictionary<string, CsMethod> methods,
-        IReadOnlyDictionary<string, CsEnum> enums)
+        IReadOnlyDictionary<string, CsEnum> enums,
+        IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> globals,
+        IReadOnlyDictionary<string, (CsType Type, long Value)> moduleConsts,
+        IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits)
     {
         _method = method;
         _body = body;
         _arrow = arrow;
         _methods = methods;
         _enums = enums;
+        _globals = globals;
+        _moduleConsts = moduleConsts;
+        _staticInits = staticInits;
     }
 
     public void Lower()
@@ -49,6 +58,10 @@ internal sealed class MethodLowerer
             _b.Store(p, slot);
             _locals[p.Name!] = (slot, _method.Params[i]);
         }
+
+        // Entry function only: apply static-field initializers.
+        foreach (var (global, value, type) in _staticInits)
+            _b.Store(IrBuilder.ConstInt(type.Ir, value), IrBuilder.GlobalRef(global));
 
         if (_body is { } body)
             foreach (var stmt in body.Statements)
@@ -320,11 +333,14 @@ internal sealed class MethodLowerer
 
             case IdentifierNameSyntax id:
             {
-                if (_consts.TryGetValue(id.Identifier.Text, out var constant))
-                    return (IrBuilder.ConstInt(constant.Type.Ir, constant.Value), constant.Type);
-                if (_locals.TryGetValue(id.Identifier.Text, out var local))
-                    return (_b.Load(local.Slot), local.Type);
-                throw new CSharpNotSupportedException($"unknown identifier '{id.Identifier.Text}'.");
+                var name = id.Identifier.Text;
+                if (_consts.TryGetValue(name, out var localConst))
+                    return (IrBuilder.ConstInt(localConst.Type.Ir, localConst.Value), localConst.Type);
+                if (_moduleConsts.TryGetValue(name, out var moduleConst))
+                    return (IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value), moduleConst.Type);
+                if (WritePlace(name) is { } place)
+                    return (_b.Load(place.Pointer), place.Type);
+                throw new CSharpNotSupportedException($"unknown identifier '{name}'.");
             }
 
             case MemberAccessExpressionSyntax member:
@@ -395,13 +411,23 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerIncDec(ExpressionSyntax operand, bool increment, bool prefix)
     {
-        if (operand is not IdentifierNameSyntax id || !_locals.TryGetValue(id.Identifier.Text, out var local))
-            throw new CSharpNotSupportedException("++/-- requires a local variable.");
+        if (operand is not IdentifierNameSyntax id || WritePlace(id.Identifier.Text) is not { } place)
+            throw new CSharpNotSupportedException("++/-- requires a variable.");
 
-        var old = _b.Load(local.Slot);
-        var updated = _b.Binary(increment ? IrBinaryOp.Add : IrBinaryOp.Sub, old, IrBuilder.ConstInt(local.Type.Ir, 1));
-        _b.Store(updated, local.Slot);
-        return (prefix ? updated : old, local.Type);
+        var old = _b.Load(place.Pointer);
+        var updated = _b.Binary(increment ? IrBinaryOp.Add : IrBinaryOp.Sub, old, IrBuilder.ConstInt(place.Type.Ir, 1));
+        _b.Store(updated, place.Pointer);
+        return (prefix ? updated : old, place.Type);
+    }
+
+    /// <summary>An assignable storage location — a local's alloca or a global's address — or null.</summary>
+    private (IrValue Pointer, CsType Type)? WritePlace(string name)
+    {
+        if (_locals.TryGetValue(name, out var local))
+            return (local.Slot, local.Type);
+        if (_globals.TryGetValue(name, out var global))
+            return (IrBuilder.GlobalRef(global.Global), global.Type);
+        return null;
     }
 
     /// <summary>Short-circuit <c>&amp;&amp;</c>/<c>||</c> via a result slot and a conditional branch.</summary>
@@ -473,23 +499,23 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerAssignment(AssignmentExpressionSyntax assign)
     {
-        if (assign.Left is not IdentifierNameSyntax id || !_locals.TryGetValue(id.Identifier.Text, out var local))
-            throw new CSharpNotSupportedException("assignment target must be a local variable.");
+        if (assign.Left is not IdentifierNameSyntax id || WritePlace(id.Identifier.Text) is not { } place)
+            throw new CSharpNotSupportedException("assignment target must be a variable.");
 
         IrValue result;
         if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression)
         {
-            result = Coerce(LowerExpression(assign.Right, local.Type), local.Type);
+            result = Coerce(LowerExpression(assign.Right, place.Type), place.Type);
         }
         else
         {
-            var current = _b.Load(local.Slot);
-            var rhs = Coerce(LowerExpression(assign.Right, local.Type), local.Type);
-            result = _b.Binary(CompoundOp(assign.Kind(), local.Type.Signed), current, rhs);
+            var current = _b.Load(place.Pointer);
+            var rhs = Coerce(LowerExpression(assign.Right, place.Type), place.Type);
+            result = _b.Binary(CompoundOp(assign.Kind(), place.Type.Signed), current, rhs);
         }
 
-        _b.Store(result, local.Slot);
-        return (result, local.Type);
+        _b.Store(result, place.Pointer);
+        return (result, place.Type);
     }
 
     private (IrValue, CsType) LowerMemberAccess(MemberAccessExpressionSyntax member)

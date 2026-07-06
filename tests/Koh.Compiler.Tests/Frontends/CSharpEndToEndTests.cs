@@ -298,6 +298,34 @@ static byte Value(byte t) {
     }
 
     [Test]
+    public async Task StaticField_MutableCounter()
+    {
+        const string src = @"
+static byte counter;
+static byte Main() { counter = 0; Inc(); Inc(); Inc(); return counter; }
+static void Inc() { counter++; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)3);
+    }
+
+    [Test]
+    public async Task StaticField_InitializedAtEntry()
+    {
+        const string src = @"
+static byte score = 10;
+static byte Main() { score += 5; return score; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)15);
+    }
+
+    [Test]
+    public async Task StaticField_ReadonlyRom()
+    {
+        const string src = @"
+static readonly ushort Base = 1000;
+static ushort Main() { return Base; }";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)1000);
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;

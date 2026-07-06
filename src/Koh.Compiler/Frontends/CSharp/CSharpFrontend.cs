@@ -1,4 +1,5 @@
 using Koh.Compiler.Ir;
+using Koh.Compiler.Targets;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
 using Microsoft.CodeAnalysis;
@@ -47,6 +48,9 @@ public sealed class CSharpFrontend : IFrontend
         // Pass 0: enums (named constants), so their types and members resolve everywhere.
         var enums = CollectEnums(root);
 
+        // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts.
+        var (globals, moduleConsts, staticInits) = CollectStatics(root, enums, module);
+
         // Pass 1: signatures, so calls resolve regardless of source order. Accept both class methods
         // and top-level `static T F(...) {...}` functions (which Roslyn parses as local functions).
         foreach (var decl in CollectMethods(root))
@@ -69,9 +73,16 @@ public sealed class CSharpFrontend : IFrontend
             bodies.Add((method, body, arrow));
         }
 
+        // The entry function (main, else first) runs the static-field initializers in its prologue.
+        var entry = bodies.FirstOrDefault(b => b.Method.Fn.Name == "main").Method
+            ?? (bodies.Count > 0 ? bodies[0].Method : null);
+
         // Pass 2: bodies.
         foreach (var (method, body, arrow) in bodies)
-            new MethodLowerer(method, body, arrow, methods, enums).Lower();
+        {
+            var inits = ReferenceEquals(method, entry) ? staticInits : [];
+            new MethodLowerer(method, body, arrow, methods, enums, globals, moduleConsts, inits).Lower();
+        }
 
         return module;
     }
@@ -134,6 +145,61 @@ public sealed class CSharpFrontend : IFrontend
             enums[decl.Identifier.Text] = new CsEnum(underlying, members);
         }
         return enums;
+    }
+
+    private static (Dictionary<string, (IrGlobal Global, CsType Type)> Globals,
+                    Dictionary<string, (CsType Type, long Value)> Consts,
+                    List<(IrGlobal Global, long Value, CsType Type)> Inits)
+        CollectStatics(CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums, IrModule module)
+    {
+        var globals = new Dictionary<string, (IrGlobal, CsType)>(StringComparer.Ordinal);
+        var consts = new Dictionary<string, (CsType, long)>(StringComparer.Ordinal);
+        var inits = new List<(IrGlobal, long, CsType)>();
+
+        long? ConstLookup(string n) => consts.TryGetValue(n, out var c) ? c.Item2 : null;
+
+        foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
+        {
+            bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
+            bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
+            var type = ResolveType(field.Declaration.Type, enums);
+            int size = (type.Ir.Bits + 7) / 8;
+
+            foreach (var v in field.Declaration.Variables)
+            {
+                var name = v.Identifier.Text;
+                if (isConst)
+                {
+                    if (v.Initializer is null)
+                        throw new CSharpNotSupportedException($"const '{name}' needs an initializer.");
+                    consts[name] = (type, ConstEval(v.Initializer.Value, ConstLookup));
+                }
+                else if (isReadonly && v.Initializer is { } roInit)
+                {
+                    var g = new IrGlobal(name, type.Ir, AddressSpace.Rom,
+                        initializer: ToLittleEndian(ConstEval(roInit.Value, ConstLookup), size));
+                    module.Globals.Add(g);
+                    globals[name] = (g, type);
+                }
+                else
+                {
+                    var g = new IrGlobal(name, type.Ir, AddressSpace.Wram);
+                    module.Globals.Add(g);
+                    globals[name] = (g, type);
+                    if (v.Initializer is { } init)
+                        inits.Add((g, ConstEval(init.Value, ConstLookup), type));
+                }
+            }
+        }
+        return (globals, consts, inits);
+    }
+
+    private static byte[] ToLittleEndian(long value, int size)
+    {
+        var bytes = new byte[size];
+        for (int i = 0; i < size; i++)
+            bytes[i] = (byte)(value >> (8 * i));
+        return bytes;
     }
 
     /// <summary>Fold a constant expression to a long, resolving bare names via <paramref name="lookup"/>.</summary>
