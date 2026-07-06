@@ -22,6 +22,7 @@ internal sealed class MethodLowerer
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
@@ -144,6 +145,13 @@ internal sealed class MethodLowerer
 
     private void LowerLocalDeclaration(VariableDeclarationSyntax decl, bool isConst)
     {
+        if (decl.Type is ArrayTypeSyntax arrayType)
+        {
+            foreach (var v in decl.Variables)
+                LowerArrayLocal(v.Identifier.Text, arrayType, v.Initializer);
+            return;
+        }
+
         var type = CSharpFrontend.ResolveType(decl.Type, _enums);
         foreach (var v in decl.Variables)
         {
@@ -164,6 +172,54 @@ internal sealed class MethodLowerer
 
     /// <summary>Resolve a bare name to a constant value (local const), for constant folding.</summary>
     private long? ResolveConst(string name) => _consts.TryGetValue(name, out var c) ? c.Value : null;
+
+    private void LowerArrayLocal(string name, ArrayTypeSyntax arrayType, EqualsValueClauseSyntax? initializer)
+    {
+        var element = CSharpFrontend.ResolveType(arrayType.ElementType, _enums);
+        List<ExpressionSyntax>? elements = null;
+        int length;
+
+        switch (initializer?.Value)
+        {
+            case ArrayCreationExpressionSyntax create:
+                if (create.Initializer is { } listInit)
+                {
+                    elements = listInit.Expressions.ToList();
+                    length = elements.Count;
+                }
+                else
+                {
+                    var size = create.Type.RankSpecifiers[0].Sizes[0];
+                    length = (int)CSharpFrontend.ConstEval(size, ResolveConst);
+                }
+                break;
+            case InitializerExpressionSyntax bare: // byte[] a = { 1, 2, 3 };
+                elements = bare.Expressions.ToList();
+                length = elements.Count;
+                break;
+            default:
+                throw new CSharpNotSupportedException($"array '{name}' needs a size or initializer.");
+        }
+
+        var arrayPtr = _b.Alloca(IrType.Array(element.Ir, length));
+        _arrays[name] = (arrayPtr, element, length);
+
+        if (elements is not null)
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var slot = _b.Gep(arrayPtr, IrBuilder.ConstInt(IrType.I16, i), element.Ir);
+                _b.Store(Coerce(LowerExpression(elements[i], element), element), slot);
+            }
+    }
+
+    /// <summary>Compute the pointer to <c>arr[index]</c>.</summary>
+    private (IrValue Pointer, CsType Element) ArrayElementPointer(ElementAccessExpressionSyntax access)
+    {
+        if (access.Expression is not IdentifierNameSyntax id || !_arrays.TryGetValue(id.Identifier.Text, out var arr))
+            throw new CSharpNotSupportedException("indexing requires an array variable.");
+        var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
+        return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
+    }
 
     private void LowerIf(IfStatementSyntax ifStmt)
     {
@@ -343,8 +399,14 @@ internal sealed class MethodLowerer
                 throw new CSharpNotSupportedException($"unknown identifier '{name}'.");
             }
 
+            case ElementAccessExpressionSyntax access:
+            {
+                var (pointer, element) = ArrayElementPointer(access);
+                return (_b.Load(pointer), element);
+            }
+
             case MemberAccessExpressionSyntax member:
-                return LowerMemberAccess(member);
+                return LowerMemberAccess(member, expected);
 
             case CastExpressionSyntax cast:
             {
@@ -499,34 +561,50 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerAssignment(AssignmentExpressionSyntax assign)
     {
-        if (assign.Left is not IdentifierNameSyntax id || WritePlace(id.Identifier.Text) is not { } place)
-            throw new CSharpNotSupportedException("assignment target must be a variable.");
+        IrValue pointer;
+        CsType type;
+        if (assign.Left is IdentifierNameSyntax id && WritePlace(id.Identifier.Text) is { } place)
+            (pointer, type) = place;
+        else if (assign.Left is ElementAccessExpressionSyntax access)
+            (pointer, type) = ArrayElementPointer(access);
+        else
+            throw new CSharpNotSupportedException("assignment target must be a variable or array element.");
 
         IrValue result;
         if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression)
         {
-            result = Coerce(LowerExpression(assign.Right, place.Type), place.Type);
+            result = Coerce(LowerExpression(assign.Right, type), type);
         }
         else
         {
-            var current = _b.Load(place.Pointer);
-            var rhs = Coerce(LowerExpression(assign.Right, place.Type), place.Type);
-            result = _b.Binary(CompoundOp(assign.Kind(), place.Type.Signed), current, rhs);
+            var current = _b.Load(pointer);
+            var rhs = Coerce(LowerExpression(assign.Right, type), type);
+            result = _b.Binary(CompoundOp(assign.Kind(), type.Signed), current, rhs);
         }
 
-        _b.Store(result, place.Pointer);
-        return (result, place.Type);
+        _b.Store(result, pointer);
+        return (result, type);
     }
 
-    private (IrValue, CsType) LowerMemberAccess(MemberAccessExpressionSyntax member)
+    private (IrValue, CsType) LowerMemberAccess(MemberAccessExpressionSyntax member, CsType? expected)
     {
-        // Enum member reference, e.g. Color.Red.
-        if (member.Expression is IdentifierNameSyntax typeId && _enums.TryGetValue(typeId.Identifier.Text, out var e))
+        if (member.Expression is IdentifierNameSyntax subject)
         {
-            var name = member.Name.Identifier.Text;
-            if (!e.Members.TryGetValue(name, out long value))
-                throw new CSharpNotSupportedException($"enum '{typeId.Identifier.Text}' has no member '{name}'.");
-            return (IrBuilder.ConstInt(e.Underlying.Ir, value), e.Underlying);
+            // Enum member reference, e.g. Color.Red.
+            if (_enums.TryGetValue(subject.Identifier.Text, out var e))
+            {
+                var name = member.Name.Identifier.Text;
+                if (!e.Members.TryGetValue(name, out long value))
+                    throw new CSharpNotSupportedException($"enum '{subject.Identifier.Text}' has no member '{name}'.");
+                return (IrBuilder.ConstInt(e.Underlying.Ir, value), e.Underlying);
+            }
+
+            // Array length, e.g. arr.Length.
+            if (member.Name.Identifier.Text == "Length" && _arrays.TryGetValue(subject.Identifier.Text, out var arr))
+            {
+                var type = expected ?? (arr.Length <= 0xFF ? CsType.U8 : CsType.U16);
+                return (IrBuilder.ConstInt(type.Ir, arr.Length), type);
+            }
         }
         throw new CSharpNotSupportedException($"unsupported member access '{member}'.");
     }

@@ -326,6 +326,33 @@ static ushort Main() { return Base; }";
     }
 
     [Test]
+    public async Task Array_FillAndSum()
+    {
+        // new byte[n], write a[i]=i*2, sum via a loop over a.Length
+        const string src = @"
+static byte Sum(byte n) {
+    byte[] a = new byte[8];
+    for (byte i = 0; i < n; i++) a[i] = (byte)(i * 2);
+    byte acc = 0;
+    for (byte i = 0; i < a.Length; i++) acc += a[i];
+    return acc;
+}";
+        // n=4 fills a[0..3]=0,2,4,6; rest 0 -> sum over 8 elems = 0+2+4+6 = 12
+        await Assert.That(RunA(src, gb => W8(gb, 0, 4))).IsEqualTo((byte)12);
+    }
+
+    [Test]
+    public async Task Array_Initializer()
+    {
+        const string src = @"
+static byte Get(byte i) {
+    byte[] data = { 5, 10, 15, 20 };
+    return data[i];
+}";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 2))).IsEqualTo((byte)15);
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;
