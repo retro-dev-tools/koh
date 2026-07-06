@@ -447,6 +447,67 @@ static byte Run() {
         await Assert.That(RunA(src)).IsEqualTo((byte)42);
     }
 
+    [Test]
+    public async Task StructArray_ElementFieldsIndependent()
+    {
+        // Array of structs (the entity-list pattern): each element's fields are addressed by stride,
+        // so writes to one element don't disturb another.
+        const string src = @"
+struct P { byte a; ushort b; }
+static ushort Run() {
+    P[] items = new P[3];
+    items[0].b = 111;
+    items[1].b = 2222;
+    items[2].b = 333;
+    items[1].a = 9;
+    return (ushort)(items[1].b + items[1].a); // 2222 + 9
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)2231);
+    }
+
+    [Test]
+    public async Task StructArray_LoopWithVariableIndexAndLength()
+    {
+        const string src = @"
+struct Enemy { byte hp; }
+static byte Run() {
+    Enemy[] e = new Enemy[5];
+    for (byte i = 0; i < e.Length; i++) e[i].hp = (byte)(i + 1);
+    byte total = 0;
+    for (byte i = 0; i < e.Length; i++) total += e[i].hp;
+    return total; // 1+2+3+4+5
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)15);
+    }
+
+    [Test]
+    public async Task Struct_ValueCopy()
+    {
+        // Whole-struct assignment copies bytes; the copy is independent of the source.
+        const string src = @"
+struct P { byte x; ushort y; }
+static ushort Run() {
+    P a;
+    a.x = 7;
+    a.y = 1000;
+    P b;
+    b = a;
+    b.x = 9;          // mutating the copy must not touch a
+    return (ushort)(b.y + b.x - a.x); // 1000 + 9 - 7
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)1002);
+    }
+
+    [Test]
+    public async Task StructArray_MissingSizeIsDiagnostic()
+    {
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("struct S { byte a; } static byte Run() { S[] s; return 0; }", "game.cs"),
+            diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
     private static byte RunThenRead(string src, int address)
     {
         var gb = Load(Compile(src), out int s, out int l);

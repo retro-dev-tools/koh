@@ -29,6 +29,7 @@ internal sealed class MethodLowerer
     private readonly Dictionary<string, (IrValue Address, CsType Element)> _refs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue BasePtr, CsStruct Info)> _structLocals = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (IrValue ArrayPtr, CsStruct Info, int Length)> _structArrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
@@ -215,6 +216,23 @@ internal sealed class MethodLowerer
 
     private void LowerArrayLocal(string name, ArrayTypeSyntax arrayType, EqualsValueClauseSyntax? initializer)
     {
+        // An array of structs (`Sprite[] s = new Sprite[n]`) reserves n * structSize bytes; elements
+        // are accessed as `s[i].field`. It must be sized with `new T[n]` (there are no struct literals).
+        if (arrayType.ElementType is IdentifierNameSyntax structName
+            && _structs.TryGetValue(structName.Identifier.Text, out var structElem))
+        {
+            int count = initializer?.Value switch
+            {
+                ArrayCreationExpressionSyntax { Initializer: null } c
+                    => (int)CSharpFrontend.ConstEval(c.Type.RankSpecifiers[0].Sizes[0], ResolveConst),
+                _ => throw new CSharpNotSupportedException(
+                    $"struct array '{name}' must be created with 'new {structName.Identifier.Text}[n]'."),
+            };
+            var basePtr = _b.Alloca(IrType.Array(IrType.I8, structElem.Size * count));
+            _structArrays[name] = (basePtr, structElem, count);
+            return;
+        }
+
         var element = CSharpFrontend.ResolveType(arrayType.ElementType, _enums);
         List<ExpressionSyntax>? elements = null;
         int length;
@@ -273,21 +291,39 @@ internal sealed class MethodLowerer
         return null;
     }
 
-    /// <summary>Compute the pointer to a struct local's field <c>s.field</c>.</summary>
+    /// <summary>Compute the pointer to a struct field: <c>s.field</c> on a struct local, or
+    /// <c>arr[i].field</c> on an element of a struct array.</summary>
     private (IrValue Pointer, CsType Type)? StructFieldPointer(MemberAccessExpressionSyntax member)
     {
-        if (member.Expression is not IdentifierNameSyntax id || !_structLocals.TryGetValue(id.Identifier.Text, out var s))
+        if (StructBaseOf(member.Expression) is not { } b)
             return null;
 
         var fieldName = member.Name.Identifier.Text;
-        foreach (var field in s.Info.Fields)
+        foreach (var field in b.Info.Fields)
             if (field.Name == fieldName)
             {
                 // The offset is aligned to the field size, so index = offset / size is exact.
                 int index = field.Offset / field.Type.Ir.SizeInBytes;
-                return (_b.Gep(s.BasePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
+                return (_b.Gep(b.Base, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
             }
         throw new CSharpNotSupportedException($"struct has no field '{fieldName}'.");
+    }
+
+    /// <summary>The (base pointer, struct layout) a member access reads a field of: a named struct
+    /// local (<c>s.field</c>) or an element of a struct array (<c>arr[i].field</c>).</summary>
+    private (IrValue Base, CsStruct Info)? StructBaseOf(ExpressionSyntax expr)
+    {
+        if (expr is IdentifierNameSyntax id && _structLocals.TryGetValue(id.Identifier.Text, out var s))
+            return (s.BasePtr, s.Info);
+        if (expr is ElementAccessExpressionSyntax access
+            && access.Expression is IdentifierNameSyntax arrayId
+            && _structArrays.TryGetValue(arrayId.Identifier.Text, out var arr))
+        {
+            var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
+            var elementPtr = _b.Gep(arr.ArrayPtr, index, IrType.Array(IrType.I8, arr.Info.Size));
+            return (elementPtr, arr.Info);
+        }
+        return null;
     }
 
     private void LowerIf(IfStatementSyntax ifStmt)
@@ -794,6 +830,21 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerAssignment(AssignmentExpressionSyntax assign)
     {
+        // Whole-struct copy: `a = b` where a is a struct (local or array element) copies its bytes.
+        if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression
+            && StructBaseOf(assign.Left) is { } dest)
+        {
+            if (StructBaseOf(assign.Right) is not { } src || !ReferenceEquals(src.Info, dest.Info))
+                throw new CSharpNotSupportedException("a struct can only be assigned from another value of the same struct type.");
+            for (int k = 0; k < dest.Info.Size; k++)
+            {
+                var from = _b.Gep(src.Base, IrBuilder.ConstInt(IrType.I16, k), IrType.I8);
+                var to = _b.Gep(dest.Base, IrBuilder.ConstInt(IrType.I16, k), IrType.I8);
+                _b.Store(_b.Load(from), to);
+            }
+            return (dest.Base, CsType.U8);
+        }
+
         IrValue pointer;
         CsType type;
         if (assign.Left is IdentifierNameSyntax id && WritePlace(id.Identifier.Text) is { } place)
@@ -868,10 +919,16 @@ internal sealed class MethodLowerer
             }
 
             // Array length, e.g. arr.Length.
-            if (member.Name.Identifier.Text == "Length" && _arrays.TryGetValue(subject.Identifier.Text, out var arr))
+            if (member.Name.Identifier.Text == "Length")
             {
-                var type = expected ?? (arr.Length <= 0xFF ? CsType.U8 : CsType.U16);
-                return (IrBuilder.ConstInt(type.Ir, arr.Length), type);
+                int? length =
+                    _arrays.TryGetValue(subject.Identifier.Text, out var arr) ? arr.Length :
+                    _structArrays.TryGetValue(subject.Identifier.Text, out var sarr) ? sarr.Length : null;
+                if (length is { } n)
+                {
+                    var type = expected ?? (n <= 0xFF ? CsType.U8 : CsType.U16);
+                    return (IrBuilder.ConstInt(type.Ir, n), type);
+                }
             }
         }
         throw new CSharpNotSupportedException($"unsupported member access '{member}'.");
