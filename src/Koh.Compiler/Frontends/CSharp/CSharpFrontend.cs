@@ -120,7 +120,7 @@ public sealed class CSharpFrontend : IFrontend
 
             var fn = new IrFunction(name, returnType?.Ir ?? IrType.Void, parameters)
             {
-                InterruptVector = InterruptVectorOf(decl),
+                InterruptVector = InterruptVectorOf(decl, diagnostics),
             };
             var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs);
             // Duplicate names would silently overwrite the earlier binding (and emit two IR functions
@@ -185,7 +185,7 @@ public sealed class CSharpFrontend : IFrontend
         }
     }
 
-    private static int? InterruptVectorOf(SyntaxNode decl)
+    private static int? InterruptVectorOf(SyntaxNode decl, DiagnosticBag diagnostics)
     {
         SyntaxList<AttributeListSyntax> lists = decl switch
         {
@@ -208,7 +208,15 @@ public sealed class CSharpFrontend : IFrontend
                     LiteralExpressionSyntax lit => lit.Token.ValueText,
                     _ => null,
                 };
-                return HardwareRegisters.InterruptVector(kind);
+                var vector = HardwareRegisters.InterruptVector(kind);
+                // A present-but-unrecognized kind (typo, wrong enum) would otherwise map to null and be
+                // silently treated as an ordinary function — the handler would never be wired to a vector.
+                if (vector is null)
+                    Report(diagnostics,
+                        $"unknown interrupt kind '{kind ?? arg?.ToString() ?? "?"}' "
+                        + "(expected VBlank, Stat/LcdStat/Lcd, Timer, Serial, or Joypad).",
+                        attr.GetLocation());
+                return vector;
             }
         return null;
     }

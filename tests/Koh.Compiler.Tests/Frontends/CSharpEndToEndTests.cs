@@ -1192,6 +1192,46 @@ static void Main() { Bump(); Hardware.EnableInterrupts(); }";
             "enum E { A }\nenum E { B }\nstatic byte Main() { return 0; }")).IsTrue();
     }
 
+    [Test]
+    public async Task Int32_Negate()
+    {
+        // i32 negation lowers to a 32-bit Sub(0, x), which the backend supports (add/sub have no width
+        // cap); only sbyte/short negation was covered before. -100000 == 0xFFFE7960.
+        await Assert.That(RunI32("static int Main() { int x = 100000; return -x; }")).IsEqualTo(0xFFFE7960u);
+    }
+
+    [Test]
+    public async Task Int32_DivideRemainderShift_ReportedAsDiagnostic()
+    {
+        // The 32-bit reject covers divide, remainder, and both shifts as well as multiply (the runtime
+        // routines are 16-bit); only multiply had a diagnostic test.
+        await Assert.That(HasError("static int Main() { int a = 100000; int b = 3; return a / b; }")).IsTrue();
+        await Assert.That(HasError("static int Main() { int a = 100000; int b = 3; return a % b; }")).IsTrue();
+        await Assert.That(HasError("static int Main() { int a = 100000; int n = 2; return a << n; }")).IsTrue();
+        await Assert.That(HasError("static int Main() { int a = 100000; int n = 2; return a >> n; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task HardwareNop_Emits()
+    {
+        // Hardware.Nop() maps to the `nop` intrinsic; it was mapped in the frontend but never exercised
+        // end-to-end (only ei/di/halt were).
+        await Assert.That(RunA("static byte Main() { Hardware.Nop(); return 42; }")).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task UnknownInterruptKind_ReportedAsDiagnostic()
+    {
+        // A typo'd interrupt kind mapped to no vector and was silently treated as an ordinary function;
+        // it must now be a diagnostic.
+        await Assert.That(HasError(
+            "[Interrupt(\"Vblnk\")]\nstatic void OnX() { }\nstatic void Main() { }")).IsTrue();
+        // A recognized kind still compiles clean.
+        await Assert.That(CompilesClean(
+            "[Interrupt(\"VBlank\")]\nstatic void OnVBlank() { }\nstatic void Main() { Hardware.EnableInterrupts(); }"))
+            .IsTrue();
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();
