@@ -875,9 +875,7 @@ internal sealed class MethodLowerer
         (l, ltype) = AdoptConstant((l, ltype), rtype);
         (r, rtype) = AdoptConstant((r, rtype), ltype);
         bool signMatters = kind is SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression;
-        bool allowWide32 = kind is not (SyntaxKind.MultiplyExpression
-            or SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression);
-        var common = CommonType(ltype, rtype, signMatters, binary, allowWide32);
+        var common = CommonType(ltype, rtype, signMatters, binary);
         RejectWide32(kind, common, binary);
         return (_b.Binary(ArithOp(kind, common.Signed),
             Coerce((l, ltype), common), Coerce((r, rtype), common)), common);
@@ -902,11 +900,12 @@ internal sealed class MethodLowerer
         return value >= 0 && (bits >= 64 || value <= (1L << bits) - 1);
     }
 
-    /// <summary>The SM83 backend has no 32-bit multiply/divide/remainder/shift (those use 16-bit
-    /// register pairs), so reject them at the source with a diagnostic instead of crashing later.</summary>
+    /// <summary>The SM83 backend lowers multiply/divide/remainder/shift up to 32 bits (16-bit register
+    /// routines, wider via generic memory routines); reject anything past the widest supported integer
+    /// at the source with a diagnostic instead of crashing later.</summary>
     private static void RejectWide32(SyntaxKind op, CsType type, ExpressionSyntax site)
     {
-        bool wide = type.Ir.SizeInBytes > 2;
+        bool wide = type.Ir.SizeInBytes > 4;
         bool hard = op is SyntaxKind.MultiplyExpression or SyntaxKind.DivideExpression
             or SyntaxKind.ModuloExpression or SyntaxKind.LeftShiftExpression or SyntaxKind.RightShiftExpression
             or SyntaxKind.MultiplyAssignmentExpression or SyntaxKind.DivideAssignmentExpression
@@ -914,8 +913,8 @@ internal sealed class MethodLowerer
             or SyntaxKind.RightShiftAssignmentExpression;
         if (wide && hard)
             throw new CSharpNotSupportedException(
-                "32-bit multiply, divide, remainder, and shift are not supported on this target "
-                + "(add/subtract/bitwise/compare on int/uint are); narrow to 16 bits first.", site.GetLocation());
+                "multiply, divide, remainder, and shift wider than 32 bits are not supported on this target; "
+                + "narrow first.", site.GetLocation());
     }
 
     /// <summary>
@@ -923,15 +922,12 @@ internal sealed class MethodLowerer
     /// the Koh numeric types: the wider storage width wins. When the operands' signedness differs
     /// <em>and</em> it affects the result, the pair is promoted to a signed type wide enough to hold
     /// both ranges (so <c>sbyte</c> vs <c>byte</c> becomes a signed <c>short</c>, matching C#). When
-    /// no such type exists on the target (anything mixed with <c>ushort</c>): if the operator's
-    /// signedness affects the result (divide, remainder, ordering) that is a diagnostic asking for an
-    /// explicit cast; otherwise the common width is used unsigned, since the bits are identical.
-    /// <para><paramref name="allowWide32"/> is false for operators the backend has no 32-bit form for
-    /// (multiply, divide, remainder). A mixed-sign pair that would otherwise promote to a signed
-    /// <c>int</c> then either falls back to the common width unsigned (multiply — the low bits don't
-    /// depend on sign) or, if the sign matters (divide/remainder), is rejected asking for a cast.</para>
+    /// no wider signed type exists on the target (a 32-bit unsigned operand mixed with a signed one,
+    /// which would need a 64-bit signed type): if the operator's signedness affects the result (divide,
+    /// remainder, ordering) that is a diagnostic asking for an explicit cast; otherwise the common width
+    /// is used unsigned, since the bits are identical.
     /// </summary>
-    private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site, bool allowWide32 = true)
+    private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site)
     {
         int width = Math.Max(a.Ir.SizeInBits, b.Ir.SizeInBits);
         if (a.Signed == b.Signed)
@@ -944,12 +940,12 @@ internal sealed class MethodLowerer
         int need = Math.Max(width, unsignedOp.Ir.SizeInBits + 1);
         if (need <= 16)
             return new CsType(IrType.I16, Signed: true);
-        if (need <= 32 && allowWide32)
+        if (need <= 32)
             return new CsType(IrType.I32, Signed: true); // e.g. ushort vs sbyte -> signed int
 
-        // No usable wider signed type — either none exists on the target, or the operator has no
-        // 32-bit form (multiply/divide/remainder). If the operator's signedness affects the result it
-        // needs an explicit cast; otherwise use the common width unsigned, since the bits are identical.
+        // No usable wider signed type exists on the target (32-bit unsigned mixed with signed needs a
+        // 64-bit signed type). If the operator's signedness affects the result it needs an explicit
+        // cast; otherwise use the common width unsigned, since the bits are identical.
         if (signMatters)
             throw new CSharpNotSupportedException(
                 $"mixed signed/unsigned operation on '{a.Ir}' and '{b.Ir}' needs a wider signed type "
@@ -1024,9 +1020,7 @@ internal sealed class MethodLowerer
             var current = _b.Load(pointer);
             var (rhsVal, rhsType) = LowerExpression(assign.Right, expected: null);
             bool signMatters = kind is SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression;
-            bool allowWide32 = kind is not (SyntaxKind.MultiplyAssignmentExpression
-                or SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression);
-            var common = CommonType(type, rhsType, signMatters, assign, allowWide32);
+            var common = CommonType(type, rhsType, signMatters, assign);
             RejectWide32(kind, common, assign);
             var opResult = _b.Binary(CompoundOp(kind, common.Signed),
                 Coerce((current, type), common), Coerce((rhsVal, rhsType), common));

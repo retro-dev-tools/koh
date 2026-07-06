@@ -134,6 +134,23 @@ public sealed class Sm83Backend : IBackend
         if (emitter.NeededRoutines.Contains("udivmod16")) EmitUDivMod16(emitter);
         if (emitter.NeededRoutines.Contains("sdivmod16")) EmitSDivMod16(emitter);
 
+        // Generic width-N (32-/64-bit) routines. Emit the top-level ones first (they reference the leaf
+        // rt.* memory helpers, adding them to NeededRoutines), then the helpers, so every referenced
+        // label is placed before Resolve.
+        if (emitter.NeededRoutines.Contains("sdivmod_wide")) emitter.NeededRoutines.Add("udivmod_wide");
+        if (emitter.NeededRoutines.Contains("mul_wide")) EmitMulWide(emitter);
+        if (emitter.NeededRoutines.Contains("udivmod_wide")) EmitUDivWide(emitter);
+        if (emitter.NeededRoutines.Contains("sdivmod_wide")) EmitSDivWide(emitter);
+        if (emitter.NeededRoutines.Contains("shl_wide")) EmitShiftWide(emitter, "shl_wide", IrBinaryOp.Shl);
+        if (emitter.NeededRoutines.Contains("lshr_wide")) EmitShiftWide(emitter, "lshr_wide", IrBinaryOp.LShr);
+        if (emitter.NeededRoutines.Contains("ashr_wide")) EmitShiftWide(emitter, "ashr_wide", IrBinaryOp.AShr);
+        if (emitter.NeededRoutines.Contains("rt.clracc")) EmitClrAcc(emitter);
+        if (emitter.NeededRoutines.Contains("rt.rlmem")) EmitRlMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.rrmem")) EmitRrMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.addmem")) EmitAddMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.submem")) EmitSubMem(emitter);
+        if (emitter.NeededRoutines.Contains("rt.negmem")) EmitNegMem(emitter);
+
         emitter.Resolve(CodeBase);
 
         var sections = new List<SectionData>
@@ -286,6 +303,14 @@ public sealed class Sm83Backend : IBackend
     private const int RtCmpLeft = 0xDF03;   // signed compare: sign-flipped top byte of the left operand
     private const int RtCmpRight = 0xDF04;  // signed compare: sign-flipped top byte of the right operand
 
+    // Scratch for the generic width-N (32-/64-bit) memory routines. Operand areas are 8 bytes so the
+    // same code serves i32 (N=4) and i64 (N=8); N and the loop counter live in single bytes.
+    private const int RtN = 0xDF08;         // operand width in bytes (4 or 8)
+    private const int RtBits = 0xDF09;      // shift/division loop counter
+    private const int RtOpA = 0xDF10;       // multiplicand / dividend -> quotient / shift subject
+    private const int RtOpB = 0xDF18;       // multiplier / divisor
+    private const int RtAcc = 0xDF20;       // product / remainder
+
     /// <summary>__mul16: HL = DE * BC (low 16 bits) by shift-and-add. Sign-agnostic.</summary>
     private static void EmitMul16(Emitter e)
     {
@@ -387,6 +412,274 @@ public sealed class Sm83Backend : IBackend
     private static void NegateBC(Emitter e) => NegatePair(e, 0x91, 0x4F, 0x98, 0x47); // sub c/ld c/sbc b/ld b
     private static void NegateHL(Emitter e) => NegatePair(e, 0x95, 0x6F, 0x9C, 0x67); // sub l/ld l/sbc h/ld h
 
+    // ---- Generic width-N (32-/64-bit) memory runtime routines --------------
+    //
+    // These operate on little-endian byte arrays in fixed WRAM scratch: RtOpA/RtOpB are the operands
+    // and RtAcc the accumulator, all N bytes wide (N in RtN). They mirror the 16-bit register routines
+    // but keep the wide values in memory since the SM83 has too few registers. The SM83 ALU only reaches
+    // memory through (HL), so the second operand is loaded via (DE) into a register first. Leaf memory
+    // helpers (rt.*) walk with HL as the byte pointer and B as the byte counter; DEC B / INC HL / LD do
+    // not touch carry, so the carry chains cleanly across bytes.
+
+    private static void LdHL(Emitter e, int imm16) { e.U8(0x21); e.U8(imm16 & 0xFF); e.U8(imm16 >> 8); }
+    private static void LdAAbs(Emitter e, int addr) { e.U8(0xFA); e.U8(addr & 0xFF); e.U8(addr >> 8); }
+    private static void StAAbs(Emitter e, int addr) { e.U8(0xEA); e.U8(addr & 0xFF); e.U8(addr >> 8); }
+    private static void LdBFromN(Emitter e) { LdAAbs(e, RtN); e.U8(0x47); }   // A=(RtN); LD B,A
+
+    /// <summary>HL += (RtN - 1), so a pointer at an operand's low byte moves to its high byte.</summary>
+    private static void AdvanceHLToMsb(Emitter e)
+    {
+        LdAAbs(e, RtN); e.U8(0x3D);                      // ld a,(RtN) ; dec a   -> A = N-1
+        e.U8(0x85); e.U8(0x6F);                          // add a,l ; ld l,a
+        e.U8(0x3E); e.U8(0x00); e.U8(0x8C); e.U8(0x67);  // ld a,0 ; adc a,h ; ld h,a
+    }
+
+    /// <summary>rt.clracc: zero the N bytes at RtAcc.</summary>
+    private static void EmitClrAcc(Emitter e)
+    {
+        e.PlaceRoutine("rt.clracc");
+        LdBFromN(e);                             // B = N
+        LdHL(e, RtAcc);                          // HL = RtAcc
+        e.U8(0xAF);                              // xor a  (A = 0)
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0x22);                              // ld (hl+), a
+        e.U8(0x05);                              // dec b
+        e.Jump(0xC2, loop);                      // jp nz, loop
+        e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>rt.rlmem: rotate the N-byte value at HL left through carry (carry-in preserved). LSB first.</summary>
+    private static void EmitRlMem(Emitter e)
+    {
+        e.PlaceRoutine("rt.rlmem");
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0xCB); e.U8(0x16);                  // rl (hl)
+        e.U8(0x23);                              // inc hl
+        e.U8(0x05);                              // dec b
+        e.Jump(0xC2, loop);                      // jp nz, loop
+        e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>rt.rrmem: rotate the N-byte value at HL right through carry (carry-in preserved). MSB first
+    /// (HL points at the high byte and walks down).</summary>
+    private static void EmitRrMem(Emitter e)
+    {
+        e.PlaceRoutine("rt.rrmem");
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0xCB); e.U8(0x1E);                  // rr (hl)
+        e.U8(0x2B);                              // dec hl
+        e.U8(0x05);                              // dec b
+        e.Jump(0xC2, loop);                      // jp nz, loop
+        e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>rt.addmem: (HL..) += (DE..) over B bytes; carry cleared first. Result carry = final carry-out.</summary>
+    private static void EmitAddMem(Emitter e)
+    {
+        e.PlaceRoutine("rt.addmem");
+        e.U8(0xAF);                              // xor a  (clear carry)
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0x1A);                              // ld a, (de)   src byte
+        e.U8(0x8E);                              // adc a, (hl)  src + dst + carry
+        e.U8(0x77);                              // ld (hl), a
+        e.U8(0x23);                              // inc hl
+        e.U8(0x13);                              // inc de
+        e.U8(0x05);                              // dec b
+        e.Jump(0xC2, loop);                      // jp nz, loop
+        e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>rt.submem: (HL..) -= (DE..) over B bytes; borrow cleared first. Result carry = final borrow.</summary>
+    private static void EmitSubMem(Emitter e)
+    {
+        e.PlaceRoutine("rt.submem");
+        e.U8(0xA7);                              // and a  (clear carry/borrow)
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0x1A);                              // ld a, (de)   src byte
+        e.U8(0x4F);                              // ld c, a
+        e.U8(0x7E);                              // ld a, (hl)   dst byte
+        e.U8(0x99);                              // sbc a, c     dst - src - borrow
+        e.U8(0x77);                              // ld (hl), a
+        e.U8(0x23);                              // inc hl
+        e.U8(0x13);                              // inc de
+        e.U8(0x05);                              // dec b
+        e.Jump(0xC2, loop);                      // jp nz, loop
+        e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>rt.negmem: two's-complement the N-byte value at HL (over B bytes). LSB first.</summary>
+    private static void EmitNegMem(Emitter e)
+    {
+        e.PlaceRoutine("rt.negmem");
+        e.U8(0xA7);                              // and a  (clear borrow)
+        var loop = new Label();
+        e.Place(loop);
+        e.U8(0x3E); e.U8(0x00);                  // ld a, 0   (flags untouched)
+        e.U8(0x9E);                              // sbc a, (hl)   0 - byte - borrow
+        e.U8(0x77);                              // ld (hl), a
+        e.U8(0x23);                              // inc hl
+        e.U8(0x05);                              // dec b
+        e.Jump(0xC2, loop);                      // jp nz, loop
+        e.U8(0xC9);                              // ret
+    }
+
+    /// <summary>Load RtBits with N*8 (the full-width bit count).</summary>
+    private static void LoadFullBitCount(Emitter e)
+    {
+        LdAAbs(e, RtN);
+        e.U8(0x87); e.U8(0x87); e.U8(0x87);      // add a,a x3  -> A = N*8
+        StAAbs(e, RtBits);
+    }
+
+    /// <summary>Shift RtOpA left by one bit (N bytes, shifting in 0).</summary>
+    private static void ShlOpAOnce(Emitter e)
+    {
+        LdBFromN(e);
+        LdHL(e, RtOpA);
+        e.U8(0xAF);                              // xor a  (clear carry -> shift in 0)
+        e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");
+    }
+
+    /// <summary>Shift RtOpB right by one bit, logical (N bytes, shifting in 0).</summary>
+    private static void ShrOpBOnce(Emitter e)
+    {
+        LdBFromN(e);
+        LdHL(e, RtOpB);
+        AdvanceHLToMsb(e);
+        e.U8(0xAF);                              // xor a  (clear carry -> logical)
+        e.U8(0xCD); AddRoutineCall(e, "rt.rrmem");
+    }
+
+    /// <summary>Emit the two-byte target of a CALL (0xCD already emitted) to a runtime routine.</summary>
+    private static void AddRoutineCall(Emitter e, string routine) => e.CallTarget(e.RoutineLabel(routine));
+
+    /// <summary>rt.mul_wide: RtAcc = RtOpA * RtOpB (low N bytes) by shift-and-add.</summary>
+    private static void EmitMulWide(Emitter e)
+    {
+        e.PlaceRoutine("mul_wide");
+        e.U8(0xCD); AddRoutineCall(e, "rt.clracc");   // RtAcc = 0
+        LoadFullBitCount(e);                          // RtBits = N*8
+        var loop = new Label();
+        var noadd = new Label();
+        e.Place(loop);
+        LdAAbs(e, RtOpB);                             // A = multiplier low byte
+        e.U8(0x0F);                                   // rrca  -> bit0 into carry
+        e.Jump(0xD2, noadd);                          // jp nc, noadd
+        LdBFromN(e);                                  // B = N
+        LdHL(e, RtAcc);                               // HL = RtAcc
+        e.U8(0x11); e.U8(RtOpA & 0xFF); e.U8(RtOpA >> 8); // ld de, RtOpA
+        e.U8(0xCD); AddRoutineCall(e, "rt.addmem");   // RtAcc += RtOpA
+        e.Place(noadd);
+        ShlOpAOnce(e);                                // RtOpA <<= 1
+        ShrOpBOnce(e);                                // RtOpB >>= 1
+        LdAAbs(e, RtBits); e.U8(0x3D); StAAbs(e, RtBits); // dec RtBits
+        e.Jump(0xC2, loop);                           // jp nz, loop
+        e.U8(0xC9);                                   // ret
+    }
+
+    /// <summary>rt.udivmod_wide: RtOpA / RtOpB -> quotient in RtOpA, remainder in RtAcc (unsigned, restoring).</summary>
+    private static void EmitUDivWide(Emitter e)
+    {
+        e.PlaceRoutine("udivmod_wide");
+        e.U8(0xCD); AddRoutineCall(e, "rt.clracc");   // remainder RtAcc = 0
+        LoadFullBitCount(e);                          // RtBits = N*8
+        var loop = new Label();
+        var restore = new Label();
+        var next = new Label();
+        e.Place(loop);
+        // Shift {RtAcc:RtOpA} left by one: RtOpA's high bit flows into RtAcc's low bit.
+        LdBFromN(e); LdHL(e, RtOpA); e.U8(0xAF);      // B=N; HL=RtOpA; clear carry
+        e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");    // RtOpA <<= 1, carry = old MSB
+        LdBFromN(e); LdHL(e, RtAcc);                  // B=N; HL=RtAcc (carry preserved)
+        e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");    // RtAcc <<= 1 with carry-in
+        // Try remainder -= divisor.
+        LdBFromN(e); LdHL(e, RtAcc);
+        e.U8(0x11); e.U8(RtOpB & 0xFF); e.U8(RtOpB >> 8); // ld de, RtOpB
+        e.U8(0xCD); AddRoutineCall(e, "rt.submem");   // RtAcc -= RtOpB, carry = borrow
+        e.Jump(0xDA, restore);                        // jp c, restore   (remainder < divisor)
+        LdAAbs(e, RtOpA); e.U8(0xF6); e.U8(0x01); StAAbs(e, RtOpA); // set quotient bit0
+        e.Jump(0xC3, next);                           // jp next
+        e.Place(restore);
+        LdBFromN(e); LdHL(e, RtAcc);
+        e.U8(0x11); e.U8(RtOpB & 0xFF); e.U8(RtOpB >> 8); // ld de, RtOpB
+        e.U8(0xCD); AddRoutineCall(e, "rt.addmem");   // restore remainder
+        e.Place(next);
+        LdAAbs(e, RtBits); e.U8(0x3D); StAAbs(e, RtBits);
+        e.Jump(0xC2, loop);
+        e.U8(0xC9);                                   // ret
+    }
+
+    /// <summary>rt.sdivmod_wide: signed RtOpA / RtOpB via the unsigned routine plus sign fixup.</summary>
+    private static void EmitSDivWide(Emitter e)
+    {
+        e.PlaceRoutine("sdivmod_wide");
+        // Record signs: remainder takes the dividend's sign; quotient takes sign(dividend) ^ sign(divisor).
+        LdHL(e, RtOpA); AdvanceHLToMsb(e); e.U8(0x7E); StAAbs(e, RtSignRem); // A = dividend MSB
+        e.U8(0x47);                                   // ld b, a  (save dividend sign byte)
+        LdHL(e, RtOpB); AdvanceHLToMsb(e); e.U8(0x7E); // A = divisor MSB
+        e.U8(0xA8);                                   // xor b
+        StAAbs(e, RtSignQuot);
+        // Negate negative operands.
+        var aPos = new Label();
+        LdAAbs(e, RtSignRem); e.U8(0xE6); e.U8(0x80); // and 0x80
+        e.Jump(0xCA, aPos);
+        LdBFromN(e); LdHL(e, RtOpA); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        e.Place(aPos);
+        var bPos = new Label();
+        LdHL(e, RtOpB); AdvanceHLToMsb(e); e.U8(0x7E); e.U8(0xE6); e.U8(0x80); // divisor MSB & 0x80
+        e.Jump(0xCA, bPos);
+        LdBFromN(e); LdHL(e, RtOpB); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        e.Place(bPos);
+        e.U8(0xCD); AddRoutineCall(e, "udivmod_wide");
+        // Fix result signs.
+        var qPos = new Label();
+        LdAAbs(e, RtSignQuot); e.U8(0xE6); e.U8(0x80);
+        e.Jump(0xCA, qPos);
+        LdBFromN(e); LdHL(e, RtOpA); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        e.Place(qPos);
+        var rPos = new Label();
+        LdAAbs(e, RtSignRem); e.U8(0xE6); e.U8(0x80);
+        e.Jump(0xCA, rPos);
+        LdBFromN(e); LdHL(e, RtAcc); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        e.Place(rPos);
+        e.U8(0xC9);                                   // ret
+    }
+
+    /// <summary>rt.shl_wide / rt.lshr_wide / rt.ashr_wide: shift RtOpA by RtBits bits (already clamped).</summary>
+    private static void EmitShiftWide(Emitter e, string routine, IrBinaryOp op)
+    {
+        e.PlaceRoutine(routine);
+        var loop = new Label();
+        e.Place(loop);
+        LdAAbs(e, RtBits); e.U8(0xA7);                // ld a,(RtBits) ; and a
+        e.U8(0xC8);                                   // ret z  (count exhausted)
+        e.U8(0x3D); StAAbs(e, RtBits);                // dec a ; store
+        if (op == IrBinaryOp.Shl)
+        {
+            LdBFromN(e); LdHL(e, RtOpA); e.U8(0xAF);  // B=N; HL=RtOpA; clear carry
+            e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");
+        }
+        else
+        {
+            LdBFromN(e); LdHL(e, RtOpA); AdvanceHLToMsb(e); // B=N; HL -> RtOpA MSB
+            if (op == IrBinaryOp.AShr)
+            {
+                e.U8(0x7E); e.U8(0x07);               // ld a,(hl) ; rlca  -> sign bit into carry
+            }
+            else
+            {
+                e.U8(0xAF);                           // xor a  (logical: shift in 0)
+            }
+            e.U8(0xCD); AddRoutineCall(e, "rt.rrmem");
+        }
+        e.Jump(0xC3, loop);                           // jp loop
+    }
+
     internal static int SizeOf(IrType type) => type.SizeInBytes;
 
     /// <summary>A forward reference resolved to an absolute address once its target is placed.</summary>
@@ -480,6 +773,13 @@ public sealed class Sm83Backend : IBackend
         public void Jump(int opcode, Label target)
         {
             Code.Add((byte)opcode);
+            CallTarget(target);
+        }
+
+        /// <summary>Emit a two-byte address placeholder (for a CALL/JP whose opcode was already emitted),
+        /// patched to the label's absolute address at resolve time.</summary>
+        public void CallTarget(Label target)
+        {
             _fixups.Add((Code.Count, target));
             Code.Add(0);
             Code.Add(0);
@@ -881,7 +1181,10 @@ public sealed class Sm83Backend : IBackend
         {
             int n = SizeOf(b.Type);
             if (n > 2)
-                throw new NotSupportedException($"SM83 backend has no {n * 8}-bit shift (working register is 16-bit).");
+            {
+                EmitWideShift(b, n);
+                return;
+            }
             int dst = _slot[b];
 
             if (b.Right is IrConstInt amount)
@@ -927,6 +1230,99 @@ public sealed class Sm83Backend : IBackend
             _e.Jump(0xC3, loop);         // JP loop
             _e.Place(done);
             StoreWorking(dst, n);
+        }
+
+        /// <summary>Lower a 32-/64-bit multiply/divide/remainder via the generic width-N runtime routine:
+        /// copy both operands into scratch, call, and copy the result back. Operands are fully read before
+        /// the destination is written, so a result slot overlapping an operand is harmless here.</summary>
+        private void EmitWideMulDivRem(BinaryInstruction b, int n)
+        {
+            int dst = _slot[b];
+            CopyToScratch(b.Left, RtOpA, n);
+            CopyToScratch(b.Right, RtOpB, n);
+            _e.U8(0x3E); _e.U8(n); StoreAToAddr(RtN);       // LD A,n ; RtN = n
+            string routine = b.Op switch
+            {
+                IrBinaryOp.Mul => "mul_wide",
+                IrBinaryOp.UDiv or IrBinaryOp.URem => "udivmod_wide",
+                _ => "sdivmod_wide",
+            };
+            _e.Jump(0xCD, _e.RoutineLabel(routine));
+            // Product and remainder come back in RtAcc; quotient in RtOpA.
+            int result = b.Op is IrBinaryOp.Mul or IrBinaryOp.URem or IrBinaryOp.SRem ? RtAcc : RtOpA;
+            CopyFromScratch(result, dst, n);
+        }
+
+        /// <summary>Lower a 32-/64-bit shift: copy the subject into scratch, store the clamped count, call
+        /// the width-N shift routine, and copy the result back. Mirrors the 16-bit count clamp.</summary>
+        private void EmitWideShift(BinaryInstruction b, int n)
+        {
+            int dst = _slot[b];
+            int width = n * 8;
+            CopyToScratch(b.Left, RtOpA, n);
+            _e.U8(0x3E); _e.U8(n); StoreAToAddr(RtN);       // LD A,n ; RtN = n
+
+            if (b.Right is IrConstInt amount)
+            {
+                int steps = Math.Min((int)amount.Value, width);
+                _e.U8(0x3E); _e.U8((byte)steps); StoreAToAddr(RtBits);
+            }
+            else
+            {
+                // Clamp the runtime count to the width: accumulate the high bytes in C; if any are set the
+                // count meets/exceeds the width and saturates, else compare the low byte against the width.
+                LoadByteToA(b.Right, 0);
+                _e.U8(0x47);                             // LD B, A  (tentative low byte)
+                _e.U8(0xAF);                             // XOR A
+                _e.U8(0x4F);                             // LD C, A  (high-byte accumulator = 0)
+                for (int k = 1; k < n; k++)
+                {
+                    LoadByteToA(b.Right, k);
+                    _e.U8(0xB1);                         // OR C
+                    _e.U8(0x4F);                         // LD C, A
+                }
+                var sat = new Label();
+                var counted = new Label();
+                _e.U8(0x79); _e.U8(0xB7);                // LD A, C ; OR A  (Z iff no high bits)
+                _e.Jump(0xC2, sat);                      // JP NZ, sat
+                _e.U8(0x78);                             // LD A, B
+                _e.U8(0xFE); _e.U8((byte)width);         // CP width
+                _e.Jump(0xDA, counted);                  // JP C, counted
+                _e.Place(sat);
+                _e.U8(0x06); _e.U8((byte)width);         // LD B, width
+                _e.Place(counted);
+                _e.U8(0x78);                             // LD A, B
+                StoreAToAddr(RtBits);
+            }
+
+            string routine = b.Op switch
+            {
+                IrBinaryOp.Shl => "shl_wide",
+                IrBinaryOp.LShr => "lshr_wide",
+                _ => "ashr_wide",
+            };
+            _e.Jump(0xCD, _e.RoutineLabel(routine));
+            CopyFromScratch(RtOpA, dst, n);
+        }
+
+        /// <summary>Copy the N low bytes of a value into fixed scratch at <paramref name="scratch"/>.</summary>
+        private void CopyToScratch(IrValue value, int scratch, int n)
+        {
+            for (int k = 0; k < n; k++)
+            {
+                LoadByteToA(value, k);
+                StoreAToAddr(scratch + k);
+            }
+        }
+
+        /// <summary>Copy N bytes from fixed scratch at <paramref name="scratch"/> into a destination slot.</summary>
+        private void CopyFromScratch(int scratch, int dst, int n)
+        {
+            for (int k = 0; k < n; k++)
+            {
+                LoadAFromAddr(scratch + k);
+                StoreAToAddr(dst + k);
+            }
         }
 
         private void LoadWorking(IrValue value, int n)
@@ -982,8 +1378,10 @@ public sealed class Sm83Backend : IBackend
         {
             int n = SizeOf(b.Type);
             if (n > 2)
-                throw new NotSupportedException(
-                    $"SM83 backend has no {n * 8}-bit multiply/divide/remainder (runtime routines are 16-bit).");
+            {
+                EmitWideMulDivRem(b, n);
+                return;
+            }
             int dst = _slot[b];
             bool signedDiv = b.Op is IrBinaryOp.SDiv or IrBinaryOp.SRem;
 

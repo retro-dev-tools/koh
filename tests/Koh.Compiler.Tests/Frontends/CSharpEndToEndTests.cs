@@ -894,14 +894,11 @@ static uint Main() {
     }
 
     [Test]
-    public async Task Int32_MultiplyReportedAsDiagnostic()
+    public async Task Int32_MultiplyComputes()
     {
-        // The SM83 backend has no 32-bit multiply/divide/shift; it must diagnose, not crash.
-        var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(
-            SourceText.From("static int Main() { int a = 1000; int b = 1000; return a * b; }", "game.cs"),
-            diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+        // The SM83 backend lowers 32-bit multiply via the generic width-N runtime routine.
+        await Assert.That(RunI32("static int Main() { int a = 1000; int b = 1000; return a * b; }"))
+            .IsEqualTo(1000000u);
     }
 
     [Test]
@@ -959,14 +956,12 @@ static uint Main() {
     }
 
     [Test]
-    public async Task MixedSign_WithUshort_ReportedAsDiagnostic()
+    public async Task MixedSign_WithUshort_PromotesToSignedInt()
     {
-        // short / ushort has no wider signed type on this target, so it needs an explicit cast.
-        var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(
-            SourceText.From("static ushort F(short a, ushort b) { return (ushort)(a / b); }", "game.cs"),
-            diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+        // short / ushort promotes to signed int (17-bit range fits i32), which the backend now divides;
+        // -100 / 7 == -14, and (ushort)(-14) == 0xFFF2.
+        await Assert.That(RunHL("static ushort F(short a, ushort b) { return (ushort)(a / b); }",
+            gb => { W16(gb, 0, -100 & 0xFFFF); W16(gb, 2, 7); })).IsEqualTo((ushort)0xFFF2);
     }
 
     [Test]
@@ -1074,10 +1069,9 @@ static uint Main() {
     }
 
     [Test]
-    public async Task MixedSignMultiply_StaysSixteenBit()
+    public async Task MixedSignMultiply_PromotesToInt()
     {
-        // ushort * short (and ushort * sbyte) only needs the low 16 bits, which don't depend on sign, so
-        // it must compile as a 16-bit multiply rather than promoting to an unsupported 32-bit one.
+        // ushort * short promotes to signed int (matching C#); the low 16 bits are unchanged.
         // 300 * 5 = 1500 (0x05DC); the low byte is 0xDC = 220.
         await Assert.That(RunA(
             "static byte Main() { ushort u = 300; short s = 5; return (byte)((u * s) & 0xFF); }")).IsEqualTo((byte)220);
@@ -1085,11 +1079,12 @@ static uint Main() {
     }
 
     [Test]
-    public async Task MixedSignDivide_StillRequiresExplicitCast()
+    public async Task MixedSignDivide_PromotesToInt()
     {
-        // Divide's result DOES depend on sign, and there is no 32-bit divide, so mixed ushort/short must
-        // still be a diagnostic asking for a cast (the multiply relaxation must not leak to divide).
-        await Assert.That(HasError("static ushort F(ushort u, short s) { return (ushort)(u / s); }")).IsTrue();
+        // ushort / short now promotes to signed int and divides (it used to require an explicit cast).
+        // 300 / -7 == -42 (truncated toward zero); (short)(-42) == 0xFFD6.
+        await Assert.That(RunHL("static short F(ushort u, short s) { return (short)(u / s); }",
+            gb => { W16(gb, 0, 300); W16(gb, 2, -7 & 0xFFFF); })).IsEqualTo((ushort)0xFFD6);
     }
 
     [Test]
@@ -1201,17 +1196,6 @@ static void Main() { Bump(); Hardware.EnableInterrupts(); }";
     }
 
     [Test]
-    public async Task Int32_DivideRemainderShift_ReportedAsDiagnostic()
-    {
-        // The 32-bit reject covers divide, remainder, and both shifts as well as multiply (the runtime
-        // routines are 16-bit); only multiply had a diagnostic test.
-        await Assert.That(HasError("static int Main() { int a = 100000; int b = 3; return a / b; }")).IsTrue();
-        await Assert.That(HasError("static int Main() { int a = 100000; int b = 3; return a % b; }")).IsTrue();
-        await Assert.That(HasError("static int Main() { int a = 100000; int n = 2; return a << n; }")).IsTrue();
-        await Assert.That(HasError("static int Main() { int a = 100000; int n = 2; return a >> n; }")).IsTrue();
-    }
-
-    [Test]
     public async Task HardwareNop_Emits()
     {
         // Hardware.Nop() maps to the `nop` intrinsic; it was mapped in the frontend but never exercised
@@ -1230,6 +1214,61 @@ static void Main() { Bump(); Hardware.EnableInterrupts(); }";
         await Assert.That(CompilesClean(
             "[Interrupt(\"VBlank\")]\nstatic void OnVBlank() { }\nstatic void Main() { Hardware.EnableInterrupts(); }"))
             .IsTrue();
+    }
+
+    [Test]
+    public async Task Int32_Multiply()
+    {
+        const string src = "static int Mul(int a, int b) { return a * b; }";
+        await Assert.That(RunI32(src, gb => { W32(gb, 0, 100000); W32(gb, 4, 3); })).IsEqualTo(300000u);
+        // Low 32 bits only: 0x10000 * 0x10000 = 0x1_0000_0000 -> 0.
+        await Assert.That(RunI32(src, gb => { W32(gb, 0, 0x10000); W32(gb, 4, 0x10000); })).IsEqualTo(0u);
+    }
+
+    [Test]
+    public async Task Int32_UnsignedDivideAndRemainder()
+    {
+        await Assert.That(RunI32("static uint D(uint a, uint b) { return a / b; }",
+            gb => { W32(gb, 0, 1000000); W32(gb, 4, 7); })).IsEqualTo(142857u);
+        await Assert.That(RunI32("static uint R(uint a, uint b) { return a % b; }",
+            gb => { W32(gb, 0, 1000000); W32(gb, 4, 7); })).IsEqualTo(1u);
+        // A divisor larger than the dividend: quotient 0, remainder = dividend.
+        await Assert.That(RunI32("static uint D(uint a, uint b) { return a / b; }",
+            gb => { W32(gb, 0, 5); W32(gb, 4, 100); })).IsEqualTo(0u);
+        await Assert.That(RunI32("static uint R(uint a, uint b) { return a % b; }",
+            gb => { W32(gb, 0, 5); W32(gb, 4, 100); })).IsEqualTo(5u);
+    }
+
+    [Test]
+    public async Task Int32_SignedDivideAndRemainder()
+    {
+        await Assert.That(RunI32("static int D(int a, int b) { return a / b; }",
+            gb => { W32(gb, 0, -1000000); W32(gb, 4, 7); })).IsEqualTo(unchecked((uint)(-142857)));
+        // C# truncated remainder takes the dividend's sign: -1000000 % 7 == -1.
+        await Assert.That(RunI32("static int R(int a, int b) { return a % b; }",
+            gb => { W32(gb, 0, -1000000); W32(gb, 4, 7); })).IsEqualTo(unchecked((uint)(-1)));
+        await Assert.That(RunI32("static int D(int a, int b) { return a / b; }",
+            gb => { W32(gb, 0, -1000000); W32(gb, 4, -7); })).IsEqualTo(142857u);
+    }
+
+    [Test]
+    public async Task Int32_ShiftLeft()
+    {
+        await Assert.That(RunI32("static uint S(uint a, int n) { return a << n; }",
+            gb => { W32(gb, 0, 1); W32(gb, 4, 20); })).IsEqualTo(0x00100000u);
+        // Constant shift.
+        await Assert.That(RunI32("static uint S(uint a) { return a << 24; }",
+            gb => W32(gb, 0, 0xFF))).IsEqualTo(0xFF000000u);
+    }
+
+    [Test]
+    public async Task Int32_ShiftRightLogicalAndArithmetic()
+    {
+        await Assert.That(RunI32("static uint L(uint a, int n) { return a >> n; }",
+            gb => { W32(gb, 0, 0x80000000); W32(gb, 4, 4); })).IsEqualTo(0x08000000u);
+        // Arithmetic right shift of a negative int fills with the sign bit.
+        await Assert.That(RunI32("static int A(int a, int n) { return a >> n; }",
+            gb => { W32(gb, 0, -16); W32(gb, 4, 2); })).IsEqualTo(unchecked((uint)(-4)));
     }
 
     private static bool CompilesClean(string src)
