@@ -481,6 +481,52 @@ static byte Run() {
     }
 
     [Test]
+    public async Task NestedStruct_FieldAccess()
+    {
+        // A struct field whose type is itself a struct — composite entities.
+        const string src = @"
+struct Point { byte x; byte y; }
+struct Entity { Point pos; Point vel; byte hp; }
+static byte Run() {
+    Entity e;
+    e.pos.x = 5;
+    e.vel.x = 9;   // must not alias e.pos
+    e.hp = 100;
+    return (byte)(e.pos.x + e.vel.x + e.hp); // 5 + 9 + 100
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)114);
+    }
+
+    [Test]
+    public async Task NestedStruct_InArrayAndCopied()
+    {
+        // Nested structs compose with struct arrays and whole-struct copy.
+        const string src = @"
+struct Point { byte x; ushort y; }
+struct Mob { Point pos; byte kind; }
+static ushort Run() {
+    Mob[] mobs = new Mob[4];
+    Point p;
+    p.x = 3;
+    p.y = 1000;
+    mobs[2].pos = p;          // copy a Point into a nested field of an array element
+    mobs[2].kind = 7;
+    return (ushort)(mobs[2].pos.y + mobs[2].pos.x + mobs[2].kind); // 1000 + 3 + 7
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)1010);
+    }
+
+    [Test]
+    public async Task NestedStruct_CyclicIsDiagnostic()
+    {
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("struct A { A self; } static byte Run() { return 0; }", "game.cs"),
+            diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
+    [Test]
     public async Task StructArray_ElementFieldsIndependent()
     {
         // Array of structs (the entity-list pattern): each element's fields are addressed by stride,

@@ -314,6 +314,8 @@ internal sealed class MethodLowerer
         foreach (var field in b.Info.Fields)
             if (field.Name == fieldName)
             {
+                if (field.Struct is not null)
+                    return null; // a struct-typed field is an aggregate base, resolved by StructBaseOf
                 // The offset is aligned to the field size, so index = offset / size is exact.
                 int index = field.Offset / field.Type.Ir.SizeInBytes;
                 return (_b.Gep(b.Base, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
@@ -335,6 +337,12 @@ internal sealed class MethodLowerer
             var elementPtr = _b.Gep(arr.ArrayPtr, index, IrType.Array(IrType.I8, arr.Info.Size));
             return (elementPtr, arr.Info);
         }
+        // A struct-typed field of another struct, e.g. `e.pos` in `e.pos.x` — recurse into the parent
+        // and step to the field's bytes.
+        if (expr is MemberAccessExpressionSyntax nested && StructBaseOf(nested.Expression) is { } parent)
+            foreach (var field in parent.Info.Fields)
+                if (field.Name == nested.Name.Identifier.Text && field.Struct is { } sub)
+                    return (_b.Gep(parent.Base, IrBuilder.ConstInt(IrType.I16, field.Offset), IrType.I8), sub);
         return null;
     }
 

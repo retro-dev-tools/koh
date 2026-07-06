@@ -370,25 +370,49 @@ public sealed class CSharpFrontend : IFrontend
     private static Dictionary<string, CsStruct> CollectStructs(
         CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums)
     {
-        var structs = new Dictionary<string, CsStruct>(StringComparer.Ordinal);
+        var decls = new Dictionary<string, StructDeclarationSyntax>(StringComparer.Ordinal);
         foreach (var decl in root.DescendantNodes().OfType<StructDeclarationSyntax>())
+            decls[decl.Identifier.Text] = decl;
+
+        var structs = new Dictionary<string, CsStruct>(StringComparer.Ordinal);
+        var inProgress = new HashSet<string>(StringComparer.Ordinal);
+
+        // Lay a struct out, resolving struct-typed fields on demand (nested structs) with cycle
+        // detection. Scalar fields align to their own size; a nested struct field is packed (SM83 is
+        // byte-addressable, so misalignment costs nothing).
+        CsStruct Layout(string name)
         {
+            if (structs.TryGetValue(name, out var done))
+                return done;
+            if (!inProgress.Add(name))
+                throw new CSharpNotSupportedException($"struct '{name}' contains itself.");
+
             var fields = new List<CsField>();
             int offset = 0, align = 1;
-            foreach (var member in decl.Members.OfType<FieldDeclarationSyntax>())
+            foreach (var member in decls[name].Members.OfType<FieldDeclarationSyntax>())
             {
-                var type = ResolveType(member.Declaration.Type, enums);
-                int size = type.Ir.SizeInBytes;
+                var typeSyntax = member.Declaration.Type;
+                bool isStruct = typeSyntax is IdentifierNameSyntax sn && decls.ContainsKey(sn.Identifier.Text);
+                CsStruct? nested = isStruct ? Layout(((IdentifierNameSyntax)typeSyntax).Identifier.Text) : null;
+                var type = isStruct ? CsType.U8 : ResolveType(typeSyntax, enums);
+                int size = nested?.Size ?? type.Ir.SizeInBytes;
+                int fieldAlign = nested is not null ? 1 : size;
                 foreach (var v in member.Declaration.Variables)
                 {
-                    offset = RoundUp(offset, size); // align each field to its own size
-                    fields.Add(new CsField(v.Identifier.Text, type, offset));
+                    offset = RoundUp(offset, fieldAlign);
+                    fields.Add(new CsField(v.Identifier.Text, type, offset, nested));
                     offset += size;
-                    align = Math.Max(align, size);
+                    align = Math.Max(align, fieldAlign);
                 }
             }
-            structs[decl.Identifier.Text] = new CsStruct(fields, RoundUp(offset, align));
+            var result = new CsStruct(fields, RoundUp(offset, align));
+            structs[name] = result;
+            inProgress.Remove(name);
+            return result;
         }
+
+        foreach (var name in decls.Keys)
+            Layout(name);
         return structs;
     }
 
@@ -441,8 +465,9 @@ internal sealed record CsEnum(CsType Underlying, IReadOnlyDictionary<string, lon
 /// <summary>A value-type struct: scalar fields with byte offsets, and its total size.</summary>
 internal sealed record CsStruct(IReadOnlyList<CsField> Fields, int Size);
 
-/// <summary>One struct field: name, type, and byte offset within the struct.</summary>
-internal sealed record CsField(string Name, CsType Type, int Offset);
+/// <summary>One struct field: name, type, and byte offset within the struct. A field whose type is
+/// itself a struct carries its layout in <paramref name="Struct"/> (its <see cref="Type"/> is unused).</summary>
+internal sealed record CsField(string Name, CsType Type, int Offset, CsStruct? Struct = null);
 
 /// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).</summary>
 internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params, IReadOnlyList<bool> RefParams);
