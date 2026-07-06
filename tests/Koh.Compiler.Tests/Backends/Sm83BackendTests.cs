@@ -81,6 +81,29 @@ public class Sm83BackendTests
     }
 
     [Test]
+    public async Task LineMap_MapsInstructionsToSourceLines()
+    {
+        var module = new IrModule("t");
+        var fn = new IrFunction("main", IrType.I8, []);
+        module.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        var add = b.Add(IrBuilder.ConstInt(IrType.I8, 1), IrBuilder.ConstInt(IrType.I8, 2));
+        add.Source = new IrSourceLocation("game.cs", 10);
+        var ret = b.Ret(add);
+        ret.Source = new IrSourceLocation("game.cs", 11);
+
+        var model = Compile(module);
+        var lineMap = model.Sections[0].LineMap;
+        await Assert.That(lineMap.Any(e => e.File == "game.cs" && e.Line == 10)).IsTrue();
+        await Assert.That(lineMap.Any(e => e.File == "game.cs" && e.Line == 11)).IsTrue();
+
+        // The ranges resolve through the linker into .kdbg address-map entries.
+        var link = new LinkerType().Link([new LinkerInput("t", model)]);
+        await Assert.That(link.LineMap.Any(e => e.File == "game.cs" && e.Line == 10)).IsTrue();
+    }
+
+    [Test]
     public async Task Runs_ConstantChain_InEmulator()
     {
         // (3 + 4) + 100 = 107

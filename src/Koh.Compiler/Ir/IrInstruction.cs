@@ -1,5 +1,8 @@
 namespace Koh.Compiler.Ir;
 
+/// <summary>A source position an instruction lowers from, for debug line maps.</summary>
+public sealed record IrSourceLocation(string File, uint Line);
+
 /// <summary>Integer binary operations. Signedness is explicit where it matters (div/rem/shift).</summary>
 public enum IrBinaryOp
 {
@@ -35,6 +38,9 @@ public abstract class IrInstruction : IrValue
 {
     /// <summary>The block that owns this instruction; set when appended.</summary>
     public IrBasicBlock? Parent { get; internal set; }
+
+    /// <summary>Optional source position this instruction lowers from (set by frontends).</summary>
+    public IrSourceLocation? Source { get; set; }
 
     protected IrInstruction(IrType type) : base(type) { }
 

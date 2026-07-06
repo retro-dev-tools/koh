@@ -130,7 +130,8 @@ public sealed class Sm83Backend : IBackend
         var sections = new List<SectionData>
         {
             new(CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
-                data: emitter.Code.ToArray(), patches: Array.Empty<PatchEntry>()),
+                data: emitter.Code.ToArray(), patches: Array.Empty<PatchEntry>(),
+                lineMap: emitter.LineMap),
         };
         if (romData.Count > 0)
             sections.Add(new SectionData(
@@ -354,7 +355,26 @@ public sealed class Sm83Backend : IBackend
         /// <summary>Runtime helper routines referenced by generated code (emitted on demand).</summary>
         public readonly HashSet<string> NeededRoutines = new(StringComparer.Ordinal);
 
+        /// <summary>Coalesced source-line ranges over the code section, for .kdbg debug info.</summary>
+        public readonly List<LineMapEntry> LineMap = [];
+
         public void U8(int value) => Code.Add((byte)value);
+
+        /// <summary>Record that <paramref name="count"/> bytes at <paramref name="offset"/> came
+        /// from one source line, extending the previous run when adjacent and identical.</summary>
+        public void AddLineRange(int offset, int count, string file, uint line)
+        {
+            if (LineMap.Count > 0)
+            {
+                var last = LineMap[^1];
+                if (last.Line == line && last.File == file && last.Offset + last.ByteCount == offset)
+                {
+                    LineMap[^1] = last with { ByteCount = last.ByteCount + count };
+                    return;
+                }
+            }
+            LineMap.Add(new LineMapEntry(offset, count, file, line));
+        }
 
         public Label BlockLabel(IrBasicBlock block)
         {
@@ -514,7 +534,12 @@ public sealed class Sm83Backend : IBackend
             {
                 _e.Place(_e.BlockLabel(block));
                 foreach (var instr in block.Instructions)
+                {
+                    int start = _e.Code.Count;
                     EmitInstruction(block, instr);
+                    if (instr.Source is { } src && _e.Code.Count > start)
+                        _e.AddLineRange(start, _e.Code.Count - start, src.File, src.Line);
+                }
             }
         }
 
