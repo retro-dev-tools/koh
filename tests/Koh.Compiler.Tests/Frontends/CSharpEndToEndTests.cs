@@ -228,6 +228,45 @@ static byte Classify(byte x) {
     }
 
     [Test]
+    public async Task ForLoop_WithIncrement()
+    {
+        const string src = @"
+static byte SumTo(byte n) {
+    byte acc = 0;
+    for (byte i = 0; i < n; i++) acc += i;
+    return acc;
+}";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)10); // 0+1+2+3+4
+    }
+
+    [Test]
+    public async Task PostfixIncrement_ReturnsOldValue()
+    {
+        // x++ returns 5 then x becomes 6; 5 + 6 = 11
+        const string src = "static byte F(byte x) { return x++ + x; }";
+        await Assert.That(RunA(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)11);
+    }
+
+    [Test]
+    public async Task LogicalAnd_Or()
+    {
+        const string andSrc = "static byte F(byte a, byte b) { if (a > 0 && b > 0) return 1; return 0; }";
+        await Assert.That(RunA(andSrc, gb => { W8(gb, 0, 5); W8(gb, 1, 3); })).IsEqualTo((byte)1);
+        await Assert.That(RunA(andSrc, gb => { W8(gb, 0, 0); W8(gb, 1, 3); })).IsEqualTo((byte)0);
+
+        const string orSrc = "static byte F(byte a) { if (a == 0 || a == 5) return 1; return 0; }";
+        await Assert.That(RunA(orSrc, gb => W8(gb, 0, 5))).IsEqualTo((byte)1);
+        await Assert.That(RunA(orSrc, gb => W8(gb, 0, 3))).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Ternary()
+    {
+        const string src = "static byte Max(byte a, byte b) { return a > b ? a : b; }";
+        await Assert.That(RunA(src, gb => { W8(gb, 0, 3); W8(gb, 1, 7); })).IsEqualTo((byte)7);
+    }
+
+    [Test]
     public async Task UnsupportedType_Throws()
     {
         bool threw = false;

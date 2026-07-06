@@ -319,6 +319,12 @@ internal sealed class MethodLowerer
             case PrefixUnaryExpressionSyntax unary:
                 return LowerUnary(unary, expected);
 
+            case PostfixUnaryExpressionSyntax post:
+                return LowerIncDec(post.Operand, post.Kind() == SyntaxKind.PostIncrementExpression, prefix: false);
+
+            case ConditionalExpressionSyntax cond:
+                return LowerConditional(cond, expected);
+
             case BinaryExpressionSyntax binary:
                 return LowerBinary(binary, expected);
 
@@ -347,6 +353,14 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerUnary(PrefixUnaryExpressionSyntax unary, CsType? expected)
     {
+        switch (unary.Kind())
+        {
+            case SyntaxKind.PreIncrementExpression:
+                return LowerIncDec(unary.Operand, increment: true, prefix: true);
+            case SyntaxKind.PreDecrementExpression:
+                return LowerIncDec(unary.Operand, increment: false, prefix: true);
+        }
+
         var (value, type) = LowerExpression(unary.Operand, expected);
         return unary.Kind() switch
         {
@@ -359,9 +373,70 @@ internal sealed class MethodLowerer
         };
     }
 
+    private (IrValue, CsType) LowerIncDec(ExpressionSyntax operand, bool increment, bool prefix)
+    {
+        if (operand is not IdentifierNameSyntax id || !_locals.TryGetValue(id.Identifier.Text, out var local))
+            throw new CSharpNotSupportedException("++/-- requires a local variable.");
+
+        var old = _b.Load(local.Slot);
+        var updated = _b.Binary(increment ? IrBinaryOp.Add : IrBinaryOp.Sub, old, IrBuilder.ConstInt(local.Type.Ir, 1));
+        _b.Store(updated, local.Slot);
+        return (prefix ? updated : old, local.Type);
+    }
+
+    /// <summary>Short-circuit <c>&amp;&amp;</c>/<c>||</c> via a result slot and a conditional branch.</summary>
+    private (IrValue, CsType) LowerLogical(BinaryExpressionSyntax binary, bool isAnd)
+    {
+        var result = _b.Alloca(IrType.I8);
+        var left = Coerce(LowerExpression(binary.Left, CsType.Bool), CsType.Bool);
+        _b.Store(left, result);
+
+        var evalRight = _method.Fn.AppendBlock("logic.rhs");
+        var done = _method.Fn.AppendBlock("logic.end");
+        if (isAnd)
+            _b.CondBr(left, evalRight, done);   // && : only evaluate rhs when lhs is true
+        else
+            _b.CondBr(left, done, evalRight);   // || : only evaluate rhs when lhs is false
+
+        _b.PositionAtEnd(evalRight);
+        _b.Store(Coerce(LowerExpression(binary.Right, CsType.Bool), CsType.Bool), result);
+        _b.Br(done);
+
+        _b.PositionAtEnd(done);
+        return (_b.Load(result), CsType.Bool);
+    }
+
+    private (IrValue, CsType) LowerConditional(ConditionalExpressionSyntax cond, CsType? expected)
+    {
+        var type = expected ?? CsType.U16;
+        var result = _b.Alloca(type.Ir);
+        var c = Coerce(LowerExpression(cond.Condition, CsType.Bool), CsType.Bool);
+
+        var thenBlock = _method.Fn.AppendBlock("cond.then");
+        var elseBlock = _method.Fn.AppendBlock("cond.else");
+        var done = _method.Fn.AppendBlock("cond.end");
+        _b.CondBr(c, thenBlock, elseBlock);
+
+        _b.PositionAtEnd(thenBlock);
+        _b.Store(Coerce(LowerExpression(cond.WhenTrue, type), type), result);
+        _b.Br(done);
+
+        _b.PositionAtEnd(elseBlock);
+        _b.Store(Coerce(LowerExpression(cond.WhenFalse, type), type), result);
+        _b.Br(done);
+
+        _b.PositionAtEnd(done);
+        return (_b.Load(result), type);
+    }
+
     private (IrValue, CsType) LowerBinary(BinaryExpressionSyntax binary, CsType? expected)
     {
         var kind = binary.Kind();
+
+        if (kind == SyntaxKind.LogicalAndExpression)
+            return LowerLogical(binary, isAnd: true);
+        if (kind == SyntaxKind.LogicalOrExpression)
+            return LowerLogical(binary, isAnd: false);
 
         if (IsComparison(kind))
         {
