@@ -57,6 +57,9 @@ public sealed class Sm83Backend : IBackend
         // after the WRAM globals so nothing overlaps.
         var globalAddresses = new Dictionary<IrGlobal, int>(ReferenceEqualityComparer.Instance);
         var romData = new List<byte>();
+        // ROM data past the fixed ROM0 window ([DataBase, 0x4000)) spills into switchable ROM banks
+        // (physical banks 1, 2, … each windowed at 0x4000–0x7FFF). bankData[i] is bank (i + 1).
+        var bankData = new List<List<byte>>();
         int wramGlobals = WramBase, hramGlobals = 0xFF80, sramGlobals = 0xA000;
         foreach (var g in module.Globals)
         {
@@ -66,9 +69,8 @@ public sealed class Sm83Backend : IBackend
             }
             else if (g.AddressSpace == AddressSpace.Rom || g.Initializer is not null)
             {
-                globalAddresses[g] = DataBase + romData.Count;
                 var bytes = g.Initializer ?? new byte[SizeOf(g.Type)];
-                romData.AddRange(bytes);
+                globalAddresses[g] = PlaceRomData(bytes, romData, bankData);
             }
             else if (g.AddressSpace == AddressSpace.Hram)
             {
@@ -170,10 +172,18 @@ public sealed class Sm83Backend : IBackend
             sections.Add(new SectionData(
                 "RODATA", SectionType.Rom0, fixedAddress: DataBase, bank: 0,
                 data: romData.ToArray(), patches: Array.Empty<PatchEntry>()));
+
+        // Switchable ROM banks (bank i+1, all windowed at 0x4000). Their presence turns the cartridge
+        // into an MBC1 of the right size so the emulator/hardware bank-switch on writes to 0x2000.
+        for (int i = 0; i < bankData.Count; i++)
+            sections.Add(new SectionData(
+                $"ROMX_{i + 1}", SectionType.RomX, fixedAddress: BankWindow, bank: i + 1,
+                data: bankData[i].ToArray(), patches: Array.Empty<PatchEntry>()));
+
         if (entryFunction is not null)
             sections.Add(new SectionData(
                 "HEADER", SectionType.Rom0, fixedAddress: 0x0100, bank: 0,
-                data: BuildHeader(entryAddress), patches: Array.Empty<PatchEntry>()));
+                data: BuildHeader(entryAddress, bankData.Count), patches: Array.Empty<PatchEntry>()));
 
         // Interrupt vectors: `jp <handler>` at 0x40/0x48/0x50/0x58/0x60.
         foreach (var (vector, address) in interruptHandlers)
@@ -189,6 +199,38 @@ public sealed class Sm83Backend : IBackend
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
     }
 
+    /// <summary>End of the fixed ROM0 data window; data past this spills into switchable banks.</summary>
+    private const int Rom0DataEnd = 0x4000;
+
+    /// <summary>Base of the switchable ROM-bank window (0x4000–0x7FFF).</summary>
+    private const int BankWindow = 0x4000;
+    private const int BankSize = 0x4000;
+
+    /// <summary>Place a read-only global's bytes into ROM0 data, or — once that 16KB window is full —
+    /// into a switchable ROM bank, and return the (windowed) address the global is addressed at. A
+    /// banked global's address is only valid while its bank is mapped, so code must select the bank
+    /// (write it to 0x2000–0x3FFF, e.g. <c>*(byte*)0x2000 = bank;</c>) before dereferencing it.</summary>
+    private static int PlaceRomData(byte[] bytes, List<byte> rom0, List<List<byte>> banks)
+    {
+        if (bytes.Length > BankSize)
+            throw new NotSupportedException(
+                $"ROM global of {bytes.Length} bytes exceeds one {BankSize}-byte ROM bank.");
+
+        if (DataBase + rom0.Count + bytes.Length <= Rom0DataEnd)
+        {
+            int addr = DataBase + rom0.Count;
+            rom0.AddRange(bytes);
+            return addr;
+        }
+
+        // Spill into the last bank, or start a new one when the current bank cannot hold it.
+        if (banks.Count == 0 || banks[^1].Count + bytes.Length > BankSize)
+            banks.Add([]);
+        int offset = banks[^1].Count;
+        banks[^1].AddRange(bytes);
+        return BankWindow + offset;
+    }
+
     /// <summary>The 48-byte Nintendo logo the boot ROM verifies at 0x0104.</summary>
     private static ReadOnlySpan<byte> NintendoLogo =>
     [
@@ -199,11 +241,12 @@ public sealed class Sm83Backend : IBackend
 
     /// <summary>
     /// Build the 80-byte cartridge header spanning 0x0100..0x014F: a <c>nop; jp entry</c> boot
-    /// vector, the Nintendo logo, and ROM-only cartridge fields. This makes the emitted image a
-    /// bootable cartridge rather than a bare code blob. The header and global checksums ($014D and
-    /// $014E-F) are filled in by the linker's <c>RomWriter</c>, so they are left zero here.
+    /// vector, the Nintendo logo, and the cartridge fields. This makes the emitted image a bootable
+    /// cartridge rather than a bare code blob. With no extra banks it is a 32 KB ROM-only cart; when
+    /// data spilled into switchable banks it becomes an MBC1 of the right ROM size. The header and
+    /// global checksums ($014D and $014E-F) are filled in by the linker's <c>RomWriter</c>.
     /// </summary>
-    private static byte[] BuildHeader(int entryAddress)
+    private static byte[] BuildHeader(int entryAddress, int extraBanks)
     {
         var header = new byte[0x50]; // 0x0100..0x014F
 
@@ -214,11 +257,22 @@ public sealed class Sm83Backend : IBackend
 
         NintendoLogo.CopyTo(header.AsSpan(0x04));      // 0x0104..0x0133
 
-        // Title bytes (0x0134..) left zero; cartridge type/ROM/RAM sizes 0 => ROM-only, 32 KB.
+        if (extraBanks > 0)
+        {
+            header[0x47] = 0x01;                       // cartridge type: MBC1
+            // ROM size byte: 0x00=2 banks(32KB), 0x01=4(64KB), 0x02=8(128KB)… nearest power of two
+            // that holds bank 0 plus the extra banks.
+            int totalBanks = extraBanks + 1;
+            int pow2 = 2;
+            byte sizeCode = 0;
+            while (pow2 < totalBanks) { pow2 <<= 1; sizeCode++; }
+            header[0x48] = sizeCode;                    // ROM size
+        }
+        // Title bytes (0x0134..) left zero.
         return header;
     }
 
-    /// <summary>Static frame allocation cannot support recursion; reject cyclic call graphs.</summary>
+    /// <summary>The direct (non-external) callees of each function, for cycle detection.</summary>
     private static Dictionary<IrFunction, List<IrFunction>> BuildCalleeGraph(IrModule module)
     {
         var callees = new Dictionary<IrFunction, List<IrFunction>>(ReferenceEqualityComparer.Instance);

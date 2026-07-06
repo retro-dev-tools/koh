@@ -1365,6 +1365,41 @@ static byte IsOdd(byte n) { if (n == 0) return 0; return IsEven((byte)(n - 1)); 
             + "static byte IsOdd(byte n) { if (n == 0) return 0; return IsEven((byte)(n - 1)); }")).IsEqualTo((byte)0);
     }
 
+    [Test]
+    public async Task RomBanking_ReadsBankedData()
+    {
+        // F0 (8KB) fills the ROM0 data window and F1 (16KB) fills ROM bank 1, so Mark lands in bank 2
+        // (physical 0x8000, reachable only through the 0x4000 window after a bank switch). The cartridge
+        // becomes MBC1; writing the bank number to 0x2000 selects it. Reading Mark without switching
+        // would see bank 1 (zero), so a correct 0xAB proves the bank switch and MBC header both work.
+        const string src = @"
+static byte Main() {
+    *(byte*)0x2000 = 2;
+    return Mark[0];
+}
+static readonly byte[] F0 = new byte[8192];
+static readonly byte[] F1 = new byte[16384];
+static readonly byte[] Mark = { 0xAB, 0xCD };";
+        await Assert.That(RunA(src)).IsEqualTo((byte)0xAB);
+    }
+
+    [Test]
+    public async Task RomBanking_HeaderIsMbc1WhenBanked()
+    {
+        const string src = @"
+static byte Main() { return Mark[0]; }
+static readonly byte[] F0 = new byte[8192];
+static readonly byte[] F1 = new byte[16384];
+static readonly byte[] Mark = { 0xAB };";
+        var link = new LinkerType().Link([new LinkerInput("cs", Compile(src))]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        await Assert.That(rom[0x0147]).IsEqualTo((byte)0x01); // MBC1
+        await Assert.That(rom[0x0148]).IsEqualTo((byte)0x01); // 64KB (4 banks)
+        // A ROM-only program (no banking) keeps cartridge type 0.
+        var link2 = new LinkerType().Link([new LinkerInput("cs", Compile("static byte Main() { return 7; }"))]);
+        await Assert.That((link2.RomData ?? [])[0x0147]).IsEqualTo((byte)0x00);
+    }
+
     private static bool CompilesClean(string src)
     {
         var diagnostics = new DiagnosticBag();
