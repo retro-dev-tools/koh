@@ -1038,4 +1038,88 @@ static uint Main() {
         // A negative static-array size is a diagnostic, not a negative IrType.Array length.
         await Assert.That(HasError("static byte[] Buf = new byte[-1];\nstatic byte Main() { return 0; }")).IsTrue();
     }
+
+    [Test]
+    public async Task NegativeLocalArrayLength_ReportedAsDiagnostic()
+    {
+        // The negative-length guard must also cover local `new T[n]` and struct arrays, not just statics.
+        await Assert.That(HasError("static byte Main() { byte[] buf = new byte[-1]; return 0; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task NegatedLiteral_IsSigned_InComparison()
+    {
+        // `-5` from the unsigned literal 5 must be a signed -5, not an unsigned 251: `x < -5` compares
+        // against -5, and `x > -1` against -1. Without this the negation wraps to a large positive.
+        await Assert.That(RunA("static byte Main() { int x = 100; return (byte)(x < -5 ? 1 : 0); }")).IsEqualTo((byte)0);
+        await Assert.That(RunA("static byte Main() { byte x = 5; return (byte)(x > -1 ? 1 : 0); }")).IsEqualTo((byte)1);
+        // -1000 < -999 is true; the negated literals must both be signed for the ordering to hold.
+        await Assert.That(RunA("static byte Main() { int x = -1000; return (byte)(x < -999 ? 1 : 0); }")).IsEqualTo((byte)1);
+    }
+
+    [Test]
+    public async Task Ternary_InfersFromArithmeticAndCallBranches()
+    {
+        // InferType must size the result slot from arithmetic/call branches, not just literals — else a
+        // wide branch truncates to the default u16. `a + b` = 70000 must survive the ternary.
+        const string arith =
+            "static byte Main() { uint a = 70000; uint b = 0; bool c = true; return (byte)((c ? a + b : 0u) == 70000u ? 1 : 0); }";
+        await Assert.That(RunA(arith)).IsEqualTo((byte)1);
+
+        // A call branch (int return) opposite a byte must not shrink the slot to a byte.
+        const string call =
+            "static byte Main() { byte v = 1; bool c = true; return (byte)((c ? Big() : v) == 300 ? 1 : 0); }\n"
+            + "static ushort Big() { return 300; }";
+        await Assert.That(RunA(call)).IsEqualTo((byte)1);
+    }
+
+    [Test]
+    public async Task MixedSignMultiply_StaysSixteenBit()
+    {
+        // ushort * short (and ushort * sbyte) only needs the low 16 bits, which don't depend on sign, so
+        // it must compile as a 16-bit multiply rather than promoting to an unsupported 32-bit one.
+        // 300 * 5 = 1500 (0x05DC); the low byte is 0xDC = 220.
+        await Assert.That(RunA(
+            "static byte Main() { ushort u = 300; short s = 5; return (byte)((u * s) & 0xFF); }")).IsEqualTo((byte)220);
+        await Assert.That(CompilesClean("static ushort F(ushort u, sbyte s) { return (ushort)(u * s); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task MixedSignDivide_StillRequiresExplicitCast()
+    {
+        // Divide's result DOES depend on sign, and there is no 32-bit divide, so mixed ushort/short must
+        // still be a diagnostic asking for a cast (the multiply relaxation must not leak to divide).
+        await Assert.That(HasError("static ushort F(ushort u, short s) { return (ushort)(u / s); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task SharedInterruptHelper_IsRejected()
+    {
+        // Bump() is called from both the handler and main-line code; its static WRAM frame would be
+        // corrupted if the interrupt fired mid-call, so the backend must reject it.
+        const string shared = @"
+static byte counter;
+static void Bump() { counter++; }
+[Interrupt(""VBlank"")]
+static void OnVBlank() { Bump(); }
+static void Main() { Bump(); Hardware.EnableInterrupts(); }";
+        await Assert.That(() => Compile(shared)).Throws<NotSupportedException>();
+
+        // A helper called only from main (not from the handler) is fine.
+        const string mainOnly = @"
+static byte counter;
+static void Bump() { counter++; }
+[Interrupt(""VBlank"")]
+static void OnVBlank() { counter++; }
+static void Main() { Bump(); Hardware.EnableInterrupts(); }";
+        await Assert.That(CompilesClean(mainOnly)).IsTrue();
+    }
+
+    private static bool CompilesClean(string src)
+    {
+        var diagnostics = new DiagnosticBag();
+        new Sm83Backend().Compile(
+            new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), diagnostics), diagnostics);
+        return !diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
+    }
 }

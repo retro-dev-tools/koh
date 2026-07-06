@@ -232,6 +232,8 @@ internal sealed class MethodLowerer
                 _ => throw new CSharpNotSupportedException(
                     $"struct array '{name}' must be created with 'new {structName.Identifier.Text}[n]'."),
             };
+            if (count < 0)
+                throw new CSharpNotSupportedException($"array '{name}' has a negative length ({count}).");
             var basePtr = _b.Alloca(IrType.Array(IrType.I8, structElem.Size * count));
             _structArrays[name] = (basePtr, structElem, count);
             return;
@@ -275,6 +277,8 @@ internal sealed class MethodLowerer
                 throw new CSharpNotSupportedException($"array '{name}' needs a size or initializer.");
         }
 
+        if (length < 0)
+            throw new CSharpNotSupportedException($"array '{name}' has a negative length ({length}).");
         var arrayPtr = _b.Alloca(IrType.Array(element.Ir, length));
         _arrays[name] = (arrayPtr, element, length);
 
@@ -615,13 +619,31 @@ internal sealed class MethodLowerer
         var (value, type) = LowerExpression(unary.Operand, expected);
         return unary.Kind() switch
         {
-            SyntaxKind.UnaryMinusExpression =>
-                (_b.Sub(IrBuilder.ConstInt(type.Ir, 0), value), type),
+            SyntaxKind.UnaryMinusExpression => LowerNegate(value, type, expected),
             SyntaxKind.LogicalNotExpression =>
                 (_b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(IrType.I8, 1)), CsType.Bool),
             SyntaxKind.UnaryPlusExpression => (value, type),
             _ => throw new CSharpNotSupportedException($"unsupported unary operator '{unary.OperatorToken.Text}'."),
         };
+    }
+
+    /// <summary>Lower unary minus. A negated value is signed — C# promotes <c>-x</c> to a signed type —
+    /// and a negated literal folds to a signed constant so it sign-extends correctly and can adopt a
+    /// wider operand's type in a mixed expression. Without this, <c>-5</c> (from the unsigned literal 5)
+    /// would be an unsigned 251, so <c>x &lt; -5</c> would compare against 251 instead of -5.</summary>
+    private (IrValue, CsType) LowerNegate(IrValue value, CsType type, CsType? expected)
+    {
+        if (value is IrConstInt k)
+        {
+            long neg = -k.Value;
+            CsType t = expected is { Signed: true } e && Fits(neg, e) ? e
+                : neg is >= -128 and <= 127 ? CsType.I8
+                : neg is >= -32768 and <= 32767 ? CsType.I16
+                : CsType.I32;
+            return (IrBuilder.ConstInt(t.Ir, neg), t);
+        }
+        var signed = type.Signed ? type : new CsType(type.Ir, Signed: true);
+        return (_b.Sub(IrBuilder.ConstInt(signed.Ir, 0), value), signed);
     }
 
     private (IrValue, CsType) LowerIncDec(ExpressionSyntax operand, bool increment, bool prefix)
@@ -714,23 +736,50 @@ internal sealed class MethodLowerer
                 if (_moduleConsts.TryGetValue(id.Identifier.Text, out var mc)) return mc.Type;
                 if (_globals.TryGetValue(id.Identifier.Text, out var g)) return g.Type;
                 return null;
+            case PrefixUnaryExpressionSyntax u:
+                return u.Kind() switch
+                {
+                    SyntaxKind.LogicalNotExpression => CsType.Bool,
+                    SyntaxKind.UnaryMinusExpression or SyntaxKind.UnaryPlusExpression
+                        or SyntaxKind.BitwiseNotExpression => InferType(u.Operand),
+                    _ => null,
+                };
+            case InvocationExpressionSyntax { Expression: IdentifierNameSyntax fn }
+                when _methods.TryGetValue(fn.Identifier.Text, out var callee):
+                return callee.Return;
+            case ConditionalExpressionSyntax nested:
+                return CommonInferred(nested.WhenTrue, nested.WhenFalse, nested);
+            case BinaryExpressionSyntax bin when IsComparison(bin.Kind())
+                    || bin.Kind() is SyntaxKind.LogicalAndExpression or SyntaxKind.LogicalOrExpression:
+                return CsType.Bool;
+            case BinaryExpressionSyntax { RawKind: (int)SyntaxKind.LeftShiftExpression
+                    or (int)SyntaxKind.RightShiftExpression } sh:
+                return InferType(sh.Left); // a shift result follows its left operand
+            case BinaryExpressionSyntax bin:
+                return (InferType(bin.Left), InferType(bin.Right)) is ({ } bl, { } br)
+                    ? CommonType(bl, br, signMatters: false, bin)
+                    : null;
             default:
                 return null;
         }
     }
 
+    /// <summary>The inferred common type of two branch expressions, or the one that is inferable, or
+    /// null when neither is. Used to size a ternary's result slot from its branches.</summary>
+    private CsType? CommonInferred(ExpressionSyntax whenTrue, ExpressionSyntax whenFalse, ExpressionSyntax site) =>
+        (InferType(whenTrue), InferType(whenFalse)) switch
+        {
+            ({ } t, { } f) => CommonType(t, f, signMatters: false, site),
+            ({ } t, null) => t,
+            (null, { } f) => f,
+            _ => null,
+        };
+
     private (IrValue, CsType) LowerConditional(ConditionalExpressionSyntax cond, CsType? expected)
     {
         // The result slot must be sized before the branches run, so when there is no expected type
         // infer one from the branches (else a wide branch, e.g. an int, would truncate to the default).
-        var type = expected
-            ?? (InferType(cond.WhenTrue), InferType(cond.WhenFalse)) switch
-            {
-                ({ } t, { } f) => CommonType(t, f, signMatters: false, cond),
-                ({ } t, null) => t,
-                (null, { } f) => f,
-                _ => CsType.U16,
-            };
+        var type = expected ?? CommonInferred(cond.WhenTrue, cond.WhenFalse, cond) ?? CsType.U16;
         var result = _b.Alloca(type.Ir);
         var c = Coerce(LowerExpression(cond.Condition, CsType.Bool), CsType.Bool);
 
@@ -816,7 +865,9 @@ internal sealed class MethodLowerer
         (l, ltype) = AdoptConstant((l, ltype), rtype);
         (r, rtype) = AdoptConstant((r, rtype), ltype);
         bool signMatters = kind is SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression;
-        var common = CommonType(ltype, rtype, signMatters, binary);
+        bool allowWide32 = kind is not (SyntaxKind.MultiplyExpression
+            or SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression);
+        var common = CommonType(ltype, rtype, signMatters, binary, allowWide32);
         RejectWide32(kind, common, binary);
         return (_b.Binary(ArithOp(kind, common.Signed),
             Coerce((l, ltype), common), Coerce((r, rtype), common)), common);
@@ -865,8 +916,12 @@ internal sealed class MethodLowerer
     /// no such type exists on the target (anything mixed with <c>ushort</c>): if the operator's
     /// signedness affects the result (divide, remainder, ordering) that is a diagnostic asking for an
     /// explicit cast; otherwise the common width is used unsigned, since the bits are identical.
+    /// <para><paramref name="allowWide32"/> is false for operators the backend has no 32-bit form for
+    /// (multiply, divide, remainder). A mixed-sign pair that would otherwise promote to a signed
+    /// <c>int</c> then either falls back to the common width unsigned (multiply — the low bits don't
+    /// depend on sign) or, if the sign matters (divide/remainder), is rejected asking for a cast.</para>
     /// </summary>
-    private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site)
+    private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site, bool allowWide32 = true)
     {
         int width = Math.Max(a.Ir.SizeInBits, b.Ir.SizeInBits);
         if (a.Signed == b.Signed)
@@ -879,10 +934,12 @@ internal sealed class MethodLowerer
         int need = Math.Max(width, unsignedOp.Ir.SizeInBits + 1);
         if (need <= 16)
             return new CsType(IrType.I16, Signed: true);
-        if (need <= 32)
+        if (need <= 32 && allowWide32)
             return new CsType(IrType.I32, Signed: true); // e.g. ushort vs sbyte -> signed int
 
-        // No wide-enough signed type on this target.
+        // No usable wider signed type — either none exists on the target, or the operator has no
+        // 32-bit form (multiply/divide/remainder). If the operator's signedness affects the result it
+        // needs an explicit cast; otherwise use the common width unsigned, since the bits are identical.
         if (signMatters)
             throw new CSharpNotSupportedException(
                 $"mixed signed/unsigned operation on '{a.Ir}' and '{b.Ir}' needs a wider signed type "
@@ -957,7 +1014,9 @@ internal sealed class MethodLowerer
             var current = _b.Load(pointer);
             var (rhsVal, rhsType) = LowerExpression(assign.Right, expected: null);
             bool signMatters = kind is SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression;
-            var common = CommonType(type, rhsType, signMatters, assign);
+            bool allowWide32 = kind is not (SyntaxKind.MultiplyAssignmentExpression
+                or SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression);
+            var common = CommonType(type, rhsType, signMatters, assign, allowWide32);
             RejectWide32(kind, common, assign);
             var opResult = _b.Binary(CompoundOp(kind, common.Signed),
                 Coerce((current, type), common), Coerce((rhsVal, rhsType), common));

@@ -16,15 +16,19 @@ namespace Koh.Compiler.Backends.Sm83;
 /// absolute addressing. It emits deliberately poor code; the goal is a trustworthy, observable
 /// pipeline, not tight output.
 ///
-/// Supported today: <c>i8</c>/<c>i16</c> arithmetic (add/sub via ADC/SBC chains, and/or/xor),
-/// unsigned + eq/ne comparisons, integer conversions (trunc/zext/sext), control flow
-/// (br/condbr/phi with critical-edge-split phi copies), and static-address memory ops. Not yet:
-/// signed comparisons, dynamic-pointer load/store, <c>switch</c>, calls, multiply/divide/shift,
-/// and instruction selection through <see cref="Koh.Core.Encoding.Sm83InstructionTable"/>.
+/// Supported today: <c>i8</c>/<c>i16</c>/<c>i32</c> arithmetic (add/sub via ADC/SBC byte chains,
+/// and/or/xor), signed and unsigned comparisons, multiply/divide/remainder and shifts via 16-bit
+/// runtime routines, integer conversions (trunc/zext/sext/bitcast), control flow (br/condbr/phi
+/// with critical-edge-split phi copies), <c>switch</c>, calls (static, non-recursive), aggregate
+/// (struct/array) copies, and both static-address and dynamic-pointer memory ops. Instruction
+/// bytes are emitted directly rather than selected through
+/// <see cref="Koh.Core.Encoding.Sm83InstructionTable"/> (that table is the encoding oracle the
+/// <c>Sm83EncodingTests</c> pin the emitted bytes against).
 ///
-/// Calling convention (MVP): parameters occupy WRAM from <see cref="WramBase"/> in declaration
-/// order; an <c>i8</c> result is returned in <c>A</c>, an <c>i16</c> result in <c>HL</c>.
-/// Unsupported IR throws <see cref="NotSupportedException"/> so the boundary stays explicit.
+/// Calling convention: parameters occupy WRAM from <see cref="WramBase"/> in declaration order;
+/// an <c>i8</c> result is returned in <c>A</c>, an <c>i16</c> in <c>HL</c>, an <c>i32</c> in
+/// <c>DE:HL</c> (high word <c>DE</c>, low word <c>HL</c>). Unsupported IR throws
+/// <see cref="NotSupportedException"/> so the boundary stays explicit.
 /// </summary>
 public sealed class Sm83Backend : IBackend
 {
@@ -46,6 +50,7 @@ public sealed class Sm83Backend : IBackend
     public EmitModel Compile(IrModule module, DiagnosticBag diagnostics)
     {
         CheckNoRecursion(module);
+        CheckNoInterruptReentrancy(module);
 
         // Assign global addresses. Initialized (or ROM-space) globals live in a fixed ROM data
         // section; RAM globals get fixed WRAM/HRAM/SRAM addresses. Function frames are placed
@@ -190,7 +195,7 @@ public sealed class Sm83Backend : IBackend
     }
 
     /// <summary>Static frame allocation cannot support recursion; reject cyclic call graphs.</summary>
-    private static void CheckNoRecursion(IrModule module)
+    private static Dictionary<IrFunction, List<IrFunction>> BuildCalleeGraph(IrModule module)
     {
         var callees = new Dictionary<IrFunction, List<IrFunction>>(ReferenceEqualityComparer.Instance);
         foreach (var fn in module.Functions)
@@ -202,7 +207,12 @@ public sealed class Sm83Backend : IBackend
                         list.Add(call.Callee);
             callees[fn] = list;
         }
+        return callees;
+    }
 
+    private static void CheckNoRecursion(IrModule module)
+    {
+        var callees = BuildCalleeGraph(module);
         var state = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance); // 0 unseen, 1 on-stack, 2 done
 
         bool HasCycle(IrFunction fn)
@@ -223,6 +233,50 @@ public sealed class Sm83Backend : IBackend
             if (HasCycle(fn))
                 throw new NotSupportedException(
                     "SM83 backend does not support recursion (functions use static WRAM frames).");
+    }
+
+    /// <summary>Static WRAM frames are not reentrant. An interrupt handler can preempt main-line code
+    /// at any point, so a function reachable from BOTH a handler and main-line shares one frame that the
+    /// interrupt would corrupt mid-call. Reject that at compile time. A handler-only or main-only helper
+    /// is safe (handlers run with interrupts disabled and never nest), so only a shared one is flagged.
+    /// Must run after <see cref="CheckNoRecursion"/> so the reachability walk is acyclic.</summary>
+    private static void CheckNoInterruptReentrancy(IrModule module)
+    {
+        var handlers = module.Functions.Where(f => f.InterruptVector is not null).ToList();
+        if (handlers.Count == 0)
+            return;
+
+        var callees = BuildCalleeGraph(module);
+        void Reach(IrFunction fn, HashSet<IrFunction> set)
+        {
+            if (!set.Add(fn))
+                return;
+            if (callees.TryGetValue(fn, out var next))
+                foreach (var callee in next)
+                    Reach(callee, set);
+        }
+
+        // Functions the interrupt handlers can call (the handlers themselves are only entered via the
+        // vector, so their own frames never clash — it is their callees that may be shared).
+        var handlerReach = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
+        foreach (var handler in handlers)
+            if (callees.TryGetValue(handler, out var next))
+                foreach (var callee in next)
+                    Reach(callee, handlerReach);
+
+        // Functions main-line code can reach: roots are the non-handler functions that aren't already
+        // pinned to interrupt context (a helper called only from a handler is not main-line).
+        var mainReach = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
+        foreach (var fn in module.Functions)
+            if (fn.InterruptVector is null && !handlerReach.Contains(fn))
+                Reach(fn, mainReach);
+
+        foreach (var fn in module.Functions)
+            if (handlerReach.Contains(fn) && mainReach.Contains(fn))
+                throw new NotSupportedException(
+                    $"function '{fn.Name}' is reachable from both an interrupt handler and main-line code; "
+                    + "static WRAM frames are not reentrant, so an interrupt firing mid-call would corrupt it. "
+                    + "Give the handler its own copy of the routine.");
     }
 
     // Fixed scratch for the (non-reentrant) runtime routines.
