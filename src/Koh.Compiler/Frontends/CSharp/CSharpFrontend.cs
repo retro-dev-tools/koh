@@ -79,8 +79,8 @@ public sealed class CSharpFrontend : IFrontend
         // Pass 0.4: struct layouts (value types with scalar fields).
         var structs = CollectStructs(root, enums);
 
-        // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts.
-        var (globals, moduleConsts, staticInits) = CollectStatics(root, enums, module);
+        // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
+        var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(root, enums, module);
 
         var hardware = new HardwareRegisters(module);
 
@@ -124,7 +124,7 @@ public sealed class CSharpFrontend : IFrontend
             try
             {
                 new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts,
-                    hardware, module.Name, inits).Lower();
+                    hardware, module.Name, inits, moduleArrays).Lower();
             }
             catch (CSharpNotSupportedException ex)
             {
@@ -248,12 +248,14 @@ public sealed class CSharpFrontend : IFrontend
 
     private static (Dictionary<string, (IrGlobal Global, CsType Type)> Globals,
                     Dictionary<string, (CsType Type, long Value)> Consts,
-                    List<(IrGlobal Global, long Value, CsType Type)> Inits)
+                    List<(IrGlobal Global, long Value, CsType Type)> Inits,
+                    Dictionary<string, (IrGlobal Global, CsType Element, int Length)> Arrays)
         CollectStatics(CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums, IrModule module)
     {
         var globals = new Dictionary<string, (IrGlobal, CsType)>(StringComparer.Ordinal);
         var consts = new Dictionary<string, (CsType, long)>(StringComparer.Ordinal);
         var inits = new List<(IrGlobal, long, CsType)>();
+        var arrays = new Dictionary<string, (IrGlobal, CsType, int)>(StringComparer.Ordinal);
 
         long? ConstLookup(string n) => consts.TryGetValue(n, out var c) ? c.Item2 : null;
 
@@ -263,6 +265,17 @@ public sealed class CSharpFrontend : IFrontend
         {
             bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
             bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
+
+            // A static array field is a data table: `static readonly T[] x = { ... }` lives in ROM;
+            // `static T[] x = new T[n]` is a zero-initialized WRAM buffer.
+            if (field.Declaration.Type is ArrayTypeSyntax arrayType)
+            {
+                var element = ResolveType(arrayType.ElementType, enums);
+                foreach (var v in field.Declaration.Variables)
+                    CollectStaticArray(v, element, isReadonly, ConstLookup, module, arrays);
+                continue;
+            }
+
             var type = ResolveType(field.Declaration.Type, enums);
             int size = type.Ir.SizeInBytes;
 
@@ -292,7 +305,50 @@ public sealed class CSharpFrontend : IFrontend
                 }
             }
         }
-        return (globals, consts, inits);
+        return (globals, consts, inits, arrays);
+    }
+
+    /// <summary>Lower one static array field into a ROM (readonly, initialized) or WRAM (mutable,
+    /// <c>new T[n]</c>) global.</summary>
+    private static void CollectStaticArray(
+        VariableDeclaratorSyntax v, CsType element, bool isReadonly, Func<string, long?> constLookup,
+        IrModule module, Dictionary<string, (IrGlobal, CsType, int)> arrays)
+    {
+        var name = v.Identifier.Text;
+        int elemSize = element.Ir.SizeInBytes;
+        List<ExpressionSyntax>? elements = v.Initializer?.Value switch
+        {
+            InitializerExpressionSyntax bare => bare.Expressions.ToList(),                 // = { ... }
+            ArrayCreationExpressionSyntax { Initializer: { } init } => init.Expressions.ToList(), // = new T[] { ... }
+            _ => null,
+        };
+
+        if (elements is not null)
+        {
+            if (!isReadonly)
+                throw new CSharpNotSupportedException(
+                    $"initialized static array '{name}' must be 'static readonly' (it lives in ROM); "
+                    + "use 'static T[] x = new T[n]' for a mutable buffer.");
+            var bytes = new List<byte>(elements.Count * elemSize);
+            foreach (var e in elements)
+                bytes.AddRange(ToLittleEndian(ConstEval(e, constLookup), elemSize));
+            var rom = new IrGlobal(name, IrType.Array(element.Ir, elements.Count), AddressSpace.Rom, initializer: bytes.ToArray());
+            module.Globals.Add(rom);
+            arrays[name] = (rom, element, elements.Count);
+            return;
+        }
+
+        // No element list: `new T[n]` (or a bare size) -> a zero buffer. Mutable in WRAM; a readonly
+        // one is placed in ROM (constant zeros).
+        int length = v.Initializer?.Value switch
+        {
+            ArrayCreationExpressionSyntax create when create.Type.RankSpecifiers[0].Sizes[0] is { } size
+                => (int)ConstEval(size, constLookup),
+            _ => throw new CSharpNotSupportedException($"static array '{name}' needs an initializer or a size."),
+        };
+        var g = new IrGlobal(name, IrType.Array(element.Ir, length), isReadonly ? AddressSpace.Rom : AddressSpace.Wram);
+        module.Globals.Add(g);
+        arrays[name] = (g, element, length);
     }
 
     private static Dictionary<string, CsStruct> CollectStructs(

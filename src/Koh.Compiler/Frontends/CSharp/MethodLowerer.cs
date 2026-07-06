@@ -23,6 +23,7 @@ internal sealed class MethodLowerer
     private readonly HardwareRegisters _hardware;
     private readonly string _file;
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
+    private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> _moduleArrays;
     private readonly IrBuilder _b = new();
     private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue Address, CsType Element)> _refs = new(StringComparer.Ordinal);
@@ -42,7 +43,8 @@ internal sealed class MethodLowerer
         IReadOnlyDictionary<string, (CsType Type, long Value)> moduleConsts,
         HardwareRegisters hardware,
         string file,
-        IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits)
+        IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits,
+        IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays)
     {
         _file = file;
         _method = method;
@@ -55,12 +57,18 @@ internal sealed class MethodLowerer
         _moduleConsts = moduleConsts;
         _hardware = hardware;
         _staticInits = staticInits;
+        _moduleArrays = moduleArrays;
     }
 
     public void Lower()
     {
         var entry = _method.Fn.AppendBlock("entry");
         _b.PositionAtEnd(entry);
+
+        // Static data arrays are visible in every method: index/Length treat them like local
+        // arrays, but the base is the global's address (ROM tables or WRAM buffers) not an alloca.
+        foreach (var (name, a) in _moduleArrays)
+            _arrays[name] = (IrBuilder.GlobalRef(a.Global), a.Element, a.Length);
 
         // Parameters: a normal one gets a mutable slot seeded with its value; a ref/out parameter
         // arrives as an address, so its "place" is that address itself (reads/writes deref it).

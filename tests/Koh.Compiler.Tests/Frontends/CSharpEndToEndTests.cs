@@ -353,6 +353,57 @@ static byte Get(byte i) {
     }
 
     [Test]
+    public async Task StaticArray_RomTable_IndexedAndSummed()
+    {
+        // `static readonly T[]` is a ROM data table, visible in every method.
+        const string src = @"
+static byte Main() {
+    byte total = 0;
+    for (byte i = 0; i < Squares.Length; i++) total += Lookup(i);
+    return total;
+}
+static byte Lookup(byte i) { return Squares[i]; }
+static readonly byte[] Squares = { 0, 1, 4, 9, 16, 25 };";
+        await Assert.That(RunA(src)).IsEqualTo((byte)55); // 0+1+4+9+16+25
+    }
+
+    [Test]
+    public async Task StaticArray_RomUshortTable_LittleEndian()
+    {
+        const string src = @"
+static readonly ushort[] Notes = { 1000, 2000, 3000 };
+static ushort Main() { return Notes[2]; }";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)3000);
+    }
+
+    [Test]
+    public async Task StaticArray_WramBuffer_PersistsAcrossCalls()
+    {
+        // `static T[] x = new T[n]` is a zero-initialized WRAM buffer shared by all methods.
+        const string src = @"
+static byte Main() {
+    Store(3, 77);
+    Store(5, 88);
+    return (byte)(Buffer[3] + Buffer[5]);
+}
+static void Store(byte i, byte v) { Buffer[i] = v; }
+static byte[] Buffer = new byte[8];";
+        await Assert.That(RunA(src)).IsEqualTo((byte)165);
+    }
+
+    [Test]
+    public async Task StaticArray_MutableWithInitializer_IsDiagnostic()
+    {
+        // A mutable static array with an initializer would need a ROM->WRAM copy at boot; require
+        // `static readonly` (ROM) or `new T[n]` (WRAM) instead.
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("static byte[] X = { 1, 2, 3 }; static byte Main() { return X[0]; }", "game.cs"),
+            diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+    }
+
+    [Test]
     public async Task Struct_FieldsReadWrite()
     {
         // A struct with a byte and a ushort field, exercising aligned layout.
