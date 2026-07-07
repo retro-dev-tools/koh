@@ -66,6 +66,11 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   in a call cycle saves/restores its shared static frame on a software stack (`SoftSp`) around
   each entry, takes its args via `ArgScratch`, and returns via `ReturnScratch`. i8 returns in
   `A`, i16 in `HL`, i32 in `DE:HL`, i64 (and any recursive return) in memory (`ReturnScratch`).
+  A recursive program also relocates the hardware CALL stack from the tiny HRAM window into WRAM
+  (`SP = HwStackTop`, growing down) at entry, and `rt.pushframe` traps if the software stack meets
+  the descending `SP` or the heap ceiling — so deep recursion runs hundreds deep and overflows halt
+  cleanly instead of crashing into the I/O registers. A recursive interrupt handler is rejected
+  (its epilogue must be `RETI` with a balanced stack, incompatible with the memory-return path).
 - **Register allocator (`FunctionAllocation`)**: a multi-byte result is written in place
   byte-by-byte, so it *interferes with its own operands* (a partial slot overlap would clobber
   a source mid-read). Phi parallel-copies detect clobbers by *allocated slot*, not SSA identity.
@@ -105,17 +110,23 @@ i128 via generic width-N memory routines; i64/i128 have no register room so they
 `char`/string literals (strings only as `byte[]` initializers), `enum` (custom base), `const`,
 pointers (`T*` incl. arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed arrays (local +
 static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es
-(heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`);
-dynamic allocation (`Mem.Alloc`/`Mem.Reset`); generic methods (monomorphized — specialized per
-concrete type argument, transitively); array LINQ reductions (`Where`/`Select` pipelines ending in
-`Sum`/`Count`/`Max`/`Min`/`Any`/`All`, compiled to a loop with inlined lambdas); cooperative
-coroutines (`yield return` iterators lowered to a MoveNext/Current state-machine class);
+(heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`; a class
+type also names fields — including of its own type, so linked structures work — parameters, and returns,
+all as heap pointers; an instance is usable as a value/`byte*` (`return this;`), and assignment copies the
+reference, not the bytes); dynamic allocation (`Mem.Alloc`/`Mem.Reset`); generic methods (monomorphized —
+specialized per concrete type argument, transitively; a value shadowing a type parameter is a diagnostic);
+array LINQ reductions (`Where`/`Select` pipelines ending in `Sum`/`Count`/`Any`/`All`, plus `Max`/`Min`
+directly on an array, compiled to a loop with inlined lambdas); cooperative coroutines (a linear run of
+`yield return`s, or a single counted `for` loop with one `yield`, lowered to a MoveNext/Current
+state-machine class that captures the iterator's parameters);
 `if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
 `&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
 (mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,
 `static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
-`[Interrupt("VBlank")]` handlers, and recursion (direct and mutual). Out by design: 128-bit+,
-classes/GC/generics/async/LINQ. Out-of-subset constructs are reported as diagnostics.
+`[Interrupt("VBlank")]` handlers, and recursion (direct and mutual; a recursive program moves the CALL
+stack into WRAM so it runs hundreds of levels deep, and `rt.pushframe` traps on a stack/heap collision
+rather than corrupting memory). Out by design: 128-bit+, classes/GC/generics/async/LINQ. Out-of-subset
+constructs are reported as diagnostics.
 
 ## Gotchas
 
