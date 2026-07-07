@@ -34,19 +34,13 @@ public sealed partial class Sm83Backend
 
         public void Compile()
         {
-            // The CALL target is here, before any prologue (the entry block label follows the prologue).
-            _e.Place(_e.FunctionLabel(_ctx.Fn));
-
-            // Interrupt handlers must preserve everything they touch; push at entry, pop before RETI.
-            if (_ctx.Fn.InterruptVector is not null)
-            {
-                _e.U8(0xF5); // PUSH AF
-                _e.U8(0xC5); // PUSH BC
-                _e.U8(0xD5); // PUSH DE
-                _e.U8(0xE5); // PUSH HL
-            }
-
-            if (_ctx.IsEntry && _ctx.Recursive.Count > 0)
+            // Boot-only, and deliberately BEFORE the CALL label: the cartridge boots into this byte (the
+            // recorded entry address), but a recursive CALL targets FunctionLabel below and skips it.
+            // Re-running it on every recursive re-entry would reset SP and the software stack and destroy
+            // the return chain, so the entry can never unwind. In multi-bank mode the boot stub jumps
+            // straight to FunctionLabel (it can't reach a pre-label byte), so there the init lives in the
+            // boot stub instead; a non-empty Banked set marks that mode.
+            if (_ctx.IsEntry && _ctx.Recursive.Count > 0 && _ctx.Banked.Count == 0)
             {
                 // Move the hardware CALL stack into WRAM (it defaults to the tiny HRAM window, where deep
                 // recursion overflows into the I/O registers and crashes). Growing down from just below
@@ -57,6 +51,18 @@ public sealed partial class Sm83Backend
                 LdHL(_e, _ctx.SoftStackBase); // LD HL, softStackBase
                 _e.U8(0x7D); _e.StoreA(SoftSp);       // LD A, L ; LD (SoftSp), A
                 _e.U8(0x7C); _e.StoreA(SoftSp + 1);   // LD A, H ; LD (SoftSp+1), A
+            }
+
+            // The CALL target is here, before any prologue (the entry block label follows the prologue).
+            _e.Place(_e.FunctionLabel(_ctx.Fn));
+
+            // Interrupt handlers must preserve everything they touch; push at entry, pop before RETI.
+            if (_ctx.Fn.InterruptVector is not null)
+            {
+                _e.U8(0xF5); // PUSH AF
+                _e.U8(0xC5); // PUSH BC
+                _e.U8(0xD5); // PUSH DE
+                _e.U8(0xE5); // PUSH HL
             }
 
             if (_ctx.IsRecursive)

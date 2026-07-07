@@ -85,10 +85,12 @@ public sealed partial class CSharpFrontend
 
     /// <summary>Fold a constant expression to a long, resolving bare names via <paramref name="lookup"/>
     /// and qualified <c>Enum.Member</c> references via <paramref name="enums"/>.</summary>
+    /// <param name="unsigned">Evaluate <c>&gt;&gt;</c>, <c>/</c>, and <c>%</c> as unsigned — set for an
+    /// unsigned-typed constant so a value with bit 63 set shifts/divides logically, not arithmetically.</param>
     internal static long ConstEval(ExpressionSyntax expr, Func<string, long?> lookup,
-        IReadOnlyDictionary<string, CsEnum>? enums = null) => expr switch
+        IReadOnlyDictionary<string, CsEnum>? enums = null, bool unsigned = false) => expr switch
     {
-        ParenthesizedExpressionSyntax p => ConstEval(p.Expression, lookup, enums),
+        ParenthesizedExpressionSyntax p => ConstEval(p.Expression, lookup, enums, unsigned),
         LiteralExpressionSyntax lit => LiteralToLong(lit),
         IdentifierNameSyntax id => lookup(id.Identifier.Text)
             ?? throw new CSharpNotSupportedException($"'{id.Identifier.Text}' is not a constant.", id.GetLocation()),
@@ -97,20 +99,21 @@ public sealed partial class CSharpFrontend
                  && en.Members.TryGetValue(member.Identifier.Text, out var mv) => mv,
         // A cast in a constant is transparent to folding; the declared const/element width is enforced
         // when the value is stored (FitsInBytes / ToLittleEndian).
-        CastExpressionSyntax cast => ConstEval(cast.Expression, lookup, enums),
-        PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.UnaryMinusExpression } u => -ConstEval(u.Operand, lookup, enums),
-        PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.UnaryPlusExpression } u => ConstEval(u.Operand, lookup, enums),
-        PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.BitwiseNotExpression } u => ~ConstEval(u.Operand, lookup, enums),
-        BinaryExpressionSyntax bin => FoldBinary(bin, lookup, enums),
+        CastExpressionSyntax cast => ConstEval(cast.Expression, lookup, enums, unsigned),
+        PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.UnaryMinusExpression } u => -ConstEval(u.Operand, lookup, enums, unsigned),
+        PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.UnaryPlusExpression } u => ConstEval(u.Operand, lookup, enums, unsigned),
+        PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.BitwiseNotExpression } u => ~ConstEval(u.Operand, lookup, enums, unsigned),
+        BinaryExpressionSyntax bin => FoldBinary(bin, lookup, enums, unsigned),
         _ => throw new CSharpNotSupportedException($"'{expr}' is not a constant expression.", expr.GetLocation()),
     };
 
     private static long FoldBinary(BinaryExpressionSyntax bin, Func<string, long?> lookup,
-        IReadOnlyDictionary<string, CsEnum>? enums)
+        IReadOnlyDictionary<string, CsEnum>? enums, bool unsigned)
     {
-        long l = ConstEval(bin.Left, lookup, enums), r = ConstEval(bin.Right, lookup, enums);
+        long l = ConstEval(bin.Left, lookup, enums, unsigned), r = ConstEval(bin.Right, lookup, enums, unsigned);
         // Division/remainder guard the zero and MinValue/-1 traps so a bad constant is a diagnostic, not
-        // an uncaught DivideByZeroException/OverflowException that would escape the frontend.
+        // an uncaught DivideByZeroException/OverflowException that would escape the frontend. For an
+        // unsigned constant, shift/divide/modulo are logical/unsigned (no sign extension, no -1 trap).
         return bin.Kind() switch
         {
             SyntaxKind.AddExpression => unchecked(l + r),
@@ -118,15 +121,17 @@ public sealed partial class CSharpFrontend
             SyntaxKind.MultiplyExpression => unchecked(l * r),
             SyntaxKind.DivideExpression => r == 0
                 ? throw new CSharpNotSupportedException($"division by zero in constant '{bin}'.", bin.GetLocation())
+                : unsigned ? (long)((ulong)l / (ulong)r)
                 : r == -1 ? unchecked(-l) : l / r,
             SyntaxKind.ModuloExpression => r == 0
                 ? throw new CSharpNotSupportedException($"division by zero in constant '{bin}'.", bin.GetLocation())
+                : unsigned ? (long)((ulong)l % (ulong)r)
                 : r == -1 ? 0 : l % r,
             SyntaxKind.BitwiseAndExpression => l & r,
             SyntaxKind.BitwiseOrExpression => l | r,
             SyntaxKind.ExclusiveOrExpression => l ^ r,
             SyntaxKind.LeftShiftExpression => l << (int)r,
-            SyntaxKind.RightShiftExpression => l >> (int)r,
+            SyntaxKind.RightShiftExpression => unsigned ? (long)((ulong)l >> (int)r) : l >> (int)r,
             _ => throw new CSharpNotSupportedException($"'{bin}' is not a constant expression.", bin.GetLocation()),
         };
     }

@@ -1855,6 +1855,69 @@ static T Max<T>(T a, T b, T c) { return a; }";
     }
 
     [Test]
+    public async Task Sum_AccumulatesWiderThanElement()
+    {
+        // A byte sum whose total exceeds 255 must not wrap at the element width — the accumulator widens
+        // to int, matching C#. Regression: the accumulator was sized to the source element type.
+        const string src = "static readonly byte[] D = { 200, 200, 200 };\n"
+            + "static ushort Main() { return (ushort)D.Sum(); }";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)600);
+    }
+
+    [Test]
+    public async Task Const_UnsignedShiftIsLogical()
+    {
+        // A ulong constant with bit 63 set must shift/divide unsigned (logical), not arithmetically.
+        const string src = "const ulong Mask = 0xFF00000000000000UL >> 8;\n"
+            + "static ulong Main() { return Mask; }";
+        await Assert.That(RunI64(src)).IsEqualTo(0x00FF000000000000UL);
+    }
+
+    [Test]
+    public async Task Recursion_EntryFunctionIsItselfRecursive()
+    {
+        // The entry (main) recurses: the one-time stack setup must run only at boot, not on every
+        // recursive re-entry (which would reset SP/SoftSp and destroy the return chain). A recursive
+        // function returns via ReturnScratch, so read the result there.
+        const string src = "static byte n;\n"
+            + "static byte Main() { n++; if (n < 5) return Main(); return n; }";
+        var gb = Load(Compile(src), out int s, out int l);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte((ushort)Sm83Backend.ReturnScratch)).IsEqualTo((byte)5);
+    }
+
+    [Test]
+    public async Task ClassStaticField_IsDiagnostic()
+    {
+        // A static field inside a user class is stored by no collection pass; reject it rather than let
+        // it silently vanish and surface as a misleading later error.
+        await Assert.That(HasError(
+            "class C { byte v; static int s; byte M() { return v; } }\n"
+            + "static byte Main() { C c = new C(); return c.M(); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task InterruptAndMainBothWide_IsRejected()
+    {
+        // Wide (i32+) arithmetic routes through fixed runtime scratch shared by all functions; a handler
+        // doing it can corrupt a main-line wide op it preempts, so the pair is rejected.
+        const string wide = @"
+static int g;
+[Interrupt(""VBlank"")]
+static void OnVBlank() { g = g * g; }
+static int Main() { int x = 3; return x * x; }";
+        await Assert.That(() => Compile(wide)).Throws<NotSupportedException>();
+
+        // A handler doing only narrow (<=16-bit) work alongside wide main-line is fine.
+        const string narrow = @"
+static byte c;
+[Interrupt(""VBlank"")]
+static void OnVBlank() { c++; }
+static int Main() { int x = 3; return x * x; }";
+        await Assert.That(CompilesClean(narrow)).IsTrue();
+    }
+
+    [Test]
     public async Task Linq_MaxMinAfterPipeline_IsDiagnostic()
     {
         // Max/Min seed the accumulator with element 0 and skip the pipeline for it, so a filtered or

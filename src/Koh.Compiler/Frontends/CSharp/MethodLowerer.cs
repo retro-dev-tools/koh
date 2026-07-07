@@ -241,7 +241,7 @@ internal sealed class MethodLowerer
             {
                 if (v.Initializer is null)
                     throw new CSharpNotSupportedException($"const '{v.Identifier.Text}' needs an initializer.");
-                _consts[v.Identifier.Text] = (type, CSharpFrontend.ConstEval(v.Initializer.Value, ResolveConst));
+                _consts[v.Identifier.Text] = (type, CSharpFrontend.ConstEval(v.Initializer.Value, ResolveConst, unsigned: !type.Signed));
                 continue;
             }
 
@@ -1314,7 +1314,15 @@ internal sealed class MethodLowerer
                 $"{termOp}() is only supported directly on an array, not after a Where/Select pipeline.",
                 call.GetLocation());
 
-        var accType = termOp switch { "Count" => CsType.U16, "Any" or "All" => CsType.Bool, _ => src.Element };
+        // Sum accumulates wider than the element (C# widens Sum to int/long) so a total exceeding the
+        // element width doesn't wrap; Max/Min keep the element type.
+        var accType = termOp switch
+        {
+            "Count" => CsType.U16,
+            "Any" or "All" => CsType.Bool,
+            "Sum" => src.Element.Ir.SizeInBytes >= 8 ? src.Element : CsType.I32,
+            _ => src.Element,
+        };
 
         var acc = _b.Alloca(accType.Ir);
         var iSlot = _b.Alloca(IrType.I16);

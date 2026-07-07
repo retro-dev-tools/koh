@@ -100,7 +100,7 @@ public sealed partial class CSharpFrontend
                     if (v.Initializer is null)
                         throw new CSharpNotSupportedException($"const '{name}' needs an initializer.",
                             v.Identifier.GetLocation());
-                    long cv = ConstEval(v.Initializer.Value, ConstLookup, enums);
+                    long cv = ConstEval(v.Initializer.Value, ConstLookup, enums, !type.Signed);
                     if (!FitsInBytes(cv, size))
                         throw new CSharpNotSupportedException(
                             $"const '{name}' value {cv} does not fit in {size} byte(s).", v.Identifier.GetLocation());
@@ -109,7 +109,7 @@ public sealed partial class CSharpFrontend
                 else if (isReadonly && v.Initializer is { } roInit)
                 {
                     var g = new IrGlobal(name, type.Ir, AddressSpace.Rom,
-                        initializer: ToLittleEndian(ConstEval(roInit.Value, ConstLookup, enums), size));
+                        initializer: ToLittleEndian(ConstEval(roInit.Value, ConstLookup, enums, !type.Signed), size));
                     module.Globals.Add(g);
                     globals[name] = (g, type);
                 }
@@ -119,7 +119,7 @@ public sealed partial class CSharpFrontend
                     module.Globals.Add(g);
                     globals[name] = (g, type);
                     if (v.Initializer is { } init)
-                        inits.Add((g, ConstEval(init.Value, ConstLookup, enums), type));
+                        inits.Add((g, ConstEval(init.Value, ConstLookup, enums, !type.Signed), type));
                 }
             }
         }
@@ -166,7 +166,7 @@ public sealed partial class CSharpFrontend
                     + "use 'static T[] x = new T[n]' for a mutable buffer.");
             var bytes = new List<byte>(elements.Count * elemSize);
             foreach (var e in elements)
-                bytes.AddRange(ToLittleEndian(ConstEval(e, constLookup, enums), elemSize));
+                bytes.AddRange(ToLittleEndian(ConstEval(e, constLookup, enums, !element.Signed), elemSize));
             var rom = new IrGlobal(name, IrType.Array(element.Ir, elements.Count), AddressSpace.Rom, initializer: bytes.ToArray());
             module.Globals.Add(rom);
             arrays[name] = (rom, element, elements.Count);
@@ -269,7 +269,13 @@ public sealed partial class CSharpFrontend
             foreach (var member in decl.Members.OfType<FieldDeclarationSyntax>())
             {
                 if (member.Modifiers.Any(m => m.ValueText == "static"))
-                    continue; // a static field is program-global, not per-instance
+                {
+                    // Neither CollectStatics (program-wrapper fields only) nor this pass stores a class-level
+                    // static, so it would silently vanish. Reject it rather than emit a misleading later error.
+                    Report(diagnostics, $"static field in class '{decl.Identifier.Text}' is not supported; "
+                        + "declare it at the top level (program scope) instead.", member.GetLocation());
+                    continue;
+                }
                 var type = ResolveTypeAllowingClass(member.Declaration.Type, enums, classNames);
                 int fsize = type.Ir.SizeInBytes;
                 foreach (var v in member.Declaration.Variables)

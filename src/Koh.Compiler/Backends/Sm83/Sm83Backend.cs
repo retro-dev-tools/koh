@@ -73,7 +73,7 @@ public sealed partial class Sm83Backend : IBackend
     private EmitModel CompileCore(IrModule module, DiagnosticBag diagnostics)
     {
         var recursive = FindRecursiveFunctions(module);
-        CheckNoInterruptReentrancy(module);
+        CheckNoInterruptReentrancy(module, recursive);
 
         // A recursive value returns through ReturnScratch and the frame save/restore path emits a plain
         // RET; an interrupt handler must instead end in RETI after restoring the registers its prologue
@@ -143,10 +143,12 @@ public sealed partial class Sm83Backend : IBackend
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
-        // The cartridge boots into "main" (or the first function if there is none).
+        // The cartridge boots into "main" (or the first non-handler function if there is none). An
+        // interrupt handler must never be the entry: its body runs on every interrupt and ends in RETI,
+        // so booting into it re-runs initializers and returns through a nonexistent interrupt frame.
         var entryFunction = module.Functions.FirstOrDefault(f =>
                 !f.IsExternal && string.Equals(f.Name, "main", StringComparison.OrdinalIgnoreCase))
-            ?? module.Functions.FirstOrDefault(f => !f.IsExternal);
+            ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
         var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {
@@ -158,7 +160,7 @@ public sealed partial class Sm83Backend : IBackend
         }
         int funcsEnd = emitter.Code.Count;
 
-        EmitRuntimeRoutines(emitter);
+        EmitRuntimeRoutines(emitter, HeapAddress(globalAddresses));
 
         // Code that overflows the fixed ROM0 code window ([CodeBase, DataBase)) — the trailing functions
         // and the runtime routines — moves into ROM bank 1. That is the bank MBC1 maps by default and
@@ -299,6 +301,19 @@ public sealed partial class Sm83Backend : IBackend
         var bankedList = order.Where(f => !IsRom0(f)).ToList();
         var banked = new HashSet<IrFunction>(bankedList, ReferenceEqualityComparer.Instance);
 
+        // The first pass measured non-banked sizes; a banked function emits larger (its result is copied
+        // to ReturnScratch and calls route through thunks), so packing on those sizes could overflow a
+        // near-full bank and spuriously reject a program that fits. Re-measure with the banked set.
+        var measure = new Emitter();
+        foreach (var r in neededRoutines) measure.NeededRoutines.Add(r);
+        foreach (var f in bankedList)
+        {
+            int s0 = measure.Code.Count;
+            new FunctionEmitter(measure, f, allocations, globalAddresses, recursive,
+                false, softStackBase, banked).Compile();
+            size[f] = measure.Code.Count - s0;
+        }
+
         var bankOf = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
         int bank = 1, bankUsed = 0;
         foreach (var f in bankedList)
@@ -322,6 +337,16 @@ public sealed partial class Sm83Backend : IBackend
         // Boot: seed the current-bank shadow and jump to the entry function.
         emitter.U8(0x3E); emitter.U8(0x01);                                             // LD A, 1
         SelectBank(emitter);                                                            // seed current-bank shadow + MBC1
+        if (recursive.Count > 0)
+        {
+            // One-time recursion setup lives here (not in the entry's prologue) because the JP below lands
+            // on the entry's FunctionLabel, past any pre-label bytes. Doing it here also means a recursive
+            // CALL to the entry re-enters at FunctionLabel and never re-runs this.
+            emitter.U8(0x31); emitter.U16(HwStackTop);                                  // LD SP, HwStackTop
+            LdHL(emitter, softStackBase);                                               // LD HL, softStackBase
+            emitter.U8(0x7D); StAAbs(emitter, SoftSp);                                  // LD A,L ; LD (SoftSp),A
+            emitter.U8(0x7C); StAAbs(emitter, SoftSp + 1);                              // LD A,H ; LD (SoftSp+1),A
+        }
         emitter.Jump(0xC3, emitter.FunctionLabel(entryFunction));                       // JP entry
 
         void EmitFunc(IrFunction f, int addr)
@@ -334,7 +359,7 @@ public sealed partial class Sm83Backend : IBackend
         foreach (var f in order.Where(IsRom0))
             EmitFunc(f, CodeBase + emitter.Code.Count);
 
-        EmitRuntimeRoutines(emitter);
+        EmitRuntimeRoutines(emitter, HeapAddress(globalAddresses));
 
         foreach (var f in bankedList)
         {
@@ -432,14 +457,26 @@ public sealed partial class Sm83Backend : IBackend
         ("ashr_wide", e => EmitShiftWide(e, "ashr_wide", IrBinaryOp.AShr)),
         ("rt.clracc", EmitClrAcc), ("rt.rlmem", EmitRlMem), ("rt.rrmem", EmitRrMem),
         ("rt.addmem", EmitAddMem), ("rt.submem", EmitSubMem), ("rt.negmem", EmitNegMem),
-        ("rt.pushframe", EmitPushFrame), ("rt.popframe", EmitPopFrame),
+        ("rt.pushframe", _ => { }), // emitted via the heap-aware path in EmitRuntimeRoutines
+        ("rt.popframe", EmitPopFrame),
     ];
 
     /// <summary>Emit the runtime helper routines that generated code referenced. Emitting a routine can
     /// add more <c>NeededRoutines</c> (the leaf rt.* helpers it CALLs via <c>RoutineLabel</c>), so this
     /// runs to a fixpoint: a routine pulled in after its table position is picked up on the next sweep.
     /// Ordering therefore can't silently leave a referenced label unplaced for <c>Resolve</c>.</summary>
-    private static void EmitRuntimeRoutines(Emitter emitter)
+    /// <summary>The fixed WRAM address of the heap pointer (<c>__heap</c>), or -1 if the program has no
+    /// heap. The recursion soft-stack guard traps against this live pointer so a rising stack and a
+    /// descending heap can't silently overwrite each other.</summary>
+    private static int HeapAddress(IReadOnlyDictionary<IrGlobal, int> globals)
+    {
+        foreach (var (g, addr) in globals)
+            if (g.Name == Frontends.CSharp.CSharpFrontend.HeapPointerName)
+                return addr;
+        return -1;
+    }
+
+    private static void EmitRuntimeRoutines(Emitter emitter, int heapAddr)
     {
         var emitted = new HashSet<string>(StringComparer.Ordinal);
         bool progress = true;
@@ -452,7 +489,8 @@ public sealed partial class Sm83Backend : IBackend
             foreach (var (name, emit) in RuntimeEmitters)
                 if (emitter.NeededRoutines.Contains(name) && emitted.Add(name))
                 {
-                    emit(emitter);
+                    if (name == "rt.pushframe") EmitPushFrame(emitter, heapAddr);
+                    else emit(emitter);
                     progress = true; // emitting may have appended new leaf routines to NeededRoutines
                 }
         }
@@ -657,7 +695,7 @@ public sealed partial class Sm83Backend : IBackend
     /// interrupt would corrupt mid-call. Reject that at compile time. A handler-only or main-only helper
     /// is safe (handlers run with interrupts disabled and never nest), so only a shared one is flagged.
     /// Must run after <see cref="CheckNoRecursion"/> so the reachability walk is acyclic.</summary>
-    private static void CheckNoInterruptReentrancy(IrModule module)
+    private static void CheckNoInterruptReentrancy(IrModule module, IReadOnlySet<IrFunction> recursive)
     {
         var handlers = module.Functions.Where(f => f.InterruptVector is not null).ToList();
         if (handlers.Count == 0)
@@ -694,6 +732,39 @@ public sealed partial class Sm83Backend : IBackend
                     $"function '{fn.Name}' is reachable from both an interrupt handler and main-line code; "
                     + "static WRAM frames are not reentrant, so an interrupt firing mid-call would corrupt it. "
                     + "Give the handler its own copy of the routine.");
+
+        // The wide (i32+) arithmetic and i64/i128/recursive memory-return paths route through fixed runtime
+        // scratch (RtOpA/RtOpB/RtAcc/ReturnScratch) that, like a static frame, is not reentrant. If both a
+        // handler and main-line touch it, an interrupt mid-computation corrupts the interrupted result.
+        bool HandlerWide() => handlers.Any(h => UsesWideScratch(h, recursive))
+            || handlerReach.Any(f => UsesWideScratch(f, recursive));
+        if (HandlerWide() && mainReach.Any(f => UsesWideScratch(f, recursive)))
+            throw new NotSupportedException(
+                "an interrupt handler and main-line code both use wide (32/64/128-bit) arithmetic or a "
+                + "memory-returned value; these share fixed runtime scratch that an interrupt firing "
+                + "mid-computation would corrupt. Keep wide arithmetic out of interrupt handlers.");
+    }
+
+    /// <summary>Whether a function touches the shared, non-reentrant runtime scratch: wide (i32+)
+    /// mul/div/rem/shift, or a memory-returned value (i64/i128, or any recursive return).</summary>
+    private static bool UsesWideScratch(IrFunction fn, IReadOnlySet<IrFunction> recursive)
+    {
+        bool MemReturn(IrFunction f) =>
+            recursive.Contains(f) || (f.ReturnType.Kind != IrTypeKind.Void && SizeOf(f.ReturnType) > 4);
+        foreach (var block in fn.Blocks)
+            foreach (var instr in block.Instructions)
+                switch (instr)
+                {
+                    case BinaryInstruction b when SizeOf(b.Type) > 2 && b.Op is
+                        IrBinaryOp.Mul or IrBinaryOp.UDiv or IrBinaryOp.SDiv or IrBinaryOp.URem
+                        or IrBinaryOp.SRem or IrBinaryOp.Shl or IrBinaryOp.LShr or IrBinaryOp.AShr:
+                        return true;
+                    case RetInstruction { Value: not null } when MemReturn(fn):
+                        return true;
+                    case CallInstruction c when MemReturn(c.Callee):
+                        return true;
+                }
+        return false;
     }
 
     // Fixed scratch for the (non-reentrant) runtime routines.
@@ -957,7 +1028,7 @@ public sealed partial class Sm83Backend : IBackend
 
     /// <summary>rt.pushframe: save B bytes at (DE) to the software stack, advancing SoftSp. Used by a
     /// recursive function's prologue to preserve the caller's copy of the shared static frame.</summary>
-    private static void EmitPushFrame(Emitter e)
+    private static void EmitPushFrame(Emitter e, int heapAddr)
     {
         e.PlaceRoutine("rt.pushframe");
         LdAAbs(e, SoftSp); e.U8(0x6F);                   // ld a,(SoftSp)   ; ld l,a
@@ -972,9 +1043,22 @@ public sealed partial class Sm83Backend : IBackend
         e.U8(0x7D); StAAbs(e, SoftSp);                   // ld a,l ; ld (SoftSp),a
         e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a   (A = high byte, HL = new top)
         var trap = new Label();
-        // Heap/scratch ceiling: the software top must stay below the heap (0xDE00, growing down).
-        e.U8(0xFE); e.U8(SoftStackCeiling >> 8);         // cp <ceiling high byte>   (A = high byte)
-        e.Jump(0xD2, trap);                              // jp nc, trap   (high byte >= ceiling -> overflow)
+        if (heapAddr >= 0)
+        {
+            // Heap ceiling: the software top (HL) must stay below the LIVE heap pointer, which grows down
+            // from 0xDE00 as `new`/Mem.Alloc bump it. Comparing against the fixed 0xDE00 start would let
+            // the rising stack overwrite already-allocated heap objects before tripping. Trap if HL >= heap.
+            LdAAbs(e, heapAddr); e.U8(0x95);             // ld a,(heap)   ; sub l   = heap_low - soft_low
+            LdAAbs(e, heapAddr + 1); e.U8(0x9C);         // ld a,(heap+1) ; sbc h   (carry => heap < soft top)
+            e.Jump(0xDA, trap);                          // jp c, trap    (heap below the new top -> overflow)
+        }
+        else
+        {
+            // No heap in this program: the software top just must not reach the fixed scratch ceiling.
+            // A still holds the new top's high byte from the `ld a,h` above.
+            e.U8(0xFE); e.U8(SoftStackCeiling >> 8);      // cp <ceiling high byte>
+            e.Jump(0xD2, trap);                          // jp nc, trap   (high byte >= ceiling -> overflow)
+        }
         // Hardware-stack collision: the software stack (growing up) and the CALL stack (SP, growing down)
         // share the arena. Trap if the new top has reached SP, rather than let the two corrupt each other.
         e.U8(0x08); e.U16(RtOpA);                        // ld (RtOpA), sp   (stash SP; RtOpA is idle in the prologue)
