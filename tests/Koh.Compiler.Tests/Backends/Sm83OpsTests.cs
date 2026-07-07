@@ -42,14 +42,4 @@ public class Sm83OpsTests
         await Assert.That(Sm83Ops.Normalize(IrCompareOp.Sle)).IsEqualTo((IrCompareOp.Uge, true, true));
         await Assert.That(Sm83Ops.Normalize(IrCompareOp.Eq)).IsEqualTo((IrCompareOp.Eq, false, false));
     }
-
-    [Test]
-    public async Task PowerOfTwoAndLog2()
-    {
-        await Assert.That(Sm83Ops.IsPowerOfTwo(8)).IsTrue();
-        await Assert.That(Sm83Ops.IsPowerOfTwo(6)).IsFalse();
-        await Assert.That(Sm83Ops.IsPowerOfTwo(0)).IsFalse();
-        await Assert.That(Sm83Ops.Log2(1)).IsEqualTo(0);
-        await Assert.That(Sm83Ops.Log2(8)).IsEqualTo(3);
-    }
 }

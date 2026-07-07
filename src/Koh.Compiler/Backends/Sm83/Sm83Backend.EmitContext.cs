@@ -154,5 +154,18 @@ public sealed partial class Sm83Backend
         public void LoadAFromAddr(int addr) => E.LoadA(addr);   // may be elided if A already holds it
 
         public void StoreAToAddr(int addr) => E.StoreA(addr);
+
+        /// <summary>Store a register pair to a slot, low byte first (via A). <paramref name="lo"/> and
+        /// <paramref name="hi"/> are the <c>LD A,r</c> opcodes for the low and high registers.</summary>
+        public void StoreRegPair(int dst, int n, int hi, int lo)
+        {
+            E.U8((byte)lo);
+            StoreAToAddr(dst);
+            if (n == 2)
+            {
+                E.U8((byte)hi);
+                StoreAToAddr(dst + 1);
+            }
+        }
     }
 }

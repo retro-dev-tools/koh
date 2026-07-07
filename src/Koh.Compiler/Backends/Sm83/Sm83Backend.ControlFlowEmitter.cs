@@ -139,7 +139,7 @@ public sealed partial class Sm83Backend
             int dst = _ctx.Slot[call];
 
             // A recursive or banked callee returns through ReturnScratch (memory); read it back.
-            if (calleeRecursive || calleeBanked)
+            if (_ctx.UsesMemoryReturn(callee))
             {
                 _ctx.CopyFromScratch(ReturnScratch, dst, SizeOf(call.Type));
                 return;
@@ -151,14 +151,11 @@ public sealed partial class Sm83Backend
                     _ctx.StoreAToAddr(dst);                    // result in A
                     break;
                 case 2:
-                    _e.U8(0x7D); _ctx.StoreAToAddr(dst);       // LD A, L ; store low
-                    _e.U8(0x7C); _ctx.StoreAToAddr(dst + 1);   // LD A, H ; store high
+                    _ctx.StoreRegPair(dst, 2, hi: 0x7C, lo: 0x7D);       // HL -> slot
                     break;
                 case 4:
-                    _e.U8(0x7D); _ctx.StoreAToAddr(dst);       // LD A, L
-                    _e.U8(0x7C); _ctx.StoreAToAddr(dst + 1);   // LD A, H
-                    _e.U8(0x7B); _ctx.StoreAToAddr(dst + 2);   // LD A, E
-                    _e.U8(0x7A); _ctx.StoreAToAddr(dst + 3);   // LD A, D
+                    _ctx.StoreRegPair(dst, 2, hi: 0x7C, lo: 0x7D);       // HL -> low word
+                    _ctx.StoreRegPair(dst + 2, 2, hi: 0x7A, lo: 0x7B);   // DE -> high word
                     break;
                 case 8:
                 case 16:
@@ -252,7 +249,7 @@ public sealed partial class Sm83Backend
             {
                 if (instr is not PhiInstruction phi)
                     break; // phis lead the block
-                pending.Add(new PhiCopy(phi, _ctx.Slot[phi], SizeOf(phi.Type), FindIncoming(phi, source)));
+                pending.Add(new PhiCopy(_ctx.Slot[phi], SizeOf(phi.Type), FindIncoming(phi, source)));
             }
             if (pending.Count == 0)
                 return;
@@ -332,15 +329,13 @@ public sealed partial class Sm83Backend
         /// <summary>One pending phi realization: write <see cref="N"/> bytes from a source into a slot.</summary>
         private sealed class PhiCopy
         {
-            public IrValue DestPhi { get; }
             public int DestSlot { get; }
             public int N { get; }
             public IrValue? Src { get; set; }   // value source; null once redirected to a temp
             public int TempSrc { get; set; } = -1;
 
-            public PhiCopy(IrValue destPhi, int destSlot, int n, IrValue src)
+            public PhiCopy(int destSlot, int n, IrValue src)
             {
-                DestPhi = destPhi;
                 DestSlot = destSlot;
                 N = n;
                 Src = src;

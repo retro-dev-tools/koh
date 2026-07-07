@@ -69,9 +69,10 @@ public sealed partial class Sm83Backend
             LoadIndexToDE(g.Index);              // offset = index (widened to 16 bits)
             if (size != 1)
             {
-                if (Sm83Ops.IsPowerOfTwo(size))
+                if (System.Numerics.BitOperations.IsPow2(size))
                 {
-                    for (int s = 0; s < Sm83Ops.Log2(size); s++)
+                    int shift = System.Numerics.BitOperations.Log2((uint)size);
+                    for (int s = 0; s < shift; s++)
                     {
                         _e.U8(0xCB); _e.U8(0x23);   // SLA E
                         _e.U8(0xCB); _e.U8(0x12);   // RL D   (DE <<= 1)
@@ -87,7 +88,7 @@ public sealed partial class Sm83Backend
 
             LoadPointerToHL(g.BasePointer);      // HL = base
             _e.U8(0x19);                         // ADD HL, DE
-            StoreHLToSlot(_ctx.Slot[g]);
+            _ctx.StoreRegPair(_ctx.Slot[g], 2, hi: 0x7C, lo: 0x7D); // HL -> slot
         }
 
         private void LoadIndexToDE(IrValue index)
@@ -123,12 +124,6 @@ public sealed partial class Sm83Backend
             {
                 throw new NotSupportedException("SM83 backend cannot resolve this pointer operand.");
             }
-        }
-
-        private void StoreHLToSlot(int slot)
-        {
-            _e.U8(0x7D); _ctx.StoreAToAddr(slot);        // LD A, L ; store low
-            _e.U8(0x7C); _ctx.StoreAToAddr(slot + 1);    // LD A, H ; store high
         }
     }
 }

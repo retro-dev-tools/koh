@@ -54,13 +54,4 @@ internal static class Sm83Ops
         IrBinaryOp.Xor => 0xA8,
         _ => throw new NotSupportedException($"SM83 backend does not support '{op}'."),
     };
-
-    public static bool IsPowerOfTwo(int n) => n > 0 && (n & (n - 1)) == 0;
-
-    public static int Log2(int n)
-    {
-        int k = 0;
-        while ((1 << k) < n) k++;
-        return k;
-    }
 }

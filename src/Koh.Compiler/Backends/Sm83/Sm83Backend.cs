@@ -524,10 +524,6 @@ public sealed partial class Sm83Backend : IBackend
     private const int BankWindow = 0x4000;
     private const int BankSize = 0x4000;
 
-    /// <summary>End of the fixed ROM0 data window; data past this spills into switchable banks (the
-    /// window ends exactly where the switchable bank window begins).</summary>
-    private const int Rom0DataEnd = BankWindow;
-
     /// <summary>Place a read-only global's bytes into ROM0 data, or — once that 16KB window is full —
     /// into a switchable ROM bank, and return the (windowed) address the global is addressed at. A
     /// banked global's address is only valid while its bank is mapped, so code must select the bank
@@ -538,7 +534,8 @@ public sealed partial class Sm83Backend : IBackend
             throw new Sm83LimitException(
                 $"ROM global of {bytes.Length} bytes exceeds one {BankSize}-byte ROM bank.");
 
-        if (DataBase + rom0.Count + bytes.Length <= Rom0DataEnd)
+        // Data past the fixed ROM0 window (which ends where the switchable bank window begins) banks.
+        if (DataBase + rom0.Count + bytes.Length <= BankWindow)
         {
             int addr = DataBase + rom0.Count;
             rom0.AddRange(bytes);

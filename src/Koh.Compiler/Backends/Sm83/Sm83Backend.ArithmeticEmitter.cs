@@ -256,9 +256,9 @@ public sealed partial class Sm83Backend
 
             bool resultInHL = b.Op is IrBinaryOp.Mul or IrBinaryOp.URem or IrBinaryOp.SRem;
             if (resultInHL)
-                StoreRegPair(dst, n, hi: 0x7C, lo: 0x7D);  // LD A,H / LD A,L
+                _ctx.StoreRegPair(dst, n, hi: 0x7C, lo: 0x7D);  // LD A,H / LD A,L
             else
-                StoreRegPair(dst, n, hi: 0x7A, lo: 0x7B);  // LD A,D / LD A,E
+                _ctx.StoreRegPair(dst, n, hi: 0x7A, lo: 0x7B);  // LD A,D / LD A,E
         }
 
         /// <summary>Load a value into a register pair, widening an i8 to 16 bits.</summary>
@@ -283,18 +283,6 @@ public sealed partial class Sm83Backend
             {
                 _e.U8(hi == 0x57 ? 0x16 : 0x06); // LD D,0 / LD B,0
                 _e.U8(0x00);
-            }
-        }
-
-        /// <summary>Store a register pair to a slot, low byte first.</summary>
-        private void StoreRegPair(int dst, int n, int hi, int lo)
-        {
-            _e.U8(lo);
-            _ctx.StoreAToAddr(dst);
-            if (n == 2)
-            {
-                _e.U8(hi);
-                _ctx.StoreAToAddr(dst + 1);
             }
         }
 
