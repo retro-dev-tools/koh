@@ -75,6 +75,16 @@ public sealed class Sm83Backend : IBackend
         var recursive = FindRecursiveFunctions(module);
         CheckNoInterruptReentrancy(module);
 
+        // A recursive value returns through ReturnScratch and the frame save/restore path emits a plain
+        // RET; an interrupt handler must instead end in RETI after restoring the registers its prologue
+        // pushed. The two epilogues are incompatible, so a recursive handler is rejected rather than
+        // silently emitted with the wrong return.
+        foreach (var fn in module.Functions)
+            if (fn.InterruptVector is not null && recursive.Contains(fn))
+                throw new Sm83LimitException(
+                    $"interrupt handler '{fn.Name}' is recursive; an interrupt handler cannot recurse "
+                    + "(its epilogue must be RETI with a balanced stack).");
+
         // Assign global addresses. Initialized (or ROM-space) globals live in a fixed ROM data
         // section; RAM globals get fixed WRAM/HRAM/SRAM addresses. Function frames are placed
         // after the WRAM globals so nothing overlaps.
@@ -348,6 +358,14 @@ public sealed class Sm83Backend : IBackend
             foreach (var f in bankedList.Where(x => bankOf[x] == b))
                 EmitFunc(f, BankWindow + (emitter.Code.Count - start));
             bankSpans.Add((b, start, emitter.Code.Count));
+
+            // Packing used sizes measured in the (non-banked) first pass; a banked function's real
+            // emission is larger (it copies its result out to ReturnScratch), so a bank that packed near
+            // full could exceed the 16KB window here. Reject that rather than emit an overflowing section.
+            if (emitter.Code.Count - start > BankSize)
+                throw new Sm83LimitException(
+                    $"ROM bank {b} holds {emitter.Code.Count - start} bytes of banked code — more than the "
+                    + $"{BankSize}-byte bank window. Split the banked functions across more/smaller units.");
         }
         int total = emitter.Code.Count;
 
@@ -1606,15 +1624,20 @@ public sealed class Sm83Backend : IBackend
                         $"recursive function '{_fn.Name}' frame is {_frameSize} bytes; the software-stack "
                         + "save supports up to 255.");
                 // Save the caller's copy of the shared static frame, then install this call's arguments
-                // (staged in ArgScratch) into the parameter slots at the frame base.
-                _e.U8(0x11); _e.U16(_frameBase); // LD DE, frameBase
-                _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
-                _e.Jump(0xCD, _e.RoutineLabel("rt.pushframe"));
-                int paramBytes = ParamBytes(_fn);
-                for (int k = 0; k < paramBytes; k++)
+                // (staged in ArgScratch) into the parameter slots at the frame base. A zero-byte frame
+                // (no params/locals — recursion driven through globals) has nothing to save; skip it, as
+                // rt.pushframe with a count of 0 would `dec b` to 0xFF and copy 256 bytes.
+                if (_frameSize > 0)
                 {
-                    _e.LoadA(ArgScratch + k);
-                    _e.StoreA(_frameBase + k);
+                    _e.U8(0x11); _e.U16(_frameBase); // LD DE, frameBase
+                    _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
+                    _e.Jump(0xCD, _e.RoutineLabel("rt.pushframe"));
+                    int paramBytes = ParamBytes(_fn);
+                    for (int k = 0; k < paramBytes; k++)
+                    {
+                        _e.LoadA(ArgScratch + k);
+                        _e.StoreA(_frameBase + k);
+                    }
                 }
             }
 
@@ -2234,7 +2257,7 @@ public sealed class Sm83Backend : IBackend
                 // thunk's bank restore can clobber it. A recursive function also restores its frame here.
                 if (r.Value is not null)
                     CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
-                if (IsRecursive)
+                if (IsRecursive && _frameSize > 0)
                 {
                     _e.U8(0x11); _e.U16(_frameBase); // LD DE, frameBase
                     _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
@@ -2619,7 +2642,10 @@ public sealed class Sm83Backend : IBackend
 
         private static byte ByteOf(IrValue value, int k) =>
             value is IrConstInt c
-                ? (byte)(c.Value >> (8 * k))
+                // Value is a 64-bit long; bytes 8..15 of a wider (i128) constant are its sign extension.
+                // (A raw `c.Value >> (8*k)` would be wrong: C# masks the shift count to 63, so k>=8 would
+                // replicate the low bytes instead of extending.)
+                ? (byte)(k < 8 ? c.Value >> (8 * k) : c.Value >> 63)
                 : throw new NotSupportedException("expected a constant operand.");
 
         /// <summary>

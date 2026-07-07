@@ -63,6 +63,12 @@ public sealed partial class CSharpFrontend
         string elem = m.ReturnType is GenericNameSyntax { TypeArgumentList.Arguments: [var ta] } ? ta.ToString() : "byte";
         var statements = m.Body!.Statements;
 
+        // A parameter named like a synthesized field would alias it (the factory's capture
+        // `__it.__state = __state;` would overwrite the state counter). Leave such an iterator
+        // untransformed rather than silently corrupt it.
+        if (m.ParameterList.Parameters.Any(p => IsReservedIteratorName(p.Identifier.Text)))
+            return null;
+
         // Fields shared by every shape: the yielded value, the state counter, and one field per
         // parameter (so the body can reference its arguments after the factory captures them).
         var fields = new StringBuilder($"{elem} __current; byte __state; ");
@@ -107,56 +113,45 @@ public sealed partial class CSharpFrontend
         return sb.ToString();
     }
 
-    /// <summary>A single counted <c>for</c>/<c>while</c> loop whose body is one <c>yield return</c> →
-    /// a resumable loop: state 0 runs the initializer, later states run the increment, and each call
-    /// advances one iteration. Null if the body is not that shape. Loop variables declared in a
-    /// <c>for</c> initializer are appended to <paramref name="fields"/>.</summary>
+    /// <summary>A single counted <c>for</c> loop whose body is one <c>yield return</c> → a resumable
+    /// loop: state 0 runs the initializer, later re-entries run the increment, and each call advances one
+    /// iteration. Null if the body is not that shape. The loop variables declared in the initializer are
+    /// appended to <paramref name="fields"/>.
+    ///
+    /// A <c>while</c> loop is deliberately NOT supported: a single-<c>yield</c> body cannot mutate the
+    /// state the condition reads, so a counted <c>while</c> would compile to an infinite stream — it is
+    /// left untransformed (and reported as an unsupported <c>yield</c>) instead of miscompiled.</summary>
     private static string? BuildLoopMoveNext(SyntaxList<StatementSyntax> statements, StringBuilder fields)
     {
-        if (statements is not [var only])
+        if (statements is not [ForStatementSyntax f]
+            || f.Declaration is null || f.Condition is null)
             return null;
 
-        string? init = null, increments = null, cond, yield;
-        if (only is ForStatementSyntax f)
+        var inits = new StringBuilder();
+        foreach (var v in f.Declaration.Variables)
         {
-            // Only a variable-declaration initializer is supported (the loop variables become fields).
-            if (f.Declaration is null || f.Condition is null)
+            if (IsReservedIteratorName(v.Identifier.Text) || v.Initializer is null)
                 return null;
-            var inits = new StringBuilder();
-            foreach (var v in f.Declaration.Variables)
-            {
-                fields.Append($"{f.Declaration.Type} {v.Identifier.Text}; ");
-                if (v.Initializer is null)
-                    return null;
-                inits.Append($"{v.Identifier.Text} = {v.Initializer.Value}; ");
-            }
-            init = inits.ToString();
-            increments = string.Concat(f.Incrementors.Select(e => $"{e}; "));
-            cond = f.Condition.ToString();
-            yield = SingleYield(f.Statement);
+            fields.Append($"{f.Declaration.Type} {v.Identifier.Text}; ");
+            inits.Append($"{v.Identifier.Text} = {v.Initializer.Value}; ");
         }
-        else if (only is WhileStatementSyntax w)
-        {
-            cond = w.Condition.ToString();
-            yield = SingleYield(w.Statement);
-        }
-        else
-        {
-            return null;
-        }
-
+        string increments = string.Concat(f.Incrementors.Select(e => $"{e}; "));
+        string cond = f.Condition.ToString();
+        string? yield = SingleYield(f.Statement);
         if (yield is null)
             return null;
 
         // __state: 0 = before first iteration, 1 = iterating, 2 = exhausted.
         var sb = new StringBuilder("byte MoveNext() { if (__state == 2) { return 0; } ");
-        if (init is not null)
-            sb.Append($"if (__state == 0) {{ {init}__state = 1; }} else {{ {increments}}} ");
-        else
-            sb.Append("__state = 1; ");
+        sb.Append($"if (__state == 0) {{ {inits}__state = 1; }} else {{ {increments}}} ");
         sb.Append($"if ({cond}) {{ __current = {yield}; return 1; }} __state = 2; return 0; }}");
         return sb.ToString();
     }
+
+    /// <summary>Names the synthesized state machine reserves for its own fields/local — a parameter or
+    /// loop variable using one of these would alias a synthesized field and corrupt iteration.</summary>
+    private static bool IsReservedIteratorName(string name) =>
+        name is "__current" or "__state" or "__it";
 
     /// <summary>The expression of a loop body that is exactly one <c>yield return E;</c> (bare or a block
     /// wrapping a single yield), or null.</summary>

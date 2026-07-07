@@ -576,6 +576,11 @@ internal sealed class MethodLowerer
                 throw new CSharpNotSupportedException($"unknown identifier '{name}'.");
             }
 
+            case ThisExpressionSyntax when _classLocals.TryGetValue("this", out var self):
+                // `this` used as a value (e.g. `return this;` or passing the instance to another method):
+                // load the instance pointer. Member access on `this` still goes through ClassLocalOf.
+                return (_b.Load(self.Slot), new CsType(IrType.Pointer(IrType.I8), false));
+
             case ElementAccessExpressionSyntax access:
             {
                 var (pointer, element) = ArrayElementPointer(access);
@@ -1284,6 +1289,15 @@ internal sealed class MethodLowerer
         var pipeline = ops.Take(ops.Count - 1).ToList();
         var fn = _method.Fn;
         bool isMinMax = termOp is "Max" or "Min";
+
+        // Max/Min seed the accumulator with element 0 and iterate from 1, which bypasses any Where/Select
+        // pipeline for that first element (a filtered-out or unprojected element 0 would corrupt the
+        // result). Only the pipeline-free forms are correct, so reject Max/Min behind a pipeline.
+        if (isMinMax && pipeline.Count > 0)
+            throw new CSharpNotSupportedException(
+                $"{termOp}() is only supported directly on an array, not after a Where/Select pipeline.",
+                call.GetLocation());
+
         var accType = termOp switch { "Count" => CsType.U16, "Any" or "All" => CsType.Bool, _ => src.Element };
 
         var acc = _b.Alloca(accType.Ir);

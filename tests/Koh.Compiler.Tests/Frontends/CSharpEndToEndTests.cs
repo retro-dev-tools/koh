@@ -14,8 +14,22 @@ namespace Koh.Compiler.Tests.Frontends;
 /// <summary>Compiles real C# source through the frontend, backend, linker, and emulator.</summary>
 public class CSharpEndToEndTests
 {
-    private static IrModule Frontend(string src) =>
-        new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), new DiagnosticBag());
+    private static IrModule Frontend(string src)
+    {
+        var diagnostics = new DiagnosticBag();
+        var module = new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), diagnostics);
+        // CLAUDE.md: assert IrVerifier.Verify(module).IsEmpty() for new lowering. Verifying here covers
+        // every end-to-end test (coroutines, classes, generics, LINQ, …) centrally. Skip when the
+        // frontend itself reported an error — that IR is expected-incomplete (HasError/diagnostic tests).
+        if (!diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        {
+            var errors = IrVerifier.Verify(module);
+            if (errors.Count > 0)
+                throw new InvalidOperationException(
+                    "IR verification failed:\n  " + string.Join("\n  ", errors));
+        }
+        return module;
+    }
 
     private static EmitModel Compile(string src) =>
         new Sm83Backend().Compile(Frontend(src), new DiagnosticBag());
@@ -1148,6 +1162,18 @@ static void Main() { Bump(); Hardware.EnableInterrupts(); }";
     }
 
     [Test]
+    public async Task RecursiveInterruptHandler_IsRejected()
+    {
+        // A recursive handler would hit the memory-return epilogue (plain RET) instead of RETI with a
+        // balanced stack, so it must be a diagnostic rather than a silently broken handler.
+        const string src = @"
+[Interrupt(""VBlank"")]
+static void H() { H(); }
+static void Main() { Hardware.EnableInterrupts(); }";
+        await Assert.That(BackendHasError(src)).IsTrue();
+    }
+
+    [Test]
     public async Task BitwiseComplement_Byte()
     {
         // ~x must be implemented (it was referenced in InferType but not lowered, so it fell through
@@ -1550,6 +1576,17 @@ static readonly byte[] Mark = { 0xAB };";
     }
 
     [Test]
+    public async Task Int128_ConstantHighBytesAreZeroExtended()
+    {
+        // An i128 constant operand is a 64-bit long; its bytes 8..15 must be its sign extension, not a
+        // repeat of the low bytes (a raw `value >> (8*k)` masks the shift count to 63, so byte 8 would
+        // keep the operand's byte). `y & 0xFF` must clear every byte above the lowest.
+        await Assert.That(RunI128(
+            "static UInt128 Main() { UInt128 x = 0x123456789ABCDEF0; UInt128 y = x + (x << 64); return y & 0xFF; }"))
+            .IsEqualTo((UInt128)0xF0);
+    }
+
+    [Test]
     public async Task Int128_AddShiftDivide()
     {
         await Assert.That(RunI128("static UInt128 Add(ulong a, ulong b) { return (UInt128)a + (UInt128)b; }",
@@ -1648,6 +1685,20 @@ class Rect { byte w; byte h; byte Area() { return (byte)(w * h); } }";
     }
 
     [Test]
+    public async Task Class_InstanceUsedAsPointerValue()
+    {
+        // A class instance can be used as a value (returned or passed as byte*), not only for
+        // .field/.method access: `return this;` and passing a class local to a byte* parameter.
+        await Assert.That(RunA(
+            "static byte Main() { Box b = new Box(); b.v = 9; byte* p = b.Ptr(); return *(byte*)p; }\n"
+            + "class Box { byte v; byte* Ptr() { return this; } }")).IsEqualTo((byte)9);
+        await Assert.That(RunA(
+            "static byte Main() { Box b = new Box(); b.v = 7; return Read(b); }\n"
+            + "static byte Read(byte* p) { return *(byte*)p; }\n"
+            + "class Box { byte v; }")).IsEqualTo((byte)7);
+    }
+
+    [Test]
     public async Task Generics_Monomorphized()
     {
         // A generic method is specialized per concrete type argument (Max$byte, Max$ushort).
@@ -1705,6 +1756,16 @@ static T Max<T>(T a, T b, T c) { return a; }";
         await Assert.That(RunA("static byte Main() { return (byte)Data.Count(x => x > 3); }" + data)).IsEqualTo((byte)4);
         await Assert.That(RunA("static byte Main() { return Data.Max(); }" + data)).IsEqualTo((byte)9);
         await Assert.That(RunA("static byte Main() { return Data.Min(); }" + data)).IsEqualTo((byte)1);
+    }
+
+    [Test]
+    public async Task Linq_MaxMinAfterPipeline_IsDiagnostic()
+    {
+        // Max/Min seed the accumulator with element 0 and skip the pipeline for it, so a filtered or
+        // projected element 0 would corrupt the result — reject the combination rather than miscompile.
+        const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5 };";
+        await Assert.That(HasError("static byte Main() { return Data.Where(x => x > 3).Max(); }" + data)).IsTrue();
+        await Assert.That(HasError("static byte Main() { return Data.Select(x => (byte)(x + 1)).Min(); }" + data)).IsTrue();
     }
 
     [Test]
@@ -1779,6 +1840,16 @@ static byte Main() {
 }
 static IEnumerable<byte> Two(byte a) { yield return a; yield return (byte)(a + 1); }";
         await Assert.That(RunA(src)).IsEqualTo((byte)15);
+    }
+
+    [Test]
+    public async Task Coroutine_ReservedParameterName_IsNotMiscompiled()
+    {
+        // A parameter named like a synthesized state field (__state/__current/__it) would alias it and
+        // corrupt iteration. Such an iterator is left untransformed and reported, not miscompiled.
+        await Assert.That(HasError(
+            "static byte Main() { return 0; }\n"
+            + "static IEnumerable<byte> G(byte __state) { yield return __state; }")).IsTrue();
     }
 
     [Test]
