@@ -728,6 +728,12 @@ public sealed partial class Sm83Backend : IBackend
     // rt.pushframe traps if it does, turning an otherwise-silent deep-recursion overflow into a halt.
     private const int SoftStackCeiling = 0xDE00;
 
+    // A recursive program relocates the hardware CALL stack from the 127-byte HRAM window (where an
+    // overflow runs off into the I/O registers and crashes) into WRAM, growing down from just below
+    // ArgScratch. This gives deep recursion the whole [frames, 0xDE80) arena and keeps any overflow
+    // contained in RAM (where the software-stack guard can catch the collision) instead of wild.
+    private const int HwStackTop = 0xDE80;
+
     /// <summary>MBC1 ROM-bank select register (a write here maps that bank into 0x4000-0x7FFF).</summary>
     private const int MbcBankSelect = 0x2000;
 
@@ -964,13 +970,20 @@ public sealed partial class Sm83Backend : IBackend
         e.U8(0x05);                                      // dec b
         e.Jump(0xC2, loop);                              // jp nz, loop
         e.U8(0x7D); StAAbs(e, SoftSp);                   // ld a,l ; ld (SoftSp),a
-        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a   (A = high byte)
-        // Overflow guard: if the new top reached the ceiling (high byte >= SoftStackCeiling>>8), the
-        // software stack has run into the heap/scratch — trap here rather than corrupt them silently.
-        e.U8(0xFE); e.U8(SoftStackCeiling >> 8);         // cp <ceiling high byte>
-        var ok = new Label();
-        e.Jump(0xDA, ok);                                // jp c, ok   (high byte < ceiling -> safe)
+        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a   (A = high byte, HL = new top)
         var trap = new Label();
+        // Heap/scratch ceiling: the software top must stay below the heap (0xDE00, growing down).
+        e.U8(0xFE); e.U8(SoftStackCeiling >> 8);         // cp <ceiling high byte>   (A = high byte)
+        e.Jump(0xD2, trap);                              // jp nc, trap   (high byte >= ceiling -> overflow)
+        // Hardware-stack collision: the software stack (growing up) and the CALL stack (SP, growing down)
+        // share the arena. Trap if the new top has reached SP, rather than let the two corrupt each other.
+        e.U8(0x08); e.U16(RtOpA);                        // ld (RtOpA), sp   (stash SP; RtOpA is idle in the prologue)
+        LdAAbs(e, RtOpA);                                // ld a,(RtOpA)     = SP low
+        e.U8(0x95);                                      // sub l            = SP_low - SoftSp_low
+        LdAAbs(e, RtOpA + 1);                            // ld a,(RtOpA+1)   = SP high
+        e.U8(0x9C);                                      // sbc h            (borrow => SP < SoftSp: collided)
+        var ok = new Label();
+        e.Jump(0xD2, ok);                                // jp nc, ok   (SP >= SoftSp -> safe)
         e.Place(trap);
         e.Jump(0xC3, trap);                              // jp trap    (spin forever on overflow)
         e.Place(ok);

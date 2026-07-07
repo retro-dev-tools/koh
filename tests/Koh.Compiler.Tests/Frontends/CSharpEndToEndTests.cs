@@ -1384,6 +1384,22 @@ static ushort Fact(ushort n) {
     }
 
     [Test]
+    public async Task Recursion_DeepBeyondHardwareStack()
+    {
+        // A recursive program relocates the CALL stack into WRAM, so recursion can go far deeper than
+        // the ~60 levels the 127-byte HRAM stack allowed (which used to overflow into the I/O registers
+        // and crash). 500 levels: sum 1..500 = 125250, low byte 66.
+        const string src = @"
+static byte Main() { return Sum(500); }
+static byte Sum(ushort n) {
+    if (n == 0) return 0;
+    byte x = (byte)n;
+    return (byte)(Sum((ushort)(n - 1)) + x);
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)66);
+    }
+
+    [Test]
     public async Task Recursion_Fibonacci()
     {
         // Tree recursion (two self-calls per frame) stresses the save/restore ordering.

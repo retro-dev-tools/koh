@@ -97,6 +97,10 @@ public sealed partial class Sm83Backend
 
             if (_isEntry && _recursive.Count > 0)
             {
+                // Move the hardware CALL stack into WRAM (it defaults to the tiny HRAM window, where deep
+                // recursion overflows into the I/O registers and crashes). Growing down from just below
+                // ArgScratch gives it the whole arena above the static frames.
+                _e.U8(0x31); _e.U16(HwStackTop);      // LD SP, HwStackTop
                 // Initialize the software-stack pointer once at boot (only needed when some function
                 // recurses and therefore saves its frame there).
                 LdHL(_e, _softStackBase); // LD HL, softStackBase
