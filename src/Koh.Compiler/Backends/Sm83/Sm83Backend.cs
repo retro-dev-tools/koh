@@ -413,32 +413,49 @@ public sealed class Sm83Backend : IBackend
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
     }
 
-    /// <summary>Emit the runtime helper routines that generated code referenced. Top-level routines
-    /// come first (they reference the leaf rt.* memory helpers, adding them to NeededRoutines), then
-    /// the helpers, so every referenced label is placed before Resolve.</summary>
+    // A composite routine that requires another routine be present even if it never CALLs it directly
+    // through RoutineLabel (signed div/rem reuses the unsigned core after adjusting signs).
+    private static readonly (string Routine, string Requires)[] RuntimePrereqs =
+    [
+        ("sdivmod16", "udivmod16"),
+        ("sdivmod_wide", "udivmod_wide"),
+    ];
+
+    // Every runtime routine and its emitter, in placement order. Composite routines precede the leaf
+    // rt.* helpers they reference so the common case places everything in one pass.
+    private static readonly (string Name, Action<Emitter> Emit)[] RuntimeEmitters =
+    [
+        ("mul16", EmitMul16), ("udivmod16", EmitUDivMod16), ("sdivmod16", EmitSDivMod16),
+        ("mul_wide", EmitMulWide), ("udivmod_wide", EmitUDivWide), ("sdivmod_wide", EmitSDivWide),
+        ("shl_wide", e => EmitShiftWide(e, "shl_wide", IrBinaryOp.Shl)),
+        ("lshr_wide", e => EmitShiftWide(e, "lshr_wide", IrBinaryOp.LShr)),
+        ("ashr_wide", e => EmitShiftWide(e, "ashr_wide", IrBinaryOp.AShr)),
+        ("rt.clracc", EmitClrAcc), ("rt.rlmem", EmitRlMem), ("rt.rrmem", EmitRrMem),
+        ("rt.addmem", EmitAddMem), ("rt.submem", EmitSubMem), ("rt.negmem", EmitNegMem),
+        ("rt.pushframe", EmitPushFrame), ("rt.popframe", EmitPopFrame),
+    ];
+
+    /// <summary>Emit the runtime helper routines that generated code referenced. Emitting a routine can
+    /// add more <c>NeededRoutines</c> (the leaf rt.* helpers it CALLs via <c>RoutineLabel</c>), so this
+    /// runs to a fixpoint: a routine pulled in after its table position is picked up on the next sweep.
+    /// Ordering therefore can't silently leave a referenced label unplaced for <c>Resolve</c>.</summary>
     private static void EmitRuntimeRoutines(Emitter emitter)
     {
-        if (emitter.NeededRoutines.Contains("sdivmod16"))
-            emitter.NeededRoutines.Add("udivmod16");
-        if (emitter.NeededRoutines.Contains("mul16")) EmitMul16(emitter);
-        if (emitter.NeededRoutines.Contains("udivmod16")) EmitUDivMod16(emitter);
-        if (emitter.NeededRoutines.Contains("sdivmod16")) EmitSDivMod16(emitter);
-
-        if (emitter.NeededRoutines.Contains("sdivmod_wide")) emitter.NeededRoutines.Add("udivmod_wide");
-        if (emitter.NeededRoutines.Contains("mul_wide")) EmitMulWide(emitter);
-        if (emitter.NeededRoutines.Contains("udivmod_wide")) EmitUDivWide(emitter);
-        if (emitter.NeededRoutines.Contains("sdivmod_wide")) EmitSDivWide(emitter);
-        if (emitter.NeededRoutines.Contains("shl_wide")) EmitShiftWide(emitter, "shl_wide", IrBinaryOp.Shl);
-        if (emitter.NeededRoutines.Contains("lshr_wide")) EmitShiftWide(emitter, "lshr_wide", IrBinaryOp.LShr);
-        if (emitter.NeededRoutines.Contains("ashr_wide")) EmitShiftWide(emitter, "ashr_wide", IrBinaryOp.AShr);
-        if (emitter.NeededRoutines.Contains("rt.clracc")) EmitClrAcc(emitter);
-        if (emitter.NeededRoutines.Contains("rt.rlmem")) EmitRlMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.rrmem")) EmitRrMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.addmem")) EmitAddMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.submem")) EmitSubMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.negmem")) EmitNegMem(emitter);
-        if (emitter.NeededRoutines.Contains("rt.pushframe")) EmitPushFrame(emitter);
-        if (emitter.NeededRoutines.Contains("rt.popframe")) EmitPopFrame(emitter);
+        var emitted = new HashSet<string>(StringComparer.Ordinal);
+        bool progress = true;
+        while (progress)
+        {
+            progress = false;
+            foreach (var (routine, requires) in RuntimePrereqs)
+                if (emitter.NeededRoutines.Contains(routine))
+                    emitter.NeededRoutines.Add(requires);
+            foreach (var (name, emit) in RuntimeEmitters)
+                if (emitter.NeededRoutines.Contains(name) && emitted.Add(name))
+                {
+                    emit(emitter);
+                    progress = true; // emitting may have appended new leaf routines to NeededRoutines
+                }
+        }
     }
 
     /// <summary>Given the bank number in <c>A</c>, make it current: write it to both the CurBank shadow
@@ -713,7 +730,7 @@ public sealed class Sm83Backend : IBackend
     private static void EmitMul16(Emitter e)
     {
         e.PlaceRoutine("mul16");
-        e.U8(0x21); e.U8(0x00); e.U8(0x00);      // ld hl, 0
+        LdHL(e, 0);                              // ld hl, 0
         var loop = new Label();
         var noadd = new Label();
         e.Place(loop);
@@ -734,7 +751,7 @@ public sealed class Sm83Backend : IBackend
     private static void EmitUDivMod16(Emitter e)
     {
         e.PlaceRoutine("udivmod16");
-        e.U8(0x21); e.U8(0x00); e.U8(0x00);      // ld hl, 0     (remainder)
+        LdHL(e, 0);                              // ld hl, 0     (remainder)
         e.U8(0x3E); e.U8(0x10);                  // ld a, 16
         StAAbs(e, RtCount);                                  // ld (RtCount), a
         var loop = new Label();
@@ -1612,7 +1629,7 @@ public sealed class Sm83Backend : IBackend
             {
                 // Initialize the software-stack pointer once at boot (only needed when some function
                 // recurses and therefore saves its frame there).
-                _e.U8(0x21); _e.U16(_softStackBase); // LD HL, softStackBase
+                LdHL(_e, _softStackBase); // LD HL, softStackBase
                 _e.U8(0x7D); _e.StoreA(SoftSp);       // LD A, L ; LD (SoftSp), A
                 _e.U8(0x7C); _e.StoreA(SoftSp + 1);   // LD A, H ; LD (SoftSp+1), A
             }
@@ -1629,7 +1646,7 @@ public sealed class Sm83Backend : IBackend
                 // rt.pushframe with a count of 0 would `dec b` to 0xFF and copy 256 bytes.
                 if (_frameSize > 0)
                 {
-                    _e.U8(0x11); _e.U16(_frameBase); // LD DE, frameBase
+                    LdDE(_e, _frameBase); // LD DE, frameBase
                     _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
                     _e.Jump(0xCD, _e.RoutineLabel("rt.pushframe"));
                     int paramBytes = ParamBytes(_fn);
@@ -2219,7 +2236,7 @@ public sealed class Sm83Backend : IBackend
         {
             if (TryStaticAddr(pointer, out int addr))
             {
-                _e.U8(0x21); _e.U16(addr);   // LD HL, addr
+                LdHL(_e, addr);   // LD HL, addr
             }
             else if (_slot.TryGetValue(pointer, out int slot))
             {
@@ -2259,7 +2276,7 @@ public sealed class Sm83Backend : IBackend
                     CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
                 if (IsRecursive && _frameSize > 0)
                 {
-                    _e.U8(0x11); _e.U16(_frameBase); // LD DE, frameBase
+                    LdDE(_e, _frameBase); // LD DE, frameBase
                     _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
                     _e.Jump(0xCD, _e.RoutineLabel("rt.popframe"));
                 }
@@ -2350,11 +2367,7 @@ public sealed class Sm83Backend : IBackend
                 for (int i = 0; i < call.Arguments.Count; i++)
                 {
                     int n = SizeOf(callee.Parameters[i].Type);
-                    for (int k = 0; k < n; k++)
-                    {
-                        LoadByteToA(call.Arguments[i], k);
-                        StoreAToAddr(ArgScratch + off + k);
-                    }
+                    CopyToScratch(call.Arguments[i], ArgScratch + off, n);
                     off += n;
                 }
             }
@@ -2364,13 +2377,7 @@ public sealed class Sm83Backend : IBackend
                 for (int i = 0; i < call.Arguments.Count; i++)
                 {
                     var param = callee.Parameters[i];
-                    int paramSlot = calleeAllocation.Slot[param];
-                    int n = SizeOf(param.Type);
-                    for (int k = 0; k < n; k++)
-                    {
-                        LoadByteToA(call.Arguments[i], k);
-                        StoreAToAddr(paramSlot + k);
-                    }
+                    CopyToScratch(call.Arguments[i], calleeAllocation.Slot[param], SizeOf(param.Type));
                 }
             }
 

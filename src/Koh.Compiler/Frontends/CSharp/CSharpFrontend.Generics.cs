@@ -35,6 +35,9 @@ public sealed partial class CSharpFrontend
     private static List<MethodDeclarationSyntax> SynthesizeGenericInstances(
         CompilationUnitSyntax root, IReadOnlyDictionary<(string Name, int Arity), MethodDeclarationSyntax> generics)
     {
+        if (generics.Count == 0)
+            return []; // no generic templates — skip the invocation scan entirely (the common program)
+
         var done = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
         var work = new Queue<(string Name, TypeArgumentListSyntax Args)>();
         var templates = new HashSet<MethodDeclarationSyntax>(generics.Values);
