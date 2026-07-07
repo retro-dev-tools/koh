@@ -132,6 +132,8 @@ public sealed partial class CSharpFrontend : IFrontend
         }
         var genericInstances = SynthesizeGenericInstances(root, genericMethods);
 
+        var classNames = (IReadOnlySet<string>)classes.Keys.ToHashSet(StringComparer.Ordinal);
+
         // Pass 1: signatures, so calls resolve regardless of source order. Accept both class methods
         // and top-level `static T F(...) {...}` functions (which Roslyn parses as local functions).
         var methodDecls = CollectMethods(root)
@@ -140,10 +142,11 @@ public sealed partial class CSharpFrontend : IFrontend
         foreach (var decl in methodDecls)
         {
             var (name, returnSyntax, parameterList, body, arrow) = Describe(decl);
-            var returnType = ResolveReturnType(returnSyntax, enums);
+            var returnType = ResolveReturnTypeAllowingClass(returnSyntax, enums, classNames);
             var paramTypes = new List<CsType>();
             var refFlags = new List<bool>();
             var paramStructs = new List<CsStruct?>();
+            var paramClasses = new List<CsClass?>();
             var parameters = new List<IrParameter>();
             foreach (var p in parameterList.Parameters)
             {
@@ -157,14 +160,28 @@ public sealed partial class CSharpFrontend : IFrontend
                             $"struct parameter '{p.Identifier.Text}' must be passed by ref/in/out.", p.GetLocation());
                     paramTypes.Add(CsType.U8);
                     paramStructs.Add(ps);
+                    paramClasses.Add(null);
                     refFlags.Add(true);
                     parameters.Add(new IrParameter(p.Identifier.Text, IrType.Pointer(IrType.Array(IrType.I8, ps.Size))));
+                    continue;
+                }
+
+                // A class parameter is a heap pointer, passed by value (the pointer). The callee can use
+                // it for field/method access (registered as a class local in MethodLowerer).
+                if (p.Type is IdentifierNameSyntax className && classes.TryGetValue(className.Identifier.Text, out var pc))
+                {
+                    paramTypes.Add(new CsType(IrType.Pointer(IrType.I8), false));
+                    paramStructs.Add(null);
+                    paramClasses.Add(pc);
+                    refFlags.Add(false);
+                    parameters.Add(new IrParameter(p.Identifier.Text, IrType.Pointer(IrType.I8)));
                     continue;
                 }
 
                 var t = ResolveType(p.Type!, enums);
                 paramTypes.Add(t);
                 paramStructs.Add(null);
+                paramClasses.Add(null);
                 refFlags.Add(isRef);
                 parameters.Add(new IrParameter(p.Identifier.Text, isRef ? IrType.Pointer(t.Ir) : t.Ir));
             }
@@ -173,7 +190,7 @@ public sealed partial class CSharpFrontend : IFrontend
             {
                 InterruptVector = InterruptVectorOf(decl, diagnostics),
             };
-            var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs);
+            var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs, ParamClasses: paramClasses);
             // Duplicate names would silently overwrite the earlier binding (and emit two IR functions
             // with the same name); keep the first definition and report the rest.
             if (!methods.TryAdd(name, method))
@@ -191,22 +208,31 @@ public sealed partial class CSharpFrontend : IFrontend
         foreach (var cls in classes.Values)
             foreach (var (mname, mdecl) in cls.Methods)
             {
-                var returnType = ResolveReturnType(mdecl.ReturnType, enums);
+                var returnType = ResolveReturnTypeAllowingClass(mdecl.ReturnType, enums, classNames);
                 var paramTypes = new List<CsType> { CsType.U16 };
                 var refFlags = new List<bool> { false };
                 var paramStructs = new List<CsStruct?> { null };
+                var paramClasses = new List<CsClass?> { null };
                 var parameters = new List<IrParameter> { new("this", IrType.Pointer(IrType.I8)) };
                 foreach (var p in mdecl.ParameterList.Parameters)
                 {
+                    paramStructs.Add(null);
+                    refFlags.Add(false);
+                    if (p.Type is IdentifierNameSyntax cn && classes.TryGetValue(cn.Identifier.Text, out var pc))
+                    {
+                        paramTypes.Add(new CsType(IrType.Pointer(IrType.I8), false));
+                        paramClasses.Add(pc);
+                        parameters.Add(new IrParameter(p.Identifier.Text, IrType.Pointer(IrType.I8)));
+                        continue;
+                    }
                     var t = ResolveType(p.Type!, enums);
                     paramTypes.Add(t);
-                    refFlags.Add(false);
-                    paramStructs.Add(null);
+                    paramClasses.Add(null);
                     parameters.Add(new IrParameter(p.Identifier.Text, t.Ir));
                 }
                 var qualified = $"{cls.Name}.{mname}";
                 var fn = new IrFunction(qualified, returnType?.Ir ?? IrType.Void, parameters);
-                var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs, cls);
+                var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs, cls, paramClasses);
                 if (!methods.TryAdd(qualified, method))
                 {
                     Report(diagnostics, $"duplicate method '{qualified}'.", mdecl.Identifier.GetLocation());
@@ -346,6 +372,22 @@ public sealed partial class CSharpFrontend : IFrontend
         if (type is PredefinedTypeSyntax { Keyword.RawKind: (int)SyntaxKind.VoidKeyword })
             return null;
         return ResolveType(type, enums);
+    }
+
+    /// <summary>Resolve a field/parameter/return type, mapping a class name to the class's heap pointer
+    /// (a class instance is passed and stored as <c>byte*</c>). Falls back to the scalar resolver.</summary>
+    private static CsType ResolveTypeAllowingClass(
+        TypeSyntax type, IReadOnlyDictionary<string, CsEnum> enums, IReadOnlySet<string> classNames) =>
+        type is IdentifierNameSyntax id && classNames.Contains(id.Identifier.Text)
+            ? new CsType(IrType.Pointer(IrType.I8), Signed: false)
+            : ResolveType(type, enums);
+
+    private static CsType? ResolveReturnTypeAllowingClass(
+        TypeSyntax type, IReadOnlyDictionary<string, CsEnum> enums, IReadOnlySet<string> classNames)
+    {
+        if (type is PredefinedTypeSyntax { Keyword.RawKind: (int)SyntaxKind.VoidKeyword })
+            return null;
+        return ResolveTypeAllowingClass(type, enums, classNames);
     }
 
     private static Dictionary<string, CsEnum> CollectEnums(CompilationUnitSyntax root, DiagnosticBag diagnostics)
@@ -576,6 +618,12 @@ public sealed partial class CSharpFrontend : IFrontend
         CompilationUnitSyntax root, IReadOnlyDictionary<string, CsEnum> enums, DiagnosticBag diagnostics)
     {
         var classes = new Dictionary<string, CsClass>(StringComparer.Ordinal);
+        // All class names up front, so a field whose type is a (possibly later-declared, or self-)
+        // reference class resolves to a heap pointer rather than an unsupported-type error.
+        var classNames = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
+            .Select(c => c.Identifier.Text)
+            .Where(n => n is not ("__KohProgram" or "Mem"))
+            .ToHashSet(StringComparer.Ordinal);
         foreach (var decl in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
         {
             if (decl.Identifier.Text == "__KohProgram")
@@ -597,7 +645,7 @@ public sealed partial class CSharpFrontend : IFrontend
             {
                 if (member.Modifiers.Any(m => m.ValueText == "static"))
                     continue; // a static field is program-global, not per-instance
-                var type = ResolveType(member.Declaration.Type, enums);
+                var type = ResolveTypeAllowingClass(member.Declaration.Type, enums, classNames);
                 int fsize = type.Ir.SizeInBytes;
                 foreach (var v in member.Declaration.Variables)
                 {

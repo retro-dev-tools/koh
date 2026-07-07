@@ -15,9 +15,12 @@ internal sealed record CsField(string Name, CsType Type, int Offset, CsStruct? S
 
 /// <summary>A resolved method: its IR function plus Koh C# signature types (for signedness/coercion).
 /// An instance method has a non-null <paramref name="ThisClass"/> and an implicit first parameter
-/// (<c>this</c>, a pointer to the instance); its user parameters follow.</summary>
+/// (<c>this</c>, a pointer to the instance); its user parameters follow. <paramref name="ParamClasses"/>
+/// carries, per parameter, the class it is an instance of (null for non-class parameters) so the body
+/// can resolve field/method access on a class-typed argument.</summary>
 internal sealed record CsMethod(IrFunction Fn, CsType? Return, IReadOnlyList<CsType> Params,
-    IReadOnlyList<bool> RefParams, IReadOnlyList<CsStruct?> ParamStructs, CsClass? ThisClass = null);
+    IReadOnlyList<bool> RefParams, IReadOnlyList<CsStruct?> ParamStructs, CsClass? ThisClass = null,
+    IReadOnlyList<CsClass?>? ParamClasses = null);
 
 /// <summary>A reference type (heap-allocated, `new`): its field layout (like a struct) and the
 /// instance methods declared on it. An instance reference is a pointer to <see cref="Layout"/> bytes.</summary>

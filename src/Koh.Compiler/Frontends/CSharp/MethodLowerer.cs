@@ -91,6 +91,15 @@ internal sealed class MethodLowerer
                 _classLocals["this"] = (thisSlot, thisClass);
                 continue;
             }
+            // A class-instance parameter: the value is the heap pointer. Register it as a class local so
+            // field/method access on the argument resolves against the class layout.
+            if (_method.ParamClasses?[i] is { } classParam)
+            {
+                var slot = _b.Alloca(p.Type);
+                _b.Store(p, slot);
+                _classLocals[p.Name!] = (slot, classParam);
+                continue;
+            }
             if (_method.ParamStructs[i] is { } structParam)
             {
                 _structLocals[p.Name!] = (p, structParam); // the param value is the struct's address
@@ -733,6 +742,10 @@ internal sealed class MethodLowerer
             return (reference.Address, reference.Element); // ref param: the address is the place
         if (_globals.TryGetValue(name, out var global))
             return (IrBuilder.GlobalRef(global.Global), global.Type);
+        // A class-instance local: its slot holds the heap pointer. Assignment stores a new pointer
+        // (reference semantics); reads load the pointer.
+        if (name != "this" && _classLocals.TryGetValue(name, out var classLocal))
+            return (classLocal.Slot, new CsType(IrType.Pointer(IrType.I8), Signed: false));
         // A bare field reference inside an instance method resolves against `this`.
         if (_classLocals.TryGetValue("this", out var self))
             foreach (var field in self.Info.Layout.Fields)
@@ -1010,8 +1023,11 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerAssignment(AssignmentExpressionSyntax assign)
     {
-        // Whole-struct copy: `a = b` where a is a struct (local or array element) copies its bytes.
+        // Whole-struct copy: `a = b` where a is a value-type struct (local or array element) copies its
+        // bytes. A class value is a reference: it assigns by copying the pointer, so exclude class
+        // locals here and let them fall through to the pointer-store path below.
         if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression
+            && ClassLocalOf(assign.Left) is null
             && StructBaseOf(assign.Left) is { } dest)
         {
             if (StructBaseOf(assign.Right) is not { } src || !ReferenceEquals(src.Info, dest.Info))

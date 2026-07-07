@@ -1685,6 +1685,42 @@ class Rect { byte w; byte h; byte Area() { return (byte)(w * h); } }";
     }
 
     [Test]
+    public async Task Class_TypedParameterAndReturn()
+    {
+        // A class type can name a parameter and a return: the instance is passed and returned as its
+        // heap pointer, and the callee resolves .field/.method on it.
+        await Assert.That(RunA(
+            "static byte Main() { Box b = new Box(); b.v = 8; return Get(b); }\n"
+            + "static byte Get(Box x) { return x.v; }\n"
+            + "class Box { byte v; }")).IsEqualTo((byte)8);
+        await Assert.That(RunA(
+            "static byte Main() { Box b = Make(); return b.v; }\n"
+            + "static Box Make() { Box x = new Box(); x.v = 5; return x; }\n"
+            + "class Box { byte v; }")).IsEqualTo((byte)5);
+    }
+
+    [Test]
+    public async Task Class_SelfReferentialLinkedList()
+    {
+        // A class field of the same (or another) class type is a heap pointer, so a linked list can be
+        // built and walked; class assignment (a.next = b, cur = cur.next) copies the reference.
+        const string src = @"
+static byte Main() {
+    Node a = new Node(); a.v = 1;
+    Node b = new Node(); b.v = 2;
+    Node c = new Node(); c.v = 3;
+    a.next = b; b.next = c;
+    byte total = 0;
+    Node cur = a;
+    while (Live(cur)) { total = (byte)(total + cur.v); cur = cur.next; }
+    return total;
+}
+static byte Live(byte* p) { return (byte)(p == (byte*)0 ? 0 : 1); }
+class Node { byte v; Node next; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)6); // 1 + 2 + 3
+    }
+
+    [Test]
     public async Task Class_InstanceUsedAsPointerValue()
     {
         // A class instance can be used as a value (returned or passed as byte*), not only for
