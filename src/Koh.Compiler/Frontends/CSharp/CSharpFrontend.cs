@@ -146,6 +146,28 @@ public sealed partial class CSharpFrontend : IFrontend
 
         var classNames = (IReadOnlySet<string>)classes.Keys.ToHashSet(StringComparer.Ordinal);
 
+        // Classify one parameter into its Koh C# type, ref flag, struct/class binding, and IrParameter.
+        // A struct is passed by address (ref/in/out required); a class is a heap pointer passed by value;
+        // a scalar is by value, or by address when ref/out/in.
+        (CsType Type, bool Ref, CsStruct? Struct, CsClass? Class, IrParameter Param) BindParameter(ParameterSyntax p)
+        {
+            bool isRef = p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in");
+            string pname = p.Identifier.Text;
+            if (p.Type is IdentifierNameSyntax sn && structs.TryGetValue(sn.Identifier.Text, out var ps))
+            {
+                if (!isRef)
+                    throw new CSharpNotSupportedException(
+                        $"struct parameter '{pname}' must be passed by ref/in/out.", p.GetLocation());
+                return (CsType.U8, true, ps, null,
+                    new IrParameter(pname, IrType.Pointer(IrType.Array(IrType.I8, ps.Size))));
+            }
+            if (p.Type is IdentifierNameSyntax cn && classes.TryGetValue(cn.Identifier.Text, out var pc))
+                return (new CsType(IrType.Pointer(IrType.I8), false), false, null, pc,
+                    new IrParameter(pname, IrType.Pointer(IrType.I8)));
+            var t = ResolveType(p.Type!, enums);
+            return (t, isRef, null, null, new IrParameter(pname, isRef ? IrType.Pointer(t.Ir) : t.Ir));
+        }
+
         // Pass 1: signatures, so calls resolve regardless of source order. Accept both class methods
         // and top-level `static T F(...) {...}` functions (which Roslyn parses as local functions).
         var methodDecls = CollectMethods(root)
@@ -162,40 +184,12 @@ public sealed partial class CSharpFrontend : IFrontend
             var parameters = new List<IrParameter>();
             foreach (var p in parameterList.Parameters)
             {
-                bool isRef = p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in");
-                // A struct parameter is passed by address (ref/in/out), so the callee shares the
-                // caller's storage — value semantics would need a copy the backend can't make yet.
-                if (p.Type is IdentifierNameSyntax structName && structs.TryGetValue(structName.Identifier.Text, out var ps))
-                {
-                    if (!isRef)
-                        throw new CSharpNotSupportedException(
-                            $"struct parameter '{p.Identifier.Text}' must be passed by ref/in/out.", p.GetLocation());
-                    paramTypes.Add(CsType.U8);
-                    paramStructs.Add(ps);
-                    paramClasses.Add(null);
-                    refFlags.Add(true);
-                    parameters.Add(new IrParameter(p.Identifier.Text, IrType.Pointer(IrType.Array(IrType.I8, ps.Size))));
-                    continue;
-                }
-
-                // A class parameter is a heap pointer, passed by value (the pointer). The callee can use
-                // it for field/method access (registered as a class local in MethodLowerer).
-                if (p.Type is IdentifierNameSyntax className && classes.TryGetValue(className.Identifier.Text, out var pc))
-                {
-                    paramTypes.Add(new CsType(IrType.Pointer(IrType.I8), false));
-                    paramStructs.Add(null);
-                    paramClasses.Add(pc);
-                    refFlags.Add(false);
-                    parameters.Add(new IrParameter(p.Identifier.Text, IrType.Pointer(IrType.I8)));
-                    continue;
-                }
-
-                var t = ResolveType(p.Type!, enums);
-                paramTypes.Add(t);
-                paramStructs.Add(null);
-                paramClasses.Add(null);
-                refFlags.Add(isRef);
-                parameters.Add(new IrParameter(p.Identifier.Text, isRef ? IrType.Pointer(t.Ir) : t.Ir));
+                var (pt, pref, pstruct, pclass, par) = BindParameter(p);
+                paramTypes.Add(pt);
+                refFlags.Add(pref);
+                paramStructs.Add(pstruct);
+                paramClasses.Add(pclass);
+                parameters.Add(par);
             }
 
             var fn = new IrFunction(name, returnType?.Ir ?? IrType.Void, parameters)
@@ -228,19 +222,17 @@ public sealed partial class CSharpFrontend : IFrontend
                 var parameters = new List<IrParameter> { new("this", IrType.Pointer(IrType.I8)) };
                 foreach (var p in mdecl.ParameterList.Parameters)
                 {
-                    paramStructs.Add(null);
+                    // The instance-call path passes arguments by value, so a ref/out/in parameter on an
+                    // instance method would be a silent by-value miscompile — report it instead.
+                    if (p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in"))
+                        Report(diagnostics, $"instance method '{cls.Name}.{mname}' parameter '{p.Identifier.Text}' "
+                            + "cannot be ref/out/in (unsupported).", p.GetLocation());
+                    var (pt, _, pstruct, pclass, par) = BindParameter(p);
+                    paramTypes.Add(pt);
                     refFlags.Add(false);
-                    if (p.Type is IdentifierNameSyntax cn && classes.TryGetValue(cn.Identifier.Text, out var pc))
-                    {
-                        paramTypes.Add(new CsType(IrType.Pointer(IrType.I8), false));
-                        paramClasses.Add(pc);
-                        parameters.Add(new IrParameter(p.Identifier.Text, IrType.Pointer(IrType.I8)));
-                        continue;
-                    }
-                    var t = ResolveType(p.Type!, enums);
-                    paramTypes.Add(t);
-                    paramClasses.Add(null);
-                    parameters.Add(new IrParameter(p.Identifier.Text, t.Ir));
+                    paramStructs.Add(pstruct);
+                    paramClasses.Add(pclass);
+                    parameters.Add(par);
                 }
                 var qualified = $"{cls.Name}.{mname}";
                 var fn = new IrFunction(qualified, returnType?.Ir ?? IrType.Void, parameters);
@@ -254,10 +246,12 @@ public sealed partial class CSharpFrontend : IFrontend
                 bodies.Add((method, mdecl.Body, mdecl.ExpressionBody));
             }
 
-        // The entry function (main, else first) runs the static-field initializers in its prologue.
+        // The entry function (main, else the first non-handler) runs the static-field initializers in
+        // its prologue. An interrupt handler must never be the entry: its body runs on every interrupt,
+        // which would re-seed the heap pointer and re-run initializers, corrupting live state.
         var entry = bodies.FirstOrDefault(b =>
                 string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)).Method
-            ?? (bodies.Count > 0 ? bodies[0].Method : null);
+            ?? bodies.FirstOrDefault(b => b.Method.Fn.InterruptVector is null).Method;
 
         // Pass 2: bodies. Report per-method so one bad method doesn't sink the whole compile.
         foreach (var (method, body, arrow) in bodies)

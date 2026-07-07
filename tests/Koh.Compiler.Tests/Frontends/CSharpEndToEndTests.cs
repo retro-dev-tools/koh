@@ -354,6 +354,40 @@ static byte Step(byte d) {
     }
 
     [Test]
+    public async Task Const_EnumMemberInDataTable()
+    {
+        // A qualified enum member is a compile-time constant usable in const/ROM-table initializers.
+        const string src = @"
+enum Pal : byte { White = 3, Black = 7 }
+static readonly byte[] T = { Pal.White, Pal.Black, (byte)(Pal.White + Pal.Black) };
+static byte Main() { return T[2]; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)10); // 3 + 7
+    }
+
+    [Test]
+    public async Task ConstEval_BadConstantsAreDiagnostics()
+    {
+        // Malformed constant expressions must be reported, not crash the compiler (they run in the
+        // collection passes, outside the per-method try/catch, and used to throw raw exceptions).
+        await Assert.That(HasError("const byte X = 1 / 0; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("const byte X = 5 % 0; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("const byte X = \"hi\"; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("const byte X = 300; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("static readonly ushort[] T = { 70000 }; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("static byte[] B = new byte[70000]; static byte Main() { return 0; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task Class_MalformedDeclarationsAreDiagnostics()
+    {
+        // A class with no instance fields aliases all instances; a duplicate instance method binds the
+        // wrong overload; a ref/out/in instance-method parameter would silently pass by value.
+        await Assert.That(HasError("class Empty { static byte n; } static byte Main() { Empty e = new Empty(); return 0; }")).IsTrue();
+        await Assert.That(HasError("class C { byte v; byte Get() { return v; } byte Get(byte x) { return x; } } static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("class C { byte v; void Set(ref byte x) { x = v; } } static byte Main() { return 0; }")).IsTrue();
+    }
+
+    [Test]
     public async Task Enum_InSwitch()
     {
         const string src = @"

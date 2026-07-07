@@ -94,8 +94,13 @@ public sealed partial class CSharpFrontend
             factory.Append($"__it.{p.Identifier.Text} = {p.Identifier.Text}; ");
         factory.Append("return __it; }");
 
-        return (SyntaxFactory.ParseMemberDeclaration(cls.ToString())!,
-                SyntaxFactory.ParseMemberDeclaration(factory.ToString())!);
+        // If the synthesized source doesn't parse to a member (e.g. a parameter type that stringifies to
+        // something unexpected), leave the iterator untransformed rather than propagate a null — the
+        // remaining `yield` is then reported as unsupported.
+        if (SyntaxFactory.ParseMemberDeclaration(cls.ToString()) is not { } stateClass
+            || SyntaxFactory.ParseMemberDeclaration(factory.ToString()) is not { } factoryDecl)
+            return null;
+        return (stateClass, factoryDecl);
     }
 
     /// <summary>A linear sequence of top-level <c>yield return</c> statements → a switch that returns one

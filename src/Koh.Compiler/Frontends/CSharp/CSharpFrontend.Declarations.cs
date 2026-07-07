@@ -25,7 +25,7 @@ public sealed partial class CSharpFrontend
             foreach (var member in decl.Members)
             {
                 long value = member.EqualsValue is { } eq
-                    ? ConstEval(eq.Value, name => members.TryGetValue(name, out var v) ? v : null)
+                    ? ConstEval(eq.Value, name => members.TryGetValue(name, out var v) ? v : null, enums)
                     : next;
                 members[member.Identifier.Text] = value;
                 next = value + 1;
@@ -82,7 +82,7 @@ public sealed partial class CSharpFrontend
                 {
                     if (Redeclared(v.Identifier.Text, v.Identifier.GetLocation()))
                         continue;
-                    CollectStaticArray(v, element, isReadonly, ConstLookup, module, arrays);
+                    CollectStaticArray(v, element, isReadonly, ConstLookup, enums, module, arrays);
                 }
                 continue;
             }
@@ -98,13 +98,18 @@ public sealed partial class CSharpFrontend
                 if (isConst)
                 {
                     if (v.Initializer is null)
-                        throw new CSharpNotSupportedException($"const '{name}' needs an initializer.");
-                    consts[name] = (type, ConstEval(v.Initializer.Value, ConstLookup));
+                        throw new CSharpNotSupportedException($"const '{name}' needs an initializer.",
+                            v.Identifier.GetLocation());
+                    long cv = ConstEval(v.Initializer.Value, ConstLookup, enums);
+                    if (!FitsInBytes(cv, size))
+                        throw new CSharpNotSupportedException(
+                            $"const '{name}' value {cv} does not fit in {size} byte(s).", v.Identifier.GetLocation());
+                    consts[name] = (type, cv);
                 }
                 else if (isReadonly && v.Initializer is { } roInit)
                 {
                     var g = new IrGlobal(name, type.Ir, AddressSpace.Rom,
-                        initializer: ToLittleEndian(ConstEval(roInit.Value, ConstLookup), size));
+                        initializer: ToLittleEndian(ConstEval(roInit.Value, ConstLookup, enums), size));
                     module.Globals.Add(g);
                     globals[name] = (g, type);
                 }
@@ -114,7 +119,7 @@ public sealed partial class CSharpFrontend
                     module.Globals.Add(g);
                     globals[name] = (g, type);
                     if (v.Initializer is { } init)
-                        inits.Add((g, ConstEval(init.Value, ConstLookup), type));
+                        inits.Add((g, ConstEval(init.Value, ConstLookup, enums), type));
                 }
             }
         }
@@ -125,6 +130,7 @@ public sealed partial class CSharpFrontend
     /// <c>new T[n]</c>) global.</summary>
     private static void CollectStaticArray(
         VariableDeclaratorSyntax v, CsType element, bool isReadonly, Func<string, long?> constLookup,
+        IReadOnlyDictionary<string, CsEnum> enums,
         IrModule module, Dictionary<string, (IrGlobal, CsType, int)> arrays)
     {
         var name = v.Identifier.Text;
@@ -160,7 +166,7 @@ public sealed partial class CSharpFrontend
                     + "use 'static T[] x = new T[n]' for a mutable buffer.");
             var bytes = new List<byte>(elements.Count * elemSize);
             foreach (var e in elements)
-                bytes.AddRange(ToLittleEndian(ConstEval(e, constLookup), elemSize));
+                bytes.AddRange(ToLittleEndian(ConstEval(e, constLookup, enums), elemSize));
             var rom = new IrGlobal(name, IrType.Array(element.Ir, elements.Count), AddressSpace.Rom, initializer: bytes.ToArray());
             module.Globals.Add(rom);
             arrays[name] = (rom, element, elements.Count);
@@ -169,14 +175,19 @@ public sealed partial class CSharpFrontend
 
         // No element list: `new T[n]` (or a bare size) -> a zero buffer. Mutable in WRAM; a readonly
         // one is placed in ROM (constant zeros).
-        int length = v.Initializer?.Value switch
+        long length64 = v.Initializer?.Value switch
         {
             ArrayCreationExpressionSyntax create when create.Type.RankSpecifiers[0].Sizes[0] is { } size
-                => (int)ConstEval(size, constLookup),
-            _ => throw new CSharpNotSupportedException($"static array '{name}' needs an initializer or a size."),
+                => ConstEval(size, constLookup, enums),
+            _ => throw new CSharpNotSupportedException(
+                $"static array '{name}' needs an initializer or a size.", v.Identifier.GetLocation()),
         };
-        if (length < 0)
-            throw new CSharpNotSupportedException($"static array '{name}' has a negative length ({length}).");
+        // Range-check before the int cast so an out-of-range size is a diagnostic, not a silent
+        // truncation (e.g. 0x100000001 casting to 1).
+        if (length64 < 0 || length64 > 0xFFFF)
+            throw new CSharpNotSupportedException(
+                $"static array '{name}' length {length64} is out of range (0..65535).", v.Identifier.GetLocation());
+        int length = (int)length64;
         var g = new IrGlobal(name, IrType.Array(element.Ir, length), isReadonly ? AddressSpace.Rom : AddressSpace.Wram);
         module.Globals.Add(g);
         arrays[name] = (g, element, length);
@@ -278,7 +289,16 @@ public sealed partial class CSharpFrontend
             }
             var methods = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
             foreach (var m in decl.Members.OfType<MethodDeclarationSyntax>())
-                methods.TryAdd(m.Identifier.Text, m);
+                if (!methods.TryAdd(m.Identifier.Text, m))
+                    Report(diagnostics, $"duplicate method '{decl.Identifier.Text}.{m.Identifier.Text}' "
+                        + "(overloaded instance methods are not supported).", m.Identifier.GetLocation());
+
+            // A class with no instance fields lays out to size 0, so every `new` would return the same
+            // heap address (all instances alias). Reject it rather than silently mis-allocate.
+            if (fields.Count == 0)
+                Report(diagnostics, $"class '{decl.Identifier.Text}' has no instance fields; a reference "
+                    + "type needs at least one so distinct instances get distinct addresses.",
+                    decl.Identifier.GetLocation());
 
             var cls = new CsClass(decl.Identifier.Text, new CsStruct(fields, RoundUp(offset, align)), methods);
             if (!classes.TryAdd(decl.Identifier.Text, cls))
