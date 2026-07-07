@@ -723,6 +723,11 @@ public sealed partial class Sm83Backend : IBackend
     private const int CurBank = 0xDF07;     // currently-mapped ROM bank, for far-call thunks
     private const int ArgScratch = 0xDE80;  // recursive-call argument staging (little-endian, packed)
 
+    // The software stack grows up from just above the static frames toward the fixed scratch. It must
+    // not reach the heap (which the C# frontend tops at 0xDE00, growing down) or ArgScratch (0xDE80);
+    // rt.pushframe traps if it does, turning an otherwise-silent deep-recursion overflow into a halt.
+    private const int SoftStackCeiling = 0xDE00;
+
     /// <summary>MBC1 ROM-bank select register (a write here maps that bank into 0x4000-0x7FFF).</summary>
     private const int MbcBankSelect = 0x2000;
 
@@ -959,7 +964,16 @@ public sealed partial class Sm83Backend : IBackend
         e.U8(0x05);                                      // dec b
         e.Jump(0xC2, loop);                              // jp nz, loop
         e.U8(0x7D); StAAbs(e, SoftSp);                   // ld a,l ; ld (SoftSp),a
-        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a
+        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a   (A = high byte)
+        // Overflow guard: if the new top reached the ceiling (high byte >= SoftStackCeiling>>8), the
+        // software stack has run into the heap/scratch — trap here rather than corrupt them silently.
+        e.U8(0xFE); e.U8(SoftStackCeiling >> 8);         // cp <ceiling high byte>
+        var ok = new Label();
+        e.Jump(0xDA, ok);                                // jp c, ok   (high byte < ceiling -> safe)
+        var trap = new Label();
+        e.Place(trap);
+        e.Jump(0xC3, trap);                              // jp trap    (spin forever on overflow)
+        e.Place(ok);
         e.U8(0xC9);                                      // ret
     }
 

@@ -18,9 +18,21 @@ public sealed partial class CSharpFrontend
     }
 
     /// <summary>The mangled name of a generic method instantiated at concrete type arguments, e.g.
-    /// <c>Max&lt;int&gt;</c> becomes <c>Max$int</c>. Both the synthesized function and its call sites use it.</summary>
-    internal static string MangleGeneric(string name, IEnumerable<TypeSyntax> typeArgs) =>
-        name + "$" + string.Join("_", typeArgs.Select(t => t.ToString()));
+    /// <c>Max&lt;int&gt;</c> becomes <c>Max$1i3int</c>. Both the synthesized function and its call sites
+    /// use it. Each argument is length-prefixed so distinct argument lists can't alias (e.g. one arg
+    /// <c>A_B</c> vs two args <c>A</c>,<c>B</c>), which a plain <c>_</c>-join would collide.</summary>
+    internal static string MangleGeneric(string name, IEnumerable<TypeSyntax> typeArgs)
+    {
+        var sb = new System.Text.StringBuilder(name).Append('$');
+        var args = typeArgs.ToList();
+        sb.Append(args.Count);
+        foreach (var t in args)
+        {
+            var s = t.ToString();
+            sb.Append('_').Append(s.Length).Append('_').Append(s);
+        }
+        return sb.ToString();
+    }
 
     private static IEnumerable<(string Name, TypeArgumentListSyntax Args, InvocationExpressionSyntax Node)>
         FindGenericInvocations(SyntaxNode node) =>

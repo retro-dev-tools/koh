@@ -129,6 +129,18 @@ public sealed partial class CSharpFrontend : IFrontend
                 Report(diagnostics,
                     $"generic method '{m.Identifier.Text}' with {key.Item2} type parameter(s) is declared "
                     + "more than once; overloaded generic methods are not supported.", m.Identifier.GetLocation());
+
+            // Monomorphization substitutes type-parameter names by identifier text alone, so a parameter
+            // or local named like a type parameter would be rewritten to the concrete type (e.g. a local
+            // `T` becomes `byte`). Reject that shadowing rather than mis-specialize.
+            var typeParams = m.TypeParameterList.Parameters.Select(tp => tp.Identifier.Text).ToHashSet(StringComparer.Ordinal);
+            var shadow = m.ParameterList.Parameters.Select(p => p.Identifier.Text)
+                .Concat(m.DescendantNodes().OfType<VariableDeclaratorSyntax>().Select(v => v.Identifier.Text))
+                .FirstOrDefault(typeParams.Contains);
+            if (shadow is not null)
+                Report(diagnostics,
+                    $"in generic method '{m.Identifier.Text}', '{shadow}' shadows a type parameter of the "
+                    + "same name; rename the value.", m.Identifier.GetLocation());
         }
         var genericInstances = SynthesizeGenericInstances(root, genericMethods);
 

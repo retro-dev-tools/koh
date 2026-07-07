@@ -1783,6 +1783,16 @@ static T Max<T>(T a, T b, T c) { return a; }";
     }
 
     [Test]
+    public async Task Generics_ShadowedTypeParameter_IsDiagnostic()
+    {
+        // Monomorphization substitutes type-parameter names by identifier text, so a local named like a
+        // type parameter would be rewritten to the concrete type. That shadowing is reported.
+        await Assert.That(HasError(
+            "static byte Main() { return (byte)Id<byte>(5); }\n"
+            + "static T Id<T>(T x) { byte T = 0; return (T)(x + T); }")).IsTrue();
+    }
+
+    [Test]
     public async Task Linq_ReductionsOverArray()
     {
         const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5, 9, 2, 6 };";
