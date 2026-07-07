@@ -22,7 +22,7 @@ public sealed partial class CSharpFrontend
     private static CompilationUnitSyntax TransformIterators(CompilationUnitSyntax root)
     {
         var wrapper = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
-            .FirstOrDefault(c => c.Identifier.Text == "__KohProgram");
+            .FirstOrDefault(c => c.Identifier.Text == WrapperClassName);
         if (wrapper is null)
             return root;
 

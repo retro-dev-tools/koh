@@ -36,7 +36,14 @@ public sealed partial class CSharpFrontend : IFrontend
 
     public IReadOnlyList<string> Extensions => [".cs"];
 
-    private const string WrapperPrefix = "static class __KohProgram {\n";
+    /// <summary>The synthesized class that wraps top-level source; its direct members are the program's
+    /// top-level functions and static fields (methods inside a user class are instance methods).</summary>
+    internal const string WrapperClassName = "__KohProgram";
+    private const string WrapperPrefix = "static class " + WrapperClassName + " {\n";
+
+    /// <summary>Whether a node is a direct member of the program wrapper (a top-level declaration).</summary>
+    private static bool IsWrapperMember(SyntaxNode node) =>
+        node.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
 
     /// <summary>Name of the synthesized heap-pointer global, and the top of the heap region it starts
     /// at. Allocation (<c>Mem.Alloc</c>, <c>new</c>) bumps the pointer downward from here; the region
@@ -122,7 +129,7 @@ public sealed partial class CSharpFrontend : IFrontend
         var genericMethods = new Dictionary<(string Name, int Arity), MethodDeclarationSyntax>();
         foreach (var m in root.DescendantNodes().OfType<MethodDeclarationSyntax>()
             .Where(m => m.TypeParameterList is { Parameters.Count: > 0 }
-                && m.Parent is ClassDeclarationSyntax { Identifier.Text: "__KohProgram" }))
+                && IsWrapperMember(m)))
         {
             var key = (m.Identifier.Text, m.TypeParameterList!.Parameters.Count);
             if (!genericMethods.TryAdd(key, m))
@@ -340,8 +347,8 @@ public sealed partial class CSharpFrontend : IFrontend
         {
             // Only methods directly in the program wrapper are top-level functions; methods inside a
             // user class are instance methods, collected separately with an implicit `this`.
-            if (node is MethodDeclarationSyntax { Parent: ClassDeclarationSyntax { Identifier.Text: "__KohProgram" } })
-                yield return node;
+            if (node is MethodDeclarationSyntax m && IsWrapperMember(m))
+                yield return m;
             else if (node is LocalFunctionStatementSyntax fn && fn.Parent is GlobalStatementSyntax)
                 yield return node; // top-level function
         }

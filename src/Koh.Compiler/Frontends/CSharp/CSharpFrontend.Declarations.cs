@@ -68,7 +68,7 @@ public sealed partial class CSharpFrontend
         // Only fields at the program (wrapper) level are statics; a user class's fields are its
         // per-instance members, laid out per instance rather than as global storage.
         foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>()
-                     .Where(f => f.Parent is ClassDeclarationSyntax { Identifier.Text: "__KohProgram" }))
+                     .Where(IsWrapperMember))
         {
             bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
             bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
@@ -215,8 +215,7 @@ public sealed partial class CSharpFrontend
             if (!inProgress.Add(name))
                 throw new CSharpNotSupportedException($"struct '{name}' contains itself.");
 
-            var fields = new List<CsField>();
-            int offset = 0, align = 1;
+            var specs = new List<(string Name, CsType Type, int Size, int Align, CsStruct? Nested)>();
             foreach (var member in decls[name].Members.OfType<FieldDeclarationSyntax>())
             {
                 var typeSyntax = member.Declaration.Type;
@@ -224,16 +223,11 @@ public sealed partial class CSharpFrontend
                 CsStruct? nested = isStruct ? Layout(((IdentifierNameSyntax)typeSyntax).Identifier.Text) : null;
                 var type = isStruct ? CsType.U8 : ResolveType(typeSyntax, enums);
                 int size = nested?.Size ?? type.Ir.SizeInBytes;
-                int fieldAlign = nested is not null ? 1 : size;
+                int fieldAlign = nested is not null ? 1 : size; // nested aggregates pack byte-aligned
                 foreach (var v in member.Declaration.Variables)
-                {
-                    offset = RoundUp(offset, fieldAlign);
-                    fields.Add(new CsField(v.Identifier.Text, type, offset, nested));
-                    offset += size;
-                    align = Math.Max(align, fieldAlign);
-                }
+                    specs.Add((v.Identifier.Text, type, size, fieldAlign, nested));
             }
-            var result = new CsStruct(fields, RoundUp(offset, align));
+            var result = LayoutFields(specs);
             structs[name] = result;
             inProgress.Remove(name);
             return result;
@@ -254,11 +248,11 @@ public sealed partial class CSharpFrontend
         // reference class resolves to a heap pointer rather than an unsupported-type error.
         var classNames = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
             .Select(c => c.Identifier.Text)
-            .Where(n => n is not ("__KohProgram" or "Mem"))
+            .Where(n => n != WrapperClassName && n != "Mem")
             .ToHashSet(StringComparer.Ordinal);
         foreach (var decl in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
         {
-            if (decl.Identifier.Text == "__KohProgram")
+            if (decl.Identifier.Text == WrapperClassName)
                 continue; // the synthesized program wrapper, not a user class
 
             // `Mem` is the reserved arena-allocator intrinsic (Mem.Alloc/Mem.Reset). A user class of
@@ -271,8 +265,7 @@ public sealed partial class CSharpFrontend
                 continue;
             }
 
-            var fields = new List<CsField>();
-            int offset = 0, align = 1;
+            var specs = new List<(string Name, CsType Type, int Size, int Align, CsStruct? Nested)>();
             foreach (var member in decl.Members.OfType<FieldDeclarationSyntax>())
             {
                 if (member.Modifiers.Any(m => m.ValueText == "static"))
@@ -280,13 +273,10 @@ public sealed partial class CSharpFrontend
                 var type = ResolveTypeAllowingClass(member.Declaration.Type, enums, classNames);
                 int fsize = type.Ir.SizeInBytes;
                 foreach (var v in member.Declaration.Variables)
-                {
-                    offset = RoundUp(offset, fsize);
-                    fields.Add(new CsField(v.Identifier.Text, type, offset));
-                    offset += fsize;
-                    align = Math.Max(align, fsize);
-                }
+                    specs.Add((v.Identifier.Text, type, fsize, fsize, null));
             }
+            var layout = LayoutFields(specs);
+
             var methods = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
             foreach (var m in decl.Members.OfType<MethodDeclarationSyntax>())
                 if (!methods.TryAdd(m.Identifier.Text, m))
@@ -295,12 +285,12 @@ public sealed partial class CSharpFrontend
 
             // A class with no instance fields lays out to size 0, so every `new` would return the same
             // heap address (all instances alias). Reject it rather than silently mis-allocate.
-            if (fields.Count == 0)
+            if (layout.Fields.Count == 0)
                 Report(diagnostics, $"class '{decl.Identifier.Text}' has no instance fields; a reference "
                     + "type needs at least one so distinct instances get distinct addresses.",
                     decl.Identifier.GetLocation());
 
-            var cls = new CsClass(decl.Identifier.Text, new CsStruct(fields, RoundUp(offset, align)), methods);
+            var cls = new CsClass(decl.Identifier.Text, layout, methods);
             if (!classes.TryAdd(decl.Identifier.Text, cls))
                 Report(diagnostics, $"duplicate class '{decl.Identifier.Text}' (only the first definition is used).",
                     decl.Identifier.GetLocation());
@@ -309,4 +299,22 @@ public sealed partial class CSharpFrontend
     }
 
     private static int RoundUp(int value, int alignment) => (value + alignment - 1) / alignment * alignment;
+
+    /// <summary>Pack a sequence of fields into a struct/class layout: each field is aligned to its own
+    /// size (nested aggregates pack byte-aligned), and the total is rounded up to the max field
+    /// alignment. Shared by struct and class layout so their packing rules cannot drift.</summary>
+    private static CsStruct LayoutFields(
+        IReadOnlyList<(string Name, CsType Type, int Size, int Align, CsStruct? Nested)> members)
+    {
+        var fields = new List<CsField>(members.Count);
+        int offset = 0, align = 1;
+        foreach (var (name, type, size, fieldAlign, nested) in members)
+        {
+            offset = RoundUp(offset, fieldAlign);
+            fields.Add(new CsField(name, type, offset, nested));
+            offset += size;
+            align = Math.Max(align, fieldAlign);
+        }
+        return new CsStruct(fields, RoundUp(offset, align));
+    }
 }
