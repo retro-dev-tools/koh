@@ -6,32 +6,25 @@ namespace Koh.Compiler.Backends.Sm83;
 public sealed partial class Sm83Backend
 {
     /// <summary>Lowers load/store/gep (pointer and array) instructions.</summary>
-    internal sealed class MemoryEmitter : EmitBase
+    internal sealed class MemoryEmitter
     {
-        public MemoryEmitter(
-            Emitter emitter,
-            IrFunction fn,
-            IReadOnlyDictionary<IrFunction, FunctionAllocation> allocations,
-            IReadOnlyDictionary<IrGlobal, int> globals,
-            IReadOnlySet<IrFunction> recursive,
-            bool isEntry,
-            int softStackBase,
-            IReadOnlySet<IrFunction>? banked = null)
-            : base(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, banked) { }
+        private readonly EmitContext _ctx;
+        private readonly Emitter _e;
+        public MemoryEmitter(EmitContext ctx) { _ctx = ctx; _e = ctx.E; }
 
         // ---- Memory --------------------------------------------------------
 
         public void EmitLoad(LoadInstruction l)
         {
-            int dst = _slot[l];
+            int dst = _ctx.Slot[l];
             int n = SizeOf(l.Type);
 
-            if (TryStaticAddr(l.Pointer, out int addr))
+            if (_ctx.TryStaticAddr(l.Pointer, out int addr))
             {
                 for (int k = 0; k < n; k++)
                 {
-                    LoadAFromAddr(addr + k);
-                    StoreAToAddr(dst + k);
+                    _ctx.LoadAFromAddr(addr + k);
+                    _ctx.StoreAToAddr(dst + k);
                 }
                 return;
             }
@@ -40,7 +33,7 @@ public sealed partial class Sm83Backend
             for (int k = 0; k < n; k++)
             {
                 _e.U8(0x7E);                     // LD A, (HL)
-                StoreAToAddr(dst + k);
+                _ctx.StoreAToAddr(dst + k);
                 if (k < n - 1) _e.U8(0x23);      // INC HL
             }
         }
@@ -49,12 +42,12 @@ public sealed partial class Sm83Backend
         {
             int n = SizeOf(s.Value.Type);
 
-            if (TryStaticAddr(s.Pointer, out int addr))
+            if (_ctx.TryStaticAddr(s.Pointer, out int addr))
             {
                 for (int k = 0; k < n; k++)
                 {
-                    LoadByteToA(s.Value, k);
-                    StoreAToAddr(addr + k);
+                    _ctx.LoadByteToA(s.Value, k);
+                    _ctx.StoreAToAddr(addr + k);
                 }
                 return;
             }
@@ -62,7 +55,7 @@ public sealed partial class Sm83Backend
             LoadPointerToHL(s.Pointer);          // (LoadByteToA below only touches A, not HL)
             for (int k = 0; k < n; k++)
             {
-                LoadByteToA(s.Value, k);
+                _ctx.LoadByteToA(s.Value, k);
                 _e.U8(0x77);                     // LD (HL), A
                 if (k < n - 1) _e.U8(0x23);      // INC HL
             }
@@ -94,18 +87,18 @@ public sealed partial class Sm83Backend
 
             LoadPointerToHL(g.BasePointer);      // HL = base
             _e.U8(0x19);                         // ADD HL, DE
-            StoreHLToSlot(_slot[g]);
+            StoreHLToSlot(_ctx.Slot[g]);
         }
 
         private void LoadIndexToDE(IrValue index)
         {
             if (SizeOf(index.Type) > 2)
                 throw new NotSupportedException("SM83 backend gep index must be <= 16-bit.");
-            LoadByteToA(index, 0);
+            _ctx.LoadByteToA(index, 0);
             _e.U8(0x5F);                         // LD E, A
             if (SizeOf(index.Type) == 2)
             {
-                LoadByteToA(index, 1);
+                _ctx.LoadByteToA(index, 1);
                 _e.U8(0x57);                     // LD D, A
             }
             else
@@ -117,14 +110,14 @@ public sealed partial class Sm83Backend
         /// <summary>Load a pointer value into HL: a static address as an immediate, else from its slot.</summary>
         private void LoadPointerToHL(IrValue pointer)
         {
-            if (TryStaticAddr(pointer, out int addr))
+            if (_ctx.TryStaticAddr(pointer, out int addr))
             {
                 LdHL(_e, addr);   // LD HL, addr
             }
-            else if (_slot.TryGetValue(pointer, out int slot))
+            else if (_ctx.Slot.TryGetValue(pointer, out int slot))
             {
-                LoadAFromAddr(slot); _e.U8(0x6F);       // LD A, (slot)   ; LD L, A
-                LoadAFromAddr(slot + 1); _e.U8(0x67);   // LD A, (slot+1) ; LD H, A
+                _ctx.LoadAFromAddr(slot); _e.U8(0x6F);       // LD A, (slot)   ; LD L, A
+                _ctx.LoadAFromAddr(slot + 1); _e.U8(0x67);   // LD A, (slot+1) ; LD H, A
             }
             else
             {
@@ -134,8 +127,8 @@ public sealed partial class Sm83Backend
 
         private void StoreHLToSlot(int slot)
         {
-            _e.U8(0x7D); StoreAToAddr(slot);        // LD A, L ; store low
-            _e.U8(0x7C); StoreAToAddr(slot + 1);    // LD A, H ; store high
+            _e.U8(0x7D); _ctx.StoreAToAddr(slot);        // LD A, L ; store low
+            _e.U8(0x7C); _ctx.StoreAToAddr(slot + 1);    // LD A, H ; store high
         }
     }
 }

@@ -22,11 +22,12 @@ public class Sm83EmitterTests
         // Parameters are placed first, so a -> 0xC000, b -> 0xC001.
         var allocations = new Dictionary<IrFunction, FunctionAllocation> { [fn] = FunctionAllocation.For(fn, 0xC000) };
         var emitter = new Emitter();
-        var arith = new Sm83Backend.ArithmeticEmitter(
+        var ctx = new Sm83Backend.EmitContext(
             emitter, fn, allocations,
             new Dictionary<IrGlobal, int>(),
             ImmutableHashSet<IrFunction>.Empty,
             isEntry: false, softStackBase: 0);
+        var arith = new Sm83Backend.ArithmeticEmitter(ctx);
 
         arith.EmitBinary(add);
 

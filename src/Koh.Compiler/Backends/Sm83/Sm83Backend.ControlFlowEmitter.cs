@@ -6,33 +6,26 @@ namespace Koh.Compiler.Backends.Sm83;
 public sealed partial class Sm83Backend
 {
     /// <summary>Lowers ret/call/branch/switch/phi-copy control-flow instructions.</summary>
-    internal sealed class ControlFlowEmitter : EmitBase
+    internal sealed class ControlFlowEmitter
     {
-        public ControlFlowEmitter(
-            Emitter emitter,
-            IrFunction fn,
-            IReadOnlyDictionary<IrFunction, FunctionAllocation> allocations,
-            IReadOnlyDictionary<IrGlobal, int> globals,
-            IReadOnlySet<IrFunction> recursive,
-            bool isEntry,
-            int softStackBase,
-            IReadOnlySet<IrFunction>? banked = null)
-            : base(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, banked) { }
+        private readonly EmitContext _ctx;
+        private readonly Emitter _e;
+        public ControlFlowEmitter(EmitContext ctx) { _ctx = ctx; _e = ctx.E; }
 
         // ---- Control flow --------------------------------------------------
 
         public void EmitRet(RetInstruction r)
         {
-            if (UsesMemoryReturn(_fn))
+            if (_ctx.UsesMemoryReturn(_ctx.Fn))
             {
                 // Return via ReturnScratch (memory) so neither the recursive frame restore nor the far-call
                 // thunk's bank restore can clobber it. A recursive function also restores its frame here.
                 if (r.Value is not null)
-                    CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
-                if (IsRecursive && _frameSize > 0)
+                    _ctx.CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
+                if (_ctx.IsRecursive && _ctx.FrameSize > 0)
                 {
-                    LdDE(_e, _frameBase); // LD DE, frameBase
-                    _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
+                    LdDE(_e, _ctx.FrameBase); // LD DE, frameBase
+                    _e.U8(0x06); _e.U8(_ctx.FrameSize);                                // LD B, frameSize
                     _e.Jump(0xCD, _e.RoutineLabel("rt.popframe"));
                 }
                 _e.U8(0xC9);                                                   // RET (a banked fn is never a handler)
@@ -44,25 +37,25 @@ public sealed partial class Sm83Backend
                 switch (SizeOf(r.Value.Type))
                 {
                     case 1:
-                        LoadByteToA(r.Value, 0);
+                        _ctx.LoadByteToA(r.Value, 0);
                         break;
                     case 2:
-                        LoadByteToA(r.Value, 0);
+                        _ctx.LoadByteToA(r.Value, 0);
                         _e.U8(0x6F);            // LD L, A
-                        LoadByteToA(r.Value, 1);
+                        _ctx.LoadByteToA(r.Value, 1);
                         _e.U8(0x67);            // LD H, A
                         break;
                     case 4:
                         // i32: low word in HL, high word in DE.
-                        LoadByteToA(r.Value, 0); _e.U8(0x6F); // LD L, A
-                        LoadByteToA(r.Value, 1); _e.U8(0x67); // LD H, A
-                        LoadByteToA(r.Value, 2); _e.U8(0x5F); // LD E, A
-                        LoadByteToA(r.Value, 3); _e.U8(0x57); // LD D, A
+                        _ctx.LoadByteToA(r.Value, 0); _e.U8(0x6F); // LD L, A
+                        _ctx.LoadByteToA(r.Value, 1); _e.U8(0x67); // LD H, A
+                        _ctx.LoadByteToA(r.Value, 2); _e.U8(0x5F); // LD E, A
+                        _ctx.LoadByteToA(r.Value, 3); _e.U8(0x57); // LD D, A
                         break;
                     case 8:
                     case 16:
                         // i64/i128 have no register room; return in the fixed ReturnScratch (little-endian).
-                        CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
+                        _ctx.CopyToScratch(r.Value, ReturnScratch, SizeOf(r.Value.Type));
                         break;
                     default:
                         throw new NotSupportedException(
@@ -71,7 +64,7 @@ public sealed partial class Sm83Backend
                 }
             }
 
-            if (_fn.InterruptVector is not null)
+            if (_ctx.Fn.InterruptVector is not null)
             {
                 _e.U8(0xE1); // POP HL
                 _e.U8(0xD1); // POP DE
@@ -110,8 +103,8 @@ public sealed partial class Sm83Backend
                 throw new NotSupportedException(
                     $"SM83 backend cannot yet call external function '@{callee.Name}'.");
 
-            bool calleeRecursive = _recursive.Contains(callee);
-            bool calleeBanked = _banked.Contains(callee);
+            bool calleeRecursive = _ctx.Recursive.Contains(callee);
+            bool calleeBanked = _ctx.Banked.Contains(callee);
 
             if (calleeRecursive)
             {
@@ -122,17 +115,17 @@ public sealed partial class Sm83Backend
                 for (int i = 0; i < call.Arguments.Count; i++)
                 {
                     int n = SizeOf(callee.Parameters[i].Type);
-                    CopyToScratch(call.Arguments[i], ArgScratch + off, n);
+                    _ctx.CopyToScratch(call.Arguments[i], ArgScratch + off, n);
                     off += n;
                 }
             }
             else
             {
-                var calleeAllocation = _allocations[callee];
+                var calleeAllocation = _ctx.Allocations[callee];
                 for (int i = 0; i < call.Arguments.Count; i++)
                 {
                     var param = callee.Parameters[i];
-                    CopyToScratch(call.Arguments[i], calleeAllocation.Slot[param], SizeOf(param.Type));
+                    _ctx.CopyToScratch(call.Arguments[i], calleeAllocation.Slot[param], SizeOf(param.Type));
                 }
             }
 
@@ -143,34 +136,34 @@ public sealed partial class Sm83Backend
             if (call.Type.Kind == IrTypeKind.Void)
                 return;
 
-            int dst = _slot[call];
+            int dst = _ctx.Slot[call];
 
             // A recursive or banked callee returns through ReturnScratch (memory); read it back.
             if (calleeRecursive || calleeBanked)
             {
-                CopyFromScratch(ReturnScratch, dst, SizeOf(call.Type));
+                _ctx.CopyFromScratch(ReturnScratch, dst, SizeOf(call.Type));
                 return;
             }
 
             switch (SizeOf(call.Type))
             {
                 case 1:
-                    StoreAToAddr(dst);                    // result in A
+                    _ctx.StoreAToAddr(dst);                    // result in A
                     break;
                 case 2:
-                    _e.U8(0x7D); StoreAToAddr(dst);       // LD A, L ; store low
-                    _e.U8(0x7C); StoreAToAddr(dst + 1);   // LD A, H ; store high
+                    _e.U8(0x7D); _ctx.StoreAToAddr(dst);       // LD A, L ; store low
+                    _e.U8(0x7C); _ctx.StoreAToAddr(dst + 1);   // LD A, H ; store high
                     break;
                 case 4:
-                    _e.U8(0x7D); StoreAToAddr(dst);       // LD A, L
-                    _e.U8(0x7C); StoreAToAddr(dst + 1);   // LD A, H
-                    _e.U8(0x7B); StoreAToAddr(dst + 2);   // LD A, E
-                    _e.U8(0x7A); StoreAToAddr(dst + 3);   // LD A, D
+                    _e.U8(0x7D); _ctx.StoreAToAddr(dst);       // LD A, L
+                    _e.U8(0x7C); _ctx.StoreAToAddr(dst + 1);   // LD A, H
+                    _e.U8(0x7B); _ctx.StoreAToAddr(dst + 2);   // LD A, E
+                    _e.U8(0x7A); _ctx.StoreAToAddr(dst + 3);   // LD A, D
                     break;
                 case 8:
                 case 16:
                     // i64/i128 come back in ReturnScratch.
-                    CopyFromScratch(ReturnScratch, dst, SizeOf(call.Type));
+                    _ctx.CopyFromScratch(ReturnScratch, dst, SizeOf(call.Type));
                     break;
                 default:
                     throw new NotSupportedException(
@@ -186,7 +179,7 @@ public sealed partial class Sm83Backend
 
         public void EmitCondBr(IrBasicBlock source, CondBrInstruction cb)
         {
-            LoadByteToA(cb.Condition, 0);
+            _ctx.LoadByteToA(cb.Condition, 0);
             _e.U8(0xA7);                                 // AND A -> Z set iff false
             var trueEdge = new Label();
             _e.Jump(0xC2, trueEdge);                     // JP NZ, <true edge>
@@ -232,7 +225,7 @@ public sealed partial class Sm83Backend
         {
             for (int k = 0; k < n; k++)
             {
-                LoadByteToA(value, k);
+                _ctx.LoadByteToA(value, k);
                 _e.U8(0xEE); _e.U8(Sm83Ops.ByteOf(caseConst, k));  // XOR d8
                 if (k == 0)
                 {
@@ -259,12 +252,12 @@ public sealed partial class Sm83Backend
             {
                 if (instr is not PhiInstruction phi)
                     break; // phis lead the block
-                pending.Add(new PhiCopy(phi, _slot[phi], SizeOf(phi.Type), FindIncoming(phi, source)));
+                pending.Add(new PhiCopy(phi, _ctx.Slot[phi], SizeOf(phi.Type), FindIncoming(phi, source)));
             }
             if (pending.Count == 0)
                 return;
 
-            int temp = _phiTempBase;
+            int temp = _ctx.PhiTempBase;
 
             while (pending.Count > 0)
             {
@@ -293,8 +286,8 @@ public sealed partial class Sm83Backend
                     temp += c.N;
                     for (int k = 0; k < c.N; k++)
                     {
-                        LoadAFromAddr(c.DestSlot + k);
-                        StoreAToAddr(tempAddr + k);
+                        _ctx.LoadAFromAddr(c.DestSlot + k);
+                        _ctx.StoreAToAddr(tempAddr + k);
                     }
                     foreach (var o in pending)
                         if (o != c && SourceSlot(o, out int srcAddr)
@@ -321,7 +314,7 @@ public sealed partial class Sm83Backend
             srcAddr = 0;
             if (o.TempSrc >= 0 || o.Src is null or IrConstInt)
                 return false;
-            return TryStaticAddr(o.Src, out srcAddr) || _slot.TryGetValue(o.Src, out srcAddr);
+            return _ctx.TryStaticAddr(o.Src, out srcAddr) || _ctx.Slot.TryGetValue(o.Src, out srcAddr);
         }
 
         private void EmitMove(PhiCopy c)
@@ -329,10 +322,10 @@ public sealed partial class Sm83Backend
             for (int k = 0; k < c.N; k++)
             {
                 if (c.TempSrc >= 0)
-                    LoadAFromAddr(c.TempSrc + k);
+                    _ctx.LoadAFromAddr(c.TempSrc + k);
                 else
-                    LoadByteToA(c.Src!, k);
-                StoreAToAddr(c.DestSlot + k);
+                    _ctx.LoadByteToA(c.Src!, k);
+                _ctx.StoreAToAddr(c.DestSlot + k);
             }
         }
 

@@ -6,18 +6,11 @@ namespace Koh.Compiler.Backends.Sm83;
 public sealed partial class Sm83Backend
 {
     /// <summary>Lowers arithmetic, shift, comparison, and conversion instructions.</summary>
-    internal sealed class ArithmeticEmitter : EmitBase
+    internal sealed class ArithmeticEmitter
     {
-        public ArithmeticEmitter(
-            Emitter emitter,
-            IrFunction fn,
-            IReadOnlyDictionary<IrFunction, FunctionAllocation> allocations,
-            IReadOnlyDictionary<IrGlobal, int> globals,
-            IReadOnlySet<IrFunction> recursive,
-            bool isEntry,
-            int softStackBase,
-            IReadOnlySet<IrFunction>? banked = null)
-            : base(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, banked) { }
+        private readonly EmitContext _ctx;
+        private readonly Emitter _e;
+        public ArithmeticEmitter(EmitContext ctx) { _ctx = ctx; _e = ctx.E; }
 
         // ---- Arithmetic ----------------------------------------------------
 
@@ -37,24 +30,24 @@ public sealed partial class Sm83Backend
             }
 
             int n = SizeOf(b.Type);
-            int dst = _slot[b];
+            int dst = _ctx.Slot[b];
             bool rightConst = b.Right is IrConstInt;
 
             for (int k = 0; k < n; k++)
             {
                 if (rightConst)
                 {
-                    LoadByteToA(b.Left, k);
+                    _ctx.LoadByteToA(b.Left, k);
                     _e.U8(Sm83Ops.AluImmOpcode(b.Op, k));
                     _e.U8(Sm83Ops.ByteOf(b.Right, k));
                 }
                 else
                 {
-                    LoadByteToB(b.Right, k);
-                    LoadByteToA(b.Left, k);
+                    _ctx.LoadByteToB(b.Right, k);
+                    _ctx.LoadByteToA(b.Left, k);
                     _e.U8(Sm83Ops.AluRegOpcode(b.Op, k));
                 }
-                StoreAToAddr(dst + k);
+                _ctx.StoreAToAddr(dst + k);
             }
         }
 
@@ -70,7 +63,7 @@ public sealed partial class Sm83Backend
                 EmitWideShift(b, n);
                 return;
             }
-            int dst = _slot[b];
+            int dst = _ctx.Slot[b];
 
             if (b.Right is IrConstInt amount)
             {
@@ -88,13 +81,13 @@ public sealed partial class Sm83Backend
             // count to n*8: a count whose high byte is set, or whose value meets/exceeds the width,
             // saturates to n*8 rather than looping by its truncated low byte.
             int width = n * 8;
-            LoadByteToA(b.Right, 0);
+            _ctx.LoadByteToA(b.Right, 0);
             _e.U8(0x47);                 // LD B, A  (tentative count = low byte)
             var saturate = new Label();
             var counted = new Label();
             if (n == 2)
             {
-                LoadByteToA(b.Right, 1);
+                _ctx.LoadByteToA(b.Right, 1);
                 _e.U8(0xB7);                     // OR A            (Z iff high byte == 0)
                 _e.Jump(0xC2, saturate);         // JP NZ, saturate (high bits set => count >= width)
             }
@@ -122,10 +115,10 @@ public sealed partial class Sm83Backend
         /// the destination is written, so a result slot overlapping an operand is harmless here.</summary>
         private void EmitWideMulDivRem(BinaryInstruction b, int n)
         {
-            int dst = _slot[b];
-            CopyToScratch(b.Left, RtOpA, n);
-            CopyToScratch(b.Right, RtOpB, n);
-            _e.U8(0x3E); _e.U8(n); StoreAToAddr(RtN);       // LD A,n ; RtN = n
+            int dst = _ctx.Slot[b];
+            _ctx.CopyToScratch(b.Left, RtOpA, n);
+            _ctx.CopyToScratch(b.Right, RtOpB, n);
+            _e.U8(0x3E); _e.U8(n); _ctx.StoreAToAddr(RtN);       // LD A,n ; RtN = n
             string routine = b.Op switch
             {
                 IrBinaryOp.Mul => "mul_wide",
@@ -135,34 +128,34 @@ public sealed partial class Sm83Backend
             _e.Jump(0xCD, _e.RoutineLabel(routine));
             // Product and remainder come back in RtAcc; quotient in RtOpA.
             int result = b.Op is IrBinaryOp.Mul or IrBinaryOp.URem or IrBinaryOp.SRem ? RtAcc : RtOpA;
-            CopyFromScratch(result, dst, n);
+            _ctx.CopyFromScratch(result, dst, n);
         }
 
         /// <summary>Lower a 32-/64-bit shift: copy the subject into scratch, store the clamped count, call
         /// the width-N shift routine, and copy the result back. Mirrors the 16-bit count clamp.</summary>
         private void EmitWideShift(BinaryInstruction b, int n)
         {
-            int dst = _slot[b];
+            int dst = _ctx.Slot[b];
             int width = n * 8;
-            CopyToScratch(b.Left, RtOpA, n);
-            _e.U8(0x3E); _e.U8(n); StoreAToAddr(RtN);       // LD A,n ; RtN = n
+            _ctx.CopyToScratch(b.Left, RtOpA, n);
+            _e.U8(0x3E); _e.U8(n); _ctx.StoreAToAddr(RtN);       // LD A,n ; RtN = n
 
             if (b.Right is IrConstInt amount)
             {
                 int steps = Math.Min((int)amount.Value, width);
-                _e.U8(0x3E); _e.U8((byte)steps); StoreAToAddr(RtBits);
+                _e.U8(0x3E); _e.U8((byte)steps); _ctx.StoreAToAddr(RtBits);
             }
             else
             {
                 // Clamp the runtime count to the width: accumulate the high bytes in C; if any are set the
                 // count meets/exceeds the width and saturates, else compare the low byte against the width.
-                LoadByteToA(b.Right, 0);
+                _ctx.LoadByteToA(b.Right, 0);
                 _e.U8(0x47);                             // LD B, A  (tentative low byte)
                 _e.U8(0xAF);                             // XOR A
                 _e.U8(0x4F);                             // LD C, A  (high-byte accumulator = 0)
                 for (int k = 1; k < n; k++)
                 {
-                    LoadByteToA(b.Right, k);
+                    _ctx.LoadByteToA(b.Right, k);
                     _e.U8(0xB1);                         // OR C
                     _e.U8(0x4F);                         // LD C, A
                 }
@@ -177,7 +170,7 @@ public sealed partial class Sm83Backend
                 _e.U8(0x06); _e.U8((byte)width);         // LD B, width
                 _e.Place(counted);
                 _e.U8(0x78);                             // LD A, B
-                StoreAToAddr(RtBits);
+                _ctx.StoreAToAddr(RtBits);
             }
 
             string routine = b.Op switch
@@ -187,16 +180,16 @@ public sealed partial class Sm83Backend
                 _ => "ashr_wide",
             };
             _e.Jump(0xCD, _e.RoutineLabel(routine));
-            CopyFromScratch(RtOpA, dst, n);
+            _ctx.CopyFromScratch(RtOpA, dst, n);
         }
 
         private void LoadWorking(IrValue value, int n)
         {
-            LoadByteToA(value, 0);
+            _ctx.LoadByteToA(value, 0);
             _e.U8(0x5F);                 // LD E, A  (low byte)
             if (n == 2)
             {
-                LoadByteToA(value, 1);
+                _ctx.LoadByteToA(value, 1);
                 _e.U8(0x57);             // LD D, A  (high byte)
             }
         }
@@ -204,11 +197,11 @@ public sealed partial class Sm83Backend
         private void StoreWorking(int dst, int n)
         {
             _e.U8(0x7B);                 // LD A, E
-            StoreAToAddr(dst);
+            _ctx.StoreAToAddr(dst);
             if (n == 2)
             {
                 _e.U8(0x7A);             // LD A, D
-                StoreAToAddr(dst + 1);
+                _ctx.StoreAToAddr(dst + 1);
             }
         }
 
@@ -247,7 +240,7 @@ public sealed partial class Sm83Backend
                 EmitWideMulDivRem(b, n);
                 return;
             }
-            int dst = _slot[b];
+            int dst = _ctx.Slot[b];
             bool signedDiv = b.Op is IrBinaryOp.SDiv or IrBinaryOp.SRem;
 
             LoadToPair(b.Left, n, hi: 0x57, lo: 0x5F, signedDiv);   // -> D:E
@@ -272,16 +265,16 @@ public sealed partial class Sm83Backend
         /// <param name="lo">opcode for <c>LD lo, A</c>; <param name="hi">opcode for <c>LD hi, A</c>.</param>
         private void LoadToPair(IrValue value, int n, int hi, int lo, bool signExtend)
         {
-            LoadByteToA(value, 0);
+            _ctx.LoadByteToA(value, 0);
             _e.U8(lo);
             if (n == 2)
             {
-                LoadByteToA(value, 1);
+                _ctx.LoadByteToA(value, 1);
                 _e.U8(hi);
             }
             else if (signExtend)
             {
-                LoadByteToA(value, 0);
+                _ctx.LoadByteToA(value, 0);
                 _e.U8(0x87);   // ADD A, A  -> carry = sign bit
                 _e.U8(0x9F);   // SBC A, A  -> 0xFF / 0x00
                 _e.U8(hi);
@@ -297,11 +290,11 @@ public sealed partial class Sm83Backend
         private void StoreRegPair(int dst, int n, int hi, int lo)
         {
             _e.U8(lo);
-            StoreAToAddr(dst);
+            _ctx.StoreAToAddr(dst);
             if (n == 2)
             {
                 _e.U8(hi);
-                StoreAToAddr(dst + 1);
+                _ctx.StoreAToAddr(dst + 1);
             }
         }
 
@@ -311,7 +304,7 @@ public sealed partial class Sm83Backend
             IrValue left = swap ? c.Right : c.Left;
             IrValue right = swap ? c.Left : c.Right;
             int n = SizeOf(c.Left.Type);
-            int dst = _slot[c];
+            int dst = _ctx.Slot[c];
             bool rightConst = right is IrConstInt;
 
             int falseJump;
@@ -323,23 +316,23 @@ public sealed partial class Sm83Backend
                 // borrow chain — an inline XOR would clear the carry mid-chain and drop the borrow.
                 if (signed)
                 {
-                    LoadByteToA(left, n - 1); _e.U8(0xEE); _e.U8(0x80); StoreAToAddr(RtCmpLeft);
-                    if (!rightConst) { LoadByteToA(right, n - 1); _e.U8(0xEE); _e.U8(0x80); StoreAToAddr(RtCmpRight); }
+                    _ctx.LoadByteToA(left, n - 1); _e.U8(0xEE); _e.U8(0x80); _ctx.StoreAToAddr(RtCmpLeft);
+                    if (!rightConst) { _ctx.LoadByteToA(right, n - 1); _e.U8(0xEE); _e.U8(0x80); _ctx.StoreAToAddr(RtCmpRight); }
                 }
                 for (int k = 0; k < n; k++)
                 {
                     bool top = signed && k == n - 1;
                     if (rightConst)
                     {
-                        if (top) LoadAFromAddr(RtCmpLeft); else LoadByteToA(left, k);
+                        if (top) _ctx.LoadAFromAddr(RtCmpLeft); else _ctx.LoadByteToA(left, k);
                         _e.U8(k == 0 ? 0xD6 : 0xDE);              // SUB d8 / SBC A, d8
                         _e.U8((byte)(Sm83Ops.ByteOf(right, k) ^ (top ? 0x80 : 0x00)));
                     }
                     else
                     {
-                        if (top) LoadAFromAddr(RtCmpRight); else LoadByteToA(right, k);
+                        if (top) _ctx.LoadAFromAddr(RtCmpRight); else _ctx.LoadByteToA(right, k);
                         _e.U8(0x47);                              // LD B, A
-                        if (top) LoadAFromAddr(RtCmpLeft); else LoadByteToA(left, k);
+                        if (top) _ctx.LoadAFromAddr(RtCmpLeft); else _ctx.LoadByteToA(left, k);
                         _e.U8(k == 0 ? 0x90 : 0x98);              // SUB B / SBC A, B
                     }
                 }
@@ -352,14 +345,14 @@ public sealed partial class Sm83Backend
                 {
                     if (rightConst)
                     {
-                        LoadByteToA(left, k);
+                        _ctx.LoadByteToA(left, k);
                         _e.U8(0xEE);                   // XOR d8
                         _e.U8(Sm83Ops.ByteOf(right, k));
                     }
                     else
                     {
-                        LoadByteToB(right, k);
-                        LoadByteToA(left, k);
+                        _ctx.LoadByteToB(right, k);
+                        _ctx.LoadByteToA(left, k);
                         _e.U8(0xA8);                   // XOR B
                     }
                     if (k == 0)
@@ -386,14 +379,14 @@ public sealed partial class Sm83Backend
             _e.Jump(falseJumpOpcode, done);    // predicate false -> keep 0
             _e.U8(0x3E); _e.U8(0x01);          // LD A, 1
             _e.Place(done);
-            StoreAToAddr(dst);
+            _ctx.StoreAToAddr(dst);
         }
 
         public void EmitConv(ConvInstruction cv)
         {
             int srcBytes = SizeOf(cv.Operand.Type);
             int dstBytes = SizeOf(cv.Type);
-            int dst = _slot[cv];
+            int dst = _ctx.Slot[cv];
 
             switch (cv.Op)
             {
@@ -401,35 +394,35 @@ public sealed partial class Sm83Backend
                 case IrConvOp.Trunc:
                     for (int k = 0; k < dstBytes; k++)
                     {
-                        LoadByteToA(cv.Operand, k);
-                        StoreAToAddr(dst + k);
+                        _ctx.LoadByteToA(cv.Operand, k);
+                        _ctx.StoreAToAddr(dst + k);
                     }
                     break;
 
                 case IrConvOp.ZExt:
                     for (int k = 0; k < srcBytes; k++)
                     {
-                        LoadByteToA(cv.Operand, k);
-                        StoreAToAddr(dst + k);
+                        _ctx.LoadByteToA(cv.Operand, k);
+                        _ctx.StoreAToAddr(dst + k);
                     }
                     for (int k = srcBytes; k < dstBytes; k++)
                     {
                         _e.U8(0x3E); _e.U8(0x00);   // LD A, 0
-                        StoreAToAddr(dst + k);
+                        _ctx.StoreAToAddr(dst + k);
                     }
                     break;
 
                 case IrConvOp.SExt:
                     for (int k = 0; k < srcBytes; k++)
                     {
-                        LoadByteToA(cv.Operand, k);
-                        StoreAToAddr(dst + k);
+                        _ctx.LoadByteToA(cv.Operand, k);
+                        _ctx.StoreAToAddr(dst + k);
                     }
-                    LoadByteToA(cv.Operand, srcBytes - 1);
+                    _ctx.LoadByteToA(cv.Operand, srcBytes - 1);
                     _e.U8(0x87);                    // ADD A, A  -> carry = sign bit
                     _e.U8(0x9F);                    // SBC A, A  -> A = 0xFF if sign else 0x00
                     for (int k = srcBytes; k < dstBytes; k++)
-                        StoreAToAddr(dst + k);       // LD (nn), A preserves A
+                        _ctx.StoreAToAddr(dst + k);       // LD (nn), A preserves A
                     break;
 
                 default:

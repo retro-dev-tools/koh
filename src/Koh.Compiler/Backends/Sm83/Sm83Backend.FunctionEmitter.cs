@@ -5,10 +5,12 @@ namespace Koh.Compiler.Backends.Sm83;
 
 public sealed partial class Sm83Backend
 {
-    /// <summary>Lowers one function: emits the prologue and walks its blocks, dispatching each
-    /// instruction to the arithmetic, memory, or control-flow emitter over a shared emit context.</summary>
-    internal sealed class FunctionEmitter : EmitBase
+    /// <summary>Lowers one function: creates the shared EmitContext, emits the prologue, and walks the
+    /// blocks dispatching each instruction to the arithmetic, memory, or control-flow emitter.</summary>
+    internal sealed class FunctionEmitter
     {
+        private readonly EmitContext _ctx;
+        private readonly Emitter _e;
         private readonly ArithmeticEmitter _arith;
         private readonly MemoryEmitter _mem;
         private readonly ControlFlowEmitter _cf;
@@ -22,20 +24,21 @@ public sealed partial class Sm83Backend
             bool isEntry,
             int softStackBase,
             IReadOnlySet<IrFunction>? banked = null)
-            : base(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, banked)
         {
-            _arith = new ArithmeticEmitter(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, _banked);
-            _mem = new MemoryEmitter(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, _banked);
-            _cf = new ControlFlowEmitter(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, _banked);
+            _ctx = new EmitContext(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, banked);
+            _e = emitter;
+            _arith = new ArithmeticEmitter(_ctx);
+            _mem = new MemoryEmitter(_ctx);
+            _cf = new ControlFlowEmitter(_ctx);
         }
 
         public void Compile()
         {
             // The CALL target is here, before any prologue (the entry block label follows the prologue).
-            _e.Place(_e.FunctionLabel(_fn));
+            _e.Place(_e.FunctionLabel(_ctx.Fn));
 
             // Interrupt handlers must preserve everything they touch; push at entry, pop before RETI.
-            if (_fn.InterruptVector is not null)
+            if (_ctx.Fn.InterruptVector is not null)
             {
                 _e.U8(0xF5); // PUSH AF
                 _e.U8(0xC5); // PUSH BC
@@ -43,7 +46,7 @@ public sealed partial class Sm83Backend
                 _e.U8(0xE5); // PUSH HL
             }
 
-            if (_isEntry && _recursive.Count > 0)
+            if (_ctx.IsEntry && _ctx.Recursive.Count > 0)
             {
                 // Move the hardware CALL stack into WRAM (it defaults to the tiny HRAM window, where deep
                 // recursion overflows into the I/O registers and crashes). Growing down from just below
@@ -51,36 +54,36 @@ public sealed partial class Sm83Backend
                 _e.U8(0x31); _e.U16(HwStackTop);      // LD SP, HwStackTop
                 // Initialize the software-stack pointer once at boot (only needed when some function
                 // recurses and therefore saves its frame there).
-                LdHL(_e, _softStackBase); // LD HL, softStackBase
+                LdHL(_e, _ctx.SoftStackBase); // LD HL, softStackBase
                 _e.U8(0x7D); _e.StoreA(SoftSp);       // LD A, L ; LD (SoftSp), A
                 _e.U8(0x7C); _e.StoreA(SoftSp + 1);   // LD A, H ; LD (SoftSp+1), A
             }
 
-            if (IsRecursive)
+            if (_ctx.IsRecursive)
             {
-                if (_frameSize > 255)
+                if (_ctx.FrameSize > 255)
                     throw new Sm83LimitException(
-                        $"recursive function '{_fn.Name}' frame is {_frameSize} bytes; the software-stack "
+                        $"recursive function '{_ctx.Fn.Name}' frame is {_ctx.FrameSize} bytes; the software-stack "
                         + "save supports up to 255.");
                 // Save the caller's copy of the shared static frame, then install this call's arguments
                 // (staged in ArgScratch) into the parameter slots at the frame base. A zero-byte frame
                 // (no params/locals — recursion driven through globals) has nothing to save; skip it, as
                 // rt.pushframe with a count of 0 would `dec b` to 0xFF and copy 256 bytes.
-                if (_frameSize > 0)
+                if (_ctx.FrameSize > 0)
                 {
-                    LdDE(_e, _frameBase); // LD DE, frameBase
-                    _e.U8(0x06); _e.U8(_frameSize);                                // LD B, frameSize
+                    LdDE(_e, _ctx.FrameBase); // LD DE, frameBase
+                    _e.U8(0x06); _e.U8(_ctx.FrameSize);                                // LD B, frameSize
                     _e.Jump(0xCD, _e.RoutineLabel("rt.pushframe"));
-                    int paramBytes = ParamBytes(_fn);
+                    int paramBytes = _ctx.ParamBytes(_ctx.Fn);
                     for (int k = 0; k < paramBytes; k++)
                     {
                         _e.LoadA(ArgScratch + k);
-                        _e.StoreA(_frameBase + k);
+                        _e.StoreA(_ctx.FrameBase + k);
                     }
                 }
             }
 
-            foreach (var block in _fn.Blocks)
+            foreach (var block in _ctx.Fn.Blocks)
             {
                 _e.Place(_e.BlockLabel(block));
                 foreach (var instr in block.Instructions)
@@ -104,7 +107,7 @@ public sealed partial class Sm83Backend
                 case StoreInstruction s: _mem.EmitStore(s); break;
                 case AllocaInstruction: break;               // storage pre-assigned
                 case GetElementPtrInstruction g:
-                    if (_slot.ContainsKey(g))                // dynamic: compute the pointer at runtime
+                    if (_ctx.Slot.ContainsKey(g))                // dynamic: compute the pointer at runtime
                         _mem.EmitGep(g);
                     break;                                   // static: address pre-assigned
                 case PhiInstruction: break;                  // realized by predecessor edge copies
@@ -116,7 +119,7 @@ public sealed partial class Sm83Backend
                 case IntrinsicInstruction intr: _cf.EmitIntrinsic(intr); break;
                 default:
                     throw new NotSupportedException(
-                        $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_fn.Name}').");
+                        $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_ctx.Fn.Name}').");
             }
         }
     }
