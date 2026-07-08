@@ -34,9 +34,11 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
 - `src/Koh.Emulator.Core` (+ `Koh.Emulator.App`), `src/Koh.Debugger`, `src/Koh.Lsp`, `KohUI*`.
 - `src/Koh.Compiler` — the compiler platform (details below).
 - `src/Koh.GameBoy` — the managed reference runtime a Koh C# game builds/runs against under the plain
-  .NET SDK (`Hardware`/`Gb` backed by real buffers); `src/Koh.Build.Tasks` — the in-process MSBuild
-  task (`CompileKohRom`) that drives the compiler+linker; `sdk/Koh.Sdk` — the MSBuild SDK that ties
-  them together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
+  .NET SDK: `Hardware`/`Gb` primitives (managed-only, special-cased by the frontend) plus a `Hal/`
+  framework written in the Koh C# subset (`Lcd`, `Joypad`, `Tilemap`/`TileData`, `Ppu`, `Direction`)
+  that the SDK also feeds to the frontend, so ROMs get it too. `src/Koh.Build.Tasks` — the in-process
+  MSBuild task (`CompileKohRom`) that drives the compiler+linker; `sdk/Koh.Sdk` — the MSBuild SDK that
+  ties them together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
 - `tests/Koh.*.Tests` mirror `src/`. `samples/` holds runnable examples (e.g. `gb-2048`,
   `gb-2048-cs`). `docs/superpowers/specs/` holds design specs.
 
@@ -129,7 +131,8 @@ state-machine class that captures the iterator's parameters);
 (mixed pairs promote to a wider signed type up to `long`); a program written as bare top-level
 functions **or** as top-level `static class`es (their static methods lower to `Class.Method` functions
 — qualified calls plus unqualified sibling calls — and their static fields become program-scope
-statics; the entry is the `Main` method wherever it lives),
+statics; the entry is the `Main` method wherever it lives; `using` directives and a file-scoped
+`namespace` are accepted and dropped, since the frontend resolves by simple name),
 `static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
 `[Interrupt("VBlank")]` handlers, and recursion (direct and mutual; a recursive program moves the CALL
 stack into WRAM so it runs hundreds of levels deep, and `rt.pushframe` traps on a stack/heap collision

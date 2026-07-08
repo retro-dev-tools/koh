@@ -1,15 +1,7 @@
 // The 2048 board: a 4x4 grid of tile *exponents* (0 = empty, 1 = "2", 2 = "4", ... 11 = "2048"),
 // stored row-major in 16 bytes of work RAM. Merging two equal tiles is just `exponent + 1`, which
 // keeps every value in a byte. All of the game's rules live here, behind a small typed API; nothing
-// outside this file touches the raw cells.
-
-enum Direction : byte
-{
-    Left,
-    Right,
-    Up,
-    Down,
-}
+// outside this file touches the raw cells. (`Direction` comes from the Koh.GameBoy framework.)
 
 static unsafe class Board
 {

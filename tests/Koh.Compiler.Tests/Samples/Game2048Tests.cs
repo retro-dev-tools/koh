@@ -12,10 +12,10 @@ using LinkerType = Koh.Linker.Core.Linker;
 namespace Koh.Compiler.Tests.Samples;
 
 /// <summary>
-/// Compiles the <c>samples/gb-2048-cs</c> game (Board / Video / Lcd / Joypad / Game) through the real
-/// pipeline (Koh C# frontend -> IR -> SM83 backend -> linker -> ROM) and runs its game logic in the
-/// emulator through the public <c>Board</c> API. The end-to-end proof that a non-trivial, multi-file
-/// Game Boy program written as ordinary static classes builds and behaves correctly.
+/// Compiles the <c>samples/gb-2048-cs</c> game together with the Koh.GameBoy framework HAL (as the SDK
+/// does) through the real pipeline (Koh C# frontend -> IR -> SM83 backend -> linker -> ROM) and runs
+/// its game logic in the emulator through the public <c>Board</c> API. The end-to-end proof that a
+/// non-trivial, multi-file Game Boy program written as ordinary static classes builds and behaves.
 /// </summary>
 public class Game2048Tests
 {
@@ -32,9 +32,18 @@ public class Game2048Tests
             dir = dir.Parent;
         if (dir is null)
             throw new InvalidOperationException("could not locate the repository root (Koh.slnx).");
+
+        // As the SDK compiles it: the framework HAL (Koh.GameBoy/Hal) plus the game's own sources.
+        var frameworkHal = Path.Combine(dir.FullName, "src", "Koh.GameBoy", "Hal");
         var sampleDir = Path.Combine(dir.FullName, "samples", "gb-2048-cs");
 
         var sb = new StringBuilder();
+        foreach (
+            var file in Directory
+                .GetFiles(frameworkHal, "*.cs")
+                .OrderBy(f => f, StringComparer.Ordinal)
+        )
+            sb.Append(File.ReadAllText(file)).Append('\n');
         foreach (
             var file in Directory
                 .GetFiles(sampleDir, "*.cs")
@@ -274,7 +283,7 @@ public class Game2048Tests
             Hardware.LCDC = 0;
             Board.Reset();
             Board.Set(15, 9);
-            Video.Render();
+            Tiles.RenderBoard();
             return *(Gb.TileMap + 12 * 32 + 15);
         }";
         await Assert.That(Run(src)).IsEqualTo((ushort)9);

@@ -10,17 +10,19 @@ Koh C# frontend  →  typed SSA IR  →  hand-written SM83 backend  →  Koh lin
 ```
 
 The twist is that the *exact same* source also compiles under the plain .NET SDK and runs on your
-desktop against the [`Koh.GameBoy`](../../src/Koh.GameBoy) reference runtime — the `Hardware.*` and
-`Gb.*` surfaces backed by real buffers instead of hardware. One source, two targets, and no
-preprocessor tricks: it is just normal C#.
+desktop against the [`Koh.GameBoy`](../../src/Koh.GameBoy) framework — its `Hardware.*` / `Gb.*` and
+the HAL below backed by real buffers instead of hardware. One source, two targets, and no preprocessor
+tricks: it is just normal C#.
+
+The reusable Game Boy surface lives in the **framework** ([`Koh.GameBoy/Hal`](../../src/Koh.GameBoy/Hal)) —
+`Lcd`, `Joypad`, `Tilemap` / `TileData` (typed views over VRAM), `Ppu`, and `Direction` — so this
+project holds only what is specific to 2048:
 
 | File | Responsibility |
 | ---- | -------------- |
-| [`Board.cs`](Board.cs)   | the rules and state — a 4x4 grid of tile exponents, and the slide/merge/spawn logic, behind a typed API |
-| [`Video.cs`](Video.cs)   | a small drawing library — build the tileset and paint the board into the tile map |
-| [`Lcd.cs`](Lcd.cs)       | the display HAL — LCD on/off, palette, scroll |
-| [`Joypad.cs`](Joypad.cs) | the input HAL — read the d-pad, test a direction |
-| [`Game.cs`](Game.cs)     | the loop tying them together (`Main`) — no raw bytes, registers, or addresses in sight |
+| [`Board.cs`](Board.cs) | the rules and state — a 4x4 grid of tile exponents, and the slide/merge/spawn logic, behind a typed API |
+| [`Tiles.cs`](Tiles.cs) | the 2048 art — build the framed-block tileset and paint the board, via the framework's `TileData` / `Tilemap` |
+| [`Game.cs`](Game.cs)   | the loop tying it together (`Main`) — no raw bytes, registers, or addresses in sight |
 
 ## Build & run
 
@@ -61,19 +63,21 @@ makes the slide logic tiny:
   one line routine drives all four moves.
 - `Board.Spawn`, `Board.CanMove`, and `Board.HasWon` complete the game state; the cells live in a
   static WRAM buffer, so nothing is threaded around by hand.
-- `Video.GenerateTiles` procedurally builds the background tiles and `Video.Render` paints the board
-  into the tile map through `Gb.Vram` / `Gb.TileMap`; `Lcd` and `Joypad` wrap the display and input
-  registers. `Game.Main` just orchestrates them.
+- `Tiles.Generate` builds the framed-block tileset and `Tiles.RenderBoard` paints the board, both
+  through the framework's `TileData` / `Tilemap` abstractions over VRAM. `Game.Main` drives the loop
+  with `Lcd`, `Joypad`, and `Ppu.WaitVBlank` — all from the framework.
 
 There is no `int`, no heap, and no garbage collector.
 
 ## What subset of C# is this?
 
-"Koh C#" is a systems subset aimed at 8-bit hardware. This sample exercises much of it:
+"Koh C#" is a systems subset aimed at 8-bit hardware. Between this sample and the framework HAL it
+uses, it exercises much of it:
 
 - `byte` / `sbyte` / `ushort` / `bool`, `enum` (`Direction`), and raw pointers (`byte*`)
-- top-level `static class`es whose static methods (`Board.Slide`, `Lcd.Off`, …) and static fields
-  (`Board`'s WRAM cells) are the program — plain C#, no wrapper or preprocessor
+- code organized as ordinary C#: `static class`es (whose static methods like `Board.Slide` /
+  `Lcd.Off` and static fields become the program) in a file-scoped `namespace` — no wrapper or
+  preprocessor
 - `stackalloc` buffers, `*p`, and pointer arithmetic (`*(p + i)`)
 - `if` / `while` / `for` / `switch`, `break` / `continue`, `&&` / `||`, `?:`, `++`/`--`
 - the `Hardware.*` surface for memory-mapped I/O (`LCDC`, `BGP`, `JOYP`, `LY`, `DIV`, …) and the
@@ -85,7 +89,7 @@ A richer tileset (digits per value) is the natural next step once static ROM tab
 
 ## Tests
 
-The game's logic is compiled through the real pipeline and run in the emulator by
+The game (plus the framework HAL) is compiled through the real pipeline and run in the emulator by
 [`Game2048Tests`](../../tests/Koh.Compiler.Tests/Samples/Game2048Tests.cs): it asserts the sample
-builds to a bootable ROM with verifiable IR, and drives the public `Board` / `Video` API — slides
+builds to a bootable ROM with verifiable IR, and drives the public `Board` / `Tiles` API — slides
 in all four directions, spawning, `CanMove`, `HasWon`, and rendering — against known 2048 outcomes.

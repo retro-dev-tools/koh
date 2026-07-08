@@ -64,24 +64,36 @@ public sealed partial class CSharpFrontend : IFrontend
             ? $"{cn}.{simpleName}"
             : simpleName;
 
-    /// <summary>Blank out each top-level <c>using</c> directive (replace with spaces, preserving line
-    /// count) so a modern source with <c>using</c>s can be wrapped in the program class without the
-    /// directives landing illegally inside it. The frontend has no semantic model, so usings are inert.</summary>
-    private static string BlankUsings(string source)
+    /// <summary>Blank out (replace with spaces, preserving line count) the syntax the frontend has no
+    /// semantic model for: <c>using</c> directives, and the header of a file-scoped <c>namespace X;</c>.
+    /// This lets the same source be organized like ordinary C# — usings, and framework code declared in
+    /// a namespace — yet still wrap cleanly into the program class, with its members lifted to the top
+    /// level. Namespaces are inert here (types resolve by simple name), so dropping them is safe.</summary>
+    private static string BlankNamespacing(string source)
     {
+        var root = CSharpSyntaxTree.ParseText(source).GetCompilationUnitRoot();
         // DescendantNodes (not just the leading .Usings) so that when several source files are compiled
-        // as one unit their per-file usings — which land after the first file's types — are blanked too.
-        var usings = CSharpSyntaxTree
-            .ParseText(source)
-            .GetCompilationUnitRoot()
-            .DescendantNodes()
-            .OfType<UsingDirectiveSyntax>()
-            .ToList();
-        if (usings.Count == 0)
+        // as one unit, their per-file usings/namespaces — which land after the first file's types — are
+        // blanked too.
+        var spans = new List<Microsoft.CodeAnalysis.Text.TextSpan>();
+        foreach (var node in root.DescendantNodes())
+        {
+            if (node is UsingDirectiveSyntax u)
+                spans.Add(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(u.SpanStart, u.Span.End));
+            else if (node is FileScopedNamespaceDeclarationSyntax ns)
+                // Blank only the `namespace X;` header, not its members.
+                spans.Add(
+                    Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                        ns.NamespaceKeyword.SpanStart,
+                        ns.SemicolonToken.Span.End
+                    )
+                );
+        }
+        if (spans.Count == 0)
             return source;
         var chars = source.ToCharArray();
-        foreach (var u in usings)
-            for (int i = u.FullSpan.Start; i < u.Span.End && i < chars.Length; i++)
+        foreach (var span in spans)
+            for (int i = span.Start; i < span.End && i < chars.Length; i++)
                 if (chars[i] != '\n' && chars[i] != '\r')
                     chars[i] = ' ';
         return new string(chars);
@@ -128,7 +140,7 @@ public sealed partial class CSharpFrontend : IFrontend
         // classes (their members are program-level, qualified by class); a legacy source's bare `static
         // T F(...)` methods become direct members. Usings are blanked first so they don't land inside
         // the wrapper. Both keep their line count, so line maps stay aligned (one added prefix line).
-        var wrapped = WrapperPrefix + BlankUsings(source.ToString()) + "\n}";
+        var wrapped = WrapperPrefix + BlankNamespacing(source.ToString()) + "\n}";
         var tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
         var root = tree.GetCompilationUnitRoot();
 

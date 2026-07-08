@@ -5,9 +5,9 @@
 //   * the plain .NET SDK runs it on the desktop against the Koh.GameBoy reference runtime
 //     (`dotnet run`), which renders the board to the terminal.
 //
-// The game is split by responsibility: Board (rules + state), Video (a small drawing library),
-// Lcd and Joypad (display and input HALs). This file is just the loop that ties them together —
-// no raw bytes, registers, or video addresses in sight.
+// The generic Game Boy surface — Lcd, Joypad, Tilemap/TileData, Ppu, Direction — lives in the
+// Koh.GameBoy framework. This project holds only what is specific to 2048: the Board rules, the
+// Tiles art, and this loop, which reads high-level and touches no bytes, registers, or addresses.
 
 static class Game
 {
@@ -17,12 +17,12 @@ static class Game
         Lcd.SetPalette(0xE4); // 11 10 01 00: dark -> light
         Lcd.Scroll(0, 0);
 
-        Video.GenerateTiles();
+        Tiles.Generate();
 
         Board.Reset();
         Board.Spawn();
         Board.Spawn();
-        Video.Render();
+        Tiles.RenderBoard();
 
         Lcd.On();
 
@@ -46,8 +46,8 @@ static class Game
             if (moved)
             {
                 Board.Spawn();
-                Video.WaitVBlank();
-                Video.Render();
+                Ppu.WaitVBlank();
+                Tiles.RenderBoard();
             }
         }
     }

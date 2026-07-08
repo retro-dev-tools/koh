@@ -929,6 +929,18 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task Namespace_FileScopedIsFlattened()
+    {
+        // Framework-style source in a file-scoped namespace: the namespace is dropped, so its static
+        // classes are program-level and callable from a global-namespace Main.
+        const string src =
+            "static class App { static byte Main() { return Lib.Answer(); } }\n"
+            + "namespace Koh.GameBoy;\n"
+            + "static class Lib { static byte Answer() { return 42; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
     public async Task StaticClass_StaticFieldIsState()
     {
         // A static field in a static class is program-scope WRAM state, shared across its methods.
