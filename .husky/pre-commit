@@ -1,22 +1,16 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
-## husky task runner examples -------------------
-## Note : for local installation use 'dotnet' prefix. e.g. 'dotnet husky'
+# Format staged C# with CSharpier, then re-stage the formatted files so the
+# formatting lands in this same commit. Husky's task runner formats the
+# working tree but does not re-add, so we add the formatted files back.
+#
+# Note: this re-adds whole files, so a file staged with only some of its
+# changes will have its remaining working-tree changes included too. Stage
+# complete files to avoid surprises.
+dotnet husky run --group pre-commit || exit 1
 
-## run all tasks
-#husky run
-
-### run all tasks with group: 'group-name'
-#husky run --group group-name
-
-## run task with name: 'task-name'
-#husky run --name task-name
-
-## pass hook arguments to task
-#husky run --args "$1" "$2"
-
-## or put your custom commands -------------------
-#echo 'Husky.Net is awesome!'
-
-dotnet husky run --group pre-commit
+git diff --cached --name-only --diff-filter=ACMR -- '*.cs' '*.csx' |
+  while IFS= read -r file; do
+    [ -f "$file" ] && git add -- "$file"
+  done
