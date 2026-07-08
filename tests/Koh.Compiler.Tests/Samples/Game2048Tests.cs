@@ -1,7 +1,7 @@
+using System.Text;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends.CSharp;
 using Koh.Compiler.Ir;
-using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
 using Koh.Emulator.Core;
@@ -12,26 +12,40 @@ using LinkerType = Koh.Linker.Core.Linker;
 namespace Koh.Compiler.Tests.Samples;
 
 /// <summary>
-/// Compiles the <c>samples/gb-2048-cs/2048.cs</c> game through the real pipeline (Koh C# frontend
-/// -> IR -> SM83 backend -> linker -> ROM) and runs its actual game-logic functions in the emulator.
-/// This is the end-to-end proof that a non-trivial Game Boy program builds and behaves correctly.
+/// Compiles the <c>samples/gb-2048-cs</c> game (Board / Video / Lcd / Joypad / Game) through the real
+/// pipeline (Koh C# frontend -> IR -> SM83 backend -> linker -> ROM) and runs its game logic in the
+/// emulator through the public <c>Board</c> API. The end-to-end proof that a non-trivial, multi-file
+/// Game Boy program written as ordinary static classes builds and behaves correctly.
 /// </summary>
 public class Game2048Tests
 {
-    /// <summary>The game source, split into its reusable "library" (everything above Main) and Main.</summary>
-    private static readonly string GameSource = File.ReadAllText(FindSample());
-    private static readonly string GameLibrary = GameSource[
-        ..GameSource.IndexOf("// ---- Entry point", StringComparison.Ordinal)
-    ];
+    /// <summary>Every sample source, concatenated as one translation unit (as the SDK compiles it).</summary>
+    private static readonly string GameSource = ReadSample(includeGame: true);
 
-    private static string FindSample()
+    /// <summary>The sample minus its Game.Main, so a test can supply its own Main as the ROM entry.</summary>
+    private static readonly string GameLibrary = ReadSample(includeGame: false);
+
+    private static string ReadSample(bool includeGame)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
             dir = dir.Parent;
         if (dir is null)
             throw new InvalidOperationException("could not locate the repository root (Koh.slnx).");
-        return Path.Combine(dir.FullName, "samples", "gb-2048-cs", "2048.cs");
+        var sampleDir = Path.Combine(dir.FullName, "samples", "gb-2048-cs");
+
+        var sb = new StringBuilder();
+        foreach (
+            var file in Directory
+                .GetFiles(sampleDir, "*.cs")
+                .OrderBy(f => f, StringComparer.Ordinal)
+        )
+        {
+            if (!includeGame && Path.GetFileName(file) == "Game.cs")
+                continue;
+            sb.Append(File.ReadAllText(file)).Append('\n');
+        }
+        return sb.ToString();
     }
 
     // ---- The real sample compiles to a valid, bootable ROM -----------------
@@ -74,11 +88,11 @@ public class Game2048Tests
         await Assert.That(rom[0x105]).IsEqualTo((byte)0xED);
     }
 
-    // ---- Its game-logic functions run correctly in the emulator ------------
+    // ---- Its game logic runs correctly in the emulator ---------------------
 
     /// <summary>
-    /// Build a program whose Main (placed first, so it lands at the ROM entry) sets up a board and
-    /// exercises the sample's real functions, then compile it, run it, and return HL.
+    /// Compile a test whose Main (placed first, so it lands at the ROM entry) drives the sample's
+    /// Board/Video API, run it, and return HL.
     /// </summary>
     private static ushort Run(string testMain)
     {
@@ -94,7 +108,7 @@ public class Game2048Tests
         int length = model.Sections[0].Data.Length;
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Sp = 0xFFFE;
-        gb.Registers.Pc = (ushort)start; // Main is emitted first -> entry is at CodeBase
+        gb.Registers.Pc = (ushort)start; // the test Main is emitted first -> entry is at CodeBase
         for (int steps = 0; steps < 1_000_000; steps++)
         {
             int pc = gb.Registers.Pc;
@@ -105,100 +119,104 @@ public class Game2048Tests
         return gb.Registers.HL;
     }
 
-    /// <summary>Slide a 4-cell line with SlideLine and read back one cell.</summary>
-    private static ushort SlideCell(string cells, int index) =>
+    // Set a row's four cells, slide the whole board Left (empty rows are unaffected), read one cell.
+    private static ushort SlideRow(string setup, int index) =>
         Run(
-            $"static ushort Main() {{ byte[] a = new byte[4]; {cells} SlideLine(&a[0]); return a[{index}]; }}"
+            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.Left); return Board.Get((byte){index}); }}"
         );
 
-    private static async Task AssertLine(string cells, byte[] expected)
+    private static async Task AssertRow(string setup, byte[] expected)
     {
         for (int i = 0; i < 4; i++)
-            await Assert.That(SlideCell(cells, i)).IsEqualTo((ushort)expected[i]);
+            await Assert.That(SlideRow(setup, i)).IsEqualTo((ushort)expected[i]);
     }
 
     [Test]
     public async Task SlideLine_MergesEqualPair() =>
-        await AssertLine("a[0]=1;a[1]=1;", [2, 0, 0, 0]); // 2 2 . .  ->  4 . . .
+        await AssertRow("Board.Set(0,1); Board.Set(1,1);", [2, 0, 0, 0]); // 2 2 . .  ->  4 . . .
 
     [Test]
     public async Task SlideLine_CompactsAcrossGap() =>
-        await AssertLine("a[0]=1;a[2]=1;", [2, 0, 0, 0]); // 2 . 2 .  ->  4 . . .
+        await AssertRow("Board.Set(0,1); Board.Set(2,1);", [2, 0, 0, 0]); // 2 . 2 .  ->  4 . . .
 
     [Test]
     public async Task SlideLine_MergesTwoPairsNotTriple() =>
-        await AssertLine("a[0]=1;a[1]=1;a[2]=1;a[3]=1;", [2, 2, 0, 0]); // 2 2 2 2 -> 4 4 . .
+        await AssertRow(
+            "Board.Set(0,1); Board.Set(1,1); Board.Set(2,1); Board.Set(3,1);",
+            [2, 2, 0, 0]
+        );
 
     [Test]
     public async Task SlideLine_MergesLeftmostPairOfTriple() =>
-        await AssertLine("a[0]=1;a[1]=1;a[2]=1;", [2, 1, 0, 0]); // 2 2 2 .  ->  4 2 . .
+        await AssertRow("Board.Set(0,1); Board.Set(1,1); Board.Set(2,1);", [2, 1, 0, 0]);
 
     [Test]
-    public async Task SlideLine_SlidesLoneTileToEdge() => await AssertLine("a[3]=1;", [1, 0, 0, 0]); // . . . 2  ->  2 . . .
+    public async Task SlideLine_SlidesLoneTileToEdge() =>
+        await AssertRow("Board.Set(3,1);", [1, 0, 0, 0]); // . . . 2  ->  2 . . .
 
-    // Move helpers pack a board index; verify each of the four directions merges into the right cell.
-    private static ushort Move(string cells, byte dir, int index) =>
+    // Each direction merges a pair into the right edge cell.
+    private static ushort Move(string setup, string dir, int index) =>
         Run(
-            $"static ushort Main() {{ byte[] b = new byte[16]; {cells} MoveDir(&b[0], {dir}); return b[{index}]; }}"
+            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.{dir}); return Board.Get((byte){index}); }}"
         );
 
     [Test]
     public async Task MoveLeft_MergesRowIntoLeftEdge() =>
-        await Assert.That(Move("b[0]=1;b[1]=1;", 0, 0)).IsEqualTo((ushort)2);
+        await Assert.That(Move("Board.Set(0,1); Board.Set(1,1);", "Left", 0)).IsEqualTo((ushort)2);
 
     [Test]
     public async Task MoveRight_MergesRowIntoRightEdge() =>
-        await Assert.That(Move("b[0]=1;b[1]=1;", 1, 3)).IsEqualTo((ushort)2);
+        await Assert.That(Move("Board.Set(0,1); Board.Set(1,1);", "Right", 3)).IsEqualTo((ushort)2);
 
     [Test]
     public async Task MoveUp_MergesColumnIntoTopEdge() =>
-        await Assert.That(Move("b[0]=1;b[4]=1;", 2, 0)).IsEqualTo((ushort)2);
+        await Assert.That(Move("Board.Set(0,1); Board.Set(4,1);", "Up", 0)).IsEqualTo((ushort)2);
 
     [Test]
     public async Task MoveDown_MergesColumnIntoBottomEdge() =>
-        await Assert.That(Move("b[0]=1;b[4]=1;", 3, 12)).IsEqualTo((ushort)2);
+        await Assert.That(Move("Board.Set(0,1); Board.Set(4,1);", "Down", 12)).IsEqualTo((ushort)2);
 
     [Test]
-    public async Task MoveDir_ReportsWhetherAnythingChanged()
+    public async Task Slide_ReportsWhetherAnythingChanged()
     {
         await Assert
             .That(
                 Run(
-                    "static ushort Main(){ byte[] b=new byte[16]; b[1]=1; return MoveDir(&b[0],0); }"
+                    "static ushort Main(){ Board.Reset(); Board.Set(1,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
                 )
             )
             .IsEqualTo((ushort)1);
         await Assert
             .That(
                 Run(
-                    "static ushort Main(){ byte[] b=new byte[16]; b[0]=1; return MoveDir(&b[0],0); }"
+                    "static ushort Main(){ Board.Reset(); Board.Set(0,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
                 )
             )
             .IsEqualTo((ushort)0);
     }
 
     [Test]
-    public async Task SpawnTile_FillsExactlyOneEmptyCell()
+    public async Task Spawn_FillsExactlyOneEmptyCell()
     {
         const string src =
             @"static ushort Main() {
-            byte[] b = new byte[16];
-            SpawnTile(&b[0], 3);
+            Board.Reset();
+            Board.Spawn();
             byte n = 0;
-            for (byte i = 0; i < 16; i++) if (b[i] != 0) n++;
+            for (byte i = 0; i < 16; i++) if (Board.Get(i) != 0) n++;
             return n;
         }";
         await Assert.That(Run(src)).IsEqualTo((ushort)1);
     }
 
     [Test]
-    public async Task SpawnTile_ReturnsZeroWhenBoardFull()
+    public async Task Spawn_ReturnsFalseWhenBoardFull()
     {
         const string src =
             @"static ushort Main() {
-            byte[] b = new byte[16];
-            for (byte i = 0; i < 16; i++) b[i] = 5;
-            return SpawnTile(&b[0], 3);
+            Board.Reset();
+            for (byte i = 0; i < 16; i++) Board.Set(i, 5);
+            return (ushort)(Board.Spawn() ? 1 : 0);
         }";
         await Assert.That(Run(src)).IsEqualTo((ushort)0);
     }
@@ -209,18 +227,18 @@ public class Game2048Tests
         // A board of all-distinct ascending values has no merges and no gaps -> gridlocked.
         const string locked =
             @"static ushort Main() {
-            byte[] b = new byte[16];
-            for (byte i = 0; i < 16; i++) b[i] = (byte)(i + 1);
-            return CanMove(&b[0]);
+            Board.Reset();
+            for (byte i = 0; i < 16; i++) Board.Set(i, (byte)(i + 1));
+            return (ushort)(Board.CanMove() ? 1 : 0);
         }";
         await Assert.That(Run(locked)).IsEqualTo((ushort)0);
 
         const string opening =
             @"static ushort Main() {
-            byte[] b = new byte[16];
-            for (byte i = 0; i < 16; i++) b[i] = (byte)(i + 1);
-            b[5] = 0;
-            return CanMove(&b[0]);
+            Board.Reset();
+            for (byte i = 0; i < 16; i++) Board.Set(i, (byte)(i + 1));
+            Board.Set(5, 0);
+            return (ushort)(Board.CanMove() ? 1 : 0);
         }";
         await Assert.That(Run(opening)).IsEqualTo((ushort)1);
     }
@@ -230,12 +248,16 @@ public class Game2048Tests
     {
         await Assert
             .That(
-                Run("static ushort Main(){ byte[] b=new byte[16]; b[7]=11; return HasWon(&b[0]); }")
+                Run(
+                    "static ushort Main(){ Board.Reset(); Board.Set(7,11); return (ushort)(Board.HasWon() ? 1 : 0); }"
+                )
             )
             .IsEqualTo((ushort)1);
         await Assert
             .That(
-                Run("static ushort Main(){ byte[] b=new byte[16]; b[7]=10; return HasWon(&b[0]); }")
+                Run(
+                    "static ushort Main(){ Board.Reset(); Board.Set(7,10); return (ushort)(Board.HasWon() ? 1 : 0); }"
+                )
             )
             .IsEqualTo((ushort)0);
     }
@@ -250,11 +272,10 @@ public class Game2048Tests
         const string src =
             @"static ushort Main() {
             Hardware.LCDC = 0;
-            byte[] b = new byte[16];
-            b[15] = 9;
-            Render(&b[0]);
-            byte* map = (byte*)0x9800;
-            return *(map + 12 * 32 + 15);
+            Board.Reset();
+            Board.Set(15, 9);
+            Video.Render();
+            return *(Gb.TileMap + 12 * 32 + 15);
         }";
         await Assert.That(Run(src)).IsEqualTo((ushort)9);
     }

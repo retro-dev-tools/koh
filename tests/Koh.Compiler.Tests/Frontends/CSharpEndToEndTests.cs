@@ -917,6 +917,28 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task StaticClass_QualifiedAndSiblingCalls()
+    {
+        // A program written as top-level static classes: sibling calls resolve unqualified within a
+        // class (Twice), cross-class calls are qualified (Helper.Ten), and Main-in-a-class is the entry.
+        const string src =
+            "static class M { static byte Main() { return (byte)(Twice(3) + Helper.Ten()); } "
+            + "static byte Twice(byte x) { return (byte)(x + x); } } "
+            + "static class Helper { static byte Ten() { return 10; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)16);
+    }
+
+    [Test]
+    public async Task StaticClass_StaticFieldIsState()
+    {
+        // A static field in a static class is program-scope WRAM state, shared across its methods.
+        const string src =
+            "static class Counter { static byte Main() { Bump(); Bump(); Bump(); return n; } "
+            + "static void Bump() { n = (byte)(n + 1); } static byte n; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)3);
+    }
+
+    [Test]
     public async Task Gb_RegionBaseIsConstantPointer()
     {
         // Gb.Vram lowers to a byte* at the VRAM base (0x8000); writes through it land there.

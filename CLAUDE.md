@@ -126,7 +126,10 @@ directly on an array, compiled to a loop with inlined lambdas); cooperative coro
 state-machine class that captures the iterator's parameters);
 `if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
 `&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
-(mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,
+(mixed pairs promote to a wider signed type up to `long`); a program written as bare top-level
+functions **or** as top-level `static class`es (their static methods lower to `Class.Method` functions
+— qualified calls plus unqualified sibling calls — and their static fields become program-scope
+statics; the entry is the `Main` method wherever it lives),
 `static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
 `[Interrupt("VBlank")]` handlers, and recursion (direct and mutual; a recursive program moves the CALL
 stack into WRAM so it runs hundreds of levels deep, and `rt.pushframe` traps on a stack/heap collision

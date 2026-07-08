@@ -54,6 +54,11 @@ internal sealed class MethodLowerer
     );
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
+    // The enclosing top-level `static class`, if this is one of its static methods (name `Class.M`,
+    // no `this`). Unqualified calls in the body resolve to `Class.M` first, so a method can call its
+    // siblings by bare name. Null for legacy top-level functions and for instance methods.
+    private readonly string? _staticClass;
+
     public MethodLowerer(
         CsMethod method,
         BlockSyntax? body,
@@ -83,7 +88,17 @@ internal sealed class MethodLowerer
         _hardware = hardware;
         _staticInits = staticInits;
         _moduleArrays = moduleArrays;
+
+        int dot = method.Fn.Name.LastIndexOf('.');
+        _staticClass = method.ThisClass is null && dot > 0 ? method.Fn.Name[..dot] : null;
     }
+
+    /// <summary>Resolve a bare callee name to a static method of the enclosing class if one exists,
+    /// else leave it as a top-level function name.</summary>
+    private string ResolveStaticCallee(string name) =>
+        _staticClass is not null && _methods.ContainsKey($"{_staticClass}.{name}")
+            ? $"{_staticClass}.{name}"
+            : name;
 
     public void Lower()
     {
@@ -1488,10 +1503,16 @@ internal sealed class MethodLowerer
                 call.ArgumentList.Arguments
             );
 
-        // A plain call, or a generic call `Foo<int>(...)` routed to its monomorphized instance `Foo$int`.
+        // A plain call, a sibling static-method call (bare name, resolved against the enclosing static
+        // class), a qualified static-method call `Class.M(...)`, or a generic call `Foo<int>(...)`
+        // routed to its monomorphized instance `Foo$int`.
         string? calleeName = call.Expression switch
         {
-            IdentifierNameSyntax idn => idn.Identifier.Text,
+            IdentifierNameSyntax idn => ResolveStaticCallee(idn.Identifier.Text),
+            MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax typeName } qualified
+                when _methods.ContainsKey(
+                    $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}"
+                ) => $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}",
             GenericNameSyntax gn => CSharpFrontend.MangleGeneric(
                 gn.Identifier.Text,
                 gn.TypeArgumentList.Arguments

@@ -41,9 +41,51 @@ public sealed partial class CSharpFrontend : IFrontend
     internal const string WrapperClassName = "__KohProgram";
     private const string WrapperPrefix = "static class " + WrapperClassName + " {\n";
 
-    /// <summary>Whether a node is a direct member of the program wrapper (a top-level declaration).</summary>
+    /// <summary>Whether a node is a program-level declaration: a direct member of the synthesized
+    /// wrapper (the legacy bare-top-level-function style), or a static member of a user <c>static
+    /// class</c> written at the top level (the modern style). The latter's members are qualified by the
+    /// class name (<see cref="ProgramMemberName"/>), so <c>Board.Slide</c> and <c>Lcd.Off</c> are
+    /// distinct even when short method names repeat.</summary>
     private static bool IsWrapperMember(SyntaxNode node) =>
-        node.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
+        node.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName }
+        || (node.Parent is ClassDeclarationSyntax p && IsProgramStaticClass(p));
+
+    /// <summary>A user <c>static class</c> declared at the top level (nested directly in the wrapper):
+    /// its static methods and fields are program-level declarations, namespaced by the class.</summary>
+    private static bool IsProgramStaticClass(SyntaxNode node) =>
+        node is ClassDeclarationSyntax { Identifier.Text: not WrapperClassName } cd
+        && cd.Modifiers.Any(m => m.ValueText == "static")
+        && cd.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
+
+    /// <summary>The program-scope name of a top-level method/function: bare for the legacy wrapper,
+    /// qualified <c>Class.Method</c> for a member of a user top-level <c>static class</c>.</summary>
+    private static string ProgramMemberName(SyntaxNode decl, string simpleName) =>
+        decl.Parent is ClassDeclarationSyntax { Identifier.Text: var cn } && cn != WrapperClassName
+            ? $"{cn}.{simpleName}"
+            : simpleName;
+
+    /// <summary>Blank out each top-level <c>using</c> directive (replace with spaces, preserving line
+    /// count) so a modern source with <c>using</c>s can be wrapped in the program class without the
+    /// directives landing illegally inside it. The frontend has no semantic model, so usings are inert.</summary>
+    private static string BlankUsings(string source)
+    {
+        // DescendantNodes (not just the leading .Usings) so that when several source files are compiled
+        // as one unit their per-file usings — which land after the first file's types — are blanked too.
+        var usings = CSharpSyntaxTree
+            .ParseText(source)
+            .GetCompilationUnitRoot()
+            .DescendantNodes()
+            .OfType<UsingDirectiveSyntax>()
+            .ToList();
+        if (usings.Count == 0)
+            return source;
+        var chars = source.ToCharArray();
+        foreach (var u in usings)
+            for (int i = u.FullSpan.Start; i < u.Span.End && i < chars.Length; i++)
+                if (chars[i] != '\n' && chars[i] != '\r')
+                    chars[i] = ' ';
+        return new string(chars);
+    }
 
     /// <summary>Name of the synthesized heap-pointer global, and the top of the heap region it starts
     /// at. Allocation (<c>Mem.Alloc</c>, <c>new</c>) bumps the pointer downward from here; the region
@@ -82,17 +124,12 @@ public sealed partial class CSharpFrontend : IFrontend
         // Wrap in an implicit static class so plain `static T F(...)` methods and enum/struct
         // declarations coexist without hitting C#'s "top-level statements first" rule. (Source
         // lines shift by one; accounted for when line maps are emitted.)
-        var wrapped = WrapperPrefix + source.ToString() + "\n}";
-        // Parse with KOH_FRONTEND defined so a source may carry `#if !KOH_FRONTEND ... #endif` regions
-        // that are visible only to a stock C# compiler — e.g. a `static class` wrapper + `using`s that
-        // let the same file also build under the plain .NET SDK. Excluded regions keep their line count,
-        // so line maps are unaffected. The frontend still sees the bare top-level members it expects.
-        var parseOptions = CSharpParseOptions.Default.WithPreprocessorSymbols("KOH_FRONTEND");
-        var tree = CSharpSyntaxTree.ParseText(
-            wrapped,
-            options: parseOptions,
-            path: source.FilePath
-        );
+        // Wrap in the program class. A modern source's own `static class`es become nested static
+        // classes (their members are program-level, qualified by class); a legacy source's bare `static
+        // T F(...)` methods become direct members. Usings are blanked first so they don't land inside
+        // the wrapper. Both keep their line count, so line maps stay aligned (one added prefix line).
+        var wrapped = WrapperPrefix + BlankUsings(source.ToString()) + "\n}";
+        var tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
         var root = tree.GetCompilationUnitRoot();
 
         bool hasParseError = false;
@@ -247,7 +284,8 @@ public sealed partial class CSharpFrontend : IFrontend
             .Concat(genericInstances);
         foreach (var decl in methodDecls)
         {
-            var (name, returnSyntax, parameterList, body, arrow) = Describe(decl);
+            var (simpleName, returnSyntax, parameterList, body, arrow) = Describe(decl);
+            var name = ProgramMemberName(decl, simpleName);
             var returnType = ResolveReturnTypeAllowingClass(returnSyntax, enums, classNames);
             var paramTypes = new List<CsType>();
             var refFlags = new List<bool>();
@@ -350,7 +388,11 @@ public sealed partial class CSharpFrontend : IFrontend
         var entry =
             bodies
                 .FirstOrDefault(b =>
-                    string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)
+                    string.Equals(
+                        SimpleName(b.Method.Fn.Name),
+                        "main",
+                        StringComparison.OrdinalIgnoreCase
+                    )
                 )
                 .Method
             ?? bodies.FirstOrDefault(b => b.Method.Fn.InterruptVector is null).Method;
@@ -396,13 +438,23 @@ public sealed partial class CSharpFrontend : IFrontend
             _ => decl.GetLocation(),
         };
 
-    private static SyntaxNode? FindDeclaration(SyntaxNode root, string name) =>
-        CollectMethods(root)
+    /// <summary>The unqualified method name (the part after the last dot, if any).</summary>
+    private static string SimpleName(string name)
+    {
+        int dot = name.LastIndexOf('.');
+        return dot < 0 ? name : name[(dot + 1)..];
+    }
+
+    private static SyntaxNode? FindDeclaration(SyntaxNode root, string name)
+    {
+        var simple = SimpleName(name);
+        return CollectMethods(root)
             .FirstOrDefault(d =>
                 d is MethodDeclarationSyntax m
-                    ? m.Identifier.Text == name
-                    : ((LocalFunctionStatementSyntax)d).Identifier.Text == name
+                    ? m.Identifier.Text == simple
+                    : ((LocalFunctionStatementSyntax)d).Identifier.Text == simple
             );
+    }
 
     private static void Report(
         DiagnosticBag diagnostics,

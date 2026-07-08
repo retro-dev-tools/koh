@@ -25,6 +25,9 @@
     <!-- The reference runtime that backs Hardware.* and Gb.* on the desktop. This is the game's only
          dependency; the compiler/linker are build-time tools invoked by Sdk.targets. -->
     <ProjectReference Include="$(KohRoot)src/Koh.GameBoy/Koh.GameBoy.csproj" />
+    <!-- Bring the runtime surface into scope everywhere, so game files need no `using` (and split
+         cleanly across files without repeating it). -->
+    <Using Include="Koh.GameBoy" />
   </ItemGroup>
 
 </Project>

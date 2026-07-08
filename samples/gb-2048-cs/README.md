@@ -1,17 +1,26 @@
 # 2048 — in Koh C#
 
 A complete, bootable Game Boy build of **2048**, written in C# as an ordinary .NET project. It is the
-counterpart to the hand-written-assembly [`gb-2048`](../gb-2048) sample: same game, but the source is
-a single [`2048.cs`](2048.cs). The project uses the **Koh SDK**, so building it produces a Game Boy
-ROM the same way any frontend/backend pair does:
+counterpart to the hand-written-assembly [`gb-2048`](../gb-2048) sample: same game, but written as
+plain C# and split by responsibility across a handful of files. The project uses the **Koh SDK**, so
+building it produces a Game Boy ROM the same way any frontend/backend pair does:
 
 ```
 Koh C# frontend  →  typed SSA IR  →  hand-written SM83 backend  →  Koh linker  →  2048.gb
 ```
 
-The twist is that the *exact same* `2048.cs` also compiles under the plain .NET SDK and runs on your
+The twist is that the *exact same* source also compiles under the plain .NET SDK and runs on your
 desktop against the [`Koh.GameBoy`](../../src/Koh.GameBoy) reference runtime — the `Hardware.*` and
-`Gb.*` surfaces backed by real buffers instead of hardware. One source, two targets.
+`Gb.*` surfaces backed by real buffers instead of hardware. One source, two targets, and no
+preprocessor tricks: it is just normal C#.
+
+| File | Responsibility |
+| ---- | -------------- |
+| [`Board.cs`](Board.cs)   | the rules and state — a 4x4 grid of tile exponents, and the slide/merge/spawn logic, behind a typed API |
+| [`Video.cs`](Video.cs)   | a small drawing library — build the tileset and paint the board into the tile map |
+| [`Lcd.cs`](Lcd.cs)       | the display HAL — LCD on/off, palette, scroll |
+| [`Joypad.cs`](Joypad.cs) | the input HAL — read the d-pad, test a direction |
+| [`Game.cs`](Game.cs)     | the loop tying them together (`Main`) — no raw bytes, registers, or addresses in sight |
 
 ## Build & run
 
@@ -42,31 +51,31 @@ occasionally a "4"), then repaints during vertical blank.
 
 ## How it works
 
-The board is 16 bytes storing **exponents**: `0` = empty, `1` = "2", `2` = "4", … `11` = "2048".
+`Board` stores the grid as **exponents**: `0` = empty, `1` = "2", `2` = "4", … `11` = "2048".
 Merging two equal tiles is therefore just `exponent + 1`, which keeps everything in a byte and
 makes the slide logic tiny:
 
-- `SlideLine` runs the canonical *compact → merge adjacent equals → compact* pass over four
-  contiguous cells. Zeroing the absorbed cell means a run like `2 2 2 2` folds into two `4`s
-  (never a single `8`), exactly like the real game.
-- `SrcIndex` maps a direction to board indices, so a single `SlideLine` drives all four moves —
-  `MoveDir` just gathers each row/column into a temp, slides it, and scatters it back.
-- `SpawnTile`, `CanMove`, and `HasWon` complete the game state.
-- `GenTiles` procedurally builds the background tiles, `Render` paints the board into the
-  tilemap, and `ReadButtons` / `WaitVBlank` handle input and timing through the built-in
-  `Hardware` register surface.
+- `Board.Slide(Direction)` runs the canonical *compact → merge adjacent equals → compact* pass on
+  each of the four lines. Zeroing the absorbed cell means a run like `2 2 2 2` folds into two `4`s
+  (never a single `8`), exactly like the real game. `SrcIndex` maps a direction to board indices, so
+  one line routine drives all four moves.
+- `Board.Spawn`, `Board.CanMove`, and `Board.HasWon` complete the game state; the cells live in a
+  static WRAM buffer, so nothing is threaded around by hand.
+- `Video.GenerateTiles` procedurally builds the background tiles and `Video.Render` paints the board
+  into the tile map through `Gb.Vram` / `Gb.TileMap`; `Lcd` and `Joypad` wrap the display and input
+  registers. `Game.Main` just orchestrates them.
 
-There is no `int`, no heap, and no garbage collector: the whole game runs out of the 16-byte
-board that lives in `Main`'s statically-allocated WRAM frame.
+There is no `int`, no heap, and no garbage collector.
 
 ## What subset of C# is this?
 
-"Koh C#" is a systems subset aimed at 8-bit hardware. This sample exercises most of it:
+"Koh C#" is a systems subset aimed at 8-bit hardware. This sample exercises much of it:
 
-- `byte` / `sbyte` / `ushort` / `bool`, `enum`, and raw pointers (`byte*`)
-- `stackalloc` buffers (`byte* b = stackalloc byte[16]`), `*p`, and pointer arithmetic (`*(p + i)`)
-- `if` / `while` / `for` / `do` / `switch`, `break` / `continue`, `&&` / `||`, `?:`, `++`/`--`
-- functions calling functions, with `ref` / `out` parameters
+- `byte` / `sbyte` / `ushort` / `bool`, `enum` (`Direction`), and raw pointers (`byte*`)
+- top-level `static class`es whose static methods (`Board.Slide`, `Lcd.Off`, …) and static fields
+  (`Board`'s WRAM cells) are the program — plain C#, no wrapper or preprocessor
+- `stackalloc` buffers, `*p`, and pointer arithmetic (`*(p + i)`)
+- `if` / `while` / `for` / `switch`, `break` / `continue`, `&&` / `||`, `?:`, `++`/`--`
 - the `Hardware.*` surface for memory-mapped I/O (`LCDC`, `BGP`, `JOYP`, `LY`, `DIV`, …) and the
   `Gb.*` memory regions (`Gb.Vram`, `Gb.TileMap`, …) as constant base pointers
 
@@ -78,5 +87,5 @@ A richer tileset (digits per value) is the natural next step once static ROM tab
 
 The game's logic is compiled through the real pipeline and run in the emulator by
 [`Game2048Tests`](../../tests/Koh.Compiler.Tests/Samples/Game2048Tests.cs): it asserts the sample
-builds to a bootable ROM with verifiable IR, and checks `SlideLine`, all four `MoveDir`
-directions, `SpawnTile`, `CanMove`, and `HasWon` against known 2048 outcomes.
+builds to a bootable ROM with verifiable IR, and drives the public `Board` / `Video` API — slides
+in all four directions, spawning, `CanMove`, `HasWon`, and rendering — against known 2048 outcomes.

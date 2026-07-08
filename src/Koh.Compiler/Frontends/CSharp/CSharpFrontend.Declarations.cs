@@ -327,6 +327,7 @@ public sealed partial class CSharpFrontend
         // reference class resolves to a heap pointer rather than an unsupported-type error.
         var classNames = root.DescendantNodes()
             .OfType<ClassDeclarationSyntax>()
+            .Where(c => !c.Modifiers.Any(m => m.ValueText == "static"))
             .Select(c => c.Identifier.Text)
             .Where(n => n != WrapperClassName && n != "Mem")
             .ToHashSet(StringComparer.Ordinal);
@@ -334,6 +335,11 @@ public sealed partial class CSharpFrontend
         {
             if (decl.Identifier.Text == WrapperClassName)
                 continue; // the synthesized program wrapper, not a user class
+
+            // A top-level `static class` is a namespace of program-level static methods/fields
+            // (collected via IsWrapperMember/CollectStatics), not a heap reference type.
+            if (decl.Modifiers.Any(m => m.ValueText == "static"))
+                continue;
 
             // `Mem` is the reserved arena-allocator intrinsic (Mem.Alloc/Mem.Reset). A user class of
             // that name would have its member calls hijacked by the allocator lowering, so reject it
