@@ -5,11 +5,11 @@ namespace Koh.Emulator.Core.Timer;
 
 public sealed class Timer
 {
-    private ushort _internalCounter;   // 16-bit system counter; DIV is bits 8..15
+    private ushort _internalCounter; // 16-bit system counter; DIV is bits 8..15
     private byte _tima;
     private byte _tma;
     private byte _tac;
-    private int _reloadDelay;          // 0..4 T-cycles between TIMA overflow and TMA reload
+    private int _reloadDelay; // 0..4 T-cycles between TIMA overflow and TMA reload
 
     private bool _lastSelectedBit;
 
@@ -26,8 +26,14 @@ public sealed class Timer
         bool oldBit = _lastSelectedBit;
         _internalCounter = 0;
         bool enabled = (_tac & 0x04) != 0;
-        int selectedBit = (_tac & 0x03) switch { 0 => 9, 1 => 3, 2 => 5, _ => 7 };
-        bool newBit = enabled && ((_internalCounter >> selectedBit) & 1) != 0;  // always false after reset
+        int selectedBit = (_tac & 0x03) switch
+        {
+            0 => 9,
+            1 => 3,
+            2 => 5,
+            _ => 7,
+        };
+        bool newBit = enabled && ((_internalCounter >> selectedBit) & 1) != 0; // always false after reset
         if (oldBit && !newBit)
         {
             IncrementTima();
@@ -54,7 +60,8 @@ public sealed class Timer
     {
         _tma = value;
         // If a reload happens during the same cycle as a TMA write, the new TMA value is used.
-        if (_reloadDelay == 1) _tima = value;
+        if (_reloadDelay == 1)
+            _tima = value;
     }
 
     public void WriteTac(byte value)
@@ -66,7 +73,13 @@ public sealed class Timer
         bool oldBit = _lastSelectedBit;
         _tac = (byte)(value & 0x07);
         bool newEnabled = (_tac & 0x04) != 0;
-        int newSelectedBit = (_tac & 0x03) switch { 0 => 9, 1 => 3, 2 => 5, _ => 7 };
+        int newSelectedBit = (_tac & 0x03) switch
+        {
+            0 => 9,
+            1 => 3,
+            2 => 5,
+            _ => 7,
+        };
         bool newBit = newEnabled && ((_internalCounter >> newSelectedBit) & 1) != 0;
         if (oldBit && !newBit)
         {
@@ -99,10 +112,10 @@ public sealed class Timer
         bool timerEnabled = (_tac & 0x04) != 0;
         int selectedBit = (_tac & 0x03) switch
         {
-            0 => 9,   // 4096 Hz  (every 1024 T-cycles)
-            1 => 3,   //  262144 Hz (every 16 T-cycles)
-            2 => 5,   //  65536 Hz (every 64 T-cycles)
-            _ => 7,   //  16384 Hz (every 256 T-cycles)
+            0 => 9, // 4096 Hz  (every 1024 T-cycles)
+            1 => 3, //  262144 Hz (every 16 T-cycles)
+            2 => 5, //  65536 Hz (every 64 T-cycles)
+            _ => 7, //  16384 Hz (every 256 T-cycles)
         };
         bool currentBit = timerEnabled && ((_internalCounter >> selectedBit) & 1) != 0;
 
@@ -118,7 +131,7 @@ public sealed class Timer
         if (_tima == 0xFF)
         {
             _tima = 0;
-            _reloadDelay = 4;   // 1 M-cycle (4 T-cycles) of delay before TMA reload + IRQ
+            _reloadDelay = 4; // 1 M-cycle (4 T-cycles) of delay before TMA reload + IRQ
         }
         else
         {
@@ -139,7 +152,9 @@ public sealed class Timer
     public void WriteState(StateWriter w)
     {
         w.WriteU16(_internalCounter);
-        w.WriteByte(_tima); w.WriteByte(_tma); w.WriteByte(_tac);
+        w.WriteByte(_tima);
+        w.WriteByte(_tma);
+        w.WriteByte(_tac);
         w.WriteI32(_reloadDelay);
         w.WriteBool(_lastSelectedBit);
     }
@@ -147,7 +162,9 @@ public sealed class Timer
     public void ReadState(StateReader r)
     {
         _internalCounter = r.ReadU16();
-        _tima = r.ReadByte(); _tma = r.ReadByte(); _tac = r.ReadByte();
+        _tima = r.ReadByte();
+        _tma = r.ReadByte();
+        _tac = r.ReadByte();
         _reloadDelay = r.ReadI32();
         _lastSelectedBit = r.ReadBool();
     }

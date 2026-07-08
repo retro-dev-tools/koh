@@ -35,31 +35,35 @@ internal sealed class FunctionAllocation
 
         // Permanent storage: alloca objects and constant-index geps (address-taken).
         foreach (var block in fn.Blocks)
-            foreach (var instr in block.Instructions)
+        foreach (var instr in block.Instructions)
+        {
+            if (instr is PhiInstruction)
+                phiTempBytes += instr.Type.SizeInBytes; // cycle-breaking may stage one temp per phi
+            switch (instr)
             {
-                if (instr is PhiInstruction)
-                    phiTempBytes += instr.Type.SizeInBytes; // cycle-breaking may stage one temp per phi
-                switch (instr)
-                {
-                    case AllocaInstruction a:
-                        staticAddr[a] = wram;
-                        wram += a.Allocated.SizeInBytes;
-                        break;
-                    case GetElementPtrInstruction g
-                        when g.Index is IrConstInt ci && staticAddr.TryGetValue(g.BasePointer, out int b):
-                        staticAddr[g] = b + (int)ci.Value * g.ElementType.SizeInBytes;
-                        break;
-                }
+                case AllocaInstruction a:
+                    staticAddr[a] = wram;
+                    wram += a.Allocated.SizeInBytes;
+                    break;
+                case GetElementPtrInstruction g
+                    when g.Index is IrConstInt ci
+                        && staticAddr.TryGetValue(g.BasePointer, out int b):
+                    staticAddr[g] = b + (int)ci.Value * g.ElementType.SizeInBytes;
+                    break;
             }
+        }
 
         // Colour the remaining SSA value slots (non-void results that aren't static addresses):
         // values whose live ranges never overlap share WRAM bytes.
         var colored = new HashSet<IrValue>(Eq);
         foreach (var block in fn.Blocks)
-            foreach (var instr in block.Instructions)
-                if (instr.Type.Kind != IrTypeKind.Void && instr is not AllocaInstruction
-                    && !staticAddr.ContainsKey(instr))
-                    colored.Add(instr);
+        foreach (var instr in block.Instructions)
+            if (
+                instr.Type.Kind != IrTypeKind.Void
+                && instr is not AllocaInstruction
+                && !staticAddr.ContainsKey(instr)
+            )
+                colored.Add(instr);
 
         var interference = ComputeInterference(fn, colored);
         int colorBase = wram;
@@ -67,9 +71,9 @@ internal sealed class FunctionAllocation
 
         var order = new List<IrValue>();
         foreach (var block in fn.Blocks)
-            foreach (var instr in block.Instructions)
-                if (colored.Contains(instr))
-                    order.Add(instr);
+        foreach (var instr in block.Instructions)
+            if (colored.Contains(instr))
+                order.Add(instr);
 
         foreach (var value in order)
         {
@@ -80,8 +84,10 @@ internal sealed class FunctionAllocation
             {
                 placed = true;
                 foreach (var neighbour in interference[value])
-                    if (slot.TryGetValue(neighbour, out int ns)
-                        && Overlaps(start, size, ns, neighbour.Type.SizeInBytes))
+                    if (
+                        slot.TryGetValue(neighbour, out int ns)
+                        && Overlaps(start, size, ns, neighbour.Type.SizeInBytes)
+                    )
                     {
                         start = ns + neighbour.Type.SizeInBytes; // move past the conflict, then recheck
                         placed = false;
@@ -113,7 +119,9 @@ internal sealed class FunctionAllocation
     /// on predecessor edges). Two values interfere if they can be simultaneously live.
     /// </summary>
     private static Dictionary<IrValue, HashSet<IrValue>> ComputeInterference(
-        IrFunction fn, HashSet<IrValue> colored)
+        IrFunction fn,
+        HashSet<IrValue> colored
+    )
     {
         var blocks = fn.Blocks;
         var use = new Dictionary<IrBasicBlock, HashSet<IrValue>>(Eq);
@@ -128,7 +136,7 @@ internal sealed class FunctionAllocation
             foreach (var instr in b.Instructions)
                 if (instr is PhiInstruction phi && colored.Contains(phi))
                 {
-                    d.Add(phi);           // phis define at the top
+                    d.Add(phi); // phis define at the top
                     blockPhis.Add(phi);
                 }
             var defined = new HashSet<IrValue>(d, Eq);
@@ -138,7 +146,7 @@ internal sealed class FunctionAllocation
                     continue;
                 foreach (var op in instr.Operands)
                     if (colored.Contains(op) && !defined.Contains(op))
-                        u.Add(op);        // used before defined in this block
+                        u.Add(op); // used before defined in this block
                 if (colored.Contains(instr))
                 {
                     d.Add(instr);
@@ -169,10 +177,10 @@ internal sealed class FunctionAllocation
                 {
                     foreach (var v in liveIn[s])
                         newOut.Add(v);
-                    foreach (var phi in phis[s])                    // phi operands: live-out of the matching predecessor
-                        foreach (var (val, pred) in phi.Incomings)
-                            if (ReferenceEquals(pred, b) && colored.Contains(val))
-                                newOut.Add(val);
+                    foreach (var phi in phis[s]) // phi operands: live-out of the matching predecessor
+                    foreach (var (val, pred) in phi.Incomings)
+                        if (ReferenceEquals(pred, b) && colored.Contains(val))
+                            newOut.Add(val);
                 }
                 var newIn = new HashSet<IrValue>(use[b], Eq);
                 foreach (var v in newOut)
@@ -230,11 +238,11 @@ internal sealed class FunctionAllocation
             }
             var blockPhis = phis[b];
             foreach (var p in blockPhis)
-                foreach (var w in live)
-                    Interfere(p, w);
+            foreach (var w in live)
+                Interfere(p, w);
             for (int i = 0; i < blockPhis.Count; i++)
-                for (int j = i + 1; j < blockPhis.Count; j++)
-                    Interfere(blockPhis[i], blockPhis[j]);
+            for (int j = i + 1; j < blockPhis.Count; j++)
+                Interfere(blockPhis[i], blockPhis[j]);
         }
 
         return graph;

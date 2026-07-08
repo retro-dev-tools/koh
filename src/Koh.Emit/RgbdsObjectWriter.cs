@@ -18,7 +18,8 @@ public sealed class RgbdsObjectWriter
     {
         if (!model.Success)
             throw new InvalidOperationException(
-                "Cannot write an RGBDS object file for a failed compilation.");
+                "Cannot write an RGBDS object file for a failed compilation."
+            );
 
         new RgbdsObjectWriter().WriteInternal(stream, model);
     }
@@ -41,9 +42,9 @@ public sealed class RgbdsObjectWriter
         WriteInt32(bw, 1); // file stack node count
 
         // File stack nodes (single root node)
-        WriteInt32(bw, -1);     // parent ID (-1 = root)
-        WriteInt32(bw, 0);      // line
-        bw.Write((byte)1);      // type: NODE_FILE
+        WriteInt32(bw, -1); // parent ID (-1 = root)
+        WriteInt32(bw, 0); // line
+        bw.Write((byte)1); // type: NODE_FILE
         WriteString(bw, "koh"); // filename
 
         // Symbols
@@ -89,14 +90,14 @@ public sealed class RgbdsObjectWriter
     {
         // Field order per RGB9 rev 13: name, nodeID, lineNo, size, type, org, bank, align, alignOfs
         WriteString(bw, section.Name);
-        WriteInt32(bw, 0);                          // nodeID
-        WriteInt32(bw, 0);                          // lineNo
-        WriteInt32(bw, section.Data.Length);         // size
-        bw.Write(MapSectionType(section.Type));     // type (byte)
+        WriteInt32(bw, 0); // nodeID
+        WriteInt32(bw, 0); // lineNo
+        WriteInt32(bw, section.Data.Length); // size
+        bw.Write(MapSectionType(section.Type)); // type (byte)
         WriteInt32(bw, section.FixedAddress ?? -1); // org (-1 = floating)
-        WriteInt32(bw, section.Bank ?? -1);         // bank (-1 = unspecified)
-        bw.Write((byte)0);                          // align (1 byte per rgblink tryGetc)
-        WriteInt32(bw, 0);                          // align offset
+        WriteInt32(bw, section.Bank ?? -1); // bank (-1 = unspecified)
+        bw.Write((byte)0); // align (1 byte per rgblink tryGetc)
+        WriteInt32(bw, 0); // align offset
 
         // Data and patches only for ROM sections
         if (IsRomType(section.Type))
@@ -114,12 +115,12 @@ public sealed class RgbdsObjectWriter
     private void WritePatch(BinaryWriter bw, PatchEntry patch, int pcSectionId)
     {
         // Field order per RGB9 rev 13: nodeID, lineNo, offset, pcSectionID, pcOffset, type, rpnSize, rpn
-        WriteInt32(bw, 0);                            // nodeID
-        WriteInt32(bw, 0);                            // lineNo
-        WriteInt32(bw, patch.Offset);                 // offset within section
-        WriteInt32(bw, pcSectionId);                  // pcSectionID
-        WriteInt32(bw, patch.PCAfterInstruction);     // pcOffset
-        bw.Write(MapPatchKind(patch.Kind));           // type (byte)
+        WriteInt32(bw, 0); // nodeID
+        WriteInt32(bw, 0); // lineNo
+        WriteInt32(bw, patch.Offset); // offset within section
+        WriteInt32(bw, pcSectionId); // pcSectionID
+        WriteInt32(bw, patch.PCAfterInstruction); // pcOffset
+        bw.Write(MapPatchKind(patch.Kind)); // type (byte)
 
         // RPN expression
         var rpn = new List<byte>();
@@ -182,9 +183,12 @@ public sealed class RgbdsObjectWriter
                     var left = greenNode.GetChild(0);
                     var op = greenNode.GetChild(1) as GreenToken;
                     var right = greenNode.GetChild(2);
-                    if (left != null) FlattenToRpn(left, rpn);
-                    if (right != null) FlattenToRpn(right, rpn);
-                    if (op != null) rpn.Add(MapBinaryOp(op.Kind));
+                    if (left != null)
+                        FlattenToRpn(left, rpn);
+                    if (right != null)
+                        FlattenToRpn(right, rpn);
+                    if (op != null)
+                        rpn.Add(MapBinaryOp(op.Kind));
                     break;
                 }
 
@@ -192,7 +196,8 @@ public sealed class RgbdsObjectWriter
                 {
                     var op = greenNode.GetChild(0) as GreenToken;
                     var operand = greenNode.GetChild(1);
-                    if (operand != null) FlattenToRpn(operand, rpn);
+                    if (operand != null)
+                        FlattenToRpn(operand, rpn);
                     // Unary + is identity — no RPN opcode needed
                     if (op != null && op.Kind != SyntaxKind.PlusToken)
                         rpn.Add(MapUnaryOp(op.Kind));
@@ -202,7 +207,8 @@ public sealed class RgbdsObjectWriter
                 case SyntaxKind.ParenthesizedExpression:
                 {
                     var inner = greenNode.GetChild(1);
-                    if (inner != null) FlattenToRpn(inner, rpn);
+                    if (inner != null)
+                        FlattenToRpn(inner, rpn);
                     break;
                 }
 
@@ -210,67 +216,71 @@ public sealed class RgbdsObjectWriter
                     for (int i = 0; i < greenNode.ChildCount; i++)
                     {
                         var child = greenNode.GetChild(i);
-                        if (child != null) FlattenToRpn(child, rpn);
+                        if (child != null)
+                            FlattenToRpn(child, rpn);
                     }
                     break;
             }
         }
     }
 
-    private static byte MapBinaryOp(SyntaxKind kind) => kind switch
-    {
-        SyntaxKind.PlusToken => RgbdsObjectFormat.RpnAdd,
-        SyntaxKind.MinusToken => RgbdsObjectFormat.RpnSub,
-        SyntaxKind.StarToken => RgbdsObjectFormat.RpnMul,
-        SyntaxKind.SlashToken => RgbdsObjectFormat.RpnDiv,
-        SyntaxKind.PercentToken => RgbdsObjectFormat.RpnMod,
-        SyntaxKind.AmpersandToken => RgbdsObjectFormat.RpnAnd,
-        SyntaxKind.PipeToken => RgbdsObjectFormat.RpnOr,
-        SyntaxKind.CaretToken => RgbdsObjectFormat.RpnXor,
-        SyntaxKind.LessThanLessThanToken => RgbdsObjectFormat.RpnShl,
-        SyntaxKind.GreaterThanGreaterThanToken => RgbdsObjectFormat.RpnShr,
-        SyntaxKind.EqualsEqualsToken => RgbdsObjectFormat.RpnEq,
-        SyntaxKind.BangEqualsToken => RgbdsObjectFormat.RpnNe,
-        SyntaxKind.LessThanToken => RgbdsObjectFormat.RpnLt,
-        SyntaxKind.GreaterThanToken => RgbdsObjectFormat.RpnGt,
-        SyntaxKind.LessThanEqualsToken => RgbdsObjectFormat.RpnLe,
-        SyntaxKind.GreaterThanEqualsToken => RgbdsObjectFormat.RpnGe,
-        SyntaxKind.AmpersandAmpersandToken => RgbdsObjectFormat.RpnLogAnd,
-        SyntaxKind.PipePipeToken => RgbdsObjectFormat.RpnLogOr,
-        _ => RgbdsObjectFormat.RpnAdd,
-    };
+    private static byte MapBinaryOp(SyntaxKind kind) =>
+        kind switch
+        {
+            SyntaxKind.PlusToken => RgbdsObjectFormat.RpnAdd,
+            SyntaxKind.MinusToken => RgbdsObjectFormat.RpnSub,
+            SyntaxKind.StarToken => RgbdsObjectFormat.RpnMul,
+            SyntaxKind.SlashToken => RgbdsObjectFormat.RpnDiv,
+            SyntaxKind.PercentToken => RgbdsObjectFormat.RpnMod,
+            SyntaxKind.AmpersandToken => RgbdsObjectFormat.RpnAnd,
+            SyntaxKind.PipeToken => RgbdsObjectFormat.RpnOr,
+            SyntaxKind.CaretToken => RgbdsObjectFormat.RpnXor,
+            SyntaxKind.LessThanLessThanToken => RgbdsObjectFormat.RpnShl,
+            SyntaxKind.GreaterThanGreaterThanToken => RgbdsObjectFormat.RpnShr,
+            SyntaxKind.EqualsEqualsToken => RgbdsObjectFormat.RpnEq,
+            SyntaxKind.BangEqualsToken => RgbdsObjectFormat.RpnNe,
+            SyntaxKind.LessThanToken => RgbdsObjectFormat.RpnLt,
+            SyntaxKind.GreaterThanToken => RgbdsObjectFormat.RpnGt,
+            SyntaxKind.LessThanEqualsToken => RgbdsObjectFormat.RpnLe,
+            SyntaxKind.GreaterThanEqualsToken => RgbdsObjectFormat.RpnGe,
+            SyntaxKind.AmpersandAmpersandToken => RgbdsObjectFormat.RpnLogAnd,
+            SyntaxKind.PipePipeToken => RgbdsObjectFormat.RpnLogOr,
+            _ => RgbdsObjectFormat.RpnAdd,
+        };
 
-    private static byte MapUnaryOp(SyntaxKind kind) => kind switch
-    {
-        SyntaxKind.MinusToken => RgbdsObjectFormat.RpnNeg,
-        SyntaxKind.TildeToken => RgbdsObjectFormat.RpnNot,
-        SyntaxKind.BangToken => RgbdsObjectFormat.RpnLogNot,
-        _ => RgbdsObjectFormat.RpnNeg,
-    };
+    private static byte MapUnaryOp(SyntaxKind kind) =>
+        kind switch
+        {
+            SyntaxKind.MinusToken => RgbdsObjectFormat.RpnNeg,
+            SyntaxKind.TildeToken => RgbdsObjectFormat.RpnNot,
+            SyntaxKind.BangToken => RgbdsObjectFormat.RpnLogNot,
+            _ => RgbdsObjectFormat.RpnNeg,
+        };
 
-    private static byte MapSectionType(SectionType type) => type switch
-    {
-        SectionType.Rom0 => RgbdsObjectFormat.SectRom0,
-        SectionType.RomX => RgbdsObjectFormat.SectRomx,
-        SectionType.Wram0 => RgbdsObjectFormat.SectWram0,
-        SectionType.WramX => RgbdsObjectFormat.SectWramx,
-        SectionType.Vram => RgbdsObjectFormat.SectVram,
-        SectionType.Hram => RgbdsObjectFormat.SectHram,
-        SectionType.Sram => RgbdsObjectFormat.SectSram,
-        SectionType.Oam => RgbdsObjectFormat.SectOam,
-        _ => RgbdsObjectFormat.SectRom0,
-    };
+    private static byte MapSectionType(SectionType type) =>
+        type switch
+        {
+            SectionType.Rom0 => RgbdsObjectFormat.SectRom0,
+            SectionType.RomX => RgbdsObjectFormat.SectRomx,
+            SectionType.Wram0 => RgbdsObjectFormat.SectWram0,
+            SectionType.WramX => RgbdsObjectFormat.SectWramx,
+            SectionType.Vram => RgbdsObjectFormat.SectVram,
+            SectionType.Hram => RgbdsObjectFormat.SectHram,
+            SectionType.Sram => RgbdsObjectFormat.SectSram,
+            SectionType.Oam => RgbdsObjectFormat.SectOam,
+            _ => RgbdsObjectFormat.SectRom0,
+        };
 
-    private static byte MapPatchKind(PatchKind kind) => kind switch
-    {
-        PatchKind.Absolute8 => RgbdsObjectFormat.PatchByte,
-        PatchKind.Absolute16 => RgbdsObjectFormat.PatchLe16,
-        PatchKind.Relative8 => RgbdsObjectFormat.PatchJr,
-        _ => RgbdsObjectFormat.PatchByte,
-    };
+    private static byte MapPatchKind(PatchKind kind) =>
+        kind switch
+        {
+            PatchKind.Absolute8 => RgbdsObjectFormat.PatchByte,
+            PatchKind.Absolute16 => RgbdsObjectFormat.PatchLe16,
+            PatchKind.Relative8 => RgbdsObjectFormat.PatchJr,
+            _ => RgbdsObjectFormat.PatchByte,
+        };
 
-    private static bool IsRomType(SectionType type) =>
-        type is SectionType.Rom0 or SectionType.RomX;
+    private static bool IsRomType(SectionType type) => type is SectionType.Rom0 or SectionType.RomX;
 
     private static void WriteInt32(BinaryWriter bw, int value) => bw.Write(value);
 

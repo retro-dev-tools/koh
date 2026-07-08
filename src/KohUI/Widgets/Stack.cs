@@ -5,7 +5,11 @@ namespace KohUI.Widgets;
 /// <summary>
 /// Orientation for <see cref="Stack{TMsg, TChildren}"/>.
 /// </summary>
-public enum StackDirection { Vertical, Horizontal }
+public enum StackDirection
+{
+    Vertical,
+    Horizontal,
+}
 
 /// <summary>
 /// A container that stacks its children in order. Uses a two-child
@@ -21,7 +25,12 @@ public enum StackDirection { Vertical, Horizontal }
 /// edge (the Win98-authentic behaviour).
 /// </para>
 /// </summary>
-public readonly struct Stack<TMsg, TA, TB>(StackDirection Direction, TA First, TB Second, bool Stretch = false) : IView<TMsg>
+public readonly struct Stack<TMsg, TA, TB>(
+    StackDirection Direction,
+    TA First,
+    TB Second,
+    bool Stretch = false
+) : IView<TMsg>
     where TA : IView<TMsg>
     where TB : IView<TMsg>
 {
@@ -33,9 +42,7 @@ public readonly struct Stack<TMsg, TA, TB>(StackDirection Direction, TA First, T
     public RenderNode Render()
     {
         var children = ImmutableArray.Create(First.Render(), Second.Render());
-        var props = Props.Of(
-            ("direction", Direction.ToString()),
-            ("stretch", Stretch));
+        var props = Props.Of(("direction", Direction.ToString()), ("stretch", Stretch));
         return RenderNode.WithChildren("Stack", children, props);
     }
 }
@@ -46,7 +53,11 @@ public readonly struct Stack<TMsg, TA, TB>(StackDirection Direction, TA First, T
 /// repeating rows). For fixed-shape UIs prefer <see cref="Stack{TMsg,
 /// TA, TB}"/> composition.
 /// </summary>
-public readonly struct ForEach<TMsg>(StackDirection Direction, ImmutableArray<IView<TMsg>> Items, bool Stretch = false) : IView<TMsg>
+public readonly struct ForEach<TMsg>(
+    StackDirection Direction,
+    ImmutableArray<IView<TMsg>> Items,
+    bool Stretch = false
+) : IView<TMsg>
 {
     public readonly StackDirection Direction = Direction;
     public readonly ImmutableArray<IView<TMsg>> Items = Items;
@@ -55,10 +66,9 @@ public readonly struct ForEach<TMsg>(StackDirection Direction, ImmutableArray<IV
     public RenderNode Render()
     {
         var children = ImmutableArray.CreateBuilder<RenderNode>(Items.Length);
-        foreach (var item in Items) children.Add(item.Render());
-        var props = Props.Of(
-            ("direction", Direction.ToString()),
-            ("stretch", Stretch));
+        foreach (var item in Items)
+            children.Add(item.Render());
+        var props = Props.Of(("direction", Direction.ToString()), ("stretch", Stretch));
         return RenderNode.WithChildren("Stack", children.MoveToImmutable(), props);
     }
 }

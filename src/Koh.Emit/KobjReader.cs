@@ -81,18 +81,20 @@ public sealed class KobjReader
                     symbolOffset = br.ReadInt32();
                     symbolShift = br.ReadInt32();
                 }
-                patches.Add(new PatchEntry
-                {
-                    SectionName = name,
-                    Offset = offset,
-                    Expression = null, // Expression not serialized — linker re-evaluates from source
-                    Kind = kind,
-                    PCAfterInstruction = pcAfter,
-                    DiagnosticSpan = new TextSpan(spanStart, spanLen),
-                    SymbolName = symbolName,
-                    SymbolOffset = symbolOffset,
-                    SymbolShift = symbolShift,
-                });
+                patches.Add(
+                    new PatchEntry
+                    {
+                        SectionName = name,
+                        Offset = offset,
+                        Expression = null, // Expression not serialized — linker re-evaluates from source
+                        Kind = kind,
+                        PCAfterInstruction = pcAfter,
+                        DiagnosticSpan = new TextSpan(spanStart, spanLen),
+                        SymbolName = symbolName,
+                        SymbolOffset = symbolOffset,
+                        SymbolShift = symbolShift,
+                    }
+                );
             }
 
             // v2+ carries a per-section line map right after patches.
@@ -133,8 +135,15 @@ public sealed class KobjReader
             var vis = (SymbolVisibility)br.ReadByte();
             var section = br.ReadString();
             var value = br.ReadInt64();
-            symbols.Add(new SymbolData(name, kind, vis,
-                string.IsNullOrEmpty(section) ? null : section, value));
+            symbols.Add(
+                new SymbolData(
+                    name,
+                    kind,
+                    vis,
+                    string.IsNullOrEmpty(section) ? null : section,
+                    value
+                )
+            );
         }
     }
 }

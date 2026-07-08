@@ -7,11 +7,13 @@ public class ParserTests
     // Walk the tree depth-first, returning the first node with the given kind.
     private static SyntaxNode? FindFirst(SyntaxNode root, SyntaxKind kind)
     {
-        if (root.Kind == kind) return root;
+        if (root.Kind == kind)
+            return root;
         foreach (var child in root.ChildNodes())
         {
             var found = FindFirst(child, kind);
-            if (found != null) return found;
+            if (found != null)
+                return found;
         }
         return null;
     }
@@ -66,7 +68,20 @@ public class ParserTests
     [Test]
     public async Task Parser_ArithmeticInstructions()
     {
-        foreach (var instr in new[] { "sub a", "adc a", "sbc a", "and a", "or a", "xor a", "cp a", "inc b", "dec b" })
+        foreach (
+            var instr in new[]
+            {
+                "sub a",
+                "adc a",
+                "sbc a",
+                "and a",
+                "or a",
+                "xor a",
+                "cp a",
+                "inc b",
+                "dec b",
+            }
+        )
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
@@ -78,7 +93,9 @@ public class ParserTests
     [Test]
     public async Task Parser_ControlFlowInstructions()
     {
-        foreach (var instr in new[] { "jp $1234", "jr .loop", "call $0100", "ret", "reti", "rst $38" })
+        foreach (
+            var instr in new[] { "jp $1234", "jr .loop", "call $0100", "ret", "reti", "rst $38" }
+        )
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
@@ -90,8 +107,26 @@ public class ParserTests
     [Test]
     public async Task Parser_RotateShiftBitInstructions()
     {
-        foreach (var instr in new[] { "rlca", "rla", "rrca", "rra", "rlc a", "rl a", "rrc a", "rr a",
-            "sla a", "sra a", "srl a", "swap a", "bit 3, a", "set 3, a", "res 3, a" })
+        foreach (
+            var instr in new[]
+            {
+                "rlca",
+                "rla",
+                "rrca",
+                "rra",
+                "rlc a",
+                "rl a",
+                "rrc a",
+                "rr a",
+                "sla a",
+                "sra a",
+                "srl a",
+                "swap a",
+                "bit 3, a",
+                "set 3, a",
+                "res 3, a",
+            }
+        )
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
@@ -103,8 +138,23 @@ public class ParserTests
     [Test]
     public async Task Parser_MiscInstructions()
     {
-        foreach (var instr in new[] { "daa", "cpl", "di", "ei", "halt", "stop", "ccf", "scf",
-            "push hl", "pop bc", "ldi", "ldd" })
+        foreach (
+            var instr in new[]
+            {
+                "daa",
+                "cpl",
+                "di",
+                "ei",
+                "halt",
+                "stop",
+                "ccf",
+                "scf",
+                "push hl",
+                "pop bc",
+                "ldi",
+                "ldd",
+            }
+        )
         {
             var tree = SyntaxTree.Parse(instr);
             var stmts = tree.Root.ChildNodes().ToList();
@@ -323,10 +373,7 @@ public class ParserTests
     [Test]
     public async Task Section_NoDiagnostics_ForAllMemoryTypes()
     {
-        var types = new[]
-        {
-            "ROM0", "ROMX", "WRAM0", "WRAMX", "VRAM", "HRAM", "SRAM", "OAM",
-        };
+        var types = new[] { "ROM0", "ROMX", "WRAM0", "WRAMX", "VRAM", "HRAM", "SRAM", "OAM" };
         foreach (var type in types)
         {
             var tree = SyntaxTree.Parse($"SECTION \"s\", {type}");
@@ -348,7 +395,9 @@ public class ParserTests
         await Assert.That(stmt).IsNotNull();
         // DB keyword + LiteralExpression child
         await Assert.That(stmt!.ChildTokens().Any(t => t.Kind == SyntaxKind.DbKeyword)).IsTrue();
-        await Assert.That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression)).IsTrue();
+        await Assert
+            .That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression))
+            .IsTrue();
     }
 
     [Test]
@@ -359,7 +408,10 @@ public class ParserTests
 
         var stmt = FindFirst(tree.Root, SyntaxKind.DataDirective);
         await Assert.That(stmt).IsNotNull();
-        var literals = stmt!.ChildNodes().Where(n => n.Kind == SyntaxKind.LiteralExpression).ToList();
+        var literals = stmt!
+            .ChildNodes()
+            .Where(n => n.Kind == SyntaxKind.LiteralExpression)
+            .ToList();
         await Assert.That(literals).Count().IsEqualTo(3);
     }
 
@@ -372,7 +424,9 @@ public class ParserTests
         var stmt = FindFirst(tree.Root, SyntaxKind.DataDirective);
         await Assert.That(stmt).IsNotNull();
         await Assert.That(stmt!.ChildTokens().Any(t => t.Kind == SyntaxKind.DwKeyword)).IsTrue();
-        await Assert.That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.BinaryExpression)).IsTrue();
+        await Assert
+            .That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.BinaryExpression))
+            .IsTrue();
     }
 
     [Test]
@@ -401,7 +455,9 @@ public class ParserTests
         var stmt = FindFirst(tree.Root, SyntaxKind.SymbolDirective);
         await Assert.That(stmt).IsNotNull();
         await Assert.That(stmt!.ChildTokens().Any(t => t.Kind == SyntaxKind.EquKeyword)).IsTrue();
-        await Assert.That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression)).IsTrue();
+        await Assert
+            .That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression))
+            .IsTrue();
     }
 
     [Test]
@@ -413,7 +469,9 @@ public class ParserTests
         var stmt = FindFirst(tree.Root, SyntaxKind.SymbolDirective);
         await Assert.That(stmt).IsNotNull();
         await Assert.That(stmt!.ChildTokens().Any(t => t.Kind == SyntaxKind.EqusKeyword)).IsTrue();
-        await Assert.That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression)).IsTrue();
+        await Assert
+            .That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression))
+            .IsTrue();
     }
 
     [Test]
@@ -428,7 +486,9 @@ public class ParserTests
         await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.RedefKeyword);
         await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.IdentifierToken);
         await Assert.That(tokens[2].Kind).IsEqualTo(SyntaxKind.EquKeyword);
-        await Assert.That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression)).IsTrue();
+        await Assert
+            .That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression))
+            .IsTrue();
     }
 
     [Test]
@@ -444,7 +504,9 @@ public class ParserTests
         await Assert.That(tokens[0].Kind).IsEqualTo(SyntaxKind.DefKeyword);
         await Assert.That(tokens[1].Kind).IsEqualTo(SyntaxKind.IdentifierToken);
         await Assert.That(tokens[2].Kind).IsEqualTo(SyntaxKind.EqualsToken);
-        await Assert.That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression)).IsTrue();
+        await Assert
+            .That(stmt.ChildNodes().Any(n => n.Kind == SyntaxKind.LiteralExpression))
+            .IsTrue();
     }
 
     [Test]
@@ -455,7 +517,9 @@ public class ParserTests
 
         var stmt = FindFirst(tree.Root, SyntaxKind.SymbolDirective);
         await Assert.That(stmt).IsNotNull();
-        await Assert.That(stmt!.ChildNodes().Any(n => n.Kind == SyntaxKind.BinaryExpression)).IsTrue();
+        await Assert
+            .That(stmt!.ChildNodes().Any(n => n.Kind == SyntaxKind.BinaryExpression))
+            .IsTrue();
     }
 
     [Test]

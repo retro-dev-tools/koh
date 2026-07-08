@@ -11,14 +11,16 @@ using Koh.Core.Diagnostics;
 using Koh.Core.Text;
 using Koh.Linker.Core;
 
-string sourcePath = args.Length > 0
-    ? args[0]
-    : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "2048.cs");
+string sourcePath =
+    args.Length > 0
+        ? args[0]
+        : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "2048.cs");
 sourcePath = Path.GetFullPath(sourcePath);
 
-string outPath = args.Length > 1
-    ? args[1]
-    : Path.Combine(Path.GetDirectoryName(sourcePath)!, "build", "2048.gb");
+string outPath =
+    args.Length > 1
+        ? args[1]
+        : Path.Combine(Path.GetDirectoryName(sourcePath)!, "build", "2048.gb");
 
 var frontend = CompilerRegistry.FrontendForExtension(Path.GetExtension(sourcePath));
 if (frontend is null)

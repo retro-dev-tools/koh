@@ -12,11 +12,13 @@ public class InlayHintTests
     private static JToken? GetInlayHints(Workspace ws, string uri)
     {
         var doc = ws.GetDocument(uri);
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
         var model = ws.GetSemanticModel(uri);
-        if (model == null) return null;
+        if (model == null)
+            return null;
 
         var startOffset = 0;
         var endOffset = source.Length;
@@ -28,21 +30,30 @@ public class InlayHintTests
         return hints.Count > 0 ? JToken.FromObject(hints) : new JArray();
     }
 
-    private static void CollectInlayHints(SyntaxNode node, SourceText source,
-        Koh.Core.SemanticModel model, int startOffset, int endOffset,
-        List<JObject> hints, HashSet<int> seen)
+    private static void CollectInlayHints(
+        SyntaxNode node,
+        SourceText source,
+        Koh.Core.SemanticModel model,
+        int startOffset,
+        int endOffset,
+        List<JObject> hints,
+        HashSet<int> seen
+    )
     {
         foreach (var child in node.ChildNodesAndTokens())
         {
             if (child.IsNode)
             {
                 var childNode = child.AsNode!;
-                if (childNode.Position + childNode.FullSpan.Length < startOffset) continue;
-                if (childNode.Position > endOffset) break;
+                if (childNode.Position + childNode.FullSpan.Length < startOffset)
+                    continue;
+                if (childNode.Position > endOffset)
+                    break;
                 CollectInlayHints(childNode, source, model, startOffset, endOffset, hints, seen);
                 continue;
             }
-            if (!child.IsToken) continue;
+            if (!child.IsToken)
+                continue;
             var token = child.AsToken!;
 
             if (token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
@@ -50,17 +61,29 @@ public class InlayHintTests
             if (token.Span.Start < startOffset || token.Span.Start > endOffset)
                 continue;
             var parent = token.Parent;
-            if (parent == null) continue;
-            if (parent.Kind is SyntaxKind.LabelDeclaration or SyntaxKind.SymbolDirective or SyntaxKind.MacroDefinition)
+            if (parent == null)
+                continue;
+            if (
+                parent.Kind
+                is SyntaxKind.LabelDeclaration
+                    or SyntaxKind.SymbolDirective
+                    or SyntaxKind.MacroDefinition
+            )
                 continue;
             if (parent.Kind is not SyntaxKind.NameExpression and not SyntaxKind.LabelOperand)
                 continue;
 
             var symbol = model.ResolveSymbol(token.Text, token.Span.Start);
-            if (symbol == null) continue;
-            if (symbol.Kind is not Core.Symbols.SymbolKind.Label and not Core.Symbols.SymbolKind.Constant)
+            if (symbol == null)
                 continue;
-            if (!seen.Add(token.Span.Start)) continue;
+            if (
+                symbol.Kind
+                is not Core.Symbols.SymbolKind.Label
+                    and not Core.Symbols.SymbolKind.Constant
+            )
+                continue;
+            if (!seen.Add(token.Span.Start))
+                continue;
 
             var pos = PositionUtilities.ToLspPosition(source, token.Span.Start + token.Span.Length);
             string valueText;
@@ -69,13 +92,17 @@ public class InlayHintTests
             else
                 valueText = $"${symbol.Value:X4} ({symbol.Value})";
 
-            hints.Add(new JObject
-            {
-                ["position"] = JToken.FromObject(new { line = pos.Line, character = pos.Character }),
-                ["label"] = $" = {valueText}",
-                ["kind"] = 1,
-                ["paddingLeft"] = true,
-            });
+            hints.Add(
+                new JObject
+                {
+                    ["position"] = JToken.FromObject(
+                        new { line = pos.Line, character = pos.Character }
+                    ),
+                    ["label"] = $" = {valueText}",
+                    ["kind"] = 1,
+                    ["paddingLeft"] = true,
+                }
+            );
         }
     }
 
@@ -88,7 +115,8 @@ public class InlayHintTests
         var hints = GetInlayHints(ws, "file:///test.asm");
         await Assert.That(hints).IsNotNull();
 
-        var arr = hints as JArray ?? (hints!.Type == JTokenType.Array ? (JArray)hints : new JArray());
+        var arr =
+            hints as JArray ?? (hints!.Type == JTokenType.Array ? (JArray)hints : new JArray());
         await Assert.That(arr.Count).IsGreaterThan(0);
 
         // Should contain the constant value

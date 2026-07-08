@@ -81,7 +81,8 @@ public class ParallelParseTests
     [Test]
     public async Task CreateFromSources_ManyFiles()
     {
-        var sources = Enumerable.Range(0, 50)
+        var sources = Enumerable
+            .Range(0, 50)
             .Select(i => SourceText.From($"nop ; file {i}", $"file{i}.asm"))
             .ToList();
 
@@ -93,12 +94,14 @@ public class ParallelParseTests
     [Test]
     public async Task CreateFromSources_Deterministic_RepeatedCallsProduceIdenticalTrees()
     {
-        var sources = Enumerable.Range(0, 20)
+        var sources = Enumerable
+            .Range(0, 20)
             .Select(i => SourceText.From($"nop\nld a, {i}\nhalt", $"file{i}.asm"))
             .ToList();
 
         // Parse the same sources 5 times.
-        var runs = Enumerable.Range(0, 5)
+        var runs = Enumerable
+            .Range(0, 5)
             .Select(_ => Compilation.CreateFromSources(sources))
             .ToList();
 
@@ -112,7 +115,8 @@ public class ParallelParseTests
                 var refTokens = CollectTokenTexts(reference.SyntaxTrees[i]);
                 var curTokens = CollectTokenTexts(current.SyntaxTrees[i]);
                 await Assert.That(curTokens).IsEquivalentTo(refTokens);
-                await Assert.That(current.SyntaxTrees[i].Diagnostics.Count)
+                await Assert
+                    .That(current.SyntaxTrees[i].Diagnostics.Count)
                     .IsEqualTo(reference.SyntaxTrees[i].Diagnostics.Count);
             }
         }
@@ -121,7 +125,8 @@ public class ParallelParseTests
     [Test]
     public async Task CreateFromSources_MatchesSequentialParse()
     {
-        var sources = Enumerable.Range(0, 10)
+        var sources = Enumerable
+            .Range(0, 10)
             .Select(i => SourceText.From($"SECTION \"S{i}\", ROM0\nld a, {i}\nnop", $"file{i}.asm"))
             .ToList();
 
@@ -135,7 +140,8 @@ public class ParallelParseTests
             var parTokens = CollectTokenTexts(parallel.SyntaxTrees[i]);
             var seqTokens = CollectTokenTexts(sequential.SyntaxTrees[i]);
             await Assert.That(parTokens).IsEquivalentTo(seqTokens);
-            await Assert.That(parallel.SyntaxTrees[i].Diagnostics.Count)
+            await Assert
+                .That(parallel.SyntaxTrees[i].Diagnostics.Count)
                 .IsEqualTo(sequential.SyntaxTrees[i].Diagnostics.Count);
         }
     }

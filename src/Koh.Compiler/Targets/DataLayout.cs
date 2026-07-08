@@ -14,13 +14,12 @@ namespace Koh.Compiler.Targets;
 public sealed record DataLayout(
     int PointerBits,
     bool LittleEndian,
-    IReadOnlyList<int> NativeIntBits)
+    IReadOnlyList<int> NativeIntBits
+)
 {
     /// <summary>SM83: 16-bit pointers, little-endian, 8-bit-native ALU.</summary>
-    public static DataLayout Sm83 { get; } = new(
-        PointerBits: 16,
-        LittleEndian: true,
-        NativeIntBits: [8]);
+    public static DataLayout Sm83 { get; } =
+        new(PointerBits: 16, LittleEndian: true, NativeIntBits: [8]);
 
     /// <summary>Bytes required to store a pointer on this target.</summary>
     public int PointerSize => (PointerBits + 7) / 8;

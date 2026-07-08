@@ -18,7 +18,8 @@ public sealed class IrBuilder
     /// <summary>Source location stamped onto each appended instruction (for debug line maps).</summary>
     public IrSourceLocation? CurrentSource { get; set; }
 
-    private T Append<T>(T instruction) where T : IrInstruction
+    private T Append<T>(T instruction)
+        where T : IrInstruction
     {
         var block = CurrentBlock;
         instruction.Parent = block;
@@ -28,13 +29,16 @@ public sealed class IrBuilder
     }
 
     public static IrConstInt ConstInt(IrType type, long value) => new(type, value);
+
     public static IrGlobalRef GlobalRef(IrGlobal global) => new(global);
 
     public BinaryInstruction Binary(IrBinaryOp op, IrValue left, IrValue right) =>
         Append(new BinaryInstruction(op, left, right));
 
     public BinaryInstruction Add(IrValue l, IrValue r) => Binary(IrBinaryOp.Add, l, r);
+
     public BinaryInstruction Sub(IrValue l, IrValue r) => Binary(IrBinaryOp.Sub, l, r);
+
     public BinaryInstruction Mul(IrValue l, IrValue r) => Binary(IrBinaryOp.Mul, l, r);
 
     public CompareInstruction Compare(IrCompareOp op, IrValue left, IrValue right) =>
@@ -43,11 +47,9 @@ public sealed class IrBuilder
     public ConvInstruction Conv(IrConvOp op, IrValue operand, IrType target) =>
         Append(new ConvInstruction(op, operand, target));
 
-    public AllocaInstruction Alloca(IrType allocated) =>
-        Append(new AllocaInstruction(allocated));
+    public AllocaInstruction Alloca(IrType allocated) => Append(new AllocaInstruction(allocated));
 
-    public LoadInstruction Load(IrValue pointer) =>
-        Append(new LoadInstruction(pointer));
+    public LoadInstruction Load(IrValue pointer) => Append(new LoadInstruction(pointer));
 
     public StoreInstruction Store(IrValue value, IrValue pointer) =>
         Append(new StoreInstruction(value, pointer));
@@ -58,17 +60,13 @@ public sealed class IrBuilder
     public CallInstruction Call(IrFunction callee, IReadOnlyList<IrValue> args) =>
         Append(new CallInstruction(callee, args));
 
-    public PhiInstruction Phi(IrType type) =>
-        Append(new PhiInstruction(type));
+    public PhiInstruction Phi(IrType type) => Append(new PhiInstruction(type));
 
-    public IntrinsicInstruction Intrinsic(string name) =>
-        Append(new IntrinsicInstruction(name));
+    public IntrinsicInstruction Intrinsic(string name) => Append(new IntrinsicInstruction(name));
 
-    public RetInstruction Ret(IrValue? value = null) =>
-        Append(new RetInstruction(value));
+    public RetInstruction Ret(IrValue? value = null) => Append(new RetInstruction(value));
 
-    public BrInstruction Br(IrBasicBlock target) =>
-        Append(new BrInstruction(target));
+    public BrInstruction Br(IrBasicBlock target) => Append(new BrInstruction(target));
 
     public CondBrInstruction CondBr(IrValue condition, IrBasicBlock ifTrue, IrBasicBlock ifFalse) =>
         Append(new CondBrInstruction(condition, ifTrue, ifFalse));
@@ -76,6 +74,6 @@ public sealed class IrBuilder
     public SwitchInstruction Switch(
         IrValue value,
         IrBasicBlock defaultTarget,
-        IReadOnlyList<(IrConstInt, IrBasicBlock)> cases) =>
-        Append(new SwitchInstruction(value, defaultTarget, cases));
+        IReadOnlyList<(IrConstInt, IrBasicBlock)> cases
+    ) => Append(new SwitchInstruction(value, defaultTarget, cases));
 }

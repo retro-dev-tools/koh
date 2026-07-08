@@ -16,10 +16,7 @@ public class DapDispatcherTests
         var responses = new List<byte[]>();
         dispatcher.ResponseReady += data => responses.Add(data.ToArray());
 
-        HandlerRegistration.RegisterAll(
-            dispatcher,
-            session,
-            loadFile: _ => Array.Empty<byte>());
+        HandlerRegistration.RegisterAll(dispatcher, session, loadFile: _ => Array.Empty<byte>());
 
         return (dispatcher, session, responses);
     }
@@ -32,7 +29,8 @@ public class DapDispatcherTests
             ["type"] = "request",
             ["command"] = command,
         };
-        if (args is not null) obj["arguments"] = args;
+        if (args is not null)
+            obj["arguments"] = args;
         return JsonSerializer.SerializeToUtf8Bytes(obj);
     }
 
@@ -49,7 +47,9 @@ public class DapDispatcherTests
         var root = doc.RootElement;
         await Assert.That(root.GetProperty("success").GetBoolean()).IsTrue();
         var body = root.GetProperty("body");
-        await Assert.That(body.GetProperty("supportsConfigurationDoneRequest").GetBoolean()).IsTrue();
+        await Assert
+            .That(body.GetProperty("supportsConfigurationDoneRequest").GetBoolean())
+            .IsTrue();
         await Assert.That(body.GetProperty("supportsReadMemoryRequest").GetBoolean()).IsTrue();
         await Assert.That(body.GetProperty("supportsDisassembleRequest").GetBoolean()).IsTrue();
     }
@@ -108,8 +108,13 @@ public class DapDispatcherTests
 
         // Build a tiny .kdbg with one address mapping on line 10 of src/main.asm.
         var builder = new DebugInfoBuilder();
-        builder.AddAddressMapping(bank: 0, address: 0x0150, byteCount: 1,
-            sourceFile: "src/main.asm", line: 10);
+        builder.AddAddressMapping(
+            bank: 0,
+            address: 0x0150,
+            byteCount: 1,
+            sourceFile: "src/main.asm",
+            line: 10
+        );
         using var kdbgStream = new MemoryStream();
         KdbgFileWriter.Write(kdbgStream, builder);
         byte[] kdbgBytes = kdbgStream.ToArray();
@@ -119,18 +124,27 @@ public class DapDispatcherTests
         rom[0x147] = 0x00;
 
         HandlerRegistration.RegisterAll(
-            dispatcher, session,
-            loadFile: path => path.EndsWith(".kdbg") ? kdbgBytes : rom);
+            dispatcher,
+            session,
+            loadFile: path => path.EndsWith(".kdbg") ? kdbgBytes : rom
+        );
 
         // Launch to populate the SourceMap.
-        dispatcher.HandleRequest(EncodeRequest(1, "launch",
-            new { program = "game.gb", debugInfo = "game.kdbg" }));
+        dispatcher.HandleRequest(
+            EncodeRequest(1, "launch", new { program = "game.gb", debugInfo = "game.kdbg" })
+        );
 
-        dispatcher.HandleRequest(EncodeRequest(2, "setBreakpoints", new
-        {
-            source = new { path = "src/main.asm" },
-            breakpoints = new[] { new { line = 10 } }
-        }));
+        dispatcher.HandleRequest(
+            EncodeRequest(
+                2,
+                "setBreakpoints",
+                new
+                {
+                    source = new { path = "src/main.asm" },
+                    breakpoints = new[] { new { line = 10 } },
+                }
+            )
+        );
 
         var last = responses[^1];
         using var doc = Parse(last);
@@ -148,8 +162,13 @@ public class DapDispatcherTests
         dispatcher.ResponseReady += data => responses.Add(data.ToArray());
 
         var builder = new DebugInfoBuilder();
-        builder.AddAddressMapping(bank: 0, address: 0x0150, byteCount: 1,
-            sourceFile: "src/main.asm", line: 10);
+        builder.AddAddressMapping(
+            bank: 0,
+            address: 0x0150,
+            byteCount: 1,
+            sourceFile: "src/main.asm",
+            line: 10
+        );
         using var kdbgStream = new MemoryStream();
         KdbgFileWriter.Write(kdbgStream, builder);
         byte[] kdbgBytes = kdbgStream.ToArray();
@@ -158,17 +177,26 @@ public class DapDispatcherTests
         rom[0x147] = 0x00;
 
         HandlerRegistration.RegisterAll(
-            dispatcher, session,
-            loadFile: path => path.EndsWith(".kdbg") ? kdbgBytes : rom);
+            dispatcher,
+            session,
+            loadFile: path => path.EndsWith(".kdbg") ? kdbgBytes : rom
+        );
 
-        dispatcher.HandleRequest(EncodeRequest(1, "launch",
-            new { program = "game.gb", debugInfo = "game.kdbg" }));
+        dispatcher.HandleRequest(
+            EncodeRequest(1, "launch", new { program = "game.gb", debugInfo = "game.kdbg" })
+        );
 
-        dispatcher.HandleRequest(EncodeRequest(2, "setBreakpoints", new
-        {
-            source = new { path = "src/main.asm" },
-            breakpoints = new[] { new { line = 999 } }
-        }));
+        dispatcher.HandleRequest(
+            EncodeRequest(
+                2,
+                "setBreakpoints",
+                new
+                {
+                    source = new { path = "src/main.asm" },
+                    breakpoints = new[] { new { line = 999 } },
+                }
+            )
+        );
 
         var last = responses[^1];
         using var doc = Parse(last);

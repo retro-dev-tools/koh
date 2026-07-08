@@ -2,7 +2,12 @@ using Koh.Core.Syntax;
 
 namespace Koh.Core.Diagnostics;
 
-public enum DiagnosticSeverity { Error, Warning, Info }
+public enum DiagnosticSeverity
+{
+    Error,
+    Warning,
+    Info,
+}
 
 public sealed class Diagnostic
 {
@@ -11,9 +16,12 @@ public sealed class Diagnostic
     public DiagnosticSeverity Severity { get; }
     public string? FilePath { get; }
 
-    public Diagnostic(TextSpan span, string message,
+    public Diagnostic(
+        TextSpan span,
+        string message,
         DiagnosticSeverity severity = DiagnosticSeverity.Error,
-        string? filePath = null)
+        string? filePath = null
+    )
     {
         Span = span;
         Message = message;

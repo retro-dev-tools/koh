@@ -34,7 +34,8 @@ public class BindAndEmitBenchmarks
     {
         var binder = new Binder();
         var result = binder.Bind(_smallTree);
-        if (!result.Success) throw new InvalidOperationException("Bind failed (Small)");
+        if (!result.Success)
+            throw new InvalidOperationException("Bind failed (Small)");
         return result;
     }
 
@@ -43,7 +44,8 @@ public class BindAndEmitBenchmarks
     {
         var binder = new Binder();
         var result = binder.Bind(_mediumTree);
-        if (!result.Success) throw new InvalidOperationException("Bind failed (Medium)");
+        if (!result.Success)
+            throw new InvalidOperationException("Bind failed (Medium)");
         return result;
     }
 
@@ -52,7 +54,8 @@ public class BindAndEmitBenchmarks
     {
         var binder = new Binder();
         var result = binder.Bind(_largeTree);
-        if (!result.Success) throw new InvalidOperationException("Bind failed (Large)");
+        if (!result.Success)
+            throw new InvalidOperationException("Bind failed (Large)");
         return result;
     }
 
@@ -61,8 +64,12 @@ public class BindAndEmitBenchmarks
         var binder = new Binder();
         var result = binder.Bind(tree);
         if (!result.Success)
-            throw new InvalidOperationException($"Validation failed ({name}): bind produced errors");
+            throw new InvalidOperationException(
+                $"Validation failed ({name}): bind produced errors"
+            );
         if (result.Sections is null || result.Sections.Count == 0)
-            throw new InvalidOperationException($"Validation failed ({name}): no sections produced");
+            throw new InvalidOperationException(
+                $"Validation failed ({name}): no sections produced"
+            );
     }
 }

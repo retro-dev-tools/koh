@@ -6,7 +6,11 @@ namespace Koh.Debugger.Dap.Handlers;
 public sealed class SetBreakpointsHandler
 {
     private readonly DebugSession _session;
-    public SetBreakpointsHandler(DebugSession session) { _session = session; }
+
+    public SetBreakpointsHandler(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response Handle(Request request)
     {
@@ -33,13 +37,15 @@ public sealed class SetBreakpointsHandler
                 foreach (var addr in addresses)
                     _session.Breakpoints.Add(addr, bp.Condition, hitTarget);
             }
-            results.Add(new Breakpoint
-            {
-                Verified = verified,
-                Line = bp.Line,
-                Source = args.Source,
-                Message = verified ? null : "no code at this line",
-            });
+            results.Add(
+                new Breakpoint
+                {
+                    Verified = verified,
+                    Line = bp.Line,
+                    Source = args.Source,
+                    Message = verified ? null : "no code at this line",
+                }
+            );
         }
 
         return new Response
@@ -51,12 +57,14 @@ public sealed class SetBreakpointsHandler
 
     private static int ParseHitCondition(string? hit)
     {
-        if (string.IsNullOrWhiteSpace(hit)) return 0;
+        if (string.IsNullOrWhiteSpace(hit))
+            return 0;
         // VS Code sends either a bare number ("5") or e.g. ">=5". Accept a bare
         // integer; treat unrecognized formats as "always break".
         var t = hit.Trim();
         int i = 0;
-        while (i < t.Length && !char.IsDigit(t[i])) i++;
+        while (i < t.Length && !char.IsDigit(t[i]))
+            i++;
         return int.TryParse(t.AsSpan(i), out var n) ? n : 0;
     }
 }

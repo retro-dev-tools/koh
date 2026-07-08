@@ -13,7 +13,11 @@ namespace Koh.Debugger.Dap.Handlers;
 public sealed class EvaluateHandler
 {
     private readonly DebugSession _session;
-    public EvaluateHandler(DebugSession session) { _session = session; }
+
+    public EvaluateHandler(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response Handle(Request request)
     {
@@ -59,11 +63,10 @@ public sealed class EvaluateHandler
 
     private static Response Success(int value, string kind)
     {
-        string result = value <= 0xFF
-            ? $"${value:X2} ({value})"
-            : value <= 0xFFFF
-                ? $"${value:X4} ({value})"
-                : $"${value:X8} ({value})";
+        string result =
+            value <= 0xFF ? $"${value:X2} ({value})"
+            : value <= 0xFFFF ? $"${value:X4} ({value})"
+            : $"${value:X8} ({value})";
         return new Response
         {
             Success = true,
@@ -80,18 +83,39 @@ public sealed class EvaluateHandler
     {
         value = 0;
         if (expr.StartsWith("$"))
-            return int.TryParse(expr[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+            return int.TryParse(
+                expr[1..],
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out value
+            );
         if (expr.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return int.TryParse(expr[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+            return int.TryParse(
+                expr[2..],
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out value
+            );
         if (expr.StartsWith("%"))
         {
-            try { value = Convert.ToInt32(expr[1..], 2); return true; }
-            catch { return false; }
+            try
+            {
+                value = Convert.ToInt32(expr[1..], 2);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
         return int.TryParse(expr, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
-    private static bool TryEvaluateRegister(Emulator.Core.GameBoySystem gb, string name, out int value)
+    private static bool TryEvaluateRegister(
+        Emulator.Core.GameBoySystem gb,
+        string name,
+        out int value
+    )
     {
         ref var r = ref gb.Registers;
         value = name.ToUpperInvariant() switch

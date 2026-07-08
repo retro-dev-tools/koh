@@ -32,16 +32,20 @@ public sealed class FileSystemResolver : ISourceFileResolver
     }
 
     public bool FileExists(string path) => File.Exists(path);
+
     public string ReadAllText(string path) => File.ReadAllText(path);
+
     public byte[] ReadAllBytes(string path) => File.ReadAllBytes(path);
 
     public string ResolvePath(string currentFile, string includedPath)
     {
         // RGBDS behavior: includes are relative to CWD first, then the including file's directory.
-        var cwdPath = _basePath != null
-            ? Path.GetFullPath(Path.Combine(_basePath, includedPath))
-            : Path.GetFullPath(includedPath);
-        if (File.Exists(cwdPath)) return cwdPath;
+        var cwdPath =
+            _basePath != null
+                ? Path.GetFullPath(Path.Combine(_basePath, includedPath))
+                : Path.GetFullPath(includedPath);
+        if (File.Exists(cwdPath))
+            return cwdPath;
 
         var dir = Path.GetDirectoryName(currentFile) ?? ".";
         return Path.GetFullPath(Path.Combine(dir, includedPath));
@@ -54,9 +58,12 @@ public sealed class FileSystemResolver : ISourceFileResolver
 public sealed class VirtualFileResolver : ISourceFileResolver
 {
     private readonly Dictionary<string, string> _textFiles = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, byte[]> _binaryFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, byte[]> _binaryFiles = new(
+        StringComparer.OrdinalIgnoreCase
+    );
 
     public void AddTextFile(string path, string content) => _textFiles[path] = content;
+
     public void AddBinaryFile(string path, byte[] content) => _binaryFiles[path] = content;
 
     public bool FileExists(string path) =>
@@ -64,13 +71,15 @@ public sealed class VirtualFileResolver : ISourceFileResolver
 
     public string ReadAllText(string path)
     {
-        if (_textFiles.TryGetValue(path, out var text)) return text;
+        if (_textFiles.TryGetValue(path, out var text))
+            return text;
         throw new FileNotFoundException($"Virtual file not found: {path}");
     }
 
     public byte[] ReadAllBytes(string path)
     {
-        if (_binaryFiles.TryGetValue(path, out var bytes)) return bytes;
+        if (_binaryFiles.TryGetValue(path, out var bytes))
+            return bytes;
         if (_textFiles.TryGetValue(path, out var text))
             return System.Text.Encoding.UTF8.GetBytes(text);
         throw new FileNotFoundException($"Virtual file not found: {path}");

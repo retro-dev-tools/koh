@@ -41,7 +41,8 @@ public class SyntaxNode
             {
                 int lastOffset = GetOffsetToChild(_green, lastToken);
                 if (lastOffset >= 0)
-                    end = Position + lastOffset + lastToken.FullWidth - lastToken.TrailingTriviaWidth;
+                    end =
+                        Position + lastOffset + lastToken.FullWidth - lastToken.TrailingTriviaWidth;
             }
 
             return new TextSpan(start, Math.Max(0, end - start));
@@ -50,15 +51,18 @@ public class SyntaxNode
 
     private static GreenToken? FindFirstToken(GreenNodeBase node)
     {
-        if (node is GreenToken t) return t;
-        if (node is not GreenNode gn) return null;
+        if (node is GreenToken t)
+            return t;
+        if (node is not GreenNode gn)
+            return null;
         for (int i = 0; i < gn.ChildCount; i++)
         {
             var child = gn.GetChild(i);
             if (child != null)
             {
                 var result = FindFirstToken(child);
-                if (result != null) return result;
+                if (result != null)
+                    return result;
             }
         }
         return null;
@@ -66,15 +70,18 @@ public class SyntaxNode
 
     private static GreenToken? FindLastToken(GreenNodeBase node)
     {
-        if (node is GreenToken t) return t;
-        if (node is not GreenNode gn) return null;
+        if (node is GreenToken t)
+            return t;
+        if (node is not GreenNode gn)
+            return null;
         for (int i = gn.ChildCount - 1; i >= 0; i--)
         {
             var child = gn.GetChild(i);
             if (child != null)
             {
                 var result = FindLastToken(child);
-                if (result != null) return result;
+                if (result != null)
+                    return result;
             }
         }
         return null;
@@ -82,16 +89,21 @@ public class SyntaxNode
 
     private static int GetOffsetToChild(GreenNodeBase parent, GreenToken target)
     {
-        if (parent is GreenToken t) return ReferenceEquals(t, target) ? 0 : -1;
-        if (parent is not GreenNode gn) return -1;
+        if (parent is GreenToken t)
+            return ReferenceEquals(t, target) ? 0 : -1;
+        if (parent is not GreenNode gn)
+            return -1;
         int offset = 0;
         for (int i = 0; i < gn.ChildCount; i++)
         {
             var child = gn.GetChild(i);
-            if (child == null) continue;
-            if (ReferenceEquals(child, target)) return offset;
+            if (child == null)
+                continue;
+            if (ReferenceEquals(child, target))
+                return offset;
             var inner = GetOffsetToChild(child, target);
-            if (inner >= 0) return offset + inner;
+            if (inner >= 0)
+                return offset + inner;
             offset += child.FullWidth;
         }
         return -1;

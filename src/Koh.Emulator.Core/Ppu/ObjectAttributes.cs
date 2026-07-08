@@ -12,15 +12,18 @@ public readonly struct ObjectAttributes
 
     public ObjectAttributes(byte y, byte x, byte tile, byte flags)
     {
-        Y = y; X = x; Tile = tile; Flags = flags;
+        Y = y;
+        X = x;
+        Tile = tile;
+        Flags = flags;
     }
 
     public const byte FlagBgPriority = 1 << 7;
-    public const byte FlagYFlip      = 1 << 6;
-    public const byte FlagXFlip      = 1 << 5;
-    public const byte FlagDmgPalette = 1 << 4;   // OBP0 vs OBP1 on DMG
-    public const byte FlagCgbVramBank = 1 << 3;  // VRAM bank for CGB
-    public const byte CgbPaletteMask  = 0x07;    // bits 0..2 CGB palette index
+    public const byte FlagYFlip = 1 << 6;
+    public const byte FlagXFlip = 1 << 5;
+    public const byte FlagDmgPalette = 1 << 4; // OBP0 vs OBP1 on DMG
+    public const byte FlagCgbVramBank = 1 << 3; // VRAM bank for CGB
+    public const byte CgbPaletteMask = 0x07; // bits 0..2 CGB palette index
 
     public bool BgPriority => (Flags & FlagBgPriority) != 0;
     public bool YFlip => (Flags & FlagYFlip) != 0;
@@ -36,6 +39,7 @@ public readonly struct ObjectAttributes
             oamBytes[baseIdx + 0],
             oamBytes[baseIdx + 1],
             oamBytes[baseIdx + 2],
-            oamBytes[baseIdx + 3]);
+            oamBytes[baseIdx + 3]
+        );
     }
 }

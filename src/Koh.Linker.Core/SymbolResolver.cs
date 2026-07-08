@@ -9,7 +9,9 @@ namespace Koh.Linker.Core;
 /// </summary>
 public sealed class SymbolResolver
 {
-    private readonly Dictionary<string, LinkerSymbol> _globals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LinkerSymbol> _globals = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly List<LinkerSymbol> _allSymbols = [];
     private readonly DiagnosticBag _diagnostics;
 
@@ -35,9 +37,11 @@ public sealed class SymbolResolver
             {
                 if (_globals.TryGetValue(sym.Name, out var existing))
                 {
-                    _diagnostics.Report(default,
-                        $"Duplicate exported symbol '{sym.Name}' " +
-                        $"(defined in '{existing.SourceFile}' and '{input.FilePath}')");
+                    _diagnostics.Report(
+                        default,
+                        $"Duplicate exported symbol '{sym.Name}' "
+                            + $"(defined in '{existing.SourceFile}' and '{input.FilePath}')"
+                    );
                 }
                 else
                 {
@@ -68,9 +72,11 @@ public sealed class SymbolResolver
         {
             foreach (var sym in _allSymbols)
             {
-                if (sym.Visibility != SymbolVisibility.Imported &&
-                    StringComparer.OrdinalIgnoreCase.Equals(sym.SourceFile, sourceFile) &&
-                    StringComparer.OrdinalIgnoreCase.Equals(sym.Name, name))
+                if (
+                    sym.Visibility != SymbolVisibility.Imported
+                    && StringComparer.OrdinalIgnoreCase.Equals(sym.SourceFile, sourceFile)
+                    && StringComparer.OrdinalIgnoreCase.Equals(sym.Name, name)
+                )
                 {
                     return sym;
                 }

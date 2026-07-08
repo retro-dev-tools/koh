@@ -18,8 +18,8 @@ public sealed class CSharpNotSupportedException : Exception
     /// <summary>The offending syntax location, if known (in the wrapped source).</summary>
     public Location? Location { get; }
 
-    public CSharpNotSupportedException(string message, Location? location = null) : base(message) =>
-        Location = location;
+    public CSharpNotSupportedException(string message, Location? location = null)
+        : base(message) => Location = location;
 }
 
 /// <summary>
@@ -53,8 +53,15 @@ public sealed partial class CSharpFrontend : IFrontend
 
     /// <summary>Whether the program calls into the arena allocator (<c>Mem.Alloc</c> / <c>Mem.Reset</c>).</summary>
     private static bool UsesHeap(CompilationUnitSyntax root) =>
-        root.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(inv =>
-            inv.Expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax { Identifier.Text: "Mem" } });
+        root.DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Any(inv =>
+                inv.Expression
+                    is MemberAccessExpressionSyntax
+                    {
+                        Expression: IdentifierNameSyntax { Identifier.Text: "Mem" }
+                    }
+            );
 
     public IrModule Lower(SourceText source, DiagnosticBag diagnostics)
     {
@@ -94,7 +101,8 @@ public sealed partial class CSharpFrontend : IFrontend
         root = TransformIterators(root);
 
         var methods = new Dictionary<string, CsMethod>(StringComparer.Ordinal);
-        var bodies = new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
+        var bodies =
+            new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
 
         // Pass 0: enums (named constants), so their types and members resolve everywhere.
         var enums = CollectEnums(root, diagnostics);
@@ -106,7 +114,12 @@ public sealed partial class CSharpFrontend : IFrontend
         var classes = CollectClasses(root, enums, diagnostics);
 
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
-        var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(root, enums, module, diagnostics);
+        var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(
+            root,
+            enums,
+            module,
+            diagnostics
+        );
 
         // Pass 0.6: if the program allocates (Mem.Alloc/Reset or `new` of a class), give it a heap-
         // pointer global seeded to the top of the heap region; allocation bumps it down.
@@ -127,27 +140,42 @@ public sealed partial class CSharpFrontend : IFrontend
         // templates sharing both (a value-arity overload like `Max<T>(T,T)` vs `Max<T>(T,T,T)`) would
         // mangle to the same specialized name, so that is reported rather than silently mis-specialized.
         var genericMethods = new Dictionary<(string Name, int Arity), MethodDeclarationSyntax>();
-        foreach (var m in root.DescendantNodes().OfType<MethodDeclarationSyntax>()
-            .Where(m => m.TypeParameterList is { Parameters.Count: > 0 }
-                && IsWrapperMember(m)))
+        foreach (
+            var m in root.DescendantNodes()
+                .OfType<MethodDeclarationSyntax>()
+                .Where(m => m.TypeParameterList is { Parameters.Count: > 0 } && IsWrapperMember(m))
+        )
         {
             var key = (m.Identifier.Text, m.TypeParameterList!.Parameters.Count);
             if (!genericMethods.TryAdd(key, m))
-                Report(diagnostics,
+                Report(
+                    diagnostics,
                     $"generic method '{m.Identifier.Text}' with {key.Item2} type parameter(s) is declared "
-                    + "more than once; overloaded generic methods are not supported.", m.Identifier.GetLocation());
+                        + "more than once; overloaded generic methods are not supported.",
+                    m.Identifier.GetLocation()
+                );
 
             // Monomorphization substitutes type-parameter names by identifier text alone, so a parameter
             // or local named like a type parameter would be rewritten to the concrete type (e.g. a local
             // `T` becomes `byte`). Reject that shadowing rather than mis-specialize.
-            var typeParams = m.TypeParameterList.Parameters.Select(tp => tp.Identifier.Text).ToHashSet(StringComparer.Ordinal);
-            var shadow = m.ParameterList.Parameters.Select(p => p.Identifier.Text)
-                .Concat(m.DescendantNodes().OfType<VariableDeclaratorSyntax>().Select(v => v.Identifier.Text))
+            var typeParams = m
+                .TypeParameterList.Parameters.Select(tp => tp.Identifier.Text)
+                .ToHashSet(StringComparer.Ordinal);
+            var shadow = m
+                .ParameterList.Parameters.Select(p => p.Identifier.Text)
+                .Concat(
+                    m.DescendantNodes()
+                        .OfType<VariableDeclaratorSyntax>()
+                        .Select(v => v.Identifier.Text)
+                )
                 .FirstOrDefault(typeParams.Contains);
             if (shadow is not null)
-                Report(diagnostics,
+                Report(
+                    diagnostics,
                     $"in generic method '{m.Identifier.Text}', '{shadow}' shadows a type parameter of the "
-                    + "same name; rename the value.", m.Identifier.GetLocation());
+                        + "same name; rename the value.",
+                    m.Identifier.GetLocation()
+                );
         }
         var genericInstances = SynthesizeGenericInstances(root, genericMethods);
 
@@ -156,29 +184,57 @@ public sealed partial class CSharpFrontend : IFrontend
         // Classify one parameter into its Koh C# type, ref flag, struct/class binding, and IrParameter.
         // A struct is passed by address (ref/in/out required); a class is a heap pointer passed by value;
         // a scalar is by value, or by address when ref/out/in.
-        (CsType Type, bool Ref, CsStruct? Struct, CsClass? Class, IrParameter Param) BindParameter(ParameterSyntax p)
+        (CsType Type, bool Ref, CsStruct? Struct, CsClass? Class, IrParameter Param) BindParameter(
+            ParameterSyntax p
+        )
         {
             bool isRef = p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in");
             string pname = p.Identifier.Text;
-            if (p.Type is IdentifierNameSyntax sn && structs.TryGetValue(sn.Identifier.Text, out var ps))
+            if (
+                p.Type is IdentifierNameSyntax sn
+                && structs.TryGetValue(sn.Identifier.Text, out var ps)
+            )
             {
                 if (!isRef)
                     throw new CSharpNotSupportedException(
-                        $"struct parameter '{pname}' must be passed by ref/in/out.", p.GetLocation());
-                return (CsType.U8, true, ps, null,
-                    new IrParameter(pname, IrType.Pointer(IrType.Array(IrType.I8, ps.Size))));
+                        $"struct parameter '{pname}' must be passed by ref/in/out.",
+                        p.GetLocation()
+                    );
+                return (
+                    CsType.U8,
+                    true,
+                    ps,
+                    null,
+                    new IrParameter(pname, IrType.Pointer(IrType.Array(IrType.I8, ps.Size)))
+                );
             }
-            if (p.Type is IdentifierNameSyntax cn && classes.TryGetValue(cn.Identifier.Text, out var pc))
-                return (new CsType(IrType.Pointer(IrType.I8), false), false, null, pc,
-                    new IrParameter(pname, IrType.Pointer(IrType.I8)));
+            if (
+                p.Type is IdentifierNameSyntax cn
+                && classes.TryGetValue(cn.Identifier.Text, out var pc)
+            )
+                return (
+                    new CsType(IrType.Pointer(IrType.I8), false),
+                    false,
+                    null,
+                    pc,
+                    new IrParameter(pname, IrType.Pointer(IrType.I8))
+                );
             var t = ResolveType(p.Type!, enums);
-            return (t, isRef, null, null, new IrParameter(pname, isRef ? IrType.Pointer(t.Ir) : t.Ir));
+            return (
+                t,
+                isRef,
+                null,
+                null,
+                new IrParameter(pname, isRef ? IrType.Pointer(t.Ir) : t.Ir)
+            );
         }
 
         // Pass 1: signatures, so calls resolve regardless of source order. Accept both class methods
         // and top-level `static T F(...) {...}` functions (which Roslyn parses as local functions).
         var methodDecls = CollectMethods(root)
-            .Where(d => d is not MethodDeclarationSyntax { TypeParameterList.Parameters.Count: > 0 })
+            .Where(d =>
+                d is not MethodDeclarationSyntax { TypeParameterList.Parameters.Count: > 0 }
+            )
             .Concat(genericInstances);
         foreach (var decl in methodDecls)
         {
@@ -203,13 +259,23 @@ public sealed partial class CSharpFrontend : IFrontend
             {
                 InterruptVector = InterruptVectorOf(decl, diagnostics),
             };
-            var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs, ParamClasses: paramClasses);
+            var method = new CsMethod(
+                fn,
+                returnType,
+                paramTypes,
+                refFlags,
+                paramStructs,
+                ParamClasses: paramClasses
+            );
             // Duplicate names would silently overwrite the earlier binding (and emit two IR functions
             // with the same name); keep the first definition and report the rest.
             if (!methods.TryAdd(name, method))
             {
-                Report(diagnostics, $"duplicate function '{name}' (only the first definition is used).",
-                    IdentifierLocation(decl));
+                Report(
+                    diagnostics,
+                    $"duplicate function '{name}' (only the first definition is used).",
+                    IdentifierLocation(decl)
+                );
                 continue;
             }
             module.Functions.Add(fn);
@@ -219,45 +285,65 @@ public sealed partial class CSharpFrontend : IFrontend
         // Pass 1.5: instance methods. Each becomes a function `Class.Method` with an implicit `this`
         // pointer prepended to its parameters.
         foreach (var cls in classes.Values)
-            foreach (var (mname, mdecl) in cls.Methods)
+        foreach (var (mname, mdecl) in cls.Methods)
+        {
+            var returnType = ResolveReturnTypeAllowingClass(mdecl.ReturnType, enums, classNames);
+            var paramTypes = new List<CsType> { CsType.U16 };
+            var refFlags = new List<bool> { false };
+            var paramStructs = new List<CsStruct?> { null };
+            var paramClasses = new List<CsClass?> { null };
+            var parameters = new List<IrParameter> { new("this", IrType.Pointer(IrType.I8)) };
+            foreach (var p in mdecl.ParameterList.Parameters)
             {
-                var returnType = ResolveReturnTypeAllowingClass(mdecl.ReturnType, enums, classNames);
-                var paramTypes = new List<CsType> { CsType.U16 };
-                var refFlags = new List<bool> { false };
-                var paramStructs = new List<CsStruct?> { null };
-                var paramClasses = new List<CsClass?> { null };
-                var parameters = new List<IrParameter> { new("this", IrType.Pointer(IrType.I8)) };
-                foreach (var p in mdecl.ParameterList.Parameters)
-                {
-                    // The instance-call path passes arguments by value, so a ref/out/in parameter on an
-                    // instance method would be a silent by-value miscompile — report it instead.
-                    if (p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in"))
-                        Report(diagnostics, $"instance method '{cls.Name}.{mname}' parameter '{p.Identifier.Text}' "
-                            + "cannot be ref/out/in (unsupported).", p.GetLocation());
-                    var (pt, _, pstruct, pclass, par) = BindParameter(p);
-                    paramTypes.Add(pt);
-                    refFlags.Add(false);
-                    paramStructs.Add(pstruct);
-                    paramClasses.Add(pclass);
-                    parameters.Add(par);
-                }
-                var qualified = $"{cls.Name}.{mname}";
-                var fn = new IrFunction(qualified, returnType?.Ir ?? IrType.Void, parameters);
-                var method = new CsMethod(fn, returnType, paramTypes, refFlags, paramStructs, cls, paramClasses);
-                if (!methods.TryAdd(qualified, method))
-                {
-                    Report(diagnostics, $"duplicate method '{qualified}'.", mdecl.Identifier.GetLocation());
-                    continue;
-                }
-                module.Functions.Add(fn);
-                bodies.Add((method, mdecl.Body, mdecl.ExpressionBody));
+                // The instance-call path passes arguments by value, so a ref/out/in parameter on an
+                // instance method would be a silent by-value miscompile — report it instead.
+                if (p.Modifiers.Any(m => m.ValueText is "ref" or "out" or "in"))
+                    Report(
+                        diagnostics,
+                        $"instance method '{cls.Name}.{mname}' parameter '{p.Identifier.Text}' "
+                            + "cannot be ref/out/in (unsupported).",
+                        p.GetLocation()
+                    );
+                var (pt, _, pstruct, pclass, par) = BindParameter(p);
+                paramTypes.Add(pt);
+                refFlags.Add(false);
+                paramStructs.Add(pstruct);
+                paramClasses.Add(pclass);
+                parameters.Add(par);
             }
+            var qualified = $"{cls.Name}.{mname}";
+            var fn = new IrFunction(qualified, returnType?.Ir ?? IrType.Void, parameters);
+            var method = new CsMethod(
+                fn,
+                returnType,
+                paramTypes,
+                refFlags,
+                paramStructs,
+                cls,
+                paramClasses
+            );
+            if (!methods.TryAdd(qualified, method))
+            {
+                Report(
+                    diagnostics,
+                    $"duplicate method '{qualified}'.",
+                    mdecl.Identifier.GetLocation()
+                );
+                continue;
+            }
+            module.Functions.Add(fn);
+            bodies.Add((method, mdecl.Body, mdecl.ExpressionBody));
+        }
 
         // The entry function (main, else the first non-handler) runs the static-field initializers in
         // its prologue. An interrupt handler must never be the entry: its body runs on every interrupt,
         // which would re-seed the heap pointer and re-run initializers, corrupting live state.
-        var entry = bodies.FirstOrDefault(b =>
-                string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)).Method
+        var entry =
+            bodies
+                .FirstOrDefault(b =>
+                    string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)
+                )
+                .Method
             ?? bodies.FirstOrDefault(b => b.Method.Fn.InterruptVector is null).Method;
 
         // Pass 2: bodies. Report per-method so one bad method doesn't sink the whole compile.
@@ -266,30 +352,54 @@ public sealed partial class CSharpFrontend : IFrontend
             var inits = ReferenceEquals(method, entry) ? staticInits : [];
             try
             {
-                new MethodLowerer(method, body, arrow, methods, enums, structs, globals, moduleConsts,
-                    hardware, module.Name, inits, moduleArrays, classes).Lower();
+                new MethodLowerer(
+                    method,
+                    body,
+                    arrow,
+                    methods,
+                    enums,
+                    structs,
+                    globals,
+                    moduleConsts,
+                    hardware,
+                    module.Name,
+                    inits,
+                    moduleArrays,
+                    classes
+                ).Lower();
             }
             catch (CSharpNotSupportedException ex)
             {
-                Report(diagnostics, ex, fallback: FindDeclaration(root, method.Fn.Name)?.GetLocation());
+                Report(
+                    diagnostics,
+                    ex,
+                    fallback: FindDeclaration(root, method.Fn.Name)?.GetLocation()
+                );
             }
         }
     }
 
-    private static Location IdentifierLocation(SyntaxNode decl) => decl switch
-    {
-        MethodDeclarationSyntax m => m.Identifier.GetLocation(),
-        LocalFunctionStatementSyntax f => f.Identifier.GetLocation(),
-        _ => decl.GetLocation(),
-    };
+    private static Location IdentifierLocation(SyntaxNode decl) =>
+        decl switch
+        {
+            MethodDeclarationSyntax m => m.Identifier.GetLocation(),
+            LocalFunctionStatementSyntax f => f.Identifier.GetLocation(),
+            _ => decl.GetLocation(),
+        };
 
     private static SyntaxNode? FindDeclaration(SyntaxNode root, string name) =>
-        CollectMethods(root).FirstOrDefault(d => d is MethodDeclarationSyntax m
-            ? m.Identifier.Text == name
-            : ((LocalFunctionStatementSyntax)d).Identifier.Text == name);
+        CollectMethods(root)
+            .FirstOrDefault(d =>
+                d is MethodDeclarationSyntax m
+                    ? m.Identifier.Text == name
+                    : ((LocalFunctionStatementSyntax)d).Identifier.Text == name
+            );
 
-    private static void Report(DiagnosticBag diagnostics, CSharpNotSupportedException ex, Location? fallback = null) =>
-        Report(diagnostics, ex.Message, ex.Location ?? fallback);
+    private static void Report(
+        DiagnosticBag diagnostics,
+        CSharpNotSupportedException ex,
+        Location? fallback = null
+    ) => Report(diagnostics, ex.Message, ex.Location ?? fallback);
 
     private static void Report(DiagnosticBag diagnostics, string message, Location? location)
     {
@@ -315,29 +425,31 @@ public sealed partial class CSharpFrontend : IFrontend
         };
 
         foreach (var list in lists)
-            foreach (var attr in list.Attributes)
+        foreach (var attr in list.Attributes)
+        {
+            var attrName = attr.Name.ToString();
+            if (attrName is not ("Interrupt" or "InterruptAttribute"))
+                continue;
+            var arg = attr.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
+            var kind = arg switch
             {
-                var attrName = attr.Name.ToString();
-                if (attrName is not ("Interrupt" or "InterruptAttribute"))
-                    continue;
-                var arg = attr.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
-                var kind = arg switch
-                {
-                    MemberAccessExpressionSyntax ma => ma.Name.Identifier.Text,
-                    IdentifierNameSyntax id => id.Identifier.Text,
-                    LiteralExpressionSyntax lit => lit.Token.ValueText,
-                    _ => null,
-                };
-                var vector = HardwareRegisters.InterruptVector(kind);
-                // A present-but-unrecognized kind (typo, wrong enum) would otherwise map to null and be
-                // silently treated as an ordinary function — the handler would never be wired to a vector.
-                if (vector is null)
-                    Report(diagnostics,
-                        $"unknown interrupt kind '{kind ?? arg?.ToString() ?? "?"}' "
+                MemberAccessExpressionSyntax ma => ma.Name.Identifier.Text,
+                IdentifierNameSyntax id => id.Identifier.Text,
+                LiteralExpressionSyntax lit => lit.Token.ValueText,
+                _ => null,
+            };
+            var vector = HardwareRegisters.InterruptVector(kind);
+            // A present-but-unrecognized kind (typo, wrong enum) would otherwise map to null and be
+            // silently treated as an ordinary function — the handler would never be wired to a vector.
+            if (vector is null)
+                Report(
+                    diagnostics,
+                    $"unknown interrupt kind '{kind ?? arg?.ToString() ?? "?"}' "
                         + "(expected VBlank, Stat/LcdStat/Lcd, Timer, Serial, or Joypad).",
-                        attr.GetLocation());
-                return vector;
-            }
+                    attr.GetLocation()
+                );
+            return vector;
+        }
         return null;
     }
 
@@ -354,11 +466,29 @@ public sealed partial class CSharpFrontend : IFrontend
         }
     }
 
-    private static (string Name, TypeSyntax Return, ParameterListSyntax Parameters, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)
-        Describe(SyntaxNode node) => node switch
-    {
-        MethodDeclarationSyntax m => (m.Identifier.Text, m.ReturnType, m.ParameterList, m.Body, m.ExpressionBody),
-        LocalFunctionStatementSyntax f => (f.Identifier.Text, f.ReturnType, f.ParameterList, f.Body, f.ExpressionBody),
-        _ => throw new CSharpNotSupportedException($"unsupported declaration '{node.Kind()}'."),
-    };
+    private static (
+        string Name,
+        TypeSyntax Return,
+        ParameterListSyntax Parameters,
+        BlockSyntax? Body,
+        ArrowExpressionClauseSyntax? Arrow
+    ) Describe(SyntaxNode node) =>
+        node switch
+        {
+            MethodDeclarationSyntax m => (
+                m.Identifier.Text,
+                m.ReturnType,
+                m.ParameterList,
+                m.Body,
+                m.ExpressionBody
+            ),
+            LocalFunctionStatementSyntax f => (
+                f.Identifier.Text,
+                f.ReturnType,
+                f.ParameterList,
+                f.Body,
+                f.ExpressionBody
+            ),
+            _ => throw new CSharpNotSupportedException($"unsupported declaration '{node.Kind()}'."),
+        };
 }

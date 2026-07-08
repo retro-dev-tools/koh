@@ -18,16 +18,27 @@ public sealed record RenderNode(
     string Type,
     ImmutableDictionary<string, object?> Props,
     ImmutableArray<RenderNode> Children,
-    string? Key = null)
+    string? Key = null
+)
 {
     public static readonly ImmutableArray<RenderNode> NoChildren = ImmutableArray<RenderNode>.Empty;
-    public static readonly ImmutableDictionary<string, object?> NoProps = ImmutableDictionary<string, object?>.Empty;
+    public static readonly ImmutableDictionary<string, object?> NoProps = ImmutableDictionary<
+        string,
+        object?
+    >.Empty;
 
-    public static RenderNode Leaf(string type, ImmutableDictionary<string, object?>? props = null, string? key = null)
-        => new(type, props ?? NoProps, NoChildren, key);
+    public static RenderNode Leaf(
+        string type,
+        ImmutableDictionary<string, object?>? props = null,
+        string? key = null
+    ) => new(type, props ?? NoProps, NoChildren, key);
 
-    public static RenderNode WithChildren(string type, ImmutableArray<RenderNode> children, ImmutableDictionary<string, object?>? props = null, string? key = null)
-        => new(type, props ?? NoProps, children, key);
+    public static RenderNode WithChildren(
+        string type,
+        ImmutableArray<RenderNode> children,
+        ImmutableDictionary<string, object?>? props = null,
+        string? key = null
+    ) => new(type, props ?? NoProps, children, key);
 }
 
 /// <summary>
@@ -37,10 +48,13 @@ public sealed record RenderNode(
 /// </summary>
 public static class Props
 {
-    public static ImmutableDictionary<string, object?> Of(params (string Key, object? Value)[] pairs)
+    public static ImmutableDictionary<string, object?> Of(
+        params (string Key, object? Value)[] pairs
+    )
     {
         var b = ImmutableDictionary.CreateBuilder<string, object?>();
-        foreach (var (k, v) in pairs) b[k] = v;
+        foreach (var (k, v) in pairs)
+            b[k] = v;
         return b.ToImmutable();
     }
 }

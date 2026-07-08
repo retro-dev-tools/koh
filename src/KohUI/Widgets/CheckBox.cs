@@ -15,7 +15,8 @@ namespace KohUI.Widgets;
 /// box and ✓ glyph, DomBackend emits <c>&lt;input type="checkbox"&gt;</c>
 /// styled to match.
 /// </summary>
-public readonly struct CheckBox<TMsg>(string Text, bool Checked, Func<bool, TMsg>? OnToggle = null) : IView<TMsg>
+public readonly struct CheckBox<TMsg>(string Text, bool Checked, Func<bool, TMsg>? OnToggle = null)
+    : IView<TMsg>
 {
     public readonly string Text = Text;
     public readonly bool Checked = Checked;
@@ -29,9 +30,7 @@ public readonly struct CheckBox<TMsg>(string Text, bool Checked, Func<bool, TMsg
         // to locals once and let the closure own those.
         var onToggle = OnToggle;
         bool current = Checked;
-        var onClick = onToggle is null
-            ? null
-            : (Func<TMsg>)(() => onToggle(!current));
+        var onClick = onToggle is null ? null : (Func<TMsg>)(() => onToggle(!current));
 
         var props = Props.Of(
             ("text", Text),
@@ -39,7 +38,8 @@ public readonly struct CheckBox<TMsg>(string Text, bool Checked, Func<bool, TMsg
             // Canonicalise onToggle as a 0-arg factory that captures the
             // "next" value, so the backend-side invocation path is the
             // same shape as every other onClick-style handler.
-            ("onClick", onClick));
+            ("onClick", onClick)
+        );
         return RenderNode.Leaf("CheckBox", props);
     }
 }

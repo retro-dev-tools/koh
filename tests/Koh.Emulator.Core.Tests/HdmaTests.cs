@@ -18,13 +18,14 @@ public class HdmaTests
     {
         var gb = MakeCgbSystem();
 
-        for (int i = 0; i < 16; i++) gb.Mmu.WriteByte((ushort)(0xC000 + i), (byte)(i + 1));
+        for (int i = 0; i < 16; i++)
+            gb.Mmu.WriteByte((ushort)(0xC000 + i), (byte)(i + 1));
 
         gb.Mmu.WriteByte(0xFF51, 0xC0);
         gb.Mmu.WriteByte(0xFF52, 0x00);
         gb.Mmu.WriteByte(0xFF53, 0x80);
         gb.Mmu.WriteByte(0xFF54, 0x00);
-        gb.Mmu.WriteByte(0xFF55, 0x00);  // arm: 1 block = 16 bytes, general-purpose
+        gb.Mmu.WriteByte(0xFF55, 0x00); // arm: 1 block = 16 bytes, general-purpose
 
         // Arming a GP transfer halts the CPU; the system drives it block-by-block.
         await Assert.That(gb.Hdma.CpuHaltedByGp).IsTrue();
@@ -32,7 +33,8 @@ public class HdmaTests
         await Assert.That(gb.Hdma.CpuHaltedByGp).IsFalse();
 
         byte[] actual = new byte[16];
-        for (int i = 0; i < 16; i++) actual[i] = gb.Mmu.ReadByte((ushort)(0x8000 + i));
+        for (int i = 0; i < 16; i++)
+            actual[i] = gb.Mmu.ReadByte((ushort)(0x8000 + i));
 
         for (int i = 0; i < 16; i++)
         {
@@ -51,7 +53,8 @@ public class HdmaTests
         gb.Mmu.WriteByte(0xFF40, 0x00);
 
         // 16 source bytes at $C100 (clear of the code we place at $C000).
-        for (int i = 0; i < 16; i++) gb.Mmu.WriteByte((ushort)(0xC100 + i), (byte)(i + 1));
+        for (int i = 0; i < 16; i++)
+            gb.Mmu.WriteByte((ushort)(0xC100 + i), (byte)(i + 1));
 
         // HDMA: source $C100 -> dest $8000.
         gb.Mmu.WriteByte(0xFF51, 0xC1);
@@ -66,9 +69,9 @@ public class HdmaTests
         gb.Mmu.WriteByte(0xC003, 0x55);
         gb.Registers.Pc = 0xC000;
 
-        gb.StepInstruction();                       // LD A,$00
+        gb.StepInstruction(); // LD A,$00
         ulong before = gb.Clock.SystemTicks;
-        gb.StepInstruction();                       // LDH ($55),A -> triggers GDMA
+        gb.StepInstruction(); // LDH ($55),A -> triggers GDMA
         ulong elapsed = gb.Clock.SystemTicks - before;
 
         // LDH (a8),A is 3 M-cycles = 12 dots; one GDMA block costs 32 dots
@@ -91,7 +94,8 @@ public class HdmaTests
         // Seed the destination sentinel with LCD off (VRAM freely writable).
         gb.Mmu.WriteByte(0xFF40, 0x00);
         gb.Mmu.WriteByte(0x8000, 0xEE);
-        for (int i = 0; i < 16; i++) gb.Mmu.WriteByte((ushort)(0xC100 + i), 0x55);
+        for (int i = 0; i < 16; i++)
+            gb.Mmu.WriteByte((ushort)(0xC100 + i), 0x55);
         gb.Mmu.WriteByte(0xFF51, 0xC1);
         gb.Mmu.WriteByte(0xFF52, 0x00);
         gb.Mmu.WriteByte(0xFF53, 0x80);
@@ -99,7 +103,7 @@ public class HdmaTests
 
         // Turn the LCD on and spin (JR -2) until the PPU is mid-Drawing (mode 3).
         gb.Mmu.WriteByte(0xFF40, 0x91);
-        gb.Mmu.WriteByte(0xC000, 0x18);   // JR -2 (tight self-loop)
+        gb.Mmu.WriteByte(0xC000, 0x18); // JR -2 (tight self-loop)
         gb.Mmu.WriteByte(0xC001, 0xFE);
         gb.Registers.Pc = 0xC000;
         int guard = 0;
@@ -121,22 +125,25 @@ public class HdmaTests
     {
         var gb = MakeCgbSystem();
 
-        for (int i = 0; i < 16; i++) gb.Mmu.WriteByte((ushort)(0xC000 + i), 0x55);
+        for (int i = 0; i < 16; i++)
+            gb.Mmu.WriteByte((ushort)(0xC000 + i), 0x55);
 
         gb.Mmu.WriteByte(0xFF51, 0xC0);
         gb.Mmu.WriteByte(0xFF52, 0x00);
         gb.Mmu.WriteByte(0xFF53, 0x80);
         gb.Mmu.WriteByte(0xFF54, 0x00);
-        gb.Mmu.WriteByte(0xFF55, 0x80);  // bit 7 = HBlank mode
+        gb.Mmu.WriteByte(0xFF55, 0x80); // bit 7 = HBlank mode
 
         // Without HBlank trigger, no bytes should transfer.
-        for (int i = 0; i < 32; i++) gb.Hdma.TickT();
+        for (int i = 0; i < 32; i++)
+            gb.Hdma.TickT();
         byte untransferred = gb.Mmu.ReadByte(0x8000);
         await Assert.That(untransferred).IsNotEqualTo((byte)0x55);
 
         // Trigger HBlank then tick enough T-cycles to move one block.
         gb.Hdma.OnHBlankEntered();
-        for (int i = 0; i < 32; i++) gb.Hdma.TickT();
+        for (int i = 0; i < 32; i++)
+            gb.Hdma.TickT();
 
         byte transferred = gb.Mmu.ReadByte(0x8000);
         await Assert.That(transferred).IsEqualTo((byte)0x55);

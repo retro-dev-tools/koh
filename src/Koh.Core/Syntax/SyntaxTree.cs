@@ -44,8 +44,10 @@ public sealed class SyntaxTree
 
         int suffixLen = 0;
         int maxSuffix = minLen - prefixLen;
-        while (suffixLen < maxSuffix &&
-               oldStr[oldStr.Length - 1 - suffixLen] == newStr[newStr.Length - 1 - suffixLen])
+        while (
+            suffixLen < maxSuffix
+            && oldStr[oldStr.Length - 1 - suffixLen] == newStr[newStr.Length - 1 - suffixLen]
+        )
             suffixLen++;
 
         int oldChangeLen = oldStr.Length - prefixLen - suffixLen;
@@ -56,7 +58,8 @@ public sealed class SyntaxTree
 
         return new TextChange(
             new TextSpan(prefixLen, oldChangeLen),
-            newStr.Substring(prefixLen, newChangeLen));
+            newStr.Substring(prefixLen, newChangeLen)
+        );
     }
 
     /// <summary>
@@ -78,6 +81,9 @@ public sealed class SyntaxTree
         return Parse(newText);
     }
 
-    internal static SyntaxTree Create(SourceText text, SyntaxNode root, IReadOnlyList<Diagnostic> diagnostics)
-        => new(text, root, diagnostics);
+    internal static SyntaxTree Create(
+        SourceText text,
+        SyntaxNode root,
+        IReadOnlyList<Diagnostic> diagnostics
+    ) => new(text, root, diagnostics);
 }

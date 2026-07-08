@@ -15,7 +15,10 @@ public sealed class StackTraceHandler
 
     private readonly DebugSession _session;
 
-    public StackTraceHandler(DebugSession session) { _session = session; }
+    public StackTraceHandler(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response Handle(Request request)
     {
@@ -36,7 +39,8 @@ public sealed class StackTraceHandler
             byte lo = gb.Mmu.DebugRead(sp);
             byte hi = gb.Mmu.DebugRead((ushort)(sp + 1));
             ushort retPc = (ushort)((hi << 8) | lo);
-            if (retPc == 0) break;  // probably not a valid frame
+            if (retPc == 0)
+                break; // probably not a valid frame
             frames.Add(CreateFrame(_session, gb.Cartridge.CurrentRomBank, retPc, frames.Count));
             sp = (ushort)(sp + 2);
         }
@@ -52,7 +56,12 @@ public sealed class StackTraceHandler
         };
     }
 
-    private static StackFrame CreateFrame(DebugSession session, byte currentRomBank, ushort pc, int id)
+    private static StackFrame CreateFrame(
+        DebugSession session,
+        byte currentRomBank,
+        ushort pc,
+        int id
+    )
     {
         byte bank = pc >= 0x4000 ? currentRomBank : (byte)0;
         var location = session.DebugInfo.SourceMap.Lookup(new BankedAddress(bank, pc));
@@ -64,11 +73,9 @@ public sealed class StackTraceHandler
         {
             Id = id,
             Name = name,
-            Source = location is null ? null : new Source
-            {
-                Name = Path.GetFileName(location.File),
-                Path = location.File,
-            },
+            Source = location is null
+                ? null
+                : new Source { Name = Path.GetFileName(location.File), Path = location.File },
             Line = location is null ? 1 : checked((int)location.Line),
             Column = 1,
             InstructionPointerReference = "0x" + pc.ToString("X4"),

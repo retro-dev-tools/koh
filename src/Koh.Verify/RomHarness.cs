@@ -31,7 +31,8 @@ public sealed class RomHarness
 
     public void Frames(int n)
     {
-        for (int i = 0; i < n; i++) System.RunFrame();
+        for (int i = 0; i < n; i++)
+            System.RunFrame();
     }
 
     public void Press(JoypadButton button, int holdFrames = 4, int releaseFrames = 8)
@@ -45,6 +46,7 @@ public sealed class RomHarness
     }
 
     public byte Read(ushort addr) => System.Mmu.DebugRead(addr);
+
     public void Write(ushort addr, byte v) => System.Mmu.DebugWrite(addr, v);
 
     /// <summary>Read a tilemap entry from BG map 0 (bank 0) at (row, col).</summary>
@@ -110,15 +112,20 @@ public sealed class RomHarness
 
     public void Assert(bool condition, string msg)
     {
-        if (condition) Pass(msg); else Fail(msg);
+        if (condition)
+            Pass(msg);
+        else
+            Fail(msg);
     }
 
     public void Summary()
     {
         _log.WriteLine();
-        _log.WriteLine(Failures == 0
-            ? $"*** ALL {Passes} CHECKS PASSED ***"
-            : $"*** {Failures} FAILURE(S), {Passes} pass(es) ***");
+        _log.WriteLine(
+            Failures == 0
+                ? $"*** ALL {Passes} CHECKS PASSED ***"
+                : $"*** {Failures} FAILURE(S), {Passes} pass(es) ***"
+        );
     }
 
     public int ExitCode => Failures == 0 ? 0 : 1;

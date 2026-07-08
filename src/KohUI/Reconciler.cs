@@ -53,8 +53,13 @@ public static class Reconciler
         DiffChildren(prev.Children, curr.Children, path, patches);
     }
 
-    private static (ImmutableDictionary<string, object?> Changed, ImmutableArray<string> Removed)
-        DiffProps(ImmutableDictionary<string, object?> prev, ImmutableDictionary<string, object?> curr)
+    private static (
+        ImmutableDictionary<string, object?> Changed,
+        ImmutableArray<string> Removed
+    ) DiffProps(
+        ImmutableDictionary<string, object?> prev,
+        ImmutableDictionary<string, object?> curr
+    )
     {
         var changedBuilder = ImmutableDictionary.CreateBuilder<string, object?>();
         foreach (var kv in curr)
@@ -66,7 +71,8 @@ public static class Reconciler
         var removedBuilder = ImmutableArray.CreateBuilder<string>();
         foreach (var kv in prev)
         {
-            if (!curr.ContainsKey(kv.Key)) removedBuilder.Add(kv.Key);
+            if (!curr.ContainsKey(kv.Key))
+                removedBuilder.Add(kv.Key);
         }
 
         return (changedBuilder.ToImmutable(), removedBuilder.ToImmutable());
@@ -76,7 +82,8 @@ public static class Reconciler
         ImmutableArray<RenderNode> prev,
         ImmutableArray<RenderNode> curr,
         string parentPath,
-        List<Patch> patches)
+        List<Patch> patches
+    )
     {
         int shared = Math.Min(prev.Length, curr.Length);
         for (int i = 0; i < shared; i++)
@@ -92,6 +99,6 @@ public static class Reconciler
             patches.Add(new RemoveChild(parentPath, i));
     }
 
-    private static string Join(string parentPath, int childIndex)
-        => parentPath.Length == 0 ? childIndex.ToString() : $"{parentPath}.{childIndex}";
+    private static string Join(string parentPath, int childIndex) =>
+        parentPath.Length == 0 ? childIndex.ToString() : $"{parentPath}.{childIndex}";
 }

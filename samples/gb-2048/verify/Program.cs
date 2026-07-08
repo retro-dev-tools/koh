@@ -11,12 +11,9 @@
 using Koh.Emulator.Core.Joypad;
 using Koh.Verify;
 
-string rom = args.Length > 0
-    ? args[0]
-    : Path.Combine("samples", "gb-2048", "build", "2048.gbc");
-string outDir = args.Length > 1
-    ? args[1]
-    : Path.Combine(Path.GetDirectoryName(rom)!, "verify-shots");
+string rom = args.Length > 0 ? args[0] : Path.Combine("samples", "gb-2048", "build", "2048.gbc");
+string outDir =
+    args.Length > 1 ? args[1] : Path.Combine(Path.GetDirectoryName(rom)!, "verify-shots");
 Directory.CreateDirectory(outDir);
 
 var h = new RomHarness(rom);
@@ -46,7 +43,9 @@ Console.WriteLine("=== Playing (fresh) ===");
 Capture("playing", "PLAYING - 2 STARTING TILES");
 h.Assert(h.Read(0xC06E) == 0x01, "In PLAYING after START");
 int nonEmpty = 0;
-for (int i = 0; i < 16; i++) if (h.Read((ushort)(0xC000 + i)) != 0) nonEmpty++;
+for (int i = 0; i < 16; i++)
+    if (h.Read((ushort)(0xC000 + i)) != 0)
+        nonEmpty++;
 h.Assert(nonEmpty == 2, $"Fresh board has 2 starting tiles (saw {nonEmpty})");
 
 void VerifyBoardRender(string label)
@@ -61,17 +60,32 @@ void VerifyBoardRender(string label)
         int topRow = 4 + cellRow * 3;
         int leftCol = 2 + cellCol * 4;
         if (h.TileAt(topRow, leftCol) != 31)
-            h.Fail($"{label}: cell({cellRow},{cellCol}) top edge wrong (got {h.TileAt(topRow, leftCol)})");
+            h.Fail(
+                $"{label}: cell({cellRow},{cellCol}) top edge wrong (got {h.TileAt(topRow, leftCol)})"
+            );
         if (h.TileAt(topRow + 2, leftCol) != 32)
-            h.Fail($"{label}: cell({cellRow},{cellCol}) bot edge wrong (got {h.TileAt(topRow + 2, leftCol)})");
+            h.Fail(
+                $"{label}: cell({cellRow},{cellCol}) bot edge wrong (got {h.TileAt(topRow + 2, leftCol)})"
+            );
         byte attr = h.AttrAt(topRow + 1, leftCol);
         byte expected = val switch
         {
-            0 => 1, 1 => 2, 2 => 3, 3 => 4, 4 => 4, 5 => 5, 6 => 5,
-            7 => 6, 8 => 6, 9 => 6, _ => 7
+            0 => 1,
+            1 => 2,
+            2 => 3,
+            3 => 4,
+            4 => 4,
+            5 => 5,
+            6 => 5,
+            7 => 6,
+            8 => 6,
+            9 => 6,
+            _ => 7,
         };
         if ((attr & 7) != expected)
-            h.Fail($"{label}: cell({cellRow},{cellCol}) val={val} palette={attr & 7}, expected {expected}");
+            h.Fail(
+                $"{label}: cell({cellRow},{cellCol}) val={val} palette={attr & 7}, expected {expected}"
+            );
     }
 }
 VerifyBoardRender("fresh");
@@ -79,6 +93,7 @@ VerifyBoardRender("fresh");
 // ==================  Play 10 moves; verify renderer  ===============
 Console.WriteLine("=== Multi-move sequence ===");
 var dirs = new[] { JoypadButton.Left, JoypadButton.Down, JoypadButton.Right, JoypadButton.Up };
+
 // Per-frame trace of regular move 1 (to compare against win trace).
 {
     var jp = default(Koh.Emulator.Core.Joypad.JoypadState);
@@ -87,8 +102,11 @@ var dirs = new[] { JoypadButton.Left, JoypadButton.Down, JoypadButton.Right, Joy
     for (int f = 1; f <= 12; f++)
     {
         h.Frames(1);
-        Console.Write($"  M1+{f}f af=${h.Read(0xC070):x2} ws=${h.Read(0xC063):x2}{h.Read(0xC062):x2}{h.Read(0xC061):x2}{h.Read(0xC060):x2} digits=[");
-        for (int i = 7; i < 14; i++) Console.Write($"{h.TileAt(1, i):x2} ");
+        Console.Write(
+            $"  M1+{f}f af=${h.Read(0xC070):x2} ws=${h.Read(0xC063):x2}{h.Read(0xC062):x2}{h.Read(0xC061):x2}{h.Read(0xC060):x2} digits=["
+        );
+        for (int i = 7; i < 14; i++)
+            Console.Write($"{h.TileAt(1, i):x2} ");
         Console.WriteLine("]");
     }
     h.System.Joypad = default;
@@ -98,9 +116,11 @@ Console.WriteLine("After move 1, BG tilemap rows 3..15:");
 for (int row = 3; row <= 15; row++)
 {
     Console.Write($"  r{row:00}: ");
-    for (int col = 0; col < 20; col++) Console.Write($"{h.TileAt(row, col):x2} ");
+    for (int col = 0; col < 20; col++)
+        Console.Write($"{h.TileAt(row, col):x2} ");
     Console.Write("attr=[");
-    for (int col = 0; col < 20; col++) Console.Write($"{h.AttrAt(row, col) & 7} ");
+    for (int col = 0; col < 20; col++)
+        Console.Write($"{h.AttrAt(row, col) & 7} ");
     Console.WriteLine("]");
 }
 VerifyBoardRender("after move 1");
@@ -114,8 +134,11 @@ for (int m = 1; m < 10; m++)
 Capture("after_moves", "AFTER 10 MOVES");
 
 // ==================  Slide-animation capture (GIF + sheet)  ========
-for (int i = 0; i < 16; i++) h.Write((ushort)(0xC000 + i), 0);
-h.Write(0xC00C, 1); h.Write(0xC00F, 1);
+for (int i = 0; i < 16; i++)
+    h.Write((ushort)(0xC000 + i), 0);
+h.Write(0xC00C, 1);
+h.Write(0xC00F, 1);
+
 // Snapshot the pre-press state too.
 animFrames.Add(h.CaptureRgb());
 {
@@ -130,8 +153,14 @@ for (int f = 1; f <= 12; f++)
     h.Frames(1);
     animFrames.Add(h.CaptureRgb());
 }
-GifEncoder.WriteAnimation(Path.Combine(outDir, "shot_anim.gif"), animFrames, 160, 144,
-                           frameDelayCs: 6, loopCount: 0);
+GifEncoder.WriteAnimation(
+    Path.Combine(outDir, "shot_anim.gif"),
+    animFrames,
+    160,
+    144,
+    frameDelayCs: 6,
+    loopCount: 0
+);
 Console.WriteLine($"  wrote {Path.Combine(outDir, "shot_anim.gif")} ({animFrames.Count} frames)");
 
 // Strip view of the whole animation so we can eyeball the flash / smoothness.
@@ -150,20 +179,31 @@ h.Assert(h.Read(0xC00F) == 2, $"Right-merge produced value 2 at (3,3), got {h.Re
 // Left covers X-negative. Each merges two equal tiles so we can eyeball that
 // the moving sprites stay inside the grid cells for every direction.
 //   idxA/idxB: cells to seed; dir: button; mergeIdx/mergeVal: post-commit check.
-void CaptureSlideStrip(string name, JoypadButton dir, int idxA, int idxB,
-                       int mergeIdx, byte mergeVal)
+void CaptureSlideStrip(
+    string name,
+    JoypadButton dir,
+    int idxA,
+    int idxB,
+    int mergeIdx,
+    byte mergeVal
+)
 {
-    for (int i = 0; i < 16; i++) h.Write((ushort)(0xC000 + i), 0);
+    for (int i = 0; i < 16; i++)
+        h.Write((ushort)(0xC000 + i), 0);
     h.Write((ushort)(0xC000 + idxA), 1);
     h.Write((ushort)(0xC000 + idxB), 1);
-    h.Write(0xC06E, 0x01);                 // ensure PLAYING so the move triggers
+    h.Write(0xC06E, 0x01); // ensure PLAYING so the move triggers
     var frames = new List<byte[]> { h.CaptureRgb() };
     var jp = default(JoypadState);
     jp.Press(dir);
     h.System.Joypad = jp;
     h.Frames(2);
     h.System.Joypad = default;
-    for (int f = 1; f <= 12; f++) { h.Frames(1); frames.Add(h.CaptureRgb()); }
+    for (int f = 1; f <= 12; f++)
+    {
+        h.Frames(1);
+        frames.Add(h.CaptureRgb());
+    }
     var tiles = new List<ContactSheet.Tile>();
     for (int i = 0; i < frames.Count; i++)
         tiles.Add(new ContactSheet.Tile($"F{i}", frames[i]));
@@ -171,24 +211,25 @@ void CaptureSlideStrip(string name, JoypadButton dir, int idxA, int idxB,
     sheet.Add(new ContactSheet.Tile($"{name.ToUpper()} F4", frames[4]));
     Console.WriteLine($"  wrote shot_anim_{name}_strip.png");
     h.Frames(20);
-    h.Assert(h.Read((ushort)(0xC000 + mergeIdx)) == mergeVal,
-        $"{name}-merge produced value {mergeVal} at cell {mergeIdx}, got {h.Read((ushort)(0xC000 + mergeIdx))}");
+    h.Assert(
+        h.Read((ushort)(0xC000 + mergeIdx)) == mergeVal,
+        $"{name}-merge produced value {mergeVal} at cell {mergeIdx}, got {h.Read((ushort)(0xC000 + mergeIdx))}"
+    );
 }
+
 // Down: col 0, rows 0 & 3 -> merge at row 3 (idx 12). d_row>0 (Y-positive).
 CaptureSlideStrip("down", JoypadButton.Down, 0, 12, 12, 2);
+
 // Up: same column -> merge at row 0 (idx 0). d_row<0 (Y-negative).
 CaptureSlideStrip("up", JoypadButton.Up, 0, 12, 0, 2);
+
 // Left: row 3, cols 0 & 3 -> merge at col 0 (idx 12). d_col<0 (X-negative).
 CaptureSlideStrip("left", JoypadButton.Left, 12, 15, 12, 2);
 
 // ==================  Game over  =====================================
-byte[] dead = {
-    1, 2, 1, 2,
-    2, 3, 2, 1,
-    1, 2, 1, 3,
-    0, 2, 1, 3,
-};
-for (int i = 0; i < 16; i++) h.Write((ushort)(0xC000 + i), dead[i]);
+byte[] dead = { 1, 2, 1, 2, 2, 3, 2, 1, 1, 2, 1, 3, 0, 2, 1, 3 };
+for (int i = 0; i < 16; i++)
+    h.Write((ushort)(0xC000 + i), dead[i]);
 h.Write(0xC06E, 0x01);
 h.Press(JoypadButton.Left);
 h.Frames(60);
@@ -202,9 +243,11 @@ h.Frames(30);
 h.Press(JoypadButton.Start);
 h.Frames(30);
 h.Write(0xC06F, 0);
-for (int i = 0; i < 16; i++) h.Write((ushort)(0xC000 + i), 0);
+for (int i = 0; i < 16; i++)
+    h.Write((ushort)(0xC000 + i), 0);
 h.Write(0xC00C, 10);
 h.Write(0xC00D, 10);
+
 // Press LEFT manually and trace per frame so we can see when HUD updates.
 {
     var jp = default(Koh.Emulator.Core.Joypad.JoypadState);
@@ -215,9 +258,11 @@ h.Write(0xC00D, 10);
         h.Frames(1);
         Console.Write($"  +{f}f af=${h.Read(0xC070):x2} gs=${h.Read(0xC06E):x2} ");
         Console.Write("r0=[");
-        for (int i = 0; i < 14; i++) Console.Write($"{h.TileAt(0, i):x2} ");
+        for (int i = 0; i < 14; i++)
+            Console.Write($"{h.TileAt(0, i):x2} ");
         Console.Write("] r1=[");
-        for (int i = 0; i < 14; i++) Console.Write($"{h.TileAt(1, i):x2} ");
+        for (int i = 0; i < 14; i++)
+            Console.Write($"{h.TileAt(1, i):x2} ");
         Console.WriteLine("]");
     }
     h.System.Joypad = default;

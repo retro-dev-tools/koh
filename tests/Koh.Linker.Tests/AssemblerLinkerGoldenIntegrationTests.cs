@@ -15,12 +15,14 @@ public class AssemblerLinkerGoldenIntegrationTests
         var model = Compilation.Create(tree).Emit();
         if (!model.Success)
             throw new InvalidOperationException(
-                $"assemble failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}");
+                $"assemble failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}"
+            );
 
         var result = new Koh.Linker.Core.Linker().Link([new LinkerInput(path, model)]);
         if (!result.Success)
             throw new InvalidOperationException(
-                $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}");
+                $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
+            );
 
         return result;
     }
@@ -38,7 +40,8 @@ public class AssemblerLinkerGoldenIntegrationTests
             var model = Compilation.Create(tree).Emit();
             if (!model.Success)
                 throw new InvalidOperationException(
-                    $"assemble {path} failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}");
+                    $"assemble {path} failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}"
+                );
 
             using var ms = new MemoryStream();
             KobjWriter.Write(ms, model);
@@ -49,7 +52,8 @@ public class AssemblerLinkerGoldenIntegrationTests
         var result = new Koh.Linker.Core.Linker().Link(inputs);
         if (!result.Success)
             throw new InvalidOperationException(
-                $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}");
+                $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
+            );
 
         return result;
     }
@@ -57,7 +61,9 @@ public class AssemblerLinkerGoldenIntegrationTests
     [Test]
     public async Task AssembleLink_GoldenBytes_CoverCharmapInterpolationAndExplicitLocalJump()
     {
-        var result = AssembleAndLink("golden.asm", """
+        var result = AssembleAndLink(
+            "golden.asm",
+            """
             NEWCHARMAP mte
             CHARMAP "One", $80, $00
             CHARMAP "Four", $80, $01
@@ -75,7 +81,8 @@ public class AssemblerLinkerGoldenIntegrationTests
             .child:
                 entry $80, $00
                 entry $80, $01
-            """);
+            """
+        );
 
         var rom = result.RomData!;
         await Assert.That(rom[0x0100]).IsEqualTo((byte)0x18);
@@ -90,7 +97,9 @@ public class AssemblerLinkerGoldenIntegrationTests
     {
         // Reset section pinned at $0100; Boot section floats and is placed at $0104.
         // The `jp Boot` opcode must encode Boot's actual placed address ($0104), not $0000.
-        var result = AssembleAndLink("cross.asm", """
+        var result = AssembleAndLink(
+            "cross.asm",
+            """
             SECTION "Reset", ROM0[$0100]
             EntryPoint:
                 nop
@@ -101,7 +110,8 @@ public class AssemblerLinkerGoldenIntegrationTests
             .halt:
                 halt
                 jr .halt
-            """);
+            """
+        );
 
         var rom = result.RomData!;
         await Assert.That(rom[0x0100]).IsEqualTo((byte)0x00); // nop
@@ -115,11 +125,14 @@ public class AssemblerLinkerGoldenIntegrationTests
     {
         // EntryPoint is the first byte of a section pinned at $0100.
         // Its absolute address must be exactly $0100, not double-counted.
-        var result = AssembleAndLink("entry.asm", """
+        var result = AssembleAndLink(
+            "entry.asm",
+            """
             SECTION "Reset", ROM0[$0100]
             EntryPoint:
                 nop
-            """);
+            """
+        );
 
         var entry = result.Symbols.Single(s => s.Name == "EntryPoint");
         await Assert.That(entry.AbsoluteAddress).IsEqualTo(0x0100);
@@ -130,14 +143,17 @@ public class AssemblerLinkerGoldenIntegrationTests
     {
         // wBoard at the start of WRAM0[$C000] must report $C000, not $8000
         // (the previous double-counted bug result).
-        var result = AssembleAndLink("wram.asm", """
+        var result = AssembleAndLink(
+            "wram.asm",
+            """
             SECTION "Vars", WRAM0[$C000]
             wBoard: ds 16
 
             SECTION "Stub", ROM0[$0100]
             Start:
                 nop
-            """);
+            """
+        );
 
         var sym = result.Symbols.Single(s => s.Name == "wBoard");
         await Assert.That(sym.AbsoluteAddress).IsEqualTo(0xC000);
@@ -146,12 +162,15 @@ public class AssemblerLinkerGoldenIntegrationTests
     [Test]
     public async Task IntraSectionRelativeJump_StillWorks()
     {
-        var result = AssembleAndLink("rel.asm", """
+        var result = AssembleAndLink(
+            "rel.asm",
+            """
             SECTION "Main", ROM0[$0100]
             Start:
                 nop
                 jr Start
-            """);
+            """
+        );
 
         // Start at $0100, after `nop` PC=$0101, after `jr Start` PC=$0103,
         // jr offset = $0100 - $0103 = -3 = $FD
@@ -172,7 +191,9 @@ public class AssemblerLinkerGoldenIntegrationTests
         //      floating section failed to link).
         //   - `jr .end` → a position-independent relative displacement.
         //   - the two identically-named `.end` locals resolve to their own scopes.
-        var result = AssembleAndLink("floating.asm", """
+        var result = AssembleAndLink(
+            "floating.asm",
+            """
             SECTION "Reset", ROM0[$0100]
                 nop
                 nop
@@ -191,7 +212,8 @@ public class AssemblerLinkerGoldenIntegrationTests
                 nop
             .end:
                 ret
-            """);
+            """
+        );
 
         var rom = result.RomData!;
         // FuncA at $0104: dw(2) + jr(2) + nop(1) → FuncA.end at $0109.
@@ -214,7 +236,9 @@ public class AssemblerLinkerGoldenIntegrationTests
         // floating) `dw Target` couldn't link. Round-tripping through KobjWriter/
         // KobjReader also proves SymbolName survives serialization.
         var result = AssembleRoundtripLink(
-            ("mod.asm", """
+            (
+                "mod.asm",
+                """
                 SECTION "A", ROM0[$0100]
                 EntryA:
                     dw Target
@@ -224,7 +248,9 @@ public class AssemblerLinkerGoldenIntegrationTests
                 SECTION "B", ROM0[$0200]
                 Target:
                     ret
-                """));
+                """
+            )
+        );
 
         var rom = result.RomData!;
         await Assert.That(rom[0x0100]).IsEqualTo((byte)0x00); // dw Target → low($0200)

@@ -22,8 +22,9 @@ public sealed class KobjWriter
     {
         if (!model.Success)
             throw new InvalidOperationException(
-                "Cannot write a .kobj file for a failed compilation. " +
-                "Check EmitModel.Success and EmitModel.Diagnostics before calling Write.");
+                "Cannot write a .kobj file for a failed compilation. "
+                    + "Check EmitModel.Success and EmitModel.Diagnostics before calling Write."
+            );
 
         using var bw = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
 

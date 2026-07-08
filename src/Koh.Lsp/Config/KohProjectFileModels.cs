@@ -57,7 +57,8 @@ internal sealed record ConfigValidationError(string Message);
 internal abstract record KohConfigLoadResult
 {
     /// <summary>koh.yaml was found and is valid.</summary>
-    internal sealed record Configured(IReadOnlyList<KohProjectDefinition> Projects) : KohConfigLoadResult
+    internal sealed record Configured(IReadOnlyList<KohProjectDefinition> Projects)
+        : KohConfigLoadResult
     {
         public FolderMode Mode => FolderMode.Configured;
     }
@@ -69,7 +70,8 @@ internal abstract record KohConfigLoadResult
     }
 
     /// <summary>koh.yaml was found but is invalid.</summary>
-    internal sealed record Invalid(IReadOnlyList<ConfigValidationError> Errors) : KohConfigLoadResult
+    internal sealed record Invalid(IReadOnlyList<ConfigValidationError> Errors)
+        : KohConfigLoadResult
     {
         public FolderMode Mode => FolderMode.InvalidConfiguration;
     }

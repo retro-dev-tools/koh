@@ -31,7 +31,8 @@ internal sealed record CandidateEntrypoint(string FilePath, CandidateScore Score
 /// </summary>
 internal sealed record DiscoveryResult(
     IReadOnlyList<CandidateEntrypoint> Entrypoints,
-    IReadOnlyDictionary<string, string> FileOwnership);
+    IReadOnlyDictionary<string, string> FileOwnership
+);
 
 /// <summary>
 /// Discovers entrypoints in a workspace by analyzing the include graph.
@@ -49,7 +50,8 @@ internal static class EntrypointDiscoveryService
     public static DiscoveryResult Discover(
         WorkspaceGraph graph,
         IReadOnlySet<string> allFiles,
-        IReadOnlySet<string> openFiles)
+        IReadOnlySet<string> openFiles
+    )
     {
         // Phase 1: Score every file as a candidate entrypoint.
         var candidates = new List<CandidateEntrypoint>();
@@ -67,15 +69,21 @@ internal static class EntrypointDiscoveryService
         }
 
         // Sort candidates: highest score first, then alphabetically for stability.
-        candidates.Sort((a, b) =>
-        {
-            var cmp = b.Score.CompareTo(a.Score);
-            return cmp != 0 ? cmp : string.Compare(a.FilePath, b.FilePath, StringComparison.OrdinalIgnoreCase);
-        });
+        candidates.Sort(
+            (a, b) =>
+            {
+                var cmp = b.Score.CompareTo(a.Score);
+                return cmp != 0
+                    ? cmp
+                    : string.Compare(a.FilePath, b.FilePath, StringComparison.OrdinalIgnoreCase);
+            }
+        );
 
         // Phase 2: BFS from each entrypoint to compute distances.
         var entrypointPaths = candidates.Select(c => c.FilePath).ToList();
-        var distanceFromEntrypoint = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        var distanceFromEntrypoint = new Dictionary<string, Dictionary<string, int>>(
+            StringComparer.OrdinalIgnoreCase
+        );
 
         foreach (var ep in entrypointPaths)
         {
@@ -98,10 +106,15 @@ internal static class EntrypointDiscoveryService
 
                 var epScore = scoreByFile[ep];
 
-                if (epScore > bestScore
+                if (
+                    epScore > bestScore
                     || (epScore == bestScore && distance < bestDistance)
-                    || (epScore == bestScore && distance == bestDistance
-                        && string.Compare(ep, bestOwner, StringComparison.OrdinalIgnoreCase) < 0))
+                    || (
+                        epScore == bestScore
+                        && distance == bestDistance
+                        && string.Compare(ep, bestOwner, StringComparison.OrdinalIgnoreCase) < 0
+                    )
+                )
                 {
                     bestOwner = ep;
                     bestScore = epScore;
@@ -121,7 +134,8 @@ internal static class EntrypointDiscoveryService
     private static CandidateScore ScoreCandidate(
         WorkspaceGraph graph,
         string filePath,
-        IReadOnlySet<string> openFiles)
+        IReadOnlySet<string> openFiles
+    )
     {
         var isAsm = filePath.EndsWith(".asm", StringComparison.OrdinalIgnoreCase);
         var hasOutgoing = graph.GetIncludes(filePath).Count > 0;
@@ -148,7 +162,10 @@ internal static class EntrypointDiscoveryService
     /// </summary>
     private static Dictionary<string, int> BfsDistances(WorkspaceGraph graph, string start)
     {
-        var distances = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [start] = 0 };
+        var distances = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [start] = 0,
+        };
         var queue = new Queue<string>();
         queue.Enqueue(start);
 

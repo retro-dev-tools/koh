@@ -5,12 +5,15 @@ public class RenameTests
     private readonly SymbolFinder _finder = new();
 
     // Helper: resolve at marker, find occurrences, validate rename, return new names at each location
-    private (SymbolFinder.ResolvedSymbol? Target, IReadOnlyList<SymbolFinder.ResolvedSymbol> Occurrences)
-        ResolveAndFind(Workspace ws, string uri, string source, string marker)
+    private (
+        SymbolFinder.ResolvedSymbol? Target,
+        IReadOnlyList<SymbolFinder.ResolvedSymbol> Occurrences
+    ) ResolveAndFind(Workspace ws, string uri, string source, string marker)
     {
         var offset = TestHelpers.FindOffset(source, marker);
         var target = _finder.ResolveAt(ws, uri, offset);
-        if (target == null) return (null, []);
+        if (target == null)
+            return (null, []);
         var occs = _finder.FindAllOccurrences(ws, target);
         return (target, occs);
     }
@@ -39,7 +42,8 @@ public class RenameTests
     [Test]
     public async Task Rename_LocalLabel_RenamesOnlyCurrentScopedSymbol()
     {
-        var source = "SECTION \"Main\", ROM0\nGlobal1:\n.local:\n  jr .local\nGlobal2:\n.local:\n  jr .local";
+        var source =
+            "SECTION \"Main\", ROM0\nGlobal1:\n.local:\n  jr .local\nGlobal2:\n.local:\n  jr .local";
         var ws = TestHelpers.CreateWorkspace(source);
 
         // Resolve .local under Global1
@@ -140,11 +144,15 @@ public class RenameTests
     {
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\n  jp Shared"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\n  jp Shared")
+        );
 
         var sourceA = "SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared";
-        var target = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset(sourceA, "Shared:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset(sourceA, "Shared:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occs = _finder.FindAllOccurrences(ws, target!);
@@ -172,11 +180,15 @@ public class RenameTests
     {
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nCounter:\n  nop"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\nCounter:\n  nop"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\nCounter:\n  nop")
+        );
 
         var sourceA = "SECTION \"A\", ROM0\nCounter:\n  nop";
-        var target = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset(sourceA, "Counter:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset(sourceA, "Counter:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occs = _finder.FindAllOccurrences(ws, target!);
@@ -193,11 +205,15 @@ public class RenameTests
     {
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\nShared:\n  jp Shared"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\nShared:\n  jp Shared")
+        );
 
         var sourceA = "SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared";
-        var target = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset(sourceA, "Shared:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset(sourceA, "Shared:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occs = _finder.FindAllOccurrences(ws, target!);
@@ -261,8 +277,11 @@ public class RenameTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "nop");
@@ -274,8 +293,11 @@ public class RenameTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "123abc");
@@ -287,8 +309,11 @@ public class RenameTests
     {
         var source = "SECTION \"Main\", ROM0\nGlobal:\n.local:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, ".local:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, ".local:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "GlobalName");
@@ -300,8 +325,11 @@ public class RenameTests
     {
         var source = "SECTION \"Main\", ROM0\nGlobal:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "Global:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "Global:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, ".local");
@@ -313,8 +341,11 @@ public class RenameTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\nOtherLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "OtherLabel");
@@ -326,10 +357,14 @@ public class RenameTests
     {
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nLabelA:\n  nop\nEXPORT LabelA"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\nLabelB:\n  nop\nEXPORT LabelB"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\nLabelB:\n  nop\nEXPORT LabelB")
+        );
 
-        var target = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset("SECTION \"A\", ROM0\nLabelA:\n  nop\nEXPORT LabelA", "LabelA:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset("SECTION \"A\", ROM0\nLabelA:\n  nop\nEXPORT LabelA", "LabelA:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "LabelB");
@@ -339,13 +374,17 @@ public class RenameTests
     [Test]
     public async Task Rename_LocalToSameNameInDifferentScope_Allowed()
     {
-        var source = "SECTION \"Main\", ROM0\nGlobal1:\n.loop:\n  jr .loop\nGlobal2:\n.done:\n  jr .done";
+        var source =
+            "SECTION \"Main\", ROM0\nGlobal1:\n.loop:\n  jr .loop\nGlobal2:\n.done:\n  jr .done";
         var ws = TestHelpers.CreateWorkspace(source);
 
         // Rename .loop under Global1 to .done — should be allowed because
         // Global2's .done is in a different scope
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, ".loop:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, ".loop:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, ".done");

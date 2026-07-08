@@ -20,8 +20,9 @@ public class Game2048Tests
 {
     /// <summary>The game source, split into its reusable "library" (everything above Main) and Main.</summary>
     private static readonly string GameSource = File.ReadAllText(FindSample());
-    private static readonly string GameLibrary =
-        GameSource[..GameSource.IndexOf("// ---- Entry point", StringComparison.Ordinal)];
+    private static readonly string GameLibrary = GameSource[
+        ..GameSource.IndexOf("// ---- Entry point", StringComparison.Ordinal)
+    ];
 
     private static string FindSample()
     {
@@ -39,7 +40,10 @@ public class Game2048Tests
     public async Task Sample_CompilesWithoutDiagnostics()
     {
         var diagnostics = new DiagnosticBag();
-        var module = new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), diagnostics);
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(GameSource, "2048.cs"),
+            diagnostics
+        );
         new Sm83Backend().Compile(module, diagnostics);
         await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsFalse();
     }
@@ -47,7 +51,10 @@ public class Game2048Tests
     [Test]
     public async Task Sample_ProducesVerifiableIr()
     {
-        var module = new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), new DiagnosticBag());
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(GameSource, "2048.cs"),
+            new DiagnosticBag()
+        );
         await Assert.That(IrVerifier.Verify(module)).IsEmpty();
     }
 
@@ -56,7 +63,8 @@ public class Game2048Tests
     {
         var model = new Sm83Backend().Compile(
             new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), new DiagnosticBag()),
-            new DiagnosticBag());
+            new DiagnosticBag()
+        );
         var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
 
         // A DMG cartridge boots through 0x0100 (nop; jp entry) and the boot ROM verifies the logo.
@@ -75,7 +83,10 @@ public class Game2048Tests
     private static ushort Run(string testMain)
     {
         var src = testMain + "\n" + GameLibrary;
-        var module = new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), new DiagnosticBag());
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(src, "game.cs"),
+            new DiagnosticBag()
+        );
         var model = new Sm83Backend().Compile(module, new DiagnosticBag());
         var rom = new LinkerType().Link([new LinkerInput("t", model)]).RomData!;
 
@@ -95,8 +106,10 @@ public class Game2048Tests
     }
 
     /// <summary>Slide a 4-cell line with SlideLine and read back one cell.</summary>
-    private static ushort SlideCell(string cells, int index) => Run(
-        $"static ushort Main() {{ byte[] a = new byte[4]; {cells} SlideLine(&a[0]); return a[{index}]; }}");
+    private static ushort SlideCell(string cells, int index) =>
+        Run(
+            $"static ushort Main() {{ byte[] a = new byte[4]; {cells} SlideLine(&a[0]); return a[{index}]; }}"
+        );
 
     private static async Task AssertLine(string cells, byte[] expected)
     {
@@ -106,11 +119,11 @@ public class Game2048Tests
 
     [Test]
     public async Task SlideLine_MergesEqualPair() =>
-        await AssertLine("a[0]=1;a[1]=1;", [2, 0, 0, 0]);          // 2 2 . .  ->  4 . . .
+        await AssertLine("a[0]=1;a[1]=1;", [2, 0, 0, 0]); // 2 2 . .  ->  4 . . .
 
     [Test]
     public async Task SlideLine_CompactsAcrossGap() =>
-        await AssertLine("a[0]=1;a[2]=1;", [2, 0, 0, 0]);          // 2 . 2 .  ->  4 . . .
+        await AssertLine("a[0]=1;a[2]=1;", [2, 0, 0, 0]); // 2 . 2 .  ->  4 . . .
 
     [Test]
     public async Task SlideLine_MergesTwoPairsNotTriple() =>
@@ -118,15 +131,16 @@ public class Game2048Tests
 
     [Test]
     public async Task SlideLine_MergesLeftmostPairOfTriple() =>
-        await AssertLine("a[0]=1;a[1]=1;a[2]=1;", [2, 1, 0, 0]);   // 2 2 2 .  ->  4 2 . .
+        await AssertLine("a[0]=1;a[1]=1;a[2]=1;", [2, 1, 0, 0]); // 2 2 2 .  ->  4 2 . .
 
     [Test]
-    public async Task SlideLine_SlidesLoneTileToEdge() =>
-        await AssertLine("a[3]=1;", [1, 0, 0, 0]);                 // . . . 2  ->  2 . . .
+    public async Task SlideLine_SlidesLoneTileToEdge() => await AssertLine("a[3]=1;", [1, 0, 0, 0]); // . . . 2  ->  2 . . .
 
     // Move helpers pack a board index; verify each of the four directions merges into the right cell.
-    private static ushort Move(string cells, byte dir, int index) => Run(
-        $"static ushort Main() {{ byte[] b = new byte[16]; {cells} MoveDir(&b[0], {dir}); return b[{index}]; }}");
+    private static ushort Move(string cells, byte dir, int index) =>
+        Run(
+            $"static ushort Main() {{ byte[] b = new byte[16]; {cells} MoveDir(&b[0], {dir}); return b[{index}]; }}"
+        );
 
     [Test]
     public async Task MoveLeft_MergesRowIntoLeftEdge() =>
@@ -147,16 +161,27 @@ public class Game2048Tests
     [Test]
     public async Task MoveDir_ReportsWhetherAnythingChanged()
     {
-        await Assert.That(Run("static ushort Main(){ byte[] b=new byte[16]; b[1]=1; return MoveDir(&b[0],0); }"))
+        await Assert
+            .That(
+                Run(
+                    "static ushort Main(){ byte[] b=new byte[16]; b[1]=1; return MoveDir(&b[0],0); }"
+                )
+            )
             .IsEqualTo((ushort)1);
-        await Assert.That(Run("static ushort Main(){ byte[] b=new byte[16]; b[0]=1; return MoveDir(&b[0],0); }"))
+        await Assert
+            .That(
+                Run(
+                    "static ushort Main(){ byte[] b=new byte[16]; b[0]=1; return MoveDir(&b[0],0); }"
+                )
+            )
             .IsEqualTo((ushort)0);
     }
 
     [Test]
     public async Task SpawnTile_FillsExactlyOneEmptyCell()
     {
-        const string src = @"static ushort Main() {
+        const string src =
+            @"static ushort Main() {
             byte[] b = new byte[16];
             SpawnTile(&b[0], 3);
             byte n = 0;
@@ -169,7 +194,8 @@ public class Game2048Tests
     [Test]
     public async Task SpawnTile_ReturnsZeroWhenBoardFull()
     {
-        const string src = @"static ushort Main() {
+        const string src =
+            @"static ushort Main() {
             byte[] b = new byte[16];
             for (byte i = 0; i < 16; i++) b[i] = 5;
             return SpawnTile(&b[0], 3);
@@ -181,14 +207,16 @@ public class Game2048Tests
     public async Task CanMove_FalseOnGridlock_TrueWithAnOpening()
     {
         // A board of all-distinct ascending values has no merges and no gaps -> gridlocked.
-        const string locked = @"static ushort Main() {
+        const string locked =
+            @"static ushort Main() {
             byte[] b = new byte[16];
             for (byte i = 0; i < 16; i++) b[i] = (byte)(i + 1);
             return CanMove(&b[0]);
         }";
         await Assert.That(Run(locked)).IsEqualTo((ushort)0);
 
-        const string opening = @"static ushort Main() {
+        const string opening =
+            @"static ushort Main() {
             byte[] b = new byte[16];
             for (byte i = 0; i < 16; i++) b[i] = (byte)(i + 1);
             b[5] = 0;
@@ -200,9 +228,15 @@ public class Game2048Tests
     [Test]
     public async Task HasWon_DetectsThe2048Tile()
     {
-        await Assert.That(Run("static ushort Main(){ byte[] b=new byte[16]; b[7]=11; return HasWon(&b[0]); }"))
+        await Assert
+            .That(
+                Run("static ushort Main(){ byte[] b=new byte[16]; b[7]=11; return HasWon(&b[0]); }")
+            )
             .IsEqualTo((ushort)1);
-        await Assert.That(Run("static ushort Main(){ byte[] b=new byte[16]; b[7]=10; return HasWon(&b[0]); }"))
+        await Assert
+            .That(
+                Run("static ushort Main(){ byte[] b=new byte[16]; b[7]=10; return HasWon(&b[0]); }")
+            )
             .IsEqualTo((ushort)0);
     }
 
@@ -213,7 +247,8 @@ public class Game2048Tests
         // Regression: the offset row*32 used to be computed in 8-bit and truncate (399 -> 143), so
         // the lower board rows scribbled over the wrong cells. Read the tile back through VRAM with
         // the LCD off, so the PPU is not blocking VRAM access.
-        const string src = @"static ushort Main() {
+        const string src =
+            @"static ushort Main() {
             Hardware.LCDC = 0;
             byte[] b = new byte[16];
             b[15] = 9;

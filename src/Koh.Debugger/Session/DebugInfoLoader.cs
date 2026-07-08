@@ -9,13 +9,15 @@ public sealed class DebugInfoLoader
 
     public void Load(ReadOnlyMemory<byte> kdbgBytes)
     {
-        if (kdbgBytes.Length == 0) return;
+        if (kdbgBytes.Length == 0)
+            return;
         var parsed = KdbgReader.Parse(kdbgBytes.ToArray());
         foreach (var sym in parsed.Symbols)
             SymbolMap.Add(sym);
         foreach (var entry in parsed.AddressMap)
         {
-            if (entry.SourceFile is null) continue;
+            if (entry.SourceFile is null)
+                continue;
             var addr = new BankedAddress(entry.Bank, entry.Address);
             SourceMap.Add(entry.SourceFile, entry.Line, addr, entry.ByteCount);
         }

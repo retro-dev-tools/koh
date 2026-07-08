@@ -14,7 +14,8 @@ public class SerialTests
         s.WriteSC(0x81);
 
         // 8 bits × 512 T-cycles = 4096 T-cycles to complete.
-        for (int i = 0; i < 4095; i++) s.TickT(ref irq);
+        for (int i = 0; i < 4095; i++)
+            s.TickT(ref irq);
         await Assert.That(s.IsTransferring).IsTrue();
         await Assert.That((irq.IF & Interrupts.Serial)).IsEqualTo((byte)0);
 
@@ -29,7 +30,8 @@ public class SerialTests
         var s = new Serial.Serial();
         var irq = default(Interrupts);
         s.WriteSC(0x81);
-        for (int i = 0; i < 4096; i++) s.TickT(ref irq);
+        for (int i = 0; i < 4096; i++)
+            s.TickT(ref irq);
         await Assert.That(s.ReadSC() & 0x80).IsEqualTo(0);
     }
 
@@ -48,8 +50,9 @@ public class SerialTests
         var s = new Serial.Serial();
         var irq = default(Interrupts);
         s.WriteSB(0x42);
-        s.WriteSC(0x80);  // internal-clock bit off — external clock, no peer
-        for (int i = 0; i < 4096; i++) s.TickT(ref irq);
+        s.WriteSC(0x80); // internal-clock bit off — external clock, no peer
+        for (int i = 0; i < 4096; i++)
+            s.TickT(ref irq);
         await Assert.That(s.IsTransferring).IsFalse();
         await Assert.That((irq.IF & Interrupts.Serial)).IsEqualTo((byte)0);
     }
@@ -62,7 +65,8 @@ public class SerialTests
 
         s.WriteSB(0x5A);
         s.WriteSC(0x81);
-        for (int i = 0; i < 4096; i++) s.TickT(ref irq);
+        for (int i = 0; i < 4096; i++)
+            s.TickT(ref irq);
 
         // After 8 bits shifted in, SB holds the peer's byte.
         await Assert.That(s.ReadSB()).IsEqualTo((byte)0xA5);
@@ -75,7 +79,16 @@ public class SerialTests
     {
         private readonly byte _peerByte;
         public byte LastSent;
-        public LoopbackLink(byte peerByte) { _peerByte = peerByte; }
-        public byte ExchangeByte(byte sent) { LastSent = sent; return _peerByte; }
+
+        public LoopbackLink(byte peerByte)
+        {
+            _peerByte = peerByte;
+        }
+
+        public byte ExchangeByte(byte sent)
+        {
+            LastSent = sent;
+            return _peerByte;
+        }
     }
 }

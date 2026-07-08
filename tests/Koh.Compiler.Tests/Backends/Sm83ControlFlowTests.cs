@@ -13,7 +13,8 @@ namespace Koh.Compiler.Tests.Backends;
 /// <summary>End-to-end tests for control flow, 16-bit integers, and static-address memory ops.</summary>
 public class Sm83ControlFlowTests
 {
-    private static EmitModel Compile(IrModule m) => new Sm83Backend().Compile(m, new DiagnosticBag());
+    private static EmitModel Compile(IrModule m) =>
+        new Sm83Backend().Compile(m, new DiagnosticBag());
 
     private static GameBoySystem Load(EmitModel model, out int start, out int length)
     {
@@ -67,7 +68,9 @@ public class Sm83ControlFlowTests
     }
 
     private static IrConstInt I16(int v) => IrBuilder.ConstInt(IrType.I16, v);
+
     private static IrConstInt I8(int v) => IrBuilder.ConstInt(IrType.I8, v);
+
     private static IrConstInt I32(long v) => IrBuilder.ConstInt(IrType.I32, v);
 
     /// <summary>Run @main returning i32 (low word in HL, high word in DE) and reassemble it.</summary>
@@ -84,34 +87,51 @@ public class Sm83ControlFlowTests
     public async Task I16_Add_CarriesAcrossBytes()
     {
         // 300 + 250 = 550 (exercises ADC across the low/high byte boundary)
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Add(I16(300), I16(250))))).IsEqualTo((ushort)550);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Add(I16(300), I16(250)))))
+            .IsEqualTo((ushort)550);
     }
 
     [Test]
     public async Task I16_Sub_BorrowsAcrossBytes()
     {
         // 300 - 150 = 150 (low byte 0x2C - 0x96 borrows into the high byte via SBC)
-        await Assert.That(RunHL(Fn(IrType.I16, b =>
-        {
-            var a = b.Add(I16(200), I16(100)); // 300
-            var c = b.Add(I16(100), I16(50));  // 150
-            return b.Sub(a, c);
-        }))).IsEqualTo((ushort)150);
+        await Assert
+            .That(
+                RunHL(
+                    Fn(
+                        IrType.I16,
+                        b =>
+                        {
+                            var a = b.Add(I16(200), I16(100)); // 300
+                            var c = b.Add(I16(100), I16(50)); // 150
+                            return b.Sub(a, c);
+                        }
+                    )
+                )
+            )
+            .IsEqualTo((ushort)150);
     }
 
     // ---- 16-bit comparisons -------------------------------------------------
 
     [Test]
     public async Task I16_Ult_True() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Ult, I16(5), I16(10))))).IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Ult, I16(5), I16(10)))))
+            .IsEqualTo((byte)1);
 
     [Test]
     public async Task I16_Ugt_True_ViaSwap() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Ugt, I16(10), I16(5))))).IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Ugt, I16(10), I16(5)))))
+            .IsEqualTo((byte)1);
 
     [Test]
     public async Task I16_Eq_False() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Eq, I16(7), I16(8))))).IsEqualTo((byte)0);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Eq, I16(7), I16(8)))))
+            .IsEqualTo((byte)0);
 
     // ---- multiply / divide / remainder -------------------------------------
 
@@ -121,7 +141,9 @@ public class Sm83ControlFlowTests
 
     [Test]
     public async Task Mul_I16() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Mul(I16(300), I16(4))))).IsEqualTo((ushort)1200);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Mul(I16(300), I16(4)))))
+            .IsEqualTo((ushort)1200);
 
     [Test]
     public async Task Mul_Signed_I8_LowByteMatches() =>
@@ -130,56 +152,80 @@ public class Sm83ControlFlowTests
 
     [Test]
     public async Task UDiv_I16() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.UDiv, I16(1000), I16(7))))).IsEqualTo((ushort)142);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.UDiv, I16(1000), I16(7)))))
+            .IsEqualTo((ushort)142);
 
     [Test]
     public async Task URem_I16() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.URem, I16(1000), I16(7))))).IsEqualTo((ushort)6);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.URem, I16(1000), I16(7)))))
+            .IsEqualTo((ushort)6);
 
     [Test]
     public async Task UDiv_I8() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.UDiv, I8(100), I8(9))))).IsEqualTo((byte)11);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.UDiv, I8(100), I8(9)))))
+            .IsEqualTo((byte)11);
 
     [Test]
     public async Task SDiv_I16_NegativeDividend() =>
         // -1000 / 7 = -142 = 0xFF72
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SDiv, I16(-1000), I16(7))))).IsEqualTo((ushort)0xFF72);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SDiv, I16(-1000), I16(7)))))
+            .IsEqualTo((ushort)0xFF72);
 
     [Test]
     public async Task SRem_I16_SignOfDividend() =>
         // -1000 % 7 = -6 = 0xFFFA
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SRem, I16(-1000), I16(7))))).IsEqualTo((ushort)0xFFFA);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SRem, I16(-1000), I16(7)))))
+            .IsEqualTo((ushort)0xFFFA);
 
     [Test]
     public async Task SDiv_I16_BothNegative() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SDiv, I16(-1000), I16(-7))))).IsEqualTo((ushort)142);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.SDiv, I16(-1000), I16(-7)))))
+            .IsEqualTo((ushort)142);
 
     // ---- shifts -------------------------------------------------------------
 
     [Test]
     public async Task Shl_Const_I8() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.Shl, I8(1), I8(4))))).IsEqualTo((byte)16);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.Shl, I8(1), I8(4)))))
+            .IsEqualTo((byte)16);
 
     [Test]
     public async Task LShr_Const_I8() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.LShr, I8(0x80), I8(3))))).IsEqualTo((byte)0x10);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.LShr, I8(0x80), I8(3)))))
+            .IsEqualTo((byte)0x10);
 
     [Test]
     public async Task AShr_Const_I8_SignFills() =>
         // 0xF8 (-8) >> 1 arithmetic = 0xFC (-4)
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.AShr, I8(-8), I8(1))))).IsEqualTo((byte)0xFC);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Binary(IrBinaryOp.AShr, I8(-8), I8(1)))))
+            .IsEqualTo((byte)0xFC);
 
     [Test]
     public async Task Shl_Const_I16() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.Shl, I16(1), I16(12))))).IsEqualTo((ushort)4096);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.Shl, I16(1), I16(12)))))
+            .IsEqualTo((ushort)4096);
 
     [Test]
     public async Task LShr_Const_I16() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.LShr, I16(0x8000), I16(15))))).IsEqualTo((ushort)1);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.LShr, I16(0x8000), I16(15)))))
+            .IsEqualTo((ushort)1);
 
     [Test]
     public async Task AShr_Const_I16_SignFills() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.AShr, I16(-16), I16(2))))).IsEqualTo((ushort)0xFFFC);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Binary(IrBinaryOp.AShr, I16(-16), I16(2)))))
+            .IsEqualTo((ushort)0xFFFC);
 
     [Test]
     public async Task Shl_Variable()
@@ -194,11 +240,14 @@ public class Sm83ControlFlowTests
         b.PositionAtEnd(fn.AppendBlock("entry"));
         b.Ret(b.Binary(IrBinaryOp.Shl, v, sh));
 
-        byte result = RunA(m, gb =>
-        {
-            gb.DebugWriteByte(Sm83Backend.WramBase, 3);      // v
-            gb.DebugWriteByte(Sm83Backend.WramBase + 1, 4);  // sh
-        });
+        byte result = RunA(
+            m,
+            gb =>
+            {
+                gb.DebugWriteByte(Sm83Backend.WramBase, 3); // v
+                gb.DebugWriteByte(Sm83Backend.WramBase + 1, 4); // sh
+            }
+        );
         await Assert.That(result).IsEqualTo((byte)48);
     }
 
@@ -206,72 +255,110 @@ public class Sm83ControlFlowTests
 
     [Test]
     public async Task Slt_Signed_NegativeLessThanPositive() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I8(-5), I8(3))))).IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I8(-5), I8(3)))))
+            .IsEqualTo((byte)1);
 
     [Test]
     public async Task Sgt_Signed_NegativeOrdering() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Sgt, I8(-1), I8(-2))))).IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Sgt, I8(-1), I8(-2)))))
+            .IsEqualTo((byte)1);
 
     [Test]
     public async Task SignedVsUnsigned_DifferForNegatives()
     {
         // -1 < 1 signed is true; as unsigned (0xFF < 1) it is false.
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I8(-1), I8(1))))).IsEqualTo((byte)1);
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Ult, I8(-1), I8(1))))).IsEqualTo((byte)0);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I8(-1), I8(1)))))
+            .IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Ult, I8(-1), I8(1)))))
+            .IsEqualTo((byte)0);
     }
 
     [Test]
     public async Task Slt_Signed_I16() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(-1000), I16(5))))).IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(-1000), I16(5)))))
+            .IsEqualTo((byte)1);
 
     [Test]
     public async Task Slt_Signed_CloseValuesWithLowByteBorrow()
     {
         // 299 < 300 with equal top bytes and a low-byte borrow — the sign-flip must not clear the
         // borrow carry mid-chain (it did when the flip was an inline XOR).
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(299), I16(300))))).IsEqualTo((byte)1);
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(300), I16(299))))).IsEqualTo((byte)0);
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(-300), I16(-299))))).IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(299), I16(300)))))
+            .IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(300), I16(299)))))
+            .IsEqualTo((byte)0);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Slt, I16(-300), I16(-299)))))
+            .IsEqualTo((byte)1);
     }
 
     // ---- 32-bit integers ----------------------------------------------------
 
     [Test]
     public async Task I32_Add_CarriesAcrossFourBytes() =>
-        await Assert.That(RunI32(Fn(IrType.I32, b => b.Add(I32(70000), I32(100))))).IsEqualTo(70100u);
+        await Assert
+            .That(RunI32(Fn(IrType.I32, b => b.Add(I32(70000), I32(100)))))
+            .IsEqualTo(70100u);
 
     [Test]
     public async Task I32_Sub_BorrowsAcrossFourBytes() =>
-        await Assert.That(RunI32(Fn(IrType.I32, b => b.Sub(I32(100000), I32(1))))).IsEqualTo(99999u);
+        await Assert
+            .That(RunI32(Fn(IrType.I32, b => b.Sub(I32(100000), I32(1)))))
+            .IsEqualTo(99999u);
 
     [Test]
     public async Task I32_Bitwise_And() =>
-        await Assert.That(RunI32(Fn(IrType.I32, b => b.Binary(IrBinaryOp.And, I32(0x00FF00FF), I32(0x0F0F0F0F)))))
+        await Assert
+            .That(
+                RunI32(
+                    Fn(IrType.I32, b => b.Binary(IrBinaryOp.And, I32(0x00FF00FF), I32(0x0F0F0F0F)))
+                )
+            )
             .IsEqualTo(0x000F000Fu);
 
     [Test]
     public async Task I32_SignedCompare_AcrossBoundary() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Sgt, I32(100000), I32(99999))))).IsEqualTo((byte)1);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Compare(IrCompareOp.Sgt, I32(100000), I32(99999)))))
+            .IsEqualTo((byte)1);
 
     [Test]
     public async Task I32_ZeroExtendFromByte() =>
-        await Assert.That(RunI32(Fn(IrType.I32, b => b.Conv(IrConvOp.ZExt, I8(unchecked((int)0xFF)), IrType.I32))))
+        await Assert
+            .That(
+                RunI32(
+                    Fn(IrType.I32, b => b.Conv(IrConvOp.ZExt, I8(unchecked((int)0xFF)), IrType.I32))
+                )
+            )
             .IsEqualTo(255u); // byte 0xFF zero-extends to 0x000000FF, not sign-extended
 
     // ---- conversions --------------------------------------------------------
 
     [Test]
     public async Task ZExt_I8_To_I16() =>
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Conv(IrConvOp.ZExt, I8(200), IrType.I16)))).IsEqualTo((ushort)200);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Conv(IrConvOp.ZExt, I8(200), IrType.I16))))
+            .IsEqualTo((ushort)200);
 
     [Test]
     public async Task SExt_I8_To_I16_SignExtendsHighByte() =>
         // 200 as signed i8 is -56; sign-extended to i16 that is 0xFFC8 = 65480
-        await Assert.That(RunHL(Fn(IrType.I16, b => b.Conv(IrConvOp.SExt, I8(200), IrType.I16)))).IsEqualTo((ushort)0xFFC8);
+        await Assert
+            .That(RunHL(Fn(IrType.I16, b => b.Conv(IrConvOp.SExt, I8(200), IrType.I16))))
+            .IsEqualTo((ushort)0xFFC8);
 
     [Test]
     public async Task Trunc_I16_To_I8_KeepsLowByte() =>
-        await Assert.That(RunA(Fn(IrType.I8, b => b.Conv(IrConvOp.Trunc, I16(0x1234), IrType.I8)))).IsEqualTo((byte)0x34);
+        await Assert
+            .That(RunA(Fn(IrType.I8, b => b.Conv(IrConvOp.Trunc, I16(0x1234), IrType.I8))))
+            .IsEqualTo((byte)0x34);
 
     // ---- memory -------------------------------------------------------------
 
@@ -279,28 +366,46 @@ public class Sm83ControlFlowTests
     public async Task Alloca_Store_Load_RoundTrips()
     {
         // p = alloca i8 ; *p = 42 ; return *p + 1  => 43
-        await Assert.That(RunA(Fn(IrType.I8, b =>
-        {
-            var p = b.Alloca(IrType.I8);
-            b.Store(I8(42), p);
-            var v = b.Load(p);
-            return b.Add(v, I8(1));
-        }))).IsEqualTo((byte)43);
+        await Assert
+            .That(
+                RunA(
+                    Fn(
+                        IrType.I8,
+                        b =>
+                        {
+                            var p = b.Alloca(IrType.I8);
+                            b.Store(I8(42), p);
+                            var v = b.Load(p);
+                            return b.Add(v, I8(1));
+                        }
+                    )
+                )
+            )
+            .IsEqualTo((byte)43);
     }
 
     [Test]
     public async Task Gep_IndexesArrayElements()
     {
         // a = alloca [4 x i8] ; a[0] = 10 ; a[2] = 20 ; return a[0] + a[2]  => 30
-        await Assert.That(RunA(Fn(IrType.I8, b =>
-        {
-            var arr = b.Alloca(IrType.Array(IrType.I8, 4));
-            var p0 = b.Gep(arr, I16(0), IrType.I8);
-            var p2 = b.Gep(arr, I16(2), IrType.I8);
-            b.Store(I8(10), p0);
-            b.Store(I8(20), p2);
-            return b.Add(b.Load(p0), b.Load(p2));
-        }))).IsEqualTo((byte)30);
+        await Assert
+            .That(
+                RunA(
+                    Fn(
+                        IrType.I8,
+                        b =>
+                        {
+                            var arr = b.Alloca(IrType.Array(IrType.I8, 4));
+                            var p0 = b.Gep(arr, I16(0), IrType.I8);
+                            var p2 = b.Gep(arr, I16(2), IrType.I8);
+                            b.Store(I8(10), p0);
+                            b.Store(I8(20), p2);
+                            return b.Add(b.Load(p0), b.Load(p2));
+                        }
+                    )
+                )
+            )
+            .IsEqualTo((byte)30);
     }
 
     // ---- calls --------------------------------------------------------------
@@ -406,18 +511,27 @@ public class Sm83ControlFlowTests
 
         b.PositionAtEnd(entry);
         b.Switch(x, other, [(I8(1), one), (I8(2), two)]);
-        b.PositionAtEnd(one); b.Ret(I8(11));
-        b.PositionAtEnd(two); b.Ret(I8(22));
-        b.PositionAtEnd(other); b.Ret(I8(99));
+        b.PositionAtEnd(one);
+        b.Ret(I8(11));
+        b.PositionAtEnd(two);
+        b.Ret(I8(22));
+        b.PositionAtEnd(other);
+        b.Ret(I8(99));
         return module;
     }
 
     [Test]
     public async Task Switch_SelectsCaseOrDefault()
     {
-        await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 1))).IsEqualTo((byte)11);
-        await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 2))).IsEqualTo((byte)22);
-        await Assert.That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 7))).IsEqualTo((byte)99);
+        await Assert
+            .That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 1)))
+            .IsEqualTo((byte)11);
+        await Assert
+            .That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 2)))
+            .IsEqualTo((byte)22);
+        await Assert
+            .That(RunA(Classify(), gb => gb.DebugWriteByte(Sm83Backend.WramBase, 7)))
+            .IsEqualTo((byte)99);
     }
 
     // ---- bootable ROM + MMIO ------------------------------------------------
@@ -425,7 +539,9 @@ public class Sm83ControlFlowTests
     [Test]
     public async Task Header_IsBootableCartridge()
     {
-        var link = new LinkerType().Link([new LinkerInput("mvp", Compile(Fn(IrType.I8, b => I8(7))))]);
+        var link = new LinkerType().Link([
+            new LinkerInput("mvp", Compile(Fn(IrType.I8, b => I8(7)))),
+        ]);
         var rom = link.RomData!;
 
         // Boot vector: nop ; jp 0x0150
@@ -481,8 +597,12 @@ public class Sm83ControlFlowTests
     public async Task Global_RomTable_IndexedRead()
     {
         var m = new IrModule("t");
-        var table = new IrGlobal("table", IrType.Array(IrType.I8, 4), AddressSpace.Rom,
-            initializer: new byte[] { 5, 10, 15, 20 });
+        var table = new IrGlobal(
+            "table",
+            IrType.Array(IrType.I8, 4),
+            AddressSpace.Rom,
+            initializer: new byte[] { 5, 10, 15, 20 }
+        );
         m.Globals.Add(table);
         var fn = new IrFunction("main", IrType.I8, []);
         m.Functions.Add(fn);
@@ -497,7 +617,12 @@ public class Sm83ControlFlowTests
     public async Task Global_RomI16Constant()
     {
         var m = new IrModule("t");
-        var val = new IrGlobal("val", IrType.I16, AddressSpace.Rom, initializer: new byte[] { 0xE8, 0x03 }); // 1000 LE
+        var val = new IrGlobal(
+            "val",
+            IrType.I16,
+            AddressSpace.Rom,
+            initializer: new byte[] { 0xE8, 0x03 }
+        ); // 1000 LE
         m.Globals.Add(val);
         var fn = new IrFunction("main", IrType.I16, []);
         m.Functions.Add(fn);
@@ -551,7 +676,9 @@ public class Sm83ControlFlowTests
             b.Store(I8((i + 1) * 10), b.Gep(arr, I16(i), IrType.I8));
         b.Ret(b.Load(b.Gep(arr, idx, IrType.I8))); // dynamic index
 
-        await Assert.That(RunA(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 2))).IsEqualTo((byte)30);
+        await Assert
+            .That(RunA(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 2)))
+            .IsEqualTo((byte)30);
     }
 
     [Test]
@@ -570,7 +697,9 @@ public class Sm83ControlFlowTests
         b.Store(I16(300), b.Gep(arr, I16(2), IrType.I16));
         b.Ret(b.Load(b.Gep(arr, idx, IrType.I16)));
 
-        await Assert.That(RunHL(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 1))).IsEqualTo((ushort)200);
+        await Assert
+            .That(RunHL(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 1)))
+            .IsEqualTo((ushort)200);
     }
 
     [Test]
@@ -611,7 +740,9 @@ public class Sm83ControlFlowTests
         b.Store(I8(99), pd);
         b.Ret(b.Load(pd));
 
-        await Assert.That(RunA(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 3))).IsEqualTo((byte)99);
+        await Assert
+            .That(RunA(m, gb => gb.DebugWriteByte(Sm83Backend.WramBase, 3)))
+            .IsEqualTo((byte)99);
     }
 
     // ---- control flow: a real loop -----------------------------------------
@@ -673,9 +804,12 @@ public class Sm83ControlFlowTests
         var cond = b.Compare(IrCompareOp.Ult, iNext, I16(3)); // two back-edge traversals
         b.CondBr(cond, loop, done);
 
-        a.AddIncoming(I16(1), entry); a.AddIncoming(c, loop); // a, c = c, a  (swap)
-        c.AddIncoming(I16(2), entry); c.AddIncoming(a, loop);
-        i.AddIncoming(I16(0), entry); i.AddIncoming(iNext, loop);
+        a.AddIncoming(I16(1), entry);
+        a.AddIncoming(c, loop); // a, c = c, a  (swap)
+        c.AddIncoming(I16(2), entry);
+        c.AddIncoming(a, loop);
+        i.AddIncoming(I16(0), entry);
+        i.AddIncoming(iNext, loop);
 
         b.PositionAtEnd(done);
         b.Ret(a);
@@ -693,11 +827,14 @@ public class Sm83ControlFlowTests
     public async Task SumLoop_RunsToCompletion()
     {
         // sum(10) = 0+1+...+9 = 45. The parameter is written to its WRAM slot (WramBase).
-        var result = RunHL(SumLoop(), gb =>
-        {
-            gb.DebugWriteByte(Sm83Backend.WramBase, 10);       // n low
-            gb.DebugWriteByte(Sm83Backend.WramBase + 1, 0);    // n high
-        });
+        var result = RunHL(
+            SumLoop(),
+            gb =>
+            {
+                gb.DebugWriteByte(Sm83Backend.WramBase, 10); // n low
+                gb.DebugWriteByte(Sm83Backend.WramBase + 1, 0); // n high
+            }
+        );
         await Assert.That(result).IsEqualTo((ushort)45);
     }
 }

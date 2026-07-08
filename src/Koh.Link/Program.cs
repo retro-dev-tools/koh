@@ -17,8 +17,10 @@ static class KohLink
             return ShowUsage(exitCode: args.Length == 0 ? 1 : 0);
 
         var (inputs, outputPath, symPath, kdbgPath, error) = ParseArgs(args);
-        if (error != null) return Fail(error);
-        if (inputs.Count == 0) return Fail("no input files specified");
+        if (error != null)
+            return Fail(error);
+        if (inputs.Count == 0)
+            return Fail("no input files specified");
 
         // Load .kobj files
         var linkerInputs = new List<LinkerInput>();
@@ -48,9 +50,9 @@ static class KohLink
         {
             var severity = diag.Severity switch
             {
-                DiagnosticSeverity.Error   => "error",
+                DiagnosticSeverity.Error => "error",
                 DiagnosticSeverity.Warning => "warning",
-                _                          => "info",
+                _ => "info",
             };
             Console.Error.WriteLine($"koh-link: {severity}: {diag.Message}");
         }
@@ -73,7 +75,11 @@ static class KohLink
         finally
         {
             if (File.Exists(romTemp))
-                try { File.Delete(romTemp); } catch { }
+                try
+                {
+                    File.Delete(romTemp);
+                }
+                catch { }
         }
 
         // Write .sym file
@@ -107,14 +113,20 @@ static class KohLink
         }
 
         var noun = inputs.Count == 1 ? "object" : "objects";
-        Console.WriteLine($"Linked {inputs.Count} {noun} -> {outputPath} ({result.RomData!.Length} bytes)");
+        Console.WriteLine(
+            $"Linked {inputs.Count} {noun} -> {outputPath} ({result.RomData!.Length} bytes)"
+        );
         return 0;
     }
 
-    static (List<string> inputs, string output, string? sym, string? kdbg, string? error) ParseArgs(string[] args)
+    static (List<string> inputs, string output, string? sym, string? kdbg, string? error) ParseArgs(
+        string[] args
+    )
     {
         var inputs = new List<string>();
-        string? output = null, sym = null, kdbg = null;
+        string? output = null,
+            sym = null,
+            kdbg = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -158,9 +170,11 @@ static class KohLink
 
     static int ShowVersion()
     {
-        var ver = typeof(KohLink).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion ?? "unknown";
+        var ver =
+            typeof(KohLink)
+                .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+            ?? "unknown";
         // Strip git commit hash suffix (e.g. "1.0.0+abc123" → "1.0.0")
         var display = ver.Contains('+') ? ver[..ver.IndexOf('+')] : ver;
         Console.WriteLine($"koh-link {display}");
@@ -182,7 +196,8 @@ static class KohLink
               -d, --kdbg <path>    Write Koh debug info file (.kdbg)
                   --version        Show version information
               -h, --help           Show this help
-            """);
+            """
+        );
         return exitCode;
     }
 }

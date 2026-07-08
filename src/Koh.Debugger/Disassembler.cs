@@ -33,7 +33,8 @@ public static class Disassembler
         // LD r,r' ($40..$7F) except $76 = HALT.
         if (op >= 0x40 && op <= 0x7F)
         {
-            if (op == 0x76) return ("HALT", 1);
+            if (op == 0x76)
+                return ("HALT", 1);
             int dst = (op >> 3) & 7;
             int src = op & 7;
             return ($"LD {r8[dst]},{r8[src]}", 1);
@@ -151,23 +152,25 @@ public static class Disassembler
         int group = op >> 6;
         return group switch
         {
-            0 => (bit switch
-            {
-                0 => $"RLC {r8[reg]}",
-                1 => $"RRC {r8[reg]}",
-                2 => $"RL {r8[reg]}",
-                3 => $"RR {r8[reg]}",
-                4 => $"SLA {r8[reg]}",
-                5 => $"SRA {r8[reg]}",
-                6 => $"SWAP {r8[reg]}",
-                _ => $"SRL {r8[reg]}",
-            }),
+            0 => (
+                bit switch
+                {
+                    0 => $"RLC {r8[reg]}",
+                    1 => $"RRC {r8[reg]}",
+                    2 => $"RL {r8[reg]}",
+                    3 => $"RR {r8[reg]}",
+                    4 => $"SLA {r8[reg]}",
+                    5 => $"SRA {r8[reg]}",
+                    6 => $"SWAP {r8[reg]}",
+                    _ => $"SRL {r8[reg]}",
+                }
+            ),
             1 => $"BIT {bit},{r8[reg]}",
             2 => $"RES {bit},{r8[reg]}",
             _ => $"SET {bit},{r8[reg]}",
         };
     }
 
-    private static ushort ReadU16(Func<int, byte> read, int offset)
-        => (ushort)(read(offset) | (read(offset + 1) << 8));
+    private static ushort ReadU16(Func<int, byte> read, int offset) =>
+        (ushort)(read(offset) | (read(offset + 1) << 8));
 }

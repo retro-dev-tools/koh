@@ -22,7 +22,8 @@ public sealed record ExpandedNode(
     uint SourceLine,
     bool WasInConditional,
     bool FromMacroBody,
-    ExpansionTrace Trace);
+    ExpansionTrace Trace
+);
 
 /// <summary>
 /// Expands macros, REPT/FOR loops, conditional assembly, and INCLUDE directives
@@ -34,8 +35,12 @@ internal sealed class AssemblyExpander
     private readonly DiagnosticBag _diagnostics;
     private readonly SymbolTable _symbols;
     private readonly ConditionalAssemblyState _conditional = new();
-    private readonly Dictionary<string, MacroDefinition> _macros = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _equsConstants = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, MacroDefinition> _macros = new(
+        StringComparer.OrdinalIgnoreCase
+    );
+    private readonly Dictionary<string, string> _equsConstants = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly CharMapManager _charMaps;
     private long _rsCounter; // RS counter for RB/RW/RSRESET/RSSET
     private readonly ISourceFileResolver _fileResolver;
@@ -50,9 +55,14 @@ internal sealed class AssemblyExpander
     private readonly TextReplayService _textReplay;
 
     // Macro call-site arity tracking: keyed by Symbol reference, value is max observed arg count
-    private readonly Dictionary<Symbol, int> _macroArities = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<Symbol, int> _macroArities = new(
+        ReferenceEqualityComparer.Instance
+    );
+
     // Map macro name -> Symbol for looking up the symbol when expanding calls
-    private readonly Dictionary<string, Symbol> _macroSymbolsByName = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Symbol> _macroSymbolsByName = new(
+        StringComparer.OrdinalIgnoreCase
+    );
 
     private const int MaxStructuralDepth = 64;
     private const int MaxReplayDepth = 64;
@@ -67,28 +77,35 @@ internal sealed class AssemblyExpander
     private static uint ComputeLine(ExpansionContext ctx, SyntaxNode node)
     {
         var text = ctx.SourceText;
-        if (text is null) return 0;
+        if (text is null)
+            return 0;
         // Use Span.Start (without leading trivia) so a node that sits after
         // blank/comment lines maps to the line of its first real token,
         // not the start of the preceding whitespace.
         int start = node.Span.Start;
-        if (start < 0 || start >= text.Length) return 0;
+        if (start < 0 || start >= text.Length)
+            return 0;
         return (uint)(text.GetLineIndex(start) + 1);
     }
 
-    public AssemblyExpander(DiagnosticBag diagnostics, SymbolTable symbols,
-        ISourceFileResolver? fileResolver = null, CharMapManager? charMaps = null,
+    public AssemblyExpander(
+        DiagnosticBag diagnostics,
+        SymbolTable symbols,
+        ISourceFileResolver? fileResolver = null,
+        CharMapManager? charMaps = null,
         TextWriter? printOutput = null,
-        SymbolResolutionContext ownerContext = default)
+        SymbolResolutionContext ownerContext = default
+    )
     {
         _diagnostics = diagnostics;
         _symbols = symbols;
         _fileResolver = fileResolver ?? new FileSystemResolver();
         _charMaps = charMaps ?? new CharMapManager(diagnostics);
         _printOutput = printOutput ?? Console.Error;
-        _ownerContext = ownerContext.OwnerId != null
-            ? ownerContext
-            : new SymbolResolutionContext("<anonymous>");
+        _ownerContext =
+            ownerContext.OwnerId != null
+                ? ownerContext
+                : new SymbolResolutionContext("<anonymous>");
         _interpolation = new InterpolationResolver(symbols, _equsConstants, diagnostics);
         _textReplay = new TextReplayService(_diagnostics, _interpolation);
     }
@@ -125,11 +142,7 @@ internal sealed class AssemblyExpander
     public List<ExpandedNode> Expand(SyntaxTree tree)
     {
         var output = new List<ExpandedNode>();
-        var ctx = new ExpansionContext
-        {
-            SourceText = tree.Text,
-            FilePath = tree.Text.FilePath
-        };
+        var ctx = new ExpansionContext { SourceText = tree.Text, FilePath = tree.Text.FilePath };
         _diagnostics.CurrentFilePath = ctx.FilePath;
         // Seed include stack with root file for circular detection
         if (!string.IsNullOrEmpty(ctx.FilePath))
@@ -173,7 +186,8 @@ internal sealed class AssemblyExpander
         {
             foreach (var item in siblings)
             {
-                if (!item.IsNode) continue;
+                if (!item.IsNode)
+                    continue;
                 var node = item.AsNode!;
                 if (node.Kind == SyntaxKind.SymbolDirective)
                     EarlyDefineEquNoError(node);
@@ -186,9 +200,11 @@ internal sealed class AssemblyExpander
 
             if (pass == maxPasses - 1)
             {
-                _diagnostics.Report(default,
+                _diagnostics.Report(
+                    default,
                     $"EQU pre-scan did not converge after {maxPasses} passes; some forward references may be unresolved",
-                    Diagnostics.DiagnosticSeverity.Warning);
+                    Diagnostics.DiagnosticSeverity.Warning
+                );
             }
         }
     }
@@ -202,41 +218,59 @@ internal sealed class AssemblyExpander
     {
         // Perf: extract first 3 tokens by iterating rather than materializing a List<SyntaxToken>.
         // We only ever need tok0, tok[nameIdx], and tok[nameIdx+1] — at most 3 slots.
-        SyntaxToken? tok0 = null, tok1 = null, tok2 = null;
+        SyntaxToken? tok0 = null,
+            tok1 = null,
+            tok2 = null;
         int tokenCount = 0;
         foreach (var t in node.ChildTokens())
         {
-            if (tokenCount == 0) tok0 = t;
-            else if (tokenCount == 1) tok1 = t;
-            else if (tokenCount == 2) tok2 = t;
+            if (tokenCount == 0)
+                tok0 = t;
+            else if (tokenCount == 1)
+                tok1 = t;
+            else if (tokenCount == 2)
+                tok2 = t;
             tokenCount++;
-            if (tokenCount > 2) break; // we have all we need
+            if (tokenCount > 2)
+                break; // we have all we need
         }
-        if (tokenCount < 2) return;
+        if (tokenCount < 2)
+            return;
 
         // Determine nameIdx: if first token is DEF/REDEF prefix, name is at index 1
         int nameIdx = tok0!.Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword ? 1 : 0;
 
         SyntaxToken nameTok = nameIdx == 0 ? tok0! : tok1!;
-        SyntaxToken? kwTok  = nameIdx == 0 ? tok1  : tok2;
-        if (tokenCount < nameIdx + 2 || kwTok == null) return;
-        if (nameTok.Kind != SyntaxKind.IdentifierToken) return;
+        SyntaxToken? kwTok = nameIdx == 0 ? tok1 : tok2;
+        if (tokenCount < nameIdx + 2 || kwTok == null)
+            return;
+        if (nameTok.Kind != SyntaxKind.IdentifierToken)
+            return;
 
         var kwKind = kwTok.Kind;
         if (kwKind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
         {
             // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
             var firstExpr = node.ChildNodes().FirstOrDefault();
-            if (firstExpr == null) return;
+            if (firstExpr == null)
+                return;
             // Skip char literals in the pre-scan: their values depend on charmap state which is
             // not fully known until the sequential expansion walk processes all CHARMAP directives.
             // Allowing the pre-scan to define them with the wrong (ASCII) value would conflict
             // with the later correct (charmap-mapped) definition from EarlyDefineEqu.
-            if (ContainsCharLiteral(firstExpr.Green)) return;
+            if (ContainsCharLiteral(firstExpr.Green))
+                return;
             // Use a silent evaluator — don't report missing-symbol errors during pre-scan
-            var evaluator = new ExpressionEvaluator(_symbols, DiagnosticBag.Null, () => 0, 0, _charMaps);
+            var evaluator = new ExpressionEvaluator(
+                _symbols,
+                DiagnosticBag.Null,
+                () => 0,
+                0,
+                _charMaps
+            );
             var value = evaluator.TryEvaluate(firstExpr.Green);
-            if (!value.HasValue) return; // unresolvable at this point — retry on next pass
+            if (!value.HasValue)
+                return; // unresolvable at this point — retry on next pass
             if (kwKind == SyntaxKind.EqualsToken || tok0.Kind == SyntaxKind.RedefKeyword)
                 _symbols.DefineOrRedefine(nameTok.Text, value.Value, _ownerContext);
             else
@@ -255,13 +289,21 @@ internal sealed class AssemblyExpander
     // Core expansion kernel
     // =========================================================================
 
-    private LoopControl ExpandBodyList(IReadOnlyList<SyntaxNodeOrToken> siblings,
-        ref int i, List<ExpandedNode> output, ExpansionContext ctx)
+    private LoopControl ExpandBodyList(
+        IReadOnlyList<SyntaxNodeOrToken> siblings,
+        ref int i,
+        List<ExpandedNode> output,
+        ExpansionContext ctx
+    )
     {
         while (i < siblings.Count)
         {
             var item = siblings[i];
-            if (!item.IsNode) { i++; continue; }
+            if (!item.IsNode)
+            {
+                i++;
+                continue;
+            }
             var node = item.AsNode!;
 
             // Lazy macro param resolution: if inside a macro frame with SHIFT,
@@ -271,21 +313,36 @@ internal sealed class AssemblyExpander
             // their dedicated expansion paths (ExpandRept, ExpandFor, HandleConditional, etc.).
             // _NARG inside REPT _NARG is resolved via the symbol table lookup in ExpandRept's
             // expression evaluator — not through text substitution here.
-            bool isBlockNode = node.Kind is SyntaxKind.RepeatDirective
-                or SyntaxKind.ConditionalDirective
-                or SyntaxKind.MacroDefinition;
-            if (!isBlockNode && !_conditional.IsSuppressed && ctx.CurrentMacroFrame != null && ContainsMacroParam(node.Green))
+            bool isBlockNode =
+                node.Kind
+                is SyntaxKind.RepeatDirective
+                    or SyntaxKind.ConditionalDirective
+                    or SyntaxKind.MacroDefinition;
+            if (
+                !isBlockNode
+                && !_conditional.IsSuppressed
+                && ctx.CurrentMacroFrame != null
+                && ContainsMacroParam(node.Green)
+            )
             {
                 var frame = ctx.CurrentMacroFrame;
-                var rawText = ctx.SourceText != null
-                    ? ctx.SourceText.ToString(node.FullSpan)
-                    : (node.Green.ToString() ?? "");
+                var rawText =
+                    ctx.SourceText != null
+                        ? ctx.SourceText.ToString(node.FullSpan)
+                        : (node.Green.ToString() ?? "");
                 var resolved = ResolveMacroParamsInText(rawText, frame);
                 if (resolved != rawText)
                 {
-                    var lc = ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.MacroParameterConcatenation);
+                    var lc = ExpandTextInline(
+                        resolved,
+                        output,
+                        ctx,
+                        node.FullSpan,
+                        TextReplayReason.MacroParameterConcatenation
+                    );
                     i++;
-                    if (lc == LoopControl.Break) return LoopControl.Break;
+                    if (lc == LoopControl.Break)
+                        return LoopControl.Break;
                     continue;
                 }
             }
@@ -293,18 +350,30 @@ internal sealed class AssemblyExpander
             // {EQUS} interpolation — DEF {prefix}banana EQU 1, PURGE {prefix}banana, etc.
             // Skip block-structured nodes for the same reason as the macro param path above:
             // they need sibling context and have dedicated expansion handlers.
-            if (!isBlockNode && !_conditional.IsSuppressed && ctx.SourceText != null &&
-                (NeedsInterpolation(node) || NeedsDataStringInterpolation(node)))
+            if (
+                !isBlockNode
+                && !_conditional.IsSuppressed
+                && ctx.SourceText != null
+                && (NeedsInterpolation(node) || NeedsDataStringInterpolation(node))
+            )
             {
                 var rawText = ctx.SourceText.ToString(node.FullSpan);
-                var resolved = node.Kind == SyntaxKind.DataDirective
-                    ? ResolveDataDirectiveStringInterpolations(node, rawText)
-                    : ResolveInterpolations(rawText);
+                var resolved =
+                    node.Kind == SyntaxKind.DataDirective
+                        ? ResolveDataDirectiveStringInterpolations(node, rawText)
+                        : ResolveInterpolations(rawText);
                 if (resolved != rawText)
                 {
-                    var lc = ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.EqusReplay);
+                    var lc = ExpandTextInline(
+                        resolved,
+                        output,
+                        ctx,
+                        node.FullSpan,
+                        TextReplayReason.EqusReplay
+                    );
                     i++;
-                    if (lc == LoopControl.Break) return LoopControl.Break;
+                    if (lc == LoopControl.Break)
+                        return LoopControl.Break;
                     continue;
                 }
             }
@@ -313,10 +382,17 @@ internal sealed class AssemblyExpander
             {
                 // Check for label before ENDC (same line)
                 var condKw = ((GreenToken)((GreenNode)node.Green).GetChild(0)!).Kind;
-                if (condKw == SyntaxKind.EndcKeyword && i > 0 && siblings[i - 1].IsNode
-                    && siblings[i - 1].AsNode!.Kind == SyntaxKind.LabelDeclaration)
+                if (
+                    condKw == SyntaxKind.EndcKeyword
+                    && i > 0
+                    && siblings[i - 1].IsNode
+                    && siblings[i - 1].AsNode!.Kind == SyntaxKind.LabelDeclaration
+                )
                 {
-                    _diagnostics.Report(node.FullSpan, "Label on the same line as ENDC is not allowed");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        "Label on the same line as ENDC is not allowed"
+                    );
                 }
                 HandleConditional(node, ctx);
                 i++;
@@ -403,9 +479,16 @@ internal sealed class AssemblyExpander
                 var callName = node.ChildTokens().FirstOrDefault()?.Text;
                 if (callName != null && _equsConstants.TryGetValue(callName, out var equsValue))
                 {
-                    var lc = ExpandTextInline(equsValue, output, ctx, node.FullSpan, TextReplayReason.EqusReplay);
+                    var lc = ExpandTextInline(
+                        equsValue,
+                        output,
+                        ctx,
+                        node.FullSpan,
+                        TextReplayReason.EqusReplay
+                    );
                     i++;
-                    if (lc == LoopControl.Break) return LoopControl.Break;
+                    if (lc == LoopControl.Break)
+                        return LoopControl.Break;
                     continue;
                 }
                 ExpandMacroCall(node, output, ctx);
@@ -420,7 +503,16 @@ internal sealed class AssemblyExpander
                 if (kw?.Kind == SyntaxKind.IncludeKeyword)
                     ExpandInclude(node, output, ctx);
                 else if (kw?.Kind == SyntaxKind.IncbinKeyword)
-                    output.Add(new ExpandedNode(node, ctx.FilePath, ComputeLine(ctx, node), _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace)); // INCBIN handled by binder Pass 2
+                    output.Add(
+                        new ExpandedNode(
+                            node,
+                            ctx.FilePath,
+                            ComputeLine(ctx, node),
+                            _conditional.Depth > 0,
+                            ctx.MacroBodyDepth > 0,
+                            ctx.Trace
+                        )
+                    ); // INCBIN handled by binder Pass 2
                 i++;
                 continue;
             }
@@ -474,9 +566,11 @@ internal sealed class AssemblyExpander
                     }
                     var frame = ctx.CurrentMacroFrame;
                     if (frame.ShiftOffset >= frame.Args.Count)
-                        _diagnostics.Report(node.FullSpan,
+                        _diagnostics.Report(
+                            node.FullSpan,
                             "Cannot shift macro arguments past their end",
-                            DiagnosticSeverity.Warning);
+                            DiagnosticSeverity.Warning
+                        );
                     frame.ShiftOffset++;
                     _symbols.DefineOrRedefine("_NARG", frame.Narg, _ownerContext);
                     i++;
@@ -505,7 +599,10 @@ internal sealed class AssemblyExpander
                 }
 
                 // PRINT/PRINTLN inside loops — resolve at expansion time so per-iteration output is correct
-                if (ctx.LoopDepth > 0 && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword)
+                if (
+                    ctx.LoopDepth > 0
+                    && kw?.Kind is SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword
+                )
                 {
                     // The StringLiteral may be nested inside a LiteralExpression child node,
                     // so use a recursive descent to find it rather than ChildTokens() which
@@ -531,10 +628,22 @@ internal sealed class AssemblyExpander
             {
                 var macroParam = FindMacroParamToken(node.Green);
                 if (macroParam != null)
-                    _diagnostics.Report(node.FullSpan, $"Macro argument {macroParam} used outside of a macro");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"Macro argument {macroParam} used outside of a macro"
+                    );
             }
 
-            output.Add(new ExpandedNode(node, ctx.FilePath, ComputeLine(ctx, node), _conditional.Depth > 0, ctx.MacroBodyDepth > 0, ctx.Trace));
+            output.Add(
+                new ExpandedNode(
+                    node,
+                    ctx.FilePath,
+                    ComputeLine(ctx, node),
+                    _conditional.Depth > 0,
+                    ctx.MacroBodyDepth > 0,
+                    ctx.Trace
+                )
+            );
             i++;
         }
         return LoopControl.Continue;
@@ -544,32 +653,45 @@ internal sealed class AssemblyExpander
     {
         // Perf: extract first 3 tokens by iterating rather than materializing a List<SyntaxToken>.
         // We only ever need tok0, tok[nameIdx], and tok[nameIdx+1] — at most 3 slots.
-        SyntaxToken? tok0 = null, tok1 = null, tok2 = null;
+        SyntaxToken? tok0 = null,
+            tok1 = null,
+            tok2 = null;
         int tokenCount = 0;
         foreach (var t in node.ChildTokens())
         {
-            if (tokenCount == 0) tok0 = t;
-            else if (tokenCount == 1) tok1 = t;
-            else if (tokenCount == 2) tok2 = t;
+            if (tokenCount == 0)
+                tok0 = t;
+            else if (tokenCount == 1)
+                tok1 = t;
+            else if (tokenCount == 2)
+                tok2 = t;
             tokenCount++;
-            if (tokenCount > 2) break; // we have all we need
+            if (tokenCount > 2)
+                break; // we have all we need
         }
-        if (tokenCount < 2) return;
+        if (tokenCount < 2)
+            return;
 
         // Handle DEF/REDEF prefix: if first token is a prefix keyword, name is at index 1
         int nameIdx = tok0!.Kind is SyntaxKind.DefKeyword or SyntaxKind.RedefKeyword ? 1 : 0;
 
         SyntaxToken nameTok = nameIdx == 0 ? tok0! : tok1!;
-        SyntaxToken? kwTok  = nameIdx == 0 ? tok1  : tok2;
-        if (tokenCount < nameIdx + 2 || kwTok == null) return;
+        SyntaxToken? kwTok = nameIdx == 0 ? tok1 : tok2;
+        if (tokenCount < nameIdx + 2 || kwTok == null)
+            return;
 
-        if (nameTok.Kind == SyntaxKind.IdentifierToken &&
-            kwTok.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        if (
+            nameTok.Kind == SyntaxKind.IdentifierToken
+            && kwTok.Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken
+        )
         {
             // Check for built-in symbol protection
             if (tok0.Kind == SyntaxKind.RedefKeyword && BuiltinSymbols.Contains(nameTok.Text))
             {
-                _diagnostics.Report(node.FullSpan, $"Cannot redefine built-in symbol '{nameTok.Text}'");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"Cannot redefine built-in symbol '{nameTok.Text}'"
+                );
                 return;
             }
 
@@ -577,20 +699,32 @@ internal sealed class AssemblyExpander
             var firstExprEqu = node.ChildNodes().FirstOrDefault();
             if (firstExprEqu != null)
             {
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps, ResolveInterpolations);
+                var evaluator = new ExpressionEvaluator(
+                    _symbols,
+                    _diagnostics,
+                    () => 0,
+                    0,
+                    _charMaps,
+                    ResolveInterpolations
+                );
                 var value = evaluator.TryEvaluate(firstExprEqu.Green);
                 if (value.HasValue)
                 {
                     // = and REDEF are reassignable (SET semantics); EQU is immutable.
-                    if (kwTok.Kind == SyntaxKind.EqualsToken || tok0.Kind == SyntaxKind.RedefKeyword)
+                    if (
+                        kwTok.Kind == SyntaxKind.EqualsToken
+                        || tok0.Kind == SyntaxKind.RedefKeyword
+                    )
                         _symbols.DefineOrRedefine(nameTok.Text, value.Value, _ownerContext);
                     else
                         _symbols.DefineConstant(nameTok.Text, value.Value, node, _ownerContext);
                 }
             }
         }
-        else if (nameTok.Kind == SyntaxKind.IdentifierToken &&
-                 kwTok.Kind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword)
+        else if (
+            nameTok.Kind == SyntaxKind.IdentifierToken
+            && kwTok.Kind is SyntaxKind.RbKeyword or SyntaxKind.RwKeyword or SyntaxKind.RlKeyword
+        )
         {
             int multiplier = kwTok.Kind switch
             {
@@ -604,9 +738,16 @@ internal sealed class AssemblyExpander
             var firstExprRs = node.ChildNodes().FirstOrDefault();
             if (firstExprRs != null)
             {
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
+                var evaluator = new ExpressionEvaluator(
+                    _symbols,
+                    _diagnostics,
+                    () => 0,
+                    0,
+                    _charMaps
+                );
                 var value = evaluator.TryEvaluate(firstExprRs.Green);
-                if (value.HasValue) count = value.Value;
+                if (value.HasValue)
+                    count = value.Value;
             }
 
             _symbols.DefineConstant(nameTok.Text, _rsCounter, node, _ownerContext);
@@ -638,7 +779,8 @@ internal sealed class AssemblyExpander
         // Use the full ExpressionEvaluator with string support
         var evaluator = CreateStringEvaluator(ctx);
         var result = evaluator.TryEvaluateString(exprNode.Green);
-        if (result != null) return result;
+        if (result != null)
+            return result;
 
         // ++ concatenation (BinaryExpression)
         if (exprNode.Kind == SyntaxKind.BinaryExpression)
@@ -647,24 +789,30 @@ internal sealed class AssemblyExpander
             bool hasPlusPlus = false;
             foreach (var t in exprNode.ChildTokens())
             {
-                if (t.Kind == SyntaxKind.PlusPlusToken) { hasPlusPlus = true; break; }
+                if (t.Kind == SyntaxKind.PlusPlusToken)
+                {
+                    hasPlusPlus = true;
+                    break;
+                }
             }
             if (hasPlusPlus)
             {
                 // Perf: extract first and last child nodes by iterating — avoids List<> allocation.
                 // ++ concatenation is binary so we need exactly children[0] and children[^1].
-                SyntaxNode? firstChild = null, lastChild = null;
+                SyntaxNode? firstChild = null,
+                    lastChild = null;
                 int childCount = 0;
                 foreach (var c in exprNode.ChildNodes())
                 {
-                    if (childCount == 0) firstChild = c;
+                    if (childCount == 0)
+                        firstChild = c;
                     lastChild = c;
                     childCount++;
                 }
                 if (childCount >= 2)
                 {
-                    var left  = EvaluateStringExpression(firstChild!, ctx);
-                    var right = EvaluateStringExpression(lastChild!,  ctx);
+                    var left = EvaluateStringExpression(firstChild!, ctx);
+                    var right = EvaluateStringExpression(lastChild!, ctx);
                     if (left != null && right != null)
                         return left + right;
                 }
@@ -676,7 +824,8 @@ internal sealed class AssemblyExpander
         {
             // Perf: FirstOrDefault avoids ToList() allocation for the keyword peek
             var firstFuncTok = exprNode.ChildTokens().FirstOrDefault();
-            if (firstFuncTok == null) return null;
+            if (firstFuncTok == null)
+                return null;
             var funcKind = firstFuncTok.Kind;
             var argExprs = exprNode.ChildNodes().ToList();
 
@@ -737,7 +886,8 @@ internal sealed class AssemblyExpander
                     foreach (var argExpr in argExprs)
                     {
                         var s = EvaluateStringExpression(argExpr, ctx);
-                        if (s == null) return null;
+                        if (s == null)
+                            return null;
                         sb.Append(s);
                     }
                     return sb.ToString();
@@ -747,20 +897,26 @@ internal sealed class AssemblyExpander
                     if (argExprs.Count >= 2)
                     {
                         var s = EvaluateStringExpression(argExprs[0], ctx);
-                        if (s == null) return null;
+                        if (s == null)
+                            return null;
                         var numEval2 = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
                         var startVal = numEval2.TryEvaluate(argExprs[1].Green);
-                        if (!startVal.HasValue) return null;
+                        if (!startVal.HasValue)
+                            return null;
                         int start = (int)startVal.Value - 1; // 1-based
                         int len = s.Length - start;
                         if (argExprs.Count >= 3)
                         {
                             var lenVal = numEval2.TryEvaluate(argExprs[2].Green);
-                            if (lenVal.HasValue) len = (int)lenVal.Value;
+                            if (lenVal.HasValue)
+                                len = (int)lenVal.Value;
                         }
-                        if (start < 0) start = 0;
-                        if (start + len > s.Length) len = s.Length - start;
-                        if (len < 0) len = 0;
+                        if (start < 0)
+                            start = 0;
+                        if (start + len > s.Length)
+                            len = s.Length - start;
+                        if (len < 0)
+                            len = 0;
                         return s.Substring(start, len);
                     }
                     break;
@@ -770,22 +926,31 @@ internal sealed class AssemblyExpander
                     if (argExprs.Count > 0)
                     {
                         var filename = EvaluateStringExpression(argExprs[0], ctx);
-                        if (filename == null) return null;
+                        if (filename == null)
+                            return null;
                         var resolved = _fileResolver.ResolvePath(ctx.FilePath, filename);
-                        if (!_fileResolver.FileExists(resolved)) return null;
+                        if (!_fileResolver.FileExists(resolved))
+                            return null;
                         try
                         {
                             var content = _fileResolver.ReadAllText(resolved);
                             if (argExprs.Count > 1)
                             {
-                                var numEval3 = new ExpressionEvaluator(_symbols, _diagnostics, () => 0);
+                                var numEval3 = new ExpressionEvaluator(
+                                    _symbols,
+                                    _diagnostics,
+                                    () => 0
+                                );
                                 var limit = numEval3.TryEvaluate(argExprs[1].Green);
                                 if (limit.HasValue && limit.Value < content.Length)
                                     content = content[..(int)limit.Value];
                             }
                             return content;
                         }
-                        catch { return null; }
+                        catch
+                        {
+                            return null;
+                        }
                     }
                     break;
                 }
@@ -852,7 +1017,8 @@ internal sealed class AssemblyExpander
     private void EarlyProcessCharmap(SyntaxNode node, ExpansionContext ctx)
     {
         var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
+        if (tokens.Count == 0)
+            return;
 
         switch (tokens[0].Kind)
         {
@@ -863,7 +1029,11 @@ internal sealed class AssemblyExpander
                     string? baseName = null;
                     for (int ci = 2; ci < tokens.Count; ci++)
                     {
-                        if (tokens[ci].Kind is SyntaxKind.IdentifierToken or SyntaxKind.StringLiteral)
+                        if (
+                            tokens[ci].Kind
+                            is SyntaxKind.IdentifierToken
+                                or SyntaxKind.StringLiteral
+                        )
                         {
                             baseName = StripQuotes(tokens[ci].Text);
                             break;
@@ -887,7 +1057,8 @@ internal sealed class AssemblyExpander
                 if (tokens.Count >= 2)
                 {
                     var charStr = tokens[1].Text;
-                    if (charStr.Length >= 2) charStr = charStr[1..^1];
+                    if (charStr.Length >= 2)
+                        charStr = charStr[1..^1];
                     // Unescape the key so charmap lookup matches how db processes strings
                     charStr = ExpressionEvaluator.UnescapeString(charStr);
                     // Collect all number literal tokens after the string as multi-byte value
@@ -900,9 +1071,11 @@ internal sealed class AssemblyExpander
                             if (val.HasValue)
                             {
                                 if (val.Value > 0xFF)
-                                    _diagnostics.Report(node.FullSpan,
+                                    _diagnostics.Report(
+                                        node.FullSpan,
                                         $"CHARMAP value ${val.Value:X} truncated to ${val.Value & 0xFF:X2}",
-                                        Diagnostics.DiagnosticSeverity.Warning);
+                                        Diagnostics.DiagnosticSeverity.Warning
+                                    );
                                 byteValues.Add((byte)(val.Value & 0xFF));
                             }
                         }
@@ -923,10 +1096,18 @@ internal sealed class AssemblyExpander
     /// </summary>
     private static readonly HashSet<string> BuiltinSymbols = new(StringComparer.OrdinalIgnoreCase)
     {
-        "__RGBDS_MAJOR__", "__RGBDS_MINOR__", "__RGBDS_PATCH__", "__RGBDS_RC__",
-        "__UTC_YEAR__", "__UTC_MONTH__", "__UTC_DAY__",
-        "__UTC_HOUR__", "__UTC_MINUTE__", "__UTC_SECOND__",
-        "__ISO_8601_UTC__", "__ISO_8601_LOCAL__",
+        "__RGBDS_MAJOR__",
+        "__RGBDS_MINOR__",
+        "__RGBDS_PATCH__",
+        "__RGBDS_RC__",
+        "__UTC_YEAR__",
+        "__UTC_MONTH__",
+        "__UTC_DAY__",
+        "__UTC_HOUR__",
+        "__UTC_MINUTE__",
+        "__UTC_SECOND__",
+        "__ISO_8601_UTC__",
+        "__ISO_8601_LOCAL__",
     };
 
     private void HandlePurge(SyntaxNode node, ExpansionContext ctx)
@@ -934,7 +1115,8 @@ internal sealed class AssemblyExpander
         var tokens = node.ChildTokens().ToList();
         for (int ti = 1; ti < tokens.Count; ti++)
         {
-            if (tokens[ti].Kind == SyntaxKind.CommaToken) continue;
+            if (tokens[ti].Kind == SyntaxKind.CommaToken)
+                continue;
             if (tokens[ti].Kind is SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken)
             {
                 var name = tokens[ti].Text;
@@ -955,7 +1137,10 @@ internal sealed class AssemblyExpander
                 // Check for purge of referenced symbol (has references)
                 if (sym != null && sym.HasReferences)
                 {
-                    _diagnostics.Report(node.FullSpan, $"Cannot PURGE symbol '{name}' that has been referenced");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"Cannot PURGE symbol '{name}' that has been referenced"
+                    );
                     continue;
                 }
                 _equsConstants.Remove(name);
@@ -969,7 +1154,8 @@ internal sealed class AssemblyExpander
     {
         // Perf: FirstOrDefault avoids ToList() allocation for keyword peek
         var firstTok = node.ChildTokens().FirstOrDefault();
-        if (firstTok == null) return;
+        if (firstTok == null)
+            return;
 
         switch (firstTok.Kind)
         {
@@ -982,9 +1168,16 @@ internal sealed class AssemblyExpander
                 var firstExpr = node.ChildNodes().FirstOrDefault();
                 if (firstExpr != null)
                 {
-                    var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
+                    var evaluator = new ExpressionEvaluator(
+                        _symbols,
+                        _diagnostics,
+                        () => 0,
+                        0,
+                        _charMaps
+                    );
                     var value = evaluator.TryEvaluate(firstExpr.Green);
-                    if (value.HasValue) _rsCounter = value.Value;
+                    if (value.HasValue)
+                        _rsCounter = value.Value;
                 }
                 else
                 {
@@ -1008,7 +1201,10 @@ internal sealed class AssemblyExpander
         if (keyword is SyntaxKind.EndcKeyword or SyntaxKind.ElseKeyword)
         {
             if (HasChildTokensBeyond(node, 1))
-                _diagnostics.Report(node.FullSpan, $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"Unexpected tokens after {(keyword == SyntaxKind.EndcKeyword ? "ENDC" : "ELSE")}"
+                );
         }
 
         // Check for label before ENDC (label on same line as ENDC)
@@ -1017,8 +1213,16 @@ internal sealed class AssemblyExpander
         bool Eval()
         {
             var exprNode = node.ChildNodes().FirstOrDefault();
-            if (exprNode == null) return false;
-            var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps, ResolveInterpolations);
+            if (exprNode == null)
+                return false;
+            var evaluator = new ExpressionEvaluator(
+                _symbols,
+                _diagnostics,
+                () => 0,
+                0,
+                _charMaps,
+                ResolveInterpolations
+            );
             return evaluator.TryEvaluate(exprNode.Green) is { } v && v != 0;
         }
 
@@ -1055,14 +1259,21 @@ internal sealed class AssemblyExpander
 
     private string? PeekMacroName(IReadOnlyList<SyntaxNodeOrToken> siblings, int macroIndex)
     {
-        if (macroIndex > 0 && siblings[macroIndex - 1].IsNode &&
-            siblings[macroIndex - 1].AsNode!.Kind == SyntaxKind.LabelDeclaration)
+        if (
+            macroIndex > 0
+            && siblings[macroIndex - 1].IsNode
+            && siblings[macroIndex - 1].AsNode!.Kind == SyntaxKind.LabelDeclaration
+        )
             return siblings[macroIndex - 1].AsNode!.ChildTokens().First().Text;
         return null;
     }
 
-    private void CollectMacroBody(IReadOnlyList<SyntaxNodeOrToken> siblings,
-        ref int i, string macroName, ExpansionContext ctx)
+    private void CollectMacroBody(
+        IReadOnlyList<SyntaxNodeOrToken> siblings,
+        ref int i,
+        string macroName,
+        ExpansionContext ctx
+    )
     {
         var macroNode = siblings[i].AsNode!;
         int bodyStart = macroNode.FullSpan.Start + macroNode.FullSpan.Length;
@@ -1073,12 +1284,21 @@ internal sealed class AssemblyExpander
 
         while (i < siblings.Count)
         {
-            if (!siblings[i].IsNode) { i++; continue; }
+            if (!siblings[i].IsNode)
+            {
+                i++;
+                continue;
+            }
             var candidate = siblings[i].AsNode!;
             if (candidate.Kind == SyntaxKind.MacroDefinition)
             {
                 var kw = candidate.ChildTokens().FirstOrDefault();
-                if (kw?.Kind == SyntaxKind.MacroKeyword) { depth++; i++; continue; }
+                if (kw?.Kind == SyntaxKind.MacroKeyword)
+                {
+                    depth++;
+                    i++;
+                    continue;
+                }
                 if (kw?.Kind == SyntaxKind.EndmKeyword)
                 {
                     depth--;
@@ -1088,7 +1308,8 @@ internal sealed class AssemblyExpander
                         i++;
                         break;
                     }
-                    i++; continue;
+                    i++;
+                    continue;
                 }
             }
             i++;
@@ -1102,8 +1323,15 @@ internal sealed class AssemblyExpander
 
         if (ctx.SourceText != null)
         {
-            var bodyText = ctx.SourceText.ToString(new TextSpan(bodyStart, bodyEnd - bodyStart)).Trim();
-            _macros[macroName] = new MacroDefinition(macroName, bodyText, macroNode.FullSpan, ctx.FilePath);
+            var bodyText = ctx
+                .SourceText.ToString(new TextSpan(bodyStart, bodyEnd - bodyStart))
+                .Trim();
+            _macros[macroName] = new MacroDefinition(
+                macroName,
+                bodyText,
+                macroNode.FullSpan,
+                ctx.FilePath
+            );
             // Register macro in symbol table using root owner context (not included file's path)
             var macroSymbol = _symbols.DefineMacro(macroName, macroNode, _ownerContext);
             _macroSymbolsByName[macroName] = macroSymbol;
@@ -1127,8 +1355,12 @@ internal sealed class AssemblyExpander
             var tok = tokens[t];
 
             // Angle-bracket quoting: <arg with, commas> treated as single arg
-            if (tok.Kind == SyntaxKind.LessThanToken && parenDepth == 0 && !angleBracketQuoted
-                && currentArg.Count == 0)
+            if (
+                tok.Kind == SyntaxKind.LessThanToken
+                && parenDepth == 0
+                && !angleBracketQuoted
+                && currentArg.Count == 0
+            )
             {
                 angleBracketQuoted = true;
                 continue; // skip the opening <
@@ -1181,7 +1413,8 @@ internal sealed class AssemblyExpander
     private void ExpandMacroCall(SyntaxNode node, List<ExpandedNode> output, ExpansionContext ctx)
     {
         var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
+        if (tokens.Count == 0)
+            return;
 
         // If the call text contains \# (MacroParamToken), resolve it against
         // the parent macro frame before looking up the macro name and args.
@@ -1189,7 +1422,11 @@ internal sealed class AssemblyExpander
         bool hasBackslashHash = false;
         foreach (var t in tokens)
         {
-            if (t.Kind == SyntaxKind.MacroParamToken && t.Text == "\\#") { hasBackslashHash = true; break; }
+            if (t.Kind == SyntaxKind.MacroParamToken && t.Text == "\\#")
+            {
+                hasBackslashHash = true;
+                break;
+            }
         }
         if (hasBackslashHash && ctx.CurrentMacroFrame != null)
         {
@@ -1203,11 +1440,18 @@ internal sealed class AssemblyExpander
             {
                 // Cold path: no source text — build from token texts
                 var sb = new System.Text.StringBuilder();
-                foreach (var t in tokens) sb.Append(t.Text);
+                foreach (var t in tokens)
+                    sb.Append(t.Text);
                 rawText = sb.ToString();
             }
             var resolved = rawText.Replace("\\#", parentFrame.AllArgs());
-            ExpandTextInline(resolved, output, ctx, node.FullSpan, TextReplayReason.MacroParameterConcatenation);
+            ExpandTextInline(
+                resolved,
+                output,
+                ctx,
+                node.FullSpan,
+                TextReplayReason.MacroParameterConcatenation
+            );
             return;
         }
 
@@ -1238,8 +1482,10 @@ internal sealed class AssemblyExpander
 
         if (macroCtx.StructuralDepth > MaxStructuralDepth)
         {
-            _diagnostics.Report(node.FullSpan,
-                $"Maximum structural depth ({MaxStructuralDepth}) exceeded");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Maximum structural depth ({MaxStructuralDepth}) exceeded"
+            );
             return;
         }
 
@@ -1265,18 +1511,34 @@ internal sealed class AssemblyExpander
     /// 2. Text path: macros with param references go through text substitution + reparse
     ///    (necessary because RGBDS params can concatenate to form new tokens).
     /// </summary>
-    private void ExpandMacroBody(MacroDefinition macro, MacroFrame frame, List<ExpandedNode> output, ExpansionContext ctx)
+    private void ExpandMacroBody(
+        MacroDefinition macro,
+        MacroFrame frame,
+        List<ExpandedNode> output,
+        ExpansionContext ctx
+    )
     {
         if (macro.RequiresTextSubstitution)
         {
-            var body = _textReplay.SubstituteMacroParams(macro.RawBody, frame, macro.ContainsShift,
-                _symbols, _expressionCache);
+            var body = _textReplay.SubstituteMacroParams(
+                macro.RawBody,
+                frame,
+                macro.ContainsShift,
+                _symbols,
+                _expressionCache
+            );
             // Skip eager interpolation resolution for macro bodies. Interpolation is
             // resolved per-node by ExpandBodyList's NeedsInterpolation check, which runs
             // after EarlyDefineEqu has processed preceding nodes. This ensures REDEF EQUS
             // definitions are visible to interpolations in subsequent statements.
-            ExpandTextInline(body, output, ctx, macro.DefinitionSpan, TextReplayReason.MacroParameterConcatenation,
-                skipInterpolation: true);
+            ExpandTextInline(
+                body,
+                output,
+                ctx,
+                macro.DefinitionSpan,
+                TextReplayReason.MacroParameterConcatenation,
+                skipInterpolation: true
+            );
         }
         else
         {
@@ -1336,8 +1598,10 @@ internal sealed class AssemblyExpander
         // Structural depth check (ForInclude increments by 1)
         if (ctx.StructuralDepth + 1 > MaxStructuralDepth)
         {
-            _diagnostics.Report(node.FullSpan,
-                $"Maximum structural depth ({MaxStructuralDepth}) exceeded");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Maximum structural depth ({MaxStructuralDepth}) exceeded"
+            );
             return;
         }
 
@@ -1355,7 +1619,10 @@ internal sealed class AssemblyExpander
             // go through ParseForReplay because INCLUDE is not replay-driven re-expansion.
             if (ctx.CurrentMacroFrame != null)
             {
-                source = TextReplayService.SubstituteUniqueId(source, ctx.CurrentMacroFrame.UniqueId);
+                source = TextReplayService.SubstituteUniqueId(
+                    source,
+                    ctx.CurrentMacroFrame.UniqueId
+                );
             }
             else if (ctx.LoopUniqueId != 0)
             {
@@ -1381,7 +1648,10 @@ internal sealed class AssemblyExpander
         }
         catch (IOException ex)
         {
-            _diagnostics.Report(node.FullSpan, $"Cannot read included file '{filePath}': {ex.Message}");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Cannot read included file '{filePath}': {ex.Message}"
+            );
         }
         finally
         {
@@ -1430,7 +1700,8 @@ internal sealed class AssemblyExpander
     private void CollectStringLiteralReplacements(
         SyntaxNode node,
         int baseStart,
-        List<(int Start, int Length, string Text)> replacements)
+        List<(int Start, int Length, string Text)> replacements
+    )
     {
         foreach (var tok in node.ChildTokens())
         {
@@ -1442,10 +1713,13 @@ internal sealed class AssemblyExpander
             if (resolved == interpreted)
                 continue;
 
-            replacements.Add((
-                tok.FullSpan.Start - baseStart,
-                tok.FullSpan.Length,
-                "\"" + EscapeStringLiteral(resolved) + "\""));
+            replacements.Add(
+                (
+                    tok.FullSpan.Start - baseStart,
+                    tok.FullSpan.Length,
+                    "\"" + EscapeStringLiteral(resolved) + "\""
+                )
+            );
         }
 
         foreach (var child in node.ChildNodes())
@@ -1453,8 +1727,9 @@ internal sealed class AssemblyExpander
     }
 
     private static string EscapeStringLiteral(string value) =>
-        value.Replace("\\", "\\\\", StringComparison.Ordinal)
-             .Replace("\"", "\\\"", StringComparison.Ordinal);
+        value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private bool NeedsDataStringInterpolation(SyntaxNode node)
     {
@@ -1498,14 +1773,15 @@ internal sealed class AssemblyExpander
         return false;
     }
 
-
-
     // =========================================================================
     // REPT/FOR expansion
     // =========================================================================
 
     private List<SyntaxNodeOrToken> CollectRepeatBody(
-        IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i, TextSpan headerSpan)
+        IReadOnlyList<SyntaxNodeOrToken> siblings,
+        ref int i,
+        TextSpan headerSpan
+    )
     {
         i++;
         var body = new List<SyntaxNodeOrToken>();
@@ -1513,30 +1789,51 @@ internal sealed class AssemblyExpander
 
         while (i < siblings.Count)
         {
-            if (!siblings[i].IsNode) { body.Add(siblings[i]); i++; continue; }
+            if (!siblings[i].IsNode)
+            {
+                body.Add(siblings[i]);
+                i++;
+                continue;
+            }
             var candidate = siblings[i].AsNode!;
             if (candidate.Kind == SyntaxKind.RepeatDirective)
             {
                 var kw = candidate.ChildTokens().FirstOrDefault();
                 if (kw?.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword)
-                { depth++; body.Add(siblings[i]); i++; continue; }
+                {
+                    depth++;
+                    body.Add(siblings[i]);
+                    i++;
+                    continue;
+                }
                 if (kw?.Kind == SyntaxKind.EndrKeyword)
                 {
                     depth--;
-                    if (depth == 0) { i++; return body; }
-                    body.Add(siblings[i]); i++; continue;
+                    if (depth == 0)
+                    {
+                        i++;
+                        return body;
+                    }
+                    body.Add(siblings[i]);
+                    i++;
+                    continue;
                 }
             }
-            body.Add(siblings[i]); i++;
+            body.Add(siblings[i]);
+            i++;
         }
 
         _diagnostics.Report(headerSpan, "REPT/FOR without matching ENDR");
         return body;
     }
 
-    private void ExpandRept(SyntaxNode reptNode,
-        IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i,
-        List<ExpandedNode> output, ExpansionContext ctx)
+    private void ExpandRept(
+        SyntaxNode reptNode,
+        IReadOnlyList<SyntaxNodeOrToken> siblings,
+        ref int i,
+        List<ExpandedNode> output,
+        ExpansionContext ctx
+    )
     {
         // Perf: FirstOrDefault avoids materializing the full ChildNodes() list
         var reptCountExpr = reptNode.ChildNodes().FirstOrDefault();
@@ -1545,9 +1842,11 @@ internal sealed class AssemblyExpander
         {
             var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
             var val = evaluator.TryEvaluate(reptCountExpr.Green);
-            if (val.HasValue) count = (int)val.Value;
+            if (val.HasValue)
+                count = (int)val.Value;
         }
-        if (count < 0) count = 0;
+        if (count < 0)
+            count = 0;
 
         // Peek body nodes to extract text, then collect to advance cursor past ENDR
         var peekBody = PeekBodyNodes(siblings, i);
@@ -1577,7 +1876,13 @@ internal sealed class AssemblyExpander
                 // Substitute \@ only at the REPT level; macro calls inside will
                 // get their own \@ via SubstituteMacroParams.
                 var iterText = TextReplayService.SubstituteUniqueId(bodyTextRaw, iterUniqueId);
-                var lc = ExpandTextInline(iterText, output, iterCtx, reptNode.FullSpan, TextReplayReason.UniqueLabelSubstitution);
+                var lc = ExpandTextInline(
+                    iterText,
+                    output,
+                    iterCtx,
+                    reptNode.FullSpan,
+                    TextReplayReason.UniqueLabelSubstitution
+                );
                 if (lc == LoopControl.Break)
                 {
                     // BREAK may have fired inside an IF block; reset conditional state to the
@@ -1600,7 +1905,9 @@ internal sealed class AssemblyExpander
     /// For realistic body sizes (kilobytes of assembly at most) the O(n) overhead is not measurable.
     /// </summary>
     private static List<SyntaxNodeOrToken> PeekBodyNodes(
-        IReadOnlyList<SyntaxNodeOrToken> siblings, int reptIndex)
+        IReadOnlyList<SyntaxNodeOrToken> siblings,
+        int reptIndex
+    )
     {
         var result = new List<SyntaxNodeOrToken>();
         int depth = 1;
@@ -1613,11 +1920,13 @@ internal sealed class AssemblyExpander
                 if (n.Kind == SyntaxKind.RepeatDirective)
                 {
                     var kw = n.ChildTokens().FirstOrDefault();
-                    if (kw?.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword) depth++;
+                    if (kw?.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword)
+                        depth++;
                     else if (kw?.Kind == SyntaxKind.EndrKeyword)
                     {
                         depth--;
-                        if (depth == 0) break;
+                        if (depth == 0)
+                            break;
                     }
                 }
             }
@@ -1627,25 +1936,41 @@ internal sealed class AssemblyExpander
         return result;
     }
 
-    private void ExpandFor(SyntaxNode forNode,
-        IReadOnlyList<SyntaxNodeOrToken> siblings, ref int i,
-        List<ExpandedNode> output, ExpansionContext ctx)
+    private void ExpandFor(
+        SyntaxNode forNode,
+        IReadOnlyList<SyntaxNodeOrToken> siblings,
+        ref int i,
+        List<ExpandedNode> output,
+        ExpansionContext ctx
+    )
     {
         // Perf: extract up to 4 child nodes by iterating rather than materializing a List<SyntaxNode>.
         // FOR header has exactly 4 slots: varName, start, stop, step.
-        SyntaxNode? exprNode0 = null, exprNode1 = null, exprNode2 = null, exprNode3 = null;
+        SyntaxNode? exprNode0 = null,
+            exprNode1 = null,
+            exprNode2 = null,
+            exprNode3 = null;
         int exprCount = 0;
         foreach (var n in forNode.ChildNodes())
         {
             switch (exprCount)
             {
-                case 0: exprNode0 = n; break;
-                case 1: exprNode1 = n; break;
-                case 2: exprNode2 = n; break;
-                case 3: exprNode3 = n; break;
+                case 0:
+                    exprNode0 = n;
+                    break;
+                case 1:
+                    exprNode1 = n;
+                    break;
+                case 2:
+                    exprNode2 = n;
+                    break;
+                case 3:
+                    exprNode3 = n;
+                    break;
             }
             exprCount++;
-            if (exprCount > 3) break;
+            if (exprCount > 3)
+                break;
         }
 
         string? varName = null;
@@ -1654,8 +1979,8 @@ internal sealed class AssemblyExpander
 
         var evaluator = new ExpressionEvaluator(_symbols, _diagnostics, () => 0, 0, _charMaps);
         long start = exprNode1 != null ? evaluator.TryEvaluate(exprNode1.Green) ?? 0 : 0;
-        long stop  = exprNode2 != null ? evaluator.TryEvaluate(exprNode2.Green) ?? 0 : 0;
-        long step  = exprNode3 != null ? evaluator.TryEvaluate(exprNode3.Green) ?? 1 : 1;
+        long stop = exprNode2 != null ? evaluator.TryEvaluate(exprNode2.Green) ?? 0 : 0;
+        long step = exprNode3 != null ? evaluator.TryEvaluate(exprNode3.Green) ?? 1 : 1;
 
         if (step == 0)
         {
@@ -1666,9 +1991,11 @@ internal sealed class AssemblyExpander
         // Warn if step direction doesn't match range direction (backwards step)
         if ((step > 0 && start > stop) || (step < 0 && start < stop))
         {
-            _diagnostics.Report(forNode.FullSpan,
+            _diagnostics.Report(
+                forNode.FullSpan,
                 "FOR has backwards step; no iterations will be performed",
-                Diagnostics.DiagnosticSeverity.Warning);
+                Diagnostics.DiagnosticSeverity.Warning
+            );
         }
 
         // Extract body text for classification and potential substitution
@@ -1690,8 +2017,7 @@ internal sealed class AssemblyExpander
             {
                 // Structural path: all variable references are IdentifierTokens.
                 // Emit synthetic REDEF nodes so Pass 2 evaluates the correct per-iteration value.
-                ExpandForStructural(forBodyNodes, varName, start, stop, step,
-                    forNode, output, ctx);
+                ExpandForStructural(forBodyNodes, varName, start, stop, step, forNode, output, ctx);
             }
             else
             {
@@ -1705,13 +2031,27 @@ internal sealed class AssemblyExpander
 
                     _uniqueIdCounter++;
                     var iterUniqueId = _uniqueIdCounter;
-                    var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
+                    var iterFrame = ExpansionFrame.ForFor(
+                        ctx.FilePath,
+                        forNode.FullSpan,
+                        varName,
+                        iterIndex
+                    );
                     var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
 
-                    var iterText = TextReplayService.SubstituteAtPositions(bodyTextRaw, positions, v.ToString());
+                    var iterText = TextReplayService.SubstituteAtPositions(
+                        bodyTextRaw,
+                        positions,
+                        v.ToString()
+                    );
                     iterText = TextReplayService.SubstituteUniqueId(iterText, iterUniqueId);
-                    var lc = ExpandTextInline(iterText, output, iterCtx, forNode.FullSpan,
-                        TextReplayReason.ForTokenShapingSubstitution);
+                    var lc = ExpandTextInline(
+                        iterText,
+                        output,
+                        iterCtx,
+                        forNode.FullSpan,
+                        TextReplayReason.ForTokenShapingSubstitution
+                    );
                     if (lc == LoopControl.Break)
                     {
                         _conditional.ResetToDepth(condDepthBefore);
@@ -1725,8 +2065,7 @@ internal sealed class AssemblyExpander
         else
         {
             // No variable name — structural replay is always safe (nothing to substitute)
-            ExpandForStructural(forBodyNodes, varName, start, stop, step,
-                forNode, output, ctx);
+            ExpandForStructural(forBodyNodes, varName, start, stop, step, forNode, output, ctx);
         }
     }
 
@@ -1739,8 +2078,13 @@ internal sealed class AssemblyExpander
     /// Used when REPT body contains no \@ (structural replay classification).
     /// Returns LoopControl.Break if BREAK was encountered.
     /// </summary>
-    private LoopControl ExpandReptStructural(List<SyntaxNodeOrToken> bodyNodes, int count,
-        SyntaxNode reptNode, List<ExpandedNode> output, ExpansionContext ctx)
+    private LoopControl ExpandReptStructural(
+        List<SyntaxNodeOrToken> bodyNodes,
+        int count,
+        SyntaxNode reptNode,
+        List<ExpandedNode> output,
+        ExpansionContext ctx
+    )
     {
         var condDepthBefore = _conditional.Depth;
         for (int iter = 0; iter < count; iter++)
@@ -1768,9 +2112,16 @@ internal sealed class AssemblyExpander
     /// REDEF node before each body so that the Binder's Pass 1 and Pass 2 both see the correct
     /// per-iteration value without re-parsing the body. No text substitution or per-body reparse.
     /// </summary>
-    private LoopControl ExpandForStructural(List<SyntaxNodeOrToken> bodyNodes,
-        string? varName, long start, long stop, long step,
-        SyntaxNode forNode, List<ExpandedNode> output, ExpansionContext ctx)
+    private LoopControl ExpandForStructural(
+        List<SyntaxNodeOrToken> bodyNodes,
+        string? varName,
+        long start,
+        long stop,
+        long step,
+        SyntaxNode forNode,
+        List<ExpandedNode> output,
+        ExpansionContext ctx
+    )
     {
         var condDepthBefore = _conditional.Depth;
         int iterIndex = 0;
@@ -1778,7 +2129,12 @@ internal sealed class AssemblyExpander
         {
             _uniqueIdCounter++;
             var iterUniqueId = _uniqueIdCounter;
-            var iterFrame = ExpansionFrame.ForFor(ctx.FilePath, forNode.FullSpan, varName, iterIndex);
+            var iterFrame = ExpansionFrame.ForFor(
+                ctx.FilePath,
+                forNode.FullSpan,
+                varName,
+                iterIndex
+            );
             var iterCtx = ctx.ForLoop(iterFrame, iterUniqueId);
 
             if (varName != null)
@@ -1787,8 +2143,16 @@ internal sealed class AssemblyExpander
                 // Emit a synthetic REDEF node so Pass 1 and Pass 2 re-evaluate the symbol.
                 // Uses iterCtx.Trace (the iteration context), not ctx.Trace.
                 var synthNode = BuildSyntheticRedef(varName, v);
-                output.Add(new ExpandedNode(synthNode, iterCtx.FilePath, ComputeLine(iterCtx, synthNode),
-                    _conditional.Depth > 0, iterCtx.MacroBodyDepth > 0, iterCtx.Trace));
+                output.Add(
+                    new ExpandedNode(
+                        synthNode,
+                        iterCtx.FilePath,
+                        ComputeLine(iterCtx, synthNode),
+                        _conditional.Depth > 0,
+                        iterCtx.MacroBodyDepth > 0,
+                        iterCtx.Trace
+                    )
+                );
             }
 
             int j = 0;
@@ -1815,16 +2179,27 @@ internal sealed class AssemblyExpander
     /// </summary>
     private static SyntaxNode BuildSyntheticRedef(string varName, long value)
     {
-        var redefToken = new GreenToken(SyntaxKind.RedefKeyword, "REDEF",
-            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]);
-        var nameToken = new GreenToken(SyntaxKind.IdentifierToken, varName,
-            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]);
-        var equToken = new GreenToken(SyntaxKind.EquKeyword, "EQU",
-            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]);
+        var redefToken = new GreenToken(
+            SyntaxKind.RedefKeyword,
+            "REDEF",
+            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]
+        );
+        var nameToken = new GreenToken(
+            SyntaxKind.IdentifierToken,
+            varName,
+            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]
+        );
+        var equToken = new GreenToken(
+            SyntaxKind.EquKeyword,
+            "EQU",
+            trailingTrivia: [new GreenTrivia(SyntaxKind.WhitespaceTrivia, " ")]
+        );
         var valueToken = new GreenToken(SyntaxKind.NumberLiteral, value.ToString());
         var valueExpr = new GreenNode(SyntaxKind.LiteralExpression, [valueToken]);
-        var directive = new GreenNode(SyntaxKind.SymbolDirective,
-            [redefToken, nameToken, equToken, valueExpr]);
+        var directive = new GreenNode(
+            SyntaxKind.SymbolDirective,
+            [redefToken, nameToken, equToken, valueExpr]
+        );
         return new SyntaxNode(directive, null, 0);
     }
 
@@ -1848,9 +2223,14 @@ internal sealed class AssemblyExpander
     /// <summary>
     /// Parse and expand text inline (used for macro/REPT/FOR text-level expansion).
     /// </summary>
-    private LoopControl ExpandTextInline(string text, List<ExpandedNode> output,
-        ExpansionContext ctx, TextSpan triggerSpan, TextReplayReason reason,
-        bool skipInterpolation = false)
+    private LoopControl ExpandTextInline(
+        string text,
+        List<ExpandedNode> output,
+        ExpansionContext ctx,
+        TextSpan triggerSpan,
+        TextReplayReason reason,
+        bool skipInterpolation = false
+    )
     {
         // Resolve {symbol} interpolations before re-parsing, but ONLY if there are no
         // unresolved macro parameter references (\1..\9, \#) in the text. When macro params
@@ -1860,8 +2240,15 @@ internal sealed class AssemblyExpander
         // substituted via the ContainsMacroParam path.
         bool hasMacroParams = TextReplayService.ContainsUnresolvedMacroParam(text);
 
-        var tree = _textReplay.ParseForReplay(text, hasMacroParams, ctx, triggerSpan, reason, MaxReplayDepth,
-            skipInterpolation);
+        var tree = _textReplay.ParseForReplay(
+            text,
+            hasMacroParams,
+            ctx,
+            triggerSpan,
+            reason,
+            MaxReplayDepth,
+            skipInterpolation
+        );
         if (tree == null)
             return LoopControl.Continue;
 
@@ -1888,8 +2275,10 @@ internal sealed class AssemblyExpander
                 if (n.Kind == SyntaxKind.MacroDefinition)
                 {
                     var kw = n.ChildTokens().FirstOrDefault();
-                    if (kw?.Kind == SyntaxKind.MacroKeyword) depth++;
-                    else if (kw?.Kind == SyntaxKind.EndmKeyword) depth--;
+                    if (kw?.Kind == SyntaxKind.MacroKeyword)
+                        depth++;
+                    else if (kw?.Kind == SyntaxKind.EndmKeyword)
+                        depth--;
                 }
             }
             i++;
@@ -1911,8 +2300,10 @@ internal sealed class AssemblyExpander
                     if (n.Kind == SyntaxKind.RepeatDirective)
                     {
                         var k = n.ChildTokens().FirstOrDefault();
-                        if (k?.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword) depth++;
-                        else if (k?.Kind == SyntaxKind.EndrKeyword) depth--;
+                        if (k?.Kind is SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword)
+                            depth++;
+                        else if (k?.Kind == SyntaxKind.EndrKeyword)
+                            depth--;
                     }
                 }
                 i++;
@@ -1936,8 +2327,10 @@ internal sealed class AssemblyExpander
         {
             if (tok.Kind == SyntaxKind.MacroParamToken)
                 return true;
-            if (tok.Kind == SyntaxKind.IdentifierToken &&
-                tok.Text.Equals("_NARG", StringComparison.OrdinalIgnoreCase))
+            if (
+                tok.Kind == SyntaxKind.IdentifierToken
+                && tok.Text.Equals("_NARG", StringComparison.OrdinalIgnoreCase)
+            )
                 return true;
             // \1..\9, \#, _NARG may also appear literally inside a string literal token
             // (e.g. PRINTLN "\1s!" — the lexer embeds \1 in the StringLiteral text).
@@ -1960,15 +2353,20 @@ internal sealed class AssemblyExpander
     /// </summary>
     private static bool StringLiteralContainsMacroParam(string tokenText)
     {
-        if (!tokenText.Contains('\\') && !tokenText.Contains("_NARG", StringComparison.OrdinalIgnoreCase))
+        if (
+            !tokenText.Contains('\\')
+            && !tokenText.Contains("_NARG", StringComparison.OrdinalIgnoreCase)
+        )
             return false;
         for (int i = 0; i < tokenText.Length - 1; i++)
         {
             if (tokenText[i] == '\\')
             {
                 char next = tokenText[i + 1];
-                if (next >= '1' && next <= '9') return true;
-                if (next == '#') return true;
+                if (next >= '1' && next <= '9')
+                    return true;
+                if (next == '#')
+                    return true;
             }
         }
         return tokenText.IndexOf("_NARG", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -1979,9 +2377,14 @@ internal sealed class AssemblyExpander
     /// Used for lazy resolution when SHIFT is active.
     /// Reports an error if \N references an arg that has been shifted past.
     /// </summary>
-    private string ResolveMacroParamsInText(string text, MacroFrame frame)
-        => _textReplay.SubstituteParamReferences(text, frame, reportShiftedPast: true,
-            _symbols, _expressionCache);
+    private string ResolveMacroParamsInText(string text, MacroFrame frame) =>
+        _textReplay.SubstituteParamReferences(
+            text,
+            frame,
+            reportShiftedPast: true,
+            _symbols,
+            _expressionCache
+        );
 
     /// <summary>
     /// Recursively find the text of the first token with the given kind in the subtree.
@@ -1994,9 +2397,11 @@ internal sealed class AssemblyExpander
         for (int i = 0; i < green.ChildCount; i++)
         {
             var child = green.GetChild(i);
-            if (child == null) continue;
+            if (child == null)
+                continue;
             var found = FindTokenInSubtree(child, kind);
-            if (found != null) return found;
+            if (found != null)
+                return found;
         }
         return null;
     }
@@ -2005,17 +2410,23 @@ internal sealed class AssemblyExpander
     {
         if (green is GreenToken tok)
         {
-            if (tok.Kind == SyntaxKind.MacroParamToken && tok.Text.Length == 2
-                && tok.Text[1] >= '1' && tok.Text[1] <= '9')
+            if (
+                tok.Kind == SyntaxKind.MacroParamToken
+                && tok.Text.Length == 2
+                && tok.Text[1] >= '1'
+                && tok.Text[1] <= '9'
+            )
                 return tok.Text;
             return null;
         }
         for (int i = 0; i < green.ChildCount; i++)
         {
             var child = green.GetChild(i);
-            if (child == null) continue;
+            if (child == null)
+                continue;
             var found = FindMacroParamToken(child);
-            if (found != null) return found;
+            if (found != null)
+                return found;
         }
         return null;
     }
@@ -2032,7 +2443,8 @@ internal sealed class AssemblyExpander
         for (int i = 0; i < green.ChildCount; i++)
         {
             var child = green.GetChild(i);
-            if (child != null && ContainsCharLiteral(child)) return true;
+            if (child != null && ContainsCharLiteral(child))
+                return true;
         }
         return false;
     }
@@ -2047,9 +2459,9 @@ internal sealed class AssemblyExpander
         foreach (var _ in node.ChildTokens())
         {
             count++;
-            if (count > threshold) return true;
+            if (count > threshold)
+                return true;
         }
         return false;
     }
-
 }

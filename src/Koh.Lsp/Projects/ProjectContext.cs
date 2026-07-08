@@ -44,7 +44,8 @@ internal sealed class ProjectContext
         string name,
         string entrypointPath,
         IReadOnlySet<string> reachableFiles,
-        Compilation compilation)
+        Compilation compilation
+    )
     {
         Id = Guid.NewGuid();
         Name = name;

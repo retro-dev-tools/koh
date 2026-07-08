@@ -40,7 +40,11 @@ public sealed class Binder
     private readonly Stack<int> _optStack = new();
     private readonly HashSet<string> _declaredSections = new(StringComparer.OrdinalIgnoreCase);
 
-    public Binder(BinderOptions options = default, ISourceFileResolver? fileResolver = null, TextWriter? printOutput = null)
+    public Binder(
+        BinderOptions options = default,
+        ISourceFileResolver? fileResolver = null,
+        TextWriter? printOutput = null
+    )
     {
         _options = options;
         _symbols = new SymbolTable(_diagnostics);
@@ -82,8 +86,14 @@ public sealed class Binder
             _diagnostics.Report(d.Span, d.Message, d.Severity);
 
         // Pre-pass: expand macros, REPT/FOR, IF/ELIF/ELSE/ENDC, INCLUDE into flat list
-        _expander = new AssemblyExpander(_diagnostics, _symbols, _fileResolver, _charMaps, _printOutput,
-            _ownerContext);
+        _expander = new AssemblyExpander(
+            _diagnostics,
+            _symbols,
+            _fileResolver,
+            _charMaps,
+            _printOutput,
+            _ownerContext
+        );
         var nodes = _expander.Expand(tree);
 
         // Pass 1: symbol collection and PC tracking
@@ -103,7 +113,8 @@ public sealed class Binder
         // Wire up section name resolver for {SECTION(@)} in PRINTLN interpolation
         _expander.SectionNameResolver = arg =>
         {
-            if (arg == "@") return _sections.ActiveSection?.Name;
+            if (arg == "@")
+                return _sections.ActiveSection?.Name;
             var sym = _symbols.Lookup(arg, _ownerContext);
             return sym?.Section;
         };
@@ -115,7 +126,8 @@ public sealed class Binder
             // (pre-pass synthetic writes, etc.) are simply not mapped.
             _sections.ActiveSection?.SetSourceLocation(
                 en.SourceLine == 0 ? null : en.SourceFilePath,
-                en.SourceLine);
+                en.SourceLine
+            );
             Pass2Node(en);
         }
 
@@ -127,18 +139,21 @@ public sealed class Binder
                 _diagnostics.Report(default, $"Undefined symbol '{sym.Name}'");
         }
 
-        return new BindingResult(_sections.AllSections, _symbols, _diagnostics.ToList(),
-            _expander.MacroArities);
+        return new BindingResult(
+            _sections.AllSections,
+            _symbols,
+            _diagnostics.ToList(),
+            _expander.MacroArities
+        );
     }
 
-    public EmitModel BindToEmitModel(SyntaxTree tree) =>
-        EmitModel.FromBindingResult(Bind(tree));
+    public EmitModel BindToEmitModel(SyntaxTree tree) => EmitModel.FromBindingResult(Bind(tree));
 
     /// <summary>
     /// Create an ExpressionEvaluator with all resolvers wired up.
     /// </summary>
-    private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC)
-        => CreateEvaluator(getCurrentPC, null);
+    private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC) =>
+        CreateEvaluator(getCurrentPC, null);
 
     /// <summary>
     /// Create an ExpressionEvaluator with all resolvers wired up, with section context for
@@ -146,18 +161,31 @@ public sealed class Binder
     /// </summary>
     private ExpressionEvaluator CreateEvaluator(Func<int> getCurrentPC, SectionBuffer? section)
     {
-        var eval = new ExpressionEvaluator(_symbols, _diagnostics, getCurrentPC, _fracBits,
-            _charMaps, _expander != null ? _expander.ResolveInterpolations : null,
-            section?.Name, section?.BaseAddress ?? 0,
-            currentSectionIsFloating: section != null && section.FixedAddress == null)
+        var eval = new ExpressionEvaluator(
+            _symbols,
+            _diagnostics,
+            getCurrentPC,
+            _fracBits,
+            _charMaps,
+            _expander != null ? _expander.ResolveInterpolations : null,
+            section?.Name,
+            section?.BaseAddress ?? 0,
+            currentSectionIsFloating: section != null && section.FixedAddress == null
+        )
         {
             FracBits = _fracBits,
             EqusResolver = name => _expander?.LookupEqus(name),
             CharlenResolver = s => _charMaps.CharLen(s),
             IncharmapResolver = s => _charMaps.InCharMap(s),
-            ReadfileResolver = _expander != null
-                ? (path, limit) => _expander.ResolveReadfile(path, limit, _diagnostics.CurrentFilePath ?? string.Empty)
-                : null,
+            ReadfileResolver =
+                _expander != null
+                    ? (path, limit) =>
+                        _expander.ResolveReadfile(
+                            path,
+                            limit,
+                            _diagnostics.CurrentFilePath ?? string.Empty
+                        )
+                    : null,
         };
         return eval;
     }
@@ -205,7 +233,8 @@ public sealed class Binder
     private void Pass1Directive(SyntaxNode node, SectionPCTracker pc)
     {
         var kw = node.ChildTokens().FirstOrDefault();
-        if (kw == null) return;
+        if (kw == null)
+            return;
 
         switch (kw.Kind)
         {
@@ -227,7 +256,10 @@ public sealed class Binder
                 pc.EndUnion();
                 break;
             case SyntaxKind.LoadKeyword:
-                _savedGlobalAnchorBeforeLoadPass1 = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "", _ownerContext);
+                _savedGlobalAnchorBeforeLoadPass1 = _symbols.Lookup(
+                    _symbols.CurrentGlobalAnchorName ?? "",
+                    _ownerContext
+                );
                 Pass1Load(node, pc);
                 break;
             case SyntaxKind.EndlKeyword:
@@ -248,10 +280,12 @@ public sealed class Binder
     private void Pass1Align(SyntaxNode node, SectionPCTracker pc)
     {
         var exprNodes = node.ChildNodes().ToList();
-        if (exprNodes.Count == 0) return;
+        if (exprNodes.Count == 0)
+            return;
         var evaluator = CreateEvaluator(() => pc.CurrentPC);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
-        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
+        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
+            return;
 
         int bits = (int)alignBits.Value;
         pc.SetAlignBits(bits);
@@ -278,7 +312,9 @@ public sealed class Binder
     /// Extract section-like properties (name, type, fixed address) from a directive node's tokens.
     /// Used by LOAD, PUSHS-with-inline-section, and similar directives.
     /// </summary>
-    private static (string? Name, SectionType Type, int? FixedAddr) ParseSectionTokens(SyntaxNode node)
+    private static (string? Name, SectionType Type, int? FixedAddr) ParseSectionTokens(
+        SyntaxNode node
+    )
     {
         var tokens = node.ChildTokens().ToList();
         string? name = null;
@@ -291,21 +327,23 @@ public sealed class Binder
                 name = StripQuotes(tokens[i].Text);
             var mapped = tokens[i].Kind switch
             {
-                SyntaxKind.Rom0Keyword  => SectionType.Rom0,
-                SyntaxKind.RomxKeyword  => SectionType.RomX,
+                SyntaxKind.Rom0Keyword => SectionType.Rom0,
+                SyntaxKind.RomxKeyword => SectionType.RomX,
                 SyntaxKind.Wram0Keyword => SectionType.Wram0,
                 SyntaxKind.WramxKeyword => SectionType.WramX,
-                SyntaxKind.HramKeyword  => SectionType.Hram,
-                SyntaxKind.SramKeyword  => SectionType.Sram,
-                SyntaxKind.VramKeyword  => SectionType.Vram,
-                SyntaxKind.OamKeyword   => SectionType.Oam,
+                SyntaxKind.HramKeyword => SectionType.Hram,
+                SyntaxKind.SramKeyword => SectionType.Sram,
+                SyntaxKind.VramKeyword => SectionType.Vram,
+                SyntaxKind.OamKeyword => SectionType.Oam,
                 _ => (SectionType?)null,
             };
-            if (mapped.HasValue) type = mapped.Value;
+            if (mapped.HasValue)
+                type = mapped.Value;
             if (tokens[i].Kind == SyntaxKind.OpenBracketToken && i + 1 < tokens.Count)
             {
                 var addrVal = ExpressionEvaluator.ParseNumber(tokens[i + 1].Text);
-                if (addrVal.HasValue) fixedAddr = (int)addrVal.Value;
+                if (addrVal.HasValue)
+                    fixedAddr = (int)addrVal.Value;
             }
         }
 
@@ -333,7 +371,8 @@ public sealed class Binder
     private void Pass2Label(SyntaxNode node)
     {
         var first = node.ChildTokens().FirstOrDefault();
-        if (first == null) return;
+        if (first == null)
+            return;
 
         // Anonymous label: advance the anonymous label index
         if (first.Kind == SyntaxKind.ColonToken)
@@ -354,7 +393,8 @@ public sealed class Binder
     private void Pass1Label(SyntaxNode node, SectionPCTracker pc, bool fromMacroBody = false)
     {
         var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
+        if (tokens.Count == 0)
+            return;
 
         // Anonymous label: bare colon (the parser produces a LabelDeclaration with just ColonToken)
         if (tokens[0].Kind == SyntaxKind.ColonToken && tokens.Count == 1)
@@ -376,7 +416,10 @@ public sealed class Binder
         // macro bodies (RGBDS allows .local\@: in macros as a uniqueness idiom).
         if (name.StartsWith('.') && !_symbols.HasGlobalAnchor && !fromMacroBody)
         {
-            _diagnostics.Report(node.FullSpan, $"Local label '{name}' declared without a preceding global label");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Local label '{name}' declared without a preceding global label"
+            );
             return;
         }
 
@@ -388,9 +431,20 @@ public sealed class Binder
 
     private void Pass1Section(SyntaxNode node, SectionPCTracker pc)
     {
-        if (!SectionHeaderParser.TryParse(node, _diagnostics,
-                out var name, out var type, out var fixedAddress, out _,
-                out var isUnion, out _, out _, out _))
+        if (
+            !SectionHeaderParser.TryParse(
+                node,
+                _diagnostics,
+                out var name,
+                out var type,
+                out var fixedAddress,
+                out _,
+                out var isUnion,
+                out _,
+                out _,
+                out _
+            )
+        )
             return;
         pc.SetActive(name!, fixedAddress ?? 0, type);
         if (isUnion)
@@ -443,7 +497,8 @@ public sealed class Binder
                     else
                         byteCount += 2;
                 }
-                if (byteCount == 0) byteCount = 2; // empty DW still reserves 2 bytes
+                if (byteCount == 0)
+                    byteCount = 2; // empty DW still reserves 2 bytes
                 pc.Advance(byteCount);
                 pc.AdvanceLoad(byteCount);
                 CheckSectionOverflow(node, pc);
@@ -460,7 +515,8 @@ public sealed class Binder
             case SyntaxKind.DsKeyword:
             {
                 // DS ALIGN[n] / DS ALIGN[n, offset] — alignment padding
-                var alignToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.AlignKeyword);
+                var alignToken = node.ChildTokens()
+                    .FirstOrDefault(t => t.Kind == SyntaxKind.AlignKeyword);
                 if (alignToken != null)
                 {
                     Pass1DsAlign(node, pc);
@@ -487,21 +543,26 @@ public sealed class Binder
     private void CheckSectionOverflow(SyntaxNode node, SectionPCTracker pc)
     {
         var type = pc.ActiveSectionType;
-        if (type == null) return;
+        if (type == null)
+            return;
         int maxSize = SectionPCTracker.MaxSizeForType(type.Value);
         int offset = pc.ActiveSectionOffset;
         if (offset > maxSize)
-            _diagnostics.Report(node.FullSpan,
-                $"Section '{pc.ActiveSectionName}' overflows: ${offset:X4} bytes exceeds {type.Value} maximum of ${maxSize:X4} bytes");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Section '{pc.ActiveSectionName}' overflows: ${offset:X4} bytes exceeds {type.Value} maximum of ${maxSize:X4} bytes"
+            );
     }
 
     private void Pass1DsAlign(SyntaxNode node, SectionPCTracker pc)
     {
         var exprNodes = node.ChildNodes().ToList();
-        if (exprNodes.Count == 0) return;
+        if (exprNodes.Count == 0)
+            return;
         var evaluator = CreateEvaluator(() => pc.CurrentPC);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
-        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
+        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
+            return;
 
         // For floating sections, use effective alignment = min(section_align, requested)
         int bits = (int)alignBits.Value;
@@ -526,10 +587,12 @@ public sealed class Binder
     private void Pass1Incbin(SyntaxNode node, string sourceFilePath, SectionPCTracker pc)
     {
         var kw = node.ChildTokens().FirstOrDefault();
-        if (kw?.Kind != SyntaxKind.IncbinKeyword) return;
+        if (kw?.Kind != SyntaxKind.IncbinKeyword)
+            return;
 
         var strToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
-        if (strToken == null) return;
+        if (strToken == null)
+            return;
 
         var filePath = strToken.Text.Length >= 2 ? strToken.Text[1..^1] : strToken.Text;
         var resolved = _fileResolver.ResolvePath(sourceFilePath, filePath);
@@ -544,8 +607,10 @@ public sealed class Binder
             }
             catch (IOException ex)
             {
-                _diagnostics.Report(node.FullSpan,
-                    $"Cannot read INCBIN file '{filePath}': {ex.Message}");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"Cannot read INCBIN file '{filePath}': {ex.Message}"
+                );
                 // PC not advanced — consistent with Pass 2 which won't emit bytes either
             }
         }
@@ -559,7 +624,8 @@ public sealed class Binder
     private void Pass1SymbolDirective(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
+        if (tokens.Count == 0)
+            return;
 
         // Replay charmap directives so Pass 1 PC tracking sees correct charmap
         // state for db string encoding (byte count depends on charmap).
@@ -583,7 +649,8 @@ public sealed class Binder
                 return;
         }
 
-        if (tokens.Count < 2) return;
+        if (tokens.Count < 2)
+            return;
 
         // EXPORT: promote symbol to exported namespace with validation
         if (tokens[0].Kind == SyntaxKind.ExportKeyword)
@@ -601,9 +668,12 @@ public sealed class Binder
         if (tokens[0].Kind == SyntaxKind.RedefKeyword)
             nameIdx = 1;
 
-        if (nameIdx < tokens.Count && tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
-            nameIdx + 1 < tokens.Count &&
-            tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        if (
+            nameIdx < tokens.Count
+            && tokens[nameIdx].Kind == SyntaxKind.IdentifierToken
+            && nameIdx + 1 < tokens.Count
+            && tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken
+        )
         {
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
@@ -664,7 +734,8 @@ public sealed class Binder
     private void Pass2SymbolDirective(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
+        if (tokens.Count == 0)
+            return;
 
         // Replay charmap directives in Pass 2 so that db string encoding sees
         // the correct charmap state. The expander processes these in Pass 0, but
@@ -692,15 +763,19 @@ public sealed class Binder
                 return;
         }
 
-        if (tokens.Count < 2) return;
+        if (tokens.Count < 2)
+            return;
 
         int nameIdx = 0;
         if (tokens[0].Kind == SyntaxKind.RedefKeyword)
             nameIdx = 1;
 
-        if (nameIdx < tokens.Count && tokens[nameIdx].Kind == SyntaxKind.IdentifierToken &&
-            nameIdx + 1 < tokens.Count &&
-            tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken)
+        if (
+            nameIdx < tokens.Count
+            && tokens[nameIdx].Kind == SyntaxKind.IdentifierToken
+            && nameIdx + 1 < tokens.Count
+            && tokens[nameIdx + 1].Kind is SyntaxKind.EquKeyword or SyntaxKind.EqualsToken
+        )
         {
             var exprNodes = node.ChildNodes().ToList();
             if (exprNodes.Count > 0)
@@ -716,7 +791,8 @@ public sealed class Binder
     private void Pass2Incbin(SyntaxNode node, string sourceFilePath)
     {
         var kw = node.ChildTokens().FirstOrDefault();
-        if (kw?.Kind != SyntaxKind.IncbinKeyword) return;
+        if (kw?.Kind != SyntaxKind.IncbinKeyword)
+            return;
 
         var section = _sections.ActiveSection;
         if (section == null)
@@ -756,19 +832,30 @@ public sealed class Binder
             bool pastString = false;
             for (int ti = 0; ti < allTokens.Count; ti++)
             {
-                if (allTokens[ti].Kind == SyntaxKind.StringLiteral) { pastString = true; continue; }
-                if (!pastString) continue;
-                if (allTokens[ti].Kind == SyntaxKind.CommaToken) continue;
+                if (allTokens[ti].Kind == SyntaxKind.StringLiteral)
+                {
+                    pastString = true;
+                    continue;
+                }
+                if (!pastString)
+                    continue;
+                if (allTokens[ti].Kind == SyntaxKind.CommaToken)
+                    continue;
                 if (allTokens[ti].Kind == SyntaxKind.NumberLiteral)
                 {
                     var v = ExpressionEvaluator.ParseNumber(allTokens[ti].Text);
-                    if (v.HasValue) numTokens.Add(v.Value);
+                    if (v.HasValue)
+                        numTokens.Add(v.Value);
                 }
-                else if (allTokens[ti].Kind == SyntaxKind.MinusToken && ti + 1 < allTokens.Count
-                    && allTokens[ti + 1].Kind == SyntaxKind.NumberLiteral)
+                else if (
+                    allTokens[ti].Kind == SyntaxKind.MinusToken
+                    && ti + 1 < allTokens.Count
+                    && allTokens[ti + 1].Kind == SyntaxKind.NumberLiteral
+                )
                 {
                     var v = ExpressionEvaluator.ParseNumber(allTokens[ti + 1].Text);
-                    if (v.HasValue) numTokens.Add(-v.Value);
+                    if (v.HasValue)
+                        numTokens.Add(-v.Value);
                     ti++; // skip number
                 }
             }
@@ -779,27 +866,39 @@ public sealed class Binder
                 foreach (var en in exprNodes)
                 {
                     var val = evaluator.TryEvaluate(en.Green);
-                    if (val.HasValue) numTokens.Add(val.Value);
+                    if (val.HasValue)
+                        numTokens.Add(val.Value);
                 }
             }
-            if (numTokens.Count >= 1) startOffset = (int)numTokens[0];
-            if (numTokens.Count >= 2) length = (int)numTokens[1];
+            if (numTokens.Count >= 1)
+                startOffset = (int)numTokens[0];
+            if (numTokens.Count >= 2)
+                length = (int)numTokens[1];
 
             // Validate INCBIN ranges
             if (startOffset < 0)
             {
-                _diagnostics.Report(node.FullSpan, $"INCBIN start offset {startOffset} is negative");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"INCBIN start offset {startOffset} is negative"
+                );
                 return;
             }
             if (startOffset > bytes.Length)
             {
-                _diagnostics.Report(node.FullSpan, $"INCBIN start offset {startOffset} exceeds file size {bytes.Length}");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"INCBIN start offset {startOffset} exceeds file size {bytes.Length}"
+                );
                 return;
             }
             int actualLength = length ?? (bytes.Length - startOffset);
             if (startOffset + actualLength > bytes.Length)
             {
-                _diagnostics.Report(node.FullSpan, $"INCBIN range ({startOffset}+{actualLength}) exceeds file size {bytes.Length}");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"INCBIN range ({startOffset}+{actualLength}) exceeds file size {bytes.Length}"
+                );
                 return;
             }
 
@@ -808,7 +907,10 @@ public sealed class Binder
         }
         catch (IOException ex)
         {
-            _diagnostics.Report(node.FullSpan, $"Cannot read INCBIN file '{filePath}': {ex.Message}");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Cannot read INCBIN file '{filePath}': {ex.Message}"
+            );
         }
     }
 
@@ -823,25 +925,50 @@ public sealed class Binder
         // remains active and will be continued after the matching POPS.
         if (_sections.IsInLoad && !_sections.IsInPushsContext)
         {
-            _diagnostics.Report(node.FullSpan,
+            _diagnostics.Report(
+                node.FullSpan,
                 "Unterminated LOAD block: SECTION implicitly ends LOAD",
-                Diagnostics.DiagnosticSeverity.Warning);
+                Diagnostics.DiagnosticSeverity.Warning
+            );
             _sections.EndLoad();
         }
 
-        if (!SectionHeaderParser.TryParse(node, _diagnostics,
-                out var name, out var sectionType, out var fixedAddress, out var bank,
-                out var isUnion, out var isFragment,
-                out var sectionAlignBits, out var sectionAlignOffset))
+        if (
+            !SectionHeaderParser.TryParse(
+                node,
+                _diagnostics,
+                out var name,
+                out var sectionType,
+                out var fixedAddress,
+                out var bank,
+                out var isUnion,
+                out var isFragment,
+                out var sectionAlignBits,
+                out var sectionAlignOffset
+            )
+        )
             return;
 
         // Validate alignment parameters from the SECTION header
-        ValidateSectionConstraints(node, name!, sectionType, fixedAddress, bank, isUnion, isFragment, sectionAlignBits, sectionAlignOffset);
+        ValidateSectionConstraints(
+            node,
+            name!,
+            sectionType,
+            fixedAddress,
+            bank,
+            isUnion,
+            isFragment,
+            sectionAlignBits,
+            sectionAlignOffset
+        );
 
         // Cannot reopen a section that is currently suspended on the PUSHS stack
         if (_sections.IsSectionOnStack(name!))
         {
-            _diagnostics.Report(node.FullSpan, $"Section '{name}' is currently on the PUSHS stack and cannot be reopened");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Section '{name}' is currently on the PUSHS stack and cannot be reopened"
+            );
             return;
         }
 
@@ -864,9 +991,17 @@ public sealed class Binder
             _sections.BeginUnion();
     }
 
-    private void ValidateSectionConstraints(SyntaxNode node, string name, SectionType sectionType,
-        int? fixedAddress, int? bank, bool isUnion, bool isFragment,
-        int? sectionAlignBits = null, int? sectionAlignOffset = null)
+    private void ValidateSectionConstraints(
+        SyntaxNode node,
+        string name,
+        SectionType sectionType,
+        int? fixedAddress,
+        int? bank,
+        bool isUnion,
+        bool isFragment,
+        int? sectionAlignBits = null,
+        int? sectionAlignOffset = null
+    )
     {
         // Validate fixed address range
         if (fixedAddress.HasValue)
@@ -874,8 +1009,10 @@ public sealed class Binder
             var (lo, hi) = GetSectionAddressRange(sectionType);
             if (fixedAddress.Value < lo || fixedAddress.Value > hi)
             {
-                _diagnostics.Report(node.FullSpan,
-                    $"Fixed address ${fixedAddress.Value:X4} is outside the range for {sectionType} (${lo:X4}-${hi:X4})");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"Fixed address ${fixedAddress.Value:X4} is outside the range for {sectionType} (${lo:X4}-${hi:X4})"
+                );
             }
         }
 
@@ -888,28 +1025,38 @@ public sealed class Binder
                 case SectionType.Wram0:
                 case SectionType.Hram:
                 case SectionType.Oam:
-                    _diagnostics.Report(node.FullSpan,
-                        $"{sectionType} does not support BANK clause");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"{sectionType} does not support BANK clause"
+                    );
                     break;
                 case SectionType.Vram:
                     if (bank.Value < 0 || bank.Value > 1)
-                        _diagnostics.Report(node.FullSpan,
-                            $"VRAM bank must be 0 or 1, got {bank.Value}");
+                        _diagnostics.Report(
+                            node.FullSpan,
+                            $"VRAM bank must be 0 or 1, got {bank.Value}"
+                        );
                     break;
                 case SectionType.WramX:
                     if (bank.Value < 1 || bank.Value > 7)
-                        _diagnostics.Report(node.FullSpan,
-                            $"WRAMX bank must be 1-7, got {bank.Value}");
+                        _diagnostics.Report(
+                            node.FullSpan,
+                            $"WRAMX bank must be 1-7, got {bank.Value}"
+                        );
                     break;
                 case SectionType.Sram:
                     if (bank.Value < 0 || bank.Value > 15)
-                        _diagnostics.Report(node.FullSpan,
-                            $"SRAM bank must be 0-15, got {bank.Value}");
+                        _diagnostics.Report(
+                            node.FullSpan,
+                            $"SRAM bank must be 0-15, got {bank.Value}"
+                        );
                     break;
                 case SectionType.RomX:
                     if (bank.Value < 1 || bank.Value > 511)
-                        _diagnostics.Report(node.FullSpan,
-                            $"ROMX bank must be 1-511, got {bank.Value}");
+                        _diagnostics.Report(
+                            node.FullSpan,
+                            $"ROMX bank must be 1-511, got {bank.Value}"
+                        );
                     break;
             }
         }
@@ -919,8 +1066,10 @@ public sealed class Binder
         {
             if (sectionAlignBits.Value < 0 || sectionAlignBits.Value > 16)
             {
-                _diagnostics.Report(node.FullSpan,
-                    $"ALIGN value must be 0-16, got {sectionAlignBits.Value}");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"ALIGN value must be 0-16, got {sectionAlignBits.Value}"
+                );
             }
             else
             {
@@ -928,16 +1077,20 @@ public sealed class Binder
                 int alignOffset = sectionAlignOffset ?? 0;
                 if (alignOffset < 0 || alignOffset >= boundary)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"ALIGN offset must be 0-{boundary - 1} for alignment {sectionAlignBits.Value}, got {alignOffset}");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"ALIGN offset must be 0-{boundary - 1} for alignment {sectionAlignBits.Value}, got {alignOffset}"
+                    );
                 }
                 else if (fixedAddress.HasValue)
                 {
                     // Check fixed address is compatible with requested alignment
                     if ((fixedAddress.Value % boundary) != alignOffset)
                     {
-                        _diagnostics.Report(node.FullSpan,
-                            $"Fixed address ${fixedAddress.Value:X4} is incompatible with ALIGN[{sectionAlignBits.Value}, {alignOffset}] (${fixedAddress.Value:X4} % {boundary} = {fixedAddress.Value % boundary}, expected {alignOffset})");
+                        _diagnostics.Report(
+                            node.FullSpan,
+                            $"Fixed address ${fixedAddress.Value:X4} is incompatible with ALIGN[{sectionAlignBits.Value}, {alignOffset}] (${fixedAddress.Value:X4} % {boundary} = {fixedAddress.Value % boundary}, expected {alignOffset})"
+                        );
                     }
                 }
             }
@@ -955,8 +1108,7 @@ public sealed class Binder
                 var existing = _sections.AllSections[name];
                 if (_sections.ActiveSection == existing)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"Section '{name}' already defined");
+                    _diagnostics.Report(node.FullSpan, $"Section '{name}' already defined");
                 }
             }
             _declaredSections.Add(name);
@@ -967,19 +1119,26 @@ public sealed class Binder
         {
             if (sectionType is SectionType.Rom0 or SectionType.RomX)
             {
-                _diagnostics.Report(node.FullSpan,
-                    "UNION sections cannot be ROM type — use WRAM0, WRAMX, HRAM, SRAM, or VRAM");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    "UNION sections cannot be ROM type — use WRAM0, WRAMX, HRAM, SRAM, or VRAM"
+                );
             }
         }
 
         // Validate fragment constraints are consistent
         if (isFragment && _sections.AllSections.TryGetValue(name, out var existingFrag))
         {
-            if (fixedAddress.HasValue && existingFrag.FixedAddress.HasValue &&
-                fixedAddress.Value != existingFrag.FixedAddress.Value)
+            if (
+                fixedAddress.HasValue
+                && existingFrag.FixedAddress.HasValue
+                && fixedAddress.Value != existingFrag.FixedAddress.Value
+            )
             {
-                _diagnostics.Report(node.FullSpan,
-                    $"FRAGMENT '{name}' has conflicting fixed addresses: ${existingFrag.FixedAddress.Value:X4} vs ${fixedAddress.Value:X4}");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"FRAGMENT '{name}' has conflicting fixed addresses: ${existingFrag.FixedAddress.Value:X4} vs ${fixedAddress.Value:X4}"
+                );
             }
             // Check new alignment requirement against existing section's fixed address
             if (sectionAlignBits.HasValue && existingFrag.FixedAddress.HasValue)
@@ -988,20 +1147,28 @@ public sealed class Binder
                 int expectedOffset = sectionAlignOffset ?? 0;
                 if ((existingFrag.FixedAddress.Value % boundary) != expectedOffset)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"FRAGMENT '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with fixed address ${existingFrag.FixedAddress.Value:X4}");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"FRAGMENT '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with fixed address ${existingFrag.FixedAddress.Value:X4}"
+                    );
                 }
             }
             // Check fragment alignment compatibility: if both the existing fragment and the
             // new fragment have alignment requirements, verify the current offset is compatible.
             // Two ALIGN[8] fragments with a non-256-byte-aligned offset between them are incompatible.
-            if (sectionAlignBits.HasValue && existingFrag.AlignBits > 0 && existingFrag.CurrentOffset > 0)
+            if (
+                sectionAlignBits.HasValue
+                && existingFrag.AlignBits > 0
+                && existingFrag.CurrentOffset > 0
+            )
             {
                 int newBoundary = 1 << sectionAlignBits.Value;
                 if (existingFrag.CurrentOffset % newBoundary != (sectionAlignOffset ?? 0))
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"FRAGMENT '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with current fragment offset {existingFrag.CurrentOffset}");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"FRAGMENT '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with current fragment offset {existingFrag.CurrentOffset}"
+                    );
                 }
             }
             // Check new fixed address against existing section's alignment requirement
@@ -1011,8 +1178,10 @@ public sealed class Binder
                 int expectedOffset = existingFrag.AlignOffset;
                 if ((fixedAddress.Value % boundary) != expectedOffset)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"FRAGMENT '{name}' fixed address ${fixedAddress.Value:X4} is incompatible with existing alignment ALIGN[{existingFrag.AlignBits}]");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"FRAGMENT '{name}' fixed address ${fixedAddress.Value:X4} is incompatible with existing alignment ALIGN[{existingFrag.AlignBits}]"
+                    );
                 }
             }
         }
@@ -1020,11 +1189,16 @@ public sealed class Binder
         // Validate UNION constraints are consistent
         if (isUnion && _sections.AllSections.TryGetValue(name, out var existingUnion))
         {
-            if (fixedAddress.HasValue && existingUnion.FixedAddress.HasValue &&
-                fixedAddress.Value != existingUnion.FixedAddress.Value)
+            if (
+                fixedAddress.HasValue
+                && existingUnion.FixedAddress.HasValue
+                && fixedAddress.Value != existingUnion.FixedAddress.Value
+            )
             {
-                _diagnostics.Report(node.FullSpan,
-                    $"UNION '{name}' has conflicting fixed addresses: ${existingUnion.FixedAddress.Value:X4} vs ${fixedAddress.Value:X4}");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"UNION '{name}' has conflicting fixed addresses: ${existingUnion.FixedAddress.Value:X4} vs ${fixedAddress.Value:X4}"
+                );
             }
             // Check new alignment requirement against existing UNION's fixed address
             if (sectionAlignBits.HasValue && existingUnion.FixedAddress.HasValue)
@@ -1033,30 +1207,35 @@ public sealed class Binder
                 int expectedOffset = sectionAlignOffset ?? 0;
                 if ((existingUnion.FixedAddress.Value % boundary) != expectedOffset)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"UNION '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with fixed address ${existingUnion.FixedAddress.Value:X4}");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"UNION '{name}' alignment ALIGN[{sectionAlignBits.Value}] is incompatible with fixed address ${existingUnion.FixedAddress.Value:X4}"
+                    );
                 }
             }
             if (sectionAlignBits.HasValue && sectionAlignBits.Value > 15)
             {
-                _diagnostics.Report(node.FullSpan,
-                    $"UNION '{name}' alignment ALIGN[{sectionAlignBits.Value}] is unattainable");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"UNION '{name}' alignment ALIGN[{sectionAlignBits.Value}] is unattainable"
+                );
             }
         }
     }
 
-    private static (int lo, int hi) GetSectionAddressRange(SectionType type) => type switch
-    {
-        SectionType.Rom0 => (0x0000, 0x3FFF),
-        SectionType.RomX => (0x4000, 0x7FFF),
-        SectionType.Wram0 => (0xC000, 0xCFFF),
-        SectionType.WramX => (0xD000, 0xDFFF),
-        SectionType.Vram => (0x8000, 0x9FFF),
-        SectionType.Hram => (0xFF80, 0xFFFE),
-        SectionType.Sram => (0xA000, 0xBFFF),
-        SectionType.Oam => (0xFE00, 0xFE9F),
-        _ => (0, 0xFFFF),
-    };
+    private static (int lo, int hi) GetSectionAddressRange(SectionType type) =>
+        type switch
+        {
+            SectionType.Rom0 => (0x0000, 0x3FFF),
+            SectionType.RomX => (0x4000, 0x7FFF),
+            SectionType.Wram0 => (0xC000, 0xCFFF),
+            SectionType.WramX => (0xD000, 0xDFFF),
+            SectionType.Vram => (0x8000, 0x9FFF),
+            SectionType.Hram => (0xFF80, 0xFFFE),
+            SectionType.Sram => (0xA000, 0xBFFF),
+            SectionType.Oam => (0xFE00, 0xFE9F),
+            _ => (0, 0xFFFF),
+        };
 
     private void Pass2Data(SyntaxNode node)
     {
@@ -1074,25 +1253,38 @@ public sealed class Binder
         // Check: data (db/dw/dl) in RAM sections (only ds is allowed)
         if (keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword)
         {
-            if (section.Type is SectionType.Wram0 or SectionType.WramX or SectionType.Hram
-                or SectionType.Sram or SectionType.Vram or SectionType.Oam)
+            if (
+                section.Type
+                is SectionType.Wram0
+                    or SectionType.WramX
+                    or SectionType.Hram
+                    or SectionType.Sram
+                    or SectionType.Vram
+                    or SectionType.Oam
+            )
             {
                 if (expressions.Count > 0)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"Cannot use {keyword.Text.ToUpperInvariant()} with data in {section.Type} section — only DS is allowed in RAM sections");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"Cannot use {keyword.Text.ToUpperInvariant()} with data in {section.Type} section — only DS is allowed in RAM sections"
+                    );
                     return;
                 }
             }
         }
 
         // Empty data directive warning (RGBDS -Wempty-data-directive)
-        if (keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword
-            && expressions.Count == 0)
+        if (
+            keyword.Kind is SyntaxKind.DbKeyword or SyntaxKind.DwKeyword or SyntaxKind.DlKeyword
+            && expressions.Count == 0
+        )
         {
-            _diagnostics.Report(node.FullSpan,
+            _diagnostics.Report(
+                node.FullSpan,
                 $"Empty {keyword.Text.ToUpperInvariant()} directive",
-                Diagnostics.DiagnosticSeverity.Warning);
+                Diagnostics.DiagnosticSeverity.Warning
+            );
             return;
         }
 
@@ -1115,23 +1307,34 @@ public sealed class Binder
                     {
                         // Truncation warning for values that don't fit in 8 bits
                         if (val.Value > 255 || val.Value < -128)
-                            _diagnostics.Report(expr.FullSpan,
+                            _diagnostics.Report(
+                                expr.FullSpan,
                                 $"Value {val.Value} truncated to 8-bit range",
-                                DiagnosticSeverity.Warning);
+                                DiagnosticSeverity.Warning
+                            );
                         section.EmitByte((byte)(val.Value & 0xFF));
                     }
                     else
                     {
                         int offset = section.ReserveByte();
-                        var (sn8, so8, sh8) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
-                        section.RecordPatch(new PatchEntry
-                        {
-                            SectionName = section.Name, Offset = offset,
-                            Expression = expr.Green, Kind = PatchKind.Absolute8,
-                            FilePath = _diagnostics.CurrentFilePath,
-                            GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
-                            SymbolName = sn8, SymbolOffset = so8, SymbolShift = sh8,
-                        });
+                        var (sn8, so8, sh8) = InstructionEncoder.ExtractIdentifierAndOffset(
+                            expr.Green,
+                            _symbols
+                        );
+                        section.RecordPatch(
+                            new PatchEntry
+                            {
+                                SectionName = section.Name,
+                                Offset = offset,
+                                Expression = expr.Green,
+                                Kind = PatchKind.Absolute8,
+                                FilePath = _diagnostics.CurrentFilePath,
+                                GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = sn8,
+                                SymbolOffset = so8,
+                                SymbolShift = sh8,
+                            }
+                        );
                     }
                 }
                 break;
@@ -1160,15 +1363,24 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveWord();
-                        var (sn16, so16, sh16) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
-                        section.RecordPatch(new PatchEntry
-                        {
-                            SectionName = section.Name, Offset = offset,
-                            Expression = expr.Green, Kind = PatchKind.Absolute16,
-                            FilePath = _diagnostics.CurrentFilePath,
-                            GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
-                            SymbolName = sn16, SymbolOffset = so16, SymbolShift = sh16,
-                        });
+                        var (sn16, so16, sh16) = InstructionEncoder.ExtractIdentifierAndOffset(
+                            expr.Green,
+                            _symbols
+                        );
+                        section.RecordPatch(
+                            new PatchEntry
+                            {
+                                SectionName = section.Name,
+                                Offset = offset,
+                                Expression = expr.Green,
+                                Kind = PatchKind.Absolute16,
+                                FilePath = _diagnostics.CurrentFilePath,
+                                GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = sn16,
+                                SymbolOffset = so16,
+                                SymbolShift = sh16,
+                            }
+                        );
                     }
                 }
                 break;
@@ -1182,15 +1394,24 @@ public sealed class Binder
                     else
                     {
                         int offset = section.ReserveLong();
-                        var (sn32, so32, sh32) = InstructionEncoder.ExtractIdentifierAndOffset(expr.Green, _symbols);
-                        section.RecordPatch(new PatchEntry
-                        {
-                            SectionName = section.Name, Offset = offset,
-                            Expression = expr.Green, Kind = PatchKind.Absolute32,
-                            FilePath = _diagnostics.CurrentFilePath,
-                            GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
-                            SymbolName = sn32, SymbolOffset = so32, SymbolShift = sh32,
-                        });
+                        var (sn32, so32, sh32) = InstructionEncoder.ExtractIdentifierAndOffset(
+                            expr.Green,
+                            _symbols
+                        );
+                        section.RecordPatch(
+                            new PatchEntry
+                            {
+                                SectionName = section.Name,
+                                Offset = offset,
+                                Expression = expr.Green,
+                                Kind = PatchKind.Absolute32,
+                                FilePath = _diagnostics.CurrentFilePath,
+                                GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
+                                SymbolName = sn32,
+                                SymbolOffset = so32,
+                                SymbolShift = sh32,
+                            }
+                        );
                     }
                 }
                 break;
@@ -1198,7 +1419,8 @@ public sealed class Binder
             case SyntaxKind.DsKeyword:
             {
                 // DS ALIGN[n] / DS ALIGN[n, offset] — alignment padding
-                var alignToken = node.ChildTokens().FirstOrDefault(t => t.Kind == SyntaxKind.AlignKeyword);
+                var alignToken = node.ChildTokens()
+                    .FirstOrDefault(t => t.Kind == SyntaxKind.AlignKeyword);
                 if (alignToken != null)
                 {
                     Pass2DsAlign(node);
@@ -1224,7 +1446,9 @@ public sealed class Binder
                             for (int i = 0; i < dsCount; i++)
                             {
                                 var fillVal = evaluator.TryEvaluate(fillExpr);
-                                section.EmitByte(fillVal.HasValue ? (byte)(fillVal.Value & 0xFF) : (byte)0);
+                                section.EmitByte(
+                                    fillVal.HasValue ? (byte)(fillVal.Value & 0xFF) : (byte)0
+                                );
                             }
                         }
                         else
@@ -1247,10 +1471,12 @@ public sealed class Binder
             return;
         }
         var exprNodes = node.ChildNodes().ToList();
-        if (exprNodes.Count == 0) return;
+        if (exprNodes.Count == 0)
+            return;
         var evaluator = CreateEvaluator(() => section.CurrentPC, section);
         var alignBits = evaluator.TryEvaluate(exprNodes[0].Green);
-        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16) return;
+        if (!alignBits.HasValue || alignBits.Value < 0 || alignBits.Value > 16)
+            return;
 
         // For floating sections, use effective alignment = min(section_align, requested)
         int bits = (int)alignBits.Value;
@@ -1288,7 +1514,8 @@ public sealed class Binder
         if (fillExprIndex >= 0 && fillExprIndex > (exprNodes.Count > 1 ? 1 : 0))
         {
             var fillVal = evaluator.TryEvaluate(exprNodes[fillExprIndex].Green);
-            if (fillVal.HasValue) fill = (byte)(fillVal.Value & 0xFF);
+            if (fillVal.HasValue)
+                fill = (byte)(fillVal.Value & 0xFF);
         }
 
         int mask = boundary - 1;
@@ -1306,7 +1533,9 @@ public sealed class Binder
         else if (section.AlignBits > 0)
         {
             // Floating section with known alignment: account for the section's base offset
-            pad = ((boundary - ((section.CurrentPC + section.AlignOffset - alignOffset) & mask)) & mask);
+            pad = (
+                (boundary - ((section.CurrentPC + section.AlignOffset - alignOffset) & mask)) & mask
+            );
         }
         else
         {
@@ -1332,8 +1561,11 @@ public sealed class Binder
         return false;
     }
 
-    private void EmitDsAlign(SectionBuffer section, ExpressionEvaluator evaluator,
-        List<SyntaxNode> expressions)
+    private void EmitDsAlign(
+        SectionBuffer section,
+        ExpressionEvaluator evaluator,
+        List<SyntaxNode> expressions
+    )
     {
         // DS ALIGN[bits, offset], fill
         var alignNode = (Syntax.InternalSyntax.GreenNode)expressions[0].Green;
@@ -1346,22 +1578,26 @@ public sealed class Binder
         if (bitsArg != null)
         {
             var v = evaluator.TryEvaluate(bitsArg);
-            if (v.HasValue) bits = (int)v.Value;
+            if (v.HasValue)
+                bits = (int)v.Value;
         }
         if (offsetArg != null)
         {
             var v = evaluator.TryEvaluate(offsetArg);
-            if (v.HasValue) alignOfs = (int)v.Value;
+            if (v.HasValue)
+                alignOfs = (int)v.Value;
         }
 
         byte fill = 0x00;
         if (expressions.Count > 1)
         {
             var fillVal = evaluator.TryEvaluate(expressions[1].Green);
-            if (fillVal.HasValue) fill = (byte)(fillVal.Value & 0xFF);
+            if (fillVal.HasValue)
+                fill = (byte)(fillVal.Value & 0xFF);
         }
 
-        if (bits <= 0) return;
+        if (bits <= 0)
+            return;
         int boundary = 1 << bits;
         int bitmask = boundary - 1;
         int alignPad = ((boundary - ((section.CurrentPC - alignOfs) & bitmask)) & bitmask);
@@ -1382,11 +1618,20 @@ public sealed class Binder
         }
 
         // Check: code in RAM sections
-        if (section.Type is SectionType.Wram0 or SectionType.WramX or SectionType.Hram
-            or SectionType.Sram or SectionType.Vram or SectionType.Oam)
+        if (
+            section.Type
+            is SectionType.Wram0
+                or SectionType.WramX
+                or SectionType.Hram
+                or SectionType.Sram
+                or SectionType.Vram
+                or SectionType.Oam
+        )
         {
-            _diagnostics.Report(node.FullSpan,
-                $"Cannot use instructions in {section.Type} section — only DS is allowed in RAM sections");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"Cannot use instructions in {section.Type} section — only DS is allowed in RAM sections"
+            );
             return;
         }
 
@@ -1394,8 +1639,10 @@ public sealed class Binder
         if (desc == null)
         {
             var mnemonic = node.ChildTokens().First().Text;
-            _diagnostics.Report(node.FullSpan,
-                $"No valid encoding for '{mnemonic}' with given operands");
+            _diagnostics.Report(
+                node.FullSpan,
+                $"No valid encoding for '{mnemonic}' with given operands"
+            );
             return;
         }
 
@@ -1425,7 +1672,8 @@ public sealed class Binder
     private void Pass2Directive(SyntaxNode node)
     {
         var tokens = node.ChildTokens().ToList();
-        if (tokens.Count == 0) return;
+        if (tokens.Count == 0)
+            return;
 
         switch (tokens[0].Kind)
         {
@@ -1446,15 +1694,24 @@ public sealed class Binder
                 var severity = DiagnosticSeverity.Error;
                 for (int ti = 1; ti < tokens.Count; ti++)
                 {
-                    if (tokens[ti].Kind == SyntaxKind.WarnKeyword) { severity = DiagnosticSeverity.Warning; break; }
-                    if (tokens[ti].Kind is SyntaxKind.FailKeyword or SyntaxKind.FatalKeyword) break;
-                    if (tokens[ti].Kind == SyntaxKind.CommaToken) break; // past severity position
+                    if (tokens[ti].Kind == SyntaxKind.WarnKeyword)
+                    {
+                        severity = DiagnosticSeverity.Warning;
+                        break;
+                    }
+                    if (tokens[ti].Kind is SyntaxKind.FailKeyword or SyntaxKind.FatalKeyword)
+                        break;
+                    if (tokens[ti].Kind == SyntaxKind.CommaToken)
+                        break; // past severity position
                 }
 
                 string GetAssertMessage()
                 {
                     for (int ti = 0; ti < tokens.Count; ti++)
-                        if (tokens[ti].Kind == SyntaxKind.StringLiteral && tokens[ti].Text.Length >= 2)
+                        if (
+                            tokens[ti].Kind == SyntaxKind.StringLiteral
+                            && tokens[ti].Text.Length >= 2
+                        )
                             return tokens[ti].Text[1..^1];
                     return "Assertion failed";
                 }
@@ -1465,8 +1722,10 @@ public sealed class Binder
                 }
                 else if (!val.HasValue && tokens[0].Kind == SyntaxKind.StaticAssertKeyword)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        "STATIC_ASSERT condition could not be evaluated at assembly time");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        "STATIC_ASSERT condition could not be evaluated at assembly time"
+                    );
                 }
                 // Regular ASSERT with unresolvable expression: link-time assertion (recorded in patches for rgblink)
                 break;
@@ -1475,9 +1734,10 @@ public sealed class Binder
             case SyntaxKind.WarnKeyword:
             {
                 var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
-                var msg = msgToken != null && msgToken.Text.Length >= 2
-                    ? msgToken.Text[1..^1]
-                    : "WARN directive";
+                var msg =
+                    msgToken != null && msgToken.Text.Length >= 2
+                        ? msgToken.Text[1..^1]
+                        : "WARN directive";
                 _diagnostics.Report(node.FullSpan, msg, DiagnosticSeverity.Warning);
                 break;
             }
@@ -1485,9 +1745,10 @@ public sealed class Binder
             case SyntaxKind.FailKeyword:
             {
                 var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
-                var msg = msgToken != null && msgToken.Text.Length >= 2
-                    ? msgToken.Text[1..^1]
-                    : "FAIL directive";
+                var msg =
+                    msgToken != null && msgToken.Text.Length >= 2
+                        ? msgToken.Text[1..^1]
+                        : "FAIL directive";
                 _diagnostics.Report(node.FullSpan, msg);
                 break;
             }
@@ -1505,8 +1766,10 @@ public sealed class Binder
                     // addresses at assembly time, and RGBDS rejects @ in PRINTLN arguments).
                     if (ContainsCurrentAddressToken(exprNodes[0].Green))
                     {
-                        _diagnostics.Report(node.FullSpan,
-                            "The current-address token '@' is not a constant and cannot be used in PRINT/PRINTLN");
+                        _diagnostics.Report(
+                            node.FullSpan,
+                            "The current-address token '@' is not a constant and cannot be used in PRINT/PRINTLN"
+                        );
                         break;
                     }
                     var evaluator = CreateEvaluator(() => section?.CurrentPC ?? 0);
@@ -1522,7 +1785,9 @@ public sealed class Binder
                     else
                     {
                         // Fall back to looking for string literal token
-                        var msgToken = tokens.FirstOrDefault(t => t.Kind == SyntaxKind.StringLiteral);
+                        var msgToken = tokens.FirstOrDefault(t =>
+                            t.Kind == SyntaxKind.StringLiteral
+                        );
                         if (msgToken != null)
                         {
                             var text = ExpressionEvaluator.InterpretStringLiteral(msgToken.Text);
@@ -1563,7 +1828,10 @@ public sealed class Binder
 
             case SyntaxKind.LoadKeyword:
                 // Save current global anchor before entering LOAD block so ENDL can restore it
-                _savedGlobalAnchorBeforeLoad = _symbols.Lookup(_symbols.CurrentGlobalAnchorName ?? "", _ownerContext);
+                _savedGlobalAnchorBeforeLoad = _symbols.Lookup(
+                    _symbols.CurrentGlobalAnchorName ?? "",
+                    _ownerContext
+                );
                 Pass2Load(node);
                 break;
 
@@ -1603,10 +1871,12 @@ public sealed class Binder
         {
             var text = tokens[i].Text;
             // Check for "Q" followed by "." and a number
-            if (text.Equals("Q", StringComparison.OrdinalIgnoreCase)
+            if (
+                text.Equals("Q", StringComparison.OrdinalIgnoreCase)
                 && i + 2 < tokens.Count
                 && tokens[i + 1].Kind == SyntaxKind.DotToken
-                && tokens[i + 2].Kind == SyntaxKind.NumberLiteral)
+                && tokens[i + 2].Kind == SyntaxKind.NumberLiteral
+            )
             {
                 if (int.TryParse(tokens[i + 2].Text, out var bits) && bits >= 1 && bits <= 31)
                     _fracBits = bits;
@@ -1643,7 +1913,10 @@ public sealed class Binder
                     // p$XX — pad byte. Skip any following tokens that are part of the value
                     if (i + 1 < tokens.Count && tokens[i + 1].Kind == SyntaxKind.NumberLiteral)
                         i++;
-                    else if (i + 1 < tokens.Count && tokens[i + 1].Kind == SyntaxKind.CurrentAddressToken)
+                    else if (
+                        i + 1 < tokens.Count
+                        && tokens[i + 1].Kind == SyntaxKind.CurrentAddressToken
+                    )
                     {
                         // p$XX where $ was lexed as CurrentAddressToken followed by hex digits
                         i++;
@@ -1655,8 +1928,10 @@ public sealed class Binder
                 {
                     // W-option: skip all following tokens that are part of the warning flag name
                     // e.g., Wno-unmapped-char → Wno, -, unmapped, -, char
-                    while (i + 1 < tokens.Count && tokens[i + 1].Kind is SyntaxKind.MinusToken
-                        or SyntaxKind.IdentifierToken)
+                    while (
+                        i + 1 < tokens.Count
+                        && tokens[i + 1].Kind is SyntaxKind.MinusToken or SyntaxKind.IdentifierToken
+                    )
                     {
                         i++;
                         if (tokens[i].Kind == SyntaxKind.IdentifierToken)
@@ -1675,14 +1950,19 @@ public sealed class Binder
         for (int i = 0; i < children.Count; i++)
         {
             var child = children[i];
-            if (child.Green is GreenToken { Kind: SyntaxKind.IdentifierToken } ident &&
-                ident.Text.Equals("Q", StringComparison.OrdinalIgnoreCase))
+            if (
+                child.Green is GreenToken { Kind: SyntaxKind.IdentifierToken } ident
+                && ident.Text.Equals("Q", StringComparison.OrdinalIgnoreCase)
+            )
             {
                 // Look for . N after Q
-                if (i + 2 < children.Count &&
-                    children[i + 1].Green is GreenToken { Kind: SyntaxKind.DotToken } &&
-                    children[i + 2].Green is GreenToken { Kind: SyntaxKind.NumberLiteral } numToken &&
-                    int.TryParse(numToken.Text, out var bits))
+                if (
+                    i + 2 < children.Count
+                    && children[i + 1].Green is GreenToken { Kind: SyntaxKind.DotToken }
+                    && children[i + 2].Green
+                        is GreenToken { Kind: SyntaxKind.NumberLiteral } numToken
+                    && int.TryParse(numToken.Text, out var bits)
+                )
                 {
                     _fixedPointFracBits = bits;
                     return;
@@ -1724,8 +2004,10 @@ public sealed class Binder
                 alignOffset = (int)offsetVal.Value;
                 if (alignOffset < 0 || alignOffset >= boundary)
                 {
-                    _diagnostics.Report(node.FullSpan,
-                        $"ALIGN offset must be 0-{boundary - 1} for alignment {alignBits.Value}");
+                    _diagnostics.Report(
+                        node.FullSpan,
+                        $"ALIGN offset must be 0-{boundary - 1} for alignment {alignBits.Value}"
+                    );
                     return;
                 }
             }
@@ -1738,13 +2020,20 @@ public sealed class Binder
         // the section constraint and the inline ALIGN — report an error.
         // This check only applies to FRAGMENT sections: regular floating sections can
         // satisfy any inline ALIGN because the linker can place them at any address.
-        if (section.IsFragment && section.FixedAddress == null && bits > 0 && section.CurrentOffset > 0)
+        if (
+            section.IsFragment
+            && section.FixedAddress == null
+            && bits > 0
+            && section.CurrentOffset > 0
+        )
         {
             if (bits > section.AlignBits)
             {
-                _diagnostics.Report(node.FullSpan,
-                    $"ALIGN {bits} inside a floating section requires the section to have at least ALIGN[{bits}], " +
-                    $"but the section only has ALIGN[{section.AlignBits}]. The alignment cannot be satisfied at link time.");
+                _diagnostics.Report(
+                    node.FullSpan,
+                    $"ALIGN {bits} inside a floating section requires the section to have at least ALIGN[{bits}], "
+                        + $"but the section only has ALIGN[{section.AlignBits}]. The alignment cannot be satisfied at link time."
+                );
                 return;
             }
             // Even with sufficient section alignment, verify the current offset satisfies ALIGN N.
@@ -1759,9 +2048,11 @@ public sealed class Binder
                     int sectionBoundary = 1 << section.AlignBits;
                     if (pad2 % sectionBoundary != 0)
                     {
-                        _diagnostics.Report(node.FullSpan,
-                            $"ALIGN {bits} at offset {section.CurrentOffset} cannot be satisfied: " +
-                            $"required padding of {pad2} bytes is not a multiple of section alignment {sectionBoundary}");
+                        _diagnostics.Report(
+                            node.FullSpan,
+                            $"ALIGN {bits} at offset {section.CurrentOffset} cannot be satisfied: "
+                                + $"required padding of {pad2} bytes is not a multiple of section alignment {sectionBoundary}"
+                        );
                         return;
                     }
                 }
@@ -1793,9 +2084,11 @@ public sealed class Binder
         // If we're already in a LOAD block, a new LOAD implicitly terminates it
         if (_sections.IsInLoad)
         {
-            _diagnostics.Report(node.FullSpan,
+            _diagnostics.Report(
+                node.FullSpan,
                 "Unterminated LOAD block: new LOAD implicitly ends previous LOAD",
-                Diagnostics.DiagnosticSeverity.Warning);
+                Diagnostics.DiagnosticSeverity.Warning
+            );
         }
 
         var (name, type, fixedAddr) = ParseSectionTokens(node);
@@ -1818,12 +2111,14 @@ public sealed class Binder
 
     private static bool IsStringLiteral(Syntax.InternalSyntax.GreenNodeBase green)
     {
-        if (green is Syntax.InternalSyntax.GreenNode node &&
-            node.Kind == SyntaxKind.LiteralExpression)
+        if (
+            green is Syntax.InternalSyntax.GreenNode node
+            && node.Kind == SyntaxKind.LiteralExpression
+        )
         {
             var child = node.GetChild(0);
-            return child is Syntax.InternalSyntax.GreenToken t &&
-                   t.Kind == SyntaxKind.StringLiteral;
+            return child is Syntax.InternalSyntax.GreenToken t
+                && t.Kind == SyntaxKind.StringLiteral;
         }
         return false;
     }

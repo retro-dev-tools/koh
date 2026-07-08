@@ -4,13 +4,18 @@ using Koh.Core.Binding;
 namespace Koh.Compiler.Backends.Sm83;
 
 /// <summary>A forward reference resolved to an absolute address once its target is placed.</summary>
-internal sealed class Label { public int Offset = -1; }
+internal sealed class Label
+{
+    public int Offset = -1;
+}
 
 /// <summary>A growable code buffer with block labels and absolute-address fixups.</summary>
 internal sealed class Emitter
 {
     public readonly List<byte> Code = [];
-    private readonly Dictionary<IrBasicBlock, Label> _blocks = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<IrBasicBlock, Label> _blocks = new(
+        ReferenceEqualityComparer.Instance
+    );
     private readonly Dictionary<string, Label> _routines = new(StringComparer.Ordinal);
     private readonly List<(int Pos, Label Target)> _fixups = [];
 
@@ -99,7 +104,9 @@ internal sealed class Emitter
         return label;
     }
 
-    private readonly Dictionary<IrFunction, Label> _thunks = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<IrFunction, Label> _thunks = new(
+        ReferenceEqualityComparer.Instance
+    );
 
     /// <summary>The ROM0 far-call thunk for a banked function: it switches to the callee's bank,
     /// CALLs it through the 0x4000 window, and restores the caller's bank on return.</summary>
@@ -143,9 +150,14 @@ internal sealed class Emitter
     {
         int RegionBaseFor(int offset)
         {
-            int best = regions[0].Base, bestStart = regions[0].Start;
+            int best = regions[0].Base,
+                bestStart = regions[0].Start;
             foreach (var (start, baseAddr) in regions)
-                if (start <= offset && start >= bestStart) { best = baseAddr; bestStart = start; }
+                if (start <= offset && start >= bestStart)
+                {
+                    best = baseAddr;
+                    bestStart = start;
+                }
             return best + (offset - bestStart);
         }
 

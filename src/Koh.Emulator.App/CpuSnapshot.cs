@@ -22,24 +22,26 @@ public sealed record CpuSnapshot(
     bool FlagZ,
     bool FlagN,
     bool FlagH,
-    bool FlagC)
+    bool FlagC
+)
 {
     public static CpuSnapshot From(GameBoySystem sys)
     {
         ref var r = ref sys.Cpu.Registers;
         return new CpuSnapshot(
-            Pc:           r.Pc,
-            Sp:           r.Sp,
-            A:            r.A,
-            F:            r.F,
-            BC:           r.BC,
-            DE:           r.DE,
-            HL:           r.HL,
+            Pc: r.Pc,
+            Sp: r.Sp,
+            A: r.A,
+            F: r.F,
+            BC: r.BC,
+            DE: r.DE,
+            HL: r.HL,
             TotalTCycles: sys.Cpu.TotalTCycles,
-            FlagZ:        r.FlagSet(CpuRegisters.FlagZ),
-            FlagN:        r.FlagSet(CpuRegisters.FlagN),
-            FlagH:        r.FlagSet(CpuRegisters.FlagH),
-            FlagC:        r.FlagSet(CpuRegisters.FlagC));
+            FlagZ: r.FlagSet(CpuRegisters.FlagZ),
+            FlagN: r.FlagSet(CpuRegisters.FlagN),
+            FlagH: r.FlagSet(CpuRegisters.FlagH),
+            FlagC: r.FlagSet(CpuRegisters.FlagC)
+        );
     }
 }
 
@@ -55,22 +57,29 @@ public sealed record PaletteSnapshot(
     byte Bgp,
     byte Obp0,
     byte Obp1,
-    KohColor[] BgColors,    // [palette * 4 + slot]; length = 4 (DMG) or 32 (CGB)
-    KohColor[] ObjColors)
+    KohColor[] BgColors, // [palette * 4 + slot]; length = 4 (DMG) or 32 (CGB)
+    KohColor[] ObjColors
+)
 {
     public static PaletteSnapshot From(GameBoySystem sys, PaletteSnapshot? existing = null)
     {
         bool cgb = sys.Mode == HardwareMode.Cgb;
         int bgLen = cgb ? 32 : 4;
         int objLen = cgb ? 32 : 8;
-        var bg = existing is not null && existing.BgColors.Length == bgLen ? existing.BgColors : new KohColor[bgLen];
-        var obj = existing is not null && existing.ObjColors.Length == objLen ? existing.ObjColors : new KohColor[objLen];
+        var bg =
+            existing is not null && existing.BgColors.Length == bgLen
+                ? existing.BgColors
+                : new KohColor[bgLen];
+        var obj =
+            existing is not null && existing.ObjColors.Length == objLen
+                ? existing.ObjColors
+                : new KohColor[objLen];
         if (cgb)
         {
             for (int p = 0; p < 8; p++)
             for (int s = 0; s < 4; s++)
             {
-                bg[p * 4 + s]  = Bgr555ToRgb(sys.Ppu.BgPalette.GetColor(p, s));
+                bg[p * 4 + s] = Bgr555ToRgb(sys.Ppu.BgPalette.GetColor(p, s));
                 obj[p * 4 + s] = Bgr555ToRgb(sys.Ppu.ObjPalette.GetColor(p, s));
             }
         }
@@ -103,8 +112,8 @@ public sealed record PaletteSnapshot(
 
     private static KohColor Bgr555ToRgb(ushort v)
     {
-        int r5 = v         & 0x1f;
-        int g5 = (v >> 5)  & 0x1f;
+        int r5 = v & 0x1f;
+        int g5 = (v >> 5) & 0x1f;
         int b5 = (v >> 10) & 0x1f;
         // 5-bit → 8-bit with the standard "replicate the top bits" trick
         // so 0x1f becomes 0xff exactly.
@@ -123,10 +132,7 @@ public sealed record PaletteSnapshot(
 /// so the debug panel can show both at once without swapping UI
 /// state.
 /// </summary>
-public sealed record VramSnapshot(
-    byte[] Rgba,
-    int Width,
-    int Height)
+public sealed record VramSnapshot(byte[] Rgba, int Width, int Height)
 {
     private const int TilesPerRow = 16;
     private const int TilesPerBank = 384;
@@ -143,12 +149,13 @@ public sealed record VramSnapshot(
     public static VramSnapshot From(GameBoySystem sys, VramSnapshot? existing = null)
     {
         int banks = sys.Mode == HardwareMode.Cgb ? 2 : 1;
-        int rowsPerBank = TilesPerBank / TilesPerRow;   // 24
-        int width  = TilesPerRow * PixelsPerTile;        // 128
+        int rowsPerBank = TilesPerBank / TilesPerRow; // 24
+        int width = TilesPerRow * PixelsPerTile; // 128
         int height = banks * rowsPerBank * PixelsPerTile; // 192 or 384
-        byte[] rgba = existing is not null && existing.Width == width && existing.Height == height
-            ? existing.Rgba
-            : new byte[width * height * 4];
+        byte[] rgba =
+            existing is not null && existing.Width == width && existing.Height == height
+                ? existing.Rgba
+                : new byte[width * height * 4];
 
         var vram = sys.Mmu.VramArray;
         for (int bank = 0; bank < banks; bank++)
@@ -165,7 +172,7 @@ public sealed record VramSnapshot(
 
                 for (int r = 0; r < PixelsPerTile; r++)
                 {
-                    byte low  = vram[tileByteBase + r * 2];
+                    byte low = vram[tileByteBase + r * 2];
                     byte high = vram[tileByteBase + r * 2 + 1];
                     for (int c = 0; c < PixelsPerTile; c++)
                     {
@@ -191,10 +198,10 @@ public sealed record VramSnapshot(
     // gradient lets the eye identify tiles independently of palette.
     private static readonly KohColor[] s_shades =
     [
-        new(0xff, 0xff, 0xff),   // 00 → white
+        new(0xff, 0xff, 0xff), // 00 → white
         new(0xc0, 0xc0, 0xc0),
         new(0x60, 0x60, 0x60),
-        new(0x00, 0x00, 0x00),   // 11 → black
+        new(0x00, 0x00, 0x00), // 11 → black
     ];
 }
 
@@ -214,19 +221,22 @@ public sealed record VramSnapshot(
 /// visibly stall the LCD. Sliding window costs 256 reads and keeps
 /// the pacer in the clear.
 /// </summary>
-public sealed record MemorySnapshot(
-    ushort BaseAddress,
-    byte[] Bytes)
+public sealed record MemorySnapshot(ushort BaseAddress, byte[] Bytes)
 {
     public const int BytesPerRow = 16;
     public const int Rows = 16;
-    public const int WindowSize = Rows * BytesPerRow;   // 256 bytes
+    public const int WindowSize = Rows * BytesPerRow; // 256 bytes
 
-    public static MemorySnapshot From(GameBoySystem sys, ushort baseAddress, MemorySnapshot? existing = null)
+    public static MemorySnapshot From(
+        GameBoySystem sys,
+        ushort baseAddress,
+        MemorySnapshot? existing = null
+    )
     {
-        byte[] bytes = existing is not null && existing.Bytes.Length == WindowSize
-            ? existing.Bytes
-            : new byte[WindowSize];
+        byte[] bytes =
+            existing is not null && existing.Bytes.Length == WindowSize
+                ? existing.Bytes
+                : new byte[WindowSize];
         for (int i = 0; i < WindowSize; i++)
             bytes[i] = sys.DebugReadByte((ushort)(baseAddress + i));
         return new MemorySnapshot(baseAddress, bytes);

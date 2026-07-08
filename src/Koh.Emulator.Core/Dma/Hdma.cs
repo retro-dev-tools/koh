@@ -11,10 +11,10 @@ public sealed class Hdma
 {
     private readonly Mmu _mmu;
 
-    public byte Source1;   // $FF51 high
-    public byte Source2;   // $FF52 low
-    public byte Dest1;     // $FF53 high (masked to $80..$9F)
-    public byte Dest2;     // $FF54 low
+    public byte Source1; // $FF51 high
+    public byte Source2; // $FF52 low
+    public byte Dest1; // $FF53 high (masked to $80..$9F)
+    public byte Dest2; // $FF54 low
 
     public bool IsHBlankMode { get; private set; }
     public bool Active { get; private set; }
@@ -22,15 +22,19 @@ public sealed class Hdma
 
     private ushort _currentSource;
     private ushort _currentDest;
-    private int _bytesRemaining;          // total bytes left in the whole transfer
-    private int _byteIndexInBlock;        // 0..15 within the current 16-byte block
+    private int _bytesRemaining; // total bytes left in the whole transfer
+    private int _byteIndexInBlock; // 0..15 within the current 16-byte block
     private bool _hblockPending;
 
-    public Hdma(Mmu mmu) { _mmu = mmu; }
+    public Hdma(Mmu mmu)
+    {
+        _mmu = mmu;
+    }
 
     public byte ReadLengthRegister()
     {
-        if (!Active) return 0xFF;
+        if (!Active)
+            return 0xFF;
         int blocksRemaining = _bytesRemaining / 16;
         return (byte)((IsHBlankMode ? 0x80 : 0x00) | ((blocksRemaining - 1) & 0x7F));
     }
@@ -92,7 +96,8 @@ public sealed class Hdma
     /// </summary>
     public void TransferOneGpBlock()
     {
-        if (!CpuHaltedByGp) return;
+        if (!CpuHaltedByGp)
+            return;
 
         int bytesThisBlock = Math.Min(16, _bytesRemaining);
         for (int i = 0; i < bytesThisBlock; i++)
@@ -116,7 +121,8 @@ public sealed class Hdma
 
     public void OnHBlankEntered()
     {
-        if (!Active || !IsHBlankMode) return;
+        if (!Active || !IsHBlankMode)
+            return;
 
         // Transfer one 16-byte block atomically. On real hardware the CPU
         // stalls for ~8 M-cycles per block, so from software's point of view
@@ -154,26 +160,39 @@ public sealed class Hdma
         // nothing for the per-T-cycle path to do — kept as a no-op so existing
         // call sites in GameBoySystem don't need to change and so the
         // CpuHaltedByGp flag stays false when a transfer finishes between polls.
-        if (!Active) CpuHaltedByGp = false;
+        if (!Active)
+            CpuHaltedByGp = false;
     }
 
     public void WriteState(StateWriter w)
     {
-        w.WriteByte(Source1); w.WriteByte(Source2);
-        w.WriteByte(Dest1); w.WriteByte(Dest2);
-        w.WriteBool(IsHBlankMode); w.WriteBool(Active); w.WriteBool(CpuHaltedByGp);
-        w.WriteU16(_currentSource); w.WriteU16(_currentDest);
-        w.WriteI32(_bytesRemaining); w.WriteI32(_byteIndexInBlock);
+        w.WriteByte(Source1);
+        w.WriteByte(Source2);
+        w.WriteByte(Dest1);
+        w.WriteByte(Dest2);
+        w.WriteBool(IsHBlankMode);
+        w.WriteBool(Active);
+        w.WriteBool(CpuHaltedByGp);
+        w.WriteU16(_currentSource);
+        w.WriteU16(_currentDest);
+        w.WriteI32(_bytesRemaining);
+        w.WriteI32(_byteIndexInBlock);
         w.WriteBool(_hblockPending);
     }
 
     public void ReadState(StateReader r)
     {
-        Source1 = r.ReadByte(); Source2 = r.ReadByte();
-        Dest1 = r.ReadByte(); Dest2 = r.ReadByte();
-        IsHBlankMode = r.ReadBool(); Active = r.ReadBool(); CpuHaltedByGp = r.ReadBool();
-        _currentSource = r.ReadU16(); _currentDest = r.ReadU16();
-        _bytesRemaining = r.ReadI32(); _byteIndexInBlock = r.ReadI32();
+        Source1 = r.ReadByte();
+        Source2 = r.ReadByte();
+        Dest1 = r.ReadByte();
+        Dest2 = r.ReadByte();
+        IsHBlankMode = r.ReadBool();
+        Active = r.ReadBool();
+        CpuHaltedByGp = r.ReadBool();
+        _currentSource = r.ReadU16();
+        _currentDest = r.ReadU16();
+        _bytesRemaining = r.ReadI32();
+        _byteIndexInBlock = r.ReadI32();
         _hblockPending = r.ReadBool();
     }
 }

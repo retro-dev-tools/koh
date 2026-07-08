@@ -81,10 +81,14 @@ public class SectionTests
     [Test]
     public async Task SectionTypes()
     {
-        foreach (var type in new[] { "ROM0", "ROMX", "WRAM0", "WRAMX", "VRAM", "HRAM", "SRAM", "OAM" })
+        foreach (
+            var type in new[] { "ROM0", "ROMX", "WRAM0", "WRAMX", "VRAM", "HRAM", "SRAM", "OAM" }
+        )
         {
             var tree = SyntaxTree.Parse($"SECTION \"Test\", {type}");
-            await Assert.That(tree.Root.ChildNodes().First().Kind).IsEqualTo(SyntaxKind.SectionDirective);
+            await Assert
+                .That(tree.Root.ChildNodes().First().Kind)
+                .IsEqualTo(SyntaxKind.SectionDirective);
             await Assert.That(tree.Diagnostics).IsEmpty();
         }
     }

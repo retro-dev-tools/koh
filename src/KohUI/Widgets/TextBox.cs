@@ -26,9 +26,7 @@ public readonly struct TextBox<TMsg>(string Text, Func<string, TMsg>? OnChange =
 
     public RenderNode Render()
     {
-        var props = Props.Of(
-            ("text", Text),
-            ("onChange", OnChange));   // carried for the backend, not serialised
+        var props = Props.Of(("text", Text), ("onChange", OnChange)); // carried for the backend, not serialised
         return RenderNode.Leaf("TextBox", props);
     }
 }

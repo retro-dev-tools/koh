@@ -109,12 +109,12 @@ public class ConditionalAssemblyStateTests
     public async Task Nested_InnerFalse_OuterTrue_CorrectState()
     {
         var state = new ConditionalAssemblyState();
-        state.HandleIf(() => true);   // outer true
-        state.HandleIf(() => false);  // inner false
+        state.HandleIf(() => true); // outer true
+        state.HandleIf(() => false); // inner false
         await Assert.That(state.IsSuppressed).IsTrue();
-        state.HandleEndc();           // close inner
+        state.HandleEndc(); // close inner
         await Assert.That(state.IsSuppressed).IsFalse(); // outer still active
-        state.HandleEndc();           // close outer
+        state.HandleEndc(); // close outer
         await Assert.That(state.IsSuppressed).IsFalse();
     }
 
@@ -124,7 +124,11 @@ public class ConditionalAssemblyStateTests
         var state = new ConditionalAssemblyState();
         bool innerEvaluated = false;
         state.HandleIf(() => false); // outer false
-        state.HandleIf(() => { innerEvaluated = true; return true; }); // inner — should NOT be called
+        state.HandleIf(() =>
+        {
+            innerEvaluated = true;
+            return true;
+        }); // inner — should NOT be called
         await Assert.That(innerEvaluated).IsFalse();
         state.HandleEndc(); // close inner
         state.HandleEndc(); // close outer
@@ -136,10 +140,10 @@ public class ConditionalAssemblyStateTests
     {
         // The critical nesting bug test from the original review
         var state = new ConditionalAssemblyState();
-        state.HandleIf(() => true);   // outer true
-        state.HandleIf(() => true);   // inner true
+        state.HandleIf(() => true); // outer true
+        state.HandleIf(() => true); // inner true
         state.HandleElif(() => false); // inner elif — skipped (branch taken)
-        state.HandleEndc();            // close inner
+        state.HandleEndc(); // close inner
         // Outer must still be "branch taken" — ELSE should be skipped
         state.HandleElse();
         await Assert.That(state.IsSuppressed).IsTrue(); // ELSE must be suppressed
@@ -180,9 +184,13 @@ public class ConditionalAssemblyStateTests
     {
         var state = new ConditionalAssemblyState();
         bool elifEvaluated = false;
-        state.HandleIf(() => false);  // depth 1 skip
-        state.HandleIf(() => false);  // depth 2 skip (not evaluated — already skipping)
-        state.HandleElif(() => { elifEvaluated = true; return true; }); // should NOT be called
+        state.HandleIf(() => false); // depth 1 skip
+        state.HandleIf(() => false); // depth 2 skip (not evaluated — already skipping)
+        state.HandleElif(() =>
+        {
+            elifEvaluated = true;
+            return true;
+        }); // should NOT be called
         await Assert.That(elifEvaluated).IsFalse();
         state.HandleEndc(); // close inner
         state.HandleEndc(); // close outer

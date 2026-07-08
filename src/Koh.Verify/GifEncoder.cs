@@ -12,8 +12,14 @@ namespace Koh.Verify;
 public static class GifEncoder
 {
     /// <summary>Write a GIF89a animation. Each frame is RGB w*h bytes.</summary>
-    public static void WriteAnimation(string path, IList<byte[]> framesRgb, int w, int h,
-                                       int frameDelayCs = 5, int loopCount = 0)
+    public static void WriteAnimation(
+        string path,
+        IList<byte[]> framesRgb,
+        int w,
+        int h,
+        int frameDelayCs = 5,
+        int loopCount = 0
+    )
     {
         using var s = File.Create(path);
         WriteHeader(s, w, h);
@@ -31,23 +37,28 @@ public static class GifEncoder
         s.Write("GIF89a"u8);
         WriteLe16(s, (ushort)w);
         WriteLe16(s, (ushort)h);
-        s.WriteByte(0x00);                  // no global colour table
-        s.WriteByte(0x00);                  // background colour idx
-        s.WriteByte(0x00);                  // pixel aspect
+        s.WriteByte(0x00); // no global colour table
+        s.WriteByte(0x00); // background colour idx
+        s.WriteByte(0x00); // pixel aspect
     }
 
     private static void WriteNetscapeLoop(Stream s, int loopCount)
     {
-        s.WriteByte(0x21); s.WriteByte(0xFF); s.WriteByte(0x0B);
+        s.WriteByte(0x21);
+        s.WriteByte(0xFF);
+        s.WriteByte(0x0B);
         s.Write("NETSCAPE2.0"u8);
-        s.WriteByte(0x03); s.WriteByte(0x01);
+        s.WriteByte(0x03);
+        s.WriteByte(0x01);
         WriteLe16(s, (ushort)loopCount);
         s.WriteByte(0x00);
     }
 
     private static void WriteGraphicControl(Stream s, int delayCs)
     {
-        s.WriteByte(0x21); s.WriteByte(0xF9); s.WriteByte(0x04);
+        s.WriteByte(0x21);
+        s.WriteByte(0xF9);
+        s.WriteByte(0x04);
         s.WriteByte(0x00); // no transparency, no user input
         WriteLe16(s, (ushort)delayCs);
         s.WriteByte(0x00); // no transparent colour
@@ -62,11 +73,11 @@ public static class GifEncoder
         var indices = new byte[w * h];
         for (int i = 0; i < w * h; i++)
         {
-            int key = (rgb[i*3] << 16) | (rgb[i*3+1] << 8) | rgb[i*3+2];
+            int key = (rgb[i * 3] << 16) | (rgb[i * 3 + 1] << 8) | rgb[i * 3 + 2];
             if (!paletteDict.TryGetValue(key, out var idx))
             {
                 if (paletteList.Count >= 256)
-                    idx = NearestPaletteIndex(rgb, i*3, paletteList);
+                    idx = NearestPaletteIndex(rgb, i * 3, paletteList);
                 else
                 {
                     idx = (byte)paletteList.Count;
@@ -79,12 +90,18 @@ public static class GifEncoder
 
         // Image descriptor.
         s.WriteByte(0x2C);
-        WriteLe16(s, 0); WriteLe16(s, 0);
-        WriteLe16(s, (ushort)w); WriteLe16(s, (ushort)h);
+        WriteLe16(s, 0);
+        WriteLe16(s, 0);
+        WriteLe16(s, (ushort)w);
+        WriteLe16(s, (ushort)h);
         // local colour table size: smallest 2^(N+1) >= paletteList.Count.
         int sizeBits = 0;
         int tableSize = 2;
-        while (tableSize < paletteList.Count) { tableSize <<= 1; sizeBits++; }
+        while (tableSize < paletteList.Count)
+        {
+            tableSize <<= 1;
+            sizeBits++;
+        }
         s.WriteByte((byte)(0x80 | sizeBits));
         for (int i = 0; i < tableSize; i++)
         {
@@ -103,15 +120,22 @@ public static class GifEncoder
 
     private static byte NearestPaletteIndex(byte[] rgb, int off, List<int> palette)
     {
-        int r = rgb[off], g = rgb[off+1], b = rgb[off+2];
-        int bestIdx = 0, bestD = int.MaxValue;
+        int r = rgb[off],
+            g = rgb[off + 1],
+            b = rgb[off + 2];
+        int bestIdx = 0,
+            bestD = int.MaxValue;
         for (int i = 0; i < palette.Count; i++)
         {
             int pr = (palette[i] >> 16) & 0xFF;
             int pg = (palette[i] >> 8) & 0xFF;
             int pb = palette[i] & 0xFF;
-            int d = (r-pr)*(r-pr) + (g-pg)*(g-pg) + (b-pb)*(b-pb);
-            if (d < bestD) { bestD = d; bestIdx = i; }
+            int d = (r - pr) * (r - pr) + (g - pg) * (g - pg) + (b - pb) * (b - pb);
+            if (d < bestD)
+            {
+                bestD = d;
+                bestIdx = i;
+            }
         }
         return (byte)bestIdx;
     }
@@ -164,12 +188,17 @@ public static class GifEncoder
                 current = k;
             }
         }
-        if (current >= 0) bits.Write((int)current, codeSize);
+        if (current >= 0)
+            bits.Write((int)current, codeSize);
         bits.Write(eoiCode, codeSize);
         bits.Flush();
     }
 
-    private static void WriteLe16(Stream s, ushort v) { s.WriteByte((byte)v); s.WriteByte((byte)(v >> 8)); }
+    private static void WriteLe16(Stream s, ushort v)
+    {
+        s.WriteByte((byte)v);
+        s.WriteByte((byte)(v >> 8));
+    }
 
     private sealed class BitWriter(Stream sink)
     {
@@ -186,17 +215,26 @@ public static class GifEncoder
                 _sub.Add((byte)_buf);
                 _buf >>= 8;
                 _bitCount -= 8;
-                if (_sub.Count == 255) FlushSub();
+                if (_sub.Count == 255)
+                    FlushSub();
             }
         }
+
         public void Flush()
         {
-            if (_bitCount > 0) { _sub.Add((byte)_buf); _buf = 0; _bitCount = 0; }
+            if (_bitCount > 0)
+            {
+                _sub.Add((byte)_buf);
+                _buf = 0;
+                _bitCount = 0;
+            }
             FlushSub();
         }
+
         private void FlushSub()
         {
-            if (_sub.Count == 0) return;
+            if (_sub.Count == 0)
+                return;
             sink.WriteByte((byte)_sub.Count);
             sink.Write(_sub.ToArray());
             _sub.Clear();

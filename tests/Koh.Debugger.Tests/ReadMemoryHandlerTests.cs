@@ -23,18 +23,20 @@ public class ReadMemoryHandlerTests
 
         HandlerRegistration.RegisterAll(dispatcher, session, _ => Array.Empty<byte>());
 
-        var request = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
-        {
-            ["seq"] = 1,
-            ["type"] = "request",
-            ["command"] = "readMemory",
-            ["arguments"] = new Dictionary<string, object?>
+        var request = JsonSerializer.SerializeToUtf8Bytes(
+            new Dictionary<string, object?>
             {
-                ["memoryReference"] = "0100",
-                ["offset"] = 0,
-                ["count"] = 2,
-            },
-        });
+                ["seq"] = 1,
+                ["type"] = "request",
+                ["command"] = "readMemory",
+                ["arguments"] = new Dictionary<string, object?>
+                {
+                    ["memoryReference"] = "0100",
+                    ["offset"] = 0,
+                    ["count"] = 2,
+                },
+            }
+        );
 
         dispatcher.HandleRequest(request);
 

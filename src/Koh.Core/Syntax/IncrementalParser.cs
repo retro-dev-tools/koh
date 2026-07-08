@@ -50,7 +50,8 @@ internal static class IncrementalParser
 
             if (overlaps)
             {
-                if (firstAffected < 0) firstAffected = i;
+                if (firstAffected < 0)
+                    firstAffected = i;
                 lastAffected = i;
             }
 
@@ -117,7 +118,9 @@ internal static class IncrementalParser
             return null;
 
         // --- parse the affected substring ---
-        string regionText = newText.ToString(new TextSpan(reparseStart, reparseEndNew - reparseStart));
+        string regionText = newText.ToString(
+            new TextSpan(reparseStart, reparseEndNew - reparseStart)
+        );
         var regionTree = SyntaxTree.Parse(SourceText.From(regionText));
         var regionGreen = (GreenNode)regionTree.Root.Green;
         int regionChildCount = regionGreen.ChildCount;
@@ -161,7 +164,9 @@ internal static class IncrementalParser
             int suffixLen = Math.Min(firstSuffixText.Length, newText.Length - reparseEndNew);
             if (suffixLen < firstSuffixText.Length)
                 return null; // not enough room in new text
-            string newTextAtSuffix = newText.ToString(new TextSpan(reparseEndNew, firstSuffixText.Length));
+            string newTextAtSuffix = newText.ToString(
+                new TextSpan(reparseEndNew, firstSuffixText.Length)
+            );
             if (firstSuffixText != newTextAtSuffix)
                 return null; // suffix text mismatch — the boundary is not clean
         }
@@ -210,11 +215,14 @@ internal static class IncrementalParser
             else if (diag.Span.Start >= reparseEndOld)
             {
                 // Suffix region — shift by changeDelta
-                diagnostics.Add(new Diagnostic(
-                    new TextSpan(diag.Span.Start + changeDelta, diag.Span.Length),
-                    diag.Message,
-                    diag.Severity,
-                    diag.FilePath));
+                diagnostics.Add(
+                    new Diagnostic(
+                        new TextSpan(diag.Span.Start + changeDelta, diag.Span.Length),
+                        diag.Message,
+                        diag.Severity,
+                        diag.FilePath
+                    )
+                );
             }
             // else: inside the old affected range — drop (replaced by new diagnostics)
         }
@@ -222,11 +230,14 @@ internal static class IncrementalParser
         // Add diagnostics from the reparsed region, shifted by reparseStart
         foreach (var diag in regionTree.Diagnostics)
         {
-            diagnostics.Add(new Diagnostic(
-                new TextSpan(diag.Span.Start + reparseStart, diag.Span.Length),
-                diag.Message,
-                diag.Severity,
-                diag.FilePath));
+            diagnostics.Add(
+                new Diagnostic(
+                    new TextSpan(diag.Span.Start + reparseStart, diag.Span.Length),
+                    diag.Message,
+                    diag.Severity,
+                    diag.FilePath
+                )
+            );
         }
 
         return SyntaxTree.Create(newText, redRoot, diagnostics);

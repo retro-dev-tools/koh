@@ -99,16 +99,14 @@ public class EmitModelTests
     [Test]
     public async Task EmitModel_MultipleSections()
     {
-        var model = Emit(
-            "SECTION \"Code\", ROM0\nnop\nSECTION \"Data\", ROM0\ndb $42");
+        var model = Emit("SECTION \"Code\", ROM0\nnop\nSECTION \"Data\", ROM0\ndb $42");
         await Assert.That(model.Sections.Count).IsEqualTo(2);
     }
 
     [Test]
     public async Task EmitModel_ExportMultipleSymbols()
     {
-        var model = Emit(
-            "SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
+        var model = Emit("SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
         var foo = model.Symbols.FirstOrDefault(s => s.Name == "foo");
         var bar = model.Symbols.FirstOrDefault(s => s.Name == "bar");
         await Assert.That(foo!.Visibility).IsEqualTo(SymbolVisibility.Exported);
@@ -138,8 +136,7 @@ public class EmitModelTests
     [Test]
     public async Task EmitModel_MultipleSections_DataIsolated()
     {
-        var model = Emit(
-            "SECTION \"Alpha\", ROM0\ndb $AA, $BB\nSECTION \"Beta\", ROM0\ndb $CC");
+        var model = Emit("SECTION \"Alpha\", ROM0\ndb $AA, $BB\nSECTION \"Beta\", ROM0\ndb $CC");
         await Assert.That(model.Sections.Count).IsEqualTo(2);
         var alpha = model.Sections.First(s => s.Name == "Alpha");
         var beta = model.Sections.First(s => s.Name == "Beta");
@@ -170,15 +167,19 @@ public class EmitModelTests
         var model = Emit($"SECTION \"Main\", ROM0[$0000]\njr target\n{nops}target:\nnop");
         await Assert.That(model.Success).IsFalse();
         // Either "out of range" or "No valid encoding" — both indicate the error
-        await Assert.That(model.Diagnostics.Any(d =>
-            d.Message.Contains("out of range") || d.Message.Contains("No valid encoding"))).IsTrue();
+        await Assert
+            .That(
+                model.Diagnostics.Any(d =>
+                    d.Message.Contains("out of range") || d.Message.Contains("No valid encoding")
+                )
+            )
+            .IsTrue();
     }
 
     [Test]
     public async Task EmitModel_ExportMultipleSymbols_NullGuard()
     {
-        var model = Emit(
-            "SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
+        var model = Emit("SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
         var foo = model.Symbols.FirstOrDefault(s => s.Name == "foo");
         var bar = model.Symbols.FirstOrDefault(s => s.Name == "bar");
         await Assert.That(foo).IsNotNull();

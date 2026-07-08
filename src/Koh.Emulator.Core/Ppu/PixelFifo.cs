@@ -19,18 +19,27 @@ public sealed class PixelFifo
     private readonly byte[] _spriteColors = new byte[8];
     private readonly byte[] _spritePalettes = new byte[8];
     private readonly byte[] _spriteFlags = new byte[8];
-    private readonly int[] _spritePriority = new int[8];  // lower = higher priority
+    private readonly int[] _spritePriority = new int[8]; // lower = higher priority
     private int _spriteCount;
 
     public int BgCount => _bgCount;
     public int SpriteCount => _spriteCount;
 
-    public void ClearBg() { _bgHead = 0; _bgCount = 0; }
-    public void ClearSprites() { _spriteCount = 0; }
+    public void ClearBg()
+    {
+        _bgHead = 0;
+        _bgCount = 0;
+    }
+
+    public void ClearSprites()
+    {
+        _spriteCount = 0;
+    }
 
     public bool PushBgTile(byte[] colors8, byte attributes)
     {
-        if (_bgCount + 8 > 16) return false;
+        if (_bgCount + 8 > 16)
+            return false;
         for (int i = 0; i < 8; i++)
         {
             int slot = (_bgHead + _bgCount + i) & 15;
@@ -70,14 +79,22 @@ public sealed class PixelFifo
         }
     }
 
-    public (byte bgColor, byte bgAttrs, byte spriteColor, byte spritePalette, byte spriteFlags) ShiftOut()
+    public (
+        byte bgColor,
+        byte bgAttrs,
+        byte spriteColor,
+        byte spritePalette,
+        byte spriteFlags
+    ) ShiftOut()
     {
         byte bgColor = _bgColors[_bgHead];
         byte bgAttrs = _bgAttrs[_bgHead];
         _bgHead = (_bgHead + 1) & 15;
         _bgCount--;
 
-        byte spriteColor = 0, spritePalette = 0, spriteFlags = 0;
+        byte spriteColor = 0,
+            spritePalette = 0,
+            spriteFlags = 0;
         if (_spriteCount > 0)
         {
             spriteColor = _spriteColors[0];
@@ -112,7 +129,8 @@ public sealed class PixelFifo
         w.WriteBytes(_spriteColors);
         w.WriteBytes(_spritePalettes);
         w.WriteBytes(_spriteFlags);
-        for (int i = 0; i < _spritePriority.Length; i++) w.WriteI32(_spritePriority[i]);
+        for (int i = 0; i < _spritePriority.Length; i++)
+            w.WriteI32(_spritePriority[i]);
         w.WriteI32(_spriteCount);
     }
 
@@ -125,7 +143,8 @@ public sealed class PixelFifo
         r.ReadBytes(_spriteColors.AsSpan());
         r.ReadBytes(_spritePalettes.AsSpan());
         r.ReadBytes(_spriteFlags.AsSpan());
-        for (int i = 0; i < _spritePriority.Length; i++) _spritePriority[i] = r.ReadI32();
+        for (int i = 0; i < _spritePriority.Length; i++)
+            _spritePriority[i] = r.ReadI32();
         _spriteCount = r.ReadI32();
     }
 }

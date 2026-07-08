@@ -4,7 +4,7 @@ public sealed class FrequencySweep
 {
     public int ShadowFrequency;
     public int PeriodReload;
-    public bool IncreaseDirection;   // false = decrease
+    public bool IncreaseDirection; // false = decrease
     public int Shift;
     public bool Enabled;
     private int _period;
@@ -21,9 +21,11 @@ public sealed class FrequencySweep
 
     public int? Tick(Action disableChannel)
     {
-        if (!Enabled) return null;
+        if (!Enabled)
+            return null;
         _period--;
-        if (_period > 0) return null;
+        if (_period > 0)
+            return null;
         _period = PeriodReload == 0 ? 8 : PeriodReload;
 
         int newFreq = Calculate(disableChannel);
@@ -40,7 +42,11 @@ public sealed class FrequencySweep
     {
         int delta = ShadowFrequency >> Shift;
         int newFreq = IncreaseDirection ? ShadowFrequency + delta : ShadowFrequency - delta;
-        if (newFreq > 2047) { Enabled = false; disableChannel(); }
+        if (newFreq > 2047)
+        {
+            Enabled = false;
+            disableChannel();
+        }
         return newFreq;
     }
 }

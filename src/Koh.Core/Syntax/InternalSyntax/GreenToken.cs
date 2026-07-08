@@ -13,9 +13,12 @@ public sealed class GreenToken : GreenNodeBase
     public int LeadingTriviaWidth => LeadingTrivia.Sum(t => t.Width);
     public int TrailingTriviaWidth => TrailingTrivia.Sum(t => t.Width);
 
-    public GreenToken(SyntaxKind kind, string text,
+    public GreenToken(
+        SyntaxKind kind,
+        string text,
         IReadOnlyList<GreenTrivia>? leadingTrivia = null,
-        IReadOnlyList<GreenTrivia>? trailingTrivia = null)
+        IReadOnlyList<GreenTrivia>? trailingTrivia = null
+    )
         : base(kind)
     {
         Text = text;

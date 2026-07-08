@@ -4,7 +4,11 @@ using Koh.Core.Text;
 
 namespace Koh.Core.Binding;
 
-internal enum LoopControl { Continue, Break }
+internal enum LoopControl
+{
+    Continue,
+    Break,
+}
 
 /// <summary>
 /// Mutable macro argument frame. SHIFT mutates <see cref="ShiftOffset"/> within
@@ -54,41 +58,47 @@ internal sealed record ExpansionContext
     /// </summary>
     public int LoopUniqueId { get; init; }
 
-    public MacroFrame? CurrentMacroFrame
-        => MacroFrames.IsEmpty ? null : MacroFrames.Peek();
+    public MacroFrame? CurrentMacroFrame => MacroFrames.IsEmpty ? null : MacroFrames.Peek();
 
-    public ExpansionContext ForMacro(MacroFrame frame, MacroDefinition macro)
-        => this with
+    public ExpansionContext ForMacro(MacroFrame frame, MacroDefinition macro) =>
+        this with
         {
             MacroFrames = MacroFrames.Push(frame),
             MacroBodyDepth = MacroBodyDepth + 1,
             StructuralDepth = StructuralDepth + 1,
-            Trace = Trace.Push(ExpansionFrame.ForMacro(macro))
+            Trace = Trace.Push(ExpansionFrame.ForMacro(macro)),
         };
 
-    public ExpansionContext ForLoop(ExpansionFrame loopFrame, int uniqueId)
-        => this with
+    public ExpansionContext ForLoop(ExpansionFrame loopFrame, int uniqueId) =>
+        this with
         {
             LoopDepth = LoopDepth + 1,
             LoopUniqueId = uniqueId,
-            Trace = Trace.Push(loopFrame)
+            Trace = Trace.Push(loopFrame),
         };
 
-    public ExpansionContext ForInclude(string filePath, SourceText source, TextSpan directiveSpan)
-        => this with
+    public ExpansionContext ForInclude(
+        string filePath,
+        SourceText source,
+        TextSpan directiveSpan
+    ) =>
+        this with
         {
             SourceText = source,
             FilePath = filePath,
             StructuralDepth = StructuralDepth + 1,
-            Trace = Trace.Push(ExpansionFrame.ForInclude(filePath, directiveSpan))
+            Trace = Trace.Push(ExpansionFrame.ForInclude(filePath, directiveSpan)),
         };
 
-    public ExpansionContext ForTextReplay(SourceText replaySource, TextSpan triggerSpan,
-        TextReplayReason reason)
-        => this with
+    public ExpansionContext ForTextReplay(
+        SourceText replaySource,
+        TextSpan triggerSpan,
+        TextReplayReason reason
+    ) =>
+        this with
         {
             SourceText = replaySource,
             ReplayDepth = ReplayDepth + 1,
-            Trace = Trace.Push(ExpansionFrame.ForTextReplay(FilePath, triggerSpan, reason))
+            Trace = Trace.Push(ExpansionFrame.ForTextReplay(FilePath, triggerSpan, reason)),
         };
 }

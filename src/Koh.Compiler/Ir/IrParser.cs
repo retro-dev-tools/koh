@@ -6,7 +6,8 @@ namespace Koh.Compiler.Ir;
 /// <summary>Thrown when textual IR cannot be parsed.</summary>
 public sealed class IrParseException : Exception
 {
-    public IrParseException(string message) : base(message) { }
+    public IrParseException(string message)
+        : base(message) { }
 }
 
 /// <summary>
@@ -28,7 +29,8 @@ public static class IrParser
         for (; i < lines.Length; i++)
         {
             var toks = Tokenize(lines[i]);
-            if (toks.Count == 0) continue;
+            if (toks.Count == 0)
+                continue;
             if (toks[0].Text == "module")
             {
                 if (toks.Count < 2 || !toks[1].IsString)
@@ -49,7 +51,8 @@ public static class IrParser
         for (; i < lines.Length; i++)
         {
             var reader = new TokenReader(Tokenize(lines[i]));
-            if (reader.End) continue;
+            if (reader.End)
+                continue;
 
             var head = reader.Peek;
             if (head == "global")
@@ -131,12 +134,16 @@ public static class IrParser
         if (r.Eat("="))
         {
             var bytes = new List<byte>();
-            do { bytes.Add((byte)ParseLong(r.Next().Text)); }
-            while (r.Eat(","));
+            do
+            {
+                bytes.Add((byte)ParseLong(r.Next().Text));
+            } while (r.Eat(","));
             initializer = bytes.ToArray();
         }
 
-        module.Globals.Add(new IrGlobal(name, type, space, bank, section, initializer, fixedAddress));
+        module.Globals.Add(
+            new IrGlobal(name, type, space, bank, section, initializer, fixedAddress)
+        );
     }
 
     private static IrFunction ParseFunctionHeader(TokenReader r, IrModule module)
@@ -155,8 +162,7 @@ public static class IrParser
                 r.Expect(":");
                 var pType = ParseType(r);
                 parameters.Add(new IrParameter(pName, pType));
-            }
-            while (r.Eat(","));
+            } while (r.Eat(","));
         }
         r.Expect(")");
         r.Expect(":");
@@ -198,13 +204,18 @@ public static class IrParser
         }
 
         var builder = new IrBuilder();
-        var phiFixups = new List<(PhiInstruction Phi, List<(string? Name, IrValue? Value, IrBasicBlock Block)> Items)>();
+        var phiFixups =
+            new List<(
+                PhiInstruction Phi,
+                List<(string? Name, IrValue? Value, IrBasicBlock Block)> Items
+            )>();
         IrBasicBlock? current = null;
 
         foreach (var line in lines)
         {
             var r = new TokenReader(Tokenize(line));
-            if (r.End) continue;
+            if (r.End)
+                continue;
 
             if (r.Peek is { } h && IsBareName(h) && r.PeekAt(1) == ":")
             {
@@ -214,19 +225,27 @@ public static class IrParser
             }
 
             if (current is null)
-                throw new IrParseException($"instruction outside any block in '@{fn.Name}': {line.Trim()}");
+                throw new IrParseException(
+                    $"instruction outside any block in '@{fn.Name}': {line.Trim()}"
+                );
 
             ParseInstruction(r, fn, module, builder, blocks, env, phiFixups);
         }
 
         foreach (var (phi, items) in phiFixups)
-            foreach (var (name, value, block) in items)
-            {
-                var v = value ?? (env.TryGetValue(name!, out var found)
-                    ? found
-                    : throw new IrParseException($"phi references undefined value %{name} in '@{fn.Name}'"));
-                phi.AddIncoming(v, block);
-            }
+        foreach (var (name, value, block) in items)
+        {
+            var v =
+                value
+                ?? (
+                    env.TryGetValue(name!, out var found)
+                        ? found
+                        : throw new IrParseException(
+                            $"phi references undefined value %{name} in '@{fn.Name}'"
+                        )
+                );
+            phi.AddIncoming(v, block);
+        }
     }
 
     private static void ParseInstruction(
@@ -236,7 +255,8 @@ public static class IrParser
         IrBuilder builder,
         Dictionary<string, IrBasicBlock> blocks,
         Dictionary<string, IrValue> env,
-        List<(PhiInstruction, List<(string?, IrValue?, IrBasicBlock)>)> phiFixups)
+        List<(PhiInstruction, List<(string?, IrValue?, IrBasicBlock)>)> phiFixups
+    )
     {
         string? resultName = null;
         if (r.Peek is { } first && first.StartsWith('%') && r.PeekAt(1) == "=")
@@ -251,8 +271,19 @@ public static class IrParser
 
         switch (op)
         {
-            case "add" or "sub" or "mul" or "udiv" or "sdiv" or "urem" or "srem"
-                or "and" or "or" or "xor" or "shl" or "lshr" or "ashr":
+            case "add"
+            or "sub"
+            or "mul"
+            or "udiv"
+            or "sdiv"
+            or "urem"
+            or "srem"
+            or "and"
+            or "or"
+            or "xor"
+            or "shl"
+            or "lshr"
+            or "ashr":
             {
                 var type = ParseType(r);
                 var lhs = ParseOperand(r, type, module, env);
@@ -316,7 +347,8 @@ public static class IrParser
             {
                 ParseType(r); // return type — recovered from the callee signature
                 var calleeName = AtName(r.Next(), '@');
-                var callee = module.FindFunction(calleeName)
+                var callee =
+                    module.FindFunction(calleeName)
                     ?? throw new IrParseException($"call to undefined function '@{calleeName}'");
                 r.Expect("(");
                 var args = new List<IrValue>();
@@ -326,8 +358,7 @@ public static class IrParser
                     {
                         var aType = ParseType(r);
                         args.Add(ParseOperand(r, aType, module, env));
-                    }
-                    while (r.Eat(","));
+                    } while (r.Eat(","));
                 }
                 r.Expect(")");
                 instr = builder.Call(callee, args);
@@ -354,8 +385,7 @@ public static class IrParser
                     var block = ResolveBlock(r.Next().Text, blocks);
                     r.Expect("]");
                     items.Add((pendingName, resolved, block));
-                }
-                while (r.Eat(","));
+                } while (r.Eat(","));
                 phiFixups.Add((phi, items));
                 instr = phi;
                 break;
@@ -409,8 +439,7 @@ public static class IrParser
                         r.Expect(":");
                         var target = ResolveBlock(r.Next().Text, blocks);
                         cases.Add((caseVal, target));
-                    }
-                    while (r.Eat(","));
+                    } while (r.Eat(","));
                 }
                 r.Expect("]");
                 instr = builder.Switch(value, def, cases);
@@ -430,7 +459,11 @@ public static class IrParser
     // ---- Operands & helpers ---------------------------------------------
 
     private static IrValue ParseOperand(
-        TokenReader r, IrType expected, IrModule module, Dictionary<string, IrValue> env)
+        TokenReader r,
+        IrType expected,
+        IrModule module,
+        Dictionary<string, IrValue> env
+    )
     {
         var tok = r.Next().Text;
         if (tok.StartsWith('%'))
@@ -445,12 +478,16 @@ public static class IrParser
     private static IrGlobalRef GlobalOperand(string token, IrModule module)
     {
         var name = token[1..];
-        var g = module.FindGlobal(name)
+        var g =
+            module.FindGlobal(name)
             ?? throw new IrParseException($"reference to undefined global '@{name}'");
         return new IrGlobalRef(g);
     }
 
-    private static IrBasicBlock ResolveBlock(string name, Dictionary<string, IrBasicBlock> blocks) =>
+    private static IrBasicBlock ResolveBlock(
+        string name,
+        Dictionary<string, IrBasicBlock> blocks
+    ) =>
         blocks.TryGetValue(name, out var b)
             ? b
             : throw new IrParseException($"reference to undefined block '{name}'");
@@ -490,12 +527,14 @@ public static class IrParser
     private static IrType ParseAtomType(TokenReader r)
     {
         var tok = r.Next().Text;
-        if (tok == "void") return IrType.Void;
+        if (tok == "void")
+            return IrType.Void;
         if (tok == "[")
         {
             int length = (int)ParseLong(r.Next().Text);
             var x = r.Next().Text;
-            if (x != "x") throw new IrParseException($"expected 'x' in array type, got '{x}'");
+            if (x != "x")
+                throw new IrParseException($"expected 'x' in array type, got '{x}'");
             var element = ParseType(r);
             r.Expect("]");
             return IrType.Array(element, length);
@@ -513,14 +552,17 @@ public static class IrParser
     // The textual mnemonics are the enum member names lower-cased (see IrPrinter), so all three
     // parse case-insensitively straight back to the enum. The leading-letter guard rejects numeric
     // tokens, which Enum.TryParse would otherwise accept as raw underlying values.
-    private static T ParseMnemonic<T>(string op, string kind) where T : struct, Enum =>
+    private static T ParseMnemonic<T>(string op, string kind)
+        where T : struct, Enum =>
         op.Length > 0 && char.IsLetter(op[0]) && Enum.TryParse<T>(op, ignoreCase: true, out var v)
             ? v
             : throw new IrParseException($"unknown {kind} '{op}'");
 
-    private static IrBinaryOp ParseBinaryOp(string op) => ParseMnemonic<IrBinaryOp>(op, "binary op");
+    private static IrBinaryOp ParseBinaryOp(string op) =>
+        ParseMnemonic<IrBinaryOp>(op, "binary op");
 
-    private static IrCompareOp ParseCompareOp(string op) => ParseMnemonic<IrCompareOp>(op, "compare predicate");
+    private static IrCompareOp ParseCompareOp(string op) =>
+        ParseMnemonic<IrCompareOp>(op, "compare predicate");
 
     private static IrConvOp ParseConvOp(string op) => ParseMnemonic<IrConvOp>(op, "conversion");
 
@@ -528,22 +570,27 @@ public static class IrParser
     {
         bool neg = text.StartsWith('-');
         var body = neg ? text[1..] : text;
-        long value = body.StartsWith("0x") || body.StartsWith("0X")
-            ? Convert.ToInt64(body[2..], 16)
-            : long.Parse(body, CultureInfo.InvariantCulture);
+        long value =
+            body.StartsWith("0x") || body.StartsWith("0X")
+                ? Convert.ToInt64(body[2..], 16)
+                : long.Parse(body, CultureInfo.InvariantCulture);
         return neg ? -value : value;
     }
 
     private static string AtName(Token token, char sigil)
     {
         if (!token.Text.StartsWith(sigil))
-            throw new IrParseException($"expected name starting with '{sigil}', got '{token.Text}'");
+            throw new IrParseException(
+                $"expected name starting with '{sigil}', got '{token.Text}'"
+            );
         return token.Text[1..];
     }
 
     private static bool IsBareName(string text) =>
-        text.Length > 0 && (char.IsLetter(text[0]) || text[0] == '_')
-        && !text.StartsWith('%') && !text.StartsWith('@');
+        text.Length > 0
+        && (char.IsLetter(text[0]) || text[0] == '_')
+        && !text.StartsWith('%')
+        && !text.StartsWith('@');
 
     // ---- Lexing ----------------------------------------------------------
 
@@ -558,16 +605,22 @@ public static class IrParser
 
         public bool End => _pos >= _tokens.Count;
         public string? Peek => _pos < _tokens.Count ? _tokens[_pos].Text : null;
+
         public string? PeekAt(int offset) =>
             _pos + offset < _tokens.Count ? _tokens[_pos + offset].Text : null;
 
-        public Token Next() => _pos < _tokens.Count
-            ? _tokens[_pos++]
-            : throw new IrParseException("unexpected end of line");
+        public Token Next() =>
+            _pos < _tokens.Count
+                ? _tokens[_pos++]
+                : throw new IrParseException("unexpected end of line");
 
         public bool Eat(string text)
         {
-            if (Peek == text) { _pos++; return true; }
+            if (Peek == text)
+            {
+                _pos++;
+                return true;
+            }
             return false;
         }
 
@@ -586,13 +639,19 @@ public static class IrParser
         while (i < line.Length)
         {
             char c = line[i];
-            if (c is ' ' or '\t') { i++; continue; }
-            if (c == ';') break; // comment to end of line
+            if (c is ' ' or '\t')
+            {
+                i++;
+                continue;
+            }
+            if (c == ';')
+                break; // comment to end of line
 
             if (c == '"')
             {
                 int j = i + 1;
-                while (j < line.Length && line[j] != '"') j++;
+                while (j < line.Length && line[j] != '"')
+                    j++;
                 tokens.Add(new Token(line[(i + 1)..j], IsString: true));
                 i = j + 1;
                 continue;
@@ -606,14 +665,16 @@ public static class IrParser
             }
 
             int start = i;
-            if (c is '%' or '@') i++;
-            else if (c == '-') i++;
-            while (i < line.Length && IsWordChar(line[i])) i++;
+            if (c is '%' or '@')
+                i++;
+            else if (c == '-')
+                i++;
+            while (i < line.Length && IsWordChar(line[i]))
+                i++;
             tokens.Add(new Token(line[start..i], IsString: false));
         }
         return tokens;
     }
 
-    private static bool IsWordChar(char c) =>
-        char.IsLetterOrDigit(c) || c is '_' or '.';
+    private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '.';
 }

@@ -15,6 +15,7 @@ public enum AddressSpace
     Hram,
     Sram,
     Vram,
+
     /// <summary>A banked pointer whose reference crosses banks (far call / far data).</summary>
     Far,
 }

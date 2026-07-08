@@ -20,6 +20,7 @@ namespace Koh.Emulator.App;
 public sealed unsafe class AudioSink : IDisposable
 {
     public const int SampleRate = 44_100;
+
     // Eight small buffers × 512 samples = 4096 samples = ~93 ms at
     // 44.1 kHz. Small buffers give the pacer tight feedback on how
     // many samples the hardware has actually consumed; too-large
@@ -49,6 +50,7 @@ public sealed unsafe class AudioSink : IDisposable
     private readonly uint _source;
     private readonly Queue<uint> _freeBuffers = new();
     private readonly object _sync = new();
+
     // Accumulator for sub-buffer remainders. APU frames produce 738
     // samples; we need 512 per GL buffer. Rather than varying buffer
     // size (which confuses the depth math), we accumulate leftovers
@@ -60,11 +62,13 @@ public sealed unsafe class AudioSink : IDisposable
     public AudioSink()
     {
         _alc = ALContext.GetApi(soft: true);
-        _al  = AL.GetApi(soft: true);
+        _al = AL.GetApi(soft: true);
 
         _device = _alc.OpenDevice("");
         if (_device == null)
-            throw new InvalidOperationException("alcOpenDevice returned null — no audio output available");
+            throw new InvalidOperationException(
+                "alcOpenDevice returned null — no audio output available"
+            );
 
         _context = _alc.CreateContext(_device, null);
         if (_context == null)
@@ -80,7 +84,6 @@ public sealed unsafe class AudioSink : IDisposable
         for (int i = 0; i < BufferCount; i++)
             _freeBuffers.Enqueue(_al.GenBuffer());
     }
-
 
     // Rolling counters for trace logging. Not thread-safe overall, but
     // only mutated under _sync; read without lock for reporting.
@@ -115,17 +118,25 @@ public sealed unsafe class AudioSink : IDisposable
                 int remaining = SamplesPerBuffer - _stagingFill;
                 int available = samples.Length - consumed;
                 int toCopy = Math.Min(remaining, available);
-                if (toCopy == 0) break;
+                if (toCopy == 0)
+                    break;
 
                 samples.Slice(consumed, toCopy).CopyTo(_staging.AsSpan(_stagingFill));
                 _stagingFill += toCopy;
                 consumed += toCopy;
 
-                if (_stagingFill < SamplesPerBuffer) break;   // need more samples
+                if (_stagingFill < SamplesPerBuffer)
+                    break; // need more samples
 
                 uint buf = _freeBuffers.Dequeue();
                 fixed (short* p = _staging)
-                    _al.BufferData(buf, BufferFormat.Mono16, p, SamplesPerBuffer * sizeof(short), SampleRate);
+                    _al.BufferData(
+                        buf,
+                        BufferFormat.Mono16,
+                        p,
+                        SamplesPerBuffer * sizeof(short),
+                        SampleRate
+                    );
                 _al.SourceQueueBuffers(_source, 1, &buf);
                 _stagingFill = 0;
             }
@@ -144,7 +155,8 @@ public sealed unsafe class AudioSink : IDisposable
                 {
                     if (queuedSamples > 0)
                     {
-                        if ((SourceState)state == SourceState.Stopped) Underruns++;
+                        if ((SourceState)state == SourceState.Stopped)
+                            Underruns++;
                         _al.SourcePlay(_source);
                     }
                 }
@@ -188,7 +200,8 @@ public sealed unsafe class AudioSink : IDisposable
             {
                 uint buf = 0;
                 _al.SourceUnqueueBuffers(_source, 1, &buf);
-                if (buf != 0) _freeBuffers.Enqueue(buf);
+                if (buf != 0)
+                    _freeBuffers.Enqueue(buf);
             }
             _stagingFill = 0;
             _warmedUp = false;
@@ -227,9 +240,11 @@ public sealed unsafe class AudioSink : IDisposable
         {
             uint buf = 0;
             _al.SourceUnqueueBuffers(_source, 1, &buf);
-            if (buf != 0) _al.DeleteBuffer(buf);
+            if (buf != 0)
+                _al.DeleteBuffer(buf);
         }
-        foreach (var buf in _freeBuffers) _al.DeleteBuffer(buf);
+        foreach (var buf in _freeBuffers)
+            _al.DeleteBuffer(buf);
         _freeBuffers.Clear();
         _al.DeleteSource(_source);
 
@@ -238,7 +253,8 @@ public sealed unsafe class AudioSink : IDisposable
             _alc.MakeContextCurrent(null);
             _alc.DestroyContext(_context);
         }
-        if (_device != null) _alc.CloseDevice(_device);
+        if (_device != null)
+            _alc.CloseDevice(_device);
 
         _al.Dispose();
         _alc.Dispose();

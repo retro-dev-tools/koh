@@ -16,9 +16,12 @@ public sealed class FrameSequencer
         bool sweep = Step is 2 or 6;
         bool env = Step == 7;
 
-        if (len) LengthClock?.Invoke();
-        if (sweep) SweepClock?.Invoke();
-        if (env) EnvelopeClock?.Invoke();
+        if (len)
+            LengthClock?.Invoke();
+        if (sweep)
+            SweepClock?.Invoke();
+        if (env)
+            EnvelopeClock?.Invoke();
     }
 
     public void Reset() => Step = 0;

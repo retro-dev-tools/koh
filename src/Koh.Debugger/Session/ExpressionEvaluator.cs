@@ -19,8 +19,14 @@ public static class ExpressionEvaluator
 {
     public static bool Evaluate(string expression, GameBoySystem gb)
     {
-        try { return TryEvaluate(expression, gb); }
-        catch { return false; }
+        try
+        {
+            return TryEvaluate(expression, gb);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool TryEvaluate(string expression, GameBoySystem gb)
@@ -34,17 +40,28 @@ public static class ExpressionEvaluator
         foreach (var candidate in ops2)
         {
             int i = s.IndexOf(candidate, StringComparison.Ordinal);
-            if (i > 0) { opIndex = i; op = candidate; break; }
+            if (i > 0)
+            {
+                opIndex = i;
+                op = candidate;
+                break;
+            }
         }
         if (op is null)
         {
             foreach (var candidate in ops1)
             {
                 int i = s.IndexOf(candidate, StringComparison.Ordinal);
-                if (i > 0) { opIndex = i; op = candidate; break; }
+                if (i > 0)
+                {
+                    opIndex = i;
+                    op = candidate;
+                    break;
+                }
             }
         }
-        if (op is null) return false;
+        if (op is null)
+            return false;
 
         int lhs = ReadOperand(s[..opIndex].Trim(), gb);
         int rhs = ReadOperand(s[(opIndex + op.Length)..].Trim(), gb);
@@ -53,9 +70,9 @@ public static class ExpressionEvaluator
         {
             "==" => lhs == rhs,
             "!=" => lhs != rhs,
-            "<"  => lhs <  rhs,
+            "<" => lhs < rhs,
             "<=" => lhs <= rhs,
-            ">"  => lhs >  rhs,
+            ">" => lhs > rhs,
             ">=" => lhs >= rhs,
             _ => false,
         };
@@ -72,20 +89,34 @@ public static class ExpressionEvaluator
 
         switch (token.ToUpperInvariant())
         {
-            case "A":  return gb.Registers.A;
-            case "F":  return gb.Registers.F;
-            case "B":  return gb.Registers.B;
-            case "C":  return gb.Registers.C;
-            case "D":  return gb.Registers.D;
-            case "E":  return gb.Registers.E;
-            case "H":  return gb.Registers.H;
-            case "L":  return gb.Registers.L;
-            case "AF": return gb.Registers.AF;
-            case "BC": return gb.Registers.BC;
-            case "DE": return gb.Registers.DE;
-            case "HL": return gb.Registers.HL;
-            case "SP": return gb.Registers.Sp;
-            case "PC": return gb.Registers.Pc;
+            case "A":
+                return gb.Registers.A;
+            case "F":
+                return gb.Registers.F;
+            case "B":
+                return gb.Registers.B;
+            case "C":
+                return gb.Registers.C;
+            case "D":
+                return gb.Registers.D;
+            case "E":
+                return gb.Registers.E;
+            case "H":
+                return gb.Registers.H;
+            case "L":
+                return gb.Registers.L;
+            case "AF":
+                return gb.Registers.AF;
+            case "BC":
+                return gb.Registers.BC;
+            case "DE":
+                return gb.Registers.DE;
+            case "HL":
+                return gb.Registers.HL;
+            case "SP":
+                return gb.Registers.Sp;
+            case "PC":
+                return gb.Registers.Pc;
         }
 
         return ParseLiteral(token);
@@ -95,9 +126,12 @@ public static class ExpressionEvaluator
     {
         switch (token.ToUpperInvariant())
         {
-            case "HL": return gb.Registers.HL;
-            case "BC": return gb.Registers.BC;
-            case "DE": return gb.Registers.DE;
+            case "HL":
+                return gb.Registers.HL;
+            case "BC":
+                return gb.Registers.BC;
+            case "DE":
+                return gb.Registers.DE;
         }
         return ParseLiteral(token);
     }

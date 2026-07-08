@@ -24,11 +24,13 @@ public sealed class Runner<TModel, TMsg> : IAsyncDisposable
 {
     private readonly Func<TMsg, TModel, TModel> _update;
     private readonly Func<TModel, IView<TMsg>> _view;
-    private readonly Channel<TMsg> _messages = Channel.CreateUnbounded<TMsg>(new UnboundedChannelOptions
-    {
-        SingleReader = true,   // the background loop is the only consumer
-        AllowSynchronousContinuations = false,
-    });
+    private readonly Channel<TMsg> _messages = Channel.CreateUnbounded<TMsg>(
+        new UnboundedChannelOptions
+        {
+            SingleReader = true, // the background loop is the only consumer
+            AllowSynchronousContinuations = false,
+        }
+    );
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _loopTask;
 
@@ -41,7 +43,11 @@ public sealed class Runner<TModel, TMsg> : IAsyncDisposable
     /// <summary>Fires on the first render only, carrying the complete tree so a new connection can sync up.</summary>
     public event Action<RenderNode>? OnInitialRender;
 
-    public Runner(TModel initialModel, Func<TMsg, TModel, TModel> update, Func<TModel, IView<TMsg>> view)
+    public Runner(
+        TModel initialModel,
+        Func<TMsg, TModel, TModel> update,
+        Func<TModel, IView<TMsg>> view
+    )
     {
         _model = initialModel;
         _update = update;
@@ -73,17 +79,25 @@ public sealed class Runner<TModel, TMsg> : IAsyncDisposable
                 var next = _view(_model).Render();
                 var patches = Reconciler.Diff(_lastRender, next);
                 _lastRender = next;
-                if (patches.Count > 0) OnPatchesReady?.Invoke(patches);
+                if (patches.Count > 0)
+                    OnPatchesReady?.Invoke(patches);
             }
         }
-        catch (OperationCanceledException) { /* shutting down */ }
+        catch (OperationCanceledException)
+        { /* shutting down */
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
         _messages.Writer.TryComplete();
-        try { await _loopTask; }
-        catch (OperationCanceledException) { /* expected */ }
+        try
+        {
+            await _loopTask;
+        }
+        catch (OperationCanceledException)
+        { /* expected */
+        }
     }
 }

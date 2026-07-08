@@ -10,7 +10,12 @@ public sealed partial class Sm83Backend
     {
         private readonly EmitContext _ctx;
         private readonly Emitter _e;
-        public ArithmeticEmitter(EmitContext ctx) { _ctx = ctx; _e = ctx.E; }
+
+        public ArithmeticEmitter(EmitContext ctx)
+        {
+            _ctx = ctx;
+            _e = ctx.E;
+        }
 
         // ---- Arithmetic ----------------------------------------------------
 
@@ -22,8 +27,14 @@ public sealed partial class Sm83Backend
                 return;
             }
 
-            if (b.Op is IrBinaryOp.Mul or IrBinaryOp.UDiv or IrBinaryOp.SDiv
-                or IrBinaryOp.URem or IrBinaryOp.SRem)
+            if (
+                b.Op
+                is IrBinaryOp.Mul
+                    or IrBinaryOp.UDiv
+                    or IrBinaryOp.SDiv
+                    or IrBinaryOp.URem
+                    or IrBinaryOp.SRem
+            )
             {
                 EmitMulDivRem(b);
                 return;
@@ -82,30 +93,33 @@ public sealed partial class Sm83Backend
             // saturates to n*8 rather than looping by its truncated low byte.
             int width = n * 8;
             _ctx.LoadByteToA(b.Right, 0);
-            _e.U8(0x47);                 // LD B, A  (tentative count = low byte)
+            _e.U8(0x47); // LD B, A  (tentative count = low byte)
             var saturate = new Label();
             var counted = new Label();
             if (n == 2)
             {
                 _ctx.LoadByteToA(b.Right, 1);
-                _e.U8(0xB7);                     // OR A            (Z iff high byte == 0)
-                _e.Jump(0xC2, saturate);         // JP NZ, saturate (high bits set => count >= width)
+                _e.U8(0xB7); // OR A            (Z iff high byte == 0)
+                _e.Jump(0xC2, saturate); // JP NZ, saturate (high bits set => count >= width)
             }
-            _e.U8(0x78);                         // LD A, B
-            _e.U8(0xFE); _e.U8((byte)width);     // CP width        (carry iff count < width)
-            _e.Jump(0xDA, counted);              // JP C, counted   (count < width => use as-is)
+            _e.U8(0x78); // LD A, B
+            _e.U8(0xFE);
+            _e.U8((byte)width); // CP width        (carry iff count < width)
+            _e.Jump(0xDA, counted); // JP C, counted   (count < width => use as-is)
             _e.Place(saturate);
-            _e.U8(0x06); _e.U8((byte)width);     // LD B, width     (saturate)
+            _e.U8(0x06);
+            _e.U8((byte)width); // LD B, width     (saturate)
             _e.Place(counted);
             LoadWorking(b.Left, n);
             var loop = new Label();
             var done = new Label();
             _e.Place(loop);
-            _e.U8(0x78); _e.U8(0xA7);    // LD A, B ; AND A  (Z iff count == 0)
-            _e.Jump(0xCA, done);         // JP Z, done
+            _e.U8(0x78);
+            _e.U8(0xA7); // LD A, B ; AND A  (Z iff count == 0)
+            _e.Jump(0xCA, done); // JP Z, done
             ShiftWorkingOnce(b.Op, n);
-            _e.U8(0x05);                 // DEC B
-            _e.Jump(0xC3, loop);         // JP loop
+            _e.U8(0x05); // DEC B
+            _e.Jump(0xC3, loop); // JP loop
             _e.Place(done);
             StoreWorking(dst, n);
         }
@@ -118,7 +132,9 @@ public sealed partial class Sm83Backend
             int dst = _ctx.Slot[b];
             _ctx.CopyToScratch(b.Left, RtOpA, n);
             _ctx.CopyToScratch(b.Right, RtOpB, n);
-            _e.U8(0x3E); _e.U8(n); _ctx.StoreAToAddr(RtN);       // LD A,n ; RtN = n
+            _e.U8(0x3E);
+            _e.U8(n);
+            _ctx.StoreAToAddr(RtN); // LD A,n ; RtN = n
             string routine = b.Op switch
             {
                 IrBinaryOp.Mul => "mul_wide",
@@ -127,7 +143,9 @@ public sealed partial class Sm83Backend
             };
             _e.Jump(0xCD, _e.RoutineLabel(routine));
             // Product and remainder come back in RtAcc; quotient in RtOpA.
-            int result = b.Op is IrBinaryOp.Mul or IrBinaryOp.URem or IrBinaryOp.SRem ? RtAcc : RtOpA;
+            int result = b.Op is IrBinaryOp.Mul or IrBinaryOp.URem or IrBinaryOp.SRem
+                ? RtAcc
+                : RtOpA;
             _ctx.CopyFromScratch(result, dst, n);
         }
 
@@ -138,38 +156,45 @@ public sealed partial class Sm83Backend
             int dst = _ctx.Slot[b];
             int width = n * 8;
             _ctx.CopyToScratch(b.Left, RtOpA, n);
-            _e.U8(0x3E); _e.U8(n); _ctx.StoreAToAddr(RtN);       // LD A,n ; RtN = n
+            _e.U8(0x3E);
+            _e.U8(n);
+            _ctx.StoreAToAddr(RtN); // LD A,n ; RtN = n
 
             if (b.Right is IrConstInt amount)
             {
                 int steps = Math.Min((int)amount.Value, width);
-                _e.U8(0x3E); _e.U8((byte)steps); _ctx.StoreAToAddr(RtBits);
+                _e.U8(0x3E);
+                _e.U8((byte)steps);
+                _ctx.StoreAToAddr(RtBits);
             }
             else
             {
                 // Clamp the runtime count to the width: accumulate the high bytes in C; if any are set the
                 // count meets/exceeds the width and saturates, else compare the low byte against the width.
                 _ctx.LoadByteToA(b.Right, 0);
-                _e.U8(0x47);                             // LD B, A  (tentative low byte)
-                _e.U8(0xAF);                             // XOR A
-                _e.U8(0x4F);                             // LD C, A  (high-byte accumulator = 0)
+                _e.U8(0x47); // LD B, A  (tentative low byte)
+                _e.U8(0xAF); // XOR A
+                _e.U8(0x4F); // LD C, A  (high-byte accumulator = 0)
                 for (int k = 1; k < n; k++)
                 {
                     _ctx.LoadByteToA(b.Right, k);
-                    _e.U8(0xB1);                         // OR C
-                    _e.U8(0x4F);                         // LD C, A
+                    _e.U8(0xB1); // OR C
+                    _e.U8(0x4F); // LD C, A
                 }
                 var sat = new Label();
                 var counted = new Label();
-                _e.U8(0x79); _e.U8(0xB7);                // LD A, C ; OR A  (Z iff no high bits)
-                _e.Jump(0xC2, sat);                      // JP NZ, sat
-                _e.U8(0x78);                             // LD A, B
-                _e.U8(0xFE); _e.U8((byte)width);         // CP width
-                _e.Jump(0xDA, counted);                  // JP C, counted
+                _e.U8(0x79);
+                _e.U8(0xB7); // LD A, C ; OR A  (Z iff no high bits)
+                _e.Jump(0xC2, sat); // JP NZ, sat
+                _e.U8(0x78); // LD A, B
+                _e.U8(0xFE);
+                _e.U8((byte)width); // CP width
+                _e.Jump(0xDA, counted); // JP C, counted
                 _e.Place(sat);
-                _e.U8(0x06); _e.U8((byte)width);         // LD B, width
+                _e.U8(0x06);
+                _e.U8((byte)width); // LD B, width
                 _e.Place(counted);
-                _e.U8(0x78);                             // LD A, B
+                _e.U8(0x78); // LD A, B
                 _ctx.StoreAToAddr(RtBits);
             }
 
@@ -186,21 +211,21 @@ public sealed partial class Sm83Backend
         private void LoadWorking(IrValue value, int n)
         {
             _ctx.LoadByteToA(value, 0);
-            _e.U8(0x5F);                 // LD E, A  (low byte)
+            _e.U8(0x5F); // LD E, A  (low byte)
             if (n == 2)
             {
                 _ctx.LoadByteToA(value, 1);
-                _e.U8(0x57);             // LD D, A  (high byte)
+                _e.U8(0x57); // LD D, A  (high byte)
             }
         }
 
         private void StoreWorking(int dst, int n)
         {
-            _e.U8(0x7B);                 // LD A, E
+            _e.U8(0x7B); // LD A, E
             _ctx.StoreAToAddr(dst);
             if (n == 2)
             {
-                _e.U8(0x7A);             // LD A, D
+                _e.U8(0x7A); // LD A, D
                 _ctx.StoreAToAddr(dst + 1);
             }
         }
@@ -210,16 +235,31 @@ public sealed partial class Sm83Backend
             switch (op)
             {
                 case IrBinaryOp.Shl:
-                    _e.U8(0xCB); _e.U8(0x23);                 // SLA E
-                    if (n == 2) { _e.U8(0xCB); _e.U8(0x12); } // RL D
+                    _e.U8(0xCB);
+                    _e.U8(0x23); // SLA E
+                    if (n == 2)
+                    {
+                        _e.U8(0xCB);
+                        _e.U8(0x12);
+                    } // RL D
                     break;
                 case IrBinaryOp.LShr:
-                    if (n == 2) { _e.U8(0xCB); _e.U8(0x3A); } // SRL D
-                    _e.U8(0xCB); _e.U8(n == 2 ? 0x1B : 0x3B); // RR E (i16) / SRL E (i8)
+                    if (n == 2)
+                    {
+                        _e.U8(0xCB);
+                        _e.U8(0x3A);
+                    } // SRL D
+                    _e.U8(0xCB);
+                    _e.U8(n == 2 ? 0x1B : 0x3B); // RR E (i16) / SRL E (i8)
                     break;
                 case IrBinaryOp.AShr:
-                    if (n == 2) { _e.U8(0xCB); _e.U8(0x2A); } // SRA D
-                    _e.U8(0xCB); _e.U8(n == 2 ? 0x1B : 0x2B); // RR E (i16) / SRA E (i8)
+                    if (n == 2)
+                    {
+                        _e.U8(0xCB);
+                        _e.U8(0x2A);
+                    } // SRA D
+                    _e.U8(0xCB);
+                    _e.U8(n == 2 ? 0x1B : 0x2B); // RR E (i16) / SRA E (i8)
                     break;
                 default:
                     throw new NotSupportedException($"not a shift: {op}");
@@ -243,8 +283,8 @@ public sealed partial class Sm83Backend
             int dst = _ctx.Slot[b];
             bool signedDiv = b.Op is IrBinaryOp.SDiv or IrBinaryOp.SRem;
 
-            LoadToPair(b.Left, n, hi: 0x57, lo: 0x5F, signedDiv);   // -> D:E
-            LoadToPair(b.Right, n, hi: 0x47, lo: 0x4F, signedDiv);  // -> B:C
+            LoadToPair(b.Left, n, hi: 0x57, lo: 0x5F, signedDiv); // -> D:E
+            LoadToPair(b.Right, n, hi: 0x47, lo: 0x4F, signedDiv); // -> B:C
 
             string routine = b.Op switch
             {
@@ -256,9 +296,9 @@ public sealed partial class Sm83Backend
 
             bool resultInHL = b.Op is IrBinaryOp.Mul or IrBinaryOp.URem or IrBinaryOp.SRem;
             if (resultInHL)
-                _ctx.StoreRegPair(dst, n, hi: 0x7C, lo: 0x7D);  // LD A,H / LD A,L
+                _ctx.StoreRegPair(dst, n, hi: 0x7C, lo: 0x7D); // LD A,H / LD A,L
             else
-                _ctx.StoreRegPair(dst, n, hi: 0x7A, lo: 0x7B);  // LD A,D / LD A,E
+                _ctx.StoreRegPair(dst, n, hi: 0x7A, lo: 0x7B); // LD A,D / LD A,E
         }
 
         /// <summary>Load a value into a register pair, widening an i8 to 16 bits.</summary>
@@ -275,8 +315,8 @@ public sealed partial class Sm83Backend
             else if (signExtend)
             {
                 _ctx.LoadByteToA(value, 0);
-                _e.U8(0x87);   // ADD A, A  -> carry = sign bit
-                _e.U8(0x9F);   // SBC A, A  -> 0xFF / 0x00
+                _e.U8(0x87); // ADD A, A  -> carry = sign bit
+                _e.U8(0x9F); // SBC A, A  -> 0xFF / 0x00
                 _e.U8(hi);
             }
             else
@@ -304,27 +344,49 @@ public sealed partial class Sm83Backend
                 // borrow chain — an inline XOR would clear the carry mid-chain and drop the borrow.
                 if (signed)
                 {
-                    _ctx.LoadByteToA(left, n - 1); _e.U8(0xEE); _e.U8(0x80); _ctx.StoreAToAddr(RtCmpLeft);
-                    if (!rightConst) { _ctx.LoadByteToA(right, n - 1); _e.U8(0xEE); _e.U8(0x80); _ctx.StoreAToAddr(RtCmpRight); }
+                    _ctx.LoadByteToA(left, n - 1);
+                    _e.U8(0xEE);
+                    _e.U8(0x80);
+                    _ctx.StoreAToAddr(RtCmpLeft);
+                    if (!rightConst)
+                    {
+                        _ctx.LoadByteToA(right, n - 1);
+                        _e.U8(0xEE);
+                        _e.U8(0x80);
+                        _ctx.StoreAToAddr(RtCmpRight);
+                    }
                 }
                 for (int k = 0; k < n; k++)
                 {
                     bool top = signed && k == n - 1;
                     if (rightConst)
                     {
-                        if (top) _ctx.LoadAFromAddr(RtCmpLeft); else _ctx.LoadByteToA(left, k);
-                        _e.U8(k == 0 ? 0xD6 : 0xDE);              // SUB d8 / SBC A, d8
+                        if (top)
+                            _ctx.LoadAFromAddr(RtCmpLeft);
+                        else
+                            _ctx.LoadByteToA(left, k);
+                        _e.U8(k == 0 ? 0xD6 : 0xDE); // SUB d8 / SBC A, d8
                         _e.U8((byte)(Sm83Ops.ByteOf(right, k) ^ (top ? 0x80 : 0x00)));
                     }
                     else
                     {
-                        if (top) _ctx.LoadAFromAddr(RtCmpRight); else _ctx.LoadByteToA(right, k);
-                        _e.U8(0x47);                              // LD B, A
-                        if (top) _ctx.LoadAFromAddr(RtCmpLeft); else _ctx.LoadByteToA(left, k);
-                        _e.U8(k == 0 ? 0x90 : 0x98);              // SUB B / SBC A, B
+                        if (top)
+                            _ctx.LoadAFromAddr(RtCmpRight);
+                        else
+                            _ctx.LoadByteToA(right, k);
+                        _e.U8(0x47); // LD B, A
+                        if (top)
+                            _ctx.LoadAFromAddr(RtCmpLeft);
+                        else
+                            _ctx.LoadByteToA(left, k);
+                        _e.U8(k == 0 ? 0x90 : 0x98); // SUB B / SBC A, B
                     }
                 }
-                falseJump = pred == IrCompareOp.Ult ? 0xD2 /*JP NC*/ : 0xDA /*JP C*/;
+                falseJump =
+                    pred == IrCompareOp.Ult
+                        ? 0xD2 /*JP NC*/
+                        : 0xDA /*JP C*/
+                ;
             }
             else
             {
@@ -334,26 +396,30 @@ public sealed partial class Sm83Backend
                     if (rightConst)
                     {
                         _ctx.LoadByteToA(left, k);
-                        _e.U8(0xEE);                   // XOR d8
+                        _e.U8(0xEE); // XOR d8
                         _e.U8(Sm83Ops.ByteOf(right, k));
                     }
                     else
                     {
                         _ctx.LoadByteToB(right, k);
                         _ctx.LoadByteToA(left, k);
-                        _e.U8(0xA8);                   // XOR B
+                        _e.U8(0xA8); // XOR B
                     }
                     if (k == 0)
                     {
-                        _e.U8(0x4F);                   // LD C, A
+                        _e.U8(0x4F); // LD C, A
                     }
                     else
                     {
-                        _e.U8(0xB1);                   // OR C
-                        _e.U8(0x4F);                   // LD C, A
+                        _e.U8(0xB1); // OR C
+                        _e.U8(0x4F); // LD C, A
                     }
                 }
-                falseJump = pred == IrCompareOp.Eq ? 0xC2 /*JP NZ*/ : 0xCA /*JP Z*/;
+                falseJump =
+                    pred == IrCompareOp.Eq
+                        ? 0xC2 /*JP NZ*/
+                        : 0xCA /*JP Z*/
+                ;
             }
 
             MaterializeBoolean(falseJump, dst);
@@ -363,9 +429,11 @@ public sealed partial class Sm83Backend
         private void MaterializeBoolean(int falseJumpOpcode, int dst)
         {
             var done = new Label();
-            _e.U8(0x3E); _e.U8(0x00);          // LD A, 0     (does not disturb flags)
-            _e.Jump(falseJumpOpcode, done);    // predicate false -> keep 0
-            _e.U8(0x3E); _e.U8(0x01);          // LD A, 1
+            _e.U8(0x3E);
+            _e.U8(0x00); // LD A, 0     (does not disturb flags)
+            _e.Jump(falseJumpOpcode, done); // predicate false -> keep 0
+            _e.U8(0x3E);
+            _e.U8(0x01); // LD A, 1
             _e.Place(done);
             _ctx.StoreAToAddr(dst);
         }
@@ -395,7 +463,8 @@ public sealed partial class Sm83Backend
                     }
                     for (int k = srcBytes; k < dstBytes; k++)
                     {
-                        _e.U8(0x3E); _e.U8(0x00);   // LD A, 0
+                        _e.U8(0x3E);
+                        _e.U8(0x00); // LD A, 0
                         _ctx.StoreAToAddr(dst + k);
                     }
                     break;
@@ -407,14 +476,16 @@ public sealed partial class Sm83Backend
                         _ctx.StoreAToAddr(dst + k);
                     }
                     _ctx.LoadByteToA(cv.Operand, srcBytes - 1);
-                    _e.U8(0x87);                    // ADD A, A  -> carry = sign bit
-                    _e.U8(0x9F);                    // SBC A, A  -> A = 0xFF if sign else 0x00
+                    _e.U8(0x87); // ADD A, A  -> carry = sign bit
+                    _e.U8(0x9F); // SBC A, A  -> A = 0xFF if sign else 0x00
                     for (int k = srcBytes; k < dstBytes; k++)
-                        _ctx.StoreAToAddr(dst + k);       // LD (nn), A preserves A
+                        _ctx.StoreAToAddr(dst + k); // LD (nn), A preserves A
                     break;
 
                 default:
-                    throw new NotSupportedException($"SM83 backend cannot lower conversion {cv.Op}.");
+                    throw new NotSupportedException(
+                        $"SM83 backend cannot lower conversion {cv.Op}."
+                    );
             }
         }
     }

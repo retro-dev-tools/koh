@@ -6,28 +6,42 @@ public sealed record IrSourceLocation(string File, uint Line);
 /// <summary>Integer binary operations. Signedness is explicit where it matters (div/rem/shift).</summary>
 public enum IrBinaryOp
 {
-    Add, Sub, Mul,
-    UDiv, SDiv, URem, SRem,
-    And, Or, Xor,
-    Shl,   // logical shift left
-    LShr,  // logical shift right
-    AShr,  // arithmetic shift right
+    Add,
+    Sub,
+    Mul,
+    UDiv,
+    SDiv,
+    URem,
+    SRem,
+    And,
+    Or,
+    Xor,
+    Shl, // logical shift left
+    LShr, // logical shift right
+    AShr, // arithmetic shift right
 }
 
 /// <summary>Integer comparison predicates. u = unsigned, s = signed.</summary>
 public enum IrCompareOp
 {
-    Eq, Ne,
-    Ult, Ule, Ugt, Uge,
-    Slt, Sle, Sgt, Sge,
+    Eq,
+    Ne,
+    Ult,
+    Ule,
+    Ugt,
+    Uge,
+    Slt,
+    Sle,
+    Sgt,
+    Sge,
 }
 
 /// <summary>Integer width conversions.</summary>
 public enum IrConvOp
 {
-    Trunc,   // to a narrower type
-    ZExt,    // zero-extend to a wider type
-    SExt,    // sign-extend to a wider type
+    Trunc, // to a narrower type
+    ZExt, // zero-extend to a wider type
+    SExt, // sign-extend to a wider type
     Bitcast, // reinterpret between same-size types (e.g. pointer <-> integer of the address width)
 }
 
@@ -43,7 +57,8 @@ public abstract class IrInstruction : IrValue
     /// <summary>Optional source position this instruction lowers from (set by frontends).</summary>
     public IrSourceLocation? Source { get; set; }
 
-    protected IrInstruction(IrType type) : base(type) { }
+    protected IrInstruction(IrType type)
+        : base(type) { }
 
     /// <summary>Operand values referenced by this instruction, in textual order.</summary>
     public abstract IEnumerable<IrValue> Operands { get; }
@@ -65,7 +80,8 @@ public sealed class RetInstruction : IrInstruction
 {
     public IrValue? Value { get; }
 
-    public RetInstruction(IrValue? value) : base(IrType.Void) => Value = value;
+    public RetInstruction(IrValue? value)
+        : base(IrType.Void) => Value = value;
 
     public override IEnumerable<IrValue> Operands => Value is null ? [] : [Value];
     public override bool IsTerminator => true;
@@ -77,7 +93,8 @@ public sealed class BrInstruction : IrInstruction
 {
     public IrBasicBlock Target { get; }
 
-    public BrInstruction(IrBasicBlock target) : base(IrType.Void) => Target = target;
+    public BrInstruction(IrBasicBlock target)
+        : base(IrType.Void) => Target = target;
 
     public override IEnumerable<IrValue> Operands => [];
     public override bool IsTerminator => true;
@@ -116,7 +133,8 @@ public sealed class SwitchInstruction : IrInstruction
     public SwitchInstruction(
         IrValue value,
         IrBasicBlock defaultTarget,
-        IReadOnlyList<(IrConstInt, IrBasicBlock)> cases)
+        IReadOnlyList<(IrConstInt, IrBasicBlock)> cases
+    )
         : base(IrType.Void)
     {
         Value = value;
@@ -227,7 +245,8 @@ public sealed class StoreInstruction : IrInstruction
     public IrValue Value { get; }
     public IrValue Pointer { get; }
 
-    public StoreInstruction(IrValue value, IrValue pointer) : base(IrType.Void)
+    public StoreInstruction(IrValue value, IrValue pointer)
+        : base(IrType.Void)
     {
         Value = value;
         Pointer = pointer;
@@ -280,7 +299,8 @@ public sealed class IntrinsicInstruction : IrInstruction
 {
     public string Intrinsic { get; }
 
-    public IntrinsicInstruction(string intrinsic) : base(IrType.Void) => Intrinsic = intrinsic;
+    public IntrinsicInstruction(string intrinsic)
+        : base(IrType.Void) => Intrinsic = intrinsic;
 
     public override IEnumerable<IrValue> Operands => [];
     public override string Mnemonic => "intrinsic";
@@ -291,7 +311,8 @@ public sealed class PhiInstruction : IrInstruction
 {
     private readonly List<(IrValue Value, IrBasicBlock Block)> _incomings;
 
-    public PhiInstruction(IrType type) : base(type) => _incomings = [];
+    public PhiInstruction(IrType type)
+        : base(type) => _incomings = [];
 
     public IReadOnlyList<(IrValue Value, IrBasicBlock Block)> Incomings => _incomings;
 

@@ -1,8 +1,8 @@
+using System.Threading.Tasks;
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Core.Syntax;
 using Koh.Core.Text;
-using System.Threading.Tasks;
 
 namespace Koh.Core;
 
@@ -19,8 +19,12 @@ public sealed class Compilation
     private BindingResult? _bindingResult;
     private EmitModel? _emitModel;
 
-    private Compilation(IReadOnlyList<SyntaxTree> trees, ISourceFileResolver? resolver = null,
-        TextWriter? printOutput = null, BinderOptions binderOptions = default)
+    private Compilation(
+        IReadOnlyList<SyntaxTree> trees,
+        ISourceFileResolver? resolver = null,
+        TextWriter? printOutput = null,
+        BinderOptions binderOptions = default
+    )
     {
         _trees = trees;
         _resolver = resolver ?? new FileSystemResolver();
@@ -37,18 +41,31 @@ public sealed class Compilation
     public static Compilation Create(BinderOptions options, params SyntaxTree[] trees) =>
         new(trees.ToList(), binderOptions: options);
 
-    public static Compilation Create(BinderOptions options, TextWriter printOutput, params SyntaxTree[] trees) =>
-        new(trees.ToList(), null, printOutput, options);
+    public static Compilation Create(
+        BinderOptions options,
+        TextWriter printOutput,
+        params SyntaxTree[] trees
+    ) => new(trees.ToList(), null, printOutput, options);
 
     /// <summary>
     /// Canonical factory that accepts a source file resolver for INCLUDE/INCBIN.
     /// Multi-tree compilations reject trees with null/empty FilePath.
     /// </summary>
-    public static Compilation CreateFromSources(IReadOnlyList<SourceText> sources,
-        BinderOptions options = default, TextWriter? printOutput = null)
+    public static Compilation CreateFromSources(
+        IReadOnlyList<SourceText> sources,
+        BinderOptions options = default,
+        TextWriter? printOutput = null
+    )
     {
         var trees = new SyntaxTree[sources.Count];
-        Parallel.For(0, sources.Count, i => { trees[i] = SyntaxTree.Parse(sources[i]); });
+        Parallel.For(
+            0,
+            sources.Count,
+            i =>
+            {
+                trees[i] = SyntaxTree.Parse(sources[i]);
+            }
+        );
         return new Compilation(trees, binderOptions: options, printOutput: printOutput);
     }
 
@@ -61,7 +78,8 @@ public sealed class Compilation
                 if (string.IsNullOrEmpty(trees[i].Text.FilePath))
                     throw new ArgumentException(
                         $"Multi-tree compilation requires all trees to have a non-empty FilePath. Tree at index {i} has a null or empty path.",
-                        nameof(trees));
+                        nameof(trees)
+                    );
             }
         }
 
@@ -91,7 +109,9 @@ public sealed class Compilation
     {
         if (!_trees.Any(t => ReferenceEquals(t, tree)))
             throw new ArgumentException(
-                "The syntax tree does not belong to this compilation.", nameof(tree));
+                "The syntax tree does not belong to this compilation.",
+                nameof(tree)
+            );
 
         var result = GetBindingResult();
         return new SemanticModel(tree, result);
@@ -99,14 +119,16 @@ public sealed class Compilation
 
     public EmitModel Emit()
     {
-        if (_emitModel != null) return _emitModel;
+        if (_emitModel != null)
+            return _emitModel;
         _emitModel = EmitModel.FromBindingResult(GetBindingResult());
         return _emitModel;
     }
 
     private BindingResult GetBindingResult()
     {
-        if (_bindingResult != null) return _bindingResult;
+        if (_bindingResult != null)
+            return _bindingResult;
 
         // Bind all trees through a single binder (shared symbol table).
         // NOTE (Task 5.x): Binder.Bind() currently checks for undefined symbols at the

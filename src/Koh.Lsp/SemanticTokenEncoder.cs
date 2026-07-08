@@ -12,34 +12,34 @@ internal static class SemanticTokenEncoder
 {
     // Token type indices (must match the legend order)
     internal const int TypeKeyword = 0;
-    internal const int TypeVariable = 1;    // identifiers
+    internal const int TypeVariable = 1; // identifiers
     internal const int TypeNumber = 2;
     internal const int TypeString = 3;
     internal const int TypeComment = 4;
     internal const int TypeOperator = 5;
-    internal const int TypeLabel = 6;       // local labels
+    internal const int TypeLabel = 6; // local labels
     internal const int TypeMacro = 7;
-    internal const int TypeParameter = 8;   // macro parameters
-    internal const int TypeRegexp = 9;      // register keywords (reusing "regexp" slot)
-    internal const int TypeFunction = 10;   // condition flags (z, nz, nc, c)
-    internal const int TypeEnum = 11;       // directives
-    internal const int TypeType = 12;       // section types
+    internal const int TypeParameter = 8; // macro parameters
+    internal const int TypeRegexp = 9; // register keywords (reusing "regexp" slot)
+    internal const int TypeFunction = 10; // condition flags (z, nz, nc, c)
+    internal const int TypeEnum = 11; // directives
+    internal const int TypeType = 12; // section types
 
     public static readonly string[] TokenTypes =
     [
-        SemanticTokenTypes.Keyword,     // 0
-        SemanticTokenTypes.Variable,    // 1
-        SemanticTokenTypes.Number,      // 2
-        SemanticTokenTypes.String,      // 3
-        SemanticTokenTypes.Comment,     // 4
-        SemanticTokenTypes.Operator,    // 5
-        "label",                        // 6
-        SemanticTokenTypes.Macro,       // 7
-        SemanticTokenTypes.Parameter,   // 8
-        "register",                     // 9
-        "conditionFlag",                // 10
-        "directive",                    // 11
-        "sectionType",                  // 12
+        SemanticTokenTypes.Keyword, // 0
+        SemanticTokenTypes.Variable, // 1
+        SemanticTokenTypes.Number, // 2
+        SemanticTokenTypes.String, // 3
+        SemanticTokenTypes.Comment, // 4
+        SemanticTokenTypes.Operator, // 5
+        "label", // 6
+        SemanticTokenTypes.Macro, // 7
+        SemanticTokenTypes.Parameter, // 8
+        "register", // 9
+        "conditionFlag", // 10
+        "directive", // 11
+        "sectionType", // 12
     ];
 
     public static readonly string[] TokenModifiers =
@@ -56,7 +56,8 @@ internal static class SemanticTokenEncoder
     /// <summary>
     /// SyntaxKind values that are intentionally not classified (structural, trivia, etc.).
     /// </summary>
-    public static readonly HashSet<SyntaxKind> IntentionallyUnclassifiedKinds = BuildUnclassifiedKinds();
+    public static readonly HashSet<SyntaxKind> IntentionallyUnclassifiedKinds =
+        BuildUnclassifiedKinds();
 
     /// <summary>
     /// Encode all tokens from a syntax tree into the LSP delta-encoded int array.
@@ -71,8 +72,13 @@ internal static class SemanticTokenEncoder
         return data.ToArray();
     }
 
-    private static void EncodeNode(SyntaxNode node, Core.Text.SourceText source,
-        List<int> data, ref int prevLine, ref int prevChar)
+    private static void EncodeNode(
+        SyntaxNode node,
+        Core.Text.SourceText source,
+        List<int> data,
+        ref int prevLine,
+        ref int prevChar
+    )
     {
         foreach (var child in node.ChildNodesAndTokens())
         {
@@ -115,8 +121,13 @@ internal static class SemanticTokenEncoder
         }
     }
 
-    private static void EncodeTrivia(SyntaxTrivia trivia, Core.Text.SourceText source,
-        List<int> data, ref int prevLine, ref int prevChar)
+    private static void EncodeTrivia(
+        SyntaxTrivia trivia,
+        Core.Text.SourceText source,
+        List<int> data,
+        ref int prevLine,
+        ref int prevChar
+    )
     {
         if (trivia.Kind is SyntaxKind.LineCommentTrivia or SyntaxKind.BlockCommentTrivia)
         {
@@ -169,7 +180,9 @@ internal static class SemanticTokenEncoder
             return TypeType;
 
         // Section modifier keywords
-        if (kind is SyntaxKind.AlignKeyword or SyntaxKind.FragmentKeyword or SyntaxKind.UnionKeyword)
+        if (
+            kind is SyntaxKind.AlignKeyword or SyntaxKind.FragmentKeyword or SyntaxKind.UnionKeyword
+        )
             return TypeType;
 
         // Built-in function keywords
@@ -191,50 +204,89 @@ internal static class SemanticTokenEncoder
             SyntaxKind.MacroParamToken => TypeParameter,
 
             // Operators
-            SyntaxKind.PlusToken or SyntaxKind.MinusToken or SyntaxKind.StarToken
-                or SyntaxKind.SlashToken or SyntaxKind.PercentToken
-                or SyntaxKind.AmpersandToken or SyntaxKind.PipeToken
-                or SyntaxKind.CaretToken or SyntaxKind.TildeToken or SyntaxKind.BangToken
-                or SyntaxKind.LessThanToken or SyntaxKind.GreaterThanToken
-                or SyntaxKind.LessThanLessThanToken or SyntaxKind.GreaterThanGreaterThanToken
-                or SyntaxKind.TripleGreaterThanToken
-                or SyntaxKind.StarStarToken or SyntaxKind.PlusPlusToken
-                or SyntaxKind.TripleEqualsToken or SyntaxKind.EqualsEqualsEqualsToken
-                or SyntaxKind.BangEqualsEqualsToken
-                or SyntaxKind.EqualsToken or SyntaxKind.EqualsEqualsToken
-                or SyntaxKind.BangEqualsToken
-                or SyntaxKind.LessThanEqualsToken or SyntaxKind.GreaterThanEqualsToken
-                or SyntaxKind.AmpersandAmpersandToken or SyntaxKind.PipePipeToken
-                => TypeOperator,
+            SyntaxKind.PlusToken
+            or SyntaxKind.MinusToken
+            or SyntaxKind.StarToken
+            or SyntaxKind.SlashToken
+            or SyntaxKind.PercentToken
+            or SyntaxKind.AmpersandToken
+            or SyntaxKind.PipeToken
+            or SyntaxKind.CaretToken
+            or SyntaxKind.TildeToken
+            or SyntaxKind.BangToken
+            or SyntaxKind.LessThanToken
+            or SyntaxKind.GreaterThanToken
+            or SyntaxKind.LessThanLessThanToken
+            or SyntaxKind.GreaterThanGreaterThanToken
+            or SyntaxKind.TripleGreaterThanToken
+            or SyntaxKind.StarStarToken
+            or SyntaxKind.PlusPlusToken
+            or SyntaxKind.TripleEqualsToken
+            or SyntaxKind.EqualsEqualsEqualsToken
+            or SyntaxKind.BangEqualsEqualsToken
+            or SyntaxKind.EqualsToken
+            or SyntaxKind.EqualsEqualsToken
+            or SyntaxKind.BangEqualsToken
+            or SyntaxKind.LessThanEqualsToken
+            or SyntaxKind.GreaterThanEqualsToken
+            or SyntaxKind.AmpersandAmpersandToken
+            or SyntaxKind.PipePipeToken => TypeOperator,
 
             _ => -1, // Unclassified
         };
     }
 
     private static bool IsDirectiveKeyword(SyntaxKind kind) =>
-        kind is SyntaxKind.SectionKeyword or SyntaxKind.DbKeyword or SyntaxKind.DwKeyword
-            or SyntaxKind.DlKeyword or SyntaxKind.DsKeyword
-            or SyntaxKind.EquKeyword or SyntaxKind.EqusKeyword
-            or SyntaxKind.RedefKeyword or SyntaxKind.ExportKeyword or SyntaxKind.PurgeKeyword
-            or SyntaxKind.IfKeyword or SyntaxKind.ElifKeyword or SyntaxKind.ElseKeyword
-            or SyntaxKind.EndcKeyword
-            or SyntaxKind.MacroKeyword or SyntaxKind.EndmKeyword or SyntaxKind.ShiftKeyword
-            or SyntaxKind.ReptKeyword or SyntaxKind.ForKeyword or SyntaxKind.EndrKeyword
-            or SyntaxKind.BreakKeyword
-            or SyntaxKind.IncludeKeyword or SyntaxKind.IncbinKeyword
-            or SyntaxKind.CharmapKeyword or SyntaxKind.NewcharmapKeyword
-            or SyntaxKind.SetcharmapKeyword
-            or SyntaxKind.PrecharmapKeyword or SyntaxKind.PopcharmapKeyword
-            or SyntaxKind.NextuKeyword or SyntaxKind.EnduKeyword
-            or SyntaxKind.LoadKeyword or SyntaxKind.EndlKeyword
-            or SyntaxKind.RbKeyword or SyntaxKind.RwKeyword
-            or SyntaxKind.RsresetKeyword or SyntaxKind.RssetKeyword
-            or SyntaxKind.AssertKeyword or SyntaxKind.StaticAssertKeyword
-            or SyntaxKind.WarnKeyword or SyntaxKind.FailKeyword or SyntaxKind.FatalKeyword
-            or SyntaxKind.PrintKeyword or SyntaxKind.PrintlnKeyword or SyntaxKind.OptKeyword
-            or SyntaxKind.PushsKeyword or SyntaxKind.PopsKeyword
-            or SyntaxKind.PushoKeyword or SyntaxKind.PopoKeyword
-            or SyntaxKind.DefKeyword;
+        kind
+            is SyntaxKind.SectionKeyword
+                or SyntaxKind.DbKeyword
+                or SyntaxKind.DwKeyword
+                or SyntaxKind.DlKeyword
+                or SyntaxKind.DsKeyword
+                or SyntaxKind.EquKeyword
+                or SyntaxKind.EqusKeyword
+                or SyntaxKind.RedefKeyword
+                or SyntaxKind.ExportKeyword
+                or SyntaxKind.PurgeKeyword
+                or SyntaxKind.IfKeyword
+                or SyntaxKind.ElifKeyword
+                or SyntaxKind.ElseKeyword
+                or SyntaxKind.EndcKeyword
+                or SyntaxKind.MacroKeyword
+                or SyntaxKind.EndmKeyword
+                or SyntaxKind.ShiftKeyword
+                or SyntaxKind.ReptKeyword
+                or SyntaxKind.ForKeyword
+                or SyntaxKind.EndrKeyword
+                or SyntaxKind.BreakKeyword
+                or SyntaxKind.IncludeKeyword
+                or SyntaxKind.IncbinKeyword
+                or SyntaxKind.CharmapKeyword
+                or SyntaxKind.NewcharmapKeyword
+                or SyntaxKind.SetcharmapKeyword
+                or SyntaxKind.PrecharmapKeyword
+                or SyntaxKind.PopcharmapKeyword
+                or SyntaxKind.NextuKeyword
+                or SyntaxKind.EnduKeyword
+                or SyntaxKind.LoadKeyword
+                or SyntaxKind.EndlKeyword
+                or SyntaxKind.RbKeyword
+                or SyntaxKind.RwKeyword
+                or SyntaxKind.RsresetKeyword
+                or SyntaxKind.RssetKeyword
+                or SyntaxKind.AssertKeyword
+                or SyntaxKind.StaticAssertKeyword
+                or SyntaxKind.WarnKeyword
+                or SyntaxKind.FailKeyword
+                or SyntaxKind.FatalKeyword
+                or SyntaxKind.PrintKeyword
+                or SyntaxKind.PrintlnKeyword
+                or SyntaxKind.OptKeyword
+                or SyntaxKind.PushsKeyword
+                or SyntaxKind.PopsKeyword
+                or SyntaxKind.PushoKeyword
+                or SyntaxKind.PopoKeyword
+                or SyntaxKind.DefKeyword;
 
     // =========================================================================
     // Coverage tracking
@@ -336,12 +388,10 @@ internal static class SemanticTokenEncoder
             SyntaxKind.EndOfFileToken,
             SyntaxKind.BadToken,
             SyntaxKind.MissingToken,
-
             // Trivia (whitespace, newlines, skipped)
             SyntaxKind.WhitespaceTrivia,
             SyntaxKind.NewlineTrivia,
             SyntaxKind.SkippedTokensTrivia,
-
             // Punctuation
             SyntaxKind.CommaToken,
             SyntaxKind.OpenParenToken,
@@ -353,11 +403,9 @@ internal static class SemanticTokenEncoder
             SyntaxKind.DotToken,
             SyntaxKind.HashToken,
             SyntaxKind.AtToken,
-
             // Anonymous label tokens
             SyntaxKind.AnonLabelForwardToken,
             SyntaxKind.AnonLabelBackwardToken,
-
             // Node kinds (not tokens — never appear in token stream)
             SyntaxKind.CompilationUnit,
             SyntaxKind.InstructionStatement,

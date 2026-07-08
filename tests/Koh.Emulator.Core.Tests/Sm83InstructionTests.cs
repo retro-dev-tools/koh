@@ -20,14 +20,15 @@ public class Sm83InstructionTests
         // Safety limit to avoid infinite loops in tests.
         for (int t = 0; t < 10000 && completed < count; t++)
         {
-            if (gb.Cpu.TickT()) completed++;
+            if (gb.Cpu.TickT())
+                completed++;
         }
     }
 
     [Test]
     public async Task Ld_A_Immediate_Loads_Value()
     {
-        var gb = MakeSystemWithProgram(0x3E, 0x42);  // LD A,$42
+        var gb = MakeSystemWithProgram(0x3E, 0x42); // LD A,$42
         RunInstructions(gb, 1);
         await Assert.That(gb.Registers.A).IsEqualTo((byte)0x42);
     }
@@ -35,7 +36,7 @@ public class Sm83InstructionTests
     [Test]
     public async Task Ld_Bc_Immediate16_Loads_Word()
     {
-        var gb = MakeSystemWithProgram(0x01, 0x34, 0x12);  // LD BC,$1234
+        var gb = MakeSystemWithProgram(0x01, 0x34, 0x12); // LD BC,$1234
         RunInstructions(gb, 1);
         await Assert.That(gb.Registers.BC).IsEqualTo((ushort)0x1234);
     }
@@ -43,7 +44,7 @@ public class Sm83InstructionTests
     [Test]
     public async Task Xor_A_Clears_A_And_Sets_Z()
     {
-        var gb = MakeSystemWithProgram(0x3E, 0xFF, 0xAF);  // LD A,$FF; XOR A
+        var gb = MakeSystemWithProgram(0x3E, 0xFF, 0xAF); // LD A,$FF; XOR A
         RunInstructions(gb, 2);
         bool zSet = gb.Registers.FlagSet(CpuRegisters.FlagZ);
         await Assert.That(gb.Registers.A).IsEqualTo((byte)0);
@@ -53,7 +54,7 @@ public class Sm83InstructionTests
     [Test]
     public async Task Inc_B_From_FF_Wraps_And_Sets_HalfCarry()
     {
-        var gb = MakeSystemWithProgram(0x06, 0xFF, 0x04);  // LD B,$FF; INC B
+        var gb = MakeSystemWithProgram(0x06, 0xFF, 0x04); // LD B,$FF; INC B
         RunInstructions(gb, 2);
         bool hSet = gb.Registers.FlagSet(CpuRegisters.FlagH);
         bool zSet = gb.Registers.FlagSet(CpuRegisters.FlagZ);
@@ -65,7 +66,7 @@ public class Sm83InstructionTests
     [Test]
     public async Task Jp_A16_Sets_Pc()
     {
-        var gb = MakeSystemWithProgram(0xC3, 0x00, 0x20);  // JP $2000
+        var gb = MakeSystemWithProgram(0xC3, 0x00, 0x20); // JP $2000
         RunInstructions(gb, 1);
         await Assert.That(gb.Registers.Pc).IsEqualTo((ushort)0x2000);
     }
@@ -79,7 +80,7 @@ public class Sm83InstructionTests
         // explicitly clear Z with "INC D" (D=$FF post-boot, INC D → D=$00 with Z SET —
         // nope that sets Z too). Use "LD A,1; CP A,0" — CP sets Z iff A==arg, so CP 0
         // with A=1 clears Z.
-        var gb = MakeSystemWithProgram(0x3E, 0x01, 0xFE, 0x00, 0x20, 0x02);  // LD A,1; CP 0; JR NZ,+2
+        var gb = MakeSystemWithProgram(0x3E, 0x01, 0xFE, 0x00, 0x20, 0x02); // LD A,1; CP 0; JR NZ,+2
         RunInstructions(gb, 3);
         // Pc should be 0x0108 (2 bytes LD + 2 bytes CP + 2 bytes JR + 2 offset)
         await Assert.That(gb.Registers.Pc).IsEqualTo((ushort)0x0108);
@@ -93,16 +94,18 @@ public class Sm83InstructionTests
         // At $0110: NOP; RET
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0xCD; rom[0x101] = 0x10; rom[0x102] = 0x01;  // CALL $0110
-        rom[0x103] = 0x00;                                          // NOP
-        rom[0x110] = 0x00;                                          // NOP
-        rom[0x111] = 0xC9;                                          // RET
+        rom[0x100] = 0xCD;
+        rom[0x101] = 0x10;
+        rom[0x102] = 0x01; // CALL $0110
+        rom[0x103] = 0x00; // NOP
+        rom[0x110] = 0x00; // NOP
+        rom[0x111] = 0xC9; // RET
         var cart = CartridgeFactory.Load(rom);
         var gb = new GameBoySystem(HardwareMode.Dmg, cart);
 
-        RunInstructions(gb, 1);  // CALL
+        RunInstructions(gb, 1); // CALL
         ushort afterCall = gb.Registers.Pc;
-        RunInstructions(gb, 2);  // NOP + RET
+        RunInstructions(gb, 2); // NOP + RET
         ushort afterRet = gb.Registers.Pc;
 
         await Assert.That(afterCall).IsEqualTo((ushort)0x0110);
@@ -136,7 +139,7 @@ public class Sm83InstructionTests
         var gb = MakeSystemWithProgram(0x3E, 0x05, 0xFE, 0x05);
         RunInstructions(gb, 2);
         bool zSet = gb.Registers.FlagSet(CpuRegisters.FlagZ);
-        await Assert.That(gb.Registers.A).IsEqualTo((byte)0x05);  // A unchanged by CP
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)0x05); // A unchanged by CP
         await Assert.That(zSet).IsTrue();
     }
 

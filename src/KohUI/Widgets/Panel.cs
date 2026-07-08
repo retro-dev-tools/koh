@@ -10,8 +10,10 @@ public enum PanelBevel
 {
     /// <summary>Recessed look — typical for content areas, list backgrounds, text boxes.</summary>
     Sunken,
+
     /// <summary>Raised look — typical for toolbar buttons, status segments.</summary>
     Raised,
+
     /// <summary>Etched double-line — typical for group-box separators and "field" dividers.</summary>
     Chiseled,
 }
@@ -26,8 +28,10 @@ public readonly struct Panel<TMsg, TChild>(PanelBevel Bevel, TChild Child) : IVi
     public readonly PanelBevel Bevel = Bevel;
     public readonly TChild Child = Child;
 
-    public RenderNode Render()
-        => RenderNode.WithChildren("Panel",
+    public RenderNode Render() =>
+        RenderNode.WithChildren(
+            "Panel",
             ImmutableArray.Create(Child.Render()),
-            Props.Of(("bevel", Bevel.ToString())));
+            Props.Of(("bevel", Bevel.ToString()))
+        );
 }

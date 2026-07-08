@@ -19,7 +19,8 @@ internal static class CliFixture
     private static string ResolveExecutable()
     {
         var testAssemblyDir = Path.GetDirectoryName(
-            ReflectionAssembly.GetExecutingAssembly().Location)!;
+            ReflectionAssembly.GetExecutingAssembly().Location
+        )!;
 
         var exeName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
             ? "koh-asm.exe"
@@ -29,9 +30,10 @@ internal static class CliFixture
 
         if (!File.Exists(candidate))
             throw new FileNotFoundException(
-                $"koh-asm executable not found at '{candidate}'. " +
-                "Ensure the Koh.Asm project is built and its output is copied to the test output directory.",
-                candidate);
+                $"koh-asm executable not found at '{candidate}'. "
+                    + "Ensure the Koh.Asm project is built and its output is copied to the test output directory.",
+                candidate
+            );
 
         return candidate;
     }
@@ -51,7 +53,8 @@ internal static class CliFixture
         foreach (var arg in args)
             psi.ArgumentList.Add(arg);
 
-        using var process = System.Diagnostics.Process.Start(psi)
+        using var process =
+            System.Diagnostics.Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start koh-asm process.");
 
         // Read both pipes concurrently to avoid pipe-buffer deadlock

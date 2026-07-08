@@ -16,7 +16,7 @@ Koh is a .NET 10 Game Boy development toolchain. Main C# projects live in `src/`
 
 ## Coding Style & Naming Conventions
 
-C# uses `net10.0`, C# 14, nullable references, implicit usings, and `TreatWarningsAsErrors`. Keep namespaces and project names aligned with `Koh.*`. Use PascalCase for public types and members, camelCase for locals and parameters, and `Async` suffixes for asynchronous methods. TypeScript extension code is compiled with `tsc -p editors/vscode/tsconfig.json`; keep generated `out/`, `.vscode-test/`, `node_modules/`, `bin`, and `obj` out of reviews.
+C# uses `net10.0`, C# 14, nullable references, implicit usings, and `TreatWarningsAsErrors`. Formatting is done with [CSharpier](https://csharpier.com) (pinned in `.config/dotnet-tools.json`) and runs automatically on commit via a [Husky.NET](https://alirezanet.github.io/Husky.Net/) pre-commit hook, installed on your first `dotnet restore`/build. To run it by hand: `dotnet csharpier format .` (or `dotnet csharpier check .` to verify). Keep namespaces and project names aligned with `Koh.*`. Use PascalCase for public types and members, camelCase for locals and parameters, and `Async` suffixes for asynchronous methods. TypeScript extension code is compiled with `tsc -p editors/vscode/tsconfig.json`; keep generated `out/`, `.vscode-test/`, `node_modules/`, `bin`, and `obj` out of reviews.
 
 ## Testing Guidelines
 

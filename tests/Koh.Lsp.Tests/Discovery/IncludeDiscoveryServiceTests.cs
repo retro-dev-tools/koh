@@ -19,8 +19,11 @@ public class IncludeDiscoveryServiceTests
         var result = _service.Discover(MainFile, text, WorkspaceFolder);
 
         await Assert.That(result.IncludedFiles.Count).IsEqualTo(1);
-        await Assert.That(result.IncludedFiles[0]).IsEqualTo(
-            Path.GetFullPath(Path.Combine(Path.GetDirectoryName(MainFile)!, "utils.asm")));
+        await Assert
+            .That(result.IncludedFiles[0])
+            .IsEqualTo(
+                Path.GetFullPath(Path.Combine(Path.GetDirectoryName(MainFile)!, "utils.asm"))
+            );
     }
 
     [Test]
@@ -144,7 +147,9 @@ public class IncludeDiscoveryServiceTests
 
         var result = _service.Discover(MainFile, text, WorkspaceFolder);
 
-        var expected = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(MainFile)!, "helpers/math.asm"));
+        var expected = Path.GetFullPath(
+            Path.Combine(Path.GetDirectoryName(MainFile)!, "helpers/math.asm")
+        );
         await Assert.That(result.IncludedFiles[0]).IsEqualTo(expected);
     }
 

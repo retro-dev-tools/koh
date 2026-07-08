@@ -10,7 +10,8 @@ internal static class PngEncoder
 {
     public static void WriteFromRgba(string path, byte[] rgba, int w, int h, int scale)
     {
-        if (scale < 1) scale = 1;
+        if (scale < 1)
+            scale = 1;
         int outW = w * scale;
         int outH = h * scale;
         // Build raw image data: PNG filter byte (0 = None) + RGB rows.
@@ -25,7 +26,9 @@ internal static class PngEncoder
                 for (int x = 0; x < w; x++)
                 {
                     int i = (y * w + x) * 4;
-                    byte r = rgba[i + 0], g = rgba[i + 1], b = rgba[i + 2];
+                    byte r = rgba[i + 0],
+                        g = rgba[i + 1],
+                        b = rgba[i + 2];
                     for (int sx = 0; sx < scale; sx++)
                     {
                         raw[p++] = r;
@@ -39,34 +42,44 @@ internal static class PngEncoder
         // Signature.
         fs.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
         // IHDR.
-        WriteChunk(fs, "IHDR", w =>
-        {
-            WriteUInt32BE(w, (uint)outW);
-            WriteUInt32BE(w, (uint)outH);
-            w.WriteByte(8);   // bit depth
-            w.WriteByte(2);   // colour type 2 = truecolour
-            w.WriteByte(0);   // compression
-            w.WriteByte(0);   // filter
-            w.WriteByte(0);   // interlace
-        });
+        WriteChunk(
+            fs,
+            "IHDR",
+            w =>
+            {
+                WriteUInt32BE(w, (uint)outW);
+                WriteUInt32BE(w, (uint)outH);
+                w.WriteByte(8); // bit depth
+                w.WriteByte(2); // colour type 2 = truecolour
+                w.WriteByte(0); // compression
+                w.WriteByte(0); // filter
+                w.WriteByte(0); // interlace
+            }
+        );
         // IDAT (zlib-wrapped deflate of raw).
-        WriteChunk(fs, "IDAT", w =>
-        {
-            using var ms = new MemoryStream();
-            // zlib header (CMF=0x78 default-compression, FLG=0x9C check).
-            ms.WriteByte(0x78);
-            ms.WriteByte(0x9C);
-            using (var deflate = new DeflateStream(ms, CompressionLevel.Optimal, leaveOpen: true))
-                deflate.Write(raw);
-            // Adler-32 checksum trailer.
-            uint adler = Adler32(raw);
-            ms.WriteByte((byte)(adler >> 24));
-            ms.WriteByte((byte)(adler >> 16));
-            ms.WriteByte((byte)(adler >> 8));
-            ms.WriteByte((byte)adler);
-            ms.Position = 0;
-            ms.CopyTo(w);
-        });
+        WriteChunk(
+            fs,
+            "IDAT",
+            w =>
+            {
+                using var ms = new MemoryStream();
+                // zlib header (CMF=0x78 default-compression, FLG=0x9C check).
+                ms.WriteByte(0x78);
+                ms.WriteByte(0x9C);
+                using (
+                    var deflate = new DeflateStream(ms, CompressionLevel.Optimal, leaveOpen: true)
+                )
+                    deflate.Write(raw);
+                // Adler-32 checksum trailer.
+                uint adler = Adler32(raw);
+                ms.WriteByte((byte)(adler >> 24));
+                ms.WriteByte((byte)(adler >> 16));
+                ms.WriteByte((byte)(adler >> 8));
+                ms.WriteByte((byte)adler);
+                ms.Position = 0;
+                ms.CopyTo(w);
+            }
+        );
         // IEND.
         WriteChunk(fs, "IEND", _ => { });
     }
@@ -96,8 +109,10 @@ internal static class PngEncoder
     private static uint Crc32(byte[] a, byte[] b)
     {
         uint c = 0xFFFFFFFFu;
-        foreach (byte v in a) c = Crc32Step(c, v);
-        foreach (byte v in b) c = Crc32Step(c, v);
+        foreach (byte v in a)
+            c = Crc32Step(c, v);
+        foreach (byte v in b)
+            c = Crc32Step(c, v);
         return c ^ 0xFFFFFFFFu;
     }
 
@@ -112,7 +127,8 @@ internal static class PngEncoder
     private static uint Adler32(byte[] data)
     {
         const uint M = 65521;
-        uint a = 1, b = 0;
+        uint a = 1,
+            b = 0;
         foreach (byte v in data)
         {
             a = (a + v) % M;

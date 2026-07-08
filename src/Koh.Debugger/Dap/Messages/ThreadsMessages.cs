@@ -8,11 +8,15 @@ namespace Koh.Debugger.Dap.Messages;
 // distinguishing prefix.
 public sealed class DapThread
 {
-    [JsonPropertyName("id")]   public int Id   { get; set; }
-    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
 }
 
 public sealed class ThreadsResponseBody
 {
-    [JsonPropertyName("threads")] public DapThread[] Threads { get; set; } = System.Array.Empty<DapThread>();
+    [JsonPropertyName("threads")]
+    public DapThread[] Threads { get; set; } = System.Array.Empty<DapThread>();
 }

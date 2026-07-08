@@ -25,17 +25,18 @@ internal readonly record struct CsType(IrType Ir, bool Signed)
     public int Bits => Ir.Bits;
 
     /// <summary>Map a C# predefined-type keyword to a Koh C# type, or null if unsupported.</summary>
-    public static CsType? FromKeyword(SyntaxKind keyword) => keyword switch
-    {
-        SyntaxKind.ByteKeyword => U8,
-        SyntaxKind.SByteKeyword => I8,
-        SyntaxKind.UShortKeyword => U16,
-        SyntaxKind.ShortKeyword => I16,
-        SyntaxKind.UIntKeyword => U32,
-        SyntaxKind.IntKeyword => I32,
-        SyntaxKind.ULongKeyword => U64,
-        SyntaxKind.LongKeyword => I64,
-        SyntaxKind.BoolKeyword => Bool,
-        _ => null,
-    };
+    public static CsType? FromKeyword(SyntaxKind keyword) =>
+        keyword switch
+        {
+            SyntaxKind.ByteKeyword => U8,
+            SyntaxKind.SByteKeyword => I8,
+            SyntaxKind.UShortKeyword => U16,
+            SyntaxKind.ShortKeyword => I16,
+            SyntaxKind.UIntKeyword => U32,
+            SyntaxKind.IntKeyword => I32,
+            SyntaxKind.ULongKeyword => U64,
+            SyntaxKind.LongKeyword => I64,
+            SyntaxKind.BoolKeyword => Bool,
+            _ => null,
+        };
 }

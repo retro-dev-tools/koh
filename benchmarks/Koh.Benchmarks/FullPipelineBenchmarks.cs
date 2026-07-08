@@ -33,7 +33,8 @@ public class FullPipelineBenchmarks
     public EmitModel FullPipelineSmall()
     {
         var model = Compilation.Create(SyntaxTree.Parse(_small)).Emit();
-        if (!model.Success) throw new InvalidOperationException("Pipeline failed (Small)");
+        if (!model.Success)
+            throw new InvalidOperationException("Pipeline failed (Small)");
         return model;
     }
 
@@ -41,7 +42,8 @@ public class FullPipelineBenchmarks
     public EmitModel FullPipelineMedium()
     {
         var model = Compilation.Create(SyntaxTree.Parse(_medium)).Emit();
-        if (!model.Success) throw new InvalidOperationException("Pipeline failed (Medium)");
+        if (!model.Success)
+            throw new InvalidOperationException("Pipeline failed (Medium)");
         return model;
     }
 
@@ -49,7 +51,8 @@ public class FullPipelineBenchmarks
     public EmitModel FullPipelineLarge()
     {
         var model = Compilation.Create(SyntaxTree.Parse(_large)).Emit();
-        if (!model.Success) throw new InvalidOperationException("Pipeline failed (Large)");
+        if (!model.Success)
+            throw new InvalidOperationException("Pipeline failed (Large)");
         return model;
     }
 
@@ -57,8 +60,12 @@ public class FullPipelineBenchmarks
     {
         var model = Compilation.Create(SyntaxTree.Parse(source)).Emit();
         if (!model.Success)
-            throw new InvalidOperationException($"Validation failed ({name}): pipeline produced errors");
+            throw new InvalidOperationException(
+                $"Validation failed ({name}): pipeline produced errors"
+            );
         if (model.Sections.Count == 0)
-            throw new InvalidOperationException($"Validation failed ({name}): no sections produced");
+            throw new InvalidOperationException(
+                $"Validation failed ({name}): no sections produced"
+            );
     }
 }

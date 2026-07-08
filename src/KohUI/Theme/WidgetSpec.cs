@@ -10,9 +10,9 @@ namespace KohUI.Theme;
 public enum BevelStyle
 {
     None,
-    Sunken,     // content panels, status segments, scrollbar troughs
-    Raised,     // buttons, toolbar buttons, raised panels
-    Chiseled,   // etched group-box separators
+    Sunken, // content panels, status segments, scrollbar troughs
+    Raised, // buttons, toolbar buttons, raised panels
+    Chiseled, // etched group-box separators
 }
 
 /// <summary>Horizontal text anchoring inside a widget's content box.</summary>
@@ -31,8 +31,10 @@ public enum LayoutKind
 {
     /// <summary>Takes no children into its layout; measured from its text or nothing.</summary>
     Leaf,
+
     /// <summary>Wraps a single child with bevel + padding (Window, Panel).</summary>
     Border,
+
     /// <summary>Arranges children in a row or column (direction from instance prop).</summary>
     Stack,
 }
@@ -109,11 +111,7 @@ public static class WidgetSpecs
         // ─── Leaf text widgets ───────────────────────────────────────
         b["Label"] = new WidgetSpec();
 
-        b["MenuItem"] = new WidgetSpec
-        {
-            PaddingX = 8,
-            PaddingY = 2,
-        };
+        b["MenuItem"] = new WidgetSpec { PaddingX = 8, PaddingY = 2 };
 
         b["StatusBarSegment"] = new WidgetSpec
         {
@@ -140,7 +138,7 @@ public static class WidgetSpecs
         // with specialised measure+paint; the spec carries only the
         // bits that survive that specialisation (background + focus
         // behaviour live in code).
-        b["CheckBox"]    = new WidgetSpec();
+        b["CheckBox"] = new WidgetSpec();
         b["RadioButton"] = new WidgetSpec();
 
         // TextBox is a sunken white field. The painter paints the input
@@ -195,23 +193,11 @@ public static class WidgetSpecs
         };
 
         // ─── Stack-like containers ───────────────────────────────────
-        b["Stack"] = new WidgetSpec
-        {
-            Layout = LayoutKind.Stack,
-            ChildrenGap = t.Gap,
-        };
+        b["Stack"] = new WidgetSpec { Layout = LayoutKind.Stack, ChildrenGap = t.Gap };
 
-        b["MenuBar"] = new WidgetSpec
-        {
-            Layout = LayoutKind.Stack,
-            ChildrenGap = 0,
-        };
+        b["MenuBar"] = new WidgetSpec { Layout = LayoutKind.Stack, ChildrenGap = 0 };
 
-        b["StatusBar"] = new WidgetSpec
-        {
-            Layout = LayoutKind.Stack,
-            ChildrenGap = 2,
-        };
+        b["StatusBar"] = new WidgetSpec { Layout = LayoutKind.Stack, ChildrenGap = 2 };
 
         return b.ToImmutable();
     }

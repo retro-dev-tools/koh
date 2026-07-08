@@ -67,8 +67,9 @@ public class PositionUtilitiesTests
         var diag = new Diagnostic(new TextSpan(0, 3), "test error", DiagnosticSeverity.Error);
         var lspDiag = PositionUtilities.ToLspDiagnostic(diag, source);
 
-        await Assert.That(lspDiag.Severity).IsEqualTo(
-            Microsoft.VisualStudio.LanguageServer.Protocol.DiagnosticSeverity.Error);
+        await Assert
+            .That(lspDiag.Severity)
+            .IsEqualTo(Microsoft.VisualStudio.LanguageServer.Protocol.DiagnosticSeverity.Error);
         await Assert.That(lspDiag.Message).IsEqualTo("test error");
         await Assert.That(lspDiag.Source).IsEqualTo("koh");
     }
@@ -80,8 +81,9 @@ public class PositionUtilitiesTests
         var diag = new Diagnostic(new TextSpan(0, 3), "test warn", DiagnosticSeverity.Warning);
         var lspDiag = PositionUtilities.ToLspDiagnostic(diag, source);
 
-        await Assert.That(lspDiag.Severity).IsEqualTo(
-            Microsoft.VisualStudio.LanguageServer.Protocol.DiagnosticSeverity.Warning);
+        await Assert
+            .That(lspDiag.Severity)
+            .IsEqualTo(Microsoft.VisualStudio.LanguageServer.Protocol.DiagnosticSeverity.Warning);
     }
 
     [Test]

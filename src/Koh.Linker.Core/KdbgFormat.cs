@@ -2,7 +2,7 @@ namespace Koh.Linker.Core;
 
 public static class KdbgFormat
 {
-    public const uint Magic = 0x4742444B;   // "KDBG" little-endian
+    public const uint Magic = 0x4742444B; // "KDBG" little-endian
     public const ushort Version1 = 1;
 
     public const ushort FlagExpansionPresent = 1 << 0;

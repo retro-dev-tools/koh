@@ -8,7 +8,10 @@ public abstract class GreenNodeBase
     public abstract int ChildCount { get; }
     public abstract GreenNodeBase? GetChild(int index);
 
-    protected GreenNodeBase(SyntaxKind kind) { Kind = kind; }
+    protected GreenNodeBase(SyntaxKind kind)
+    {
+        Kind = kind;
+    }
 }
 
 public sealed class GreenNode : GreenNodeBase
@@ -19,7 +22,8 @@ public sealed class GreenNode : GreenNodeBase
     public override int Width => FullWidth;
     public override int FullWidth { get; }
 
-    public GreenNode(SyntaxKind kind, GreenNodeBase[] children) : base(kind)
+    public GreenNode(SyntaxKind kind, GreenNodeBase[] children)
+        : base(kind)
     {
         _children = children;
         FullWidth = children.Sum(c => c.FullWidth);
@@ -27,7 +31,8 @@ public sealed class GreenNode : GreenNodeBase
 
     public override GreenNodeBase? GetChild(int index)
     {
-        if (index < 0 || index >= _children.Length) return null;
+        if (index < 0 || index >= _children.Length)
+            return null;
         return _children[index];
     }
 }

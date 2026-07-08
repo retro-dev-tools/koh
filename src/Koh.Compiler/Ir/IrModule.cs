@@ -14,11 +14,9 @@ public sealed class IrModule
 
     public IrModule(string name) => Name = name;
 
-    public IrFunction? FindFunction(string name) =>
-        Functions.FirstOrDefault(f => f.Name == name);
+    public IrFunction? FindFunction(string name) => Functions.FirstOrDefault(f => f.Name == name);
 
-    public IrGlobal? FindGlobal(string name) =>
-        Globals.FirstOrDefault(g => g.Name == name);
+    public IrGlobal? FindGlobal(string name) => Globals.FirstOrDefault(g => g.Name == name);
 }
 
 /// <summary>
@@ -48,7 +46,8 @@ public sealed class IrFunction
         IrType returnType,
         IReadOnlyList<IrParameter> parameters,
         int? bank = null,
-        bool isExternal = false)
+        bool isExternal = false
+    )
     {
         Name = name;
         ReturnType = returnType;
@@ -107,7 +106,8 @@ public sealed class IrGlobal
         int? bank = null,
         string? section = null,
         byte[]? initializer = null,
-        int? fixedAddress = null)
+        int? fixedAddress = null
+    )
     {
         Name = name;
         Type = type;

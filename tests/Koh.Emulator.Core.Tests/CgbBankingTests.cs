@@ -61,7 +61,7 @@ public class CgbBankingTests
     public async Task KeyOne_Toggle_Enables_Double_Speed_After_Stop()
     {
         var gb = MakeCgbSystem();
-        gb.Mmu.WriteByte(0xFF4D, 0x01);  // arm switch
+        gb.Mmu.WriteByte(0xFF4D, 0x01); // arm switch
         bool armedBefore = (gb.Mmu.ReadByte(0xFF4D) & 0x01) != 0;
 
         gb.KeyOne.OnStopExecuted();

@@ -20,12 +20,15 @@ public class KohProjectFileLoaderTests
     public async Task ValidSingleProject_ReturnsConfigured()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game
                 entrypoint: src/game.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
@@ -33,7 +36,8 @@ public class KohProjectFileLoaderTests
         var configured = (KohConfigLoadResult.Configured)result;
         await Assert.That(configured.Projects.Count).IsEqualTo(1);
         await Assert.That(configured.Projects[0].Name).IsEqualTo("game");
-        await Assert.That(configured.Projects[0].Entrypoint)
+        await Assert
+            .That(configured.Projects[0].Entrypoint)
             .IsEqualTo(Path.GetFullPath(Path.Combine(folder, "src", "game.asm")));
         await Assert.That(configured.Mode).IsEqualTo(FolderMode.Configured);
     }
@@ -42,14 +46,17 @@ public class KohProjectFileLoaderTests
     public async Task ValidMultiProject_ReturnsConfiguredWithAll()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game
                 entrypoint: src/game.asm
               - name: engine
                 entrypoint: src/engine.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
@@ -76,12 +83,15 @@ public class KohProjectFileLoaderTests
     public async Task InvalidYamlSyntax_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game
                 entrypoint: [[[invalid
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
@@ -95,135 +105,175 @@ public class KohProjectFileLoaderTests
     public async Task MissingVersion_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             projects:
               - name: game
                 entrypoint: src/game.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
-        await Assert.That(invalid.Errors).Contains(new ConfigValidationError("Missing required field: 'version'."));
+        await Assert
+            .That(invalid.Errors)
+            .Contains(new ConfigValidationError("Missing required field: 'version'."));
     }
 
     [Test]
     public async Task MissingProjects_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
-        await Assert.That(invalid.Errors).Contains(new ConfigValidationError("Missing required field: 'projects'."));
+        await Assert
+            .That(invalid.Errors)
+            .Contains(new ConfigValidationError("Missing required field: 'projects'."));
     }
 
     [Test]
     public async Task EmptyProjects_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects: []
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
-        await Assert.That(invalid.Errors).Contains(new ConfigValidationError("'projects' must not be empty."));
+        await Assert
+            .That(invalid.Errors)
+            .Contains(new ConfigValidationError("'projects' must not be empty."));
     }
 
     [Test]
     public async Task MissingProjectName_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - entrypoint: src/game.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
-        await Assert.That(invalid.Errors).Contains(new ConfigValidationError("projects[0]: Missing required field 'name'."));
+        await Assert
+            .That(invalid.Errors)
+            .Contains(new ConfigValidationError("projects[0]: Missing required field 'name'."));
     }
 
     [Test]
     public async Task MissingProjectEntrypoint_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
-        await Assert.That(invalid.Errors).Contains(new ConfigValidationError("projects[0]: Missing required field 'entrypoint'."));
+        await Assert
+            .That(invalid.Errors)
+            .Contains(
+                new ConfigValidationError("projects[0]: Missing required field 'entrypoint'.")
+            );
     }
 
     [Test]
     public async Task DuplicateProjectNames_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game
                 entrypoint: src/game.asm
               - name: game
                 entrypoint: src/other.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
-        await Assert.That(invalid.Errors).Contains(new ConfigValidationError("Duplicate project name: 'game'."));
+        await Assert
+            .That(invalid.Errors)
+            .Contains(new ConfigValidationError("Duplicate project name: 'game'."));
     }
 
     [Test]
     public async Task DuplicateNormalizedEntrypoints_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game1
                 entrypoint: src/game.asm
               - name: game2
                 entrypoint: src/../src/game.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
         await Assert.That(invalid.Errors.Count).IsGreaterThan(0);
-        await Assert.That(invalid.Errors.Any(e => e.Message.Contains("Duplicate entrypoint"))).IsTrue();
+        await Assert
+            .That(invalid.Errors.Any(e => e.Message.Contains("Duplicate entrypoint")))
+            .IsTrue();
     }
 
     [Test]
     public async Task RelativePathNormalization_ProducesAbsolutePath()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game
                 entrypoint: src/game.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
@@ -239,10 +289,13 @@ public class KohProjectFileLoaderTests
     public async Task InvalidConfig_BlocksHeuristicFallback()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects: []
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
@@ -257,18 +310,23 @@ public class KohProjectFileLoaderTests
     public async Task UnsupportedVersion_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 99
             projects:
               - name: game
                 entrypoint: src/game.asm
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 
         await Assert.That(result).IsTypeOf<KohConfigLoadResult.Invalid>();
         var invalid = (KohConfigLoadResult.Invalid)result;
-        await Assert.That(invalid.Errors.Any(e => e.Message.Contains("Unsupported config version"))).IsTrue();
+        await Assert
+            .That(invalid.Errors.Any(e => e.Message.Contains("Unsupported config version")))
+            .IsTrue();
     }
 
     [Test]
@@ -286,12 +344,15 @@ public class KohProjectFileLoaderTests
     public async Task AbsoluteEntrypoint_ReturnsInvalid()
     {
         var folder = CreateTempFolder();
-        WriteConfig(folder, """
+        WriteConfig(
+            folder,
+            """
             version: 1
             projects:
               - name: game
                 entrypoint: /etc/passwd
-            """);
+            """
+        );
 
         var result = KohProjectFileLoader.Load(folder);
 

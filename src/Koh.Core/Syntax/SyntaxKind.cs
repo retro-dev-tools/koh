@@ -16,15 +16,31 @@ public enum SyntaxKind : ushort
     SkippedTokensTrivia,
 
     // Punctuation
-    CommaToken, OpenParenToken, CloseParenToken,
-    OpenBracketToken, CloseBracketToken,
-    ColonToken, DoubleColonToken, DotToken, HashToken,
+    CommaToken,
+    OpenParenToken,
+    CloseParenToken,
+    OpenBracketToken,
+    CloseBracketToken,
+    ColonToken,
+    DoubleColonToken,
+    DotToken,
+    HashToken,
 
     // Operators
-    PlusToken, MinusToken, StarToken, SlashToken, PercentToken,
-    AmpersandToken, PipeToken, CaretToken, TildeToken, BangToken,
-    LessThanToken, GreaterThanToken,
-    LessThanLessThanToken, GreaterThanGreaterThanToken,
+    PlusToken,
+    MinusToken,
+    StarToken,
+    SlashToken,
+    PercentToken,
+    AmpersandToken,
+    PipeToken,
+    CaretToken,
+    TildeToken,
+    BangToken,
+    LessThanToken,
+    GreaterThanToken,
+    LessThanLessThanToken,
+    GreaterThanGreaterThanToken,
     TripleGreaterThanToken, // >>> logical right shift
     StarStarToken, // ** exponentiation
     PlusPlusToken, // ++ string concatenation
@@ -32,13 +48,22 @@ public enum SyntaxKind : ushort
     EqualsEqualsEqualsToken, // === string equality (alias)
     BangEqualsEqualsToken, // !== string inequality
     EqualsToken,
-    EqualsEqualsToken, BangEqualsToken,
-    LessThanEqualsToken, GreaterThanEqualsToken,
-    AmpersandAmpersandToken, PipePipeToken,
+    EqualsEqualsToken,
+    BangEqualsToken,
+    LessThanEqualsToken,
+    GreaterThanEqualsToken,
+    AmpersandAmpersandToken,
+    PipePipeToken,
 
     // Literals
-    NumberLiteral, FixedPointLiteral, StringLiteral, CharLiteralToken, IdentifierToken, LocalLabelToken,
-    CurrentAddressToken, AtToken,
+    NumberLiteral,
+    FixedPointLiteral,
+    StringLiteral,
+    CharLiteralToken,
+    IdentifierToken,
+    LocalLabelToken,
+    CurrentAddressToken,
+    AtToken,
 
     // Macro parameter tokens: \1..\9, \@, \#, \NARG
     // These are lexed as a single token so that macro bodies parse with correct
@@ -46,103 +71,244 @@ public enum SyntaxKind : ushort
     MacroParamToken,
 
     // Anonymous label reference tokens: :+ (forward), :- (backward), :++ (2 forward), etc.
-    AnonLabelForwardToken, AnonLabelBackwardToken,
+    AnonLabelForwardToken,
+    AnonLabelBackwardToken,
 
     // SM83 instruction keywords
-    NopKeyword, LdKeyword, AddKeyword,
-    AdcKeyword, SubKeyword, SbcKeyword, AndKeyword, OrKeyword, XorKeyword, CpKeyword,
-    IncKeyword, DecKeyword, DaaKeyword, CplKeyword,
-    RlcaKeyword, RlaKeyword, RrcaKeyword, RraKeyword,
-    RlcKeyword, RlKeyword, RrcKeyword, RrKeyword,
-    SlaKeyword, SraKeyword, SrlKeyword, SwapKeyword,
-    BitKeyword, SetKeyword, ResKeyword,
-    JpKeyword, JrKeyword, CallKeyword, RetKeyword, RetiKeyword, RstKeyword,
-    PopKeyword, PushKeyword,
-    DiKeyword, EiKeyword, HaltKeyword, StopKeyword,
-    CcfKeyword, ScfKeyword,
-    LdiKeyword, LddKeyword, LdhKeyword,
+    NopKeyword,
+    LdKeyword,
+    AddKeyword,
+    AdcKeyword,
+    SubKeyword,
+    SbcKeyword,
+    AndKeyword,
+    OrKeyword,
+    XorKeyword,
+    CpKeyword,
+    IncKeyword,
+    DecKeyword,
+    DaaKeyword,
+    CplKeyword,
+    RlcaKeyword,
+    RlaKeyword,
+    RrcaKeyword,
+    RraKeyword,
+    RlcKeyword,
+    RlKeyword,
+    RrcKeyword,
+    RrKeyword,
+    SlaKeyword,
+    SraKeyword,
+    SrlKeyword,
+    SwapKeyword,
+    BitKeyword,
+    SetKeyword,
+    ResKeyword,
+    JpKeyword,
+    JrKeyword,
+    CallKeyword,
+    RetKeyword,
+    RetiKeyword,
+    RstKeyword,
+    PopKeyword,
+    PushKeyword,
+    DiKeyword,
+    EiKeyword,
+    HaltKeyword,
+    StopKeyword,
+    CcfKeyword,
+    ScfKeyword,
+    LdiKeyword,
+    LddKeyword,
+    LdhKeyword,
 
     // Condition flag keywords (C condition is contextual — CKeyword serves both register and flag)
-    ZKeyword, NzKeyword, NcKeyword,
+    ZKeyword,
+    NzKeyword,
+    NcKeyword,
 
     // Register keywords — AKeyword..DeKeyword must remain contiguous (IsRegisterKeyword range check).
-    AKeyword, BKeyword, CKeyword, DKeyword, EKeyword,
-    HKeyword, LKeyword, HlKeyword, SpKeyword, AfKeyword, BcKeyword, DeKeyword,
+    AKeyword,
+    BKeyword,
+    CKeyword,
+    DKeyword,
+    EKeyword,
+    HKeyword,
+    LKeyword,
+    HlKeyword,
+    SpKeyword,
+    AfKeyword,
+    BcKeyword,
+    DeKeyword,
 
     // Indirect addressing mode keywords — NOT in the register range (not valid as standalone operands).
-    HliKeyword, HldKeyword, // [hli] = [hl+], [hld] = [hl-]
+    HliKeyword,
+    HldKeyword, // [hli] = [hl+], [hld] = [hl-]
 
     // Directive keywords
-    SectionKeyword, DbKeyword, DwKeyword, DlKeyword, DsKeyword,
-    EquKeyword, EqusKeyword, RedefKeyword, ExportKeyword, PurgeKeyword,
+    SectionKeyword,
+    DbKeyword,
+    DwKeyword,
+    DlKeyword,
+    DsKeyword,
+    EquKeyword,
+    EqusKeyword,
+    RedefKeyword,
+    ExportKeyword,
+    PurgeKeyword,
 
     // Conditional assembly keywords
-    IfKeyword, ElifKeyword, ElseKeyword, EndcKeyword,
+    IfKeyword,
+    ElifKeyword,
+    ElseKeyword,
+    EndcKeyword,
 
     // Macro keywords
-    MacroKeyword, EndmKeyword, ShiftKeyword,
+    MacroKeyword,
+    EndmKeyword,
+    ShiftKeyword,
 
     // Repeat/loop keywords
-    ReptKeyword, ForKeyword, EndrKeyword, BreakKeyword,
+    ReptKeyword,
+    ForKeyword,
+    EndrKeyword,
+    BreakKeyword,
 
     // Include keywords
-    IncludeKeyword, IncbinKeyword,
+    IncludeKeyword,
+    IncbinKeyword,
 
     // Character map keywords
-    CharmapKeyword, NewcharmapKeyword, SetcharmapKeyword,
-    PrecharmapKeyword, PopcharmapKeyword,
+    CharmapKeyword,
+    NewcharmapKeyword,
+    SetcharmapKeyword,
+    PrecharmapKeyword,
+    PopcharmapKeyword,
 
     // UNION/LOAD keywords
-    NextuKeyword, EnduKeyword, LoadKeyword, EndlKeyword,
+    NextuKeyword,
+    EnduKeyword,
+    LoadKeyword,
+    EndlKeyword,
 
     // RS counter keywords (RlKeyword is defined in the instruction range above — RL is
     // both the rotate-left instruction and an RS long directive, disambiguated by context)
-    RbKeyword, RwKeyword, RsresetKeyword, RssetKeyword,
+    RbKeyword,
+    RwKeyword,
+    RsresetKeyword,
+    RssetKeyword,
 
     // Control directives
-    AssertKeyword, StaticAssertKeyword, WarnKeyword, FailKeyword, FatalKeyword,
-    PrintKeyword, PrintlnKeyword, OptKeyword,
+    AssertKeyword,
+    StaticAssertKeyword,
+    WarnKeyword,
+    FailKeyword,
+    FatalKeyword,
+    PrintKeyword,
+    PrintlnKeyword,
+    OptKeyword,
 
     // Stack directives
-    PushsKeyword, PopsKeyword, PushoKeyword, PopoKeyword,
+    PushsKeyword,
+    PopsKeyword,
+    PushoKeyword,
+    PopoKeyword,
 
     // Section type keywords — Rom0Keyword..OamKeyword must remain contiguous;
     // Parser.IsSectionTypeKeyword relies on a range check.
-    Rom0Keyword, RomxKeyword, Wram0Keyword, WramxKeyword,
-    VramKeyword, HramKeyword, SramKeyword, OamKeyword,
+    Rom0Keyword,
+    RomxKeyword,
+    Wram0Keyword,
+    WramxKeyword,
+    VramKeyword,
+    HramKeyword,
+    SramKeyword,
+    OamKeyword,
 
     // Section modifier / constraint keywords (not memory types)
-    AlignKeyword, FragmentKeyword, UnionKeyword,
+    AlignKeyword,
+    FragmentKeyword,
+    UnionKeyword,
 
     // Built-in function keywords
-    HighKeyword, LowKeyword, BankKeyword, SizeofKeyword, StartofKeyword,
-    DefKeyword, IsConstKeyword, StrlenKeyword, StrcatKeyword, StrsubKeyword, RevcharKeyword,
-    CharlenKeyword, IncharmapKeyword, StrcmpKeyword,
+    HighKeyword,
+    LowKeyword,
+    BankKeyword,
+    SizeofKeyword,
+    StartofKeyword,
+    DefKeyword,
+    IsConstKeyword,
+    StrlenKeyword,
+    StrcatKeyword,
+    StrsubKeyword,
+    RevcharKeyword,
+    CharlenKeyword,
+    IncharmapKeyword,
+    StrcmpKeyword,
+
     // Math function keywords
-    MulKeyword, DivFuncKeyword, DivKeyword, FmodKeyword, PowKeyword, LogKeyword,
-    RoundKeyword, CeilKeyword, FloorKeyword,
+    MulKeyword,
+    DivFuncKeyword,
+    DivKeyword,
+    FmodKeyword,
+    PowKeyword,
+    LogKeyword,
+    RoundKeyword,
+    CeilKeyword,
+    FloorKeyword,
+
     // Trig function keywords
-    SinKeyword, CosKeyword, TanKeyword, AsinKeyword, AcosKeyword, AtanKeyword, Atan2Keyword,
+    SinKeyword,
+    CosKeyword,
+    TanKeyword,
+    AsinKeyword,
+    AcosKeyword,
+    AtanKeyword,
+    Atan2Keyword,
+
     // String function keywords
-    StrfindKeyword, StrrfindKeyword, StruprKeyword, StrlwrKeyword,
-    BytelenKeyword, StrbyteKeyword, StrcharKeyword,
+    StrfindKeyword,
+    StrrfindKeyword,
+    StruprKeyword,
+    StrlwrKeyword,
+    BytelenKeyword,
+    StrbyteKeyword,
+    StrcharKeyword,
     ReadfileKeyword,
+
     // Bit query function keywords
-    BitwidthKeyword, TzcountKeyword,
+    BitwidthKeyword,
+    TzcountKeyword,
+
     // Format function keyword
     StrfmtKeyword,
 
     // Nodes
-    CompilationUnit, InstructionStatement, LabelDeclaration,
-    DirectiveStatement, SectionDirective, DataDirective, SymbolDirective,
-    ConditionalDirective, MacroDefinition, MacroCall,
-    RepeatDirective, IncludeDirective,
+    CompilationUnit,
+    InstructionStatement,
+    LabelDeclaration,
+    DirectiveStatement,
+    SectionDirective,
+    DataDirective,
+    SymbolDirective,
+    ConditionalDirective,
+    MacroDefinition,
+    MacroCall,
+    RepeatDirective,
+    IncludeDirective,
 
     // Operand nodes
-    RegisterOperand, ImmediateOperand, IndirectOperand,
-    ConditionOperand, LabelOperand,
+    RegisterOperand,
+    ImmediateOperand,
+    IndirectOperand,
+    ConditionOperand,
+    LabelOperand,
 
     // Expression nodes
-    LiteralExpression, NameExpression, BinaryExpression,
-    UnaryExpression, ParenthesizedExpression, FunctionCallExpression,
+    LiteralExpression,
+    NameExpression,
+    BinaryExpression,
+    UnaryExpression,
+    ParenthesizedExpression,
+    FunctionCallExpression,
 }

@@ -27,7 +27,7 @@ public class Mbc1Tests
 
         var rom = new byte[romBanks * 0x4000];
         rom[0x143] = 0x00;
-        rom[0x147] = 0x03;  // MBC1 + RAM + battery
+        rom[0x147] = 0x03; // MBC1 + RAM + battery
         rom[0x148] = (byte)romSizeCode;
         rom[0x149] = (byte)ramSizeCode;
         // Mark each bank with its bank number at offset 0 of the bank for easy verification.
@@ -81,7 +81,7 @@ public class Mbc1Tests
     public async Task Ram_EnabledAndWriteReadRoundTrip()
     {
         var cart = MakeMbc1(romBanks: 4, ramBanks: 1);
-        cart.WriteRom(0x0000, 0x0A);           // enable RAM
+        cart.WriteRom(0x0000, 0x0A); // enable RAM
         cart.WriteRam(0xA000, 0x42);
         await Assert.That(cart.ReadRam(0xA000)).IsEqualTo((byte)0x42);
     }

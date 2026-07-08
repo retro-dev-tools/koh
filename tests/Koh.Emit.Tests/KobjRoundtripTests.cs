@@ -40,8 +40,7 @@ public class KobjRoundtripTests
     [Test]
     public async Task Roundtrip_Symbols()
     {
-        var original = EmitFromSource(
-            "MY_CONST EQU $42\nSECTION \"Main\", ROM0\nmain::\nnop");
+        var original = EmitFromSource("MY_CONST EQU $42\nSECTION \"Main\", ROM0\nmain::\nnop");
         var restored = RoundTrip(original);
 
         var constSym = restored.Symbols.FirstOrDefault(s => s.Name == "MY_CONST");
@@ -61,7 +60,8 @@ public class KobjRoundtripTests
     public async Task Roundtrip_MultipleSections()
     {
         var original = EmitFromSource(
-            "SECTION \"Code\", ROM0\nnop\nSECTION \"Data\", ROM0\ndb $AA, $BB");
+            "SECTION \"Code\", ROM0\nnop\nSECTION \"Data\", ROM0\ndb $AA, $BB"
+        );
         var restored = RoundTrip(original);
 
         await Assert.That(restored.Sections.Count).IsEqualTo(2);
@@ -98,7 +98,8 @@ public class KobjRoundtripTests
         // Use non-register names — A/B/C are lexed as register keywords and would fail to
         // parse as EQU symbol names (pre-existing parser limitation, tracked separately).
         var original = EmitFromSource(
-            "FOO EQU 1\nBAR EQU 2\nBAZ EQU 3\nSECTION \"Main\", ROM0\nlbl:\nnop");
+            "FOO EQU 1\nBAR EQU 2\nBAZ EQU 3\nSECTION \"Main\", ROM0\nlbl:\nnop"
+        );
         var restored = RoundTrip(original);
 
         await Assert.That(restored.Symbols.Count).IsEqualTo(original.Symbols.Count);
@@ -184,8 +185,14 @@ public class KobjRoundtripTests
             PCAfterInstruction = 5,
             DiagnosticSpan = new TextSpan(10, 4),
         };
-        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
-            new byte[] { 0x00, 0xC3, 0x00, 0x00 }, [patchEntry]);
+        var sectionData = new SectionData(
+            "Main",
+            SectionType.Rom0,
+            null,
+            null,
+            new byte[] { 0x00, 0xC3, 0x00, 0x00 },
+            [patchEntry]
+        );
         var original = new EmitModel([sectionData], [], success: true);
         var restored = RoundTrip(original);
 
@@ -209,9 +216,15 @@ public class KobjRoundtripTests
             new LineMapEntry(3, 1, "foo.asm", 11u),
             new LineMapEntry(4, 2, "bar.inc", 5u),
         };
-        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
+        var sectionData = new SectionData(
+            "Main",
+            SectionType.Rom0,
+            null,
+            null,
             new byte[] { 0x21, 0xEF, 0xBE, 0x00, 0x00, 0x00 },
-            Array.Empty<PatchEntry>(), lineMap);
+            Array.Empty<PatchEntry>(),
+            lineMap
+        );
         var original = new EmitModel([sectionData], [], success: true);
 
         var restored = RoundTrip(original);
@@ -226,8 +239,14 @@ public class KobjRoundtripTests
     [Test]
     public async Task Roundtrip_LineMap_EmptySection_IsZeroEntries()
     {
-        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
-            new byte[] { 0x00 }, Array.Empty<PatchEntry>());
+        var sectionData = new SectionData(
+            "Main",
+            SectionType.Rom0,
+            null,
+            null,
+            new byte[] { 0x00 },
+            Array.Empty<PatchEntry>()
+        );
         var original = new EmitModel([sectionData], [], success: true);
         var restored = RoundTrip(original);
         await Assert.That(restored.Sections[0].LineMap.Count).IsEqualTo(0);
@@ -238,9 +257,12 @@ public class KobjRoundtripTests
     {
         // Assemble real source and round-trip through kobj — verifies
         // the line map the binder produces survives serialization.
-        var tree = SyntaxTree.Parse(Koh.Core.Text.SourceText.From(
-            "SECTION \"Main\", ROM0\n__main__:\nnop\nnop\n",
-            "test.asm"));
+        var tree = SyntaxTree.Parse(
+            Koh.Core.Text.SourceText.From(
+                "SECTION \"Main\", ROM0\n__main__:\nnop\nnop\n",
+                "test.asm"
+            )
+        );
         var original = Compilation.Create(tree).Emit();
 
         var restored = RoundTrip(original);
@@ -261,18 +283,18 @@ public class KobjRoundtripTests
         using (var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
         {
             bw.Write("KOH\0"u8);
-            bw.Write((byte)1);                              // version 1
-            bw.Write((byte)0x01);                           // TagSections
-            bw.Write((ushort)1);                            // 1 section
+            bw.Write((byte)1); // version 1
+            bw.Write((byte)0x01); // TagSections
+            bw.Write((ushort)1); // 1 section
             bw.Write("Main");
             bw.Write((byte)SectionType.Rom0);
-            bw.Write(false);                                // no fixed address
-            bw.Write(false);                                // no bank
-            bw.Write(1);                                    // data len
+            bw.Write(false); // no fixed address
+            bw.Write(false); // no bank
+            bw.Write(1); // data len
             bw.Write((byte)0x00);
-            bw.Write((ushort)0);                            // no patches
+            bw.Write((ushort)0); // no patches
             // (no line map — this is the v1 shape)
-            bw.Write((byte)0xFF);                           // TagEnd
+            bw.Write((byte)0xFF); // TagEnd
         }
         ms.Position = 0;
         var model = KobjReader.Read(ms);
@@ -293,8 +315,14 @@ public class KobjRoundtripTests
             DiagnosticSpan = new TextSpan(0, 2),
             SymbolName = "Boot",
         };
-        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
-            new byte[] { 0xC3, 0x00, 0x00 }, [patchEntry]);
+        var sectionData = new SectionData(
+            "Main",
+            SectionType.Rom0,
+            null,
+            null,
+            new byte[] { 0xC3, 0x00, 0x00 },
+            [patchEntry]
+        );
         var original = new EmitModel([sectionData], [], success: true);
         var restored = RoundTrip(original);
 
@@ -314,8 +342,14 @@ public class KobjRoundtripTests
             DiagnosticSpan = new TextSpan(0, 2),
             SymbolName = null,
         };
-        var sectionData = new SectionData("Main", SectionType.Rom0, null, null,
-            new byte[] { 0xC3, 0x00, 0x00 }, [patchEntry]);
+        var sectionData = new SectionData(
+            "Main",
+            SectionType.Rom0,
+            null,
+            null,
+            new byte[] { 0xC3, 0x00, 0x00 },
+            [patchEntry]
+        );
         var original = new EmitModel([sectionData], [], success: true);
         var restored = RoundTrip(original);
 
@@ -331,25 +365,25 @@ public class KobjRoundtripTests
         using (var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
         {
             bw.Write("KOH\0"u8);
-            bw.Write((byte)2);                              // version 2
-            bw.Write((byte)0x01);                           // TagSections
-            bw.Write((ushort)1);                            // 1 section
+            bw.Write((byte)2); // version 2
+            bw.Write((byte)0x01); // TagSections
+            bw.Write((ushort)1); // 1 section
             bw.Write("Main");
             bw.Write((byte)SectionType.Rom0);
-            bw.Write(false);                                // no fixed address
-            bw.Write(false);                                // no bank
-            bw.Write(3);                                    // data len
+            bw.Write(false); // no fixed address
+            bw.Write(false); // no bank
+            bw.Write(3); // data len
             bw.Write(new byte[] { 0xC3, 0x00, 0x00 });
-            bw.Write((ushort)1);                            // 1 patch
+            bw.Write((ushort)1); // 1 patch
             // patch fields (v2: no SymbolName)
-            bw.Write((int)1);                               // offset
-            bw.Write((byte)PatchKind.Absolute16);           // kind
-            bw.Write((int)3);                               // PCAfterInstruction
-            bw.Write((int)0);                               // DiagnosticSpan.Start
-            bw.Write((int)2);                               // DiagnosticSpan.Length
+            bw.Write((int)1); // offset
+            bw.Write((byte)PatchKind.Absolute16); // kind
+            bw.Write((int)3); // PCAfterInstruction
+            bw.Write((int)0); // DiagnosticSpan.Start
+            bw.Write((int)2); // DiagnosticSpan.Length
             // line map (v2)
-            bw.Write((int)0);                               // 0 line map entries
-            bw.Write((byte)0xFF);                           // TagEnd
+            bw.Write((int)0); // 0 line map entries
+            bw.Write((byte)0xFF); // TagEnd
         }
         ms.Position = 0;
         var model = KobjReader.Read(ms);

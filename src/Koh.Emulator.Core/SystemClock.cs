@@ -23,11 +23,15 @@ public sealed class SystemClock
 
     public void WriteState(State.StateWriter w)
     {
-        w.WriteU64(SystemTicks); w.WriteU64(FrameSystemTicks); w.WriteBool(DoubleSpeed);
+        w.WriteU64(SystemTicks);
+        w.WriteU64(FrameSystemTicks);
+        w.WriteBool(DoubleSpeed);
     }
 
     public void ReadState(State.StateReader r)
     {
-        SystemTicks = r.ReadU64(); FrameSystemTicks = r.ReadU64(); DoubleSpeed = r.ReadBool();
+        SystemTicks = r.ReadU64();
+        FrameSystemTicks = r.ReadU64();
+        DoubleSpeed = r.ReadBool();
     }
 }

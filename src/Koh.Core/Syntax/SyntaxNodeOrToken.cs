@@ -8,6 +8,15 @@ public readonly struct SyntaxNodeOrToken
     public bool IsToken => AsToken is not null;
     public SyntaxKind Kind => IsNode ? AsNode!.Kind : AsToken!.Kind;
 
-    public SyntaxNodeOrToken(SyntaxNode node) { AsNode = node; AsToken = null; }
-    public SyntaxNodeOrToken(SyntaxToken token) { AsToken = token; AsNode = null; }
+    public SyntaxNodeOrToken(SyntaxNode node)
+    {
+        AsNode = node;
+        AsToken = null;
+    }
+
+    public SyntaxNodeOrToken(SyntaxToken token)
+    {
+        AsToken = token;
+        AsNode = null;
+    }
 }

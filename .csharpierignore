@@ -1,0 +1,7 @@
+# CSharpier formats our C# sources. MSBuild project/props files are
+# hand-maintained (their XML formatter rewraps attributes awkwardly), so
+# keep them out of scope.
+*.csproj
+*.props
+*.targets
+*.slnx

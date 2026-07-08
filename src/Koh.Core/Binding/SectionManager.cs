@@ -2,13 +2,16 @@ namespace Koh.Core.Binding;
 
 public sealed class SectionManager
 {
-    private readonly Dictionary<string, SectionBuffer> _sections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SectionBuffer> _sections = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private SectionBuffer? _activeSection;
     private readonly Stack<string?> _sectionStack = new();
     private readonly HashSet<string> _pushedSectionNames = new(StringComparer.OrdinalIgnoreCase);
 
     // Union state — stack for nested UNION support
     private readonly record struct UnionState(int StartOffset, int MaxOffset);
+
     private readonly Stack<UnionState> _unionStack = new();
 
     // LOAD state: data goes to enclosing section, labels go to load section
@@ -17,8 +20,13 @@ public sealed class SectionManager
 
     public SectionBuffer? ActiveSection => _activeSection;
 
-    public SectionBuffer OpenOrResume(string name, SectionType type,
-        int? fixedAddress = null, int? bank = null, bool isFragment = false)
+    public SectionBuffer OpenOrResume(
+        string name,
+        SectionType type,
+        int? fixedAddress = null,
+        int? bank = null,
+        bool isFragment = false
+    )
     {
         if (_sections.TryGetValue(name, out var existing))
         {
@@ -39,7 +47,8 @@ public sealed class SectionManager
     {
         var name = _activeSection?.Name;
         _sectionStack.Push(name);
-        if (name != null) _pushedSectionNames.Add(name);
+        if (name != null)
+            _pushedSectionNames.Add(name);
         _activeSection = null;
     }
 
@@ -54,9 +63,11 @@ public sealed class SectionManager
     /// </summary>
     public bool PopSection()
     {
-        if (_sectionStack.Count == 0) return false;
+        if (_sectionStack.Count == 0)
+            return false;
         var name = _sectionStack.Pop();
-        if (name != null) _pushedSectionNames.Remove(name);
+        if (name != null)
+            _pushedSectionNames.Remove(name);
         _activeSection = name != null && _sections.TryGetValue(name, out var s) ? s : null;
         return true;
     }
@@ -65,13 +76,17 @@ public sealed class SectionManager
 
     public void BeginUnion()
     {
-        if (_activeSection == null) return;
-        _unionStack.Push(new UnionState(_activeSection.CurrentOffset, _activeSection.CurrentOffset));
+        if (_activeSection == null)
+            return;
+        _unionStack.Push(
+            new UnionState(_activeSection.CurrentOffset, _activeSection.CurrentOffset)
+        );
     }
 
     public bool NextUnion()
     {
-        if (_unionStack.Count == 0 || _activeSection == null) return false;
+        if (_unionStack.Count == 0 || _activeSection == null)
+            return false;
         var state = _unionStack.Pop();
         int maxOffset = Math.Max(state.MaxOffset, _activeSection.CurrentOffset);
         // Truncate bytes back to union start for next member
@@ -82,7 +97,8 @@ public sealed class SectionManager
 
     public bool EndUnion()
     {
-        if (_unionStack.Count == 0 || _activeSection == null) return false;
+        if (_unionStack.Count == 0 || _activeSection == null)
+            return false;
         var state = _unionStack.Pop();
         int maxOffset = Math.Max(state.MaxOffset, _activeSection.CurrentOffset);
         // Pad to max member size
@@ -111,7 +127,8 @@ public sealed class SectionManager
 
     public bool EndLoad()
     {
-        if (_loadSection == null) return false;
+        if (_loadSection == null)
+            return false;
         _loadSection = null;
         _enclosingSection = null;
         return true;

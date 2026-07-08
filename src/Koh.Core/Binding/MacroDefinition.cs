@@ -51,7 +51,12 @@ internal sealed class MacroDefinition
     /// <summary>File path where the macro was defined.</summary>
     public string DefinitionFilePath { get; }
 
-    public MacroDefinition(string name, string rawBody, TextSpan definitionSpan, string definitionFilePath)
+    public MacroDefinition(
+        string name,
+        string rawBody,
+        TextSpan definitionSpan,
+        string definitionFilePath
+    )
     {
         Name = name;
         RawBody = rawBody;
@@ -73,10 +78,14 @@ internal sealed class MacroDefinition
             if (text[i] == '\\')
             {
                 char next = text[i + 1];
-                if (next is >= '1' and <= '9') return true;
-                if (next == '@') return true;
-                if (next == '#') return true;
-                if (next == '<') return true;
+                if (next is >= '1' and <= '9')
+                    return true;
+                if (next == '@')
+                    return true;
+                if (next == '#')
+                    return true;
+                if (next == '<')
+                    return true;
             }
         }
         return text.Contains("_NARG", StringComparison.OrdinalIgnoreCase);

@@ -12,7 +12,8 @@ namespace KohUI.Widgets;
 /// click callback indexed by the node path and route DOM events to it.
 /// </para>
 /// </summary>
-public readonly struct Button<TMsg>(string Text, Func<TMsg>? OnClick = null, bool Enabled = true) : IView<TMsg>
+public readonly struct Button<TMsg>(string Text, Func<TMsg>? OnClick = null, bool Enabled = true)
+    : IView<TMsg>
 {
     public readonly string Text = Text;
     public readonly Func<TMsg>? OnClick = OnClick;
@@ -20,10 +21,7 @@ public readonly struct Button<TMsg>(string Text, Func<TMsg>? OnClick = null, boo
 
     public RenderNode Render()
     {
-        var props = Props.Of(
-            ("text", Text),
-            ("enabled", Enabled),
-            ("onClick", OnClick));   // carried for the backend, not serialised
+        var props = Props.Of(("text", Text), ("enabled", Enabled), ("onClick", OnClick)); // carried for the backend, not serialised
         return RenderNode.Leaf("Button", props);
     }
 }

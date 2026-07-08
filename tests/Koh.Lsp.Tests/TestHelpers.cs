@@ -44,7 +44,11 @@ internal static class TestHelpers
             NewName = newName,
         };
 
-    public static TextDocumentPositionParams SignatureHelpParams(string uri, int line, int character) =>
+    public static TextDocumentPositionParams SignatureHelpParams(
+        string uri,
+        int line,
+        int character
+    ) =>
         new()
         {
             TextDocument = new TextDocumentIdentifier { Uri = new Uri(uri) },

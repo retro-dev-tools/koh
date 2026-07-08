@@ -11,6 +11,7 @@ public sealed class LinkResult
     public byte[]? RomData { get; }
     public IReadOnlyList<LinkerSymbol> Symbols { get; }
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
+
     /// <summary>
     /// All line-map runs from every input section, resolved to absolute
     /// (bank, windowed GB address). Empty when no inputs carry line
@@ -20,9 +21,12 @@ public sealed class LinkResult
     public IReadOnlyList<ResolvedLineMapEntry> LineMap { get; }
     public bool Success { get; }
 
-    internal LinkResult(byte[]? romData, IReadOnlyList<LinkerSymbol> symbols,
+    internal LinkResult(
+        byte[]? romData,
+        IReadOnlyList<LinkerSymbol> symbols,
         IReadOnlyList<Diagnostic> diagnostics,
-        IReadOnlyList<ResolvedLineMapEntry> lineMap)
+        IReadOnlyList<ResolvedLineMapEntry> lineMap
+    )
     {
         RomData = romData;
         Symbols = symbols;
@@ -87,7 +91,8 @@ public sealed class Linker
         var result = new List<ResolvedLineMapEntry>();
         foreach (var section in sections)
         {
-            if (section.PlacedAddress < 0 || section.LineMap.Count == 0) continue;
+            if (section.PlacedAddress < 0 || section.LineMap.Count == 0)
+                continue;
             byte bank = (byte)section.PlacedBank;
             foreach (var entry in section.LineMap)
             {
@@ -96,7 +101,9 @@ public sealed class Linker
                 // Offsets add directly; we keep only the low 16 bits because
                 // that's what NamedPipe DAP + .kdbg use to drive breakpoints.
                 ushort address = (ushort)((section.PlacedAddress + entry.Offset) & 0xFFFF);
-                result.Add(new ResolvedLineMapEntry(bank, address, entry.ByteCount, entry.File, entry.Line));
+                result.Add(
+                    new ResolvedLineMapEntry(bank, address, entry.ByteCount, entry.File, entry.Line)
+                );
             }
         }
         return result;
@@ -106,7 +113,8 @@ public sealed class Linker
     {
         foreach (var section in sections)
         {
-            if (section.PlacedAddress < 0) continue; // not placed; skip
+            if (section.PlacedAddress < 0)
+                continue; // not placed; skip
 
             foreach (var patch in section.Patches)
             {
@@ -116,10 +124,12 @@ public sealed class Linker
                 {
                     if (patch.Expression != null)
                     {
-                        _diagnostics.Report(patch.DiagnosticSpan,
-                            $"Unresolved cross-file/cross-section patch at offset " +
-                            $"${patch.Offset:X4} in section '{section.Name}': " +
-                            "complex expressions are not yet supported in cross-section refs.");
+                        _diagnostics.Report(
+                            patch.DiagnosticSpan,
+                            $"Unresolved cross-file/cross-section patch at offset "
+                                + $"${patch.Offset:X4} in section '{section.Name}': "
+                                + "complex expressions are not yet supported in cross-section refs."
+                        );
                     }
                     continue;
                 }
@@ -127,9 +137,11 @@ public sealed class Linker
                 var sym = resolver.Lookup(patch.SymbolName, section.SourceFile);
                 if (sym == null)
                 {
-                    _diagnostics.Report(patch.DiagnosticSpan,
-                        $"Undefined symbol '{patch.SymbolName}' " +
-                        $"referenced from section '{section.Name}'");
+                    _diagnostics.Report(
+                        patch.DiagnosticSpan,
+                        $"Undefined symbol '{patch.SymbolName}' "
+                            + $"referenced from section '{section.Name}'"
+                    );
                     continue;
                 }
 
@@ -145,11 +157,11 @@ public sealed class Linker
                     case PatchKind.Absolute16:
                         // Use only the windowed 16-bit address (handles banked ROMs correctly)
                         long addr16 = absValue & 0xFFFF;
-                        section.Data[patch.Offset]     = (byte)(addr16 & 0xFF);
+                        section.Data[patch.Offset] = (byte)(addr16 & 0xFF);
                         section.Data[patch.Offset + 1] = (byte)((addr16 >> 8) & 0xFF);
                         break;
                     case PatchKind.Absolute32:
-                        section.Data[patch.Offset]     = (byte)(absValue & 0xFF);
+                        section.Data[patch.Offset] = (byte)(absValue & 0xFF);
                         section.Data[patch.Offset + 1] = (byte)((absValue >> 8) & 0xFF);
                         section.Data[patch.Offset + 2] = (byte)((absValue >> 16) & 0xFF);
                         section.Data[patch.Offset + 3] = (byte)((absValue >> 24) & 0xFF);
@@ -159,15 +171,19 @@ public sealed class Linker
                         long rel = absValue - absPCAfterInstr;
                         if (rel < -128 || rel > 127)
                         {
-                            _diagnostics.Report(patch.DiagnosticSpan,
-                                $"JR target out of range: offset {rel} does not fit in signed byte");
+                            _diagnostics.Report(
+                                patch.DiagnosticSpan,
+                                $"JR target out of range: offset {rel} does not fit in signed byte"
+                            );
                             continue;
                         }
                         section.Data[patch.Offset] = (byte)(sbyte)rel;
                         break;
                     default:
-                        _diagnostics.Report(patch.DiagnosticSpan,
-                            $"Unhandled patch kind {patch.Kind}");
+                        _diagnostics.Report(
+                            patch.DiagnosticSpan,
+                            $"Unhandled patch kind {patch.Kind}"
+                        );
                         break;
                 }
             }
