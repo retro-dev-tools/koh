@@ -42,7 +42,11 @@ public sealed class DapDispatcher
 
         if (!_handlers.TryGetValue(request.Command, out var handler))
         {
-            EmitErrorResponse(request.Seq, request.Command, $"unsupported command '{request.Command}'");
+            EmitErrorResponse(
+                request.Seq,
+                request.Command,
+                $"unsupported command '{request.Command}'"
+            );
             return;
         }
 

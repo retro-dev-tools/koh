@@ -21,13 +21,15 @@ public sealed partial class CSharpFrontend
     /// <c>yield</c>).</summary>
     private static CompilationUnitSyntax TransformIterators(CompilationUnitSyntax root)
     {
-        var wrapper = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
+        var wrapper = root.DescendantNodes()
+            .OfType<ClassDeclarationSyntax>()
             .FirstOrDefault(c => c.Identifier.Text == WrapperClassName);
         if (wrapper is null)
             return root;
 
         // An iterator is any method whose body contains a `yield`.
-        var iterators = wrapper.Members.OfType<MethodDeclarationSyntax>()
+        var iterators = wrapper
+            .Members.OfType<MethodDeclarationSyntax>()
             .Where(m => m.Body is { } b && b.DescendantNodes().OfType<YieldStatementSyntax>().Any())
             .ToList();
         if (iterators.Count == 0)
@@ -47,20 +49,25 @@ public sealed partial class CSharpFrontend
         if (factories.Count == 0)
             return root;
 
-        var newWrapper = wrapper.ReplaceNodes(factories.Keys, (orig, _) => factories[orig])
+        var newWrapper = wrapper
+            .ReplaceNodes(factories.Keys, (orig, _) => factories[orig])
             .AddMembers(stateClasses.ToArray());
         return root.ReplaceNode(wrapper, newWrapper);
     }
 
     /// <summary>Build the state class and replacement factory for one iterator, or null if its body is
     /// not a supported shape.</summary>
-    private static (MemberDeclarationSyntax StateClass, MemberDeclarationSyntax Factory)?
-        BuildIteratorStateMachine(MethodDeclarationSyntax m)
+    private static (
+        MemberDeclarationSyntax StateClass,
+        MemberDeclarationSyntax Factory
+    )? BuildIteratorStateMachine(MethodDeclarationSyntax m)
     {
         string name = m.Identifier.Text;
         string stateName = name + "__Iter";
         // Element type from IEnumerable<T> / IEnumerator<T>; default byte.
-        string elem = m.ReturnType is GenericNameSyntax { TypeArgumentList.Arguments: [var ta] } ? ta.ToString() : "byte";
+        string elem = m.ReturnType is GenericNameSyntax { TypeArgumentList.Arguments: [var ta] }
+            ? ta.ToString()
+            : "byte";
         var statements = m.Body!.Statements;
 
         // A parameter named like a synthesized field would alias it (the factory's capture
@@ -75,9 +82,7 @@ public sealed partial class CSharpFrontend
         foreach (var p in m.ParameterList.Parameters)
             fields.Append($"{p.Type} {p.Identifier.Text}; ");
 
-        string? moveNext =
-            BuildFlatMoveNext(statements)
-            ?? BuildLoopMoveNext(statements, fields);
+        string? moveNext = BuildFlatMoveNext(statements) ?? BuildLoopMoveNext(statements, fields);
         if (moveNext is null)
             return null;
 
@@ -89,7 +94,9 @@ public sealed partial class CSharpFrontend
 
         // The factory allocates the state object, copies each argument into its captured field, and
         // returns it (a class instance is a heap pointer, exposed to the caller as byte*).
-        var factory = new StringBuilder($"byte* {name}{m.ParameterList} {{ {stateName} __it = new {stateName}(); ");
+        var factory = new StringBuilder(
+            $"byte* {name}{m.ParameterList} {{ {stateName} __it = new {stateName}(); "
+        );
         foreach (var p in m.ParameterList.Parameters)
             factory.Append($"__it.{p.Identifier.Text} = {p.Identifier.Text}; ");
         factory.Append("return __it; }");
@@ -97,8 +104,10 @@ public sealed partial class CSharpFrontend
         // If the synthesized source doesn't parse to a member (e.g. a parameter type that stringifies to
         // something unexpected), leave the iterator untransformed rather than propagate a null — the
         // remaining `yield` is then reported as unsupported.
-        if (SyntaxFactory.ParseMemberDeclaration(cls.ToString()) is not { } stateClass
-            || SyntaxFactory.ParseMemberDeclaration(factory.ToString()) is not { } factoryDecl)
+        if (
+            SyntaxFactory.ParseMemberDeclaration(cls.ToString()) is not { } stateClass
+            || SyntaxFactory.ParseMemberDeclaration(factory.ToString()) is not { } factoryDecl
+        )
             return null;
         return (stateClass, factoryDecl);
     }
@@ -107,9 +116,15 @@ public sealed partial class CSharpFrontend
     /// per call. Null if the body is not exactly that shape.</summary>
     private static string? BuildFlatMoveNext(SyntaxList<StatementSyntax> statements)
     {
-        if (statements.Count == 0 || !statements.All(s => s is YieldStatementSyntax { Expression: not null }))
+        if (
+            statements.Count == 0
+            || !statements.All(s => s is YieldStatementSyntax { Expression: not null })
+        )
             return null;
-        var yields = statements.Cast<YieldStatementSyntax>().Select(y => y.Expression!.ToString()).ToList();
+        var yields = statements
+            .Cast<YieldStatementSyntax>()
+            .Select(y => y.Expression!.ToString())
+            .ToList();
 
         var sb = new StringBuilder("byte MoveNext() { switch (__state) { ");
         for (int i = 0; i < yields.Count; i++)
@@ -126,10 +141,16 @@ public sealed partial class CSharpFrontend
     /// A <c>while</c> loop is deliberately NOT supported: a single-<c>yield</c> body cannot mutate the
     /// state the condition reads, so a counted <c>while</c> would compile to an infinite stream — it is
     /// left untransformed (and reported as an unsupported <c>yield</c>) instead of miscompiled.</summary>
-    private static string? BuildLoopMoveNext(SyntaxList<StatementSyntax> statements, StringBuilder fields)
+    private static string? BuildLoopMoveNext(
+        SyntaxList<StatementSyntax> statements,
+        StringBuilder fields
+    )
     {
-        if (statements is not [ForStatementSyntax f]
-            || f.Declaration is null || f.Condition is null)
+        if (
+            statements is not [ForStatementSyntax f]
+            || f.Declaration is null
+            || f.Condition is null
+        )
             return null;
 
         var inits = new StringBuilder();

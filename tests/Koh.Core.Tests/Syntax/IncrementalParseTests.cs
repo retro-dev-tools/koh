@@ -14,7 +14,11 @@ public class IncrementalParseTests
     /// Asserts canonical tree equivalence between two syntax trees.
     /// Checks all 9 criteria from the spec.
     /// </summary>
-    private static async Task AssertCanonicalEquivalence(SyntaxTree expected, SyntaxTree actual, string context = "")
+    private static async Task AssertCanonicalEquivalence(
+        SyntaxTree expected,
+        SyntaxTree actual,
+        string context = ""
+    )
     {
         var prefix = string.IsNullOrEmpty(context) ? "" : $"[{context}] ";
 
@@ -23,28 +27,30 @@ public class IncrementalParseTests
         var actualTokens = CollectTokens(actual.Root).ToList();
 
         // 1. Token kinds in same order
-        await Assert.That(actualTokens.Select(t => t.Kind).ToList())
+        await Assert
+            .That(actualTokens.Select(t => t.Kind).ToList())
             .IsEquivalentTo(expectedTokens.Select(t => t.Kind).ToList());
 
         // 2. Token texts
-        await Assert.That(actualTokens.Select(t => t.Text).ToList())
+        await Assert
+            .That(actualTokens.Select(t => t.Text).ToList())
             .IsEquivalentTo(expectedTokens.Select(t => t.Text).ToList());
 
         // 3. Token Span.Start and Span.Length
         for (int i = 0; i < expectedTokens.Count; i++)
         {
-            await Assert.That(actualTokens[i].Span.Start)
-                .IsEqualTo(expectedTokens[i].Span.Start);
-            await Assert.That(actualTokens[i].Span.Length)
-                .IsEqualTo(expectedTokens[i].Span.Length);
+            await Assert.That(actualTokens[i].Span.Start).IsEqualTo(expectedTokens[i].Span.Start);
+            await Assert.That(actualTokens[i].Span.Length).IsEqualTo(expectedTokens[i].Span.Length);
         }
 
         // 4. Token FullSpan.Start and FullSpan.Length (covers trivia)
         for (int i = 0; i < expectedTokens.Count; i++)
         {
-            await Assert.That(actualTokens[i].FullSpan.Start)
+            await Assert
+                .That(actualTokens[i].FullSpan.Start)
                 .IsEqualTo(expectedTokens[i].FullSpan.Start);
-            await Assert.That(actualTokens[i].FullSpan.Length)
+            await Assert
+                .That(actualTokens[i].FullSpan.Length)
                 .IsEqualTo(expectedTokens[i].FullSpan.Length);
         }
 
@@ -72,14 +78,17 @@ public class IncrementalParseTests
             {
                 await Assert.That(actualTrailing[j].Kind).IsEqualTo(expectedTrailing[j].Kind);
                 await Assert.That(actualTrailing[j].Text).IsEqualTo(expectedTrailing[j].Text);
-                await Assert.That(actualTrailing[j].Position).IsEqualTo(expectedTrailing[j].Position);
+                await Assert
+                    .That(actualTrailing[j].Position)
+                    .IsEqualTo(expectedTrailing[j].Position);
             }
         }
 
         // 7. Node kinds in pre-order traversal
         var expectedNodes = CollectNodesPreOrder(expected.Root).ToList();
         var actualNodes = CollectNodesPreOrder(actual.Root).ToList();
-        await Assert.That(actualNodes.Select(n => n.Kind).ToList())
+        await Assert
+            .That(actualNodes.Select(n => n.Kind).ToList())
             .IsEquivalentTo(expectedNodes.Select(n => n.Kind).ToList());
 
         // 8. Node positions
@@ -117,15 +126,18 @@ public class IncrementalParseTests
     {
         yield return node;
         foreach (var child in node.ChildNodes())
-            foreach (var n in CollectNodesPreOrder(child))
-                yield return n;
+        foreach (var n in CollectNodesPreOrder(child))
+            yield return n;
     }
 
     /// <summary>
     /// Performs an incremental edit and asserts canonical equivalence with full reparse.
     /// Returns true if the incremental path was taken (non-null from TryReparse).
     /// </summary>
-    private static async Task<bool> AssertIncrementalMatchesFullReparse(string oldCode, string newCode)
+    private static async Task<bool> AssertIncrementalMatchesFullReparse(
+        string oldCode,
+        string newCode
+    )
     {
         var oldSource = SourceText.From(oldCode);
         var oldTree = SyntaxTree.Parse(oldSource);
@@ -137,17 +149,22 @@ public class IncrementalParseTests
         // Incremental reparse via WithChanges
         var incrementalTree = oldTree.WithChanges(newSource);
 
-        await AssertCanonicalEquivalence(fullTree, incrementalTree, $"old={Truncate(oldCode)} new={Truncate(newCode)}");
+        await AssertCanonicalEquivalence(
+            fullTree,
+            incrementalTree,
+            $"old={Truncate(oldCode)} new={Truncate(newCode)}"
+        );
 
         // Check if incremental path was actually taken
         var change = SyntaxTree.ComputeChange(oldSource, newSource);
-        if (change is null) return false;
+        if (change is null)
+            return false;
         var tryResult = IncrementalParser.TryReparse(oldTree, change.Value, newSource);
         return tryResult is not null;
     }
 
-    private static string Truncate(string s, int maxLen = 40)
-        => s.Length <= maxLen ? s.Replace("\n", "\\n") : s[..maxLen].Replace("\n", "\\n") + "...";
+    private static string Truncate(string s, int maxLen = 40) =>
+        s.Length <= maxLen ? s.Replace("\n", "\\n") : s[..maxLen].Replace("\n", "\\n") + "...";
 
     // ========================================================================
     // ComputeChange tests
@@ -234,41 +251,31 @@ public class IncrementalParseTests
     [Test]
     public async Task Incremental_InsertMiddleStatement()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nret",
-            "nop\nhalt\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nret", "nop\nhalt\nret");
     }
 
     [Test]
     public async Task Incremental_DeleteMiddleStatement()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nhalt\nret",
-            "nop\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nhalt\nret", "nop\nret");
     }
 
     [Test]
     public async Task Incremental_ReplaceMiddleStatement()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nhalt\nret",
-            "nop\nstop\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nhalt\nret", "nop\nstop\nret");
     }
 
     [Test]
     public async Task Incremental_InsertAtBeginning()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nret",
-            "halt\nnop\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nret", "halt\nnop\nret");
     }
 
     [Test]
     public async Task Incremental_InsertAtEnd()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nret",
-            "nop\nret\nhalt");
+        await AssertIncrementalMatchesFullReparse("nop\nret", "nop\nret\nhalt");
     }
 
     [Test]
@@ -276,7 +283,8 @@ public class IncrementalParseTests
     {
         await AssertIncrementalMatchesFullReparse(
             "nop ; comment1\nhalt\nret ; comment2",
-            "nop ; comment1\nstop\nret ; comment2");
+            "nop ; comment1\nstop\nret ; comment2"
+        );
     }
 
     [Test]
@@ -284,64 +292,51 @@ public class IncrementalParseTests
     {
         await AssertIncrementalMatchesFullReparse(
             "start:\n    nop\n    halt\nend:\n    ret",
-            "start:\n    nop\n    stop\nend:\n    ret");
+            "start:\n    nop\n    stop\nend:\n    ret"
+        );
     }
 
     [Test]
     public async Task Incremental_AddLabel()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nhalt\nret",
-            "nop\nmiddle:\nhalt\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nhalt\nret", "nop\nmiddle:\nhalt\nret");
     }
 
     [Test]
     public async Task Incremental_EditSingleInstruction()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nld a, b\nret",
-            "nop\nld a, c\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nld a, b\nret", "nop\nld a, c\nret");
     }
 
     [Test]
     public async Task Incremental_EmptyToSomething()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "",
-            "nop");
+        await AssertIncrementalMatchesFullReparse("", "nop");
     }
 
     [Test]
     public async Task Incremental_SomethingToEmpty()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop",
-            "");
+        await AssertIncrementalMatchesFullReparse("nop", "");
     }
 
     [Test]
     public async Task Incremental_SingleStatementEdit()
     {
         // Single statement: incremental should fall back since all children are affected
-        await AssertIncrementalMatchesFullReparse(
-            "nop",
-            "halt");
+        await AssertIncrementalMatchesFullReparse("nop", "halt");
     }
 
     [Test]
     public async Task Incremental_MultipleStatementsEditFirst()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nhalt\nret",
-            "stop\nhalt\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nhalt\nret", "stop\nhalt\nret");
     }
 
     [Test]
     public async Task Incremental_MultipleStatementsEditLast()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nhalt\nret",
-            "nop\nhalt\nstop");
+        await AssertIncrementalMatchesFullReparse("nop\nhalt\nret", "nop\nhalt\nstop");
     }
 
     [Test]
@@ -349,39 +344,32 @@ public class IncrementalParseTests
     {
         await AssertIncrementalMatchesFullReparse(
             "SECTION \"test\", ROM0\nnop\nhalt\nret",
-            "SECTION \"test\", ROM0\nnop\nstop\nret");
+            "SECTION \"test\", ROM0\nnop\nstop\nret"
+        );
     }
 
     [Test]
     public async Task Incremental_InsertMultipleStatements()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nret",
-            "nop\nhalt\nstop\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nret", "nop\nhalt\nstop\nret");
     }
 
     [Test]
     public async Task Incremental_DeleteMultipleStatements()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nhalt\nstop\nret",
-            "nop\nret");
+        await AssertIncrementalMatchesFullReparse("nop\nhalt\nstop\nret", "nop\nret");
     }
 
     [Test]
     public async Task Incremental_WithBlankLines()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\n\nhalt\n\nret",
-            "nop\n\nstop\n\nret");
+        await AssertIncrementalMatchesFullReparse("nop\n\nhalt\n\nret", "nop\n\nstop\n\nret");
     }
 
     [Test]
     public async Task Incremental_WithWhitespaceChange()
     {
-        await AssertIncrementalMatchesFullReparse(
-            "nop\n    halt\nret",
-            "nop\n        halt\nret");
+        await AssertIncrementalMatchesFullReparse("nop\n    halt\nret", "nop\n        halt\nret");
     }
 
     [Test]
@@ -432,7 +420,8 @@ public class IncrementalParseTests
         // An error in the prefix region should be preserved with correct span
         await AssertIncrementalMatchesFullReparse(
             "123badtoken\nnop\nhalt\nret",
-            "123badtoken\nnop\nstop\nret");
+            "123badtoken\nnop\nstop\nret"
+        );
     }
 
     [Test]
@@ -441,16 +430,15 @@ public class IncrementalParseTests
         // An error in the suffix region should be shifted correctly
         await AssertIncrementalMatchesFullReparse(
             "nop\nhalt\n123badtoken\nret",
-            "nop\nstop\n123badtoken\nret");
+            "nop\nstop\n123badtoken\nret"
+        );
     }
 
     [Test]
     public async Task Incremental_DiagnosticsInChangedRegion()
     {
         // An error in the changed region should be replaced by new diagnostics
-        await AssertIncrementalMatchesFullReparse(
-            "nop\n123badtoken\nret",
-            "nop\nhalt\nret");
+        await AssertIncrementalMatchesFullReparse("nop\n123badtoken\nret", "nop\nhalt\nret");
     }
 
     // ========================================================================
@@ -463,7 +451,8 @@ public class IncrementalParseTests
         // With 3+ statements and a middle edit, incremental should succeed
         var wasIncremental = await AssertIncrementalMatchesFullReparse(
             "nop\nhalt\nret",
-            "nop\nstop\nret");
+            "nop\nstop\nret"
+        );
         await Assert.That(wasIncremental).IsTrue();
     }
 
@@ -472,7 +461,8 @@ public class IncrementalParseTests
     {
         var wasIncremental = await AssertIncrementalMatchesFullReparse(
             "nop\nhalt\nret",
-            "nop\nhalt\nstop\nret");
+            "nop\nhalt\nstop\nret"
+        );
         await Assert.That(wasIncremental).IsTrue();
     }
 
@@ -480,9 +470,7 @@ public class IncrementalParseTests
     public async Task Incremental_FallsBackForSingleStatement()
     {
         // With only 1 statement, all children are affected -> should fall back
-        var wasIncremental = await AssertIncrementalMatchesFullReparse(
-            "nop",
-            "halt");
+        var wasIncremental = await AssertIncrementalMatchesFullReparse("nop", "halt");
         await Assert.That(wasIncremental).IsFalse();
     }
 
@@ -492,7 +480,8 @@ public class IncrementalParseTests
         // Trailing whitespace after last statement — belongs to EOF trivia, no statement overlap
         var wasIncremental = await AssertIncrementalMatchesFullReparse(
             "nop\nhalt\n   ",
-            "nop\nhalt\n      ");
+            "nop\nhalt\n      "
+        );
         // Falls back because no top-level children overlap the edit (it's in EOF trivia)
         await Assert.That(wasIncremental).IsFalse();
     }
@@ -501,8 +490,6 @@ public class IncrementalParseTests
     public async Task Incremental_DeleteNewlineMergingLines_MatchesFull()
     {
         // Delete newline between two statements — merges them into one parse unit
-        await AssertIncrementalMatchesFullReparse(
-            "nop\nhalt\nstop\n",
-            "nophalt\nstop\n");
+        await AssertIncrementalMatchesFullReparse("nop\nhalt\nstop\n", "nophalt\nstop\n");
     }
 }

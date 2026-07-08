@@ -25,14 +25,14 @@ public class Phase4Benchmarks
         // Power the APU on and trigger Ch1 + Ch2 so the full mixer pipeline
         // (incl. envelope / duty / frequency counters) is exercised.
         _gb.Mmu.WriteByte(0xFF26, 0x80);
-        _gb.Mmu.WriteByte(0xFF11, 0x80);   // Ch1 duty 50%
-        _gb.Mmu.WriteByte(0xFF12, 0xF3);   // Ch1 envelope
+        _gb.Mmu.WriteByte(0xFF11, 0x80); // Ch1 duty 50%
+        _gb.Mmu.WriteByte(0xFF12, 0xF3); // Ch1 envelope
         _gb.Mmu.WriteByte(0xFF13, 0x00);
-        _gb.Mmu.WriteByte(0xFF14, 0x87);   // trigger Ch1
+        _gb.Mmu.WriteByte(0xFF14, 0x87); // trigger Ch1
         _gb.Mmu.WriteByte(0xFF16, 0x80);
         _gb.Mmu.WriteByte(0xFF17, 0xF3);
         _gb.Mmu.WriteByte(0xFF18, 0x00);
-        _gb.Mmu.WriteByte(0xFF19, 0x87);   // trigger Ch2
+        _gb.Mmu.WriteByte(0xFF19, 0x87); // trigger Ch2
     }
 
     private static byte[]? LocateBlarggRom()
@@ -40,9 +40,18 @@ public class Phase4Benchmarks
         var dir = AppContext.BaseDirectory;
         for (int i = 0; i < 8 && dir is not null; i++)
         {
-            var candidate = Path.Combine(dir, "tests", "fixtures", "test-roms", "blargg",
-                "cpu_instrs", "individual", "01-special.gb");
-            if (File.Exists(candidate)) return File.ReadAllBytes(candidate);
+            var candidate = Path.Combine(
+                dir,
+                "tests",
+                "fixtures",
+                "test-roms",
+                "blargg",
+                "cpu_instrs",
+                "individual",
+                "01-special.gb"
+            );
+            if (File.Exists(candidate))
+                return File.ReadAllBytes(candidate);
             dir = Path.GetDirectoryName(dir);
         }
         return null;
@@ -63,6 +72,7 @@ public class Phase4Benchmarks
     [Benchmark]
     public void Run_One_Second_With_Apu()
     {
-        for (int i = 0; i < 60; i++) _gb.RunFrame();
+        for (int i = 0; i < 60; i++)
+            _gb.RunFrame();
     }
 }

@@ -5,11 +5,11 @@ namespace KohUI.Tests;
 
 public class ReconcilerTests
 {
-    private static RenderNode Node(string type, params (string, object?)[] props)
-        => RenderNode.Leaf(type, Props.Of(props));
+    private static RenderNode Node(string type, params (string, object?)[] props) =>
+        RenderNode.Leaf(type, Props.Of(props));
 
-    private static RenderNode Container(string type, params RenderNode[] children)
-        => RenderNode.WithChildren(type, [.. children]);
+    private static RenderNode Container(string type, params RenderNode[] children) =>
+        RenderNode.WithChildren(type, [.. children]);
 
     [Test]
     public async Task Diff_From_Null_Emits_Single_ReplaceNode()
@@ -59,9 +59,7 @@ public class ReconcilerTests
     public async Task Diff_Adds_New_Child_As_InsertChild()
     {
         var t1 = Container("Stack", Node("Label", ("text", "a")));
-        var t2 = Container("Stack",
-            Node("Label", ("text", "a")),
-            Node("Label", ("text", "b")));
+        var t2 = Container("Stack", Node("Label", ("text", "a")), Node("Label", ("text", "b")));
         var patches = Reconciler.Diff(t1, t2);
         await Assert.That(patches.Count).IsEqualTo(1);
         await Assert.That(patches[0]).IsTypeOf<InsertChild>();
@@ -73,9 +71,7 @@ public class ReconcilerTests
     [Test]
     public async Task Diff_Removes_Trailing_Child_As_RemoveChild()
     {
-        var t1 = Container("Stack",
-            Node("Label", ("text", "a")),
-            Node("Label", ("text", "b")));
+        var t1 = Container("Stack", Node("Label", ("text", "a")), Node("Label", ("text", "b")));
         var t2 = Container("Stack", Node("Label", ("text", "a")));
         var patches = Reconciler.Diff(t1, t2);
         await Assert.That(patches.Count).IsEqualTo(1);
@@ -87,10 +83,8 @@ public class ReconcilerTests
     [Test]
     public async Task Diff_Nested_Prop_Change_Uses_Deep_Path()
     {
-        var t1 = Container("Stack",
-            Container("Stack", Node("Label", ("text", "old"))));
-        var t2 = Container("Stack",
-            Container("Stack", Node("Label", ("text", "new"))));
+        var t1 = Container("Stack", Container("Stack", Node("Label", ("text", "old"))));
+        var t2 = Container("Stack", Container("Stack", Node("Label", ("text", "new"))));
         var patches = Reconciler.Diff(t1, t2);
         await Assert.That(patches.Count).IsEqualTo(1);
         await Assert.That(patches[0]).IsTypeOf<UpdateProps>();

@@ -19,7 +19,10 @@ public sealed class OamDma
 
     public bool IsBusLocking { get; private set; }
 
-    public OamDma(Mmu mmu) { _mmu = mmu; }
+    public OamDma(Mmu mmu)
+    {
+        _mmu = mmu;
+    }
 
     public void Trigger(byte sourceHighByte)
     {
@@ -32,7 +35,11 @@ public sealed class OamDma
 
     public void TickT()
     {
-        if (!_running) { IsBusLocking = false; return; }
+        if (!_running)
+        {
+            IsBusLocking = false;
+            return;
+        }
 
         if (_tCountdownToStart > 0)
         {

@@ -23,7 +23,8 @@ public static class CompilerDriver
         IFrontend frontend,
         IBackend backend,
         SourceText source,
-        DiagnosticBag diagnostics)
+        DiagnosticBag diagnostics
+    )
     {
         var module = frontend.Lower(source, diagnostics);
         return backend.Compile(module, diagnostics);

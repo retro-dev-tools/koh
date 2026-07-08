@@ -31,7 +31,11 @@ public class EntrypointDiscoveryServiceTests
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/tools.asm", ["C:/project/shared.inc"]));
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/shared.inc", []));
 
-        var allFiles = ToSet("C:/project/game.asm", "C:/project/tools.asm", "C:/project/shared.inc");
+        var allFiles = ToSet(
+            "C:/project/game.asm",
+            "C:/project/tools.asm",
+            "C:/project/shared.inc"
+        );
         var openFiles = ToSet<string>();
 
         var result = EntrypointDiscoveryService.Discover(_graph, allFiles, openFiles);
@@ -83,14 +87,20 @@ public class EntrypointDiscoveryServiceTests
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/tools.asm", ["C:/project/shared.inc"]));
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/shared.inc", []));
 
-        var allFiles = ToSet("C:/project/game.asm", "C:/project/tools.asm", "C:/project/shared.inc");
+        var allFiles = ToSet(
+            "C:/project/game.asm",
+            "C:/project/tools.asm",
+            "C:/project/shared.inc"
+        );
         var openFiles = ToSet<string>();
 
         var result = EntrypointDiscoveryService.Discover(_graph, allFiles, openFiles);
 
         // Both entrypoints have same score and same distance (1) to shared.inc
         // Tie-break: alphabetically first path wins → game.asm
-        await Assert.That(result.FileOwnership["C:/project/shared.inc"]).IsEqualTo("C:/project/game.asm");
+        await Assert
+            .That(result.FileOwnership["C:/project/shared.inc"])
+            .IsEqualTo("C:/project/game.asm");
     }
 
     [Test]
@@ -103,14 +113,21 @@ public class EntrypointDiscoveryServiceTests
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/entry2.asm", ["C:/project/deep.inc"]));
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/deep.inc", []));
 
-        var allFiles = ToSet("C:/project/entry1.asm", "C:/project/entry2.asm", "C:/project/mid.asm", "C:/project/deep.inc");
+        var allFiles = ToSet(
+            "C:/project/entry1.asm",
+            "C:/project/entry2.asm",
+            "C:/project/mid.asm",
+            "C:/project/deep.inc"
+        );
         var openFiles = ToSet<string>();
 
         var result = EntrypointDiscoveryService.Discover(_graph, allFiles, openFiles);
 
         // Both are TrueRoot (same score). entry2 has distance 1 to deep.inc, entry1 has distance 2.
         // Shortest distance wins → entry2.asm owns deep.inc
-        await Assert.That(result.FileOwnership["C:/project/deep.inc"]).IsEqualTo("C:/project/entry2.asm");
+        await Assert
+            .That(result.FileOwnership["C:/project/deep.inc"])
+            .IsEqualTo("C:/project/entry2.asm");
     }
 
     [Test]
@@ -121,12 +138,18 @@ public class EntrypointDiscoveryServiceTests
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/alpha.asm", ["C:/project/shared.inc"]));
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/shared.inc", []));
 
-        var allFiles = ToSet("C:/project/alpha.asm", "C:/project/beta.asm", "C:/project/shared.inc");
+        var allFiles = ToSet(
+            "C:/project/alpha.asm",
+            "C:/project/beta.asm",
+            "C:/project/shared.inc"
+        );
         var openFiles = ToSet<string>();
 
         var result = EntrypointDiscoveryService.Discover(_graph, allFiles, openFiles);
 
-        await Assert.That(result.FileOwnership["C:/project/shared.inc"]).IsEqualTo("C:/project/alpha.asm");
+        await Assert
+            .That(result.FileOwnership["C:/project/shared.inc"])
+            .IsEqualTo("C:/project/alpha.asm");
     }
 
     [Test]
@@ -176,8 +199,12 @@ public class EntrypointDiscoveryServiceTests
 
         var result = EntrypointDiscoveryService.Discover(_graph, allFiles, openFiles);
 
-        await Assert.That(result.FileOwnership["C:/project/main.asm"]).IsEqualTo("C:/project/main.asm");
-        await Assert.That(result.FileOwnership["C:/project/utils.inc"]).IsEqualTo("C:/project/main.asm");
+        await Assert
+            .That(result.FileOwnership["C:/project/main.asm"])
+            .IsEqualTo("C:/project/main.asm");
+        await Assert
+            .That(result.FileOwnership["C:/project/utils.inc"])
+            .IsEqualTo("C:/project/main.asm");
     }
 
     [Test]
@@ -234,7 +261,9 @@ public class EntrypointDiscoveryServiceTests
         await Assert.That(result.Entrypoints[0].FilePath).IsEqualTo("C:/project/root.asm");
 
         // shared.inc is only reachable from root.asm
-        await Assert.That(result.FileOwnership["C:/project/shared.inc"]).IsEqualTo("C:/project/root.asm");
+        await Assert
+            .That(result.FileOwnership["C:/project/shared.inc"])
+            .IsEqualTo("C:/project/root.asm");
     }
 
     [Test]
@@ -245,7 +274,11 @@ public class EntrypointDiscoveryServiceTests
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/utils.inc", []));
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/isolated.inc", []));
 
-        var allFiles = ToSet("C:/project/main.asm", "C:/project/utils.inc", "C:/project/isolated.inc");
+        var allFiles = ToSet(
+            "C:/project/main.asm",
+            "C:/project/utils.inc",
+            "C:/project/isolated.inc"
+        );
         var openFiles = ToSet<string>();
 
         var result = EntrypointDiscoveryService.Discover(_graph, allFiles, openFiles);

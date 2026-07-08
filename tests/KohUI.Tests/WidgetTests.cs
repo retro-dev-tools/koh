@@ -9,6 +9,7 @@ public class WidgetTests
     // Dummy message type — widgets are Msg-generic but don't need a
     // real discriminated union for render-tree shape tests.
     private abstract record Msg;
+
     private sealed record Ping : Msg;
 
     [Test]
@@ -41,7 +42,8 @@ public class WidgetTests
         var stack = new Stack<Msg, Label<Msg>, Button<Msg>>(
             StackDirection.Horizontal,
             new Label<Msg>("a"),
-            new Button<Msg>("b"));
+            new Button<Msg>("b")
+        );
         var node = stack.Render();
         await Assert.That(node.Type).IsEqualTo("Stack");
         await Assert.That(node.Props["direction"]).IsEqualTo((object)"Horizontal");
@@ -53,8 +55,15 @@ public class WidgetTests
     [Test]
     public async Task Window_Wraps_Child_And_Carries_Geometry()
     {
-        var win = new Window<Msg, Label<Msg>>("Test", new Label<Msg>("body"),
-            X: 10, Y: 20, Width: 300, Height: 150, OnClose: () => new Ping());
+        var win = new Window<Msg, Label<Msg>>(
+            "Test",
+            new Label<Msg>("body"),
+            X: 10,
+            Y: 20,
+            Width: 300,
+            Height: 150,
+            OnClose: () => new Ping()
+        );
         var node = win.Render();
         await Assert.That(node.Type).IsEqualTo("Window");
         await Assert.That(node.Props["title"]).IsEqualTo((object)"Test");
@@ -67,9 +76,9 @@ public class WidgetTests
     [Test]
     public async Task MenuBar_Items_Each_Become_A_MenuItem_Child()
     {
-        var menu = new MenuBar<Msg>(ImmutableArray.Create(
-            new MenuItem<Msg>("&File"),
-            new MenuItem<Msg>("&Help")));
+        var menu = new MenuBar<Msg>(
+            ImmutableArray.Create(new MenuItem<Msg>("&File"), new MenuItem<Msg>("&Help"))
+        );
         var node = menu.Render();
         await Assert.That(node.Type).IsEqualTo("MenuBar");
         await Assert.That(node.Children.Length).IsEqualTo(2);
@@ -79,7 +88,10 @@ public class WidgetTests
     [Test]
     public async Task Panel_Records_Bevel_Style_As_String()
     {
-        var node = new Panel<Msg, Label<Msg>>(PanelBevel.Chiseled, new Label<Msg>("inner")).Render();
+        var node = new Panel<Msg, Label<Msg>>(
+            PanelBevel.Chiseled,
+            new Label<Msg>("inner")
+        ).Render();
         await Assert.That(node.Type).IsEqualTo("Panel");
         await Assert.That(node.Props["bevel"]).IsEqualTo((object)"Chiseled");
     }

@@ -6,7 +6,8 @@ public readonly record struct CartridgeHeader(
     int RomBanks,
     int RamBanks,
     bool CgbFlag,
-    bool CgbOnly)
+    bool CgbOnly
+)
 {
     public static CartridgeHeader Parse(ReadOnlySpan<byte> rom)
     {
@@ -19,7 +20,8 @@ public readonly record struct CartridgeHeader(
         bool cgbOnly = cgbByte == 0xC0;
         int titleLen = cgbFlag ? 15 : 16;
         int titleEnd = 0x134;
-        while (titleEnd < 0x134 + titleLen && rom[titleEnd] != 0) titleEnd++;
+        while (titleEnd < 0x134 + titleLen && rom[titleEnd] != 0)
+            titleEnd++;
         string title = System.Text.Encoding.ASCII.GetString(rom[0x134..titleEnd]);
 
         byte cartType = rom[0x147];
@@ -49,7 +51,7 @@ public readonly record struct CartridgeHeader(
         int ramBanks = rom[0x149] switch
         {
             0x00 => 0,
-            0x01 => 0,   // unused historically
+            0x01 => 0, // unused historically
             0x02 => 1,
             0x03 => 4,
             0x04 => 16,

@@ -49,13 +49,15 @@ public class StructuredReplayTests
         // REPT without \@ → structural replay → no TextReplay frame in trace
         var nodes = Expand("REPT 3\nnop\nENDR");
         // Each of the 3 nop nodes should come from a ReptIteration frame, NOT a TextReplay frame
-        var reptNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.ReptIteration)).ToList();
+        var reptNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.ReptIteration))
+            .ToList();
         await Assert.That(reptNodes.Count).IsEqualTo(3);
 
         // No node should have a TextReplay frame
-        var textReplayNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.TextReplay)).ToList();
+        var textReplayNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.TextReplay))
+            .ToList();
         await Assert.That(textReplayNodes.Count).IsEqualTo(0);
     }
 
@@ -64,8 +66,9 @@ public class StructuredReplayTests
     {
         // REPT with \@ → text replay is required
         var nodes = Expand("REPT 2\ndb \\@\nENDR");
-        var textReplayNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.TextReplay)).ToList();
+        var textReplayNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.TextReplay))
+            .ToList();
         await Assert.That(textReplayNodes.Count).IsGreaterThan(0);
     }
 
@@ -99,14 +102,16 @@ public class StructuredReplayTests
     public async Task Rept_Break_WorksWithStructuralReplay()
     {
         // BREAK inside REPT without \@ — structural replay must handle break correctly
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             REPT 10
             db 1
             BREAK
             db 2
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         // BREAK fires after first db 1, so only 1 byte emitted
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
@@ -123,12 +128,14 @@ public class StructuredReplayTests
         // FOR I, 0, 3 with db I → variable only used as IdentifierToken → structural path
         var nodes = Expand("FOR I, 0, 3\ndb I\nENDR");
         // Should have ForIteration frames
-        var forNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.ForIteration)).ToList();
+        var forNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.ForIteration))
+            .ToList();
         await Assert.That(forNodes.Count).IsGreaterThan(0);
         // Should NOT have any TextReplay frames
-        var textReplayNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.TextReplay)).ToList();
+        var textReplayNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.TextReplay))
+            .ToList();
         await Assert.That(textReplayNodes.Count).IsEqualTo(0);
     }
 
@@ -137,8 +144,9 @@ public class StructuredReplayTests
     {
         // FOR body containing \@ → text replay required
         var nodes = Expand("FOR I, 0, 2\nlbl_\\@:\nnop\nENDR");
-        var textReplayNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.TextReplay)).ToList();
+        var textReplayNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.TextReplay))
+            .ToList();
         await Assert.That(textReplayNodes.Count).IsGreaterThan(0);
     }
 
@@ -146,12 +154,14 @@ public class StructuredReplayTests
     public async Task For_Structural_ProducesCorrectValues()
     {
         // Structural FOR replay produces the correct per-iteration values via synthetic REDEF
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             FOR I, 0, 4
             db I
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(4);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0);
@@ -184,17 +194,23 @@ public class StructuredReplayTests
     {
         // Macro call inside REPT without \@ (structural path) — the macro frame
         // should appear in the trace alongside the ReptIteration frame.
-        var nodes = Expand("""
+        var nodes = Expand(
+            """
             my_nop: MACRO
             nop
             ENDM
             REPT 2
             my_nop
             ENDR
-            """);
-        var macroNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.MacroExpansion) &&
-            n.Trace.ContainsKind(ExpansionKind.ReptIteration)).ToList();
+            """
+        );
+        var macroNodes = nodes
+            .Where(n =>
+                n.Trace != null
+                && n.Trace.ContainsKind(ExpansionKind.MacroExpansion)
+                && n.Trace.ContainsKind(ExpansionKind.ReptIteration)
+            )
+            .ToList();
         await Assert.That(macroNodes.Count).IsEqualTo(2); // 2 iterations × 1 nop per macro
     }
 
@@ -234,7 +250,7 @@ public class StructuredReplayTests
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("alpha EQUS \"beta\"");
         sb.AppendLine("beta EQUS \"alpha\"");
-        sb.AppendLine("alpha");   // bare-name EQUS expansion: alpha → "beta" → expand beta → "alpha" → ...
+        sb.AppendLine("alpha"); // bare-name EQUS expansion: alpha → "beta" → expand beta → "alpha" → ...
 
         var tree = SyntaxTree.Parse(sb.ToString());
         var diag = new DiagnosticBag();
@@ -252,13 +268,15 @@ public class StructuredReplayTests
         // A macro with no parameters (no \1..\9, \@, etc.) uses the fast structural path.
         // The trace should show MacroExpansion but NO TextReplay frame.
         var nodes = Expand("my_nop: MACRO\nnop\nENDM\nmy_nop");
-        var macroNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.MacroExpansion)).ToList();
+        var macroNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.MacroExpansion))
+            .ToList();
         await Assert.That(macroNodes.Count).IsGreaterThan(0);
 
         // No text replay — parameterless macros use pre-parsed tree directly
-        var textReplayNodes = nodes.Where(n => n.Trace != null &&
-            n.Trace.ContainsKind(ExpansionKind.TextReplay)).ToList();
+        var textReplayNodes = nodes
+            .Where(n => n.Trace != null && n.Trace.ContainsKind(ExpansionKind.TextReplay))
+            .ToList();
         await Assert.That(textReplayNodes.Count).IsEqualTo(0);
     }
 
@@ -298,7 +316,8 @@ public class StructuredReplayTests
     {
         // SHIFT should advance the macro argument window, making \1 refer to arg 2, etc.
         // This is the core SHIFT regression — it must still work after the TextReplayService refactor.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             emit_args: MACRO
             IF _NARG > 0
@@ -308,7 +327,8 @@ public class StructuredReplayTests
             ENDC
             ENDM
             emit_args 10, 20, 30
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(3);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)10);

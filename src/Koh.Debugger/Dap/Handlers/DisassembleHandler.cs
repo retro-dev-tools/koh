@@ -6,7 +6,11 @@ namespace Koh.Debugger.Dap.Handlers;
 public sealed class DisassembleHandler
 {
     private readonly DebugSession _session;
-    public DisassembleHandler(DebugSession session) { _session = session; }
+
+    public DisassembleHandler(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response Handle(Request request)
     {
@@ -21,13 +25,18 @@ public sealed class DisassembleHandler
         try
         {
             string reference = args.MemoryReference;
-            if (reference.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) reference = reference[2..];
+            if (reference.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                reference = reference[2..];
             start = Convert.ToUInt16(reference, 16);
             start = (ushort)(start + args.Offset);
         }
         catch
         {
-            return new Response { Success = false, Message = $"disassemble: invalid memoryReference '{args.MemoryReference}'" };
+            return new Response
+            {
+                Success = false,
+                Message = $"disassemble: invalid memoryReference '{args.MemoryReference}'",
+            };
         }
 
         int count = Math.Max(1, Math.Min(args.InstructionCount, 512));
@@ -39,13 +48,19 @@ public sealed class DisassembleHandler
             ushort ipc = pc;
             var (mnemonic, length) = Disassembler.DecodeOne(a => gb.Mmu.DebugRead(a), pc);
             var bytes = new byte[length];
-            for (int b = 0; b < length; b++) bytes[b] = gb.Mmu.DebugRead((ushort)(pc + b));
-            list.Add(new DisassembledInstruction
-            {
-                Address = "0x" + ipc.ToString("X4"),
-                InstructionBytes = string.Join(" ", Array.ConvertAll(bytes, b => b.ToString("X2"))),
-                Instruction = mnemonic,
-            });
+            for (int b = 0; b < length; b++)
+                bytes[b] = gb.Mmu.DebugRead((ushort)(pc + b));
+            list.Add(
+                new DisassembledInstruction
+                {
+                    Address = "0x" + ipc.ToString("X4"),
+                    InstructionBytes = string.Join(
+                        " ",
+                        Array.ConvertAll(bytes, b => b.ToString("X2"))
+                    ),
+                    Instruction = mnemonic,
+                }
+            );
             pc = (ushort)(pc + length);
         }
 

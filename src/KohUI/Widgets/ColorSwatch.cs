@@ -14,9 +14,9 @@ public readonly struct ColorSwatch<TMsg>(KohColor Color, int Size = 12) : IView<
     public readonly KohColor Color = Color;
     public readonly int Size = Size;
 
-    public RenderNode Render() => RenderNode.Leaf("ColorSwatch", Props.Of(
-        ("r", (int)Color.R),
-        ("g", (int)Color.G),
-        ("b", (int)Color.B),
-        ("size", Size)));
+    public RenderNode Render() =>
+        RenderNode.Leaf(
+            "ColorSwatch",
+            Props.Of(("r", (int)Color.R), ("g", (int)Color.G), ("b", (int)Color.B), ("size", Size))
+        );
 }

@@ -9,8 +9,11 @@ namespace Koh.Core.Encoding;
 /// </summary>
 public static class OperandPatternMatcher
 {
-    public static InstructionDescriptor? Match(string mnemonic,
-        IReadOnlyList<OperandPattern> patterns, IReadOnlyList<long?> values)
+    public static InstructionDescriptor? Match(
+        string mnemonic,
+        IReadOnlyList<OperandPattern> patterns,
+        IReadOnlyList<long?> values
+    )
     {
         foreach (var desc in Sm83InstructionTable.Lookup(mnemonic))
         {
@@ -22,8 +25,11 @@ public static class OperandPatternMatcher
         return null;
     }
 
-    private static bool PatternsMatch(InstructionDescriptor desc,
-        IReadOnlyList<OperandPattern> actual, IReadOnlyList<long?> values)
+    private static bool PatternsMatch(
+        InstructionDescriptor desc,
+        IReadOnlyList<OperandPattern> actual,
+        IReadOnlyList<long?> values
+    )
     {
         var expected = desc.Operands;
         for (int i = 0; i < expected.Length; i++)
@@ -47,28 +53,29 @@ public static class OperandPatternMatcher
 
     private static bool SingleMatch(OperandPattern expected, OperandPattern actual, long? value)
     {
-        if (expected == actual) return true;
+        if (expected == actual)
+            return true;
 
         // Immediate widening: actual is an immediate, expected accepts it
         return (expected, actual) switch
         {
-            (OperandPattern.Imm8, OperandPattern.Imm16) =>
-                value == null || (value >= -128 && value <= 255),
+            (OperandPattern.Imm8, OperandPattern.Imm16) => value == null
+                || (value >= -128 && value <= 255),
             (OperandPattern.Imm8, OperandPattern.Imm8Signed) => true,
             // JR targets are absolute addresses; the relative offset is computed at
             // encode time (target - PC - 2). Always match here; range check at emit.
             (OperandPattern.Imm8Signed, OperandPattern.Imm16) => true,
-            (OperandPattern.Imm8Signed, OperandPattern.Imm8) =>
-                value == null || (value >= -128 && value <= 127),
+            (OperandPattern.Imm8Signed, OperandPattern.Imm8) => value == null
+                || (value >= -128 && value <= 127),
             (OperandPattern.Imm16, OperandPattern.Imm8) => true, // 8-bit fits in 16-bit
-            (OperandPattern.Imm3, OperandPattern.Imm8) =>
-                value == null || (value >= 0 && value <= 7),
-            (OperandPattern.Imm3, OperandPattern.Imm16) =>
-                value == null || (value >= 0 && value <= 7),
-            (OperandPattern.RstVec, OperandPattern.Imm8) =>
-                value != null && IsRstVector(value.Value),
-            (OperandPattern.RstVec, OperandPattern.Imm16) =>
-                value != null && IsRstVector(value.Value),
+            (OperandPattern.Imm3, OperandPattern.Imm8) => value == null
+                || (value >= 0 && value <= 7),
+            (OperandPattern.Imm3, OperandPattern.Imm16) => value == null
+                || (value >= 0 && value <= 7),
+            (OperandPattern.RstVec, OperandPattern.Imm8) => value != null
+                && IsRstVector(value.Value),
+            (OperandPattern.RstVec, OperandPattern.Imm16) => value != null
+                && IsRstVector(value.Value),
             // IndirectPattern always returns IndImm16 for expression-based indirects.
             // LDH uses IndImm8 in the table, so we must accept IndImm16 as IndImm8.
             // The value range constraint (0x00–0xFF) is not checked here because the
@@ -152,13 +159,12 @@ public static class OperandPatternMatcher
             {
                 return token.Kind switch
                 {
-                    SyntaxKind.HlKeyword =>
-                        HasFollowingPlusMinus(green, i) switch
-                        {
-                            SyntaxKind.PlusToken => OperandPattern.IndHLInc,
-                            SyntaxKind.MinusToken => OperandPattern.IndHLDec,
-                            _ => OperandPattern.IndHL,
-                        },
+                    SyntaxKind.HlKeyword => HasFollowingPlusMinus(green, i) switch
+                    {
+                        SyntaxKind.PlusToken => OperandPattern.IndHLInc,
+                        SyntaxKind.MinusToken => OperandPattern.IndHLDec,
+                        _ => OperandPattern.IndHL,
+                    },
                     SyntaxKind.HliKeyword => OperandPattern.IndHLInc,
                     SyntaxKind.HldKeyword => OperandPattern.IndHLDec,
                     SyntaxKind.BcKeyword => OperandPattern.IndBC,
@@ -237,7 +243,8 @@ public static class OperandPatternMatcher
         if (expr is not GreenNode gn || gn.Kind != SyntaxKind.BinaryExpression)
             return false;
         // BinaryExpression: [left, operator, right]
-        if (gn.ChildCount < 3) return false;
+        if (gn.ChildCount < 3)
+            return false;
         var left = gn.GetChild(0);
         if (left is GreenNode nameExpr && nameExpr.Kind == SyntaxKind.NameExpression)
         {
@@ -259,12 +266,15 @@ public static class OperandPatternMatcher
     /// </summary>
     private static bool IsFF00PlusC(GreenNode binExpr)
     {
-        if (binExpr.ChildCount < 3) return false;
+        if (binExpr.ChildCount < 3)
+            return false;
         var op = binExpr.GetChild(1) as GreenToken;
-        if (op?.Kind != SyntaxKind.PlusToken) return false;
+        if (op?.Kind != SyntaxKind.PlusToken)
+            return false;
 
         // Check left side evaluates to $FF00
-        if (!IsFF00Literal(binExpr.GetChild(0))) return false;
+        if (!IsFF00Literal(binExpr.GetChild(0)))
+            return false;
 
         // Check right side is C register
         return IsCRegister(binExpr.GetChild(2));
@@ -278,13 +288,26 @@ public static class OperandPatternMatcher
             if (gn.Kind == SyntaxKind.LiteralExpression)
                 token = gn.GetChild(0) as GreenToken;
         }
-        if (token?.Kind != SyntaxKind.NumberLiteral) return false;
+        if (token?.Kind != SyntaxKind.NumberLiteral)
+            return false;
         var text = token.Text.Trim();
         // Parse the number and check if it equals 0xFF00
         if (text.StartsWith('$'))
-            return int.TryParse(text[1..], System.Globalization.NumberStyles.HexNumber, null, out var v) && v == 0xFF00;
+            return int.TryParse(
+                    text[1..],
+                    System.Globalization.NumberStyles.HexNumber,
+                    null,
+                    out var v
+                )
+                && v == 0xFF00;
         if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return int.TryParse(text[2..], System.Globalization.NumberStyles.HexNumber, null, out var v2) && v2 == 0xFF00;
+            return int.TryParse(
+                    text[2..],
+                    System.Globalization.NumberStyles.HexNumber,
+                    null,
+                    out var v2
+                )
+                && v2 == 0xFF00;
         return int.TryParse(text, out var v3) && v3 == 0xFF00;
     }
 
@@ -309,13 +332,16 @@ public static class OperandPatternMatcher
             return null;
         var op = expr.GetChild(1) as GreenToken;
         var right = expr.GetChild(2);
-        if (right == null) return null;
+        if (right == null)
+            return null;
 
         if (op?.Kind == SyntaxKind.MinusToken)
         {
             // Wrap in unary negation: -(right)
-            return new GreenNode(SyntaxKind.UnaryExpression,
-                [new GreenToken(SyntaxKind.MinusToken, "-"), right]);
+            return new GreenNode(
+                SyntaxKind.UnaryExpression,
+                [new GreenToken(SyntaxKind.MinusToken, "-"), right]
+            );
         }
         return right;
     }

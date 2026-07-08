@@ -17,4 +17,5 @@ public sealed record ResolvedLineMapEntry(
     ushort Address,
     int ByteCount,
     string File,
-    uint Line);
+    uint Line
+);

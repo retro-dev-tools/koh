@@ -12,13 +12,23 @@ namespace Koh.Debugger.Dap.Handlers;
 public sealed class BreakpointHandlers
 {
     private readonly DebugSession _session;
-    public BreakpointHandlers(DebugSession session) { _session = session; }
+
+    public BreakpointHandlers(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response HandleSetInstructionBreakpoints(Request request)
     {
-        var args = request.Arguments?.Deserialize(DapJsonContext.Default.SetInstructionBreakpointsArguments);
+        var args = request.Arguments?.Deserialize(
+            DapJsonContext.Default.SetInstructionBreakpointsArguments
+        );
         if (args is null)
-            return new Response { Success = false, Message = "setInstructionBreakpoints: missing args" };
+            return new Response
+            {
+                Success = false,
+                Message = "setInstructionBreakpoints: missing args",
+            };
 
         // This call replaces ALL instruction breakpoints per spec. Since the
         // underlying BreakpointManager doesn't distinguish categories, we
@@ -31,19 +41,28 @@ public sealed class BreakpointHandlers
         {
             if (!TryParseInstructionReference(bp.InstructionReference, out ushort addr))
             {
-                results.Add(new Breakpoint { Verified = false, Message = $"invalid instructionReference '{bp.InstructionReference}'" });
+                results.Add(
+                    new Breakpoint
+                    {
+                        Verified = false,
+                        Message = $"invalid instructionReference '{bp.InstructionReference}'",
+                    }
+                );
                 continue;
             }
             ushort finalAddr = (ushort)(addr + bp.Offset);
-            byte bank = finalAddr >= 0x4000
-                ? (_session.System?.Cartridge.CurrentRomBank ?? (byte)1)
-                : (byte)0;
+            byte bank =
+                finalAddr >= 0x4000
+                    ? (_session.System?.Cartridge.CurrentRomBank ?? (byte)1)
+                    : (byte)0;
             _session.Breakpoints.Add(new BankedAddress(bank, finalAddr));
-            results.Add(new Breakpoint
-            {
-                Verified = true,
-                InstructionReference = "0x" + finalAddr.ToString("X4"),
-            });
+            results.Add(
+                new Breakpoint
+                {
+                    Verified = true,
+                    InstructionReference = "0x" + finalAddr.ToString("X4"),
+                }
+            );
         }
 
         return new Response
@@ -55,9 +74,15 @@ public sealed class BreakpointHandlers
 
     public Response HandleSetFunctionBreakpoints(Request request)
     {
-        var args = request.Arguments?.Deserialize(DapJsonContext.Default.SetFunctionBreakpointsArguments);
+        var args = request.Arguments?.Deserialize(
+            DapJsonContext.Default.SetFunctionBreakpointsArguments
+        );
         if (args is null)
-            return new Response { Success = false, Message = "setFunctionBreakpoints: missing args" };
+            return new Response
+            {
+                Success = false,
+                Message = "setFunctionBreakpoints: missing args",
+            };
 
         _session.Breakpoints.ClearAll();
 
@@ -67,15 +92,19 @@ public sealed class BreakpointHandlers
             var sym = _session.DebugInfo.SymbolMap.Lookup(bp.Name);
             if (sym is null)
             {
-                results.Add(new Breakpoint { Verified = false, Message = $"unknown symbol '{bp.Name}'" });
+                results.Add(
+                    new Breakpoint { Verified = false, Message = $"unknown symbol '{bp.Name}'" }
+                );
                 continue;
             }
             _session.Breakpoints.Add(new BankedAddress(sym.Bank, sym.Address));
-            results.Add(new Breakpoint
-            {
-                Verified = true,
-                InstructionReference = "0x" + sym.Address.ToString("X4"),
-            });
+            results.Add(
+                new Breakpoint
+                {
+                    Verified = true,
+                    InstructionReference = "0x" + sym.Address.ToString("X4"),
+                }
+            );
         }
 
         return new Response
@@ -87,7 +116,9 @@ public sealed class BreakpointHandlers
 
     public Response HandleBreakpointLocations(Request request)
     {
-        var args = request.Arguments?.Deserialize(DapJsonContext.Default.BreakpointLocationsArguments);
+        var args = request.Arguments?.Deserialize(
+            DapJsonContext.Default.BreakpointLocationsArguments
+        );
         if (args is null)
             return new Response { Success = false, Message = "breakpointLocations: missing args" };
 
@@ -113,11 +144,22 @@ public sealed class BreakpointHandlers
     private static bool TryParseInstructionReference(string s, out ushort addr)
     {
         addr = 0;
-        if (string.IsNullOrEmpty(s)) return false;
+        if (string.IsNullOrEmpty(s))
+            return false;
         if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return ushort.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out addr);
+            return ushort.TryParse(
+                s[2..],
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out addr
+            );
         if (s.StartsWith("$"))
-            return ushort.TryParse(s[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out addr);
+            return ushort.TryParse(
+                s[1..],
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out addr
+            );
         return ushort.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out addr);
     }
 }

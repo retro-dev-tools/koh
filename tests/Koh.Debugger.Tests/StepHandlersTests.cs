@@ -1,14 +1,16 @@
 using System.Text.Json;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
-using Koh.Linker.Core;
 using Koh.Emulator.Core.Cartridge;
+using Koh.Linker.Core;
 
 namespace Koh.Debugger.Tests;
 
 public class StepHandlersTests
 {
-    private static (DapDispatcher dispatcher, DebugSession session) MakeSessionWithProgram(params byte[] program)
+    private static (DapDispatcher dispatcher, DebugSession session) MakeSessionWithProgram(
+        params byte[] program
+    )
     {
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
@@ -22,13 +24,15 @@ public class StepHandlersTests
     }
 
     private static byte[] Encode(int seq, string command) =>
-        JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
-        {
-            ["seq"] = seq,
-            ["type"] = "request",
-            ["command"] = command,
-            ["arguments"] = new { },
-        });
+        JsonSerializer.SerializeToUtf8Bytes(
+            new Dictionary<string, object?>
+            {
+                ["seq"] = seq,
+                ["type"] = "request",
+                ["command"] = command,
+                ["arguments"] = new { },
+            }
+        );
 
     [Test]
     public async Task StepIn_Advances_One_Instruction()
@@ -48,9 +52,12 @@ public class StepHandlersTests
         // $0200: RET
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0xCD; rom[0x101] = 0x00; rom[0x102] = 0x02;  // CALL $0200
-        rom[0x103] = 0x3E; rom[0x104] = 0x42;                     // LD A,$42
-        rom[0x200] = 0xC9;                                         // RET
+        rom[0x100] = 0xCD;
+        rom[0x101] = 0x00;
+        rom[0x102] = 0x02; // CALL $0200
+        rom[0x103] = 0x3E;
+        rom[0x104] = 0x42; // LD A,$42
+        rom[0x200] = 0xC9; // RET
 
         var dispatcher = new DapDispatcher();
         var session = new DebugSession();
@@ -71,7 +78,9 @@ public class StepHandlersTests
         // $0200: NOP ; NOP ; RET
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0xCD; rom[0x101] = 0x00; rom[0x102] = 0x02;
+        rom[0x100] = 0xCD;
+        rom[0x101] = 0x00;
+        rom[0x102] = 0x02;
         rom[0x103] = 0x00;
         rom[0x200] = 0x00;
         rom[0x201] = 0x00;
@@ -112,8 +121,13 @@ public class StepHandlersTests
     public async Task StackTrace_Includes_Source_When_DebugInfo_Maps_Current_Pc()
     {
         var builder = new DebugInfoBuilder();
-        builder.AddAddressMapping(bank: 0, address: 0x0100, byteCount: 1,
-            sourceFile: "src/main.asm", line: 12);
+        builder.AddAddressMapping(
+            bank: 0,
+            address: 0x0100,
+            byteCount: 1,
+            sourceFile: "src/main.asm",
+            line: 12
+        );
         using var kdbgStream = new MemoryStream();
         KdbgFileWriter.Write(kdbgStream, builder);
 
@@ -134,6 +148,8 @@ public class StepHandlersTests
         using var doc = JsonDocument.Parse(responses[0]);
         var frame = doc.RootElement.GetProperty("body").GetProperty("stackFrames")[0];
         await Assert.That(frame.GetProperty("line").GetInt32()).IsEqualTo(12);
-        await Assert.That(frame.GetProperty("source").GetProperty("path").GetString()).IsEqualTo("src/main.asm");
+        await Assert
+            .That(frame.GetProperty("source").GetProperty("path").GetString())
+            .IsEqualTo("src/main.asm");
     }
 }

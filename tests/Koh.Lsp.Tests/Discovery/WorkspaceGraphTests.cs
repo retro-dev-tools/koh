@@ -9,7 +9,12 @@ public class WorkspaceGraphTests
     [Test]
     public async Task UpsertFile_AddsForwardEdges()
     {
-        _graph.UpsertFile(new FileDiscoveryInfo("C:/project/main.asm", ["C:/project/utils.asm", "C:/project/data.asm"]));
+        _graph.UpsertFile(
+            new FileDiscoveryInfo(
+                "C:/project/main.asm",
+                ["C:/project/utils.asm", "C:/project/data.asm"]
+            )
+        );
 
         var includes = _graph.GetIncludes("C:/project/main.asm");
 
@@ -146,7 +151,9 @@ public class WorkspaceGraphTests
     public async Task GetReachableFiles_Diamond_ReturnsAllOnce()
     {
         // A -> B, A -> C, B -> D, C -> D
-        _graph.UpsertFile(new FileDiscoveryInfo("C:/project/a.asm", ["C:/project/b.asm", "C:/project/c.asm"]));
+        _graph.UpsertFile(
+            new FileDiscoveryInfo("C:/project/a.asm", ["C:/project/b.asm", "C:/project/c.asm"])
+        );
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/b.asm", ["C:/project/d.asm"]));
         _graph.UpsertFile(new FileDiscoveryInfo("C:/project/c.asm", ["C:/project/d.asm"]));
 
@@ -163,7 +170,8 @@ public class WorkspaceGraphTests
 
         var entrypoints = _graph.GetReachableEntrypoints(
             "C:/project/math.asm",
-            ["C:/project/main.asm", "C:/project/other.asm"]);
+            ["C:/project/main.asm", "C:/project/other.asm"]
+        );
 
         await Assert.That(entrypoints.Count).IsEqualTo(1);
         await Assert.That(entrypoints.Contains("C:/project/main.asm")).IsTrue();
@@ -176,7 +184,8 @@ public class WorkspaceGraphTests
 
         var entrypoints = _graph.GetReachableEntrypoints(
             "C:/project/main.asm",
-            ["C:/project/main.asm"]);
+            ["C:/project/main.asm"]
+        );
 
         await Assert.That(entrypoints.Count).IsEqualTo(1);
         await Assert.That(entrypoints.Contains("C:/project/main.asm")).IsTrue();
@@ -189,7 +198,8 @@ public class WorkspaceGraphTests
 
         var entrypoints = _graph.GetReachableEntrypoints(
             "C:/project/isolated.asm",
-            ["C:/project/main.asm"]);
+            ["C:/project/main.asm"]
+        );
 
         await Assert.That(entrypoints.Count).IsEqualTo(0);
     }
@@ -202,7 +212,8 @@ public class WorkspaceGraphTests
 
         var entrypoints = _graph.GetReachableEntrypoints(
             "C:/project/a.asm",
-            ["C:/project/a.asm", "C:/project/b.asm"]);
+            ["C:/project/a.asm", "C:/project/b.asm"]
+        );
 
         await Assert.That(entrypoints.Count).IsEqualTo(2);
     }
@@ -235,12 +246,17 @@ public class WorkspaceGraphTests
     [Test]
     public async Task GetReachableEntrypoints_MultipleEntrypointsReachFile()
     {
-        _graph.UpsertFile(new FileDiscoveryInfo("C:/project/entry1.asm", ["C:/project/shared.asm"]));
-        _graph.UpsertFile(new FileDiscoveryInfo("C:/project/entry2.asm", ["C:/project/shared.asm"]));
+        _graph.UpsertFile(
+            new FileDiscoveryInfo("C:/project/entry1.asm", ["C:/project/shared.asm"])
+        );
+        _graph.UpsertFile(
+            new FileDiscoveryInfo("C:/project/entry2.asm", ["C:/project/shared.asm"])
+        );
 
         var entrypoints = _graph.GetReachableEntrypoints(
             "C:/project/shared.asm",
-            ["C:/project/entry1.asm", "C:/project/entry2.asm"]);
+            ["C:/project/entry1.asm", "C:/project/entry2.asm"]
+        );
 
         await Assert.That(entrypoints.Count).IsEqualTo(2);
     }

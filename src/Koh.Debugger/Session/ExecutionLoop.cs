@@ -14,11 +14,15 @@ public sealed class ExecutionLoop
     public event Action<Framebuffer>? FramebufferReady;
     public event Action<StepResult>? StoppedOnBreak;
 
-    public ExecutionLoop(DebugSession session) { _session = session; }
+    public ExecutionLoop(DebugSession session)
+    {
+        _session = session;
+    }
 
     public async Task RunAsync()
     {
-        if (_session.System is not { } gb) return;
+        if (_session.System is not { } gb)
+            return;
 
         while (!_session.PauseRequested)
         {

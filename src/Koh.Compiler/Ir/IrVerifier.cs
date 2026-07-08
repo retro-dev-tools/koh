@@ -51,13 +51,17 @@ public static class IrVerifier
                 bool isLast = i == block.Instructions.Count - 1;
 
                 if (instr.IsTerminator && !isLast)
-                    Err($"block '{label}': terminator '{instr.Mnemonic}' is not the last instruction");
+                    Err(
+                        $"block '{label}': terminator '{instr.Mnemonic}' is not the last instruction"
+                    );
                 if (!instr.IsTerminator && isLast)
                     Err($"block '{label}': block does not end in a terminator");
 
                 foreach (var succ in instr.Successors)
                     if (!blockSet.Contains(succ))
-                        Err($"block '{label}': '{instr.Mnemonic}' targets a block outside this function");
+                        Err(
+                            $"block '{label}': '{instr.Mnemonic}' targets a block outside this function"
+                        );
 
                 VerifyInstruction(f, label, instr, blockSet, Err);
             }
@@ -69,7 +73,8 @@ public static class IrVerifier
         string label,
         IrInstruction instr,
         HashSet<IrBasicBlock> blockSet,
-        Action<string> err)
+        Action<string> err
+    )
     {
         switch (instr)
         {
@@ -77,7 +82,9 @@ public static class IrVerifier
                 if (!IsInt(b.Left.Type) || !IsInt(b.Right.Type))
                     err($"block '{label}': '{b.Mnemonic}' requires integer operands");
                 else if (!b.Left.Type.StructurallyEquals(b.Right.Type))
-                    err($"block '{label}': '{b.Mnemonic}' operand types differ ({b.Left.Type} vs {b.Right.Type})");
+                    err(
+                        $"block '{label}': '{b.Mnemonic}' operand types differ ({b.Left.Type} vs {b.Right.Type})"
+                    );
                 break;
 
             case CompareInstruction c:
@@ -89,8 +96,10 @@ public static class IrVerifier
                 // A reinterpret: operand and result must occupy the same storage (int<->pointer of
                 // the address width, or two pointer types).
                 if (bc.Type.SizeInBytes != bc.Operand.Type.SizeInBytes)
-                    err($"block '{label}': 'bitcast' requires equal-size operand and result "
-                        + $"({bc.Operand.Type} vs {bc.Type})");
+                    err(
+                        $"block '{label}': 'bitcast' requires equal-size operand and result "
+                            + $"({bc.Operand.Type} vs {bc.Type})"
+                    );
                 break;
 
             case ConvInstruction cv:
@@ -110,8 +119,13 @@ public static class IrVerifier
             case StoreInstruction s:
                 if (s.Pointer.Type.Kind != IrTypeKind.Pointer)
                     err($"block '{label}': 'store' target must be a pointer");
-                else if (s.Pointer.Type.Element is { } pointee && !pointee.StructurallyEquals(s.Value.Type))
-                    err($"block '{label}': 'store' value type {s.Value.Type} does not match pointee {pointee}");
+                else if (
+                    s.Pointer.Type.Element is { } pointee
+                    && !pointee.StructurallyEquals(s.Value.Type)
+                )
+                    err(
+                        $"block '{label}': 'store' value type {s.Value.Type} does not match pointee {pointee}"
+                    );
                 break;
 
             case GetElementPtrInstruction g:
@@ -123,11 +137,18 @@ public static class IrVerifier
 
             case CallInstruction call:
                 if (call.Arguments.Count != call.Callee.Parameters.Count)
-                    err($"block '{label}': call to '@{call.Callee.Name}' has {call.Arguments.Count} args, expected {call.Callee.Parameters.Count}");
+                    err(
+                        $"block '{label}': call to '@{call.Callee.Name}' has {call.Arguments.Count} args, expected {call.Callee.Parameters.Count}"
+                    );
                 else
                     for (int i = 0; i < call.Arguments.Count; i++)
-                        if (!call.Arguments[i].Type.StructurallyEquals(call.Callee.Parameters[i].Type))
-                            err($"block '{label}': call to '@{call.Callee.Name}' arg {i} type {call.Arguments[i].Type} != {call.Callee.Parameters[i].Type}");
+                        if (
+                            !call.Arguments[i]
+                                .Type.StructurallyEquals(call.Callee.Parameters[i].Type)
+                        )
+                            err(
+                                $"block '{label}': call to '@{call.Callee.Name}' arg {i} type {call.Arguments[i].Type} != {call.Callee.Parameters[i].Type}"
+                            );
                 break;
 
             case PhiInstruction phi:

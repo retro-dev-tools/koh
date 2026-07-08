@@ -9,7 +9,9 @@ namespace Koh.Core.Binding;
 public sealed class CharMapManager
 {
     private readonly DiagnosticBag _diagnostics;
-    private readonly Dictionary<string, Dictionary<string, byte[]>> _maps = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, byte[]>> _maps = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly Stack<string> _mapStack = new();
     private string _activeMapName = "main";
     private Dictionary<string, byte[]> _activeMap;
@@ -73,7 +75,8 @@ public sealed class CharMapManager
     {
         _maxKeyLen = 1;
         foreach (var key in _activeMap.Keys)
-            if (key.Length > _maxKeyLen) _maxKeyLen = key.Length;
+            if (key.Length > _maxKeyLen)
+                _maxKeyLen = key.Length;
     }
 
     public void PushCharMap() => _mapStack.Push(_activeMapName);
@@ -130,7 +133,11 @@ public sealed class CharMapManager
             if (!matched)
             {
                 // Unmapped: count one Unicode codepoint (handle surrogate pairs)
-                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                if (
+                    char.IsHighSurrogate(text[i])
+                    && i + 1 < text.Length
+                    && char.IsLowSurrogate(text[i + 1])
+                )
                     i += 2;
                 else
                     i++;
@@ -177,8 +184,10 @@ public sealed class CharMapManager
         }
 
         if (result == null)
-            _diagnostics.Report(default,
-                $"REVCHAR: No character mapping to value(s) {string.Join(", ", values.Select(b => $"${b:X2}"))}");
+            _diagnostics.Report(
+                default,
+                $"REVCHAR: No character mapping to value(s) {string.Join(", ", values.Select(b => $"${b:X2}"))}"
+            );
 
         return result;
     }
@@ -186,8 +195,7 @@ public sealed class CharMapManager
     /// <summary>
     /// Returns true if the exact string has a mapping in the active character map.
     /// </summary>
-    public bool HasMapping(string text) =>
-        text.Length > 0 && _activeMap.ContainsKey(text);
+    public bool HasMapping(string text) => text.Length > 0 && _activeMap.ContainsKey(text);
 
     /// <summary>Check if a string is a valid entry in the active charmap.</summary>
     public bool InCharMap(string text) => _activeMap.ContainsKey(text);
@@ -203,7 +211,6 @@ public sealed class CharMapManager
         return count;
     }
 
-
     /// <summary>
     /// Encode a string literal into bytes using the active character map.
     /// Characters not in the map use their ASCII value.
@@ -211,13 +218,16 @@ public sealed class CharMapManager
     public byte[] EncodeString(string text)
     {
         var result = new List<byte>();
-        WalkLongestMatch(text,
+        WalkLongestMatch(
+            text,
             (_, mapped) => result.AddRange(mapped),
-            ch => {
+            ch =>
+            {
                 // Emit UTF-8 bytes for unmapped characters
                 var utf8 = System.Text.Encoding.UTF8.GetBytes(new[] { ch });
                 result.AddRange(utf8);
-            });
+            }
+        );
         return result.ToArray();
     }
 
@@ -226,8 +236,11 @@ public sealed class CharMapManager
     /// Calls <paramref name="onMapped"/> for each matched charmap entry,
     /// or <paramref name="onUnmapped"/> for each unmatched character.
     /// </summary>
-    private void WalkLongestMatch(string text,
-        Action<string, byte[]> onMapped, Action<char> onUnmapped)
+    private void WalkLongestMatch(
+        string text,
+        Action<string, byte[]> onMapped,
+        Action<char> onUnmapped
+    )
     {
         int i = 0;
         while (i < text.Length)

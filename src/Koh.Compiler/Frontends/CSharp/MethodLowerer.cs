@@ -24,16 +24,34 @@ internal sealed class MethodLowerer
     private readonly HardwareRegisters _hardware;
     private readonly string _file;
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
-    private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> _moduleArrays;
+    private readonly IReadOnlyDictionary<
+        string,
+        (IrGlobal Global, CsType Element, int Length)
+    > _moduleArrays;
     private readonly IrBuilder _b = new();
-    private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, (IrValue Address, CsType Element)> _refs = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, (IrValue BasePtr, CsStruct Info)> _structLocals = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (IrValue Slot, CsType Type)> _locals = new(
+        StringComparer.Ordinal
+    );
+    private readonly Dictionary<string, (IrValue Address, CsType Element)> _refs = new(
+        StringComparer.Ordinal
+    );
+    private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (IrValue BasePtr, CsStruct Info)> _structLocals = new(
+        StringComparer.Ordinal
+    );
+
     // A class local holds a pointer to its heap instance; field access loads that pointer as the base.
-    private readonly Dictionary<string, (IrValue Slot, CsClass Info)> _classLocals = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, (IrValue ArrayPtr, CsStruct Info, int Length)> _structArrays = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (IrValue Slot, CsClass Info)> _classLocals = new(
+        StringComparer.Ordinal
+    );
+    private readonly Dictionary<
+        string,
+        (IrValue ArrayPtr, CsStruct Info, int Length)
+    > _structArrays = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(
+        StringComparer.Ordinal
+    );
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
     public MethodLowerer(
@@ -49,7 +67,8 @@ internal sealed class MethodLowerer
         string file,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays,
-        IReadOnlyDictionary<string, CsClass> classes)
+        IReadOnlyDictionary<string, CsClass> classes
+    )
     {
         _file = file;
         _method = method;
@@ -143,7 +162,9 @@ internal sealed class MethodLowerer
         // Stamp instructions with this statement's source line. The source was wrapped in a
         // one-line `static class {` prefix, so the wrapped 0-based line equals the user's 1-based line.
         _b.CurrentSource = new IrSourceLocation(
-            _file, (uint)stmt.GetLocation().GetLineSpan().StartLinePosition.Line);
+            _file,
+            (uint)stmt.GetLocation().GetLineSpan().StartLinePosition.Line
+        );
 
         switch (stmt)
         {
@@ -153,7 +174,10 @@ internal sealed class MethodLowerer
                 break;
 
             case LocalDeclarationStatementSyntax local:
-                LowerLocalDeclaration(local.Declaration, local.Modifiers.Any(m => m.ValueText == "const"));
+                LowerLocalDeclaration(
+                    local.Declaration,
+                    local.Modifiers.Any(m => m.ValueText == "const")
+                );
                 break;
 
             case ExpressionStatementSyntax expr:
@@ -200,7 +224,10 @@ internal sealed class MethodLowerer
                 break;
 
             default:
-                throw new CSharpNotSupportedException($"unsupported statement '{stmt.Kind()}'.", stmt.GetLocation());
+                throw new CSharpNotSupportedException(
+                    $"unsupported statement '{stmt.Kind()}'.",
+                    stmt.GetLocation()
+                );
         }
     }
 
@@ -214,22 +241,38 @@ internal sealed class MethodLowerer
         }
 
         // A struct-typed local: reserve its bytes; fields default to zero (WRAM/emulator-zeroed).
-        if (decl.Type is IdentifierNameSyntax typeName && _structs.TryGetValue(typeName.Identifier.Text, out var structInfo))
+        if (
+            decl.Type is IdentifierNameSyntax typeName
+            && _structs.TryGetValue(typeName.Identifier.Text, out var structInfo)
+        )
         {
             foreach (var v in decl.Variables)
-                _structLocals[v.Identifier.Text] = (_b.Alloca(IrType.Array(IrType.I8, structInfo.Size)), structInfo);
+                _structLocals[v.Identifier.Text] = (
+                    _b.Alloca(IrType.Array(IrType.I8, structInfo.Size)),
+                    structInfo
+                );
             return;
         }
 
         // A class-typed local: a slot holding a pointer to the heap instance (e.g. from `new C()`).
-        if (decl.Type is IdentifierNameSyntax className && _classes.TryGetValue(className.Identifier.Text, out var classInfo))
+        if (
+            decl.Type is IdentifierNameSyntax className
+            && _classes.TryGetValue(className.Identifier.Text, out var classInfo)
+        )
         {
             foreach (var v in decl.Variables)
             {
                 var slot = _b.Alloca(IrType.Pointer(IrType.I8));
                 _classLocals[v.Identifier.Text] = (slot, classInfo);
                 if (v.Initializer is { } init)
-                    _b.Store(_b.Conv(IrConvOp.Bitcast, LowerExpression(init.Value, null).Item1, IrType.Pointer(IrType.I8)), slot);
+                    _b.Store(
+                        _b.Conv(
+                            IrConvOp.Bitcast,
+                            LowerExpression(init.Value, null).Item1,
+                            IrType.Pointer(IrType.I8)
+                        ),
+                        slot
+                    );
             }
             return;
         }
@@ -240,8 +283,17 @@ internal sealed class MethodLowerer
             if (isConst)
             {
                 if (v.Initializer is null)
-                    throw new CSharpNotSupportedException($"const '{v.Identifier.Text}' needs an initializer.");
-                _consts[v.Identifier.Text] = (type, CSharpFrontend.ConstEval(v.Initializer.Value, ResolveConst, unsigned: !type.Signed));
+                    throw new CSharpNotSupportedException(
+                        $"const '{v.Identifier.Text}' needs an initializer."
+                    );
+                _consts[v.Identifier.Text] = (
+                    type,
+                    CSharpFrontend.ConstEval(
+                        v.Initializer.Value,
+                        ResolveConst,
+                        unsigned: !type.Signed
+                    )
+                );
                 continue;
             }
 
@@ -253,24 +305,34 @@ internal sealed class MethodLowerer
     }
 
     /// <summary>Resolve a bare name to a constant value (local const), for constant folding.</summary>
-    private long? ResolveConst(string name) => _consts.TryGetValue(name, out var c) ? c.Value : null;
+    private long? ResolveConst(string name) =>
+        _consts.TryGetValue(name, out var c) ? c.Value : null;
 
-    private void LowerArrayLocal(string name, ArrayTypeSyntax arrayType, EqualsValueClauseSyntax? initializer)
+    private void LowerArrayLocal(
+        string name,
+        ArrayTypeSyntax arrayType,
+        EqualsValueClauseSyntax? initializer
+    )
     {
         // An array of structs (`Sprite[] s = new Sprite[n]`) reserves n * structSize bytes; elements
         // are accessed as `s[i].field`. It must be sized with `new T[n]` (there are no struct literals).
-        if (arrayType.ElementType is IdentifierNameSyntax structName
-            && _structs.TryGetValue(structName.Identifier.Text, out var structElem))
+        if (
+            arrayType.ElementType is IdentifierNameSyntax structName
+            && _structs.TryGetValue(structName.Identifier.Text, out var structElem)
+        )
         {
             int count = initializer?.Value switch
             {
-                ArrayCreationExpressionSyntax { Initializer: null } c
-                    => (int)CSharpFrontend.ConstEval(c.Type.RankSpecifiers[0].Sizes[0], ResolveConst),
+                ArrayCreationExpressionSyntax { Initializer: null } c => (int)
+                    CSharpFrontend.ConstEval(c.Type.RankSpecifiers[0].Sizes[0], ResolveConst),
                 _ => throw new CSharpNotSupportedException(
-                    $"struct array '{name}' must be created with 'new {structName.Identifier.Text}[n]'."),
+                    $"struct array '{name}' must be created with 'new {structName.Identifier.Text}[n]'."
+                ),
             };
             if (count < 0)
-                throw new CSharpNotSupportedException($"array '{name}' has a negative length ({count}).");
+                throw new CSharpNotSupportedException(
+                    $"array '{name}' has a negative length ({count})."
+                );
             var basePtr = _b.Alloca(IrType.Array(IrType.I8, structElem.Size * count));
             _structArrays[name] = (basePtr, structElem, count);
             return;
@@ -284,8 +346,10 @@ internal sealed class MethodLowerer
             var strPtr = _b.Alloca(IrType.Array(element.Ir, text.Length));
             _arrays[name] = (strPtr, element, text.Length);
             for (int i = 0; i < text.Length; i++)
-                _b.Store(IrBuilder.ConstInt(element.Ir, (byte)text[i]),
-                    _b.Gep(strPtr, IrBuilder.ConstInt(IrType.I16, i), element.Ir));
+                _b.Store(
+                    IrBuilder.ConstInt(element.Ir, (byte)text[i]),
+                    _b.Gep(strPtr, IrBuilder.ConstInt(IrType.I16, i), element.Ir)
+                );
             return;
         }
 
@@ -311,11 +375,15 @@ internal sealed class MethodLowerer
                 length = elements.Count;
                 break;
             default:
-                throw new CSharpNotSupportedException($"array '{name}' needs a size or initializer.");
+                throw new CSharpNotSupportedException(
+                    $"array '{name}' needs a size or initializer."
+                );
         }
 
         if (length < 0)
-            throw new CSharpNotSupportedException($"array '{name}' has a negative length ({length}).");
+            throw new CSharpNotSupportedException(
+                $"array '{name}' has a negative length ({length})."
+            );
         var arrayPtr = _b.Alloca(IrType.Array(element.Ir, length));
         _arrays[name] = (arrayPtr, element, length);
 
@@ -329,17 +397,28 @@ internal sealed class MethodLowerer
 
     /// <summary>Compute the pointer to <c>arr[index]</c> or <c>ptr[index]</c> (the latter is
     /// <c>*(ptr + index)</c>, so a pointer local can be indexed like an array).</summary>
-    private (IrValue Pointer, CsType Element) ArrayElementPointer(ElementAccessExpressionSyntax access)
+    private (IrValue Pointer, CsType Element) ArrayElementPointer(
+        ElementAccessExpressionSyntax access
+    )
     {
         if (access.Expression is IdentifierNameSyntax id)
         {
-            var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
+            var (index, _) = LowerExpression(
+                access.ArgumentList.Arguments[0].Expression,
+                CsType.U16
+            );
             if (_arrays.TryGetValue(id.Identifier.Text, out var arr))
                 return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
-            if (_locals.TryGetValue(id.Identifier.Text, out var local) && local.Type.Ir.Kind == IrTypeKind.Pointer)
+            if (
+                _locals.TryGetValue(id.Identifier.Text, out var local)
+                && local.Type.Ir.Kind == IrTypeKind.Pointer
+            )
             {
                 var elementIr = Pointee(local.Type);
-                return (_b.Gep(_b.Load(local.Slot), index, elementIr), new CsType(elementIr, Signed: false));
+                return (
+                    _b.Gep(_b.Load(local.Slot), index, elementIr),
+                    new CsType(elementIr, Signed: false)
+                );
             }
         }
         throw new CSharpNotSupportedException("indexing requires an array or pointer variable.");
@@ -350,10 +429,15 @@ internal sealed class MethodLowerer
     {
         if (StructFieldPointer(member) is { } field)
             return field;
-        if (member.Expression is IdentifierNameSyntax subject
+        if (
+            member.Expression is IdentifierNameSyntax subject
             && subject.Identifier.Text == "Hardware"
-            && _hardware.IsRegister(member.Name.Identifier.Text))
-            return (IrBuilder.GlobalRef(_hardware.Register(member.Name.Identifier.Text)), CsType.U8);
+            && _hardware.IsRegister(member.Name.Identifier.Text)
+        )
+            return (
+                IrBuilder.GlobalRef(_hardware.Register(member.Name.Identifier.Text)),
+                CsType.U8
+            );
         return null;
     }
 
@@ -372,7 +456,10 @@ internal sealed class MethodLowerer
                     return null; // a struct-typed field is an aggregate base, resolved by StructBaseOf
                 // The offset is aligned to the field size, so index = offset / size is exact.
                 int index = field.Offset / field.Type.Ir.SizeInBytes;
-                return (_b.Gep(b.Base, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
+                return (
+                    _b.Gep(b.Base, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir),
+                    field.Type
+                );
             }
         throw new CSharpNotSupportedException($"struct has no field '{fieldName}'.");
     }
@@ -381,25 +468,43 @@ internal sealed class MethodLowerer
     /// local (<c>s.field</c>) or an element of a struct array (<c>arr[i].field</c>).</summary>
     private (IrValue Base, CsStruct Info)? StructBaseOf(ExpressionSyntax expr)
     {
-        if (expr is IdentifierNameSyntax id && _structLocals.TryGetValue(id.Identifier.Text, out var s))
+        if (
+            expr is IdentifierNameSyntax id
+            && _structLocals.TryGetValue(id.Identifier.Text, out var s)
+        )
             return (s.BasePtr, s.Info);
         // A class local (or `this`): the instance base is the pointer it holds, loaded each access.
         if (ClassLocalOf(expr) is { } c)
             return (Reinterpret(_b.Load(c.Slot), IrType.Pointer(IrType.I8)), c.Info.Layout);
-        if (expr is ElementAccessExpressionSyntax access
+        if (
+            expr is ElementAccessExpressionSyntax access
             && access.Expression is IdentifierNameSyntax arrayId
-            && _structArrays.TryGetValue(arrayId.Identifier.Text, out var arr))
+            && _structArrays.TryGetValue(arrayId.Identifier.Text, out var arr)
+        )
         {
-            var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
+            var (index, _) = LowerExpression(
+                access.ArgumentList.Arguments[0].Expression,
+                CsType.U16
+            );
             var elementPtr = _b.Gep(arr.ArrayPtr, index, IrType.Array(IrType.I8, arr.Info.Size));
             return (elementPtr, arr.Info);
         }
         // A struct-typed field of another struct, e.g. `e.pos` in `e.pos.x` — recurse into the parent
         // and step to the field's bytes.
-        if (expr is MemberAccessExpressionSyntax nested && StructBaseOf(nested.Expression) is { } parent)
+        if (
+            expr is MemberAccessExpressionSyntax nested
+            && StructBaseOf(nested.Expression) is { } parent
+        )
             foreach (var field in parent.Info.Fields)
                 if (field.Name == nested.Name.Identifier.Text && field.Struct is { } sub)
-                    return (_b.Gep(parent.Base, IrBuilder.ConstInt(IrType.I16, field.Offset), IrType.I8), sub);
+                    return (
+                        _b.Gep(
+                            parent.Base,
+                            IrBuilder.ConstInt(IrType.I16, field.Offset),
+                            IrType.I8
+                        ),
+                        sub
+                    );
         return null;
     }
 
@@ -436,7 +541,11 @@ internal sealed class MethodLowerer
 
         _b.Br(condBlock);
         _b.PositionAtEnd(condBlock);
-        _b.CondBr(Coerce(LowerExpression(whileStmt.Condition, CsType.Bool), CsType.Bool), bodyBlock, endBlock);
+        _b.CondBr(
+            Coerce(LowerExpression(whileStmt.Condition, CsType.Bool), CsType.Bool),
+            bodyBlock,
+            endBlock
+        );
 
         _b.PositionAtEnd(bodyBlock);
         _loops.Push((endBlock, condBlock));
@@ -463,7 +572,11 @@ internal sealed class MethodLowerer
             _b.Br(condBlock);
 
         _b.PositionAtEnd(condBlock);
-        _b.CondBr(Coerce(LowerExpression(doStmt.Condition, CsType.Bool), CsType.Bool), bodyBlock, endBlock);
+        _b.CondBr(
+            Coerce(LowerExpression(doStmt.Condition, CsType.Bool), CsType.Bool),
+            bodyBlock,
+            endBlock
+        );
 
         _b.PositionAtEnd(endBlock);
     }
@@ -486,7 +599,9 @@ internal sealed class MethodLowerer
                 {
                     var (v, _) = LowerExpression(c.Value, valueType);
                     if (v is not IrConstInt constant)
-                        throw new CSharpNotSupportedException("switch case label must be a constant.");
+                        throw new CSharpNotSupportedException(
+                            "switch case label must be a constant."
+                        );
                     cases.Add((constant, block));
                 }
                 else if (label is DefaultSwitchLabelSyntax)
@@ -573,9 +688,15 @@ internal sealed class MethodLowerer
             {
                 var name = id.Identifier.Text;
                 if (_consts.TryGetValue(name, out var localConst))
-                    return (IrBuilder.ConstInt(localConst.Type.Ir, localConst.Value), localConst.Type);
+                    return (
+                        IrBuilder.ConstInt(localConst.Type.Ir, localConst.Value),
+                        localConst.Type
+                    );
                 if (_moduleConsts.TryGetValue(name, out var moduleConst))
-                    return (IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value), moduleConst.Type);
+                    return (
+                        IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value),
+                        moduleConst.Type
+                    );
                 if (WritePlace(name) is { } place)
                     return (_b.Load(place.Pointer), place.Type);
                 // A class-instance local used as a value: its slot holds the heap pointer (so it can be
@@ -612,7 +733,11 @@ internal sealed class MethodLowerer
                 return LowerUnary(unary, expected);
 
             case PostfixUnaryExpressionSyntax post:
-                return LowerIncDec(post.Operand, post.Kind() == SyntaxKind.PostIncrementExpression, prefix: false);
+                return LowerIncDec(
+                    post.Operand,
+                    post.Kind() == SyntaxKind.PostIncrementExpression,
+                    prefix: false
+                );
 
             case ConditionalExpressionSyntax cond:
                 return LowerConditional(cond, expected);
@@ -627,7 +752,10 @@ internal sealed class MethodLowerer
                 return LowerCall(call);
 
             default:
-                throw new CSharpNotSupportedException($"unsupported expression '{expr.Kind()}'.", expr.GetLocation());
+                throw new CSharpNotSupportedException(
+                    $"unsupported expression '{expr.Kind()}'.",
+                    expr.GetLocation()
+                );
         }
     }
 
@@ -640,21 +768,27 @@ internal sealed class MethodLowerer
 
         // A string literal is only valid as a byte-array initializer (handled in LowerArrayLocal);
         // elsewhere `Convert.ToInt64` would throw or silently parse it, so report it cleanly.
-        if (lit.Token.Value is not (long or int or char or byte or short or ushort or uint or sbyte or ulong))
+        if (
+            lit.Token.Value
+            is not (long or int or char or byte or short or ushort or uint or sbyte or ulong)
+        )
             throw new CSharpNotSupportedException(
                 $"a {lit.Kind()} is not a value here (string literals are only allowed as byte[] initializers).",
-                lit.GetLocation());
+                lit.GetLocation()
+            );
 
         long value = unchecked((long)Convert.ToUInt64(lit.Token.Value));
         // With no expected type, size the literal to its value so a wide constant isn't truncated
         // to a neighbouring narrow type (e.g. `1000 == x`), and a small one still stays 8-bit.
-        var type = expected ?? value switch
-        {
-            >= 0 and <= 0xFF => CsType.U8,
-            >= 0 and <= 0xFFFF => CsType.U16,
-            >= 0 and <= 0xFFFFFFFF => CsType.U32,
-            _ => CsType.U64,
-        };
+        var type =
+            expected
+            ?? value switch
+            {
+                >= 0 and <= 0xFF => CsType.U8,
+                >= 0 and <= 0xFFFF => CsType.U16,
+                >= 0 and <= 0xFFFFFFFF => CsType.U32,
+                _ => CsType.U64,
+            };
         return (IrBuilder.ConstInt(type.Ir, value), type);
     }
 
@@ -683,10 +817,14 @@ internal sealed class MethodLowerer
         {
             SyntaxKind.UnaryMinusExpression => LowerNegate(value, type, expected),
             SyntaxKind.BitwiseNotExpression => LowerComplement(value, type),
-            SyntaxKind.LogicalNotExpression =>
-                (_b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(IrType.I8, 1)), CsType.Bool),
+            SyntaxKind.LogicalNotExpression => (
+                _b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(IrType.I8, 1)),
+                CsType.Bool
+            ),
             SyntaxKind.UnaryPlusExpression => (value, type),
-            _ => throw new CSharpNotSupportedException($"unsupported unary operator '{unary.OperatorToken.Text}'."),
+            _ => throw new CSharpNotSupportedException(
+                $"unsupported unary operator '{unary.OperatorToken.Text}'."
+            ),
         };
     }
 
@@ -708,7 +846,8 @@ internal sealed class MethodLowerer
         if (value is IrConstInt k)
         {
             long neg = -k.Value;
-            CsType t = expected is { Signed: true } e && Fits(neg, e) ? e
+            CsType t =
+                expected is { Signed: true } e && Fits(neg, e) ? e
                 : neg is >= -128 and <= 127 ? CsType.I8
                 : neg is >= -32768 and <= 32767 ? CsType.I16
                 : neg is >= int.MinValue and <= int.MaxValue ? CsType.I32
@@ -721,14 +860,26 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerIncDec(ExpressionSyntax operand, bool increment, bool prefix)
     {
-        if (operand is not IdentifierNameSyntax id || WritePlace(id.Identifier.Text) is not { } place)
+        if (
+            operand is not IdentifierNameSyntax id
+            || WritePlace(id.Identifier.Text) is not { } place
+        )
             throw new CSharpNotSupportedException("++/-- requires a variable.");
 
         var old = _b.Load(place.Pointer);
         // A pointer steps by one element (scaled by the pointee size via gep); an integer by one.
-        IrValue updated = place.Type.Ir.Kind == IrTypeKind.Pointer
-            ? _b.Gep(old, IrBuilder.ConstInt(IrType.I16, increment ? 1 : -1), Pointee(place.Type))
-            : _b.Binary(increment ? IrBinaryOp.Add : IrBinaryOp.Sub, old, IrBuilder.ConstInt(place.Type.Ir, 1));
+        IrValue updated =
+            place.Type.Ir.Kind == IrTypeKind.Pointer
+                ? _b.Gep(
+                    old,
+                    IrBuilder.ConstInt(IrType.I16, increment ? 1 : -1),
+                    Pointee(place.Type)
+                )
+                : _b.Binary(
+                    increment ? IrBinaryOp.Add : IrBinaryOp.Sub,
+                    old,
+                    IrBuilder.ConstInt(place.Type.Ir, 1)
+                );
         _b.Store(updated, place.Pointer);
         return (prefix ? updated : old, place.Type);
     }
@@ -753,7 +904,10 @@ internal sealed class MethodLowerer
                 {
                     var basePtr = Reinterpret(_b.Load(self.Slot), IrType.Pointer(IrType.I8));
                     int index = field.Offset / field.Type.Ir.SizeInBytes;
-                    return (_b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
+                    return (
+                        _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir),
+                        field.Type
+                    );
                 }
         return null;
     }
@@ -768,15 +922,16 @@ internal sealed class MethodLowerer
     }
 
     /// <summary>The address of an lvalue, for taking a reference (ref argument or &amp;).</summary>
-    private IrValue LvalueAddress(ExpressionSyntax expr) => expr switch
-    {
-        // A struct value (local, array element, or nested field) is referenced by its base address.
-        _ when StructBaseOf(expr) is { } s => s.Base,
-        IdentifierNameSyntax id when WritePlace(id.Identifier.Text) is { } p => p.Pointer,
-        ElementAccessExpressionSyntax ea => ArrayElementPointer(ea).Pointer,
-        MemberAccessExpressionSyntax ma when MemberPointer(ma) is { } mp => mp.Pointer,
-        _ => throw new CSharpNotSupportedException($"cannot take a reference to '{expr}'."),
-    };
+    private IrValue LvalueAddress(ExpressionSyntax expr) =>
+        expr switch
+        {
+            // A struct value (local, array element, or nested field) is referenced by its base address.
+            _ when StructBaseOf(expr) is { } s => s.Base,
+            IdentifierNameSyntax id when WritePlace(id.Identifier.Text) is { } p => p.Pointer,
+            ElementAccessExpressionSyntax ea => ArrayElementPointer(ea).Pointer,
+            MemberAccessExpressionSyntax ma when MemberPointer(ma) is { } mp => mp.Pointer,
+            _ => throw new CSharpNotSupportedException($"cannot take a reference to '{expr}'."),
+        };
 
     /// <summary>Short-circuit <c>&amp;&amp;</c>/<c>||</c> via a result slot and a conditional branch.</summary>
     private (IrValue, CsType) LowerLogical(BinaryExpressionSyntax binary, bool isAnd)
@@ -788,9 +943,9 @@ internal sealed class MethodLowerer
         var evalRight = _method.Fn.AppendBlock("logic.rhs");
         var done = _method.Fn.AppendBlock("logic.end");
         if (isAnd)
-            _b.CondBr(left, evalRight, done);   // && : only evaluate rhs when lhs is true
+            _b.CondBr(left, evalRight, done); // && : only evaluate rhs when lhs is true
         else
-            _b.CondBr(left, done, evalRight);   // || : only evaluate rhs when lhs is false
+            _b.CondBr(left, done, evalRight); // || : only evaluate rhs when lhs is false
 
         _b.PositionAtEnd(evalRight);
         _b.Store(Coerce(LowerExpression(binary.Right, CsType.Bool), CsType.Bool), result);
@@ -810,24 +965,50 @@ internal sealed class MethodLowerer
             case ParenthesizedExpressionSyntax p:
                 return InferType(p.Expression);
             case CastExpressionSyntax cast:
-                try { return CSharpFrontend.ResolveType(cast.Type, _enums); }
-                catch (CSharpNotSupportedException) { return null; }
-            case LiteralExpressionSyntax lit when lit.Token.Value is long or int or char or byte or short or ushort or uint or sbyte:
+                try
+                {
+                    return CSharpFrontend.ResolveType(cast.Type, _enums);
+                }
+                catch (CSharpNotSupportedException)
+                {
+                    return null;
+                }
+            case LiteralExpressionSyntax lit
+                when lit.Token.Value
+                    is long
+                        or int
+                        or char
+                        or byte
+                        or short
+                        or ushort
+                        or uint
+                        or sbyte:
                 long v = Convert.ToInt64(lit.Token.Value);
-                return v switch { >= 0 and <= 0xFF => CsType.U8, >= 0 and <= 0xFFFF => CsType.U16, _ => CsType.U32 };
+                return v switch
+                {
+                    >= 0 and <= 0xFF => CsType.U8,
+                    >= 0 and <= 0xFFFF => CsType.U16,
+                    _ => CsType.U32,
+                };
             case IdentifierNameSyntax id:
-                if (_locals.TryGetValue(id.Identifier.Text, out var local)) return local.Type;
-                if (_refs.TryGetValue(id.Identifier.Text, out var reference)) return reference.Element;
-                if (_consts.TryGetValue(id.Identifier.Text, out var c)) return c.Type;
-                if (_moduleConsts.TryGetValue(id.Identifier.Text, out var mc)) return mc.Type;
-                if (_globals.TryGetValue(id.Identifier.Text, out var g)) return g.Type;
+                if (_locals.TryGetValue(id.Identifier.Text, out var local))
+                    return local.Type;
+                if (_refs.TryGetValue(id.Identifier.Text, out var reference))
+                    return reference.Element;
+                if (_consts.TryGetValue(id.Identifier.Text, out var c))
+                    return c.Type;
+                if (_moduleConsts.TryGetValue(id.Identifier.Text, out var mc))
+                    return mc.Type;
+                if (_globals.TryGetValue(id.Identifier.Text, out var g))
+                    return g.Type;
                 return null;
             case PrefixUnaryExpressionSyntax u:
                 return u.Kind() switch
                 {
                     SyntaxKind.LogicalNotExpression => CsType.Bool,
-                    SyntaxKind.UnaryMinusExpression or SyntaxKind.UnaryPlusExpression
-                        or SyntaxKind.BitwiseNotExpression => InferType(u.Operand),
+                    SyntaxKind.UnaryMinusExpression
+                    or SyntaxKind.UnaryPlusExpression
+                    or SyntaxKind.BitwiseNotExpression => InferType(u.Operand),
                     _ => null,
                 };
             case InvocationExpressionSyntax { Expression: IdentifierNameSyntax fn }
@@ -835,11 +1016,16 @@ internal sealed class MethodLowerer
                 return callee.Return;
             case ConditionalExpressionSyntax nested:
                 return CommonInferred(nested.WhenTrue, nested.WhenFalse, nested);
-            case BinaryExpressionSyntax bin when IsComparison(bin.Kind())
-                    || bin.Kind() is SyntaxKind.LogicalAndExpression or SyntaxKind.LogicalOrExpression:
+            case BinaryExpressionSyntax bin
+                when IsComparison(bin.Kind())
+                    || bin.Kind()
+                        is SyntaxKind.LogicalAndExpression
+                            or SyntaxKind.LogicalOrExpression:
                 return CsType.Bool;
-            case BinaryExpressionSyntax { RawKind: (int)SyntaxKind.LeftShiftExpression
-                    or (int)SyntaxKind.RightShiftExpression } sh:
+            case BinaryExpressionSyntax
+            {
+                RawKind: (int)SyntaxKind.LeftShiftExpression or (int)SyntaxKind.RightShiftExpression
+            } sh:
                 return InferType(sh.Left); // a shift result follows its left operand
             case BinaryExpressionSyntax bin:
                 return (InferType(bin.Left), InferType(bin.Right)) is ({ } bl, { } br)
@@ -852,7 +1038,11 @@ internal sealed class MethodLowerer
 
     /// <summary>The inferred common type of two branch expressions, or the one that is inferable, or
     /// null when neither is. Used to size a ternary's result slot from its branches.</summary>
-    private CsType? CommonInferred(ExpressionSyntax whenTrue, ExpressionSyntax whenFalse, ExpressionSyntax site) =>
+    private CsType? CommonInferred(
+        ExpressionSyntax whenTrue,
+        ExpressionSyntax whenFalse,
+        ExpressionSyntax site
+    ) =>
         (InferType(whenTrue), InferType(whenFalse)) switch
         {
             ({ } t, { } f) => CommonType(t, f, signMatters: false, site),
@@ -915,22 +1105,42 @@ internal sealed class MethodLowerer
             // Convert both to their common type, then the predicate's signedness follows it — so a
             // mixed comparison like `sbyte < byte` isn't silently governed by the left operand.
             // Ordering needs signedness; equality does not (it is a pure bit test).
-            bool ordering = kind is not (SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression);
+            bool ordering =
+                kind is not (SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression);
             var cmpType = CommonType(lt, rt, signMatters: ordering, binary);
-            return (_b.Compare(CompareOp(kind, cmpType.Signed),
-                Coerce((left, lt), cmpType), Coerce((right, rt), cmpType)), CsType.Bool);
+            return (
+                _b.Compare(
+                    CompareOp(kind, cmpType.Signed),
+                    Coerce((left, lt), cmpType),
+                    Coerce((right, rt), cmpType)
+                ),
+                CsType.Bool
+            );
         }
 
         // The outer `expected` types int literals for width promotion, but a pointer expectation
         // would mistype an integer literal operand as a pointer — drop it in that case.
-        var (l, ltype) = LowerExpression(binary.Left, expected?.Ir.Kind == IrTypeKind.Pointer ? null : expected);
+        var (l, ltype) = LowerExpression(
+            binary.Left,
+            expected?.Ir.Kind == IrTypeKind.Pointer ? null : expected
+        );
 
         // Pointer arithmetic (p + i / p - i) lowers to a gep: the index is scaled by the pointee
         // size and widened to the 16-bit address. A plain add would instead try to coerce the index
         // *into* the pointer type, which is not a valid integer conversion and drops the high byte.
-        if (ltype.Ir.Kind == IrTypeKind.Pointer
-            && kind is SyntaxKind.AddExpression or SyntaxKind.SubtractExpression)
-            return (PointerOffset(l, ltype, binary.Right, subtract: kind == SyntaxKind.SubtractExpression), ltype);
+        if (
+            ltype.Ir.Kind == IrTypeKind.Pointer
+            && kind is SyntaxKind.AddExpression or SyntaxKind.SubtractExpression
+        )
+            return (
+                PointerOffset(
+                    l,
+                    ltype,
+                    binary.Right,
+                    subtract: kind == SyntaxKind.SubtractExpression
+                ),
+                ltype
+            );
 
         var (r, rtype) = LowerExpression(binary.Right, ltype);
 
@@ -949,17 +1159,30 @@ internal sealed class MethodLowerer
         (r, rtype) = AdoptConstant((r, rtype), ltype);
         bool signMatters = kind is SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression;
         var common = CommonType(ltype, rtype, signMatters, binary);
-        return (_b.Binary(ArithOp(kind, common.Signed),
-            Coerce((l, ltype), common), Coerce((r, rtype), common)), common);
+        return (
+            _b.Binary(
+                ArithOp(kind, common.Signed),
+                Coerce((l, ltype), common),
+                Coerce((r, rtype), common)
+            ),
+            common
+        );
     }
 
     /// <summary>If <paramref name="operand"/> is a constant whose value fits <paramref name="other"/>,
     /// retype it to that type. This mirrors C#'s constant conversions: a bare literal (which defaults
     /// to the smallest unsigned type holding it) adopts the signedness/width of the value it is used
     /// with, so `intVar &lt; 1000` stays a signed compare instead of becoming a mixed-sign one.</summary>
-    private static (IrValue Value, CsType Type) AdoptConstant((IrValue Value, CsType Type) operand, CsType other)
+    private static (IrValue Value, CsType Type) AdoptConstant(
+        (IrValue Value, CsType Type) operand,
+        CsType other
+    )
     {
-        if (operand.Value is IrConstInt c && other.Ir.Kind == IrTypeKind.Int && Fits(c.Value, other))
+        if (
+            operand.Value is IrConstInt c
+            && other.Ir.Kind == IrTypeKind.Int
+            && Fits(c.Value, other)
+        )
             return (IrBuilder.ConstInt(other.Ir, c.Value), other);
         return operand;
     }
@@ -1008,12 +1231,19 @@ internal sealed class MethodLowerer
         if (signMatters)
             throw new CSharpNotSupportedException(
                 $"mixed signed/unsigned operation on '{a.Ir}' and '{b.Ir}' needs a wider signed type "
-                + "than this target provides; cast one operand explicitly.", site.GetLocation());
+                    + "than this target provides; cast one operand explicitly.",
+                site.GetLocation()
+            );
         return new CsType(IrType.Int(width), Signed: false);
     }
 
     /// <summary>Offset a pointer by an index expression via a gep (scaled by the pointee size).</summary>
-    private IrValue PointerOffset(IrValue pointer, CsType pointerType, ExpressionSyntax indexExpr, bool subtract)
+    private IrValue PointerOffset(
+        IrValue pointer,
+        CsType pointerType,
+        ExpressionSyntax indexExpr,
+        bool subtract
+    )
     {
         var index = Coerce(LowerExpression(indexExpr, CsType.U16), CsType.U16);
         if (subtract)
@@ -1026,12 +1256,16 @@ internal sealed class MethodLowerer
         // Whole-struct copy: `a = b` where a is a value-type struct (local or array element) copies its
         // bytes. A class value is a reference: it assigns by copying the pointer, so exclude class
         // locals here and let them fall through to the pointer-store path below.
-        if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression
+        if (
+            assign.Kind() == SyntaxKind.SimpleAssignmentExpression
             && ClassLocalOf(assign.Left) is null
-            && StructBaseOf(assign.Left) is { } dest)
+            && StructBaseOf(assign.Left) is { } dest
+        )
         {
             if (StructBaseOf(assign.Right) is not { } src || !ReferenceEquals(src.Info, dest.Info))
-                throw new CSharpNotSupportedException("a struct can only be assigned from another value of the same struct type.");
+                throw new CSharpNotSupportedException(
+                    "a struct can only be assigned from another value of the same struct type."
+                );
             for (int k = 0; k < dest.Info.Size; k++)
             {
                 var from = _b.Gep(src.Base, IrBuilder.ConstInt(IrType.I16, k), IrType.I8);
@@ -1047,12 +1281,22 @@ internal sealed class MethodLowerer
             (pointer, type) = place;
         else if (assign.Left is ElementAccessExpressionSyntax access)
             (pointer, type) = ArrayElementPointer(access);
-        else if (assign.Left is MemberAccessExpressionSyntax fieldAccess && MemberPointer(fieldAccess) is { } field)
+        else if (
+            assign.Left is MemberAccessExpressionSyntax fieldAccess
+            && MemberPointer(fieldAccess) is { } field
+        )
             (pointer, type) = field;
-        else if (assign.Left is PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.PointerIndirectionExpression } deref)
+        else if (
+            assign.Left is PrefixUnaryExpressionSyntax
+            {
+                RawKind: (int)SyntaxKind.PointerIndirectionExpression
+            } deref
+        )
             (pointer, type) = DerefPlace(deref.Operand);
         else
-            throw new CSharpNotSupportedException("assignment target must be a variable, array element, struct field, or *pointer.");
+            throw new CSharpNotSupportedException(
+                "assignment target must be a variable, array element, struct field, or *pointer."
+            );
 
         var kind = assign.Kind();
         IrValue result;
@@ -1060,14 +1304,25 @@ internal sealed class MethodLowerer
         {
             result = Coerce(LowerExpression(assign.Right, type), type);
         }
-        else if (type.Ir.Kind == IrTypeKind.Pointer
-                 && kind is SyntaxKind.AddAssignmentExpression or SyntaxKind.SubtractAssignmentExpression)
+        else if (
+            type.Ir.Kind == IrTypeKind.Pointer
+            && kind is SyntaxKind.AddAssignmentExpression or SyntaxKind.SubtractAssignmentExpression
+        )
         {
             // p += n / p -= n step by whole elements, so lower through a gep like `p + n`.
             var current = _b.Load(pointer);
-            result = PointerOffset(current, type, assign.Right, subtract: kind == SyntaxKind.SubtractAssignmentExpression);
+            result = PointerOffset(
+                current,
+                type,
+                assign.Right,
+                subtract: kind == SyntaxKind.SubtractAssignmentExpression
+            );
         }
-        else if (kind is SyntaxKind.LeftShiftAssignmentExpression or SyntaxKind.RightShiftAssignmentExpression)
+        else if (
+            kind
+            is SyntaxKind.LeftShiftAssignmentExpression
+                or SyntaxKind.RightShiftAssignmentExpression
+        )
         {
             // Shift: the count is independent and the result keeps the target's width.
             var current = _b.Load(pointer);
@@ -1080,10 +1335,16 @@ internal sealed class MethodLowerer
             // then narrows back to x — so /= and %= match `x = x / y` rather than truncating y first.
             var current = _b.Load(pointer);
             var (rhsVal, rhsType) = LowerExpression(assign.Right, expected: null);
-            bool signMatters = kind is SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression;
+            bool signMatters =
+                kind
+                is SyntaxKind.DivideAssignmentExpression
+                    or SyntaxKind.ModuloAssignmentExpression;
             var common = CommonType(type, rhsType, signMatters, assign);
-            var opResult = _b.Binary(CompoundOp(kind, common.Signed),
-                Coerce((current, type), common), Coerce((rhsVal, rhsType), common));
+            var opResult = _b.Binary(
+                CompoundOp(kind, common.Signed),
+                Coerce((current, type), common),
+                Coerce((rhsVal, rhsType), common)
+            );
             result = Coerce((opResult, common), type);
         }
 
@@ -1091,7 +1352,10 @@ internal sealed class MethodLowerer
         return (result, type);
     }
 
-    private (IrValue, CsType) LowerMemberAccess(MemberAccessExpressionSyntax member, CsType? expected)
+    private (IrValue, CsType) LowerMemberAccess(
+        MemberAccessExpressionSyntax member,
+        CsType? expected
+    )
     {
         // Struct field read.
         if (StructFieldPointer(member) is { } field)
@@ -1100,15 +1364,23 @@ internal sealed class MethodLowerer
         if (member.Expression is IdentifierNameSyntax subject)
         {
             // Hardware register read, e.g. Hardware.LCDC.
-            if (subject.Identifier.Text == "Hardware" && _hardware.IsRegister(member.Name.Identifier.Text))
-                return (_b.Load(IrBuilder.GlobalRef(_hardware.Register(member.Name.Identifier.Text))), CsType.U8);
+            if (
+                subject.Identifier.Text == "Hardware"
+                && _hardware.IsRegister(member.Name.Identifier.Text)
+            )
+                return (
+                    _b.Load(IrBuilder.GlobalRef(_hardware.Register(member.Name.Identifier.Text))),
+                    CsType.U8
+                );
 
             // Enum member reference, e.g. Color.Red.
             if (_enums.TryGetValue(subject.Identifier.Text, out var e))
             {
                 var name = member.Name.Identifier.Text;
                 if (!e.Members.TryGetValue(name, out long value))
-                    throw new CSharpNotSupportedException($"enum '{subject.Identifier.Text}' has no member '{name}'.");
+                    throw new CSharpNotSupportedException(
+                        $"enum '{subject.Identifier.Text}' has no member '{name}'."
+                    );
                 return (IrBuilder.ConstInt(e.Underlying.Ir, value), e.Underlying);
             }
 
@@ -1116,8 +1388,9 @@ internal sealed class MethodLowerer
             if (member.Name.Identifier.Text == "Length")
             {
                 int? length =
-                    _arrays.TryGetValue(subject.Identifier.Text, out var arr) ? arr.Length :
-                    _structArrays.TryGetValue(subject.Identifier.Text, out var sarr) ? sarr.Length : null;
+                    _arrays.TryGetValue(subject.Identifier.Text, out var arr) ? arr.Length
+                    : _structArrays.TryGetValue(subject.Identifier.Text, out var sarr) ? sarr.Length
+                    : null;
                 if (length is { } n)
                 {
                     var type = expected ?? (n <= 0xFF ? CsType.U8 : CsType.U16);
@@ -1131,8 +1404,11 @@ internal sealed class MethodLowerer
     private (IrValue, CsType) LowerCall(InvocationExpressionSyntax call)
     {
         // Hardware control intrinsics: Hardware.EnableInterrupts(), etc.
-        if (call.Expression is MemberAccessExpressionSyntax hw
-            && hw.Expression is IdentifierNameSyntax hwId && hwId.Identifier.Text == "Hardware")
+        if (
+            call.Expression is MemberAccessExpressionSyntax hw
+            && hw.Expression is IdentifierNameSyntax hwId
+            && hwId.Identifier.Text == "Hardware"
+        )
         {
             var intrinsic = hw.Name.Identifier.Text switch
             {
@@ -1140,15 +1416,19 @@ internal sealed class MethodLowerer
                 "DisableInterrupts" => "di",
                 "Halt" => "halt",
                 "Nop" => "nop",
-                _ => throw new CSharpNotSupportedException($"unknown Hardware method '{hw.Name.Identifier.Text}'."),
+                _ => throw new CSharpNotSupportedException(
+                    $"unknown Hardware method '{hw.Name.Identifier.Text}'."
+                ),
             };
             return (_b.Intrinsic(intrinsic), CsType.U8);
         }
 
         // Arena allocator: Mem.Alloc(size) bumps the heap pointer down and returns a byte*; Mem.Reset()
         // frees everything at once by resetting the pointer to the top of the heap.
-        if (call.Expression is MemberAccessExpressionSyntax mem
-            && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" })
+        if (
+            call.Expression is MemberAccessExpressionSyntax mem
+            && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" }
+        )
             return LowerMemCall(mem.Name.Identifier.Text, call);
 
         // Array LINQ: a Where/Select pipeline ending in a reduction (Sum/Count/Max/Min/Any/All),
@@ -1157,21 +1437,39 @@ internal sealed class MethodLowerer
             return linq;
 
         // Instance method call: obj.Method(args) or this.Method(args).
-        if (call.Expression is MemberAccessExpressionSyntax instCall
-            && ClassLocalOf(instCall.Expression) is { } recv)
-            return LowerInstanceCall(recv.Info, recv.Slot, instCall.Name.Identifier.Text, call.ArgumentList.Arguments);
+        if (
+            call.Expression is MemberAccessExpressionSyntax instCall
+            && ClassLocalOf(instCall.Expression) is { } recv
+        )
+            return LowerInstanceCall(
+                recv.Info,
+                recv.Slot,
+                instCall.Name.Identifier.Text,
+                call.ArgumentList.Arguments
+            );
 
         // Bare Method(args) inside an instance method resolves against `this`.
-        if (call.Expression is IdentifierNameSyntax bare && !_methods.ContainsKey(bare.Identifier.Text)
+        if (
+            call.Expression is IdentifierNameSyntax bare
+            && !_methods.ContainsKey(bare.Identifier.Text)
             && _classLocals.TryGetValue("this", out var self)
-            && self.Info.Methods.ContainsKey(bare.Identifier.Text))
-            return LowerInstanceCall(self.Info, self.Slot, bare.Identifier.Text, call.ArgumentList.Arguments);
+            && self.Info.Methods.ContainsKey(bare.Identifier.Text)
+        )
+            return LowerInstanceCall(
+                self.Info,
+                self.Slot,
+                bare.Identifier.Text,
+                call.ArgumentList.Arguments
+            );
 
         // A plain call, or a generic call `Foo<int>(...)` routed to its monomorphized instance `Foo$int`.
         string? calleeName = call.Expression switch
         {
             IdentifierNameSyntax idn => idn.Identifier.Text,
-            GenericNameSyntax gn => CSharpFrontend.MangleGeneric(gn.Identifier.Text, gn.TypeArgumentList.Arguments),
+            GenericNameSyntax gn => CSharpFrontend.MangleGeneric(
+                gn.Identifier.Text,
+                gn.TypeArgumentList.Arguments
+            ),
             _ => null,
         };
         if (calleeName is null || !_methods.TryGetValue(calleeName, out var callee))
@@ -1182,7 +1480,8 @@ internal sealed class MethodLowerer
         if (argList.Count != callee.Params.Count)
             throw new CSharpNotSupportedException(
                 $"'{calleeName}' takes {callee.Params.Count} argument(s), but {argList.Count} were given.",
-                call.GetLocation());
+                call.GetLocation()
+            );
         for (int i = 0; i < argList.Count; i++)
         {
             if (callee.ParamStructs[i] is not null)
@@ -1198,7 +1497,12 @@ internal sealed class MethodLowerer
             }
             else
             {
-                args.Add(Coerce(LowerExpression(argList[i].Expression, callee.Params[i]), callee.Params[i]));
+                args.Add(
+                    Coerce(
+                        LowerExpression(argList[i].Expression, callee.Params[i]),
+                        callee.Params[i]
+                    )
+                );
             }
         }
 
@@ -1208,26 +1512,38 @@ internal sealed class MethodLowerer
 
     /// <summary>The class local (or <c>this</c>) an expression denotes, if any.</summary>
     private (IrValue Slot, CsClass Info)? ClassLocalOf(ExpressionSyntax expr) =>
-        expr is IdentifierNameSyntax id && _classLocals.TryGetValue(id.Identifier.Text, out var c) ? c
+        expr is IdentifierNameSyntax id && _classLocals.TryGetValue(id.Identifier.Text, out var c)
+            ? c
         : expr is ThisExpressionSyntax && _classLocals.TryGetValue("this", out var t) ? t
         : null;
 
     /// <summary>Lower an instance-method call: pass the receiver pointer as the implicit <c>this</c>,
     /// then the user arguments, and call the <c>Class.Method</c> function.</summary>
     private (IrValue, CsType) LowerInstanceCall(
-        CsClass cls, IrValue thisSlot, string methodName,
-        Microsoft.CodeAnalysis.SeparatedSyntaxList<ArgumentSyntax> args)
+        CsClass cls,
+        IrValue thisSlot,
+        string methodName,
+        Microsoft.CodeAnalysis.SeparatedSyntaxList<ArgumentSyntax> args
+    )
     {
         var qualified = $"{cls.Name}.{methodName}";
         if (!_methods.TryGetValue(qualified, out var callee))
-            throw new CSharpNotSupportedException($"class '{cls.Name}' has no method '{methodName}'.");
+            throw new CSharpNotSupportedException(
+                $"class '{cls.Name}' has no method '{methodName}'."
+            );
         if (args.Count != callee.Params.Count - 1)
             throw new CSharpNotSupportedException(
-                $"'{qualified}' takes {callee.Params.Count - 1} argument(s), but {args.Count} were given.");
+                $"'{qualified}' takes {callee.Params.Count - 1} argument(s), but {args.Count} were given."
+            );
 
         var callArgs = new List<IrValue> { _b.Load(thisSlot) };
         for (int i = 0; i < args.Count; i++)
-            callArgs.Add(Coerce(LowerExpression(args[i].Expression, callee.Params[i + 1]), callee.Params[i + 1]));
+            callArgs.Add(
+                Coerce(
+                    LowerExpression(args[i].Expression, callee.Params[i + 1]),
+                    callee.Params[i + 1]
+                )
+            );
         return (_b.Call(callee.Fn, callArgs), callee.Return ?? CsType.U8);
     }
 
@@ -1236,14 +1552,24 @@ internal sealed class MethodLowerer
     /// supported — initialize fields after construction.</summary>
     private (IrValue, CsType) LowerNew(ObjectCreationExpressionSyntax objNew)
     {
-        if (objNew.Type is not IdentifierNameSyntax cn || !_classes.TryGetValue(cn.Identifier.Text, out var cls))
-            throw new CSharpNotSupportedException($"'new {objNew.Type}' is not supported (only class instances are).");
+        if (
+            objNew.Type is not IdentifierNameSyntax cn
+            || !_classes.TryGetValue(cn.Identifier.Text, out var cls)
+        )
+            throw new CSharpNotSupportedException(
+                $"'new {objNew.Type}' is not supported (only class instances are)."
+            );
         if (objNew.ArgumentList is { Arguments.Count: > 0 })
             throw new CSharpNotSupportedException(
-                $"'new {cn.Identifier.Text}(...)' with constructor arguments is not supported; set fields after.");
+                $"'new {cn.Identifier.Text}(...)' with constructor arguments is not supported; set fields after."
+            );
 
         var heap = IrBuilder.GlobalRef(_globals[CSharpFrontend.HeapPointerName].Global);
-        var raw = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), IrBuilder.ConstInt(IrType.I16, cls.Layout.Size));
+        var raw = _b.Binary(
+            IrBinaryOp.Sub,
+            _b.Load(heap),
+            IrBuilder.ConstInt(IrType.I16, cls.Layout.Size)
+        );
         _b.Store(raw, heap);
         var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
 
@@ -1260,11 +1586,21 @@ internal sealed class MethodLowerer
             var done = fn.AppendBlock("new.zero.done");
             _b.Br(head);
             _b.PositionAtEnd(head);
-            _b.CondBr(_b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, cls.Layout.Size)),
-                body, done);
+            _b.CondBr(
+                _b.Compare(
+                    IrCompareOp.Ult,
+                    _b.Load(iSlot),
+                    IrBuilder.ConstInt(IrType.I16, cls.Layout.Size)
+                ),
+                body,
+                done
+            );
             _b.PositionAtEnd(body);
             _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, _b.Load(iSlot), IrType.I8));
-            _b.Store(_b.Binary(IrBinaryOp.Add, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)), iSlot);
+            _b.Store(
+                _b.Binary(IrBinaryOp.Add, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)),
+                iSlot
+            );
             _b.Br(head);
             _b.PositionAtEnd(done);
         }
@@ -1275,31 +1611,50 @@ internal sealed class MethodLowerer
     /// slot, lower its body, then unbind. Non-capturing or value-referencing bodies work; there are no
     /// heap closures.</summary>
     private (IrValue Value, CsType Type) InlineLambda(
-        ExpressionSyntax lambdaExpr, IrValue arg, CsType argType, CsType? expected)
+        ExpressionSyntax lambdaExpr,
+        IrValue arg,
+        CsType argType,
+        CsType? expected
+    )
     {
-        var lambda = lambdaExpr as LambdaExpressionSyntax
+        var lambda =
+            lambdaExpr as LambdaExpressionSyntax
             ?? throw new CSharpNotSupportedException("a LINQ operator expects a lambda.");
         string pname = lambda switch
         {
             SimpleLambdaExpressionSyntax s => s.Parameter.Identifier.Text,
-            ParenthesizedLambdaExpressionSyntax { ParameterList.Parameters.Count: 1 } p
-                => p.ParameterList.Parameters[0].Identifier.Text,
-            _ => throw new CSharpNotSupportedException("a LINQ lambda must take exactly one parameter."),
+            ParenthesizedLambdaExpressionSyntax { ParameterList.Parameters.Count: 1 } p =>
+                p.ParameterList.Parameters[0].Identifier.Text,
+            _ => throw new CSharpNotSupportedException(
+                "a LINQ lambda must take exactly one parameter."
+            ),
         };
         if (lambda.Body is not ExpressionSyntax body)
-            throw new CSharpNotSupportedException("a LINQ lambda must be an expression (no statement body).");
+            throw new CSharpNotSupportedException(
+                "a LINQ lambda must be an expression (no statement body)."
+            );
 
         var slot = _b.Alloca(argType.Ir);
         _b.Store(arg, slot);
         bool had = _locals.TryGetValue(pname, out var saved);
         _locals[pname] = (slot, argType);
         var result = LowerExpression(body, expected);
-        if (had) _locals[pname] = saved; else _locals.Remove(pname);
+        if (had)
+            _locals[pname] = saved;
+        else
+            _locals.Remove(pname);
         return result;
     }
 
     private static readonly HashSet<string> LinqTerminals = new(StringComparer.Ordinal)
-        { "Sum", "Count", "Max", "Min", "Any", "All" };
+    {
+        "Sum",
+        "Count",
+        "Max",
+        "Min",
+        "Any",
+        "All",
+    };
 
     /// <summary>Lower an array LINQ chain (<c>arr.Where(..).Select(..).Sum()</c> and similar) to a loop
     /// with inlined lambdas, or return null when the call is not such a chain. Reductions only — no
@@ -1308,17 +1663,32 @@ internal sealed class MethodLowerer
     {
         var ops = new List<(string Op, ExpressionSyntax? Arg)>();
         ExpressionSyntax cur = call;
-        while (cur is InvocationExpressionSyntax inv && inv.Expression is MemberAccessExpressionSyntax ma)
+        while (
+            cur is InvocationExpressionSyntax inv
+            && inv.Expression is MemberAccessExpressionSyntax ma
+        )
         {
-            ops.Add((ma.Name.Identifier.Text,
-                inv.ArgumentList.Arguments.Count > 0 ? inv.ArgumentList.Arguments[0].Expression : null));
+            ops.Add(
+                (
+                    ma.Name.Identifier.Text,
+                    inv.ArgumentList.Arguments.Count > 0
+                        ? inv.ArgumentList.Arguments[0].Expression
+                        : null
+                )
+            );
             cur = ma.Expression;
         }
-        if (cur is not IdentifierNameSyntax srcId || !_arrays.TryGetValue(srcId.Identifier.Text, out var src))
+        if (
+            cur is not IdentifierNameSyntax srcId
+            || !_arrays.TryGetValue(srcId.Identifier.Text, out var src)
+        )
             return null;
         ops.Reverse(); // source order: [Where|Select]* then a terminal
-        if (ops.Count == 0 || !LinqTerminals.Contains(ops[^1].Op)
-            || ops.Take(ops.Count - 1).Any(o => o.Op is not ("Where" or "Select")))
+        if (
+            ops.Count == 0
+            || !LinqTerminals.Contains(ops[^1].Op)
+            || ops.Take(ops.Count - 1).Any(o => o.Op is not ("Where" or "Select"))
+        )
             return null;
 
         var (termOp, termArg) = ops[^1];
@@ -1332,7 +1702,8 @@ internal sealed class MethodLowerer
         if (isMinMax && pipeline.Count > 0)
             throw new CSharpNotSupportedException(
                 $"{termOp}() is only supported directly on an array, not after a Where/Select pipeline.",
-                call.GetLocation());
+                call.GetLocation()
+            );
 
         // Sum accumulates wider than the element (C# widens Sum to int/long) so a total exceeding the
         // element width doesn't wrap; Max/Min keep the element type.
@@ -1349,8 +1720,10 @@ internal sealed class MethodLowerer
         // Max/Min seed the accumulator with element 0 and start at 1 (requires a non-empty source).
         int start = isMinMax ? 1 : 0;
         _b.Store(IrBuilder.ConstInt(IrType.I16, start), iSlot);
-        _b.Store(isMinMax ? ElementAt(src, 0)
-            : IrBuilder.ConstInt(accType.Ir, termOp == "All" ? 1 : 0), acc);
+        _b.Store(
+            isMinMax ? ElementAt(src, 0) : IrBuilder.ConstInt(accType.Ir, termOp == "All" ? 1 : 0),
+            acc
+        );
 
         var head = fn.AppendBlock("linq.head");
         var body = fn.AppendBlock("linq.body");
@@ -1359,7 +1732,11 @@ internal sealed class MethodLowerer
         _b.Br(head);
 
         _b.PositionAtEnd(head);
-        _b.CondBr(_b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, src.Length)), body, done);
+        _b.CondBr(
+            _b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, src.Length)),
+            body,
+            done
+        );
 
         _b.PositionAtEnd(body);
         IrValue e = _b.Load(_b.Gep(src.ArrayPtr, _b.Load(iSlot), src.Element.Ir));
@@ -1382,7 +1759,8 @@ internal sealed class MethodLowerer
         switch (termOp)
         {
             case "Sum":
-                if (termArg is not null) (e, eType) = InlineLambda(termArg, e, eType, null);
+                if (termArg is not null)
+                    (e, eType) = InlineLambda(termArg, e, eType, null);
                 _b.Store(_b.Add(_b.Load(acc), Coerce((e, eType), accType)), acc);
                 break;
             case "Count":
@@ -1402,7 +1780,11 @@ internal sealed class MethodLowerer
                     ? (termOp == "Max" ? IrCompareOp.Sgt : IrCompareOp.Slt)
                     : (termOp == "Max" ? IrCompareOp.Ugt : IrCompareOp.Ult);
                 var replace = fn.AppendBlock("linq.rep");
-                _b.CondBr(_b.Compare(pred, Coerce((e, eType), accType), _b.Load(acc)), replace, cont);
+                _b.CondBr(
+                    _b.Compare(pred, Coerce((e, eType), accType), _b.Load(acc)),
+                    replace,
+                    cont
+                );
                 _b.PositionAtEnd(replace);
                 _b.Store(Coerce((e, eType), accType), acc);
                 break;
@@ -1448,8 +1830,13 @@ internal sealed class MethodLowerer
             case "Alloc":
             {
                 if (call.ArgumentList.Arguments.Count != 1)
-                    throw new CSharpNotSupportedException("Mem.Alloc takes one argument (a byte count).");
-                var size = Coerce(LowerExpression(call.ArgumentList.Arguments[0].Expression, CsType.U16), CsType.U16);
+                    throw new CSharpNotSupportedException(
+                        "Mem.Alloc takes one argument (a byte count)."
+                    );
+                var size = Coerce(
+                    LowerExpression(call.ArgumentList.Arguments[0].Expression, CsType.U16),
+                    CsType.U16
+                );
                 var updated = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), size);
                 _b.Store(updated, heap);
                 return (_b.Conv(IrConvOp.Bitcast, updated, bytePtr.Ir), bytePtr);
@@ -1490,8 +1877,11 @@ internal sealed class MethodLowerer
             if (targetIntBits != asInt.Bits)
                 value = _b.Conv(
                     targetIntBits < asInt.Bits ? IrConvOp.Trunc
-                        : source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt,
-                    value, IrType.Int(targetIntBits));
+                        : source.Type.Signed ? IrConvOp.SExt
+                        : IrConvOp.ZExt,
+                    value,
+                    IrType.Int(targetIntBits)
+                );
             return t.Kind == IrTypeKind.Pointer ? _b.Conv(IrConvOp.Bitcast, value, t) : value;
         }
 
@@ -1508,53 +1898,66 @@ internal sealed class MethodLowerer
 
     /// <summary>The pointee type of a pointer, or a diagnostic if it has none (e.g. a bare address).</summary>
     private static IrType Pointee(CsType pointer) =>
-        pointer.Ir.Element ?? throw new CSharpNotSupportedException("pointer arithmetic requires a typed pointee.");
+        pointer.Ir.Element
+        ?? throw new CSharpNotSupportedException("pointer arithmetic requires a typed pointee.");
 
-    private static bool IsComparison(SyntaxKind kind) => kind is
-        SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression or
-        SyntaxKind.GreaterThanExpression or SyntaxKind.GreaterThanOrEqualExpression or
-        SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression;
+    private static bool IsComparison(SyntaxKind kind) =>
+        kind
+            is SyntaxKind.LessThanExpression
+                or SyntaxKind.LessThanOrEqualExpression
+                or SyntaxKind.GreaterThanExpression
+                or SyntaxKind.GreaterThanOrEqualExpression
+                or SyntaxKind.EqualsExpression
+                or SyntaxKind.NotEqualsExpression;
 
-    private static IrCompareOp CompareOp(SyntaxKind kind, bool signed) => kind switch
-    {
-        SyntaxKind.EqualsExpression => IrCompareOp.Eq,
-        SyntaxKind.NotEqualsExpression => IrCompareOp.Ne,
-        SyntaxKind.LessThanExpression => signed ? IrCompareOp.Slt : IrCompareOp.Ult,
-        SyntaxKind.LessThanOrEqualExpression => signed ? IrCompareOp.Sle : IrCompareOp.Ule,
-        SyntaxKind.GreaterThanExpression => signed ? IrCompareOp.Sgt : IrCompareOp.Ugt,
-        SyntaxKind.GreaterThanOrEqualExpression => signed ? IrCompareOp.Sge : IrCompareOp.Uge,
-        _ => throw new CSharpNotSupportedException($"unsupported comparison '{kind}'."),
-    };
+    private static IrCompareOp CompareOp(SyntaxKind kind, bool signed) =>
+        kind switch
+        {
+            SyntaxKind.EqualsExpression => IrCompareOp.Eq,
+            SyntaxKind.NotEqualsExpression => IrCompareOp.Ne,
+            SyntaxKind.LessThanExpression => signed ? IrCompareOp.Slt : IrCompareOp.Ult,
+            SyntaxKind.LessThanOrEqualExpression => signed ? IrCompareOp.Sle : IrCompareOp.Ule,
+            SyntaxKind.GreaterThanExpression => signed ? IrCompareOp.Sgt : IrCompareOp.Ugt,
+            SyntaxKind.GreaterThanOrEqualExpression => signed ? IrCompareOp.Sge : IrCompareOp.Uge,
+            _ => throw new CSharpNotSupportedException($"unsupported comparison '{kind}'."),
+        };
 
-    private static IrBinaryOp ArithOp(SyntaxKind kind, bool signed) => kind switch
-    {
-        SyntaxKind.AddExpression => IrBinaryOp.Add,
-        SyntaxKind.SubtractExpression => IrBinaryOp.Sub,
-        SyntaxKind.MultiplyExpression => IrBinaryOp.Mul,
-        SyntaxKind.DivideExpression => signed ? IrBinaryOp.SDiv : IrBinaryOp.UDiv,
-        SyntaxKind.ModuloExpression => signed ? IrBinaryOp.SRem : IrBinaryOp.URem,
-        SyntaxKind.BitwiseAndExpression => IrBinaryOp.And,
-        SyntaxKind.BitwiseOrExpression => IrBinaryOp.Or,
-        SyntaxKind.ExclusiveOrExpression => IrBinaryOp.Xor,
-        SyntaxKind.LeftShiftExpression => IrBinaryOp.Shl,
-        SyntaxKind.RightShiftExpression => signed ? IrBinaryOp.AShr : IrBinaryOp.LShr,
-        _ => throw new CSharpNotSupportedException($"unsupported operator '{kind}'."),
-    };
+    private static IrBinaryOp ArithOp(SyntaxKind kind, bool signed) =>
+        kind switch
+        {
+            SyntaxKind.AddExpression => IrBinaryOp.Add,
+            SyntaxKind.SubtractExpression => IrBinaryOp.Sub,
+            SyntaxKind.MultiplyExpression => IrBinaryOp.Mul,
+            SyntaxKind.DivideExpression => signed ? IrBinaryOp.SDiv : IrBinaryOp.UDiv,
+            SyntaxKind.ModuloExpression => signed ? IrBinaryOp.SRem : IrBinaryOp.URem,
+            SyntaxKind.BitwiseAndExpression => IrBinaryOp.And,
+            SyntaxKind.BitwiseOrExpression => IrBinaryOp.Or,
+            SyntaxKind.ExclusiveOrExpression => IrBinaryOp.Xor,
+            SyntaxKind.LeftShiftExpression => IrBinaryOp.Shl,
+            SyntaxKind.RightShiftExpression => signed ? IrBinaryOp.AShr : IrBinaryOp.LShr,
+            _ => throw new CSharpNotSupportedException($"unsupported operator '{kind}'."),
+        };
 
     /// <summary>A compound assignment (<c>+=</c> etc.) uses the same operator table as its plain
     /// form; map the assignment kind to the base binary kind and reuse <see cref="ArithOp"/>.</summary>
-    private static IrBinaryOp CompoundOp(SyntaxKind kind, bool signed) => ArithOp(kind switch
-    {
-        SyntaxKind.AddAssignmentExpression => SyntaxKind.AddExpression,
-        SyntaxKind.SubtractAssignmentExpression => SyntaxKind.SubtractExpression,
-        SyntaxKind.MultiplyAssignmentExpression => SyntaxKind.MultiplyExpression,
-        SyntaxKind.DivideAssignmentExpression => SyntaxKind.DivideExpression,
-        SyntaxKind.ModuloAssignmentExpression => SyntaxKind.ModuloExpression,
-        SyntaxKind.AndAssignmentExpression => SyntaxKind.BitwiseAndExpression,
-        SyntaxKind.OrAssignmentExpression => SyntaxKind.BitwiseOrExpression,
-        SyntaxKind.ExclusiveOrAssignmentExpression => SyntaxKind.ExclusiveOrExpression,
-        SyntaxKind.LeftShiftAssignmentExpression => SyntaxKind.LeftShiftExpression,
-        SyntaxKind.RightShiftAssignmentExpression => SyntaxKind.RightShiftExpression,
-        _ => throw new CSharpNotSupportedException($"unsupported compound assignment '{kind}'."),
-    }, signed);
+    private static IrBinaryOp CompoundOp(SyntaxKind kind, bool signed) =>
+        ArithOp(
+            kind switch
+            {
+                SyntaxKind.AddAssignmentExpression => SyntaxKind.AddExpression,
+                SyntaxKind.SubtractAssignmentExpression => SyntaxKind.SubtractExpression,
+                SyntaxKind.MultiplyAssignmentExpression => SyntaxKind.MultiplyExpression,
+                SyntaxKind.DivideAssignmentExpression => SyntaxKind.DivideExpression,
+                SyntaxKind.ModuloAssignmentExpression => SyntaxKind.ModuloExpression,
+                SyntaxKind.AndAssignmentExpression => SyntaxKind.BitwiseAndExpression,
+                SyntaxKind.OrAssignmentExpression => SyntaxKind.BitwiseOrExpression,
+                SyntaxKind.ExclusiveOrAssignmentExpression => SyntaxKind.ExclusiveOrExpression,
+                SyntaxKind.LeftShiftAssignmentExpression => SyntaxKind.LeftShiftExpression,
+                SyntaxKind.RightShiftAssignmentExpression => SyntaxKind.RightShiftExpression,
+                _ => throw new CSharpNotSupportedException(
+                    $"unsupported compound assignment '{kind}'."
+                ),
+            },
+            signed
+        );
 }

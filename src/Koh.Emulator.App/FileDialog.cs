@@ -17,7 +17,8 @@ internal static class FileDialog
     /// </summary>
     public static string? OpenRom(string? initialDir = null)
     {
-        if (!OperatingSystem.IsWindows()) return null;
+        if (!OperatingSystem.IsWindows())
+            return null;
         return OpenWin32("Open ROM", "Game Boy ROMs\0*.gb;*.gbc\0All files\0*.*\0", initialDir);
     }
 
@@ -66,10 +67,10 @@ internal static class FileDialog
         // marshaller does preserve them for explicit fixed-length
         // strings, but the cleanest route is passing the filter via a
         // pinned byte buffer — see StringToFilter below.
-        var fileBuf = Marshal.AllocHGlobal(2 * 2048);   // 2048 UTF-16 chars
+        var fileBuf = Marshal.AllocHGlobal(2 * 2048); // 2048 UTF-16 chars
         try
         {
-            Marshal.WriteInt16(fileBuf, 0);   // zero-terminated empty string
+            Marshal.WriteInt16(fileBuf, 0); // zero-terminated empty string
 
             var ofn = new OPENFILENAME
             {
@@ -82,7 +83,8 @@ internal static class FileDialog
                 Flags = OfnFlags,
             };
 
-            if (!GetOpenFileName(ref ofn)) return null;
+            if (!GetOpenFileName(ref ofn))
+                return null;
             return Marshal.PtrToStringUni(fileBuf);
         }
         finally

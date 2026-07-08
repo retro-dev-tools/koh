@@ -45,7 +45,8 @@ static class KohAsm
             [source.FilePath] = source,
         };
 
-        int errors = 0, warnings = 0;
+        int errors = 0,
+            warnings = 0;
         foreach (var diag in emitModel.Diagnostics)
         {
             var diagFile = diag.FilePath;
@@ -61,8 +62,10 @@ static class KohAsm
                 _ => "info",
             };
             Console.Error.WriteLine($"{diagFile}:{line}:{col}: {severity}: {diag.Message}");
-            if (diag.Severity == DiagnosticSeverity.Error) errors++;
-            else if (diag.Severity == DiagnosticSeverity.Warning) warnings++;
+            if (diag.Severity == DiagnosticSeverity.Error)
+                errors++;
+            else if (diag.Severity == DiagnosticSeverity.Warning)
+                warnings++;
         }
 
         if (errors > 0)
@@ -77,17 +80,26 @@ static class KohAsm
         return result;
     }
 
-    static void PrintSummary(string input, TimeSpan elapsed, int errors, int warnings, string? outputPath)
+    static void PrintSummary(
+        string input,
+        TimeSpan elapsed,
+        int errors,
+        int warnings,
+        string? outputPath
+    )
     {
         var inputName = Path.GetFileName(input);
-        var timeStr = elapsed.TotalSeconds < 1
-            ? $"{elapsed.TotalMilliseconds:F0}ms"
-            : $"{elapsed.TotalSeconds:F2}s";
+        var timeStr =
+            elapsed.TotalSeconds < 1
+                ? $"{elapsed.TotalMilliseconds:F0}ms"
+                : $"{elapsed.TotalSeconds:F2}s";
 
         if (errors > 0)
         {
             Console.Error.WriteLine();
-            Console.Error.WriteLine($"  {inputName}: {errors} error(s), {warnings} warning(s) [{timeStr}]");
+            Console.Error.WriteLine(
+                $"  {inputName}: {errors} error(s), {warnings} warning(s) [{timeStr}]"
+            );
         }
         else
         {
@@ -98,7 +110,11 @@ static class KohAsm
         }
     }
 
-    enum OutputFormat { Kobj, Rgbds }
+    enum OutputFormat
+    {
+        Kobj,
+        Rgbds,
+    }
 
     // -------------------------------------------------------------------------
     // Pipeline stages
@@ -130,7 +146,12 @@ static class KohAsm
 
     // Diagnostics are now reported inline in Run()
 
-    static int WriteOutput(EmitModel model, string outputPath, string inputPath, OutputFormat format)
+    static int WriteOutput(
+        EmitModel model,
+        string outputPath,
+        string inputPath,
+        OutputFormat format
+    )
     {
         var tempPath = outputPath + "." + Path.GetRandomFileName();
         try
@@ -168,9 +189,12 @@ static class KohAsm
     // Helpers
     // -------------------------------------------------------------------------
 
-    static (string? input, string? output, OutputFormat format, string? error) ParseArgs(string[] args)
+    static (string? input, string? output, OutputFormat format, string? error) ParseArgs(
+        string[] args
+    )
     {
-        string? input = null, output = null;
+        string? input = null,
+            output = null;
         var format = OutputFormat.Kobj;
         for (int i = 0; i < args.Length; i++)
         {
@@ -192,7 +216,12 @@ static class KohAsm
                     _ => null,
                 };
                 if (parsed is null)
-                    return (null, null, format, $"unknown format '{val}' (expected: kobj, rgbds, o)");
+                    return (
+                        null,
+                        null,
+                        format,
+                        $"unknown format '{val}' (expected: kobj, rgbds, o)"
+                    );
                 format = parsed.Value;
             }
             else if (!args[i].StartsWith('-'))
@@ -206,11 +235,16 @@ static class KohAsm
                 return (null, null, format, $"unknown option '{args[i]}' (try --help)");
             }
         }
-        return input == null ? (null, null, format, "no input file specified") : (input, output, format, null);
+        return input == null
+            ? (null, null, format, "no input file specified")
+            : (input, output, format, null);
     }
 
-    static SourceText GetOrLoadSourceText(string filePath, SourceText fallback,
-        Dictionary<string, SourceText> cache)
+    static SourceText GetOrLoadSourceText(
+        string filePath,
+        SourceText fallback,
+        Dictionary<string, SourceText> cache
+    )
     {
         if (cache.TryGetValue(filePath, out var cached))
             return cached;
@@ -242,9 +276,11 @@ static class KohAsm
 
     static int ShowVersion()
     {
-        var ver = typeof(KohAsm).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion ?? "unknown";
+        var ver =
+            typeof(KohAsm)
+                .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+            ?? "unknown";
         // Strip git commit hash suffix (e.g. "1.0.0+abc123" → "1.0.0")
         var display = ver.Contains('+') ? ver[..ver.IndexOf('+')] : ver;
         Console.WriteLine($"koh-asm {display}");

@@ -31,21 +31,34 @@ public class ProjectIsolationTests
         var resolver = new VirtualFileResolver();
         resolver.AddTextFile(
             Path.GetFullPath("C:/test/game.asm"),
-            "SECTION \"Game\", ROM0\nGameStart:\n  nop");
+            "SECTION \"Game\", ROM0\nGameStart:\n  nop"
+        );
         resolver.AddTextFile(
             Path.GetFullPath("C:/test/tools.asm"),
-            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop");
+            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop"
+        );
 
         var manager = CreateManager(resolver);
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "game", Entrypoint = Path.GetFullPath("C:/test/game.asm") },
-            new KohProjectDefinition { Name = "tools", Entrypoint = Path.GetFullPath("C:/test/tools.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "game",
+                    Entrypoint = Path.GetFullPath("C:/test/game.asm"),
+                },
+                new KohProjectDefinition
+                {
+                    Name = "tools",
+                    Entrypoint = Path.GetFullPath("C:/test/tools.asm"),
+                },
+            ])
+        );
 
-        manager.UpdateDocumentText("C:/test/game.asm",
-            "SECTION \"Game\", ROM0\nGameStart:\n  nop");
-        manager.UpdateDocumentText("C:/test/tools.asm",
-            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop");
+        manager.UpdateDocumentText("C:/test/game.asm", "SECTION \"Game\", ROM0\nGameStart:\n  nop");
+        manager.UpdateDocumentText(
+            "C:/test/tools.asm",
+            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop"
+        );
 
         var gameCtx = manager.AllProjects.First(p => p.Name == "game");
         var toolsCtx = manager.AllProjects.First(p => p.Name == "tools");
@@ -70,21 +83,37 @@ public class ProjectIsolationTests
         var resolver = new VirtualFileResolver();
         resolver.AddTextFile(
             Path.GetFullPath("C:/test/game.asm"),
-            "SECTION \"Game\", ROM0\n  ld a, UNDEFINED_SYMBOL");
+            "SECTION \"Game\", ROM0\n  ld a, UNDEFINED_SYMBOL"
+        );
         resolver.AddTextFile(
             Path.GetFullPath("C:/test/tools.asm"),
-            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop");
+            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop"
+        );
 
         var manager = CreateManager(resolver);
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "game", Entrypoint = Path.GetFullPath("C:/test/game.asm") },
-            new KohProjectDefinition { Name = "tools", Entrypoint = Path.GetFullPath("C:/test/tools.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "game",
+                    Entrypoint = Path.GetFullPath("C:/test/game.asm"),
+                },
+                new KohProjectDefinition
+                {
+                    Name = "tools",
+                    Entrypoint = Path.GetFullPath("C:/test/tools.asm"),
+                },
+            ])
+        );
 
-        manager.UpdateDocumentText("C:/test/game.asm",
-            "SECTION \"Game\", ROM0\n  ld a, UNDEFINED_SYMBOL");
-        manager.UpdateDocumentText("C:/test/tools.asm",
-            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop");
+        manager.UpdateDocumentText(
+            "C:/test/game.asm",
+            "SECTION \"Game\", ROM0\n  ld a, UNDEFINED_SYMBOL"
+        );
+        manager.UpdateDocumentText(
+            "C:/test/tools.asm",
+            "SECTION \"Tools\", ROM0\nToolsMain:\n  nop"
+        );
 
         var gameCtx = manager.AllProjects.First(p => p.Name == "game");
         var toolsCtx = manager.AllProjects.First(p => p.Name == "tools");
@@ -110,23 +139,38 @@ public class ProjectIsolationTests
         resolver.AddTextFile(sharedPath, "SharedLabel:\n  nop");
         resolver.AddTextFile(
             Path.GetFullPath("C:/test/game.asm"),
-            "INCLUDE \"shared.inc\"\nSECTION \"Game\", ROM0\nnop");
+            "INCLUDE \"shared.inc\"\nSECTION \"Game\", ROM0\nnop"
+        );
         resolver.AddTextFile(
             Path.GetFullPath("C:/test/tools.asm"),
-            "INCLUDE \"shared.inc\"\nSECTION \"Tools\", ROM0\nnop");
+            "INCLUDE \"shared.inc\"\nSECTION \"Tools\", ROM0\nnop"
+        );
 
         var manager = CreateManager(resolver);
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "game", Entrypoint = Path.GetFullPath("C:/test/game.asm") },
-            new KohProjectDefinition { Name = "tools", Entrypoint = Path.GetFullPath("C:/test/tools.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "game",
+                    Entrypoint = Path.GetFullPath("C:/test/game.asm"),
+                },
+                new KohProjectDefinition
+                {
+                    Name = "tools",
+                    Entrypoint = Path.GetFullPath("C:/test/tools.asm"),
+                },
+            ])
+        );
 
-        manager.UpdateDocumentText("C:/test/game.asm",
-            "INCLUDE \"shared.inc\"\nSECTION \"Game\", ROM0\nnop");
-        manager.UpdateDocumentText("C:/test/tools.asm",
-            "INCLUDE \"shared.inc\"\nSECTION \"Tools\", ROM0\nnop");
-        manager.UpdateDocumentText("C:/test/shared.inc",
-            "SharedLabel:\n  nop");
+        manager.UpdateDocumentText(
+            "C:/test/game.asm",
+            "INCLUDE \"shared.inc\"\nSECTION \"Game\", ROM0\nnop"
+        );
+        manager.UpdateDocumentText(
+            "C:/test/tools.asm",
+            "INCLUDE \"shared.inc\"\nSECTION \"Tools\", ROM0\nnop"
+        );
+        manager.UpdateDocumentText("C:/test/shared.inc", "SharedLabel:\n  nop");
 
         var gameCtx = manager.AllProjects.First(p => p.Name == "game");
         var toolsCtx = manager.AllProjects.First(p => p.Name == "tools");
@@ -176,7 +220,9 @@ public class ProjectIsolationTests
         await Assert.That(ctx).IsNotNull();
 
         // The entrypoint should be the .inc file itself (OpenInc candidate)
-        await Assert.That(ctx!.EntrypointPath).IsEqualTo(Path.GetFullPath("C:/test/standalone.inc"));
+        await Assert
+            .That(ctx!.EntrypointPath)
+            .IsEqualTo(Path.GetFullPath("C:/test/standalone.inc"));
     }
 
     // ───────────────────────────────────────────────────────────────
@@ -196,21 +242,19 @@ public class ProjectIsolationTests
         var macrosPath = Path.GetFullPath("C:/test/src/macros/asm.inc");
         var mainPath = Path.GetFullPath("C:/test/src/home/main.asm");
 
-        resolver.AddTextFile(gamePath,
-            "INCLUDE \"macros/asm.inc\"\nINCLUDE \"home/main.asm\"");
-        resolver.AddTextFile(macrosPath,
-            "MACRO test_macro\n  nop\nENDM");
-        resolver.AddTextFile(mainPath,
-            "SECTION \"Home\", ROM0\n  test_macro");
+        resolver.AddTextFile(gamePath, "INCLUDE \"macros/asm.inc\"\nINCLUDE \"home/main.asm\"");
+        resolver.AddTextFile(macrosPath, "MACRO test_macro\n  nop\nENDM");
+        resolver.AddTextFile(mainPath, "SECTION \"Home\", ROM0\n  test_macro");
 
         var manager = CreateManager(resolver);
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "game", Entrypoint = gamePath },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition { Name = "game", Entrypoint = gamePath },
+            ])
+        );
 
         // Only open the included file, NOT the entrypoint
-        manager.UpdateDocumentText(mainPath,
-            "SECTION \"Home\", ROM0\n  test_macro");
+        manager.UpdateDocumentText(mainPath, "SECTION \"Home\", ROM0\n  test_macro");
 
         // main.asm should be owned by the game project
         var ctx = manager.GetPrimaryProjectContextFor(mainPath);
@@ -230,38 +274,56 @@ public class ProjectIsolationTests
         var dialoguePath = Path.GetFullPath("C:/test/src/home/dialogue_entry.asm");
         var wramPath = Path.GetFullPath("C:/test/src/ram/wram.asm");
 
-        resolver.AddTextFile(gamePath, string.Join("\n",
-            "INCLUDE \"ram/wram.asm\"",
-            "INCLUDE \"macros/asm.inc\"",
-            "SECTION \"Home\", ROM0",
-            "INCLUDE \"home/dialogue_entry.asm\""));
+        resolver.AddTextFile(
+            gamePath,
+            string.Join(
+                "\n",
+                "INCLUDE \"ram/wram.asm\"",
+                "INCLUDE \"macros/asm.inc\"",
+                "SECTION \"Home\", ROM0",
+                "INCLUDE \"home/dialogue_entry.asm\""
+            )
+        );
 
-        resolver.AddTextFile(wramPath, string.Join("\n",
-            "SECTION \"WRAM\", WRAM0",
-            "wDialogueState:: db"));
+        resolver.AddTextFile(
+            wramPath,
+            string.Join("\n", "SECTION \"WRAM\", WRAM0", "wDialogueState:: db")
+        );
 
-        resolver.AddTextFile(macrosPath, string.Join("\n",
-            "MACRO switch_bank",
-            "  ld a, \\1",
-            "ENDM"));
+        resolver.AddTextFile(
+            macrosPath,
+            string.Join("\n", "MACRO switch_bank", "  ld a, \\1", "ENDM")
+        );
 
-        resolver.AddTextFile(dialoguePath, string.Join("\n",
-            "RunDialogue:",
-            "  switch_bank $0d",
-            "  ld a, [wDialogueState]",
-            "  ret"));
+        resolver.AddTextFile(
+            dialoguePath,
+            string.Join(
+                "\n",
+                "RunDialogue:",
+                "  switch_bank $0d",
+                "  ld a, [wDialogueState]",
+                "  ret"
+            )
+        );
 
         var manager = CreateManager(resolver);
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "game", Entrypoint = gamePath },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition { Name = "game", Entrypoint = gamePath },
+            ])
+        );
 
         // Open only the leaf file
-        manager.UpdateDocumentText(dialoguePath, string.Join("\n",
-            "RunDialogue:",
-            "  switch_bank $0d",
-            "  ld a, [wDialogueState]",
-            "  ret"));
+        manager.UpdateDocumentText(
+            dialoguePath,
+            string.Join(
+                "\n",
+                "RunDialogue:",
+                "  switch_bank $0d",
+                "  ld a, [wDialogueState]",
+                "  ret"
+            )
+        );
 
         // Get the project context for dialogue_entry.asm
         var ctx = manager.GetPrimaryProjectContextFor(dialoguePath);
@@ -269,7 +331,9 @@ public class ProjectIsolationTests
 
         // The compilation should succeed with no errors
         var diags = ctx!.Compilation.Emit().Diagnostics;
-        var errors = diags.Where(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error).ToList();
+        var errors = diags
+            .Where(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error)
+            .ToList();
         await Assert.That(errors.Count).IsEqualTo(0);
     }
 
@@ -281,14 +345,18 @@ public class ProjectIsolationTests
         // In configured mode with one project, open a file that's NOT part of that project.
         // Verify it has no primary project context (not auto-assigned to heuristic).
         var resolver = new VirtualFileResolver();
-        resolver.AddTextFile(
-            Path.GetFullPath("C:/test/game.asm"),
-            "SECTION \"Game\", ROM0\nnop");
+        resolver.AddTextFile(Path.GetFullPath("C:/test/game.asm"), "SECTION \"Game\", ROM0\nnop");
 
         var manager = CreateManager(resolver);
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "game", Entrypoint = Path.GetFullPath("C:/test/game.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "game",
+                    Entrypoint = Path.GetFullPath("C:/test/game.asm"),
+                },
+            ])
+        );
 
         manager.UpdateDocumentText("C:/test/game.asm", "SECTION \"Game\", ROM0\nnop");
         manager.UpdateDocumentText("C:/test/unrelated.asm", "SECTION \"Other\", ROM0\nhalt");

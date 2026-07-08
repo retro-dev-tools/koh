@@ -23,9 +23,19 @@ public sealed partial class Sm83Backend
             IReadOnlySet<IrFunction> recursive,
             bool isEntry,
             int softStackBase,
-            IReadOnlySet<IrFunction>? banked = null)
+            IReadOnlySet<IrFunction>? banked = null
+        )
         {
-            _ctx = new EmitContext(emitter, fn, allocations, globals, recursive, isEntry, softStackBase, banked);
+            _ctx = new EmitContext(
+                emitter,
+                fn,
+                allocations,
+                globals,
+                recursive,
+                isEntry,
+                softStackBase,
+                banked
+            );
             _e = emitter;
             _arith = new ArithmeticEmitter(_ctx);
             _mem = new MemoryEmitter(_ctx);
@@ -45,12 +55,15 @@ public sealed partial class Sm83Backend
                 // Move the hardware CALL stack into WRAM (it defaults to the tiny HRAM window, where deep
                 // recursion overflows into the I/O registers and crashes). Growing down from just below
                 // ArgScratch gives it the whole arena above the static frames.
-                _e.U8(0x31); _e.U16(HwStackTop);      // LD SP, HwStackTop
+                _e.U8(0x31);
+                _e.U16(HwStackTop); // LD SP, HwStackTop
                 // Initialize the software-stack pointer once at boot (only needed when some function
                 // recurses and therefore saves its frame there).
                 LdHL(_e, _ctx.SoftStackBase); // LD HL, softStackBase
-                _e.U8(0x7D); _e.StoreA(SoftSp);       // LD A, L ; LD (SoftSp), A
-                _e.U8(0x7C); _e.StoreA(SoftSp + 1);   // LD A, H ; LD (SoftSp+1), A
+                _e.U8(0x7D);
+                _e.StoreA(SoftSp); // LD A, L ; LD (SoftSp), A
+                _e.U8(0x7C);
+                _e.StoreA(SoftSp + 1); // LD A, H ; LD (SoftSp+1), A
             }
 
             // The CALL target is here, before any prologue (the entry block label follows the prologue).
@@ -70,7 +83,8 @@ public sealed partial class Sm83Backend
                 if (_ctx.FrameSize > 255)
                     throw new Sm83LimitException(
                         $"recursive function '{_ctx.Fn.Name}' frame is {_ctx.FrameSize} bytes; the software-stack "
-                        + "save supports up to 255.");
+                            + "save supports up to 255."
+                    );
                 // Save the caller's copy of the shared static frame, then install this call's arguments
                 // (staged in ArgScratch) into the parameter slots at the frame base. A zero-byte frame
                 // (no params/locals — recursion driven through globals) has nothing to save; skip it, as
@@ -78,7 +92,8 @@ public sealed partial class Sm83Backend
                 if (_ctx.FrameSize > 0)
                 {
                     LdDE(_e, _ctx.FrameBase); // LD DE, frameBase
-                    _e.U8(0x06); _e.U8(_ctx.FrameSize);                                // LD B, frameSize
+                    _e.U8(0x06);
+                    _e.U8(_ctx.FrameSize); // LD B, frameSize
                     _e.Jump(0xCD, _e.RoutineLabel("rt.pushframe"));
                     int paramBytes = _ctx.ParamBytes(_ctx.Fn);
                     for (int k = 0; k < paramBytes; k++)
@@ -106,26 +121,51 @@ public sealed partial class Sm83Backend
         {
             switch (instr)
             {
-                case BinaryInstruction b: _arith.EmitBinary(b); break;
-                case CompareInstruction c: _arith.EmitCompare(c); break;
-                case ConvInstruction cv: _arith.EmitConv(cv); break;
-                case LoadInstruction l: _mem.EmitLoad(l); break;
-                case StoreInstruction s: _mem.EmitStore(s); break;
-                case AllocaInstruction: break;               // storage pre-assigned
+                case BinaryInstruction b:
+                    _arith.EmitBinary(b);
+                    break;
+                case CompareInstruction c:
+                    _arith.EmitCompare(c);
+                    break;
+                case ConvInstruction cv:
+                    _arith.EmitConv(cv);
+                    break;
+                case LoadInstruction l:
+                    _mem.EmitLoad(l);
+                    break;
+                case StoreInstruction s:
+                    _mem.EmitStore(s);
+                    break;
+                case AllocaInstruction:
+                    break; // storage pre-assigned
                 case GetElementPtrInstruction g:
-                    if (_ctx.Slot.ContainsKey(g))                // dynamic: compute the pointer at runtime
+                    if (_ctx.Slot.ContainsKey(g)) // dynamic: compute the pointer at runtime
                         _mem.EmitGep(g);
-                    break;                                   // static: address pre-assigned
-                case PhiInstruction: break;                  // realized by predecessor edge copies
-                case RetInstruction r: _cf.EmitRet(r); break;
-                case BrInstruction br: _cf.EmitBr(block, br); break;
-                case CondBrInstruction cb: _cf.EmitCondBr(block, cb); break;
-                case SwitchInstruction sw: _cf.EmitSwitch(block, sw); break;
-                case CallInstruction call: _cf.EmitCall(call); break;
-                case IntrinsicInstruction intr: _cf.EmitIntrinsic(intr); break;
+                    break; // static: address pre-assigned
+                case PhiInstruction:
+                    break; // realized by predecessor edge copies
+                case RetInstruction r:
+                    _cf.EmitRet(r);
+                    break;
+                case BrInstruction br:
+                    _cf.EmitBr(block, br);
+                    break;
+                case CondBrInstruction cb:
+                    _cf.EmitCondBr(block, cb);
+                    break;
+                case SwitchInstruction sw:
+                    _cf.EmitSwitch(block, sw);
+                    break;
+                case CallInstruction call:
+                    _cf.EmitCall(call);
+                    break;
+                case IntrinsicInstruction intr:
+                    _cf.EmitIntrinsic(intr);
+                    break;
                 default:
                     throw new NotSupportedException(
-                        $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_ctx.Fn.Name}').");
+                        $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_ctx.Fn.Name}')."
+                    );
             }
         }
     }

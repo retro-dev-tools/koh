@@ -16,7 +16,8 @@ internal sealed class SymbolFinder
         SyntaxToken Token,
         string Uri,
         string OwnerId,
-        bool IsDeclaration);
+        bool IsDeclaration
+    );
 
     /// <summary>
     /// Resolve the symbol at a given offset in a document.
@@ -25,11 +26,13 @@ internal sealed class SymbolFinder
     public ResolvedSymbol? ResolveAt(Workspace workspace, string uri, int offset)
     {
         var doc = workspace.GetDocument(uri);
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
         var token = tree.Root.FindToken(offset);
-        if (token == null) return null;
+        if (token == null)
+            return null;
 
         // Reject non-identifier tokens
         if (token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
@@ -37,16 +40,19 @@ internal sealed class SymbolFinder
 
         // Require symbol-bearing ancestor context
         var parent = token.Parent;
-        if (parent == null) return null;
+        if (parent == null)
+            return null;
         if (!IsSymbolContext(parent.Kind))
             return null;
 
         // Resolve via compilation semantic model
         var model = workspace.GetSemanticModel(uri);
-        if (model == null) return null;
+        if (model == null)
+            return null;
 
         var symbol = model.ResolveSymbol(token.Text, token.Span.Start);
-        if (symbol == null) return null;
+        if (symbol == null)
+            return null;
 
         bool isDeclaration = IsDeclarationContext(parent.Kind);
         var ownerId = symbol.OwnerId ?? uri;
@@ -61,7 +67,8 @@ internal sealed class SymbolFinder
     public IReadOnlyList<ResolvedSymbol> FindAllOccurrences(
         Workspace workspace,
         ResolvedSymbol target,
-        bool includeDeclarations = true)
+        bool includeDeclarations = true
+    )
     {
         var results = new List<ResolvedSymbol>();
         var targetId = target.Symbol.SymbolId;
@@ -70,11 +77,13 @@ internal sealed class SymbolFinder
         foreach (var uri in workspace.OpenDocumentUris)
         {
             var doc = workspace.GetDocument(uri);
-            if (doc == null) continue;
+            if (doc == null)
+                continue;
 
             var (source, tree) = doc.Value;
             var model = workspace.GetSemanticModel(uri);
-            if (model == null) continue;
+            if (model == null)
+                continue;
 
             WalkForOccurrences(tree.Root, model, uri, targetId, includeDeclarations, results, seen);
         }
@@ -85,10 +94,7 @@ internal sealed class SymbolFinder
     /// <summary>
     /// Validate whether a rename is allowed. Returns null if valid, or an error message if not.
     /// </summary>
-    public string? ValidateRename(
-        Workspace workspace,
-        ResolvedSymbol target,
-        string newName)
+    public string? ValidateRename(Workspace workspace, ResolvedSymbol target, string newName)
     {
         // Lexical identifier validity
         if (string.IsNullOrWhiteSpace(newName))
@@ -134,7 +140,10 @@ internal sealed class SymbolFinder
         IsDeclarationContext(kind) || IsReferenceContext(kind);
 
     private static bool IsDeclarationContext(SyntaxKind kind) =>
-        kind is SyntaxKind.LabelDeclaration or SyntaxKind.SymbolDirective or SyntaxKind.MacroDefinition;
+        kind
+            is SyntaxKind.LabelDeclaration
+                or SyntaxKind.SymbolDirective
+                or SyntaxKind.MacroDefinition;
 
     private static bool IsReferenceContext(SyntaxKind kind) =>
         kind is SyntaxKind.NameExpression or SyntaxKind.LabelOperand or SyntaxKind.MacroCall;
@@ -150,7 +159,8 @@ internal sealed class SymbolFinder
         (string? OwnerId, string QualifiedName) targetId,
         bool includeDeclarations,
         List<ResolvedSymbol> results,
-        HashSet<(string Uri, int Start)> seen)
+        HashSet<(string Uri, int Start)> seen
+    )
     {
         foreach (var child in node.ChildNodesAndTokens())
         {
@@ -168,16 +178,28 @@ internal sealed class SymbolFinder
                         for (int i = 1; i < tokens.Count; i++)
                         {
                             var nameToken = tokens[i];
-                            if (nameToken.Kind != SyntaxKind.IdentifierToken) continue;
+                            if (nameToken.Kind != SyntaxKind.IdentifierToken)
+                                continue;
 
-                            var resolved = model.ResolveSymbol(nameToken.Text, nameToken.Span.Start);
+                            var resolved = model.ResolveSymbol(
+                                nameToken.Text,
+                                nameToken.Span.Start
+                            );
                             if (resolved != null && resolved.SymbolId == targetId)
                             {
                                 var exportKey = (uri, nameToken.Span.Start);
                                 if (seen.Add(exportKey))
                                 {
                                     var ownerId = resolved.OwnerId ?? uri;
-                                    results.Add(new ResolvedSymbol(resolved, nameToken, uri, ownerId, IsDeclaration: false));
+                                    results.Add(
+                                        new ResolvedSymbol(
+                                            resolved,
+                                            nameToken,
+                                            uri,
+                                            ownerId,
+                                            IsDeclaration: false
+                                        )
+                                    );
                                 }
                             }
                         }
@@ -186,11 +208,20 @@ internal sealed class SymbolFinder
                     }
                 }
 
-                WalkForOccurrences(childNode, model, uri, targetId, includeDeclarations, results, seen);
+                WalkForOccurrences(
+                    childNode,
+                    model,
+                    uri,
+                    targetId,
+                    includeDeclarations,
+                    results,
+                    seen
+                );
                 continue;
             }
 
-            if (!child.IsToken) continue;
+            if (!child.IsToken)
+                continue;
             var token = child.AsToken!;
 
             if (token.Kind is not SyntaxKind.IdentifierToken and not SyntaxKind.LocalLabelToken)
@@ -205,11 +236,14 @@ internal sealed class SymbolFinder
                 continue;
 
             var sym = model.ResolveSymbol(token.Text, token.Span.Start);
-            if (sym == null) continue;
-            if (sym.SymbolId != targetId) continue;
+            if (sym == null)
+                continue;
+            if (sym.SymbolId != targetId)
+                continue;
 
             var dedupeKey = (uri, token.Span.Start);
-            if (!seen.Add(dedupeKey)) continue;
+            if (!seen.Add(dedupeKey))
+                continue;
 
             var ownerIdForResult = sym.OwnerId ?? uri;
             results.Add(new ResolvedSymbol(sym, token, uri, ownerIdForResult, isDecl));
@@ -223,7 +257,8 @@ internal sealed class SymbolFinder
     private static bool IsValidIdentifier(string name)
     {
         var text = name.StartsWith('.') ? name[1..] : name;
-        if (text.Length == 0) return false;
+        if (text.Length == 0)
+            return false;
 
         // First char must be letter or underscore
         if (!char.IsLetter(text[0]) && text[0] != '_')
@@ -241,8 +276,20 @@ internal sealed class SymbolFinder
     private static bool IsRegisterName(string name)
     {
         var lower = name.ToLowerInvariant();
-        return lower is "a" or "b" or "c" or "d" or "e" or "f"
-            or "h" or "l" or "af" or "bc" or "de" or "hl" or "sp";
+        return lower
+            is "a"
+                or "b"
+                or "c"
+                or "d"
+                or "e"
+                or "f"
+                or "h"
+                or "l"
+                or "af"
+                or "bc"
+                or "de"
+                or "hl"
+                or "sp";
     }
 
     private string? CheckCollisions(Workspace workspace, ResolvedSymbol target, string newName)
@@ -253,7 +300,8 @@ internal sealed class SymbolFinder
         foreach (var uri in workspace.OpenDocumentUris)
         {
             var model = workspace.GetSemanticModel(uri);
-            if (model == null) continue;
+            if (model == null)
+                continue;
 
             // Build the qualified name for local labels
             string qualifiedNewName;
@@ -281,9 +329,11 @@ internal sealed class SymbolFinder
                 }
 
                 // Owner-local collision
-                if (existing.OwnerId == targetSymbol.OwnerId ||
-                    existing.Visibility == SymbolVisibility.Exported ||
-                    targetSymbol.Visibility == SymbolVisibility.Exported)
+                if (
+                    existing.OwnerId == targetSymbol.OwnerId
+                    || existing.Visibility == SymbolVisibility.Exported
+                    || targetSymbol.Visibility == SymbolVisibility.Exported
+                )
                 {
                     return $"A symbol named '{newName}' already exists in the same scope.";
                 }

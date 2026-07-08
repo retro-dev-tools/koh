@@ -322,10 +322,10 @@ public sealed class CliTests
 
     private static string MinimalValidSource() =>
         """
-        SECTION "Test",ROM0
-        start:
-            nop
-        """;
+            SECTION "Test",ROM0
+            start:
+                nop
+            """;
 }
 
 /// <summary>
@@ -333,8 +333,12 @@ public sealed class CliTests
 /// </summary>
 internal sealed class TempDirectory : IDisposable
 {
-    public string Root { get; } = System.IO.Path.Combine(
-        System.IO.Path.GetTempPath(), "koh-asm-tests", Guid.NewGuid().ToString("N"));
+    public string Root { get; } =
+        System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "koh-asm-tests",
+            Guid.NewGuid().ToString("N")
+        );
 
     public TempDirectory()
     {
@@ -354,7 +358,12 @@ internal sealed class TempDirectory : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(Root, recursive: true); }
-        catch { /* best-effort cleanup */ }
+        try
+        {
+            Directory.Delete(Root, recursive: true);
+        }
+        catch
+        { /* best-effort cleanup */
+        }
     }
 }

@@ -1,8 +1,8 @@
+using System.Text.Json;
 using Koh.Debugger.Dap.Handlers;
 using Koh.Debugger.Dap.Messages;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
-using System.Text.Json;
 
 namespace Koh.Debugger.Tests;
 
@@ -13,7 +13,8 @@ public class WriteMemoryHandlerTests
         var session = new DebugSession();
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0x18; rom[0x101] = 0xFE;
+        rom[0x100] = 0x18;
+        rom[0x101] = 0xFE;
         session.Launch(rom, Array.Empty<byte>(), HardwareMode.Dmg);
         return (session, new WriteMemoryHandler(session));
     }
@@ -31,13 +32,17 @@ public class WriteMemoryHandlerTests
         var gb = session.System!;
         var data = Convert.ToBase64String(new byte[] { 0xAA, 0xBB, 0xCC });
 
-        var resp = handler.Handle(MakeReq(new
-        {
-            memoryReference = "$C100",
-            offset = 0,
-            allowPartial = false,
-            data,
-        }));
+        var resp = handler.Handle(
+            MakeReq(
+                new
+                {
+                    memoryReference = "$C100",
+                    offset = 0,
+                    allowPartial = false,
+                    data,
+                }
+            )
+        );
 
         await Assert.That(resp.Success).IsTrue();
         await Assert.That(gb.Mmu.ReadByte(0xC100)).IsEqualTo((byte)0xAA);
@@ -49,12 +54,16 @@ public class WriteMemoryHandlerTests
     public async Task WriteMemory_Rejects_Bad_MemoryReference()
     {
         var (_, handler) = Make();
-        var resp = handler.Handle(MakeReq(new
-        {
-            memoryReference = "not-an-address",
-            offset = 0,
-            data = Convert.ToBase64String(new byte[] { 1 }),
-        }));
+        var resp = handler.Handle(
+            MakeReq(
+                new
+                {
+                    memoryReference = "not-an-address",
+                    offset = 0,
+                    data = Convert.ToBase64String(new byte[] { 1 }),
+                }
+            )
+        );
         await Assert.That(resp.Success).IsFalse();
     }
 
@@ -62,12 +71,16 @@ public class WriteMemoryHandlerTests
     public async Task WriteMemory_Rejects_Invalid_Base64()
     {
         var (_, handler) = Make();
-        var resp = handler.Handle(MakeReq(new
-        {
-            memoryReference = "$C100",
-            offset = 0,
-            data = "!!!not-base64!!!",
-        }));
+        var resp = handler.Handle(
+            MakeReq(
+                new
+                {
+                    memoryReference = "$C100",
+                    offset = 0,
+                    data = "!!!not-base64!!!",
+                }
+            )
+        );
         await Assert.That(resp.Success).IsFalse();
     }
 }

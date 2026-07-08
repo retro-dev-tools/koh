@@ -21,7 +21,7 @@ public sealed class AudioSampleBuffer
         _buffer[_writeIndex] = sample;
         _writeIndex = (_writeIndex + 1) % Capacity;
         if (_writeIndex == _readIndex)
-            _readIndex = (_readIndex + 1) % Capacity;  // overflow: drop oldest
+            _readIndex = (_readIndex + 1) % Capacity; // overflow: drop oldest
     }
 
     public int Drain(Span<short> destination)

@@ -30,8 +30,8 @@ public readonly struct ScrollPanel<TMsg, TChild>(
     TChild Child,
     int ViewportWidth,
     int ViewportHeight,
-    int ScrollY = 0)
-    : IView<TMsg>
+    int ScrollY = 0
+) : IView<TMsg>
     where TChild : IView<TMsg>
 {
     public readonly TChild Child = Child;
@@ -39,11 +39,14 @@ public readonly struct ScrollPanel<TMsg, TChild>(
     public readonly int ViewportHeight = ViewportHeight;
     public readonly int ScrollY = ScrollY;
 
-    public RenderNode Render() => RenderNode.WithChildren(
-        "ScrollPanel",
-        ImmutableArray.Create(Child.Render()),
-        Props.Of(
-            ("viewportW", ViewportWidth),
-            ("viewportH", ViewportHeight),
-            ("scrollY",   ScrollY)));
+    public RenderNode Render() =>
+        RenderNode.WithChildren(
+            "ScrollPanel",
+            ImmutableArray.Create(Child.Render()),
+            Props.Of(
+                ("viewportW", ViewportWidth),
+                ("viewportH", ViewportHeight),
+                ("scrollY", ScrollY)
+            )
+        );
 }

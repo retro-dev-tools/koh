@@ -13,12 +13,16 @@ public readonly struct MenuBar<TMsg>(ImmutableArray<MenuItem<TMsg>> Items) : IVi
     public RenderNode Render()
     {
         var children = ImmutableArray.CreateBuilder<RenderNode>(Items.Length);
-        foreach (var item in Items) children.Add(item.Render());
+        foreach (var item in Items)
+            children.Add(item.Render());
         // MenuBar is a horizontal stack by construction; emit the same
         // "direction" prop a Stack would so the shared stack-layout code
         // doesn't need to special-case each container type.
-        return RenderNode.WithChildren("MenuBar", children.MoveToImmutable(),
-            Props.Of(("direction", "Horizontal")));
+        return RenderNode.WithChildren(
+            "MenuBar",
+            children.MoveToImmutable(),
+            Props.Of(("direction", "Horizontal"))
+        );
     }
 }
 
@@ -33,8 +37,6 @@ public readonly struct MenuItem<TMsg>(string Text, Func<TMsg>? OnClick = null) :
     public readonly string Text = Text;
     public readonly Func<TMsg>? OnClick = OnClick;
 
-    public RenderNode Render()
-        => RenderNode.Leaf("MenuItem", Props.Of(
-            ("text", Text),
-            ("onClick", OnClick)));
+    public RenderNode Render() =>
+        RenderNode.Leaf("MenuItem", Props.Of(("text", Text), ("onClick", OnClick)));
 }

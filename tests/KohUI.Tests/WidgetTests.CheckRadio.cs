@@ -6,7 +6,9 @@ namespace KohUI.Tests;
 public class CheckRadioTests
 {
     private abstract record Msg;
+
     private sealed record SetEnabled(bool Value) : Msg;
+
     private sealed record PickDmg : Msg;
 
     [Test]
@@ -42,7 +44,11 @@ public class CheckRadioTests
     [Test]
     public async Task RadioButton_Emits_Selected_Prop_And_Text()
     {
-        var node = new RadioButton<Msg>("DMG", Selected: true, OnSelect: () => new PickDmg()).Render();
+        var node = new RadioButton<Msg>(
+            "DMG",
+            Selected: true,
+            OnSelect: () => new PickDmg()
+        ).Render();
         await Assert.That(node.Type).IsEqualTo("RadioButton");
         await Assert.That(node.Props["text"]).IsEqualTo((object)"DMG");
         await Assert.That((bool)node.Props["selected"]!).IsTrue();

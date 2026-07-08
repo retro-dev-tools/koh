@@ -32,7 +32,13 @@ public sealed class IrType
     /// <summary>Element count for <see cref="IrTypeKind.Array"/>.</summary>
     public int ArrayLength { get; }
 
-    private IrType(IrTypeKind kind, int bits, AddressSpace addressSpace, IrType? element, int arrayLength)
+    private IrType(
+        IrTypeKind kind,
+        int bits,
+        AddressSpace addressSpace,
+        IrType? element,
+        int arrayLength
+    )
     {
         Kind = kind;
         Bits = bits;
@@ -48,14 +54,15 @@ public sealed class IrType
     public static readonly IrType I32 = new(IrTypeKind.Int, 32, AddressSpace.Default, null, 0);
     public static readonly IrType I64 = new(IrTypeKind.Int, 64, AddressSpace.Default, null, 0);
 
-    public static IrType Int(int bits) => bits switch
-    {
-        8 => I8,
-        16 => I16,
-        32 => I32,
-        64 => I64,
-        _ => new IrType(IrTypeKind.Int, bits, AddressSpace.Default, null, 0),
-    };
+    public static IrType Int(int bits) =>
+        bits switch
+        {
+            8 => I8,
+            16 => I16,
+            32 => I32,
+            64 => I64,
+            _ => new IrType(IrTypeKind.Int, bits, AddressSpace.Default, null, 0),
+        };
 
     public static IrType Pointer(IrType pointee, AddressSpace space = AddressSpace.Default) =>
         new(IrTypeKind.Pointer, 0, space, pointee, 0);
@@ -71,19 +78,21 @@ public sealed class IrType
     public int SizeInBits => Kind == IrTypeKind.Pointer ? DataLayout.Sm83.PointerBits : Bits;
 
     /// <summary>Storage size of this type in bytes (see <see cref="SizeInBits"/> for pointers).</summary>
-    public int SizeInBytes => Kind switch
-    {
-        IrTypeKind.Void => 0,
-        IrTypeKind.Int => (Bits + 7) / 8,
-        IrTypeKind.Pointer => DataLayout.Sm83.PointerSize,
-        IrTypeKind.Array => (Element?.SizeInBytes ?? 0) * ArrayLength,
-        // No struct IR type is constructible today (the C# frontend lowers structs to byte buffers,
-        // never to struct-typed values). Fail loudly rather than silently sizing a struct at 0 bytes,
-        // which would turn a struct-typed load/store/alloca into a no-op.
-        IrTypeKind.Struct => throw new NotSupportedException(
-            "struct IR types have no defined storage size on this target"),
-        _ => 0,
-    };
+    public int SizeInBytes =>
+        Kind switch
+        {
+            IrTypeKind.Void => 0,
+            IrTypeKind.Int => (Bits + 7) / 8,
+            IrTypeKind.Pointer => DataLayout.Sm83.PointerSize,
+            IrTypeKind.Array => (Element?.SizeInBytes ?? 0) * ArrayLength,
+            // No struct IR type is constructible today (the C# frontend lowers structs to byte buffers,
+            // never to struct-typed values). Fail loudly rather than silently sizing a struct at 0 bytes,
+            // which would turn a struct-typed load/store/alloca into a no-op.
+            IrTypeKind.Struct => throw new NotSupportedException(
+                "struct IR types have no defined storage size on this target"
+            ),
+            _ => 0,
+        };
 
     /// <summary>Structural equality: same kind, width, address space, and element shape.</summary>
     public bool StructurallyEquals(IrType other) =>
@@ -91,18 +100,25 @@ public sealed class IrType
         && Bits == other.Bits
         && AddressSpace == other.AddressSpace
         && ArrayLength == other.ArrayLength
-        && ((Element is null && other.Element is null)
-            || (Element is not null && other.Element is not null && Element.StructurallyEquals(other.Element)));
+        && (
+            (Element is null && other.Element is null)
+            || (
+                Element is not null
+                && other.Element is not null
+                && Element.StructurallyEquals(other.Element)
+            )
+        );
 
-    public override string ToString() => Kind switch
-    {
-        IrTypeKind.Void => "void",
-        IrTypeKind.Int => $"i{Bits}",
-        IrTypeKind.Pointer => AddressSpace == AddressSpace.Default
-            ? $"{Element}*"
-            : $"{Element} addrspace({AddressSpace.ToString().ToLowerInvariant()})*",
-        IrTypeKind.Array => $"[{ArrayLength} x {Element}]",
-        IrTypeKind.Struct => "struct",
-        _ => "?",
-    };
+    public override string ToString() =>
+        Kind switch
+        {
+            IrTypeKind.Void => "void",
+            IrTypeKind.Int => $"i{Bits}",
+            IrTypeKind.Pointer => AddressSpace == AddressSpace.Default
+                ? $"{Element}*"
+                : $"{Element} addrspace({AddressSpace.ToString().ToLowerInvariant()})*",
+            IrTypeKind.Array => $"[{ArrayLength} x {Element}]",
+            IrTypeKind.Struct => "struct",
+            _ => "?",
+        };
 }

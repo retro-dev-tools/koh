@@ -47,12 +47,16 @@ internal sealed class ProjectContextManager
     /// <summary>
     /// Active project contexts keyed by entrypoint path.
     /// </summary>
-    private readonly Dictionary<string, ProjectContext> _projects = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ProjectContext> _projects = new(
+        StringComparer.OrdinalIgnoreCase
+    );
 
     /// <summary>
     /// Map from file path to its primary owner entrypoint path.
     /// </summary>
-    private readonly Dictionary<string, string> _primaryOwner = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _primaryOwner = new(
+        StringComparer.OrdinalIgnoreCase
+    );
 
     public ProjectContextManager(string folderPath, ISourceFileResolver innerResolver)
     {
@@ -147,7 +151,10 @@ internal sealed class ProjectContextManager
         }
     }
 
-    private static bool IncludeEdgesEqual(IReadOnlySet<string> oldEdges, IReadOnlyList<string> newEdges)
+    private static bool IncludeEdgesEqual(
+        IReadOnlySet<string> oldEdges,
+        IReadOnlyList<string> newEdges
+    )
     {
         if (oldEdges.Count != newEdges.Count)
             return false;
@@ -223,8 +230,10 @@ internal sealed class ProjectContextManager
     {
         var normalizedPath = Path.GetFullPath(filePath);
 
-        if (_primaryOwner.TryGetValue(normalizedPath, out var ownerEntrypoint)
-            && _projects.TryGetValue(ownerEntrypoint, out var project))
+        if (
+            _primaryOwner.TryGetValue(normalizedPath, out var ownerEntrypoint)
+            && _projects.TryGetValue(ownerEntrypoint, out var project)
+        )
         {
             return project;
         }
@@ -261,8 +270,13 @@ internal sealed class ProjectContextManager
         {
             foreach (var def in _configuredProjects)
             {
-                if (string.Equals(def.Entrypoint, changedFilePath, StringComparison.OrdinalIgnoreCase)
-                    && !_projects.ContainsKey(def.Entrypoint))
+                if (
+                    string.Equals(
+                        def.Entrypoint,
+                        changedFilePath,
+                        StringComparison.OrdinalIgnoreCase
+                    ) && !_projects.ContainsKey(def.Entrypoint)
+                )
                 {
                     BuildAndAddProject(def.Name, def.Entrypoint);
                 }
@@ -324,7 +338,12 @@ internal sealed class ProjectContextManager
             }
             else
             {
-                _projects[candidate.FilePath] = new ProjectContext(name, candidate.FilePath, reachable, compilation);
+                _projects[candidate.FilePath] = new ProjectContext(
+                    name,
+                    candidate.FilePath,
+                    reachable,
+                    compilation
+                );
             }
         }
 
@@ -347,7 +366,12 @@ internal sealed class ProjectContextManager
 
         var reachable = _graph.GetReachableFiles(entrypointPath);
         var compilation = BuildCompilation(entrypointPath);
-        _projects[entrypointPath] = new ProjectContext(name, entrypointPath, reachable, compilation);
+        _projects[entrypointPath] = new ProjectContext(
+            name,
+            entrypointPath,
+            reachable,
+            compilation
+        );
     }
 
     /// <summary>
@@ -435,10 +459,13 @@ internal sealed class ProjectContextManager
     /// Uses the workspace folder as the CWD (matching RGBDS behavior), with fallback to
     /// the including file's directory. Delegates text/binary reads to the shared resolver.
     /// </summary>
-    private sealed class EntrypointResolver(ISourceFileResolver inner, string basePath) : ISourceFileResolver
+    private sealed class EntrypointResolver(ISourceFileResolver inner, string basePath)
+        : ISourceFileResolver
     {
         public bool FileExists(string path) => inner.FileExists(path);
+
         public string ReadAllText(string path) => inner.ReadAllText(path);
+
         public byte[] ReadAllBytes(string path) => inner.ReadAllBytes(path);
 
         public string ResolvePath(string currentFile, string includedPath)
@@ -446,7 +473,8 @@ internal sealed class ProjectContextManager
             // RGBDS behavior: resolve relative to CWD (entrypoint dir) first,
             // then relative to the including file's directory.
             var cwdPath = Path.GetFullPath(Path.Combine(basePath, includedPath));
-            if (inner.FileExists(cwdPath)) return cwdPath;
+            if (inner.FileExists(cwdPath))
+                return cwdPath;
 
             var dir = Path.GetDirectoryName(currentFile) ?? basePath;
             return Path.GetFullPath(Path.Combine(dir, includedPath));
@@ -458,8 +486,8 @@ internal sealed class ProjectContextManager
         _primaryOwner.Clear();
 
         // Collect all entrypoints sorted for deterministic assignment
-        var sortedEntrypoints = _projects.Keys
-            .OrderBy(ep => ep, StringComparer.OrdinalIgnoreCase)
+        var sortedEntrypoints = _projects
+            .Keys.OrderBy(ep => ep, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         // For each file in each project, assign primary owner deterministically:

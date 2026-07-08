@@ -8,7 +8,7 @@ public sealed class CgbPalette
 {
     private readonly byte[] _data = new byte[64];
 
-    public byte IndexRegister;   // bit 7 = auto-increment, bits 0..5 = index
+    public byte IndexRegister; // bit 7 = auto-increment, bits 0..5 = index
 
     public byte ReadData() => _data[IndexRegister & 0x3F];
 
@@ -31,6 +31,15 @@ public sealed class CgbPalette
 
     public ReadOnlySpan<byte> RawData => _data;
 
-    public void WriteState(State.StateWriter w) { w.WriteByte(IndexRegister); w.WriteBytes(_data); }
-    public void ReadState(State.StateReader r) { IndexRegister = r.ReadByte(); r.ReadBytes(_data.AsSpan()); }
+    public void WriteState(State.StateWriter w)
+    {
+        w.WriteByte(IndexRegister);
+        w.WriteBytes(_data);
+    }
+
+    public void ReadState(State.StateReader r)
+    {
+        IndexRegister = r.ReadByte();
+        r.ReadBytes(_data.AsSpan());
+    }
 }

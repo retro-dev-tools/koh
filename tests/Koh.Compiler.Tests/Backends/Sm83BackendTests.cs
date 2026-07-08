@@ -58,23 +58,32 @@ public class Sm83BackendTests
     public async Task Emits_ExpectedBytes_ForConstantFolding()
     {
         // %0 = add i8 3, 4 ; %1 = add i8 %0, 100 ; ret i8 %1
-        var module = Function((b, _) =>
-        {
-            var v0 = b.Add(IrBuilder.ConstInt(IrType.I8, 3), IrBuilder.ConstInt(IrType.I8, 4));
-            return b.Add(v0, IrBuilder.ConstInt(IrType.I8, 100));
-        });
+        var module = Function(
+            (b, _) =>
+            {
+                var v0 = b.Add(IrBuilder.ConstInt(IrType.I8, 3), IrBuilder.ConstInt(IrType.I8, 4));
+                return b.Add(v0, IrBuilder.ConstInt(IrType.I8, 100));
+            }
+        );
 
         var data = Compile(module).Sections[0].Data;
 
         // Reloads are elided (A still holds it), and %1 reuses %0's slot (their ranges don't overlap).
         byte[] expected =
         [
-            0x3E, 0x03,             // LD A, 3
-            0xC6, 0x04,             // ADD A, 4
-            0xEA, 0x00, 0xC0,       // LD (C000), A     ; %0
-            0xC6, 0x64,             // ADD A, 100
-            0xEA, 0x00, 0xC0,       // LD (C000), A     ; %1 reuses %0's slot
-            0xC9,                   // RET
+            0x3E,
+            0x03, // LD A, 3
+            0xC6,
+            0x04, // ADD A, 4
+            0xEA,
+            0x00,
+            0xC0, // LD (C000), A     ; %0
+            0xC6,
+            0x64, // ADD A, 100
+            0xEA,
+            0x00,
+            0xC0, // LD (C000), A     ; %1 reuses %0's slot
+            0xC9, // RET
         ];
         await Assert.That(data).IsEquivalentTo(expected);
     }
@@ -122,11 +131,13 @@ public class Sm83BackendTests
     public async Task Runs_ConstantChain_InEmulator()
     {
         // (3 + 4) + 100 = 107
-        var module = Function((b, _) =>
-        {
-            var v0 = b.Add(IrBuilder.ConstInt(IrType.I8, 3), IrBuilder.ConstInt(IrType.I8, 4));
-            return b.Add(v0, IrBuilder.ConstInt(IrType.I8, 100));
-        });
+        var module = Function(
+            (b, _) =>
+            {
+                var v0 = b.Add(IrBuilder.ConstInt(IrType.I8, 3), IrBuilder.ConstInt(IrType.I8, 4));
+                return b.Add(v0, IrBuilder.ConstInt(IrType.I8, 100));
+            }
+        );
 
         await Assert.That(RunMain(Compile(module))).IsEqualTo((byte)107);
     }
@@ -135,12 +146,20 @@ public class Sm83BackendTests
     public async Task Runs_RegisterPathSubtraction_InEmulator()
     {
         // a = 10 + 20 (=30) ; b = 5 + 6 (=11) ; a - b = 19  (exercises the ALU-register path)
-        var module = Function((builder, _) =>
-        {
-            var a = builder.Add(IrBuilder.ConstInt(IrType.I8, 10), IrBuilder.ConstInt(IrType.I8, 20));
-            var b = builder.Add(IrBuilder.ConstInt(IrType.I8, 5), IrBuilder.ConstInt(IrType.I8, 6));
-            return builder.Sub(a, b);
-        });
+        var module = Function(
+            (builder, _) =>
+            {
+                var a = builder.Add(
+                    IrBuilder.ConstInt(IrType.I8, 10),
+                    IrBuilder.ConstInt(IrType.I8, 20)
+                );
+                var b = builder.Add(
+                    IrBuilder.ConstInt(IrType.I8, 5),
+                    IrBuilder.ConstInt(IrType.I8, 6)
+                );
+                return builder.Sub(a, b);
+            }
+        );
 
         await Assert.That(RunMain(Compile(module))).IsEqualTo((byte)19);
     }
@@ -149,13 +168,18 @@ public class Sm83BackendTests
     public async Task Runs_BitwiseOps_InEmulator()
     {
         // (0xF0 | 0x0F) & 0x3C = 0x3C ; ^ 0x03 = 0x3F
-        var module = Function((builder, _) =>
-        {
-            var or = builder.Binary(IrBinaryOp.Or,
-                IrBuilder.ConstInt(IrType.I8, 0xF0), IrBuilder.ConstInt(IrType.I8, 0x0F));
-            var and = builder.Binary(IrBinaryOp.And, or, IrBuilder.ConstInt(IrType.I8, 0x3C));
-            return builder.Binary(IrBinaryOp.Xor, and, IrBuilder.ConstInt(IrType.I8, 0x03));
-        });
+        var module = Function(
+            (builder, _) =>
+            {
+                var or = builder.Binary(
+                    IrBinaryOp.Or,
+                    IrBuilder.ConstInt(IrType.I8, 0xF0),
+                    IrBuilder.ConstInt(IrType.I8, 0x0F)
+                );
+                var and = builder.Binary(IrBinaryOp.And, or, IrBuilder.ConstInt(IrType.I8, 0x3C));
+                return builder.Binary(IrBinaryOp.Xor, and, IrBuilder.ConstInt(IrType.I8, 0x03));
+            }
+        );
 
         await Assert.That(RunMain(Compile(module))).IsEqualTo((byte)0x3F);
     }

@@ -4,7 +4,13 @@ namespace Koh.Emulator.Core.Tests;
 
 public class CartridgeHeaderTests
 {
-    private static byte[] MakeHeader(byte cartType, byte romSize, byte ramSize, byte cgbFlag, string title)
+    private static byte[] MakeHeader(
+        byte cartType,
+        byte romSize,
+        byte ramSize,
+        byte cgbFlag,
+        string title
+    )
     {
         var rom = new byte[0x150];
         var titleBytes = System.Text.Encoding.ASCII.GetBytes(title);
@@ -19,7 +25,13 @@ public class CartridgeHeaderTests
     [Test]
     public async Task Parse_RomOnly_16KB()
     {
-        var rom = MakeHeader(cartType: 0x00, romSize: 0x00, ramSize: 0x00, cgbFlag: 0x00, title: "TEST");
+        var rom = MakeHeader(
+            cartType: 0x00,
+            romSize: 0x00,
+            ramSize: 0x00,
+            cgbFlag: 0x00,
+            title: "TEST"
+        );
         var header = CartridgeHeader.Parse(rom);
 
         await Assert.That(header.MapperKind).IsEqualTo(MapperKind.RomOnly);
@@ -32,7 +44,13 @@ public class CartridgeHeaderTests
     [Test]
     public async Task Parse_Mbc1_WithRam()
     {
-        var rom = MakeHeader(cartType: 0x03, romSize: 0x03, ramSize: 0x03, cgbFlag: 0x00, title: "MBC1TEST");
+        var rom = MakeHeader(
+            cartType: 0x03,
+            romSize: 0x03,
+            ramSize: 0x03,
+            cgbFlag: 0x00,
+            title: "MBC1TEST"
+        );
         var header = CartridgeHeader.Parse(rom);
 
         await Assert.That(header.MapperKind).IsEqualTo(MapperKind.Mbc1);
@@ -43,7 +61,13 @@ public class CartridgeHeaderTests
     [Test]
     public async Task Parse_CgbFlag_Detected()
     {
-        var rom = MakeHeader(cartType: 0x00, romSize: 0x00, ramSize: 0x00, cgbFlag: 0x80, title: "CGB");
+        var rom = MakeHeader(
+            cartType: 0x00,
+            romSize: 0x00,
+            ramSize: 0x00,
+            cgbFlag: 0x80,
+            title: "CGB"
+        );
         var header = CartridgeHeader.Parse(rom);
 
         await Assert.That(header.CgbFlag).IsTrue();
@@ -53,7 +77,13 @@ public class CartridgeHeaderTests
     [Test]
     public async Task Parse_CgbOnly_Detected()
     {
-        var rom = MakeHeader(cartType: 0x00, romSize: 0x00, ramSize: 0x00, cgbFlag: 0xC0, title: "CGBO");
+        var rom = MakeHeader(
+            cartType: 0x00,
+            romSize: 0x00,
+            ramSize: 0x00,
+            cgbFlag: 0xC0,
+            title: "CGBO"
+        );
         var header = CartridgeHeader.Parse(rom);
 
         await Assert.That(header.CgbOnly).IsTrue();
@@ -62,7 +92,13 @@ public class CartridgeHeaderTests
     [Test]
     public async Task Parse_UnsupportedCartType_Throws()
     {
-        var rom = MakeHeader(cartType: 0xFF, romSize: 0x00, ramSize: 0x00, cgbFlag: 0x00, title: "BAD");
+        var rom = MakeHeader(
+            cartType: 0xFF,
+            romSize: 0x00,
+            ramSize: 0x00,
+            cgbFlag: 0x00,
+            title: "BAD"
+        );
         await Assert.That(() => CartridgeHeader.Parse(rom)).Throws<NotSupportedException>();
     }
 }

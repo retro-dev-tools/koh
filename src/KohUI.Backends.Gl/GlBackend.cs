@@ -48,7 +48,8 @@ public sealed class GlBackend<TModel, TMsg>
         int height = 0,
         Func<TMsg>? onTick = null,
         Func<string, TMsg?>? onKeyDown = null,
-        Func<string, TMsg?>? onKeyUp = null)
+        Func<string, TMsg?>? onKeyUp = null
+    )
     {
         _runner = runner;
         _theme = theme ?? Win98Theme.Default;
@@ -98,26 +99,46 @@ public sealed class GlBackend<TModel, TMsg>
 
     private (int W, int H, string Title) ResolveInitialWindowSpec()
     {
-        int w = _width, h = _height;
+        int w = _width,
+            h = _height;
         string title = _initialTitle;
 
         var tree = _runner.CurrentRender;
         if (tree is not null)
         {
-            if (tree.Props.TryGetValue("title", out var tv) && tv is string tstr) title = tstr;
-            if (w <= 0 && tree.Type == "Window" && tree.Props.TryGetValue("width",  out var wv) && wv is int wi && wi > 0) w = wi;
-            if (h <= 0 && tree.Type == "Window" && tree.Props.TryGetValue("height", out var hv) && hv is int hi && hi > 0) h = hi;
+            if (tree.Props.TryGetValue("title", out var tv) && tv is string tstr)
+                title = tstr;
+            if (
+                w <= 0
+                && tree.Type == "Window"
+                && tree.Props.TryGetValue("width", out var wv)
+                && wv is int wi
+                && wi > 0
+            )
+                w = wi;
+            if (
+                h <= 0
+                && tree.Type == "Window"
+                && tree.Props.TryGetValue("height", out var hv)
+                && hv is int hi
+                && hi > 0
+            )
+                h = hi;
 
             if (w <= 0 || h <= 0)
             {
                 var measured = MeasureOnce(tree);
-                if (w <= 0) w = measured.W;
-                if (h <= 0) h = measured.H;
+                if (w <= 0)
+                    w = measured.W;
+                if (h <= 0)
+                    h = measured.H;
             }
         }
 
-        if (w <= 0) w = 640;
-        if (h <= 0) h = 480;
+        if (w <= 0)
+            w = 640;
+        if (h <= 0)
+            h = 480;
         return (w, h, title);
     }
 
@@ -137,7 +158,7 @@ public sealed class GlBackend<TModel, TMsg>
     private unsafe void RunLoop(Glfw glfw, WindowHandle* window, GlContext gl)
     {
         using var batch = new QuadBatch(gl.Gl);
-        using var font  = new BitmapFont(gl.Gl);
+        using var font = new BitmapFont(gl.Gl);
         using var painter = new Painter(_theme, batch, font, gl.Gl);
         var layouter = new Layouter(_theme);
 
@@ -145,67 +166,102 @@ public sealed class GlBackend<TModel, TMsg>
         string? pressedPath = null;
         string? focusPath = null;
         LayoutNode? lastLayout = null;
-        double mouseX = 0, mouseY = 0;
+        double mouseX = 0,
+            mouseY = 0;
         bool closeRequested = false;
         bool escapePressed = false;
 
         // GLFW input comes in via callbacks. Capture them with closures
         // that flip state the loop body then consumes.
-        glfw.SetCursorPosCallback(window, (_, x, y) => { mouseX = x; mouseY = y; });
-        glfw.SetMouseButtonCallback(window, (_, btn, action, _) =>
-        {
-            if (btn != MouseButton.Left) return;
-            int ix = (int)mouseX, iy = (int)mouseY;
-            if (action == InputAction.Press)
+        glfw.SetCursorPosCallback(
+            window,
+            (_, x, y) =>
             {
-                pressedPath = FindClickTarget(lastLayout, ix, iy);
-                if (pressedPath is not null) focusPath = pressedPath;
+                mouseX = x;
+                mouseY = y;
             }
-            else if (action == InputAction.Release)
+        );
+        glfw.SetMouseButtonCallback(
+            window,
+            (_, btn, action, _) =>
             {
-                if (pressedPath is not null
-                    && FindClickTarget(lastLayout, ix, iy) == pressedPath)
+                if (btn != MouseButton.Left)
+                    return;
+                int ix = (int)mouseX,
+                    iy = (int)mouseY;
+                if (action == InputAction.Press)
                 {
-                    TryDispatchClick(ix, iy, lastLayout);
+                    pressedPath = FindClickTarget(lastLayout, ix, iy);
+                    if (pressedPath is not null)
+                        focusPath = pressedPath;
                 }
-                pressedPath = null;
+                else if (action == InputAction.Release)
+                {
+                    if (
+                        pressedPath is not null
+                        && FindClickTarget(lastLayout, ix, iy) == pressedPath
+                    )
+                    {
+                        TryDispatchClick(ix, iy, lastLayout);
+                    }
+                    pressedPath = null;
+                }
             }
-        });
-        glfw.SetKeyCallback(window, (_, key, _, action, mods) =>
-        {
-            string name = KeyName(key);
-            if (action == InputAction.Release)
+        );
+        glfw.SetKeyCallback(
+            window,
+            (_, key, _, action, mods) =>
             {
-                if (_onKeyUp is not null && _onKeyUp(name) is TMsg msgUp) _runner.Dispatch(msgUp);
-                return;
-            }
-            if (action != InputAction.Press && action != InputAction.Repeat) return;
+                string name = KeyName(key);
+                if (action == InputAction.Release)
+                {
+                    if (_onKeyUp is not null && _onKeyUp(name) is TMsg msgUp)
+                        _runner.Dispatch(msgUp);
+                    return;
+                }
+                if (action != InputAction.Press && action != InputAction.Repeat)
+                    return;
 
-            // App hook gets first dibs. Returning a message consumes the
-            // key — no focus cycling, no click dispatch. Return null to
-            // pass through to default handling.
-            if (_onKeyDown is not null && _onKeyDown(name) is TMsg msg)
-            {
-                _runner.Dispatch(msg);
-                return;
-            }
+                // App hook gets first dibs. Returning a message consumes the
+                // key — no focus cycling, no click dispatch. Return null to
+                // pass through to default handling.
+                if (_onKeyDown is not null && _onKeyDown(name) is TMsg msg)
+                {
+                    _runner.Dispatch(msg);
+                    return;
+                }
 
-            if (key == Keys.Escape) { escapePressed = true; return; }
-            HandleKeyDown(key, mods, lastLayout, ref focusPath);
-        });
+                if (key == Keys.Escape)
+                {
+                    escapePressed = true;
+                    return;
+                }
+                HandleKeyDown(key, mods, lastLayout, ref focusPath);
+            }
+        );
         // Unicode-typed characters arrive here (GLFW's equivalent of
         // WM_CHAR). Only printable ASCII lands in our 6×8 atlas; the
         // TextBox append path filters to 32..126 before dispatching.
-        glfw.SetCharCallback(window, (_, codepoint) =>
-        {
-            HandleCharInput(codepoint, lastLayout, focusPath);
-        });
-        glfw.SetWindowCloseCallback(window, _ => { closeRequested = true; });
+        glfw.SetCharCallback(
+            window,
+            (_, codepoint) =>
+            {
+                HandleCharInput(codepoint, lastLayout, focusPath);
+            }
+        );
+        glfw.SetWindowCloseCallback(
+            window,
+            _ =>
+            {
+                closeRequested = true;
+            }
+        );
 
         while (!glfw.WindowShouldClose(window))
         {
             glfw.PollEvents();
-            if (_onTick is not null) _runner.Dispatch(_onTick());
+            if (_onTick is not null)
+                _runner.Dispatch(_onTick());
 
             if (closeRequested)
             {
@@ -222,26 +278,42 @@ public sealed class GlBackend<TModel, TMsg>
                 TryDispatchClose(lastLayout);
             }
 
-            int w, h;
+            int w,
+                h;
             glfw.GetFramebufferSize(window, out w, out h);
-            if (w <= 0 || h <= 0) { continue; }
+            if (w <= 0 || h <= 0)
+            {
+                continue;
+            }
 
             var tree = _runner.CurrentRender;
-            if (tree is null) continue;
+            if (tree is null)
+                continue;
 
             SyncWindowTitle(glfw, window, tree, ref lastTitle);
             SyncWindowSize(glfw, window, tree);
             var layout = layouter.Layout(tree, w, h);
             lastLayout = layout;
 
-            if (focusPath is not null && FindByPath(layout, focusPath) is null) focusPath = null;
-            if (pressedPath is not null && FindByPath(layout, pressedPath) is null) pressedPath = null;
+            if (focusPath is not null && FindByPath(layout, focusPath) is null)
+                focusPath = null;
+            if (pressedPath is not null && FindByPath(layout, pressedPath) is null)
+                pressedPath = null;
             if (focusPath is null)
             {
-                foreach (var p in EnumerateFocusable(layout)) { focusPath = p; break; }
+                foreach (var p in EnumerateFocusable(layout))
+                {
+                    focusPath = p;
+                    break;
+                }
             }
 
-            gl.Gl.ClearColor(_theme.Background.R / 255f, _theme.Background.G / 255f, _theme.Background.B / 255f, 1f);
+            gl.Gl.ClearColor(
+                _theme.Background.R / 255f,
+                _theme.Background.G / 255f,
+                _theme.Background.B / 255f,
+                1f
+            );
             gl.Gl.Clear(ClearBufferMask.ColorBufferBit);
             batch.BeginFrame(w, h);
             // Caret blink: ~530 ms on / 530 ms off (Windows default).
@@ -254,9 +326,11 @@ public sealed class GlBackend<TModel, TMsg>
 
     private void TryDispatchClick(int x, int y, LayoutNode? lastLayout)
     {
-        if (lastLayout is null) return;
+        if (lastLayout is null)
+            return;
         var hit = HitTest.Find(lastLayout, x, y);
-        if (hit is null) return;
+        if (hit is null)
+            return;
         if (hit.Source.Props.TryGetValue("onClick", out var v) && v is Delegate d)
             InvokeHandler(d, hit.Path, "click");
     }
@@ -264,8 +338,10 @@ public sealed class GlBackend<TModel, TMsg>
     private bool TryDispatchClose(LayoutNode? lastLayout)
     {
         var root = lastLayout?.Source;
-        if (root is null || root.Type != "Window") return false;
-        if (!root.Props.TryGetValue("onClose", out var v) || v is not Delegate d) return false;
+        if (root is null || root.Type != "Window")
+            return false;
+        if (!root.Props.TryGetValue("onClose", out var v) || v is not Delegate d)
+            return false;
         InvokeHandler(d, "", "close");
         return true;
     }
@@ -283,22 +359,31 @@ public sealed class GlBackend<TModel, TMsg>
         }
     }
 
-    private static string? FindClickTarget(LayoutNode? lastLayout, int x, int y)
-        => lastLayout is null ? null : HitTest.Find(lastLayout, x, y)?.Path;
+    private static string? FindClickTarget(LayoutNode? lastLayout, int x, int y) =>
+        lastLayout is null ? null : HitTest.Find(lastLayout, x, y)?.Path;
 
-    private static LayoutNode? FindByPath(LayoutNode root, string path)
-        => Focus.FindByPath(root, path);
+    private static LayoutNode? FindByPath(LayoutNode root, string path) =>
+        Focus.FindByPath(root, path);
 
     private static IEnumerable<string> EnumerateFocusable(LayoutNode root)
     {
-        foreach (var p in Focus.Enumerate(root)) yield return p;
+        foreach (var p in Focus.Enumerate(root))
+            yield return p;
     }
 
-    private static unsafe void SyncWindowTitle(Glfw glfw, WindowHandle* window, RenderNode tree, ref string lastTitle)
+    private static unsafe void SyncWindowTitle(
+        Glfw glfw,
+        WindowHandle* window,
+        RenderNode tree,
+        ref string lastTitle
+    )
     {
-        if (tree.Type != "Window") return;
-        if (!tree.Props.TryGetValue("title", out var t) || t is not string title) return;
-        if (title == lastTitle) return;
+        if (tree.Type != "Window")
+            return;
+        if (!tree.Props.TryGetValue("title", out var t) || t is not string title)
+            return;
+        if (title == lastTitle)
+            return;
         glfw.SetWindowTitle(window, title);
         lastTitle = title;
     }
@@ -311,20 +396,29 @@ public sealed class GlBackend<TModel, TMsg>
     /// </summary>
     private static unsafe void SyncWindowSize(Glfw glfw, WindowHandle* window, RenderNode tree)
     {
-        if (tree.Type != "Window") return;
-        bool hasW = tree.Props.TryGetValue("width",  out var wv) && wv is int ww && ww > 0;
+        if (tree.Type != "Window")
+            return;
+        bool hasW = tree.Props.TryGetValue("width", out var wv) && wv is int ww && ww > 0;
         bool hasH = tree.Props.TryGetValue("height", out var hv) && hv is int hh && hh > 0;
-        if (!hasW && !hasH) return;
+        if (!hasW && !hasH)
+            return;
         glfw.GetWindowSize(window, out int curW, out int curH);
         int desiredW = hasW ? (int)wv! : curW;
         int desiredH = hasH ? (int)hv! : curH;
-        if (desiredW == curW && desiredH == curH) return;
+        if (desiredW == curW && desiredH == curH)
+            return;
         glfw.SetWindowSize(window, desiredW, desiredH);
     }
 
-    private void HandleKeyDown(Keys key, KeyModifiers mods, LayoutNode? layout, ref string? focusPath)
+    private void HandleKeyDown(
+        Keys key,
+        KeyModifiers mods,
+        LayoutNode? layout,
+        ref string? focusPath
+    )
     {
-        if (layout is null) return;
+        if (layout is null)
+            return;
 
         bool altHeld = (mods & KeyModifiers.Alt) != 0;
         if (altHeld && key >= Keys.A && key <= Keys.Z)
@@ -349,27 +443,36 @@ public sealed class GlBackend<TModel, TMsg>
         {
             // Only meaningful on a focused TextBox; silent on everything
             // else so Backspace doesn't double-fire as a "click".
-            if (focusPath is null) return;
+            if (focusPath is null)
+                return;
             var node = Focus.FindByPath(layout, focusPath);
-            if (node is null || node.Source.Type != "TextBox") return;
-            if (!node.Source.Props.TryGetValue("onChange", out var v) || v is not Delegate d) return;
+            if (node is null || node.Source.Type != "TextBox")
+                return;
+            if (!node.Source.Props.TryGetValue("onChange", out var v) || v is not Delegate d)
+                return;
             string current = Layouter.GetString(node.Source, "text");
-            if (current.Length == 0) return;
+            if (current.Length == 0)
+                return;
             DispatchChange(d, focusPath, current[..^1]);
         }
         else if (key == Keys.Enter || key == Keys.KeypadEnter || key == Keys.Space)
         {
-            if (focusPath is not null) InvokeByPath(layout, focusPath, "key");
+            if (focusPath is not null)
+                InvokeByPath(layout, focusPath, "key");
         }
     }
 
     private void HandleCharInput(uint codepoint, LayoutNode? layout, string? focusPath)
     {
-        if (layout is null || focusPath is null) return;
-        if (codepoint < 32 || codepoint > 126) return;       // fits our 6×8 atlas
+        if (layout is null || focusPath is null)
+            return;
+        if (codepoint < 32 || codepoint > 126)
+            return; // fits our 6×8 atlas
         var node = Focus.FindByPath(layout, focusPath);
-        if (node is null || node.Source.Type != "TextBox") return;
-        if (!node.Source.Props.TryGetValue("onChange", out var v) || v is not Delegate d) return;
+        if (node is null || node.Source.Type != "TextBox")
+            return;
+        if (!node.Source.Props.TryGetValue("onChange", out var v) || v is not Delegate d)
+            return;
         string current = Layouter.GetString(node.Source, "text");
         DispatchChange(d, focusPath, current + (char)codepoint);
     }
@@ -390,8 +493,10 @@ public sealed class GlBackend<TModel, TMsg>
     private void InvokeByPath(LayoutNode layout, string path, string kind)
     {
         var node = Focus.FindByPath(layout, path);
-        if (node is null) return;
-        if (!node.Source.Props.TryGetValue("onClick", out var v) || v is not Delegate d) return;
+        if (node is null)
+            return;
+        if (!node.Source.Props.TryGetValue("onClick", out var v) || v is not Delegate d)
+            return;
         InvokeHandler(d, path, kind);
     }
 
@@ -402,43 +507,44 @@ public sealed class GlBackend<TModel, TMsg>
     /// Unmapped keys return an empty string rather than throwing; app
     /// hooks check by value so an unknown key is harmless.
     /// </summary>
-    private static string KeyName(Keys key) => key switch
-    {
-        >= Keys.A and <= Keys.Z                 => "Key" + (char)('A' + (key - Keys.A)),
-        >= Keys.Number0 and <= Keys.Number9     => "Digit" + (char)('0' + (key - Keys.Number0)),
-        >= Keys.F1 and <= Keys.F12              => "F" + (1 + (key - Keys.F1)),
-        Keys.Up       => "ArrowUp",
-        Keys.Down     => "ArrowDown",
-        Keys.Left     => "ArrowLeft",
-        Keys.Right    => "ArrowRight",
-        Keys.Enter    => "Enter",
-        Keys.KeypadEnter => "Enter",
-        Keys.Space    => "Space",
-        Keys.Escape   => "Escape",
-        Keys.Tab      => "Tab",
-        Keys.Backspace => "Backspace",
-        Keys.Delete   => "Delete",
-        Keys.Home     => "Home",
-        Keys.End      => "End",
-        Keys.PageUp   => "PageUp",
-        Keys.PageDown => "PageDown",
-        Keys.ShiftLeft     => "ShiftLeft",
-        Keys.ShiftRight    => "ShiftRight",
-        Keys.ControlLeft   => "ControlLeft",
-        Keys.ControlRight  => "ControlRight",
-        Keys.AltLeft       => "AltLeft",
-        Keys.AltRight      => "AltRight",
-        Keys.Minus    => "Minus",
-        Keys.Equal    => "Equal",
-        Keys.Comma    => "Comma",
-        Keys.Period   => "Period",
-        Keys.Slash    => "Slash",
-        Keys.Semicolon => "Semicolon",
-        Keys.Apostrophe => "Quote",
-        Keys.GraveAccent => "Backquote",
-        Keys.LeftBracket  => "BracketLeft",
-        Keys.RightBracket => "BracketRight",
-        Keys.BackSlash    => "Backslash",
-        _ => "",
-    };
+    private static string KeyName(Keys key) =>
+        key switch
+        {
+            >= Keys.A and <= Keys.Z => "Key" + (char)('A' + (key - Keys.A)),
+            >= Keys.Number0 and <= Keys.Number9 => "Digit" + (char)('0' + (key - Keys.Number0)),
+            >= Keys.F1 and <= Keys.F12 => "F" + (1 + (key - Keys.F1)),
+            Keys.Up => "ArrowUp",
+            Keys.Down => "ArrowDown",
+            Keys.Left => "ArrowLeft",
+            Keys.Right => "ArrowRight",
+            Keys.Enter => "Enter",
+            Keys.KeypadEnter => "Enter",
+            Keys.Space => "Space",
+            Keys.Escape => "Escape",
+            Keys.Tab => "Tab",
+            Keys.Backspace => "Backspace",
+            Keys.Delete => "Delete",
+            Keys.Home => "Home",
+            Keys.End => "End",
+            Keys.PageUp => "PageUp",
+            Keys.PageDown => "PageDown",
+            Keys.ShiftLeft => "ShiftLeft",
+            Keys.ShiftRight => "ShiftRight",
+            Keys.ControlLeft => "ControlLeft",
+            Keys.ControlRight => "ControlRight",
+            Keys.AltLeft => "AltLeft",
+            Keys.AltRight => "AltRight",
+            Keys.Minus => "Minus",
+            Keys.Equal => "Equal",
+            Keys.Comma => "Comma",
+            Keys.Period => "Period",
+            Keys.Slash => "Slash",
+            Keys.Semicolon => "Semicolon",
+            Keys.Apostrophe => "Quote",
+            Keys.GraveAccent => "Backquote",
+            Keys.LeftBracket => "BracketLeft",
+            Keys.RightBracket => "BracketRight",
+            Keys.BackSlash => "Backslash",
+            _ => "",
+        };
 }

@@ -8,8 +8,9 @@ namespace Koh.Debugger.Session;
 /// </summary>
 public sealed class SourceMap
 {
-    private readonly Dictionary<(string File, uint Line), List<BankedAddress>> _byLine
-        = new(SourceLineComparer.Instance);
+    private readonly Dictionary<(string File, uint Line), List<BankedAddress>> _byLine = new(
+        SourceLineComparer.Instance
+    );
     private readonly List<SourceMapEntry> _entries = [];
 
     public void Add(string file, uint line, BankedAddress address, byte byteCount = 1)
@@ -33,7 +34,8 @@ public sealed class SourceMap
         for (int i = _entries.Count - 1; i >= 0; i--)
         {
             var entry = _entries[i];
-            if (entry.Address.Bank != address.Bank) continue;
+            if (entry.Address.Bank != address.Bank)
+                continue;
 
             uint start = entry.Address.Address;
             uint end = start + entry.ByteCount;
@@ -44,15 +46,22 @@ public sealed class SourceMap
         return null;
     }
 
-    private readonly record struct SourceMapEntry(string File, uint Line, BankedAddress Address, byte ByteCount);
+    private readonly record struct SourceMapEntry(
+        string File,
+        uint Line,
+        BankedAddress Address,
+        byte ByteCount
+    );
 
     private sealed class SourceLineComparer : IEqualityComparer<(string File, uint Line)>
     {
         public static readonly SourceLineComparer Instance = new();
-        public bool Equals((string File, uint Line) x, (string File, uint Line) y)
-            => StringComparer.OrdinalIgnoreCase.Equals(x.File, y.File) && x.Line == y.Line;
-        public int GetHashCode((string File, uint Line) obj)
-            => HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.File), obj.Line);
+
+        public bool Equals((string File, uint Line) x, (string File, uint Line) y) =>
+            StringComparer.OrdinalIgnoreCase.Equals(x.File, y.File) && x.Line == y.Line;
+
+        public int GetHashCode((string File, uint Line) obj) =>
+            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.File), obj.Line);
     }
 }
 

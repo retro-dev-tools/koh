@@ -1080,8 +1080,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
             return null;
 
         var semanticModel = _workspace.GetSemanticModel(path);
-        var symbol = semanticModel
-            ?.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
+        var symbol = semanticModel?.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
         if (symbol?.Kind != Core.Symbols.SymbolKind.Macro)
             return null;
 
@@ -1121,7 +1120,6 @@ public sealed class KohLanguageServer(JsonRpc rpc)
         }
         return null;
     }
-
 
     private static int ComputeActiveParameter(SyntaxNode macroCall, int cursorOffset)
     {

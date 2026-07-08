@@ -14,9 +14,11 @@ public sealed class EmitModel
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
     public bool Success { get; }
 
-    internal EmitModel(IReadOnlyList<SectionData> sections,
+    internal EmitModel(
+        IReadOnlyList<SectionData> sections,
         IReadOnlyList<SymbolData> symbols,
-        IReadOnlyList<Diagnostic> diagnostics)
+        IReadOnlyList<Diagnostic> diagnostics
+    )
     {
         Sections = sections;
         Symbols = symbols;
@@ -37,9 +39,11 @@ public sealed class EmitModel
     /// The only valid caller is <see cref="Koh.Emit.KobjReader"/>; all other paths should
     /// use the diagnostics-based overload.
     /// </summary>
-    internal EmitModel(IReadOnlyList<SectionData> sections,
+    internal EmitModel(
+        IReadOnlyList<SectionData> sections,
         IReadOnlyList<SymbolData> symbols,
-        bool success)
+        bool success
+    )
     {
         Sections = sections;
         Symbols = symbols;
@@ -58,16 +62,22 @@ public sealed class EmitModel
             // Sort sections by alignment bits descending (tighter alignment first), then by
             // insertion order for sections with the same alignment. This matches the linker's
             // placement strategy and produces deterministic output for multi-section assemblies.
-            var orderedSections = result.Sections
-                .OrderByDescending(kv => kv.Value.AlignBits)
+            var orderedSections = result
+                .Sections.OrderByDescending(kv => kv.Value.AlignBits)
                 .ThenByDescending(kv => kv.Value.FixedAddress.HasValue ? 1 : 0);
             foreach (var (name, buf) in orderedSections)
             {
-                sections.Add(new SectionData(
-                    name, buf.Type, buf.FixedAddress, buf.Bank,
-                    buf.Bytes.ToArray(),
-                    buf.Patches.ToList(),
-                    buf.LineMap.ToList()));
+                sections.Add(
+                    new SectionData(
+                        name,
+                        buf.Type,
+                        buf.FixedAddress,
+                        buf.Bank,
+                        buf.Bytes.ToArray(),
+                        buf.Patches.ToList(),
+                        buf.LineMap.ToList()
+                    )
+                );
             }
         }
 
@@ -78,16 +88,16 @@ public sealed class EmitModel
             {
                 if (sym.State == SymbolState.Defined)
                 {
-                    symbols.Add(new SymbolData(
-                        sym.Name, sym.Kind, sym.Visibility,
-                        sym.Section, sym.Value));
+                    symbols.Add(
+                        new SymbolData(sym.Name, sym.Kind, sym.Visibility, sym.Section, sym.Value)
+                    );
                 }
                 else if (sym.State == SymbolState.Undefined && sym.DefinitionSite == null)
                 {
                     // Truly undefined (no definition in this file) — mark as import
-                    symbols.Add(new SymbolData(
-                        sym.Name, sym.Kind, SymbolVisibility.Imported,
-                        null, 0));
+                    symbols.Add(
+                        new SymbolData(sym.Name, sym.Kind, SymbolVisibility.Imported, null, 0)
+                    );
                 }
             }
         }
@@ -107,6 +117,7 @@ public sealed class SectionData
     public int? Bank { get; }
     public byte[] Data { get; }
     public IReadOnlyList<PatchEntry> Patches { get; }
+
     /// <summary>
     /// Per-byte source location map, coalesced into ranges. Survives
     /// round-trip through .kobj v2; the linker converts each entry's
@@ -115,9 +126,15 @@ public sealed class SectionData
     /// </summary>
     public IReadOnlyList<LineMapEntry> LineMap { get; }
 
-    public SectionData(string name, SectionType type, int? fixedAddress, int? bank,
-        byte[] data, IReadOnlyList<PatchEntry> patches,
-        IReadOnlyList<LineMapEntry>? lineMap = null)
+    public SectionData(
+        string name,
+        SectionType type,
+        int? fixedAddress,
+        int? bank,
+        byte[] data,
+        IReadOnlyList<PatchEntry> patches,
+        IReadOnlyList<LineMapEntry>? lineMap = null
+    )
     {
         Name = name;
         Type = type;
@@ -140,8 +157,13 @@ public sealed class SymbolData
     public string? Section { get; }
     public long Value { get; }
 
-    internal SymbolData(string name, SymbolKind kind, SymbolVisibility visibility,
-        string? section, long value)
+    internal SymbolData(
+        string name,
+        SymbolKind kind,
+        SymbolVisibility visibility,
+        string? section,
+        long value
+    )
     {
         Name = name;
         Kind = kind;

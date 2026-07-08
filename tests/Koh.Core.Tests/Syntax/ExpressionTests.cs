@@ -216,7 +216,9 @@ public class ExpressionTests
         var ops = instr.ChildNodes().ToList();
         await Assert.That(ops[1].Kind).IsEqualTo(SyntaxKind.IndirectOperand);
         var indirectChildren = ops[1].ChildNodes().ToList();
-        await Assert.That(indirectChildren.Any(n => n.Kind == SyntaxKind.BinaryExpression)).IsTrue();
+        await Assert
+            .That(indirectChildren.Any(n => n.Kind == SyntaxKind.BinaryExpression))
+            .IsTrue();
     }
 
     // --- Associativity ---
@@ -258,7 +260,9 @@ public class ExpressionTests
     {
         var expr = GetExpressionFromImmediate("ld a, $FF >> 4");
         var children = expr.ChildNodesAndTokens().ToList();
-        await Assert.That(children[1].AsToken!.Kind).IsEqualTo(SyntaxKind.GreaterThanGreaterThanToken);
+        await Assert
+            .That(children[1].AsToken!.Kind)
+            .IsEqualTo(SyntaxKind.GreaterThanGreaterThanToken);
     }
 
     [Test]
@@ -532,7 +536,8 @@ public class ExpressionTests
     public async Task ConditionCode_LogicalNot_JpNz()
     {
         // RGBDS: ccode.asm — "jp !nz, Label" is valid (nz negated)
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "ccode test", ROM0[0]
             Label:
             .local1
@@ -541,7 +546,8 @@ public class ExpressionTests
             .local2
                 jp !nz, Label
                 jr !z, .local2
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -549,7 +555,8 @@ public class ExpressionTests
     public async Task ConditionCode_DoubleNot_IsOriginal()
     {
         // RGBDS: ccode.asm — !!z == z, !!nz == nz
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "ccode test", ROM0[0]
             Label:
             .local3
@@ -557,7 +564,8 @@ public class ExpressionTests
                 jr !!nz, .local3
                 call !!c, Label
                 call !!nc, Label
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -567,10 +575,12 @@ public class ExpressionTests
     public async Task PcOperand_RstAtFixed()
     {
         // RGBDS: pc-operand.asm — rst @ at address 0 means rst 0
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "fixed", ROM0[0]
                 rst @
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xC7); // RST 0x00
     }
@@ -579,11 +589,13 @@ public class ExpressionTests
     public async Task PcOperand_LdDeAtAddress()
     {
         // RGBDS: pc-operand.asm — ld de, @ at offset 1 yields ld de, 1
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "fixed", ROM0[0]
                 rst @
                 ld de, @
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         // rst @ = 1 byte at 0, then ld de,@ is ld de,1 = 0x11 0x01 0x00
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xC7);
@@ -595,10 +607,12 @@ public class ExpressionTests
     public async Task PcOperand_JrAtIsJrZero()
     {
         // RGBDS: jr-@.asm — jr @ in a fixed section at 0 encodes as jr 0 (opcode $18, offset -2)
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "fixed", ROM0[0]
                 jr @
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x18); // JR
         await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0xFE); // offset -2 (back to self)
@@ -611,12 +625,14 @@ public class ExpressionTests
     {
         // RGBDS: pc.asm — PRINTLN "{@}" in section at $1A4 outputs "$1A4"
         var sw = new System.IO.StringWriter();
-        var tree = SyntaxTree.Parse("""
+        var tree = SyntaxTree.Parse(
+            """
             SECTION "fixed", ROM0[420]
                 PRINTLN "{@}"
                 ds 69
                 PRINTLN "{@}"
-            """);
+            """
+        );
         var model = Compilation.Create(sw, tree).Emit();
         await Assert.That(model.Success).IsTrue();
         var output = sw.ToString();
@@ -630,13 +646,15 @@ public class ExpressionTests
     public async Task DsAt_FixedSectionFill()
     {
         // RGBDS: ds-@.asm — ds 4, @ fills 4 bytes with the current PC value at each byte
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "zero", ROM0[0]
             zero:
             SECTION "test fixed", ROM0[0]
             FixedStart:
                 ds 4, @
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         // At ROM0[0], ds 4, @ → each byte is filled with @ at that position: 0,1,2,3
         var sec = model.Sections.First(s => s.Name == "test fixed");
@@ -652,11 +670,13 @@ public class ExpressionTests
     public async Task Assert_PcAtFixedAddressIsConst()
     {
         // RGBDS: assert-const.asm — @ in a fixed ROM0 section is known at assembly time
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "rgbasm passing asserts", ROM0[0]
                 db 0
                 assert @
-            """);
+            """
+        );
         // @ == 1 at the assert point (after db 0), so assert 1 should pass
         await Assert.That(model.Success).IsTrue();
     }

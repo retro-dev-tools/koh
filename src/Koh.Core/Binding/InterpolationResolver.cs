@@ -17,8 +17,11 @@ internal sealed class InterpolationResolver
     internal Func<string, string?>? SectionNameResolver { get; set; }
     internal string? CurrentSectionName { get; set; }
 
-    internal InterpolationResolver(SymbolTable symbols, Dictionary<string, string> equsConstants,
-        DiagnosticBag diagnostics)
+    internal InterpolationResolver(
+        SymbolTable symbols,
+        Dictionary<string, string> equsConstants,
+        DiagnosticBag diagnostics
+    )
     {
         _symbols = symbols;
         _equsConstants = equsConstants;
@@ -32,7 +35,8 @@ internal sealed class InterpolationResolver
     /// </summary>
     internal string Resolve(string text)
     {
-        if (!text.Contains('{')) return text;
+        if (!text.Contains('{'))
+            return text;
 
         var sb = new System.Text.StringBuilder(text.Length);
         int i = 0;
@@ -73,8 +77,11 @@ internal sealed class InterpolationResolver
 
                 // Handle SECTION(...) as a special function in interpolation
                 string trimmedName = name.Trim();
-                if (fmt == null && trimmedName.StartsWith("SECTION(", StringComparison.OrdinalIgnoreCase)
-                    && trimmedName.EndsWith(")"))
+                if (
+                    fmt == null
+                    && trimmedName.StartsWith("SECTION(", StringComparison.OrdinalIgnoreCase)
+                    && trimmedName.EndsWith(")")
+                )
                 {
                     string arg = trimmedName.Substring(8, trimmedName.Length - 9).Trim();
                     string? sectionName = SectionNameResolver?.Invoke(arg);
@@ -89,8 +96,10 @@ internal sealed class InterpolationResolver
                 string? trimmedFmt = fmt?.Trim();
                 if (trimmedFmt != null && !IsValidFormat(trimmedFmt))
                 {
-                    _diagnostics.Report(default,
-                        $"Invalid format specifier '{trimmedFmt}' in string interpolation");
+                    _diagnostics.Report(
+                        default,
+                        $"Invalid format specifier '{trimmedFmt}' in string interpolation"
+                    );
                     sb.Append(text[braceStart..i]);
                     continue;
                 }
@@ -103,7 +112,10 @@ internal sealed class InterpolationResolver
                 {
                     // Unknown symbol — preserve original text
                     sb.Append(text[braceStart..i]);
-                    _diagnostics.Report(default, $"Interpolation: symbol '{name.Trim()}' not found");
+                    _diagnostics.Report(
+                        default,
+                        $"Interpolation: symbol '{name.Trim()}' not found"
+                    );
                 }
                 continue;
             }
@@ -241,21 +253,28 @@ internal sealed class InterpolationResolver
     /// </summary>
     private static bool IsValidFormat(string fmt)
     {
-        if (string.IsNullOrEmpty(fmt)) return true;
+        if (string.IsNullOrEmpty(fmt))
+            return true;
 
         int pos = 0;
         // Optional sign flag
-        if (pos < fmt.Length && fmt[pos] == '+') pos++;
+        if (pos < fmt.Length && fmt[pos] == '+')
+            pos++;
         // Optional prefix flag
-        if (pos < fmt.Length && fmt[pos] == '#') pos++;
+        if (pos < fmt.Length && fmt[pos] == '#')
+            pos++;
         // Optional zero-pad flag
-        if (pos < fmt.Length && fmt[pos] == '0') pos++;
+        if (pos < fmt.Length && fmt[pos] == '0')
+            pos++;
         // Optional width digits
-        while (pos < fmt.Length && char.IsDigit(fmt[pos])) pos++;
+        while (pos < fmt.Length && char.IsDigit(fmt[pos]))
+            pos++;
         // Must have exactly one type character remaining
-        if (pos >= fmt.Length) return false; // no type
+        if (pos >= fmt.Length)
+            return false; // no type
         char type = fmt[pos++];
-        if (pos != fmt.Length) return false; // extra chars after type
+        if (pos != fmt.Length)
+            return false; // extra chars after type
         return type is 'd' or 'u' or 'x' or 'X' or 'b' or 'o' or 'f' or 's';
     }
 }

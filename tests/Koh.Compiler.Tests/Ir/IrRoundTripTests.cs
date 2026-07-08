@@ -112,14 +112,16 @@ public class IrRoundTripTests
         bool threw = false;
         try
         {
-            IrParser.Parse("""
+            IrParser.Parse(
+                """
                 module "t"
                 func @f(%a : i8) : i8 {
                 entry:
                   %r = 3 i8 %a, %a
                   ret i8 %r
                 }
-                """);
+                """
+            );
         }
         catch (IrParseException)
         {
@@ -132,14 +134,16 @@ public class IrRoundTripTests
     public async Task Bitcast_RejectsMismatchedSize()
     {
         // i8 (1 byte) cannot bitcast to i16 (2 bytes): sizes must match.
-        var module = IrParser.Parse("""
+        var module = IrParser.Parse(
+            """
             module "t"
             func @bad(%a : i8) : i16 {
             entry:
               %b = bitcast i8 %a to i16
               ret i16 %b
             }
-            """);
+            """
+        );
         await Assert.That(IrVerifier.Verify(module)).IsNotEmpty();
     }
 }

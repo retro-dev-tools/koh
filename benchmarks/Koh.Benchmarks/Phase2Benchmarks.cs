@@ -13,10 +13,10 @@ public class Phase2Benchmarks
     public void Setup()
     {
         var rom = new byte[0x8000];
-        rom[0x143] = 0x80;  // CGB
+        rom[0x143] = 0x80; // CGB
         rom[0x147] = 0x00;
-        rom[0x100] = 0x00;          // NOP
-        rom[0x101] = 0xC3;          // JP $0100
+        rom[0x100] = 0x00; // NOP
+        rom[0x101] = 0xC3; // JP $0100
         rom[0x102] = 0x00;
         rom[0x103] = 0x01;
         var cart = CartridgeFactory.Load(rom);
@@ -41,6 +41,6 @@ public class Phase2Benchmarks
     public void Phase2_Frame()
     {
         _gb.RunFrame();
-        _gb.Mmu.WriteByte(0xFF46, 0xC0);  // OAM DMA once per frame
+        _gb.Mmu.WriteByte(0xFF46, 0xC0); // OAM DMA once per frame
     }
 }

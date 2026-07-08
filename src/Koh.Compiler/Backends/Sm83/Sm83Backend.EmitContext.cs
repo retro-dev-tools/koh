@@ -44,7 +44,8 @@ public sealed partial class Sm83Backend
             IReadOnlySet<IrFunction> recursive,
             bool isEntry,
             int softStackBase,
-            IReadOnlySet<IrFunction>? banked = null)
+            IReadOnlySet<IrFunction>? banked = null
+        )
         {
             E = emitter;
             Fn = fn;
@@ -67,7 +68,8 @@ public sealed partial class Sm83Backend
         /// <summary>Whether this function returns its value through <see cref="ReturnScratch"/> rather
         /// than registers: recursive functions (so the frame restore cannot clobber it) and banked
         /// functions (so the far-call thunk's bank restore cannot clobber it).</summary>
-        public bool UsesMemoryReturn(IrFunction fn) => Recursive.Contains(fn) || Banked.Contains(fn);
+        public bool UsesMemoryReturn(IrFunction fn) =>
+            Recursive.Contains(fn) || Banked.Contains(fn);
 
         /// <summary>Total bytes of a function's parameters (contiguous at its frame base).</summary>
         public int ParamBytes(IrFunction fn)
@@ -123,7 +125,7 @@ public sealed partial class Sm83Backend
             switch (value)
             {
                 case IrConstInt c:
-                    E.U8(0x3E);                 // LD A, d8
+                    E.U8(0x3E); // LD A, d8
                     E.U8(Sm83Ops.ByteOf(value, k));
                     break;
                 default:
@@ -133,13 +135,14 @@ public sealed partial class Sm83Backend
                     }
                     else if (TryStaticAddr(value, out int ptr))
                     {
-                        E.U8(0x3E);             // pointer literal: LD A, <byte k of address>
+                        E.U8(0x3E); // pointer literal: LD A, <byte k of address>
                         E.U8((byte)(ptr >> (8 * k)));
                     }
                     else
                     {
                         throw new NotSupportedException(
-                            "SM83 backend operand must be a constant, parameter, prior result, or global.");
+                            "SM83 backend operand must be a constant, parameter, prior result, or global."
+                        );
                     }
                     break;
             }
@@ -151,7 +154,7 @@ public sealed partial class Sm83Backend
             E.U8(0x47); // LD B, A
         }
 
-        public void LoadAFromAddr(int addr) => E.LoadA(addr);   // may be elided if A already holds it
+        public void LoadAFromAddr(int addr) => E.LoadA(addr); // may be elided if A already holds it
 
         public void StoreAToAddr(int addr) => E.StoreA(addr);
 

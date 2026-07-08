@@ -22,7 +22,9 @@ public sealed class Lexer
     /// Lex all tokens from the source text. Returns the token list and any lexer diagnostics.
     /// Used by the Parser constructor — keeps lexer knowledge out of the parser.
     /// </summary>
-    internal static (List<GreenToken> Tokens, IReadOnlyList<Diagnostic> LexerDiagnostics) LexAll(SourceText text)
+    internal static (List<GreenToken> Tokens, IReadOnlyList<Diagnostic> LexerDiagnostics) LexAll(
+        SourceText text
+    )
     {
         var lexer = new Lexer(text);
         var tokens = new List<GreenToken>();
@@ -37,8 +39,7 @@ public sealed class Lexer
     }
 
     /// <summary>Check whether a text string is a reserved keyword.</summary>
-    public static bool IsKeyword(string text)
-        => Keywords.ContainsKey(text);
+    public static bool IsKeyword(string text) => Keywords.ContainsKey(text);
 
     private static readonly Dictionary<string, SyntaxKind> Keywords = new(
         StringComparer.OrdinalIgnoreCase
@@ -368,7 +369,8 @@ public sealed class Lexer
             if (!IsAtEnd && Current == '\\')
             {
                 _position++; // skip backslash
-                if (!IsAtEnd) _position++; // skip escaped char
+                if (!IsAtEnd)
+                    _position++; // skip escaped char
             }
             else if (!IsAtEnd && Current != '\'')
             {
@@ -416,8 +418,13 @@ public sealed class Lexer
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));
             }
             // \NARG — consumed as a single identifier-like token (case-insensitive)
-            if ((next is 'N' or 'n') && _position + 5 <= _source.Length
-                && _source.ToString(new TextSpan(_position + 1, 4)).Equals("NARG", StringComparison.OrdinalIgnoreCase))
+            if (
+                (next is 'N' or 'n')
+                && _position + 5 <= _source.Length
+                && _source
+                    .ToString(new TextSpan(_position + 1, 4))
+                    .Equals("NARG", StringComparison.OrdinalIgnoreCase)
+            )
             {
                 _position += 5;
                 return (SyntaxKind.MacroParamToken, Substring(start, _position));
@@ -428,7 +435,8 @@ public sealed class Lexer
             {
                 _diagnostics.Report(
                     new TextSpan(start, 1),
-                    "Invalid character after line continuation backslash");
+                    "Invalid character after line continuation backslash"
+                );
                 _position++;
                 return (SyntaxKind.BadToken, "\\");
             }
@@ -509,13 +517,15 @@ public sealed class Lexer
         if (c == ':' && Peek() == '+')
         {
             _position += 2;
-            while (Current == '+') _position++;
+            while (Current == '+')
+                _position++;
             return (SyntaxKind.AnonLabelForwardToken, Substring(start, _position));
         }
         if (c == ':' && Peek() == '-')
         {
             _position += 2;
-            while (Current == '-') _position++;
+            while (Current == '-')
+                _position++;
             return (SyntaxKind.AnonLabelBackwardToken, Substring(start, _position));
         }
 
@@ -735,7 +745,8 @@ public sealed class Lexer
                 {
                     _diagnostics.Report(
                         new TextSpan(literalStart, _position - literalStart + 1),
-                        "Double underscore in numeric constant");
+                        "Double underscore in numeric constant"
+                    );
                 }
                 lastWasUnderscore = true;
             }
@@ -749,7 +760,8 @@ public sealed class Lexer
         {
             _diagnostics.Report(
                 new TextSpan(literalStart, _position - literalStart),
-                "Trailing underscore in numeric constant");
+                "Trailing underscore in numeric constant"
+            );
         }
     }
 
@@ -768,11 +780,14 @@ public sealed class Lexer
                 if (!IsAtEnd && (Current == '\r' || Current == '\n'))
                 {
                     // Line continuation in string: consume newline and continue
-                    if (Current == '\r') _position++;
-                    if (!IsAtEnd && Current == '\n') _position++;
+                    if (Current == '\r')
+                        _position++;
+                    if (!IsAtEnd && Current == '\n')
+                        _position++;
                     continue;
                 }
-                if (!IsAtEnd) _position++; // skip escaped char
+                if (!IsAtEnd)
+                    _position++; // skip escaped char
                 continue;
             }
             // Unescaped newline terminates the string (unterminated string)
@@ -811,7 +826,8 @@ public sealed class Lexer
             // Unterminated triple-quote raw string
             _diagnostics.Report(
                 new TextSpan(start, _position - start),
-                "Unterminated raw string literal");
+                "Unterminated raw string literal"
+            );
             return (SyntaxKind.StringLiteral, Substring(start, _position));
         }
 

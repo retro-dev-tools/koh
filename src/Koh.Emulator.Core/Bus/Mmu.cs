@@ -13,14 +13,15 @@ namespace Koh.Emulator.Core.Bus;
 public sealed class Mmu
 {
     private readonly Cartridge.Cartridge _cart;
-    private readonly byte[] _vram = new byte[0x2000 * 2];  // 2 banks for CGB
-    private readonly byte[] _wram = new byte[0x1000 * 8];  // 8 banks for CGB
+    private readonly byte[] _vram = new byte[0x2000 * 2]; // 2 banks for CGB
+    private readonly byte[] _wram = new byte[0x1000 * 8]; // 8 banks for CGB
     private readonly byte[] _oam = new byte[0xA0];
     private readonly byte[] _hram = new byte[0x7F];
     public IoRegisters Io { get; }
 
     /// <summary>Direct VRAM array access for the PPU (bypasses mode lockouts).</summary>
     public byte[] VramArray => _vram;
+
     /// <summary>Direct OAM array access for the PPU (bypasses mode lockouts).</summary>
     public byte[] OamArray => _oam;
 
@@ -40,15 +41,16 @@ public sealed class Mmu
     }
 
     public void AttachOamDma(OamDma oamDma) => _oamDma = oamDma;
+
     public void AttachPpu(Ppu.Ppu ppu) => _ppu = ppu;
 
     /// <summary>True when the PPU has VRAM locked (mode 3 with LCD on).</summary>
-    private bool VramLocked => _ppu is not null
-        && (_ppu.LCDC & 0x80) != 0
-        && _ppu.Mode == Ppu.PpuMode.Drawing;
+    private bool VramLocked =>
+        _ppu is not null && (_ppu.LCDC & 0x80) != 0 && _ppu.Mode == Ppu.PpuMode.Drawing;
 
     /// <summary>True when the PPU has OAM locked (modes 2/3 with LCD on).</summary>
-    private bool OamLocked => _ppu is not null
+    private bool OamLocked =>
+        _ppu is not null
         && (_ppu.LCDC & 0x80) != 0
         && (_ppu.Mode == Ppu.PpuMode.Drawing || _ppu.Mode == Ppu.PpuMode.OamScan);
 
@@ -67,7 +69,8 @@ public sealed class Mmu
     {
         switch (address >> 12)
         {
-            case 0x8: case 0x9:
+            case 0x8:
+            case 0x9:
                 _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
                 return;
             default:
@@ -95,7 +98,7 @@ public sealed class Mmu
                 _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
             return;
         }
-        WriteByteDirect(address, value);  // GDMA targets are always VRAM; be safe.
+        WriteByteDirect(address, value); // GDMA targets are always VRAM; be safe.
     }
 
     public byte ReadByte(ushort address)
@@ -122,25 +125,38 @@ public sealed class Mmu
     {
         switch (address >> 12)
         {
-            case 0x0: case 0x1: case 0x2: case 0x3:
-            case 0x4: case 0x5: case 0x6: case 0x7:
+            case 0x0:
+            case 0x1:
+            case 0x2:
+            case 0x3:
+            case 0x4:
+            case 0x5:
+            case 0x6:
+            case 0x7:
                 return _cart.ReadRom(address);
-            case 0x8: case 0x9:
+            case 0x8:
+            case 0x9:
                 return _vram[VramBank * 0x2000 + (address - 0x8000)];
-            case 0xA: case 0xB:
+            case 0xA:
+            case 0xB:
                 return _cart.ReadRam(address);
             case 0xC:
                 return _wram[address - 0xC000];
             case 0xD:
                 return _wram[WramBank * 0x1000 + (address - 0xD000)];
             case 0xE:
-                return _wram[address - 0xE000];                    // echo RAM $C000-$CFFF
+                return _wram[address - 0xE000]; // echo RAM $C000-$CFFF
             case 0xF:
-                if (address < 0xFE00) return _wram[WramBank * 0x1000 + (address - 0xF000)];  // echo RAM $D000-$DDFF
-                if (address < 0xFEA0) return _oam[address - 0xFE00];
-                if (address < 0xFF00) return 0x00;                  // prohibited region
-                if (address == 0xFFFF) return Io.ReadIe();
-                if (address >= 0xFF80) return _hram[address - 0xFF80];
+                if (address < 0xFE00)
+                    return _wram[WramBank * 0x1000 + (address - 0xF000)]; // echo RAM $D000-$DDFF
+                if (address < 0xFEA0)
+                    return _oam[address - 0xFE00];
+                if (address < 0xFF00)
+                    return 0x00; // prohibited region
+                if (address == 0xFFFF)
+                    return Io.ReadIe();
+                if (address >= 0xFF80)
+                    return _hram[address - 0xFF80];
                 return Io.Read(address);
         }
         return 0xFF;
@@ -165,18 +181,26 @@ public sealed class Mmu
 
         switch (address >> 12)
         {
-            case 0x0: case 0x1: case 0x2: case 0x3:
-            case 0x4: case 0x5: case 0x6: case 0x7:
+            case 0x0:
+            case 0x1:
+            case 0x2:
+            case 0x3:
+            case 0x4:
+            case 0x5:
+            case 0x6:
+            case 0x7:
                 _cart.WriteRom(address, value);
                 return;
-            case 0x8: case 0x9:
+            case 0x8:
+            case 0x9:
                 // VRAM writes during PPU mode 3 are silently dropped on real
                 // hardware; modeling this lets ROM-side bugs (e.g. board
                 // commits that overflow VBlank) show up in verification.
                 if (!VramLocked)
                     _vram[VramBank * 0x2000 + (address - 0x8000)] = value;
                 return;
-            case 0xA: case 0xB:
+            case 0xA:
+            case 0xB:
                 _cart.WriteRam(address, value);
                 return;
             case 0xC:
@@ -189,15 +213,29 @@ public sealed class Mmu
                 _wram[address - 0xE000] = value;
                 return;
             case 0xF:
-                if (address < 0xFE00) { _wram[WramBank * 0x1000 + (address - 0xF000)] = value; return; }
-                if (address < 0xFEA0)
+                if (address < 0xFE00)
                 {
-                    if (!OamLocked) _oam[address - 0xFE00] = value;
+                    _wram[WramBank * 0x1000 + (address - 0xF000)] = value;
                     return;
                 }
-                if (address < 0xFF00) return;
-                if (address == 0xFFFF) { Io.WriteIe(value); return; }
-                if (address >= 0xFF80) { _hram[address - 0xFF80] = value; return; }
+                if (address < 0xFEA0)
+                {
+                    if (!OamLocked)
+                        _oam[address - 0xFE00] = value;
+                    return;
+                }
+                if (address < 0xFF00)
+                    return;
+                if (address == 0xFFFF)
+                {
+                    Io.WriteIe(value);
+                    return;
+                }
+                if (address >= 0xFF80)
+                {
+                    _hram[address - 0xFF80] = value;
+                    return;
+                }
                 Io.Write(address, value);
                 return;
         }
@@ -220,13 +258,20 @@ public sealed class Mmu
     {
         switch (address >> 12)
         {
-            case 0x0: case 0x1: case 0x2: case 0x3:
-            case 0x4: case 0x5: case 0x6: case 0x7:
+            case 0x0:
+            case 0x1:
+            case 0x2:
+            case 0x3:
+            case 0x4:
+            case 0x5:
+            case 0x6:
+            case 0x7:
                 // Live ROM patch per §7.10.
                 // Phase 1: patch only bank 0 for MBC1 to keep the contract simple.
                 if (_cart.Header.MapperKind == MapperKind.RomOnly)
                 {
-                    if (address < _cart.Rom.Length) _cart.Rom[address] = value;
+                    if (address < _cart.Rom.Length)
+                        _cart.Rom[address] = value;
                 }
                 else
                 {

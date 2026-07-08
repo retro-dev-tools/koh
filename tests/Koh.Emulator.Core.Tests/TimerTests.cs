@@ -7,7 +7,8 @@ public class TimerTests
 {
     private static void Tick(Timer.Timer timer, int tCycles, ref Interrupts interrupts)
     {
-        for (int i = 0; i < tCycles; i++) timer.TickT(ref interrupts);
+        for (int i = 0; i < tCycles; i++)
+            timer.TickT(ref interrupts);
     }
 
     [Test]
@@ -34,7 +35,7 @@ public class TimerTests
     {
         var timer = new Timer.Timer();
         var interrupts = new Interrupts();
-        timer.WriteTac(0b_0000_0100);  // enable, freq 00 → 1024 T-cycles
+        timer.WriteTac(0b_0000_0100); // enable, freq 00 → 1024 T-cycles
 
         Tick(timer, 1023, ref interrupts);
         await Assert.That(timer.TIMA).IsEqualTo((byte)0);
@@ -47,7 +48,7 @@ public class TimerTests
     {
         var timer = new Timer.Timer();
         var interrupts = new Interrupts();
-        timer.WriteTac(0b_0000_0101);  // enable, freq 01 → 16 T-cycles
+        timer.WriteTac(0b_0000_0101); // enable, freq 01 → 16 T-cycles
 
         Tick(timer, 15, ref interrupts);
         await Assert.That(timer.TIMA).IsEqualTo((byte)0);
@@ -60,7 +61,7 @@ public class TimerTests
     {
         var timer = new Timer.Timer();
         var interrupts = new Interrupts();
-        timer.WriteTac(0b_0000_0110);  // enable, freq 10 → 64 T-cycles
+        timer.WriteTac(0b_0000_0110); // enable, freq 10 → 64 T-cycles
 
         Tick(timer, 63, ref interrupts);
         await Assert.That(timer.TIMA).IsEqualTo((byte)0);
@@ -73,7 +74,7 @@ public class TimerTests
     {
         var timer = new Timer.Timer();
         var interrupts = new Interrupts();
-        timer.WriteTac(0b_0000_0111);  // enable, freq 11 → 256 T-cycles
+        timer.WriteTac(0b_0000_0111); // enable, freq 11 → 256 T-cycles
 
         Tick(timer, 255, ref interrupts);
         await Assert.That(timer.TIMA).IsEqualTo((byte)0);
@@ -86,7 +87,7 @@ public class TimerTests
     {
         var timer = new Timer.Timer();
         var interrupts = new Interrupts();
-        timer.WriteTac(0b_0000_0101);  // enable, freq 01 (16 T-cycles per TIMA increment)
+        timer.WriteTac(0b_0000_0101); // enable, freq 01 (16 T-cycles per TIMA increment)
         timer.WriteTma(0x42);
         timer.WriteTima(0xFF);
 

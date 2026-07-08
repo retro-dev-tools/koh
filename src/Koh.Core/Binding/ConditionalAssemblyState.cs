@@ -48,8 +48,10 @@ internal sealed class ConditionalAssemblyState
     /// </summary>
     public bool HandleElif(Func<bool> evaluateCondition)
     {
-        if (_branchTakenStack.Count == 0) return false; // orphaned
-        if (_skipDepth > 1) return true; // deeply nested skip — matched but irrelevant
+        if (_branchTakenStack.Count == 0)
+            return false; // orphaned
+        if (_skipDepth > 1)
+            return true; // deeply nested skip — matched but irrelevant
 
         if (_branchTakenStack.TryPeek(out var taken) && taken)
         {
@@ -59,7 +61,8 @@ internal sealed class ConditionalAssemblyState
         {
             _skipDepth = 0; // unskip so we can evaluate
             var condValue = evaluateCondition();
-            if (_branchTakenStack.Count > 0) _branchTakenStack.Pop();
+            if (_branchTakenStack.Count > 0)
+                _branchTakenStack.Pop();
             _branchTakenStack.Push(condValue);
             if (!condValue)
                 _skipDepth = 1;
@@ -73,15 +76,21 @@ internal sealed class ConditionalAssemblyState
     /// </summary>
     public int HandleElseEx()
     {
-        if (_branchTakenStack.Count == 0) return 0; // orphaned
-        if (_skipDepth > 1) return 1; // deeply nested skip — matched but irrelevant
+        if (_branchTakenStack.Count == 0)
+            return 0; // orphaned
+        if (_skipDepth > 1)
+            return 1; // deeply nested skip — matched but irrelevant
 
         // Check for duplicate ELSE
         if (_elseSeenStack.Count > 0 && _elseSeenStack.Peek())
             return 2; // duplicate ELSE
 
         // Mark ELSE as seen
-        if (_elseSeenStack.Count > 0) { _elseSeenStack.Pop(); _elseSeenStack.Push(true); }
+        if (_elseSeenStack.Count > 0)
+        {
+            _elseSeenStack.Pop();
+            _elseSeenStack.Push(true);
+        }
 
         if (_branchTakenStack.TryPeek(out var taken) && taken)
         {
@@ -89,7 +98,8 @@ internal sealed class ConditionalAssemblyState
         }
         else
         {
-            if (_branchTakenStack.Count > 0) _branchTakenStack.Pop();
+            if (_branchTakenStack.Count > 0)
+                _branchTakenStack.Pop();
             _branchTakenStack.Push(true);
             _skipDepth = 0;
         }
@@ -110,8 +120,10 @@ internal sealed class ConditionalAssemblyState
         if (_skipDepth > 1)
         {
             _skipDepth--;
-            if (_branchTakenStack.Count > 0) _branchTakenStack.Pop();
-            if (_elseSeenStack.Count > 0) _elseSeenStack.Pop();
+            if (_branchTakenStack.Count > 0)
+                _branchTakenStack.Pop();
+            if (_elseSeenStack.Count > 0)
+                _elseSeenStack.Pop();
             return true;
         }
 
@@ -120,7 +132,8 @@ internal sealed class ConditionalAssemblyState
         if (_branchTakenStack.Count > 0)
         {
             _branchTakenStack.Pop();
-            if (_elseSeenStack.Count > 0) _elseSeenStack.Pop();
+            if (_elseSeenStack.Count > 0)
+                _elseSeenStack.Pop();
             return true;
         }
 
@@ -153,7 +166,8 @@ internal sealed class ConditionalAssemblyState
         while (_branchTakenStack.Count > targetDepth)
         {
             _branchTakenStack.Pop();
-            if (_elseSeenStack.Count > 0) _elseSeenStack.Pop();
+            if (_elseSeenStack.Count > 0)
+                _elseSeenStack.Pop();
         }
         // If we unwound everything, clear skip state too
         if (_branchTakenStack.Count <= targetDepth)

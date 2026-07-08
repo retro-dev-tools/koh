@@ -114,5 +114,6 @@ public sealed class StringCharSource : ICharSource
     }
 
     public void EnterDoubleQuotedStringMode() { }
+
     public void ExitDoubleQuotedStringMode() { }
 }

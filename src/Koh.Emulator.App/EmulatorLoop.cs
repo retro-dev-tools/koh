@@ -31,9 +31,9 @@ public sealed class EmulatorLoop : IDisposable
     // drain. TargetFill: when resuming after HighWater, stop sleeping
     // once we're back to here. LowWater: below this, don't sleep at
     // all — we're at risk of an audible underrun.
-    private const int HighWater  = 3072;   // ~70 ms
-    private const int TargetFill = 2048;   // ~46 ms
-    private const int LowWater   = 1024;   // ~23 ms
+    private const int HighWater = 3072; // ~70 ms
+    private const int TargetFill = 2048; // ~46 ms
+    private const int LowWater = 1024; // ~23 ms
 
     private readonly AudioSink _sink;
     private readonly Thread _thread;
@@ -211,13 +211,16 @@ public sealed class EmulatorLoop : IDisposable
     /// </summary>
     public void SetSystem(GameBoySystem? system, string? romPath = null)
     {
-        if (_system is not null && _currentRomPath is not null) SaveSramNow(_system, _currentRomPath);
+        if (_system is not null && _currentRomPath is not null)
+            SaveSramNow(_system, _currentRomPath);
         _system = system;
         _currentRomPath = romPath;
-        if (system is not null && romPath is not null) LoadSramInto(system, romPath);
+        if (system is not null && romPath is not null)
+            LoadSramInto(system, romPath);
         _sink.Reset();
         Volatile.Write(ref _frameCount, 0);
-        if (system is not null) SystemInstalled?.Invoke(system);
+        if (system is not null)
+            SystemInstalled?.Invoke(system);
     }
 
     /// <summary>
@@ -229,7 +232,8 @@ public sealed class EmulatorLoop : IDisposable
     private static void SaveSramNow(GameBoySystem sys, string romPath)
     {
         var ram = sys.Cartridge.Ram;
-        if (ram.Length == 0) return;
+        if (ram.Length == 0)
+            return;
         string savPath = romPath + ".sav";
         string tmp = savPath + ".tmp";
         try
@@ -244,16 +248,25 @@ public sealed class EmulatorLoop : IDisposable
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[koh-emu-loop] SRAM save failed ({savPath}): {ex.Message}");
-            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
+            try
+            {
+                if (File.Exists(tmp))
+                    File.Delete(tmp);
+            }
+            catch
+            { /* best-effort */
+            }
         }
     }
 
     private static void LoadSramInto(GameBoySystem sys, string romPath)
     {
         var ram = sys.Cartridge.Ram;
-        if (ram.Length == 0) return;
+        if (ram.Length == 0)
+            return;
         string savPath = romPath + ".sav";
-        if (!File.Exists(savPath)) return;
+        if (!File.Exists(savPath))
+            return;
         try
         {
             var bytes = File.ReadAllBytes(savPath);
@@ -279,7 +292,8 @@ public sealed class EmulatorLoop : IDisposable
 
     public void Resume()
     {
-        if (_system is null) return;
+        if (_system is null)
+            return;
         Post(Command.Resume);
         _paused = false;
         _runGate.Set();
@@ -287,7 +301,8 @@ public sealed class EmulatorLoop : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+            return;
         _disposed = true;
         Post(Command.Quit);
         _runGate.Set();
@@ -319,7 +334,8 @@ public sealed class EmulatorLoop : IDisposable
     /// </summary>
     public void StepOne()
     {
-        if (_system is null || !_paused) return;
+        if (_system is null || !_paused)
+            return;
         _system.StepInstruction();
         PausedOnBreak?.Invoke(StopReason.InstructionComplete);
     }
@@ -330,48 +346,58 @@ public sealed class EmulatorLoop : IDisposable
     /// complete-or-absent (written atomically via temp + rename) so a
     /// crash mid-write can't leave a half-written save.
     /// </summary>
-    public void SaveState(string path) => _inbox.Enqueue(sys =>
-    {
-        string tmp = path + ".tmp";
-        try
+    public void SaveState(string path) =>
+        _inbox.Enqueue(sys =>
         {
-            using (var fs = File.Create(tmp))
-            using (var w = new Core.State.StateWriter(fs))
+            string tmp = path + ".tmp";
+            try
             {
-                sys.WriteState(w);
+                using (var fs = File.Create(tmp))
+                using (var w = new Core.State.StateWriter(fs))
+                {
+                    sys.WriteState(w);
+                }
+                File.Move(tmp, path, overwrite: true);
             }
-            File.Move(tmp, path, overwrite: true);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[koh-emu-loop] save state failed: {ex.Message}");
-            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
-        }
-    });
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[koh-emu-loop] save state failed: {ex.Message}");
+                try
+                {
+                    if (File.Exists(tmp))
+                        File.Delete(tmp);
+                }
+                catch
+                { /* best-effort */
+                }
+            }
+        });
 
     /// <summary>
     /// Restore a previously-saved state. Silently no-ops if the path
     /// doesn't exist so the hotkey doesn't spam errors when the user
     /// hits Load before they've ever saved.
     /// </summary>
-    public void LoadState(string path) => _inbox.Enqueue(sys =>
-    {
-        if (!File.Exists(path)) return;
-        try
+    public void LoadState(string path) =>
+        _inbox.Enqueue(sys =>
         {
-            using var fs = File.OpenRead(path);
-            using var r = new Core.State.StateReader(fs);
-            sys.ReadState(r);
-            // Audio queued before the load doesn't belong to the
-            // restored world — drop it so the new state's first
-            // samples aren't preceded by stale tail.
-            _sink.Reset();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[koh-emu-loop] load state failed: {ex.Message}");
-        }
-    });
+            if (!File.Exists(path))
+                return;
+            try
+            {
+                using var fs = File.OpenRead(path);
+                using var r = new Core.State.StateReader(fs);
+                sys.ReadState(r);
+                // Audio queued before the load doesn't belong to the
+                // restored world — drop it so the new state's first
+                // samples aren't preceded by stale tail.
+                _sink.Reset();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[koh-emu-loop] load state failed: {ex.Message}");
+            }
+        });
 
     private void Post(Command cmd) => Interlocked.Exchange(ref _command, (int)cmd);
 
@@ -407,7 +433,8 @@ public sealed class EmulatorLoop : IDisposable
                     int windowSamples = samplesNow - lastLogSamples;
                     Console.WriteLine(
                         $"[pace] fps={fps:F1}  buf[last={lastBufferedAfterPush} min={windowMinDepth} max={windowMaxDepth}]  "
-                        + $"pushes={windowPushes} samples={windowSamples} underruns={newUnderruns}");
+                            + $"pushes={windowPushes} samples={windowSamples} underruns={newUnderruns}"
+                    );
                     lastLogFrames = now;
                     lastLogTicks = Stopwatch.GetTimestamp();
                     lastLogUnderruns = urNow;
@@ -423,19 +450,32 @@ public sealed class EmulatorLoop : IDisposable
                 }
 
                 var cmd = (Command)Interlocked.Exchange(ref _command, (int)Command.None);
-                if (cmd == Command.Pause) { _paused = true; _runGate.Reset(); continue; }
-                if (cmd == Command.Quit)  return;
+                if (cmd == Command.Pause)
+                {
+                    _paused = true;
+                    _runGate.Reset();
+                    continue;
+                }
+                if (cmd == Command.Quit)
+                    return;
 
                 var sys = _system;
-                if (sys is null) continue;
+                if (sys is null)
+                    continue;
 
                 // Drain inbox BEFORE RunFrame — joypad edges applied
                 // here land on the frame that's about to execute, so
                 // there's minimal input lag.
                 while (_inbox.TryDequeue(out var action))
                 {
-                    try { action(sys); }
-                    catch (Exception ex) { Console.Error.WriteLine($"[koh-emu-loop] inbox action threw: {ex.Message}"); }
+                    try
+                    {
+                        action(sys);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[koh-emu-loop] inbox action threw: {ex.Message}");
+                    }
                 }
 
                 var stop = sys.RunFrame();
@@ -450,21 +490,30 @@ public sealed class EmulatorLoop : IDisposable
                     // allocation pressure (mostly from VRAM's 192 KB
                     // RGBA buffer on CGB) causes periodic GC pauses
                     // long enough to drop audio samples.
-                    Volatile.Write(ref _paletteSnapshot, PaletteSnapshot.From(sys, _paletteSnapshot));
+                    Volatile.Write(
+                        ref _paletteSnapshot,
+                        PaletteSnapshot.From(sys, _paletteSnapshot)
+                    );
                     Volatile.Write(ref _vramSnapshot, VramSnapshot.From(sys, _vramSnapshot));
-                    Volatile.Write(ref _memorySnapshot, MemorySnapshot.From(sys, MemoryViewAddress, _memorySnapshot));
+                    Volatile.Write(
+                        ref _memorySnapshot,
+                        MemorySnapshot.From(sys, MemoryViewAddress, _memorySnapshot)
+                    );
                 }
                 Interlocked.Increment(ref _frameCount);
 
                 int available = sys.Apu.SampleBuffer.Available;
                 if (available > 0)
                 {
-                    if (_drainScratch.Length < available) _drainScratch = new short[available];
+                    if (_drainScratch.Length < available)
+                        _drainScratch = new short[available];
                     int n = sys.Apu.SampleBuffer.Drain(_drainScratch.AsSpan(0, available));
                     lastBufferedAfterPush = _sink.Push(_drainScratch.AsSpan(0, n));
                     lastPushTimestampTicks = Stopwatch.GetTimestamp();
-                    if (lastBufferedAfterPush < windowMinDepth) windowMinDepth = lastBufferedAfterPush;
-                    if (lastBufferedAfterPush > windowMaxDepth) windowMaxDepth = lastBufferedAfterPush;
+                    if (lastBufferedAfterPush < windowMinDepth)
+                        windowMinDepth = lastBufferedAfterPush;
+                    if (lastBufferedAfterPush > windowMaxDepth)
+                        windowMaxDepth = lastBufferedAfterPush;
                 }
 
                 if (stop.Reason is StopReason.Breakpoint or StopReason.Watchpoint)
@@ -489,7 +538,8 @@ public sealed class EmulatorLoop : IDisposable
                     while (!_disposed && !_paused && !_fastForward)
                     {
                         int est = EstimateBuffered(lastBufferedAfterPush, lastPushTimestampTicks);
-                        if (est <= TargetFill) break;
+                        if (est <= TargetFill)
+                            break;
                         Thread.Sleep(1);
                     }
                 }

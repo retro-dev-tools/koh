@@ -5,7 +5,11 @@ namespace Koh.Debugger.Dap.Handlers;
 public sealed class ContinueHandler
 {
     private readonly DebugSession _session;
-    public ContinueHandler(DebugSession session) { _session = session; }
+
+    public ContinueHandler(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response Handle(Request request)
     {

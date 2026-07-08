@@ -22,16 +22,22 @@ namespace KohUI.Widgets;
 /// the type is deliberately <c>int</c>.
 /// </para>
 /// </summary>
-public readonly struct Image<TMsg>(byte[] Pixels, int Width, int Height, int Scale = 1) : IView<TMsg>
+public readonly struct Image<TMsg>(byte[] Pixels, int Width, int Height, int Scale = 1)
+    : IView<TMsg>
 {
     public readonly byte[] Pixels = Pixels;
     public readonly int Width = Width;
     public readonly int Height = Height;
     public readonly int Scale = Scale;
 
-    public RenderNode Render() => RenderNode.Leaf("Image", Props.Of(
-        ("pixels", (object)Pixels),
-        ("width", Width),
-        ("height", Height),
-        ("scale", Scale)));
+    public RenderNode Render() =>
+        RenderNode.Leaf(
+            "Image",
+            Props.Of(
+                ("pixels", (object)Pixels),
+                ("width", Width),
+                ("height", Height),
+                ("scale", Scale)
+            )
+        );
 }

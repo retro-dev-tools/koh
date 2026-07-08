@@ -28,14 +28,22 @@ public sealed class DiagnosticBag : IEnumerable<Diagnostic>
     public string? CurrentFilePath
     {
         get => _currentFilePath;
-        set { if (!_isNull) _currentFilePath = value; }
+        set
+        {
+            if (!_isNull)
+                _currentFilePath = value;
+        }
     }
 
-    public void Report(TextSpan span, string message,
+    public void Report(
+        TextSpan span,
+        string message,
         DiagnosticSeverity severity = DiagnosticSeverity.Error,
-        string? filePath = null)
+        string? filePath = null
+    )
     {
-        if (_isNull) return;
+        if (_isNull)
+            return;
         _diagnostics.Add(new Diagnostic(span, message, severity, filePath ?? CurrentFilePath));
     }
 
@@ -50,6 +58,8 @@ public sealed class DiagnosticBag : IEnumerable<Diagnostic>
     }
 
     public IEnumerator<Diagnostic> GetEnumerator() => _diagnostics.GetEnumerator();
+
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
     public IReadOnlyList<Diagnostic> ToList() => _diagnostics;
 }

@@ -15,8 +15,10 @@ public static class SymFileWriter
 
         foreach (var sym in symbols.OrderBy(s => s.AbsoluteAddress))
         {
-            if (sym.Kind == SymbolKind.Constant) continue; // skip EQU constants
-            if (sym.AbsoluteAddress < 0) continue; // not placed
+            if (sym.Kind == SymbolKind.Constant)
+                continue; // skip EQU constants
+            if (sym.AbsoluteAddress < 0)
+                continue; // not placed
 
             // AbsoluteAddress is already the windowed GB address (0x0000–0x7FFF).
             // PlacedBank carries the correct bank number set by SymbolResolver.

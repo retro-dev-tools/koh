@@ -7,7 +7,9 @@ public sealed class DataBreakpointInfoHandler
 {
     public Response Handle(Request request)
     {
-        var args = request.Arguments?.Deserialize(DapJsonContext.Default.DataBreakpointInfoArguments);
+        var args = request.Arguments?.Deserialize(
+            DapJsonContext.Default.DataBreakpointInfoArguments
+        );
         if (args is null)
             return new Response { Success = false, Message = "dataBreakpointInfo: missing args" };
 
@@ -39,7 +41,8 @@ public sealed class DataBreakpointInfoHandler
     internal static bool TryParseAddress(string token, out ushort address)
     {
         address = 0;
-        if (string.IsNullOrWhiteSpace(token)) return false;
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
         string t = token.Trim();
         int value;
         try
@@ -51,8 +54,12 @@ public sealed class DataBreakpointInfoHandler
             else
                 value = int.Parse(t, System.Globalization.CultureInfo.InvariantCulture);
         }
-        catch { return false; }
-        if (value < 0 || value > 0xFFFF) return false;
+        catch
+        {
+            return false;
+        }
+        if (value < 0 || value > 0xFFFF)
+            return false;
         address = (ushort)value;
         return true;
     }

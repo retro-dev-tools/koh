@@ -62,12 +62,16 @@ public class ExpansionContextTests
     {
         var ctx = new ExpansionContext { FilePath = "test.asm" };
         var source = Koh.Core.Text.SourceText.From("nop");
-        var child = ctx.ForTextReplay(source, new TextSpan(0, 5),
-            TextReplayReason.MacroParameterConcatenation);
+        var child = ctx.ForTextReplay(
+            source,
+            new TextSpan(0, 5),
+            TextReplayReason.MacroParameterConcatenation
+        );
         await Assert.That(child.ReplayDepth).IsEqualTo(1);
         await Assert.That(child.StructuralDepth).IsEqualTo(0);
         await Assert.That(child.Trace.Current!.Kind).IsEqualTo(ExpansionKind.TextReplay);
-        await Assert.That(child.Trace.Current!.ReplayReason)
+        await Assert
+            .That(child.Trace.Current!.ReplayReason)
             .IsEqualTo(TextReplayReason.MacroParameterConcatenation);
     }
 

@@ -77,13 +77,15 @@ internal sealed class DapServerHost : IDisposable
                     return;
                 }
             }
-            SendStoppedEvent(reason switch
-            {
-                StopReason.Breakpoint          => "breakpoint",
-                StopReason.Watchpoint          => "data breakpoint",
-                StopReason.InstructionComplete => "step",
-                _ => "paused",
-            });
+            SendStoppedEvent(
+                reason switch
+                {
+                    StopReason.Breakpoint => "breakpoint",
+                    StopReason.Watchpoint => "data breakpoint",
+                    StopReason.InstructionComplete => "step",
+                    _ => "paused",
+                }
+            );
         };
 
         _thread = new Thread(Run) { IsBackground = true, Name = "koh-dap" };
@@ -99,7 +101,8 @@ internal sealed class DapServerHost : IDisposable
                 PipeDirection.InOut,
                 maxNumberOfServerInstances: 1,
                 PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous);
+                PipeOptions.Asynchronous
+            );
 
             Console.Error.WriteLine($"[koh-dap] listening on \\\\.\\pipe\\{_pipeName}");
             _pipe.WaitForConnection();
@@ -108,7 +111,7 @@ internal sealed class DapServerHost : IDisposable
             var dispatcher = new DapDispatcher();
             _dispatcher = dispatcher;
             dispatcher.ResponseReady += bytes => WriteFramed(_pipe, bytes.Span);
-            dispatcher.EventReady    += bytes => WriteFramed(_pipe, bytes.Span);
+            dispatcher.EventReady += bytes => WriteFramed(_pipe, bytes.Span);
 
             RegisterHandlers(dispatcher);
 
@@ -116,18 +119,25 @@ internal sealed class DapServerHost : IDisposable
             while (!_cts.IsCancellationRequested)
             {
                 var body = reader.ReadNext(_cts.Token);
-                if (body is null) break;
+                if (body is null)
+                    break;
                 dispatcher.HandleRequest(body.Value.Span);
             }
         }
-        catch (OperationCanceledException) { /* shutting down */ }
+        catch (OperationCanceledException)
+        { /* shutting down */
+        }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[koh-dap] server crashed: {ex.Message}");
         }
         finally
         {
-            try { _pipe?.Dispose(); } catch { }
+            try
+            {
+                _pipe?.Dispose();
+            }
+            catch { }
         }
 
         // We only reach this point when the DAP client disconnected (or
@@ -150,92 +160,161 @@ internal sealed class DapServerHost : IDisposable
         // Initialize is handled as-is (capabilities are a static
         // response); we follow up with the "initialized" event that
         // tells VS Code it can start sending breakpoint configuration.
-        dispatcher.RegisterHandler("initialize", req =>
-        {
-            var resp = InitializeHandler.Handle(req);
-            // Defer the initialized event until after this response
-            // hits the wire — the write-lock keeps framing honest
-            // even if we fire it inline, but the spec asks for the
-            // response first.
-            Task.Run(() => dispatcher.SendEvent("initialized", body: null));
-            return resp;
-        });
+        dispatcher.RegisterHandler(
+            "initialize",
+            req =>
+            {
+                var resp = InitializeHandler.Handle(req);
+                // Defer the initialized event until after this response
+                // hits the wire — the write-lock keeps framing honest
+                // even if we fire it inline, but the spec asks for the
+                // response first.
+                Task.Run(() => dispatcher.SendEvent("initialized", body: null));
+                return resp;
+            }
+        );
 
         // Launch: the emulator already loaded its ROM from the CLI
         // arg; here we just accept launch options. stopOnEntry is
         // honoured in configurationDone; debugInfo is loaded now so
         // that setBreakpoints (which follows shortly) can resolve
         // source lines against the SourceMap.
-        dispatcher.RegisterHandler("launch", req =>
-        {
-            _stopOnEntry = false;
-            if (req.Arguments is JsonElement arg && arg.ValueKind == JsonValueKind.Object)
+        dispatcher.RegisterHandler(
+            "launch",
+            req =>
             {
-                if (arg.TryGetProperty("stopOnEntry", out var soe) && soe.ValueKind == JsonValueKind.True)
-                    _stopOnEntry = true;
-                if (arg.TryGetProperty("debugInfo", out var diArg) && diArg.ValueKind == JsonValueKind.String)
+                _stopOnEntry = false;
+                if (req.Arguments is JsonElement arg && arg.ValueKind == JsonValueKind.Object)
                 {
-                    var diPath = diArg.GetString();
-                    if (!string.IsNullOrEmpty(diPath))
+                    if (
+                        arg.TryGetProperty("stopOnEntry", out var soe)
+                        && soe.ValueKind == JsonValueKind.True
+                    )
+                        _stopOnEntry = true;
+                    if (
+                        arg.TryGetProperty("debugInfo", out var diArg)
+                        && diArg.ValueKind == JsonValueKind.String
+                    )
                     {
-                        try
+                        var diPath = diArg.GetString();
+                        if (!string.IsNullOrEmpty(diPath))
                         {
-                            var bytes = File.ReadAllBytes(diPath);
-                            _session.DebugInfo.Load(bytes);
-                            Console.Error.WriteLine($"[koh-dap] loaded .kdbg from {diPath}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.Error.WriteLine($"[koh-dap] failed to load .kdbg ({diPath}): {ex.Message}");
+                            try
+                            {
+                                var bytes = File.ReadAllBytes(diPath);
+                                _session.DebugInfo.Load(bytes);
+                                Console.Error.WriteLine($"[koh-dap] loaded .kdbg from {diPath}");
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.Error.WriteLine(
+                                    $"[koh-dap] failed to load .kdbg ({diPath}): {ex.Message}"
+                                );
+                            }
                         }
                     }
                 }
+                return new Response
+                {
+                    RequestSeq = req.Seq,
+                    Command = req.Command,
+                    Success = true,
+                };
             }
-            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-        });
+        );
 
-        dispatcher.RegisterHandler("configurationDone", req =>
-        {
-            if (_stopOnEntry)
+        dispatcher.RegisterHandler(
+            "configurationDone",
+            req =>
             {
-                _loop.Pause();
-                Task.Run(() => SendStoppedEvent("entry"));
+                if (_stopOnEntry)
+                {
+                    _loop.Pause();
+                    Task.Run(() => SendStoppedEvent("entry"));
+                }
+                return new Response
+                {
+                    RequestSeq = req.Seq,
+                    Command = req.Command,
+                    Success = true,
+                };
             }
-            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-        });
+        );
 
-        dispatcher.RegisterHandler("disconnect", req =>
-            new Response { RequestSeq = req.Seq, Command = req.Command, Success = true });
+        dispatcher.RegisterHandler(
+            "disconnect",
+            req => new Response
+            {
+                RequestSeq = req.Seq,
+                Command = req.Command,
+                Success = true,
+            }
+        );
 
         // Threads: one synthetic "CPU" thread so VS Code has something
         // to pin the stack trace to.
-        dispatcher.RegisterHandler("threads", req =>
-        {
-            var resp = new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-            resp.Body = new ThreadsResponseBody { Threads = [new DapThread { Id = 1, Name = "CPU" }] };
-            return resp;
-        });
+        dispatcher.RegisterHandler(
+            "threads",
+            req =>
+            {
+                var resp = new Response
+                {
+                    RequestSeq = req.Seq,
+                    Command = req.Command,
+                    Success = true,
+                };
+                resp.Body = new ThreadsResponseBody
+                {
+                    Threads = [new DapThread { Id = 1, Name = "CPU" }],
+                };
+                return resp;
+            }
+        );
 
         // Control handlers — drive our EmulatorLoop, not the old
         // ExecutionLoop inside DebugSession.
-        dispatcher.RegisterHandler("continue", req =>
-        {
-            _loop.Resume();
-            var resp = new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-            resp.Body = new ContinueResponseBody { AllThreadsContinued = true };
-            return resp;
-        });
-        dispatcher.RegisterHandler("pause", req =>
-        {
-            _loop.Pause();
-            Task.Run(() => SendStoppedEvent("pause"));
-            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-        });
-        dispatcher.RegisterHandler("terminate", req =>
-        {
-            _loop.Pause();
-            return new Response { RequestSeq = req.Seq, Command = req.Command, Success = true };
-        });
+        dispatcher.RegisterHandler(
+            "continue",
+            req =>
+            {
+                _loop.Resume();
+                var resp = new Response
+                {
+                    RequestSeq = req.Seq,
+                    Command = req.Command,
+                    Success = true,
+                };
+                resp.Body = new ContinueResponseBody { AllThreadsContinued = true };
+                return resp;
+            }
+        );
+        dispatcher.RegisterHandler(
+            "pause",
+            req =>
+            {
+                _loop.Pause();
+                Task.Run(() => SendStoppedEvent("pause"));
+                return new Response
+                {
+                    RequestSeq = req.Seq,
+                    Command = req.Command,
+                    Success = true,
+                };
+            }
+        );
+        dispatcher.RegisterHandler(
+            "terminate",
+            req =>
+            {
+                _loop.Pause();
+                return new Response
+                {
+                    RequestSeq = req.Seq,
+                    Command = req.Command,
+                    Success = true,
+                };
+            }
+        );
 
         // Stepping:
         //   stepIn (F11)    → single-instruction step, dives into CALLs.
@@ -248,26 +327,47 @@ internal sealed class DapServerHost : IDisposable
         //                     return address read from [SP] and
         //                     continue until the current function
         //                     returns.
-        dispatcher.RegisterHandler("stepIn",  req => { _loop.StepOne();              return Ok(req); });
-        dispatcher.RegisterHandler("next",    req => { StepOver();                    return Ok(req); });
-        dispatcher.RegisterHandler("stepOut", req => { StepOut();                     return Ok(req); });
+        dispatcher.RegisterHandler(
+            "stepIn",
+            req =>
+            {
+                _loop.StepOne();
+                return Ok(req);
+            }
+        );
+        dispatcher.RegisterHandler(
+            "next",
+            req =>
+            {
+                StepOver();
+                return Ok(req);
+            }
+        );
+        dispatcher.RegisterHandler(
+            "stepOut",
+            req =>
+            {
+                StepOut();
+                return Ok(req);
+            }
+        );
 
         // Read-only inspection handlers — these are pure functions of
         // GameBoySystem state and Koh.Debugger's implementations work
         // unchanged against an adopted system.
         var stackTrace = new StackTraceHandler(_session);
-        var variables  = new VariablesHandler(_session);
-        var readMemH   = new ReadMemoryHandler(_session);
-        var disasm     = new DisassembleHandler(_session);
-        var evaluate   = new EvaluateHandler(_session);
-        var setBpH     = new SetBreakpointsHandler(_session);
-        var bpLocsH    = new BreakpointHandlers(_session);
+        var variables = new VariablesHandler(_session);
+        var readMemH = new ReadMemoryHandler(_session);
+        var disasm = new DisassembleHandler(_session);
+        var evaluate = new EvaluateHandler(_session);
+        var setBpH = new SetBreakpointsHandler(_session);
+        var bpLocsH = new BreakpointHandlers(_session);
         dispatcher.RegisterHandler("stackTrace", stackTrace.Handle);
-        dispatcher.RegisterHandler("scopes",     ScopesHandler.Handle);
-        dispatcher.RegisterHandler("variables",  variables.Handle);
+        dispatcher.RegisterHandler("scopes", ScopesHandler.Handle);
+        dispatcher.RegisterHandler("variables", variables.Handle);
         dispatcher.RegisterHandler("readMemory", readMemH.Handle);
         dispatcher.RegisterHandler("disassemble", disasm.Handle);
-        dispatcher.RegisterHandler("evaluate",   evaluate.Handle);
+        dispatcher.RegisterHandler("evaluate", evaluate.Handle);
         // Breakpoints: SetBreakpointsHandler resolves source line →
         // BankedAddress via DebugInfo.SourceMap and installs into
         // BreakpointManager. Our DebugSession.AdoptSystem wired
@@ -276,18 +376,24 @@ internal sealed class DapServerHost : IDisposable
         // StopReason.Breakpoint the next time execution hits a
         // resolved address — PausedOnBreak then sends the stopped
         // event to VS Code.
-        dispatcher.RegisterHandler("setBreakpoints",            setBpH.Handle);
-        dispatcher.RegisterHandler("breakpointLocations",       bpLocsH.HandleBreakpointLocations);
-        dispatcher.RegisterHandler("setInstructionBreakpoints", bpLocsH.HandleSetInstructionBreakpoints);
-        dispatcher.RegisterHandler("setFunctionBreakpoints",    bpLocsH.HandleSetFunctionBreakpoints);
+        dispatcher.RegisterHandler("setBreakpoints", setBpH.Handle);
+        dispatcher.RegisterHandler("breakpointLocations", bpLocsH.HandleBreakpointLocations);
+        dispatcher.RegisterHandler(
+            "setInstructionBreakpoints",
+            bpLocsH.HandleSetInstructionBreakpoints
+        );
+        dispatcher.RegisterHandler("setFunctionBreakpoints", bpLocsH.HandleSetFunctionBreakpoints);
 
         // Data breakpoints (watchpoints): VS Code calls
         // dataBreakpointInfo to ask "is this expression watchable?",
         // then setDataBreakpoints to install. DebugSession's
         // WatchpointHook picks them up via System.Mmu.Hook (wired in
         // AdoptSystem) and halts with StopReason.Watchpoint.
-        dispatcher.RegisterHandler("dataBreakpointInfo",  new DataBreakpointInfoHandler().Handle);
-        dispatcher.RegisterHandler("setDataBreakpoints",  new SetDataBreakpointsHandler(_session).Handle);
+        dispatcher.RegisterHandler("dataBreakpointInfo", new DataBreakpointInfoHandler().Handle);
+        dispatcher.RegisterHandler(
+            "setDataBreakpoints",
+            new SetDataBreakpointsHandler(_session).Handle
+        );
 
         // Write memory: the VS Code hex-editor extension lets the
         // user poke bytes into WRAM / HRAM / IO registers. Useful
@@ -302,7 +408,12 @@ internal sealed class DapServerHost : IDisposable
     }
 
     private static Response Ok(Request req) =>
-        new() { RequestSeq = req.Seq, Command = req.Command, Success = true };
+        new()
+        {
+            RequestSeq = req.Seq,
+            Command = req.Command,
+            Success = true,
+        };
 
     /// <summary>
     /// DAP <c>next</c> / "step over". For CALL / RST instructions we
@@ -313,13 +424,22 @@ internal sealed class DapServerHost : IDisposable
     private void StepOver()
     {
         var sys = _loop.CurrentSystem;
-        if (sys is null) { _loop.StepOne(); return; }
+        if (sys is null)
+        {
+            _loop.StepOne();
+            return;
+        }
 
         ushort pc = sys.Cpu.Registers.Pc;
         var (mnemonic, length) = Disassembler.DecodeOne(a => sys.DebugReadByte(a), pc);
-        bool isControlFlow = mnemonic.StartsWith("CALL", StringComparison.Ordinal)
-                          || mnemonic.StartsWith("RST",  StringComparison.Ordinal);
-        if (!isControlFlow) { _loop.StepOne(); return; }
+        bool isControlFlow =
+            mnemonic.StartsWith("CALL", StringComparison.Ordinal)
+            || mnemonic.StartsWith("RST", StringComparison.Ordinal);
+        if (!isControlFlow)
+        {
+            _loop.StepOne();
+            return;
+        }
 
         ushort ret = (ushort)(pc + length);
         RunUntilPc(sys, ret);
@@ -337,7 +457,11 @@ internal sealed class DapServerHost : IDisposable
     private void StepOut()
     {
         var sys = _loop.CurrentSystem;
-        if (sys is null) { _loop.StepOne(); return; }
+        if (sys is null)
+        {
+            _loop.StepOne();
+            return;
+        }
 
         ushort sp = sys.Cpu.Registers.Sp;
         byte lo = sys.DebugReadByte(sp);
@@ -362,12 +486,15 @@ internal sealed class DapServerHost : IDisposable
 
     private void SendStoppedEvent(string reason)
     {
-        _dispatcher?.SendEvent("stopped", new StoppedEventBody
-        {
-            Reason = reason,
-            ThreadId = 1,
-            AllThreadsStopped = true,
-        });
+        _dispatcher?.SendEvent(
+            "stopped",
+            new StoppedEventBody
+            {
+                Reason = reason,
+                ThreadId = 1,
+                AllThreadsStopped = true,
+            }
+        );
     }
 
     private void WriteFramed(Stream stream, ReadOnlySpan<byte> body)
@@ -384,7 +511,11 @@ internal sealed class DapServerHost : IDisposable
     public void Dispose()
     {
         _cts.Cancel();
-        try { _pipe?.Dispose(); } catch { }
+        try
+        {
+            _pipe?.Dispose();
+        }
+        catch { }
         _thread.Join(TimeSpan.FromSeconds(1));
         _cts.Dispose();
     }
@@ -403,7 +534,10 @@ internal sealed class FramedReader
     private readonly byte[] _headerBuffer = new byte[1024];
     private int _headerFill;
 
-    public FramedReader(Stream stream) { _stream = stream; }
+    public FramedReader(Stream stream)
+    {
+        _stream = stream;
+    }
 
     public ReadOnlyMemory<byte>? ReadNext(CancellationToken ct)
     {
@@ -413,40 +547,52 @@ internal sealed class FramedReader
             if (_headerFill == _headerBuffer.Length)
                 throw new IOException("DAP header exceeded 1 KiB");
             int read = _stream.Read(_headerBuffer, _headerFill, 1);
-            if (read == 0) return null;
+            if (read == 0)
+                return null;
             _headerFill += read;
-            if (_headerFill >= 4 &&
-                _headerBuffer[_headerFill - 4] == (byte)'\r' &&
-                _headerBuffer[_headerFill - 3] == (byte)'\n' &&
-                _headerBuffer[_headerFill - 2] == (byte)'\r' &&
-                _headerBuffer[_headerFill - 1] == (byte)'\n')
+            if (
+                _headerFill >= 4
+                && _headerBuffer[_headerFill - 4] == (byte)'\r'
+                && _headerBuffer[_headerFill - 3] == (byte)'\n'
+                && _headerBuffer[_headerFill - 2] == (byte)'\r'
+                && _headerBuffer[_headerFill - 1] == (byte)'\n'
+            )
             {
                 terminator = _headerFill;
                 break;
             }
         }
-        if (terminator < 0) return null;
+        if (terminator < 0)
+            return null;
 
         var headerText = Encoding.ASCII.GetString(_headerBuffer, 0, terminator - 4);
         int contentLength = -1;
         foreach (var line in headerText.Split("\r\n"))
         {
             var idx = line.IndexOf(':');
-            if (idx < 0) continue;
-            if (line.AsSpan(0, idx).Trim().Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+            if (idx < 0)
+                continue;
+            if (
+                line.AsSpan(0, idx)
+                    .Trim()
+                    .Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
+            )
             {
-                if (int.TryParse(line.AsSpan(idx + 1).Trim(), out var n)) contentLength = n;
+                if (int.TryParse(line.AsSpan(idx + 1).Trim(), out var n))
+                    contentLength = n;
             }
         }
         _headerFill = 0;
-        if (contentLength < 0) throw new IOException("DAP frame missing Content-Length");
+        if (contentLength < 0)
+            throw new IOException("DAP frame missing Content-Length");
 
         var body = new byte[contentLength];
         int filled = 0;
         while (filled < contentLength)
         {
             int read = _stream.Read(body, filled, contentLength - filled);
-            if (read == 0) return null;
+            if (read == 0)
+                return null;
             filled += read;
         }
         return body;

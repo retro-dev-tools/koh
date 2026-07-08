@@ -17,7 +17,11 @@ public abstract record Patch(string Path);
 public sealed record ReplaceNode(string Path, RenderNode Node) : Patch(Path);
 
 /// <summary>Update a subset of props on the node at <paramref name="Path"/>. Props not in the dictionary keep their previous values.</summary>
-public sealed record UpdateProps(string Path, ImmutableDictionary<string, object?> Changed, ImmutableArray<string> Removed) : Patch(Path);
+public sealed record UpdateProps(
+    string Path,
+    ImmutableDictionary<string, object?> Changed,
+    ImmutableArray<string> Removed
+) : Patch(Path);
 
 /// <summary>Append a new child at the end of the children list under <paramref name="Path"/>.</summary>
 public sealed record InsertChild(string Path, int Index, RenderNode Node) : Patch(Path);

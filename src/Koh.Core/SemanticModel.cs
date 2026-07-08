@@ -30,7 +30,8 @@ public sealed class SemanticModel
     /// </summary>
     public Symbol? ResolveSymbol(string rawName, int position)
     {
-        if (_result.Symbols == null) return null;
+        if (_result.Symbols == null)
+            return null;
 
         var context = new SymbolResolutionContext(_ownerId, _tree.Text.FilePath);
 
@@ -39,7 +40,8 @@ public sealed class SemanticModel
             string? scope = null;
             foreach (var node in _tree.Root.ChildNodes())
             {
-                if (node.Position > position) break;
+                if (node.Position > position)
+                    break;
                 if (node.Kind == SyntaxKind.LabelDeclaration)
                 {
                     var token = node.ChildTokens().FirstOrDefault();
@@ -47,7 +49,8 @@ public sealed class SemanticModel
                         scope = token.Text;
                 }
             }
-            if (scope == null) return null;
+            if (scope == null)
+                return null;
 
             return _result.Symbols.LookupQualified(scope + rawName, context);
         }
@@ -60,7 +63,8 @@ public sealed class SemanticModel
     /// </summary>
     public Symbol? GetDeclaredSymbol(SyntaxNode node)
     {
-        if (_result.Symbols == null) return null;
+        if (_result.Symbols == null)
+            return null;
 
         if (node.Kind == SyntaxKind.LabelDeclaration)
         {
@@ -88,7 +92,8 @@ public sealed class SemanticModel
     /// </summary>
     public Symbol? GetSymbol(SyntaxNode node)
     {
-        if (_result.Symbols == null) return null;
+        if (_result.Symbols == null)
+            return null;
 
         // NameExpression or LabelOperand — child token is the identifier
         if (node.Kind is SyntaxKind.NameExpression or SyntaxKind.LabelOperand)
@@ -116,7 +121,8 @@ public sealed class SemanticModel
         string? currentScope = null;
         foreach (var node in _tree.Root.ChildNodes())
         {
-            if (node.Position > position) break;
+            if (node.Position > position)
+                break;
             if (node.Kind == SyntaxKind.LabelDeclaration)
             {
                 var token = node.ChildTokens().FirstOrDefault();
@@ -125,13 +131,16 @@ public sealed class SemanticModel
             }
         }
 
-        return _result.Symbols.GetVisibleSymbols(_ownerId)
+        return _result
+            .Symbols.GetVisibleSymbols(_ownerId)
             .Where(s => s.State == SymbolState.Defined)
             .Where(s =>
             {
-                if (!s.Name.Contains('.')) return true; // global symbol — always visible
+                if (!s.Name.Contains('.'))
+                    return true; // global symbol — always visible
                 // Local labels stored as "globalName.localName" — visible in matching scope
-                if (currentScope == null) return false; // no enclosing scope — local not visible
+                if (currentScope == null)
+                    return false; // no enclosing scope — local not visible
                 return s.Name.StartsWith(currentScope + ".", StringComparison.OrdinalIgnoreCase);
             });
     }
@@ -142,8 +151,10 @@ public sealed class SemanticModel
     /// </summary>
     public int? GetMacroArity(Symbol symbol)
     {
-        if (symbol.Kind != SymbolKind.Macro) return null;
-        if (_result.MacroArities == null) return null;
+        if (symbol.Kind != SymbolKind.Macro)
+            return null;
+        if (_result.MacroArities == null)
+            return null;
         return _result.MacroArities.TryGetValue(symbol, out var arity) ? arity : null;
     }
 
@@ -154,7 +165,8 @@ public sealed class SemanticModel
     public int? GetMacroArity(string macroName)
     {
         var symbol = ResolveSymbol(macroName, 0);
-        if (symbol == null) return null;
+        if (symbol == null)
+            return null;
         return GetMacroArity(symbol);
     }
 

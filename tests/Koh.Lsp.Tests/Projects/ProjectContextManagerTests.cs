@@ -49,7 +49,10 @@ public class ProjectContextManagerTests
         manager.UpdateDocumentText("C:/project/test.asm", "halt");
 
         var projects = manager.AllProjects;
-        var entrypoints = projects.Select(p => p.EntrypointPath).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+        var entrypoints = projects
+            .Select(p => p.EntrypointPath)
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         await Assert.That(entrypoints.Count).IsEqualTo(2);
         await Assert.That(entrypoints[0]).IsEqualTo(Path.GetFullPath("C:/project/main.asm"));
@@ -73,7 +76,11 @@ public class ProjectContextManagerTests
 
         // Now switch to configured mode with only main.asm
         var configured = new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Main", Entrypoint = Path.GetFullPath("C:/project/main.asm") },
+            new KohProjectDefinition
+            {
+                Name = "Main",
+                Entrypoint = Path.GetFullPath("C:/project/main.asm"),
+            },
         ]);
         manager.ApplyConfig(configured);
 
@@ -82,7 +89,9 @@ public class ProjectContextManagerTests
 
         var project = manager.AllProjects.First();
         await Assert.That(project.Name).IsEqualTo("Main");
-        await Assert.That(project.EntrypointPath).IsEqualTo(Path.GetFullPath("C:/project/main.asm"));
+        await Assert
+            .That(project.EntrypointPath)
+            .IsEqualTo(Path.GetFullPath("C:/project/main.asm"));
     }
 
     [Test]
@@ -96,9 +105,15 @@ public class ProjectContextManagerTests
         manager.UpdateDocumentText("C:/project/debug.asm", "halt");
 
         // Switch to configured with only game.asm
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Game", Entrypoint = Path.GetFullPath("C:/project/game.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "Game",
+                    Entrypoint = Path.GetFullPath("C:/project/game.asm"),
+                },
+            ])
+        );
 
         // Only one project should exist — debug.asm is NOT a project
         await Assert.That(manager.AllProjects.Count).IsEqualTo(1);
@@ -114,10 +129,20 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Game", Entrypoint = Path.GetFullPath("C:/project/game.asm") },
-            new KohProjectDefinition { Name = "Tools", Entrypoint = Path.GetFullPath("C:/project/tools.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "Game",
+                    Entrypoint = Path.GetFullPath("C:/project/game.asm"),
+                },
+                new KohProjectDefinition
+                {
+                    Name = "Tools",
+                    Entrypoint = Path.GetFullPath("C:/project/tools.asm"),
+                },
+            ])
+        );
 
         manager.UpdateDocumentText("C:/project/game.asm", "INCLUDE \"shared.inc\"\nnop");
         manager.UpdateDocumentText("C:/project/tools.asm", "INCLUDE \"shared.inc\"\nhalt");
@@ -147,10 +172,20 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Game", Entrypoint = Path.GetFullPath("C:/project/game.asm") },
-            new KohProjectDefinition { Name = "Tools", Entrypoint = Path.GetFullPath("C:/project/tools.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "Game",
+                    Entrypoint = Path.GetFullPath("C:/project/game.asm"),
+                },
+                new KohProjectDefinition
+                {
+                    Name = "Tools",
+                    Entrypoint = Path.GetFullPath("C:/project/tools.asm"),
+                },
+            ])
+        );
 
         // Game includes gamelib.inc; Tools includes toollib.inc — no shared files
         manager.UpdateDocumentText("C:/project/game.asm", "INCLUDE \"gamelib.inc\"\nnop");
@@ -178,9 +213,15 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Game", Entrypoint = Path.GetFullPath("C:/project/game.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "Game",
+                    Entrypoint = Path.GetFullPath("C:/project/game.asm"),
+                },
+            ])
+        );
 
         manager.UpdateDocumentText("C:/project/game.asm", "nop");
         manager.UpdateDocumentText("C:/project/orphan.asm", "halt");
@@ -195,9 +236,15 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Game", Entrypoint = Path.GetFullPath("C:/project/game.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "Game",
+                    Entrypoint = Path.GetFullPath("C:/project/game.asm"),
+                },
+            ])
+        );
 
         manager.UpdateDocumentText("C:/project/game.asm", "INCLUDE \"lib.inc\"\nnop");
         manager.UpdateDocumentText("C:/project/lib.inc", "; lib");
@@ -220,9 +267,9 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Invalid([
-            new ConfigValidationError("bad config"),
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Invalid([new ConfigValidationError("bad config")])
+        );
 
         await Assert.That(manager.Mode).IsEqualTo(FolderMode.InvalidConfiguration);
         await Assert.That(manager.AllProjects.Count).IsEqualTo(0);
@@ -233,9 +280,9 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Invalid([
-            new ConfigValidationError("bad config"),
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Invalid([new ConfigValidationError("bad config")])
+        );
 
         manager.UpdateDocumentText("C:/project/main.asm", "nop");
 
@@ -248,10 +295,12 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Invalid([
-            new ConfigValidationError("Missing field: version"),
-            new ConfigValidationError("Missing field: projects"),
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Invalid([
+                new ConfigValidationError("Missing field: version"),
+                new ConfigValidationError("Missing field: projects"),
+            ])
+        );
 
         await Assert.That(manager.ConfigErrors.Count).IsEqualTo(2);
         await Assert.That(manager.ConfigErrors[0].Message).IsEqualTo("Missing field: version");
@@ -266,10 +315,20 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Game", Entrypoint = Path.GetFullPath("C:/project/game.asm") },
-            new KohProjectDefinition { Name = "Tools", Entrypoint = Path.GetFullPath("C:/project/tools.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "Game",
+                    Entrypoint = Path.GetFullPath("C:/project/game.asm"),
+                },
+                new KohProjectDefinition
+                {
+                    Name = "Tools",
+                    Entrypoint = Path.GetFullPath("C:/project/tools.asm"),
+                },
+            ])
+        );
 
         manager.UpdateDocumentText("C:/project/game.asm", "INCLUDE \"shared.inc\"\nnop");
         manager.UpdateDocumentText("C:/project/tools.asm", "INCLUDE \"shared.inc\"\nhalt");
@@ -325,10 +384,20 @@ public class ProjectContextManagerTests
     {
         var manager = CreateManager();
 
-        manager.ApplyConfig(new KohConfigLoadResult.Configured([
-            new KohProjectDefinition { Name = "Beta", Entrypoint = Path.GetFullPath("C:/project/beta.asm") },
-            new KohProjectDefinition { Name = "Alpha", Entrypoint = Path.GetFullPath("C:/project/alpha.asm") },
-        ]));
+        manager.ApplyConfig(
+            new KohConfigLoadResult.Configured([
+                new KohProjectDefinition
+                {
+                    Name = "Beta",
+                    Entrypoint = Path.GetFullPath("C:/project/beta.asm"),
+                },
+                new KohProjectDefinition
+                {
+                    Name = "Alpha",
+                    Entrypoint = Path.GetFullPath("C:/project/alpha.asm"),
+                },
+            ])
+        );
 
         manager.UpdateDocumentText("C:/project/beta.asm", "INCLUDE \"shared.inc\"\nnop");
         manager.UpdateDocumentText("C:/project/alpha.asm", "INCLUDE \"shared.inc\"\nhalt");

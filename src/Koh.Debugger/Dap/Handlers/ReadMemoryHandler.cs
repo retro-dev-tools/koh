@@ -6,7 +6,11 @@ namespace Koh.Debugger.Dap.Handlers;
 public sealed class ReadMemoryHandler
 {
     private readonly DebugSession _session;
-    public ReadMemoryHandler(DebugSession session) { _session = session; }
+
+    public ReadMemoryHandler(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response Handle(Request request)
     {
@@ -29,7 +33,11 @@ public sealed class ReadMemoryHandler
         }
         catch
         {
-            return new Response { Success = false, Message = $"readMemory: invalid memoryReference '{args.MemoryReference}'" };
+            return new Response
+            {
+                Success = false,
+                Message = $"readMemory: invalid memoryReference '{args.MemoryReference}'",
+            };
         }
 
         int count = Math.Max(0, Math.Min(args.Count, 0x10000 - start));

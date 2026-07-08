@@ -6,12 +6,17 @@ public sealed class LengthCounter
     public bool Enabled;
     public readonly int MaxLength;
 
-    public LengthCounter(int maxLength) { MaxLength = maxLength; }
+    public LengthCounter(int maxLength)
+    {
+        MaxLength = maxLength;
+    }
 
     public void Tick(Action disable)
     {
-        if (!Enabled || Counter == 0) return;
+        if (!Enabled || Counter == 0)
+            return;
         Counter--;
-        if (Counter == 0) disable();
+        if (Counter == 0)
+            disable();
     }
 }

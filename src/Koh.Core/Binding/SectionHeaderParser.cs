@@ -13,11 +13,18 @@ internal static class SectionHeaderParser
     /// Extract section header fields from a SectionDirective node.
     /// Returns false and reports a diagnostic if the name is absent.
     /// </summary>
-    public static bool TryParse(SyntaxNode node, DiagnosticBag diagnostics,
-        out string? name, out SectionType sectionType,
-        out int? fixedAddress, out int? bank,
-        out bool isUnion, out bool isFragment,
-        out int? sectionAlignBits, out int? sectionAlignOffset)
+    public static bool TryParse(
+        SyntaxNode node,
+        DiagnosticBag diagnostics,
+        out string? name,
+        out SectionType sectionType,
+        out int? fixedAddress,
+        out int? bank,
+        out bool isUnion,
+        out bool isFragment,
+        out int? sectionAlignBits,
+        out int? sectionAlignOffset
+    )
     {
         name = null;
         sectionType = SectionType.Rom0;
@@ -34,8 +41,10 @@ internal static class SectionHeaderParser
         // Check for UNION/FRAGMENT modifiers
         for (int j = 0; j < tokens.Count; j++)
         {
-            if (tokens[j].Kind == SyntaxKind.UnionKeyword) isUnion = true;
-            if (tokens[j].Kind == SyntaxKind.FragmentKeyword) isFragment = true;
+            if (tokens[j].Kind == SyntaxKind.UnionKeyword)
+                isUnion = true;
+            if (tokens[j].Kind == SyntaxKind.FragmentKeyword)
+                isFragment = true;
         }
 
         for (int i = 0; i < tokens.Count; i++)
@@ -50,14 +59,14 @@ internal static class SectionHeaderParser
 
             var mapped = t.Kind switch
             {
-                SyntaxKind.Rom0Keyword  => SectionType.Rom0,
-                SyntaxKind.RomxKeyword  => SectionType.RomX,
+                SyntaxKind.Rom0Keyword => SectionType.Rom0,
+                SyntaxKind.RomxKeyword => SectionType.RomX,
                 SyntaxKind.Wram0Keyword => SectionType.Wram0,
                 SyntaxKind.WramxKeyword => SectionType.WramX,
-                SyntaxKind.VramKeyword  => SectionType.Vram,
-                SyntaxKind.HramKeyword  => SectionType.Hram,
-                SyntaxKind.SramKeyword  => SectionType.Sram,
-                SyntaxKind.OamKeyword   => SectionType.Oam,
+                SyntaxKind.VramKeyword => SectionType.Vram,
+                SyntaxKind.HramKeyword => SectionType.Hram,
+                SyntaxKind.SramKeyword => SectionType.Sram,
+                SyntaxKind.OamKeyword => SectionType.Oam,
                 _ => (SectionType?)null,
             };
             if (mapped.HasValue)
@@ -73,7 +82,11 @@ internal static class SectionHeaderParser
                 int closeIdx = -1;
                 for (int j = i + 1; j < tokens.Count; j++)
                 {
-                    if (tokens[j].Kind == SyntaxKind.CloseBracketToken) { closeIdx = j; break; }
+                    if (tokens[j].Kind == SyntaxKind.CloseBracketToken)
+                    {
+                        closeIdx = j;
+                        break;
+                    }
                 }
                 if (closeIdx > i)
                 {
@@ -85,12 +98,16 @@ internal static class SectionHeaderParser
                         var nums = new List<int>();
                         foreach (var tok in innerTokens)
                         {
-                            if (tok.Kind == SyntaxKind.NumberLiteral &&
-                                TryParseIntegerLiteral(tok.Text, out int n))
+                            if (
+                                tok.Kind == SyntaxKind.NumberLiteral
+                                && TryParseIntegerLiteral(tok.Text, out int n)
+                            )
                                 nums.Add(n);
                         }
-                        if (nums.Count > 0) sectionAlignBits = nums[0];
-                        if (nums.Count > 1) sectionAlignOffset = nums[1];
+                        if (nums.Count > 0)
+                            sectionAlignBits = nums[0];
+                        if (nums.Count > 1)
+                            sectionAlignOffset = nums[1];
                     }
                     else
                     {
@@ -123,7 +140,8 @@ internal static class SectionHeaderParser
             }
         }
 
-        if (name != null) return true;
+        if (name != null)
+            return true;
 
         diagnostics.Report(node.FullSpan, "SECTION directive requires a name");
         return false;
@@ -135,14 +153,26 @@ internal static class SectionHeaderParser
     public static bool TryParseIntegerLiteral(string text, out int value)
     {
         value = 0;
-        if (string.IsNullOrEmpty(text)) return false;
+        if (string.IsNullOrEmpty(text))
+            return false;
         if (text[0] == '$')
-            return int.TryParse(text[1..], System.Globalization.NumberStyles.HexNumber,
-                null, out value);
+            return int.TryParse(
+                text[1..],
+                System.Globalization.NumberStyles.HexNumber,
+                null,
+                out value
+            );
         if (text[0] == '%')
         {
-            try { value = Convert.ToInt32(text[1..], 2); return true; }
-            catch { return false; }
+            try
+            {
+                value = Convert.ToInt32(text[1..], 2);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
         return int.TryParse(text, out value);
     }
@@ -153,14 +183,21 @@ internal static class SectionHeaderParser
     /// Uses a recursive descent approach for correct precedence (left-associative, * / % before + -).
     /// Returns null on error (bad token or div-by-zero).
     /// </summary>
-    private static int? EvaluateBracketExpression(IReadOnlyList<SyntaxToken> tokens, DiagnosticBag diagnostics)
+    private static int? EvaluateBracketExpression(
+        IReadOnlyList<SyntaxToken> tokens,
+        DiagnosticBag diagnostics
+    )
     {
-        if (tokens.Count == 0) return null;
+        if (tokens.Count == 0)
+            return null;
 
         // Single token: a number literal
         if (tokens.Count == 1)
         {
-            if (tokens[0].Kind == SyntaxKind.NumberLiteral && TryParseIntegerLiteral(tokens[0].Text, out int v))
+            if (
+                tokens[0].Kind == SyntaxKind.NumberLiteral
+                && TryParseIntegerLiteral(tokens[0].Text, out int v)
+            )
                 return v;
             return null;
         }
@@ -176,24 +213,28 @@ internal static class SectionHeaderParser
             var kind = tokens[i].Kind;
             if (kind is SyntaxKind.PlusToken or SyntaxKind.MinusToken)
                 addIdx = i;
-            else if (kind is SyntaxKind.StarToken or SyntaxKind.SlashToken or SyntaxKind.PercentToken)
+            else if (
+                kind is SyntaxKind.StarToken or SyntaxKind.SlashToken or SyntaxKind.PercentToken
+            )
                 mulIdx = i;
         }
 
         int splitIdx = addIdx >= 0 ? addIdx : mulIdx;
-        if (splitIdx <= 0 || splitIdx >= tokens.Count - 1) return null; // no operator found at valid position
+        if (splitIdx <= 0 || splitIdx >= tokens.Count - 1)
+            return null; // no operator found at valid position
 
         var left = EvaluateBracketExpression(tokens.Take(splitIdx).ToList(), diagnostics);
         var right = EvaluateBracketExpression(tokens.Skip(splitIdx + 1).ToList(), diagnostics);
-        if (left == null || right == null) return null;
+        if (left == null || right == null)
+            return null;
 
         return tokens[splitIdx].Kind switch
         {
-            SyntaxKind.PlusToken    => left.Value + right.Value,
-            SyntaxKind.MinusToken   => left.Value - right.Value,
-            SyntaxKind.StarToken    => left.Value * right.Value,
+            SyntaxKind.PlusToken => left.Value + right.Value,
+            SyntaxKind.MinusToken => left.Value - right.Value,
+            SyntaxKind.StarToken => left.Value * right.Value,
             SyntaxKind.SlashToken when right.Value != 0 => left.Value / right.Value,
-            SyntaxKind.SlashToken   => ReportDivByZero(diagnostics),
+            SyntaxKind.SlashToken => ReportDivByZero(diagnostics),
             SyntaxKind.PercentToken when right.Value != 0 => left.Value % right.Value,
             SyntaxKind.PercentToken => ReportDivByZero(diagnostics),
             _ => null,

@@ -15,7 +15,8 @@ public class SemanticTokenTests
         var data = SemanticTokenEncoder.Encode(tree);
 
         var tokens = new List<(int Line, int Char, int Length, int Type)>();
-        int line = 0, col = 0;
+        int line = 0,
+            col = 0;
         for (int i = 0; i + 4 < data.Length; i += 5)
         {
             line += data[i];
@@ -25,8 +26,10 @@ public class SemanticTokenTests
         return tokens;
     }
 
-    private static bool HasTokenOfType(List<(int Line, int Char, int Length, int Type)> tokens, int typeIndex)
-        => tokens.Any(t => t.Type == typeIndex);
+    private static bool HasTokenOfType(
+        List<(int Line, int Char, int Length, int Type)> tokens,
+        int typeIndex
+    ) => tokens.Any(t => t.Type == typeIndex);
 
     [Test]
     public async Task InstructionKeyword_ClassifiedAsKeyword()

@@ -16,7 +16,8 @@ public class PpuModeTimingTests
 
     private static void Tick(GameBoySystem gb, int dots)
     {
-        for (int i = 0; i < dots; i++) gb.Ppu.TickDot(ref gb.Io.Interrupts);
+        for (int i = 0; i < dots; i++)
+            gb.Ppu.TickDot(ref gb.Io.Interrupts);
     }
 
     [Test]

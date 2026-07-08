@@ -9,15 +9,25 @@ namespace Koh.Core.Tests.Binding;
 /// </summary>
 public class SectionHeaderParserTests
 {
-    private static (string? name, SectionType type, int? addr, int? bank, bool ok)
-        Parse(string source)
+    private static (string? name, SectionType type, int? addr, int? bank, bool ok) Parse(
+        string source
+    )
     {
         var tree = SyntaxTree.Parse(source);
         var section = tree.Root.ChildNodes().First(n => n.Kind == SyntaxKind.SectionDirective);
         var diag = new DiagnosticBag();
-        var ok = SectionHeaderParser.TryParse(section, diag,
-            out var name, out var type, out var addr, out var bank,
-            out _, out _, out _, out _);
+        var ok = SectionHeaderParser.TryParse(
+            section,
+            diag,
+            out var name,
+            out var type,
+            out var addr,
+            out var bank,
+            out _,
+            out _,
+            out _,
+            out _
+        );
         return (name, type, addr, bank, ok);
     }
 
@@ -56,10 +66,14 @@ public class SectionHeaderParserTests
     {
         var types = new (string keyword, SectionType expected)[]
         {
-            ("ROM0", SectionType.Rom0), ("ROMX", SectionType.RomX),
-            ("WRAM0", SectionType.Wram0), ("WRAMX", SectionType.WramX),
-            ("VRAM", SectionType.Vram), ("HRAM", SectionType.Hram),
-            ("SRAM", SectionType.Sram), ("OAM", SectionType.Oam),
+            ("ROM0", SectionType.Rom0),
+            ("ROMX", SectionType.RomX),
+            ("WRAM0", SectionType.Wram0),
+            ("WRAMX", SectionType.WramX),
+            ("VRAM", SectionType.Vram),
+            ("HRAM", SectionType.Hram),
+            ("SRAM", SectionType.Sram),
+            ("OAM", SectionType.Oam),
         };
 
         foreach (var (keyword, expected) in types)
@@ -74,13 +88,25 @@ public class SectionHeaderParserTests
     public async Task MissingName_ReturnsFalse()
     {
         var tree = SyntaxTree.Parse("SECTION , ROM0");
-        var section = tree.Root.ChildNodes()
+        var section = tree
+            .Root.ChildNodes()
             .FirstOrDefault(n => n.Kind == SyntaxKind.SectionDirective);
-        if (section == null) return; // parser may not produce a SectionDirective
+        if (section == null)
+            return; // parser may not produce a SectionDirective
 
         var diag = new DiagnosticBag();
-        var ok = SectionHeaderParser.TryParse(section, diag,
-            out _, out _, out _, out _, out _, out _, out _, out _);
+        var ok = SectionHeaderParser.TryParse(
+            section,
+            diag,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _
+        );
         await Assert.That(ok).IsFalse();
     }
 

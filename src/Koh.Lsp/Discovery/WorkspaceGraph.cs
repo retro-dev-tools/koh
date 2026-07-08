@@ -7,8 +7,12 @@ namespace Koh.Lsp.Discovery;
 /// </summary>
 internal sealed class WorkspaceGraph
 {
-    private readonly Dictionary<string, HashSet<string>> _forwardEdges = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, HashSet<string>> _reverseEdges = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<string>> _forwardEdges = new(
+        StringComparer.OrdinalIgnoreCase
+    );
+    private readonly Dictionary<string, HashSet<string>> _reverseEdges = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly HashSet<string> _scannedFiles = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -112,7 +116,10 @@ internal sealed class WorkspaceGraph
     /// by following forward edges. Uses reverse BFS from the file to find reachable ancestors,
     /// then intersects with the candidate set.
     /// </summary>
-    public IReadOnlySet<string> GetReachableEntrypoints(string filePath, IEnumerable<string> entrypoints)
+    public IReadOnlySet<string> GetReachableEntrypoints(
+        string filePath,
+        IEnumerable<string> entrypoints
+    )
     {
         // BFS backwards from filePath following reverse edges
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -165,7 +172,10 @@ internal sealed class WorkspaceGraph
         }
     }
 
-    private static HashSet<string> GetOrCreateSet(Dictionary<string, HashSet<string>> dict, string key)
+    private static HashSet<string> GetOrCreateSet(
+        Dictionary<string, HashSet<string>> dict,
+        string key
+    )
     {
         if (!dict.TryGetValue(key, out var set))
         {
@@ -176,5 +186,7 @@ internal sealed class WorkspaceGraph
         return set;
     }
 
-    private static readonly IReadOnlySet<string> EmptySet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private static readonly IReadOnlySet<string> EmptySet = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase
+    );
 }

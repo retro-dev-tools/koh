@@ -66,7 +66,10 @@ public sealed partial class Sm83Backend : IBackend
         {
             diagnostics.Report(new Koh.Core.Syntax.TextSpan(0, 0), ex.Message);
             return new EmitModel(
-                Array.Empty<SectionData>(), Array.Empty<SymbolData>(), diagnostics.ToArray());
+                Array.Empty<SectionData>(),
+                Array.Empty<SymbolData>(),
+                diagnostics.ToArray()
+            );
         }
     }
 
@@ -83,7 +86,8 @@ public sealed partial class Sm83Backend : IBackend
             if (fn.InterruptVector is not null && recursive.Contains(fn))
                 throw new Sm83LimitException(
                     $"interrupt handler '{fn.Name}' is recursive; an interrupt handler cannot recurse "
-                    + "(its epilogue must be RETI with a balanced stack).");
+                        + "(its epilogue must be RETI with a balanced stack)."
+                );
 
         // Assign global addresses. Initialized (or ROM-space) globals live in a fixed ROM data
         // section; RAM globals get fixed WRAM/HRAM/SRAM addresses. Function frames are placed
@@ -93,7 +97,9 @@ public sealed partial class Sm83Backend : IBackend
         // ROM data past the fixed ROM0 window ([DataBase, 0x4000)) spills into switchable ROM banks
         // (physical banks 1, 2, … each windowed at 0x4000–0x7FFF). bankData[i] is bank (i + 1).
         var bankData = new List<List<byte>>();
-        int wramGlobals = WramBase, hramGlobals = 0xFF80, sramGlobals = 0xA000;
+        int wramGlobals = WramBase,
+            hramGlobals = 0xFF80,
+            sramGlobals = 0xA000;
         foreach (var g in module.Globals)
         {
             if (g.FixedAddress is int pinned)
@@ -125,7 +131,9 @@ public sealed partial class Sm83Backend : IBackend
         // Give every function a disjoint WRAM frame so a caller's live values and a callee's
         // storage never overlap (correct for a non-recursive call graph; frames are not yet
         // reused across functions that can't be live simultaneously).
-        var allocations = new Dictionary<IrFunction, FunctionAllocation>(ReferenceEqualityComparer.Instance);
+        var allocations = new Dictionary<IrFunction, FunctionAllocation>(
+            ReferenceEqualityComparer.Instance
+        );
         int wram = wramGlobals;
         foreach (var fn in module.Functions)
         {
@@ -146,17 +154,25 @@ public sealed partial class Sm83Backend : IBackend
         // The cartridge boots into "main" (or the first non-handler function if there is none). An
         // interrupt handler must never be the entry: its body runs on every interrupt and ends in RETI,
         // so booting into it re-runs initializers and returns through a nonexistent interrupt frame.
-        var entryFunction = module.Functions.FirstOrDefault(f =>
-                !f.IsExternal && string.Equals(f.Name, "main", StringComparison.OrdinalIgnoreCase))
-            ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
+        var entryFunction =
+            module.Functions.FirstOrDefault(f =>
+                !f.IsExternal && string.Equals(f.Name, "main", StringComparison.OrdinalIgnoreCase)
+            ) ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
         var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {
             if (fn.IsExternal)
                 continue;
             funcOffsets.Add((fn, emitter.Code.Count));
-            new FunctionEmitter(emitter, fn, allocations, globalAddresses,
-                recursive, ReferenceEquals(fn, entryFunction), softStackBase).Compile();
+            new FunctionEmitter(
+                emitter,
+                fn,
+                allocations,
+                globalAddresses,
+                recursive,
+                ReferenceEquals(fn, entryFunction),
+                softStackBase
+            ).Compile();
         }
         int funcsEnd = emitter.Code.Count;
 
@@ -173,18 +189,31 @@ public sealed partial class Sm83Backend : IBackend
             if (bankData.Count > 0)
                 throw new Sm83LimitException(
                     "a program cannot bank both code and read-only data (the code bank must stay mapped, "
-                    + "which precludes switching to a data bank).");
+                        + "which precludes switching to a data bank)."
+                );
 
             codeSplit = 0;
             foreach (var (_, offset) in funcOffsets)
-                if (offset <= rom0Budget) codeSplit = offset;
-            if (funcsEnd <= rom0Budget) codeSplit = funcsEnd; // all functions fit; only runtime banks
+                if (offset <= rom0Budget)
+                    codeSplit = offset;
+            if (funcsEnd <= rom0Budget)
+                codeSplit = funcsEnd; // all functions fit; only runtime banks
 
             // A single overflow bank stays mapped (no trampolines); more than one needs far-call thunks,
             // which the multi-bank path builds by re-emitting with bank-aware call routing.
             if (total - codeSplit > BankSize)
-                return CompileMultiBank(module, funcOffsets, funcsEnd, allocations, globalAddresses,
-                    romData, recursive, entryFunction, softStackBase, emitter.NeededRoutines);
+                return CompileMultiBank(
+                    module,
+                    funcOffsets,
+                    funcsEnd,
+                    allocations,
+                    globalAddresses,
+                    romData,
+                    recursive,
+                    entryFunction,
+                    softStackBase,
+                    emitter.NeededRoutines
+                );
         }
 
         int AddressOf(int offset) =>
@@ -199,8 +228,15 @@ public sealed partial class Sm83Backend : IBackend
                 entryAddress = addr;
             if (fn.InterruptVector is int vector)
                 interruptHandlers.Add((vector, addr));
-            symbols.Add(new SymbolData(
-                fn.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
+            symbols.Add(
+                new SymbolData(
+                    fn.Name,
+                    SymbolKind.Label,
+                    SymbolVisibility.Exported,
+                    CodeSectionName,
+                    addr
+                )
+            );
         }
 
         var codeRegions = new List<(int Start, int Base)> { (0, CodeBase) };
@@ -214,50 +250,99 @@ public sealed partial class Sm83Backend : IBackend
 
         var sections = new List<SectionData>
         {
-            new(CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
-                data: rom0Code, patches: Array.Empty<PatchEntry>(), lineMap: rom0Lines),
+            new(
+                CodeSectionName,
+                SectionType.Rom0,
+                fixedAddress: CodeBase,
+                bank: 0,
+                data: rom0Code,
+                patches: Array.Empty<PatchEntry>(),
+                lineMap: rom0Lines
+            ),
         };
 
         // Overflow code in bank 1 (windowed at 0x4000).
         if (codeSplit < total)
         {
             var bankCode = emitter.Code.GetRange(codeSplit, total - codeSplit).ToArray();
-            var bankLines = emitter.LineMap
-                .Where(e => e.Offset >= codeSplit)
+            var bankLines = emitter
+                .LineMap.Where(e => e.Offset >= codeSplit)
                 .Select(e => e with { Offset = e.Offset - codeSplit })
                 .ToList();
-            sections.Add(new SectionData(
-                "CODEX", SectionType.RomX, fixedAddress: BankWindow, bank: 1,
-                data: bankCode, patches: Array.Empty<PatchEntry>(), lineMap: bankLines));
+            sections.Add(
+                new SectionData(
+                    "CODEX",
+                    SectionType.RomX,
+                    fixedAddress: BankWindow,
+                    bank: 1,
+                    data: bankCode,
+                    patches: Array.Empty<PatchEntry>(),
+                    lineMap: bankLines
+                )
+            );
         }
 
         if (romData.Count > 0)
-            sections.Add(new SectionData(
-                "RODATA", SectionType.Rom0, fixedAddress: DataBase, bank: 0,
-                data: romData.ToArray(), patches: Array.Empty<PatchEntry>()));
+            sections.Add(
+                new SectionData(
+                    "RODATA",
+                    SectionType.Rom0,
+                    fixedAddress: DataBase,
+                    bank: 0,
+                    data: romData.ToArray(),
+                    patches: Array.Empty<PatchEntry>()
+                )
+            );
 
         // Switchable ROM data banks (bank i+1, all windowed at 0x4000). Present only when code is not
         // banked (the two are mutually exclusive); code reads them after selecting the bank via 0x2000.
         for (int i = 0; i < bankData.Count; i++)
-            sections.Add(new SectionData(
-                $"ROMX_{i + 1}", SectionType.RomX, fixedAddress: BankWindow, bank: i + 1,
-                data: bankData[i].ToArray(), patches: Array.Empty<PatchEntry>()));
+            sections.Add(
+                new SectionData(
+                    $"ROMX_{i + 1}",
+                    SectionType.RomX,
+                    fixedAddress: BankWindow,
+                    bank: i + 1,
+                    data: bankData[i].ToArray(),
+                    patches: Array.Empty<PatchEntry>()
+                )
+            );
 
         if (entryFunction is not null)
-            sections.Add(new SectionData(
-                "HEADER", SectionType.Rom0, fixedAddress: 0x0100, bank: 0,
-                data: BuildHeader(entryAddress, extraBanks), patches: Array.Empty<PatchEntry>()));
+            sections.Add(
+                new SectionData(
+                    "HEADER",
+                    SectionType.Rom0,
+                    fixedAddress: 0x0100,
+                    bank: 0,
+                    data: BuildHeader(entryAddress, extraBanks),
+                    patches: Array.Empty<PatchEntry>()
+                )
+            );
 
         // Interrupt vectors: `jp <handler>` at 0x40/0x48/0x50/0x58/0x60.
         foreach (var (vector, address) in interruptHandlers)
-            sections.Add(new SectionData(
-                $"VEC_{vector:X2}", SectionType.Rom0, fixedAddress: vector, bank: 0,
-                data: [0xC3, (byte)(address & 0xFF), (byte)(address >> 8)],
-                patches: Array.Empty<PatchEntry>()));
+            sections.Add(
+                new SectionData(
+                    $"VEC_{vector:X2}",
+                    SectionType.Rom0,
+                    fixedAddress: vector,
+                    bank: 0,
+                    data: [0xC3, (byte)(address & 0xFF), (byte)(address >> 8)],
+                    patches: Array.Empty<PatchEntry>()
+                )
+            );
 
         foreach (var (g, addr) in globalAddresses)
-            symbols.Add(new SymbolData(
-                g.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
+            symbols.Add(
+                new SymbolData(
+                    g.Name,
+                    SymbolKind.Label,
+                    SymbolVisibility.Exported,
+                    CodeSectionName,
+                    addr
+                )
+            );
 
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
     }
@@ -280,7 +365,8 @@ public sealed partial class Sm83Backend : IBackend
         HashSet<IrFunction> recursive,
         IrFunction? entryFunction,
         int softStackBase,
-        HashSet<string> neededRoutines)
+        HashSet<string> neededRoutines
+    )
     {
         if (entryFunction is null)
             throw new NotSupportedException("a banked program needs an entry function.");
@@ -297,7 +383,8 @@ public sealed partial class Sm83Backend : IBackend
 
         // Entry and interrupt handlers stay in ROM0 (the entry returns in registers; a handler must be
         // mapped for its vector). Everything else is banked, packed into 16KB banks.
-        bool IsRom0(IrFunction f) => ReferenceEquals(f, entryFunction) || f.InterruptVector is not null;
+        bool IsRom0(IrFunction f) =>
+            ReferenceEquals(f, entryFunction) || f.InterruptVector is not null;
         var bankedList = order.Where(f => !IsRom0(f)).ToList();
         var banked = new HashSet<IrFunction>(bankedList, ReferenceEqualityComparer.Instance);
 
@@ -305,55 +392,83 @@ public sealed partial class Sm83Backend : IBackend
         // to ReturnScratch and calls route through thunks), so packing on those sizes could overflow a
         // near-full bank and spuriously reject a program that fits. Re-measure with the banked set.
         var measure = new Emitter();
-        foreach (var r in neededRoutines) measure.NeededRoutines.Add(r);
+        foreach (var r in neededRoutines)
+            measure.NeededRoutines.Add(r);
         foreach (var f in bankedList)
         {
             int s0 = measure.Code.Count;
-            new FunctionEmitter(measure, f, allocations, globalAddresses, recursive,
-                false, softStackBase, banked).Compile();
+            new FunctionEmitter(
+                measure,
+                f,
+                allocations,
+                globalAddresses,
+                recursive,
+                false,
+                softStackBase,
+                banked
+            ).Compile();
             size[f] = measure.Code.Count - s0;
         }
 
         var bankOf = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
-        int bank = 1, bankUsed = 0;
+        int bank = 1,
+            bankUsed = 0;
         foreach (var f in bankedList)
         {
             int s = size[f];
             if (s > BankSize)
                 throw new Sm83LimitException(
-                    $"function '{f.Name}' is {s} bytes — larger than a 16 KB ROM bank.");
-            if (bankUsed + s > BankSize) { bank++; bankUsed = 0; }
+                    $"function '{f.Name}' is {s} bytes — larger than a 16 KB ROM bank."
+                );
+            if (bankUsed + s > BankSize)
+            {
+                bank++;
+                bankUsed = 0;
+            }
             bankOf[f] = bank;
             bankUsed += s;
         }
         int bankCount = bankedList.Count == 0 ? 0 : bank;
 
         var emitter = new Emitter();
-        foreach (var r in neededRoutines) emitter.NeededRoutines.Add(r);
+        foreach (var r in neededRoutines)
+            emitter.NeededRoutines.Add(r);
         var symbols = new List<SymbolData>();
         var funcAddr = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
 
         // --- ROM0 block: boot stub, entry, handlers, runtime, thunks (contiguous, physically based). ---
         // Boot: seed the current-bank shadow and jump to the entry function.
-        emitter.U8(0x3E); emitter.U8(0x01);                                             // LD A, 1
-        SelectBank(emitter);                                                            // seed current-bank shadow + MBC1
+        emitter.U8(0x3E);
+        emitter.U8(0x01); // LD A, 1
+        SelectBank(emitter); // seed current-bank shadow + MBC1
         if (recursive.Count > 0)
         {
             // One-time recursion setup lives here (not in the entry's prologue) because the JP below lands
             // on the entry's FunctionLabel, past any pre-label bytes. Doing it here also means a recursive
             // CALL to the entry re-enters at FunctionLabel and never re-runs this.
-            emitter.U8(0x31); emitter.U16(HwStackTop);                                  // LD SP, HwStackTop
-            LdHL(emitter, softStackBase);                                               // LD HL, softStackBase
-            emitter.U8(0x7D); StAAbs(emitter, SoftSp);                                  // LD A,L ; LD (SoftSp),A
-            emitter.U8(0x7C); StAAbs(emitter, SoftSp + 1);                              // LD A,H ; LD (SoftSp+1),A
+            emitter.U8(0x31);
+            emitter.U16(HwStackTop); // LD SP, HwStackTop
+            LdHL(emitter, softStackBase); // LD HL, softStackBase
+            emitter.U8(0x7D);
+            StAAbs(emitter, SoftSp); // LD A,L ; LD (SoftSp),A
+            emitter.U8(0x7C);
+            StAAbs(emitter, SoftSp + 1); // LD A,H ; LD (SoftSp+1),A
         }
-        emitter.Jump(0xC3, emitter.FunctionLabel(entryFunction));                       // JP entry
+        emitter.Jump(0xC3, emitter.FunctionLabel(entryFunction)); // JP entry
 
         void EmitFunc(IrFunction f, int addr)
         {
             funcAddr[f] = addr;
-            new FunctionEmitter(emitter, f, allocations, globalAddresses, recursive,
-                ReferenceEquals(f, entryFunction), softStackBase, banked).Compile();
+            new FunctionEmitter(
+                emitter,
+                f,
+                allocations,
+                globalAddresses,
+                recursive,
+                ReferenceEquals(f, entryFunction),
+                softStackBase,
+                banked
+            ).Compile();
         }
 
         foreach (var f in order.Where(IsRom0))
@@ -371,7 +486,8 @@ public sealed partial class Sm83Backend : IBackend
         if (rom0End > DataBase - CodeBase)
             throw new Sm83LimitException(
                 $"ROM0 code (entry, handlers, runtime, and {bankedList.Count} far-call thunks) is "
-                + $"{rom0End} bytes — more than the {DataBase - CodeBase}-byte ROM0 code window holds.");
+                    + $"{rom0End} bytes — more than the {DataBase - CodeBase}-byte ROM0 code window holds."
+            );
 
         // --- Bank blocks: banked functions grouped by bank, windowed at 0x4000. ---
         var regions = new List<(int Start, int Base)> { (0, CodeBase) };
@@ -390,50 +506,99 @@ public sealed partial class Sm83Backend : IBackend
             if (emitter.Code.Count - start > BankSize)
                 throw new Sm83LimitException(
                     $"ROM bank {b} holds {emitter.Code.Count - start} bytes of banked code — more than the "
-                    + $"{BankSize}-byte bank window. Split the banked functions across more/smaller units.");
+                        + $"{BankSize}-byte bank window. Split the banked functions across more/smaller units."
+                );
         }
         int total = emitter.Code.Count;
 
         emitter.Resolve(regions);
 
         foreach (var f in order)
-            symbols.Add(new SymbolData(
-                f.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, funcAddr[f]));
+            symbols.Add(
+                new SymbolData(
+                    f.Name,
+                    SymbolKind.Label,
+                    SymbolVisibility.Exported,
+                    CodeSectionName,
+                    funcAddr[f]
+                )
+            );
         foreach (var (g, addr) in globalAddresses)
-            symbols.Add(new SymbolData(
-                g.Name, SymbolKind.Label, SymbolVisibility.Exported, CodeSectionName, addr));
+            symbols.Add(
+                new SymbolData(
+                    g.Name,
+                    SymbolKind.Label,
+                    SymbolVisibility.Exported,
+                    CodeSectionName,
+                    addr
+                )
+            );
 
-        List<LineMapEntry> LinesIn(int start, int end) => emitter.LineMap
-            .Where(e => e.Offset >= start && e.Offset < end)
-            .Select(e => e with { Offset = e.Offset - start })
-            .ToList();
+        List<LineMapEntry> LinesIn(int start, int end) =>
+            emitter
+                .LineMap.Where(e => e.Offset >= start && e.Offset < end)
+                .Select(e => e with { Offset = e.Offset - start })
+                .ToList();
 
         var sections = new List<SectionData>
         {
-            new(CodeSectionName, SectionType.Rom0, fixedAddress: CodeBase, bank: 0,
+            new(
+                CodeSectionName,
+                SectionType.Rom0,
+                fixedAddress: CodeBase,
+                bank: 0,
                 data: emitter.Code.GetRange(0, rom0End).ToArray(),
-                patches: Array.Empty<PatchEntry>(), lineMap: LinesIn(0, rom0End)),
+                patches: Array.Empty<PatchEntry>(),
+                lineMap: LinesIn(0, rom0End)
+            ),
         };
         foreach (var (b, start, end) in bankSpans)
-            sections.Add(new SectionData(
-                $"CODEX_{b}", SectionType.RomX, fixedAddress: BankWindow, bank: b,
-                data: emitter.Code.GetRange(start, end - start).ToArray(),
-                patches: Array.Empty<PatchEntry>(), lineMap: LinesIn(start, end)));
+            sections.Add(
+                new SectionData(
+                    $"CODEX_{b}",
+                    SectionType.RomX,
+                    fixedAddress: BankWindow,
+                    bank: b,
+                    data: emitter.Code.GetRange(start, end - start).ToArray(),
+                    patches: Array.Empty<PatchEntry>(),
+                    lineMap: LinesIn(start, end)
+                )
+            );
 
         if (romData.Count > 0)
-            sections.Add(new SectionData(
-                "RODATA", SectionType.Rom0, fixedAddress: DataBase, bank: 0,
-                data: romData.ToArray(), patches: Array.Empty<PatchEntry>()));
+            sections.Add(
+                new SectionData(
+                    "RODATA",
+                    SectionType.Rom0,
+                    fixedAddress: DataBase,
+                    bank: 0,
+                    data: romData.ToArray(),
+                    patches: Array.Empty<PatchEntry>()
+                )
+            );
 
-        sections.Add(new SectionData(
-            "HEADER", SectionType.Rom0, fixedAddress: 0x0100, bank: 0,
-            data: BuildHeader(CodeBase, bankCount), patches: Array.Empty<PatchEntry>()));
+        sections.Add(
+            new SectionData(
+                "HEADER",
+                SectionType.Rom0,
+                fixedAddress: 0x0100,
+                bank: 0,
+                data: BuildHeader(CodeBase, bankCount),
+                patches: Array.Empty<PatchEntry>()
+            )
+        );
 
         foreach (var f in order.Where(x => x.InterruptVector is not null))
-            sections.Add(new SectionData(
-                $"VEC_{f.InterruptVector:X2}", SectionType.Rom0, fixedAddress: f.InterruptVector!.Value,
-                bank: 0, data: [0xC3, (byte)(funcAddr[f] & 0xFF), (byte)(funcAddr[f] >> 8)],
-                patches: Array.Empty<PatchEntry>()));
+            sections.Add(
+                new SectionData(
+                    $"VEC_{f.InterruptVector:X2}",
+                    SectionType.Rom0,
+                    fixedAddress: f.InterruptVector!.Value,
+                    bank: 0,
+                    data: [0xC3, (byte)(funcAddr[f] & 0xFF), (byte)(funcAddr[f] >> 8)],
+                    patches: Array.Empty<PatchEntry>()
+                )
+            );
 
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
     }
@@ -450,13 +615,21 @@ public sealed partial class Sm83Backend : IBackend
     // rt.* helpers they reference so the common case places everything in one pass.
     private static readonly (string Name, Action<Emitter> Emit)[] RuntimeEmitters =
     [
-        ("mul16", EmitMul16), ("udivmod16", EmitUDivMod16), ("sdivmod16", EmitSDivMod16),
-        ("mul_wide", EmitMulWide), ("udivmod_wide", EmitUDivWide), ("sdivmod_wide", EmitSDivWide),
+        ("mul16", EmitMul16),
+        ("udivmod16", EmitUDivMod16),
+        ("sdivmod16", EmitSDivMod16),
+        ("mul_wide", EmitMulWide),
+        ("udivmod_wide", EmitUDivWide),
+        ("sdivmod_wide", EmitSDivWide),
         ("shl_wide", e => EmitShiftWide(e, "shl_wide", IrBinaryOp.Shl)),
         ("lshr_wide", e => EmitShiftWide(e, "lshr_wide", IrBinaryOp.LShr)),
         ("ashr_wide", e => EmitShiftWide(e, "ashr_wide", IrBinaryOp.AShr)),
-        ("rt.clracc", EmitClrAcc), ("rt.rlmem", EmitRlMem), ("rt.rrmem", EmitRrMem),
-        ("rt.addmem", EmitAddMem), ("rt.submem", EmitSubMem), ("rt.negmem", EmitNegMem),
+        ("rt.clracc", EmitClrAcc),
+        ("rt.rlmem", EmitRlMem),
+        ("rt.rrmem", EmitRrMem),
+        ("rt.addmem", EmitAddMem),
+        ("rt.submem", EmitSubMem),
+        ("rt.negmem", EmitNegMem),
         ("rt.pushframe", _ => { }), // emitted via the heap-aware path in EmitRuntimeRoutines
         ("rt.popframe", EmitPopFrame),
     ];
@@ -489,8 +662,10 @@ public sealed partial class Sm83Backend : IBackend
             foreach (var (name, emit) in RuntimeEmitters)
                 if (emitter.NeededRoutines.Contains(name) && emitted.Add(name))
                 {
-                    if (name == "rt.pushframe") EmitPushFrame(emitter, heapAddr);
-                    else emit(emitter);
+                    if (name == "rt.pushframe")
+                        EmitPushFrame(emitter, heapAddr);
+                    else
+                        emit(emitter);
                     progress = true; // emitting may have appended new leaf routines to NeededRoutines
                 }
         }
@@ -500,8 +675,8 @@ public sealed partial class Sm83Backend : IBackend
     /// and the MBC1 bank-select register (0x2000).</summary>
     private static void SelectBank(Emitter e)
     {
-        StAAbs(e, CurBank);        // LD (CurBank), A
-        StAAbs(e, MbcBankSelect);  // LD (0x2000), A  (MBC1 switches on this write)
+        StAAbs(e, CurBank); // LD (CurBank), A
+        StAAbs(e, MbcBankSelect); // LD (0x2000), A  (MBC1 switches on this write)
     }
 
     /// <summary>Emit a ROM0 far-call thunk: save the current bank, map the callee's bank, CALL it
@@ -509,14 +684,15 @@ public sealed partial class Sm83Backend : IBackend
     /// ReturnScratch, so clobbering A here is safe.</summary>
     private static void EmitThunk(Emitter e, int bank, Label target)
     {
-        LdAAbs(e, CurBank);                                               // LD A, (CurBank)
-        e.U8(0xF5);                                                        // PUSH AF   (save caller bank)
-        e.U8(0x3E); e.U8(bank);                                            // LD A, bank
-        SelectBank(e);                                                     // map callee's bank
-        e.Jump(0xCD, target);                                             // CALL callee (windowed)
-        e.U8(0xF1);                                                        // POP AF    (caller bank)
-        SelectBank(e);                                                     // restore caller's bank
-        e.U8(0xC9);                                                        // RET
+        LdAAbs(e, CurBank); // LD A, (CurBank)
+        e.U8(0xF5); // PUSH AF   (save caller bank)
+        e.U8(0x3E);
+        e.U8(bank); // LD A, bank
+        SelectBank(e); // map callee's bank
+        e.Jump(0xCD, target); // CALL callee (windowed)
+        e.U8(0xF1); // POP AF    (caller bank)
+        SelectBank(e); // restore caller's bank
+        e.U8(0xC9); // RET
     }
 
     /// <summary>Base of the switchable ROM-bank window (0x4000–0x7FFF). This is also the end of the
@@ -532,7 +708,8 @@ public sealed partial class Sm83Backend : IBackend
     {
         if (bytes.Length > BankSize)
             throw new Sm83LimitException(
-                $"ROM global of {bytes.Length} bytes exceeds one {BankSize}-byte ROM bank.");
+                $"ROM global of {bytes.Length} bytes exceeds one {BankSize}-byte ROM bank."
+            );
 
         // Data past the fixed ROM0 window (which ends where the switchable bank window begins) banks.
         if (DataBase + rom0.Count + bytes.Length <= BankWindow)
@@ -552,11 +729,56 @@ public sealed partial class Sm83Backend : IBackend
 
     /// <summary>The 48-byte Nintendo logo the boot ROM verifies at 0x0104.</summary>
     private static ReadOnlySpan<byte> NintendoLogo =>
-    [
-        0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
-        0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
-        0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
-    ];
+        [
+            0xCE,
+            0xED,
+            0x66,
+            0x66,
+            0xCC,
+            0x0D,
+            0x00,
+            0x0B,
+            0x03,
+            0x73,
+            0x00,
+            0x83,
+            0x00,
+            0x0C,
+            0x00,
+            0x0D,
+            0x00,
+            0x08,
+            0x11,
+            0x1F,
+            0x88,
+            0x89,
+            0x00,
+            0x0E,
+            0xDC,
+            0xCC,
+            0x6E,
+            0xE6,
+            0xDD,
+            0xDD,
+            0xD9,
+            0x99,
+            0xBB,
+            0xBB,
+            0x67,
+            0x63,
+            0x6E,
+            0x0E,
+            0xEC,
+            0xCC,
+            0xDD,
+            0xDC,
+            0x99,
+            0x9F,
+            0xBB,
+            0xB9,
+            0x33,
+            0x3E,
+        ];
 
     /// <summary>
     /// Build the 80-byte cartridge header spanning 0x0100..0x014F: a <c>nop; jp entry</c> boot
@@ -569,23 +791,27 @@ public sealed partial class Sm83Backend : IBackend
     {
         var header = new byte[0x50]; // 0x0100..0x014F
 
-        header[0x00] = 0x00;                          // nop
-        header[0x01] = 0xC3;                          // jp a16
+        header[0x00] = 0x00; // nop
+        header[0x01] = 0xC3; // jp a16
         header[0x02] = (byte)(entryAddress & 0xFF);
         header[0x03] = (byte)(entryAddress >> 8);
 
-        NintendoLogo.CopyTo(header.AsSpan(0x04));      // 0x0104..0x0133
+        NintendoLogo.CopyTo(header.AsSpan(0x04)); // 0x0104..0x0133
 
         if (extraBanks > 0)
         {
-            header[0x47] = 0x01;                       // cartridge type: MBC1
+            header[0x47] = 0x01; // cartridge type: MBC1
             // ROM size byte: 0x00=2 banks(32KB), 0x01=4(64KB), 0x02=8(128KB)… nearest power of two
             // that holds bank 0 plus the extra banks.
             int totalBanks = extraBanks + 1;
             int pow2 = 2;
             byte sizeCode = 0;
-            while (pow2 < totalBanks) { pow2 <<= 1; sizeCode++; }
-            header[0x48] = sizeCode;                    // ROM size
+            while (pow2 < totalBanks)
+            {
+                pow2 <<= 1;
+                sizeCode++;
+            }
+            header[0x48] = sizeCode; // ROM size
         }
         // Title bytes (0x0134..) left zero.
         return header;
@@ -594,14 +820,16 @@ public sealed partial class Sm83Backend : IBackend
     /// <summary>The direct (non-external) callees of each function, for cycle detection.</summary>
     private static Dictionary<IrFunction, List<IrFunction>> BuildCalleeGraph(IrModule module)
     {
-        var callees = new Dictionary<IrFunction, List<IrFunction>>(ReferenceEqualityComparer.Instance);
+        var callees = new Dictionary<IrFunction, List<IrFunction>>(
+            ReferenceEqualityComparer.Instance
+        );
         foreach (var fn in module.Functions)
         {
             var list = new List<IrFunction>();
             foreach (var block in fn.Blocks)
-                foreach (var instr in block.Instructions)
-                    if (instr is CallInstruction call && !call.Callee.IsExternal)
-                        list.Add(call.Callee);
+            foreach (var instr in block.Instructions)
+                if (instr is CallInstruction call && !call.Callee.IsExternal)
+                    list.Add(call.Callee);
             callees[fn] = list;
         }
         return callees;
@@ -638,7 +866,8 @@ public sealed partial class Sm83Backend : IBackend
             {
                 var (fn, ci) = dfs.Pop();
                 var list = callees.TryGetValue(fn, out var cs)
-                    ? (IReadOnlyList<IrFunction>)cs : Array.Empty<IrFunction>();
+                    ? (IReadOnlyList<IrFunction>)cs
+                    : Array.Empty<IrFunction>();
 
                 if (ci == 0)
                 {
@@ -659,7 +888,7 @@ public sealed partial class Sm83Backend : IBackend
                     if (!index.ContainsKey(w))
                     {
                         dfs.Push((fn, i + 1)); // resume fn after w's subtree completes...
-                        dfs.Push((w, 0));      // ...having visited w first
+                        dfs.Push((w, 0)); // ...having visited w first
                         descended = true;
                         break;
                     }
@@ -674,13 +903,22 @@ public sealed partial class Sm83Backend : IBackend
                 {
                     var members = new List<IrFunction>();
                     IrFunction m;
-                    do { m = component.Pop(); onStack.Remove(m); members.Add(m); }
-                    while (!ReferenceEquals(m, fn));
+                    do
+                    {
+                        m = component.Pop();
+                        onStack.Remove(m);
+                        members.Add(m);
+                    } while (!ReferenceEquals(m, fn));
 
-                    bool cyclic = members.Count > 1
-                        || (callees.TryGetValue(fn, out var self) && self.Any(c => ReferenceEquals(c, fn)));
+                    bool cyclic =
+                        members.Count > 1
+                        || (
+                            callees.TryGetValue(fn, out var self)
+                            && self.Any(c => ReferenceEquals(c, fn))
+                        );
                     if (cyclic)
-                        foreach (var f in members) recursive.Add(f);
+                        foreach (var f in members)
+                            recursive.Add(f);
                 }
             }
         }
@@ -692,7 +930,10 @@ public sealed partial class Sm83Backend : IBackend
     /// interrupt would corrupt mid-call. Reject that at compile time. A handler-only or main-only helper
     /// is safe (handlers run with interrupts disabled and never nest), so only a shared one is flagged.
     /// Must run after <see cref="CheckNoRecursion"/> so the reachability walk is acyclic.</summary>
-    private static void CheckNoInterruptReentrancy(IrModule module, IReadOnlySet<IrFunction> recursive)
+    private static void CheckNoInterruptReentrancy(
+        IrModule module,
+        IReadOnlySet<IrFunction> recursive
+    )
     {
         var handlers = module.Functions.Where(f => f.InterruptVector is not null).ToList();
         if (handlers.Count == 0)
@@ -727,19 +968,22 @@ public sealed partial class Sm83Backend : IBackend
             if (handlerReach.Contains(fn) && mainReach.Contains(fn))
                 throw new NotSupportedException(
                     $"function '{fn.Name}' is reachable from both an interrupt handler and main-line code; "
-                    + "static WRAM frames are not reentrant, so an interrupt firing mid-call would corrupt it. "
-                    + "Give the handler its own copy of the routine.");
+                        + "static WRAM frames are not reentrant, so an interrupt firing mid-call would corrupt it. "
+                        + "Give the handler its own copy of the routine."
+                );
 
         // The wide (i32+) arithmetic and i64/i128/recursive memory-return paths route through fixed runtime
         // scratch (RtOpA/RtOpB/RtAcc/ReturnScratch) that, like a static frame, is not reentrant. If both a
         // handler and main-line touch it, an interrupt mid-computation corrupts the interrupted result.
-        bool HandlerWide() => handlers.Any(h => UsesWideScratch(h, recursive))
+        bool HandlerWide() =>
+            handlers.Any(h => UsesWideScratch(h, recursive))
             || handlerReach.Any(f => UsesWideScratch(f, recursive));
         if (HandlerWide() && mainReach.Any(f => UsesWideScratch(f, recursive)))
             throw new NotSupportedException(
                 "an interrupt handler and main-line code both use wide (32/64/128-bit) arithmetic or a "
-                + "memory-returned value; these share fixed runtime scratch that an interrupt firing "
-                + "mid-computation would corrupt. Keep wide arithmetic out of interrupt handlers.");
+                    + "memory-returned value; these share fixed runtime scratch that an interrupt firing "
+                    + "mid-computation would corrupt. Keep wide arithmetic out of interrupt handlers."
+            );
     }
 
     /// <summary>Whether a function touches the shared, non-reentrant runtime scratch: wide (i32+)
@@ -747,37 +991,46 @@ public sealed partial class Sm83Backend : IBackend
     private static bool UsesWideScratch(IrFunction fn, IReadOnlySet<IrFunction> recursive)
     {
         bool MemReturn(IrFunction f) =>
-            recursive.Contains(f) || (f.ReturnType.Kind != IrTypeKind.Void && SizeOf(f.ReturnType) > 4);
+            recursive.Contains(f)
+            || (f.ReturnType.Kind != IrTypeKind.Void && SizeOf(f.ReturnType) > 4);
         foreach (var block in fn.Blocks)
-            foreach (var instr in block.Instructions)
-                switch (instr)
-                {
-                    case BinaryInstruction b when SizeOf(b.Type) > 2 && b.Op is
-                        IrBinaryOp.Mul or IrBinaryOp.UDiv or IrBinaryOp.SDiv or IrBinaryOp.URem
-                        or IrBinaryOp.SRem or IrBinaryOp.Shl or IrBinaryOp.LShr or IrBinaryOp.AShr:
-                        return true;
-                    case RetInstruction { Value: not null } when MemReturn(fn):
-                        return true;
-                    case CallInstruction c when MemReturn(c.Callee):
-                        return true;
-                }
+        foreach (var instr in block.Instructions)
+            switch (instr)
+            {
+                case BinaryInstruction b
+                    when SizeOf(b.Type) > 2
+                        && b.Op
+                            is IrBinaryOp.Mul
+                                or IrBinaryOp.UDiv
+                                or IrBinaryOp.SDiv
+                                or IrBinaryOp.URem
+                                or IrBinaryOp.SRem
+                                or IrBinaryOp.Shl
+                                or IrBinaryOp.LShr
+                                or IrBinaryOp.AShr:
+                    return true;
+                case RetInstruction { Value: not null } when MemReturn(fn):
+                    return true;
+                case CallInstruction c when MemReturn(c.Callee):
+                    return true;
+            }
         return false;
     }
 
     // Fixed scratch for the (non-reentrant) runtime routines.
-    private const int RtCount = 0xDF00;     // division bit counter
-    private const int RtSignRem = 0xDF01;   // signed division: remainder sign
-    private const int RtSignQuot = 0xDF02;  // signed division: quotient sign
-    private const int RtCmpLeft = 0xDF03;   // signed compare: sign-flipped top byte of the left operand
-    private const int RtCmpRight = 0xDF04;  // signed compare: sign-flipped top byte of the right operand
+    private const int RtCount = 0xDF00; // division bit counter
+    private const int RtSignRem = 0xDF01; // signed division: remainder sign
+    private const int RtSignQuot = 0xDF02; // signed division: quotient sign
+    private const int RtCmpLeft = 0xDF03; // signed compare: sign-flipped top byte of the left operand
+    private const int RtCmpRight = 0xDF04; // signed compare: sign-flipped top byte of the right operand
 
     // Scratch for the generic width-N memory routines. Operand areas are 16 bytes so the same code
     // serves i32 (N=4), i64 (N=8), and i128 (N=16); N and the loop counter live in single bytes.
-    private const int RtN = 0xDF08;         // operand width in bytes (4, 8, or 16)
-    private const int RtBits = 0xDF09;      // shift/division loop counter
-    private const int RtOpA = 0xDF10;       // multiplicand / dividend -> quotient / shift subject (16 bytes)
-    private const int RtOpB = 0xDF20;       // multiplier / divisor (16 bytes)
-    private const int RtAcc = 0xDF30;       // product / remainder (16 bytes)
+    private const int RtN = 0xDF08; // operand width in bytes (4, 8, or 16)
+    private const int RtBits = 0xDF09; // shift/division loop counter
+    private const int RtOpA = 0xDF10; // multiplicand / dividend -> quotient / shift subject (16 bytes)
+    private const int RtOpB = 0xDF20; // multiplier / divisor (16 bytes)
+    private const int RtAcc = 0xDF30; // product / remainder (16 bytes)
 
     /// <summary>Where a return value too wide for the register file (i64, i128) is passed: a fixed
     /// 16-byte scratch (little-endian). Public so tests can read it. A recursive or banked function
@@ -787,9 +1040,9 @@ public sealed partial class Sm83Backend : IBackend
     // Recursion support: recursive functions save their static frame to a software stack on entry and
     // restore it before return, receive arguments through a fixed staging area (so the caller's own
     // frame is not disturbed), and return via ReturnScratch.
-    private const int SoftSp = 0xDF05;      // software-stack pointer (2 bytes)
-    private const int CurBank = 0xDF07;     // currently-mapped ROM bank, for far-call thunks
-    private const int ArgScratch = 0xDE80;  // recursive-call argument staging (little-endian, packed)
+    private const int SoftSp = 0xDF05; // software-stack pointer (2 bytes)
+    private const int CurBank = 0xDF07; // currently-mapped ROM bank, for far-call thunks
+    private const int ArgScratch = 0xDE80; // recursive-call argument staging (little-endian, packed)
 
     // The software stack grows up from just above the static frames toward the fixed scratch. It must
     // not reach the heap (which the C# frontend tops at 0xDE00, growing down) or ArgScratch (0xDE80);
@@ -809,101 +1062,132 @@ public sealed partial class Sm83Backend : IBackend
     private static void EmitMul16(Emitter e)
     {
         e.PlaceRoutine("mul16");
-        LdHL(e, 0);                              // ld hl, 0
+        LdHL(e, 0); // ld hl, 0
         var loop = new Label();
         var noadd = new Label();
         e.Place(loop);
-        e.U8(0x78);                              // ld a, b
-        e.U8(0xB1);                              // or c
-        e.U8(0xC8);                              // ret z     (BC == 0 -> done)
-        e.U8(0xCB); e.U8(0x38);                  // srl b
-        e.U8(0xCB); e.U8(0x19);                  // rr c      (BC >>= 1, carry = old bit0)
-        e.Jump(0xD2, noadd);                     // jp nc, noadd
-        e.U8(0x19);                              // add hl, de
+        e.U8(0x78); // ld a, b
+        e.U8(0xB1); // or c
+        e.U8(0xC8); // ret z     (BC == 0 -> done)
+        e.U8(0xCB);
+        e.U8(0x38); // srl b
+        e.U8(0xCB);
+        e.U8(0x19); // rr c      (BC >>= 1, carry = old bit0)
+        e.Jump(0xD2, noadd); // jp nc, noadd
+        e.U8(0x19); // add hl, de
         e.Place(noadd);
-        e.U8(0xCB); e.U8(0x23);                  // sla e
-        e.U8(0xCB); e.U8(0x12);                  // rl d      (DE <<= 1)
-        e.Jump(0xC3, loop);                      // jp loop
+        e.U8(0xCB);
+        e.U8(0x23); // sla e
+        e.U8(0xCB);
+        e.U8(0x12); // rl d      (DE <<= 1)
+        e.Jump(0xC3, loop); // jp loop
     }
 
     /// <summary>__udivmod16: DE / BC -> quotient in DE, remainder in HL (unsigned, restoring).</summary>
     private static void EmitUDivMod16(Emitter e)
     {
         e.PlaceRoutine("udivmod16");
-        LdHL(e, 0);                              // ld hl, 0     (remainder)
-        e.U8(0x3E); e.U8(0x10);                  // ld a, 16
-        StAAbs(e, RtCount);                                  // ld (RtCount), a
+        LdHL(e, 0); // ld hl, 0     (remainder)
+        e.U8(0x3E);
+        e.U8(0x10); // ld a, 16
+        StAAbs(e, RtCount); // ld (RtCount), a
         var loop = new Label();
         var dosub = new Label();
         var skip = new Label();
         e.Place(loop);
-        e.U8(0xCB); e.U8(0x23);                  // sla e
-        e.U8(0xCB); e.U8(0x12);                  // rl d
-        e.U8(0xCB); e.U8(0x15);                  // rl l
-        e.U8(0xCB); e.U8(0x14);                  // rl h    (shift HL:DE left; quotient bit in E.0)
-        e.Jump(0xDA, dosub);                     // jp c, dosub   (bit16 set -> remainder >= divisor)
-        e.U8(0x7D); e.U8(0x91);                  // ld a, l ; sub c
-        e.U8(0x7C); e.U8(0x98);                  // ld a, h ; sbc a, b   (carry = HL < BC)
-        e.Jump(0xDA, skip);                      // jp c, skip
+        e.U8(0xCB);
+        e.U8(0x23); // sla e
+        e.U8(0xCB);
+        e.U8(0x12); // rl d
+        e.U8(0xCB);
+        e.U8(0x15); // rl l
+        e.U8(0xCB);
+        e.U8(0x14); // rl h    (shift HL:DE left; quotient bit in E.0)
+        e.Jump(0xDA, dosub); // jp c, dosub   (bit16 set -> remainder >= divisor)
+        e.U8(0x7D);
+        e.U8(0x91); // ld a, l ; sub c
+        e.U8(0x7C);
+        e.U8(0x98); // ld a, h ; sbc a, b   (carry = HL < BC)
+        e.Jump(0xDA, skip); // jp c, skip
         e.Place(dosub);
-        e.U8(0x7D); e.U8(0x91); e.U8(0x6F);      // ld a, l ; sub c ; ld l, a
-        e.U8(0x7C); e.U8(0x98); e.U8(0x67);      // ld a, h ; sbc a, b ; ld h, a
-        e.U8(0xCB); e.U8(0xC3);                  // set 0, e   (quotient bit)
+        e.U8(0x7D);
+        e.U8(0x91);
+        e.U8(0x6F); // ld a, l ; sub c ; ld l, a
+        e.U8(0x7C);
+        e.U8(0x98);
+        e.U8(0x67); // ld a, h ; sbc a, b ; ld h, a
+        e.U8(0xCB);
+        e.U8(0xC3); // set 0, e   (quotient bit)
         e.Place(skip);
-        LdAAbs(e, RtCount);                                  // ld a, (RtCount)
-        e.U8(0x3D);                              // dec a
-        StAAbs(e, RtCount);                                  // ld (RtCount), a
-        e.Jump(0xC2, loop);                      // jp nz, loop
-        e.U8(0xC9);                              // ret
+        LdAAbs(e, RtCount); // ld a, (RtCount)
+        e.U8(0x3D); // dec a
+        StAAbs(e, RtCount); // ld (RtCount), a
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>__sdivmod16: signed DE / BC -> quotient DE, remainder HL, via unsigned + sign fixup.</summary>
     private static void EmitSDivMod16(Emitter e)
     {
         e.PlaceRoutine("sdivmod16");
-        e.U8(0x7A);                              // ld a, d
-        StAAbs(e, RtSignRem);                                      // ld (RtSignRem), a   (dividend sign)
-        e.U8(0xA8);                              // xor b
-        StAAbs(e, RtSignQuot);                                     // ld (RtSignQuot), a  (sign(D)^sign(B))
+        e.U8(0x7A); // ld a, d
+        StAAbs(e, RtSignRem); // ld (RtSignRem), a   (dividend sign)
+        e.U8(0xA8); // xor b
+        StAAbs(e, RtSignQuot); // ld (RtSignQuot), a  (sign(D)^sign(B))
 
         var dePos = new Label();
-        e.U8(0x7A); e.U8(0xE6); e.U8(0x80);      // ld a, d ; and 0x80
-        e.Jump(0xCA, dePos);                     // jp z, dePos
+        e.U8(0x7A);
+        e.U8(0xE6);
+        e.U8(0x80); // ld a, d ; and 0x80
+        e.Jump(0xCA, dePos); // jp z, dePos
         NegateDE(e);
         e.Place(dePos);
 
         var bcPos = new Label();
-        e.U8(0x78); e.U8(0xE6); e.U8(0x80);      // ld a, b ; and 0x80
-        e.Jump(0xCA, bcPos);                     // jp z, bcPos
+        e.U8(0x78);
+        e.U8(0xE6);
+        e.U8(0x80); // ld a, b ; and 0x80
+        e.Jump(0xCA, bcPos); // jp z, bcPos
         NegateBC(e);
         e.Place(bcPos);
 
-        e.Jump(0xCD, e.RoutineLabel("udivmod16"));  // call __udivmod16
+        e.Jump(0xCD, e.RoutineLabel("udivmod16")); // call __udivmod16
 
         var qPos = new Label();
-        LdAAbs(e, RtSignQuot); e.U8(0xE6); e.U8(0x80);             // ld a,(RtSignQuot); and 0x80
+        LdAAbs(e, RtSignQuot);
+        e.U8(0xE6);
+        e.U8(0x80); // ld a,(RtSignQuot); and 0x80
         e.Jump(0xCA, qPos);
         NegateDE(e);
         e.Place(qPos);
 
         var rPos = new Label();
-        LdAAbs(e, RtSignRem); e.U8(0xE6); e.U8(0x80);             // ld a,(RtSignRem); and 0x80
+        LdAAbs(e, RtSignRem);
+        e.U8(0xE6);
+        e.U8(0x80); // ld a,(RtSignRem); and 0x80
         e.Jump(0xCA, rPos);
         NegateHL(e);
         e.Place(rPos);
 
-        e.U8(0xC9);                              // ret
+        e.U8(0xC9); // ret
     }
 
     /// <summary>Two's-complement a 16-bit register pair: <c>xor a; sub lo; ld lo,a; ld a,0; sbc a,hi; ld hi,a</c>.</summary>
     private static void NegatePair(Emitter e, int subLo, int storeLo, int sbcHi, int storeHi)
     {
-        e.U8(0xAF); e.U8(subLo); e.U8(storeLo);                 // xor a ; sub lo ; ld lo, a
-        e.U8(0x3E); e.U8(0x00); e.U8(sbcHi); e.U8(storeHi);     // ld a, 0 ; sbc a, hi ; ld hi, a
+        e.U8(0xAF);
+        e.U8(subLo);
+        e.U8(storeLo); // xor a ; sub lo ; ld lo, a
+        e.U8(0x3E);
+        e.U8(0x00);
+        e.U8(sbcHi);
+        e.U8(storeHi); // ld a, 0 ; sbc a, hi ; ld hi, a
     }
 
     private static void NegateDE(Emitter e) => NegatePair(e, 0x93, 0x5F, 0x9A, 0x57); // sub e/ld e/sbc d/ld d
+
     private static void NegateBC(Emitter e) => NegatePair(e, 0x91, 0x4F, 0x98, 0x47); // sub c/ld c/sbc b/ld b
+
     private static void NegateHL(Emitter e) => NegatePair(e, 0x95, 0x6F, 0x9C, 0x67); // sub l/ld l/sbc h/ld h
 
     // ---- Generic width-N (32-/64-bit) memory runtime routines --------------
@@ -915,33 +1199,62 @@ public sealed partial class Sm83Backend : IBackend
     // helpers (rt.*) walk with HL as the byte pointer and B as the byte counter; DEC B / INC HL / LD do
     // not touch carry, so the carry chains cleanly across bytes.
 
-    private static void LdHL(Emitter e, int imm16) { e.U8(0x21); e.U16(imm16); }
-    private static void LdDE(Emitter e, int imm16) { e.U8(0x11); e.U16(imm16); }
-    private static void LdAAbs(Emitter e, int addr) { e.U8(0xFA); e.U16(addr); }
-    private static void StAAbs(Emitter e, int addr) { e.U8(0xEA); e.U16(addr); }
-    private static void LdBFromN(Emitter e) { LdAAbs(e, RtN); e.U8(0x47); }   // A=(RtN); LD B,A
+    private static void LdHL(Emitter e, int imm16)
+    {
+        e.U8(0x21);
+        e.U16(imm16);
+    }
+
+    private static void LdDE(Emitter e, int imm16)
+    {
+        e.U8(0x11);
+        e.U16(imm16);
+    }
+
+    private static void LdAAbs(Emitter e, int addr)
+    {
+        e.U8(0xFA);
+        e.U16(addr);
+    }
+
+    private static void StAAbs(Emitter e, int addr)
+    {
+        e.U8(0xEA);
+        e.U16(addr);
+    }
+
+    private static void LdBFromN(Emitter e)
+    {
+        LdAAbs(e, RtN);
+        e.U8(0x47);
+    } // A=(RtN); LD B,A
 
     /// <summary>HL += (RtN - 1), so a pointer at an operand's low byte moves to its high byte.</summary>
     private static void AdvanceHLToMsb(Emitter e)
     {
-        LdAAbs(e, RtN); e.U8(0x3D);                      // ld a,(RtN) ; dec a   -> A = N-1
-        e.U8(0x85); e.U8(0x6F);                          // add a,l ; ld l,a
-        e.U8(0x3E); e.U8(0x00); e.U8(0x8C); e.U8(0x67);  // ld a,0 ; adc a,h ; ld h,a
+        LdAAbs(e, RtN);
+        e.U8(0x3D); // ld a,(RtN) ; dec a   -> A = N-1
+        e.U8(0x85);
+        e.U8(0x6F); // add a,l ; ld l,a
+        e.U8(0x3E);
+        e.U8(0x00);
+        e.U8(0x8C);
+        e.U8(0x67); // ld a,0 ; adc a,h ; ld h,a
     }
 
     /// <summary>rt.clracc: zero the N bytes at RtAcc.</summary>
     private static void EmitClrAcc(Emitter e)
     {
         e.PlaceRoutine("rt.clracc");
-        LdBFromN(e);                             // B = N
-        LdHL(e, RtAcc);                          // HL = RtAcc
-        e.U8(0xAF);                              // xor a  (A = 0)
+        LdBFromN(e); // B = N
+        LdHL(e, RtAcc); // HL = RtAcc
+        e.U8(0xAF); // xor a  (A = 0)
         var loop = new Label();
         e.Place(loop);
-        e.U8(0x22);                              // ld (hl+), a
-        e.U8(0x05);                              // dec b
-        e.Jump(0xC2, loop);                      // jp nz, loop
-        e.U8(0xC9);                              // ret
+        e.U8(0x22); // ld (hl+), a
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.rlmem: rotate the N-byte value at HL left through carry (carry-in preserved). LSB first.</summary>
@@ -950,11 +1263,12 @@ public sealed partial class Sm83Backend : IBackend
         e.PlaceRoutine("rt.rlmem");
         var loop = new Label();
         e.Place(loop);
-        e.U8(0xCB); e.U8(0x16);                  // rl (hl)
-        e.U8(0x23);                              // inc hl
-        e.U8(0x05);                              // dec b
-        e.Jump(0xC2, loop);                      // jp nz, loop
-        e.U8(0xC9);                              // ret
+        e.U8(0xCB);
+        e.U8(0x16); // rl (hl)
+        e.U8(0x23); // inc hl
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.rrmem: rotate the N-byte value at HL right through carry (carry-in preserved). MSB first
@@ -964,63 +1278,65 @@ public sealed partial class Sm83Backend : IBackend
         e.PlaceRoutine("rt.rrmem");
         var loop = new Label();
         e.Place(loop);
-        e.U8(0xCB); e.U8(0x1E);                  // rr (hl)
-        e.U8(0x2B);                              // dec hl
-        e.U8(0x05);                              // dec b
-        e.Jump(0xC2, loop);                      // jp nz, loop
-        e.U8(0xC9);                              // ret
+        e.U8(0xCB);
+        e.U8(0x1E); // rr (hl)
+        e.U8(0x2B); // dec hl
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.addmem: (HL..) += (DE..) over B bytes; carry cleared first. Result carry = final carry-out.</summary>
     private static void EmitAddMem(Emitter e)
     {
         e.PlaceRoutine("rt.addmem");
-        e.U8(0xAF);                              // xor a  (clear carry)
+        e.U8(0xAF); // xor a  (clear carry)
         var loop = new Label();
         e.Place(loop);
-        e.U8(0x1A);                              // ld a, (de)   src byte
-        e.U8(0x8E);                              // adc a, (hl)  src + dst + carry
-        e.U8(0x77);                              // ld (hl), a
-        e.U8(0x23);                              // inc hl
-        e.U8(0x13);                              // inc de
-        e.U8(0x05);                              // dec b
-        e.Jump(0xC2, loop);                      // jp nz, loop
-        e.U8(0xC9);                              // ret
+        e.U8(0x1A); // ld a, (de)   src byte
+        e.U8(0x8E); // adc a, (hl)  src + dst + carry
+        e.U8(0x77); // ld (hl), a
+        e.U8(0x23); // inc hl
+        e.U8(0x13); // inc de
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.submem: (HL..) -= (DE..) over B bytes; borrow cleared first. Result carry = final borrow.</summary>
     private static void EmitSubMem(Emitter e)
     {
         e.PlaceRoutine("rt.submem");
-        e.U8(0xA7);                              // and a  (clear carry/borrow)
+        e.U8(0xA7); // and a  (clear carry/borrow)
         var loop = new Label();
         e.Place(loop);
-        e.U8(0x1A);                              // ld a, (de)   src byte
-        e.U8(0x4F);                              // ld c, a
-        e.U8(0x7E);                              // ld a, (hl)   dst byte
-        e.U8(0x99);                              // sbc a, c     dst - src - borrow
-        e.U8(0x77);                              // ld (hl), a
-        e.U8(0x23);                              // inc hl
-        e.U8(0x13);                              // inc de
-        e.U8(0x05);                              // dec b
-        e.Jump(0xC2, loop);                      // jp nz, loop
-        e.U8(0xC9);                              // ret
+        e.U8(0x1A); // ld a, (de)   src byte
+        e.U8(0x4F); // ld c, a
+        e.U8(0x7E); // ld a, (hl)   dst byte
+        e.U8(0x99); // sbc a, c     dst - src - borrow
+        e.U8(0x77); // ld (hl), a
+        e.U8(0x23); // inc hl
+        e.U8(0x13); // inc de
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.negmem: two's-complement the N-byte value at HL (over B bytes). LSB first.</summary>
     private static void EmitNegMem(Emitter e)
     {
         e.PlaceRoutine("rt.negmem");
-        e.U8(0xA7);                              // and a  (clear borrow)
+        e.U8(0xA7); // and a  (clear borrow)
         var loop = new Label();
         e.Place(loop);
-        e.U8(0x3E); e.U8(0x00);                  // ld a, 0   (flags untouched)
-        e.U8(0x9E);                              // sbc a, (hl)   0 - byte - borrow
-        e.U8(0x77);                              // ld (hl), a
-        e.U8(0x23);                              // inc hl
-        e.U8(0x05);                              // dec b
-        e.Jump(0xC2, loop);                      // jp nz, loop
-        e.U8(0xC9);                              // ret
+        e.U8(0x3E);
+        e.U8(0x00); // ld a, 0   (flags untouched)
+        e.U8(0x9E); // sbc a, (hl)   0 - byte - borrow
+        e.U8(0x77); // ld (hl), a
+        e.U8(0x23); // inc hl
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.pushframe: save B bytes at (DE) to the software stack, advancing SoftSp. Used by a
@@ -1028,47 +1344,55 @@ public sealed partial class Sm83Backend : IBackend
     private static void EmitPushFrame(Emitter e, int heapAddr)
     {
         e.PlaceRoutine("rt.pushframe");
-        LdAAbs(e, SoftSp); e.U8(0x6F);                   // ld a,(SoftSp)   ; ld l,a
-        LdAAbs(e, SoftSp + 1); e.U8(0x67);               // ld a,(SoftSp+1) ; ld h,a   -> HL = SoftSp
+        LdAAbs(e, SoftSp);
+        e.U8(0x6F); // ld a,(SoftSp)   ; ld l,a
+        LdAAbs(e, SoftSp + 1);
+        e.U8(0x67); // ld a,(SoftSp+1) ; ld h,a   -> HL = SoftSp
         var loop = new Label();
         e.Place(loop);
-        e.U8(0x1A);                                      // ld a,(de)
-        e.U8(0x22);                                      // ld (hl+),a
-        e.U8(0x13);                                      // inc de
-        e.U8(0x05);                                      // dec b
-        e.Jump(0xC2, loop);                              // jp nz, loop
-        e.U8(0x7D); StAAbs(e, SoftSp);                   // ld a,l ; ld (SoftSp),a
-        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a   (A = high byte, HL = new top)
+        e.U8(0x1A); // ld a,(de)
+        e.U8(0x22); // ld (hl+),a
+        e.U8(0x13); // inc de
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0x7D);
+        StAAbs(e, SoftSp); // ld a,l ; ld (SoftSp),a
+        e.U8(0x7C);
+        StAAbs(e, SoftSp + 1); // ld a,h ; ld (SoftSp+1),a   (A = high byte, HL = new top)
         var trap = new Label();
         if (heapAddr >= 0)
         {
             // Heap ceiling: the software top (HL) must stay below the LIVE heap pointer, which grows down
             // from 0xDE00 as `new`/Mem.Alloc bump it. Comparing against the fixed 0xDE00 start would let
             // the rising stack overwrite already-allocated heap objects before tripping. Trap if HL >= heap.
-            LdAAbs(e, heapAddr); e.U8(0x95);             // ld a,(heap)   ; sub l   = heap_low - soft_low
-            LdAAbs(e, heapAddr + 1); e.U8(0x9C);         // ld a,(heap+1) ; sbc h   (carry => heap < soft top)
-            e.Jump(0xDA, trap);                          // jp c, trap    (heap below the new top -> overflow)
+            LdAAbs(e, heapAddr);
+            e.U8(0x95); // ld a,(heap)   ; sub l   = heap_low - soft_low
+            LdAAbs(e, heapAddr + 1);
+            e.U8(0x9C); // ld a,(heap+1) ; sbc h   (carry => heap < soft top)
+            e.Jump(0xDA, trap); // jp c, trap    (heap below the new top -> overflow)
         }
         else
         {
             // No heap in this program: the software top just must not reach the fixed scratch ceiling.
             // A still holds the new top's high byte from the `ld a,h` above.
-            e.U8(0xFE); e.U8(SoftStackCeiling >> 8);      // cp <ceiling high byte>
-            e.Jump(0xD2, trap);                          // jp nc, trap   (high byte >= ceiling -> overflow)
+            e.U8(0xFE);
+            e.U8(SoftStackCeiling >> 8); // cp <ceiling high byte>
+            e.Jump(0xD2, trap); // jp nc, trap   (high byte >= ceiling -> overflow)
         }
         // Hardware-stack collision: the software stack (growing up) and the CALL stack (SP, growing down)
         // share the arena. Trap if the new top has reached SP, rather than let the two corrupt each other.
-        e.U8(0x08); e.U16(RtOpA);                        // ld (RtOpA), sp   (stash SP; RtOpA is idle in the prologue)
-        LdAAbs(e, RtOpA);                                // ld a,(RtOpA)     = SP low
-        e.U8(0x95);                                      // sub l            = SP_low - SoftSp_low
-        LdAAbs(e, RtOpA + 1);                            // ld a,(RtOpA+1)   = SP high
-        e.U8(0x9C);                                      // sbc h            (borrow => SP < SoftSp: collided)
+        e.U8(0x08);
+        e.U16(RtOpA); // ld (RtOpA), sp   (stash SP; RtOpA is idle in the prologue)
+        LdAAbs(e, RtOpA); // ld a,(RtOpA)     = SP low
+        e.U8(0x95); // sub l            = SP_low - SoftSp_low
+        LdAAbs(e, RtOpA + 1); // ld a,(RtOpA+1)   = SP high
+        e.U8(0x9C); // sbc h            (borrow => SP < SoftSp: collided)
         var ok = new Label();
-        e.Jump(0xD2, ok);                                // jp nc, ok   (SP >= SoftSp -> safe)
+        e.Jump(0xD2, ok); // jp nc, ok   (SP >= SoftSp -> safe)
         e.Place(trap);
-        e.Jump(0xC3, trap);                              // jp trap    (spin forever on overflow)
+        e.Jump(0xC3, trap); // jp trap    (spin forever on overflow)
         e.Place(ok);
-        e.U8(0xC9);                                      // ret
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.popframe: retreat SoftSp by B, then restore B bytes from the software stack to (DE).
@@ -1076,25 +1400,34 @@ public sealed partial class Sm83Backend : IBackend
     private static void EmitPopFrame(Emitter e)
     {
         e.PlaceRoutine("rt.popframe");
-        LdAAbs(e, SoftSp); e.U8(0x90); e.U8(0x6F);       // ld a,(SoftSp) ; sub b ; ld l,a
-        LdAAbs(e, SoftSp + 1); e.U8(0xDE); e.U8(0x00); e.U8(0x67); // ld a,(SoftSp+1) ; sbc a,0 ; ld h,a -> HL = SoftSp-B
-        e.U8(0x7D); StAAbs(e, SoftSp);                   // ld a,l ; ld (SoftSp),a
-        e.U8(0x7C); StAAbs(e, SoftSp + 1);               // ld a,h ; ld (SoftSp+1),a
+        LdAAbs(e, SoftSp);
+        e.U8(0x90);
+        e.U8(0x6F); // ld a,(SoftSp) ; sub b ; ld l,a
+        LdAAbs(e, SoftSp + 1);
+        e.U8(0xDE);
+        e.U8(0x00);
+        e.U8(0x67); // ld a,(SoftSp+1) ; sbc a,0 ; ld h,a -> HL = SoftSp-B
+        e.U8(0x7D);
+        StAAbs(e, SoftSp); // ld a,l ; ld (SoftSp),a
+        e.U8(0x7C);
+        StAAbs(e, SoftSp + 1); // ld a,h ; ld (SoftSp+1),a
         var loop = new Label();
         e.Place(loop);
-        e.U8(0x2A);                                      // ld a,(hl+)
-        e.U8(0x12);                                      // ld (de),a
-        e.U8(0x13);                                      // inc de
-        e.U8(0x05);                                      // dec b
-        e.Jump(0xC2, loop);                              // jp nz, loop
-        e.U8(0xC9);                                      // ret
+        e.U8(0x2A); // ld a,(hl+)
+        e.U8(0x12); // ld (de),a
+        e.U8(0x13); // inc de
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>Load RtBits with N*8 (the full-width bit count).</summary>
     private static void LoadFullBitCount(Emitter e)
     {
         LdAAbs(e, RtN);
-        e.U8(0x87); e.U8(0x87); e.U8(0x87);      // add a,a x3  -> A = N*8
+        e.U8(0x87);
+        e.U8(0x87);
+        e.U8(0x87); // add a,a x3  -> A = N*8
         StAAbs(e, RtBits);
     }
 
@@ -1103,8 +1436,9 @@ public sealed partial class Sm83Backend : IBackend
     {
         LdBFromN(e);
         LdHL(e, RtOpA);
-        e.U8(0xAF);                              // xor a  (clear carry -> shift in 0)
-        e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");
+        e.U8(0xAF); // xor a  (clear carry -> shift in 0)
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.rlmem");
     }
 
     /// <summary>Shift RtOpB right by one bit, logical (N bytes, shifting in 0).</summary>
@@ -1113,67 +1447,88 @@ public sealed partial class Sm83Backend : IBackend
         LdBFromN(e);
         LdHL(e, RtOpB);
         AdvanceHLToMsb(e);
-        e.U8(0xAF);                              // xor a  (clear carry -> logical)
-        e.U8(0xCD); AddRoutineCall(e, "rt.rrmem");
+        e.U8(0xAF); // xor a  (clear carry -> logical)
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.rrmem");
     }
 
     /// <summary>Emit the two-byte target of a CALL (0xCD already emitted) to a runtime routine.</summary>
-    private static void AddRoutineCall(Emitter e, string routine) => e.CallTarget(e.RoutineLabel(routine));
+    private static void AddRoutineCall(Emitter e, string routine) =>
+        e.CallTarget(e.RoutineLabel(routine));
 
     /// <summary>rt.mul_wide: RtAcc = RtOpA * RtOpB (low N bytes) by shift-and-add.</summary>
     private static void EmitMulWide(Emitter e)
     {
         e.PlaceRoutine("mul_wide");
-        e.U8(0xCD); AddRoutineCall(e, "rt.clracc");   // RtAcc = 0
-        LoadFullBitCount(e);                          // RtBits = N*8
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.clracc"); // RtAcc = 0
+        LoadFullBitCount(e); // RtBits = N*8
         var loop = new Label();
         var noadd = new Label();
         e.Place(loop);
-        LdAAbs(e, RtOpB);                             // A = multiplier low byte
-        e.U8(0x0F);                                   // rrca  -> bit0 into carry
-        e.Jump(0xD2, noadd);                          // jp nc, noadd
-        LdBFromN(e);                                  // B = N
-        LdHL(e, RtAcc);                               // HL = RtAcc
-        LdDE(e, RtOpA);                               // ld de, RtOpA
-        e.U8(0xCD); AddRoutineCall(e, "rt.addmem");   // RtAcc += RtOpA
+        LdAAbs(e, RtOpB); // A = multiplier low byte
+        e.U8(0x0F); // rrca  -> bit0 into carry
+        e.Jump(0xD2, noadd); // jp nc, noadd
+        LdBFromN(e); // B = N
+        LdHL(e, RtAcc); // HL = RtAcc
+        LdDE(e, RtOpA); // ld de, RtOpA
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.addmem"); // RtAcc += RtOpA
         e.Place(noadd);
-        ShlOpAOnce(e);                                // RtOpA <<= 1
-        ShrOpBOnce(e);                                // RtOpB >>= 1
-        LdAAbs(e, RtBits); e.U8(0x3D); StAAbs(e, RtBits); // dec RtBits
-        e.Jump(0xC2, loop);                           // jp nz, loop
-        e.U8(0xC9);                                   // ret
+        ShlOpAOnce(e); // RtOpA <<= 1
+        ShrOpBOnce(e); // RtOpB >>= 1
+        LdAAbs(e, RtBits);
+        e.U8(0x3D);
+        StAAbs(e, RtBits); // dec RtBits
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.udivmod_wide: RtOpA / RtOpB -> quotient in RtOpA, remainder in RtAcc (unsigned, restoring).</summary>
     private static void EmitUDivWide(Emitter e)
     {
         e.PlaceRoutine("udivmod_wide");
-        e.U8(0xCD); AddRoutineCall(e, "rt.clracc");   // remainder RtAcc = 0
-        LoadFullBitCount(e);                          // RtBits = N*8
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.clracc"); // remainder RtAcc = 0
+        LoadFullBitCount(e); // RtBits = N*8
         var loop = new Label();
         var restore = new Label();
         var next = new Label();
         e.Place(loop);
         // Shift {RtAcc:RtOpA} left by one: RtOpA's high bit flows into RtAcc's low bit.
-        LdBFromN(e); LdHL(e, RtOpA); e.U8(0xAF);      // B=N; HL=RtOpA; clear carry
-        e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");    // RtOpA <<= 1, carry = old MSB
-        LdBFromN(e); LdHL(e, RtAcc);                  // B=N; HL=RtAcc (carry preserved)
-        e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");    // RtAcc <<= 1 with carry-in
+        LdBFromN(e);
+        LdHL(e, RtOpA);
+        e.U8(0xAF); // B=N; HL=RtOpA; clear carry
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.rlmem"); // RtOpA <<= 1, carry = old MSB
+        LdBFromN(e);
+        LdHL(e, RtAcc); // B=N; HL=RtAcc (carry preserved)
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.rlmem"); // RtAcc <<= 1 with carry-in
         // Try remainder -= divisor.
-        LdBFromN(e); LdHL(e, RtAcc);
-        LdDE(e, RtOpB);                               // ld de, RtOpB
-        e.U8(0xCD); AddRoutineCall(e, "rt.submem");   // RtAcc -= RtOpB, carry = borrow
-        e.Jump(0xDA, restore);                        // jp c, restore   (remainder < divisor)
-        LdAAbs(e, RtOpA); e.U8(0xF6); e.U8(0x01); StAAbs(e, RtOpA); // set quotient bit0
-        e.Jump(0xC3, next);                           // jp next
+        LdBFromN(e);
+        LdHL(e, RtAcc);
+        LdDE(e, RtOpB); // ld de, RtOpB
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.submem"); // RtAcc -= RtOpB, carry = borrow
+        e.Jump(0xDA, restore); // jp c, restore   (remainder < divisor)
+        LdAAbs(e, RtOpA);
+        e.U8(0xF6);
+        e.U8(0x01);
+        StAAbs(e, RtOpA); // set quotient bit0
+        e.Jump(0xC3, next); // jp next
         e.Place(restore);
-        LdBFromN(e); LdHL(e, RtAcc);
-        LdDE(e, RtOpB);                               // ld de, RtOpB
-        e.U8(0xCD); AddRoutineCall(e, "rt.addmem");   // restore remainder
+        LdBFromN(e);
+        LdHL(e, RtAcc);
+        LdDE(e, RtOpB); // ld de, RtOpB
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.addmem"); // restore remainder
         e.Place(next);
-        LdAAbs(e, RtBits); e.U8(0x3D); StAAbs(e, RtBits);
+        LdAAbs(e, RtBits);
+        e.U8(0x3D);
+        StAAbs(e, RtBits);
         e.Jump(0xC2, loop);
-        e.U8(0xC9);                                   // ret
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.sdivmod_wide: signed RtOpA / RtOpB via the unsigned routine plus sign fixup.</summary>
@@ -1181,35 +1536,63 @@ public sealed partial class Sm83Backend : IBackend
     {
         e.PlaceRoutine("sdivmod_wide");
         // Record signs: remainder takes the dividend's sign; quotient takes sign(dividend) ^ sign(divisor).
-        LdHL(e, RtOpA); AdvanceHLToMsb(e); e.U8(0x7E); StAAbs(e, RtSignRem); // A = dividend MSB
-        e.U8(0x47);                                   // ld b, a  (save dividend sign byte)
-        LdHL(e, RtOpB); AdvanceHLToMsb(e); e.U8(0x7E); // A = divisor MSB
-        e.U8(0xA8);                                   // xor b
+        LdHL(e, RtOpA);
+        AdvanceHLToMsb(e);
+        e.U8(0x7E);
+        StAAbs(e, RtSignRem); // A = dividend MSB
+        e.U8(0x47); // ld b, a  (save dividend sign byte)
+        LdHL(e, RtOpB);
+        AdvanceHLToMsb(e);
+        e.U8(0x7E); // A = divisor MSB
+        e.U8(0xA8); // xor b
         StAAbs(e, RtSignQuot);
         // Negate negative operands.
         var aPos = new Label();
-        LdAAbs(e, RtSignRem); e.U8(0xE6); e.U8(0x80); // and 0x80
+        LdAAbs(e, RtSignRem);
+        e.U8(0xE6);
+        e.U8(0x80); // and 0x80
         e.Jump(0xCA, aPos);
-        LdBFromN(e); LdHL(e, RtOpA); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        LdBFromN(e);
+        LdHL(e, RtOpA);
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.negmem");
         e.Place(aPos);
         var bPos = new Label();
-        LdHL(e, RtOpB); AdvanceHLToMsb(e); e.U8(0x7E); e.U8(0xE6); e.U8(0x80); // divisor MSB & 0x80
+        LdHL(e, RtOpB);
+        AdvanceHLToMsb(e);
+        e.U8(0x7E);
+        e.U8(0xE6);
+        e.U8(0x80); // divisor MSB & 0x80
         e.Jump(0xCA, bPos);
-        LdBFromN(e); LdHL(e, RtOpB); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        LdBFromN(e);
+        LdHL(e, RtOpB);
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.negmem");
         e.Place(bPos);
-        e.U8(0xCD); AddRoutineCall(e, "udivmod_wide");
+        e.U8(0xCD);
+        AddRoutineCall(e, "udivmod_wide");
         // Fix result signs.
         var qPos = new Label();
-        LdAAbs(e, RtSignQuot); e.U8(0xE6); e.U8(0x80);
+        LdAAbs(e, RtSignQuot);
+        e.U8(0xE6);
+        e.U8(0x80);
         e.Jump(0xCA, qPos);
-        LdBFromN(e); LdHL(e, RtOpA); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        LdBFromN(e);
+        LdHL(e, RtOpA);
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.negmem");
         e.Place(qPos);
         var rPos = new Label();
-        LdAAbs(e, RtSignRem); e.U8(0xE6); e.U8(0x80);
+        LdAAbs(e, RtSignRem);
+        e.U8(0xE6);
+        e.U8(0x80);
         e.Jump(0xCA, rPos);
-        LdBFromN(e); LdHL(e, RtAcc); e.U8(0xCD); AddRoutineCall(e, "rt.negmem");
+        LdBFromN(e);
+        LdHL(e, RtAcc);
+        e.U8(0xCD);
+        AddRoutineCall(e, "rt.negmem");
         e.Place(rPos);
-        e.U8(0xC9);                                   // ret
+        e.U8(0xC9); // ret
     }
 
     /// <summary>rt.shl_wide / rt.lshr_wide / rt.ashr_wide: shift RtOpA by RtBits bits (already clamped).</summary>
@@ -1218,30 +1601,38 @@ public sealed partial class Sm83Backend : IBackend
         e.PlaceRoutine(routine);
         var loop = new Label();
         e.Place(loop);
-        LdAAbs(e, RtBits); e.U8(0xA7);                // ld a,(RtBits) ; and a
-        e.U8(0xC8);                                   // ret z  (count exhausted)
-        e.U8(0x3D); StAAbs(e, RtBits);                // dec a ; store
+        LdAAbs(e, RtBits);
+        e.U8(0xA7); // ld a,(RtBits) ; and a
+        e.U8(0xC8); // ret z  (count exhausted)
+        e.U8(0x3D);
+        StAAbs(e, RtBits); // dec a ; store
         if (op == IrBinaryOp.Shl)
         {
-            LdBFromN(e); LdHL(e, RtOpA); e.U8(0xAF);  // B=N; HL=RtOpA; clear carry
-            e.U8(0xCD); AddRoutineCall(e, "rt.rlmem");
+            LdBFromN(e);
+            LdHL(e, RtOpA);
+            e.U8(0xAF); // B=N; HL=RtOpA; clear carry
+            e.U8(0xCD);
+            AddRoutineCall(e, "rt.rlmem");
         }
         else
         {
-            LdBFromN(e); LdHL(e, RtOpA); AdvanceHLToMsb(e); // B=N; HL -> RtOpA MSB
+            LdBFromN(e);
+            LdHL(e, RtOpA);
+            AdvanceHLToMsb(e); // B=N; HL -> RtOpA MSB
             if (op == IrBinaryOp.AShr)
             {
-                e.U8(0x7E); e.U8(0x07);               // ld a,(hl) ; rlca  -> sign bit into carry
+                e.U8(0x7E);
+                e.U8(0x07); // ld a,(hl) ; rlca  -> sign bit into carry
             }
             else
             {
-                e.U8(0xAF);                           // xor a  (logical: shift in 0)
+                e.U8(0xAF); // xor a  (logical: shift in 0)
             }
-            e.U8(0xCD); AddRoutineCall(e, "rt.rrmem");
+            e.U8(0xCD);
+            AddRoutineCall(e, "rt.rrmem");
         }
-        e.Jump(0xC3, loop);                           // jp loop
+        e.Jump(0xC3, loop); // jp loop
     }
 
     internal static int SizeOf(IrType type) => type.SizeInBytes;
-
 }

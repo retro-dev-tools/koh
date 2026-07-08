@@ -69,10 +69,13 @@ static void SlideLine(byte* a)
 //   dir 0 = Left, 1 = Right, 2 = Up, 3 = Down.
 static byte SrcIndex(byte dir, byte k, byte j)
 {
-    if (dir == 0) return (byte)(k * 4 + j);           // row k, toward col 0
-    if (dir == 1) return (byte)(k * 4 + (3 - j));     // row k, toward col 3
-    if (dir == 2) return (byte)(j * 4 + k);           // col k, toward row 0
-    return (byte)((3 - j) * 4 + k);                   // col k, toward row 3
+    if (dir == 0)
+        return (byte)(k * 4 + j); // row k, toward col 0
+    if (dir == 1)
+        return (byte)(k * 4 + (3 - j)); // row k, toward col 3
+    if (dir == 2)
+        return (byte)(j * 4 + k); // col k, toward row 0
+    return (byte)((3 - j) * 4 + k); // col k, toward row 3
 }
 
 // Slide the whole board in one direction. Gathers each of the four lines into a
@@ -148,14 +151,14 @@ static byte CanMove(byte* board)
             return 1;
 
     for (byte r = 0; r < 4; r++)
-        for (byte c = 0; c < 3; c++)
-            if (*(board + r * 4 + c) == *(board + r * 4 + c + 1))
-                return 1;
+    for (byte c = 0; c < 3; c++)
+        if (*(board + r * 4 + c) == *(board + r * 4 + c + 1))
+            return 1;
 
     for (byte c = 0; c < 4; c++)
-        for (byte r = 0; r < 3; r++)
-            if (*(board + r * 4 + c) == *(board + (r + 1) * 4 + c))
-                return 1;
+    for (byte r = 0; r < 3; r++)
+        if (*(board + r * 4 + c) == *(board + (r + 1) * 4 + c))
+            return 1;
 
     return 0;
 }
@@ -174,7 +177,7 @@ static void GenTiles()
 
     for (byte t = 1; t < 12; t++)
     {
-        byte c = (byte)(1 + (t % 3));                       // interior shade 1..3
+        byte c = (byte)(1 + (t % 3)); // interior shade 1..3
         byte fillLo = ((c & 1) != 0) ? (byte)0x7E : (byte)0x00; // interior bits 1..6
         byte fillHi = ((c & 2) != 0) ? (byte)0x7E : (byte)0x00;
 
@@ -212,14 +215,14 @@ static void Render(byte* board)
             byte baseRow = (byte)(3 + r * 3);
             byte baseCol = (byte)(3 + c * 4);
             for (byte dr = 0; dr < 2; dr++)
-                for (byte dc = 0; dc < 2; dc++)
-                {
-                    // Force 16-bit math: a tilemap row is 32 tiles, so row*32 overflows a byte
-                    // for the lower rows (8-bit arithmetic would truncate before the widening cast).
-                    ushort row = (ushort)(baseRow + dr);
-                    ushort off = (ushort)(row * 32 + baseCol + dc);
-                    *(map + off) = tile;
-                }
+            for (byte dc = 0; dc < 2; dc++)
+            {
+                // Force 16-bit math: a tilemap row is 32 tiles, so row*32 overflows a byte
+                // for the lower rows (8-bit arithmetic would truncate before the widening cast).
+                ushort row = (ushort)(baseRow + dr);
+                ushort off = (ushort)(row * 32 + baseCol + dc);
+                *(map + off) = tile;
+            }
         }
     }
 }
@@ -230,15 +233,15 @@ static void Render(byte* board)
 //   bit0 Right, bit1 Left, bit2 Up, bit3 Down, bit4 Start.
 static byte ReadButtons()
 {
-    Hardware.JOYP = 0x20;          // select the d-pad (P14 low)
+    Hardware.JOYP = 0x20; // select the d-pad (P14 low)
     byte d = Hardware.JOYP;
-    d = Hardware.JOYP;             // read twice to let the lines settle
+    d = Hardware.JOYP; // read twice to let the lines settle
 
-    Hardware.JOYP = 0x10;          // select the buttons (P15 low)
+    Hardware.JOYP = 0x10; // select the buttons (P15 low)
     byte b = Hardware.JOYP;
     b = Hardware.JOYP;
 
-    Hardware.JOYP = 0x30;          // deselect
+    Hardware.JOYP = 0x30; // deselect
 
     // Inputs are active-low; ~x on a byte is (255 - x).
     byte dd = (byte)((byte)(255 - d) & 0x0F);
@@ -250,16 +253,16 @@ static byte ReadButtons()
 // Spin until the LCD enters vertical blank, so tilemap writes don't tear.
 static void WaitVBlank()
 {
-    while (Hardware.LY == 144) { }   // leave the current vblank, if in one
-    while (Hardware.LY != 144) { }   // wait for the next one
+    while (Hardware.LY == 144) { } // leave the current vblank, if in one
+    while (Hardware.LY != 144) { } // wait for the next one
 }
 
 // ---- Entry point ----------------------------------------------------------
 
 static void Main()
 {
-    Hardware.LCDC = 0x00;   // LCD off so we can touch VRAM freely
-    Hardware.BGP = 0xE4;    // palette: 11 10 01 00 (dark -> light)
+    Hardware.LCDC = 0x00; // LCD off so we can touch VRAM freely
+    Hardware.BGP = 0xE4; // palette: 11 10 01 00 (dark -> light)
     Hardware.SCY = 0x00;
     Hardware.SCX = 0x00;
 
@@ -273,7 +276,7 @@ static void Main()
     SpawnTile(&board[0], Hardware.DIV);
     Render(&board[0]);
 
-    Hardware.LCDC = 0x91;   // LCD on, BG on, tile data $8000, tilemap $9800
+    Hardware.LCDC = 0x91; // LCD on, BG on, tile data $8000, tilemap $9800
 
     byte prev = 0;
     while (true)
@@ -283,10 +286,14 @@ static void Main()
         prev = btn;
 
         byte moved = 0;
-        if ((pressed & 0x02) != 0) moved = MoveDir(&board[0], 0);       // Left
-        else if ((pressed & 0x01) != 0) moved = MoveDir(&board[0], 1);  // Right
-        else if ((pressed & 0x04) != 0) moved = MoveDir(&board[0], 2);  // Up
-        else if ((pressed & 0x08) != 0) moved = MoveDir(&board[0], 3);  // Down
+        if ((pressed & 0x02) != 0)
+            moved = MoveDir(&board[0], 0); // Left
+        else if ((pressed & 0x01) != 0)
+            moved = MoveDir(&board[0], 1); // Right
+        else if ((pressed & 0x04) != 0)
+            moved = MoveDir(&board[0], 2); // Up
+        else if ((pressed & 0x08) != 0)
+            moved = MoveDir(&board[0], 3); // Down
 
         if (moved != 0)
         {

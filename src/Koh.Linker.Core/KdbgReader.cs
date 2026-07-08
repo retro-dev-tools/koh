@@ -5,7 +5,8 @@ namespace Koh.Linker.Core;
 
 public sealed record KdbgParsed(
     IReadOnlyList<KdbgParsedSymbol> Symbols,
-    IReadOnlyList<KdbgParsedAddressMapEntry> AddressMap);
+    IReadOnlyList<KdbgParsedAddressMapEntry> AddressMap
+);
 
 public sealed record KdbgParsedSymbol(
     KdbgSymbolKind Kind,
@@ -15,7 +16,8 @@ public sealed record KdbgParsedSymbol(
     string Name,
     string? Scope,
     string? DefinitionFile,
-    uint DefinitionLine);
+    uint DefinitionLine
+);
 
 public sealed record KdbgParsedAddressMapEntry(
     byte Bank,
@@ -23,7 +25,8 @@ public sealed record KdbgParsedAddressMapEntry(
     ushort Address,
     string? SourceFile,
     uint Line,
-    IReadOnlyList<(string? File, uint Line)> ExpansionStack);
+    IReadOnlyList<(string? File, uint Line)> ExpansionStack
+);
 
 public static class KdbgReader
 {
@@ -76,7 +79,8 @@ public static class KdbgReader
             for (int i = 0; i < scopeCount; i++)
             {
                 r.ReadByte();
-                r.ReadByte(); r.ReadUInt16();
+                r.ReadByte();
+                r.ReadUInt16();
                 r.ReadUInt32();
                 uint nameStringId = r.ReadUInt32();
                 scopeNames[i + 1] = LookupString(strings, nameStringId);
@@ -103,11 +107,15 @@ public static class KdbgReader
             uint defSourceFileId = r.ReadUInt32();
             uint defLine = r.ReadUInt32();
             symbols[i] = new KdbgParsedSymbol(
-                kind, bank, address, size,
+                kind,
+                bank,
+                address,
+                size,
                 LookupString(strings, nameStringId) ?? "",
                 scopeId < scopeNames.Length ? scopeNames[scopeId] : null,
                 defSourceFileId < sourceFiles.Length ? sourceFiles[defSourceFileId] : null,
-                defLine);
+                defLine
+            );
         }
 
         // Address map
@@ -124,8 +132,10 @@ public static class KdbgReader
             uint expansionOffset = r.ReadUInt32();
 
             IReadOnlyList<(string?, uint)> expansionStack = [];
-            if (expansionOffset != KdbgFormat.NoExpansion &&
-                (flags & KdbgFormat.FlagExpansionPresent) != 0)
+            if (
+                expansionOffset != KdbgFormat.NoExpansion
+                && (flags & KdbgFormat.FlagExpansionPresent) != 0
+            )
             {
                 long mark = ms.Position;
                 ms.Position = expansionOffset;
@@ -142,14 +152,18 @@ public static class KdbgReader
             }
 
             addressMap[i] = new KdbgParsedAddressMapEntry(
-                bank, byteCount, address,
+                bank,
+                byteCount,
+                address,
                 sourceFileId < sourceFiles.Length ? sourceFiles[sourceFileId] : null,
-                line, expansionStack);
+                line,
+                expansionStack
+            );
         }
 
         return new KdbgParsed(symbols, addressMap);
     }
 
-    private static string? LookupString(string[] strings, uint id)
-        => id == 0 ? null : (id < strings.Length ? strings[id] : null);
+    private static string? LookupString(string[] strings, uint id) =>
+        id == 0 ? null : (id < strings.Length ? strings[id] : null);
 }

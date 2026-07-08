@@ -10,7 +10,12 @@ public sealed partial class Sm83Backend
     {
         private readonly EmitContext _ctx;
         private readonly Emitter _e;
-        public ControlFlowEmitter(EmitContext ctx) { _ctx = ctx; _e = ctx.E; }
+
+        public ControlFlowEmitter(EmitContext ctx)
+        {
+            _ctx = ctx;
+            _e = ctx.E;
+        }
 
         // ---- Control flow --------------------------------------------------
 
@@ -25,10 +30,11 @@ public sealed partial class Sm83Backend
                 if (_ctx.IsRecursive && _ctx.FrameSize > 0)
                 {
                     LdDE(_e, _ctx.FrameBase); // LD DE, frameBase
-                    _e.U8(0x06); _e.U8(_ctx.FrameSize);                                // LD B, frameSize
+                    _e.U8(0x06);
+                    _e.U8(_ctx.FrameSize); // LD B, frameSize
                     _e.Jump(0xCD, _e.RoutineLabel("rt.popframe"));
                 }
-                _e.U8(0xC9);                                                   // RET (a banked fn is never a handler)
+                _e.U8(0xC9); // RET (a banked fn is never a handler)
                 return;
             }
 
@@ -41,16 +47,20 @@ public sealed partial class Sm83Backend
                         break;
                     case 2:
                         _ctx.LoadByteToA(r.Value, 0);
-                        _e.U8(0x6F);            // LD L, A
+                        _e.U8(0x6F); // LD L, A
                         _ctx.LoadByteToA(r.Value, 1);
-                        _e.U8(0x67);            // LD H, A
+                        _e.U8(0x67); // LD H, A
                         break;
                     case 4:
                         // i32: low word in HL, high word in DE.
-                        _ctx.LoadByteToA(r.Value, 0); _e.U8(0x6F); // LD L, A
-                        _ctx.LoadByteToA(r.Value, 1); _e.U8(0x67); // LD H, A
-                        _ctx.LoadByteToA(r.Value, 2); _e.U8(0x5F); // LD E, A
-                        _ctx.LoadByteToA(r.Value, 3); _e.U8(0x57); // LD D, A
+                        _ctx.LoadByteToA(r.Value, 0);
+                        _e.U8(0x6F); // LD L, A
+                        _ctx.LoadByteToA(r.Value, 1);
+                        _e.U8(0x67); // LD H, A
+                        _ctx.LoadByteToA(r.Value, 2);
+                        _e.U8(0x5F); // LD E, A
+                        _ctx.LoadByteToA(r.Value, 3);
+                        _e.U8(0x57); // LD D, A
                         break;
                     case 8:
                     case 16:
@@ -60,7 +70,8 @@ public sealed partial class Sm83Backend
                     default:
                         throw new NotSupportedException(
                             $"SM83 backend can only return i8 (A), i16 (HL), i32 (DE:HL), or i64/i128 "
-                            + $"(memory), not {r.Value.Type}.");
+                                + $"(memory), not {r.Value.Type}."
+                        );
                 }
             }
 
@@ -82,10 +93,19 @@ public sealed partial class Sm83Backend
         {
             switch (instr.Intrinsic)
             {
-                case "ei": _e.U8(0xFB); break;
-                case "di": _e.U8(0xF3); break;
-                case "halt": _e.U8(0x76); _e.U8(0x00); break; // HALT + NOP (halt-bug guard)
-                case "nop": _e.U8(0x00); break;
+                case "ei":
+                    _e.U8(0xFB);
+                    break;
+                case "di":
+                    _e.U8(0xF3);
+                    break;
+                case "halt":
+                    _e.U8(0x76);
+                    _e.U8(0x00);
+                    break; // HALT + NOP (halt-bug guard)
+                case "nop":
+                    _e.U8(0x00);
+                    break;
                 default:
                     throw new NotSupportedException($"unknown intrinsic '{instr.Intrinsic}'.");
             }
@@ -101,7 +121,8 @@ public sealed partial class Sm83Backend
             var callee = call.Callee;
             if (callee.IsExternal || callee.EntryBlock is null)
                 throw new NotSupportedException(
-                    $"SM83 backend cannot yet call external function '@{callee.Name}'.");
+                    $"SM83 backend cannot yet call external function '@{callee.Name}'."
+                );
 
             bool calleeRecursive = _ctx.Recursive.Contains(callee);
             bool calleeBanked = _ctx.Banked.Contains(callee);
@@ -125,7 +146,11 @@ public sealed partial class Sm83Backend
                 for (int i = 0; i < call.Arguments.Count; i++)
                 {
                     var param = callee.Parameters[i];
-                    _ctx.CopyToScratch(call.Arguments[i], calleeAllocation.Slot[param], SizeOf(param.Type));
+                    _ctx.CopyToScratch(
+                        call.Arguments[i],
+                        calleeAllocation.Slot[param],
+                        SizeOf(param.Type)
+                    );
                 }
             }
 
@@ -148,14 +173,14 @@ public sealed partial class Sm83Backend
             switch (SizeOf(call.Type))
             {
                 case 1:
-                    _ctx.StoreAToAddr(dst);                    // result in A
+                    _ctx.StoreAToAddr(dst); // result in A
                     break;
                 case 2:
-                    _ctx.StoreRegPair(dst, 2, hi: 0x7C, lo: 0x7D);       // HL -> slot
+                    _ctx.StoreRegPair(dst, 2, hi: 0x7C, lo: 0x7D); // HL -> slot
                     break;
                 case 4:
-                    _ctx.StoreRegPair(dst, 2, hi: 0x7C, lo: 0x7D);       // HL -> low word
-                    _ctx.StoreRegPair(dst + 2, 2, hi: 0x7A, lo: 0x7B);   // DE -> high word
+                    _ctx.StoreRegPair(dst, 2, hi: 0x7C, lo: 0x7D); // HL -> low word
+                    _ctx.StoreRegPair(dst + 2, 2, hi: 0x7A, lo: 0x7B); // DE -> high word
                     break;
                 case 8:
                 case 16:
@@ -164,7 +189,8 @@ public sealed partial class Sm83Backend
                     break;
                 default:
                     throw new NotSupportedException(
-                        $"SM83 backend can only capture i8/i16/i32/i64/i128 return values, not {call.Type}.");
+                        $"SM83 backend can only capture i8/i16/i32/i64/i128 return values, not {call.Type}."
+                    );
             }
         }
 
@@ -177,9 +203,9 @@ public sealed partial class Sm83Backend
         public void EmitCondBr(IrBasicBlock source, CondBrInstruction cb)
         {
             _ctx.LoadByteToA(cb.Condition, 0);
-            _e.U8(0xA7);                                 // AND A -> Z set iff false
+            _e.U8(0xA7); // AND A -> Z set iff false
             var trueEdge = new Label();
-            _e.Jump(0xC2, trueEdge);                     // JP NZ, <true edge>
+            _e.Jump(0xC2, trueEdge); // JP NZ, <true edge>
 
             // False edge (fall-through): copy phis then jump.
             EmitPhiCopies(source, cb.IfFalse);
@@ -201,7 +227,7 @@ public sealed partial class Sm83Backend
             {
                 EmitEqualityZ(sw.Value, caseConst, n); // Z set iff value == caseConst
                 var edge = new Label();
-                _e.Jump(0xCA, edge);                   // JP Z, <edge>
+                _e.Jump(0xCA, edge); // JP Z, <edge>
                 edges.Add((edge, target));
             }
 
@@ -223,15 +249,16 @@ public sealed partial class Sm83Backend
             for (int k = 0; k < n; k++)
             {
                 _ctx.LoadByteToA(value, k);
-                _e.U8(0xEE); _e.U8(Sm83Ops.ByteOf(caseConst, k));  // XOR d8
+                _e.U8(0xEE);
+                _e.U8(Sm83Ops.ByteOf(caseConst, k)); // XOR d8
                 if (k == 0)
                 {
-                    _e.U8(0x4F);                            // LD C, A
+                    _e.U8(0x4F); // LD C, A
                 }
                 else
                 {
-                    _e.U8(0xB1);                            // OR C
-                    _e.U8(0x4F);                            // LD C, A
+                    _e.U8(0xB1); // OR C
+                    _e.U8(0x4F); // LD C, A
                 }
             }
         }
@@ -249,7 +276,9 @@ public sealed partial class Sm83Backend
             {
                 if (instr is not PhiInstruction phi)
                     break; // phis lead the block
-                pending.Add(new PhiCopy(_ctx.Slot[phi], SizeOf(phi.Type), FindIncoming(phi, source)));
+                pending.Add(
+                    new PhiCopy(_ctx.Slot[phi], SizeOf(phi.Type), FindIncoming(phi, source))
+                );
             }
             if (pending.Count == 0)
                 return;
@@ -266,7 +295,9 @@ public sealed partial class Sm83Backend
                     // Emitting c writes its destination bytes; defer if that would clobber a slot
                     // another pending copy still has to read. This is by *slot*, not SSA identity:
                     // register coalescing can put an unrelated source in a phi-destination's slot.
-                    bool clobbersPendingSource = pending.Any(o => o != c && SourceOverlaps(o, c.DestSlot, c.N));
+                    bool clobbersPendingSource = pending.Any(o =>
+                        o != c && SourceOverlaps(o, c.DestSlot, c.N)
+                    );
                     if (!clobbersPendingSource)
                     {
                         EmitMove(c);
@@ -287,8 +318,12 @@ public sealed partial class Sm83Backend
                         _ctx.StoreAToAddr(tempAddr + k);
                     }
                     foreach (var o in pending)
-                        if (o != c && SourceSlot(o, out int srcAddr)
-                            && srcAddr < c.DestSlot + c.N && c.DestSlot < srcAddr + o.N)
+                        if (
+                            o != c
+                            && SourceSlot(o, out int srcAddr)
+                            && srcAddr < c.DestSlot + c.N
+                            && c.DestSlot < srcAddr + o.N
+                        )
                         {
                             // Read from the staged copy at the source's offset within the range, so a
                             // source coalesced at a non-zero position inside the slot still reads right.
@@ -311,7 +346,8 @@ public sealed partial class Sm83Backend
             srcAddr = 0;
             if (o.TempSrc >= 0 || o.Src is null or IrConstInt)
                 return false;
-            return _ctx.TryStaticAddr(o.Src, out srcAddr) || _ctx.Slot.TryGetValue(o.Src, out srcAddr);
+            return _ctx.TryStaticAddr(o.Src, out srcAddr)
+                || _ctx.Slot.TryGetValue(o.Src, out srcAddr);
         }
 
         private void EmitMove(PhiCopy c)
@@ -331,7 +367,7 @@ public sealed partial class Sm83Backend
         {
             public int DestSlot { get; }
             public int N { get; }
-            public IrValue? Src { get; set; }   // value source; null once redirected to a temp
+            public IrValue? Src { get; set; } // value source; null once redirected to a temp
             public int TempSrc { get; set; } = -1;
 
             public PhiCopy(int destSlot, int n, IrValue src)

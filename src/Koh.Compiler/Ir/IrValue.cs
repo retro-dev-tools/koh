@@ -23,13 +23,15 @@ public sealed class IrConstInt : IrValue
 {
     public long Value { get; }
 
-    public IrConstInt(IrType type, long value) : base(type) => Value = value;
+    public IrConstInt(IrType type, long value)
+        : base(type) => Value = value;
 }
 
 /// <summary>A function parameter — an SSA value defined on entry.</summary>
 public sealed class IrParameter : IrValue
 {
-    public IrParameter(string name, IrType type) : base(type) => Name = name;
+    public IrParameter(string name, IrType type)
+        : base(type) => Name = name;
 }
 
 /// <summary>

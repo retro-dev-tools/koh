@@ -37,7 +37,8 @@ public class KdbgFileWriterTests
             name: "main",
             scopeId: 0,
             definitionSourceFile: "src/main.asm",
-            definitionLine: 42);
+            definitionLine: 42
+        );
 
         var bytes = Write(builder);
         var parsed = KdbgReader.Parse(bytes);
@@ -56,10 +57,20 @@ public class KdbgFileWriterTests
     public async Task AddressMap_Round_Trip_Without_Expansion()
     {
         var builder = new DebugInfoBuilder();
-        builder.AddAddressMapping(bank: 0, address: 0x0100, byteCount: 1,
-            sourceFile: "src/main.asm", line: 10);
-        builder.AddAddressMapping(bank: 0, address: 0x0101, byteCount: 1,
-            sourceFile: "src/main.asm", line: 10);
+        builder.AddAddressMapping(
+            bank: 0,
+            address: 0x0100,
+            byteCount: 1,
+            sourceFile: "src/main.asm",
+            line: 10
+        );
+        builder.AddAddressMapping(
+            bank: 0,
+            address: 0x0101,
+            byteCount: 1,
+            sourceFile: "src/main.asm",
+            line: 10
+        );
 
         var bytes = Write(builder);
         var parsed = KdbgReader.Parse(bytes);
@@ -74,13 +85,13 @@ public class KdbgFileWriterTests
     {
         var builder = new DebugInfoBuilder();
         builder.AddAddressMapping(
-            bank: 0, address: 0x0100, byteCount: 1,
-            sourceFile: "src/main.asm", line: 5,
-            expansionStack: new List<(string, uint)>
-            {
-                ("src/main.asm", 100),
-                ("src/main.asm", 42),
-            });
+            bank: 0,
+            address: 0x0100,
+            byteCount: 1,
+            sourceFile: "src/main.asm",
+            line: 5,
+            expansionStack: new List<(string, uint)> { ("src/main.asm", 100), ("src/main.asm", 42) }
+        );
 
         var bytes = Write(builder);
         var parsed = KdbgReader.Parse(bytes);

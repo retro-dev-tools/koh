@@ -11,7 +11,8 @@ public class ConditionalBreakpointTests
     {
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0x18; rom[0x101] = 0xFE;   // JR -2
+        rom[0x100] = 0x18;
+        rom[0x101] = 0xFE; // JR -2
         return new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
     }
 

@@ -20,14 +20,14 @@ public abstract record InterpolationResult
 /// </summary>
 public sealed class InterpolationFormat
 {
-    public char? Sign { get; init; }       // '+' or ' ' or null
-    public bool Exact { get; init; }       // '#' — base prefix for integers
-    public bool LeftAlign { get; init; }   // '-'
-    public bool ZeroPad { get; init; }     // '0'
+    public char? Sign { get; init; } // '+' or ' ' or null
+    public bool Exact { get; init; } // '#' — base prefix for integers
+    public bool LeftAlign { get; init; } // '-'
+    public bool ZeroPad { get; init; } // '0'
     public int? Width { get; init; }
-    public int? FracDigits { get; init; }  // after '.'
-    public int? FixedPrec { get; init; }   // after 'q'
-    public char Type { get; init; }        // d/u/x/X/b/o/f/s (required)
+    public int? FracDigits { get; init; } // after '.'
+    public int? FixedPrec { get; init; } // after 'q'
+    public char Type { get; init; } // d/u/x/X/b/o/f/s (required)
 
     /// <summary>
     /// Parses an RGBDS format specifier string (everything before the ':' in {fmt:name}).
@@ -35,7 +35,8 @@ public sealed class InterpolationFormat
     /// </summary>
     public static InterpolationFormat? Parse(ReadOnlySpan<char> fmt)
     {
-        if (fmt.IsEmpty) return null;
+        if (fmt.IsEmpty)
+            return null;
 
         int i = 0;
         char? sign = null;
@@ -101,13 +102,15 @@ public sealed class InterpolationFormat
         }
 
         // Type (required, must be last character)
-        if (i >= fmt.Length) return null;
+        if (i >= fmt.Length)
+            return null;
         char type = fmt[i++];
         if (type is not ('d' or 'u' or 'x' or 'X' or 'b' or 'o' or 'f' or 's'))
             return null;
 
         // Must have consumed everything
-        if (i != fmt.Length) return null;
+        if (i != fmt.Length)
+            return null;
 
         return new InterpolationFormat
         {

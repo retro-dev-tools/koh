@@ -14,10 +14,11 @@ public sealed class Ppu
     public byte SCY;
     public byte WX;
     public byte WY;
-    public byte BGP;        // DMG BG palette
+    public byte BGP; // DMG BG palette
     public byte OBP0;
     public byte OBP1;
     public byte LCDC;
+
     /// <summary>$FF6C OPRI (CGB only). bit 0: 0 = CGB priority (by OAM index),
     /// 1 = DMG-compat priority (by X coord). Default 0 on CGB.</summary>
     public byte OPRI;
@@ -46,7 +47,7 @@ public sealed class Ppu
     private int _lineSpriteCount;
 
     // Sprite fetcher state
-    private int _spriteFetchIndex = -1;   // -1 = no active sprite fetch
+    private int _spriteFetchIndex = -1; // -1 = no active sprite fetch
     private int _spritePenaltyDots;
 
     // Previous STAT IRQ line for edge detection.
@@ -76,10 +77,18 @@ public sealed class Ppu
 
         switch (Mode)
         {
-            case PpuMode.OamScan: TickOamScan(); break;
-            case PpuMode.Drawing: TickDrawing(ref interrupts); break;
-            case PpuMode.HBlank: TickHBlank(ref interrupts); break;
-            case PpuMode.VBlank: TickVBlank(ref interrupts); break;
+            case PpuMode.OamScan:
+                TickOamScan();
+                break;
+            case PpuMode.Drawing:
+                TickDrawing(ref interrupts);
+                break;
+            case PpuMode.HBlank:
+                TickHBlank(ref interrupts);
+                break;
+            case PpuMode.VBlank:
+                TickVBlank(ref interrupts);
+                break;
         }
 
         UpdateStatIrqLine(ref interrupts);
@@ -150,15 +159,17 @@ public sealed class Ppu
         {
             for (int i = 0; i < _lineSpriteCount; i++)
             {
-                if (_lineSpriteConsumed[i]) continue;
+                if (_lineSpriteConsumed[i])
+                    continue;
                 int oamX = _lineSprites[i].X;
-                if (oamX == 0 || oamX >= 168) continue;  // entirely off-screen
+                if (oamX == 0 || oamX >= 168)
+                    continue; // entirely off-screen
                 int spriteX = oamX - 8;
                 int visibleStart = spriteX < 0 ? 0 : spriteX;
                 if (visibleStart == _lcdX)
                 {
                     _spriteFetchIndex = i;
-                    _spritePenaltyDots = 6;  // minimum sprite-fetch penalty per §7.7
+                    _spritePenaltyDots = 6; // minimum sprite-fetch penalty per §7.7
                     Dot++;
                     return;
                 }
@@ -182,8 +193,12 @@ public sealed class Ppu
             }
 
             // Window activation check.
-            if (!_windowTriggeredThisLine && (LCDC & LcdControl.WindowEnable) != 0 &&
-                LY >= WY && _lcdX + 7 >= WX)
+            if (
+                !_windowTriggeredThisLine
+                && (LCDC & LcdControl.WindowEnable) != 0
+                && LY >= WY
+                && _lcdX + 7 >= WX
+            )
             {
                 _windowTriggeredThisLine = true;
                 _fifo.ClearBg();
@@ -203,7 +218,8 @@ public sealed class Ppu
                 {
                     Mode = PpuMode.HBlank;
                     _initialDiscardDone = false;
-                    if (_windowTriggeredThisLine) _windowLineCounter++;
+                    if (_windowTriggeredThisLine)
+                        _windowLineCounter++;
                     HBlankEntered?.Invoke();
                 }
             }
@@ -215,7 +231,8 @@ public sealed class Ppu
     private void RunFetcher()
     {
         _fetcher.DotBudget--;
-        if (_fetcher.DotBudget > 0) return;
+        if (_fetcher.DotBudget > 0)
+            return;
 
         switch (_fetcher.Step)
         {
@@ -223,7 +240,9 @@ public sealed class Ppu
                 int mapIdx = _fetcher.TileMapY * 32 + _fetcher.TileMapX;
                 _fetcher.FetchedTileIndex = _vram[(_fetcher.TileMapBase - 0x8000) + mapIdx];
                 if (_hwMode == HardwareMode.Cgb)
-                    _fetcher.FetchedAttributes = _vram[0x2000 + (_fetcher.TileMapBase - 0x8000) + mapIdx];
+                    _fetcher.FetchedAttributes = _vram[
+                        0x2000 + (_fetcher.TileMapBase - 0x8000) + mapIdx
+                    ];
                 _fetcher.Step = FetcherStep.GetTileDataLow;
                 _fetcher.DotBudget = 2;
                 break;
@@ -242,7 +261,8 @@ public sealed class Ppu
 
             case FetcherStep.Push:
                 // CGB BG attribute bit 5 flips the tile horizontally.
-                bool xFlip = _hwMode == HardwareMode.Cgb && (_fetcher.FetchedAttributes & 0x20) != 0;
+                bool xFlip =
+                    _hwMode == HardwareMode.Cgb && (_fetcher.FetchedAttributes & 0x20) != 0;
                 var colors = DecodeTileRow(_fetcher.FetchedLow, _fetcher.FetchedHigh, xFlip);
                 if (_fifo.PushBgTile(colors, _fetcher.FetchedAttributes))
                 {
@@ -252,7 +272,7 @@ public sealed class Ppu
                 }
                 else
                 {
-                    _fetcher.DotBudget = 1;  // retry next dot
+                    _fetcher.DotBudget = 1; // retry next dot
                 }
                 break;
         }
@@ -301,7 +321,13 @@ public sealed class Ppu
         return result;
     }
 
-    private void EmitPixel(byte bgColor, byte bgAttrs, byte spriteColor, byte spritePalette, byte spriteFlags)
+    private void EmitPixel(
+        byte bgColor,
+        byte bgAttrs,
+        byte spriteColor,
+        byte spritePalette,
+        byte spriteFlags
+    )
     {
         int pixelIdx = (LY * Framebuffer.Width + _lcdX) * 4;
         var back = Framebuffer.Back;
@@ -314,14 +340,20 @@ public sealed class Ppu
 
         // On DMG with BG-enable bit clear, BG always reads as color 0.
         bool bgDisabledDmg = (LCDC & LcdControl.BgWindowEnableOrPriority) == 0;
-        if (bgDisabledDmg) bgColor = 0;
+        if (bgDisabledDmg)
+            bgColor = 0;
 
         // Resolve final color index via DMG palette selection.
         byte finalColor;
-        bool useSpriteColor = spriteColor != 0 && ((spriteFlags & ObjectAttributes.FlagBgPriority) == 0 || bgColor == 0);
+        bool useSpriteColor =
+            spriteColor != 0
+            && ((spriteFlags & ObjectAttributes.FlagBgPriority) == 0 || bgColor == 0);
         if (useSpriteColor)
         {
-            finalColor = ApplyDmgPalette(spriteColor, (spriteFlags & ObjectAttributes.FlagDmgPalette) != 0 ? OBP1 : OBP0);
+            finalColor = ApplyDmgPalette(
+                spriteColor,
+                (spriteFlags & ObjectAttributes.FlagDmgPalette) != 0 ? OBP1 : OBP0
+            );
         }
         else
         {
@@ -341,8 +373,15 @@ public sealed class Ppu
         back[pixelIdx + 3] = 0xFF;
     }
 
-    private void EmitPixelCgb(int pixelIdx, Span<byte> back, byte bgColor, byte bgAttrs,
-                              byte spriteColor, byte spritePalette, byte spriteFlags)
+    private void EmitPixelCgb(
+        int pixelIdx,
+        Span<byte> back,
+        byte bgColor,
+        byte bgAttrs,
+        byte spriteColor,
+        byte spritePalette,
+        byte spriteFlags
+    )
     {
         // CGB priority rules (per acid2's bg-to-oam-priority test, validated
         // against the reference PNG):
@@ -361,7 +400,8 @@ public sealed class Ppu
         }
         else
         {
-            bgHasPriority = (bgAttrs & 0x80) != 0 || (spriteFlags & ObjectAttributes.FlagBgPriority) != 0;
+            bgHasPriority =
+                (bgAttrs & 0x80) != 0 || (spriteFlags & ObjectAttributes.FlagBgPriority) != 0;
         }
 
         // Sprite wins when: sprite color is non-zero AND (BG doesn't have priority OR BG is transparent).
@@ -398,8 +438,8 @@ public sealed class Ppu
         return (r, g, b);
     }
 
-    private static byte ApplyDmgPalette(byte colorIdx, byte palette)
-        => (byte)((palette >> (colorIdx * 2)) & 0x03);
+    private static byte ApplyDmgPalette(byte colorIdx, byte palette) =>
+        (byte)((palette >> (colorIdx * 2)) & 0x03);
 
     private void PushSpritePixelsForCurrentLcdX(ObjectAttributes sprite, int scanIndex)
     {
@@ -414,17 +454,23 @@ public sealed class Ppu
 
         int height = LcdControl.SpriteHeight(LCDC);
         int row = LY - (sprite.Y - 16);
-        if (sprite.YFlip) row = height - 1 - row;
+        if (sprite.YFlip)
+            row = height - 1 - row;
 
         int tileIndex = sprite.Tile;
         if (height == 16)
         {
             tileIndex &= 0xFE;
-            if (row >= 8) { tileIndex |= 1; row -= 8; }
+            if (row >= 8)
+            {
+                tileIndex |= 1;
+                row -= 8;
+            }
         }
 
         int vramBankBit = 0;
-        if (_hwMode == HardwareMode.Cgb && sprite.CgbVramBank1) vramBankBit = 0x2000;
+        if (_hwMode == HardwareMode.Cgb && sprite.CgbVramBank1)
+            vramBankBit = 0x2000;
 
         int tileAddr = tileIndex * 16 + row * 2;
         byte low = _vram[vramBankBit + tileAddr];
@@ -439,7 +485,13 @@ public sealed class Ppu
             int lo = (low >> bit) & 1;
             int hi = (high >> bit) & 1;
             byte color = (byte)((hi << 1) | lo);
-            _fifo.PushSpritePixel(px - skipLeft, color, sprite.CgbPalette, sprite.Flags, priorityKey);
+            _fifo.PushSpritePixel(
+                px - skipLeft,
+                color,
+                sprite.CgbPalette,
+                sprite.Flags,
+                priorityKey
+            );
         }
     }
 
@@ -483,10 +535,14 @@ public sealed class Ppu
     {
         bool line = false;
         byte user = Stat.UserBits;
-        if ((user & StatRegister.LyLycIrqEnable) != 0 && LY == LYC) line = true;
-        if ((user & StatRegister.OamIrqEnable) != 0 && Mode == PpuMode.OamScan) line = true;
-        if ((user & StatRegister.VBlankIrqEnable) != 0 && Mode == PpuMode.VBlank) line = true;
-        if ((user & StatRegister.HBlankIrqEnable) != 0 && Mode == PpuMode.HBlank) line = true;
+        if ((user & StatRegister.LyLycIrqEnable) != 0 && LY == LYC)
+            line = true;
+        if ((user & StatRegister.OamIrqEnable) != 0 && Mode == PpuMode.OamScan)
+            line = true;
+        if ((user & StatRegister.VBlankIrqEnable) != 0 && Mode == PpuMode.VBlank)
+            line = true;
+        if ((user & StatRegister.HBlankIrqEnable) != 0 && Mode == PpuMode.HBlank)
+            line = true;
 
         if (line && !_prevStatLine)
         {
@@ -509,13 +565,20 @@ public sealed class Ppu
 
     public void WriteState(StateWriter w)
     {
-        w.WriteByte(LY); w.WriteByte(LYC);
-        w.WriteByte(SCX); w.WriteByte(SCY);
-        w.WriteByte(WX); w.WriteByte(WY);
-        w.WriteByte(BGP); w.WriteByte(OBP0); w.WriteByte(OBP1);
-        w.WriteByte(LCDC); w.WriteByte(OPRI);
+        w.WriteByte(LY);
+        w.WriteByte(LYC);
+        w.WriteByte(SCX);
+        w.WriteByte(SCY);
+        w.WriteByte(WX);
+        w.WriteByte(WY);
+        w.WriteByte(BGP);
+        w.WriteByte(OBP0);
+        w.WriteByte(OBP1);
+        w.WriteByte(LCDC);
+        w.WriteByte(OPRI);
         w.WriteByte(Stat.UserBits);
-        w.WriteI32((int)Mode); w.WriteI32(Dot);
+        w.WriteI32((int)Mode);
+        w.WriteI32(Dot);
         w.WriteI32(_windowLineCounter);
         w.WriteBool(_windowTriggeredThisLine);
         w.WriteBool(_initialDiscardDone);
@@ -533,20 +596,31 @@ public sealed class Ppu
         for (int i = 0; i < _lineSprites.Length; i++)
         {
             var s = _lineSprites[i];
-            w.WriteByte(s.Y); w.WriteByte(s.X); w.WriteByte(s.Tile); w.WriteByte(s.Flags);
+            w.WriteByte(s.Y);
+            w.WriteByte(s.X);
+            w.WriteByte(s.Tile);
+            w.WriteByte(s.Flags);
         }
-        for (int i = 0; i < _lineSpriteConsumed.Length; i++) w.WriteBool(_lineSpriteConsumed[i]);
+        for (int i = 0; i < _lineSpriteConsumed.Length; i++)
+            w.WriteBool(_lineSpriteConsumed[i]);
     }
 
     public void ReadState(StateReader r)
     {
-        LY = r.ReadByte(); LYC = r.ReadByte();
-        SCX = r.ReadByte(); SCY = r.ReadByte();
-        WX = r.ReadByte(); WY = r.ReadByte();
-        BGP = r.ReadByte(); OBP0 = r.ReadByte(); OBP1 = r.ReadByte();
-        LCDC = r.ReadByte(); OPRI = r.ReadByte();
+        LY = r.ReadByte();
+        LYC = r.ReadByte();
+        SCX = r.ReadByte();
+        SCY = r.ReadByte();
+        WX = r.ReadByte();
+        WY = r.ReadByte();
+        BGP = r.ReadByte();
+        OBP0 = r.ReadByte();
+        OBP1 = r.ReadByte();
+        LCDC = r.ReadByte();
+        OPRI = r.ReadByte();
         Stat.UserBits = r.ReadByte();
-        Mode = (PpuMode)r.ReadI32(); Dot = r.ReadI32();
+        Mode = (PpuMode)r.ReadI32();
+        Dot = r.ReadI32();
         _windowLineCounter = r.ReadI32();
         _windowTriggeredThisLine = r.ReadBool();
         _initialDiscardDone = r.ReadBool();
@@ -562,9 +636,13 @@ public sealed class Ppu
         _lineSpriteCount = r.ReadI32();
         for (int i = 0; i < _lineSprites.Length; i++)
         {
-            byte y = r.ReadByte(), x = r.ReadByte(), tile = r.ReadByte(), flags = r.ReadByte();
+            byte y = r.ReadByte(),
+                x = r.ReadByte(),
+                tile = r.ReadByte(),
+                flags = r.ReadByte();
             _lineSprites[i] = new ObjectAttributes(y, x, tile, flags);
         }
-        for (int i = 0; i < _lineSpriteConsumed.Length; i++) _lineSpriteConsumed[i] = r.ReadBool();
+        for (int i = 0; i < _lineSpriteConsumed.Length; i++)
+            _lineSpriteConsumed[i] = r.ReadBool();
     }
 }

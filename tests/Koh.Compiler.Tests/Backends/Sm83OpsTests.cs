@@ -27,7 +27,7 @@ public class Sm83OpsTests
         var pos = IrBuilder.ConstInt(IrType.Int(128), 0x0102030405060708);
         await Assert.That(Sm83Ops.ByteOf(pos, 0)).IsEqualTo((byte)0x08);
         await Assert.That(Sm83Ops.ByteOf(pos, 7)).IsEqualTo((byte)0x01);
-        await Assert.That(Sm83Ops.ByteOf(pos, 8)).IsEqualTo((byte)0x00);  // positive -> zero-extended
+        await Assert.That(Sm83Ops.ByteOf(pos, 8)).IsEqualTo((byte)0x00); // positive -> zero-extended
         await Assert.That(Sm83Ops.ByteOf(pos, 15)).IsEqualTo((byte)0x00);
         var neg = IrBuilder.ConstInt(IrType.Int(128), -1);
         await Assert.That(Sm83Ops.ByteOf(neg, 0)).IsEqualTo((byte)0xFF);
@@ -38,8 +38,14 @@ public class Sm83OpsTests
     public async Task Normalize_SwapsAndSignsPredicates()
     {
         // `a > b` becomes `b < a` (swap); signed predicates share the unsigned base with Signed = true.
-        await Assert.That(Sm83Ops.Normalize(IrCompareOp.Ugt)).IsEqualTo((IrCompareOp.Ult, true, false));
-        await Assert.That(Sm83Ops.Normalize(IrCompareOp.Sle)).IsEqualTo((IrCompareOp.Uge, true, true));
-        await Assert.That(Sm83Ops.Normalize(IrCompareOp.Eq)).IsEqualTo((IrCompareOp.Eq, false, false));
+        await Assert
+            .That(Sm83Ops.Normalize(IrCompareOp.Ugt))
+            .IsEqualTo((IrCompareOp.Ult, true, false));
+        await Assert
+            .That(Sm83Ops.Normalize(IrCompareOp.Sle))
+            .IsEqualTo((IrCompareOp.Uge, true, true));
+        await Assert
+            .That(Sm83Ops.Normalize(IrCompareOp.Eq))
+            .IsEqualTo((IrCompareOp.Eq, false, false));
     }
 }

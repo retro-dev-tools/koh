@@ -16,7 +16,8 @@ internal static class Mbc1
         {
             // $4000-$7FFF switchable ROM bank.
             int low = cart.Mbc1_BankLow & 0x1F;
-            if (low == 0) low = 1;  // MBC1 quirk: bank 0 selects bank 1
+            if (low == 0)
+                low = 1; // MBC1 quirk: bank 0 selects bank 1
             int bank = (cart.Mbc1_BankHigh << 5) | low;
             int offset = (bank * 0x4000) + (address - 0x4000);
             return offset < cart.Rom.Length ? cart.Rom[offset] : (byte)0xFF;
@@ -50,7 +51,8 @@ internal static class Mbc1
 
     public static byte ReadRam(Cartridge cart, ushort address)
     {
-        if (!cart.Mbc1_RamEnabled || cart.Ram.Length == 0) return 0xFF;
+        if (!cart.Mbc1_RamEnabled || cart.Ram.Length == 0)
+            return 0xFF;
         int bank = cart.Mbc1_Mode == 1 ? cart.Mbc1_BankHigh : 0;
         int offset = (bank * 0x2000) + (address - 0xA000);
         return offset < cart.Ram.Length ? cart.Ram[offset] : (byte)0xFF;
@@ -58,9 +60,11 @@ internal static class Mbc1
 
     public static void WriteRam(Cartridge cart, ushort address, byte value)
     {
-        if (!cart.Mbc1_RamEnabled || cart.Ram.Length == 0) return;
+        if (!cart.Mbc1_RamEnabled || cart.Ram.Length == 0)
+            return;
         int bank = cart.Mbc1_Mode == 1 ? cart.Mbc1_BankHigh : 0;
         int offset = (bank * 0x2000) + (address - 0xA000);
-        if (offset < cart.Ram.Length) cart.Ram[offset] = value;
+        if (offset < cart.Ram.Length)
+            cart.Ram[offset] = value;
     }
 }

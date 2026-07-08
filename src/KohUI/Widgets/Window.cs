@@ -20,19 +20,24 @@ namespace KohUI.Widgets;
 public readonly struct Window<TMsg, TChild>(
     string Title,
     TChild Child,
-    int X = 40, int Y = 40, int Width = 0, int Height = 0,
-    Func<TMsg>? OnClose = null)
-    : IView<TMsg>
+    int X = 40,
+    int Y = 40,
+    int Width = 0,
+    int Height = 0,
+    Func<TMsg>? OnClose = null
+) : IView<TMsg>
     where TChild : IView<TMsg>
 {
     public readonly string Title = Title;
     public readonly TChild Child = Child;
     public readonly int X = X;
     public readonly int Y = Y;
+
     /// <summary>
     /// Width hint. <c>0</c> means auto-size to the measured content.
     /// </summary>
     public readonly int Width = Width;
+
     /// <summary>
     /// Height hint. <c>0</c> means auto-size to the measured content.
     /// </summary>
@@ -43,11 +48,12 @@ public readonly struct Window<TMsg, TChild>(
     {
         var props = Props.Of(
             ("title", Title),
-            ("x", X), ("y", Y),
-            ("width", Width), ("height", Height),
-            ("onClose", OnClose));
-        return RenderNode.WithChildren("Window",
-            ImmutableArray.Create(Child.Render()),
-            props);
+            ("x", X),
+            ("y", Y),
+            ("width", Width),
+            ("height", Height),
+            ("onClose", OnClose)
+        );
+        return RenderNode.WithChildren("Window", ImmutableArray.Create(Child.Render()), props);
     }
 }

@@ -31,6 +31,7 @@ public sealed class Serial
     public bool IsTransferring => _transferring;
 
     public byte ReadSB() => SB;
+
     public byte ReadSC() => (byte)(SC | 0x7E);
 
     public void WriteSB(byte value) => SB = value;
@@ -49,15 +50,17 @@ public sealed class Serial
             _incomingByte = Link?.ExchangeByte(SB) ?? 0xFF;
             _transferring = true;
             _bitsRemaining = 8;
-            _tCountdown = 512;   // 512 T-cycles per bit at the DMG 8192 Hz clock
+            _tCountdown = 512; // 512 T-cycles per bit at the DMG 8192 Hz clock
         }
     }
 
     public void TickT(ref Interrupts interrupts)
     {
-        if (!_transferring) return;
+        if (!_transferring)
+            return;
         _tCountdown--;
-        if (_tCountdown > 0) return;
+        if (_tCountdown > 0)
+            return;
         _tCountdown = 512;
         _bitsRemaining--;
         // Shift one bit of the incoming byte (from peer, or $FF if unlinked)
@@ -74,28 +77,33 @@ public sealed class Serial
     }
 
     public string ReadBufferAsString() => System.Text.Encoding.ASCII.GetString(_buffer.ToArray());
+
     public void ClearBuffer() => _buffer.Clear();
 
     public void WriteState(StateWriter w)
     {
-        w.WriteByte(SB); w.WriteByte(SC);
+        w.WriteByte(SB);
+        w.WriteByte(SC);
         w.WriteBool(_transferring);
         w.WriteI32(_bitsRemaining);
         w.WriteI32(_tCountdown);
         w.WriteByte(_incomingByte);
         w.WriteI32(_buffer.Count);
-        foreach (var b in _buffer) w.WriteByte(b);
+        foreach (var b in _buffer)
+            w.WriteByte(b);
     }
 
     public void ReadState(StateReader r)
     {
-        SB = r.ReadByte(); SC = r.ReadByte();
+        SB = r.ReadByte();
+        SC = r.ReadByte();
         _transferring = r.ReadBool();
         _bitsRemaining = r.ReadI32();
         _tCountdown = r.ReadI32();
         _incomingByte = r.ReadByte();
         int n = r.ReadI32();
         _buffer.Clear();
-        for (int i = 0; i < n; i++) _buffer.Add(r.ReadByte());
+        for (int i = 0; i < n; i++)
+            _buffer.Add(r.ReadByte());
     }
 }

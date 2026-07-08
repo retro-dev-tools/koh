@@ -6,13 +6,13 @@ namespace Koh.Emulator.Core.Ppu;
 /// </summary>
 public struct StatRegister
 {
-    public const byte LyLycIrqEnable   = 1 << 6;
-    public const byte OamIrqEnable     = 1 << 5;
-    public const byte VBlankIrqEnable  = 1 << 4;
-    public const byte HBlankIrqEnable  = 1 << 3;
-    public const byte LyLycFlag        = 1 << 2;
+    public const byte LyLycIrqEnable = 1 << 6;
+    public const byte OamIrqEnable = 1 << 5;
+    public const byte VBlankIrqEnable = 1 << 4;
+    public const byte HBlankIrqEnable = 1 << 3;
+    public const byte LyLycFlag = 1 << 2;
 
-    public byte UserBits;   // bits 3..6 user-writable, bits 0..2 are computed
+    public byte UserBits; // bits 3..6 user-writable, bits 0..2 are computed
 
     public byte Read(PpuMode mode, bool lyEqualsLyc)
     {

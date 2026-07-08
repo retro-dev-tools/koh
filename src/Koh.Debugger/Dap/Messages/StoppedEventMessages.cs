@@ -10,9 +10,18 @@ namespace Koh.Debugger.Dap.Messages;
 /// </summary>
 public sealed class StoppedEventBody
 {
-    [JsonPropertyName("reason")]            public string  Reason            { get; set; } = "";
-    [JsonPropertyName("threadId")]          public int     ThreadId          { get; set; }
-    [JsonPropertyName("allThreadsStopped")] public bool    AllThreadsStopped { get; set; }
-    [JsonPropertyName("description")]       public string? Description       { get; set; }
-    [JsonPropertyName("text")]              public string? Text              { get; set; }
+    [JsonPropertyName("reason")]
+    public string Reason { get; set; } = "";
+
+    [JsonPropertyName("threadId")]
+    public int ThreadId { get; set; }
+
+    [JsonPropertyName("allThreadsStopped")]
+    public bool AllThreadsStopped { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("text")]
+    public string? Text { get; set; }
 }

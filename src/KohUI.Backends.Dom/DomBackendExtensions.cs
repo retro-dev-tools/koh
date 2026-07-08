@@ -28,15 +28,18 @@ namespace KohUI.Backends.Dom;
 /// </summary>
 public static class DomBackendExtensions
 {
-    private static readonly EmbeddedFileProvider BundledAssets =
-        new(typeof(DomBackendExtensions).Assembly, "KohUI.Backends.Dom.wwwroot");
+    private static readonly EmbeddedFileProvider BundledAssets = new(
+        typeof(DomBackendExtensions).Assembly,
+        "KohUI.Backends.Dom.wwwroot"
+    );
 
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
 
     public static void UseKohUI<TModel, TMsg>(
         this WebApplication app,
         Runner<TModel, TMsg> runner,
-        Win98Theme? theme = null)
+        Win98Theme? theme = null
+    )
     {
         var activeTheme = theme ?? Win98Theme.Default;
         var backend = new DomBackend<TModel, TMsg>(runner);
@@ -48,45 +51,55 @@ public static class DomBackendExtensions
         // spec table, so a change to a padding or bevel width here
         // lands in the GL and DOM surfaces simultaneously.
         var generatedCss = CssGenerator.Build(activeTheme);
-        app.MapGet("/_kohui/kohui.css", (HttpContext ctx) =>
-        {
-            ctx.Response.ContentType = "text/css; charset=utf-8";
-            return ctx.Response.WriteAsync(generatedCss);
-        });
+        app.MapGet(
+            "/_kohui/kohui.css",
+            (HttpContext ctx) =>
+            {
+                ctx.Response.ContentType = "text/css; charset=utf-8";
+                return ctx.Response.WriteAsync(generatedCss);
+            }
+        );
 
         // Serve bundled KohUI static assets from the embedded manifest.
-        app.UseStaticFiles(new StaticFileOptions
-        {
-            FileProvider = BundledAssets,
-            RequestPath = "/_kohui",
-            ContentTypeProvider = ContentTypes,
-        });
+        app.UseStaticFiles(
+            new StaticFileOptions
+            {
+                FileProvider = BundledAssets,
+                RequestPath = "/_kohui",
+                ContentTypeProvider = ContentTypes,
+            }
+        );
 
         // Default route: ship the bundled bootstrap page.
-        app.MapGet("/", async ctx =>
-        {
-            var indexFile = BundledAssets.GetFileInfo("index.html");
-            if (!indexFile.Exists)
+        app.MapGet(
+            "/",
+            async ctx =>
             {
-                ctx.Response.StatusCode = 500;
-                await ctx.Response.WriteAsync("index.html missing from embedded assets");
-                return;
+                var indexFile = BundledAssets.GetFileInfo("index.html");
+                if (!indexFile.Exists)
+                {
+                    ctx.Response.StatusCode = 500;
+                    await ctx.Response.WriteAsync("index.html missing from embedded assets");
+                    return;
+                }
+                ctx.Response.ContentType = "text/html; charset=utf-8";
+                await using var stream = indexFile.CreateReadStream();
+                await stream.CopyToAsync(ctx.Response.Body);
             }
-            ctx.Response.ContentType = "text/html; charset=utf-8";
-            await using var stream = indexFile.CreateReadStream();
-            await stream.CopyToAsync(ctx.Response.Body);
-        });
+        );
 
-        app.Map("/_kohui/ws", async (HttpContext ctx) =>
-        {
-            if (!ctx.WebSockets.IsWebSocketRequest)
+        app.Map(
+            "/_kohui/ws",
+            async (HttpContext ctx) =>
             {
-                ctx.Response.StatusCode = 400;
-                return;
+                if (!ctx.WebSockets.IsWebSocketRequest)
+                {
+                    ctx.Response.StatusCode = 400;
+                    return;
+                }
+                using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
+                await backend.HandleAsync(socket, ctx.RequestAborted);
             }
-            using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
-            await backend.HandleAsync(socket, ctx.RequestAborted);
-        });
+        );
     }
-
 }

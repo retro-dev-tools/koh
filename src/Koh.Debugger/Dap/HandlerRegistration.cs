@@ -7,7 +7,8 @@ public static class HandlerRegistration
     public static void RegisterAll(
         DapDispatcher dispatcher,
         DebugSession session,
-        Func<string, ReadOnlyMemory<byte>> loadFile)
+        Func<string, ReadOnlyMemory<byte>> loadFile
+    )
     {
         var launchHandler = new LaunchHandler(session, loadFile);
         var continueHandler = new ContinueHandler(session);
@@ -42,8 +43,14 @@ public static class HandlerRegistration
         dispatcher.RegisterHandler("stackTrace", stackTraceHandler.Handle);
         dispatcher.RegisterHandler("disassemble", disassembleHandler.Handle);
         dispatcher.RegisterHandler("evaluate", evaluateHandler.Handle);
-        dispatcher.RegisterHandler("setInstructionBreakpoints", bpHandlers.HandleSetInstructionBreakpoints);
-        dispatcher.RegisterHandler("setFunctionBreakpoints", bpHandlers.HandleSetFunctionBreakpoints);
+        dispatcher.RegisterHandler(
+            "setInstructionBreakpoints",
+            bpHandlers.HandleSetInstructionBreakpoints
+        );
+        dispatcher.RegisterHandler(
+            "setFunctionBreakpoints",
+            bpHandlers.HandleSetFunctionBreakpoints
+        );
         dispatcher.RegisterHandler("breakpointLocations", bpHandlers.HandleBreakpointLocations);
         dispatcher.RegisterHandler("dataBreakpointInfo", dataBpInfoHandler.Handle);
         dispatcher.RegisterHandler("setDataBreakpoints", setDataBpHandler.Handle);

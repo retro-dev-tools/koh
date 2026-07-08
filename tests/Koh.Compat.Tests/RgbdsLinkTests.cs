@@ -31,15 +31,20 @@ public sealed class RgbdsLinkTests
     [Test]
     public async Task SimpleNop_LinksSuccessfully()
     {
-        var model = RgbdsCompatFixture.Assemble("""
+        var model = RgbdsCompatFixture.Assemble(
+            """
             SECTION "Main", ROM0
             nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
 
         var objBytes = RgbdsCompatFixture.WriteObjectFile(model);
-        var result = await RgbdsCompatFixture.LinkAsync(_containerDir, "test.gb",
-            ("test.o", objBytes));
+        var result = await RgbdsCompatFixture.LinkAsync(
+            _containerDir,
+            "test.gb",
+            ("test.o", objBytes)
+        );
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.RomData).IsNotNull();
@@ -48,15 +53,20 @@ public sealed class RgbdsLinkTests
     [Test]
     public async Task DataBytes_PreservedInRom()
     {
-        var model = RgbdsCompatFixture.Assemble("""
+        var model = RgbdsCompatFixture.Assemble(
+            """
             SECTION "Main", ROM0[$0000]
             db $DE, $AD, $BE, $EF
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
 
         var objBytes = RgbdsCompatFixture.WriteObjectFile(model);
-        var result = await RgbdsCompatFixture.LinkAsync(_containerDir, "data.gb",
-            ("data.o", objBytes));
+        var result = await RgbdsCompatFixture.LinkAsync(
+            _containerDir,
+            "data.gb",
+            ("data.o", objBytes)
+        );
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.RomData).IsNotNull();
@@ -70,16 +80,21 @@ public sealed class RgbdsLinkTests
     [Test]
     public async Task FixedAddress_Respected()
     {
-        var model = RgbdsCompatFixture.Assemble("""
+        var model = RgbdsCompatFixture.Assemble(
+            """
             SECTION "Entry", ROM0[$0100]
             nop
             nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
 
         var objBytes = RgbdsCompatFixture.WriteObjectFile(model);
-        var result = await RgbdsCompatFixture.LinkAsync(_containerDir, "fixed.gb",
-            ("fixed.o", objBytes));
+        var result = await RgbdsCompatFixture.LinkAsync(
+            _containerDir,
+            "fixed.gb",
+            ("fixed.o", objBytes)
+        );
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.RomData).IsNotNull();
@@ -91,17 +106,22 @@ public sealed class RgbdsLinkTests
     [Test]
     public async Task MultipleInstructions_CorrectEncoding()
     {
-        var model = RgbdsCompatFixture.Assemble("""
+        var model = RgbdsCompatFixture.Assemble(
+            """
             SECTION "Main", ROM0[$0000]
             nop
             ld a, b
             halt
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
 
         var objBytes = RgbdsCompatFixture.WriteObjectFile(model);
-        var result = await RgbdsCompatFixture.LinkAsync(_containerDir, "multi.gb",
-            ("multi.o", objBytes));
+        var result = await RgbdsCompatFixture.LinkAsync(
+            _containerDir,
+            "multi.gb",
+            ("multi.o", objBytes)
+        );
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.RomData).IsNotNull();
@@ -114,15 +134,20 @@ public sealed class RgbdsLinkTests
     [Test]
     public async Task ExportedSymbol_VisibleToLinker()
     {
-        var model = RgbdsCompatFixture.Assemble("""
+        var model = RgbdsCompatFixture.Assemble(
+            """
             SECTION "Main", ROM0
             main:: nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
 
         var objBytes = RgbdsCompatFixture.WriteObjectFile(model);
-        var result = await RgbdsCompatFixture.LinkAsync(_containerDir, "export.gb",
-            ("export.o", objBytes));
+        var result = await RgbdsCompatFixture.LinkAsync(
+            _containerDir,
+            "export.gb",
+            ("export.o", objBytes)
+        );
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
     }
@@ -130,7 +155,8 @@ public sealed class RgbdsLinkTests
     [Test]
     public async Task LargerProgram_LinksSuccessfully()
     {
-        var model = RgbdsCompatFixture.Assemble("""
+        var model = RgbdsCompatFixture.Assemble(
+            """
             SECTION "Main", ROM0
             start::
                 ld a, $42
@@ -139,12 +165,16 @@ public sealed class RgbdsLinkTests
                 cp $84
                 nop
                 halt
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
 
         var objBytes = RgbdsCompatFixture.WriteObjectFile(model);
-        var result = await RgbdsCompatFixture.LinkAsync(_containerDir, "program.gb",
-            ("program.o", objBytes));
+        var result = await RgbdsCompatFixture.LinkAsync(
+            _containerDir,
+            "program.gb",
+            ("program.o", objBytes)
+        );
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.RomData).IsNotNull();
@@ -158,28 +188,37 @@ public sealed class RgbdsLinkTests
     public async Task MixedKohAndRgbasm_LinkTogether()
     {
         // File 1: assembled by Koh — non-zero bytes for meaningful assertions
-        var kohModel = RgbdsCompatFixture.Assemble("""
+        var kohModel = RgbdsCompatFixture.Assemble(
+            """
             SECTION "KohCode", ROM0[$0000]
             koh_entry::
                 db $DE, $AD, $BE
-            """);
+            """
+        );
         await Assert.That(kohModel.Success).IsTrue();
         var kohObjBytes = RgbdsCompatFixture.WriteObjectFile(kohModel);
 
         // File 2: assembled by rgbasm — non-zero bytes
-        var rgbasmObjBytes = await RgbdsCompatFixture.RgbasmAssembleAsync("""
+        var rgbasmObjBytes = await RgbdsCompatFixture.RgbasmAssembleAsync(
+            """
             SECTION "RgbasmCode", ROM0[$0010]
             rgbasm_entry::
                 db $CA, $FE
-            """, _containerDir, "rgbasm_part");
+            """,
+            _containerDir,
+            "rgbasm_part"
+        );
 
         if (rgbasmObjBytes == null)
             Skip.Test("rgbasm not available or failed to assemble");
 
         // Link both together with rgblink
-        var result = await RgbdsCompatFixture.LinkAsync(_containerDir, "mixed.gb",
+        var result = await RgbdsCompatFixture.LinkAsync(
+            _containerDir,
+            "mixed.gb",
             ("koh_part.o", kohObjBytes),
-            ("rgbasm_part.o", rgbasmObjBytes!));
+            ("rgbasm_part.o", rgbasmObjBytes!)
+        );
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.RomData).IsNotNull();

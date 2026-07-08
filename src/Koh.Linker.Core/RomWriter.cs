@@ -23,7 +23,8 @@ public static class RomWriter
             if (s.Type is SectionType.Rom0 or SectionType.RomX)
             {
                 int physEnd = PhysicalOffset(s) + s.Data.Length;
-                if (physEnd > maxAddr) maxAddr = physEnd;
+                if (physEnd > maxAddr)
+                    maxAddr = physEnd;
             }
         }
 
@@ -54,7 +55,8 @@ public static class RomWriter
     /// </summary>
     private static void FixHeaderChecksum(byte[] rom)
     {
-        if (rom.Length < 0x0150) return;
+        if (rom.Length < 0x0150)
+            return;
 
         byte checksum = 0;
         for (int i = 0x0134; i <= 0x014C; i++)
@@ -67,12 +69,14 @@ public static class RomWriter
     /// </summary>
     private static void FixGlobalChecksum(byte[] rom)
     {
-        if (rom.Length < 0x0150) return;
+        if (rom.Length < 0x0150)
+            return;
 
         ushort checksum = 0;
         for (int i = 0; i < rom.Length; i++)
         {
-            if (i == 0x014E || i == 0x014F) continue;
+            if (i == 0x014E || i == 0x014F)
+                continue;
             checksum += rom[i];
         }
         rom[0x014E] = (byte)(checksum >> 8);
@@ -94,7 +98,8 @@ public static class RomWriter
     // Correct for value in [1, 0x40000000]. GB ROMs max at 8 MB (0x800000), well within range.
     private static int NextPowerOfTwo(int value)
     {
-        if (value <= 1) return 1;
+        if (value <= 1)
+            return 1;
         value--;
         value |= value >> 1;
         value |= value >> 2;

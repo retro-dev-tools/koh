@@ -16,7 +16,8 @@ public class LexerTests
         {
             var token = lexer.NextToken();
             tokens.Add(token);
-            if (token.Kind == SyntaxKind.EndOfFileToken) break;
+            if (token.Kind == SyntaxKind.EndOfFileToken)
+                break;
         }
         return tokens;
     }
@@ -331,8 +332,13 @@ public class LexerTests
     {
         // An unterminated block comment must surface as an error diagnostic.
         var tree = SyntaxTree.Parse("/* never closed");
-        await Assert.That(tree.Diagnostics.Any(d =>
-            d.Message.Contains("Unterminated") || d.Message.Contains("block comment"))).IsTrue();
+        await Assert
+            .That(
+                tree.Diagnostics.Any(d =>
+                    d.Message.Contains("Unterminated") || d.Message.Contains("block comment")
+                )
+            )
+            .IsTrue();
     }
 
     [Test]
@@ -390,13 +396,15 @@ public class LexerTests
     {
         // Block comments inside / between tokens are treated as whitespace; the
         // surrounding PRINTLN still receives the correct string argument.
-        var (model, output) = EmitWithOutput("""
+        var (model, output) = EmitWithOutput(
+            """
             PRINTLN /* block comments are ignored // ** */ "hi"
             PRINTLN "block (/* ... */) comments at ends of line are fine" /* hi */
             PRINTLN /* block comments
             can span multiple lines
             */ "multiline"
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(output).Contains("hi");
         await Assert.That(output).Contains("block (/* ... */) comments at ends of line are fine");
@@ -409,10 +417,12 @@ public class LexerTests
     {
         // A /* inside a block comment triggers a warning but assembly must still
         // complete successfully and PRINTLN output must be produced.
-        var (model, output) = EmitWithOutput("""
+        var (model, output) = EmitWithOutput(
+            """
             /* block comments containing /* throw warnings */
             PRINTLN "reachable"
-            """);
+            """
+        );
         // Assembly succeeds (the nested /* is a warning, not an error).
         await Assert.That(model.Success).IsTrue();
         await Assert.That(output).Contains("reachable");
@@ -423,10 +433,12 @@ public class LexerTests
     public async Task BlockComment_WeirdEdgeCases_OutputsText()
     {
         // Edge case: /*/ is a valid block comment opening, //*/ closes on the second *.
-        var (model, output) = EmitWithOutput("""
+        var (model, output) = EmitWithOutput(
+            """
             PRINTLN /* // PRINT "commented out" */ "this is not commented out"
             PRINTLN /*//*/ "this is not commented out"
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(output).Contains("this is not commented out");
     }
@@ -440,11 +452,13 @@ public class LexerTests
     public async Task NumericLiteral_UnderscoresAllowed_Decimal()
     {
         // Underscores may appear inside decimal literals as digit separators.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             db 1_23
             dw 12_345
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -453,12 +467,14 @@ public class LexerTests
     public async Task NumericLiteral_UnderscoresAllowed_HexBinaryOctal()
     {
         // Underscores may appear inside hex, binary, and octal literals.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             dw $ab_cd
             db &2_0_0
             db %1111_0000
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -467,14 +483,16 @@ public class LexerTests
     public async Task NumericLiteral_CStylePrefixes_Hex()
     {
         // 0x / 0X are equivalent to the $ hex prefix.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             MACRO test
                 assert (\1) == (\2)
             ENDM
             test 0xDEAD, $DEAD
             test 0XcafeBABE, $cafeBABE
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -483,7 +501,8 @@ public class LexerTests
     public async Task NumericLiteral_CStylePrefixes_BinaryOctal()
     {
         // 0b / 0B are equivalent to %; 0o / 0O are equivalent to &.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             MACRO test
                 assert (\1) == (\2)
@@ -492,7 +511,8 @@ public class LexerTests
             test 0o755, &755
             test 0B11100100, %11100100
             test 0O644, &644
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -501,14 +521,22 @@ public class LexerTests
     public async Task NumericLiteral_DoubleUnderscore_IsError()
     {
         // Two consecutive underscores inside a numeric literal must be rejected.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             db 0
             println 123__456
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
-        await Assert.That(model.Diagnostics.Any(d =>
-            d.Message.Contains("_") || d.Message.Contains("underscore") || d.Message.Contains("constant")))
+        await Assert
+            .That(
+                model.Diagnostics.Any(d =>
+                    d.Message.Contains("_")
+                    || d.Message.Contains("underscore")
+                    || d.Message.Contains("constant")
+                )
+            )
             .IsTrue();
     }
 
@@ -517,14 +545,22 @@ public class LexerTests
     public async Task NumericLiteral_TrailingUnderscore_IsError()
     {
         // A trailing underscore at the end of a numeric literal must be rejected.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             db 0
             println 12345_
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
-        await Assert.That(model.Diagnostics.Any(d =>
-            d.Message.Contains("trailing") || d.Message.Contains("_") || d.Message.Contains("constant")))
+        await Assert
+            .That(
+                model.Diagnostics.Any(d =>
+                    d.Message.Contains("trailing")
+                    || d.Message.Contains("_")
+                    || d.Message.Contains("constant")
+                )
+            )
             .IsTrue();
     }
 
@@ -537,13 +573,15 @@ public class LexerTests
     public async Task RawString_HashPrefix_DisablesEscapes()
     {
         // #"..." disables escape processing: \t \1 etc. are literal backslash sequences.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             assert !strcmp( \
                 #"\t\1", \
                 "\\t\\1" )
             nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -555,11 +593,12 @@ public class LexerTests
         // The ASM source uses triple-quote delimiters, so we cannot nest it inside
         // a C# triple-quoted raw literal — use a verbatim string instead.
         var model = Emit(
-            "SECTION \"Test\", ROM0\n" +
-            "assert !strcmp( \\\n" +
-            "    #\"\"\"new\nline\"\"\", \\\n" +
-            "    \"new\\nline\" )\n" +
-            "nop\n");
+            "SECTION \"Test\", ROM0\n"
+                + "assert !strcmp( \\\n"
+                + "    #\"\"\"new\nline\"\"\", \\\n"
+                + "    \"new\\nline\" )\n"
+                + "nop\n"
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -568,11 +607,13 @@ public class LexerTests
     public async Task RawString_Empty_EqualsEmptyString()
     {
         // #"" is a valid raw string equal to the empty string "".
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             assert !strcmp( #"", "" )
             nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
     }
 
@@ -582,12 +623,14 @@ public class LexerTests
     {
         // #name where name is an EQUS symbol yields the raw string value of that symbol
         // (i.e., without interpolation / escape processing).
-        var (model, output) = EmitWithOutput("""
+        var (model, output) = EmitWithOutput(
+            """
             def hello equs "world"
             def name equs "hello"
             PRINTLN "{name}"
             PRINTLN #name
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(output).Contains("hello");
     }
@@ -602,10 +645,12 @@ public class LexerTests
     {
         // A backslash followed by optional whitespace and a comment at EOL continues
         // the logical line; PRINTLN assembles all parts into one string.
-        var (model, output) = EmitWithOutput("""
+        var (model, output) = EmitWithOutput(
+            """
             println "Line \
             continuations work!"
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(output).Contains("Line");
         await Assert.That(output).Contains("continuations");
@@ -617,17 +662,25 @@ public class LexerTests
     {
         // Non-whitespace (other than a comment) after a line-continuation backslash
         // must be rejected with a diagnostic.
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Test", ROM0
             MACRO \ spam
               WARN "spam"
             ENDM
             nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
-        await Assert.That(model.Diagnostics.Any(d =>
-            d.Message.Contains("continuation") || d.Message.Contains("backslash") ||
-            d.Message.Contains("Invalid") || d.Message.Contains("character")))
+        await Assert
+            .That(
+                model.Diagnostics.Any(d =>
+                    d.Message.Contains("continuation")
+                    || d.Message.Contains("backslash")
+                    || d.Message.Contains("Invalid")
+                    || d.Message.Contains("character")
+                )
+            )
             .IsTrue();
     }
 

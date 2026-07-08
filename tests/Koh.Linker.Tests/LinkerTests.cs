@@ -63,7 +63,8 @@ public class LinkerTests
         ushort expected = 0;
         for (int i = 0; i < result.RomData!.Length; i++)
         {
-            if (i == 0x014E || i == 0x014F) continue;
+            if (i == 0x014E || i == 0x014F)
+                continue;
             expected += result.RomData[i];
         }
         await Assert.That(result.RomData[0x014E]).IsEqualTo((byte)(expected >> 8));
@@ -110,8 +111,7 @@ public class LinkerTests
     [Test]
     public async Task Link_TwoSections_BothPlaced()
     {
-        var result = LinkSingle(
-            "SECTION \"Code\", ROM0\nnop\nnop\nSECTION \"Data\", ROM0\ndb $42");
+        var result = LinkSingle("SECTION \"Code\", ROM0\nnop\nnop\nSECTION \"Data\", ROM0\ndb $42");
         await Assert.That(result.Success).IsTrue();
         // Code at 0, Data immediately after
         await Assert.That(result.RomData![0]).IsEqualTo((byte)0x00); // nop
@@ -176,7 +176,8 @@ public class LinkerTests
     public async Task Link_NoDiagnostics_CleanProgram()
     {
         var result = LinkSingle(
-            "MY_CONST EQU $10\nSECTION \"Main\", ROM0\nmain::\nld a, MY_CONST\nhalt");
+            "MY_CONST EQU $10\nSECTION \"Main\", ROM0\nmain::\nld a, MY_CONST\nhalt"
+        );
         await Assert.That(result.Diagnostics).IsEmpty();
         await Assert.That(result.Success).IsTrue();
     }

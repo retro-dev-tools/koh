@@ -24,8 +24,11 @@ public sealed class InterpolationAwareSource : ICharSource
     /// <summary>Cached result for Peek() idempotency.</summary>
     private SourceChar? _peeked;
 
-    public InterpolationAwareSource(ICharSource inner, IInterpolationResolver resolver,
-        DiagnosticBag diagnostics)
+    public InterpolationAwareSource(
+        ICharSource inner,
+        IInterpolationResolver resolver,
+        DiagnosticBag diagnostics
+    )
     {
         _inner = inner;
         _resolver = resolver;
@@ -77,7 +80,8 @@ public sealed class InterpolationAwareSource : ICharSource
                 var origin = new SourceOrigin(
                     frame.Frame.TriggerSpan.Start >= 0 ? "" : "",
                     frame.Frame.TriggerSpan.Start,
-                    frame.Frame);
+                    frame.Frame
+                );
                 frame.Position++;
 
                 // Check for nested interpolation in expanded text
@@ -117,8 +121,7 @@ public sealed class InterpolationAwareSource : ICharSource
     {
         if (_expansionStack.Count >= MaxDepth)
         {
-            _diagnostics.Report(default,
-                $"Interpolation depth limit ({MaxDepth}) exceeded");
+            _diagnostics.Report(default, $"Interpolation depth limit ({MaxDepth}) exceeded");
             return new SourceChar(openBrace, braceOrigin);
         }
 
@@ -142,7 +145,8 @@ public sealed class InterpolationAwareSource : ICharSource
                 var frame = new InterpolationFrame(
                     new TextSpan(braceOrigin.Offset, 0),
                     s.ExpandedText,
-                    braceOrigin.InterpolationFrame);
+                    braceOrigin.InterpolationFrame
+                );
 
                 _expansionStack.Push(new ExpansionReader(s.ExpandedText, frame));
 
@@ -151,8 +155,7 @@ public sealed class InterpolationAwareSource : ICharSource
             }
 
             case InterpolationResult.NotFound nf:
-                _diagnostics.Report(default,
-                    $"Interpolated symbol '{nf.Name}' does not exist");
+                _diagnostics.Report(default, $"Interpolated symbol '{nf.Name}' does not exist");
                 // RGBDS: fatal error, assembly aborts. We report and return EOF-like
                 // to signal the caller that expansion failed.
                 return ReadNext();
@@ -172,7 +175,8 @@ public sealed class InterpolationAwareSource : ICharSource
     /// Returns (name, format, success).
     /// </summary>
     private (string Name, InterpolationFormat? Format, bool Success) ParseInterpolation(
-        SourceOrigin triggerOrigin)
+        SourceOrigin triggerOrigin
+    )
     {
         var buffer = new System.Text.StringBuilder();
         int depth = 0;
@@ -189,7 +193,10 @@ public sealed class InterpolationAwareSource : ICharSource
                 if (frame.Position < frame.Text.Length)
                 {
                     char c = frame.Text[frame.Position];
-                    sc = new SourceChar(c, new SourceOrigin("", frame.Frame.TriggerSpan.Start, frame.Frame));
+                    sc = new SourceChar(
+                        c,
+                        new SourceOrigin("", frame.Frame.TriggerSpan.Start, frame.Frame)
+                    );
                     frame.Position++;
                 }
                 else
@@ -217,8 +224,10 @@ public sealed class InterpolationAwareSource : ICharSource
                 depth++;
                 if (_expansionStack.Count >= MaxDepth)
                 {
-                    _diagnostics.Report(default,
-                        $"Interpolation depth limit ({MaxDepth}) exceeded");
+                    _diagnostics.Report(
+                        default,
+                        $"Interpolation depth limit ({MaxDepth}) exceeded"
+                    );
                     return ("", null, false);
                 }
 
@@ -233,8 +242,7 @@ public sealed class InterpolationAwareSource : ICharSource
                 }
                 else if (innerResult is InterpolationResult.NotFound nf)
                 {
-                    _diagnostics.Report(default,
-                        $"Interpolated symbol '{nf.Name}' does not exist");
+                    _diagnostics.Report(default, $"Interpolated symbol '{nf.Name}' does not exist");
                     return ("", null, false);
                 }
                 else if (innerResult is InterpolationResult.Error err)

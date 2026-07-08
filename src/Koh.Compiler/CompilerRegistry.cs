@@ -14,19 +14,17 @@ namespace Koh.Compiler;
 /// </summary>
 public static class CompilerRegistry
 {
-    public static IReadOnlyList<IFrontend> Frontends { get; } =
-    [
-        new CSharpFrontend(),
-    ];
+    public static IReadOnlyList<IFrontend> Frontends { get; } = [new CSharpFrontend()];
 
-    public static IReadOnlyList<IBackend> Backends { get; } =
-    [
-        new Sm83Backend(),
-    ];
+    public static IReadOnlyList<IBackend> Backends { get; } = [new Sm83Backend()];
 
     public static IFrontend? FrontendForExtension(string extension) =>
-        Frontends.FirstOrDefault(f => f.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase));
+        Frontends.FirstOrDefault(f =>
+            f.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
+        );
 
     public static IBackend? BackendByName(string name) =>
-        Backends.FirstOrDefault(b => string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase));
+        Backends.FirstOrDefault(b =>
+            string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase)
+        );
 }

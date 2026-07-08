@@ -11,7 +11,10 @@ public sealed class DebugSession
     public BreakpointManager Breakpoints { get; } = new();
     public WatchpointHook Watchpoints { get; }
 
-    public DebugSession() { Watchpoints = new WatchpointHook(this); }
+    public DebugSession()
+    {
+        Watchpoints = new WatchpointHook(this);
+    }
 
     public volatile bool PauseRequested;
 
@@ -19,7 +22,11 @@ public sealed class DebugSession
 
     public bool IsLaunched => System is not null;
 
-    public void Launch(ReadOnlyMemory<byte> romBytes, ReadOnlyMemory<byte> kdbgBytes, HardwareMode mode)
+    public void Launch(
+        ReadOnlyMemory<byte> romBytes,
+        ReadOnlyMemory<byte> kdbgBytes,
+        HardwareMode mode
+    )
     {
         var cart = CartridgeFactory.Load(romBytes.Span);
         var system = new GameBoySystem(mode, cart);
@@ -47,8 +54,10 @@ public sealed class DebugSession
         {
             byte bank = pc >= 0x4000 ? System.Cartridge.CurrentRomBank : (byte)0;
             var addr = new Koh.Linker.Core.BankedAddress(bank, pc);
-            return Breakpoints.ShouldBreak(addr, cond =>
-                System is { } gb && ExpressionEvaluator.Evaluate(cond, gb));
+            return Breakpoints.ShouldBreak(
+                addr,
+                cond => System is { } gb && ExpressionEvaluator.Evaluate(cond, gb)
+            );
         };
 
         Launched?.Invoke();
