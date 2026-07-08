@@ -5,22 +5,23 @@
 // then hand that to Koh.Linker.Core to produce the final .gb image - the same path assembler
 // output takes.
 //
-// Run:  dotnet run --project samples/gb-2048-cs/build -- [<source.cs>] [<out.gb>]
+// Run:  dotnet run --project samples/gb-2048-cs -- [<source.cs>] [<out.gb>]
 using Koh.Compiler;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
 using Koh.Linker.Core;
 
+// Default source lives next to this project; climb out of bin/<config>/<tfm>/ to the project root.
 string sourcePath =
     args.Length > 0
         ? args[0]
-        : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "2048.cs");
+        : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "2048.cs");
 sourcePath = Path.GetFullPath(sourcePath);
 
 string outPath =
     args.Length > 1
         ? args[1]
-        : Path.Combine(Path.GetDirectoryName(sourcePath)!, "build", "2048.gb");
+        : Path.Combine(Path.GetDirectoryName(sourcePath)!, "2048.gb");
 
 var frontend = CompilerRegistry.FrontendForExtension(Path.GetExtension(sourcePath));
 if (frontend is null)

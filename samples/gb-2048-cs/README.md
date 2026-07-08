@@ -13,11 +13,11 @@ the exact pipeline the platform uses for any frontend/backend pair.
 ## Build & run
 
 ```sh
-# Produces samples/gb-2048-cs/build/2048.gb
-dotnet run --project samples/gb-2048-cs/build
+# Produces samples/gb-2048-cs/2048.gb
+dotnet run --project samples/gb-2048-cs
 
 # Play it in the Koh emulator
-dotnet run --project src/Koh.Emulator.App -- samples/gb-2048-cs/build/2048.gb
+dotnet run --project src/Koh.Emulator.App -- samples/gb-2048-cs/2048.gb
 ```
 
 ## Controls

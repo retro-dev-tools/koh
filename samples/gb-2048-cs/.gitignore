@@ -1,6 +1,5 @@
-build/bin/
-build/obj/
-build/2048.gb
+bin/
+obj/
 *.kobj
 *.sym
 *.gb

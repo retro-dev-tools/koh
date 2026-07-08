@@ -130,6 +130,6 @@ constructs are reported as diagnostics.
 
 ## Gotchas
 
-- Building the C# sample ROM: `dotnet run --project samples/gb-2048-cs/build`.
+- Building the C# sample ROM: `dotnet run --project samples/gb-2048-cs`.
 - Don't commit built ROMs (`*.gb`/`*.gbc`), `bin/`, `obj/` — samples ship a `.gitignore`.
 - The model identifier you run as must not appear in commits, PR bodies, or code.
