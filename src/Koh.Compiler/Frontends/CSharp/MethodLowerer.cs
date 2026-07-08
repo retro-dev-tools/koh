@@ -385,7 +385,7 @@ internal sealed class MethodLowerer
             return (s.BasePtr, s.Info);
         // A class local (or `this`): the instance base is the pointer it holds, loaded each access.
         if (ClassLocalOf(expr) is { } c)
-            return (_b.Conv(IrConvOp.Bitcast, _b.Load(c.Slot), IrType.Pointer(IrType.I8)), c.Info.Layout);
+            return (Reinterpret(_b.Load(c.Slot), IrType.Pointer(IrType.I8)), c.Info.Layout);
         if (expr is ElementAccessExpressionSyntax access
             && access.Expression is IdentifierNameSyntax arrayId
             && _structArrays.TryGetValue(arrayId.Identifier.Text, out var arr))
@@ -751,7 +751,7 @@ internal sealed class MethodLowerer
             foreach (var field in self.Info.Layout.Fields)
                 if (field.Name == name && field.Struct is null)
                 {
-                    var basePtr = _b.Conv(IrConvOp.Bitcast, _b.Load(self.Slot), IrType.Pointer(IrType.I8));
+                    var basePtr = Reinterpret(_b.Load(self.Slot), IrType.Pointer(IrType.I8));
                     int index = field.Offset / field.Type.Ir.SizeInBytes;
                     return (_b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
                 }
@@ -1246,8 +1246,28 @@ internal sealed class MethodLowerer
         var raw = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), IrBuilder.ConstInt(IrType.I16, cls.Layout.Size));
         _b.Store(raw, heap);
         var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
-        for (int k = 0; k < cls.Layout.Size; k++)
-            _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, k), IrType.I8));
+
+        // Zero the instance in a runtime loop rather than unrolling one GEP+Store per byte, which made
+        // `new` cost O(size) ROM (a 16-byte object was hundreds of bytes). The loop is O(1) code.
+        // ponytail: a byte-at-a-time loop; a rt.memclear routine (ld (hl+),a) would be faster if hot.
+        if (cls.Layout.Size > 0)
+        {
+            var fn = _method.Fn;
+            var iSlot = _b.Alloca(IrType.I16);
+            _b.Store(IrBuilder.ConstInt(IrType.I16, 0), iSlot);
+            var head = fn.AppendBlock("new.zero.head");
+            var body = fn.AppendBlock("new.zero.body");
+            var done = fn.AppendBlock("new.zero.done");
+            _b.Br(head);
+            _b.PositionAtEnd(head);
+            _b.CondBr(_b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, cls.Layout.Size)),
+                body, done);
+            _b.PositionAtEnd(body);
+            _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, _b.Load(iSlot), IrType.I8));
+            _b.Store(_b.Binary(IrBinaryOp.Add, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)), iSlot);
+            _b.Br(head);
+            _b.PositionAtEnd(done);
+        }
         return (basePtr, new CsType(IrType.Pointer(IrType.I8), Signed: false));
     }
 
@@ -1479,6 +1499,12 @@ internal sealed class MethodLowerer
             return _b.Conv(IrConvOp.Trunc, source.Value, t);
         return _b.Conv(source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt, source.Value, t);
     }
+
+    /// <summary>A bitcast that no-ops when the value already has the target type. An identity reinterpret
+    /// (e.g. loading a <c>Pointer(I8)</c> class-instance slot to use as a byte*) would otherwise emit a
+    /// wasted byte-for-byte copy into a fresh slot on every field access.</summary>
+    private IrValue Reinterpret(IrValue value, IrType type) =>
+        value.Type.StructurallyEquals(type) ? value : _b.Conv(IrConvOp.Bitcast, value, type);
 
     /// <summary>The pointee type of a pointer, or a diagnostic if it has none (e.g. a bare address).</summary>
     private static IrType Pointee(CsType pointer) =>

@@ -1696,6 +1696,23 @@ static readonly byte[] Mark = { 0xAB };";
     }
 
     [Test]
+    public async Task Class_NewZeroesReusedMemory()
+    {
+        // `new` must zero the instance even when the arena hands back dirty memory. Write a field, reset
+        // the arena, re-allocate the same address: the zeroing loop must clear the stale value.
+        const string src = @"
+static byte Main() {
+    Box a = new Box();
+    a.v = 99;
+    Mem.Reset();
+    Box b = new Box();
+    return b.v;
+}
+class Box { byte v; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)0);
+    }
+
+    [Test]
     public async Task Class_InstanceMethods()
     {
         // Instance methods receive an implicit `this`; a method body reads/writes fields bare and can
