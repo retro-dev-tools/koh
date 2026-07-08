@@ -1,24 +1,35 @@
 # 2048 — in Koh C#
 
-A complete, bootable Game Boy build of **2048**, written in C# and compiled by the Koh
-compiler platform. It is the counterpart to the hand-written-assembly [`gb-2048`](../gb-2048)
-sample: same game, but the source is a single [`2048.cs`](2048.cs) that flows through
+A complete, bootable Game Boy build of **2048**, written in C# as an ordinary .NET project. It is the
+counterpart to the hand-written-assembly [`gb-2048`](../gb-2048) sample: same game, but the source is
+a single [`2048.cs`](2048.cs). The project uses the **Koh SDK**, so building it produces a Game Boy
+ROM the same way any frontend/backend pair does:
 
 ```
 Koh C# frontend  →  typed SSA IR  →  hand-written SM83 backend  →  Koh linker  →  2048.gb
 ```
 
-the exact pipeline the platform uses for any frontend/backend pair.
+The twist is that the *exact same* `2048.cs` also compiles under the plain .NET SDK and runs on your
+desktop against the [`Koh.GameBoy`](../../src/Koh.GameBoy) reference runtime — the `Hardware.*` and
+`Gb.*` surfaces backed by real buffers instead of hardware. One source, two targets.
 
 ## Build & run
 
 ```sh
+# Compile to a ROM (the Koh SDK runs the compiler/linker after the normal build).
 # Produces samples/gb-2048-cs/2048.gb
+dotnet build samples/gb-2048-cs
+
+# Play the reference build right here in the terminal (arrow keys to move).
 dotnet run --project samples/gb-2048-cs
 
-# Play it in the Koh emulator
+# Or play the real ROM in the Koh emulator.
 dotnet run --project src/Koh.Emulator.App -- samples/gb-2048-cs/2048.gb
 ```
+
+The project references neither the Koh compiler nor the linker — only the `Koh.GameBoy` runtime. The
+`Koh.Sdk` (`sdk/Koh.Sdk`) owns the build-time toolchain and, after the ordinary C# build, invokes an
+in-process MSBuild task ([`CompileKohRom`](../../src/Koh.Build.Tasks)) that emits the `.gb`.
 
 ## Controls
 
@@ -53,11 +64,11 @@ board that lives in `Main`'s statically-allocated WRAM frame.
 "Koh C#" is a systems subset aimed at 8-bit hardware. This sample exercises most of it:
 
 - `byte` / `sbyte` / `ushort` / `bool`, `enum`, and raw pointers (`byte*`)
-- local arrays (`new byte[16]`, `{ … }` initializers), `&arr[0]`, `*p`, and pointer arithmetic
-  (`*(p + i)`)
+- `stackalloc` buffers (`byte* b = stackalloc byte[16]`), `*p`, and pointer arithmetic (`*(p + i)`)
 - `if` / `while` / `for` / `do` / `switch`, `break` / `continue`, `&&` / `||`, `?:`, `++`/`--`
 - functions calling functions, with `ref` / `out` parameters
-- the `Hardware.*` surface for memory-mapped I/O (`LCDC`, `BGP`, `JOYP`, `LY`, `DIV`, …)
+- the `Hardware.*` surface for memory-mapped I/O (`LCDC`, `BGP`, `JOYP`, `LY`, `DIV`, …) and the
+  `Gb.*` memory regions (`Gb.Vram`, `Gb.TileMap`, …) as constant base pointers
 
 Graphics are intentionally minimal — each tile value is a solid framed block in one of the four
 DMG shades, generated at boot — because ROM **data** arrays are not yet part of the subset.

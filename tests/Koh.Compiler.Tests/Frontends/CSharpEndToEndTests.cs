@@ -917,6 +917,35 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task Gb_RegionBaseIsConstantPointer()
+    {
+        // Gb.Vram lowers to a byte* at the VRAM base (0x8000); writes through it land there.
+        // LCD off first so the PPU isn't locking VRAM when the store runs (as the game does).
+        const string src =
+            "static void Main() { Hardware.LCDC = 0x00; byte* v = Gb.Vram; *(v + 5) = 0x3C; }";
+        await Assert.That(RunThenRead(src, 0x8005)).IsEqualTo((byte)0x3C);
+    }
+
+    [Test]
+    public async Task Gb_TileMapRegionBase()
+    {
+        // Gb.TileMap points at the background tilemap (0x9800).
+        const string src =
+            "static void Main() { Hardware.LCDC = 0x00; byte* m = Gb.TileMap; *m = 0x12; }";
+        await Assert.That(RunThenRead(src, 0x9800)).IsEqualTo((byte)0x12);
+    }
+
+    [Test]
+    public async Task StackAlloc_BufferRoundTrips()
+    {
+        // stackalloc reserves a frame buffer reachable as a byte*; write two cells and sum them.
+        const string src =
+            "static byte Main() { byte* a = stackalloc byte[4]; *(a + 0) = 7; *(a + 3) = 30; "
+            + "return (byte)(*(a + 0) + *(a + 3)); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)37);
+    }
+
+    [Test]
     public async Task Interrupt_EmitsVectorAndReti()
     {
         const string src =

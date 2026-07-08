@@ -3,8 +3,10 @@
     "path": "Koh.slnx",
     "projects": [
       "src\\Koh.Asm\\Koh.Asm.csproj",
+      "src\\Koh.Build.Tasks\\Koh.Build.Tasks.csproj",
       "src\\Koh.Compiler\\Koh.Compiler.csproj",
       "src\\Koh.Core\\Koh.Core.csproj",
+      "src\\Koh.GameBoy\\Koh.GameBoy.csproj",
       "src\\Koh.Emit\\Koh.Emit.csproj",
       "src\\Koh.Link\\Koh.Link.csproj",
       "src\\Koh.Linker.Core\\Koh.Linker.Core.csproj",

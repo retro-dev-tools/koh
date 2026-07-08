@@ -83,7 +83,16 @@ public sealed partial class CSharpFrontend : IFrontend
         // declarations coexist without hitting C#'s "top-level statements first" rule. (Source
         // lines shift by one; accounted for when line maps are emitted.)
         var wrapped = WrapperPrefix + source.ToString() + "\n}";
-        var tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
+        // Parse with KOH_FRONTEND defined so a source may carry `#if !KOH_FRONTEND ... #endif` regions
+        // that are visible only to a stock C# compiler — e.g. a `static class` wrapper + `using`s that
+        // let the same file also build under the plain .NET SDK. Excluded regions keep their line count,
+        // so line maps are unaffected. The frontend still sees the bare top-level members it expects.
+        var parseOptions = CSharpParseOptions.Default.WithPreprocessorSymbols("KOH_FRONTEND");
+        var tree = CSharpSyntaxTree.ParseText(
+            wrapped,
+            options: parseOptions,
+            path: source.FilePath
+        );
         var root = tree.GetCompilationUnitRoot();
 
         bool hasParseError = false;

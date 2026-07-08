@@ -1,0 +1,39 @@
+<Project>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <!-- The ROM lands next to the project by default (e.g. samples/gb-2048-cs/2048.gb); override
+         KohRomName / KohRomPath per project. -->
+    <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
+    <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
+    <KohBuildTasksProject>$(KohRoot)src/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
+    <KohBuildTasksAssembly>$(KohRoot)src/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
+  </PropertyGroup>
+
+  <!-- The game's own C# sources (the ROM's translation unit); excludes generated/output files. -->
+  <ItemGroup>
+    <KohSource Include="$(MSBuildProjectDirectory)/**/*.cs"
+               Exclude="$(MSBuildProjectDirectory)/obj/**/*.cs;$(MSBuildProjectDirectory)/bin/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Build the in-process compile task (and, transitively, the compiler and linker) as part of the
+       build graph, so it is restored and built before use. ReferenceOutputAssembly=false keeps it off
+       the game's own compile references - the game depends only on the Koh.GameBoy runtime. -->
+  <ItemGroup>
+    <ProjectReference Include="$(KohBuildTasksProject)"
+                      ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+
+  <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
+
+  <!-- After the ordinary managed build succeeds, compile the same sources to a Game Boy ROM. -->
+  <Target Name="CompileKohRom" AfterTargets="Build" Inputs="@(KohSource)" Outputs="$(KohRomPath)">
+    <CompileKohRom SourceFiles="@(KohSource)" OutputPath="$(KohRomPath)"
+                   ProgramName="$(AssemblyName)" />
+    <ItemGroup>
+      <FileWrites Include="$(KohRomPath)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

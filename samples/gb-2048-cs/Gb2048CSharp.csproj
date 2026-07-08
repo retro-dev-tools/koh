@@ -1,24 +1,15 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
+
+  <!-- Built by the Koh SDK: an ordinary C# project the plain compiler builds and `dotnet run` executes
+       against the Koh.GameBoy reference runtime, while `dotnet build` also emits 2048.gb. It references
+       neither the Koh compiler nor the linker - the SDK drives those. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../sdk/Koh.Sdk/Sdk/Sdk.props" />
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <RootNamespace>Koh.Samples.Gb2048CSharp</RootNamespace>
+    <KohRomName>2048.gb</KohRomName>
   </PropertyGroup>
 
-  <!-- 2048.cs is the Game Boy source: it is compiled by the Koh C# frontend, not by
-       this .NET project. Exclude it from the SDK's default compilation glob (and keep it
-       visible in the IDE as a plain file). -->
-  <ItemGroup>
-    <Compile Remove="2048.cs" />
-    <None Include="2048.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Koh.Compiler\Koh.Compiler.csproj" />
-    <ProjectReference Include="..\..\src\Koh.Linker.Core\Koh.Linker.Core.csproj" />
-  </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../sdk/Koh.Sdk/Sdk/Sdk.targets" />
 
 </Project>

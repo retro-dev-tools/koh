@@ -300,8 +300,27 @@ internal sealed class MethodLowerer
             var slot = _b.Alloca(type.Ir);
             _locals[v.Identifier.Text] = (slot, type);
             if (v.Initializer is { } init)
-                _b.Store(Coerce(LowerExpression(init.Value, type), type), slot);
+                _b.Store(
+                    init.Value is StackAllocArrayCreationExpressionSyntax sa
+                        ? LowerStackAlloc(sa)
+                        : Coerce(LowerExpression(init.Value, type), type),
+                    slot
+                );
         }
+    }
+
+    /// <summary>Lower <c>stackalloc T[n]</c>: reserve <c>n</c> elements in the frame and yield a
+    /// <c>T*</c> to the first, so the local is a plain pointer (like the raw address the ROM uses).</summary>
+    private IrValue LowerStackAlloc(StackAllocArrayCreationExpressionSyntax sa)
+    {
+        if (sa.Type is not ArrayTypeSyntax arr)
+            throw new CSharpNotSupportedException("stackalloc requires an array type.");
+        var element = CSharpFrontend.ResolveType(arr.ElementType, _enums);
+        int length = (int)CSharpFrontend.ConstEval(arr.RankSpecifiers[0].Sizes[0], ResolveConst);
+        if (length < 0)
+            throw new CSharpNotSupportedException($"stackalloc has a negative length ({length}).");
+        var storage = _b.Alloca(IrType.Array(element.Ir, length));
+        return _b.Gep(storage, IrBuilder.ConstInt(IrType.I16, 0), element.Ir);
     }
 
     /// <summary>Resolve a bare name to a constant value (local const), for constant folding.</summary>
@@ -1371,6 +1390,13 @@ internal sealed class MethodLowerer
                 return (
                     _b.Load(IrBuilder.GlobalRef(_hardware.Register(member.Name.Identifier.Text))),
                     CsType.U8
+                );
+
+            // Memory-region base pointer, e.g. Gb.Vram -> a byte* at the region's fixed address.
+            if (subject.Identifier.Text == "Gb" && _hardware.IsRegion(member.Name.Identifier.Text))
+                return (
+                    IrBuilder.GlobalRef(_hardware.Region(member.Name.Identifier.Text)),
+                    new CsType(IrType.Pointer(IrType.I8), Signed: false)
                 );
 
             // Enum member reference, e.g. Color.Red.
