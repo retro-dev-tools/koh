@@ -18,6 +18,7 @@ internal sealed class MethodLowerer
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
     private readonly IReadOnlyDictionary<string, CsEnum> _enums;
     private readonly IReadOnlyDictionary<string, CsStruct> _structs;
+    private readonly IReadOnlyDictionary<string, CsClass> _classes;
     private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> _globals;
     private readonly IReadOnlyDictionary<string, (CsType Type, long Value)> _moduleConsts;
     private readonly HardwareRegisters _hardware;
@@ -29,6 +30,8 @@ internal sealed class MethodLowerer
     private readonly Dictionary<string, (IrValue Address, CsType Element)> _refs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue ArrayPtr, CsType Element, int Length)> _arrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue BasePtr, CsStruct Info)> _structLocals = new(StringComparer.Ordinal);
+    // A class local holds a pointer to its heap instance; field access loads that pointer as the base.
+    private readonly Dictionary<string, (IrValue Slot, CsClass Info)> _classLocals = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (IrValue ArrayPtr, CsStruct Info, int Length)> _structArrays = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CsType Type, long Value)> _consts = new(StringComparer.Ordinal);
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
@@ -45,7 +48,8 @@ internal sealed class MethodLowerer
         HardwareRegisters hardware,
         string file,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits,
-        IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays)
+        IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays,
+        IReadOnlyDictionary<string, CsClass> classes)
     {
         _file = file;
         _method = method;
@@ -54,6 +58,7 @@ internal sealed class MethodLowerer
         _methods = methods;
         _enums = enums;
         _structs = structs;
+        _classes = classes;
         _globals = globals;
         _moduleConsts = moduleConsts;
         _hardware = hardware;
@@ -76,6 +81,25 @@ internal sealed class MethodLowerer
         for (int i = 0; i < _method.Fn.Parameters.Count; i++)
         {
             var p = _method.Fn.Parameters[i];
+            // The implicit `this` of an instance method: a pointer to the instance, registered so field
+            // access (this.f or bare f) resolves against the class layout.
+            if (i == 0 && _method.ThisClass is { } thisClass)
+            {
+                var thisSlot = _b.Alloca(p.Type);
+                _b.Store(p, thisSlot);
+                _locals["this"] = (thisSlot, new CsType(IrType.Pointer(IrType.I8), Signed: false));
+                _classLocals["this"] = (thisSlot, thisClass);
+                continue;
+            }
+            // A class-instance parameter: the value is the heap pointer. Register it as a class local so
+            // field/method access on the argument resolves against the class layout.
+            if (_method.ParamClasses?[i] is { } classParam)
+            {
+                var slot = _b.Alloca(p.Type);
+                _b.Store(p, slot);
+                _classLocals[p.Name!] = (slot, classParam);
+                continue;
+            }
             if (_method.ParamStructs[i] is { } structParam)
             {
                 _structLocals[p.Name!] = (p, structParam); // the param value is the struct's address
@@ -197,6 +221,19 @@ internal sealed class MethodLowerer
             return;
         }
 
+        // A class-typed local: a slot holding a pointer to the heap instance (e.g. from `new C()`).
+        if (decl.Type is IdentifierNameSyntax className && _classes.TryGetValue(className.Identifier.Text, out var classInfo))
+        {
+            foreach (var v in decl.Variables)
+            {
+                var slot = _b.Alloca(IrType.Pointer(IrType.I8));
+                _classLocals[v.Identifier.Text] = (slot, classInfo);
+                if (v.Initializer is { } init)
+                    _b.Store(_b.Conv(IrConvOp.Bitcast, LowerExpression(init.Value, null).Item1, IrType.Pointer(IrType.I8)), slot);
+            }
+            return;
+        }
+
         var type = CSharpFrontend.ResolveType(decl.Type, _enums);
         foreach (var v in decl.Variables)
         {
@@ -204,7 +241,7 @@ internal sealed class MethodLowerer
             {
                 if (v.Initializer is null)
                     throw new CSharpNotSupportedException($"const '{v.Identifier.Text}' needs an initializer.");
-                _consts[v.Identifier.Text] = (type, CSharpFrontend.ConstEval(v.Initializer.Value, ResolveConst));
+                _consts[v.Identifier.Text] = (type, CSharpFrontend.ConstEval(v.Initializer.Value, ResolveConst, unsigned: !type.Signed));
                 continue;
             }
 
@@ -290,13 +327,22 @@ internal sealed class MethodLowerer
             }
     }
 
-    /// <summary>Compute the pointer to <c>arr[index]</c>.</summary>
+    /// <summary>Compute the pointer to <c>arr[index]</c> or <c>ptr[index]</c> (the latter is
+    /// <c>*(ptr + index)</c>, so a pointer local can be indexed like an array).</summary>
     private (IrValue Pointer, CsType Element) ArrayElementPointer(ElementAccessExpressionSyntax access)
     {
-        if (access.Expression is not IdentifierNameSyntax id || !_arrays.TryGetValue(id.Identifier.Text, out var arr))
-            throw new CSharpNotSupportedException("indexing requires an array variable.");
-        var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
-        return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
+        if (access.Expression is IdentifierNameSyntax id)
+        {
+            var (index, _) = LowerExpression(access.ArgumentList.Arguments[0].Expression, CsType.U16);
+            if (_arrays.TryGetValue(id.Identifier.Text, out var arr))
+                return (_b.Gep(arr.ArrayPtr, index, arr.Element.Ir), arr.Element);
+            if (_locals.TryGetValue(id.Identifier.Text, out var local) && local.Type.Ir.Kind == IrTypeKind.Pointer)
+            {
+                var elementIr = Pointee(local.Type);
+                return (_b.Gep(_b.Load(local.Slot), index, elementIr), new CsType(elementIr, Signed: false));
+            }
+        }
+        throw new CSharpNotSupportedException("indexing requires an array or pointer variable.");
     }
 
     /// <summary>An assignable member: a struct field or a hardware register.</summary>
@@ -337,6 +383,9 @@ internal sealed class MethodLowerer
     {
         if (expr is IdentifierNameSyntax id && _structLocals.TryGetValue(id.Identifier.Text, out var s))
             return (s.BasePtr, s.Info);
+        // A class local (or `this`): the instance base is the pointer it holds, loaded each access.
+        if (ClassLocalOf(expr) is { } c)
+            return (Reinterpret(_b.Load(c.Slot), IrType.Pointer(IrType.I8)), c.Info.Layout);
         if (expr is ElementAccessExpressionSyntax access
             && access.Expression is IdentifierNameSyntax arrayId
             && _structArrays.TryGetValue(arrayId.Identifier.Text, out var arr))
@@ -529,8 +578,17 @@ internal sealed class MethodLowerer
                     return (IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value), moduleConst.Type);
                 if (WritePlace(name) is { } place)
                     return (_b.Load(place.Pointer), place.Type);
+                // A class-instance local used as a value: its slot holds the heap pointer (so it can be
+                // returned or passed as byte*). Field/method access goes through ClassLocalOf instead.
+                if (_classLocals.TryGetValue(name, out var classLocal))
+                    return (_b.Load(classLocal.Slot), new CsType(IrType.Pointer(IrType.I8), false));
                 throw new CSharpNotSupportedException($"unknown identifier '{name}'.");
             }
+
+            case ThisExpressionSyntax when _classLocals.TryGetValue("this", out var self):
+                // `this` used as a value (e.g. `return this;` or passing the instance to another method):
+                // load the instance pointer. Member access on `this` still goes through ClassLocalOf.
+                return (_b.Load(self.Slot), new CsType(IrType.Pointer(IrType.I8), false));
 
             case ElementAccessExpressionSyntax access:
             {
@@ -540,6 +598,9 @@ internal sealed class MethodLowerer
 
             case MemberAccessExpressionSyntax member:
                 return LowerMemberAccess(member, expected);
+
+            case ObjectCreationExpressionSyntax objNew:
+                return LowerNew(objNew);
 
             case CastExpressionSyntax cast:
             {
@@ -579,19 +640,20 @@ internal sealed class MethodLowerer
 
         // A string literal is only valid as a byte-array initializer (handled in LowerArrayLocal);
         // elsewhere `Convert.ToInt64` would throw or silently parse it, so report it cleanly.
-        if (lit.Token.Value is not (long or int or char or byte or short or ushort or uint or sbyte))
+        if (lit.Token.Value is not (long or int or char or byte or short or ushort or uint or sbyte or ulong))
             throw new CSharpNotSupportedException(
                 $"a {lit.Kind()} is not a value here (string literals are only allowed as byte[] initializers).",
                 lit.GetLocation());
 
-        long value = Convert.ToInt64(lit.Token.Value);
+        long value = unchecked((long)Convert.ToUInt64(lit.Token.Value));
         // With no expected type, size the literal to its value so a wide constant isn't truncated
         // to a neighbouring narrow type (e.g. `1000 == x`), and a small one still stays 8-bit.
         var type = expected ?? value switch
         {
             >= 0 and <= 0xFF => CsType.U8,
             >= 0 and <= 0xFFFF => CsType.U16,
-            _ => CsType.U32,
+            >= 0 and <= 0xFFFFFFFF => CsType.U32,
+            _ => CsType.U64,
         };
         return (IrBuilder.ConstInt(type.Ir, value), type);
     }
@@ -620,12 +682,22 @@ internal sealed class MethodLowerer
         return unary.Kind() switch
         {
             SyntaxKind.UnaryMinusExpression => LowerNegate(value, type, expected),
+            SyntaxKind.BitwiseNotExpression => LowerComplement(value, type),
             SyntaxKind.LogicalNotExpression =>
                 (_b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(IrType.I8, 1)), CsType.Bool),
             SyntaxKind.UnaryPlusExpression => (value, type),
             _ => throw new CSharpNotSupportedException($"unsupported unary operator '{unary.OperatorToken.Text}'."),
         };
     }
+
+    /// <summary>Lower bitwise complement <c>~x</c> as an xor with an all-ones mask of the operand's
+    /// width, folding a constant operand. The result keeps the operand's type (width and signedness),
+    /// matching how <see cref="InferType"/> sizes it; the backend's per-byte xor masks each byte, so
+    /// a <c>-1</c> constant complements every width correctly.</summary>
+    private (IrValue, CsType) LowerComplement(IrValue value, CsType type) =>
+        value is IrConstInt k
+            ? (IrBuilder.ConstInt(type.Ir, ~k.Value), type)
+            : (_b.Binary(IrBinaryOp.Xor, value, IrBuilder.ConstInt(type.Ir, -1)), type);
 
     /// <summary>Lower unary minus. A negated value is signed — C# promotes <c>-x</c> to a signed type —
     /// and a negated literal folds to a signed constant so it sign-extends correctly and can adopt a
@@ -639,7 +711,8 @@ internal sealed class MethodLowerer
             CsType t = expected is { Signed: true } e && Fits(neg, e) ? e
                 : neg is >= -128 and <= 127 ? CsType.I8
                 : neg is >= -32768 and <= 32767 ? CsType.I16
-                : CsType.I32;
+                : neg is >= int.MinValue and <= int.MaxValue ? CsType.I32
+                : CsType.I64;
             return (IrBuilder.ConstInt(t.Ir, neg), t);
         }
         var signed = type.Signed ? type : new CsType(type.Ir, Signed: true);
@@ -669,6 +742,19 @@ internal sealed class MethodLowerer
             return (reference.Address, reference.Element); // ref param: the address is the place
         if (_globals.TryGetValue(name, out var global))
             return (IrBuilder.GlobalRef(global.Global), global.Type);
+        // A class-instance local: its slot holds the heap pointer. Assignment stores a new pointer
+        // (reference semantics); reads load the pointer.
+        if (name != "this" && _classLocals.TryGetValue(name, out var classLocal))
+            return (classLocal.Slot, new CsType(IrType.Pointer(IrType.I8), Signed: false));
+        // A bare field reference inside an instance method resolves against `this`.
+        if (_classLocals.TryGetValue("this", out var self))
+            foreach (var field in self.Info.Layout.Fields)
+                if (field.Name == name && field.Struct is null)
+                {
+                    var basePtr = Reinterpret(_b.Load(self.Slot), IrType.Pointer(IrType.I8));
+                    int index = field.Offset / field.Type.Ir.SizeInBytes;
+                    return (_b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, index), field.Type.Ir), field.Type);
+                }
         return null;
     }
 
@@ -854,10 +940,7 @@ internal sealed class MethodLowerer
 
         // A shift result follows its left operand; the count is an independent operand.
         if (kind is SyntaxKind.LeftShiftExpression or SyntaxKind.RightShiftExpression)
-        {
-            RejectWide32(kind, ltype, binary);
             return (_b.Binary(ArithOp(kind, ltype.Signed), l, Coerce((r, rtype), ltype)), ltype);
-        }
 
         // Otherwise both operands convert to their common type (C-like usual arithmetic
         // conversions), which also selects signed vs. unsigned div/rem and avoids narrowing the
@@ -865,10 +948,7 @@ internal sealed class MethodLowerer
         (l, ltype) = AdoptConstant((l, ltype), rtype);
         (r, rtype) = AdoptConstant((r, rtype), ltype);
         bool signMatters = kind is SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression;
-        bool allowWide32 = kind is not (SyntaxKind.MultiplyExpression
-            or SyntaxKind.DivideExpression or SyntaxKind.ModuloExpression);
-        var common = CommonType(ltype, rtype, signMatters, binary, allowWide32);
-        RejectWide32(kind, common, binary);
+        var common = CommonType(ltype, rtype, signMatters, binary);
         return (_b.Binary(ArithOp(kind, common.Signed),
             Coerce((l, ltype), common), Coerce((r, rtype), common)), common);
     }
@@ -892,36 +972,17 @@ internal sealed class MethodLowerer
         return value >= 0 && (bits >= 64 || value <= (1L << bits) - 1);
     }
 
-    /// <summary>The SM83 backend has no 32-bit multiply/divide/remainder/shift (those use 16-bit
-    /// register pairs), so reject them at the source with a diagnostic instead of crashing later.</summary>
-    private static void RejectWide32(SyntaxKind op, CsType type, ExpressionSyntax site)
-    {
-        bool wide = type.Ir.SizeInBytes > 2;
-        bool hard = op is SyntaxKind.MultiplyExpression or SyntaxKind.DivideExpression
-            or SyntaxKind.ModuloExpression or SyntaxKind.LeftShiftExpression or SyntaxKind.RightShiftExpression
-            or SyntaxKind.MultiplyAssignmentExpression or SyntaxKind.DivideAssignmentExpression
-            or SyntaxKind.ModuloAssignmentExpression or SyntaxKind.LeftShiftAssignmentExpression
-            or SyntaxKind.RightShiftAssignmentExpression;
-        if (wide && hard)
-            throw new CSharpNotSupportedException(
-                "32-bit multiply, divide, remainder, and shift are not supported on this target "
-                + "(add/subtract/bitwise/compare on int/uint are); narrow to 16 bits first.", site.GetLocation());
-    }
-
     /// <summary>
     /// The common type two operands convert to, following C-like usual arithmetic conversions over
     /// the Koh numeric types: the wider storage width wins. When the operands' signedness differs
     /// <em>and</em> it affects the result, the pair is promoted to a signed type wide enough to hold
     /// both ranges (so <c>sbyte</c> vs <c>byte</c> becomes a signed <c>short</c>, matching C#). When
-    /// no such type exists on the target (anything mixed with <c>ushort</c>): if the operator's
-    /// signedness affects the result (divide, remainder, ordering) that is a diagnostic asking for an
-    /// explicit cast; otherwise the common width is used unsigned, since the bits are identical.
-    /// <para><paramref name="allowWide32"/> is false for operators the backend has no 32-bit form for
-    /// (multiply, divide, remainder). A mixed-sign pair that would otherwise promote to a signed
-    /// <c>int</c> then either falls back to the common width unsigned (multiply — the low bits don't
-    /// depend on sign) or, if the sign matters (divide/remainder), is rejected asking for a cast.</para>
+    /// no wider signed type exists on the target (a 32-bit unsigned operand mixed with a signed one,
+    /// which would need a 64-bit signed type): if the operator's signedness affects the result (divide,
+    /// remainder, ordering) that is a diagnostic asking for an explicit cast; otherwise the common width
+    /// is used unsigned, since the bits are identical.
     /// </summary>
-    private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site, bool allowWide32 = true)
+    private static CsType CommonType(CsType a, CsType b, bool signMatters, ExpressionSyntax site)
     {
         int width = Math.Max(a.Ir.SizeInBits, b.Ir.SizeInBits);
         if (a.Signed == b.Signed)
@@ -934,12 +995,16 @@ internal sealed class MethodLowerer
         int need = Math.Max(width, unsignedOp.Ir.SizeInBits + 1);
         if (need <= 16)
             return new CsType(IrType.I16, Signed: true);
-        if (need <= 32 && allowWide32)
+        if (need <= 32)
             return new CsType(IrType.I32, Signed: true); // e.g. ushort vs sbyte -> signed int
+        if (need <= 64)
+            return new CsType(IrType.I64, Signed: true); // e.g. uint vs int -> signed long
+        if (need <= 128)
+            return new CsType(IrType.Int(128), Signed: true); // e.g. ulong vs long -> signed Int128
 
-        // No usable wider signed type — either none exists on the target, or the operator has no
-        // 32-bit form (multiply/divide/remainder). If the operator's signedness affects the result it
-        // needs an explicit cast; otherwise use the common width unsigned, since the bits are identical.
+        // No usable wider signed type exists on the target (128-bit unsigned mixed with signed would
+        // need a 256-bit signed type). If the operator's signedness affects the result it needs an
+        // explicit cast; otherwise use the common width unsigned, since the bits are identical.
         if (signMatters)
             throw new CSharpNotSupportedException(
                 $"mixed signed/unsigned operation on '{a.Ir}' and '{b.Ir}' needs a wider signed type "
@@ -958,8 +1023,11 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerAssignment(AssignmentExpressionSyntax assign)
     {
-        // Whole-struct copy: `a = b` where a is a struct (local or array element) copies its bytes.
+        // Whole-struct copy: `a = b` where a is a value-type struct (local or array element) copies its
+        // bytes. A class value is a reference: it assigns by copying the pointer, so exclude class
+        // locals here and let them fall through to the pointer-store path below.
         if (assign.Kind() == SyntaxKind.SimpleAssignmentExpression
+            && ClassLocalOf(assign.Left) is null
             && StructBaseOf(assign.Left) is { } dest)
         {
             if (StructBaseOf(assign.Right) is not { } src || !ReferenceEquals(src.Info, dest.Info))
@@ -1002,7 +1070,6 @@ internal sealed class MethodLowerer
         else if (kind is SyntaxKind.LeftShiftAssignmentExpression or SyntaxKind.RightShiftAssignmentExpression)
         {
             // Shift: the count is independent and the result keeps the target's width.
-            RejectWide32(kind, type, assign);
             var current = _b.Load(pointer);
             var amount = Coerce(LowerExpression(assign.Right, type), type);
             result = _b.Binary(CompoundOp(kind, type.Signed), current, amount);
@@ -1014,10 +1081,7 @@ internal sealed class MethodLowerer
             var current = _b.Load(pointer);
             var (rhsVal, rhsType) = LowerExpression(assign.Right, expected: null);
             bool signMatters = kind is SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression;
-            bool allowWide32 = kind is not (SyntaxKind.MultiplyAssignmentExpression
-                or SyntaxKind.DivideAssignmentExpression or SyntaxKind.ModuloAssignmentExpression);
-            var common = CommonType(type, rhsType, signMatters, assign, allowWide32);
-            RejectWide32(kind, common, assign);
+            var common = CommonType(type, rhsType, signMatters, assign);
             var opResult = _b.Binary(CompoundOp(kind, common.Signed),
                 Coerce((current, type), common), Coerce((rhsVal, rhsType), common));
             result = Coerce((opResult, common), type);
@@ -1081,14 +1145,43 @@ internal sealed class MethodLowerer
             return (_b.Intrinsic(intrinsic), CsType.U8);
         }
 
-        if (call.Expression is not IdentifierNameSyntax id || !_methods.TryGetValue(id.Identifier.Text, out var callee))
+        // Arena allocator: Mem.Alloc(size) bumps the heap pointer down and returns a byte*; Mem.Reset()
+        // frees everything at once by resetting the pointer to the top of the heap.
+        if (call.Expression is MemberAccessExpressionSyntax mem
+            && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" })
+            return LowerMemCall(mem.Name.Identifier.Text, call);
+
+        // Array LINQ: a Where/Select pipeline ending in a reduction (Sum/Count/Max/Min/Any/All),
+        // compiled to a loop with the lambdas inlined.
+        if (TryLowerLinq(call) is { } linq)
+            return linq;
+
+        // Instance method call: obj.Method(args) or this.Method(args).
+        if (call.Expression is MemberAccessExpressionSyntax instCall
+            && ClassLocalOf(instCall.Expression) is { } recv)
+            return LowerInstanceCall(recv.Info, recv.Slot, instCall.Name.Identifier.Text, call.ArgumentList.Arguments);
+
+        // Bare Method(args) inside an instance method resolves against `this`.
+        if (call.Expression is IdentifierNameSyntax bare && !_methods.ContainsKey(bare.Identifier.Text)
+            && _classLocals.TryGetValue("this", out var self)
+            && self.Info.Methods.ContainsKey(bare.Identifier.Text))
+            return LowerInstanceCall(self.Info, self.Slot, bare.Identifier.Text, call.ArgumentList.Arguments);
+
+        // A plain call, or a generic call `Foo<int>(...)` routed to its monomorphized instance `Foo$int`.
+        string? calleeName = call.Expression switch
+        {
+            IdentifierNameSyntax idn => idn.Identifier.Text,
+            GenericNameSyntax gn => CSharpFrontend.MangleGeneric(gn.Identifier.Text, gn.TypeArgumentList.Arguments),
+            _ => null,
+        };
+        if (calleeName is null || !_methods.TryGetValue(calleeName, out var callee))
             throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
 
         var args = new List<IrValue>();
         var argList = call.ArgumentList.Arguments;
         if (argList.Count != callee.Params.Count)
             throw new CSharpNotSupportedException(
-                $"'{id.Identifier.Text}' takes {callee.Params.Count} argument(s), but {argList.Count} were given.",
+                $"'{calleeName}' takes {callee.Params.Count} argument(s), but {argList.Count} were given.",
                 call.GetLocation());
         for (int i = 0; i < argList.Count; i++)
         {
@@ -1111,6 +1204,262 @@ internal sealed class MethodLowerer
 
         var result = _b.Call(callee.Fn, args);
         return (result, callee.Return ?? CsType.U8);
+    }
+
+    /// <summary>The class local (or <c>this</c>) an expression denotes, if any.</summary>
+    private (IrValue Slot, CsClass Info)? ClassLocalOf(ExpressionSyntax expr) =>
+        expr is IdentifierNameSyntax id && _classLocals.TryGetValue(id.Identifier.Text, out var c) ? c
+        : expr is ThisExpressionSyntax && _classLocals.TryGetValue("this", out var t) ? t
+        : null;
+
+    /// <summary>Lower an instance-method call: pass the receiver pointer as the implicit <c>this</c>,
+    /// then the user arguments, and call the <c>Class.Method</c> function.</summary>
+    private (IrValue, CsType) LowerInstanceCall(
+        CsClass cls, IrValue thisSlot, string methodName,
+        Microsoft.CodeAnalysis.SeparatedSyntaxList<ArgumentSyntax> args)
+    {
+        var qualified = $"{cls.Name}.{methodName}";
+        if (!_methods.TryGetValue(qualified, out var callee))
+            throw new CSharpNotSupportedException($"class '{cls.Name}' has no method '{methodName}'.");
+        if (args.Count != callee.Params.Count - 1)
+            throw new CSharpNotSupportedException(
+                $"'{qualified}' takes {callee.Params.Count - 1} argument(s), but {args.Count} were given.");
+
+        var callArgs = new List<IrValue> { _b.Load(thisSlot) };
+        for (int i = 0; i < args.Count; i++)
+            callArgs.Add(Coerce(LowerExpression(args[i].Expression, callee.Params[i + 1]), callee.Params[i + 1]));
+        return (_b.Call(callee.Fn, callArgs), callee.Return ?? CsType.U8);
+    }
+
+    /// <summary>Lower <c>new C()</c>: bump-allocate the instance from the arena, zero its fields (heap
+    /// memory is uninitialized), and return the instance pointer. Constructor arguments are not yet
+    /// supported — initialize fields after construction.</summary>
+    private (IrValue, CsType) LowerNew(ObjectCreationExpressionSyntax objNew)
+    {
+        if (objNew.Type is not IdentifierNameSyntax cn || !_classes.TryGetValue(cn.Identifier.Text, out var cls))
+            throw new CSharpNotSupportedException($"'new {objNew.Type}' is not supported (only class instances are).");
+        if (objNew.ArgumentList is { Arguments.Count: > 0 })
+            throw new CSharpNotSupportedException(
+                $"'new {cn.Identifier.Text}(...)' with constructor arguments is not supported; set fields after.");
+
+        var heap = IrBuilder.GlobalRef(_globals[CSharpFrontend.HeapPointerName].Global);
+        var raw = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), IrBuilder.ConstInt(IrType.I16, cls.Layout.Size));
+        _b.Store(raw, heap);
+        var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
+
+        // Zero the instance in a runtime loop rather than unrolling one GEP+Store per byte, which made
+        // `new` cost O(size) ROM (a 16-byte object was hundreds of bytes). The loop is O(1) code.
+        // ponytail: a byte-at-a-time loop; a rt.memclear routine (ld (hl+),a) would be faster if hot.
+        if (cls.Layout.Size > 0)
+        {
+            var fn = _method.Fn;
+            var iSlot = _b.Alloca(IrType.I16);
+            _b.Store(IrBuilder.ConstInt(IrType.I16, 0), iSlot);
+            var head = fn.AppendBlock("new.zero.head");
+            var body = fn.AppendBlock("new.zero.body");
+            var done = fn.AppendBlock("new.zero.done");
+            _b.Br(head);
+            _b.PositionAtEnd(head);
+            _b.CondBr(_b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, cls.Layout.Size)),
+                body, done);
+            _b.PositionAtEnd(body);
+            _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, _b.Load(iSlot), IrType.I8));
+            _b.Store(_b.Binary(IrBinaryOp.Add, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)), iSlot);
+            _b.Br(head);
+            _b.PositionAtEnd(done);
+        }
+        return (basePtr, new CsType(IrType.Pointer(IrType.I8), Signed: false));
+    }
+
+    /// <summary>Inline an expression lambda: bind its parameter to <paramref name="arg"/> in a temporary
+    /// slot, lower its body, then unbind. Non-capturing or value-referencing bodies work; there are no
+    /// heap closures.</summary>
+    private (IrValue Value, CsType Type) InlineLambda(
+        ExpressionSyntax lambdaExpr, IrValue arg, CsType argType, CsType? expected)
+    {
+        var lambda = lambdaExpr as LambdaExpressionSyntax
+            ?? throw new CSharpNotSupportedException("a LINQ operator expects a lambda.");
+        string pname = lambda switch
+        {
+            SimpleLambdaExpressionSyntax s => s.Parameter.Identifier.Text,
+            ParenthesizedLambdaExpressionSyntax { ParameterList.Parameters.Count: 1 } p
+                => p.ParameterList.Parameters[0].Identifier.Text,
+            _ => throw new CSharpNotSupportedException("a LINQ lambda must take exactly one parameter."),
+        };
+        if (lambda.Body is not ExpressionSyntax body)
+            throw new CSharpNotSupportedException("a LINQ lambda must be an expression (no statement body).");
+
+        var slot = _b.Alloca(argType.Ir);
+        _b.Store(arg, slot);
+        bool had = _locals.TryGetValue(pname, out var saved);
+        _locals[pname] = (slot, argType);
+        var result = LowerExpression(body, expected);
+        if (had) _locals[pname] = saved; else _locals.Remove(pname);
+        return result;
+    }
+
+    private static readonly HashSet<string> LinqTerminals = new(StringComparer.Ordinal)
+        { "Sum", "Count", "Max", "Min", "Any", "All" };
+
+    /// <summary>Lower an array LINQ chain (<c>arr.Where(..).Select(..).Sum()</c> and similar) to a loop
+    /// with inlined lambdas, or return null when the call is not such a chain. Reductions only — no
+    /// materializing operators — so no result buffer is needed.</summary>
+    private (IrValue, CsType)? TryLowerLinq(InvocationExpressionSyntax call)
+    {
+        var ops = new List<(string Op, ExpressionSyntax? Arg)>();
+        ExpressionSyntax cur = call;
+        while (cur is InvocationExpressionSyntax inv && inv.Expression is MemberAccessExpressionSyntax ma)
+        {
+            ops.Add((ma.Name.Identifier.Text,
+                inv.ArgumentList.Arguments.Count > 0 ? inv.ArgumentList.Arguments[0].Expression : null));
+            cur = ma.Expression;
+        }
+        if (cur is not IdentifierNameSyntax srcId || !_arrays.TryGetValue(srcId.Identifier.Text, out var src))
+            return null;
+        ops.Reverse(); // source order: [Where|Select]* then a terminal
+        if (ops.Count == 0 || !LinqTerminals.Contains(ops[^1].Op)
+            || ops.Take(ops.Count - 1).Any(o => o.Op is not ("Where" or "Select")))
+            return null;
+
+        var (termOp, termArg) = ops[^1];
+        var pipeline = ops.Take(ops.Count - 1).ToList();
+        var fn = _method.Fn;
+        bool isMinMax = termOp is "Max" or "Min";
+
+        // Max/Min seed the accumulator with element 0 and iterate from 1, which bypasses any Where/Select
+        // pipeline for that first element (a filtered-out or unprojected element 0 would corrupt the
+        // result). Only the pipeline-free forms are correct, so reject Max/Min behind a pipeline.
+        if (isMinMax && pipeline.Count > 0)
+            throw new CSharpNotSupportedException(
+                $"{termOp}() is only supported directly on an array, not after a Where/Select pipeline.",
+                call.GetLocation());
+
+        // Sum accumulates wider than the element (C# widens Sum to int/long) so a total exceeding the
+        // element width doesn't wrap; Max/Min keep the element type.
+        var accType = termOp switch
+        {
+            "Count" => CsType.U16,
+            "Any" or "All" => CsType.Bool,
+            "Sum" => src.Element.Ir.SizeInBytes >= 8 ? src.Element : CsType.I32,
+            _ => src.Element,
+        };
+
+        var acc = _b.Alloca(accType.Ir);
+        var iSlot = _b.Alloca(IrType.I16);
+        // Max/Min seed the accumulator with element 0 and start at 1 (requires a non-empty source).
+        int start = isMinMax ? 1 : 0;
+        _b.Store(IrBuilder.ConstInt(IrType.I16, start), iSlot);
+        _b.Store(isMinMax ? ElementAt(src, 0)
+            : IrBuilder.ConstInt(accType.Ir, termOp == "All" ? 1 : 0), acc);
+
+        var head = fn.AppendBlock("linq.head");
+        var body = fn.AppendBlock("linq.body");
+        var cont = fn.AppendBlock("linq.cont");
+        var done = fn.AppendBlock("linq.done");
+        _b.Br(head);
+
+        _b.PositionAtEnd(head);
+        _b.CondBr(_b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, src.Length)), body, done);
+
+        _b.PositionAtEnd(body);
+        IrValue e = _b.Load(_b.Gep(src.ArrayPtr, _b.Load(iSlot), src.Element.Ir));
+        var eType = src.Element;
+        foreach (var (op, lambda) in pipeline)
+        {
+            if (op == "Where")
+            {
+                var keep = Coerce(InlineLambda(lambda!, e, eType, CsType.Bool), CsType.Bool);
+                var take = fn.AppendBlock("linq.take");
+                _b.CondBr(keep, take, cont);
+                _b.PositionAtEnd(take);
+            }
+            else // Select
+            {
+                (e, eType) = InlineLambda(lambda!, e, eType, null);
+            }
+        }
+
+        switch (termOp)
+        {
+            case "Sum":
+                if (termArg is not null) (e, eType) = InlineLambda(termArg, e, eType, null);
+                _b.Store(_b.Add(_b.Load(acc), Coerce((e, eType), accType)), acc);
+                break;
+            case "Count":
+                if (termArg is not null)
+                {
+                    var keep = Coerce(InlineLambda(termArg, e, eType, CsType.Bool), CsType.Bool);
+                    var take = fn.AppendBlock("linq.take");
+                    _b.CondBr(keep, take, cont);
+                    _b.PositionAtEnd(take);
+                }
+                _b.Store(_b.Add(_b.Load(acc), IrBuilder.ConstInt(IrType.I16, 1)), acc);
+                break;
+            case "Max":
+            case "Min":
+            {
+                var pred = accType.Signed
+                    ? (termOp == "Max" ? IrCompareOp.Sgt : IrCompareOp.Slt)
+                    : (termOp == "Max" ? IrCompareOp.Ugt : IrCompareOp.Ult);
+                var replace = fn.AppendBlock("linq.rep");
+                _b.CondBr(_b.Compare(pred, Coerce((e, eType), accType), _b.Load(acc)), replace, cont);
+                _b.PositionAtEnd(replace);
+                _b.Store(Coerce((e, eType), accType), acc);
+                break;
+            }
+            case "Any":
+            case "All":
+            {
+                var keep = Coerce(InlineLambda(termArg!, e, eType, CsType.Bool), CsType.Bool);
+                // Any: set to 1 when the predicate holds; All: set to 0 when it fails.
+                var hit = fn.AppendBlock("linq.hit");
+                if (termOp == "Any")
+                    _b.CondBr(keep, hit, cont);
+                else
+                    _b.CondBr(keep, cont, hit);
+                _b.PositionAtEnd(hit);
+                _b.Store(IrBuilder.ConstInt(IrType.I8, termOp == "Any" ? 1 : 0), acc);
+                break;
+            }
+        }
+        _b.Br(cont);
+
+        _b.PositionAtEnd(cont);
+        _b.Store(_b.Add(_b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)), iSlot);
+        _b.Br(head);
+
+        _b.PositionAtEnd(done);
+        return (_b.Load(acc), accType);
+    }
+
+    /// <summary>Load the element at a constant index of a data array.</summary>
+    private IrValue ElementAt((IrValue ArrayPtr, CsType Element, int Length) src, int index) =>
+        _b.Load(_b.Gep(src.ArrayPtr, IrBuilder.ConstInt(IrType.I16, index), src.Element.Ir));
+
+    /// <summary>Lower an arena-allocator call. <c>Mem.Alloc(n)</c> bumps the heap pointer down by n and
+    /// returns the new pointer as a <c>byte*</c>; <c>Mem.Reset()</c> restores it to the top of the heap
+    /// (freeing every prior allocation at once — the arena's whole-region free).</summary>
+    private (IrValue, CsType) LowerMemCall(string method, InvocationExpressionSyntax call)
+    {
+        var heap = IrBuilder.GlobalRef(_globals[CSharpFrontend.HeapPointerName].Global);
+        var bytePtr = new CsType(IrType.Pointer(IrType.I8), Signed: false);
+        switch (method)
+        {
+            case "Alloc":
+            {
+                if (call.ArgumentList.Arguments.Count != 1)
+                    throw new CSharpNotSupportedException("Mem.Alloc takes one argument (a byte count).");
+                var size = Coerce(LowerExpression(call.ArgumentList.Arguments[0].Expression, CsType.U16), CsType.U16);
+                var updated = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), size);
+                _b.Store(updated, heap);
+                return (_b.Conv(IrConvOp.Bitcast, updated, bytePtr.Ir), bytePtr);
+            }
+            case "Reset":
+                _b.Store(IrBuilder.ConstInt(IrType.I16, CSharpFrontend.HeapTop), heap);
+                return (IrBuilder.ConstInt(IrType.I8, 0), CsType.U8);
+            default:
+                throw new CSharpNotSupportedException($"unknown Mem method '{method}'.");
+        }
     }
 
     // ---- Types & operators -------------------------------------------------
@@ -1150,6 +1499,12 @@ internal sealed class MethodLowerer
             return _b.Conv(IrConvOp.Trunc, source.Value, t);
         return _b.Conv(source.Type.Signed ? IrConvOp.SExt : IrConvOp.ZExt, source.Value, t);
     }
+
+    /// <summary>A bitcast that no-ops when the value already has the target type. An identity reinterpret
+    /// (e.g. loading a <c>Pointer(I8)</c> class-instance slot to use as a byte*) would otherwise emit a
+    /// wasted byte-for-byte copy into a fresh slot on every field access.</summary>
+    private IrValue Reinterpret(IrValue value, IrType type) =>
+        value.Type.StructurallyEquals(type) ? value : _b.Conv(IrConvOp.Bitcast, value, type);
 
     /// <summary>The pointee type of a pointer, or a diagnostic if it has none (e.g. a bare address).</summary>
     private static IrType Pointee(CsType pointer) =>

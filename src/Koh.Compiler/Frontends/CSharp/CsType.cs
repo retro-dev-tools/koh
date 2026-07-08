@@ -17,6 +17,10 @@ internal readonly record struct CsType(IrType Ir, bool Signed)
     public static readonly CsType I16 = new(IrType.I16, true);
     public static readonly CsType U32 = new(IrType.I32, false);
     public static readonly CsType I32 = new(IrType.I32, true);
+    public static readonly CsType U64 = new(IrType.I64, false);
+    public static readonly CsType I64 = new(IrType.I64, true);
+    public static readonly CsType U128 = new(IrType.Int(128), false);
+    public static readonly CsType I128 = new(IrType.Int(128), true);
 
     public int Bits => Ir.Bits;
 
@@ -29,6 +33,8 @@ internal readonly record struct CsType(IrType Ir, bool Signed)
         SyntaxKind.ShortKeyword => I16,
         SyntaxKind.UIntKeyword => U32,
         SyntaxKind.IntKeyword => I32,
+        SyntaxKind.ULongKeyword => U64,
+        SyntaxKind.LongKeyword => I64,
         SyntaxKind.BoolKeyword => Bool,
         _ => null,
     };

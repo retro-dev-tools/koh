@@ -90,7 +90,7 @@ public class Sm83BackendTests
             acc = b.Add(acc, IrBuilder.ConstInt(IrType.I8, 1)); // each temp dies once the next consumes it
         b.Ret(acc);
 
-        var allocation = Sm83Backend.FunctionAllocation.For(fn, 0xC000);
+        var allocation = FunctionAllocation.For(fn, 0xC000);
         // Ten temporaries, never two live at once -> they share a single WRAM byte (was 10 bytes).
         await Assert.That(allocation.FrameEnd - 0xC000).IsLessThanOrEqualTo(2);
     }

@@ -62,12 +62,35 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   the backend, which may "work by accident." Assert `IrVerifier.Verify(module).IsEmpty()` in
   tests for new lowering.
 - **SM83 backend is an accumulator machine**: everything flows through `A`; `HL` is the
-  pointer register; static WRAM allocation (NESFab-style, no stack frames); non-recursive
-  (recursion is rejected). i8 returns in `A`, i16 in `HL`.
+  pointer register; static WRAM allocation (NESFab-style). Recursion is supported: a function
+  in a call cycle saves/restores its shared static frame on a software stack (`SoftSp`) around
+  each entry, takes its args via `ArgScratch`, and returns via `ReturnScratch`. i8 returns in
+  `A`, i16 in `HL`, i32 in `DE:HL`, i64 (and any recursive return) in memory (`ReturnScratch`).
+  A recursive program also relocates the hardware CALL stack from the tiny HRAM window into WRAM
+  (`SP = HwStackTop`, growing down) at entry, and `rt.pushframe` traps if the software stack meets
+  the descending `SP` or the heap ceiling — so deep recursion runs hundreds deep and overflows halt
+  cleanly instead of crashing into the I/O registers. A recursive interrupt handler is rejected
+  (its epilogue must be `RETI` with a balanced stack, incompatible with the memory-return path).
 - **Register allocator (`FunctionAllocation`)**: a multi-byte result is written in place
   byte-by-byte, so it *interferes with its own operands* (a partial slot overlap would clobber
   a source mid-read). Phi parallel-copies detect clobbers by *allocated slot*, not SSA identity.
   If you add or change a wide-result emitter, keep it consistent with this rule.
+- **ROM banking** (MBC1, emitted automatically when a program overflows a single 32KB ROM):
+  - *Data*: read-only data past the fixed ROM0 window (`[0x2000, 0x4000)`) spills into switchable
+    banks (windowed at `0x4000`). A banked global's address is only valid while its bank is mapped,
+    so code selects the bank first (`*(byte*)0x2000 = bank;`).
+  - *Code*: when the overflow fits one extra bank, functions past the ROM0 code window
+    (`[CodeBase, 0x2000)`) plus the runtime move into bank 1 — the bank MBC1 maps by default and this
+    code never switches away from, so all calls stay direct. When the overflow needs 2+ banks,
+    `CompileMultiBank` re-emits with the far-call-thunk model: ROM0 keeps the entry, interrupt
+    handlers, the runtime, and one thunk per banked function; every other function is packed into
+    switchable banks. A call to a banked function goes through its ROM0 thunk, which maps the callee's
+    bank (`CurBank` tracks the current one), CALLs it through the `0x4000` window, and restores the
+    caller's bank; banked functions return via `ReturnScratch` so the restore can't clobber the result.
+    Addresses resolve per region in `Emitter.Resolve`.
+  - Code and data banking are **mutually exclusive** (banked code needs its bank mapped, banked data
+    needs to switch away). A single banked function can't exceed 16KB, and the ROM0 thunk table must
+    fit the ROM0 code window; overflowing either is a diagnostic.
 - **Mixed signed/unsigned** binary ops go through `MethodLowerer.CommonType` (usual-arithmetic
   conversions: wider width wins; a mixed pair whose sign matters promotes to a signed type wide
   enough, else a diagnostic). Do not take signedness/width from the left operand alone.
@@ -80,16 +103,30 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 
 ### The "Koh C#" subset
 
-Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`bool` (i32 arithmetic/compare is real;
-i32 mul/div/rem/shift are rejected — the runtime routines are 16-bit), `char`/string literals
-(strings only as `byte[]` initializers), `enum` (custom base), `const`, pointers (`T*` incl.
-arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed arrays (local + static ROM/WRAM data),
-value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); `if`/`while`/`do`/`for`/
-`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare, `&&`/`||`/`?:`/`++`/`--`,
-compound assignment, usual-arithmetic conversions on mixed signed/unsigned; static methods +
-top-level functions, `static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register
-surface and `[Interrupt("VBlank")]` handlers. Out by design: `long`/64-bit (needs a wider backend),
-classes/GC/generics/async/LINQ/recursion. Out-of-subset constructs are reported as diagnostics.
+Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`long`/`ulong`/`Int128`/`UInt128`/`bool`
+(full arithmetic including mul/div/rem/shift at every width — i8/i16 via register routines, i32/i64/
+i128 via generic width-N memory routines; i64/i128 have no register room so they return via
+`Sm83Backend.ReturnScratch`),
+`char`/string literals (strings only as `byte[]` initializers), `enum` (custom base), `const`,
+pointers (`T*` incl. arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed arrays (local +
+static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es
+(heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`; a class
+type also names fields — including of its own type, so linked structures work — parameters, and returns,
+all as heap pointers; an instance is usable as a value/`byte*` (`return this;`), and assignment copies the
+reference, not the bytes); dynamic allocation (`Mem.Alloc`/`Mem.Reset`); generic methods (monomorphized —
+specialized per concrete type argument, transitively; a value shadowing a type parameter is a diagnostic);
+array LINQ reductions (`Where`/`Select` pipelines ending in `Sum`/`Count`/`Any`/`All`, plus `Max`/`Min`
+directly on an array, compiled to a loop with inlined lambdas); cooperative coroutines (a linear run of
+`yield return`s, or a single counted `for` loop with one `yield`, lowered to a MoveNext/Current
+state-machine class that captures the iterator's parameters);
+`if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
+`&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
+(mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,
+`static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
+`[Interrupt("VBlank")]` handlers, and recursion (direct and mutual; a recursive program moves the CALL
+stack into WRAM so it runs hundreds of levels deep, and `rt.pushframe` traps on a stack/heap collision
+rather than corrupting memory). Out by design: 128-bit+, classes/GC/generics/async/LINQ. Out-of-subset
+constructs are reported as diagnostics.
 
 ## Gotchas
 

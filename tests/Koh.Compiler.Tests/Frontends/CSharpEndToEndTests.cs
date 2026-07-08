@@ -14,8 +14,22 @@ namespace Koh.Compiler.Tests.Frontends;
 /// <summary>Compiles real C# source through the frontend, backend, linker, and emulator.</summary>
 public class CSharpEndToEndTests
 {
-    private static IrModule Frontend(string src) =>
-        new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), new DiagnosticBag());
+    private static IrModule Frontend(string src)
+    {
+        var diagnostics = new DiagnosticBag();
+        var module = new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), diagnostics);
+        // CLAUDE.md: assert IrVerifier.Verify(module).IsEmpty() for new lowering. Verifying here covers
+        // every end-to-end test (coroutines, classes, generics, LINQ, …) centrally. Skip when the
+        // frontend itself reported an error — that IR is expected-incomplete (HasError/diagnostic tests).
+        if (!diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        {
+            var errors = IrVerifier.Verify(module);
+            if (errors.Count > 0)
+                throw new InvalidOperationException(
+                    "IR verification failed:\n  " + string.Join("\n  ", errors));
+        }
+        return module;
+    }
 
     private static EmitModel Compile(string src) =>
         new Sm83Backend().Compile(Frontend(src), new DiagnosticBag());
@@ -67,10 +81,47 @@ public class CSharpEndToEndTests
         return ((uint)gb.Registers.DE << 16) | gb.Registers.HL; // i32: high word DE, low word HL
     }
 
+    private static ulong RunI64(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(Compile(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        ulong result = 0; // i64 is returned little-endian in ReturnScratch memory
+        for (int i = 0; i < 8; i++)
+            result |= (ulong)gb.DebugReadByte((ushort)(Sm83Backend.ReturnScratch + i)) << (8 * i);
+        return result;
+    }
+
+    private static void W64(GameBoySystem gb, int offset, long value)
+    {
+        for (int i = 0; i < 8; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + offset + i), (byte)((value >> (8 * i)) & 0xFF));
+    }
+
+    private static UInt128 RunI128(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(Compile(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        UInt128 result = 0; // i128 is returned little-endian in ReturnScratch memory (16 bytes)
+        for (int i = 0; i < 16; i++)
+            result |= (UInt128)gb.DebugReadByte((ushort)(Sm83Backend.ReturnScratch + i)) << (8 * i);
+        return result;
+    }
+
     private static bool HasError(string src)
     {
         var diagnostics = new DiagnosticBag();
         new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), diagnostics);
+        return diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    /// <summary>True when the backend reports an error diagnostic (a target limit hit by legal input,
+    /// e.g. a bank overflow) rather than throwing.</summary>
+    private static bool BackendHasError(string src)
+    {
+        var diagnostics = new DiagnosticBag();
+        new Sm83Backend().Compile(Frontend(src), diagnostics);
         return diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
     }
 
@@ -300,6 +351,40 @@ static byte Step(byte d) {
 }";
         await Assert.That(RunA(src, gb => W8(gb, 0, 11))).IsEqualTo((byte)103); // Right = 11, +Bonus(3)+100
         await Assert.That(RunA(src, gb => W8(gb, 0, 0))).IsEqualTo((byte)1);   // Up = 0
+    }
+
+    [Test]
+    public async Task Const_EnumMemberInDataTable()
+    {
+        // A qualified enum member is a compile-time constant usable in const/ROM-table initializers.
+        const string src = @"
+enum Pal : byte { White = 3, Black = 7 }
+static readonly byte[] T = { Pal.White, Pal.Black, (byte)(Pal.White + Pal.Black) };
+static byte Main() { return T[2]; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)10); // 3 + 7
+    }
+
+    [Test]
+    public async Task ConstEval_BadConstantsAreDiagnostics()
+    {
+        // Malformed constant expressions must be reported, not crash the compiler (they run in the
+        // collection passes, outside the per-method try/catch, and used to throw raw exceptions).
+        await Assert.That(HasError("const byte X = 1 / 0; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("const byte X = 5 % 0; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("const byte X = \"hi\"; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("const byte X = 300; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("static readonly ushort[] T = { 70000 }; static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("static byte[] B = new byte[70000]; static byte Main() { return 0; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task Class_MalformedDeclarationsAreDiagnostics()
+    {
+        // A class with no instance fields aliases all instances; a duplicate instance method binds the
+        // wrong overload; a ref/out/in instance-method parameter would silently pass by value.
+        await Assert.That(HasError("class Empty { static byte n; } static byte Main() { Empty e = new Empty(); return 0; }")).IsTrue();
+        await Assert.That(HasError("class C { byte v; byte Get() { return v; } byte Get(byte x) { return x; } } static byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError("class C { byte v; void Set(ref byte x) { x = v; } } static byte Main() { return 0; }")).IsTrue();
     }
 
     [Test]
@@ -894,14 +979,11 @@ static uint Main() {
     }
 
     [Test]
-    public async Task Int32_MultiplyReportedAsDiagnostic()
+    public async Task Int32_MultiplyComputes()
     {
-        // The SM83 backend has no 32-bit multiply/divide/shift; it must diagnose, not crash.
-        var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(
-            SourceText.From("static int Main() { int a = 1000; int b = 1000; return a * b; }", "game.cs"),
-            diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+        // The SM83 backend lowers 32-bit multiply via the generic width-N runtime routine.
+        await Assert.That(RunI32("static int Main() { int a = 1000; int b = 1000; return a * b; }"))
+            .IsEqualTo(1000000u);
     }
 
     [Test]
@@ -959,14 +1041,12 @@ static uint Main() {
     }
 
     [Test]
-    public async Task MixedSign_WithUshort_ReportedAsDiagnostic()
+    public async Task MixedSign_WithUshort_PromotesToSignedInt()
     {
-        // short / ushort has no wider signed type on this target, so it needs an explicit cast.
-        var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(
-            SourceText.From("static ushort F(short a, ushort b) { return (ushort)(a / b); }", "game.cs"),
-            diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
+        // short / ushort promotes to signed int (17-bit range fits i32), which the backend now divides;
+        // -100 / 7 == -14, and (ushort)(-14) == 0xFFF2.
+        await Assert.That(RunHL("static ushort F(short a, ushort b) { return (ushort)(a / b); }",
+            gb => { W16(gb, 0, -100 & 0xFFFF); W16(gb, 2, 7); })).IsEqualTo((ushort)0xFFF2);
     }
 
     [Test]
@@ -982,9 +1062,9 @@ static uint Main() {
     [Test]
     public async Task UnsupportedConstruct_ReportedAsDiagnostic()
     {
-        // 'long' is unsupported: reported into the bag with a location, not thrown.
+        // 'float' is unsupported: reported into the bag with a location, not thrown.
         var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(SourceText.From("static long Bad() { return 0; }", "game.cs"), diagnostics);
+        new CSharpFrontend().Lower(SourceText.From("static float Bad() { return 0; }", "game.cs"), diagnostics);
         await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();
     }
 
@@ -1074,10 +1154,9 @@ static uint Main() {
     }
 
     [Test]
-    public async Task MixedSignMultiply_StaysSixteenBit()
+    public async Task MixedSignMultiply_PromotesToInt()
     {
-        // ushort * short (and ushort * sbyte) only needs the low 16 bits, which don't depend on sign, so
-        // it must compile as a 16-bit multiply rather than promoting to an unsupported 32-bit one.
+        // ushort * short promotes to signed int (matching C#); the low 16 bits are unchanged.
         // 300 * 5 = 1500 (0x05DC); the low byte is 0xDC = 220.
         await Assert.That(RunA(
             "static byte Main() { ushort u = 300; short s = 5; return (byte)((u * s) & 0xFF); }")).IsEqualTo((byte)220);
@@ -1085,11 +1164,12 @@ static uint Main() {
     }
 
     [Test]
-    public async Task MixedSignDivide_StillRequiresExplicitCast()
+    public async Task MixedSignDivide_PromotesToInt()
     {
-        // Divide's result DOES depend on sign, and there is no 32-bit divide, so mixed ushort/short must
-        // still be a diagnostic asking for a cast (the multiply relaxation must not leak to divide).
-        await Assert.That(HasError("static ushort F(ushort u, short s) { return (ushort)(u / s); }")).IsTrue();
+        // ushort / short now promotes to signed int and divides (it used to require an explicit cast).
+        // 300 / -7 == -42 (truncated toward zero); (short)(-42) == 0xFFD6.
+        await Assert.That(RunHL("static short F(ushort u, short s) { return (short)(u / s); }",
+            gb => { W16(gb, 0, 300); W16(gb, 2, -7 & 0xFFFF); })).IsEqualTo((ushort)0xFFD6);
     }
 
     [Test]
@@ -1113,6 +1193,910 @@ static void Bump() { counter++; }
 static void OnVBlank() { counter++; }
 static void Main() { Bump(); Hardware.EnableInterrupts(); }";
         await Assert.That(CompilesClean(mainOnly)).IsTrue();
+    }
+
+    [Test]
+    public async Task RecursiveInterruptHandler_IsRejected()
+    {
+        // A recursive handler would hit the memory-return epilogue (plain RET) instead of RETI with a
+        // balanced stack, so it must be a diagnostic rather than a silently broken handler.
+        const string src = @"
+[Interrupt(""VBlank"")]
+static void H() { H(); }
+static void Main() { Hardware.EnableInterrupts(); }";
+        await Assert.That(BackendHasError(src)).IsTrue();
+    }
+
+    [Test]
+    public async Task BitwiseComplement_Byte()
+    {
+        // ~x must be implemented (it was referenced in InferType but not lowered, so it fell through
+        // to "unsupported unary operator"). ~0x0F over a byte is 0xF0.
+        await Assert.That(RunA("static byte Main() { byte x = 0x0F; return (byte)~x; }")).IsEqualTo((byte)0xF0);
+        // Constant operands fold: ~0x0F narrowed to a byte is still 0xF0.
+        await Assert.That(RunA("static byte Main() { return (byte)~0x0F; }")).IsEqualTo((byte)0xF0);
+    }
+
+    [Test]
+    public async Task BitwiseComplement_Ushort()
+    {
+        // The all-ones mask must match the operand width: ~0x00FF over a ushort is 0xFF00, not 0x00FF.
+        await Assert.That(RunHL("static ushort Main() { ushort x = 0x00FF; return (ushort)~x; }"))
+            .IsEqualTo((ushort)0xFF00);
+    }
+
+    [Test]
+    public async Task VariableShift_NormalCount()
+    {
+        // A variable shift count below the type width shifts by exactly that amount.
+        await Assert.That(RunHL("static ushort Main() { ushort x = 5; ushort n = 3; return (ushort)(x << n); }"))
+            .IsEqualTo((ushort)40);
+        await Assert.That(RunHL("static ushort Main() { ushort x = 0x0140; ushort n = 4; return (ushort)(x >> n); }"))
+            .IsEqualTo((ushort)0x0014);
+    }
+
+    [Test]
+    public async Task VariableShift_CountHighByteNotTruncated()
+    {
+        // The count shares the value's (16-bit) type, so loading only its low byte truncated it: a count
+        // of 257 shifted by 1 (0x0101 & 0xFF) instead of saturating to the width. The clamp must shift a
+        // count that meets or exceeds the width all the way out (16 bits -> 0), not by its low byte.
+        await Assert.That(RunHL("static ushort Main() { ushort x = 1; ushort n = 257; return (ushort)(x << n); }"))
+            .IsEqualTo((ushort)0); // would be 2 (1 << 1) if the high byte were dropped
+        await Assert.That(RunHL("static ushort Main() { ushort x = 1; ushort n = 256; return (ushort)(x << n); }"))
+            .IsEqualTo((ushort)0); // would be 1 (1 << 0) if the high byte were dropped
+    }
+
+    [Test]
+    public async Task VariableShift_ArithmeticRightSaturates()
+    {
+        // An arithmetic right shift by at least the width fills with the sign bit; the clamp must preserve
+        // that (0x8000 >> 16 -> 0xFFFF), not shift by a truncated low byte.
+        await Assert.That(RunHL(
+            "static short Main() { short x = -32768; short n = 300; return (short)(x >> n); }"))
+            .IsEqualTo(unchecked((ushort)-1));
+    }
+
+    [Test]
+    public async Task DuplicateFunction_ReportedAsDiagnostic()
+    {
+        // Two functions with the same name silently overwrote the earlier binding (and emitted two IR
+        // functions with the same name); the duplicate must be a diagnostic instead.
+        await Assert.That(HasError(
+            "static byte F() { return 1; }\nstatic byte F() { return 2; }\nstatic byte Main() { return F(); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task DuplicateStaticField_ReportedAsDiagnostic()
+    {
+        // Duplicate static fields (which share one namespace across consts/globals/arrays) emitted two
+        // globals with the same name; the duplicate must be a diagnostic.
+        await Assert.That(HasError("static byte g;\nstatic byte g;\nstatic byte Main() { return g; }")).IsTrue();
+        await Assert.That(HasError("const byte k = 1;\nstatic byte k;\nstatic byte Main() { return k; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task DuplicateStructAndEnum_ReportedAsDiagnostic()
+    {
+        await Assert.That(HasError(
+            "struct P { byte x; }\nstruct P { byte y; }\nstatic byte Main() { return 0; }")).IsTrue();
+        await Assert.That(HasError(
+            "enum E { A }\nenum E { B }\nstatic byte Main() { return 0; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task Int32_Negate()
+    {
+        // i32 negation lowers to a 32-bit Sub(0, x), which the backend supports (add/sub have no width
+        // cap); only sbyte/short negation was covered before. -100000 == 0xFFFE7960.
+        await Assert.That(RunI32("static int Main() { int x = 100000; return -x; }")).IsEqualTo(0xFFFE7960u);
+    }
+
+    [Test]
+    public async Task HardwareNop_Emits()
+    {
+        // Hardware.Nop() maps to the `nop` intrinsic; it was mapped in the frontend but never exercised
+        // end-to-end (only ei/di/halt were).
+        await Assert.That(RunA("static byte Main() { Hardware.Nop(); return 42; }")).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task UnknownInterruptKind_ReportedAsDiagnostic()
+    {
+        // A typo'd interrupt kind mapped to no vector and was silently treated as an ordinary function;
+        // it must now be a diagnostic.
+        await Assert.That(HasError(
+            "[Interrupt(\"Vblnk\")]\nstatic void OnX() { }\nstatic void Main() { }")).IsTrue();
+        // A recognized kind still compiles clean.
+        await Assert.That(CompilesClean(
+            "[Interrupt(\"VBlank\")]\nstatic void OnVBlank() { }\nstatic void Main() { Hardware.EnableInterrupts(); }"))
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task Int32_Multiply()
+    {
+        const string src = "static int Mul(int a, int b) { return a * b; }";
+        await Assert.That(RunI32(src, gb => { W32(gb, 0, 100000); W32(gb, 4, 3); })).IsEqualTo(300000u);
+        // Low 32 bits only: 0x10000 * 0x10000 = 0x1_0000_0000 -> 0.
+        await Assert.That(RunI32(src, gb => { W32(gb, 0, 0x10000); W32(gb, 4, 0x10000); })).IsEqualTo(0u);
+    }
+
+    [Test]
+    public async Task Int32_UnsignedDivideAndRemainder()
+    {
+        await Assert.That(RunI32("static uint D(uint a, uint b) { return a / b; }",
+            gb => { W32(gb, 0, 1000000); W32(gb, 4, 7); })).IsEqualTo(142857u);
+        await Assert.That(RunI32("static uint R(uint a, uint b) { return a % b; }",
+            gb => { W32(gb, 0, 1000000); W32(gb, 4, 7); })).IsEqualTo(1u);
+        // A divisor larger than the dividend: quotient 0, remainder = dividend.
+        await Assert.That(RunI32("static uint D(uint a, uint b) { return a / b; }",
+            gb => { W32(gb, 0, 5); W32(gb, 4, 100); })).IsEqualTo(0u);
+        await Assert.That(RunI32("static uint R(uint a, uint b) { return a % b; }",
+            gb => { W32(gb, 0, 5); W32(gb, 4, 100); })).IsEqualTo(5u);
+    }
+
+    [Test]
+    public async Task Int32_SignedDivideAndRemainder()
+    {
+        await Assert.That(RunI32("static int D(int a, int b) { return a / b; }",
+            gb => { W32(gb, 0, -1000000); W32(gb, 4, 7); })).IsEqualTo(unchecked((uint)(-142857)));
+        // C# truncated remainder takes the dividend's sign: -1000000 % 7 == -1.
+        await Assert.That(RunI32("static int R(int a, int b) { return a % b; }",
+            gb => { W32(gb, 0, -1000000); W32(gb, 4, 7); })).IsEqualTo(unchecked((uint)(-1)));
+        await Assert.That(RunI32("static int D(int a, int b) { return a / b; }",
+            gb => { W32(gb, 0, -1000000); W32(gb, 4, -7); })).IsEqualTo(142857u);
+    }
+
+    [Test]
+    public async Task Int32_ShiftLeft()
+    {
+        await Assert.That(RunI32("static uint S(uint a, int n) { return a << n; }",
+            gb => { W32(gb, 0, 1); W32(gb, 4, 20); })).IsEqualTo(0x00100000u);
+        // Constant shift.
+        await Assert.That(RunI32("static uint S(uint a) { return a << 24; }",
+            gb => W32(gb, 0, 0xFF))).IsEqualTo(0xFF000000u);
+    }
+
+    [Test]
+    public async Task Int32_ShiftRightLogicalAndArithmetic()
+    {
+        await Assert.That(RunI32("static uint L(uint a, int n) { return a >> n; }",
+            gb => { W32(gb, 0, 0x80000000); W32(gb, 4, 4); })).IsEqualTo(0x08000000u);
+        // Arithmetic right shift of a negative int fills with the sign bit.
+        await Assert.That(RunI32("static int A(int a, int n) { return a >> n; }",
+            gb => { W32(gb, 0, -16); W32(gb, 4, 2); })).IsEqualTo(unchecked((uint)(-4)));
+    }
+
+    [Test]
+    public async Task Int64_AddAndReturn()
+    {
+        // i64 add/sub run through the width-agnostic byte chains; i64 is returned via memory scratch.
+        await Assert.That(RunI64("static long Add(long a, long b) { return a + b; }",
+            gb => { W64(gb, 0, 0x1_0000_0000L); W64(gb, 8, 0x2_0000_0002L); })).IsEqualTo(0x3_0000_0002UL);
+        await Assert.That(RunI64("static ulong Big() { ulong x = 0x0102030405060708; return x; }"))
+            .IsEqualTo(0x0102030405060708UL);
+    }
+
+    [Test]
+    public async Task Int64_MultiplyDivideRemainder()
+    {
+        // The generic width-N runtime routines serve N=8 unchanged.
+        await Assert.That(RunI64("static long Mul(long a, long b) { return a * b; }",
+            gb => { W64(gb, 0, 1_000_000L); W64(gb, 8, 1_000_000L); })).IsEqualTo(1_000_000_000_000UL);
+        await Assert.That(RunI64("static ulong Div(ulong a, ulong b) { return a / b; }",
+            gb => { W64(gb, 0, 1_000_000_000_000L); W64(gb, 8, 7); })).IsEqualTo(142_857_142_857UL);
+        await Assert.That(RunI64("static long Rem(long a, long b) { return a % b; }",
+            gb => { W64(gb, 0, -1_000_000_000_000L); W64(gb, 8, 7); })).IsEqualTo(unchecked((ulong)(-1L)));
+    }
+
+    [Test]
+    public async Task Int64_ShiftAndCompare()
+    {
+        await Assert.That(RunI64("static ulong Shl(ulong a, int n) { return a << n; }",
+            gb => { W64(gb, 0, 1); W32(gb, 8, 40); })).IsEqualTo(1UL << 40);
+        await Assert.That(RunI64("static long Sar(long a, int n) { return a >> n; }",
+            gb => { W64(gb, 0, -1_000_000_000_000L); W32(gb, 8, 8); })).IsEqualTo(unchecked((ulong)(-1_000_000_000_000L >> 8)));
+        // 64-bit ordering: 0x1_0000_0000 > 0xFFFF_FFFF must hold across the 32-bit boundary.
+        await Assert.That(RunA(
+            "static byte Main() { long a = 0x100000000; long b = 0xFFFFFFFF; return (byte)(a > b ? 1 : 0); }"))
+            .IsEqualTo((byte)1);
+    }
+
+    [Test]
+    public async Task Recursion_Factorial()
+    {
+        // Direct recursion: each invocation saves/restores its shared static frame on the software stack.
+        // Main must be first — the harness boots at the first emitted function.
+        const string src = @"
+static ushort Main() { return Fact(6); }
+static ushort Fact(ushort n) {
+    if (n <= 1) return 1;
+    return (ushort)(n * Fact((ushort)(n - 1)));
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)720);
+    }
+
+    [Test]
+    public async Task Recursion_DeepBeyondHardwareStack()
+    {
+        // A recursive program relocates the CALL stack into WRAM, so recursion can go far deeper than
+        // the ~60 levels the 127-byte HRAM stack allowed (which used to overflow into the I/O registers
+        // and crash). 500 levels: sum 1..500 = 125250, low byte 66.
+        const string src = @"
+static byte Main() { return Sum(500); }
+static byte Sum(ushort n) {
+    if (n == 0) return 0;
+    byte x = (byte)n;
+    return (byte)(Sum((ushort)(n - 1)) + x);
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)66);
+    }
+
+    [Test]
+    public async Task Recursion_Fibonacci()
+    {
+        // Tree recursion (two self-calls per frame) stresses the save/restore ordering.
+        const string src = @"
+static ushort Main() { return Fib(10); }
+static ushort Fib(ushort n) {
+    if (n < 2) return n;
+    return (ushort)(Fib((ushort)(n - 1)) + Fib((ushort)(n - 2)));
+}";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)55);
+    }
+
+    [Test]
+    public async Task Recursion_Mutual()
+    {
+        // Mutual recursion: IsEven/IsOdd call each other, so both are in the cycle.
+        const string src = @"
+static byte Main() { return IsEven(10); }
+static byte IsEven(byte n) { if (n == 0) return 1; return IsOdd((byte)(n - 1)); }
+static byte IsOdd(byte n) { if (n == 0) return 0; return IsEven((byte)(n - 1)); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)1);
+        await Assert.That(RunA(
+            "static byte Main() { return IsEven(7); }\n"
+            + "static byte IsEven(byte n) { if (n == 0) return 1; return IsOdd((byte)(n - 1)); }\n"
+            + "static byte IsOdd(byte n) { if (n == 0) return 0; return IsEven((byte)(n - 1)); }")).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task RomBanking_ReadsBankedData()
+    {
+        // F0 (8KB) fills the ROM0 data window and F1 (16KB) fills ROM bank 1, so Mark lands in bank 2
+        // (physical 0x8000, reachable only through the 0x4000 window after a bank switch). The cartridge
+        // becomes MBC1; writing the bank number to 0x2000 selects it. Reading Mark without switching
+        // would see bank 1 (zero), so a correct 0xAB proves the bank switch and MBC header both work.
+        const string src = @"
+static byte Main() {
+    *(byte*)0x2000 = 2;
+    return Mark[0];
+}
+static readonly byte[] F0 = new byte[8192];
+static readonly byte[] F1 = new byte[16384];
+static readonly byte[] Mark = { 0xAB, 0xCD };";
+        await Assert.That(RunA(src)).IsEqualTo((byte)0xAB);
+    }
+
+    [Test]
+    public async Task RomBanking_HeaderIsMbc1WhenBanked()
+    {
+        const string src = @"
+static byte Main() { return Mark[0]; }
+static readonly byte[] F0 = new byte[8192];
+static readonly byte[] F1 = new byte[16384];
+static readonly byte[] Mark = { 0xAB };";
+        var link = new LinkerType().Link([new LinkerInput("cs", Compile(src))]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        await Assert.That(rom[0x0147]).IsEqualTo((byte)0x01); // MBC1
+        await Assert.That(rom[0x0148]).IsEqualTo((byte)0x01); // 64KB (4 banks)
+        // A ROM-only program (no banking) keeps cartridge type 0.
+        var link2 = new LinkerType().Link([new LinkerInput("cs", Compile("static byte Main() { return 7; }"))]);
+        await Assert.That((link2.RomData ?? [])[0x0147]).IsEqualTo((byte)0x00);
+    }
+
+    [Test]
+    public async Task CodeBanking_OverflowFunctionsRunFromBank1()
+    {
+        // Generate more code than the ~7.8KB ROM0 code window holds, so trailing functions (and the
+        // runtime) move into ROM bank 1. Main (in ROM0) calls Target, which lands in bank 1; bank 1 is
+        // mapped by default and never switched, so the direct call reaches it. A correct 123 proves the
+        // banked function executed and returned across the ROM0/bank-1 boundary.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return Target(); }\n");
+        for (int i = 0; i < 320; i++)
+            sb.Append($"static byte P{i}() {{ byte a = 1; byte b = 2; byte c = 3; byte d = 4; "
+                + $"return (byte)(a + b + c + d + {i % 200}); }}\n");
+        sb.Append("static byte Target() { return 123; }\n");
+        string src = sb.ToString();
+
+        // The cartridge must have banked (MBC1 header) for Target to be in bank 1.
+        var model = Compile(src);
+        var link = new LinkerType().Link([new LinkerInput("cs", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        await Assert.That(rom[0x0147]).IsEqualTo((byte)0x01); // MBC1 => banking activated
+        await Assert.That(model.Sections.Any(s => s.Name == "CODEX")).IsTrue();
+
+        // Run allowing PC across the ROM0 code window and the bank-1 window (0x4000-0x7FFF).
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 500_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000) break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)123);
+    }
+
+    [Test]
+    public async Task CodeBanking_MultiBankFarCalls()
+    {
+        // Enough code to need two or more overflow banks, which forces the far-call-thunk model: the
+        // entry stays in ROM0 and every other function is banked. Main -> A -> B -> ... -> L, each in a
+        // switchable bank reached through its ROM0 thunk (which maps the bank, calls, and restores it),
+        // returning 77 back up the chain across bank boundaries.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return A0(); }\n");
+        const int fns = 12;
+        for (int i = 0; i < fns; i++)
+        {
+            sb.Append($"static byte A{i}() {{ byte x = 1;\n");
+            for (int j = 0; j < 200; j++) sb.Append($"x = (byte)(x + {j % 7});\n"); // padding to bulk up
+            sb.Append(i + 1 < fns ? $"return A{i + 1}();\n}}\n" : "return 77;\n}\n");
+        }
+        string src = sb.ToString();
+
+        var model = Compile(src);
+        // Two or more banked code sections => the multi-bank far-call path ran.
+        await Assert.That(model.Sections.Count(s => s.Name.StartsWith("CODEX"))).IsGreaterThanOrEqualTo(2);
+        var link = new LinkerType().Link([new LinkerInput("cs", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        await Assert.That(rom[0x0147]).IsEqualTo((byte)0x01); // MBC1
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 2_000_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000) break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)77);
+    }
+
+    [Test]
+    public async Task CodeBanking_RecursiveBankedFunction()
+    {
+        // A recursive function that is also banked exercises every convention at once: args via
+        // ArgScratch, frame save/restore on the software stack, the far-call thunk, and ReturnScratch.
+        // Padding forces the multi-bank model; Fact (banked, recursive) computes 5! = 120.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return Fact(5); }\n");
+        sb.Append("static byte Fact(byte n) { if (n <= 1) return 1; return (byte)(n * Fact((byte)(n - 1))); }\n");
+        for (int i = 0; i < 12; i++)
+        {
+            sb.Append($"static byte P{i}() {{ byte x = 1;\n");
+            for (int j = 0; j < 200; j++) sb.Append($"x = (byte)(x + {j % 7});\n");
+            sb.Append("return x;\n}\n");
+        }
+        var model = Compile(sb.ToString());
+        await Assert.That(model.Sections.Count(s => s.Name.StartsWith("CODEX"))).IsGreaterThanOrEqualTo(2);
+        var link = new LinkerType().Link([new LinkerInput("cs", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 2_000_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000) break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)120);
+    }
+
+    [Test]
+    public async Task CodeAndDataBanking_BothOverflow_IsRejected()
+    {
+        // Code and data banking are mutually exclusive (the code bank must stay mapped), so a program
+        // that overflows both must be a clean diagnostic, not a miscompile or an uncaught throw.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("static byte Main() { return Target(); }\n");
+        for (int i = 0; i < 320; i++)
+            sb.Append($"static byte P{i}() {{ byte a = 1; byte b = 2; byte c = 3; byte d = 4; "
+                + $"return (byte)(a + b + c + d + {i % 200}); }}\n");
+        sb.Append("static byte Target() { return 123; }\n");
+        sb.Append("static readonly byte[] F0 = new byte[8192];\n");
+        sb.Append("static readonly byte[] F1 = new byte[16384];\n");
+        await Assert.That(BackendHasError(sb.ToString())).IsTrue();
+    }
+
+    [Test]
+    public async Task Int128_MultiplyBeyond64Bits()
+    {
+        // The generic width-N routines serve N=16 unchanged: 2^32 * 2^32 = 2^64, a product no 64-bit
+        // type can hold, returned in the 16-byte ReturnScratch.
+        await Assert.That(RunI128("static UInt128 Mul(ulong a, ulong b) { return (UInt128)a * (UInt128)b; }",
+            gb => { W64(gb, 0, 0x100000000L); W64(gb, 8, 0x100000000L); }))
+            .IsEqualTo((UInt128)1 << 64);
+    }
+
+    [Test]
+    public async Task Int128_ConstantHighBytesAreZeroExtended()
+    {
+        // An i128 constant operand is a 64-bit long; its bytes 8..15 must be its sign extension, not a
+        // repeat of the low bytes (a raw `value >> (8*k)` masks the shift count to 63, so byte 8 would
+        // keep the operand's byte). `y & 0xFF` must clear every byte above the lowest.
+        await Assert.That(RunI128(
+            "static UInt128 Main() { UInt128 x = 0x123456789ABCDEF0; UInt128 y = x + (x << 64); return y & 0xFF; }"))
+            .IsEqualTo((UInt128)0xF0);
+    }
+
+    [Test]
+    public async Task Int128_AddShiftDivide()
+    {
+        await Assert.That(RunI128("static UInt128 Add(ulong a, ulong b) { return (UInt128)a + (UInt128)b; }",
+            gb => { W64(gb, 0, unchecked((long)0xFFFFFFFFFFFFFFFF)); W64(gb, 8, 1); }))
+            .IsEqualTo((UInt128)1 << 64); // 2^64-1 + 1 = 2^64
+        await Assert.That(RunI128("static UInt128 Shl(ulong a, int n) { return (UInt128)a << n; }",
+            gb => { W64(gb, 0, 1); W32(gb, 8, 100); }))
+            .IsEqualTo((UInt128)1 << 100);
+        await Assert.That(RunI128("static UInt128 Div(ulong a, ulong b) { return ((UInt128)a * (UInt128)a) / (UInt128)b; }",
+            gb => { W64(gb, 0, 1_000_000_000L); W64(gb, 8, 7); }))
+            .IsEqualTo(((UInt128)1_000_000_000 * 1_000_000_000) / 7);
+    }
+
+    [Test]
+    public async Task PointerIndexing_DerefsThroughOffset()
+    {
+        // p[i] is *(p + i): a raw pointer can be indexed like an array.
+        await Assert.That(RunA(
+            "static byte Main() { byte* a = Mem.Alloc(8); a[0] = 3; a[3] = 40; return (byte)(a[0] + a[3]); }"))
+            .IsEqualTo((byte)43);
+    }
+
+    [Test]
+    public async Task Arena_AllocatesDistinctBlocks()
+    {
+        // Mem.Alloc bumps a heap pointer; two allocations are distinct, writable, and independent.
+        await Assert.That(RunA(
+            "static byte Main() { byte* a = Mem.Alloc(4); byte* b = Mem.Alloc(4); "
+            + "a[0] = 11; b[0] = 22; return (byte)(a[0] + b[0] + (a == b ? 100 : 0)); }")).IsEqualTo((byte)33);
+    }
+
+    [Test]
+    public async Task Arena_ResetReclaimsEverything()
+    {
+        // Mem.Reset() frees the whole arena at once, so the next allocation reuses the same address.
+        await Assert.That(RunA(
+            "static byte Main() { byte* a = Mem.Alloc(4); a[0] = 5; Mem.Reset(); byte* b = Mem.Alloc(4); "
+            + "return (byte)(a == b ? 42 : 0); }")).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Arena_MemIsReservedClassName_IsDiagnostic()
+    {
+        // A user class named `Mem` would have its calls hijacked by the allocator lowering, so it is
+        // reported rather than silently mis-compiled.
+        await Assert.That(HasError("class Mem { byte x; } static byte Main() { return 0; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task Class_NewAndFields()
+    {
+        // A class is heap-allocated (new bump-allocates and zeroes it); fields are accessed through the
+        // instance pointer.
+        await Assert.That(RunA(
+            "static byte Main() { Point p = new Point(); p.x = 10; p.y = 20; return (byte)(p.x + p.y); }\n"
+            + "class Point { byte x; byte y; }")).IsEqualTo((byte)30);
+    }
+
+    [Test]
+    public async Task Class_NewZeroesReusedMemory()
+    {
+        // `new` must zero the instance even when the arena hands back dirty memory. Write a field, reset
+        // the arena, re-allocate the same address: the zeroing loop must clear the stale value.
+        const string src = @"
+static byte Main() {
+    Box a = new Box();
+    a.v = 99;
+    Mem.Reset();
+    Box b = new Box();
+    return b.v;
+}
+class Box { byte v; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Class_InstanceMethods()
+    {
+        // Instance methods receive an implicit `this`; a method body reads/writes fields bare and can
+        // call other instance methods.
+        const string src = @"
+static byte Main() { Counter c = new Counter(); c.Add(10); c.Bump(); return c.Get(); }
+class Counter {
+    byte n;
+    void Add(byte v) { n = (byte)(n + v); }
+    void Bump() { Add(1); }
+    byte Get() { return n; }
+}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)11);
+    }
+
+    [Test]
+    public async Task Class_MethodComputesOverFields()
+    {
+        // A method computing from several fields, called on two independent instances.
+        const string src = @"
+static byte Main() {
+    Rect a = new Rect(); a.w = 3; a.h = 4;
+    Rect b = new Rect(); b.w = 5; b.h = 6;
+    return (byte)(a.Area() + b.Area());
+}
+class Rect { byte w; byte h; byte Area() { return (byte)(w * h); } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42); // 12 + 30
+    }
+
+    [Test]
+    public async Task Class_IndependentInstances()
+    {
+        // Two instances are distinct heap objects with independent fields.
+        await Assert.That(RunA(
+            "static byte Main() { Point a = new Point(); Point b = new Point(); a.x = 5; b.x = 9; return (byte)(a.x * 10 + b.x); }\n"
+            + "class Point { byte x; byte y; }")).IsEqualTo((byte)59);
+    }
+
+    [Test]
+    public async Task Class_TypedParameterAndReturn()
+    {
+        // A class type can name a parameter and a return: the instance is passed and returned as its
+        // heap pointer, and the callee resolves .field/.method on it.
+        await Assert.That(RunA(
+            "static byte Main() { Box b = new Box(); b.v = 8; return Get(b); }\n"
+            + "static byte Get(Box x) { return x.v; }\n"
+            + "class Box { byte v; }")).IsEqualTo((byte)8);
+        await Assert.That(RunA(
+            "static byte Main() { Box b = Make(); return b.v; }\n"
+            + "static Box Make() { Box x = new Box(); x.v = 5; return x; }\n"
+            + "class Box { byte v; }")).IsEqualTo((byte)5);
+    }
+
+    [Test]
+    public async Task Class_SelfReferentialLinkedList()
+    {
+        // A class field of the same (or another) class type is a heap pointer, so a linked list can be
+        // built and walked; class assignment (a.next = b, cur = cur.next) copies the reference.
+        const string src = @"
+static byte Main() {
+    Node a = new Node(); a.v = 1;
+    Node b = new Node(); b.v = 2;
+    Node c = new Node(); c.v = 3;
+    a.next = b; b.next = c;
+    byte total = 0;
+    Node cur = a;
+    while (Live(cur)) { total = (byte)(total + cur.v); cur = cur.next; }
+    return total;
+}
+static byte Live(byte* p) { return (byte)(p == (byte*)0 ? 0 : 1); }
+class Node { byte v; Node next; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)6); // 1 + 2 + 3
+    }
+
+    [Test]
+    public async Task Class_InstanceUsedAsPointerValue()
+    {
+        // A class instance can be used as a value (returned or passed as byte*), not only for
+        // .field/.method access: `return this;` and passing a class local to a byte* parameter.
+        await Assert.That(RunA(
+            "static byte Main() { Box b = new Box(); b.v = 9; byte* p = b.Ptr(); return *(byte*)p; }\n"
+            + "class Box { byte v; byte* Ptr() { return this; } }")).IsEqualTo((byte)9);
+        await Assert.That(RunA(
+            "static byte Main() { Box b = new Box(); b.v = 7; return Read(b); }\n"
+            + "static byte Read(byte* p) { return *(byte*)p; }\n"
+            + "class Box { byte v; }")).IsEqualTo((byte)7);
+    }
+
+    [Test]
+    public async Task Generics_Monomorphized()
+    {
+        // A generic method is specialized per concrete type argument (Max$byte, Max$ushort).
+        await Assert.That(RunA(
+            "static byte Main() { return (byte)Max<byte>(3, 7); }\n"
+            + "static T Max<T>(T a, T b) { if (a > b) return a; return b; }")).IsEqualTo((byte)7);
+        await Assert.That(RunHL(
+            "static ushort Main() { return Max<ushort>(300, 100); }\n"
+            + "static T Max<T>(T a, T b) { if (a > b) return a; return b; }")).IsEqualTo((ushort)300);
+    }
+
+    [Test]
+    public async Task Generics_TransitiveInstantiation()
+    {
+        // A specialized body may name further generic instances (Double<byte> uses Id<byte>); the
+        // work-list instantiates them transitively.
+        const string src = @"
+static byte Main() { return (byte)Double<byte>(20); }
+static T Id<T>(T x) { return x; }
+static T Double<T>(T x) { return (T)(Id<T>(x) + Id<T>(x)); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)40);
+    }
+
+    [Test]
+    public async Task Generics_SameNameDifferentArity()
+    {
+        // Two generic methods share a name but differ in type-parameter count. They are distinct
+        // templates keyed by (name, arity); an invocation's type-argument count selects the right one.
+        const string src = @"
+static byte Main() { return (byte)(Pick<byte>(5) + Pick<byte, ushort>(7, 9)); }
+static T Pick<T>(T a) { return a; }
+static T Pick<T, U>(T a, U b) { return a; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)12); // 5 + 7
+    }
+
+    [Test]
+    public async Task Generics_OverloadedByValueArity_IsDiagnostic()
+    {
+        // Two generic methods with the same name AND type-parameter count would mangle to the same
+        // specialized name; that is reported instead of silently mis-specializing to the first.
+        const string src = @"
+static byte Main() { return (byte)Max<byte>(1, 2); }
+static T Max<T>(T a, T b) { return a; }
+static T Max<T>(T a, T b, T c) { return a; }";
+        await Assert.That(HasError(src)).IsTrue();
+    }
+
+    [Test]
+    public async Task Generics_ShadowedTypeParameter_IsDiagnostic()
+    {
+        // Monomorphization substitutes type-parameter names by identifier text, so a local named like a
+        // type parameter would be rewritten to the concrete type. That shadowing is reported.
+        await Assert.That(HasError(
+            "static byte Main() { return (byte)Id<byte>(5); }\n"
+            + "static T Id<T>(T x) { byte T = 0; return (T)(x + T); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task Linq_ReductionsOverArray()
+    {
+        const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5, 9, 2, 6 };";
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Sum(); }" + data)).IsEqualTo((byte)31);
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Where(x => x > 3).Sum(); }" + data)).IsEqualTo((byte)24); // 4+5+9+6
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Select(x => (byte)(x * 2)).Sum(); }" + data)).IsEqualTo((byte)62);
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Count(x => x > 3); }" + data)).IsEqualTo((byte)4);
+        await Assert.That(RunA("static byte Main() { return Data.Max(); }" + data)).IsEqualTo((byte)9);
+        await Assert.That(RunA("static byte Main() { return Data.Min(); }" + data)).IsEqualTo((byte)1);
+    }
+
+    [Test]
+    public async Task Sum_AccumulatesWiderThanElement()
+    {
+        // A byte sum whose total exceeds 255 must not wrap at the element width — the accumulator widens
+        // to int, matching C#. Regression: the accumulator was sized to the source element type.
+        const string src = "static readonly byte[] D = { 200, 200, 200 };\n"
+            + "static ushort Main() { return (ushort)D.Sum(); }";
+        await Assert.That(RunHL(src)).IsEqualTo((ushort)600);
+    }
+
+    [Test]
+    public async Task Const_UnsignedShiftIsLogical()
+    {
+        // A ulong constant with bit 63 set must shift/divide unsigned (logical), not arithmetically.
+        const string src = "const ulong Mask = 0xFF00000000000000UL >> 8;\n"
+            + "static ulong Main() { return Mask; }";
+        await Assert.That(RunI64(src)).IsEqualTo(0x00FF000000000000UL);
+    }
+
+    [Test]
+    public async Task Recursion_EntryFunctionIsItselfRecursive()
+    {
+        // The entry (main) recurses: the one-time stack setup must run only at boot, not on every
+        // recursive re-entry (which would reset SP/SoftSp and destroy the return chain). A recursive
+        // function returns via ReturnScratch, so read the result there.
+        const string src = "static byte n;\n"
+            + "static byte Main() { n++; if (n < 5) return Main(); return n; }";
+        var gb = Load(Compile(src), out int s, out int l);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte((ushort)Sm83Backend.ReturnScratch)).IsEqualTo((byte)5);
+    }
+
+    [Test]
+    public async Task ClassStaticField_IsDiagnostic()
+    {
+        // A static field inside a user class is stored by no collection pass; reject it rather than let
+        // it silently vanish and surface as a misleading later error.
+        await Assert.That(HasError(
+            "class C { byte v; static int s; byte M() { return v; } }\n"
+            + "static byte Main() { C c = new C(); return c.M(); }")).IsTrue();
+    }
+
+    [Test]
+    public async Task InterruptAndMainBothWide_IsRejected()
+    {
+        // Wide (i32+) arithmetic routes through fixed runtime scratch shared by all functions; a handler
+        // doing it can corrupt a main-line wide op it preempts, so the pair is rejected.
+        const string wide = @"
+static int g;
+[Interrupt(""VBlank"")]
+static void OnVBlank() { g = g * g; }
+static int Main() { int x = 3; return x * x; }";
+        await Assert.That(() => Compile(wide)).Throws<NotSupportedException>();
+
+        // A handler doing only narrow (<=16-bit) work alongside wide main-line is fine.
+        const string narrow = @"
+static byte c;
+[Interrupt(""VBlank"")]
+static void OnVBlank() { c++; }
+static int Main() { int x = 3; return x * x; }";
+        await Assert.That(CompilesClean(narrow)).IsTrue();
+    }
+
+    [Test]
+    public async Task Linq_MaxMinAfterPipeline_IsDiagnostic()
+    {
+        // Max/Min seed the accumulator with element 0 and skip the pipeline for it, so a filtered or
+        // projected element 0 would corrupt the result — reject the combination rather than miscompile.
+        const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5 };";
+        await Assert.That(HasError("static byte Main() { return Data.Where(x => x > 3).Max(); }" + data)).IsTrue();
+        await Assert.That(HasError("static byte Main() { return Data.Select(x => (byte)(x + 1)).Min(); }" + data)).IsTrue();
+    }
+
+    [Test]
+    public async Task Linq_AnyAllAndChain()
+    {
+        const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5, 9, 2, 6 };";
+        await Assert.That(RunA("static byte Main() { return (byte)(Data.Any(x => x > 8) ? 1 : 0); }" + data)).IsEqualTo((byte)1);
+        await Assert.That(RunA("static byte Main() { return (byte)(Data.All(x => x > 0) ? 1 : 0); }" + data)).IsEqualTo((byte)1);
+        await Assert.That(RunA("static byte Main() { return (byte)(Data.All(x => x > 3) ? 1 : 0); }" + data)).IsEqualTo((byte)0);
+        // Where + Select + Sum chain: even values doubled, summed => (4+2+6)*2 = 24
+        await Assert.That(RunA("static byte Main() { return (byte)Data.Where(x => (byte)(x % 2) == 0).Select(x => (byte)(x * 2)).Sum(); }" + data)).IsEqualTo((byte)24);
+    }
+
+    [Test]
+    public async Task Coroutine_YieldReturnStateMachine()
+    {
+        // A `yield return` iterator becomes a cooperative-coroutine state machine (MoveNext advances
+        // one step per call, suspending between yields). The caller drives it to sum 10+20+30 = 60.
+        const string src = @"
+static byte Main() {
+    Gen__Iter g = Gen();
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 30; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)60);
+    }
+
+    [Test]
+    public async Task Coroutine_CountedForLoop()
+    {
+        // A single counted for-loop iterator lowers to a resumable state machine (state 0 runs the
+        // initializer, later re-entries run the increment). Sum of i*i for i in 0..3 = 0+1+4+9 = 14.
+        const string src = @"
+static byte Main() {
+    Sq__Iter g = Sq();
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Sq() { for (byte i = 0; i < 4; i++) yield return (byte)(i * i); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)14);
+    }
+
+    [Test]
+    public async Task Coroutine_ParameterizedRange()
+    {
+        // An iterator that references its parameter: the argument is captured into the state object by
+        // the factory, so the loop bound survives across MoveNext calls. Range(5) yields 0..4 = 10.
+        const string src = @"
+static byte Main() {
+    Range__Iter g = Range(5);
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Range(byte n) { for (byte i = 0; i < n; i++) yield return i; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)10);
+    }
+
+    [Test]
+    public async Task Coroutine_FlatYieldReferencesParameter()
+    {
+        // Straight-line yields that read the parameter also capture it. Two(7) yields 7 then 8 = 15.
+        const string src = @"
+static byte Main() {
+    Two__Iter g = Two(7);
+    byte sum = 0;
+    while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+    return sum;
+}
+static IEnumerable<byte> Two(byte a) { yield return a; yield return (byte)(a + 1); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)15);
+    }
+
+    [Test]
+    public async Task Coroutine_ReservedParameterName_IsNotMiscompiled()
+    {
+        // A parameter named like a synthesized state field (__state/__current/__it) would alias it and
+        // corrupt iteration. Such an iterator is left untransformed and reported, not miscompiled.
+        await Assert.That(HasError(
+            "static byte Main() { return 0; }\n"
+            + "static IEnumerable<byte> G(byte __state) { yield return __state; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task Bcl_BitOperationsPopCount()
+    {
+        // The verbatim software fallback from System.Numerics.BitOperations.PopCount(uint) — real BCL
+        // source, now compilable since 32-bit multiply/shift work.
+        const string popcount = @"
+static uint PopCount(uint value) {
+    const uint c1 = 0x55555555u;
+    const uint c2 = 0x33333333u;
+    const uint c3 = 0x0F0F0F0Fu;
+    const uint c4 = 0x01010101u;
+    value -= (value >> 1) & c1;
+    value = (value & c2) + ((value >> 2) & c2);
+    value = (uint)((((value + (value >> 4)) & c3) * c4) >> 24);
+    return value;
+}";
+        await Assert.That(RunI32("static uint Main() { return PopCount(0xFF); }" + popcount)).IsEqualTo(8u);
+        await Assert.That(RunI32("static uint Main() { return PopCount(0xFFFFFFFF); }" + popcount)).IsEqualTo(32u);
+        await Assert.That(RunI32("static uint Main() { return PopCount(0xDEADBEEF); }" + popcount))
+            .IsEqualTo((uint)System.Numerics.BitOperations.PopCount(0xDEADBEEF));
+    }
+
+    [Test]
+    public async Task Bcl_XoshiroRotateLeft()
+    {
+        // System.Random's xoshiro core relies on 64-bit rotate-left; verify it against the BCL.
+        // inline, constant shifts
+        await Assert.That(RunI64("static ulong Main() { ulong x = 0x0123456789ABCDEF; return (x << 40) | (x >> 24); }"))
+            .IsEqualTo(System.Numerics.BitOperations.RotateLeft(0x0123456789ABCDEFUL, 40));
+        // inline, variable shift
+        await Assert.That(RunI64("static ulong Main() { ulong x = 0x0123456789ABCDEF; int k = 40; return (x << k) | (x >> (64 - k)); }"))
+            .IsEqualTo(System.Numerics.BitOperations.RotateLeft(0x0123456789ABCDEFUL, 40));
+        // i64 return captured from a call
+        await Assert.That(RunI64("static ulong Main() { return Id(0x0123456789ABCDEF); }\nstatic ulong Id(ulong x) { return x; }"))
+            .IsEqualTo(0x0123456789ABCDEFUL);
+        // computed i64 return from a call with an i64 + i32 arg (Main first: the harness boots at CodeBase)
+        const string src = @"
+static ulong Main() { return RotateLeft(0x0123456789ABCDEF, 40); }
+static ulong RotateLeft(ulong x, int k) { return (x << k) | (x >> (64 - k)); }";
+        await Assert.That(RunI64(src)).IsEqualTo(System.Numerics.BitOperations.RotateLeft(0x0123456789ABCDEFUL, 40));
+    }
+
+    [Test]
+    public async Task Bcl_BitOperationsLog2()
+    {
+        // The de Bruijn software fallback from System.Numerics.BitOperations.Log2(uint), with the
+        // exact BCL table and magic constant. MemoryMarshal/Unsafe become a plain static ROM array,
+        // and the BCL's (nint) index cast becomes a (ushort) cast for the 16-bit address space; the
+        // arithmetic (fold-right, 32-bit multiply, shift, table index) is verbatim BCL.
+        const string log2 = @"
+static readonly byte[] Log2DeBruijn = {
+    0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
+    8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31 };
+static uint Log2(uint value) {
+    value |= value >> 1;
+    value |= value >> 2;
+    value |= value >> 4;
+    value |= value >> 8;
+    value |= value >> 16;
+    return Log2DeBruijn[(ushort)((value * 0x07C4ACDDu) >> 27)];
+}";
+        await Assert.That(RunI32("static uint Main() { return Log2(1); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(1));
+        await Assert.That(RunI32("static uint Main() { return Log2(0xFF); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(0xFF));
+        await Assert.That(RunI32("static uint Main() { return Log2(0x80000000u); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(0x80000000u));
+        await Assert.That(RunI32("static uint Main() { return Log2(0xDEADBEEFu); }" + log2))
+            .IsEqualTo((uint)System.Numerics.BitOperations.Log2(0xDEADBEEF));
     }
 
     private static bool CompilesClean(string src)

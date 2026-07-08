@@ -373,8 +373,10 @@ public class Sm83ControlFlowTests
     }
 
     [Test]
-    public async Task Recursion_IsRejected()
+    public async Task Recursion_IsSupported()
     {
+        // A self-recursive function now compiles (it saves/restores its shared static frame on the
+        // software stack); runtime correctness is covered by the C# end-to-end recursion tests.
         var m = new IrModule("t");
         var self = new IrFunction("self", IrType.I8, []);
         m.Functions.Add(self);
@@ -382,10 +384,9 @@ public class Sm83ControlFlowTests
         b.PositionAtEnd(self.AppendBlock("entry"));
         b.Ret(b.Call(self, []));
 
-        bool threw = false;
-        try { Compile(m); }
-        catch (NotSupportedException) { threw = true; }
-        await Assert.That(threw).IsTrue();
+        await Assert.That(IrVerifier.Verify(m)).IsEmpty();
+        var model = Compile(m);
+        await Assert.That(model.Sections).IsNotEmpty();
     }
 
     // ---- switch -------------------------------------------------------------
