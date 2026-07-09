@@ -96,7 +96,12 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
             return false;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(OutputPath)!);
+        // OutputPath is normally an absolute path, but a caller can override it to a directory-less
+        // filename (GetDirectoryName then returns "" or null). Only create the directory when there is
+        // one, otherwise write into the current directory.
+        var outputDir = Path.GetDirectoryName(OutputPath);
+        if (!string.IsNullOrEmpty(outputDir))
+            Directory.CreateDirectory(outputDir);
         File.WriteAllBytes(OutputPath, rom);
         Log.LogMessage(MessageImportance.High, $"Koh: built {OutputPath} ({rom.Length} bytes).");
         return true;

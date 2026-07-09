@@ -1045,6 +1045,20 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task Gb_RegionNameDoesNotCollideWithUserGlobal()
+    {
+        // A Gb region lowers to a fixed-address global; its emitted name is qualified (Gb.Vram) so it
+        // can't clash with a user global of the same simple name. Regression: the region was named
+        // "Vram", producing two globals named "Vram" and invalid link output.
+        const string src =
+            "static byte Main() { Hardware.LCDC = 0x00; Vram = 5; byte* v = Gb.Vram; *v = 9; return Vram; }\n"
+            + "static byte Vram;";
+        var names = Frontend(src).Globals.Select(g => g.Name).ToList();
+        await Assert.That(names.Distinct().Count()).IsEqualTo(names.Count); // no duplicate global symbols
+        await Assert.That(RunA(src)).IsEqualTo((byte)5); // the user global is independent of the region
+    }
+
+    [Test]
     public async Task StackAlloc_BufferRoundTrips()
     {
         // stackalloc reserves a frame buffer reachable as a byte*; write two cells and sum them.

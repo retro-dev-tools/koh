@@ -95,11 +95,14 @@ internal sealed class HardwareRegisters
 
     /// <summary>Get (creating on first use) the fixed-address I8 global whose address is a region base;
     /// taking its <see cref="IrBuilder.GlobalRef"/> yields a <c>byte*</c> pointing at the region. The
-    /// cache key is prefixed so a region and a register of the same name don't collide.</summary>
-    public IrGlobal Region(string name) => GetOrCreate("@region:" + name, name, Regions[name]);
+    /// emitted global name is qualified (<c>Gb.Vram</c>) so it can never collide with a user-declared
+    /// global: a top-level field lowers to a bare name, and a user class named <c>Gb</c> is reserved.</summary>
+    public IrGlobal Region(string name) =>
+        GetOrCreate("@region:" + name, "Gb." + name, Regions[name]);
 
-    /// <summary>Get (creating on first use) the fixed-address global for a register.</summary>
-    public IrGlobal Register(string name) => GetOrCreate(name, name, Addresses[name]);
+    /// <summary>Get (creating on first use) the fixed-address global for a register. Like a region, the
+    /// emitted name is qualified (<c>Hardware.LY</c>) so it can't collide with a same-named user global.</summary>
+    public IrGlobal Register(string name) => GetOrCreate(name, "Hardware." + name, Addresses[name]);
 
     private IrGlobal GetOrCreate(string cacheKey, string name, int address)
     {
