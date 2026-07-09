@@ -28,6 +28,7 @@ public static class IrOptimizer
         new RedundantLoadEliminationPass(),
         new LocalCsePass(),
         new DeadStoreEliminationPass(),
+        new RedundantBankSelectEliminationPass(),
         new DeadCodeEliminationPass(),
     ];
 
