@@ -1,6 +1,7 @@
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends.CSharp;
 using Koh.Compiler.Ir;
+using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
@@ -34,6 +35,22 @@ public class CSharpEndToEndTests
 
     private static EmitModel Compile(string src) =>
         new Sm83Backend().Compile(Frontend(src), new DiagnosticBag());
+
+    /// <summary>As <see cref="Compile"/>, but runs the IR optimizer first (the driver's default path).</summary>
+    private static EmitModel CompileOpt(string src)
+    {
+        var module = Frontend(src);
+        IrOptimizer.Optimize(module);
+        return new Sm83Backend().Compile(module, new DiagnosticBag());
+    }
+
+    private static byte RunAOpt(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(CompileOpt(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        return gb.Registers.A;
+    }
 
     private static GameBoySystem Load(EmitModel model, out int start, out int length)
     {
@@ -3118,5 +3135,63 @@ static uint Log2(uint value) {
             diagnostics
         );
         return !diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    // ---- Optimizer: behavior is preserved end-to-end on the emulator --------
+
+    [Test]
+    public async Task Optimized_FoldsConstantArithmeticToCorrectValue()
+    {
+        // 20*2 + 2 = 42, folded to a single constant, still returned correctly from the real ROM.
+        await Assert
+            .That(RunAOpt("static byte Main() { return (byte)(20 * 2 + 2); }"))
+            .IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Optimized_WrapsFoldedConstantToWidth()
+    {
+        // 100+100+100 = 300; as a byte that is 44. Folding must wrap exactly like the backend would.
+        await Assert
+            .That(RunAOpt("static byte Main() { return (byte)(100 + 100 + 100); }"))
+            .IsEqualTo((byte)44);
+    }
+
+    [Test]
+    public async Task Optimized_PreservesRuntimeParameterComputation()
+    {
+        // Non-constant code the optimizer must leave alone: a + b with runtime inputs.
+        const string src = "static byte Add(byte a, byte b) { return a + b; }";
+        await Assert
+            .That(
+                RunAOpt(
+                    src,
+                    gb =>
+                    {
+                        W8(gb, 0, 40);
+                        W8(gb, 1, 2);
+                    }
+                )
+            )
+            .IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Optimized_FoldsConstantComparisonDrivingABranch()
+    {
+        // The comparison folds to a constant; the branch must still select the right arm.
+        await Assert
+            .That(RunAOpt("static byte Main() { if (5 > 3) { return 7; } return 9; }"))
+            .IsEqualTo((byte)7);
+    }
+
+    [Test]
+    public async Task Optimized_RomIsSmallerWhenConstantsFold()
+    {
+        // The optimizer must actually fire on a real compile: a constant-heavy function shrinks.
+        const string src = "static byte Main() { return (byte)(1 + 2 + 3 + 4 + 5 + 6 + 7 + 8); }";
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
     }
 }

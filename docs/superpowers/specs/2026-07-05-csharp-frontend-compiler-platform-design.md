@@ -179,7 +179,19 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
    - **Debug + diagnostics:** source spans threaded to `.kdbg`; errors reported into the `DiagnosticBag` with locations, not thrown.
    
    Verified end-to-end on the emulator (Gcd, Factorial, arrays, structs, ref-swap, hardware register I/O, …) and by a full playable **2048** ROM (`samples/gb-2048-cs`) that compiles through the pipeline and whose game logic is checked in the emulator. Remaining polish: 32-bit multiply/divide/shift (add/subtract/bitwise/compare already work), a custom charmap (string literals currently map to raw char codes), method overloading, banking attributes, `extern` asm interop. Out by design: classes/GC/generics/async/LINQ/recursion.
-4. **IR optimization passes.** Const-fold, DCE, copy/coalesce, SM83 peephole on the emitted stream. Introduce full SSA-based opt if/when the optimizer needs it.
+4. **IR optimization passes.** 🚧 *In progress.* `Ir/Optimization/` adds a small pass framework
+   (`IIrFunctionPass`, `IrOptimizer`) run by `CompilerDriver` between the frontend and the backend
+   (default-on; `CompilerDriver.Compile(..., optimize: false)` disables it). Landed passes: **constant
+   folding + algebraic identities** (width-/signedness-correct integer `binary`/`icmp`/`conv` folding
+   that wraps exactly like the backend; identities such as `x+0`, `x*0`, `x&-1`, `x^x`, `x<<0`, `x/1`;
+   div/rem-by-zero and out-of-range shifts left unfolded) and **dead-code elimination** (removes
+   unused side-effect-free results — `binary`/`icmp`/`conv`/`gep`/`alloca`/`phi` — keeping `load`
+   as potentially-volatile MMIO plus all stores/calls/intrinsics/terminators), iterated to a fixed
+   point. Enabled by a minimal type-preserving RAUW (`IrInstruction.ReplaceOperand`) on the IR core.
+   Verified end-to-end on the emulator (folded ROMs run correctly, and the full 2048 sample boots and
+   its slide logic matches un-optimized) in `Koh.Compiler.Tests`. Remaining: copy/coalesce and an
+   SM83 peephole on the emitted stream; full SSA-based opt (and `mem2reg` to promote the frontend's
+   `alloca` locals) if/when the optimizer needs it.
 5. **Editor tooling.** Diagnostics/hover/go-to for Koh C#, reusing the LSP architecture and/or Roslyn.
 6. **Prove generality (optional, later).** A second backend (ARM7TDMI via LLVM delegation) or a second frontend — only to validate the seams.
 
