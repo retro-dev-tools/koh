@@ -3224,4 +3224,24 @@ static uint Log2(uint value) {
             .That(RunAOpt("static byte Main() { if (2 > 5) { return 1; } return 9; }"))
             .IsEqualTo((byte)9);
     }
+
+    [Test]
+    public async Task Optimized_StrengthReducesMultiplyToShift()
+    {
+        // n * 8 becomes n << 3 — cheaper than the software multiply — and stays correct.
+        const string src = "static byte F(byte n) { return (byte)(n * 8); }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)40);
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
+    }
+
+    [Test]
+    public async Task Optimized_StrengthReducesUnsignedRemainderToMask()
+    {
+        // n % 8 (unsigned) becomes n & 7, avoiding the software divide, and stays correct.
+        await Assert
+            .That(RunAOpt("static byte F(byte n) { return (byte)(n % 8); }", gb => W8(gb, 0, 21)))
+            .IsEqualTo((byte)5);
+    }
 }

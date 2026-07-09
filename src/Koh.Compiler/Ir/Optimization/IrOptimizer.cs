@@ -21,8 +21,10 @@ public static class IrOptimizer
     private static readonly IIrFunctionPass[] Passes =
     [
         new ConstantFoldingPass(),
+        new StrengthReductionPass(),
         new SimplifyCfgPass(),
         new RedundantLoadEliminationPass(),
+        new LocalCsePass(),
         new DeadStoreEliminationPass(),
         new DeadCodeEliminationPass(),
     ];

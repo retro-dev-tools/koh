@@ -186,6 +186,13 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
    - **Constant folding + algebraic identities** — width-/signedness-correct integer
      `binary`/`icmp`/`conv` folding that wraps exactly like the backend; identities such as `x+0`,
      `x*0`, `x&-1`, `x^x`, `x<<0`, `x/1`; div/rem-by-zero and out-of-range shifts left unfolded.
+   - **Strength reduction** — rewrites multiply / unsigned-divide / unsigned-remainder by a constant
+     power of two to a shift or mask (`x*2^k → x<<k`, `x u/2^k → x>>k`, `x u%2^k → x & (2^k-1)`),
+     turning the open-coded SM83 mul/div runtime routines into a few inline instructions. Signed
+     div/rem by a power of two are left alone (arithmetic shift rounds the wrong way).
+   - **Local CSE** — intra-block common-subexpression elimination for pure instructions
+     (`binary`/`icmp`/`conv`/`gep`), matching non-constant operands by SSA identity and constants by
+     value, so repeated address arithmetic (`a[i]` read then written) and duplicated math collapse.
    - **Simplify-CFG** — folds a `condbr` on a constant condition to an unconditional `br` and deletes
      the now-unreachable blocks, maintaining phi incomings precisely as predecessor edges disappear.
    - **Redundant-load elimination** — intra-block store→load and load→load forwarding for
@@ -201,10 +208,11 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
    (`PhiInstruction.RemoveIncomingsFrom`) on the IR core; escape/loaded classification of allocas
    lives in `AllocaAnalysis`. Verified end-to-end on the emulator (folded ROMs and scalar-local
    forwarding run correctly and shrink the ROM, dead branches are pruned, and the full 2048 sample
-   boots and its slide logic matches un-optimized) in `Koh.Compiler.Tests`. Remaining: cross-block
-   value numbering / copy-coalesce and an SM83 peephole on the emitted stream; a full dominance-based
-   `mem2reg` (with phi insertion) to promote allocas whose live range spans control flow — the current
-   forwarding is intentionally intra-block only.
+   boots and its slide logic matches un-optimized, and `n*8` strength-reduces to a shift that shrinks
+   the ROM) in `Koh.Compiler.Tests`. Remaining: cross-block value numbering / copy-coalesce and an
+   SM83 peephole on the emitted stream; a full dominance-based `mem2reg` (with phi insertion) to
+   promote allocas whose live range spans control flow — the current forwarding and CSE are
+   intentionally intra-block only.
 5. **Editor tooling.** Diagnostics/hover/go-to for Koh C#, reusing the LSP architecture and/or Roslyn.
 6. **Prove generality (optional, later).** A second backend (ARM7TDMI via LLVM delegation) or a second frontend — only to validate the seams.
 
