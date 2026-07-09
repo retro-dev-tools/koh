@@ -1,17 +1,12 @@
 namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
-/// Promotes non-escaping scalar <c>alloca</c>s to SSA values, inserting phis where a value merges
-/// from more than one predecessor. This is the enabler pass: the C# frontend lowers every scalar
-/// local to an alloca with explicit load/store, and intra-block forwarding
-/// (<see cref="RedundantLoadEliminationPass"/>) can only see one block at a time — mem2reg lifts a
-/// local whose live range spans control flow (a value read after an <c>if</c>, a loop counter) into
-/// the IR itself, where the folder, CSE, and (eventually) the register allocator can act on it.
-///
-/// Standard construction: compute the dominator tree and dominance frontiers, place phis at the
-/// iterated dominance frontier of each promotable alloca's store blocks, then rename by a single
-/// walk of the dominator tree carrying each alloca's reaching definition. Only non-escaping integer
-/// scalars are promoted; arrays, structs (accessed by <c>gep</c>), and pointers are left in memory.
+/// Promotes non-escaping integer scalar <c>alloca</c>s to SSA values, inserting phis where a value
+/// merges — the enabler that lifts a local whose live range spans control flow (read after an
+/// <c>if</c>, a loop counter) out of memory, past what intra-block
+/// <see cref="RedundantLoadEliminationPass"/> can reach. Standard construction: place phis at the
+/// iterated dominance frontier of each alloca's store blocks, then rename by a dominator-tree walk
+/// carrying each alloca's reaching definition. Arrays, structs, and pointers are left in memory.
 /// </summary>
 public sealed class Mem2RegPass : IIrFunctionPass
 {

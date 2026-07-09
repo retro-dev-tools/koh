@@ -3,22 +3,13 @@ using System.Buffers;
 namespace Koh.Compiler.Backends.Sm83;
 
 /// <summary>
-/// A sound, flag-liveness-aware peephole over an already-emitted SM83 code region. The backend emits
-/// a flat byte buffer with no instruction boundaries, so this pass first decodes the region using the
-/// fixed SM83 opcode-length table (below), giving real instruction boundaries, then applies rewrites
-/// that are only valid when the flags they clobber are dead.
-///
-/// Currently one rewrite: <c>LD A, 0</c> (<c>3E 00</c>, 2 bytes) → <c>XOR A</c> (<c>AF</c>, 1 byte),
-/// saving a byte and a cycle. <c>XOR A</c> clobbers all flags, so it is applied only when a forward
-/// scan proves every flag is dead at that point — the scan reaches an instruction that redefines all
-/// flags (an ALU op with A that does not itself read a flag) before hitting any flag read or any
-/// control-flow boundary. That scan is exactly what makes it safe inside multi-byte <c>ADC</c>/
-/// <c>SBC</c> chains: the next byte's <c>ADC</c> reads carry, so the zero-load feeding it is left as
-/// <c>LD A, 0</c>.
-///
-/// The pass reports edits as byte offsets; <see cref="Emitter.PeepholeFrom"/> applies them and
-/// relocates the region's labels, fixups, and line map. Boundaries (branch targets, block labels)
-/// are passed in so the liveness scan treats them conservatively as "all flags live".
+/// A flag-liveness-aware peephole over an already-emitted SM83 region. The backend emits a flat byte
+/// buffer with no instruction boundaries, so this decodes the region via the opcode-length table to
+/// recover boundaries, then rewrites <c>LD A, 0</c> to <c>XOR A</c> (1 byte instead of 2). Since
+/// <c>XOR A</c> clobbers the flags, it is applied only where a forward scan proves them dead — it
+/// reaches a flag-redefining ALU op before any flag read or control-flow boundary. That is what keeps
+/// it sound inside <c>ADC</c>/<c>SBC</c> carry chains, where the next byte reads carry.
+/// <see cref="Emitter.PeepholeFrom"/> applies the edits and relocates the region's labels/fixups/lines.
 /// </summary>
 internal static class Sm83Peephole
 {

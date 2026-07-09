@@ -1,19 +1,10 @@
 namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
-/// Simplifies control flow the constant folder has made trivial:
-///
-/// <list type="bullet">
-/// <item><b>Constant branch folding.</b> A <c>condbr</c> on a constant condition becomes an
-/// unconditional <c>br</c> to the taken target. The not-taken edge is removed, and any phi in the
-/// not-taken block drops the incoming that arrived from this predecessor.</item>
-/// <item><b>Unreachable-block removal.</b> Blocks no longer reachable from entry are deleted, and
-/// phis in surviving blocks drop incomings that came from a deleted block — so the emitted code and
-/// ROM don't carry dead blocks, and phi incomings stay matched to real predecessors.</item>
-/// </list>
-///
-/// Phi incomings are maintained precisely on every edge change because the backend realizes phis as
-/// per-predecessor edge copies; a stale incoming would describe a copy on an edge that no longer exists.
+/// Simplifies control flow the constant folder made trivial: folds a <c>condbr</c> on a constant
+/// condition to an unconditional <c>br</c>, then deletes blocks unreachable from entry. Phi incomings
+/// are dropped precisely as predecessor edges disappear — the backend realizes phis as per-edge
+/// copies, so a stale incoming would describe a copy on an edge that no longer exists.
 /// </summary>
 public sealed class SimplifyCfgPass : IIrFunctionPass
 {

@@ -1,24 +1,11 @@
 namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
-/// Within a basic block, forwards the value most recently written to (or read from) a non-escaping
-/// scalar alloca directly to later loads of the same alloca, then deletes those loads:
-///
-/// <code>
-///   store %v, %p     ; %p a non-escaping alloca
-///   %a = load %p     ->  %a replaced by %v
-///   %b = load %p     ->  %b replaced by %v
-/// </code>
-///
-/// Two loads of the same unmodified alloca likewise collapse to one (load→load forwarding). This is
-/// the workhorse for the C# frontend, which materializes every scalar local as an alloca with
-/// explicit load/store; forwarding turns those back into direct SSA data flow that the constant
-/// folder and DCE can then act on.
-///
+/// Within a basic block, forwards the value last written to (or read from) a non-escaping scalar
+/// alloca to later loads of it and deletes those loads (store→load and load→load forwarding) — the
+/// workhorse that turns the frontend's per-local alloca/load/store back into direct SSA data flow.
 /// Sound because a non-escaping alloca cannot alias anything else (see <see cref="AllocaAnalysis"/>),
-/// so nothing between the write and the load — not a call, not a store through another pointer — can
-/// change its value. Forwarding is intra-block only: the known value is dropped at each block
-/// boundary, so no cross-edge reasoning (or phi insertion) is needed.
+/// so nothing between the write and the load can change it. Intra-block only, so no phi insertion.
 /// </summary>
 public sealed class RedundantLoadEliminationPass : IIrFunctionPass
 {

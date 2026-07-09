@@ -1,14 +1,10 @@
 namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
-/// Folds integer <c>binary</c>/<c>icmp</c>/<c>conv</c> instructions whose operands are constants
-/// to a single constant, and applies algebraic identities that collapse an operation to one of its
-/// operands or to a constant (<c>x + 0 → x</c>, <c>x * 0 → 0</c>, <c>x &amp; -1 → x</c>, …). All
-/// arithmetic is done at the operation's declared width with the operation's signedness, and the
-/// result is wrapped to that width, so folding matches exactly what the backend would have emitted.
-///
-/// Division and remainder by a zero constant are deliberately left unfolded (their behavior is the
-/// backend's to define), as are shifts by an out-of-range amount.
+/// Folds integer <c>binary</c>/<c>icmp</c>/<c>conv</c> on constant operands, and applies algebraic
+/// identities (<c>x+0</c>, <c>x*0</c>, <c>x&amp;-1</c>, …). Arithmetic is done at the op's width and
+/// signedness and wrapped, matching the backend exactly. Division/remainder by a zero constant and
+/// out-of-range shifts are left unfolded (their behavior is the backend's to define).
 /// </summary>
 public sealed class ConstantFoldingPass : IIrFunctionPass
 {

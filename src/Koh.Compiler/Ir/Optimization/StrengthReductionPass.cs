@@ -4,20 +4,10 @@ namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
 /// Replaces multiply / unsigned-divide / unsigned-remainder by a constant power of two with a shift
-/// or mask — a large win on SM83, where <c>mul</c>/<c>div</c>/<c>rem</c> are open-coded runtime
-/// routines while shifts and <c>and</c> are a few inline instructions:
-///
-/// <list type="bullet">
-/// <item><c>x * 2^k → x &lt;&lt; k</c> (either operand; correct for signed and unsigned, since both
-/// are multiplication modulo the type width).</item>
-/// <item><c>x u/ 2^k → x u&gt;&gt; k</c> (logical shift right).</item>
-/// <item><c>x u% 2^k → x &amp; (2^k - 1)</c>.</item>
-/// </list>
-///
-/// Signed divide/remainder by a power of two are intentionally left alone: arithmetic shift rounds
-/// toward negative infinity while C# division truncates toward zero, so they are not equivalent
-/// without a correction step. Multiplying by 1 / 0 is handled by the folder's identities, so this
-/// pass only fires for 2^k with k ≥ 1.
+/// or mask (<c>x*2^k → x&lt;&lt;k</c>, <c>x u/2^k → x&gt;&gt;k</c>, <c>x u%2^k → x &amp; (2^k-1)</c>) —
+/// a large win on SM83, where mul/div/rem are open-coded runtime routines. Signed divide/remainder
+/// are left alone (arithmetic shift rounds toward −∞, C# division toward zero); <c>*1</c>/<c>*0</c>
+/// are the folder's job, so this only fires for 2^k with k ≥ 1.
 /// </summary>
 public sealed class StrengthReductionPass : IIrFunctionPass
 {

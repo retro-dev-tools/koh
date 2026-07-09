@@ -1,18 +1,12 @@
 namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
-/// Inlines calls to small, single-block leaf functions — the tiny accessors and helpers a game is
-/// full of (<c>Board.GetCell</c>, getters/setters, small arithmetic). On SM83 a call is expensive:
-/// it marshals arguments through <c>ArgScratch</c>, saves/restores a static frame, and returns via
-/// a register or <c>ReturnScratch</c>. Replacing the call with the callee's body erases all of that
-/// and exposes the inlined code to the rest of the optimizer (folding, CSE, mem2reg).
-///
-/// Scope is deliberately conservative for soundness: a callee is inlinable only when it is a single
-/// basic block ending in <c>ret</c>, contains no call itself (a leaf — which also rules out recursion
-/// and guarantees the process terminates, since each inline removes one call and adds none), is not
-/// external / an interrupt handler / the entry / banked, and is at most <see cref="MaxCalleeSize"/>
-/// instructions. Straight-line cloning with an operand remap then splices the body in ahead of the
-/// call; multi-block inlining (with block cloning and a return phi) is a later extension.
+/// Inlines calls to small single-block leaf functions (the tiny accessors a game is full of),
+/// erasing the SM83 call cost — arg marshalling through <c>ArgScratch</c>, static-frame save/restore,
+/// <c>ReturnScratch</c> — and exposing the body to the rest of the optimizer. A callee qualifies only
+/// when it is one block ending in <c>ret</c>, calls nothing (a leaf, so no recursion and the process
+/// terminates), is not external/interrupt/entry/banked, and is at most <see cref="MaxCalleeSize"/>
+/// instructions; its straight-line body is then cloned with an operand remap ahead of the call.
 /// </summary>
 public sealed class InliningPass
 {

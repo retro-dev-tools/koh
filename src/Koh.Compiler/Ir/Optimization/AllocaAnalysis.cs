@@ -2,14 +2,11 @@ namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
 /// Classifies a function's <c>alloca</c>s for the memory passes. An alloca is <em>non-escaping</em>
-/// when its every use is the pointer operand of a <c>load</c> or <c>store</c> — i.e. its address is
-/// never taken (never stored as a value, indexed by a <c>gep</c>, passed to a call, or returned).
-/// The address of a non-escaping alloca cannot alias any other pointer, so its slot is only ever
-/// touched by those direct loads/stores: no call and no store through another pointer can observe or
-/// modify it. That is what makes store→load forwarding and dead-store elimination sound for it.
-///
-/// Scalar locals (the frontend lowers each to one alloca with direct load/store) are non-escaping;
-/// arrays and structs (accessed through <c>gep</c>) and any address-taken local escape.
+/// when every use is the pointer operand of a <c>load</c>/<c>store</c> — its address is never taken
+/// (stored as a value, <c>gep</c>'d, call-passed, returned). Such an alloca can't alias any other
+/// pointer, so only its own direct load/stores touch it, which is what makes store→load forwarding
+/// and dead-store elimination sound. Scalar locals are non-escaping; arrays/structs (via <c>gep</c>)
+/// and address-taken locals escape.
 /// </summary>
 internal static class AllocaAnalysis
 {
