@@ -63,6 +63,14 @@ public abstract class IrInstruction : IrValue
     /// <summary>Operand values referenced by this instruction, in textual order.</summary>
     public abstract IEnumerable<IrValue> Operands { get; }
 
+    /// <summary>
+    /// Replace every operand reference equal (by identity) to <paramref name="from"/> with
+    /// <paramref name="to"/>. Used by optimizer passes to rewrite uses (RAUW). The replacement
+    /// must be type-compatible with what it replaces — an instruction's result type is fixed at
+    /// construction and is not recomputed here. The default is a no-op (operand-free instructions).
+    /// </summary>
+    public virtual void ReplaceOperand(IrValue from, IrValue to) { }
+
     /// <summary>True for block terminators (ret/br/condbr/switch).</summary>
     public virtual bool IsTerminator => false;
 
@@ -78,7 +86,7 @@ public abstract class IrInstruction : IrValue
 /// <summary><c>ret</c> — optionally returns a value.</summary>
 public sealed class RetInstruction : IrInstruction
 {
-    public IrValue? Value { get; }
+    public IrValue? Value { get; private set; }
 
     public RetInstruction(IrValue? value)
         : base(IrType.Void) => Value = value;
@@ -86,6 +94,12 @@ public sealed class RetInstruction : IrInstruction
     public override IEnumerable<IrValue> Operands => Value is null ? [] : [Value];
     public override bool IsTerminator => true;
     public override string Mnemonic => "ret";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Value, from))
+            Value = to;
+    }
 }
 
 /// <summary><c>br</c> — unconditional branch.</summary>
@@ -105,7 +119,7 @@ public sealed class BrInstruction : IrInstruction
 /// <summary><c>condbr</c> — branch on a boolean (i8) condition.</summary>
 public sealed class CondBrInstruction : IrInstruction
 {
-    public IrValue Condition { get; }
+    public IrValue Condition { get; private set; }
     public IrBasicBlock IfTrue { get; }
     public IrBasicBlock IfFalse { get; }
 
@@ -121,12 +135,18 @@ public sealed class CondBrInstruction : IrInstruction
     public override bool IsTerminator => true;
     public override IEnumerable<IrBasicBlock> Successors => [IfTrue, IfFalse];
     public override string Mnemonic => "condbr";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Condition, from))
+            Condition = to;
+    }
 }
 
 /// <summary><c>switch</c> — multi-way branch on an integer value.</summary>
 public sealed class SwitchInstruction : IrInstruction
 {
-    public IrValue Value { get; }
+    public IrValue Value { get; private set; }
     public IrBasicBlock Default { get; }
     public IReadOnlyList<(IrConstInt Case, IrBasicBlock Target)> Cases { get; }
 
@@ -154,6 +174,12 @@ public sealed class SwitchInstruction : IrInstruction
         }
     }
     public override string Mnemonic => "switch";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Value, from))
+            Value = to;
+    }
 }
 
 // ---- Arithmetic / logic --------------------------------------------------
@@ -162,8 +188,8 @@ public sealed class SwitchInstruction : IrInstruction
 public sealed class BinaryInstruction : IrInstruction
 {
     public IrBinaryOp Op { get; }
-    public IrValue Left { get; }
-    public IrValue Right { get; }
+    public IrValue Left { get; private set; }
+    public IrValue Right { get; private set; }
 
     public BinaryInstruction(IrBinaryOp op, IrValue left, IrValue right)
         : base(left.Type)
@@ -175,14 +201,22 @@ public sealed class BinaryInstruction : IrInstruction
 
     public override IEnumerable<IrValue> Operands => [Left, Right];
     public override string Mnemonic => Op.ToString().ToLowerInvariant();
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Left, from))
+            Left = to;
+        if (ReferenceEquals(Right, from))
+            Right = to;
+    }
 }
 
 /// <summary>An integer comparison; result is a boolean (<see cref="IrType.I8"/>).</summary>
 public sealed class CompareInstruction : IrInstruction
 {
     public IrCompareOp Op { get; }
-    public IrValue Left { get; }
-    public IrValue Right { get; }
+    public IrValue Left { get; private set; }
+    public IrValue Right { get; private set; }
 
     public CompareInstruction(IrCompareOp op, IrValue left, IrValue right)
         : base(IrType.I8)
@@ -194,13 +228,21 @@ public sealed class CompareInstruction : IrInstruction
 
     public override IEnumerable<IrValue> Operands => [Left, Right];
     public override string Mnemonic => "icmp";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Left, from))
+            Left = to;
+        if (ReferenceEquals(Right, from))
+            Right = to;
+    }
 }
 
 /// <summary>An integer width conversion (trunc/zext/sext).</summary>
 public sealed class ConvInstruction : IrInstruction
 {
     public IrConvOp Op { get; }
-    public IrValue Operand { get; }
+    public IrValue Operand { get; private set; }
 
     public ConvInstruction(IrConvOp op, IrValue operand, IrType target)
         : base(target)
@@ -211,6 +253,12 @@ public sealed class ConvInstruction : IrInstruction
 
     public override IEnumerable<IrValue> Operands => [Operand];
     public override string Mnemonic => Op.ToString().ToLowerInvariant();
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Operand, from))
+            Operand = to;
+    }
 }
 
 // ---- Memory --------------------------------------------------------------
@@ -230,20 +278,26 @@ public sealed class AllocaInstruction : IrInstruction
 /// <summary><c>load</c> — read the value a pointer refers to.</summary>
 public sealed class LoadInstruction : IrInstruction
 {
-    public IrValue Pointer { get; }
+    public IrValue Pointer { get; private set; }
 
     public LoadInstruction(IrValue pointer)
         : base(pointer.Type.Element ?? IrType.Void) => Pointer = pointer;
 
     public override IEnumerable<IrValue> Operands => [Pointer];
     public override string Mnemonic => "load";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Pointer, from))
+            Pointer = to;
+    }
 }
 
 /// <summary><c>store</c> — write a value through a pointer; produces no result.</summary>
 public sealed class StoreInstruction : IrInstruction
 {
-    public IrValue Value { get; }
-    public IrValue Pointer { get; }
+    public IrValue Value { get; private set; }
+    public IrValue Pointer { get; private set; }
 
     public StoreInstruction(IrValue value, IrValue pointer)
         : base(IrType.Void)
@@ -254,13 +308,21 @@ public sealed class StoreInstruction : IrInstruction
 
     public override IEnumerable<IrValue> Operands => [Value, Pointer];
     public override string Mnemonic => "store";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(Value, from))
+            Value = to;
+        if (ReferenceEquals(Pointer, from))
+            Pointer = to;
+    }
 }
 
 /// <summary><c>gep</c> — compute <c>base + index</c> as a pointer to an element.</summary>
 public sealed class GetElementPtrInstruction : IrInstruction
 {
-    public IrValue BasePointer { get; }
-    public IrValue Index { get; }
+    public IrValue BasePointer { get; private set; }
+    public IrValue Index { get; private set; }
     public IrType ElementType { get; }
 
     public GetElementPtrInstruction(IrValue basePointer, IrValue index, IrType elementType)
@@ -273,6 +335,14 @@ public sealed class GetElementPtrInstruction : IrInstruction
 
     public override IEnumerable<IrValue> Operands => [BasePointer, Index];
     public override string Mnemonic => "gep";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        if (ReferenceEquals(BasePointer, from))
+            BasePointer = to;
+        if (ReferenceEquals(Index, from))
+            Index = to;
+    }
 }
 
 // ---- Calls and phis ------------------------------------------------------
@@ -280,18 +350,27 @@ public sealed class GetElementPtrInstruction : IrInstruction
 /// <summary><c>call</c> — a direct call; result type is the callee's return type.</summary>
 public sealed class CallInstruction : IrInstruction
 {
+    private readonly List<IrValue> _arguments;
+
     public IrFunction Callee { get; }
-    public IReadOnlyList<IrValue> Arguments { get; }
+    public IReadOnlyList<IrValue> Arguments => _arguments;
 
     public CallInstruction(IrFunction callee, IReadOnlyList<IrValue> arguments)
         : base(callee.ReturnType)
     {
         Callee = callee;
-        Arguments = arguments;
+        _arguments = [.. arguments];
     }
 
-    public override IEnumerable<IrValue> Operands => Arguments;
+    public override IEnumerable<IrValue> Operands => _arguments;
     public override string Mnemonic => "call";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        for (var i = 0; i < _arguments.Count; i++)
+            if (ReferenceEquals(_arguments[i], from))
+                _arguments[i] = to;
+    }
 }
 
 /// <summary>A named hardware/runtime intrinsic with no operands (e.g. <c>ei</c>, <c>di</c>, <c>halt</c>).</summary>
@@ -318,6 +397,21 @@ public sealed class PhiInstruction : IrInstruction
 
     public void AddIncoming(IrValue value, IrBasicBlock block) => _incomings.Add((value, block));
 
+    /// <summary>
+    /// Drop every incoming arriving from <paramref name="block"/>. Used by CFG simplification when a
+    /// predecessor edge into this phi's block is removed, so the phi's incomings stay in one-to-one
+    /// correspondence with the block's actual predecessors.
+    /// </summary>
+    public void RemoveIncomingsFrom(IrBasicBlock block) =>
+        _incomings.RemoveAll(i => ReferenceEquals(i.Block, block));
+
     public override IEnumerable<IrValue> Operands => _incomings.Select(i => i.Value);
     public override string Mnemonic => "phi";
+
+    public override void ReplaceOperand(IrValue from, IrValue to)
+    {
+        for (var i = 0; i < _incomings.Count; i++)
+            if (ReferenceEquals(_incomings[i].Value, from))
+                _incomings[i] = (to, _incomings[i].Block);
+    }
 }

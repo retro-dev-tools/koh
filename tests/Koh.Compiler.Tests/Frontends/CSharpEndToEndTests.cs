@@ -1,6 +1,7 @@
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends.CSharp;
 using Koh.Compiler.Ir;
+using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
@@ -34,6 +35,38 @@ public class CSharpEndToEndTests
 
     private static EmitModel Compile(string src) =>
         new Sm83Backend().Compile(Frontend(src), new DiagnosticBag());
+
+    /// <summary>As <see cref="Compile"/>, but runs the IR optimizer first (the driver's default path).</summary>
+    private static EmitModel CompileOpt(string src)
+    {
+        var module = Frontend(src);
+        IrOptimizer.Optimize(module);
+        return new Sm83Backend().Compile(module, new DiagnosticBag());
+    }
+
+    private static byte RunAOpt(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(CompileOpt(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        return gb.Registers.A;
+    }
+
+    private static ushort RunHLOpt(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(CompileOpt(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        return gb.Registers.HL;
+    }
+
+    private static uint RunI32Opt(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(CompileOpt(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        return ((uint)gb.Registers.DE << 16) | gb.Registers.HL;
+    }
 
     private static GameBoySystem Load(EmitModel model, out int start, out int length)
     {
@@ -3118,5 +3151,211 @@ static uint Log2(uint value) {
             diagnostics
         );
         return !diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    // ---- Optimizer: behavior is preserved end-to-end on the emulator --------
+
+    [Test]
+    public async Task Optimized_FoldsConstantArithmeticToCorrectValue()
+    {
+        // 20*2 + 2 = 42, folded to a single constant, still returned correctly from the real ROM.
+        await Assert
+            .That(RunAOpt("static byte Main() { return (byte)(20 * 2 + 2); }"))
+            .IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Optimized_WrapsFoldedConstantToWidth()
+    {
+        // 100+100+100 = 300; as a byte that is 44. Folding must wrap exactly like the backend would.
+        await Assert
+            .That(RunAOpt("static byte Main() { return (byte)(100 + 100 + 100); }"))
+            .IsEqualTo((byte)44);
+    }
+
+    [Test]
+    public async Task Optimized_PreservesRuntimeParameterComputation()
+    {
+        // Non-constant code the optimizer must leave alone: a + b with runtime inputs.
+        const string src = "static byte Add(byte a, byte b) { return a + b; }";
+        await Assert
+            .That(
+                RunAOpt(
+                    src,
+                    gb =>
+                    {
+                        W8(gb, 0, 40);
+                        W8(gb, 1, 2);
+                    }
+                )
+            )
+            .IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Optimized_FoldsConstantComparisonDrivingABranch()
+    {
+        // The comparison folds to a constant; the branch must still select the right arm.
+        await Assert
+            .That(RunAOpt("static byte Main() { if (5 > 3) { return 7; } return 9; }"))
+            .IsEqualTo((byte)7);
+    }
+
+    [Test]
+    public async Task Optimized_RomIsSmallerWhenConstantsFold()
+    {
+        // The optimizer must actually fire on a real compile: a constant-heavy function shrinks.
+        const string src = "static byte Main() { return (byte)(1 + 2 + 3 + 4 + 5 + 6 + 7 + 8); }";
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
+    }
+
+    [Test]
+    public async Task Optimized_ForwardsScalarLocalsThroughStoreLoad()
+    {
+        // A chain of scalar-local copies should forward to the parameter and still compute correctly.
+        const string src =
+            "static byte F(byte n) { byte x = n; byte y = x; return (byte)(y + y); }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 21))).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Optimized_ScalarLocalForwardingShrinksRom()
+    {
+        // Store->load forwarding + dead-store/DCE must remove the alloca traffic for scalar locals.
+        const string src =
+            "static byte F(byte n) { byte x = n; byte y = x; byte z = y; return (byte)(z + z + z); }";
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 10))).IsEqualTo((byte)30);
+    }
+
+    [Test]
+    public async Task Optimized_EliminatesDeadBranch()
+    {
+        // The condition folds to a constant, so simplify-cfg drops the dead arm; the result is 9.
+        await Assert
+            .That(RunAOpt("static byte Main() { if (2 > 5) { return 1; } return 9; }"))
+            .IsEqualTo((byte)9);
+    }
+
+    [Test]
+    public async Task Optimized_StrengthReducesMultiplyToShift()
+    {
+        // n * 8 becomes n << 3 — cheaper than the software multiply — and stays correct.
+        const string src = "static byte F(byte n) { return (byte)(n * 8); }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)40);
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
+    }
+
+    [Test]
+    public async Task Optimized_StrengthReducesUnsignedRemainderToMask()
+    {
+        // n % 8 (unsigned) becomes n & 7, avoiding the software divide, and stays correct.
+        await Assert
+            .That(RunAOpt("static byte F(byte n) { return (byte)(n % 8); }", gb => W8(gb, 0, 21)))
+            .IsEqualTo((byte)5);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesLocalAcrossIfElse()
+    {
+        // mem2reg lifts `r` (written on both arms, read after the merge) into a phi. Both arms correct.
+        const string src =
+            "static byte F(byte n) { byte r; if (n > 10) { r = 1; } else { r = 2; } return r; }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 20))).IsEqualTo((byte)1);
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)2);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesLoopAccumulator()
+    {
+        // A loop counter and accumulator become loop-header phis; the sum 0+1+..+(n-1) stays correct.
+        const string src =
+            "static byte Sum(byte n) { byte s = 0; for (byte i = 0; i < n; i++) { s += i; } return s; }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)10); // 0+1+2+3+4
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 1))).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesWideLocalAcrossControlFlow()
+    {
+        // The same, at i16, so the backend's phi path is exercised for a two-byte value end-to-end.
+        const string src =
+            "static ushort F(ushort n) { ushort r; if (n > 100) { r = 1000; } else { r = 2000; } return r; }";
+        await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 250))).IsEqualTo((ushort)1000);
+        await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 50))).IsEqualTo((ushort)2000);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesWideLoopAccumulator()
+    {
+        // A loop-carried i16 becomes a wide phi. Regression guard for phi/incoming partial slot
+        // overlap: the accumulator must not be corrupted mid-copy on the back edge.
+        const string src16 =
+            "static ushort Sum(ushort n) { ushort s = 0; for (ushort i = 0; i < n; i++) { s = (ushort)(s + i); } return s; }";
+        await Assert.That(RunHLOpt(src16, gb => W16(gb, 0, 10))).IsEqualTo((ushort)45); // 0+1+..+9
+
+        // Same at i32, so a two-word (DE:HL) loop-carried phi is exercised end-to-end.
+        const string src32 =
+            "static uint Sum(uint n) { uint s = 0; for (uint i = 0; i < n; i++) { s = s + i; } return s; }";
+        await Assert.That(RunI32Opt(src32, gb => W32(gb, 0, 10))).IsEqualTo(45u);
+    }
+
+    [Test]
+    public async Task Optimized_InlinesLeafAccessorAndRunsCorrectly()
+    {
+        // The leaf `Double` is spliced into `Apply`, which then computes n+n with no call/frame.
+        const string src =
+            "static byte Apply(byte n) { return Double(n); } static byte Double(byte a) { return (byte)(a + a); }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 21))).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Peephole_EmitsXorAForZeroLoadAndStaysCorrect()
+    {
+        // `0 - n` loads 0 into A (LD A,0) then SUB; the peephole turns the load into XOR A because
+        // the following SUB redefines all flags. The XOR A byte (0xAF) must appear and the result hold.
+        const string src = "static byte Neg(byte n) { return (byte)(0 - n); }";
+        var code = Compile(src).Sections[0].Data;
+        await Assert.That(code.Contains((byte)0xAF)).IsTrue();
+        await Assert.That(RunA(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)251); // 0 - 5 = 251 (mod 256)
+    }
+
+    [Test]
+    public async Task Peephole_PreservesCarryChainCorrectness()
+    {
+        // A 16-bit subtract that borrows across the byte boundary: the low byte's borrow must reach the
+        // high byte's SBC. If the peephole wrongly rewrote a zero-load in the chain, this would break.
+        const string src = "static ushort Sub(ushort a, ushort b) { return (ushort)(a - b); }";
+        await Assert
+            .That(
+                RunHL(
+                    src,
+                    gb =>
+                    {
+                        W16(gb, 0, 0x0100);
+                        W16(gb, 2, 0x0001);
+                    }
+                )
+            )
+            .IsEqualTo((ushort)0x00FF);
+    }
+
+    [Test]
+    public async Task Optimized_InliningAndDeadFunctionRemovalShrinkRom()
+    {
+        // Main calls a leaf accessor with a constant: inlining + folding collapse it to a return, and
+        // the now-uncalled callee is dropped from the module, so the optimized ROM is smaller.
+        const string src =
+            "static byte Main() { return Double(21); } static byte Double(byte a) { return (byte)(a + a); }";
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)42);
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
     }
 }

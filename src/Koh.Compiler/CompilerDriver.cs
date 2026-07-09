@@ -1,5 +1,6 @@
 using Koh.Compiler.Backends;
 using Koh.Compiler.Frontends;
+using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
@@ -16,8 +17,9 @@ namespace Koh.Compiler;
 public static class CompilerDriver
 {
     /// <summary>
-    /// Compile <paramref name="source"/> with the given frontend and backend. Diagnostics from
-    /// both phases accumulate into <paramref name="diagnostics"/>.
+    /// Compile <paramref name="source"/> with the given frontend and backend. Diagnostics from both
+    /// phases accumulate into <paramref name="diagnostics"/>. The IR is optimized between the phases,
+    /// skipped when the frontend reported an error (the IR may be incomplete — warnings don't block it).
     /// </summary>
     public static EmitModel Compile(
         IFrontend frontend,
@@ -27,6 +29,8 @@ public static class CompilerDriver
     )
     {
         var module = frontend.Lower(source, diagnostics);
+        if (!diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+            IrOptimizer.Optimize(module);
         return backend.Compile(module, diagnostics);
     }
 }

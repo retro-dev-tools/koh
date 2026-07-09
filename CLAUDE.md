@@ -62,8 +62,10 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   `IrType.Bits` (that is 0 for pointers); its width comes from `DataLayout`. Never size a
   type with `(Ir.Bits + 7) / 8` — use the accessor, or pointer struct fields / globals break.
 - **The C# frontend produces no phis** — locals/params are `alloca`s, so control flow needs
-  no phi construction. Phi handling in the backend is exercised only by hand-written/parsed IR
-  (e.g. `Sm83ControlFlowTests`).
+  no phi construction. But the IR optimizer's `Mem2RegPass` (default-on in `CompilerDriver`) *does*
+  insert phis, so the backend's phi path runs on real compiled programs, not just hand-written/parsed
+  IR (`Sm83ControlFlowTests`). A wide phi is forced to interfere with its incoming values in
+  `FunctionAllocation` so a byte-by-byte edge copy can't partially overlap its own source.
 - **`IrVerifier` is not run inside `CompilerDriver`** — only tests call it. Invalid IR reaches
   the backend, which may "work by accident." Assert `IrVerifier.Verify(module).IsEmpty()` in
   tests for new lowering.

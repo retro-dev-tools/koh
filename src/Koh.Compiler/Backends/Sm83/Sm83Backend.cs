@@ -163,7 +163,8 @@ public sealed partial class Sm83Backend : IBackend
         {
             if (fn.IsExternal)
                 continue;
-            funcOffsets.Add((fn, emitter.Code.Count));
+            int startOffset = emitter.Code.Count;
+            funcOffsets.Add((fn, startOffset));
             new FunctionEmitter(
                 emitter,
                 fn,
@@ -173,6 +174,7 @@ public sealed partial class Sm83Backend : IBackend
                 ReferenceEquals(fn, entryFunction),
                 softStackBase
             ).Compile();
+            emitter.PeepholeFrom(startOffset);
         }
         int funcsEnd = emitter.Code.Count;
 
@@ -407,6 +409,7 @@ public sealed partial class Sm83Backend : IBackend
                 softStackBase,
                 banked
             ).Compile();
+            measure.PeepholeFrom(s0); // match real emission, or a fitting function is spuriously rejected
             size[f] = measure.Code.Count - s0;
         }
 
@@ -458,6 +461,7 @@ public sealed partial class Sm83Backend : IBackend
 
         void EmitFunc(IrFunction f, int addr)
         {
+            int startOffset = emitter.Code.Count;
             funcAddr[f] = addr;
             new FunctionEmitter(
                 emitter,
@@ -469,6 +473,7 @@ public sealed partial class Sm83Backend : IBackend
                 softStackBase,
                 banked
             ).Compile();
+            emitter.PeepholeFrom(startOffset);
         }
 
         foreach (var f in order.Where(IsRom0))

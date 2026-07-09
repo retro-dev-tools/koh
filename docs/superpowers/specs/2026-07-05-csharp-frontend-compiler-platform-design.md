@@ -179,7 +179,63 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
    - **Debug + diagnostics:** source spans threaded to `.kdbg`; errors reported into the `DiagnosticBag` with locations, not thrown.
    
    Verified end-to-end on the emulator (Gcd, Factorial, arrays, structs, ref-swap, hardware register I/O, …) and by a full playable **2048** ROM (`samples/gb-2048-cs`) that compiles through the pipeline and whose game logic is checked in the emulator. Remaining polish: 32-bit multiply/divide/shift (add/subtract/bitwise/compare already work), a custom charmap (string literals currently map to raw char codes), method overloading, banking attributes, `extern` asm interop. Out by design: classes/GC/generics/async/LINQ/recursion.
-4. **IR optimization passes.** Const-fold, DCE, copy/coalesce, SM83 peephole on the emitted stream. Introduce full SSA-based opt if/when the optimizer needs it.
+4. **IR optimization passes.** 🚧 *In progress.* `Ir/Optimization/` adds a small pass framework
+   (`IIrFunctionPass`, `IrOptimizer`) run by `CompilerDriver` between the frontend and the backend
+   (default-on; `CompilerDriver.Compile(..., optimize: false)` disables it). Landed passes, iterated
+   to a fixed point:
+   - **Constant folding + algebraic identities** — width-/signedness-correct integer
+     `binary`/`icmp`/`conv` folding that wraps exactly like the backend; identities such as `x+0`,
+     `x*0`, `x&-1`, `x^x`, `x<<0`, `x/1`; div/rem-by-zero and out-of-range shifts left unfolded.
+   - **mem2reg** — promotes non-escaping scalar `alloca`s (every scalar local) to SSA values,
+     inserting phis at dominance frontiers (`Dominators` computes the dom tree + frontiers), so a
+     value whose live range spans control flow — read after an `if`, a loop counter — becomes direct
+     SSA data flow instead of memory traffic. The enabler for cross-block folding/CSE and, later,
+     register residency.
+   - **Trivial-phi elimination** — collapses a phi with a single unique incoming (ignoring
+     self-references) to that value; cleans up after mem2reg and edge pruning.
+   - **Inlining + dead-function elimination** — splices small single-block leaf callees (the tiny
+     accessors a game is full of) into their call sites, erasing the SM83 call/frame/arg-marshalling
+     overhead and exposing the body to the rest of the optimizer, then drops functions no longer
+     reachable from the entry or an interrupt handler. Interprocedural, run once up front.
+   - **Strength reduction** — rewrites multiply / unsigned-divide / unsigned-remainder by a constant
+     power of two to a shift or mask (`x*2^k → x<<k`, `x u/2^k → x>>k`, `x u%2^k → x & (2^k-1)`),
+     turning the open-coded SM83 mul/div runtime routines into a few inline instructions. Signed
+     div/rem by a power of two are left alone (arithmetic shift rounds the wrong way).
+   - **Local CSE** — intra-block common-subexpression elimination for pure instructions
+     (`binary`/`icmp`/`conv`/`gep`), matching non-constant operands by SSA identity and constants by
+     value, so repeated address arithmetic (`a[i]` read then written) and duplicated math collapse.
+   - **Simplify-CFG** — folds a `condbr` on a constant condition to an unconditional `br` and deletes
+     the now-unreachable blocks, maintaining phi incomings precisely as predecessor edges disappear.
+   - **Redundant-load elimination** — intra-block store→load and load→load forwarding for
+     non-escaping scalar `alloca`s (the frontend lowers every scalar local to one), turning
+     alloca/load/store traffic back into direct SSA data flow the folder can act on.
+   - **Dead-store elimination** — drops stores to a write-only (never-loaded) non-escaping `alloca`;
+     DCE then removes the alloca.
+   - **Dead-code elimination** — removes unused side-effect-free results
+     (`binary`/`icmp`/`conv`/`gep`/`alloca`/`phi`), keeping `load` as potentially-volatile MMIO plus
+     all stores/calls/intrinsics/terminators.
+
+   A **backend** machine-level pass also landed: an SM83 peephole (`Sm83Peephole` + `Emitter.PeepholeFrom`)
+   that runs per-function right after emission. Because the backend emits a flat byte buffer with no
+   instruction boundaries, it decodes the just-emitted region with the fixed opcode-length table, then
+   rewrites `LD A, 0` → `XOR A` only where a forward flag-liveness scan proves every flag dead (which
+   correctly leaves zero-loads inside `ADC`/`SBC` carry chains as `LD A, 0`). Running per-function keeps
+   relocation local: the region's entry never moves, so only that function's own labels (including the
+   anonymous branch-edge labels), fixups, and line map shift for the removed bytes. This is the first
+   piece of the machine-instruction/liveness layer that the remaining machine-level work (`ldi`/`ldd`
+   selection, register residency, HRAM placement) builds on.
+
+   Enabled by a minimal type-preserving RAUW (`IrInstruction.ReplaceOperand`) and phi-edge maintenance
+   (`PhiInstruction.RemoveIncomingsFrom`) on the IR core; escape/loaded classification of allocas
+   lives in `AllocaAnalysis`. Verified end-to-end on the emulator (folded ROMs and scalar-local
+   forwarding run correctly and shrink the ROM, dead branches are pruned, and the full 2048 sample
+   boots and its slide logic matches un-optimized, and `n*8` strength-reduces to a shift that shrinks
+   the ROM, and a local carried across an `if`/loop is promoted to a phi and computes correctly at i8
+   and i16) in `Koh.Compiler.Tests`. Remaining machine-level work is the larger lever now: an SM83
+   peephole pass on the emitted stream (`ld a,0`→`xor a`, `jp`→`jr`, `ldi`/`ldd` for sequential
+   memory, flag reuse), register residency/allocation over `A`/`BC`/`DE`/`HL` (now unblocked by
+   mem2reg), HRAM (`ldh`) hot-variable placement, and small-leaf inlining; plus cross-block GVN/SCCP
+   at the IR level.
 5. **Editor tooling.** Diagnostics/hover/go-to for Koh C#, reusing the LSP architecture and/or Roslyn.
 6. **Prove generality (optional, later).** A second backend (ARM7TDMI via LLVM delegation) or a second frontend — only to validate the seams.
 

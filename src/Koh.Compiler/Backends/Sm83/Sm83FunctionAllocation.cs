@@ -243,6 +243,16 @@ internal sealed class FunctionAllocation
             for (int i = 0; i < blockPhis.Count; i++)
             for (int j = i + 1; j < blockPhis.Count; j++)
                 Interfere(blockPhis[i], blockPhis[j]);
+
+            // A wide phi is realized as a byte-by-byte parallel copy from each incoming value on the
+            // predecessor edge; like a wide result versus its operands, it must not partially overlap
+            // an incoming's slot, or the low→high copy clobbers a source byte before reading it. Force
+            // disjointness by interfering a wide phi with its colored incomings.
+            foreach (var p in blockPhis)
+                if (p.Type.SizeInBytes >= 2)
+                    foreach (var (val, _) in p.Incomings)
+                        if (colored.Contains(val))
+                            Interfere(p, val);
         }
 
         return graph;

@@ -142,6 +142,91 @@ internal sealed class Emitter
         _aValidCount = -1; // control leaves; do not carry A across the branch
     }
 
+    /// <summary>
+    /// Run the flag-aware peephole over the just-emitted function region [<paramref name="start"/>,
+    /// Code.Count) and relocate this region's labels, fixups, and line map for any bytes it removes.
+    /// Safe to run per-function because nothing has been emitted after the region yet (so no later
+    /// offset needs shifting) and the region's entry sits at <paramref name="start"/>, which never
+    /// moves — so every cross-function reference (funcAddr, forward CALL fixups) stays valid.
+    /// </summary>
+    public void PeepholeFrom(int start)
+    {
+        int end = Code.Count;
+        if (start >= end)
+            return;
+
+        // Every label whose target lands in this region — block/function/routine/thunk labels and the
+        // anonymous branch-edge labels that EmitCondBr/EmitSwitch create (which live only in the fixup
+        // list). All of these must relocate when bytes move, and all are join points for liveness.
+        var labels = new HashSet<Label>(ReferenceEqualityComparer.Instance);
+        void Collect<T>(Dictionary<T, Label> dict)
+            where T : notnull
+        {
+            foreach (var label in dict.Values)
+                if (label.Offset >= start && label.Offset <= end)
+                    labels.Add(label);
+        }
+        Collect(_blocks);
+        Collect(_funcs);
+        Collect(_routines);
+        Collect(_thunks);
+        foreach (var (_, target) in _fixups)
+            if (target.Offset >= start && target.Offset <= end)
+                labels.Add(target);
+
+        var boundaries = new HashSet<int>();
+        foreach (var label in labels)
+            boundaries.Add(label.Offset);
+
+        var edits = Sm83Peephole.FindZeroLoadEdits(Code, start, end, boundaries);
+        if (edits.Count == 0)
+            return;
+
+        // Each edit rewrites LD A,0 (3E 00) to XOR A (AF): the opcode byte becomes 0xAF and the
+        // immediate byte (o + 1) is deleted. Edits are ascending, so the deleted positions are too.
+        var deletes = new int[edits.Count];
+        for (var i = 0; i < edits.Count; i++)
+        {
+            Code[edits[i]] = 0xAF;
+            deletes[i] = edits[i] + 1;
+        }
+
+        // Number of deleted bytes strictly below an offset — its leftward shift.
+        int DeletesBelow(int offset)
+        {
+            var idx = Array.BinarySearch(deletes, offset);
+            return idx < 0 ? ~idx : idx;
+        }
+        int Remap(int offset) => offset - DeletesBelow(offset);
+
+        foreach (var label in labels)
+            label.Offset = Remap(label.Offset);
+
+        for (var i = 0; i < _fixups.Count; i++)
+            if (_fixups[i].Pos >= start && _fixups[i].Pos < end)
+                _fixups[i] = (Remap(_fixups[i].Pos), _fixups[i].Target);
+
+        // Shrink every line-map entry that covers deleted bytes. An entry can start before this region
+        // yet extend into it (AddLineRange coalesces adjacent lines across the function boundary), so
+        // its byte count must drop even when its offset stays put.
+        for (var i = 0; i < LineMap.Count; i++)
+        {
+            var entry = LineMap[i];
+            var shrink = DeletesBelow(entry.Offset + entry.ByteCount) - DeletesBelow(entry.Offset);
+            if (shrink == 0 && Remap(entry.Offset) == entry.Offset)
+                continue;
+            LineMap[i] = entry with
+            {
+                Offset = Remap(entry.Offset),
+                ByteCount = entry.ByteCount - shrink,
+            };
+        }
+
+        for (var i = deletes.Length - 1; i >= 0; i--)
+            Code.RemoveAt(deletes[i]);
+        _aValidCount = -1; // A-tracking is invalidated by the rewrite
+    }
+
     /// <summary>Patch every fixup to its target's absolute address. The buffer is partitioned into
     /// contiguous regions given as (bufferStart, base) pairs sorted by start; an offset in a region
     /// resolves to <c>base + (offset - bufferStart)</c>. ROM0 uses its physical base; each banked

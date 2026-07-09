@@ -2,6 +2,7 @@ using System.Text;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends.CSharp;
 using Koh.Compiler.Ir;
+using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
 using Koh.Emulator.Core;
@@ -126,13 +127,15 @@ public class Game2048Tests
     /// Compile a test whose Main (placed first, so it lands at the ROM entry) drives the sample's
     /// Board/Video API, run it, and return HL.
     /// </summary>
-    private static ushort Run(string testMain)
+    private static ushort Run(string testMain, bool optimize = false)
     {
         var src = testMain + "\n" + GameLibrary;
         var module = new CSharpFrontend().Lower(
             SourceText.From(src, "game.cs"),
             new DiagnosticBag()
         );
+        if (optimize)
+            IrOptimizer.Optimize(module);
         var model = new Sm83Backend().Compile(module, new DiagnosticBag());
         var rom = new LinkerType().Link([new LinkerInput("t", model)]).RomData!;
 
@@ -321,5 +324,41 @@ public class Game2048Tests
             return *(Gb.TileMap + 12 * 32 + 15);
         }";
         await Assert.That(Run(src)).IsEqualTo((ushort)9);
+    }
+
+    // ---- The optimized real ROM boots and behaves identically ---------------
+
+    [Test]
+    public async Task Optimized_SampleRomBootsIntoMainAndInitializes()
+    {
+        // The full sample compiled through the optimizer must still boot into Main and initialize:
+        // Tiles.GenerateTileset writes tile 1's first row (0xFF) into VRAM at 0x8010, exactly as the
+        // un-optimized ROM does. This exercises the optimizer across the entire multi-file program.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(GameSource, "2048.cs"),
+            new DiagnosticBag()
+        );
+        IrOptimizer.Optimize(module);
+        var model = new Sm83Backend().Compile(module, new DiagnosticBag());
+        var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Pc = 0x100;
+        gb.Registers.Sp = 0xFFFE;
+        for (int i = 0; i < 2_000_000; i++)
+            gb.StepInstruction();
+
+        await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);
+    }
+
+    [Test]
+    public async Task Optimized_SlideLogicMatchesUnoptimized()
+    {
+        // A representative slide (2 2 . . -> 4 . . .) produces the same cell values with the optimizer on.
+        const string main =
+            "static ushort Main() { Board.Reset(); Board.SetCell(0,1); Board.SetCell(1,1); "
+            + "Board.Slide(Direction.Left); return Board.GetCell((byte)0); }";
+        await Assert.That(Run(main, optimize: true)).IsEqualTo(Run(main, optimize: false));
+        await Assert.That(Run(main, optimize: true)).IsEqualTo((ushort)2);
     }
 }
