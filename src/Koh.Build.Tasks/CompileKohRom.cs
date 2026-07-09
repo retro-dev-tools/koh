@@ -55,11 +55,18 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         }
 
         // A Koh program is one translation unit; concatenate multiple sources (the common case is one).
-        string text = string.Join(
-            "\n",
-            SourceFiles.Select(f => File.ReadAllText(f.GetMetadata("FullPath")))
-        );
-        var source = SourceText.From(text, primary);
+        // Track where each file starts in the joined text so a diagnostic's offset can be mapped back
+        // to the file it actually came from, not just the first one.
+        var files = new List<(string Path, int Start, SourceText Source)>();
+        var joined = new System.Text.StringBuilder();
+        foreach (var item in SourceFiles)
+        {
+            string path = item.GetMetadata("FullPath");
+            string content = File.ReadAllText(path);
+            files.Add((path, joined.Length, SourceText.From(content, path)));
+            joined.Append(content).Append('\n');
+        }
+        var source = SourceText.From(joined.ToString(), primary);
 
         var diagnostics = new DiagnosticBag();
         EmitModel model = CompilerDriver.Compile(frontend, backend, source, diagnostics);
@@ -67,15 +74,15 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         bool hadError = false;
         foreach (var d in diagnostics)
         {
-            var (line, col) = LineColumn(source, d.Span.Start);
+            var (file, line, col) = Locate(files, primary, d.Span.Start);
             if (d.Severity == DiagnosticSeverity.Error)
             {
                 hadError = true;
-                Log.LogError(null, null, null, primary, line, col, line, col, d.Message);
+                Log.LogError(null, null, null, file, line, col, line, col, d.Message);
             }
             else
             {
-                Log.LogWarning(null, null, null, primary, line, col, line, col, d.Message);
+                Log.LogWarning(null, null, null, file, line, col, line, col, d.Message);
             }
         }
         if (hadError)
@@ -95,11 +102,22 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         return true;
     }
 
-    private static (int Line, int Column) LineColumn(SourceText source, int position)
+    /// <summary>Map an offset in the concatenated translation unit back to the originating file and its
+    /// 1-based line/column, so a diagnostic in the Nth source file points at that file, not the first.</summary>
+    private static (string File, int Line, int Column) Locate(
+        List<(string Path, int Start, SourceText Source)> files,
+        string fallback,
+        int position
+    )
     {
-        if (position < 0)
-            return (0, 0);
-        int lineIndex = source.GetLineIndex(position);
-        return (lineIndex + 1, position - source.Lines[lineIndex].Start + 1);
+        if (position < 0 || files.Count == 0)
+            return (fallback, 0, 0);
+        int i = files.Count - 1;
+        while (i > 0 && files[i].Start > position)
+            i--;
+        var (path, start, src) = files[i];
+        int local = Math.Clamp(position - start, 0, Math.Max(0, src.ToString().Length - 1));
+        int lineIndex = src.GetLineIndex(local);
+        return (path, lineIndex + 1, local - src.Lines[lineIndex].Start + 1);
     }
 }

@@ -31,9 +31,12 @@
 
   <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
 
-  <!-- After the ordinary managed build succeeds, compile the game + framework HAL to a Game Boy ROM. -->
+  <!-- After the ordinary managed build succeeds, compile the game + framework HAL to a Game Boy ROM.
+       The compile task assembly is an Input too, so a change to the compiler/linker/task (not just the
+       game sources) re-emits the ROM instead of leaving a stale one built by the old toolchain. -->
   <Target Name="CompileKohRom" AfterTargets="Build"
-          Inputs="@(KohSource);@(KohFrameworkSource)" Outputs="$(KohRomPath)">
+          Inputs="@(KohSource);@(KohFrameworkSource);$(KohBuildTasksAssembly)"
+          Outputs="$(KohRomPath)">
     <CompileKohRom SourceFiles="@(KohSource);@(KohFrameworkSource)" OutputPath="$(KohRomPath)"
                    ProgramName="$(AssemblyName)" />
     <ItemGroup>

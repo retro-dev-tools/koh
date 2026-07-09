@@ -93,38 +93,21 @@ internal sealed class HardwareRegisters
 
     public bool IsRegion(string name) => Regions.ContainsKey(name);
 
-    /// <summary>Get (creating on first use) the fixed-address global whose address is a region base;
-    /// taking its <see cref="IrBuilder.GlobalRef"/> yields a <c>byte*</c> pointing at the region.</summary>
-    public IrGlobal Region(string name)
-    {
-        var key = "@region:" + name;
-        if (!_cache.TryGetValue(key, out var global))
-        {
-            global = new IrGlobal(
-                name,
-                IrType.I8,
-                AddressSpace.Default,
-                fixedAddress: Regions[name]
-            );
-            _module.Globals.Add(global);
-            _cache[key] = global;
-        }
-        return global;
-    }
+    /// <summary>Get (creating on first use) the fixed-address I8 global whose address is a region base;
+    /// taking its <see cref="IrBuilder.GlobalRef"/> yields a <c>byte*</c> pointing at the region. The
+    /// cache key is prefixed so a region and a register of the same name don't collide.</summary>
+    public IrGlobal Region(string name) => GetOrCreate("@region:" + name, name, Regions[name]);
 
     /// <summary>Get (creating on first use) the fixed-address global for a register.</summary>
-    public IrGlobal Register(string name)
+    public IrGlobal Register(string name) => GetOrCreate(name, name, Addresses[name]);
+
+    private IrGlobal GetOrCreate(string cacheKey, string name, int address)
     {
-        if (!_cache.TryGetValue(name, out var global))
+        if (!_cache.TryGetValue(cacheKey, out var global))
         {
-            global = new IrGlobal(
-                name,
-                IrType.I8,
-                AddressSpace.Default,
-                fixedAddress: Addresses[name]
-            );
+            global = new IrGlobal(name, IrType.I8, AddressSpace.Default, fixedAddress: address);
             _module.Globals.Add(global);
-            _cache[name] = global;
+            _cache[cacheKey] = global;
         }
         return global;
     }

@@ -102,9 +102,21 @@ public sealed partial class CSharpFrontend
                 var element = ResolveType(arrayType.ElementType, enums);
                 foreach (var v in field.Declaration.Variables)
                 {
-                    if (Redeclared(v.Identifier.Text, v.Identifier.GetLocation()))
+                    // Qualify a static class's field by class (Board.cells) so two classes can each
+                    // declare a same-named static field without colliding.
+                    var key = ProgramMemberName(field, v.Identifier.Text);
+                    if (Redeclared(key, v.Identifier.GetLocation()))
                         continue;
-                    CollectStaticArray(v, element, isReadonly, ConstLookup, enums, module, arrays);
+                    CollectStaticArray(
+                        v,
+                        key,
+                        element,
+                        isReadonly,
+                        ConstLookup,
+                        enums,
+                        module,
+                        arrays
+                    );
                 }
                 continue;
             }
@@ -114,7 +126,7 @@ public sealed partial class CSharpFrontend
 
             foreach (var v in field.Declaration.Variables)
             {
-                var name = v.Identifier.Text;
+                var name = ProgramMemberName(field, v.Identifier.Text);
                 if (Redeclared(name, v.Identifier.GetLocation()))
                     continue;
                 if (isConst)
@@ -165,6 +177,7 @@ public sealed partial class CSharpFrontend
     /// <c>new T[n]</c>) global.</summary>
     private static void CollectStaticArray(
         VariableDeclaratorSyntax v,
+        string name,
         CsType element,
         bool isReadonly,
         Func<string, long?> constLookup,
@@ -173,7 +186,6 @@ public sealed partial class CSharpFrontend
         Dictionary<string, (IrGlobal, CsType, int)> arrays
     )
     {
-        var name = v.Identifier.Text;
         int elemSize = element.Ir.SizeInBytes;
 
         // A string literal is ROM character data: `static readonly byte[] Msg = "SCORE";`.
@@ -336,23 +348,24 @@ public sealed partial class CSharpFrontend
             if (decl.Identifier.Text == WrapperClassName)
                 continue; // the synthesized program wrapper, not a user class
 
-            // A top-level `static class` is a namespace of program-level static methods/fields
-            // (collected via IsWrapperMember/CollectStatics), not a heap reference type.
-            if (decl.Modifiers.Any(m => m.ValueText == "static"))
-                continue;
-
-            // `Mem` is the reserved arena-allocator intrinsic (Mem.Alloc/Mem.Reset). A user class of
-            // that name would have its member calls hijacked by the allocator lowering, so reject it
-            // rather than mis-compile silently.
-            if (decl.Identifier.Text == "Mem")
+            // Reserved intrinsic surfaces: a user class named `Mem` (arena allocator), `Hardware`
+            // (registers), or `Gb` (memory regions) would have its member access silently hijacked by
+            // the corresponding lowering. Reject rather than mis-compile — checked before the static
+            // skip below, so a `static class Gb` is caught too.
+            if (decl.Identifier.Text is "Mem" or "Hardware" or "Gb")
             {
                 Report(
                     diagnostics,
-                    "'Mem' is reserved for the arena-allocator intrinsic and cannot name a class.",
+                    $"'{decl.Identifier.Text}' is reserved for a built-in intrinsic surface and cannot name a class.",
                     decl.Identifier.GetLocation()
                 );
                 continue;
             }
+
+            // A top-level `static class` is a namespace of program-level static methods/fields
+            // (collected via IsWrapperMember/CollectStatics), not a heap reference type.
+            if (decl.Modifiers.Any(m => m.ValueText == "static"))
+                continue;
 
             var specs =
                 new List<(string Name, CsType Type, int Size, int Align, CsStruct? Nested)>();

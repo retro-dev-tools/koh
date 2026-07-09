@@ -97,6 +97,29 @@ public class Game2048Tests
         await Assert.That(rom[0x105]).IsEqualTo((byte)0xED);
     }
 
+    [Test]
+    public async Task Sample_RomBootsIntoMainAndInitializes()
+    {
+        // The real ROM (with the sample's own Game.Main, not an injected bare Main) must boot into
+        // Main. Regression guard: Main lives in `static class Game` so its IR name is "Game.Main"; if
+        // the backend's entry detection matched only the exact name "main" it would boot into the first
+        // function instead and the game would never initialize. Boot from the header and confirm Main
+        // ran by checking Tiles.Generate wrote tile 1's first row (0xFF) into VRAM.
+        var model = new Sm83Backend().Compile(
+            new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), new DiagnosticBag()),
+            new DiagnosticBag()
+        );
+        var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Pc = 0x100; // boot: NOP; JP entry
+        gb.Registers.Sp = 0xFFFE;
+        for (int i = 0; i < 2_000_000; i++)
+            gb.StepInstruction();
+
+        await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);
+    }
+
     // ---- Its game logic runs correctly in the emulator ---------------------
 
     /// <summary>

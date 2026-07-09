@@ -929,6 +929,53 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task StaticClass_PerClassStaticFieldsDoNotCollide()
+    {
+        // Two static classes each declare a static field named `n`; they must be independent, and each
+        // method resolves its own class's field (qualified as A.n / B.n), not a shared global.
+        const string src =
+            "static class P { static byte Main() { A.Bump(); B.Bump(); B.Bump(); return (byte)(A.Get() + B.Get()); } } "
+            + "static class A { static byte n; static void Bump() { n = (byte)(n + 7); } static byte Get() { return n; } } "
+            + "static class B { static byte n; static void Bump() { n = (byte)(n + 1); } static byte Get() { return n; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)9); // A.n = 7, B.n = 2
+    }
+
+    [Test]
+    public async Task ReservedIntrinsicNames_RejectUserClass()
+    {
+        // A user class named after an intrinsic surface would have its member access hijacked; reject it.
+        await Assert
+            .That(HasError("static class Gb { static byte Vram() { return 0; } }"))
+            .IsTrue();
+        await Assert
+            .That(HasError("static class Hardware { static byte LY() { return 0; } }"))
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task MultipleMain_IsReported()
+    {
+        // Two Main entry points across static classes are ambiguous; report rather than pick one silently.
+        await Assert
+            .That(
+                HasError(
+                    "static class A { static void Main() {} } static class B { static void Main() {} }"
+                )
+            )
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task Namespace_BlockScopedIsFlattened()
+    {
+        // A block-scoped namespace is unwrapped like a file-scoped one, lifting its members to the top.
+        const string src =
+            "static class App { static byte Main() { return Lib.Answer(); } }\n"
+            + "namespace Koh.GameBoy { static class Lib { static byte Answer() { return 42; } } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
     public async Task Namespace_FileScopedIsFlattened()
     {
         // Framework-style source in a file-scoped namespace: the namespace is dropped, so its static
@@ -2818,6 +2865,26 @@ static byte Main() {
     return sum;
 }
 static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 30; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)60);
+    }
+
+    [Test]
+    public async Task Coroutine_InsideStaticClass()
+    {
+        // An iterator declared inside a static class is lowered to a state machine like a top-level one.
+        // Regression: TransformIterators scanned only the wrapper's direct members, so a static-class
+        // `yield` was left unlowered and rejected as unsupported.
+        const string src =
+            @"
+static class P {
+    static byte Main() {
+        Gen__Iter g = Seq.Gen();
+        byte sum = 0;
+        while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+        return sum;
+    }
+}
+static class Seq { static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 30; } }";
         await Assert.That(RunA(src)).IsEqualTo((byte)60);
     }
 

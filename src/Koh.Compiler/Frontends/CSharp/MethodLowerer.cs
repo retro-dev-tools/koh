@@ -54,9 +54,9 @@ internal sealed class MethodLowerer
     );
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
-    // The enclosing top-level `static class`, if this is one of its static methods (name `Class.M`,
-    // no `this`). Unqualified calls in the body resolve to `Class.M` first, so a method can call its
-    // siblings by bare name. Null for legacy top-level functions and for instance methods.
+    // The enclosing top-level `static class` (from CsMethod.DeclaringClass), if this is one of its
+    // static methods. Unqualified calls/fields in the body resolve to `Class.member` first, so a method
+    // can reach its siblings by bare name. Null for legacy top-level functions and instance methods.
     private readonly string? _staticClass;
 
     public MethodLowerer(
@@ -88,9 +88,7 @@ internal sealed class MethodLowerer
         _hardware = hardware;
         _staticInits = staticInits;
         _moduleArrays = moduleArrays;
-
-        int dot = method.Fn.Name.LastIndexOf('.');
-        _staticClass = method.ThisClass is null && dot > 0 ? method.Fn.Name[..dot] : null;
+        _staticClass = method.DeclaringClass;
     }
 
     /// <summary>Resolve a bare callee name to a static method of the enclosing class if one exists,
@@ -100,15 +98,48 @@ internal sealed class MethodLowerer
             ? $"{_staticClass}.{name}"
             : name;
 
+    /// <summary>Split a program-scope static's key into its owning class (null if unqualified) and its
+    /// simple name — the inverse of the <c>Class.name</c> qualification applied at collection.</summary>
+    private static (string? Owner, string Simple) SplitQualified(string name)
+    {
+        int dot = name.LastIndexOf('.');
+        return dot < 0 ? (null, name) : (name[..dot], name[(dot + 1)..]);
+    }
+
+    /// <summary>Look up a static global by simple name, preferring the enclosing static class's member
+    /// (Class.name) over an unqualified program-scope global.</summary>
+    private bool TryGlobal(string name, out (IrGlobal Global, CsType Type) global)
+    {
+        if (_staticClass is not null && _globals.TryGetValue($"{_staticClass}.{name}", out global))
+            return true;
+        return _globals.TryGetValue(name, out global);
+    }
+
+    /// <summary>Look up a module const by simple name, preferring the enclosing static class's member.</summary>
+    private bool TryModuleConst(string name, out (CsType Type, long Value) value)
+    {
+        if (
+            _staticClass is not null
+            && _moduleConsts.TryGetValue($"{_staticClass}.{name}", out value)
+        )
+            return true;
+        return _moduleConsts.TryGetValue(name, out value);
+    }
+
     public void Lower()
     {
         var entry = _method.Fn.AppendBlock("entry");
         _b.PositionAtEnd(entry);
 
-        // Static data arrays are visible in every method: index/Length treat them like local
-        // arrays, but the base is the global's address (ROM tables or WRAM buffers) not an alloca.
+        // Static data arrays are visible by simple name: a program-scope array (unqualified) everywhere,
+        // and a static class's array (Class.name) only inside that class. Index/Length treat them like
+        // local arrays, but the base is the global's address (ROM tables or WRAM buffers) not an alloca.
         foreach (var (name, a) in _moduleArrays)
-            _arrays[name] = (IrBuilder.GlobalRef(a.Global), a.Element, a.Length);
+        {
+            var (owner, simple) = SplitQualified(name);
+            if (owner is null || owner == _staticClass)
+                _arrays[simple] = (IrBuilder.GlobalRef(a.Global), a.Element, a.Length);
+        }
 
         // Parameters: a normal one gets a mutable slot seeded with its value; a ref/out parameter
         // arrives as an address, so its "place" is that address itself (reads/writes deref it).
@@ -726,7 +757,7 @@ internal sealed class MethodLowerer
                         IrBuilder.ConstInt(localConst.Type.Ir, localConst.Value),
                         localConst.Type
                     );
-                if (_moduleConsts.TryGetValue(name, out var moduleConst))
+                if (TryModuleConst(name, out var moduleConst))
                     return (
                         IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value),
                         moduleConst.Type
@@ -925,7 +956,7 @@ internal sealed class MethodLowerer
             return (local.Slot, local.Type);
         if (_refs.TryGetValue(name, out var reference))
             return (reference.Address, reference.Element); // ref param: the address is the place
-        if (_globals.TryGetValue(name, out var global))
+        if (TryGlobal(name, out var global))
             return (IrBuilder.GlobalRef(global.Global), global.Type);
         // A class-instance local: its slot holds the heap pointer. Assignment stores a new pointer
         // (reference semantics); reads load the pointer.
@@ -1031,9 +1062,9 @@ internal sealed class MethodLowerer
                     return reference.Element;
                 if (_consts.TryGetValue(id.Identifier.Text, out var c))
                     return c.Type;
-                if (_moduleConsts.TryGetValue(id.Identifier.Text, out var mc))
+                if (TryModuleConst(id.Identifier.Text, out var mc))
                     return mc.Type;
-                if (_globals.TryGetValue(id.Identifier.Text, out var g))
+                if (TryGlobal(id.Identifier.Text, out var g))
                     return g.Type;
                 return null;
             case PrefixUnaryExpressionSyntax u:

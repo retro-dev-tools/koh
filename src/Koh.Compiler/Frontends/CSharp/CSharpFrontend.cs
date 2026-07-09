@@ -57,12 +57,17 @@ public sealed partial class CSharpFrontend : IFrontend
         && cd.Modifiers.Any(m => m.ValueText == "static")
         && cd.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
 
-    /// <summary>The program-scope name of a top-level method/function: bare for the legacy wrapper,
-    /// qualified <c>Class.Method</c> for a member of a user top-level <c>static class</c>.</summary>
-    private static string ProgramMemberName(SyntaxNode decl, string simpleName) =>
+    /// <summary>The enclosing top-level user <c>static class</c> of a program-scope declaration, or null
+    /// for a direct wrapper member (a legacy top-level function/field).</summary>
+    private static string? ProgramMemberClass(SyntaxNode decl) =>
         decl.Parent is ClassDeclarationSyntax { Identifier.Text: var cn } && cn != WrapperClassName
-            ? $"{cn}.{simpleName}"
-            : simpleName;
+            ? cn
+            : null;
+
+    /// <summary>The program-scope name of a top-level method/function/field: bare for the legacy
+    /// wrapper, qualified <c>Class.Member</c> for a member of a user top-level <c>static class</c>.</summary>
+    private static string ProgramMemberName(SyntaxNode decl, string simpleName) =>
+        ProgramMemberClass(decl) is { } cls ? $"{cls}.{simpleName}" : simpleName;
 
     /// <summary>Blank out (replace with spaces, preserving line count) the syntax the frontend has no
     /// semantic model for: <c>using</c> directives, and the header of a file-scoped <c>namespace X;</c>.
@@ -80,14 +85,26 @@ public sealed partial class CSharpFrontend : IFrontend
         {
             if (node is UsingDirectiveSyntax u)
                 spans.Add(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(u.SpanStart, u.Span.End));
-            else if (node is FileScopedNamespaceDeclarationSyntax ns)
+            else if (node is FileScopedNamespaceDeclarationSyntax fns)
                 // Blank only the `namespace X;` header, not its members.
                 spans.Add(
                     Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
-                        ns.NamespaceKeyword.SpanStart,
-                        ns.SemicolonToken.Span.End
+                        fns.NamespaceKeyword.SpanStart,
+                        fns.SemicolonToken.Span.End
                     )
                 );
+            else if (node is NamespaceDeclarationSyntax bns)
+            {
+                // A block `namespace X { ... }`: blank the `namespace X {` header and its matching `}`,
+                // lifting the members to the top level (they stay in place textually).
+                spans.Add(
+                    Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                        bns.NamespaceKeyword.SpanStart,
+                        bns.OpenBraceToken.Span.End
+                    )
+                );
+                spans.Add(bns.CloseBraceToken.Span);
+            }
         }
         if (spans.Count == 0)
             return source;
@@ -324,7 +341,8 @@ public sealed partial class CSharpFrontend : IFrontend
                 paramTypes,
                 refFlags,
                 paramStructs,
-                ParamClasses: paramClasses
+                ParamClasses: paramClasses,
+                DeclaringClass: ProgramMemberClass(decl)
             );
             // Duplicate names would silently overwrite the earlier binding (and emit two IR functions
             // with the same name); keep the first definition and report the rest.
@@ -397,17 +415,31 @@ public sealed partial class CSharpFrontend : IFrontend
         // The entry function (main, else the first non-handler) runs the static-field initializers in
         // its prologue. An interrupt handler must never be the entry: its body runs on every interrupt,
         // which would re-seed the heap pointer and re-run initializers, corrupting live state.
-        var entry =
-            bodies
-                .FirstOrDefault(b =>
-                    string.Equals(
-                        SimpleName(b.Method.Fn.Name),
-                        "main",
-                        StringComparison.OrdinalIgnoreCase
-                    )
+        var mains = bodies
+            .Where(b =>
+                string.Equals(
+                    SimpleName(b.Method.Fn.Name),
+                    "main",
+                    StringComparison.OrdinalIgnoreCase
                 )
-                .Method
+            )
+            .ToList();
+        // More than one Main is ambiguous — the backend and this prologue would each pick one by order,
+        // and which becomes the ROM entry would be silent. Report it rather than boot into a guess.
+        if (mains.Count > 1)
+            Report(
+                diagnostics,
+                "multiple 'Main' entry points ("
+                    + string.Join(", ", mains.Select(b => b.Method.Fn.Name))
+                    + "); a program must have exactly one.",
+                FindDeclaration(root, mains[1].Method.Fn.Name)?.GetLocation()
+            );
+        var entry =
+            mains.FirstOrDefault().Method
             ?? bodies.FirstOrDefault(b => b.Method.Fn.InterruptVector is null).Method;
+        // Mark the entry authoritatively so the backend boots into it by flag, not by name-matching.
+        if (entry is not null)
+            entry.Fn.IsEntry = true;
 
         // Pass 2: bodies. Report per-method so one bad method doesn't sink the whole compile.
         foreach (var (method, body, arrow) in bodies)
@@ -457,16 +489,18 @@ public sealed partial class CSharpFrontend : IFrontend
         return dot < 0 ? name : name[(dot + 1)..];
     }
 
-    private static SyntaxNode? FindDeclaration(SyntaxNode root, string name)
-    {
-        var simple = SimpleName(name);
-        return CollectMethods(root)
+    private static SyntaxNode? FindDeclaration(SyntaxNode root, string name) =>
+        // Match the full program name (e.g. "Tilemap.Set"), so a diagnostic's fallback location doesn't
+        // bind to a same-simple-named method in another static class (e.g. "Board.Set").
+        CollectMethods(root)
             .FirstOrDefault(d =>
-                d is MethodDeclarationSyntax m
-                    ? m.Identifier.Text == simple
-                    : ((LocalFunctionStatementSyntax)d).Identifier.Text == simple
+                ProgramMemberName(
+                    d,
+                    d is MethodDeclarationSyntax m
+                        ? m.Identifier.Text
+                        : ((LocalFunctionStatementSyntax)d).Identifier.Text
+                ) == name
             );
-    }
 
     private static void Report(
         DiagnosticBag diagnostics,
