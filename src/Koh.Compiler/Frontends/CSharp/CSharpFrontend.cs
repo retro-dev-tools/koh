@@ -57,12 +57,20 @@ public sealed partial class CSharpFrontend : IFrontend
         && cd.Modifiers.Any(m => m.ValueText == "static")
         && cd.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
 
+    /// <summary>Annotation kind carrying the declaring class of a monomorphized generic instance, which
+    /// is a syntax node detached from the tree (so it has no <c>Parent</c> to read the class from).</summary>
+    internal const string DeclaringClassAnnotation = "Koh.DeclaringClass";
+
     /// <summary>The enclosing top-level user <c>static class</c> of a program-scope declaration, or null
     /// for a direct wrapper member (a legacy top-level function/field).</summary>
     private static string? ProgramMemberClass(SyntaxNode decl) =>
-        decl.Parent is ClassDeclarationSyntax { Identifier.Text: var cn } && cn != WrapperClassName
-            ? cn
-            : null;
+        decl.GetAnnotations(DeclaringClassAnnotation).FirstOrDefault()?.Data
+        ?? (
+            decl.Parent is ClassDeclarationSyntax { Identifier.Text: var cn }
+            && cn != WrapperClassName
+                ? cn
+                : null
+        );
 
     /// <summary>The program-scope name of a top-level method/function/field: bare for the legacy
     /// wrapper, qualified <c>Class.Member</c> for a member of a user top-level <c>static class</c>.</summary>
@@ -214,18 +222,21 @@ public sealed partial class CSharpFrontend : IFrontend
         // count, and that pair selects the template — so `Wrap<T>` and `Wrap<T,U>` stay distinct. Two
         // templates sharing both (a value-arity overload like `Max<T>(T,T)` vs `Max<T>(T,T,T)`) would
         // mangle to the same specialized name, so that is reported rather than silently mis-specialized.
-        var genericMethods = new Dictionary<(string Name, int Arity), MethodDeclarationSyntax>();
+        var genericMethods =
+            new Dictionary<(string? Class, string Name, int Arity), MethodDeclarationSyntax>();
         foreach (
             var m in root.DescendantNodes()
                 .OfType<MethodDeclarationSyntax>()
                 .Where(m => m.TypeParameterList is { Parameters.Count: > 0 } && IsWrapperMember(m))
         )
         {
-            var key = (m.Identifier.Text, m.TypeParameterList!.Parameters.Count);
+            // Key by declaring class too, so `A.Id<T>` and `B.Id<T>` are distinct rather than colliding.
+            int arity = m.TypeParameterList!.Parameters.Count;
+            var key = (ProgramMemberClass(m), m.Identifier.Text, arity);
             if (!genericMethods.TryAdd(key, m))
                 Report(
                     diagnostics,
-                    $"generic method '{m.Identifier.Text}' with {key.Item2} type parameter(s) is declared "
+                    $"generic method '{m.Identifier.Text}' with {arity} type parameter(s) is declared "
                         + "more than once; overloaded generic methods are not supported.",
                     m.Identifier.GetLocation()
                 );
@@ -417,7 +428,11 @@ public sealed partial class CSharpFrontend : IFrontend
         // which would re-seed the heap pointer and re-run initializers, corrupting live state.
         var mains = bodies
             .Where(b =>
-                string.Equals(
+                // An instance method (a reference type's method, taking an implicit `this`) is never the
+                // program entry even when named Main — the backend would boot into it with no receiver.
+                b.Method.ThisClass
+                    is null
+                && string.Equals(
                     SimpleName(b.Method.Fn.Name),
                     "main",
                     StringComparison.OrdinalIgnoreCase
@@ -482,12 +497,16 @@ public sealed partial class CSharpFrontend : IFrontend
             _ => decl.GetLocation(),
         };
 
-    /// <summary>The unqualified method name (the part after the last dot, if any).</summary>
-    private static string SimpleName(string name)
+    /// <summary>Split a program-scope name into its owning class (null if unqualified) and its simple
+    /// name — the inverse of the <c>Class.name</c> qualification applied at collection.</summary>
+    internal static (string? Owner, string Simple) SplitQualified(string name)
     {
         int dot = name.LastIndexOf('.');
-        return dot < 0 ? name : name[(dot + 1)..];
+        return dot < 0 ? (null, name) : (name[..dot], name[(dot + 1)..]);
     }
+
+    /// <summary>The unqualified method name (the part after the last dot, if any).</summary>
+    private static string SimpleName(string name) => SplitQualified(name).Simple;
 
     private static SyntaxNode? FindDeclaration(SyntaxNode root, string name) =>
         // Match the full program name (e.g. "Tilemap.Set"), so a diagnostic's fallback location doesn't

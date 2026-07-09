@@ -63,6 +63,8 @@ public static class IrPrinter
     {
         var names = new Naming(f);
 
+        if (f.IsEntry)
+            sb.Append("entry ");
         if (f.IsExternal)
             sb.Append("extern ");
         sb.Append("func @").Append(f.Name).Append('(');

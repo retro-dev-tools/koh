@@ -941,6 +941,21 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task StaticClass_ConstReferencedBySiblingInitializer()
+    {
+        // A static class's const is keyed Class.name; a sibling's initializer references it by simple
+        // name at collection time — both a chained const and an array size must resolve in that scope.
+        // Regression: the const-fold lookup was unqualified and missed the class's own const.
+        const string src =
+            "static class Cfg { "
+            + "const byte Width = 4; "
+            + "const byte Cells = (byte)(Width * Width); "
+            + "static byte[] grid = new byte[Cells]; "
+            + "static byte Main() { grid[15] = 9; return (byte)(grid[15] + Cells); } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)25); // 9 + 16
+    }
+
+    [Test]
     public async Task ReservedIntrinsicNames_RejectUserClass()
     {
         // A user class named after an intrinsic surface would have its member access hijacked; reject it.
@@ -963,6 +978,19 @@ static ushort Run() {
                 )
             )
             .IsTrue();
+    }
+
+    [Test]
+    public async Task InstanceMethodNamedMain_IsNotAnEntry()
+    {
+        // A reference type's instance method named Main (its function is Widget.Main, taking an implicit
+        // `this`) must not be mistaken for the program entry alongside the real top-level Main — doing so
+        // would spuriously report two entries. Regression: entry detection matched on the simple name.
+        const string src =
+            "class Widget { byte v; byte Main() { return 99; } }\n"
+            + "static byte Main() { return 7; }";
+        await Assert.That(CompilesClean(src)).IsTrue();
+        await Assert.That(RunA(src)).IsEqualTo((byte)7);
     }
 
     [Test]
@@ -2700,6 +2728,21 @@ static T Max<T>(T a, T b, T c) { return a; }";
                 )
             )
             .IsTrue();
+    }
+
+    [Test]
+    public async Task Generics_InStaticClassResolveSiblingsAndCrossClass()
+    {
+        // A generic method declared inside a static class: a qualified call (A.Id<byte>), a same-named
+        // generic in another class (B.Id), and a sibling generic call inside a generic body (B.Twice
+        // calls its own Id) must all resolve per declaring class. Regression: monomorphized instances
+        // lost their class, so siblings failed to resolve and cross-class names collided.
+        const string src =
+            "static class M { static byte Main() { return (byte)(A.Id<byte>(5) + B.Twice<byte>(10)); } }\n"
+            + "static class A { static T Id<T>(T x) { return x; } }\n"
+            + "static class B { static T Twice<T>(T x) { return (T)(Id<T>(x) + Id<T>(x)); } "
+            + "static T Id<T>(T x) { return x; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)25); // 5 + (10 + 10)
     }
 
     [Test]

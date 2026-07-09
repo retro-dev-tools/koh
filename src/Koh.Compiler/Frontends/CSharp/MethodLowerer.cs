@@ -98,14 +98,6 @@ internal sealed class MethodLowerer
             ? $"{_staticClass}.{name}"
             : name;
 
-    /// <summary>Split a program-scope static's key into its owning class (null if unqualified) and its
-    /// simple name — the inverse of the <c>Class.name</c> qualification applied at collection.</summary>
-    private static (string? Owner, string Simple) SplitQualified(string name)
-    {
-        int dot = name.LastIndexOf('.');
-        return dot < 0 ? (null, name) : (name[..dot], name[(dot + 1)..]);
-    }
-
     /// <summary>Look up a static global by simple name, preferring the enclosing static class's member
     /// (Class.name) over an unqualified program-scope global.</summary>
     private bool TryGlobal(string name, out (IrGlobal Global, CsType Type) global)
@@ -136,7 +128,7 @@ internal sealed class MethodLowerer
         // local arrays, but the base is the global's address (ROM tables or WRAM buffers) not an alloca.
         foreach (var (name, a) in _moduleArrays)
         {
-            var (owner, simple) = SplitQualified(name);
+            var (owner, simple) = CSharpFrontend.SplitQualified(name);
             if (owner is null || owner == _staticClass)
                 _arrays[simple] = (IrBuilder.GlobalRef(a.Global), a.Element, a.Length);
         }
@@ -1540,13 +1532,21 @@ internal sealed class MethodLowerer
         string? calleeName = call.Expression switch
         {
             IdentifierNameSyntax idn => ResolveStaticCallee(idn.Identifier.Text),
+            // Qualified generic call `Class.M<...>(...)` -> its monomorphized instance `Class.M$...`.
+            MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax typeName,
+                Name: GenericNameSyntax gm
+            } => $"{typeName.Identifier.Text}."
+                + CSharpFrontend.MangleGeneric(gm.Identifier.Text, gm.TypeArgumentList.Arguments),
             MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax typeName } qualified
                 when _methods.ContainsKey(
                     $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}"
                 ) => $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}",
-            GenericNameSyntax gn => CSharpFrontend.MangleGeneric(
-                gn.Identifier.Text,
-                gn.TypeArgumentList.Arguments
+            // Bare generic call `M<...>(...)` -> a sibling instance of the enclosing static class
+            // (`Class.M$...`) if one exists, else a top-level instance (`M$...`).
+            GenericNameSyntax gn => ResolveStaticCallee(
+                CSharpFrontend.MangleGeneric(gn.Identifier.Text, gn.TypeArgumentList.Arguments)
             ),
             _ => null,
         };

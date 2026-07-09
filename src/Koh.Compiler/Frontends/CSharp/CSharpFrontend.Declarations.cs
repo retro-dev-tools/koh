@@ -65,7 +65,13 @@ public sealed partial class CSharpFrontend
         var inits = new List<(IrGlobal, long, CsType)>();
         var arrays = new Dictionary<string, (IrGlobal, CsType, int)>(StringComparer.Ordinal);
 
-        long? ConstLookup(string n) => consts.TryGetValue(n, out var c) ? c.Item2 : null;
+        // Resolve a const referenced from within `owner`'s scope: a static class sees its own consts
+        // by simple name (they are stored under the qualified key `Class.name`), falling back to a
+        // top-level const of that name.
+        long? ConstIn(string? owner, string n) =>
+            owner is { } c && consts.TryGetValue($"{c}.{n}", out var q) ? q.Item2
+            : consts.TryGetValue(n, out var b) ? b.Item2
+            : null;
 
         // Statics (consts, scalar globals, data arrays) share one field namespace; a duplicate name
         // would collide across these dictionaries and emit two globals with the same name. Keep the
@@ -94,6 +100,11 @@ public sealed partial class CSharpFrontend
         {
             bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
             bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
+
+            // Fold this field's initializer against its own class scope, so a sibling const referenced
+            // by simple name (e.g. `new byte[Size]`) resolves to the qualified `Class.Size`.
+            var owner = ProgramMemberClass(field);
+            long? ConstLookup(string n) => ConstIn(owner, n);
 
             // A static array field is a data table: `static readonly T[] x = { ... }` lives in ROM;
             // `static T[] x = new T[n]` is a zero-initialized WRAM buffer.

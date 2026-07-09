@@ -17,8 +17,10 @@ public static unsafe class Gb
     /// <summary>Base of the simulated address space (address 0x0000).</summary>
     internal static byte* Base => (byte*)Unsafe.AsPointer(ref MemoryArray[0]);
 
-    /// <summary>Read a byte at an absolute address (used by the runtime's renderer).</summary>
-    internal static byte Peek(int address) => MemoryArray[address & 0xFFFF];
+    /// <summary>Read a byte at an absolute address (used by the runtime's renderer). Like the raw
+    /// pointer bases below, the address must fall inside the 64&#160;KiB space — an out-of-range read
+    /// faults here rather than silently wrapping, matching how an out-of-range pointer write faults.</summary>
+    internal static byte Peek(int address) => MemoryArray[address];
 
     /// <summary>Video RAM / background tile data (0x8000).</summary>
     public static byte* Vram => Base + 0x8000;

@@ -116,7 +116,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         while (i > 0 && files[i].Start > position)
             i--;
         var (path, start, src) = files[i];
-        int local = Math.Clamp(position - start, 0, Math.Max(0, src.ToString().Length - 1));
+        int local = Math.Clamp(position - start, 0, Math.Max(0, src.Length - 1));
         int lineIndex = src.GetLineIndex(local);
         return (path, lineIndex + 1, local - src.Lines[lineIndex].Start + 1);
     }

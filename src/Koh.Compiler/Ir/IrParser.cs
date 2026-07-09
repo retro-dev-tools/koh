@@ -59,7 +59,7 @@ public static class IrParser
             {
                 ParseGlobal(reader, module);
             }
-            else if (head == "func" || head == "extern")
+            else if (head == "func" || head == "extern" || head == "entry")
             {
                 var fn = ParseFunctionHeader(reader, module);
                 if (!fn.IsExternal)
@@ -148,6 +148,7 @@ public static class IrParser
 
     private static IrFunction ParseFunctionHeader(TokenReader r, IrModule module)
     {
+        bool entry = r.Eat("entry");
         bool external = r.Eat("extern");
         r.Expect("func");
         var name = AtName(r.Next(), '@');
@@ -177,7 +178,7 @@ public static class IrParser
         }
         r.Eat("{");
 
-        var fn = new IrFunction(name, returnType, parameters, bank, external);
+        var fn = new IrFunction(name, returnType, parameters, bank, external) { IsEntry = entry };
         module.Functions.Add(fn);
         return fn;
     }

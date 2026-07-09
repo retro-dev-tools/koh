@@ -10,15 +10,17 @@ static unsafe class Board
 
     // ---- Access ----------------------------------------------------------
 
-    internal static byte GetCell(byte index) => cells[index];
+    // The grid is exactly 16 cells; masking the index keeps a stray caller in bounds so both targets
+    // behave the same (the ROM has no bounds check and would otherwise scribble adjacent WRAM).
+    internal static byte GetCell(byte index) => cells[index & 15];
 
     internal static void SetCell(byte index, byte value)
     {
-        cells[index] = value;
+        cells[index & 15] = value;
     }
 
     // The tile at (row, col), for the renderer.
-    internal static byte Tile(byte row, byte col) => cells[row * 4 + col];
+    internal static byte Tile(byte row, byte col) => cells[(row * 4 + col) & 15];
 
     internal static void Reset()
     {
