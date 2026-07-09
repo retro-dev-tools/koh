@@ -186,6 +186,13 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
    - **Constant folding + algebraic identities** — width-/signedness-correct integer
      `binary`/`icmp`/`conv` folding that wraps exactly like the backend; identities such as `x+0`,
      `x*0`, `x&-1`, `x^x`, `x<<0`, `x/1`; div/rem-by-zero and out-of-range shifts left unfolded.
+   - **mem2reg** — promotes non-escaping scalar `alloca`s (every scalar local) to SSA values,
+     inserting phis at dominance frontiers (`Dominators` computes the dom tree + frontiers), so a
+     value whose live range spans control flow — read after an `if`, a loop counter — becomes direct
+     SSA data flow instead of memory traffic. The enabler for cross-block folding/CSE and, later,
+     register residency.
+   - **Trivial-phi elimination** — collapses a phi with a single unique incoming (ignoring
+     self-references) to that value; cleans up after mem2reg and edge pruning.
    - **Strength reduction** — rewrites multiply / unsigned-divide / unsigned-remainder by a constant
      power of two to a shift or mask (`x*2^k → x<<k`, `x u/2^k → x>>k`, `x u%2^k → x & (2^k-1)`),
      turning the open-coded SM83 mul/div runtime routines into a few inline instructions. Signed
@@ -209,10 +216,12 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
    lives in `AllocaAnalysis`. Verified end-to-end on the emulator (folded ROMs and scalar-local
    forwarding run correctly and shrink the ROM, dead branches are pruned, and the full 2048 sample
    boots and its slide logic matches un-optimized, and `n*8` strength-reduces to a shift that shrinks
-   the ROM) in `Koh.Compiler.Tests`. Remaining: cross-block value numbering / copy-coalesce and an
-   SM83 peephole on the emitted stream; a full dominance-based `mem2reg` (with phi insertion) to
-   promote allocas whose live range spans control flow — the current forwarding and CSE are
-   intentionally intra-block only.
+   the ROM, and a local carried across an `if`/loop is promoted to a phi and computes correctly at i8
+   and i16) in `Koh.Compiler.Tests`. Remaining machine-level work is the larger lever now: an SM83
+   peephole pass on the emitted stream (`ld a,0`→`xor a`, `jp`→`jr`, `ldi`/`ldd` for sequential
+   memory, flag reuse), register residency/allocation over `A`/`BC`/`DE`/`HL` (now unblocked by
+   mem2reg), HRAM (`ldh`) hot-variable placement, and small-leaf inlining; plus cross-block GVN/SCCP
+   at the IR level.
 5. **Editor tooling.** Diagnostics/hover/go-to for Koh C#, reusing the LSP architecture and/or Roslyn.
 6. **Prove generality (optional, later).** A second backend (ARM7TDMI via LLVM delegation) or a second frontend — only to validate the seams.
 

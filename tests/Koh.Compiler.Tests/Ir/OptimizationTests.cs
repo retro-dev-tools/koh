@@ -635,4 +635,70 @@ public class OptimizationTests
             .That(fn.EntryBlock!.Instructions.OfType<LoadInstruction>().Count())
             .IsEqualTo(2);
     }
+
+    // ---- mem2reg + trivial phi elimination -----------------------------------
+
+    [Test]
+    public async Task Mem2Reg_PromotesLocalAcrossIfElseIntoPhi()
+    {
+        // byte f(byte n) { byte r; if (n > 10) r = 1; else r = 2; return r; }
+        var module = new IrModule("test");
+        var n = new IrParameter("n", IrType.I8);
+        var fn = new IrFunction("f", IrType.I8, [n]);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var thenB = fn.AppendBlock("then");
+        var elseB = fn.AppendBlock("else");
+        var merge = fn.AppendBlock("merge");
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(entry);
+        var r = b.Alloca(IrType.I8);
+        var cond = b.Compare(IrCompareOp.Ugt, n, IrBuilder.ConstInt(IrType.I8, 10));
+        b.CondBr(cond, thenB, elseB);
+        b.PositionAtEnd(thenB);
+        b.Store(IrBuilder.ConstInt(IrType.I8, 1), r);
+        b.Br(merge);
+        b.PositionAtEnd(elseB);
+        b.Store(IrBuilder.ConstInt(IrType.I8, 2), r);
+        b.Br(merge);
+        b.PositionAtEnd(merge);
+        var ret = b.Ret(b.Load(r));
+
+        var changed = new Mem2RegPass().Run(fn);
+
+        await Assert.That(changed).IsTrue();
+        var allInstrs = fn.Blocks.SelectMany(bl => bl.Instructions).ToList();
+        await Assert.That(allInstrs.OfType<AllocaInstruction>().Any()).IsFalse();
+        await Assert.That(allInstrs.OfType<LoadInstruction>().Any()).IsFalse();
+        await Assert.That(allInstrs.OfType<StoreInstruction>().Any()).IsFalse();
+        var phi = merge.Instructions.OfType<PhiInstruction>().Single();
+        await Assert.That(phi.Incomings.Count).IsEqualTo(2);
+        await Assert.That(ret.Value).IsSameReferenceAs((IrValue)phi);
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    [Test]
+    public async Task TrivialPhiElimination_ReplacesSingleIncomingPhi()
+    {
+        var module = new IrModule("test");
+        var fn = new IrFunction("f", IrType.I8, []);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var next = fn.AppendBlock("next");
+        var b = new IrBuilder();
+        b.PositionAtEnd(entry);
+        b.Br(next);
+        b.PositionAtEnd(next);
+        var phi = b.Phi(IrType.I8);
+        phi.AddIncoming(IrBuilder.ConstInt(IrType.I8, 7), entry);
+        var ret = b.Ret(phi);
+
+        var changed = new TrivialPhiEliminationPass().Run(fn);
+
+        await Assert.That(changed).IsTrue();
+        await Assert.That(next.Instructions.OfType<PhiInstruction>().Any()).IsFalse();
+        await Assert.That(ConstValueOf(ret.Value)).IsEqualTo(7L);
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
 }

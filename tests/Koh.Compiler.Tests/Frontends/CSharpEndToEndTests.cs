@@ -52,6 +52,14 @@ public class CSharpEndToEndTests
         return gb.Registers.A;
     }
 
+    private static ushort RunHLOpt(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(CompileOpt(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        return gb.Registers.HL;
+    }
+
     private static GameBoySystem Load(EmitModel model, out int start, out int length)
     {
         var link = new LinkerType().Link([new LinkerInput("cs", model)]);
@@ -3243,5 +3251,35 @@ static uint Log2(uint value) {
         await Assert
             .That(RunAOpt("static byte F(byte n) { return (byte)(n % 8); }", gb => W8(gb, 0, 21)))
             .IsEqualTo((byte)5);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesLocalAcrossIfElse()
+    {
+        // mem2reg lifts `r` (written on both arms, read after the merge) into a phi. Both arms correct.
+        const string src =
+            "static byte F(byte n) { byte r; if (n > 10) { r = 1; } else { r = 2; } return r; }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 20))).IsEqualTo((byte)1);
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)2);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesLoopAccumulator()
+    {
+        // A loop counter and accumulator become loop-header phis; the sum 0+1+..+(n-1) stays correct.
+        const string src =
+            "static byte Sum(byte n) { byte s = 0; for (byte i = 0; i < n; i++) { s += i; } return s; }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)10); // 0+1+2+3+4
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 1))).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesWideLocalAcrossControlFlow()
+    {
+        // The same, at i16, so the backend's phi path is exercised for a two-byte value end-to-end.
+        const string src =
+            "static ushort F(ushort n) { ushort r; if (n > 100) { r = 1000; } else { r = 2000; } return r; }";
+        await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 250))).IsEqualTo((ushort)1000);
+        await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 50))).IsEqualTo((ushort)2000);
     }
 }
