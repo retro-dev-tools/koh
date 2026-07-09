@@ -215,6 +215,16 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
      (`binary`/`icmp`/`conv`/`gep`/`alloca`/`phi`), keeping `load` as potentially-volatile MMIO plus
      all stores/calls/intrinsics/terminators.
 
+   A **backend** machine-level pass also landed: an SM83 peephole (`Sm83Peephole` + `Emitter.PeepholeFrom`)
+   that runs per-function right after emission. Because the backend emits a flat byte buffer with no
+   instruction boundaries, it decodes the just-emitted region with the fixed opcode-length table, then
+   rewrites `LD A, 0` → `XOR A` only where a forward flag-liveness scan proves every flag dead (which
+   correctly leaves zero-loads inside `ADC`/`SBC` carry chains as `LD A, 0`). Running per-function keeps
+   relocation local: the region's entry never moves, so only that function's own labels (including the
+   anonymous branch-edge labels), fixups, and line map shift for the removed bytes. This is the first
+   piece of the machine-instruction/liveness layer that the remaining machine-level work (`ldi`/`ldd`
+   selection, register residency, HRAM placement) builds on.
+
    Enabled by a minimal type-preserving RAUW (`IrInstruction.ReplaceOperand`) and phi-edge maintenance
    (`PhiInstruction.RemoveIncomingsFrom`) on the IR core; escape/loaded classification of allocas
    lives in `AllocaAnalysis`. Verified end-to-end on the emulator (folded ROMs and scalar-local

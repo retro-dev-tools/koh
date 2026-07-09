@@ -3293,6 +3293,37 @@ static uint Log2(uint value) {
     }
 
     [Test]
+    public async Task Peephole_EmitsXorAForZeroLoadAndStaysCorrect()
+    {
+        // `0 - n` loads 0 into A (LD A,0) then SUB; the peephole turns the load into XOR A because
+        // the following SUB redefines all flags. The XOR A byte (0xAF) must appear and the result hold.
+        const string src = "static byte Neg(byte n) { return (byte)(0 - n); }";
+        var code = Compile(src).Sections[0].Data;
+        await Assert.That(code.Contains((byte)0xAF)).IsTrue();
+        await Assert.That(RunA(src, gb => W8(gb, 0, 5))).IsEqualTo((byte)251); // 0 - 5 = 251 (mod 256)
+    }
+
+    [Test]
+    public async Task Peephole_PreservesCarryChainCorrectness()
+    {
+        // A 16-bit subtract that borrows across the byte boundary: the low byte's borrow must reach the
+        // high byte's SBC. If the peephole wrongly rewrote a zero-load in the chain, this would break.
+        const string src = "static ushort Sub(ushort a, ushort b) { return (ushort)(a - b); }";
+        await Assert
+            .That(
+                RunHL(
+                    src,
+                    gb =>
+                    {
+                        W16(gb, 0, 0x0100);
+                        W16(gb, 2, 0x0001);
+                    }
+                )
+            )
+            .IsEqualTo((ushort)0x00FF);
+    }
+
+    [Test]
     public async Task Optimized_InliningAndDeadFunctionRemovalShrinkRom()
     {
         // Main calls a leaf accessor with a constant: inlining + folding collapse it to a return, and
