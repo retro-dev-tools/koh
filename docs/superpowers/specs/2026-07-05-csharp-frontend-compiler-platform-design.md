@@ -193,6 +193,10 @@ Ordered to attack the highest-risk piece (SM83 codegen) first, on hand-written I
      register residency.
    - **Trivial-phi elimination** — collapses a phi with a single unique incoming (ignoring
      self-references) to that value; cleans up after mem2reg and edge pruning.
+   - **Inlining + dead-function elimination** — splices small single-block leaf callees (the tiny
+     accessors a game is full of) into their call sites, erasing the SM83 call/frame/arg-marshalling
+     overhead and exposing the body to the rest of the optimizer, then drops functions no longer
+     reachable from the entry or an interrupt handler. Interprocedural, run once up front.
    - **Strength reduction** — rewrites multiply / unsigned-divide / unsigned-remainder by a constant
      power of two to a shift or mask (`x*2^k → x<<k`, `x u/2^k → x>>k`, `x u%2^k → x & (2^k-1)`),
      turning the open-coded SM83 mul/div runtime routines into a few inline instructions. Signed

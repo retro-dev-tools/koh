@@ -34,12 +34,45 @@ public static class IrOptimizer
     /// <summary>Optimize every defined function in <paramref name="module"/> in place.</summary>
     public static void Optimize(IrModule module)
     {
+        // Interprocedural first: splice tiny leaf callees into their call sites (to a fixed point,
+        // which terminates because each inline removes a call and adds none), then drop functions no
+        // longer reachable from the entry or an interrupt handler so they don't cost ROM.
+        var inliner = new InliningPass();
+        for (var round = 0; round < MaxRounds && inliner.Run(module); round++) { }
+        RemoveUnreachableFunctions(module);
+
         foreach (var function in module.Functions)
         {
             if (function.IsExternal || function.Blocks.Count == 0)
                 continue;
             OptimizeFunction(function);
         }
+    }
+
+    /// <summary>Remove functions unreachable from the entry or any interrupt handler through the call
+    /// graph. External declarations are always kept (they may be resolved by the linker).</summary>
+    private static void RemoveUnreachableFunctions(IrModule module)
+    {
+        // Only prune when the module designates an entry (a real compiled program always marks Main).
+        // Without one — a library fragment or a single function under test — every function is a
+        // potential root, so removing "callerless" functions would wrongly delete live code.
+        if (!module.Functions.Any(f => f.IsEntry))
+            return;
+
+        var keep = new HashSet<IrFunction>(ReferenceEqualityComparer.Instance);
+        var work = new Stack<IrFunction>();
+        foreach (var function in module.Functions)
+            if (function.IsEntry || function.InterruptVector is not null || function.IsExternal)
+                if (keep.Add(function))
+                    work.Push(function);
+
+        while (work.Count > 0)
+            foreach (var block in work.Pop().Blocks)
+            foreach (var instruction in block.Instructions)
+                if (instruction is CallInstruction call && keep.Add(call.Callee))
+                    work.Push(call.Callee);
+
+        module.Functions.RemoveAll(f => !keep.Contains(f));
     }
 
     private static void OptimizeFunction(IrFunction function)

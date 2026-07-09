@@ -3282,4 +3282,26 @@ static uint Log2(uint value) {
         await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 250))).IsEqualTo((ushort)1000);
         await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 50))).IsEqualTo((ushort)2000);
     }
+
+    [Test]
+    public async Task Optimized_InlinesLeafAccessorAndRunsCorrectly()
+    {
+        // The leaf `Double` is spliced into `Apply`, which then computes n+n with no call/frame.
+        const string src =
+            "static byte Apply(byte n) { return Double(n); } static byte Double(byte a) { return (byte)(a + a); }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 21))).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Optimized_InliningAndDeadFunctionRemovalShrinkRom()
+    {
+        // Main calls a leaf accessor with a constant: inlining + folding collapse it to a return, and
+        // the now-uncalled callee is dropped from the module, so the optimized ROM is smaller.
+        const string src =
+            "static byte Main() { return Double(21); } static byte Double(byte a) { return (byte)(a + a); }";
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)42);
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
+    }
 }

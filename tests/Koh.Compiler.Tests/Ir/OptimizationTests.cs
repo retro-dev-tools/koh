@@ -701,4 +701,60 @@ public class OptimizationTests
         await Assert.That(ConstValueOf(ret.Value)).IsEqualTo(7L);
         await Assert.That(IrVerifier.Verify(module)).IsEmpty();
     }
+
+    // ---- Inlining + dead-function elimination --------------------------------
+
+    [Test]
+    public async Task Inlining_SplicesLeafCalleeAndDropsTheCall()
+    {
+        var module = new IrModule("test");
+
+        var a = new IrParameter("a", IrType.I8);
+        var callee = new IrFunction("Add3", IrType.I8, [a]);
+        module.Functions.Add(callee);
+        var cb = callee.AppendBlock("entry");
+        var b = new IrBuilder();
+        b.PositionAtEnd(cb);
+        b.Ret(b.Add(a, IrBuilder.ConstInt(IrType.I8, 3)));
+
+        var n = new IrParameter("n", IrType.I8);
+        var caller = new IrFunction("Main", IrType.I8, [n]) { IsEntry = true };
+        module.Functions.Add(caller);
+        var mb = caller.AppendBlock("entry");
+        b.PositionAtEnd(mb);
+        var ret = b.Ret(b.Call(callee, [n]));
+
+        var changed = new InliningPass().Run(module);
+
+        await Assert.That(changed).IsTrue();
+        await Assert.That(mb.Instructions.OfType<CallInstruction>().Any()).IsFalse();
+        // The inlined `a + 3` now reads the caller's argument `n` directly.
+        var add = mb.Instructions.OfType<BinaryInstruction>().Single();
+        await Assert.That(add.Left).IsSameReferenceAs((IrValue)n);
+        await Assert.That(ConstValueOf(add.Right)).IsEqualTo(3L);
+        await Assert.That(ret.Value).IsSameReferenceAs((IrValue)add);
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    [Test]
+    public async Task Optimize_RemovesUnreachableFunctions()
+    {
+        var module = new IrModule("test");
+        var b = new IrBuilder();
+
+        var main = new IrFunction("Main", IrType.I8, []) { IsEntry = true };
+        module.Functions.Add(main);
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        b.Ret(IrBuilder.ConstInt(IrType.I8, 1));
+
+        var dead = new IrFunction("Dead", IrType.I8, []);
+        module.Functions.Add(dead);
+        b.PositionAtEnd(dead.AppendBlock("entry"));
+        b.Ret(IrBuilder.ConstInt(IrType.I8, 2));
+
+        IrOptimizer.Optimize(module);
+
+        await Assert.That(module.FindFunction("Dead")).IsNull();
+        await Assert.That(module.FindFunction("Main")).IsNotNull();
+    }
 }
