@@ -314,4 +314,184 @@ public class OptimizationTests
         await Assert.That(fn.EntryBlock!.Instructions.OfType<BinaryInstruction>().Any()).IsTrue();
         await Assert.That(IrVerifier.Verify(module)).IsEmpty();
     }
+
+    // ---- Redundant load elimination -----------------------------------------
+
+    [Test]
+    public async Task RedundantLoadElimination_ForwardsStoredValueToLoad()
+    {
+        var (module, fn, b, _) = NewFn(IrType.I8, new IrParameter("n", IrType.I8));
+        var n = fn.Parameters[0];
+        var p = b.Alloca(IrType.I8);
+        b.Store(n, p);
+        var loaded = b.Load(p);
+        var ret = b.Ret(loaded);
+
+        var changed = new RedundantLoadEliminationPass().Run(fn);
+
+        await Assert.That(changed).IsTrue();
+        await Assert.That(ret.Value).IsSameReferenceAs((IrValue)n); // load forwarded to the stored param
+        await Assert.That(fn.EntryBlock!.Instructions.OfType<LoadInstruction>().Any()).IsFalse();
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    [Test]
+    public async Task RedundantLoadElimination_CollapsesRepeatedLoads()
+    {
+        // Two loads of the same unmodified alloca in one block: the second forwards to the first.
+        var (module, fn, b, _) = NewFn(IrType.I8);
+        var p = b.Alloca(IrType.I8);
+        var first = b.Load(p);
+        var second = b.Load(p);
+        var sum = b.Add(first, second);
+        b.Ret(sum);
+
+        new RedundantLoadEliminationPass().Run(fn);
+
+        // Only one load remains, and the add uses it for both operands.
+        await Assert
+            .That(fn.EntryBlock!.Instructions.OfType<LoadInstruction>().Count())
+            .IsEqualTo(1);
+        await Assert.That(sum.Left).IsSameReferenceAs((IrValue)first);
+        await Assert.That(sum.Right).IsSameReferenceAs((IrValue)first);
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    [Test]
+    public async Task RedundantLoadElimination_DoesNotForwardThroughEscapingAlloca()
+    {
+        // An array alloca is addressed via gep; the load/store go through the gep pointer, not the
+        // alloca, so nothing is forwarded (and the alloca escapes anyway).
+        var (module, fn, b, _) = NewFn(IrType.I8);
+        var arr = b.Alloca(IrType.Array(IrType.I8, 2));
+        var elem = b.Gep(arr, IrBuilder.ConstInt(IrType.I8, 0), IrType.I8);
+        b.Store(IrBuilder.ConstInt(IrType.I8, 9), elem);
+        var loaded = b.Load(elem);
+        b.Ret(loaded);
+
+        var changed = new RedundantLoadEliminationPass().Run(fn);
+
+        await Assert.That(changed).IsFalse();
+        await Assert.That(fn.EntryBlock!.Instructions.OfType<LoadInstruction>().Any()).IsTrue();
+    }
+
+    // ---- Dead store elimination ---------------------------------------------
+
+    [Test]
+    public async Task DeadStoreElimination_RemovesStoresToWriteOnlyAlloca()
+    {
+        var (_, fn, b, _) = NewFn(IrType.Void);
+        var p = b.Alloca(IrType.I8);
+        b.Store(IrBuilder.ConstInt(IrType.I8, 5), p); // never loaded anywhere
+        b.Ret();
+
+        var changed = new DeadStoreEliminationPass().Run(fn);
+
+        await Assert.That(changed).IsTrue();
+        await Assert.That(fn.EntryBlock!.Instructions.OfType<StoreInstruction>().Any()).IsFalse();
+    }
+
+    [Test]
+    public async Task DeadStoreElimination_KeepsStoresToLoadedAlloca()
+    {
+        var (_, fn, b, _) = NewFn(IrType.I8);
+        var p = b.Alloca(IrType.I8);
+        b.Store(IrBuilder.ConstInt(IrType.I8, 5), p);
+        b.Ret(b.Load(p)); // the alloca is read, so the store is live
+
+        var changed = new DeadStoreEliminationPass().Run(fn);
+
+        await Assert.That(changed).IsFalse();
+        await Assert.That(fn.EntryBlock!.Instructions.OfType<StoreInstruction>().Any()).IsTrue();
+    }
+
+    // ---- CFG simplification --------------------------------------------------
+
+    [Test]
+    public async Task SimplifyCfg_FoldsConstantBranchAndDropsUnreachableBlock()
+    {
+        var module = new IrModule("test");
+        var fn = new IrFunction("f", IrType.Void, []);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var taken = fn.AppendBlock("taken");
+        var gone = fn.AppendBlock("gone");
+        var b = new IrBuilder();
+        b.PositionAtEnd(entry);
+        b.CondBr(IrBuilder.ConstInt(IrType.I8, 1), taken, gone);
+        b.PositionAtEnd(taken);
+        b.Ret();
+        b.PositionAtEnd(gone);
+        b.Ret();
+
+        var changed = new SimplifyCfgPass().Run(fn);
+
+        await Assert.That(changed).IsTrue();
+        await Assert.That(entry.Terminator).IsTypeOf<BrInstruction>();
+        await Assert.That(((BrInstruction)entry.Terminator!).Target).IsSameReferenceAs(taken);
+        await Assert.That(fn.Blocks.Contains(gone)).IsFalse(); // unreachable, removed
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    [Test]
+    public async Task SimplifyCfg_PrunesPhiIncomingFromDeadEdge()
+    {
+        // A diamond whose condition is constant: the not-taken side becomes unreachable and the merge
+        // block's phi drops that incoming, leaving exactly the taken value.
+        var module = new IrModule("test");
+        var fn = new IrFunction("f", IrType.I8, []);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var t = fn.AppendBlock("t");
+        var f = fn.AppendBlock("f");
+        var m = fn.AppendBlock("m");
+        var b = new IrBuilder();
+        b.PositionAtEnd(entry);
+        b.CondBr(IrBuilder.ConstInt(IrType.I8, 1), t, f);
+        b.PositionAtEnd(t);
+        b.Br(m);
+        b.PositionAtEnd(f);
+        b.Br(m);
+        b.PositionAtEnd(m);
+        var phi = b.Phi(IrType.I8);
+        phi.AddIncoming(IrBuilder.ConstInt(IrType.I8, 7), t);
+        phi.AddIncoming(IrBuilder.ConstInt(IrType.I8, 9), f);
+        b.Ret(phi);
+
+        new SimplifyCfgPass().Run(fn);
+
+        await Assert.That(phi.Incomings.Count).IsEqualTo(1);
+        await Assert.That(phi.Incomings[0].Block).IsSameReferenceAs(t);
+        await Assert.That(ConstValueOf(phi.Incomings[0].Value)).IsEqualTo(7L);
+        await Assert.That(fn.Blocks.Contains(f)).IsFalse();
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    // ---- Full pipeline: scalar-local promotion -------------------------------
+
+    [Test]
+    public async Task Optimize_PromotesScalarLocalToDirectDataflow()
+    {
+        // Mirrors the frontend's lowering of `byte f(byte n) { byte x = n; return x + x; }`:
+        // an alloca with a store and two loads. The optimizer should forward the stores, delete the
+        // loads, drop the now-dead store and alloca, and leave just `add n, n; ret`.
+        var (module, fn, b, _) = NewFn(IrType.I8, new IrParameter("n", IrType.I8));
+        var n = fn.Parameters[0];
+        var x = b.Alloca(IrType.I8);
+        b.Store(n, x);
+        var add = b.Add(b.Load(x), b.Load(x));
+        b.Ret(add);
+
+        IrOptimizer.Optimize(module);
+
+        var instrs = fn.EntryBlock!.Instructions;
+        await Assert.That(instrs.OfType<AllocaInstruction>().Any()).IsFalse();
+        await Assert.That(instrs.OfType<LoadInstruction>().Any()).IsFalse();
+        await Assert.That(instrs.OfType<StoreInstruction>().Any()).IsFalse();
+        await Assert.That(instrs.Count).IsEqualTo(2); // add + ret
+        var survivingAdd = instrs.OfType<BinaryInstruction>().Single();
+        await Assert.That(survivingAdd.Left).IsSameReferenceAs((IrValue)n);
+        await Assert.That(survivingAdd.Right).IsSameReferenceAs((IrValue)n);
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
 }

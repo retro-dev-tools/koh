@@ -397,6 +397,14 @@ public sealed class PhiInstruction : IrInstruction
 
     public void AddIncoming(IrValue value, IrBasicBlock block) => _incomings.Add((value, block));
 
+    /// <summary>
+    /// Drop every incoming arriving from <paramref name="block"/>. Used by CFG simplification when a
+    /// predecessor edge into this phi's block is removed, so the phi's incomings stay in one-to-one
+    /// correspondence with the block's actual predecessors.
+    /// </summary>
+    public void RemoveIncomingsFrom(IrBasicBlock block) =>
+        _incomings.RemoveAll(i => ReferenceEquals(i.Block, block));
+
     public override IEnumerable<IrValue> Operands => _incomings.Select(i => i.Value);
     public override string Mnemonic => "phi";
 

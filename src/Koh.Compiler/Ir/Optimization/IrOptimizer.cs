@@ -15,9 +15,15 @@ public static class IrOptimizer
     /// converges. Real programs settle in one or two rounds; the cap only prevents an infinite loop.</summary>
     private const int MaxRounds = 16;
 
+    // Ordered so each pass tends to expose work for the next, then the whole list re-runs to a fixed
+    // point: folding turns branch conditions constant (→ SimplifyCfg), simplified control flow and
+    // store→load forwarding expose more constants (→ ConstantFolding again) and unused code (→ DCE).
     private static readonly IIrFunctionPass[] Passes =
     [
         new ConstantFoldingPass(),
+        new SimplifyCfgPass(),
+        new RedundantLoadEliminationPass(),
+        new DeadStoreEliminationPass(),
         new DeadCodeEliminationPass(),
     ];
 

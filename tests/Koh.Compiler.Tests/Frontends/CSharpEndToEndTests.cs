@@ -3194,4 +3194,34 @@ static uint Log2(uint value) {
         var optimized = CompileOpt(src).Sections[0].Data.Length;
         await Assert.That(optimized).IsLessThan(unoptimized);
     }
+
+    [Test]
+    public async Task Optimized_ForwardsScalarLocalsThroughStoreLoad()
+    {
+        // A chain of scalar-local copies should forward to the parameter and still compute correctly.
+        const string src =
+            "static byte F(byte n) { byte x = n; byte y = x; return (byte)(y + y); }";
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 21))).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Optimized_ScalarLocalForwardingShrinksRom()
+    {
+        // Store->load forwarding + dead-store/DCE must remove the alloca traffic for scalar locals.
+        const string src =
+            "static byte F(byte n) { byte x = n; byte y = x; byte z = y; return (byte)(z + z + z); }";
+        var unoptimized = Compile(src).Sections[0].Data.Length;
+        var optimized = CompileOpt(src).Sections[0].Data.Length;
+        await Assert.That(optimized).IsLessThan(unoptimized);
+        await Assert.That(RunAOpt(src, gb => W8(gb, 0, 10))).IsEqualTo((byte)30);
+    }
+
+    [Test]
+    public async Task Optimized_EliminatesDeadBranch()
+    {
+        // The condition folds to a constant, so simplify-cfg drops the dead arm; the result is 9.
+        await Assert
+            .That(RunAOpt("static byte Main() { if (2 > 5) { return 1; } return 9; }"))
+            .IsEqualTo((byte)9);
+    }
 }
