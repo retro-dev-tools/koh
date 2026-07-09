@@ -10,14 +10,11 @@ namespace Koh.Compiler.Ir.Optimization;
 ///
 /// Standard construction: compute the dominator tree and dominance frontiers, place phis at the
 /// iterated dominance frontier of each promotable alloca's store blocks, then rename by a single
-/// walk of the dominator tree carrying each alloca's reaching definition. Only allocas that
-/// <see cref="AllocaAnalysis"/> proves non-escaping and whose slot holds a scalar (int/pointer) are
-/// promoted; arrays and structs (accessed by <c>gep</c>) escape and are left in memory.
+/// walk of the dominator tree carrying each alloca's reaching definition. Only non-escaping integer
+/// scalars are promoted; arrays, structs (accessed by <c>gep</c>), and pointers are left in memory.
 /// </summary>
 public sealed class Mem2RegPass : IIrFunctionPass
 {
-    public string Name => "mem2reg";
-
     public bool Run(IrFunction function)
     {
         if (function.EntryBlock is null)
@@ -72,12 +69,7 @@ public sealed class Mem2RegPass : IIrFunctionPass
         var worklist = new Queue<IrBasicBlock>();
         var everOnWorklist = new HashSet<IrBasicBlock>(ReferenceEqualityComparer.Instance);
         foreach (var block in function.Blocks)
-            if (
-                block.Instructions.Any(i =>
-                    i is StoreInstruction { Pointer: var p }
-                    && ReferenceEqualityComparer.Instance.Equals(p, alloca)
-                )
-            )
+            if (StoresTo(block, alloca))
             {
                 worklist.Enqueue(block);
                 everOnWorklist.Add(block);
@@ -105,6 +97,17 @@ public sealed class Mem2RegPass : IIrFunctionPass
         Dictionary<IrBasicBlock, List<(AllocaInstruction, PhiInstruction)>> phis,
         IrBasicBlock block
     ) => phis.TryGetValue(block, out var list) ? list.Count : 0;
+
+    private static bool StoresTo(IrBasicBlock block, AllocaInstruction alloca)
+    {
+        foreach (var instruction in block.Instructions)
+            if (
+                instruction is StoreInstruction { Pointer: AllocaInstruction p }
+                && ReferenceEquals(p, alloca)
+            )
+                return true;
+        return false;
+    }
 
     private static void Rename(
         IrBasicBlock block,

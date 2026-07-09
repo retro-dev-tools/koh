@@ -17,8 +17,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class SimplifyCfgPass : IIrFunctionPass
 {
-    public string Name => "simplify-cfg";
-
     public bool Run(IrFunction function)
     {
         var changed = FoldConstantBranches(function);

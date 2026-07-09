@@ -24,7 +24,8 @@ internal sealed class Dominators
         _postNumber = new Dictionary<IrBasicBlock, int>(ReferenceEqualityComparer.Instance);
         for (var i = 0; i < postorder.Count; i++)
             _postNumber[postorder[i]] = i;
-        _reversePostorder = Enumerable.Reverse(postorder).ToList();
+        postorder.Reverse(); // reverse-postorder in place — no extra allocation
+        _reversePostorder = postorder;
 
         _idom = ComputeIdoms();
         _children = new Dictionary<IrBasicBlock, List<IrBasicBlock>>(

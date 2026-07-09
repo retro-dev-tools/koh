@@ -7,9 +7,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public interface IIrFunctionPass
 {
-    /// <summary>Human-readable name, for diagnostics and tests.</summary>
-    string Name { get; }
-
     /// <summary>Rewrite <paramref name="function"/> in place; return true if anything changed.</summary>
     bool Run(IrFunction function);
 }

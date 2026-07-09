@@ -9,8 +9,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class TrivialPhiEliminationPass : IIrFunctionPass
 {
-    public string Name => "trivial-phi-elimination";
-
     public bool Run(IrFunction function)
     {
         var changedOverall = false;

@@ -12,8 +12,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class ConstantFoldingPass : IIrFunctionPass
 {
-    public string Name => "constant-folding";
-
     public bool Run(IrFunction function)
     {
         var folded = new List<(IrBasicBlock Block, IrInstruction Instruction)>();
@@ -133,23 +131,25 @@ public sealed class ConstantFoldingPass : IIrFunctionPass
                     return zero;
                 break;
             case IrBinaryOp.Mul:
-                if (IsValue(rightConst, 1, bits) || IsValue(leftConst, 1, bits))
-                    return IsValue(rightConst, 1, bits) ? b.Left : b.Right;
+                if (IsValue(rightConst, 1, bits))
+                    return b.Left; // x * 1
+                if (IsValue(leftConst, 1, bits))
+                    return b.Right; // 1 * x
                 if (IsZero(rightConst, bits) || IsZero(leftConst, bits))
                     return zero;
                 break;
             case IrBinaryOp.And:
                 if (IsZero(rightConst, bits) || IsZero(leftConst, bits))
                     return zero;
-                if (IsUnsigned(rightConst, allOnes, bits))
+                if (IsValue(rightConst, allOnes, bits))
                     return b.Left;
-                if (IsUnsigned(leftConst, allOnes, bits))
+                if (IsValue(leftConst, allOnes, bits))
                     return b.Right;
                 if (ReferenceEquals(b.Left, b.Right))
                     return b.Left;
                 break;
             case IrBinaryOp.Or:
-                if (IsUnsigned(rightConst, allOnes, bits) || IsUnsigned(leftConst, allOnes, bits))
+                if (IsValue(rightConst, allOnes, bits) || IsValue(leftConst, allOnes, bits))
                     return new IrConstInt(b.Type, Wrap((long)allOnes, bits));
                 if (IsZero(rightConst, bits))
                     return b.Left;
@@ -247,32 +247,20 @@ public sealed class ConstantFoldingPass : IIrFunctionPass
         };
     }
 
-    // ---- Width helpers -------------------------------------------------------
+    // ---- Width helpers (delegate to the shared IntWidth so the two integer passes can't drift) ----
 
-    private static ulong Mask(int bits) => bits >= 64 ? ulong.MaxValue : (1UL << bits) - 1;
+    private static ulong Mask(int bits) => IntWidth.Mask(bits);
 
-    private static ulong AsUnsigned(long value, int bits) => (ulong)value & Mask(bits);
+    private static ulong AsUnsigned(long value, int bits) => IntWidth.ToUnsigned(value, bits);
 
-    private static long AsSigned(long value, int bits)
-    {
-        if (bits >= 64)
-            return value;
-        var masked = (long)AsUnsigned(value, bits);
-        var signBit = 1L << (bits - 1);
-        return (masked ^ signBit) - signBit;
-    }
+    private static long AsSigned(long value, int bits) => IntWidth.ToSigned(value, bits);
 
-    /// <summary>Normalize a value to its two's-complement representation at the given width.</summary>
-    private static long Wrap(long value, int bits) => AsSigned(value, bits);
+    private static long Wrap(long value, int bits) => IntWidth.Wrap(value, bits);
 
-    private static long MinSigned(int bits) => bits >= 64 ? long.MinValue : -(1L << (bits - 1));
-
-    private static bool IsZero(IrConstInt? c, int bits) =>
-        c is not null && AsUnsigned(c.Value, bits) == 0;
+    private static long MinSigned(int bits) => IntWidth.MinSigned(bits);
 
     private static bool IsValue(IrConstInt? c, ulong value, int bits) =>
         c is not null && AsUnsigned(c.Value, bits) == value;
 
-    private static bool IsUnsigned(IrConstInt? c, ulong value, int bits) =>
-        c is not null && AsUnsigned(c.Value, bits) == value;
+    private static bool IsZero(IrConstInt? c, int bits) => IsValue(c, 0, bits);
 }

@@ -21,8 +21,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class StrengthReductionPass : IIrFunctionPass
 {
-    public string Name => "strength-reduction";
-
     public bool Run(IrFunction function)
     {
         var changed = false;
@@ -64,7 +62,7 @@ public sealed class StrengthReductionPass : IIrFunctionPass
                 return new BinaryInstruction(
                     IrBinaryOp.And,
                     b.Left,
-                    new IrConstInt(b.Type, Wrap((1L << km) - 1, bits))
+                    new IrConstInt(b.Type, IntWidth.Wrap((1L << km) - 1, bits))
                 );
             default:
                 return null;
@@ -80,21 +78,10 @@ public sealed class StrengthReductionPass : IIrFunctionPass
     {
         if (operand is not IrConstInt c)
             return null;
-        var value = (ulong)c.Value & Mask(bits);
+        var value = IntWidth.ToUnsigned(c.Value, bits);
         if (value < 2 || (value & (value - 1)) != 0)
             return null;
         var k = BitOperations.TrailingZeroCount(value);
         return k < bits ? k : null;
-    }
-
-    private static ulong Mask(int bits) => bits >= 64 ? ulong.MaxValue : (1UL << bits) - 1;
-
-    private static long Wrap(long value, int bits)
-    {
-        if (bits >= 64)
-            return value;
-        var masked = (long)((ulong)value & Mask(bits));
-        var signBit = 1L << (bits - 1);
-        return (masked ^ signBit) - signBit;
     }
 }

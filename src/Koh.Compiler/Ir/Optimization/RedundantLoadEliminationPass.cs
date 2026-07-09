@@ -22,8 +22,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class RedundantLoadEliminationPass : IIrFunctionPass
 {
-    public string Name => "redundant-load-elimination";
-
     public bool Run(IrFunction function)
     {
         var promotable = AllocaAnalysis.NonEscaping(function);

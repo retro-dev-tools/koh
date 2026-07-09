@@ -17,38 +17,41 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class LocalCsePass : IIrFunctionPass
 {
-    public string Name => "local-cse";
-
     public bool Run(IrFunction function)
     {
         var changed = false;
         foreach (var block in function.Blocks)
         {
-            // Per-block value numbering: a non-constant value gets a stable ordinal; a constant is
-            // tokenized by (type, value) so equal literals from distinct objects still match.
+            // Per-block value numbering: a non-constant value gets a stable ordinal by identity; a
+            // constant by (type, value) so equal literals from distinct objects share a number.
             var number = new Dictionary<IrValue, int>(ReferenceEqualityComparer.Instance);
-            var seen = new Dictionary<string, IrInstruction>(StringComparer.Ordinal);
+            var constNumber = new Dictionary<(IrType, long), int>();
+            var seen = new Dictionary<CseKey, IrInstruction>();
             var remove = new List<IrInstruction>();
+            var next = 0;
 
-            string Token(IrValue v) =>
-                v is IrConstInt c ? $"#{v.Type}:{c.Value}"
-                : number.TryGetValue(v, out var n) ? $"%{n}"
-                : $"%{number[v] = number.Count}";
+            int Vn(IrValue v)
+            {
+                if (v is IrConstInt c)
+                    return constNumber.TryGetValue((c.Type, c.Value), out var cn)
+                        ? cn
+                        : constNumber[(c.Type, c.Value)] = next++;
+                return number.TryGetValue(v, out var n) ? n : number[v] = next++;
+            }
 
             foreach (var instruction in block.Instructions)
             {
-                var key = KeyOf(instruction, Token);
-                if (key is not null && seen.TryGetValue(key, out var first))
+                if (KeyOf(instruction, Vn) is not { } key)
+                    continue;
+                if (seen.TryGetValue(key, out var first))
                 {
                     IrOptimizer.ReplaceAllUses(function, instruction, first);
                     remove.Add(instruction);
                     changed = true;
                     continue; // do not number the removed result; its uses now point at `first`
                 }
-
-                if (key is not null)
-                    seen[key] = instruction;
-                Token(instruction); // number this result for later operands
+                seen[key] = instruction;
+                Vn(instruction); // number this result for later operands
             }
 
             foreach (var instruction in remove)
@@ -57,15 +60,28 @@ public sealed class LocalCsePass : IIrFunctionPass
         return changed;
     }
 
-    /// <summary>A canonical key for a pure instruction, or null if it is not a CSE candidate.</summary>
-    private static string? KeyOf(IrInstruction instruction, Func<IrValue, string> token) =>
+    /// <summary>A value-typed canonical key for a pure instruction: (kind, op, distinguishing type,
+    /// operand value-numbers). The type must be a reference-stable one — an integer type (a singleton)
+    /// or a gep's element type — never a gep's freshly-built pointer result type, which two equal geps
+    /// would not share. Structurally-distinct types compare by reference, at worst missing a CSE.</summary>
+    private readonly record struct CseKey(byte Kind, int Op, IrType Type, int A, int B);
+
+    private static CseKey? KeyOf(IrInstruction instruction, Func<IrValue, int> vn) =>
         instruction switch
         {
-            BinaryInstruction b => $"bin:{(int)b.Op}:{b.Type}:{token(b.Left)}:{token(b.Right)}",
-            CompareInstruction c => $"cmp:{(int)c.Op}:{token(c.Left)}:{token(c.Right)}",
-            ConvInstruction c => $"conv:{(int)c.Op}:{c.Type}:{token(c.Operand)}",
-            GetElementPtrInstruction g =>
-                $"gep:{g.Type}:{g.ElementType}:{token(g.BasePointer)}:{token(g.Index)}",
+            // A binary/compare's result type equals its operand types, so the operand numbers carry it.
+            BinaryInstruction b => new CseKey(0, (int)b.Op, b.Type, vn(b.Left), vn(b.Right)),
+            CompareInstruction c => new CseKey(1, (int)c.Op, c.Left.Type, vn(c.Left), vn(c.Right)),
+            // A conversion is distinguished by its (singleton) target type.
+            ConvInstruction c => new CseKey(2, (int)c.Op, c.Type, vn(c.Operand), 0),
+            // A gep is fully determined by base, index, and element type; the pointer result follows.
+            GetElementPtrInstruction g => new CseKey(
+                3,
+                0,
+                g.ElementType,
+                vn(g.BasePointer),
+                vn(g.Index)
+            ),
             _ => null,
         };
 }

@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Koh.Compiler.Backends.Sm83;
 
 /// <summary>
@@ -21,10 +23,10 @@ namespace Koh.Compiler.Backends.Sm83;
 internal static class Sm83Peephole
 {
     // Length in bytes of each unprefixed SM83 opcode (CB-prefixed instructions are always 2). Invalid
-    // opcodes (never emitted by this backend) are marked length 1; if one ever appeared, the decode
-    // round-trip test on real ROMs would catch the resulting desync.
+    // opcodes (never emitted by this backend) are length 1. Declared as a span so the compiler emits it
+    // as a static blob (no heap array) and elides the bounds check when indexed by a byte.
     // csharpier-ignore
-    private static readonly byte[] Length =
+    private static ReadOnlySpan<byte> Length =>
     [
         1, 3, 1, 1, 1, 1, 2, 1, 3, 1, 1, 1, 1, 1, 2, 1, // 0x00
         2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1, // 0x10
@@ -106,50 +108,26 @@ internal static class Sm83Peephole
         return false; // reached region end without a redefinition: be conservative
     }
 
-    private static bool IsControlFlow(byte op) =>
-        op
-            is 0x18
-                or 0x20
-                or 0x28
-                or 0x30
-                or 0x38 // JR / JR cc
-                or 0xC3
-                or 0xC2
-                or 0xCA
-                or 0xD2
-                or 0xDA
-                or 0xE9 // JP / JP cc / JP (HL)
-                or 0xCD
-                or 0xC4
-                or 0xCC
-                or 0xD4
-                or 0xDC // CALL / CALL cc
-                or 0xC9
-                or 0xC0
-                or 0xC8
-                or 0xD0
-                or 0xD8
-                or 0xD9 // RET / RET cc / RETI
-                or 0xC7
-                or 0xCF
-                or 0xD7
-                or 0xDF
-                or 0xE7
-                or 0xEF
-                or 0xF7
-                or 0xFF // RST
-                or 0x76
-                or 0x10; // HALT / STOP (treated as boundaries)
+    // Branches/joins that end a straight-line run: JR/JP/CALL/RET (all condition forms), RST, HALT, STOP.
+    // csharpier-ignore
+    private static readonly SearchValues<byte> ControlFlow = SearchValues.Create(
+    [
+        0x18, 0x20, 0x28, 0x30, 0x38, 0xC3, 0xC2, 0xCA, 0xD2, 0xDA, 0xE9, 0xCD, 0xC4, 0xCC, 0xD4,
+        0xDC, 0xC9, 0xC0, 0xC8, 0xD0, 0xD8, 0xD9, 0xC7, 0xCF, 0xD7, 0xDF, 0xE7, 0xEF, 0xF7, 0xFF,
+        0x76, 0x10,
+    ]);
 
-    /// <summary>Instructions that read a flag (so a live flag reaching them is genuinely live). Kept
-    /// deliberately broad: any uncertainty errs toward "reads a flag", which only blocks the rewrite.</summary>
-    private static bool ReadsFlag(byte op) =>
-        op is 0x88 or 0x89 or 0x8A or 0x8B or 0x8C or 0x8D or 0x8E or 0x8F or 0xCE // ADC (reads C)
-        || op is 0x98 or 0x99 or 0x9A or 0x9B or 0x9C or 0x9D or 0x9E or 0x9F or 0xDE // SBC (reads C)
-        || op is 0x17 or 0x1F // RLA / RRA (read C)
-        || op is 0x27 // DAA (reads N/H/C)
-        || op is 0x3F // CCF (reads C)
-        || op == 0xCB; // any CB-prefixed op: conservatively assume it reads a flag
+    // Opcodes that read a flag: ADC/SBC/RLA/RRA (C), DAA, CCF, and — conservatively — the CB prefix.
+    // csharpier-ignore
+    private static readonly SearchValues<byte> FlagReaders = SearchValues.Create(
+    [
+        0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0xCE, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D,
+        0x9E, 0x9F, 0xDE, 0x17, 0x1F, 0x27, 0x3F, 0xCB,
+    ]);
+
+    private static bool IsControlFlow(byte op) => ControlFlow.Contains(op);
+
+    private static bool ReadsFlag(byte op) => FlagReaders.Contains(op);
 
     /// <summary>ALU ops with A that redefine all four flags without reading one first
     /// (ADD/SUB/AND/OR/XOR/CP, register and immediate forms), plus POP AF which loads F wholesale.</summary>

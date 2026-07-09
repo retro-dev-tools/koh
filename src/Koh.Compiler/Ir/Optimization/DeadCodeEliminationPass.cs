@@ -11,8 +11,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class DeadCodeEliminationPass : IIrFunctionPass
 {
-    public string Name => "dce";
-
     public bool Run(IrFunction function)
     {
         var changedOverall = false;

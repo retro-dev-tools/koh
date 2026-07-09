@@ -12,8 +12,6 @@ namespace Koh.Compiler.Ir.Optimization;
 /// </summary>
 public sealed class DeadStoreEliminationPass : IIrFunctionPass
 {
-    public string Name => "dead-store-elimination";
-
     public bool Run(IrFunction function)
     {
         var promotable = AllocaAnalysis.NonEscaping(function);
