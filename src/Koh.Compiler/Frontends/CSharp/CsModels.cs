@@ -25,7 +25,10 @@ internal sealed record CsMethod(
     IReadOnlyList<bool> RefParams,
     IReadOnlyList<CsStruct?> ParamStructs,
     CsClass? ThisClass = null,
-    IReadOnlyList<CsClass?>? ParamClasses = null
+    IReadOnlyList<CsClass?>? ParamClasses = null,
+    // The enclosing top-level `static class` for a program-scope static method (so its body can resolve
+    // sibling members by simple name); null for legacy top-level functions and instance methods.
+    string? DeclaringClass = null
 );
 
 /// <summary>A reference type (heap-allocated, `new`): its field layout (like a struct) and the

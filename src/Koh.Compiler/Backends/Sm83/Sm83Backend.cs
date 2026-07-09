@@ -151,13 +151,13 @@ public sealed partial class Sm83Backend : IBackend
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
-        // The cartridge boots into "main" (or the first non-handler function if there is none). An
-        // interrupt handler must never be the entry: its body runs on every interrupt and ends in RETI,
-        // so booting into it re-runs initializers and returns through a nonexistent interrupt frame.
+        // The cartridge boots into the frontend-marked entry (Main), or the first non-handler function
+        // if the module has none. An interrupt handler must never be the entry: its body runs on every
+        // interrupt and ends in RETI, so booting into it re-runs initializers and returns through a
+        // nonexistent interrupt frame.
         var entryFunction =
-            module.Functions.FirstOrDefault(f =>
-                !f.IsExternal && string.Equals(f.Name, "main", StringComparison.OrdinalIgnoreCase)
-            ) ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
+            module.Functions.FirstOrDefault(f => !f.IsExternal && f.IsEntry)
+            ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
         var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {

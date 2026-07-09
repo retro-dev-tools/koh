@@ -73,23 +73,44 @@ internal sealed class HardwareRegisters
         ["IE"] = 0xFFFF,
     };
 
+    /// <summary>The built-in <c>Gb</c> memory regions: <c>Gb.Vram</c> etc. lower to a constant pointer
+    /// at the region's base address, so pointer arithmetic over VRAM/tilemap/OAM needs no raw address
+    /// literal in the source. The managed <c>Koh.GameBoy</c> runtime backs the same names with real
+    /// buffers, so one source both compiles to a ROM and runs on the desktop.</summary>
+    private static readonly Dictionary<string, int> Regions = new(StringComparer.Ordinal)
+    {
+        ["Vram"] = 0x8000,
+        ["TileData"] = 0x8000,
+        ["TileMap"] = 0x9800,
+        ["TileMap1"] = 0x9C00,
+        ["Wram"] = 0xC000,
+        ["Oam"] = 0xFE00,
+    };
+
     public HardwareRegisters(IrModule module) => _module = module;
 
     public bool IsRegister(string name) => Addresses.ContainsKey(name);
 
-    /// <summary>Get (creating on first use) the fixed-address global for a register.</summary>
-    public IrGlobal Register(string name)
+    public bool IsRegion(string name) => Regions.ContainsKey(name);
+
+    /// <summary>Get (creating on first use) the fixed-address I8 global whose address is a region base;
+    /// taking its <see cref="IrBuilder.GlobalRef"/> yields a <c>byte*</c> pointing at the region. The
+    /// emitted global name is qualified (<c>Gb.Vram</c>) so it can never collide with a user-declared
+    /// global: a top-level field lowers to a bare name, and a user class named <c>Gb</c> is reserved.</summary>
+    public IrGlobal Region(string name) =>
+        GetOrCreate("@region:" + name, "Gb." + name, Regions[name]);
+
+    /// <summary>Get (creating on first use) the fixed-address global for a register. Like a region, the
+    /// emitted name is qualified (<c>Hardware.LY</c>) so it can't collide with a same-named user global.</summary>
+    public IrGlobal Register(string name) => GetOrCreate(name, "Hardware." + name, Addresses[name]);
+
+    private IrGlobal GetOrCreate(string cacheKey, string name, int address)
     {
-        if (!_cache.TryGetValue(name, out var global))
+        if (!_cache.TryGetValue(cacheKey, out var global))
         {
-            global = new IrGlobal(
-                name,
-                IrType.I8,
-                AddressSpace.Default,
-                fixedAddress: Addresses[name]
-            );
+            global = new IrGlobal(name, IrType.I8, AddressSpace.Default, fixedAddress: address);
             _module.Globals.Add(global);
-            _cache[name] = global;
+            _cache[cacheKey] = global;
         }
         return global;
     }

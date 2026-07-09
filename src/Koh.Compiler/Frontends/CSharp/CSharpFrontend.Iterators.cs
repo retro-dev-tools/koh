@@ -27,9 +27,11 @@ public sealed partial class CSharpFrontend
         if (wrapper is null)
             return root;
 
-        // An iterator is any method whose body contains a `yield`.
-        var iterators = wrapper
-            .Members.OfType<MethodDeclarationSyntax>()
+        // An iterator is any program-level method — a direct wrapper member, or a static method of a
+        // top-level `static class` — whose body contains a `yield`.
+        var iterators = root.DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .Where(IsWrapperMember)
             .Where(m => m.Body is { } b && b.DescendantNodes().OfType<YieldStatementSyntax>().Any())
             .ToList();
         if (iterators.Count == 0)
@@ -49,10 +51,13 @@ public sealed partial class CSharpFrontend
         if (factories.Count == 0)
             return root;
 
-        var newWrapper = wrapper
-            .ReplaceNodes(factories.Keys, (orig, _) => factories[orig])
-            .AddMembers(stateClasses.ToArray());
-        return root.ReplaceNode(wrapper, newWrapper);
+        // Replace each iterator with its factory (wherever it is declared), then add the state classes
+        // to the program wrapper so they are collected as ordinary reference types.
+        root = root.ReplaceNodes(factories.Keys, (orig, _) => factories[orig]);
+        var newWrapper = root.DescendantNodes()
+            .OfType<ClassDeclarationSyntax>()
+            .First(c => c.Identifier.Text == WrapperClassName);
+        return root.ReplaceNode(newWrapper, newWrapper.AddMembers(stateClasses.ToArray()));
     }
 
     /// <summary>Build the state class and replacement factory for one iterator, or null if its body is

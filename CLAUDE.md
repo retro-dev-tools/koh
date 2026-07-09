@@ -33,6 +33,12 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
   linking; `RomWriter` fills the cartridge header/global checksums.
 - `src/Koh.Emulator.Core` (+ `Koh.Emulator.App`), `src/Koh.Debugger`, `src/Koh.Lsp`, `KohUI*`.
 - `src/Koh.Compiler` — the compiler platform (details below).
+- `src/Koh.GameBoy` — the managed reference runtime a Koh C# game builds/runs against under the plain
+  .NET SDK: `Hardware`/`Gb` primitives (managed-only, special-cased by the frontend) plus a `Hal/`
+  framework written in the Koh C# subset (`Lcd`, `Joypad`, `Tilemap`/`TileData`, `Ppu`, `Direction`)
+  that the SDK also feeds to the frontend, so ROMs get it too. `src/Koh.Build.Tasks` — the in-process
+  MSBuild task (`CompileKohRom`) that drives the compiler+linker; `sdk/Koh.Sdk` — the MSBuild SDK that
+  ties them together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
 - `tests/Koh.*.Tests` mirror `src/`. `samples/` holds runnable examples (e.g. `gb-2048`,
   `gb-2048-cs`). `docs/superpowers/specs/` holds design specs.
 
@@ -108,8 +114,9 @@ Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`long`/`ulong`/`Int128`/
 i128 via generic width-N memory routines; i64/i128 have no register room so they return via
 `Sm83Backend.ReturnScratch`),
 `char`/string literals (strings only as `byte[]` initializers), `enum` (custom base), `const`,
-pointers (`T*` incl. arithmetic/`++`/compare/casts and `*(T*)addr` MMIO), fixed arrays (local +
-static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es
+pointers (`T*` incl. arithmetic/`++`/compare/casts, `*(T*)addr` MMIO, and `stackalloc T[n]` frame
+buffers), the `Gb.*` memory regions (`Gb.Vram`/`Gb.TileMap`/… as constant base pointers), fixed arrays
+(local + static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es
 (heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`; a class
 type also names fields — including of its own type, so linked structures work — parameters, and returns,
 all as heap pointers; an instance is usable as a value/`byte*` (`return this;`), and assignment copies the
@@ -121,7 +128,11 @@ directly on an array, compiled to a loop with inlined lambdas); cooperative coro
 state-machine class that captures the iterator's parameters);
 `if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
 `&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
-(mixed pairs promote to a wider signed type up to `long`); static methods + top-level functions,
+(mixed pairs promote to a wider signed type up to `long`); a program written as bare top-level
+functions **or** as top-level `static class`es (their static methods lower to `Class.Method` functions
+— qualified calls plus unqualified sibling calls — and their static fields become program-scope
+statics; the entry is the `Main` method wherever it lives; `using` directives and a file-scoped
+`namespace` are accepted and dropped, since the frontend resolves by simple name),
 `static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
 `[Interrupt("VBlank")]` handlers, and recursion (direct and mutual; a recursive program moves the CALL
 stack into WRAM so it runs hundreds of levels deep, and `rt.pushframe` traps on a stack/heap collision
@@ -130,6 +141,7 @@ constructs are reported as diagnostics.
 
 ## Gotchas
 
-- Building the C# sample ROM: `dotnet run --project samples/gb-2048-cs/build`.
+- Building the C# sample ROM: `dotnet build samples/gb-2048-cs` (the Koh SDK emits `2048.gb` after the
+  managed build). `dotnet run --project samples/gb-2048-cs` plays the reference build on the desktop.
 - Don't commit built ROMs (`*.gb`/`*.gbc`), `bin/`, `obj/` — samples ship a `.gitignore`.
 - The model identifier you run as must not appear in commits, PR bodies, or code.

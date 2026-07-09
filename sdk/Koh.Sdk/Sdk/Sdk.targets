@@ -1,0 +1,47 @@
+<Project>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <!-- The ROM lands next to the project by default (e.g. samples/gb-2048-cs/2048.gb); override
+         KohRomName / KohRomPath per project. -->
+    <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
+    <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
+    <KohBuildTasksProject>$(KohRoot)src/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
+    <KohBuildTasksAssembly>$(KohRoot)src/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
+  </PropertyGroup>
+
+  <!-- The game's own C# sources (excludes generated/output files) plus the framework's HAL, written
+       in the Koh C# subset (Lcd, Joypad, Tilemap/TileData, Ppu, …). The frontend compiles both as one
+       translation unit, so ROMs get the framework surface; the managed-only primitives (Gb, Hardware)
+       are special-cased by name and are not fed to it. -->
+  <ItemGroup>
+    <KohSource Include="$(MSBuildProjectDirectory)/**/*.cs"
+               Exclude="$(MSBuildProjectDirectory)/obj/**/*.cs;$(MSBuildProjectDirectory)/bin/**/*.cs" />
+    <KohFrameworkSource Include="$(KohRoot)src/Koh.GameBoy/Hal/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Build the in-process compile task (and, transitively, the compiler and linker) as part of the
+       build graph, so it is restored and built before use. ReferenceOutputAssembly=false keeps it off
+       the game's own compile references - the game depends only on the Koh.GameBoy runtime. -->
+  <ItemGroup>
+    <ProjectReference Include="$(KohBuildTasksProject)"
+                      ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+
+  <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
+
+  <!-- After the ordinary managed build succeeds, compile the game + framework HAL to a Game Boy ROM.
+       The compile task assembly is an Input too, so a change to the compiler/linker/task (not just the
+       game sources) re-emits the ROM instead of leaving a stale one built by the old toolchain. -->
+  <Target Name="CompileKohRom" AfterTargets="Build"
+          Inputs="@(KohSource);@(KohFrameworkSource);$(KohBuildTasksAssembly)"
+          Outputs="$(KohRomPath)">
+    <CompileKohRom SourceFiles="@(KohSource);@(KohFrameworkSource)" OutputPath="$(KohRomPath)"
+                   ProgramName="$(AssemblyName)" />
+    <ItemGroup>
+      <FileWrites Include="$(KohRomPath)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

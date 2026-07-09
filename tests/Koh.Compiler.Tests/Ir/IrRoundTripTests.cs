@@ -83,6 +83,36 @@ public class IrRoundTripTests
         await Assert.That(second).IsEqualTo(first);
     }
 
+    /// <summary>The entry marker names the boot function explicitly, independent of its position.</summary>
+    private const string EntryModule = """
+        module "t"
+
+        func @helper() : i8 {
+        entry:
+          ret i8 1
+        }
+
+        entry func @main() : i8 {
+        entry:
+          %r = call i8 @helper()
+          ret i8 %r
+        }
+        """;
+
+    [Test]
+    public async Task EntryFlag_RoundTrips()
+    {
+        // IsEntry must survive parse and print so the boot function is preserved even when it is not the
+        // first function in the module. Regression: the printer/parser dropped the flag entirely.
+        var module = IrParser.Parse(EntryModule);
+        await Assert.That(module.FindFunction("main")!.IsEntry).IsTrue();
+        await Assert.That(module.FindFunction("helper")!.IsEntry).IsFalse();
+
+        var printed = IrPrinter.Print(module);
+        await Assert.That(printed).Contains("entry func @main");
+        await Assert.That(IrPrinter.Print(IrParser.Parse(printed))).IsEqualTo(printed);
+    }
+
     /// <summary>A pointer and an integer of the address width reinterpret via <c>bitcast</c>.</summary>
     private const string BitcastModule = """
         module "t"

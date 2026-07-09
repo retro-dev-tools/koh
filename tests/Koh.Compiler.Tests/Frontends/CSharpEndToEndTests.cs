@@ -917,6 +917,158 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task StaticClass_QualifiedAndSiblingCalls()
+    {
+        // A program written as top-level static classes: sibling calls resolve unqualified within a
+        // class (Twice), cross-class calls are qualified (Helper.Ten), and Main-in-a-class is the entry.
+        const string src =
+            "static class M { static byte Main() { return (byte)(Twice(3) + Helper.Ten()); } "
+            + "static byte Twice(byte x) { return (byte)(x + x); } } "
+            + "static class Helper { static byte Ten() { return 10; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)16);
+    }
+
+    [Test]
+    public async Task StaticClass_PerClassStaticFieldsDoNotCollide()
+    {
+        // Two static classes each declare a static field named `n`; they must be independent, and each
+        // method resolves its own class's field (qualified as A.n / B.n), not a shared global.
+        const string src =
+            "static class P { static byte Main() { A.Bump(); B.Bump(); B.Bump(); return (byte)(A.Get() + B.Get()); } } "
+            + "static class A { static byte n; static void Bump() { n = (byte)(n + 7); } static byte Get() { return n; } } "
+            + "static class B { static byte n; static void Bump() { n = (byte)(n + 1); } static byte Get() { return n; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)9); // A.n = 7, B.n = 2
+    }
+
+    [Test]
+    public async Task StaticClass_ConstReferencedBySiblingInitializer()
+    {
+        // A static class's const is keyed Class.name; a sibling's initializer references it by simple
+        // name at collection time — both a chained const and an array size must resolve in that scope.
+        // Regression: the const-fold lookup was unqualified and missed the class's own const.
+        const string src =
+            "static class Cfg { "
+            + "const byte Width = 4; "
+            + "const byte Cells = (byte)(Width * Width); "
+            + "static byte[] grid = new byte[Cells]; "
+            + "static byte Main() { grid[15] = 9; return (byte)(grid[15] + Cells); } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)25); // 9 + 16
+    }
+
+    [Test]
+    public async Task ReservedIntrinsicNames_RejectUserClass()
+    {
+        // A user class named after an intrinsic surface would have its member access hijacked; reject it.
+        await Assert
+            .That(HasError("static class Gb { static byte Vram() { return 0; } }"))
+            .IsTrue();
+        await Assert
+            .That(HasError("static class Hardware { static byte LY() { return 0; } }"))
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task MultipleMain_IsReported()
+    {
+        // Two Main entry points across static classes are ambiguous; report rather than pick one silently.
+        await Assert
+            .That(
+                HasError(
+                    "static class A { static void Main() {} } static class B { static void Main() {} }"
+                )
+            )
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task InstanceMethodNamedMain_IsNotAnEntry()
+    {
+        // A reference type's instance method named Main (its function is Widget.Main, taking an implicit
+        // `this`) must not be mistaken for the program entry alongside the real top-level Main — doing so
+        // would spuriously report two entries. Regression: entry detection matched on the simple name.
+        const string src =
+            "class Widget { byte v; byte Main() { return 99; } }\n"
+            + "static byte Main() { return 7; }";
+        await Assert.That(CompilesClean(src)).IsTrue();
+        await Assert.That(RunA(src)).IsEqualTo((byte)7);
+    }
+
+    [Test]
+    public async Task Namespace_BlockScopedIsFlattened()
+    {
+        // A block-scoped namespace is unwrapped like a file-scoped one, lifting its members to the top.
+        const string src =
+            "static class App { static byte Main() { return Lib.Answer(); } }\n"
+            + "namespace Koh.GameBoy { static class Lib { static byte Answer() { return 42; } } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Namespace_FileScopedIsFlattened()
+    {
+        // Framework-style source in a file-scoped namespace: the namespace is dropped, so its static
+        // classes are program-level and callable from a global-namespace Main.
+        const string src =
+            "static class App { static byte Main() { return Lib.Answer(); } }\n"
+            + "namespace Koh.GameBoy;\n"
+            + "static class Lib { static byte Answer() { return 42; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task StaticClass_StaticFieldIsState()
+    {
+        // A static field in a static class is program-scope WRAM state, shared across its methods.
+        const string src =
+            "static class Counter { static byte Main() { Bump(); Bump(); Bump(); return n; } "
+            + "static void Bump() { n = (byte)(n + 1); } static byte n; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)3);
+    }
+
+    [Test]
+    public async Task Gb_RegionBaseIsConstantPointer()
+    {
+        // Gb.Vram lowers to a byte* at the VRAM base (0x8000); writes through it land there.
+        // LCD off first so the PPU isn't locking VRAM when the store runs (as the game does).
+        const string src =
+            "static void Main() { Hardware.LCDC = 0x00; byte* v = Gb.Vram; *(v + 5) = 0x3C; }";
+        await Assert.That(RunThenRead(src, 0x8005)).IsEqualTo((byte)0x3C);
+    }
+
+    [Test]
+    public async Task Gb_TileMapRegionBase()
+    {
+        // Gb.TileMap points at the background tilemap (0x9800).
+        const string src =
+            "static void Main() { Hardware.LCDC = 0x00; byte* m = Gb.TileMap; *m = 0x12; }";
+        await Assert.That(RunThenRead(src, 0x9800)).IsEqualTo((byte)0x12);
+    }
+
+    [Test]
+    public async Task Gb_RegionNameDoesNotCollideWithUserGlobal()
+    {
+        // A Gb region lowers to a fixed-address global; its emitted name is qualified (Gb.Vram) so it
+        // can't clash with a user global of the same simple name. Regression: the region was named
+        // "Vram", producing two globals named "Vram" and invalid link output.
+        const string src =
+            "static byte Main() { Hardware.LCDC = 0x00; Vram = 5; byte* v = Gb.Vram; *v = 9; return Vram; }\n"
+            + "static byte Vram;";
+        var names = Frontend(src).Globals.Select(g => g.Name).ToList();
+        await Assert.That(names.Distinct().Count()).IsEqualTo(names.Count); // no duplicate global symbols
+        await Assert.That(RunA(src)).IsEqualTo((byte)5); // the user global is independent of the region
+    }
+
+    [Test]
+    public async Task StackAlloc_BufferRoundTrips()
+    {
+        // stackalloc reserves a frame buffer reachable as a byte*; write two cells and sum them.
+        const string src =
+            "static byte Main() { byte* a = stackalloc byte[4]; *(a + 0) = 7; *(a + 3) = 30; "
+            + "return (byte)(*(a + 0) + *(a + 3)); }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)37);
+    }
+
+    [Test]
     public async Task Interrupt_EmitsVectorAndReti()
     {
         const string src =
@@ -2593,6 +2745,21 @@ static T Max<T>(T a, T b, T c) { return a; }";
     }
 
     [Test]
+    public async Task Generics_InStaticClassResolveSiblingsAndCrossClass()
+    {
+        // A generic method declared inside a static class: a qualified call (A.Id<byte>), a same-named
+        // generic in another class (B.Id), and a sibling generic call inside a generic body (B.Twice
+        // calls its own Id) must all resolve per declaring class. Regression: monomorphized instances
+        // lost their class, so siblings failed to resolve and cross-class names collided.
+        const string src =
+            "static class M { static byte Main() { return (byte)(A.Id<byte>(5) + B.Twice<byte>(10)); } }\n"
+            + "static class A { static T Id<T>(T x) { return x; } }\n"
+            + "static class B { static T Twice<T>(T x) { return (T)(Id<T>(x) + Id<T>(x)); } "
+            + "static T Id<T>(T x) { return x; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)25); // 5 + (10 + 10)
+    }
+
+    [Test]
     public async Task Linq_ReductionsOverArray()
     {
         const string data = "\nstatic readonly byte[] Data = { 3, 1, 4, 1, 5, 9, 2, 6 };";
@@ -2755,6 +2922,26 @@ static byte Main() {
     return sum;
 }
 static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 30; }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)60);
+    }
+
+    [Test]
+    public async Task Coroutine_InsideStaticClass()
+    {
+        // An iterator declared inside a static class is lowered to a state machine like a top-level one.
+        // Regression: TransformIterators scanned only the wrapper's direct members, so a static-class
+        // `yield` was left unlowered and rejected as unsupported.
+        const string src =
+            @"
+static class P {
+    static byte Main() {
+        Gen__Iter g = Seq.Gen();
+        byte sum = 0;
+        while (g.MoveNext() != 0) { sum = (byte)(sum + g.Current()); }
+        return sum;
+    }
+}
+static class Seq { static IEnumerable<byte> Gen() { yield return 10; yield return 20; yield return 30; } }";
         await Assert.That(RunA(src)).IsEqualTo((byte)60);
     }
 

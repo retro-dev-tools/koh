@@ -65,7 +65,13 @@ public sealed partial class CSharpFrontend
         var inits = new List<(IrGlobal, long, CsType)>();
         var arrays = new Dictionary<string, (IrGlobal, CsType, int)>(StringComparer.Ordinal);
 
-        long? ConstLookup(string n) => consts.TryGetValue(n, out var c) ? c.Item2 : null;
+        // Resolve a const referenced from within `owner`'s scope: a static class sees its own consts
+        // by simple name (they are stored under the qualified key `Class.name`), falling back to a
+        // top-level const of that name.
+        long? ConstIn(string? owner, string n) =>
+            owner is { } c && consts.TryGetValue($"{c}.{n}", out var q) ? q.Item2
+            : consts.TryGetValue(n, out var b) ? b.Item2
+            : null;
 
         // Statics (consts, scalar globals, data arrays) share one field namespace; a duplicate name
         // would collide across these dictionaries and emit two globals with the same name. Keep the
@@ -95,6 +101,11 @@ public sealed partial class CSharpFrontend
             bool isConst = field.Modifiers.Any(m => m.ValueText == "const");
             bool isReadonly = field.Modifiers.Any(m => m.ValueText == "readonly");
 
+            // Fold this field's initializer against its own class scope, so a sibling const referenced
+            // by simple name (e.g. `new byte[Size]`) resolves to the qualified `Class.Size`.
+            var owner = ProgramMemberClass(field);
+            long? ConstLookup(string n) => ConstIn(owner, n);
+
             // A static array field is a data table: `static readonly T[] x = { ... }` lives in ROM;
             // `static T[] x = new T[n]` is a zero-initialized WRAM buffer.
             if (field.Declaration.Type is ArrayTypeSyntax arrayType)
@@ -102,9 +113,21 @@ public sealed partial class CSharpFrontend
                 var element = ResolveType(arrayType.ElementType, enums);
                 foreach (var v in field.Declaration.Variables)
                 {
-                    if (Redeclared(v.Identifier.Text, v.Identifier.GetLocation()))
+                    // Qualify a static class's field by class (Board.cells) so two classes can each
+                    // declare a same-named static field without colliding.
+                    var key = ProgramMemberName(field, v.Identifier.Text);
+                    if (Redeclared(key, v.Identifier.GetLocation()))
                         continue;
-                    CollectStaticArray(v, element, isReadonly, ConstLookup, enums, module, arrays);
+                    CollectStaticArray(
+                        v,
+                        key,
+                        element,
+                        isReadonly,
+                        ConstLookup,
+                        enums,
+                        module,
+                        arrays
+                    );
                 }
                 continue;
             }
@@ -114,7 +137,7 @@ public sealed partial class CSharpFrontend
 
             foreach (var v in field.Declaration.Variables)
             {
-                var name = v.Identifier.Text;
+                var name = ProgramMemberName(field, v.Identifier.Text);
                 if (Redeclared(name, v.Identifier.GetLocation()))
                     continue;
                 if (isConst)
@@ -165,6 +188,7 @@ public sealed partial class CSharpFrontend
     /// <c>new T[n]</c>) global.</summary>
     private static void CollectStaticArray(
         VariableDeclaratorSyntax v,
+        string name,
         CsType element,
         bool isReadonly,
         Func<string, long?> constLookup,
@@ -173,7 +197,6 @@ public sealed partial class CSharpFrontend
         Dictionary<string, (IrGlobal, CsType, int)> arrays
     )
     {
-        var name = v.Identifier.Text;
         int elemSize = element.Ir.SizeInBytes;
 
         // A string literal is ROM character data: `static readonly byte[] Msg = "SCORE";`.
@@ -327,6 +350,7 @@ public sealed partial class CSharpFrontend
         // reference class resolves to a heap pointer rather than an unsupported-type error.
         var classNames = root.DescendantNodes()
             .OfType<ClassDeclarationSyntax>()
+            .Where(c => !c.Modifiers.Any(m => m.ValueText == "static"))
             .Select(c => c.Identifier.Text)
             .Where(n => n != WrapperClassName && n != "Mem")
             .ToHashSet(StringComparer.Ordinal);
@@ -335,18 +359,24 @@ public sealed partial class CSharpFrontend
             if (decl.Identifier.Text == WrapperClassName)
                 continue; // the synthesized program wrapper, not a user class
 
-            // `Mem` is the reserved arena-allocator intrinsic (Mem.Alloc/Mem.Reset). A user class of
-            // that name would have its member calls hijacked by the allocator lowering, so reject it
-            // rather than mis-compile silently.
-            if (decl.Identifier.Text == "Mem")
+            // Reserved intrinsic surfaces: a user class named `Mem` (arena allocator), `Hardware`
+            // (registers), or `Gb` (memory regions) would have its member access silently hijacked by
+            // the corresponding lowering. Reject rather than mis-compile — checked before the static
+            // skip below, so a `static class Gb` is caught too.
+            if (decl.Identifier.Text is "Mem" or "Hardware" or "Gb")
             {
                 Report(
                     diagnostics,
-                    "'Mem' is reserved for the arena-allocator intrinsic and cannot name a class.",
+                    $"'{decl.Identifier.Text}' is reserved for a built-in intrinsic surface and cannot name a class.",
                     decl.Identifier.GetLocation()
                 );
                 continue;
             }
+
+            // A top-level `static class` is a namespace of program-level static methods/fields
+            // (collected via IsWrapperMember/CollectStatics), not a heap reference type.
+            if (decl.Modifiers.Any(m => m.ValueText == "static"))
+                continue;
 
             var specs =
                 new List<(string Name, CsType Type, int Size, int Align, CsStruct? Nested)>();

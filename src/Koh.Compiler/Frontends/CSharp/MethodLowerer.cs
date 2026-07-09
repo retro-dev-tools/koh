@@ -54,6 +54,11 @@ internal sealed class MethodLowerer
     );
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
+    // The enclosing top-level `static class` (from CsMethod.DeclaringClass), if this is one of its
+    // static methods. Unqualified calls/fields in the body resolve to `Class.member` first, so a method
+    // can reach its siblings by bare name. Null for legacy top-level functions and instance methods.
+    private readonly string? _staticClass;
+
     public MethodLowerer(
         CsMethod method,
         BlockSyntax? body,
@@ -83,6 +88,34 @@ internal sealed class MethodLowerer
         _hardware = hardware;
         _staticInits = staticInits;
         _moduleArrays = moduleArrays;
+        _staticClass = method.DeclaringClass;
+    }
+
+    /// <summary>Resolve a bare callee name to a static method of the enclosing class if one exists,
+    /// else leave it as a top-level function name.</summary>
+    private string ResolveStaticCallee(string name) =>
+        _staticClass is not null && _methods.ContainsKey($"{_staticClass}.{name}")
+            ? $"{_staticClass}.{name}"
+            : name;
+
+    /// <summary>Look up a static global by simple name, preferring the enclosing static class's member
+    /// (Class.name) over an unqualified program-scope global.</summary>
+    private bool TryGlobal(string name, out (IrGlobal Global, CsType Type) global)
+    {
+        if (_staticClass is not null && _globals.TryGetValue($"{_staticClass}.{name}", out global))
+            return true;
+        return _globals.TryGetValue(name, out global);
+    }
+
+    /// <summary>Look up a module const by simple name, preferring the enclosing static class's member.</summary>
+    private bool TryModuleConst(string name, out (CsType Type, long Value) value)
+    {
+        if (
+            _staticClass is not null
+            && _moduleConsts.TryGetValue($"{_staticClass}.{name}", out value)
+        )
+            return true;
+        return _moduleConsts.TryGetValue(name, out value);
     }
 
     public void Lower()
@@ -90,10 +123,15 @@ internal sealed class MethodLowerer
         var entry = _method.Fn.AppendBlock("entry");
         _b.PositionAtEnd(entry);
 
-        // Static data arrays are visible in every method: index/Length treat them like local
-        // arrays, but the base is the global's address (ROM tables or WRAM buffers) not an alloca.
+        // Static data arrays are visible by simple name: a program-scope array (unqualified) everywhere,
+        // and a static class's array (Class.name) only inside that class. Index/Length treat them like
+        // local arrays, but the base is the global's address (ROM tables or WRAM buffers) not an alloca.
         foreach (var (name, a) in _moduleArrays)
-            _arrays[name] = (IrBuilder.GlobalRef(a.Global), a.Element, a.Length);
+        {
+            var (owner, simple) = CSharpFrontend.SplitQualified(name);
+            if (owner is null || owner == _staticClass)
+                _arrays[simple] = (IrBuilder.GlobalRef(a.Global), a.Element, a.Length);
+        }
 
         // Parameters: a normal one gets a mutable slot seeded with its value; a ref/out parameter
         // arrives as an address, so its "place" is that address itself (reads/writes deref it).
@@ -300,8 +338,27 @@ internal sealed class MethodLowerer
             var slot = _b.Alloca(type.Ir);
             _locals[v.Identifier.Text] = (slot, type);
             if (v.Initializer is { } init)
-                _b.Store(Coerce(LowerExpression(init.Value, type), type), slot);
+                _b.Store(
+                    init.Value is StackAllocArrayCreationExpressionSyntax sa
+                        ? LowerStackAlloc(sa)
+                        : Coerce(LowerExpression(init.Value, type), type),
+                    slot
+                );
         }
+    }
+
+    /// <summary>Lower <c>stackalloc T[n]</c>: reserve <c>n</c> elements in the frame and yield a
+    /// <c>T*</c> to the first, so the local is a plain pointer (like the raw address the ROM uses).</summary>
+    private IrValue LowerStackAlloc(StackAllocArrayCreationExpressionSyntax sa)
+    {
+        if (sa.Type is not ArrayTypeSyntax arr)
+            throw new CSharpNotSupportedException("stackalloc requires an array type.");
+        var element = CSharpFrontend.ResolveType(arr.ElementType, _enums);
+        int length = (int)CSharpFrontend.ConstEval(arr.RankSpecifiers[0].Sizes[0], ResolveConst);
+        if (length < 0)
+            throw new CSharpNotSupportedException($"stackalloc has a negative length ({length}).");
+        var storage = _b.Alloca(IrType.Array(element.Ir, length));
+        return _b.Gep(storage, IrBuilder.ConstInt(IrType.I16, 0), element.Ir);
     }
 
     /// <summary>Resolve a bare name to a constant value (local const), for constant folding.</summary>
@@ -692,7 +749,7 @@ internal sealed class MethodLowerer
                         IrBuilder.ConstInt(localConst.Type.Ir, localConst.Value),
                         localConst.Type
                     );
-                if (_moduleConsts.TryGetValue(name, out var moduleConst))
+                if (TryModuleConst(name, out var moduleConst))
                     return (
                         IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value),
                         moduleConst.Type
@@ -891,7 +948,7 @@ internal sealed class MethodLowerer
             return (local.Slot, local.Type);
         if (_refs.TryGetValue(name, out var reference))
             return (reference.Address, reference.Element); // ref param: the address is the place
-        if (_globals.TryGetValue(name, out var global))
+        if (TryGlobal(name, out var global))
             return (IrBuilder.GlobalRef(global.Global), global.Type);
         // A class-instance local: its slot holds the heap pointer. Assignment stores a new pointer
         // (reference semantics); reads load the pointer.
@@ -997,9 +1054,9 @@ internal sealed class MethodLowerer
                     return reference.Element;
                 if (_consts.TryGetValue(id.Identifier.Text, out var c))
                     return c.Type;
-                if (_moduleConsts.TryGetValue(id.Identifier.Text, out var mc))
+                if (TryModuleConst(id.Identifier.Text, out var mc))
                     return mc.Type;
-                if (_globals.TryGetValue(id.Identifier.Text, out var g))
+                if (TryGlobal(id.Identifier.Text, out var g))
                     return g.Type;
                 return null;
             case PrefixUnaryExpressionSyntax u:
@@ -1373,6 +1430,13 @@ internal sealed class MethodLowerer
                     CsType.U8
                 );
 
+            // Memory-region base pointer, e.g. Gb.Vram -> a byte* at the region's fixed address.
+            if (subject.Identifier.Text == "Gb" && _hardware.IsRegion(member.Name.Identifier.Text))
+                return (
+                    IrBuilder.GlobalRef(_hardware.Region(member.Name.Identifier.Text)),
+                    new CsType(IrType.Pointer(IrType.I8), Signed: false)
+                );
+
             // Enum member reference, e.g. Color.Red.
             if (_enums.TryGetValue(subject.Identifier.Text, out var e))
             {
@@ -1462,13 +1526,27 @@ internal sealed class MethodLowerer
                 call.ArgumentList.Arguments
             );
 
-        // A plain call, or a generic call `Foo<int>(...)` routed to its monomorphized instance `Foo$int`.
+        // A plain call, a sibling static-method call (bare name, resolved against the enclosing static
+        // class), a qualified static-method call `Class.M(...)`, or a generic call `Foo<int>(...)`
+        // routed to its monomorphized instance `Foo$int`.
         string? calleeName = call.Expression switch
         {
-            IdentifierNameSyntax idn => idn.Identifier.Text,
-            GenericNameSyntax gn => CSharpFrontend.MangleGeneric(
-                gn.Identifier.Text,
-                gn.TypeArgumentList.Arguments
+            IdentifierNameSyntax idn => ResolveStaticCallee(idn.Identifier.Text),
+            // Qualified generic call `Class.M<...>(...)` -> its monomorphized instance `Class.M$...`.
+            MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax typeName,
+                Name: GenericNameSyntax gm
+            } => $"{typeName.Identifier.Text}."
+                + CSharpFrontend.MangleGeneric(gm.Identifier.Text, gm.TypeArgumentList.Arguments),
+            MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax typeName } qualified
+                when _methods.ContainsKey(
+                    $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}"
+                ) => $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}",
+            // Bare generic call `M<...>(...)` -> a sibling instance of the enclosing static class
+            // (`Class.M$...`) if one exists, else a top-level instance (`M$...`).
+            GenericNameSyntax gn => ResolveStaticCallee(
+                CSharpFrontend.MangleGeneric(gn.Identifier.Text, gn.TypeArgumentList.Arguments)
             ),
             _ => null,
         };

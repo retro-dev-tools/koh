@@ -39,52 +39,92 @@ public sealed partial class CSharpFrontend
     }
 
     private static IEnumerable<(
+        string? Receiver,
         string Name,
         TypeArgumentListSyntax Args,
         InvocationExpressionSyntax Node
     )> FindGenericInvocations(SyntaxNode node) =>
         node.DescendantNodes()
             .OfType<InvocationExpressionSyntax>()
-            .Where(inv => inv.Expression is GenericNameSyntax)
             .Select(inv =>
-                (
-                    ((GenericNameSyntax)inv.Expression).Identifier.Text,
-                    ((GenericNameSyntax)inv.Expression).TypeArgumentList,
-                    inv
-                )
-            );
+                inv.Expression switch
+                {
+                    // A bare `M<...>(...)` call.
+                    GenericNameSyntax g => (
+                        (string?)null,
+                        g.Identifier.Text,
+                        g.TypeArgumentList,
+                        inv
+                    ),
+                    // A qualified `Class.M<...>(...)` call.
+                    MemberAccessExpressionSyntax
+                    {
+                        Name: GenericNameSyntax g,
+                        Expression: IdentifierNameSyntax r
+                    } => (r.Identifier.Text, g.Identifier.Text, g.TypeArgumentList, inv),
+                    _ => default,
+                }
+            )
+            .Where(t => t.Item2 is not null);
+
+    /// <summary>The enclosing top-level user <c>static class</c> of a node, or null at the wrapper level.</summary>
+    private static string? EnclosingStaticClass(SyntaxNode node) =>
+        node.Ancestors()
+            .OfType<ClassDeclarationSyntax>()
+            .FirstOrDefault(IsProgramStaticClass)
+            ?.Identifier.Text;
 
     /// <summary>Monomorphize: for every generic method invoked with concrete type arguments, synthesize
     /// a specialized copy (type parameters substituted, mangled name). A work-list handles transitive
-    /// instantiation — a specialized body may name further generic instances.</summary>
+    /// instantiation — a specialized body may name further generic instances. Instances are named per
+    /// declaring class, so same-named generics in different static classes stay distinct.</summary>
     private static List<MethodDeclarationSyntax> SynthesizeGenericInstances(
         CompilationUnitSyntax root,
-        IReadOnlyDictionary<(string Name, int Arity), MethodDeclarationSyntax> generics
+        IReadOnlyDictionary<
+            (string? Class, string Name, int Arity),
+            MethodDeclarationSyntax
+        > generics
     )
     {
         if (generics.Count == 0)
             return []; // no generic templates — skip the invocation scan entirely (the common program)
 
         var done = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
-        var work = new Queue<(string Name, TypeArgumentListSyntax Args)>();
+        var work = new Queue<(MethodDeclarationSyntax Template, TypeArgumentListSyntax Args)>();
         var templates = new HashSet<MethodDeclarationSyntax>(generics.Values);
+
+        // Resolve an invocation to its template: a qualified `Recv.M<..>` selects Recv's method; a bare
+        // `M<..>` prefers the enclosing static class's method, else a top-level one.
+        MethodDeclarationSyntax? Resolve(
+            string? receiver,
+            string? enclosing,
+            string name,
+            int arity
+        ) =>
+            receiver is not null
+                ? generics.GetValueOrDefault((receiver, name, arity))
+                : generics.GetValueOrDefault((enclosing, name, arity))
+                    ?? generics.GetValueOrDefault((null, name, arity));
 
         // Seed from concrete instantiations only — invocations inside a generic template still name
         // type parameters (e.g. Id<T>), which become concrete once the template is specialized.
-        foreach (var (name, args, node) in FindGenericInvocations(root))
+        foreach (var (receiver, name, args, node) in FindGenericInvocations(root))
             if (
-                generics.ContainsKey((name, args.Arguments.Count))
-                && !node.Ancestors().OfType<MethodDeclarationSyntax>().Any(templates.Contains)
+                !node.Ancestors().OfType<MethodDeclarationSyntax>().Any(templates.Contains)
+                && Resolve(receiver, EnclosingStaticClass(node), name, args.Arguments.Count)
+                    is { } tmpl
             )
-                work.Enqueue((name, args));
+                work.Enqueue((tmpl, args));
 
         while (work.Count > 0)
         {
-            var (name, args) = work.Dequeue();
-            var mangled = MangleGeneric(name, args.Arguments);
-            if (done.ContainsKey(mangled))
+            var (template, args) = work.Dequeue();
+            var owner = ProgramMemberClass(template);
+            var mangled = MangleGeneric(template.Identifier.Text, args.Arguments);
+            var qualified = owner is { } c ? $"{c}.{mangled}" : mangled;
+            if (done.ContainsKey(qualified))
                 continue;
-            var template = generics[(name, args.Arguments.Count)];
+
             var map = new Dictionary<string, TypeSyntax>(StringComparer.Ordinal);
             var tps = template.TypeParameterList!.Parameters;
             for (int i = 0; i < tps.Count && i < args.Arguments.Count; i++)
@@ -94,12 +134,19 @@ public sealed partial class CSharpFrontend
             specialized = specialized
                 .WithIdentifier(SyntaxFactory.Identifier(mangled))
                 .WithTypeParameterList(null);
-            done[mangled] = specialized;
+            // The specialized node is detached from the tree (no Parent), so carry its declaring class on
+            // an annotation; ProgramMemberClass reads it to qualify the name and scope sibling calls.
+            if (owner is not null)
+                specialized = specialized.WithAdditionalAnnotations(
+                    new SyntaxAnnotation(DeclaringClassAnnotation, owner)
+                );
+            done[qualified] = specialized;
 
-            // The specialized body's generic invocations are now concrete; instantiate them too.
-            foreach (var (n2, a2, _) in FindGenericInvocations(specialized))
-                if (generics.ContainsKey((n2, a2.Arguments.Count)))
-                    work.Enqueue((n2, a2));
+            // The specialized body's generic invocations are now concrete; instantiate them too,
+            // resolving sibling generics against this template's own class.
+            foreach (var (receiver, name, a2, _) in FindGenericInvocations(specialized))
+                if (Resolve(receiver, owner, name, a2.Arguments.Count) is { } tmpl2)
+                    work.Enqueue((tmpl2, a2));
         }
         return done.Values.ToList();
     }

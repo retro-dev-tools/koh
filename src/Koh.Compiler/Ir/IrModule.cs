@@ -38,6 +38,10 @@ public sealed class IrFunction
     /// <summary>If set, this function is an interrupt handler placed at the given vector address.</summary>
     public int? InterruptVector { get; set; }
 
+    /// <summary>The program entry point the cartridge boots into. The frontend marks it (it knows which
+    /// method is <c>Main</c>); the backend reads the flag instead of guessing from the function name.</summary>
+    public bool IsEntry { get; set; }
+
     /// <summary>Basic blocks in program order; empty for external functions.</summary>
     public List<IrBasicBlock> Blocks { get; } = [];
 

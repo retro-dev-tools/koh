@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- The managed reference runtime a Koh C# game compiles and runs against under the plain .NET
+         SDK: the Hardware register surface and the Gb.* memory regions, backed by real buffers so the
+         same source that the Koh compiler turns into a ROM also runs on the desktop. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>

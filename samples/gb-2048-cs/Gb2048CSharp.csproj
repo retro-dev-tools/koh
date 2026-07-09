@@ -1,0 +1,15 @@
+<Project>
+
+  <!-- Built by the Koh SDK: an ordinary C# project the plain compiler builds and `dotnet run` executes
+       against the Koh.GameBoy reference runtime, while `dotnet build` also emits 2048.gb. It references
+       neither the Koh compiler nor the linker - the SDK drives those. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../sdk/Koh.Sdk/Sdk/Sdk.props" />
+
+  <PropertyGroup>
+    <RootNamespace>Koh.Samples.Gb2048CSharp</RootNamespace>
+    <KohRomName>2048.gb</KohRomName>
+  </PropertyGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../sdk/Koh.Sdk/Sdk/Sdk.targets" />
+
+</Project>

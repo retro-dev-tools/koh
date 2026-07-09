@@ -41,9 +41,88 @@ public sealed partial class CSharpFrontend : IFrontend
     internal const string WrapperClassName = "__KohProgram";
     private const string WrapperPrefix = "static class " + WrapperClassName + " {\n";
 
-    /// <summary>Whether a node is a direct member of the program wrapper (a top-level declaration).</summary>
+    /// <summary>Whether a node is a program-level declaration: a direct member of the synthesized
+    /// wrapper (the legacy bare-top-level-function style), or a static member of a user <c>static
+    /// class</c> written at the top level (the modern style). The latter's members are qualified by the
+    /// class name (<see cref="ProgramMemberName"/>), so <c>Board.Slide</c> and <c>Lcd.Off</c> are
+    /// distinct even when short method names repeat.</summary>
     private static bool IsWrapperMember(SyntaxNode node) =>
-        node.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
+        node.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName }
+        || (node.Parent is ClassDeclarationSyntax p && IsProgramStaticClass(p));
+
+    /// <summary>A user <c>static class</c> declared at the top level (nested directly in the wrapper):
+    /// its static methods and fields are program-level declarations, namespaced by the class.</summary>
+    private static bool IsProgramStaticClass(SyntaxNode node) =>
+        node is ClassDeclarationSyntax { Identifier.Text: not WrapperClassName } cd
+        && cd.Modifiers.Any(m => m.ValueText == "static")
+        && cd.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
+
+    /// <summary>Annotation kind carrying the declaring class of a monomorphized generic instance, which
+    /// is a syntax node detached from the tree (so it has no <c>Parent</c> to read the class from).</summary>
+    internal const string DeclaringClassAnnotation = "Koh.DeclaringClass";
+
+    /// <summary>The enclosing top-level user <c>static class</c> of a program-scope declaration, or null
+    /// for a direct wrapper member (a legacy top-level function/field).</summary>
+    private static string? ProgramMemberClass(SyntaxNode decl) =>
+        decl.GetAnnotations(DeclaringClassAnnotation).FirstOrDefault()?.Data
+        ?? (
+            decl.Parent is ClassDeclarationSyntax { Identifier.Text: var cn }
+            && cn != WrapperClassName
+                ? cn
+                : null
+        );
+
+    /// <summary>The program-scope name of a top-level method/function/field: bare for the legacy
+    /// wrapper, qualified <c>Class.Member</c> for a member of a user top-level <c>static class</c>.</summary>
+    private static string ProgramMemberName(SyntaxNode decl, string simpleName) =>
+        ProgramMemberClass(decl) is { } cls ? $"{cls}.{simpleName}" : simpleName;
+
+    /// <summary>Blank out (replace with spaces, preserving line count) the syntax the frontend has no
+    /// semantic model for: <c>using</c> directives, and the header of a file-scoped <c>namespace X;</c>.
+    /// This lets the same source be organized like ordinary C# — usings, and framework code declared in
+    /// a namespace — yet still wrap cleanly into the program class, with its members lifted to the top
+    /// level. Namespaces are inert here (types resolve by simple name), so dropping them is safe.</summary>
+    private static string BlankNamespacing(string source)
+    {
+        var root = CSharpSyntaxTree.ParseText(source).GetCompilationUnitRoot();
+        // DescendantNodes (not just the leading .Usings) so that when several source files are compiled
+        // as one unit, their per-file usings/namespaces — which land after the first file's types — are
+        // blanked too.
+        var spans = new List<Microsoft.CodeAnalysis.Text.TextSpan>();
+        foreach (var node in root.DescendantNodes())
+        {
+            if (node is UsingDirectiveSyntax u)
+                spans.Add(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(u.SpanStart, u.Span.End));
+            else if (node is FileScopedNamespaceDeclarationSyntax fns)
+                // Blank only the `namespace X;` header, not its members.
+                spans.Add(
+                    Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                        fns.NamespaceKeyword.SpanStart,
+                        fns.SemicolonToken.Span.End
+                    )
+                );
+            else if (node is NamespaceDeclarationSyntax bns)
+            {
+                // A block `namespace X { ... }`: blank the `namespace X {` header and its matching `}`,
+                // lifting the members to the top level (they stay in place textually).
+                spans.Add(
+                    Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                        bns.NamespaceKeyword.SpanStart,
+                        bns.OpenBraceToken.Span.End
+                    )
+                );
+                spans.Add(bns.CloseBraceToken.Span);
+            }
+        }
+        if (spans.Count == 0)
+            return source;
+        var chars = source.ToCharArray();
+        foreach (var span in spans)
+            for (int i = span.Start; i < span.End && i < chars.Length; i++)
+                if (chars[i] != '\n' && chars[i] != '\r')
+                    chars[i] = ' ';
+        return new string(chars);
+    }
 
     /// <summary>Name of the synthesized heap-pointer global, and the top of the heap region it starts
     /// at. Allocation (<c>Mem.Alloc</c>, <c>new</c>) bumps the pointer downward from here; the region
@@ -82,7 +161,11 @@ public sealed partial class CSharpFrontend : IFrontend
         // Wrap in an implicit static class so plain `static T F(...)` methods and enum/struct
         // declarations coexist without hitting C#'s "top-level statements first" rule. (Source
         // lines shift by one; accounted for when line maps are emitted.)
-        var wrapped = WrapperPrefix + source.ToString() + "\n}";
+        // Wrap in the program class. A modern source's own `static class`es become nested static
+        // classes (their members are program-level, qualified by class); a legacy source's bare `static
+        // T F(...)` methods become direct members. Usings are blanked first so they don't land inside
+        // the wrapper. Both keep their line count, so line maps stay aligned (one added prefix line).
+        var wrapped = WrapperPrefix + BlankNamespacing(source.ToString()) + "\n}";
         var tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
         var root = tree.GetCompilationUnitRoot();
 
@@ -139,18 +222,21 @@ public sealed partial class CSharpFrontend : IFrontend
         // count, and that pair selects the template — so `Wrap<T>` and `Wrap<T,U>` stay distinct. Two
         // templates sharing both (a value-arity overload like `Max<T>(T,T)` vs `Max<T>(T,T,T)`) would
         // mangle to the same specialized name, so that is reported rather than silently mis-specialized.
-        var genericMethods = new Dictionary<(string Name, int Arity), MethodDeclarationSyntax>();
+        var genericMethods =
+            new Dictionary<(string? Class, string Name, int Arity), MethodDeclarationSyntax>();
         foreach (
             var m in root.DescendantNodes()
                 .OfType<MethodDeclarationSyntax>()
                 .Where(m => m.TypeParameterList is { Parameters.Count: > 0 } && IsWrapperMember(m))
         )
         {
-            var key = (m.Identifier.Text, m.TypeParameterList!.Parameters.Count);
+            // Key by declaring class too, so `A.Id<T>` and `B.Id<T>` are distinct rather than colliding.
+            int arity = m.TypeParameterList!.Parameters.Count;
+            var key = (ProgramMemberClass(m), m.Identifier.Text, arity);
             if (!genericMethods.TryAdd(key, m))
                 Report(
                     diagnostics,
-                    $"generic method '{m.Identifier.Text}' with {key.Item2} type parameter(s) is declared "
+                    $"generic method '{m.Identifier.Text}' with {arity} type parameter(s) is declared "
                         + "more than once; overloaded generic methods are not supported.",
                     m.Identifier.GetLocation()
                 );
@@ -238,7 +324,8 @@ public sealed partial class CSharpFrontend : IFrontend
             .Concat(genericInstances);
         foreach (var decl in methodDecls)
         {
-            var (name, returnSyntax, parameterList, body, arrow) = Describe(decl);
+            var (simpleName, returnSyntax, parameterList, body, arrow) = Describe(decl);
+            var name = ProgramMemberName(decl, simpleName);
             var returnType = ResolveReturnTypeAllowingClass(returnSyntax, enums, classNames);
             var paramTypes = new List<CsType>();
             var refFlags = new List<bool>();
@@ -265,7 +352,8 @@ public sealed partial class CSharpFrontend : IFrontend
                 paramTypes,
                 refFlags,
                 paramStructs,
-                ParamClasses: paramClasses
+                ParamClasses: paramClasses,
+                DeclaringClass: ProgramMemberClass(decl)
             );
             // Duplicate names would silently overwrite the earlier binding (and emit two IR functions
             // with the same name); keep the first definition and report the rest.
@@ -338,13 +426,35 @@ public sealed partial class CSharpFrontend : IFrontend
         // The entry function (main, else the first non-handler) runs the static-field initializers in
         // its prologue. An interrupt handler must never be the entry: its body runs on every interrupt,
         // which would re-seed the heap pointer and re-run initializers, corrupting live state.
-        var entry =
-            bodies
-                .FirstOrDefault(b =>
-                    string.Equals(b.Method.Fn.Name, "main", StringComparison.OrdinalIgnoreCase)
+        var mains = bodies
+            .Where(b =>
+                // An instance method (a reference type's method, taking an implicit `this`) is never the
+                // program entry even when named Main — the backend would boot into it with no receiver.
+                b.Method.ThisClass
+                    is null
+                && string.Equals(
+                    SimpleName(b.Method.Fn.Name),
+                    "main",
+                    StringComparison.OrdinalIgnoreCase
                 )
-                .Method
+            )
+            .ToList();
+        // More than one Main is ambiguous — the backend and this prologue would each pick one by order,
+        // and which becomes the ROM entry would be silent. Report it rather than boot into a guess.
+        if (mains.Count > 1)
+            Report(
+                diagnostics,
+                "multiple 'Main' entry points ("
+                    + string.Join(", ", mains.Select(b => b.Method.Fn.Name))
+                    + "); a program must have exactly one.",
+                FindDeclaration(root, mains[1].Method.Fn.Name)?.GetLocation()
+            );
+        var entry =
+            mains.FirstOrDefault().Method
             ?? bodies.FirstOrDefault(b => b.Method.Fn.InterruptVector is null).Method;
+        // Mark the entry authoritatively so the backend boots into it by flag, not by name-matching.
+        if (entry is not null)
+            entry.Fn.IsEntry = true;
 
         // Pass 2: bodies. Report per-method so one bad method doesn't sink the whole compile.
         foreach (var (method, body, arrow) in bodies)
@@ -387,12 +497,28 @@ public sealed partial class CSharpFrontend : IFrontend
             _ => decl.GetLocation(),
         };
 
+    /// <summary>Split a program-scope name into its owning class (null if unqualified) and its simple
+    /// name — the inverse of the <c>Class.name</c> qualification applied at collection.</summary>
+    internal static (string? Owner, string Simple) SplitQualified(string name)
+    {
+        int dot = name.LastIndexOf('.');
+        return dot < 0 ? (null, name) : (name[..dot], name[(dot + 1)..]);
+    }
+
+    /// <summary>The unqualified method name (the part after the last dot, if any).</summary>
+    private static string SimpleName(string name) => SplitQualified(name).Simple;
+
     private static SyntaxNode? FindDeclaration(SyntaxNode root, string name) =>
+        // Match the full program name (e.g. "Tilemap.Set"), so a diagnostic's fallback location doesn't
+        // bind to a same-simple-named method in another static class (e.g. "Board.Set").
         CollectMethods(root)
             .FirstOrDefault(d =>
-                d is MethodDeclarationSyntax m
-                    ? m.Identifier.Text == name
-                    : ((LocalFunctionStatementSyntax)d).Identifier.Text == name
+                ProgramMemberName(
+                    d,
+                    d is MethodDeclarationSyntax m
+                        ? m.Identifier.Text
+                        : ((LocalFunctionStatementSyntax)d).Identifier.Text
+                ) == name
             );
 
     private static void Report(
