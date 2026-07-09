@@ -20,8 +20,8 @@ static class Game
         Tiles.Generate();
 
         Board.Reset();
-        Board.Spawn();
-        Board.Spawn();
+        for (byte i = 0; i < 2; i++) // 2048 opens with two tiles on the board
+            Board.Spawn();
         Tiles.RenderBoard();
 
         Lcd.On();
@@ -33,15 +33,17 @@ static class Game
             byte pressed = (byte)((byte)(held ^ previous) & held); // rising edges only
             previous = held;
 
+            // Slide toward the first direction newly pressed this frame (if any).
             bool moved = false;
-            if (Joypad.Held(pressed, Direction.Left))
-                moved = Board.Slide(Direction.Left);
-            else if (Joypad.Held(pressed, Direction.Right))
-                moved = Board.Slide(Direction.Right);
-            else if (Joypad.Held(pressed, Direction.Up))
-                moved = Board.Slide(Direction.Up);
-            else if (Joypad.Held(pressed, Direction.Down))
-                moved = Board.Slide(Direction.Down);
+            for (byte d = 0; d < 4; d++)
+            {
+                Direction dir = (Direction)d;
+                if (Joypad.Held(pressed, dir))
+                {
+                    moved = Board.Slide(dir);
+                    break;
+                }
+            }
 
             if (moved)
             {
