@@ -41,7 +41,7 @@ internal static class Sm83Peephole
         1, 1, 3, 3, 3, 1, 2, 1, 1, 1, 3, 2, 3, 3, 2, 1, // 0xC0
         1, 1, 3, 1, 3, 1, 2, 1, 1, 1, 3, 1, 3, 1, 2, 1, // 0xD0
         2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1, // 0xE0
-        3, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1, // 0xF0
+        2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1, // 0xF0  (F0 = LDH A,(a8), 2 bytes)
     ];
 
     /// <summary>Length of the instruction whose opcode is at <paramref name="offset"/>.</summary>

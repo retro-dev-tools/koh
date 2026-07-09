@@ -409,6 +409,7 @@ public sealed partial class Sm83Backend : IBackend
                 softStackBase,
                 banked
             ).Compile();
+            measure.PeepholeFrom(s0); // match real emission, or a fitting function is spuriously rejected
             size[f] = measure.Code.Count - s0;
         }
 

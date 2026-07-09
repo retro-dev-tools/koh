@@ -60,6 +60,14 @@ public class CSharpEndToEndTests
         return gb.Registers.HL;
     }
 
+    private static uint RunI32Opt(string src, Action<GameBoySystem>? args = null)
+    {
+        var gb = Load(CompileOpt(src), out int s, out int l);
+        args?.Invoke(gb);
+        Run(gb, s, l);
+        return ((uint)gb.Registers.DE << 16) | gb.Registers.HL;
+    }
+
     private static GameBoySystem Load(EmitModel model, out int start, out int length)
     {
         var link = new LinkerType().Link([new LinkerInput("cs", model)]);
@@ -3281,6 +3289,21 @@ static uint Log2(uint value) {
             "static ushort F(ushort n) { ushort r; if (n > 100) { r = 1000; } else { r = 2000; } return r; }";
         await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 250))).IsEqualTo((ushort)1000);
         await Assert.That(RunHLOpt(src, gb => W16(gb, 0, 50))).IsEqualTo((ushort)2000);
+    }
+
+    [Test]
+    public async Task Optimized_PromotesWideLoopAccumulator()
+    {
+        // A loop-carried i16 becomes a wide phi. Regression guard for phi/incoming partial slot
+        // overlap: the accumulator must not be corrupted mid-copy on the back edge.
+        const string src16 =
+            "static ushort Sum(ushort n) { ushort s = 0; for (ushort i = 0; i < n; i++) { s = (ushort)(s + i); } return s; }";
+        await Assert.That(RunHLOpt(src16, gb => W16(gb, 0, 10))).IsEqualTo((ushort)45); // 0+1+..+9
+
+        // Same at i32, so a two-word (DE:HL) loop-carried phi is exercised end-to-end.
+        const string src32 =
+            "static uint Sum(uint n) { uint s = 0; for (uint i = 0; i < n; i++) { s = s + i; } return s; }";
+        await Assert.That(RunI32Opt(src32, gb => W32(gb, 0, 10))).IsEqualTo(45u);
     }
 
     [Test]

@@ -47,6 +47,10 @@ public static class IrOptimizer
                 continue;
             OptimizeFunction(function);
         }
+
+        // A per-function pass (constant-branch folding, DCE) can delete the last call to a function;
+        // prune again so it doesn't cost ROM.
+        RemoveUnreachableFunctions(module);
     }
 
     /// <summary>Remove functions unreachable from the entry or any interrupt handler through the call

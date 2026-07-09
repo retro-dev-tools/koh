@@ -183,25 +183,21 @@ internal sealed class Emitter
             return;
 
         // Each edit rewrites LD A,0 (3E 00) to XOR A (AF): the opcode byte becomes 0xAF and the
-        // following immediate byte (o + 1) is deleted.
-        var deletes = new SortedSet<int>();
-        foreach (var o in edits)
+        // immediate byte (o + 1) is deleted. Edits are ascending, so the deleted positions are too.
+        var deletes = new int[edits.Count];
+        for (var i = 0; i < edits.Count; i++)
         {
-            Code[o] = 0xAF;
-            deletes.Add(o + 1);
+            Code[edits[i]] = 0xAF;
+            deletes[i] = edits[i] + 1;
         }
 
-        int Remap(int offset)
+        // Number of deleted bytes strictly below an offset — its leftward shift.
+        int DeletesBelow(int offset)
         {
-            var shift = 0;
-            foreach (var d in deletes)
-            {
-                if (d >= offset)
-                    break;
-                shift++;
-            }
-            return offset - shift;
+            var idx = Array.BinarySearch(deletes, offset);
+            return idx < 0 ? ~idx : idx;
         }
+        int Remap(int offset) => offset - DeletesBelow(offset);
 
         foreach (var label in labels)
             label.Offset = Remap(label.Offset);
@@ -210,14 +206,15 @@ internal sealed class Emitter
             if (_fixups[i].Pos >= start && _fixups[i].Pos < end)
                 _fixups[i] = (Remap(_fixups[i].Pos), _fixups[i].Target);
 
+        // Shrink every line-map entry that covers deleted bytes. An entry can start before this region
+        // yet extend into it (AddLineRange coalesces adjacent lines across the function boundary), so
+        // its byte count must drop even when its offset stays put.
         for (var i = 0; i < LineMap.Count; i++)
         {
             var entry = LineMap[i];
-            if (entry.Offset < start || entry.Offset >= end)
+            var shrink = DeletesBelow(entry.Offset + entry.ByteCount) - DeletesBelow(entry.Offset);
+            if (shrink == 0 && Remap(entry.Offset) == entry.Offset)
                 continue;
-            var shrink = deletes.Count(d =>
-                d >= entry.Offset && d < entry.Offset + entry.ByteCount
-            );
             LineMap[i] = entry with
             {
                 Offset = Remap(entry.Offset),
@@ -225,8 +222,8 @@ internal sealed class Emitter
             };
         }
 
-        foreach (var d in deletes.Reverse())
-            Code.RemoveAt(d);
+        for (var i = deletes.Length - 1; i >= 0; i--)
+            Code.RemoveAt(deletes[i]);
         _aValidCount = -1; // A-tracking is invalidated by the rewrite
     }
 

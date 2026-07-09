@@ -23,9 +23,12 @@ public sealed class Mem2RegPass : IIrFunctionPass
         if (function.EntryBlock is null)
             return false;
 
+        // Integer scalars only. A pointer local read before any write (the frontend has no
+        // definite-assignment check, so that is reachable) would need a synthesized undef, and a
+        // pointer-typed IrConstInt is ill-formed — leave pointers in memory for RLE to forward.
         var promotable = new HashSet<AllocaInstruction>(ReferenceEqualityComparer.Instance);
         foreach (var alloca in AllocaAnalysis.NonEscaping(function))
-            if (alloca.Allocated.Kind is IrTypeKind.Int or IrTypeKind.Pointer)
+            if (alloca.Allocated.Kind is IrTypeKind.Int)
                 promotable.Add(alloca);
         if (promotable.Count == 0)
             return false;
@@ -154,8 +157,8 @@ public sealed class Mem2RegPass : IIrFunctionPass
             stacks[alloca].Pop();
     }
 
-    /// <summary>The reaching definition on top of the stack, or a zero of the slot's type when the
-    /// slot is read before any write (definite assignment makes this unreachable in frontend code).</summary>
+    /// <summary>The reaching definition on top of the stack, or zero when the (integer) slot is read
+    /// before any write — the C# default, and well-typed since only integer allocas are promoted.</summary>
     private static IrValue Reaching(Stack<IrValue> stack, AllocaInstruction alloca) =>
         stack.Count > 0 ? stack.Peek() : new IrConstInt(alloca.Allocated, 0);
 

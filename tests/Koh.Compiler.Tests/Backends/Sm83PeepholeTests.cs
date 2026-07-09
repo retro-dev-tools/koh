@@ -11,10 +11,14 @@ public class Sm83PeepholeTests
         byte[] ldAd8 = [0x3E, 0x00];
         byte[] jpA16 = [0xC3, 0x00, 0x00];
         byte[] cb = [0xCB, 0x37];
+        byte[] ldhFromA8 = [0xF0, 0x44]; // LDH A,(a8) — 2 bytes (mirror of 0xE0)
+        byte[] ldhToA8 = [0xE0, 0x44]; // LDH (a8),A — 2 bytes
         await Assert.That(Sm83Peephole.InstructionLength(nop, 0)).IsEqualTo(1);
         await Assert.That(Sm83Peephole.InstructionLength(ldAd8, 0)).IsEqualTo(2);
         await Assert.That(Sm83Peephole.InstructionLength(jpA16, 0)).IsEqualTo(3);
         await Assert.That(Sm83Peephole.InstructionLength(cb, 0)).IsEqualTo(2);
+        await Assert.That(Sm83Peephole.InstructionLength(ldhFromA8, 0)).IsEqualTo(2);
+        await Assert.That(Sm83Peephole.InstructionLength(ldhToA8, 0)).IsEqualTo(2);
     }
 
     [Test]

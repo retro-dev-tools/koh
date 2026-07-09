@@ -17,22 +17,19 @@ namespace Koh.Compiler;
 public static class CompilerDriver
 {
     /// <summary>
-    /// Compile <paramref name="source"/> with the given frontend and backend. Diagnostics from
-    /// both phases accumulate into <paramref name="diagnostics"/>. The IR is run through the
-    /// target-independent optimizer between the two phases unless <paramref name="optimize"/> is
-    /// false (useful for debugging codegen against un-optimized IR). Optimization is skipped when
-    /// the frontend already reported errors, since the IR may be incomplete.
+    /// Compile <paramref name="source"/> with the given frontend and backend. Diagnostics from both
+    /// phases accumulate into <paramref name="diagnostics"/>. The IR is optimized between the phases,
+    /// skipped when the frontend reported an error (the IR may be incomplete — warnings don't block it).
     /// </summary>
     public static EmitModel Compile(
         IFrontend frontend,
         IBackend backend,
         SourceText source,
-        DiagnosticBag diagnostics,
-        bool optimize = true
+        DiagnosticBag diagnostics
     )
     {
         var module = frontend.Lower(source, diagnostics);
-        if (optimize && diagnostics.ToList().Count == 0)
+        if (!diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
             IrOptimizer.Optimize(module);
         return backend.Compile(module, diagnostics);
     }
