@@ -61,9 +61,9 @@ makes the slide logic tiny:
   each of the four lines. Zeroing the absorbed cell means a run like `2 2 2 2` folds into two `4`s
   (never a single `8`), exactly like the real game. `SrcIndex` maps a direction to board indices, so
   one line routine drives all four moves.
-- `Board.Spawn`, `Board.CanMove`, and `Board.HasWon` complete the game state; the cells live in a
+- `Board.SpawnTile`, `Board.CanMove`, and `Board.HasWon` complete the game state; the cells live in a
   static WRAM buffer, so nothing is threaded around by hand.
-- `Tiles.Generate` builds the framed-block tileset and `Tiles.RenderBoard` paints the board, both
+- `Tiles.GenerateTileset` builds the framed-block tileset and `Tiles.RenderBoard` paints the board, both
   through the framework's `TileData` / `Tilemap` abstractions over VRAM. `Game.Main` drives the loop
   with `Lcd`, `Joypad`, and `Ppu.WaitVBlank` — all from the framework.
 

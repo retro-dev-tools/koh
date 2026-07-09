@@ -104,7 +104,7 @@ public class Game2048Tests
         // Main. Regression guard: Main lives in `static class Game` so its IR name is "Game.Main"; if
         // the backend's entry detection matched only the exact name "main" it would boot into the first
         // function instead and the game would never initialize. Boot from the header and confirm Main
-        // ran by checking Tiles.Generate wrote tile 1's first row (0xFF) into VRAM.
+        // ran by checking Tiles.GenerateTileset wrote tile 1's first row (0xFF) into VRAM.
         var model = new Sm83Backend().Compile(
             new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), new DiagnosticBag()),
             new DiagnosticBag()
@@ -154,7 +154,7 @@ public class Game2048Tests
     // Set a row's four cells, slide the whole board Left (empty rows are unaffected), read one cell.
     private static ushort SlideRow(string setup, int index) =>
         Run(
-            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.Left); return Board.Get((byte){index}); }}"
+            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.Left); return Board.GetCell((byte){index}); }}"
         );
 
     private static async Task AssertRow(string setup, byte[] expected)
@@ -165,48 +165,59 @@ public class Game2048Tests
 
     [Test]
     public async Task SlideLine_MergesEqualPair() =>
-        await AssertRow("Board.Set(0,1); Board.Set(1,1);", [2, 0, 0, 0]); // 2 2 . .  ->  4 . . .
+        await AssertRow("Board.SetCell(0,1); Board.SetCell(1,1);", [2, 0, 0, 0]); // 2 2 . .  ->  4 . . .
 
     [Test]
     public async Task SlideLine_CompactsAcrossGap() =>
-        await AssertRow("Board.Set(0,1); Board.Set(2,1);", [2, 0, 0, 0]); // 2 . 2 .  ->  4 . . .
+        await AssertRow("Board.SetCell(0,1); Board.SetCell(2,1);", [2, 0, 0, 0]); // 2 . 2 .  ->  4 . . .
 
     [Test]
     public async Task SlideLine_MergesTwoPairsNotTriple() =>
         await AssertRow(
-            "Board.Set(0,1); Board.Set(1,1); Board.Set(2,1); Board.Set(3,1);",
+            "Board.SetCell(0,1); Board.SetCell(1,1); Board.SetCell(2,1); Board.SetCell(3,1);",
             [2, 2, 0, 0]
         );
 
     [Test]
     public async Task SlideLine_MergesLeftmostPairOfTriple() =>
-        await AssertRow("Board.Set(0,1); Board.Set(1,1); Board.Set(2,1);", [2, 1, 0, 0]);
+        await AssertRow(
+            "Board.SetCell(0,1); Board.SetCell(1,1); Board.SetCell(2,1);",
+            [2, 1, 0, 0]
+        );
 
     [Test]
     public async Task SlideLine_SlidesLoneTileToEdge() =>
-        await AssertRow("Board.Set(3,1);", [1, 0, 0, 0]); // . . . 2  ->  2 . . .
+        await AssertRow("Board.SetCell(3,1);", [1, 0, 0, 0]); // . . . 2  ->  2 . . .
 
     // Each direction merges a pair into the right edge cell.
     private static ushort Move(string setup, string dir, int index) =>
         Run(
-            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.{dir}); return Board.Get((byte){index}); }}"
+            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.{dir}); return Board.GetCell((byte){index}); }}"
         );
 
     [Test]
     public async Task MoveLeft_MergesRowIntoLeftEdge() =>
-        await Assert.That(Move("Board.Set(0,1); Board.Set(1,1);", "Left", 0)).IsEqualTo((ushort)2);
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(1,1);", "Left", 0))
+            .IsEqualTo((ushort)2);
 
     [Test]
     public async Task MoveRight_MergesRowIntoRightEdge() =>
-        await Assert.That(Move("Board.Set(0,1); Board.Set(1,1);", "Right", 3)).IsEqualTo((ushort)2);
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(1,1);", "Right", 3))
+            .IsEqualTo((ushort)2);
 
     [Test]
     public async Task MoveUp_MergesColumnIntoTopEdge() =>
-        await Assert.That(Move("Board.Set(0,1); Board.Set(4,1);", "Up", 0)).IsEqualTo((ushort)2);
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(4,1);", "Up", 0))
+            .IsEqualTo((ushort)2);
 
     [Test]
     public async Task MoveDown_MergesColumnIntoBottomEdge() =>
-        await Assert.That(Move("Board.Set(0,1); Board.Set(4,1);", "Down", 12)).IsEqualTo((ushort)2);
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(4,1);", "Down", 12))
+            .IsEqualTo((ushort)2);
 
     [Test]
     public async Task Slide_ReportsWhetherAnythingChanged()
@@ -214,14 +225,14 @@ public class Game2048Tests
         await Assert
             .That(
                 Run(
-                    "static ushort Main(){ Board.Reset(); Board.Set(1,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(1,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
                 )
             )
             .IsEqualTo((ushort)1);
         await Assert
             .That(
                 Run(
-                    "static ushort Main(){ Board.Reset(); Board.Set(0,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(0,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
                 )
             )
             .IsEqualTo((ushort)0);
@@ -233,9 +244,9 @@ public class Game2048Tests
         const string src =
             @"static ushort Main() {
             Board.Reset();
-            Board.Spawn();
+            Board.SpawnTile();
             byte n = 0;
-            for (byte i = 0; i < 16; i++) if (Board.Get(i) != 0) n++;
+            for (byte i = 0; i < 16; i++) if (Board.GetCell(i) != 0) n++;
             return n;
         }";
         await Assert.That(Run(src)).IsEqualTo((ushort)1);
@@ -247,8 +258,8 @@ public class Game2048Tests
         const string src =
             @"static ushort Main() {
             Board.Reset();
-            for (byte i = 0; i < 16; i++) Board.Set(i, 5);
-            return (ushort)(Board.Spawn() ? 1 : 0);
+            for (byte i = 0; i < 16; i++) Board.SetCell(i, 5);
+            return (ushort)(Board.SpawnTile() ? 1 : 0);
         }";
         await Assert.That(Run(src)).IsEqualTo((ushort)0);
     }
@@ -260,7 +271,7 @@ public class Game2048Tests
         const string locked =
             @"static ushort Main() {
             Board.Reset();
-            for (byte i = 0; i < 16; i++) Board.Set(i, (byte)(i + 1));
+            for (byte i = 0; i < 16; i++) Board.SetCell(i, (byte)(i + 1));
             return (ushort)(Board.CanMove() ? 1 : 0);
         }";
         await Assert.That(Run(locked)).IsEqualTo((ushort)0);
@@ -268,8 +279,8 @@ public class Game2048Tests
         const string opening =
             @"static ushort Main() {
             Board.Reset();
-            for (byte i = 0; i < 16; i++) Board.Set(i, (byte)(i + 1));
-            Board.Set(5, 0);
+            for (byte i = 0; i < 16; i++) Board.SetCell(i, (byte)(i + 1));
+            Board.SetCell(5, 0);
             return (ushort)(Board.CanMove() ? 1 : 0);
         }";
         await Assert.That(Run(opening)).IsEqualTo((ushort)1);
@@ -281,14 +292,14 @@ public class Game2048Tests
         await Assert
             .That(
                 Run(
-                    "static ushort Main(){ Board.Reset(); Board.Set(7,11); return (ushort)(Board.HasWon() ? 1 : 0); }"
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(7,11); return (ushort)(Board.HasWon() ? 1 : 0); }"
                 )
             )
             .IsEqualTo((ushort)1);
         await Assert
             .That(
                 Run(
-                    "static ushort Main(){ Board.Reset(); Board.Set(7,10); return (ushort)(Board.HasWon() ? 1 : 0); }"
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(7,10); return (ushort)(Board.HasWon() ? 1 : 0); }"
                 )
             )
             .IsEqualTo((ushort)0);
@@ -305,7 +316,7 @@ public class Game2048Tests
             @"static ushort Main() {
             Hardware.LCDC = 0;
             Board.Reset();
-            Board.Set(15, 9);
+            Board.SetCell(15, 9);
             Tiles.RenderBoard();
             return *(Gb.TileMap + 12 * 32 + 15);
         }";

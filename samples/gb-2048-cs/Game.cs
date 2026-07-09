@@ -17,11 +17,11 @@ static class Game
         Lcd.SetPalette(0xE4); // 11 10 01 00: dark -> light
         Lcd.Scroll(0, 0);
 
-        Tiles.Generate();
+        Tiles.GenerateTileset();
 
         Board.Reset();
         for (byte i = 0; i < 2; i++) // 2048 opens with two tiles on the board
-            Board.Spawn();
+            Board.SpawnTile();
         Tiles.RenderBoard();
 
         Lcd.On();
@@ -47,7 +47,7 @@ static class Game
 
             if (moved)
             {
-                Board.Spawn();
+                Board.SpawnTile();
                 Ppu.WaitVBlank();
                 Tiles.RenderBoard();
             }

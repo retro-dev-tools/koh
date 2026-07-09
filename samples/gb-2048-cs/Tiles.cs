@@ -4,9 +4,9 @@
 
 static class Tiles
 {
-    // Build 12 background tiles: tile 0 is empty (lightest shade); tiles 1..11 are framed blocks whose
+    // The 12 background tiles: tile 0 is empty (lightest shade); tiles 1..11 are framed blocks whose
     // interior shade cycles so adjacent values read differently.
-    internal static void Generate()
+    internal static void GenerateTileset()
     {
         TileData.Clear(0);
 
@@ -46,7 +46,7 @@ static class Tiles
             byte baseCol = (byte)(3 + c * 4);
             for (byte dr = 0; dr < 2; dr++)
             for (byte dc = 0; dc < 2; dc++)
-                Tilemap.Set((byte)(baseCol + dc), (byte)(baseRow + dr), tile);
+                Tilemap.SetTile((byte)(baseCol + dc), (byte)(baseRow + dr), tile);
         }
     }
 }

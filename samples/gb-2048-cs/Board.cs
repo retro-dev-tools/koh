@@ -10,9 +10,9 @@ static unsafe class Board
 
     // ---- Access ----------------------------------------------------------
 
-    internal static byte Get(byte index) => cells[index];
+    internal static byte GetCell(byte index) => cells[index];
 
-    internal static void Set(byte index, byte value)
+    internal static void SetCell(byte index, byte value)
     {
         cells[index] = value;
     }
@@ -99,9 +99,9 @@ static unsafe class Board
 
     // ---- State -----------------------------------------------------------
 
-    // Drop a new tile ("2" mostly, "4" occasionally) into a random empty cell, using the DIV timer as
-    // entropy. Returns false if the board was already full.
-    internal static bool Spawn()
+    // A new tile is "2" mostly, "4" occasionally, dropped into a random empty cell, using the DIV timer
+    // as entropy. Returns false if the board was already full.
+    internal static bool SpawnTile()
     {
         byte rnd = Hardware.DIV;
 
