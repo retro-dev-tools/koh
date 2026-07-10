@@ -10,9 +10,9 @@ namespace Koh.Compiler.Backends.Sm83;
 /// phi-cycle breaking. Computed for the whole module before any code is emitted so a caller
 /// knows where to place a callee's arguments.
 ///
-/// A small set of short-lived byte values may instead be held in a CPU register (<see cref="Register"/>)
-/// rather than a WRAM slot — the first increment of register residency (SOTA item #2). See
-/// <see cref="SelectResidents"/> for the (deliberately conservative) candidate rule.
+/// A conservative set of short-lived values and leaf parameters may instead be held in a CPU register
+/// (<see cref="Register"/>) rather than a WRAM slot — register residency and the register calling
+/// convention (SOTA items #2/#4/#5). See <see cref="SelectResidents"/> for the candidate rule.
 /// </summary>
 internal sealed class FunctionAllocation
 {
@@ -29,11 +29,9 @@ internal sealed class FunctionAllocation
     public required int FrameBase { get; init; }
     public required int FrameEnd { get; init; }
 
-    /// <param name="allowResidency">Whether short-lived byte values may be assigned CPU registers.
-    /// Disabled for interrupt handlers and recursive functions, whose prologues/epilogues and
-    /// frame-save paths impose register constraints the conservative residency model does not yet
-    /// reason about.</param>
-    /// <param name="allowResidency">Whether short-lived instruction results may be assigned CPU registers.</param>
+    /// <param name="allowResidency">Whether short-lived instruction results may be assigned CPU registers.
+    /// Disabled for interrupt handlers and recursive functions, whose prologues/epilogues and frame-save
+    /// paths impose register constraints the conservative residency model does not yet reason about.</param>
     /// <param name="allowParamResidency">Whether parameters may be *received* in CPU registers (a register
     /// calling convention). The caller places the argument in the register instead of the WRAM param slot.
     /// Off for the entry function, which has no caller to set up its registers.</param>
