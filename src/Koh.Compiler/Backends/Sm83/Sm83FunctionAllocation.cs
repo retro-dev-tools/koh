@@ -201,7 +201,11 @@ internal sealed class FunctionAllocation
 
     /// <summary>ADD/SUB/AND/OR/XOR at 8- or 16-bit width — the ops whose emitter (<c>EmitBinary</c>'s
     /// straight path) touches only <c>A</c> and <c>B</c>. Shifts and mul/div/rem are excluded: they use
-    /// E/D/BC/HL or call runtime routines that clobber everything.</summary>
+    /// E/D/BC/HL or call runtime routines that clobber everything.
+    /// <para>Load-bearing invariant: a gentle op is same-width, so a byte value can never be an operand of
+    /// a 16-bit op (that needs a non-gentle <c>Conv</c>). That is what makes the bytewise H:L aliasing safe
+    /// — a byte parked in <c>L</c> is never read by an op that writes the whole <c>HL</c> pair. Do not add
+    /// conversions or mixed-width ops here without revisiting that.</para></summary>
     private static bool IsGentleBinary(IrInstruction instr) =>
         instr is BinaryInstruction b
         && b.Type.SizeInBytes is 1 or 2

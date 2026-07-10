@@ -2371,6 +2371,67 @@ static readonly byte[] Mark = { 0xAB };";
     }
 
     [Test]
+    public async Task CodeBanking_BankedCalleeReceivesParamInRegister()
+    {
+        // A multi-bank program (far-call thunks) whose banked functions each RECEIVE a byte parameter in a
+        // register. The entry (ROM0) calls P0 through its thunk; the thunk maps the bank and CALLs the
+        // callee but only touches A/F, so the argument the caller placed in a register survives into the
+        // banked callee. Each Pi adds `adds` to its parameter (a long gentle chain that also bulks the
+        // function enough to force banking) and tail-calls the next; result = seed + fns*adds (mod 256).
+        // Built as IR directly (not C#) so the parameter is used in a gentle op and thus register-resident
+        // without relying on the optimizer, while the chain stays un-folded to keep the code large.
+        const int fns = 16,
+            adds = 400,
+            seed = 10;
+        var m = new IrModule("bankparam");
+        var main = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(main); // entry must be first
+
+        var ps = new List<IrFunction>();
+        var pParams = new List<IrParameter>();
+        for (int i = 0; i < fns; i++)
+        {
+            var a = new IrParameter("a", IrType.I8);
+            var f = new IrFunction($"P{i}", IrType.I8, [a]);
+            m.Functions.Add(f);
+            ps.Add(f);
+            pParams.Add(a);
+        }
+
+        var bld = new IrBuilder();
+        for (int i = 0; i < fns; i++)
+        {
+            bld.PositionAtEnd(ps[i].AppendBlock("entry"));
+            IrValue r = pParams[i]; // param used in the first add -> received in a register
+            for (int j = 0; j < adds; j++)
+                r = bld.Add(r, IrBuilder.ConstInt(IrType.I8, 1));
+            bld.Ret(i + 1 < fns ? bld.Call(ps[i + 1], [r]) : r);
+        }
+        bld.PositionAtEnd(main.AppendBlock("entry"));
+        bld.Ret(bld.Call(ps[0], [IrBuilder.ConstInt(IrType.I8, seed)]));
+
+        var model = new Sm83Backend().Compile(m, new DiagnosticBag());
+        // Two or more banked code sections => the multi-bank far-call-thunk path ran.
+        await Assert
+            .That(model.Sections.Count(s => s.Name.StartsWith("CODEX")))
+            .IsGreaterThanOrEqualTo(2);
+
+        var link = new LinkerType().Link([new LinkerInput("bank", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 5_000_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000)
+                break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo(unchecked((byte)(seed + fns * adds)));
+    }
+
+    [Test]
     public async Task CodeBanking_RecursiveBankedFunction()
     {
         // A recursive function that is also banked exercises every convention at once: args via
