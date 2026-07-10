@@ -42,10 +42,10 @@ internal sealed class Dominators
     public IReadOnlyList<IrBasicBlock> ChildrenOf(IrBasicBlock block) =>
         _children.TryGetValue(block, out var kids) ? kids : [];
 
-    /// <summary>The immediate dominator of <paramref name="block"/>, or null for the entry (which
-    /// dominates itself) and for unreachable blocks.</summary>
-    public IrBasicBlock? ImmediateDominatorOf(IrBasicBlock block) =>
-        _idom.TryGetValue(block, out var d) && !ReferenceEquals(d, block) ? d : null;
+    /// <summary>The predecessors of <paramref name="block"/> in the CFG this instance was built over.
+    /// The map is computed once at construction, so this is a lookup rather than a rescan.</summary>
+    public IReadOnlyList<IrBasicBlock> PredecessorsOf(IrBasicBlock block) =>
+        _preds.GetValueOrDefault(block, []);
 
     /// <summary>True if <paramref name="a"/> dominates <paramref name="b"/> — every path from the
     /// entry to <paramref name="b"/> passes through <paramref name="a"/> (a block dominates itself).

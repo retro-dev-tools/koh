@@ -7,8 +7,9 @@ namespace Koh.Compiler.Ir.Optimization;
 /// shifts are open-coded — moving an invariant expression out of a hot inner loop removes it from
 /// every iteration, which is one of the larger wins available to a register-poor accumulator machine.
 ///
-/// Only value-pure, side-effect-free, non-trapping instructions are candidates — <c>binary</c>,
-/// <c>icmp</c>, <c>conv</c>, <c>gep</c> (the same set <see cref="LocalCsePass"/> treats as movable).
+/// Only value-pure, side-effect-free, non-trapping instructions are candidates — <c>binary</c>
+/// (except integer <c>div</c>/<c>rem</c>, which can fault on a zero divisor), <c>icmp</c>, <c>conv</c>,
+/// <c>gep</c> (otherwise the set <see cref="LocalCsePass"/> treats as movable).
 /// <c>load</c>/<c>store</c>/<c>call</c>/<c>intrinsic</c> are excluded (memory or observable effects),
 /// as are <c>alloca</c> (names storage) and <c>phi</c>. Because a candidate is pure it is always safe
 /// to speculate into the preheader, and because the preheader dominates every block of the loop the
@@ -31,24 +32,46 @@ public sealed class LoopInvariantCodeMotionPass : IIrFunctionPass
             return false;
 
         var dom = new Dominators(function);
+        var loops = FindNaturalLoops(function, dom);
         var changed = false;
 
         // Process each natural loop independently. Nested loops are handled across repeated runs of
         // the optimizer: a value hoisted to an inner preheader becomes a candidate for the enclosing
         // loop on the next round, so it migrates outward one level at a time.
-        foreach (var loop in FindNaturalLoops(function, dom))
+        foreach (var loop in loops)
         {
-            var preheader = GetOrCreatePreheader(function, loop, dom);
+            // Decide what to move before touching the CFG, so a loop with nothing to hoist never
+            // grows a redundant preheader block.
+            var invariants = FindInvariants(loop);
+            if (invariants.Count == 0)
+                continue;
+
+            var preheader = GetOrCreatePreheader(function, loop, dom, out var spliced);
             if (preheader is null)
                 continue; // no single external entry edge — skip this loop, conservatively
 
-            if (HoistInvariants(loop, preheader))
+            if (spliced)
             {
-                changed = true;
-                // The CFG changed (a preheader may have been spliced in); recompute dominance before
-                // touching another loop so back-edge and dominance queries stay accurate.
+                // A freshly spliced preheader sits inside every enclosing loop whose body contains this
+                // loop's header (the splice is on an edge internal to those loops). The loop-body sets
+                // were snapshot once, before the splice, so add it now — otherwise an enclosing loop
+                // would treat a value defined in this preheader as loop-external and over-hoist a use of
+                // it above its definition. Recompute dominance too, since the CFG changed.
+                foreach (var other in loops)
+                    if (!ReferenceEquals(other, loop) && other.Blocks.Contains(loop.Header))
+                        other.Blocks.Add(preheader);
                 dom = new Dominators(function);
             }
+
+            foreach (var instruction in invariants)
+            {
+                instruction.Parent!.Instructions.Remove(instruction);
+                instruction.Parent = preheader;
+                // Insert before the preheader's terminator so it still ends in a branch. `invariants`
+                // is in dependency order, so appending preserves def-before-use inside the preheader.
+                preheader.Instructions.Insert(preheader.Instructions.Count - 1, instruction);
+            }
+            changed = true;
         }
         return changed;
     }
@@ -71,7 +94,7 @@ public sealed class LoopInvariantCodeMotionPass : IIrFunctionPass
                     continue;
                 if (!byHeader.TryGetValue(header, out var body))
                     byHeader[header] = body = new HashSet<IrBasicBlock>(Eq) { header };
-                CollectLoopBody(tail, header, body);
+                CollectLoopBody(tail, header, body, dom);
             }
         }
         return byHeader.Select(kv => new Loop(kv.Key, kv.Value)).ToList();
@@ -82,10 +105,10 @@ public sealed class LoopInvariantCodeMotionPass : IIrFunctionPass
     private static void CollectLoopBody(
         IrBasicBlock tail,
         IrBasicBlock header,
-        HashSet<IrBasicBlock> body
+        HashSet<IrBasicBlock> body,
+        Dominators dom
     )
     {
-        var preds = Predecessors(header.Parent);
         var work = new Stack<IrBasicBlock>();
         if (body.Add(tail))
             work.Push(tail);
@@ -94,7 +117,7 @@ public sealed class LoopInvariantCodeMotionPass : IIrFunctionPass
             var block = work.Pop();
             if (ReferenceEquals(block, header))
                 continue;
-            foreach (var pred in preds.GetValueOrDefault(block, []))
+            foreach (var pred in dom.PredecessorsOf(block))
                 if (body.Add(pred))
                     work.Push(pred);
         }
@@ -106,15 +129,16 @@ public sealed class LoopInvariantCodeMotionPass : IIrFunctionPass
     private static IrBasicBlock? GetOrCreatePreheader(
         IrFunction function,
         Loop loop,
-        Dominators dom
+        Dominators dom,
+        out bool spliced
     )
     {
+        spliced = false;
         var header = loop.Header;
         if (ReferenceEquals(header, function.EntryBlock))
             return null; // an entry-header has no external predecessor block to hoist into
 
-        var preds = Predecessors(function).GetValueOrDefault(header, []);
-        var external = preds.Where(p => !loop.Blocks.Contains(p)).ToList();
+        var external = dom.PredecessorsOf(header).Where(p => !loop.Blocks.Contains(p)).ToList();
         if (external.Count != 1)
             return null; // irreducible entry or multiple entry edges — leave the loop alone
 
@@ -140,52 +164,60 @@ public sealed class LoopInvariantCodeMotionPass : IIrFunctionPass
 
         RedirectTerminator(entry, header, preheader);
         RerouteHeaderPhis(header, entry, preheader);
+        spliced = true;
         return preheader;
     }
 
-    /// <summary>Move every loop-invariant instruction into <paramref name="preheader"/>, ahead of its
-    /// terminator. Invariants are grown to a fixed point: an instruction is invariant when all its
-    /// operands are constants, defined outside the loop, or themselves already hoisted.</summary>
-    private static bool HoistInvariants(Loop loop, IrBasicBlock preheader)
+    /// <summary>Collect the loop's invariant instructions in the order they should be hoisted, without
+    /// touching the CFG. Invariants are grown to a fixed point: an instruction is invariant when all its
+    /// operands are constants, defined outside the loop, or themselves already collected. Blocks are
+    /// visited in function order so the emitted preheader sequence is deterministic across runs.</summary>
+    private static List<IrInstruction> FindInvariants(Loop loop)
     {
-        // A value is "available in the preheader" if it isn't defined inside the loop, or it has been
-        // moved there. Seed with everything defined outside the loop; grow as we hoist.
+        var function = loop.Header.Parent;
+        // A value is "available in the preheader" if it isn't defined inside the loop, or it is one we
+        // are already hoisting — so `available` doubles as the set of already-collected instructions.
         var available = new HashSet<IrValue>(Eq);
-        var moved = false;
+        var order = new List<IrInstruction>();
         bool progress;
         do
         {
             progress = false;
-            foreach (var block in loop.Blocks)
+            foreach (var block in function.Blocks)
             {
-                if (ReferenceEquals(block, preheader))
+                if (!loop.Blocks.Contains(block))
                     continue;
-                for (var i = 0; i < block.Instructions.Count; i++)
+                foreach (var instruction in block.Instructions)
                 {
-                    var instruction = block.Instructions[i];
-                    if (!IsHoistable(instruction))
+                    if (available.Contains(instruction) || !IsHoistable(instruction))
                         continue;
                     if (!instruction.Operands.All(op => IsAvailable(op, loop, available)))
                         continue;
 
-                    block.Instructions.RemoveAt(i);
-                    i--;
-                    instruction.Parent = preheader;
-                    // Insert before the preheader's terminator so it still ends in a branch.
-                    preheader.Instructions.Insert(preheader.Instructions.Count - 1, instruction);
+                    order.Add(instruction);
                     available.Add(instruction);
-                    moved = true;
                     progress = true;
                 }
             }
         } while (progress);
-        return moved;
+        return order;
     }
 
-    /// <summary>Pure, non-trapping, side-effect-free instructions that are safe to speculate.</summary>
+    /// <summary>Pure, non-trapping, side-effect-free instructions that are safe to speculate. Integer
+    /// divide/remainder are excluded: they can fault on a zero divisor, and hoisting one out of a
+    /// zero-trip or guarded loop would execute it unconditionally — safe on the current SM83 backend,
+    /// but not a property this retargetable pass can assume of every backend.</summary>
     private static bool IsHoistable(IrInstruction instruction) =>
         instruction
             is BinaryInstruction
+                {
+                    Op: not (
+                        IrBinaryOp.UDiv
+                        or IrBinaryOp.SDiv
+                        or IrBinaryOp.URem
+                        or IrBinaryOp.SRem
+                    )
+                }
                 or CompareInstruction
                 or ConvInstruction
                 or GetElementPtrInstruction;
@@ -204,19 +236,6 @@ public sealed class LoopInvariantCodeMotionPass : IIrFunctionPass
     }
 
     // ---- CFG plumbing --------------------------------------------------------
-
-    private static Dictionary<IrBasicBlock, List<IrBasicBlock>> Predecessors(IrFunction function)
-    {
-        var preds = new Dictionary<IrBasicBlock, List<IrBasicBlock>>(Eq);
-        foreach (var block in function.Blocks)
-            if (block.Terminator is { } terminator)
-                foreach (var successor in terminator.Successors)
-                {
-                    preds.TryAdd(successor, []);
-                    preds[successor].Add(block);
-                }
-        return preds;
-    }
 
     /// <summary>Rebuild <paramref name="block"/>'s terminator with every edge to <paramref name="from"/>
     /// retargeted to <paramref name="to"/>. Terminator targets are immutable, so the instruction is
