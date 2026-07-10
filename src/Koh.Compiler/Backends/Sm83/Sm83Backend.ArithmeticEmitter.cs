@@ -41,7 +41,6 @@ public sealed partial class Sm83Backend
             }
 
             int n = SizeOf(b.Type);
-            int dst = _ctx.Slot[b];
             bool rightConst = b.Right is IrConstInt;
 
             for (int k = 0; k < n; k++)
@@ -58,7 +57,7 @@ public sealed partial class Sm83Backend
                     _ctx.LoadByteToA(b.Left, k);
                     _e.U8(Sm83Ops.AluRegOpcode(b.Op, k));
                 }
-                _ctx.StoreAToAddr(dst + k);
+                _ctx.StoreResultByte(b, k); // WRAM slot, or a CPU register if b is residency-assigned
             }
         }
 
