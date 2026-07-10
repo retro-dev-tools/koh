@@ -29,6 +29,7 @@ public static class IrOptimizer
         new LocalCsePass(),
         new LoopInvariantCodeMotionPass(),
         new DeadStoreEliminationPass(),
+        new RedundantBankSelectEliminationPass(),
         new DeadCodeEliminationPass(),
     ];
 
