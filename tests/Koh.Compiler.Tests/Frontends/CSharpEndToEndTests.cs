@@ -2403,9 +2403,17 @@ static readonly byte[] Mark = { 0xAB };";
         const int fns = 12;
         for (int i = 0; i < fns; i++)
         {
-            sb.Append($"static byte A{i}() {{ byte x = 1;\n");
+            // Padding to bulk each function past the ROM0 window. Two locals updated alternately, each
+            // reading the other, so every store's value is read before it is overwritten — the padding
+            // stays live against dead-store elimination (which would otherwise collapse a single-local
+            // accumulate chain to almost nothing and drop the program back under the multi-bank threshold).
+            sb.Append($"static byte A{i}() {{ byte x = 1; byte y = 2;\n");
             for (int j = 0; j < 200; j++)
-                sb.Append($"x = (byte)(x + {j % 7});\n"); // padding to bulk up
+                sb.Append(
+                    j % 2 == 0
+                        ? $"x = (byte)(x + y + {j % 7});\n"
+                        : $"y = (byte)(y + x + {j % 7});\n"
+                );
             sb.Append(i + 1 < fns ? $"return A{i + 1}();\n}}\n" : "return 77;\n}\n");
         }
         string src = sb.ToString();
@@ -2508,10 +2516,17 @@ static readonly byte[] Mark = { 0xAB };";
         );
         for (int i = 0; i < 12; i++)
         {
-            sb.Append($"static byte P{i}() {{ byte x = 1;\n");
+            // Padding that survives dead-store elimination — two locals updated alternately, each reading
+            // the other (see CodeBanking_MultiBankFarCalls) — so the functions stay large enough to force
+            // the multi-bank model.
+            sb.Append($"static byte P{i}() {{ byte x = 1; byte y = 2;\n");
             for (int j = 0; j < 200; j++)
-                sb.Append($"x = (byte)(x + {j % 7});\n");
-            sb.Append("return x;\n}\n");
+                sb.Append(
+                    j % 2 == 0
+                        ? $"x = (byte)(x + y + {j % 7});\n"
+                        : $"y = (byte)(y + x + {j % 7});\n"
+                );
+            sb.Append("return (byte)(x + y);\n}\n");
         }
         var model = Compile(sb.ToString());
         await Assert

@@ -5,9 +5,9 @@ namespace Koh.Compiler.Backends.Sm83;
 /// <summary>
 /// A peephole over an already-emitted SM83 region, driven by the <see cref="MirDecoder"/>: the region
 /// is lifted to typed instructions with a <see cref="MirEffects"/> footprint each, and rewrites are
-/// found by reading those footprints rather than hand-maintained opcode sets. Two rewrites, both of the
-/// shape "two bytes become one" (overwrite the first byte, delete the second), which is what
-/// <see cref="Emitter.PeepholeFrom"/> applies:
+/// found by reading those footprints rather than hand-maintained opcode sets. Each rewrite optionally
+/// overwrites one opcode byte and deletes a run of bytes, which is what <see cref="Emitter.PeepholeFrom"/>
+/// applies:
 /// <list type="bullet">
 /// <item><c>LD A, 0</c> → <c>XOR A</c> — one byte shorter, but <c>XOR A</c> clobbers the flags, so it is
 /// applied only where <see cref="FlagsDeadAfter"/> proves every flag dead (a forward scan reaches an
@@ -22,20 +22,42 @@ namespace Koh.Compiler.Backends.Sm83;
 /// targets a directly-returning function entry (not a far-call thunk, a runtime routine, or an interrupt
 /// handler whose epilogue is <c>RETI</c>); the caller supplies that whitelist as
 /// <c>tailCallSafeCalls</c>. The operand bytes are kept and the trailing <c>RET</c> is deleted, so unlike
-/// the other rules this one overwrites the opcode but deletes a non-adjacent byte.</item>
+/// the pair rules this one overwrites the opcode but deletes a non-adjacent byte.</item>
+/// <item>Dead store: <c>LD (a16),A ; … ; LD (a16),A</c> to the same non-MMIO address with no intervening
+/// read of memory, control-flow, side effect, or join → the first store is deleted whole (three bytes,
+/// no overwrite). Sound because nothing between the two stores can observe the first value before the
+/// second overwrites it: a boolean <see cref="MirEffects.MemRead"/> is a conservative barrier, a boundary
+/// is a barrier (another path could read the slot), and only WRAM <c>[0xC000, 0xE000)</c> — where the
+/// backend puts its globals/temps and a repeated write is idempotent — is tracked (MMIO/HRAM, VRAM/OAM,
+/// cartridge RAM are excluded). This is the first rule that fires on backend-emitted redundancy the
+/// IR-level dead-store pass cannot see.</item>
 /// </list>
 /// </summary>
 internal static class Sm83Peephole
 {
-    /// <summary>One rewrite: overwrite the byte at <see cref="Offset"/> with <see cref="NewOpcode"/> and
-    /// delete the byte at <see cref="DeleteOffset"/>. The two "collapse a pair" rules delete the very next
-    /// byte (<c>Offset + 1</c>); the tail-call rule keeps the CALL's operand and deletes the trailing
-    /// <c>RET</c> instead, so the deleted byte is not necessarily adjacent.</summary>
-    public readonly record struct Edit(int Offset, byte NewOpcode, int DeleteOffset)
+    /// <summary>One rewrite: if <see cref="NewOpcode"/> is non-null, overwrite the byte at
+    /// <see cref="Offset"/> with it; then delete <see cref="DeleteCount"/> bytes starting at
+    /// <see cref="DeleteStart"/>. The two "collapse a pair" rules overwrite an opcode and delete the next
+    /// byte; the tail-call rule overwrites the opcode and deletes the (non-adjacent) trailing <c>RET</c>;
+    /// the dead-store rule deletes a whole instruction with no overwrite.</summary>
+    public readonly record struct Edit(
+        int Offset,
+        byte? NewOpcode,
+        int DeleteStart,
+        int DeleteCount
+    )
     {
         /// <summary>An adjacent collapse: overwrite <paramref name="offset"/> and delete the next byte.</summary>
         public Edit(int offset, byte newOpcode)
-            : this(offset, newOpcode, offset + 1) { }
+            : this(offset, newOpcode, offset + 1, 1) { }
+
+        /// <summary>Overwrite <paramref name="offset"/> and delete a single, possibly non-adjacent, byte.</summary>
+        public Edit(int offset, byte newOpcode, int deleteOffset)
+            : this(offset, newOpcode, deleteOffset, 1) { }
+
+        /// <summary>Delete a whole instruction run — <paramref name="count"/> bytes at
+        /// <paramref name="offset"/> — with no opcode overwrite.</summary>
+        public static Edit DeleteRun(int offset, int count) => new(offset, null, offset, count);
     }
 
     /// <summary>Length of the instruction whose opcode is at <paramref name="offset"/>. Delegates to
@@ -43,7 +65,9 @@ internal static class Sm83Peephole
     public static int InstructionLength(IReadOnlyList<byte> code, int offset) =>
         Sm83OpcodeLength.Of(code[offset]);
 
-    /// <summary>The rewrites applicable in <c>[start, end)</c>, in ascending offset order.
+    /// <summary>The rewrites applicable in <c>[start, end)</c>. Not necessarily in ascending offset order
+    /// (the dead-store rule appends a deletion of an earlier store once the store that kills it is seen), so
+    /// the caller sorts the byte positions it deletes.
     /// <paramref name="boundaries"/> holds the absolute offsets of branch targets / block joins, across
     /// which liveness cannot be assumed and instructions must not be folded away.
     /// <paramref name="tailCallSafeCalls"/> holds the absolute offsets of <c>CALL</c> opcodes whose target
@@ -64,11 +88,51 @@ internal static class Sm83Peephole
             region[i] = code[start + i];
         var instrs = MirDecoder.Decode(region).Instructions;
 
+        // Rule 4 (dead store) state: the last `LD (a16),A` seen with a pending, not-yet-observed value —
+        // its address, the absolute offset of its opcode, and its length — or null once a barrier clears it.
+        int? pendingStoreAddr = null;
+        int pendingStoreOffset = 0,
+            pendingStoreLength = 0;
+
         var edits = new List<Edit>();
         for (var i = 0; i < instrs.Count; i++)
         {
             var instr = instrs[i];
             var abs = start + instr.Offset;
+
+            // Rule 4 — dead store: LD (a16),A whose value is overwritten by a later LD (a16),A to the same
+            // WRAM address before anything reads it. Handled first because it is stateful, and because an
+            // LD (a16),A (0xEA) is matched by none of the pair/tail rules below.
+            if (instr is { Opcode: 0xEA, Length: 3 })
+            {
+                var addr = instr.Bytes[1] | (instr.Bytes[2] << 8);
+                // Only WRAM [0xC000, 0xE000): that is where the backend places its globals and temps, and a
+                // WRAM byte is plain memory. Outside it a repeated write may not be idempotent — MMIO/HRAM
+                // registers, VRAM/OAM under PPU timing, cartridge RAM — so those are never elided.
+                var trackable = addr is >= 0xC000 and < 0xE000;
+                // This store overwrites a pending one to the same slot (and the pending store is not itself
+                // a branch target, so deleting it can't strand an edge): the pending store is dead.
+                if (
+                    trackable
+                    && pendingStoreAddr == addr
+                    && !boundaries.Contains(pendingStoreOffset)
+                )
+                    edits.Add(Edit.DeleteRun(pendingStoreOffset, pendingStoreLength));
+                pendingStoreAddr = trackable ? addr : null;
+                pendingStoreOffset = abs;
+                pendingStoreLength = instr.Length;
+                continue;
+            }
+            // A read (which might observe the pending slot), a control transfer, a modeled side effect, or a
+            // join (another path could read the slot) all end the window in which a pending store is dead.
+            var effects = instr.Effects;
+            if (
+                effects.MemRead
+                || effects.Control != MirControl.Fallthrough
+                || effects.SideEffect
+                || boundaries.Contains(abs)
+            )
+                pendingStoreAddr = null;
 
             // Rule 1 — LD A, 0 → XOR A, when the flags XOR A would clobber are dead.
             if (IsLoadAZero(instr))

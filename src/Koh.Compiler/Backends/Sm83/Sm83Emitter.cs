@@ -196,15 +196,17 @@ internal sealed class Emitter
         if (edits.Count == 0)
             return;
 
-        // Each edit overwrites the byte at its offset with a new opcode and deletes one other byte (the
-        // next byte for a two-into-one collapse, or the trailing RET for a tail call). Edits are ascending
-        // and non-overlapping, so the deleted positions are ascending too.
-        var deletes = new int[edits.Count];
-        for (var i = 0; i < edits.Count; i++)
-        {
-            Code[edits[i].Offset] = edits[i].NewOpcode;
-            deletes[i] = edits[i].DeleteOffset;
-        }
+        // Each edit optionally overwrites one opcode byte, then deletes a run of bytes (the next byte for a
+        // two-into-one collapse, the trailing RET for a tail call, or a whole instruction for a dead store).
+        // Overwrites are position-independent; the deleted positions are disjoint across edits but not
+        // pre-sorted (the dead-store rule deletes an earlier offset), so gather then sort them.
+        foreach (var edit in edits)
+            if (edit.NewOpcode is { } opcode)
+                Code[edit.Offset] = opcode;
+        var deletes = edits
+            .SelectMany(edit => Enumerable.Range(edit.DeleteStart, edit.DeleteCount))
+            .ToArray();
+        Array.Sort(deletes);
 
         // Number of deleted bytes strictly below an offset — its leftward shift.
         int DeletesBelow(int offset)

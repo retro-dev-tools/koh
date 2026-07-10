@@ -143,4 +143,71 @@ public class Sm83PeepholeTests
             .That(EditsWithTailCalls([0xCD, 0x34, 0x12, 0xC9], safeCalls: [0], boundaries: 3))
             .IsEmpty();
     }
+
+    // ---- dead store: LD (a16),A overwritten before it is read ----------------
+
+    [Test]
+    public async Task DeletesDeadStore_WhenSameSlotIsOverwrittenAdjacently()
+    {
+        // LD (0xC010),A ; LD (0xC010),A — the first store's value is overwritten before any read.
+        var edits = Edits([0xEA, 0x10, 0xC0, 0xEA, 0x10, 0xC0]);
+        await Assert
+            .That(edits)
+            .IsEquivalentTo(new List<Sm83Peephole.Edit> { Sm83Peephole.Edit.DeleteRun(0, 3) });
+    }
+
+    [Test]
+    public async Task DeletesDeadStore_AcrossANonReadingInstruction()
+    {
+        // LD (0xC010),A ; INC B ; LD (0xC010),A — INC B neither reads memory nor branches, so the first
+        // store is still dead.
+        var edits = Edits([0xEA, 0x10, 0xC0, 0x04, 0xEA, 0x10, 0xC0]);
+        await Assert
+            .That(edits)
+            .IsEquivalentTo(new List<Sm83Peephole.Edit> { Sm83Peephole.Edit.DeleteRun(0, 3) });
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenTheSecondTargetsADifferentSlot()
+    {
+        // LD (0xC010),A ; LD (0xC011),A — different addresses, so the first store is live.
+        await Assert.That(Edits([0xEA, 0x10, 0xC0, 0xEA, 0x11, 0xC0])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenAReadInterveness()
+    {
+        // LD (0xC010),A ; LD A,(HL) ; LD (0xC010),A — the load might observe the slot, so keep the store.
+        await Assert.That(Edits([0xEA, 0x10, 0xC0, 0x7E, 0xEA, 0x10, 0xC0])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenAddressIsAboveWram()
+    {
+        // LD (0xFF80),A ; LD (0xFF80),A — HRAM/MMIO is above the tracked WRAM window; never elide it.
+        await Assert.That(Edits([0xEA, 0x80, 0xFF, 0xEA, 0x80, 0xFF])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenAddressIsBelowWram()
+    {
+        // LD (0x9800),A ; LD (0x9800),A — VRAM is below the tracked WRAM window (PPU timing); never elide.
+        await Assert.That(Edits([0xEA, 0x00, 0x98, 0xEA, 0x00, 0x98])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenTheDeadStoreIsABranchTarget()
+    {
+        // The first store is a jump target; deleting it would strand the edge that lands on it, so keep it.
+        await Assert.That(Edits([0xEA, 0x10, 0xC0, 0xEA, 0x10, 0xC0], boundaries: 0)).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenAJoinIntervenes()
+    {
+        // LD (0xC010),A ; <join> INC B ; LD (0xC010),A — a path entering at the join could read the slot.
+        await Assert
+            .That(Edits([0xEA, 0x10, 0xC0, 0x04, 0xEA, 0x10, 0xC0], boundaries: 3))
+            .IsEmpty();
+    }
 }
