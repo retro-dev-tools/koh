@@ -1,41 +1,46 @@
 namespace Koh.Compiler.Backends.Sm83.Mir;
 
 /// <summary>
-/// One decoded SM83 machine instruction: its raw encoding, its offset in the region it was decoded
-/// from, and its <see cref="MirEffects"/> footprint. Holding the exact bytes makes re-encoding lossless
-/// (<see cref="MirProgram.ToBytes"/> concatenates them), so lifting a region to MIR and lowering it
-/// back is an identity — the property that lets a peephole or superoptimizer rewrite in the MIR domain
-/// and drop back to bytes without a separate encoder round-trip risk.
+/// One decoded SM83 machine instruction: a view over its raw encoding — an offset/length slice of the
+/// source buffer, so no bytes are copied — together with its <see cref="MirEffects"/> footprint. Holding
+/// a slice of the shared source rather than a private array means decoding a region allocates nothing per
+/// instruction, and re-encoding (<see cref="MirProgram.ToBytes"/>) is a straight copy of those slices, so
+/// lifting a region to MIR and lowering it back is an identity. A value type for the same reason: a
+/// decoded run is a list of slices, not a graph of heap objects.
 /// </summary>
-public sealed class MirInstruction
+public readonly struct MirInstruction
 {
-    public MirInstruction(int offset, byte[] bytes, MirEffects effects)
+    private readonly ReadOnlyMemory<byte> _source;
+
+    public MirInstruction(ReadOnlyMemory<byte> source, int offset, int length, MirEffects effects)
     {
+        _source = source;
         Offset = offset;
-        Bytes = bytes;
+        Length = length;
         Effects = effects;
     }
 
     /// <summary>Byte offset of this instruction within the region it was decoded from.</summary>
     public int Offset { get; }
 
-    /// <summary>The raw encoding, 1–3 bytes (CB-prefixed instructions are 2).</summary>
-    public byte[] Bytes { get; }
-
-    /// <summary>The primary opcode byte (the CB prefix for CB-prefixed instructions).</summary>
-    public byte Opcode => Bytes[0];
-
-    /// <summary>True for a CB-prefixed rotate/shift/bit instruction.</summary>
-    public bool IsCbPrefixed => Bytes[0] == 0xCB;
-
-    /// <summary>Encoded length in bytes.</summary>
-    public int Length => Bytes.Length;
+    /// <summary>Encoded length in bytes, 1–3 (CB-prefixed instructions are 2).</summary>
+    public int Length { get; }
 
     public MirEffects Effects { get; }
 
+    /// <summary>The raw encoding as a read-only view over the source buffer — no copy, and not mutable
+    /// through this instruction, so a consumer cannot corrupt the bytes a re-encode would reproduce.</summary>
+    public ReadOnlySpan<byte> Bytes => _source.Span.Slice(Offset, Length);
+
+    /// <summary>The primary opcode byte (the CB prefix for CB-prefixed instructions).</summary>
+    public byte Opcode => _source.Span[Offset];
+
+    /// <summary>True for a CB-prefixed rotate/shift/bit instruction.</summary>
+    public bool IsCbPrefixed => Opcode == 0xCB;
+
     public override string ToString() =>
         // A truncated CB tail has no second byte, so guard on length rather than assuming CB ⇒ 2 bytes.
-        (IsCbPrefixed && Bytes.Length > 1 ? $"CB {Bytes[1]:X2}" : $"{Bytes[0]:X2}")
+        (IsCbPrefixed && Length > 1 ? $"CB {Bytes[1]:X2}" : $"{Opcode:X2}")
         + $"  r-{Effects.RegRead} w-{Effects.RegWrite} fr-{Effects.FlagRead} fw-{Effects.FlagWrite}"
         + (Effects.MemRead ? " memR" : "")
         + (Effects.MemWrite ? " memW" : "")
@@ -52,14 +57,17 @@ public sealed class MirProgram
     /// <summary>Concatenate the instruction encodings back into a flat byte buffer.</summary>
     public byte[] ToBytes()
     {
+        // Indexed loops (not foreach over the IReadOnlyList) avoid a boxed interface enumerator.
         var total = 0;
-        foreach (var instruction in Instructions)
-            total += instruction.Length;
+        for (var i = 0; i < Instructions.Count; i++)
+            total += Instructions[i].Length;
+
         var bytes = new byte[total];
         var at = 0;
-        foreach (var instruction in Instructions)
+        for (var i = 0; i < Instructions.Count; i++)
         {
-            instruction.Bytes.CopyTo(bytes, at);
+            var instruction = Instructions[i];
+            instruction.Bytes.CopyTo(bytes.AsSpan(at));
             at += instruction.Length;
         }
         return bytes;

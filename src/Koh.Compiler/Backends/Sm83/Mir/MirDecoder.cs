@@ -15,31 +15,34 @@ namespace Koh.Compiler.Backends.Sm83.Mir;
 /// </summary>
 public static class MirDecoder
 {
-    public static MirProgram Decode(ReadOnlySpan<byte> code)
+    public static MirProgram Decode(ReadOnlyMemory<byte> code)
     {
-        var instructions = new List<MirInstruction>();
+        var span = code.Span;
+        // Instruction count is bounded by the byte count (every instruction is ≥ 1 byte), so sizing to
+        // that upper bound decodes without any List regrowth. Each MirInstruction is a slice of `code`,
+        // not a copy, so nothing is allocated per instruction.
+        var instructions = new List<MirInstruction>(span.Length);
         var offset = 0;
-        while (offset < code.Length)
+        while (offset < span.Length)
         {
-            var naturalLength = InstructionLength(code, offset);
-            var length = Math.Min(naturalLength, code.Length - offset);
+            var naturalLength = InstructionLength(span, offset);
+            var length = Math.Min(naturalLength, span.Length - offset);
             // A truncated tail (e.g. a region ending on a lone 0xCB or mid-operand) has no complete
             // instruction to reason about — and computing its effects would read past the buffer, since
             // EffectsOf dereferences the CB sub-opcode. Keep the bytes so decoding still round-trips, but
             // give them an opaque footprint so no consumer treats a partial instruction as analyzable.
             var truncated = length < naturalLength;
-            var bytes = code.Slice(offset, length).ToArray();
-            var effects = truncated ? MirEffects.Opaque : EffectsOf(code, offset);
-            instructions.Add(new MirInstruction(offset, bytes, effects));
+            var effects = truncated ? MirEffects.Opaque : EffectsOf(span, offset);
+            instructions.Add(new MirInstruction(code, offset, length, effects));
             offset += length;
         }
         return new MirProgram(instructions);
     }
 
     /// <summary>Encoded length of the instruction at <paramref name="offset"/> (CB-prefixed = 2).
-    /// Uses the shared <see cref="Sm83OpcodeLength"/> table, the single source shared with the byte
-    /// peephole.</summary>
-    public static int InstructionLength(ReadOnlySpan<byte> code, int offset) =>
+    /// The public length lookup lives in the shared <see cref="Sm83OpcodeLength"/> table (the single
+    /// source shared with the byte peephole); this is just Decode's internal boundary helper.</summary>
+    private static int InstructionLength(ReadOnlySpan<byte> code, int offset) =>
         Sm83OpcodeLength.Of(code[offset]);
 
     // ---- Effect computation --------------------------------------------------
