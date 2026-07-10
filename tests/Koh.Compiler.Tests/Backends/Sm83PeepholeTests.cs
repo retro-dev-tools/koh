@@ -183,10 +183,18 @@ public class Sm83PeepholeTests
     }
 
     [Test]
-    public async Task KeepsStore_WhenAReadInterveness()
+    public async Task KeepsStore_WhenAReadIntervenes()
     {
         // LD (0xC010),A ; LD A,(HL) ; LD (0xC010),A — the load might observe the slot, so keep the store.
         await Assert.That(Edits([0xEA, 0x10, 0xC0, 0x7E, 0xEA, 0x10, 0xC0])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenAPointerWriteIntervenes()
+    {
+        // LD (0xC010),A ; LD (HL),A ; LD (0xC010),A — the (HL) store's address is unknown and could be an
+        // MMIO register (e.g. an OAM-DMA trigger that then reads WRAM asynchronously), so keep the store.
+        await Assert.That(Edits([0xEA, 0x10, 0xC0, 0x77, 0xEA, 0x10, 0xC0])).IsEmpty();
     }
 
     [Test]

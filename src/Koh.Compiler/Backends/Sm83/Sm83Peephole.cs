@@ -26,16 +26,18 @@ namespace Koh.Compiler.Backends.Sm83;
 /// <item>Dead store: <c>LD (a16),A ; … ; LD (a16),A</c> to the same non-MMIO address with no intervening
 /// read of memory, control-flow, side effect, or join → the first store is deleted whole (three bytes,
 /// no overwrite). Sound because nothing between the two stores can observe the first value before the
-/// second overwrites it: a boolean <see cref="MirEffects.MemRead"/> is a conservative barrier, a boundary
-/// is a barrier (another path could read the slot), and only WRAM <c>[0xC000, 0xE000)</c> — where the
-/// backend puts its globals/temps and a repeated write is idempotent — is tracked (MMIO/HRAM, VRAM/OAM,
-/// cartridge RAM are excluded). Those barriers cover only <em>mainline</em> observers, so the rule is
-/// gated (<c>allowDeadStore</c>) on the module having no interrupt handlers: an interrupt can fire between
-/// the two stores and a handler can read a shared static, observing the first value, which no per-region
-/// scan can see. With no handler there is no asynchronous observer and the barriers are complete. (This
-/// matches the IR-level dead-store pass, which is likewise conservative — it only elides stores to
-/// non-escaping allocas.) This is the first rule that fires on backend-emitted redundancy the IR pass
-/// cannot see.</item>
+/// second overwrites it. The window between the two stores must be free of any memory access — a read
+/// might observe the slot, and a write through a register pointer goes to an address unknown here that
+/// could be an MMIO register (e.g. an OAM-DMA trigger, which asynchronously reads WRAM); an absolute
+/// <c>LD (a16),A</c> is exempt since its address is known — and free of control flow, a modeled side
+/// effect, or a join. Only WRAM <c>[0xC000, 0xE000)</c> — where the backend puts its globals/temps and a
+/// repeated write is idempotent — is tracked (MMIO/HRAM, VRAM/OAM, cartridge RAM excluded). Those barriers
+/// still cover only <em>synchronous</em> observers, so the rule is additionally gated
+/// (<c>allowDeadStore</c>) on the module having no interrupt handler: an interrupt can fire between the two
+/// stores and a handler can read a shared static, which no per-region scan can see. With no handler there
+/// is no asynchronous observer. (This matches the IR-level dead-store pass, likewise conservative — it only
+/// elides stores to non-escaping allocas.) This is the first rule that fires on backend-emitted redundancy
+/// the IR pass cannot see.</item>
 /// </list>
 /// </summary>
 internal static class Sm83Peephole
@@ -130,11 +132,16 @@ internal static class Sm83Peephole
                 pendingStoreLength = instr.Length;
                 continue;
             }
-            // A read (which might observe the pending slot), a control transfer, a modeled side effect, or a
-            // join (another path could read the slot) all end the window in which a pending store is dead.
+            // Any memory access ends the window in which a pending store is dead: a read might observe the
+            // slot, and a write through a register pointer (LD (HL),A etc.) goes to an address unknown here
+            // that could be an MMIO register — e.g. an OAM-DMA trigger, which then reads WRAM asynchronously.
+            // (An absolute LD (a16),A carries a known address and is handled above, so it is not barred here.)
+            // A control transfer, a modeled side effect, or a join (another path could read the slot) also
+            // end the window. What survives between the two stores is therefore memory-access-free.
             var effects = instr.Effects;
             if (
                 effects.MemRead
+                || effects.MemWrite
                 || effects.Control != MirControl.Fallthrough
                 || effects.SideEffect
                 || boundaries.Contains(abs)
