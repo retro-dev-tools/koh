@@ -29,8 +29,13 @@ namespace Koh.Compiler.Backends.Sm83;
 /// second overwrites it: a boolean <see cref="MirEffects.MemRead"/> is a conservative barrier, a boundary
 /// is a barrier (another path could read the slot), and only WRAM <c>[0xC000, 0xE000)</c> — where the
 /// backend puts its globals/temps and a repeated write is idempotent — is tracked (MMIO/HRAM, VRAM/OAM,
-/// cartridge RAM are excluded). This is the first rule that fires on backend-emitted redundancy the
-/// IR-level dead-store pass cannot see.</item>
+/// cartridge RAM are excluded). Those barriers cover only <em>mainline</em> observers, so the rule is
+/// gated (<c>allowDeadStore</c>) on the module having no interrupt handlers: an interrupt can fire between
+/// the two stores and a handler can read a shared static, observing the first value, which no per-region
+/// scan can see. With no handler there is no asynchronous observer and the barriers are complete. (This
+/// matches the IR-level dead-store pass, which is likewise conservative — it only elides stores to
+/// non-escaping allocas.) This is the first rule that fires on backend-emitted redundancy the IR pass
+/// cannot see.</item>
 /// </list>
 /// </summary>
 internal static class Sm83Peephole
@@ -78,7 +83,8 @@ internal static class Sm83Peephole
         int start,
         int end,
         HashSet<int> boundaries,
-        HashSet<int> tailCallSafeCalls
+        HashSet<int> tailCallSafeCalls,
+        bool allowDeadStore
     )
     {
         // Lift the region to typed instructions. Offsets in `instrs` are relative to `start`; the shared
@@ -113,7 +119,8 @@ internal static class Sm83Peephole
                 // This store overwrites a pending one to the same slot (and the pending store is not itself
                 // a branch target, so deleting it can't strand an edge): the pending store is dead.
                 if (
-                    trackable
+                    allowDeadStore
+                    && trackable
                     && pendingStoreAddr == addr
                     && !boundaries.Contains(pendingStoreOffset)
                 )

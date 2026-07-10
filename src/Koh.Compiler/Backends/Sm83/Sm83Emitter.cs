@@ -148,8 +148,11 @@ internal sealed class Emitter
     /// Safe to run per-function because nothing has been emitted after the region yet (so no later
     /// offset needs shifting) and the region's entry sits at <paramref name="start"/>, which never
     /// moves — so every cross-function reference (funcAddr, forward CALL fixups) stays valid.
+    /// <paramref name="allowDeadStore"/> enables the dead-store rule; the backend passes false when the
+    /// module has an interrupt handler, which could asynchronously read a stored slot (see
+    /// <see cref="Sm83Peephole"/>).
     /// </summary>
-    public void PeepholeFrom(int start)
+    public void PeepholeFrom(int start, bool allowDeadStore)
     {
         int end = Code.Count;
         if (start >= end)
@@ -192,7 +195,14 @@ internal sealed class Emitter
             if (pos - 1 >= start && pos - 1 < end && safeFuncLabels.Contains(target))
                 tailCallSafeCalls.Add(pos - 1);
 
-        var edits = Sm83Peephole.FindEdits(Code, start, end, boundaries, tailCallSafeCalls);
+        var edits = Sm83Peephole.FindEdits(
+            Code,
+            start,
+            end,
+            boundaries,
+            tailCallSafeCalls,
+            allowDeadStore
+        );
         if (edits.Count == 0)
             return;
 

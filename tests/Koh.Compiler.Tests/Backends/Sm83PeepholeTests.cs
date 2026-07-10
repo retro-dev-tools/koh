@@ -5,13 +5,21 @@ namespace Koh.Compiler.Tests.Backends;
 public class Sm83PeepholeTests
 {
     private static List<Sm83Peephole.Edit> Edits(byte[] code, params int[] boundaries) =>
-        Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries], []);
+        Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries], [], allowDeadStore: true);
 
     private static List<Sm83Peephole.Edit> EditsWithTailCalls(
         byte[] code,
         int[] safeCalls,
         params int[] boundaries
-    ) => Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries], [.. safeCalls]);
+    ) =>
+        Sm83Peephole.FindEdits(
+            code,
+            0,
+            code.Length,
+            [.. boundaries],
+            [.. safeCalls],
+            allowDeadStore: true
+        );
 
     [Test]
     public async Task InstructionLength_MatchesTheOpcodeTable()
@@ -209,5 +217,21 @@ public class Sm83PeepholeTests
         await Assert
             .That(Edits([0xEA, 0x10, 0xC0, 0x04, 0xEA, 0x10, 0xC0], boundaries: 3))
             .IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsStore_WhenDeadStoreEliminationIsDisabled()
+    {
+        // With an interrupt handler in the module the backend passes allowDeadStore: false — an async
+        // handler could read the slot between the two stores, so the (mainline-)dead store must stay.
+        var edits = Sm83Peephole.FindEdits(
+            [0xEA, 0x10, 0xC0, 0xEA, 0x10, 0xC0],
+            0,
+            6,
+            [],
+            [],
+            allowDeadStore: false
+        );
+        await Assert.That(edits).IsEmpty();
     }
 }

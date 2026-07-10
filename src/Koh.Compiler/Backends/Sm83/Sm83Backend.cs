@@ -166,6 +166,10 @@ public sealed partial class Sm83Backend : IBackend
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
+        // The dead-store peephole is unsound when an interrupt handler could asynchronously read a stored
+        // WRAM slot between two mainline stores; disable it whenever the module has any handler.
+        bool allowDeadStore = !module.Functions.Any(f => f.InterruptVector is not null);
+
         var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {
@@ -182,7 +186,7 @@ public sealed partial class Sm83Backend : IBackend
                 ReferenceEquals(fn, entryFunction),
                 softStackBase
             ).Compile();
-            emitter.PeepholeFrom(startOffset);
+            emitter.PeepholeFrom(startOffset, allowDeadStore);
         }
         int funcsEnd = emitter.Code.Count;
 
@@ -381,6 +385,9 @@ public sealed partial class Sm83Backend : IBackend
         if (entryFunction is null)
             throw new NotSupportedException("a banked program needs an entry function.");
 
+        // See CompileCore: the dead-store peephole is unsound with an interrupt handler present.
+        bool allowDeadStore = !module.Functions.Any(f => f.InterruptVector is not null);
+
         // Sizes from the measurement pass.
         var order = new List<IrFunction>();
         var size = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
@@ -417,7 +424,7 @@ public sealed partial class Sm83Backend : IBackend
                 softStackBase,
                 banked
             ).Compile();
-            measure.PeepholeFrom(s0); // match real emission, or a fitting function is spuriously rejected
+            measure.PeepholeFrom(s0, allowDeadStore); // match real emission, or a fit is spuriously rejected
             size[f] = measure.Code.Count - s0;
         }
 
@@ -481,7 +488,7 @@ public sealed partial class Sm83Backend : IBackend
                 softStackBase,
                 banked
             ).Compile();
-            emitter.PeepholeFrom(startOffset);
+            emitter.PeepholeFrom(startOffset, allowDeadStore);
         }
 
         foreach (var f in order.Where(IsRom0))

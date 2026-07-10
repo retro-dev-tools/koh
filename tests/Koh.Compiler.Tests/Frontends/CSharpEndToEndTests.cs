@@ -347,6 +347,41 @@ static byte Triple(byte x) { return x + x + x; }";
     }
 
     [Test]
+    public async Task DeadStore_IsElidedWithoutInterrupts_ButKeptWithThem()
+    {
+        // `g = 1; g = 2;` writes the static twice with no mainline read between, so the first store is
+        // dead — and gets elided. But an interrupt handler that reads g could fire between the two stores
+        // and observe the first value, so the presence of any handler must keep the store. The two
+        // programs are identical bar the handler.
+        const string body =
+            "static byte g; static byte h; static byte Main() { g = 1; g = 2; return g; }";
+        const string handler =
+            "\n[Interrupt(\"VBlank\")] static void OnVBlank() { if (g == 1) h = 1; }";
+
+        // The static g is stored to once (the dead first store elided) with no handler, and twice with one.
+        await Assert.That(MaxStoresToOneWramSlot(Compile(body))).IsEqualTo(1);
+        await Assert.That(MaxStoresToOneWramSlot(Compile(body + handler))).IsEqualTo(2);
+    }
+
+    /// <summary>The largest number of <c>LD (a16),A</c> stores to any single WRAM slot in the emitted
+    /// code — used to observe whether the dead-store peephole elided one of a pair of stores to a static.</summary>
+    private static int MaxStoresToOneWramSlot(EmitModel model)
+    {
+        var instrs = Koh
+            .Compiler.Backends.Sm83.Mir.MirDecoder.Decode(model.Sections[0].Data)
+            .Instructions;
+        var perSlot = new Dictionary<int, int>();
+        foreach (var instr in instrs)
+            if (instr is { Opcode: 0xEA, Length: 3 })
+            {
+                var addr = instr.Bytes[1] | (instr.Bytes[2] << 8);
+                if (addr is >= 0xC000 and < 0xE000)
+                    perSlot[addr] = perSlot.GetValueOrDefault(addr) + 1;
+            }
+        return perSlot.Count == 0 ? 0 : perSlot.Values.Max();
+    }
+
+    [Test]
     public async Task SignedNegate_Sbyte()
     {
         const string src = "static sbyte Neg(sbyte x) { return -x; }";
