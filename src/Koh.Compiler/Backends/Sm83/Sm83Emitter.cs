@@ -178,17 +178,17 @@ internal sealed class Emitter
         foreach (var label in labels)
             boundaries.Add(label.Offset);
 
-        var edits = Sm83Peephole.FindZeroLoadEdits(Code, start, end, boundaries);
+        var edits = Sm83Peephole.FindEdits(Code, start, end, boundaries);
         if (edits.Count == 0)
             return;
 
-        // Each edit rewrites LD A,0 (3E 00) to XOR A (AF): the opcode byte becomes 0xAF and the
-        // immediate byte (o + 1) is deleted. Edits are ascending, so the deleted positions are too.
+        // Each edit collapses a two-byte sequence to one: the byte at the edit offset becomes the new
+        // opcode and the following byte is deleted. Edits are ascending, so the deleted positions are too.
         var deletes = new int[edits.Count];
         for (var i = 0; i < edits.Count; i++)
         {
-            Code[edits[i]] = 0xAF;
-            deletes[i] = edits[i] + 1;
+            Code[edits[i].Offset] = edits[i].NewOpcode;
+            deletes[i] = edits[i].Offset + 1;
         }
 
         // Number of deleted bytes strictly below an offset — its leftward shift.

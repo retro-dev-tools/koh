@@ -46,13 +46,14 @@ classification, MMIO forms, totality over all 256 + 256 opcodes, the truncated-C
 
 ## Migration path (follow-up PRs)
 
-1. **Peephole onto MIR.** The length table is already shared (`Sm83OpcodeLength`); the
-   remaining step is to replace `Sm83Peephole`'s hand-rolled flag-liveness scan with
-   `MirDecoder.Decode` + `MirEffects`. Flag-dead detection becomes
-   "scan forward until `FlagWrite` covers the flags, stop at a `MemRead`/control boundary" —
-   the same logic, but reading the effect footprint instead of re-deriving it. This also
-   makes it cheap to add the review's other rules (`ld a,[hl+]` folding, reload elimination,
-   tail-call `call→jp`).
+1. **Peephole onto MIR.** ✅ *Done.* `Sm83Peephole` now lifts the region with
+   `MirDecoder.Decode` and reads `MirEffects` instead of hand-maintained opcode sets — flag-dead
+   detection is "scan forward until `FlagWrite == All`, stop on a flag read / control / boundary",
+   which is also strictly more precise (a CB rotate that rewrites all flags without reading carry
+   now proves the flags dead, where the old scan conservatively treated every CB op as a flag
+   reader). With effects in hand it was cheap to add the `(HL)` load/store + `INC`/`DEC HL` fold
+   (`LD (HL),A; INC HL → LD (HL+),A`). Remaining review rules — reload elimination, tail-call
+   `call→jp` — build on the same footprint.
 2. **Emit through MIR.** Have the backend build `MirInstruction`s (or a thin builder over
    them) instead of raw bytes, then lower once at the end. This gives machine-level liveness
    for free and is the prerequisite for real register allocation (item #2).
