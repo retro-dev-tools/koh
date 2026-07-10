@@ -8,6 +8,5 @@ public readonly struct Label<TMsg>(string Text) : IView<TMsg>
 {
     public readonly string Text = Text;
 
-    public RenderNode Render()
-        => RenderNode.Leaf("Label", Props.Of(("text", Text)));
+    public RenderNode Render() => RenderNode.Leaf("Label", Props.Of(("text", Text)));
 }

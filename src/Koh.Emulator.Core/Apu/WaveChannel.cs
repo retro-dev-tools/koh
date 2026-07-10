@@ -6,17 +6,19 @@ public sealed class WaveChannel
     public bool DacEnabled;
     public bool Enabled;
     public int Frequency;
-    public int VolumeShift;    // 0 = mute, 1 = 100%, 2 = 50%, 3 = 25%
-    public readonly byte[] WavePattern = new byte[16];  // $FF30-$FF3F, 32 4-bit samples
+    public int VolumeShift; // 0 = mute, 1 = 100%, 2 = 50%, 3 = 25%
+    public readonly byte[] WavePattern = new byte[16]; // $FF30-$FF3F, 32 4-bit samples
 
     private int _waveIndex;
     private int _freqCycleCounter;
 
     public void TickT()
     {
-        if (!Enabled) return;
+        if (!Enabled)
+            return;
         _freqCycleCounter--;
-        if (_freqCycleCounter > 0) return;
+        if (_freqCycleCounter > 0)
+            return;
         _freqCycleCounter = (2048 - Frequency) * 2;
         _waveIndex = (_waveIndex + 1) & 31;
     }
@@ -25,7 +27,8 @@ public sealed class WaveChannel
 
     public int Output()
     {
-        if (!Enabled || !DacEnabled || VolumeShift == 0) return 0;
+        if (!Enabled || !DacEnabled || VolumeShift == 0)
+            return 0;
         int sampleByte = WavePattern[_waveIndex / 2];
         int sample = (_waveIndex & 1) == 0 ? (sampleByte >> 4) : (sampleByte & 0x0F);
         return sample >> (VolumeShift - 1);

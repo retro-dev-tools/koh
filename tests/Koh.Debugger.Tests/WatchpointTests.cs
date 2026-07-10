@@ -11,7 +11,8 @@ public class WatchpointTests
         var session = new DebugSession();
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0x18; rom[0x101] = 0xFE;
+        rom[0x100] = 0x18;
+        rom[0x101] = 0xFE;
         session.Launch(rom, Array.Empty<byte>(), HardwareMode.Dmg);
         return (session, session.System!);
     }
@@ -22,7 +23,7 @@ public class WatchpointTests
         var (session, gb) = Make();
         session.Watchpoints.Write[0xC100] = new WatchpointInfo("$C100", "write");
 
-        gb.Mmu.WriteByte(0xC099, 0x11);     // unrelated — no trip
+        gb.Mmu.WriteByte(0xC099, 0x11); // unrelated — no trip
         await Assert.That(session.PauseRequested).IsFalse();
 
         gb.Mmu.WriteByte(0xC100, 0x22);

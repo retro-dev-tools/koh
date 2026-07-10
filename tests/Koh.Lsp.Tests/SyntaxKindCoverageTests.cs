@@ -21,20 +21,28 @@ public class SyntaxKindCoverageTests
 
         var missing = allKinds.Except(covered).ToList();
 
-        await Assert.That(missing).IsEmpty()
-            .Because($"The following SyntaxKind values are not covered by SemanticTokenEncoder: " +
-                     $"{string.Join(", ", missing)}. Add them to AllClassifiedKinds or IntentionallyUnclassifiedKinds.");
+        await Assert
+            .That(missing)
+            .IsEmpty()
+            .Because(
+                $"The following SyntaxKind values are not covered by SemanticTokenEncoder: "
+                    + $"{string.Join(", ", missing)}. Add them to AllClassifiedKinds or IntentionallyUnclassifiedKinds."
+            );
     }
 
     [Test]
     public async Task ClassifiedAndUnclassified_DoNotOverlap()
     {
-        var overlap = SemanticTokenEncoder.AllClassifiedKinds
-            .Intersect(SemanticTokenEncoder.IntentionallyUnclassifiedKinds)
+        var overlap = SemanticTokenEncoder
+            .AllClassifiedKinds.Intersect(SemanticTokenEncoder.IntentionallyUnclassifiedKinds)
             .ToList();
 
-        await Assert.That(overlap).IsEmpty()
-            .Because($"The following SyntaxKind values appear in both classified and unclassified sets: " +
-                     $"{string.Join(", ", overlap)}");
+        await Assert
+            .That(overlap)
+            .IsEmpty()
+            .Because(
+                $"The following SyntaxKind values appear in both classified and unclassified sets: "
+                    + $"{string.Join(", ", overlap)}"
+            );
     }
 }

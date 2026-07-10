@@ -19,11 +19,15 @@ public class BinderLineMapTests
         // follow. Each nop is a distinct source line, so we get three
         // line-map entries at offsets 0, 1, 2.
         var src =
-            "SECTION \"Main\", ROM0\n" +   // line 1
-            "__main__:\n" +                // line 2
-            "    nop\n" +                  // line 3 → byte 0
-            "    nop\n" +                  // line 4 → byte 1
-            "    nop\n";                   // line 5 → byte 2
+            "SECTION \"Main\", ROM0\n"
+            + // line 1
+            "__main__:\n"
+            + // line 2
+            "    nop\n"
+            + // line 3 → byte 0
+            "    nop\n"
+            + // line 4 → byte 1
+            "    nop\n"; // line 5 → byte 2
         var result = BindFromFile("test.asm", src);
         await Assert.That(result.Success).IsTrue();
 
@@ -39,9 +43,7 @@ public class BinderLineMapTests
     {
         // LD HL, $BEEF is three bytes (opcode + little-endian operand)
         // on one source line — a single line-map entry covering [0,3).
-        var src =
-            "SECTION \"Main\", ROM0\n" +
-            "    ld hl, $BEEF\n";
+        var src = "SECTION \"Main\", ROM0\n" + "    ld hl, $BEEF\n";
         var result = BindFromFile("foo.asm", src);
         await Assert.That(result.Success).IsTrue();
 
@@ -57,9 +59,7 @@ public class BinderLineMapTests
     public async Task DbLine_CoalescesBytesIntoSingleEntry()
     {
         // db with multiple literal bytes — one source line, one entry.
-        var src =
-            "SECTION \"Main\", ROM0\n" +
-            "    db $01, $02, $03, $04\n";
+        var src = "SECTION \"Main\", ROM0\n" + "    db $01, $02, $03, $04\n";
         var result = BindFromFile("bar.asm", src);
         await Assert.That(result.Success).IsTrue();
 
@@ -75,12 +75,17 @@ public class BinderLineMapTests
         // Comments / blank lines don't emit bytes — the next nop after
         // them should still pick up the right line number.
         var src =
-            "SECTION \"Main\", ROM0\n" +   // 1
-            "\n" +                          // 2 blank
-            "; a comment here\n" +          // 3
-            "    nop\n" +                   // 4 → byte 0
-            "\n" +                          // 5 blank
-            "    nop\n";                    // 6 → byte 1
+            "SECTION \"Main\", ROM0\n"
+            + // 1
+            "\n"
+            + // 2 blank
+            "; a comment here\n"
+            + // 3
+            "    nop\n"
+            + // 4 → byte 0
+            "\n"
+            + // 5 blank
+            "    nop\n"; // 6 → byte 1
         var result = BindFromFile("x.asm", src);
         await Assert.That(result.Success).IsTrue();
 
@@ -97,11 +102,15 @@ public class BinderLineMapTests
         // Pass 2. Those reserved bytes belong to the JP instruction's
         // source line — regression against Reserve* not being counted.
         var src =
-            "SECTION \"Main\", ROM0\n" +   // 1
-            "__main__:\n" +                 // 2
-            "    jp target\n" +             // 3 → 3 bytes at offsets 0..2
-            "target:\n" +                   // 4
-            "    nop\n";                    // 5 → 1 byte at offset 3
+            "SECTION \"Main\", ROM0\n"
+            + // 1
+            "__main__:\n"
+            + // 2
+            "    jp target\n"
+            + // 3 → 3 bytes at offsets 0..2
+            "target:\n"
+            + // 4
+            "    nop\n"; // 5 → 1 byte at offset 3
         var result = BindFromFile("j.asm", src);
         await Assert.That(result.Success).IsTrue();
 

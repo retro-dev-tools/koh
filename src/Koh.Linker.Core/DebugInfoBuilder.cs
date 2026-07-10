@@ -33,22 +33,43 @@ public sealed class DebugInfoBuilder
     private readonly List<ExpansionFrameRecord> _expansionPool = [];
     private readonly List<uint> _expansionStackIndexes = [];
 
-    internal readonly record struct ScopeRecord(KdbgScopeKind Kind, uint ParentScopeId, uint NameStringId);
+    internal readonly record struct ScopeRecord(
+        KdbgScopeKind Kind,
+        uint ParentScopeId,
+        uint NameStringId
+    );
+
     internal readonly record struct SymbolRecord(
-        KdbgSymbolKind Kind, byte Bank, ushort Address, ushort Size,
-        uint NameStringId, uint ScopeId, uint DefinitionSourceFileId, uint DefinitionLine);
+        KdbgSymbolKind Kind,
+        byte Bank,
+        ushort Address,
+        ushort Size,
+        uint NameStringId,
+        uint ScopeId,
+        uint DefinitionSourceFileId,
+        uint DefinitionLine
+    );
+
     internal readonly record struct AddressMapRecord(
-        byte Bank, byte ByteCount, ushort Address,
-        uint SourceFileId, uint Line, uint ExpansionStackOffset);
+        byte Bank,
+        byte ByteCount,
+        ushort Address,
+        uint SourceFileId,
+        uint Line,
+        uint ExpansionStackOffset
+    );
+
     internal readonly record struct ExpansionFrameRecord(uint SourceFileId, uint Line);
 
     /// <summary>Intern a string. Returns a 1-based ID; 0 is the "no string" sentinel.</summary>
     public uint InternString(string? value)
     {
-        if (string.IsNullOrEmpty(value)) return 0;
-        if (_stringIndex.TryGetValue(value, out var existing)) return existing;
+        if (string.IsNullOrEmpty(value))
+            return 0;
+        if (_stringIndex.TryGetValue(value, out var existing))
+            return existing;
         _strings.Add(value);
-        uint id = (uint)_strings.Count;   // 1-based
+        uint id = (uint)_strings.Count; // 1-based
         _stringIndex[value] = id;
         return id;
     }
@@ -56,8 +77,10 @@ public sealed class DebugInfoBuilder
     /// <summary>Intern a source file path. Returns a 1-based ID; 0 = "no file".</summary>
     public uint InternSourceFile(string? path)
     {
-        if (string.IsNullOrEmpty(path)) return 0;
-        if (_sourceFileIndex.TryGetValue(path, out var existing)) return existing;
+        if (string.IsNullOrEmpty(path))
+            return 0;
+        if (_sourceFileIndex.TryGetValue(path, out var existing))
+            return existing;
         uint pathStringId = InternString(path);
         _sourceFiles.Add(pathStringId);
         uint id = (uint)_sourceFiles.Count;
@@ -72,18 +95,39 @@ public sealed class DebugInfoBuilder
         return (uint)_scopes.Count;
     }
 
-    public void AddSymbol(KdbgSymbolKind kind, byte bank, ushort address, ushort size,
-                          string name, uint scopeId, string? definitionSourceFile, uint definitionLine)
+    public void AddSymbol(
+        KdbgSymbolKind kind,
+        byte bank,
+        ushort address,
+        ushort size,
+        string name,
+        uint scopeId,
+        string? definitionSourceFile,
+        uint definitionLine
+    )
     {
-        _symbols.Add(new SymbolRecord(
-            kind, bank, address, size,
-            InternString(name), scopeId,
-            InternSourceFile(definitionSourceFile), definitionLine));
+        _symbols.Add(
+            new SymbolRecord(
+                kind,
+                bank,
+                address,
+                size,
+                InternString(name),
+                scopeId,
+                InternSourceFile(definitionSourceFile),
+                definitionLine
+            )
+        );
     }
 
-    public void AddAddressMapping(byte bank, ushort address, byte byteCount,
-                                   string sourceFile, uint line,
-                                   IReadOnlyList<(string SourceFile, uint Line)>? expansionStack = null)
+    public void AddAddressMapping(
+        byte bank,
+        ushort address,
+        byte byteCount,
+        string sourceFile,
+        uint line,
+        IReadOnlyList<(string SourceFile, uint Line)>? expansionStack = null
+    )
     {
         uint fileId = InternSourceFile(sourceFile);
         uint expansionOffset = KdbgFormat.NoExpansion;
@@ -95,10 +139,14 @@ public sealed class DebugInfoBuilder
             expansionOffset = (uint)_expansionStackIndexes.Count;
             _expansionStackIndexes.Add((uint)_expansionPool.Count);
             foreach (var frame in expansionStack)
-                _expansionPool.Add(new ExpansionFrameRecord(InternSourceFile(frame.SourceFile), frame.Line));
+                _expansionPool.Add(
+                    new ExpansionFrameRecord(InternSourceFile(frame.SourceFile), frame.Line)
+                );
         }
 
-        _addressMap.Add(new AddressMapRecord(bank, byteCount, address, fileId, line, expansionOffset));
+        _addressMap.Add(
+            new AddressMapRecord(bank, byteCount, address, fileId, line, expansionOffset)
+        );
     }
 
     public bool HasExpansionData => _expansionStackIndexes.Count > 0;

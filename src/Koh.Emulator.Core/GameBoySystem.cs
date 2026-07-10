@@ -44,6 +44,7 @@ public sealed class GameBoySystem
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
+        Mmu.AttachPpu(Ppu);
         Hdma = new Hdma(Mmu);
         Ppu.HBlankEntered += Hdma.OnHBlankEntered;
         Io.AttachPpu(Ppu);
@@ -66,17 +67,25 @@ public sealed class GameBoySystem
         ref var r = ref Cpu.Registers;
         if (mode == HardwareMode.Cgb)
         {
-            r.A = 0x11; r.F = 0x80;
-            r.B = 0x00; r.C = 0x00;
-            r.D = 0xFF; r.E = 0x56;
-            r.H = 0x00; r.L = 0x0D;
+            r.A = 0x11;
+            r.F = 0x80;
+            r.B = 0x00;
+            r.C = 0x00;
+            r.D = 0xFF;
+            r.E = 0x56;
+            r.H = 0x00;
+            r.L = 0x0D;
         }
         else
         {
-            r.A = 0x01; r.F = 0xB0;
-            r.B = 0x00; r.C = 0x13;
-            r.D = 0x00; r.E = 0xD8;
-            r.H = 0x01; r.L = 0x4D;
+            r.A = 0x01;
+            r.F = 0xB0;
+            r.B = 0x00;
+            r.C = 0x13;
+            r.D = 0x00;
+            r.E = 0xD8;
+            r.H = 0x01;
+            r.L = 0x4D;
         }
     }
 
@@ -91,7 +100,12 @@ public sealed class GameBoySystem
     private void TickForMCycle()
     {
         Clock.DoubleSpeed = KeyOne.DoubleSpeed;
+        TickOneMCycle();
+    }
 
+    /// <summary>Advance every peripheral and the PPU by one CPU M-cycle.</summary>
+    private void TickOneMCycle()
+    {
         // Per M-cycle: Timer + OamDma + Hdma tick 4 T-cycles — these are
         // clocked off the CPU clock, so in double-speed mode they tick 2×
         // more per wall-second (same as real hardware: DIV increments twice
@@ -105,8 +119,10 @@ public sealed class GameBoySystem
         {
             Timer.TickT(ref Io.Interrupts);
             OamDma.TickT();
-            if (Hdma.Active) Hdma.TickT();
-            if (!Clock.DoubleSpeed || (t & 1) == 0) Apu.TickT();
+            if (Hdma.Active)
+                Hdma.TickT();
+            if (!Clock.DoubleSpeed || (t & 1) == 0)
+                Apu.TickT();
             Io.Serial.TickT(ref Io.Interrupts);
         }
 
@@ -119,12 +135,33 @@ public sealed class GameBoySystem
     }
 
     /// <summary>
+    /// Run one CPU instruction, then drain any general-purpose GDMA it armed.
+    /// A GP transfer halts the CPU until it finishes (~8 µs / 16-byte block,
+    /// Pan Docs — the same wall-clock cost in single and double speed). We burn
+    /// each block's dot cost while ticking the PPU, so a transfer that runs
+    /// past VBlank corrupts the scanlines drawn during it, exactly as on
+    /// hardware. The CPU is frozen for the whole loop, so it can't race in with
+    /// a VBK flip or VRAM write mid-transfer.
+    /// </summary>
+    private void StepCpu()
+    {
+        Cpu.TickT();
+        while (Hdma.CpuHaltedByGp)
+        {
+            Hdma.TransferOneGpBlock();
+            int blockMCycles = Clock.DoubleSpeed ? 16 : 8; // ×(2 or 4) dots = 32 dots/block
+            for (int m = 0; m < blockMCycles; m++)
+                TickOneMCycle();
+        }
+    }
+
+    /// <summary>
     /// Execute one full CPU step (one instruction, or one idle M-cycle when
     /// halted). Peripherals tick internally via the M-cycle callback.
     /// </summary>
     public bool StepOneSystemTick()
     {
-        Cpu.TickT();  // now always completes a full instruction or idle cycle
+        StepCpu(); // now always completes a full instruction or idle cycle
         return true;
     }
 
@@ -168,7 +205,7 @@ public sealed class GameBoySystem
 
         while (Clock.FrameSystemTicks < (ulong)SystemClock.SystemTicksPerFrame)
         {
-            Cpu.TickT();
+            StepCpu();
 
             if (RunGuard.StopRequested)
             {
@@ -190,9 +227,13 @@ public sealed class GameBoySystem
     {
         _running = true;
         ulong startT = Cpu.TotalTCycles;
-        Cpu.TickT();
+        StepCpu();
         _running = false;
-        return new StepResult(StopReason.InstructionComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+        return new StepResult(
+            StopReason.InstructionComplete,
+            Cpu.TotalTCycles - startT,
+            Cpu.Registers.Pc
+        );
     }
 
     public StepResult StepTCycle()
@@ -201,9 +242,13 @@ public sealed class GameBoySystem
         // step; fall through to StepInstruction and return its cycle count.
         _running = true;
         ulong startT = Cpu.TotalTCycles;
-        Cpu.TickT();
+        StepCpu();
         _running = false;
-        return new StepResult(StopReason.TCycleComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+        return new StepResult(
+            StopReason.TCycleComplete,
+            Cpu.TotalTCycles - startT,
+            Cpu.Registers.Pc
+        );
     }
 
     public StepResult RunUntil(in StopCondition condition)
@@ -216,7 +261,7 @@ public sealed class GameBoySystem
 
         while (Clock.FrameSystemTicks < frameBudget)
         {
-            Cpu.TickT();
+            StepCpu();
 
             if (RunGuard.StopRequested)
             {
@@ -227,29 +272,43 @@ public sealed class GameBoySystem
             if (StopConditionMet(in condition))
             {
                 _running = false;
-                return new StepResult(StopReason.Breakpoint, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+                return new StepResult(
+                    StopReason.Breakpoint,
+                    Cpu.TotalTCycles - startT,
+                    Cpu.Registers.Pc
+                );
             }
         }
 
         _running = false;
-        return new StepResult(StopReason.FrameComplete, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+        return new StepResult(
+            StopReason.FrameComplete,
+            Cpu.TotalTCycles - startT,
+            Cpu.Registers.Pc
+        );
     }
 
     private bool StopConditionMet(in StopCondition condition)
     {
-        if (condition.Kind == StopConditionKind.None) return false;
+        if (condition.Kind == StopConditionKind.None)
+            return false;
 
         ushort pc = Cpu.Registers.Pc;
 
         if ((condition.Kind & StopConditionKind.PcEquals) != 0 && pc == condition.PcEquals)
             return true;
 
-        if ((condition.Kind & StopConditionKind.PcInRange) != 0 &&
-            pc >= condition.PcRangeStart && pc < condition.PcRangeEnd)
+        if (
+            (condition.Kind & StopConditionKind.PcInRange) != 0
+            && pc >= condition.PcRangeStart
+            && pc < condition.PcRangeEnd
+        )
             return true;
 
-        if ((condition.Kind & StopConditionKind.PcLeavesRange) != 0 &&
-            (pc < condition.PcRangeStart || pc >= condition.PcRangeEnd))
+        if (
+            (condition.Kind & StopConditionKind.PcLeavesRange) != 0
+            && (pc < condition.PcRangeStart || pc >= condition.PcRangeEnd)
+        )
             return true;
 
         return false;
@@ -258,7 +317,8 @@ public sealed class GameBoySystem
     /// <summary>Press a joypad button and raise the Joypad interrupt on transition.</summary>
     public void JoypadPress(Joypad.JoypadButton button)
     {
-        if (Joypad.IsPressed(button)) return;
+        if (Joypad.IsPressed(button))
+            return;
         Joypad.Press(button);
         Io.Interrupts.Raise(Interrupts.Joypad);
     }
@@ -269,7 +329,8 @@ public sealed class GameBoySystem
 
     public bool DebugWriteByte(ushort address, byte value)
     {
-        if (_running) return false;
+        if (_running)
+            return false;
         return Mmu.DebugWrite(address, value);
     }
 

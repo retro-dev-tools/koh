@@ -20,7 +20,9 @@ namespace Koh.Lsp;
 internal sealed class Workspace
 {
     private readonly object _lock = new();
-    private readonly Dictionary<string, (SourceText Text, SyntaxTree Tree)> _documents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (SourceText Text, SyntaxTree Tree)> _documents = new(
+        StringComparer.OrdinalIgnoreCase
+    );
 
     // --- Legacy standalone mode fields ---
     private Compilation? _standaloneCompilation;
@@ -41,7 +43,8 @@ internal sealed class Workspace
             _folderPath = folderPath;
             _projectContextManager = new ProjectContextManager(
                 folderPath,
-                innerResolver ?? new FileSystemResolver());
+                innerResolver ?? new FileSystemResolver()
+            );
             _projectContextManager.InitializeWorkspaceFolder(folderPath);
 
             // Feed any already-open documents into the project context manager
@@ -140,7 +143,11 @@ internal sealed class Workspace
     /// Diagnostics with null FilePath are attached only to the entrypoint document.
     /// In standalone mode: all compilation diagnostics (legacy behavior).
     /// </summary>
-    public (SourceText? Text, SyntaxTree? Tree, IReadOnlyList<Diagnostic>? Diagnostics) GetDocumentDiagnostics(string uri)
+    public (
+        SourceText? Text,
+        SyntaxTree? Tree,
+        IReadOnlyList<Diagnostic>? Diagnostics
+    ) GetDocumentDiagnostics(string uri)
     {
         ProjectContextManager? pcm;
         Compilation? standaloneCompilation;
@@ -172,7 +179,13 @@ internal sealed class Workspace
                     if (diag.FilePath == null)
                     {
                         // Unattributed diagnostics — only attach to the entrypoint document
-                        if (string.Equals(uri, context.EntrypointPath, StringComparison.OrdinalIgnoreCase))
+                        if (
+                            string.Equals(
+                                uri,
+                                context.EntrypointPath,
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        )
                             fileDiags.Add(diag);
                     }
                     else if (string.Equals(diag.FilePath, uri, StringComparison.OrdinalIgnoreCase))
@@ -214,7 +227,8 @@ internal sealed class Workspace
                 return null;
             }
 
-            if (_standaloneCompilation == null) return null;
+            if (_standaloneCompilation == null)
+                return null;
             return GetOrCreateStandaloneModel(_standaloneCompilation);
         }
     }
@@ -232,7 +246,8 @@ internal sealed class Workspace
                 return context?.Compilation.Emit();
             }
 
-            if (_standaloneCompilation == null) return null;
+            if (_standaloneCompilation == null)
+                return null;
             return GetOrCreateStandaloneModel(_standaloneCompilation);
         }
     }
@@ -251,7 +266,8 @@ internal sealed class Workspace
             if (_projectContextManager != null)
             {
                 var context = _projectContextManager.GetPrimaryProjectContextFor(uri);
-                if (context == null) return null;
+                if (context == null)
+                    return null;
 
                 // The compilation has only the entrypoint tree. The binder resolves
                 // INCLUDE chains internally, so the entrypoint's semantic model
@@ -263,7 +279,8 @@ internal sealed class Workspace
             // Legacy standalone mode
             if (!_documents.TryGetValue(uri, out var doc))
                 return null;
-            if (_standaloneCompilation == null) return null;
+            if (_standaloneCompilation == null)
+                return null;
             return _standaloneCompilation.GetSemanticModel(doc.Tree);
         }
     }
@@ -288,7 +305,11 @@ internal sealed class Workspace
 
     public IReadOnlyList<string> OpenDocumentUris
     {
-        get { lock (_lock) return _documents.Keys.ToList(); }
+        get
+        {
+            lock (_lock)
+                return _documents.Keys.ToList();
+        }
     }
 
     /// <summary>
@@ -296,7 +317,11 @@ internal sealed class Workspace
     /// </summary>
     public bool IsInitialized
     {
-        get { lock (_lock) return _projectContextManager != null; }
+        get
+        {
+            lock (_lock)
+                return _projectContextManager != null;
+        }
     }
 
     /// <summary>
@@ -304,7 +329,11 @@ internal sealed class Workspace
     /// </summary>
     public FolderMode? CurrentMode
     {
-        get { lock (_lock) return _projectContextManager?.Mode; }
+        get
+        {
+            lock (_lock)
+                return _projectContextManager?.Mode;
+        }
     }
 
     // --- Standalone mode helpers (legacy, for when no folder is initialized) ---
@@ -324,7 +353,8 @@ internal sealed class Workspace
     private EmitModel GetOrCreateStandaloneModel(Compilation compilation)
     {
         var cached = _standaloneCachedModel;
-        if (cached != null) return cached;
+        if (cached != null)
+            return cached;
         var model = compilation.Emit();
         _standaloneCachedModel = model;
         return model;

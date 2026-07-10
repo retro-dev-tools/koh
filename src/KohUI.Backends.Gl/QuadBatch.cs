@@ -23,14 +23,19 @@ internal sealed unsafe class QuadBatch : IDisposable
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct Vertex
     {
-        public float X, Y;
-        public float U, V;
-        public byte R, G, B, A;
+        public float X,
+            Y;
+        public float U,
+            V;
+        public byte R,
+            G,
+            B,
+            A;
     }
 
     private readonly GL _gl;
     private readonly Vertex[] _verts = new Vertex[MaxQuads * VertsPerQuad];
-    private int _count;    // current vertex count
+    private int _count; // current vertex count
     private uint _currentTexture;
 
     private readonly uint _program;
@@ -39,7 +44,8 @@ internal sealed unsafe class QuadBatch : IDisposable
     private readonly uint _vbo;
     private readonly uint _whitePixel;
 
-    private int _viewportW, _viewportH;
+    private int _viewportW,
+        _viewportH;
 
     public QuadBatch(GL gl)
     {
@@ -47,7 +53,7 @@ internal sealed unsafe class QuadBatch : IDisposable
 
         _program = BuildProgram(gl, VertexShader, FragmentShader);
         _uViewportLoc = gl.GetUniformLocation(_program, "uViewport");
-        int uTexLoc    = gl.GetUniformLocation(_program, "uTex");
+        int uTexLoc = gl.GetUniformLocation(_program, "uTex");
         gl.UseProgram(_program);
         gl.Uniform1(uTexLoc, 0);
 
@@ -55,18 +61,43 @@ internal sealed unsafe class QuadBatch : IDisposable
         _vbo = gl.GenBuffer();
         gl.BindVertexArray(_vao);
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        gl.BufferData(BufferTargetARB.ArrayBuffer,
-            (nuint)(_verts.Length * sizeof(Vertex)), null, BufferUsageARB.DynamicDraw);
+        gl.BufferData(
+            BufferTargetARB.ArrayBuffer,
+            (nuint)(_verts.Length * sizeof(Vertex)),
+            null,
+            BufferUsageARB.DynamicDraw
+        );
 
         // Attribute 0: position (2 floats), offset 0
         gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, (uint)sizeof(Vertex), (void*)0);
+        gl.VertexAttribPointer(
+            0,
+            2,
+            VertexAttribPointerType.Float,
+            false,
+            (uint)sizeof(Vertex),
+            (void*)0
+        );
         // Attribute 1: uv (2 floats), offset 8
         gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, (uint)sizeof(Vertex), (void*)8);
+        gl.VertexAttribPointer(
+            1,
+            2,
+            VertexAttribPointerType.Float,
+            false,
+            (uint)sizeof(Vertex),
+            (void*)8
+        );
         // Attribute 2: colour (4 bytes normalised), offset 16
         gl.EnableVertexAttribArray(2);
-        gl.VertexAttribPointer(2, 4, VertexAttribPointerType.UnsignedByte, true, (uint)sizeof(Vertex), (void*)16);
+        gl.VertexAttribPointer(
+            2,
+            4,
+            VertexAttribPointerType.UnsignedByte,
+            true,
+            (uint)sizeof(Vertex),
+            (void*)16
+        );
 
         // 1×1 white texture used as the default sampler target so
         // untextured fills become `colour * 1`.
@@ -74,10 +105,27 @@ internal sealed unsafe class QuadBatch : IDisposable
         gl.BindTexture(TextureTarget.Texture2D, _whitePixel);
         byte[] px = [255, 255, 255, 255];
         fixed (byte* p = px)
-            gl.TexImage2D(TextureTarget.Texture2D, 0, (int)InternalFormat.Rgba8,
-                1, 1, 0, PixelFormat.Rgba, PixelType.UnsignedByte, p);
-        gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
-        gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+            gl.TexImage2D(
+                TextureTarget.Texture2D,
+                0,
+                (int)InternalFormat.Rgba8,
+                1,
+                1,
+                0,
+                PixelFormat.Rgba,
+                PixelType.UnsignedByte,
+                p
+            );
+        gl.TexParameter(
+            TextureTarget.Texture2D,
+            TextureParameterName.TextureMinFilter,
+            (int)TextureMinFilter.Nearest
+        );
+        gl.TexParameter(
+            TextureTarget.Texture2D,
+            TextureParameterName.TextureMagFilter,
+            (int)TextureMagFilter.Nearest
+        );
 
         gl.Enable(EnableCap.Blend);
         gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
@@ -100,7 +148,8 @@ internal sealed unsafe class QuadBatch : IDisposable
     /// </summary>
     public void FillRect(int x, int y, int w, int h, byte r, byte g, byte b, byte a = 255)
     {
-        if (w <= 0 || h <= 0) return;
+        if (w <= 0 || h <= 0)
+            return;
         EnsureTexture(_whitePixel);
         AddQuad(x, y, w, h, 0, 0, 1, 1, r, g, b, a);
     }
@@ -110,9 +159,23 @@ internal sealed unsafe class QuadBatch : IDisposable
     /// is uploaded by <see cref="BitmapFont"/> (or any future texture-
     /// owning widget) and bound via <see cref="SetTexture"/>.
     /// </summary>
-    public void TexturedQuad(int x, int y, int w, int h, float u0, float v0, float u1, float v1, byte r, byte g, byte b, byte a = 255)
+    public void TexturedQuad(
+        int x,
+        int y,
+        int w,
+        int h,
+        float u0,
+        float v0,
+        float u1,
+        float v1,
+        byte r,
+        byte g,
+        byte b,
+        byte a = 255
+    )
     {
-        if (w <= 0 || h <= 0) return;
+        if (w <= 0 || h <= 0)
+            return;
         AddQuad(x, y, w, h, u0, v0, u1, v1, r, g, b, a);
     }
 
@@ -130,15 +193,70 @@ internal sealed unsafe class QuadBatch : IDisposable
         }
     }
 
-    private void AddQuad(int x, int y, int w, int h, float u0, float v0, float u1, float v1, byte r, byte g, byte b, byte a)
+    private void AddQuad(
+        int x,
+        int y,
+        int w,
+        int h,
+        float u0,
+        float v0,
+        float u1,
+        float v1,
+        byte r,
+        byte g,
+        byte b,
+        byte a
+    )
     {
-        if (_count + VertsPerQuad > _verts.Length) Flush();
+        if (_count + VertsPerQuad > _verts.Length)
+            Flush();
 
-        float x1 = x + w, y1 = y + h;
-        var v00 = new Vertex { X = x, Y = y, U = u0, V = v0, R = r, G = g, B = b, A = a };
-        var v10 = new Vertex { X = x1, Y = y, U = u1, V = v0, R = r, G = g, B = b, A = a };
-        var v11 = new Vertex { X = x1, Y = y1, U = u1, V = v1, R = r, G = g, B = b, A = a };
-        var v01 = new Vertex { X = x, Y = y1, U = u0, V = v1, R = r, G = g, B = b, A = a };
+        float x1 = x + w,
+            y1 = y + h;
+        var v00 = new Vertex
+        {
+            X = x,
+            Y = y,
+            U = u0,
+            V = v0,
+            R = r,
+            G = g,
+            B = b,
+            A = a,
+        };
+        var v10 = new Vertex
+        {
+            X = x1,
+            Y = y,
+            U = u1,
+            V = v0,
+            R = r,
+            G = g,
+            B = b,
+            A = a,
+        };
+        var v11 = new Vertex
+        {
+            X = x1,
+            Y = y1,
+            U = u1,
+            V = v1,
+            R = r,
+            G = g,
+            B = b,
+            A = a,
+        };
+        var v01 = new Vertex
+        {
+            X = x,
+            Y = y1,
+            U = u0,
+            V = v1,
+            R = r,
+            G = g,
+            B = b,
+            A = a,
+        };
 
         _verts[_count++] = v00;
         _verts[_count++] = v10;
@@ -150,7 +268,8 @@ internal sealed unsafe class QuadBatch : IDisposable
 
     public void Flush()
     {
-        if (_count == 0) return;
+        if (_count == 0)
+            return;
 
         _gl.UseProgram(_program);
         _gl.Uniform2(_uViewportLoc, (float)_viewportW, (float)_viewportH);
@@ -206,8 +325,10 @@ internal sealed unsafe class QuadBatch : IDisposable
         gl.GetProgram(prog, ProgramPropertyARB.LinkStatus, out int ok);
         if (ok == 0)
             throw new InvalidOperationException("GL link failed: " + gl.GetProgramInfoLog(prog));
-        gl.DetachShader(prog, vsh); gl.DeleteShader(vsh);
-        gl.DetachShader(prog, fsh); gl.DeleteShader(fsh);
+        gl.DetachShader(prog, vsh);
+        gl.DeleteShader(vsh);
+        gl.DetachShader(prog, fsh);
+        gl.DeleteShader(fsh);
         return prog;
     }
 
@@ -218,7 +339,9 @@ internal sealed unsafe class QuadBatch : IDisposable
         gl.CompileShader(sh);
         gl.GetShader(sh, ShaderParameterName.CompileStatus, out int ok);
         if (ok == 0)
-            throw new InvalidOperationException($"GL compile failed ({type}): " + gl.GetShaderInfoLog(sh));
+            throw new InvalidOperationException(
+                $"GL compile failed ({type}): " + gl.GetShaderInfoLog(sh)
+            );
         return sh;
     }
 

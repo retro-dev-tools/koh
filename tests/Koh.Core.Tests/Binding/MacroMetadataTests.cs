@@ -16,7 +16,8 @@ public class MacroMetadataTests
     public async Task TwoArgCall_ReturnsTwo()
     {
         var model = GetModel(
-            "my_mac: MACRO\nld \\1, \\2\nENDM\nSECTION \"Main\", ROM0\nmy_mac a, b");
+            "my_mac: MACRO\nld \\1, \\2\nENDM\nSECTION \"Main\", ROM0\nmy_mac a, b"
+        );
         var sym = model.ResolveSymbol("my_mac", 0);
         await Assert.That(sym).IsNotNull();
         await Assert.That(sym!.Kind).IsEqualTo(SymbolKind.Macro);
@@ -27,7 +28,8 @@ public class MacroMetadataTests
     public async Task VaryingCallSites_ReturnsMax()
     {
         var model = GetModel(
-            "my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac a\nmy_mac a, b, c");
+            "my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac a\nmy_mac a, b, c"
+        );
         var sym = model.ResolveSymbol("my_mac", 0);
         await Assert.That(sym).IsNotNull();
         await Assert.That(model.GetMacroArity(sym!)).IsEqualTo(3);
@@ -36,8 +38,7 @@ public class MacroMetadataTests
     [Test]
     public async Task ZeroArgCall_ReturnsZero()
     {
-        var model = GetModel(
-            "my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac");
+        var model = GetModel("my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac");
         var sym = model.ResolveSymbol("my_mac", 0);
         await Assert.That(sym).IsNotNull();
         await Assert.That(model.GetMacroArity(sym!)).IsEqualTo(0);
@@ -46,8 +47,7 @@ public class MacroMetadataTests
     [Test]
     public async Task DefinedButNeverCalled_ReturnsNull()
     {
-        var model = GetModel(
-            "my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nnop");
+        var model = GetModel("my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nnop");
         var sym = model.ResolveSymbol("my_mac", 0);
         await Assert.That(sym).IsNotNull();
         await Assert.That(model.GetMacroArity(sym!)).IsNull();
@@ -64,8 +64,7 @@ public class MacroMetadataTests
     public async Task ParenthesizedArgs_CountedCorrectly()
     {
         // BANK(x) is a single arg due to paren grouping, so: BANK(x), y = 2 args
-        var model = GetModel(
-            "my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac BANK(x), y");
+        var model = GetModel("my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac BANK(x), y");
         var sym = model.ResolveSymbol("my_mac", 0);
         await Assert.That(sym).IsNotNull();
         await Assert.That(model.GetMacroArity(sym!)).IsEqualTo(2);
@@ -74,8 +73,7 @@ public class MacroMetadataTests
     [Test]
     public async Task CaseInsensitiveLookup()
     {
-        var model = GetModel(
-            "MY_MAC: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac a, b");
+        var model = GetModel("MY_MAC: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac a, b");
         // Lookup by different case via convenience method
         var arity = model.GetMacroArity("my_mac");
         await Assert.That(arity).IsEqualTo(2);
@@ -85,7 +83,8 @@ public class MacroMetadataTests
     public async Task NestedMacroCall_TracksOuterArity()
     {
         var model = GetModel(
-            "inner: MACRO\nnop\nENDM\nouter: MACRO\ninner\nENDM\nSECTION \"Main\", ROM0\nouter a, b, c");
+            "inner: MACRO\nnop\nENDM\nouter: MACRO\ninner\nENDM\nSECTION \"Main\", ROM0\nouter a, b, c"
+        );
         var sym = model.ResolveSymbol("outer", 0);
         await Assert.That(sym).IsNotNull();
         await Assert.That(model.GetMacroArity(sym!)).IsEqualTo(3);
@@ -96,8 +95,7 @@ public class MacroMetadataTests
     [Test]
     public async Task ConvenienceByName_DelegatesThroughSymbol()
     {
-        var model = GetModel(
-            "my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac a, b");
+        var model = GetModel("my_mac: MACRO\nnop\nENDM\nSECTION \"Main\", ROM0\nmy_mac a, b");
         var sym = model.ResolveSymbol("my_mac", 0);
         await Assert.That(model.GetMacroArity(sym!)).IsEqualTo(model.GetMacroArity("my_mac"));
     }

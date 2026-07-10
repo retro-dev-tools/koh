@@ -34,7 +34,8 @@ public class ConditionalTests
     public async Task If_Else()
     {
         var model = Emit(
-            "MY_FLAG EQU 0\nSECTION \"Main\", ROM0\nIF MY_FLAG\nnop\nELSE\nhalt\nENDC");
+            "MY_FLAG EQU 0\nSECTION \"Main\", ROM0\nIF MY_FLAG\nnop\nELSE\nhalt\nENDC"
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x76); // halt from ELSE
@@ -44,7 +45,8 @@ public class ConditionalTests
     public async Task If_True_SkipsElse()
     {
         var model = Emit(
-            "MY_FLAG EQU 1\nSECTION \"Main\", ROM0\nIF MY_FLAG\nnop\nELSE\nhalt\nENDC");
+            "MY_FLAG EQU 1\nSECTION \"Main\", ROM0\nIF MY_FLAG\nnop\nELSE\nhalt\nENDC"
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x00); // nop from IF
@@ -53,7 +55,8 @@ public class ConditionalTests
     [Test]
     public async Task Elif_SecondBranch()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             MY_FLAG EQU 2
             SECTION "Main", ROM0
             IF MY_FLAG == 1
@@ -63,7 +66,8 @@ public class ConditionalTests
             ELIF MY_FLAG == 3
                 di
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x76); // halt from ELIF
@@ -72,7 +76,8 @@ public class ConditionalTests
     [Test]
     public async Task Elif_FallsToElse()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             MY_FLAG EQU 99
             SECTION "Main", ROM0
             IF MY_FLAG == 1
@@ -82,7 +87,8 @@ public class ConditionalTests
             ELSE
                 di
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xF3); // di from ELSE
@@ -91,7 +97,8 @@ public class ConditionalTests
     [Test]
     public async Task NestedIf()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             OUTER EQU 1
             INNER EQU 0
             SECTION "Main", ROM0
@@ -101,7 +108,8 @@ public class ConditionalTests
                     halt
                 ENDC
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         // outer is true → nop emitted; inner is false → halt skipped
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
@@ -111,7 +119,8 @@ public class ConditionalTests
     [Test]
     public async Task NestedIf_OuterFalse_InnerSkipped()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             OUTER EQU 0
             SECTION "Main", ROM0
             IF OUTER
@@ -120,7 +129,8 @@ public class ConditionalTests
                 ENDC
             ENDC
             halt
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         // outer false → everything inside skipped, only halt
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
@@ -130,13 +140,15 @@ public class ConditionalTests
     [Test]
     public async Task If_Expression()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             VAL EQU 5
             SECTION "Main", ROM0
             IF VAL > 3
                 nop
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
     }
@@ -144,13 +156,15 @@ public class ConditionalTests
     [Test]
     public async Task If_DefFunction()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             MY_SYM EQU 1
             SECTION "Main", ROM0
             IF DEF(MY_SYM)
                 nop
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
     }
@@ -161,7 +175,8 @@ public class ConditionalTests
         // This is the critical nesting test: inner IF with ELIF must NOT corrupt
         // the outer IF's branch-taken state. Without a stack, inner ENDC resets
         // _branchTaken to false, causing the outer ELSE to be incorrectly taken.
-        var model = Emit("""
+        var model = Emit(
+            """
             OUTER EQU 1
             INNER EQU 1
             SECTION "Main", ROM0
@@ -174,7 +189,8 @@ public class ConditionalTests
             ELSE
                 di
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         // outer is true → nop + halt emitted; ELSE skipped (di NOT emitted)
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2);
@@ -211,13 +227,15 @@ public class ConditionalTests
     [Test]
     public async Task Equ_BeforeIf_NoDuplicateDefinitionDiagnostic()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             MY_FLAG EQU 1
             SECTION "Main", ROM0
             IF MY_FLAG
                 nop
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Diagnostics).IsEmpty();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
@@ -233,7 +251,8 @@ public class ConditionalTests
     {
         // Note: single-letter names A/B/C/D/E/H/L are register keywords in SM83;
         // use multi-character names for user-defined constants.
-        var model = Emit("""
+        var model = Emit(
+            """
             FLAG_ONE EQU 1
             FLAG_TWO EQU 2
             SECTION "Main", ROM0
@@ -243,7 +262,8 @@ public class ConditionalTests
             IF FLAG_TWO
                 halt
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Diagnostics).IsEmpty();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2);
@@ -261,7 +281,8 @@ public class ConditionalTests
     [Test]
     public async Task If_NoDiagnostics()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             FLAG EQU 1
             SECTION "Main", ROM0
             IF FLAG
@@ -269,14 +290,16 @@ public class ConditionalTests
             ELSE
                 halt
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Diagnostics).IsEmpty();
     }
 
     [Test]
     public async Task ConditionalAssembly_IfElse()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             GBC_MODE EQU 1
             SECTION "Main", ROM0
             IF GBC_MODE
@@ -284,7 +307,8 @@ public class ConditionalTests
             ELSE
             ld a, $00
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x3E); // ld a, n8 opcode
         await Assert.That(model.Sections[0].Data[1]).IsEqualTo((byte)0x80);
@@ -293,12 +317,14 @@ public class ConditionalTests
     [Test]
     public async Task RgbdsBuiltins_VersionCheck()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             IF __RGBDS_MAJOR__ >= 1
             SECTION "Main", ROM0
             db $AA
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xAA);
     }
@@ -311,7 +337,8 @@ public class ConditionalTests
     [Test]
     public async Task ElifAfterElse_ElifFollowingElseBlock_RejectsAssembly()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             if 0
             println "zero"
             else
@@ -319,7 +346,8 @@ public class ConditionalTests
             elif 2
             println "two"
             endc
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -327,7 +355,8 @@ public class ConditionalTests
     [Test]
     public async Task MultipleElse_TwoElseBlocksInOneIf_RejectsAssembly()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             if 0
             println "zero"
             else
@@ -335,7 +364,8 @@ public class ConditionalTests
             else
             println "two"
             endc
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -344,12 +374,14 @@ public class ConditionalTests
     public async Task LabelBeforeEndc_LabelOnSameLineAsEndc_RejectsAssembly()
     {
         // "label0: endc" — ENDC cannot follow a label on the same line
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "test", ROM0
             if 1
             println "one"
             label0: endc
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -358,12 +390,14 @@ public class ConditionalTests
     public async Task MisleadingIndentation_EndcInsideRept_RejectsAssembly()
     {
         // ENDC inside REPT that was inside IF — the IF block is never closed
-        var model = Emit("""
+        var model = Emit(
+            """
             IF 1
             REPT 1
             ENDC
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -371,11 +405,13 @@ public class ConditionalTests
     [Test]
     public async Task CodeAfterEndr_TrailingTokenOnEndrLine_RejectsAssembly()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             REPT 3
             println "hey!"
             ENDR println "<_<"
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -383,13 +419,15 @@ public class ConditionalTests
     [Test]
     public async Task CodeAfterElse_TrailingTokenOnElseLine_RejectsAssembly()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             IF 0
             println "skipped"
             ELSE println "<_<"
             println "else clause"
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -397,11 +435,13 @@ public class ConditionalTests
     [Test]
     public async Task CodeAfterEndc_TrailingTokenOnEndcLine_RejectsAssembly()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             IF 1
             println "if clause"
             ENDC println "<_<"
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -414,7 +454,8 @@ public class ConditionalTests
     {
         // RGBDS: nested-if.asm — IF 0 skips everything including nested IFs
         // All the nested if(1), if 1, if{x} inside the false branch are ignored
-        var model = Emit("""
+        var model = Emit(
+            """
             IF 0
             IF 1
             nop
@@ -425,7 +466,8 @@ public class ConditionalTests
             ENDC
             SECTION "Main", ROM0
             halt
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x76); // halt
@@ -435,7 +477,8 @@ public class ConditionalTests
     public async Task NestedIf_TrueBranch_ElseBranch_NestedIfIgnored()
     {
         // RGBDS: nested-if.asm — IF 1 takes true branch; ELSE branch with nested IFs skipped
-        var model = Emit("""
+        var model = Emit(
+            """
             IF 1
             nop
             ELSE
@@ -448,7 +491,8 @@ public class ConditionalTests
             ENDC
             SECTION "Main", ROM0
             nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         // only one nop from IF branch, not halt from else
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
@@ -459,12 +503,14 @@ public class ConditionalTests
     public async Task NestedIf_IfWithParentheses_ParsedCorrectly()
     {
         // RGBDS: nested-if.asm — if(1) syntax (parens immediately after IF keyword)
-        var model = Emit("""
+        var model = Emit(
+            """
             IF(1)
             SECTION "Main", ROM0
             nop
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1);
     }
@@ -473,7 +519,8 @@ public class ConditionalTests
     public async Task NestedIf_DeepNesting_CorrectBranchSelection()
     {
         // RGBDS: nested-if.asm style — three levels of nesting
-        var model = Emit("""
+        var model = Emit(
+            """
             IF 1
             IF 1
             IF 1
@@ -482,7 +529,8 @@ public class ConditionalTests
             ENDC
             ENDC
             ENDC
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0xAA);
     }

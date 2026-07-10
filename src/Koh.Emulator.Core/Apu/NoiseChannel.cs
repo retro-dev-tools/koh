@@ -7,7 +7,7 @@ public sealed class NoiseChannel
     public bool Enabled;
     public int ShiftRegister = 0x7FFF;
     public int ClockShift;
-    public bool WidthMode;    // 7-bit or 15-bit LFSR
+    public bool WidthMode; // 7-bit or 15-bit LFSR
     public int DivisorCode;
 
     private int _freqCycleCounter;
@@ -16,9 +16,11 @@ public sealed class NoiseChannel
 
     public void TickT()
     {
-        if (!Enabled) return;
+        if (!Enabled)
+            return;
         _freqCycleCounter--;
-        if (_freqCycleCounter > 0) return;
+        if (_freqCycleCounter > 0)
+            return;
         _freqCycleCounter = Divisors[DivisorCode] << ClockShift;
 
         int bit0 = ShiftRegister & 1;
@@ -32,11 +34,13 @@ public sealed class NoiseChannel
     }
 
     public void TickLength() => Length.Tick(() => Enabled = false);
+
     public void TickEnvelope() => Envelope.Tick();
 
     public int Output()
     {
-        if (!Enabled) return 0;
+        if (!Enabled)
+            return 0;
         return (~ShiftRegister & 1) * Envelope.Volume;
     }
 
@@ -50,6 +54,6 @@ public sealed class NoiseChannel
         DivisorCode = nr43 & 0x07;
         ShiftRegister = 0x7FFF;
         _freqCycleCounter = Divisors[DivisorCode] << ClockShift;
-        Enabled = (nr42 & 0xF8) != 0;   // DAC disabled → channel off on trigger
+        Enabled = (nr42 & 0xF8) != 0; // DAC disabled → channel off on trigger
     }
 }

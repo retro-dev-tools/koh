@@ -79,7 +79,11 @@ internal static class KohProjectFileLoader
         }
         else if (yaml.Version != 1)
         {
-            errors.Add(new ConfigValidationError($"Unsupported config version: {yaml.Version}. Only version 1 is supported."));
+            errors.Add(
+                new ConfigValidationError(
+                    $"Unsupported config version: {yaml.Version}. Only version 1 is supported."
+                )
+            );
         }
 
         if (yaml.Projects is null)
@@ -113,14 +117,21 @@ internal static class KohProjectFileLoader
             // Reject absolute paths — entrypoints must be workspace-folder-relative.
             if (Path.IsPathRooted(rawEntrypoint))
             {
-                errors.Add(new ConfigValidationError(
-                    $"Entrypoint must be a relative path: '{rawEntrypoint}'."));
+                errors.Add(
+                    new ConfigValidationError(
+                        $"Entrypoint must be a relative path: '{rawEntrypoint}'."
+                    )
+                );
                 continue;
             }
 
             // Normalize: resolve relative to workspace folder, then get absolute path.
             var absoluteEntrypoint = Path.GetFullPath(
-                Path.Combine(workspaceFolderPath, rawEntrypoint.Replace('/', Path.DirectorySeparatorChar)));
+                Path.Combine(
+                    workspaceFolderPath,
+                    rawEntrypoint.Replace('/', Path.DirectorySeparatorChar)
+                )
+            );
 
             if (!seenNames.Add(name))
             {
@@ -129,14 +140,16 @@ internal static class KohProjectFileLoader
 
             if (!seenEntrypoints.Add(absoluteEntrypoint))
             {
-                errors.Add(new ConfigValidationError($"Duplicate entrypoint (after normalization): '{rawEntrypoint}'."));
+                errors.Add(
+                    new ConfigValidationError(
+                        $"Duplicate entrypoint (after normalization): '{rawEntrypoint}'."
+                    )
+                );
             }
 
-            definitions.Add(new KohProjectDefinition
-            {
-                Name = name,
-                Entrypoint = absoluteEntrypoint,
-            });
+            definitions.Add(
+                new KohProjectDefinition { Name = name, Entrypoint = absoluteEntrypoint }
+            );
         }
 
         if (errors.Count > 0)
@@ -147,7 +160,10 @@ internal static class KohProjectFileLoader
         return new KohConfigLoadResult.Configured(definitions);
     }
 
-    private static void ValidateProjects(List<KohProjectEntryYaml> projects, List<ConfigValidationError> errors)
+    private static void ValidateProjects(
+        List<KohProjectEntryYaml> projects,
+        List<ConfigValidationError> errors
+    )
     {
         for (var i = 0; i < projects.Count; i++)
         {
@@ -161,7 +177,9 @@ internal static class KohProjectFileLoader
 
             if (string.IsNullOrWhiteSpace(entry.Entrypoint))
             {
-                errors.Add(new ConfigValidationError($"{prefix}: Missing required field 'entrypoint'."));
+                errors.Add(
+                    new ConfigValidationError($"{prefix}: Missing required field 'entrypoint'.")
+                );
             }
         }
     }

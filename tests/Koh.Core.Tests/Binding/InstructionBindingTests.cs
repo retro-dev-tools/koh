@@ -14,9 +14,14 @@ public class InstructionBindingTests
 
     private static IReadOnlyList<byte> GetBytes(string source)
     {
-        var result = Bind($"SECTION \"Main\", ROM0\n__main__:\n{source}");
+        // Fixed-address section: same-section refs resolve at assemble time. In a
+        // floating section they defer to the linker (see ExpressionEvaluator), and
+        // the assemble-time bytes these tests inspect would be 0x00 placeholders.
+        var result = Bind($"SECTION \"Main\", ROM0[$0000]\n__main__:\n{source}");
         if (!result.Success)
-            throw new Exception($"Binding failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}");
+            throw new Exception(
+                $"Binding failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
+            );
         return result.Sections!["Main"].Bytes;
     }
 
@@ -756,13 +761,15 @@ public class InstructionBindingTests
     [Test]
     public async Task JrForwardExplicitLocalLabel()
     {
-        var bytes = GetBytes("""
+        var bytes = GetBytes(
+            """
             Parent:
                 jr Parent.child
                 nop
             .child:
                 nop
-            """);
+            """
+        );
         await Assert.That(bytes[0]).IsEqualTo((byte)0x18);
         await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
     }
@@ -770,12 +777,14 @@ public class InstructionBindingTests
     [Test]
     public async Task ExplicitLocalDeclaration_DoesNotChangeLocalScope()
     {
-        var bytes = GetBytes("""
+        var bytes = GetBytes(
+            """
             Parent:
             Parent.child:
             .local:
                 jr Parent.local
-            """);
+            """
+        );
         await Assert.That(bytes[0]).IsEqualTo((byte)0x18);
         await Assert.That(bytes[1]).IsEqualTo((byte)0xFE);
     }
@@ -783,13 +792,15 @@ public class InstructionBindingTests
     [Test]
     public async Task LabelOperand_DoesNotCombineWithLocalLabelOnNextLine()
     {
-        var bytes = GetBytes("""
+        var bytes = GetBytes(
+            """
             call Target
             .local:
                 nop
             Target:
                 ret
-            """);
+            """
+        );
         await Assert.That(bytes[0]).IsEqualTo((byte)0xCD);
         await Assert.That(bytes[1]).IsEqualTo((byte)0x04);
         await Assert.That(bytes[2]).IsEqualTo((byte)0x00);
@@ -836,13 +847,15 @@ public class InstructionBindingTests
     {
         // LD HL, SP+N is 2 bytes. If incorrectly encoded as LD HL, imm16 (3 bytes),
         // the JR offset would be off by 1 per occurrence.
-        var bytes = GetBytes("""
+        var bytes = GetBytes(
+            """
             ld hl, sp+$10
             jr .done
             nop
             .done:
             nop
-            """);
+            """
+        );
         // LD HL, SP+$10 = 2 bytes at offset 0-1
         await Assert.That(bytes[0]).IsEqualTo((byte)0xF8);
         await Assert.That(bytes[1]).IsEqualTo((byte)0x10);
@@ -860,10 +873,12 @@ public class InstructionBindingTests
     public async Task Ff00PlusCBad_BaseNotFF00_RejectsAssembly()
     {
         // [$ff01 + c] — base must be exactly $FF00 for this addressing mode
-        var result = Bind("""
+        var result = Bind(
+            """
             SECTION "ff00+c or not to ff00+c", ROMX
             ld a, [$ff01 + c]
-            """);
+            """
+        );
         await Assert.That(result.Success).IsFalse();
     }
 
@@ -872,11 +887,13 @@ public class InstructionBindingTests
     public async Task InvalidLdh_AddressNotInHighRam_RejectsAssembly()
     {
         // LDH requires address in $FF00–$FFFF; $11 is out of range
-        var result = Bind("""
+        var result = Bind(
+            """
             SECTION "test", ROM0
             ldh [$11], a
             ldh a, [$22]
-            """);
+            """
+        );
         await Assert.That(result.Success).IsFalse();
     }
 
@@ -884,10 +901,12 @@ public class InstructionBindingTests
     [Test]
     public async Task DivzeroInstr_DivisionByZeroInOperand_RejectsAssembly()
     {
-        var result = Bind("""
+        var result = Bind(
+            """
             SECTION "sec", ROM0
             ld a, 1/0
-            """);
+            """
+        );
         await Assert.That(result.Success).IsFalse();
     }
 
@@ -895,10 +914,12 @@ public class InstructionBindingTests
     [Test]
     public async Task ModzeroInstr_ModuloByZeroInOperand_RejectsAssembly()
     {
-        var result = Bind("""
+        var result = Bind(
+            """
             SECTION "sec", ROM0
             ld a, 1 % 0
-            """);
+            """
+        );
         await Assert.That(result.Success).IsFalse();
     }
 }

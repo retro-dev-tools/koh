@@ -19,7 +19,8 @@ public class InterruptAndHaltTests
         int completed = 0;
         for (int t = 0; t < 100000 && completed < count; t++)
         {
-            if (gb.Cpu.TickT()) completed++;
+            if (gb.Cpu.TickT())
+                completed++;
         }
     }
 
@@ -47,7 +48,7 @@ public class InterruptAndHaltTests
         gb.Io.Interrupts.IE = Interrupts.VBlank;
         gb.Io.Interrupts.Raise(Interrupts.VBlank);
 
-        RunInstructions(gb, 1);  // EI — at its boundary, IME is STILL false (delayed).
+        RunInstructions(gb, 1); // EI — at its boundary, IME is STILL false (delayed).
         bool imeAfterEi = gb.Cpu.Ime;
         ushort pcAfterEi = gb.Registers.Pc;
 
@@ -72,10 +73,10 @@ public class InterruptAndHaltTests
         gb.Io.Interrupts.IE = Interrupts.VBlank;
         gb.Io.Interrupts.Raise(Interrupts.VBlank);
 
-        RunInstructions(gb, 1);  // LD A,0
-        RunInstructions(gb, 1);  // HALT (exits immediately, arms HALT bug)
-        RunInstructions(gb, 1);  // INC A (first time — reads $3C at $0103)
-        RunInstructions(gb, 1);  // INC A (second time — HALT bug re-reads $3C at $0103)
+        RunInstructions(gb, 1); // LD A,0
+        RunInstructions(gb, 1); // HALT (exits immediately, arms HALT bug)
+        RunInstructions(gb, 1); // INC A (first time — reads $3C at $0103)
+        RunInstructions(gb, 1); // INC A (second time — HALT bug re-reads $3C at $0103)
 
         await Assert.That(gb.Registers.A).IsEqualTo((byte)2);
     }
@@ -89,11 +90,11 @@ public class InterruptAndHaltTests
         gb.Cpu.Ime = true;
         gb.Io.Interrupts.IE = Interrupts.VBlank;
 
-        RunInstructions(gb, 1);  // HALT — CPU sleeps (one idle M-cycle).
+        RunInstructions(gb, 1); // HALT — CPU sleeps (one idle M-cycle).
         await Assert.That(gb.Cpu.Halted).IsTrue();
 
         gb.Io.Interrupts.Raise(Interrupts.VBlank);
-        RunInstructions(gb, 1);  // wake + dispatch in the same TickT.
+        RunInstructions(gb, 1); // wake + dispatch in the same TickT.
 
         await Assert.That(gb.Registers.Pc).IsEqualTo((ushort)0x0040);
     }

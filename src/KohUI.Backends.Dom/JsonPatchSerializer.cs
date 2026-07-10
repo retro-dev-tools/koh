@@ -50,7 +50,8 @@ internal static class JsonPatchSerializer
         w.WriteStartObject();
         w.WriteString("op", "batch");
         w.WriteStartArray("patches");
-        foreach (var p in patches) WritePatch(w, p);
+        foreach (var p in patches)
+            WritePatch(w, p);
         w.WriteEndArray();
         w.WriteEndObject();
         w.Flush();
@@ -75,7 +76,8 @@ internal static class JsonPatchSerializer
                 w.WritePropertyName("set");
                 WriteProps(w, u.Changed);
                 w.WriteStartArray("remove");
-                foreach (var k in u.Removed) w.WriteStringValue(k);
+                foreach (var k in u.Removed)
+                    w.WriteStringValue(k);
                 w.WriteEndArray();
                 break;
 
@@ -103,13 +105,15 @@ internal static class JsonPatchSerializer
     {
         w.WriteStartObject();
         w.WriteString("type", node.Type);
-        if (node.Key is not null) w.WriteString("key", node.Key);
+        if (node.Key is not null)
+            w.WriteString("key", node.Key);
         w.WritePropertyName("props");
         WriteProps(w, node.Props);
         if (node.Children.Length > 0)
         {
             w.WriteStartArray("children");
-            foreach (var child in node.Children) WriteNode(w, child);
+            foreach (var child in node.Children)
+                WriteNode(w, child);
             w.WriteEndArray();
         }
         w.WriteEndObject();
@@ -130,13 +134,27 @@ internal static class JsonPatchSerializer
     {
         switch (v)
         {
-            case null: w.WriteNullValue(); break;
-            case bool b: w.WriteBooleanValue(b); break;
-            case string s: w.WriteStringValue(s); break;
-            case int i: w.WriteNumberValue(i); break;
-            case long l: w.WriteNumberValue(l); break;
-            case double d: w.WriteNumberValue(d); break;
-            case float f: w.WriteNumberValue(f); break;
+            case null:
+                w.WriteNullValue();
+                break;
+            case bool b:
+                w.WriteBooleanValue(b);
+                break;
+            case string s:
+                w.WriteStringValue(s);
+                break;
+            case int i:
+                w.WriteNumberValue(i);
+                break;
+            case long l:
+                w.WriteNumberValue(l);
+                break;
+            case double d:
+                w.WriteNumberValue(d);
+                break;
+            case float f:
+                w.WriteNumberValue(f);
+                break;
             case Delegate:
                 // Event handlers aren't serialised — the client only needs
                 // to know the node has a handler attached for this slot.

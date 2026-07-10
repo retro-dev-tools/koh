@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- An MSBuild task assembly that runs inside `dotnet build` to turn a Koh C# game into a .gb ROM.
+         It drives the compiler in-process, so it targets the same runtime as the compiler it uses and
+         is not packed or published. CopyLocalLockFileAssemblies places its dependencies (the compiler,
+         linker, Roslyn) next to the task DLL so MSBuild can load them. -->
+    <IsPackable>false</IsPackable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Provided by the running MSBuild; reference for compile only, don't ship a copy. -->
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="Runtime" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" ExcludeAssets="Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Koh.Compiler\Koh.Compiler.csproj" />
+    <ProjectReference Include="..\Koh.Linker.Core\Koh.Linker.Core.csproj" />
+  </ItemGroup>
+
+</Project>

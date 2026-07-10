@@ -18,11 +18,15 @@ internal sealed class TextReplayService
 
     // Pre-compiled pattern that matches either a double-quoted string literal or any
     // non-string-literal content (captured separately). Used by SubstituteOutsideStrings.
-    internal static readonly Regex StringLiteralSplitter =
-        new Regex(@"""(?:[^""\\]|\\.)*""|[^""]+", RegexOptions.Compiled);
+    internal static readonly Regex StringLiteralSplitter = new Regex(
+        @"""(?:[^""\\]|\\.)*""|[^""]+",
+        RegexOptions.Compiled
+    );
 
-    internal static readonly Regex NargPattern =
-        new Regex(@"\b_NARG\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    internal static readonly Regex NargPattern = new Regex(
+        @"\b_NARG\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled
+    );
 
     public TextReplayService(DiagnosticBag diagnostics, InterpolationResolver interpolation)
     {
@@ -39,17 +43,25 @@ internal sealed class TextReplayService
     /// and parse the text into a SyntaxTree for expansion. Returns null if the depth limit
     /// is exceeded (a diagnostic is emitted).
     /// </summary>
-    public SyntaxTree? ParseForReplay(string text, bool hasMacroParams,
-        ExpansionContext ctx, TextSpan triggerSpan, TextReplayReason reason,
-        int maxReplayDepth, bool skipInterpolation = false)
+    public SyntaxTree? ParseForReplay(
+        string text,
+        bool hasMacroParams,
+        ExpansionContext ctx,
+        TextSpan triggerSpan,
+        TextReplayReason reason,
+        int maxReplayDepth,
+        bool skipInterpolation = false
+    )
     {
         if (!hasMacroParams && !skipInterpolation)
             text = _interpolation.Resolve(text);
 
         if (ctx.ReplayDepth >= maxReplayDepth)
         {
-            _diagnostics.Report(triggerSpan,
-                $"Maximum text replay depth ({maxReplayDepth}) exceeded");
+            _diagnostics.Report(
+                triggerSpan,
+                $"Maximum text replay depth ({maxReplayDepth}) exceeded"
+            );
             return null;
         }
 
@@ -61,8 +73,8 @@ internal sealed class TextReplayService
     // =========================================================================
 
     /// <summary>Replace all occurrences of \@ in <paramref name="bodyText"/> with <c>_{uniqueId}</c>.</summary>
-    public static string SubstituteUniqueId(string bodyText, int uniqueId)
-        => bodyText.Replace("\\@", $"_{uniqueId}");
+    public static string SubstituteUniqueId(string bodyText, int uniqueId) =>
+        bodyText.Replace("\\@", $"_{uniqueId}");
 
     // =========================================================================
     // Macro parameter substitution
@@ -73,8 +85,13 @@ internal sealed class TextReplayService
     /// \1..\9, \#, _NARG are resolved lazily via MacroFrame when SHIFT is present;
     /// otherwise eagerly substituted for efficiency.
     /// </summary>
-    public string SubstituteMacroParams(string body, MacroFrame frame, bool containsShift,
-        SymbolTable symbols, Dictionary<string, GreenNodeBase?> expressionCache)
+    public string SubstituteMacroParams(
+        string body,
+        MacroFrame frame,
+        bool containsShift,
+        SymbolTable symbols,
+        Dictionary<string, GreenNodeBase?> expressionCache
+    )
     {
         // \@ → unique suffix per invocation (eagerly baked — immutable)
         body = SubstituteUniqueId(body, frame.UniqueId);
@@ -89,8 +106,13 @@ internal sealed class TextReplayService
         }
 
         // No SHIFT — eagerly substitute everything (faster, no MacroParamToken overhead)
-        return SubstituteParamReferences(body, frame, reportShiftedPast: false,
-            symbols, expressionCache);
+        return SubstituteParamReferences(
+            body,
+            frame,
+            reportShiftedPast: false,
+            symbols,
+            expressionCache
+        );
     }
 
     /// <summary>
@@ -99,8 +121,13 @@ internal sealed class TextReplayService
     /// \N references that have been shifted past the argument list (lazy/SHIFT path).
     /// When false, silently substitutes "" for missing args (eager/no-SHIFT path).
     /// </summary>
-    public string SubstituteParamReferences(string text, MacroFrame frame, bool reportShiftedPast,
-        SymbolTable symbols, Dictionary<string, GreenNodeBase?> expressionCache)
+    public string SubstituteParamReferences(
+        string text,
+        MacroFrame frame,
+        bool reportShiftedPast,
+        SymbolTable symbols,
+        Dictionary<string, GreenNodeBase?> expressionCache
+    )
     {
         // Perf: single-pass scan for \1..\9 instead of up to 9 separate Contains+Replace calls
         // (which each scan the full string). We build a result only when substitutions are needed.
@@ -134,7 +161,8 @@ internal sealed class TextReplayService
                 break;
             }
         }
-        if (!hasAny) return text;
+        if (!hasAny)
+            return text;
 
         var sb = new System.Text.StringBuilder(text.Length);
         int pos = 0;
@@ -158,7 +186,10 @@ internal sealed class TextReplayService
                     int argIndex = p - 1 + frame.ShiftOffset;
                     if (argIndex >= frame.Args.Count)
                     {
-                        _diagnostics.Report(default, $"Macro argument \\{p} not defined (shifted past end)");
+                        _diagnostics.Report(
+                            default,
+                            $"Macro argument \\{p} not defined (shifted past end)"
+                        );
                         // substitute empty string — don't append anything
                         pos = bsIdx + 2;
                         continue;
@@ -182,16 +213,22 @@ internal sealed class TextReplayService
     /// Resolve \&lt;expr&gt; computed arg index references in macro body text.
     /// The expr is evaluated as an integer and used as a 1-based argument index.
     /// </summary>
-    public string ResolveComputedArgs(string body, MacroFrame frame,
-        SymbolTable symbols, Dictionary<string, GreenNodeBase?> expressionCache)
+    public string ResolveComputedArgs(
+        string body,
+        MacroFrame frame,
+        SymbolTable symbols,
+        Dictionary<string, GreenNodeBase?> expressionCache
+    )
     {
         int searchFrom = 0;
         while (true)
         {
             int start = body.IndexOf("\\<", searchFrom, StringComparison.Ordinal);
-            if (start < 0) break;
+            if (start < 0)
+                break;
             int end = body.IndexOf('>', start + 2);
-            if (end < 0) break;
+            if (end < 0)
+                break;
 
             var exprText = body[(start + 2)..end];
             var evaluator = new ExpressionEvaluator(symbols, _diagnostics, () => 0);
@@ -206,8 +243,10 @@ internal sealed class TextReplayService
             }
             else
             {
-                _diagnostics.Report(default,
-                    $"Invalid computed macro argument expression: \\<{exprText}>");
+                _diagnostics.Report(
+                    default,
+                    $"Invalid computed macro argument expression: \\<{exprText}>"
+                );
                 searchFrom = end + 1;
             }
         }
@@ -247,8 +286,11 @@ internal sealed class TextReplayService
     /// <summary>
     /// Extract the source text of the loop body from the header node and body node list.
     /// </summary>
-    public static string ExtractBodyText(SyntaxNode headerNode,
-        IReadOnlyList<SyntaxNodeOrToken> body, ExpansionContext ctx)
+    public static string ExtractBodyText(
+        SyntaxNode headerNode,
+        IReadOnlyList<SyntaxNodeOrToken> body,
+        ExpansionContext ctx
+    )
     {
         if (ctx.SourceText == null || body.Count == 0)
             return "";
@@ -269,16 +311,21 @@ internal sealed class TextReplayService
     /// Recursively collect the <see cref="TextSpan"/> positions of all IdentifierToken nodes
     /// in the red tree that match <paramref name="name"/> (case-insensitive).
     /// </summary>
-    public static void CollectIdentifierPositions(SyntaxNode node, string name,
-        List<(int Start, int Length)> positions)
+    public static void CollectIdentifierPositions(
+        SyntaxNode node,
+        string name,
+        List<(int Start, int Length)> positions
+    )
     {
         foreach (var child in node.ChildNodesAndTokens())
         {
             if (child.IsToken)
             {
                 var token = child.AsToken!;
-                if (token.Kind == SyntaxKind.IdentifierToken &&
-                    token.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
+                if (
+                    token.Kind == SyntaxKind.IdentifierToken
+                    && token.Text.Equals(name, StringComparison.OrdinalIgnoreCase)
+                )
                 {
                     positions.Add((token.Span.Start, token.Span.Length));
                 }
@@ -294,10 +341,14 @@ internal sealed class TextReplayService
     /// Replace text at pre-computed token positions. Accounts for cumulative offset from
     /// prior replacements.
     /// </summary>
-    public static string SubstituteAtPositions(string source,
-        List<(int Start, int Length)> positions, string replacement)
+    public static string SubstituteAtPositions(
+        string source,
+        List<(int Start, int Length)> positions,
+        string replacement
+    )
     {
-        if (positions.Count == 0) return source;
+        if (positions.Count == 0)
+            return source;
 
         var sb = new System.Text.StringBuilder(source.Length);
         int pos = 0;
@@ -326,8 +377,10 @@ internal sealed class TextReplayService
             if (text[i] == '\\')
             {
                 char next = text[i + 1];
-                if (next >= '1' && next <= '9') return true;
-                if (next == '#') return true;
+                if (next >= '1' && next <= '9')
+                    return true;
+                if (next == '#')
+                    return true;
             }
         }
         return false;
@@ -344,7 +397,10 @@ internal sealed class TextReplayService
     public static BodyReplayPlan ClassifyReptBody(string bodyText)
     {
         return bodyText.Contains("\\@")
-            ? new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.UniqueLabelSubstitution)
+            ? new BodyReplayPlan(
+                BodyReplayKind.RequiresTextReplay,
+                TextReplayReason.UniqueLabelSubstitution
+            )
             : new BodyReplayPlan(BodyReplayKind.Structural);
     }
 
@@ -358,10 +414,16 @@ internal sealed class TextReplayService
     {
         // Quick exits — obvious text-replay triggers (no positions needed for \@ or macro params)
         if (bodyText.Contains("\\@"))
-            return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.UniqueLabelSubstitution);
+            return new BodyReplayPlan(
+                BodyReplayKind.RequiresTextReplay,
+                TextReplayReason.UniqueLabelSubstitution
+            );
 
         if (ContainsUnresolvedMacroParam(bodyText))
-            return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay, TextReplayReason.MacroParameterConcatenation);
+            return new BodyReplayPlan(
+                BodyReplayKind.RequiresTextReplay,
+                TextReplayReason.MacroParameterConcatenation
+            );
 
         // One-time parse to check token shape — reuse for position collection if text replay needed
         var tree = SyntaxTree.Parse(bodyText);
@@ -372,8 +434,11 @@ internal sealed class TextReplayService
         // Text replay needed — collect identifier positions from this same parse to avoid reparsing
         var positions = new List<(int Start, int Length)>();
         CollectIdentifierPositions(tree.Root, varName, positions);
-        return new BodyReplayPlan(BodyReplayKind.RequiresTextReplay,
-            TextReplayReason.ForTokenShapingSubstitution, positions);
+        return new BodyReplayPlan(
+            BodyReplayKind.RequiresTextReplay,
+            TextReplayReason.ForTokenShapingSubstitution,
+            positions
+        );
     }
 
     /// <summary>
@@ -389,9 +454,12 @@ internal sealed class TextReplayService
             {
                 var tok = child.AsToken!;
                 // Skip string literal content — the variable won't be substituted there anyway
-                if (tok.Kind == SyntaxKind.StringLiteral) continue;
-                if (tok.Text.Equals(varName, StringComparison.OrdinalIgnoreCase) &&
-                    tok.Kind != SyntaxKind.IdentifierToken)
+                if (tok.Kind == SyntaxKind.StringLiteral)
+                    continue;
+                if (
+                    tok.Text.Equals(varName, StringComparison.OrdinalIgnoreCase)
+                    && tok.Kind != SyntaxKind.IdentifierToken
+                )
                     return false;
             }
             else if (child.IsNode)
@@ -407,8 +475,10 @@ internal sealed class TextReplayService
     // Expression cache helper
     // =========================================================================
 
-    private static GreenNodeBase? ParseExpressionCached(string exprText,
-        Dictionary<string, GreenNodeBase?> cache)
+    private static GreenNodeBase? ParseExpressionCached(
+        string exprText,
+        Dictionary<string, GreenNodeBase?> cache
+    )
     {
         if (cache.TryGetValue(exprText, out var cached))
             return cached;

@@ -17,8 +17,12 @@ public class GreenNodeTests
     public async Task GreenToken_WithLeadingTrivia()
     {
         var trivia = new GreenTrivia(SyntaxKind.WhitespaceTrivia, "  ");
-        var token = new GreenToken(SyntaxKind.NopKeyword, "nop",
-            leadingTrivia: [trivia], trailingTrivia: []);
+        var token = new GreenToken(
+            SyntaxKind.NopKeyword,
+            "nop",
+            leadingTrivia: [trivia],
+            trailingTrivia: []
+        );
         await Assert.That(token.FullWidth).IsEqualTo(5); // 2 spaces + 3 chars
         await Assert.That(token.Width).IsEqualTo(3); // text only
     }

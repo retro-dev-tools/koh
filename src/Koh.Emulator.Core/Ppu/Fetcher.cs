@@ -14,14 +14,14 @@ public enum FetcherStep : byte
 public sealed class Fetcher
 {
     public FetcherStep Step;
-    public int DotBudget;           // remaining dots before the step completes
+    public int DotBudget; // remaining dots before the step completes
 
-    public int TileMapX;            // which column of the tile map we're fetching (0..31)
-    public int TileMapY;            // which row of the tile map we're fetching (0..31)
-    public ushort TileMapBase;      // $9800 or $9C00
+    public int TileMapX; // which column of the tile map we're fetching (0..31)
+    public int TileMapY; // which row of the tile map we're fetching (0..31)
+    public ushort TileMapBase; // $9800 or $9C00
     public bool UsingWindow;
     public byte FetchedTileIndex;
-    public byte FetchedAttributes;  // CGB attribute byte
+    public byte FetchedAttributes; // CGB attribute byte
     public byte FetchedLow;
     public byte FetchedHigh;
 
@@ -49,21 +49,27 @@ public sealed class Fetcher
     {
         w.WriteByte((byte)Step);
         w.WriteI32(DotBudget);
-        w.WriteI32(TileMapX); w.WriteI32(TileMapY);
+        w.WriteI32(TileMapX);
+        w.WriteI32(TileMapY);
         w.WriteU16(TileMapBase);
         w.WriteBool(UsingWindow);
-        w.WriteByte(FetchedTileIndex); w.WriteByte(FetchedAttributes);
-        w.WriteByte(FetchedLow); w.WriteByte(FetchedHigh);
+        w.WriteByte(FetchedTileIndex);
+        w.WriteByte(FetchedAttributes);
+        w.WriteByte(FetchedLow);
+        w.WriteByte(FetchedHigh);
     }
 
     public void ReadState(StateReader r)
     {
         Step = (FetcherStep)r.ReadByte();
         DotBudget = r.ReadI32();
-        TileMapX = r.ReadI32(); TileMapY = r.ReadI32();
+        TileMapX = r.ReadI32();
+        TileMapY = r.ReadI32();
         TileMapBase = r.ReadU16();
         UsingWindow = r.ReadBool();
-        FetchedTileIndex = r.ReadByte(); FetchedAttributes = r.ReadByte();
-        FetchedLow = r.ReadByte(); FetchedHigh = r.ReadByte();
+        FetchedTileIndex = r.ReadByte();
+        FetchedAttributes = r.ReadByte();
+        FetchedLow = r.ReadByte();
+        FetchedHigh = r.ReadByte();
     }
 }

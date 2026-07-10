@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Koh.Core\Koh.Core.csproj" />
+    <ProjectReference Include="..\Koh.Emit\Koh.Emit.csproj" />
+    <ProjectReference Include="..\Koh.Linker.Core\Koh.Linker.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude the analyzers that ship with the package: they target analyzer authors (RS**** rules)
+         and would trip TreatWarningsAsErrors on ordinary Roslyn API usage. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" ExcludeAssets="analyzers" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Compiler.Tests" />
+  </ItemGroup>
+
+</Project>

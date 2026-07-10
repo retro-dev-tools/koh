@@ -39,32 +39,39 @@ public static class KdbgFileWriter
         uint[] stackIdxToAbsoluteOffset = [];
         if (builder.HasExpansionData)
         {
-            (expansionPool, stackIdxToAbsoluteOffset) = BuildExpansionPool(builder, expansionPoolOffset);
+            (expansionPool, stackIdxToAbsoluteOffset) = BuildExpansionPool(
+                builder,
+                expansionPoolOffset
+            );
         }
 
         byte[] addressMap = BuildAddressMap(builder, stackIdxToAbsoluteOffset);
 
         ushort flags = 0;
-        if (builder.HasExpansionData) flags |= KdbgFormat.FlagExpansionPresent;
-        if (builder.HasScopeData) flags |= KdbgFormat.FlagScopeTablePresent;
+        if (builder.HasExpansionData)
+            flags |= KdbgFormat.FlagExpansionPresent;
+        if (builder.HasScopeData)
+            flags |= KdbgFormat.FlagScopeTablePresent;
 
         // Header (32 bytes)
-        writer.Write(KdbgFormat.Magic);           // 0..3
-        writer.Write(KdbgFormat.Version1);        // 4..5
-        writer.Write(flags);                      // 6..7
-        writer.Write(stringPoolOffset);           // 8..11
-        writer.Write(sourceTableOffset);          // 12..15
-        writer.Write(scopeTableOffset);           // 16..19
-        writer.Write(symbolTableOffset);          // 20..23
-        writer.Write(addressMapOffset);           // 24..27
-        writer.Write(expansionPoolOffset);        // 28..31
+        writer.Write(KdbgFormat.Magic); // 0..3
+        writer.Write(KdbgFormat.Version1); // 4..5
+        writer.Write(flags); // 6..7
+        writer.Write(stringPoolOffset); // 8..11
+        writer.Write(sourceTableOffset); // 12..15
+        writer.Write(scopeTableOffset); // 16..19
+        writer.Write(symbolTableOffset); // 20..23
+        writer.Write(addressMapOffset); // 24..27
+        writer.Write(expansionPoolOffset); // 28..31
 
         writer.Write(stringPool);
         writer.Write(sourceTable);
-        if (builder.HasScopeData) writer.Write(scopeTable);
+        if (builder.HasScopeData)
+            writer.Write(scopeTable);
         writer.Write(symbolTable);
         writer.Write(addressMap);
-        if (builder.HasExpansionData) writer.Write(expansionPool);
+        if (builder.HasExpansionData)
+            writer.Write(expansionPool);
     }
 
     private static byte[] BuildStringPool(DebugInfoBuilder b)
@@ -158,26 +165,30 @@ public static class KdbgFileWriter
     }
 
     private static (byte[] bytes, uint[] stackIdxToAbsoluteOffset) BuildExpansionPool(
-        DebugInfoBuilder b, uint expansionPoolAbsoluteStart)
+        DebugInfoBuilder b,
+        uint expansionPoolAbsoluteStart
+    )
     {
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
 
         long poolByteSizePos = ms.Position;
-        w.Write((uint)0);   // reserve
+        w.Write((uint)0); // reserve
 
         var stackIdxToAbsoluteOffset = new uint[b.ExpansionStackIndexes.Count];
 
         for (int i = 0; i < b.ExpansionStackIndexes.Count; i++)
         {
             int firstFrameIdxInPool = (int)b.ExpansionStackIndexes[i];
-            int nextStackFirstIdx = i + 1 < b.ExpansionStackIndexes.Count
-                ? (int)b.ExpansionStackIndexes[i + 1]
-                : b.ExpansionPool.Count;
+            int nextStackFirstIdx =
+                i + 1 < b.ExpansionStackIndexes.Count
+                    ? (int)b.ExpansionStackIndexes[i + 1]
+                    : b.ExpansionPool.Count;
             int depth = nextStackFirstIdx - firstFrameIdxInPool;
 
             uint stackBytePositionInPayload = (uint)(ms.Position - (poolByteSizePos + 4));
-            uint absoluteOffsetIntoFile = expansionPoolAbsoluteStart + 4 + stackBytePositionInPayload;
+            uint absoluteOffsetIntoFile =
+                expansionPoolAbsoluteStart + 4 + stackBytePositionInPayload;
             stackIdxToAbsoluteOffset[i] = absoluteOffsetIntoFile;
 
             w.Write((ushort)depth);

@@ -11,8 +11,13 @@ public class SymbolFinderTests
     [Test]
     public async Task ResolveAt_GlobalLabel_ResolvesCorrectly()
     {
-        var ws = TestHelpers.CreateWorkspace("SECTION \"Main\", ROM0\nMyLabel:\n  ld a, 0\n  jp MyLabel");
-        var offset = TestHelpers.FindOffset("SECTION \"Main\", ROM0\nMyLabel:\n  ld a, 0\n  jp MyLabel", "MyLabel:");
+        var ws = TestHelpers.CreateWorkspace(
+            "SECTION \"Main\", ROM0\nMyLabel:\n  ld a, 0\n  jp MyLabel"
+        );
+        var offset = TestHelpers.FindOffset(
+            "SECTION \"Main\", ROM0\nMyLabel:\n  ld a, 0\n  jp MyLabel",
+            "MyLabel:"
+        );
 
         var result = _finder.ResolveAt(ws, "file:///test.asm", offset);
 
@@ -24,7 +29,8 @@ public class SymbolFinderTests
     [Test]
     public async Task ResolveAt_LocalLabel_UsesCorrectScope()
     {
-        var source = "SECTION \"Main\", ROM0\nGlobal1:\n.local:\n  jr .local\nGlobal2:\n.local:\n  jr .local";
+        var source =
+            "SECTION \"Main\", ROM0\nGlobal1:\n.local:\n  jr .local\nGlobal2:\n.local:\n  jr .local";
         var ws = TestHelpers.CreateWorkspace(source);
 
         // Resolve .local under Global2 (the reference at the end)
@@ -87,10 +93,14 @@ public class SymbolFinderTests
         // Two separate files with the same label name — they should be separate owner-local symbols
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nMyLabel:\n  jp MyLabel"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\nMyLabel:\n  jp MyLabel"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\nMyLabel:\n  jp MyLabel")
+        );
 
-        var target = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset("SECTION \"A\", ROM0\nMyLabel:\n  jp MyLabel", "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset("SECTION \"A\", ROM0\nMyLabel:\n  jp MyLabel", "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occurrences = _finder.FindAllOccurrences(ws, target!);
@@ -105,10 +115,14 @@ public class SymbolFinderTests
     {
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\n  jp Shared"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\n  jp Shared")
+        );
 
-        var target = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset("SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared", "Shared:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset("SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared", "Shared:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occurrences = _finder.FindAllOccurrences(ws, target!);
@@ -124,11 +138,15 @@ public class SymbolFinderTests
         // File a exports "Shared", file b has its own local "Shared" that shadows
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nShared:\n  nop\nEXPORT Shared"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\nShared:\n  jp Shared"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\nShared:\n  jp Shared")
+        );
 
         // Resolve the local "Shared" in file b
-        var targetB = _finder.ResolveAt(ws, "file:///b.asm",
-            TestHelpers.FindOffset("SECTION \"B\", ROM0\nShared:\n  jp Shared", "Shared:"));
+        var targetB = _finder.ResolveAt(
+            ws,
+            "file:///b.asm",
+            TestHelpers.FindOffset("SECTION \"B\", ROM0\nShared:\n  jp Shared", "Shared:")
+        );
 
         await Assert.That(targetB).IsNotNull();
         var occurrences = _finder.FindAllOccurrences(ws, targetB!);
@@ -147,10 +165,14 @@ public class SymbolFinderTests
     {
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nCounter:\n  nop"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\nCounter:\n  nop"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\nCounter:\n  nop")
+        );
 
-        var targetA = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset("SECTION \"A\", ROM0\nCounter:\n  nop", "Counter:"));
+        var targetA = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset("SECTION \"A\", ROM0\nCounter:\n  nop", "Counter:")
+        );
 
         await Assert.That(targetA).IsNotNull();
         var occurrences = _finder.FindAllOccurrences(ws, targetA!);
@@ -169,8 +191,11 @@ public class SymbolFinderTests
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop\n  jp MyLabel";
         var ws = TestHelpers.CreateWorkspace(source);
 
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occurrences = _finder.FindAllOccurrences(ws, target!);
@@ -187,8 +212,11 @@ public class SymbolFinderTests
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop\nEXPORT MyLabel";
         var ws = TestHelpers.CreateWorkspace(source);
 
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occurrences = _finder.FindAllOccurrences(ws, target!);
@@ -203,8 +231,11 @@ public class SymbolFinderTests
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop\n  jp MyLabel";
         var ws = TestHelpers.CreateWorkspace(source);
 
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var occurrences = _finder.FindAllOccurrences(ws, target!, includeDeclarations: false);
@@ -221,8 +252,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "NewLabel");
@@ -234,8 +268,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\nOtherLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "OtherLabel");
@@ -247,10 +284,14 @@ public class SymbolFinderTests
     {
         var ws = TestHelpers.CreateWorkspace(
             ("file:///a.asm", "SECTION \"A\", ROM0\nLabelA:\n  nop\nEXPORT LabelA"),
-            ("file:///b.asm", "SECTION \"B\", ROM0\nLabelB:\n  nop\nEXPORT LabelB"));
+            ("file:///b.asm", "SECTION \"B\", ROM0\nLabelB:\n  nop\nEXPORT LabelB")
+        );
 
-        var target = _finder.ResolveAt(ws, "file:///a.asm",
-            TestHelpers.FindOffset("SECTION \"A\", ROM0\nLabelA:\n  nop\nEXPORT LabelA", "LabelA:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///a.asm",
+            TestHelpers.FindOffset("SECTION \"A\", ROM0\nLabelA:\n  nop\nEXPORT LabelA", "LabelA:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "LabelB");
@@ -262,8 +303,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nGlobal:\n.local:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, ".local:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, ".local:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "GlobalName");
@@ -276,8 +320,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nGlobal:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "Global:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "Global:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, ".local");
@@ -290,8 +337,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "nop");
@@ -304,8 +354,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "hl");
@@ -319,8 +372,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "123invalid");
@@ -333,8 +389,11 @@ public class SymbolFinderTests
     {
         var source = "SECTION \"Main\", ROM0\nMyLabel:\n  nop";
         var ws = TestHelpers.CreateWorkspace(source);
-        var target = _finder.ResolveAt(ws, "file:///test.asm",
-            TestHelpers.FindOffset(source, "MyLabel:"));
+        var target = _finder.ResolveAt(
+            ws,
+            "file:///test.asm",
+            TestHelpers.FindOffset(source, "MyLabel:")
+        );
 
         await Assert.That(target).IsNotNull();
         var error = _finder.ValidateRename(ws, target!, "");

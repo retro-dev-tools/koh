@@ -10,7 +10,8 @@ public class EvaluateHandlerTests
     {
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0x3E; rom[0x101] = 0x42;  // LD A,$42
+        rom[0x100] = 0x3E;
+        rom[0x101] = 0x42; // LD A,$42
 
         var dispatcher = new DapDispatcher();
         var session = new DebugSession();
@@ -22,13 +23,15 @@ public class EvaluateHandlerTests
     }
 
     private static byte[] Encode(int seq, string expr) =>
-        JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
-        {
-            ["seq"] = seq,
-            ["type"] = "request",
-            ["command"] = "evaluate",
-            ["arguments"] = new Dictionary<string, object?> { ["expression"] = expr },
-        });
+        JsonSerializer.SerializeToUtf8Bytes(
+            new Dictionary<string, object?>
+            {
+                ["seq"] = seq,
+                ["type"] = "request",
+                ["command"] = "evaluate",
+                ["arguments"] = new Dictionary<string, object?> { ["expression"] = expr },
+            }
+        );
 
     [Test]
     public async Task Evaluates_Hex_Dollar_Prefix()
@@ -57,10 +60,17 @@ public class EvaluateHandlerTests
     {
         var (dispatcher, session, responses) = Build();
         // Step the LD A,$42 to put $42 in A.
-        dispatcher.HandleRequest(JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
-        {
-            ["seq"] = 1, ["type"] = "request", ["command"] = "stepIn", ["arguments"] = new { },
-        }));
+        dispatcher.HandleRequest(
+            JsonSerializer.SerializeToUtf8Bytes(
+                new Dictionary<string, object?>
+                {
+                    ["seq"] = 1,
+                    ["type"] = "request",
+                    ["command"] = "stepIn",
+                    ["arguments"] = new { },
+                }
+            )
+        );
         responses.Clear();
         dispatcher.HandleRequest(Encode(2, "A"));
 
@@ -83,19 +93,21 @@ public class EvaluateHandlerTests
     public async Task Sets_Instruction_Breakpoint_By_Address()
     {
         var (dispatcher, session, _) = Build();
-        var bp = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
-        {
-            ["seq"] = 1,
-            ["type"] = "request",
-            ["command"] = "setInstructionBreakpoints",
-            ["arguments"] = new Dictionary<string, object?>
+        var bp = JsonSerializer.SerializeToUtf8Bytes(
+            new Dictionary<string, object?>
             {
-                ["breakpoints"] = new object[]
+                ["seq"] = 1,
+                ["type"] = "request",
+                ["command"] = "setInstructionBreakpoints",
+                ["arguments"] = new Dictionary<string, object?>
                 {
-                    new Dictionary<string, object?> { ["instructionReference"] = "0x0100" }
+                    ["breakpoints"] = new object[]
+                    {
+                        new Dictionary<string, object?> { ["instructionReference"] = "0x0100" },
+                    },
                 },
-            },
-        });
+            }
+        );
         dispatcher.HandleRequest(bp);
         await Assert.That(session.Breakpoints.Count).IsEqualTo(1);
     }

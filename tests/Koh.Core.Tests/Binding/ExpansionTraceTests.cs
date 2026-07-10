@@ -39,8 +39,8 @@ public class ExpansionTraceTests
     [Test]
     public async Task ContainsKind_FindsFrame()
     {
-        var trace = ExpansionTrace.Empty
-            .Push(ExpansionFrame.ForInclude("a.asm", default))
+        var trace = ExpansionTrace
+            .Empty.Push(ExpansionFrame.ForInclude("a.asm", default))
             .Push(ExpansionFrame.ForRept("a.asm", default, 0));
         await Assert.That(trace.ContainsKind(ExpansionKind.Include)).IsTrue();
         await Assert.That(trace.ContainsKind(ExpansionKind.ReptIteration)).IsTrue();
@@ -67,8 +67,11 @@ public class ExpansionTraceTests
     [Test]
     public async Task ForTextReplay_CarriesReason()
     {
-        var frame = ExpansionFrame.ForTextReplay("a.asm", new TextSpan(5, 3),
-            TextReplayReason.EqusReplay);
+        var frame = ExpansionFrame.ForTextReplay(
+            "a.asm",
+            new TextSpan(5, 3),
+            TextReplayReason.EqusReplay
+        );
         await Assert.That(frame.Kind).IsEqualTo(ExpansionKind.TextReplay);
         await Assert.That(frame.ReplayReason).IsEqualTo(TextReplayReason.EqusReplay);
     }

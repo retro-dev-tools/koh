@@ -79,7 +79,7 @@ public class EmitModelTests
     public async Task EmitModel_ForwardRefResolved()
     {
         // dw target → target is defined after, should be resolved by PatchResolver
-        var model = Emit("SECTION \"Main\", ROM0\ndw target\ntarget:\nnop");
+        var model = Emit("SECTION \"Main\", ROM0[$0000]\ndw target\ntarget:\nnop");
         await Assert.That(model.Success).IsTrue();
         // target at offset 2 (after the 2-byte DW)
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x02);
@@ -99,16 +99,14 @@ public class EmitModelTests
     [Test]
     public async Task EmitModel_MultipleSections()
     {
-        var model = Emit(
-            "SECTION \"Code\", ROM0\nnop\nSECTION \"Data\", ROM0\ndb $42");
+        var model = Emit("SECTION \"Code\", ROM0\nnop\nSECTION \"Data\", ROM0\ndb $42");
         await Assert.That(model.Sections.Count).IsEqualTo(2);
     }
 
     [Test]
     public async Task EmitModel_ExportMultipleSymbols()
     {
-        var model = Emit(
-            "SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
+        var model = Emit("SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
         var foo = model.Symbols.FirstOrDefault(s => s.Name == "foo");
         var bar = model.Symbols.FirstOrDefault(s => s.Name == "bar");
         await Assert.That(foo!.Visibility).IsEqualTo(SymbolVisibility.Exported);
@@ -127,7 +125,7 @@ public class EmitModelTests
     public async Task EmitModel_ForwardRefResolved_Db()
     {
         // db target — forward ref to a label, resolved as Absolute8
-        var model = Emit("SECTION \"Main\", ROM0\ndb target\ntarget:\nnop");
+        var model = Emit("SECTION \"Main\", ROM0[$0000]\ndb target\ntarget:\nnop");
         await Assert.That(model.Success).IsTrue();
         // target at offset 1 (after the 1-byte DB placeholder)
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x01);
@@ -138,8 +136,7 @@ public class EmitModelTests
     [Test]
     public async Task EmitModel_MultipleSections_DataIsolated()
     {
-        var model = Emit(
-            "SECTION \"Alpha\", ROM0\ndb $AA, $BB\nSECTION \"Beta\", ROM0\ndb $CC");
+        var model = Emit("SECTION \"Alpha\", ROM0\ndb $AA, $BB\nSECTION \"Beta\", ROM0\ndb $CC");
         await Assert.That(model.Sections.Count).IsEqualTo(2);
         var alpha = model.Sections.First(s => s.Name == "Alpha");
         var beta = model.Sections.First(s => s.Name == "Beta");
@@ -154,7 +151,7 @@ public class EmitModelTests
     public async Task EmitModel_ForwardRefResolved_Jr()
     {
         // jr target — forward ref with relative offset resolved by PatchResolver
-        var model = Emit("SECTION \"Main\", ROM0\njr target\nnop\ntarget:\nnop");
+        var model = Emit("SECTION \"Main\", ROM0[$0000]\njr target\nnop\ntarget:\nnop");
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x18); // JR opcode
         // target at offset 3 (jr=2 + nop=1), PC after JR = 2, offset = 3 - 2 = 1
@@ -167,18 +164,22 @@ public class EmitModelTests
     {
         // jr to a target beyond signed byte range
         var nops = string.Concat(Enumerable.Repeat("nop\n", 200));
-        var model = Emit($"SECTION \"Main\", ROM0\njr target\n{nops}target:\nnop");
+        var model = Emit($"SECTION \"Main\", ROM0[$0000]\njr target\n{nops}target:\nnop");
         await Assert.That(model.Success).IsFalse();
         // Either "out of range" or "No valid encoding" — both indicate the error
-        await Assert.That(model.Diagnostics.Any(d =>
-            d.Message.Contains("out of range") || d.Message.Contains("No valid encoding"))).IsTrue();
+        await Assert
+            .That(
+                model.Diagnostics.Any(d =>
+                    d.Message.Contains("out of range") || d.Message.Contains("No valid encoding")
+                )
+            )
+            .IsTrue();
     }
 
     [Test]
     public async Task EmitModel_ExportMultipleSymbols_NullGuard()
     {
-        var model = Emit(
-            "SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
+        var model = Emit("SECTION \"Main\", ROM0\nfoo:\nnop\nbar:\nnop\nEXPORT foo, bar");
         var foo = model.Symbols.FirstOrDefault(s => s.Name == "foo");
         var bar = model.Symbols.FirstOrDefault(s => s.Name == "bar");
         await Assert.That(foo).IsNotNull();

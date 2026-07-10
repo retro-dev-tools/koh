@@ -19,12 +19,12 @@ public sealed class SourceText
         _lines = ParseLines(text);
     }
 
-    public static SourceText From(string text, string filePath = "")
-        => new(text, filePath);
+    public static SourceText From(string text, string filePath = "") => new(text, filePath);
 
     public int GetLineIndex(int position)
     {
-        int lo = 0, hi = _lines.Length - 1;
+        int lo = 0,
+            hi = _lines.Length - 1;
         while (lo <= hi)
         {
             int mid = lo + (hi - lo) / 2;
@@ -39,6 +39,7 @@ public sealed class SourceText
     }
 
     public string ToString(TextSpan span) => _text.Substring(span.Start, span.Length);
+
     public override string ToString() => _text;
 
     public SourceText WithChanges(TextChange change)
@@ -46,7 +47,8 @@ public sealed class SourceText
         var newText = string.Concat(
             _text.AsSpan(0, change.Span.Start),
             change.NewText,
-            _text.AsSpan(change.Span.End));
+            _text.AsSpan(change.Span.End)
+        );
         return new SourceText(newText, FilePath);
     }
 
@@ -68,7 +70,8 @@ public sealed class SourceText
                 int lineLength = i - lineStart;
                 int lineBreakWidth = (i + 1 < text.Length && text[i + 1] == '\n') ? 2 : 1;
                 lines.Add(new TextLine(lineStart, lineLength, lineLength + lineBreakWidth));
-                if (lineBreakWidth == 2) i++;
+                if (lineBreakWidth == 2)
+                    i++;
                 lineStart = i + 1;
             }
         }

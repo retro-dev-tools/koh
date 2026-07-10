@@ -6,6 +6,7 @@ namespace KohUI.Tests;
 public class TextBoxTests
 {
     private abstract record Msg;
+
     private sealed record SetName(string Value) : Msg;
 
     [Test]

@@ -53,8 +53,11 @@ public class CharSourceTests
     // InterpolationAwareSource
     // ─────────────────────────────────────────────────────────────
 
-    private static InterpolationAwareSource CreateSource(string text,
-        IInterpolationResolver resolver, DiagnosticBag? diags = null)
+    private static InterpolationAwareSource CreateSource(
+        string text,
+        IInterpolationResolver resolver,
+        DiagnosticBag? diags = null
+    )
     {
         var inner = new StringCharSource(text);
         return new InterpolationAwareSource(inner, resolver, diags ?? new DiagnosticBag());
@@ -66,7 +69,8 @@ public class CharSourceTests
         while (true)
         {
             var sc = source.Read();
-            if (sc.IsEof) break;
+            if (sc.IsEof)
+                break;
             sb.Append(sc.Char);
         }
         return sb.ToString();
@@ -94,11 +98,7 @@ public class CharSourceTests
     public async Task Interpolation_NestedExpansion()
     {
         // {meaning} resolves to "answer", then {answer} resolves to "42"
-        var resolver = new MockResolver(new()
-        {
-            ["meaning"] = "answer",
-            ["answer"] = "42",
-        });
+        var resolver = new MockResolver(new() { ["meaning"] = "answer", ["answer"] = "42" });
         var source = CreateSource("{{meaning}}", resolver);
         var result = ReadAll(source);
         await Assert.That(result).IsEqualTo("42");
@@ -176,11 +176,7 @@ public class CharSourceTests
     public async Task Interpolation_ReExpansion()
     {
         // Expanded text contains another {sym2} which should re-expand
-        var resolver = new MockResolver(new()
-        {
-            ["sym1"] = "val={sym2}",
-            ["sym2"] = "inner",
-        });
+        var resolver = new MockResolver(new() { ["sym1"] = "val={sym2}", ["sym2"] = "inner" });
         var source = CreateSource("{sym1}", resolver);
         var result = ReadAll(source);
         await Assert.That(result).IsEqualTo("val=inner");

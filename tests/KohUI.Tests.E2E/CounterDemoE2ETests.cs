@@ -20,7 +20,10 @@ namespace KohUI.Tests.E2E;
 /// </summary>
 public class CounterDemoE2ETests
 {
-    private static readonly Regex s_portRegex = new(@"http://127\.0\.0\.1:(\d+)", RegexOptions.Compiled);
+    private static readonly Regex s_portRegex = new(
+        @"http://127\.0\.0\.1:(\d+)",
+        RegexOptions.Compiled
+    );
 
     [Test]
     public async Task Counter_Click_Increments_And_Close_Hides_Window()
@@ -38,9 +41,11 @@ public class CounterDemoE2ETests
 
         // Initial render: Count: 0 visible inside a Window.
         await page.Locator(".kohui-window .title-bar-text").WaitForAsync();
-        await Assert.That((await page.Locator(".kohui-window .title-bar-text").TextContentAsync()) ?? "")
+        await Assert
+            .That((await page.Locator(".kohui-window .title-bar-text").TextContentAsync()) ?? "")
             .IsEqualTo("Koh Counter");
-        await Assert.That((await page.Locator(".kohui-label").First.TextContentAsync()) ?? "")
+        await Assert
+            .That((await page.Locator(".kohui-label").First.TextContentAsync()) ?? "")
             .IsEqualTo("Count: 0");
 
         // Click + twice → Count: 2. Button labels are "-" and "+".
@@ -50,7 +55,8 @@ public class CounterDemoE2ETests
         await page.Locator(".kohui-label", new() { HasTextString = "Count: 2" }).WaitForAsync();
 
         // Status bar should reflect the same count.
-        await Assert.That((await page.Locator(".status-bar-field").Nth(1).TextContentAsync()) ?? "")
+        await Assert
+            .That((await page.Locator(".status-bar-field").Nth(1).TextContentAsync()) ?? "")
             .IsEqualTo("Value: 2");
 
         // Switch the step to 5 via the radio buttons, then +1 click → +5 → 7.
@@ -60,11 +66,12 @@ public class CounterDemoE2ETests
 
         // Toggle the AllowNegative checkbox off, then decrement past zero —
         // the update pass clamps Count to 0 so we observe "Count: 0".
-        var allowNegCb = page.Locator(".kohui-checkbox").Filter(new() { HasTextString = "Allow negative values" });
-        await allowNegCb.ClickAsync();   // now false
+        var allowNegCb = page.Locator(".kohui-checkbox")
+            .Filter(new() { HasTextString = "Allow negative values" });
+        await allowNegCb.ClickAsync(); // now false
         var decrementBtn = page.Locator("button", new() { HasTextString = "-" });
-        await decrementBtn.ClickAsync();   // 7 - 5 = 2
-        await decrementBtn.ClickAsync();   // 2 - 5 would be -3, clamped to 0
+        await decrementBtn.ClickAsync(); // 7 - 5 = 2
+        await decrementBtn.ClickAsync(); // 2 - 5 would be -3, clamped to 0
         await page.Locator(".kohui-label", new() { HasTextString = "Count: 0" }).WaitForAsync();
 
         // Click the window close button. Window disappears; a "Reopen"
@@ -84,9 +91,13 @@ public class CounterDemoE2ETests
         // appears.
         var nameInput = page.Locator("input[type='text']").First;
         await nameInput.FillAsync("Mike");
-        await page.Locator(".status-bar-field").Filter(new() { HasTextString = "Hi, Mike!" }).WaitForAsync();
+        await page.Locator(".status-bar-field")
+            .Filter(new() { HasTextString = "Hi, Mike!" })
+            .WaitForAsync();
         await nameInput.FillAsync("Bob");
-        await page.Locator(".status-bar-field").Filter(new() { HasTextString = "Hi, Bob!" }).WaitForAsync();
+        await page.Locator(".status-bar-field")
+            .Filter(new() { HasTextString = "Hi, Bob!" })
+            .WaitForAsync();
     }
 
     // ─── Subprocess plumbing ─────────────────────────────────────────
@@ -103,18 +114,23 @@ public class CounterDemoE2ETests
             // The E2E test drives the DOM preview explicitly; the
             // GlBackend path is the default production shape but can't
             // be steered by Playwright.
-            Arguments = "run --project \"" + demoDir + "\" --no-build --configuration Debug -- --preview",
+            Arguments =
+                "run --project \"" + demoDir + "\" --no-build --configuration Debug -- --preview",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        var proc = Process.Start(psi) ?? throw new InvalidOperationException("dotnet run failed to start");
+        var proc =
+            Process.Start(psi) ?? throw new InvalidOperationException("dotnet run failed to start");
 
-        var urlTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var urlTcs = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         proc.OutputDataReceived += (_, e) =>
         {
-            if (e.Data is null) return;
+            if (e.Data is null)
+                return;
             var m = s_portRegex.Match(e.Data);
             if (m.Success && !urlTcs.Task.IsCompleted)
                 urlTcs.TrySetResult(m.Value);
@@ -136,14 +152,22 @@ public class CounterDemoE2ETests
         var dir = AppContext.BaseDirectory;
         while (dir is not null && !Directory.Exists(Path.Combine(dir, ".git")))
             dir = Path.GetDirectoryName(dir);
-        return dir ?? throw new InvalidOperationException("couldn't locate repo root from " + AppContext.BaseDirectory);
+        return dir
+            ?? throw new InvalidOperationException(
+                "couldn't locate repo root from " + AppContext.BaseDirectory
+            );
     }
 
     private sealed class DemoHandle : IDisposable
     {
         public Process Process { get; }
         public string Url { get; }
-        public DemoHandle(Process p, string url) { Process = p; Url = url; }
+
+        public DemoHandle(Process p, string url)
+        {
+            Process = p;
+            Url = url;
+        }
 
         public void Dispose()
         {
@@ -155,7 +179,9 @@ public class CounterDemoE2ETests
                     Process.WaitForExit(TimeSpan.FromSeconds(5));
                 }
             }
-            catch { /* best-effort teardown */ }
+            catch
+            { /* best-effort teardown */
+            }
             Process.Dispose();
         }
     }

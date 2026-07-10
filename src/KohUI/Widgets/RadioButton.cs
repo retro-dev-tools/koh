@@ -16,15 +16,16 @@ namespace KohUI.Widgets;
 /// 13×13 circle and the center dot, DomBackend uses
 /// <c>&lt;input type="radio"&gt;</c>.
 /// </summary>
-public readonly struct RadioButton<TMsg>(string Text, bool Selected, Func<TMsg>? OnSelect = null) : IView<TMsg>
+public readonly struct RadioButton<TMsg>(string Text, bool Selected, Func<TMsg>? OnSelect = null)
+    : IView<TMsg>
 {
     public readonly string Text = Text;
     public readonly bool Selected = Selected;
     public readonly Func<TMsg>? OnSelect = OnSelect;
 
-    public RenderNode Render()
-        => RenderNode.Leaf("RadioButton", Props.Of(
-            ("text", Text),
-            ("selected", Selected),
-            ("onClick", OnSelect)));
+    public RenderNode Render() =>
+        RenderNode.Leaf(
+            "RadioButton",
+            Props.Of(("text", Text), ("selected", Selected), ("onClick", OnSelect))
+        );
 }

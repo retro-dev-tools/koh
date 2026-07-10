@@ -1,6 +1,10 @@
 namespace Koh.Core.Binding;
 
-internal enum BodyReplayKind { Structural, RequiresTextReplay }
+internal enum BodyReplayKind
+{
+    Structural,
+    RequiresTextReplay,
+}
 
 /// <summary>
 /// Result of body classification for REPT/FOR. For the text-replay FOR path,
@@ -10,4 +14,5 @@ internal enum BodyReplayKind { Structural, RequiresTextReplay }
 internal sealed record BodyReplayPlan(
     BodyReplayKind Kind,
     TextReplayReason? Reason = null,
-    List<(int Start, int Length)>? IdentifierPositions = null);
+    List<(int Start, int Length)>? IdentifierPositions = null
+);

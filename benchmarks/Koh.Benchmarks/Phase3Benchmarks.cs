@@ -28,9 +28,18 @@ public class Phase3Benchmarks
         var dir = AppContext.BaseDirectory;
         for (int i = 0; i < 8 && dir is not null; i++)
         {
-            var candidate = Path.Combine(dir, "tests", "fixtures", "test-roms", "blargg",
-                "cpu_instrs", "individual", "01-special.gb");
-            if (File.Exists(candidate)) return File.ReadAllBytes(candidate);
+            var candidate = Path.Combine(
+                dir,
+                "tests",
+                "fixtures",
+                "test-roms",
+                "blargg",
+                "cpu_instrs",
+                "individual",
+                "01-special.gb"
+            );
+            if (File.Exists(candidate))
+                return File.ReadAllBytes(candidate);
             dir = Path.GetDirectoryName(dir);
         }
         return null;
@@ -40,8 +49,8 @@ public class Phase3Benchmarks
     {
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
-        rom[0x100] = 0x00;  // NOP
-        rom[0x101] = 0xC3;  // JP $0100
+        rom[0x100] = 0x00; // NOP
+        rom[0x101] = 0xC3; // JP $0100
         rom[0x102] = 0x00;
         rom[0x103] = 0x01;
         return rom;
@@ -51,6 +60,7 @@ public class Phase3Benchmarks
     [Benchmark]
     public void Run_One_Second()
     {
-        for (int i = 0; i < 60; i++) _gb.RunFrame();
+        for (int i = 0; i < 60; i++)
+            _gb.RunFrame();
     }
 }

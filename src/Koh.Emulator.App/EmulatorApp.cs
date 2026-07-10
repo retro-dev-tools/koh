@@ -23,52 +23,70 @@ public readonly record struct EmulatorModel(
     string? RomPath,
     long FrameCount,
     string Status,
-    bool ShowDebug);
+    bool ShowDebug
+);
 
 public abstract record EmulatorMsg;
+
 public sealed record Tick : EmulatorMsg;
+
 public sealed record Noop : EmulatorMsg;
+
 public sealed record LoadRom(string Path) : EmulatorMsg;
+
 public sealed record LoadRomSucceeded(GameBoySystem System, string Path) : EmulatorMsg;
+
 public sealed record LoadRomFailed(string Path, string Error) : EmulatorMsg;
+
 public sealed record JoypadDown(JoypadButton Button) : EmulatorMsg;
+
 public sealed record JoypadUp(JoypadButton Button) : EmulatorMsg;
+
 public sealed record TogglePause : EmulatorMsg;
+
 public sealed record Reset : EmulatorMsg;
+
 public sealed record ToggleDebug : EmulatorMsg;
+
 public sealed record SaveState : EmulatorMsg;
+
 public sealed record LoadState : EmulatorMsg;
+
 public sealed record ScrollMemory(int DeltaBytes) : EmulatorMsg;
+
 public sealed record SetMemoryAddress(ushort Address) : EmulatorMsg;
+
 public sealed record SetFastForward(bool On) : EmulatorMsg;
 
 public static class EmulatorApp
 {
-    public const int DisplayScale = 3;   // 160×144 → 480×432
+    public const int DisplayScale = 3; // 160×144 → 480×432
 
-    public static EmulatorModel Update(EmulatorMsg msg, EmulatorModel m) => msg switch
-    {
-        Tick                  => OnTick(m),
-        LoadRomSucceeded ok   => OnLoadSuccess(m, ok),
-        LoadRomFailed fail    => m with { Status = $"Load failed: {fail.Error}" },
-        JoypadDown d          => OnJoypadDown(m, d.Button),
-        JoypadUp u            => OnJoypadUp(m, u.Button),
-        TogglePause           => OnTogglePause(m),
-        Reset                 => OnReset(m),
-        ToggleDebug           => OnToggleDebug(m),
-        SaveState             => OnSaveState(m),
-        LoadState             => OnLoadState(m),
-        ScrollMemory s        => OnScrollMemory(m, s.DeltaBytes),
-        SetMemoryAddress a    => OnSetMemoryAddress(m, a.Address),
-        SetFastForward f      => OnSetFastForward(m, f.On),
-        LoadRom               => m,   // handled imperatively at boot
-        Noop                  => m,
-        _                     => m,
-    };
+    public static EmulatorModel Update(EmulatorMsg msg, EmulatorModel m) =>
+        msg switch
+        {
+            Tick => OnTick(m),
+            LoadRomSucceeded ok => OnLoadSuccess(m, ok),
+            LoadRomFailed fail => m with { Status = $"Load failed: {fail.Error}" },
+            JoypadDown d => OnJoypadDown(m, d.Button),
+            JoypadUp u => OnJoypadUp(m, u.Button),
+            TogglePause => OnTogglePause(m),
+            Reset => OnReset(m),
+            ToggleDebug => OnToggleDebug(m),
+            SaveState => OnSaveState(m),
+            LoadState => OnLoadState(m),
+            ScrollMemory s => OnScrollMemory(m, s.DeltaBytes),
+            SetMemoryAddress a => OnSetMemoryAddress(m, a.Address),
+            SetFastForward f => OnSetFastForward(m, f.On),
+            LoadRom => m, // handled imperatively at boot
+            Noop => m,
+            _ => m,
+        };
 
     private static EmulatorModel OnTogglePause(EmulatorModel m)
     {
-        if (m.Loop is null) return m;
+        if (m.Loop is null)
+            return m;
         if (m.Loop.IsPaused)
         {
             m.Loop.Resume();
@@ -83,13 +101,15 @@ public static class EmulatorApp
 
     private static EmulatorModel OnSetFastForward(EmulatorModel m, bool on)
     {
-        if (m.Loop is not null) m.Loop.FastForward = on;
-        return m;   // status bar could show "[FF]" here later; keep quiet for now
+        if (m.Loop is not null)
+            m.Loop.FastForward = on;
+        return m; // status bar could show "[FF]" here later; keep quiet for now
     }
 
     private static EmulatorModel OnScrollMemory(EmulatorModel m, int deltaBytes)
     {
-        if (m.Loop is null) return m;
+        if (m.Loop is null)
+            return m;
         // 16-bit wraparound: past $FFFF / before $0000 we loop around
         // so the scroll never dead-ends. HRAM top ($FFFE) is worth
         // keeping reachable.
@@ -100,7 +120,8 @@ public static class EmulatorApp
 
     private static EmulatorModel OnSetMemoryAddress(EmulatorModel m, ushort address)
     {
-        if (m.Loop is null) return m;
+        if (m.Loop is null)
+            return m;
         m.Loop.MemoryViewAddress = address;
         return m;
     }
@@ -112,22 +133,26 @@ public static class EmulatorApp
         // only run when the UI is actually consuming them. Without
         // this, the 192 KB VRAM buffer allocation and the BGR555
         // decode happen every frame regardless of panel visibility.
-        if (m.Loop is not null) m.Loop.PublishDebugSnapshots = next;
+        if (m.Loop is not null)
+            m.Loop.PublishDebugSnapshots = next;
         return m with { ShowDebug = next };
     }
 
     private static EmulatorModel OnSaveState(EmulatorModel m)
     {
-        if (m.Loop is null || m.RomPath is null) return m;
+        if (m.Loop is null || m.RomPath is null)
+            return m;
         m.Loop.SaveState(StatePathFor(m.RomPath));
         return m with { Status = "Saved state" };
     }
 
     private static EmulatorModel OnLoadState(EmulatorModel m)
     {
-        if (m.Loop is null || m.RomPath is null) return m;
+        if (m.Loop is null || m.RomPath is null)
+            return m;
         var path = StatePathFor(m.RomPath);
-        if (!File.Exists(path)) return m with { Status = "No save state" };
+        if (!File.Exists(path))
+            return m with { Status = "No save state" };
         m.Loop.LoadState(path);
         return m with { Status = "Loaded state" };
     }
@@ -145,8 +170,13 @@ public static class EmulatorApp
         // Re-load the original ROM from disk. Simpler than snapshotting
         // initial state; the Cartridge + System reconstruction is fast
         // enough to be unnoticeable.
-        if (m.RomPath is null) return m;
-        var mode = string.Equals(Path.GetExtension(m.RomPath), ".gbc", StringComparison.OrdinalIgnoreCase)
+        if (m.RomPath is null)
+            return m;
+        var mode = string.Equals(
+            Path.GetExtension(m.RomPath),
+            ".gbc",
+            StringComparison.OrdinalIgnoreCase
+        )
             ? HardwareMode.Cgb
             : HardwareMode.Dmg;
         var msg = LoadRomFromDisk(m.RomPath, mode);
@@ -159,7 +189,8 @@ public static class EmulatorApp
         // re-render. Emulator frames advance on the EmulatorLoop
         // thread; here we just snapshot the counter.
         long live = m.Loop?.FrameCount ?? 0;
-        if (live == m.FrameCount) return m;   // no-op: skip patch work
+        if (live == m.FrameCount)
+            return m; // no-op: skip patch work
         return m with { FrameCount = live };
     }
 
@@ -171,7 +202,12 @@ public static class EmulatorApp
         m.Loop?.Pause();
         m.Loop?.SetSystem(ok.System, ok.Path);
         m.Loop?.Resume();
-        return m with { RomPath = ok.Path, FrameCount = 0, Status = $"Loaded {Path.GetFileName(ok.Path)}" };
+        return m with
+        {
+            RomPath = ok.Path,
+            FrameCount = 0,
+            Status = $"Loaded {Path.GetFileName(ok.Path)}",
+        };
     }
 
     private static EmulatorModel OnJoypadDown(EmulatorModel m, JoypadButton button)
@@ -190,18 +226,19 @@ public static class EmulatorApp
         return m;
     }
 
-    public static JoypadButton? MapKey(string keyName) => keyName switch
-    {
-        "ArrowUp"     => JoypadButton.Up,
-        "ArrowDown"   => JoypadButton.Down,
-        "ArrowLeft"   => JoypadButton.Left,
-        "ArrowRight"  => JoypadButton.Right,
-        "KeyZ"        => JoypadButton.B,
-        "KeyX"        => JoypadButton.A,
-        "Enter"       => JoypadButton.Start,
-        "ShiftRight"  => JoypadButton.Select,
-        _             => null,
-    };
+    public static JoypadButton? MapKey(string keyName) =>
+        keyName switch
+        {
+            "ArrowUp" => JoypadButton.Up,
+            "ArrowDown" => JoypadButton.Down,
+            "ArrowLeft" => JoypadButton.Left,
+            "ArrowRight" => JoypadButton.Right,
+            "KeyZ" => JoypadButton.B,
+            "KeyX" => JoypadButton.A,
+            "Enter" => JoypadButton.Start,
+            "ShiftRight" => JoypadButton.Select,
+            _ => null,
+        };
 
     /// <summary>
     /// Global keyboard shortcuts that aren't joypad bindings. Returns
@@ -210,28 +247,34 @@ public static class EmulatorApp
     /// <c>Program.cs</c>'s GL <c>onKeyDown</c> hook; evaluated before
     /// <see cref="MapKey"/> so a shortcut wins over the joypad path.
     /// </summary>
-    public static EmulatorMsg? MapShortcut(string keyName) => keyName switch
-    {
-        "KeyP"     => new TogglePause(),
-        "KeyR"     => new Reset(),
-        "KeyD"     => new ToggleDebug(),
-        "F5"       => new SaveState(),
-        "F9"       => new LoadState(),
-        "PageUp"   => new ScrollMemory(-MemorySnapshot.WindowSize),
-        "PageDown" => new ScrollMemory(+MemorySnapshot.WindowSize),
-        "Home"     => new SetMemoryAddress(0),
-        _          => null,
-    };
+    public static EmulatorMsg? MapShortcut(string keyName) =>
+        keyName switch
+        {
+            "KeyP" => new TogglePause(),
+            "KeyR" => new Reset(),
+            "KeyD" => new ToggleDebug(),
+            "F5" => new SaveState(),
+            "F9" => new LoadState(),
+            "PageUp" => new ScrollMemory(-MemorySnapshot.WindowSize),
+            "PageDown" => new ScrollMemory(+MemorySnapshot.WindowSize),
+            "Home" => new SetMemoryAddress(0),
+            _ => null,
+        };
 
     public static IView<EmulatorMsg> View(EmulatorModel m)
     {
         byte[] pixels = m.Loop?.CurrentFramebuffer ?? s_placeholder;
 
-        var menu = new MenuBar<EmulatorMsg>(ImmutableArray.Create(
-            new MenuItem<EmulatorMsg>("&File", OnClick: OpenRomClick)));
+        var menu = new MenuBar<EmulatorMsg>(
+            ImmutableArray.Create(new MenuItem<EmulatorMsg>("&File", OnClick: OpenRomClick))
+        );
 
         var display = new Image<EmulatorMsg>(
-            pixels, Framebuffer.Width, Framebuffer.Height, DisplayScale);
+            pixels,
+            Framebuffer.Width,
+            Framebuffer.Height,
+            DisplayScale
+        );
 
         // Display area — the LCD alone, or the LCD next to the debug
         // side-panel when toggled on. The side panel is itself a
@@ -247,10 +290,13 @@ public static class EmulatorApp
                     BuildCpuPanel(m.Loop?.CurrentCpu),
                     BuildPalettePanel(m.Loop?.CurrentPalettes),
                     BuildVramPanel(m.Loop?.CurrentVram),
-                    BuildMemoryPanel(m.Loop?.CurrentMemory)));
+                    BuildMemoryPanel(m.Loop?.CurrentMemory)
+                )
+            );
             displayArea = new ForEach<EmulatorMsg>(
                 StackDirection.Horizontal,
-                ImmutableArray.Create<IView<EmulatorMsg>>(display, debugPanes));
+                ImmutableArray.Create<IView<EmulatorMsg>>(display, debugPanes)
+            );
         }
         else
         {
@@ -261,17 +307,26 @@ public static class EmulatorApp
         var controls = new ForEach<EmulatorMsg>(
             StackDirection.Horizontal,
             ImmutableArray.Create<IView<EmulatorMsg>>(
-                new Button<EmulatorMsg>(paused ? "Resume" : "Pause", OnClick: () => new TogglePause()),
+                new Button<EmulatorMsg>(
+                    paused ? "Resume" : "Pause",
+                    OnClick: () => new TogglePause()
+                ),
                 new Button<EmulatorMsg>("Reset", OnClick: () => new Reset()),
-                new Button<EmulatorMsg>(m.ShowDebug ? "Hide Debug" : "Show Debug", OnClick: () => new ToggleDebug())));
+                new Button<EmulatorMsg>(
+                    m.ShowDebug ? "Hide Debug" : "Show Debug",
+                    OnClick: () => new ToggleDebug()
+                )
+            )
+        );
 
-        var status = new StatusBar<EmulatorMsg>(ImmutableArray.Create(
-            m.Status,
-            m.Loop is null ? "No ROM" : $"Frame {m.FrameCount}"));
+        var status = new StatusBar<EmulatorMsg>(
+            ImmutableArray.Create(m.Status, m.Loop is null ? "No ROM" : $"Frame {m.FrameCount}")
+        );
 
         var body = new ForEach<EmulatorMsg>(
             StackDirection.Vertical,
-            ImmutableArray.Create<IView<EmulatorMsg>>(menu, displayArea, controls, status));
+            ImmutableArray.Create<IView<EmulatorMsg>>(menu, displayArea, controls, status)
+        );
 
         // Width: LCD + 16 px chrome, plus ~440 px for the debug side
         // panel when open. The memory hex view needs room for the
@@ -281,7 +336,7 @@ public static class EmulatorApp
         // bottom; grows further when debug is on so the CPU +
         // palettes + VRAM + memory stack doesn't clip.
         int windowWidth = Framebuffer.Width * DisplayScale + 16 + (m.ShowDebug ? 440 : 0);
-        int windowHeight = 0;   // 0 = auto-size when debug is off
+        int windowHeight = 0; // 0 = auto-size when debug is off
         if (m.ShowDebug)
         {
             // Keep below 1000 px so the window fits on a 1080p display
@@ -292,11 +347,15 @@ public static class EmulatorApp
         }
 
         return new Window<EmulatorMsg, ForEach<EmulatorMsg>>(
-            Title: m.RomPath is null ? "Koh Emulator" : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
+            Title: m.RomPath is null
+                ? "Koh Emulator"
+                : $"Koh Emulator — {Path.GetFileName(m.RomPath)}",
             Child: body,
-            X: 40, Y: 40,
+            X: 40,
+            Y: 40,
             Width: windowWidth,
-            Height: windowHeight);
+            Height: windowHeight
+        );
     }
 
     /// <summary>
@@ -312,7 +371,8 @@ public static class EmulatorApp
         {
             return new Panel<EmulatorMsg, Label<EmulatorMsg>>(
                 PanelBevel.Sunken,
-                new Label<EmulatorMsg>("(no ROM)"));
+                new Label<EmulatorMsg>("(no ROM)")
+            );
         }
 
         var c = cpu;
@@ -326,11 +386,14 @@ public static class EmulatorApp
             new Label<EmulatorMsg>($"HL  ${c.HL:X4}"),
             new Label<EmulatorMsg>($"Cyc {c.TotalTCycles}"),
             new Label<EmulatorMsg>(
-                $"{(c.FlagZ ? "Z" : "-")}{(c.FlagN ? "N" : "-")}{(c.FlagH ? "H" : "-")}{(c.FlagC ? "C" : "-")}"));
+                $"{(c.FlagZ ? "Z" : "-")}{(c.FlagN ? "N" : "-")}{(c.FlagH ? "H" : "-")}{(c.FlagC ? "C" : "-")}"
+            )
+        );
 
         return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
             PanelBevel.Sunken,
-            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows));
+            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows)
+        );
     }
 
     /// <summary>
@@ -345,7 +408,8 @@ public static class EmulatorApp
         {
             return new Panel<EmulatorMsg, Label<EmulatorMsg>>(
                 PanelBevel.Sunken,
-                new Label<EmulatorMsg>("(no ROM)"));
+                new Label<EmulatorMsg>("(no ROM)")
+            );
         }
 
         var rows = ImmutableArray.CreateBuilder<IView<EmulatorMsg>>();
@@ -353,9 +417,11 @@ public static class EmulatorApp
         if (pal.IsCgb)
         {
             rows.Add(new Label<EmulatorMsg>("BG"));
-            for (int p = 0; p < 8; p++) rows.Add(BuildPaletteRow(pal.BgColors, p * 4));
+            for (int p = 0; p < 8; p++)
+                rows.Add(BuildPaletteRow(pal.BgColors, p * 4));
             rows.Add(new Label<EmulatorMsg>("OBJ"));
-            for (int p = 0; p < 8; p++) rows.Add(BuildPaletteRow(pal.ObjColors, p * 4));
+            for (int p = 0; p < 8; p++)
+                rows.Add(BuildPaletteRow(pal.ObjColors, p * 4));
         }
         else
         {
@@ -369,7 +435,8 @@ public static class EmulatorApp
 
         return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
             PanelBevel.Sunken,
-            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows.ToImmutable()));
+            new ForEach<EmulatorMsg>(StackDirection.Vertical, rows.ToImmutable())
+        );
     }
 
     /// <summary>
@@ -387,7 +454,9 @@ public static class EmulatorApp
                 StackDirection.Vertical,
                 ImmutableArray.Create<IView<EmulatorMsg>>(
                     new Label<EmulatorMsg>("VRAM Tiles"),
-                    new Image<EmulatorMsg>(vram.Rgba, vram.Width, vram.Height, Scale: 1)));
+                    new Image<EmulatorMsg>(vram.Rgba, vram.Width, vram.Height, Scale: 1)
+                )
+            );
         return new Panel<EmulatorMsg, IView<EmulatorMsg>>(PanelBevel.Sunken, body);
     }
 
@@ -407,11 +476,14 @@ public static class EmulatorApp
         {
             return new Panel<EmulatorMsg, Label<EmulatorMsg>>(
                 PanelBevel.Sunken,
-                new Label<EmulatorMsg>("(no ROM)"));
+                new Label<EmulatorMsg>("(no ROM)")
+            );
         }
 
         var rows = ImmutableArray.CreateBuilder<IView<EmulatorMsg>>(MemorySnapshot.Rows);
-        var sb = new StringBuilder(3 * MemorySnapshot.BytesPerRow + MemorySnapshot.BytesPerRow + 16);
+        var sb = new StringBuilder(
+            3 * MemorySnapshot.BytesPerRow + MemorySnapshot.BytesPerRow + 16
+        );
         for (int r = 0; r < MemorySnapshot.Rows; r++)
         {
             sb.Clear();
@@ -438,12 +510,18 @@ public static class EmulatorApp
         // line height. The ScrollPanel clips off-viewport rows so if
         // future layout tightens further, rendering stays correct.
         var scroller = new ScrollPanel<EmulatorMsg, ForEach<EmulatorMsg>>(
-            stack, ViewportWidth: 430, ViewportHeight: 180, ScrollY: 0);
+            stack,
+            ViewportWidth: 430,
+            ViewportHeight: 180,
+            ScrollY: 0
+        );
         return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
             PanelBevel.Sunken,
             new ForEach<EmulatorMsg>(
                 StackDirection.Vertical,
-                ImmutableArray.Create<IView<EmulatorMsg>>(header, scroller)));
+                ImmutableArray.Create<IView<EmulatorMsg>>(header, scroller)
+            )
+        );
     }
 
     private static IView<EmulatorMsg> BuildPaletteRow(KohColor[] colors, int baseIndex)
@@ -469,8 +547,13 @@ public static class EmulatorApp
     private static EmulatorMsg OpenRomClick()
     {
         string? path = FileDialog.OpenRom();
-        if (path is null) return new Noop();
-        var mode = string.Equals(Path.GetExtension(path), ".gbc", StringComparison.OrdinalIgnoreCase)
+        if (path is null)
+            return new Noop();
+        var mode = string.Equals(
+            Path.GetExtension(path),
+            ".gbc",
+            StringComparison.OrdinalIgnoreCase
+        )
             ? HardwareMode.Cgb
             : HardwareMode.Dmg;
         return LoadRomFromDisk(path, mode);

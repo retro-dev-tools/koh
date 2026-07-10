@@ -1,7 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Koh.Asm/Koh.Asm.csproj" />
+    <Project Path="src/Koh.Build.Tasks/Koh.Build.Tasks.csproj" />
+    <Project Path="src/Koh.Compiler/Koh.Compiler.csproj" />
     <Project Path="src/Koh.Core/Koh.Core.csproj" />
+    <Project Path="src/Koh.GameBoy/Koh.GameBoy.csproj" />
     <Project Path="src/Koh.Emit/Koh.Emit.csproj" />
     <Project Path="src/Koh.Link/Koh.Link.csproj" />
     <Project Path="src/Koh.Linker.Core/Koh.Linker.Core.csproj" />
@@ -9,9 +12,11 @@
     <Project Path="src/Koh.Emulator.Core/Koh.Emulator.Core.csproj" />
     <Project Path="src/Koh.Debugger/Koh.Debugger.csproj" />
     <Project Path="src/Koh.Emulator.App/Koh.Emulator.App.csproj" />
+    <Project Path="src/Koh.Verify/Koh.Verify.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
+    <Project Path="tests/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj" />
     <Project Path="tests/Koh.Core.Tests/Koh.Core.Tests.csproj" />
     <Project Path="tests/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />
     <Project Path="tests/Koh.Linker.Tests/Koh.Linker.Tests.csproj" />

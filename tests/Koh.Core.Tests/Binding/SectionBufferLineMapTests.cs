@@ -18,7 +18,7 @@ public class SectionBufferLineMapTests
     {
         var sec = new SectionBuffer("Main", SectionType.Rom0);
         sec.SetSourceLocation("foo.asm", 7);
-        sec.EmitByte(0x21);   // LD HL, n16 opcode
+        sec.EmitByte(0x21); // LD HL, n16 opcode
         sec.EmitWord(0xBEEF); // operand
         await Assert.That(sec.LineMap.Count).IsEqualTo(1);
         var e = sec.LineMap[0];
@@ -97,8 +97,8 @@ public class SectionBufferLineMapTests
         // instruction's source line.
         var sec = new SectionBuffer("Main", SectionType.Rom0);
         sec.SetSourceLocation("foo.asm", 12);
-        sec.EmitByte(0xC3);    // JP n16 opcode
-        sec.ReserveWord();     // operand placeholder
+        sec.EmitByte(0xC3); // JP n16 opcode
+        sec.ReserveWord(); // operand placeholder
         await Assert.That(sec.LineMap.Count).IsEqualTo(1);
         await Assert.That(sec.LineMap[0].ByteCount).IsEqualTo(3);
     }

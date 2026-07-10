@@ -36,31 +36,48 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
 
     public void WriteState(StateWriter w)
     {
-        w.WriteByte(Registers.A); w.WriteByte(Registers.F);
-        w.WriteByte(Registers.B); w.WriteByte(Registers.C);
-        w.WriteByte(Registers.D); w.WriteByte(Registers.E);
-        w.WriteByte(Registers.H); w.WriteByte(Registers.L);
-        w.WriteU16(Registers.Sp); w.WriteU16(Registers.Pc);
-        w.WriteBool(Halted); w.WriteBool(Stopped); w.WriteBool(Ime);
-        w.WriteBool(_eiPending); w.WriteBool(_eiArmed);
+        w.WriteByte(Registers.A);
+        w.WriteByte(Registers.F);
+        w.WriteByte(Registers.B);
+        w.WriteByte(Registers.C);
+        w.WriteByte(Registers.D);
+        w.WriteByte(Registers.E);
+        w.WriteByte(Registers.H);
+        w.WriteByte(Registers.L);
+        w.WriteU16(Registers.Sp);
+        w.WriteU16(Registers.Pc);
+        w.WriteBool(Halted);
+        w.WriteBool(Stopped);
+        w.WriteBool(Ime);
+        w.WriteBool(_eiPending);
+        w.WriteBool(_eiArmed);
         w.WriteBool(_haltBugNextFetch);
         w.WriteU64(TotalTCycles);
     }
 
     public void ReadState(StateReader r)
     {
-        Registers.A = r.ReadByte(); Registers.F = r.ReadByte();
-        Registers.B = r.ReadByte(); Registers.C = r.ReadByte();
-        Registers.D = r.ReadByte(); Registers.E = r.ReadByte();
-        Registers.H = r.ReadByte(); Registers.L = r.ReadByte();
-        Registers.Sp = r.ReadU16(); Registers.Pc = r.ReadU16();
-        Halted = r.ReadBool(); Stopped = r.ReadBool(); Ime = r.ReadBool();
-        _eiPending = r.ReadBool(); _eiArmed = r.ReadBool();
+        Registers.A = r.ReadByte();
+        Registers.F = r.ReadByte();
+        Registers.B = r.ReadByte();
+        Registers.C = r.ReadByte();
+        Registers.D = r.ReadByte();
+        Registers.E = r.ReadByte();
+        Registers.H = r.ReadByte();
+        Registers.L = r.ReadByte();
+        Registers.Sp = r.ReadU16();
+        Registers.Pc = r.ReadU16();
+        Halted = r.ReadBool();
+        Stopped = r.ReadBool();
+        Ime = r.ReadBool();
+        _eiPending = r.ReadBool();
+        _eiArmed = r.ReadBool();
         _haltBugNextFetch = r.ReadBool();
         TotalTCycles = r.ReadU64();
     }
 
-    public Sm83(Mmu mmu) : this(mmu, () => { }) { }
+    public Sm83(Mmu mmu)
+        : this(mmu, () => { }) { }
 
     public Sm83(Mmu mmu, Action tickMCycle)
     {
@@ -80,7 +97,7 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     {
         if (Halted || Stopped)
         {
-            TickMCycle();  // 4 T-cycles of idle
+            TickMCycle(); // 4 T-cycles of idle
             bool hasPending = (_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F) != 0;
             if (Halted && hasPending)
             {
@@ -134,20 +151,34 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         // Promote pending EI latch by one stage. Applying _eiArmed BEFORE
         // advancing _eiPending means EI's own boundary does NOT enable IME —
         // IME becomes true one boundary later.
-        if (_eiArmed) { Ime = true; _eiArmed = false; }
-        if (_eiPending) { _eiArmed = true; _eiPending = false; }
+        if (_eiArmed)
+        {
+            Ime = true;
+            _eiArmed = false;
+        }
+        if (_eiPending)
+        {
+            _eiArmed = true;
+            _eiPending = false;
+        }
         ServiceInterrupts();
     }
 
     private void ServiceInterrupts()
     {
-        if (!Ime) return;
+        if (!Ime)
+            return;
         byte pending = (byte)(_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F);
-        if (pending == 0) return;
+        if (pending == 0)
+            return;
 
         int bit = 0;
         byte mask = pending;
-        while ((mask & 1) == 0) { mask >>= 1; bit++; }
+        while ((mask & 1) == 0)
+        {
+            mask >>= 1;
+            bit++;
+        }
 
         _mmu.Io.Interrupts.IF &= (byte)~(1 << bit);
         Ime = false;
@@ -240,6 +271,7 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
             Halted = true;
         }
     }
+
     public void Stop()
     {
         // CGB speed switch: if the game armed KEY1 (bit 0 = 1) before running

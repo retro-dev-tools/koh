@@ -1,0 +1,364 @@
+using System.Text;
+using Koh.Compiler.Backends.Sm83;
+using Koh.Compiler.Frontends.CSharp;
+using Koh.Compiler.Ir;
+using Koh.Compiler.Ir.Optimization;
+using Koh.Core.Diagnostics;
+using Koh.Core.Text;
+using Koh.Emulator.Core;
+using Koh.Emulator.Core.Cartridge;
+using Koh.Linker.Core;
+using LinkerType = Koh.Linker.Core.Linker;
+
+namespace Koh.Compiler.Tests.Samples;
+
+/// <summary>
+/// Compiles the <c>samples/gb-2048-cs</c> game together with the Koh.GameBoy framework HAL (as the SDK
+/// does) through the real pipeline (Koh C# frontend -> IR -> SM83 backend -> linker -> ROM) and runs
+/// its game logic in the emulator through the public <c>Board</c> API. The end-to-end proof that a
+/// non-trivial, multi-file Game Boy program written as ordinary static classes builds and behaves.
+/// </summary>
+public class Game2048Tests
+{
+    /// <summary>Every sample source, concatenated as one translation unit (as the SDK compiles it).</summary>
+    private static readonly string GameSource = ReadSample(includeGame: true);
+
+    /// <summary>The sample minus its Game.Main, so a test can supply its own Main as the ROM entry.</summary>
+    private static readonly string GameLibrary = ReadSample(includeGame: false);
+
+    private static string ReadSample(bool includeGame)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
+            dir = dir.Parent;
+        if (dir is null)
+            throw new InvalidOperationException("could not locate the repository root (Koh.slnx).");
+
+        // As the SDK compiles it: the framework HAL (Koh.GameBoy/Hal) plus the game's own sources.
+        var frameworkHal = Path.Combine(dir.FullName, "src", "Koh.GameBoy", "Hal");
+        var sampleDir = Path.Combine(dir.FullName, "samples", "gb-2048-cs");
+
+        var sb = new StringBuilder();
+        foreach (
+            var file in Directory
+                .GetFiles(frameworkHal, "*.cs")
+                .OrderBy(f => f, StringComparer.Ordinal)
+        )
+            sb.Append(File.ReadAllText(file)).Append('\n');
+        foreach (
+            var file in Directory
+                .GetFiles(sampleDir, "*.cs")
+                .OrderBy(f => f, StringComparer.Ordinal)
+        )
+        {
+            if (!includeGame && Path.GetFileName(file) == "Game.cs")
+                continue;
+            sb.Append(File.ReadAllText(file)).Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    // ---- The real sample compiles to a valid, bootable ROM -----------------
+
+    [Test]
+    public async Task Sample_CompilesWithoutDiagnostics()
+    {
+        var diagnostics = new DiagnosticBag();
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(GameSource, "2048.cs"),
+            diagnostics
+        );
+        new Sm83Backend().Compile(module, diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsFalse();
+    }
+
+    [Test]
+    public async Task Sample_ProducesVerifiableIr()
+    {
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(GameSource, "2048.cs"),
+            new DiagnosticBag()
+        );
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    [Test]
+    public async Task Sample_LinksToBootableRom()
+    {
+        var model = new Sm83Backend().Compile(
+            new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), new DiagnosticBag()),
+            new DiagnosticBag()
+        );
+        var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
+
+        // A DMG cartridge boots through 0x0100 (nop; jp entry) and the boot ROM verifies the logo.
+        await Assert.That(rom[0x100]).IsEqualTo((byte)0x00); // NOP
+        await Assert.That(rom[0x101]).IsEqualTo((byte)0xC3); // JP a16
+        await Assert.That(rom[0x104]).IsEqualTo((byte)0xCE); // first byte of the Nintendo logo
+        await Assert.That(rom[0x105]).IsEqualTo((byte)0xED);
+    }
+
+    [Test]
+    public async Task Sample_RomBootsIntoMainAndInitializes()
+    {
+        // The real ROM (with the sample's own Game.Main, not an injected bare Main) must boot into
+        // Main. Regression guard: Main lives in `static class Game` so its IR name is "Game.Main"; if
+        // the backend's entry detection matched only the exact name "main" it would boot into the first
+        // function instead and the game would never initialize. Boot from the header and confirm Main
+        // ran by checking Tiles.GenerateTileset wrote tile 1's first row (0xFF) into VRAM.
+        var model = new Sm83Backend().Compile(
+            new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), new DiagnosticBag()),
+            new DiagnosticBag()
+        );
+        var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Pc = 0x100; // boot: NOP; JP entry
+        gb.Registers.Sp = 0xFFFE;
+        for (int i = 0; i < 2_000_000; i++)
+            gb.StepInstruction();
+
+        await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);
+    }
+
+    // ---- Its game logic runs correctly in the emulator ---------------------
+
+    /// <summary>
+    /// Compile a test whose Main (placed first, so it lands at the ROM entry) drives the sample's
+    /// Board/Video API, run it, and return HL.
+    /// </summary>
+    private static ushort Run(string testMain, bool optimize = false)
+    {
+        var src = testMain + "\n" + GameLibrary;
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(src, "game.cs"),
+            new DiagnosticBag()
+        );
+        if (optimize)
+            IrOptimizer.Optimize(module);
+        var model = new Sm83Backend().Compile(module, new DiagnosticBag());
+        var rom = new LinkerType().Link([new LinkerInput("t", model)]).RomData!;
+
+        int start = Sm83Backend.CodeBase;
+        int length = model.Sections[0].Data.Length;
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = (ushort)start; // the test Main is emitted first -> entry is at CodeBase
+        for (int steps = 0; steps < 1_000_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < start || pc >= start + length)
+                break;
+            gb.StepInstruction();
+        }
+        return gb.Registers.HL;
+    }
+
+    // Set a row's four cells, slide the whole board Left (empty rows are unaffected), read one cell.
+    private static ushort SlideRow(string setup, int index) =>
+        Run(
+            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.Left); return Board.GetCell((byte){index}); }}"
+        );
+
+    private static async Task AssertRow(string setup, byte[] expected)
+    {
+        for (int i = 0; i < 4; i++)
+            await Assert.That(SlideRow(setup, i)).IsEqualTo((ushort)expected[i]);
+    }
+
+    [Test]
+    public async Task SlideLine_MergesEqualPair() =>
+        await AssertRow("Board.SetCell(0,1); Board.SetCell(1,1);", [2, 0, 0, 0]); // 2 2 . .  ->  4 . . .
+
+    [Test]
+    public async Task SlideLine_CompactsAcrossGap() =>
+        await AssertRow("Board.SetCell(0,1); Board.SetCell(2,1);", [2, 0, 0, 0]); // 2 . 2 .  ->  4 . . .
+
+    [Test]
+    public async Task SlideLine_MergesTwoPairsNotTriple() =>
+        await AssertRow(
+            "Board.SetCell(0,1); Board.SetCell(1,1); Board.SetCell(2,1); Board.SetCell(3,1);",
+            [2, 2, 0, 0]
+        );
+
+    [Test]
+    public async Task SlideLine_MergesLeftmostPairOfTriple() =>
+        await AssertRow(
+            "Board.SetCell(0,1); Board.SetCell(1,1); Board.SetCell(2,1);",
+            [2, 1, 0, 0]
+        );
+
+    [Test]
+    public async Task SlideLine_SlidesLoneTileToEdge() =>
+        await AssertRow("Board.SetCell(3,1);", [1, 0, 0, 0]); // . . . 2  ->  2 . . .
+
+    // Each direction merges a pair into the right edge cell.
+    private static ushort Move(string setup, string dir, int index) =>
+        Run(
+            $"static ushort Main() {{ Board.Reset(); {setup} Board.Slide(Direction.{dir}); return Board.GetCell((byte){index}); }}"
+        );
+
+    [Test]
+    public async Task MoveLeft_MergesRowIntoLeftEdge() =>
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(1,1);", "Left", 0))
+            .IsEqualTo((ushort)2);
+
+    [Test]
+    public async Task MoveRight_MergesRowIntoRightEdge() =>
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(1,1);", "Right", 3))
+            .IsEqualTo((ushort)2);
+
+    [Test]
+    public async Task MoveUp_MergesColumnIntoTopEdge() =>
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(4,1);", "Up", 0))
+            .IsEqualTo((ushort)2);
+
+    [Test]
+    public async Task MoveDown_MergesColumnIntoBottomEdge() =>
+        await Assert
+            .That(Move("Board.SetCell(0,1); Board.SetCell(4,1);", "Down", 12))
+            .IsEqualTo((ushort)2);
+
+    [Test]
+    public async Task Slide_ReportsWhetherAnythingChanged()
+    {
+        await Assert
+            .That(
+                Run(
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(1,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
+                )
+            )
+            .IsEqualTo((ushort)1);
+        await Assert
+            .That(
+                Run(
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(0,1); return (ushort)(Board.Slide(Direction.Left) ? 1 : 0); }"
+                )
+            )
+            .IsEqualTo((ushort)0);
+    }
+
+    [Test]
+    public async Task Spawn_FillsExactlyOneEmptyCell()
+    {
+        const string src =
+            @"static ushort Main() {
+            Board.Reset();
+            Board.SpawnTile();
+            byte n = 0;
+            for (byte i = 0; i < 16; i++) if (Board.GetCell(i) != 0) n++;
+            return n;
+        }";
+        await Assert.That(Run(src)).IsEqualTo((ushort)1);
+    }
+
+    [Test]
+    public async Task Spawn_ReturnsFalseWhenBoardFull()
+    {
+        const string src =
+            @"static ushort Main() {
+            Board.Reset();
+            for (byte i = 0; i < 16; i++) Board.SetCell(i, 5);
+            return (ushort)(Board.SpawnTile() ? 1 : 0);
+        }";
+        await Assert.That(Run(src)).IsEqualTo((ushort)0);
+    }
+
+    [Test]
+    public async Task CanMove_FalseOnGridlock_TrueWithAnOpening()
+    {
+        // A board of all-distinct ascending values has no merges and no gaps -> gridlocked.
+        const string locked =
+            @"static ushort Main() {
+            Board.Reset();
+            for (byte i = 0; i < 16; i++) Board.SetCell(i, (byte)(i + 1));
+            return (ushort)(Board.CanMove() ? 1 : 0);
+        }";
+        await Assert.That(Run(locked)).IsEqualTo((ushort)0);
+
+        const string opening =
+            @"static ushort Main() {
+            Board.Reset();
+            for (byte i = 0; i < 16; i++) Board.SetCell(i, (byte)(i + 1));
+            Board.SetCell(5, 0);
+            return (ushort)(Board.CanMove() ? 1 : 0);
+        }";
+        await Assert.That(Run(opening)).IsEqualTo((ushort)1);
+    }
+
+    [Test]
+    public async Task HasWon_DetectsThe2048Tile()
+    {
+        await Assert
+            .That(
+                Run(
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(7,11); return (ushort)(Board.HasWon() ? 1 : 0); }"
+                )
+            )
+            .IsEqualTo((ushort)1);
+        await Assert
+            .That(
+                Run(
+                    "static ushort Main(){ Board.Reset(); Board.SetCell(7,10); return (ushort)(Board.HasWon() ? 1 : 0); }"
+                )
+            )
+            .IsEqualTo((ushort)0);
+    }
+
+    [Test]
+    public async Task Render_PaintsBottomRowCellsToTheCorrectTilemapAddress()
+    {
+        // The bottom-right board cell (r=3, c=3) maps to tilemap (row 12, col 15) = $9800 + 399.
+        // Regression: the offset row*32 used to be computed in 8-bit and truncate (399 -> 143), so
+        // the lower board rows scribbled over the wrong cells. Read the tile back through VRAM with
+        // the LCD off, so the PPU is not blocking VRAM access.
+        const string src =
+            @"static ushort Main() {
+            Hardware.LCDC = 0;
+            Board.Reset();
+            Board.SetCell(15, 9);
+            Tiles.RenderBoard();
+            return *(Gb.TileMap + 12 * 32 + 15);
+        }";
+        await Assert.That(Run(src)).IsEqualTo((ushort)9);
+    }
+
+    // ---- The optimized real ROM boots and behaves identically ---------------
+
+    [Test]
+    public async Task Optimized_SampleRomBootsIntoMainAndInitializes()
+    {
+        // The full sample compiled through the optimizer must still boot into Main and initialize:
+        // Tiles.GenerateTileset writes tile 1's first row (0xFF) into VRAM at 0x8010, exactly as the
+        // un-optimized ROM does. This exercises the optimizer across the entire multi-file program.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From(GameSource, "2048.cs"),
+            new DiagnosticBag()
+        );
+        IrOptimizer.Optimize(module);
+        var model = new Sm83Backend().Compile(module, new DiagnosticBag());
+        var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Pc = 0x100;
+        gb.Registers.Sp = 0xFFFE;
+        for (int i = 0; i < 2_000_000; i++)
+            gb.StepInstruction();
+
+        await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);
+    }
+
+    [Test]
+    public async Task Optimized_SlideLogicMatchesUnoptimized()
+    {
+        // A representative slide (2 2 . . -> 4 . . .) produces the same cell values with the optimizer on.
+        const string main =
+            "static ushort Main() { Board.Reset(); Board.SetCell(0,1); Board.SetCell(1,1); "
+            + "Board.Slide(Direction.Left); return Board.GetCell((byte)0); }";
+        await Assert.That(Run(main, optimize: true)).IsEqualTo(Run(main, optimize: false));
+        await Assert.That(Run(main, optimize: true)).IsEqualTo((ushort)2);
+    }
+}

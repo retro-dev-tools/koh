@@ -5,7 +5,11 @@ namespace Koh.Debugger.Dap.Handlers;
 public sealed class PauseHandler
 {
     private readonly DebugSession _session;
-    public PauseHandler(DebugSession session) { _session = session; }
+
+    public PauseHandler(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response Handle(Request request)
     {

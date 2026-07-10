@@ -11,9 +11,9 @@ public class SemanticModelTests
     public async Task ResolveSymbol_LocalLabel_UsesPositionScope()
     {
         var text =
-            "SECTION \"Main\", ROM0\n" +
-            "funcA:\n.done:\n    jr .done\n" +
-            "funcB:\n.done:\n    jr .done\n";
+            "SECTION \"Main\", ROM0\n"
+            + "funcA:\n.done:\n    jr .done\n"
+            + "funcB:\n.done:\n    jr .done\n";
         var tree = SyntaxTree.Parse(text);
         var compilation = Compilation.Create(tree);
         var model = compilation.GetSemanticModel(tree);
@@ -74,7 +74,8 @@ public class SemanticModelTests
     {
         // If parser structure changes, ResolveSymbol must be updated.
         var tree = SyntaxTree.Parse("SECTION \"Main\", ROM0\nmain:\n.local:\n    nop\n");
-        var labels = tree.Root.ChildNodes()
+        var labels = tree
+            .Root.ChildNodes()
             .Where(n => n.Kind == SyntaxKind.LabelDeclaration)
             .ToList();
         await Assert.That(labels.Count).IsEqualTo(2);
@@ -181,7 +182,8 @@ public class SemanticModelTests
     public async Task Compilation_NoDiagnostics_CleanProgram()
     {
         var tree = SyntaxTree.Parse(
-            "MY_CONST EQU $10\nSECTION \"Main\", ROM0\nmain:\nld a, MY_CONST\nhalt");
+            "MY_CONST EQU $10\nSECTION \"Main\", ROM0\nmain:\nld a, MY_CONST\nhalt"
+        );
         var compilation = Compilation.Create(tree);
         await Assert.That(compilation.Diagnostics).IsEmpty();
     }

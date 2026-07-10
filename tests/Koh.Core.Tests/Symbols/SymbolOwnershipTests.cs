@@ -11,14 +11,16 @@ public class SymbolOwnershipTests
     public async Task SameNameDifferentOwners_NoDiagnostic()
     {
         var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\ncount:\n    nop\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\ncount:\n    nop\n", "a.asm")
+        );
         var treeB = SyntaxTree.Parse(
-            SourceText.From("SECTION \"B\", ROM0\ncount EQU 42\n    ld a, count\n", "b.asm"));
+            SourceText.From("SECTION \"B\", ROM0\ncount EQU 42\n    ld a, count\n", "b.asm")
+        );
 
         var compilation = Compilation.Create(treeA, treeB);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsEqualTo(0);
@@ -29,7 +31,8 @@ public class SymbolOwnershipTests
     {
         var textB = "SECTION \"B\", ROM0\ncount EQU 42\n    ld a, count\n";
         var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\ncount:\n    nop\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\ncount:\n    nop\n", "a.asm")
+        );
         var treeB = SyntaxTree.Parse(SourceText.From(textB, "b.asm"));
 
         var compilation = Compilation.Create(treeA, treeB);
@@ -48,14 +51,16 @@ public class SymbolOwnershipTests
     public async Task SameNameGlobalLabels_DifferentOwners_NoCollision()
     {
         var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nmain:\n    nop\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\nmain:\n    nop\n", "a.asm")
+        );
         var treeB = SyntaxTree.Parse(
-            SourceText.From("SECTION \"B\", ROM0\nmain:\n    nop\n", "b.asm"));
+            SourceText.From("SECTION \"B\", ROM0\nmain:\n    nop\n", "b.asm")
+        );
 
         var compilation = Compilation.Create(treeA, treeB);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsEqualTo(0);
@@ -64,15 +69,13 @@ public class SymbolOwnershipTests
     [Test]
     public async Task DifferentOwners_SameNameConstants_NoCollision()
     {
-        var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nfoo EQU 42\n", "a.asm"));
-        var treeB = SyntaxTree.Parse(
-            SourceText.From("SECTION \"B\", ROM0\nfoo EQU 99\n", "b.asm"));
+        var treeA = SyntaxTree.Parse(SourceText.From("SECTION \"A\", ROM0\nfoo EQU 42\n", "a.asm"));
+        var treeB = SyntaxTree.Parse(SourceText.From("SECTION \"B\", ROM0\nfoo EQU 99\n", "b.asm"));
 
         var compilation = Compilation.Create(treeA, treeB);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsEqualTo(0);
@@ -82,14 +85,16 @@ public class SymbolOwnershipTests
     public async Task DifferentOwners_SameNameStringConstants_NoCollision()
     {
         var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nfoo EQUS \"hello\"\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\nfoo EQUS \"hello\"\n", "a.asm")
+        );
         var treeB = SyntaxTree.Parse(
-            SourceText.From("SECTION \"B\", ROM0\nfoo EQUS \"world\"\n", "b.asm"));
+            SourceText.From("SECTION \"B\", ROM0\nfoo EQUS \"world\"\n", "b.asm")
+        );
 
         var compilation = Compilation.Create(treeA, treeB);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsEqualTo(0);
@@ -99,12 +104,13 @@ public class SymbolOwnershipTests
     public async Task SameOwner_LabelAndConstant_SameName_ProducesDuplicate()
     {
         var tree = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nfoo:\nfoo EQU 42\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\nfoo:\nfoo EQU 42\n", "a.asm")
+        );
 
         var compilation = Compilation.Create(tree);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsGreaterThan(0);
@@ -114,12 +120,13 @@ public class SymbolOwnershipTests
     public async Task SameOwner_ConstantAndStringConstant_SameName_ProducesDuplicate()
     {
         var tree = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nfoo EQU 42\nfoo EQUS \"bar\"\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\nfoo EQU 42\nfoo EQUS \"bar\"\n", "a.asm")
+        );
 
         var compilation = Compilation.Create(tree);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsGreaterThan(0);
@@ -188,8 +195,8 @@ public class SymbolOwnershipTests
         var compilation = Compilation.Create(treeA, treeB);
 
         var diag = compilation.Diagnostics.FirstOrDefault(d =>
-            d.Severity == DiagnosticSeverity.Error &&
-            d.Message.Contains("already defined"));
+            d.Severity == DiagnosticSeverity.Error && d.Message.Contains("already defined")
+        );
 
         await Assert.That(diag).IsNotNull();
         // The diagnostic should be reported at the second EXPORT directive
@@ -205,7 +212,8 @@ public class SymbolOwnershipTests
         var compilation = Compilation.Create(tree);
 
         var diag = compilation.Diagnostics.FirstOrDefault(d =>
-            d.Message.Contains("Cannot export undefined symbol"));
+            d.Message.Contains("Cannot export undefined symbol")
+        );
 
         await Assert.That(diag).IsNotNull();
     }
@@ -219,7 +227,8 @@ public class SymbolOwnershipTests
         var compilation = Compilation.Create(tree);
 
         var diag = compilation.Diagnostics.FirstOrDefault(d =>
-            d.Message.Contains("Cannot export macro"));
+            d.Message.Contains("Cannot export macro")
+        );
 
         await Assert.That(diag).IsNotNull();
         // Span points to the EXPORT SymbolDirective node (includes leading whitespace)
@@ -244,8 +253,7 @@ public class SymbolOwnershipTests
         var dummySite = SyntaxTree.Parse("nop\n").Root;
         table.PromoteExport("main.local", dummySite, context);
 
-        var diag = diagnostics.FirstOrDefault(d =>
-            d.Message.Contains("Cannot export local label"));
+        var diag = diagnostics.FirstOrDefault(d => d.Message.Contains("Cannot export local label"));
 
         await Assert.That(diag).IsNotNull();
     }
@@ -254,7 +262,11 @@ public class SymbolOwnershipTests
     public async Task DefinedMacro_AppearsInSymbolTable()
     {
         var tree = SyntaxTree.Parse(
-            SourceText.From("SECTION \"Main\", ROM0\nmy_macro: MACRO\n    nop\nENDM\n    my_macro\n", "main.asm"));
+            SourceText.From(
+                "SECTION \"Main\", ROM0\nmy_macro: MACRO\n    nop\nENDM\n    my_macro\n",
+                "main.asm"
+            )
+        );
 
         var compilation = Compilation.Create(tree);
         var model = compilation.Emit();
@@ -286,12 +298,16 @@ public class SymbolOwnershipTests
         // Macros and labels/constants are in separate declaration spaces
         // and do not collide (matches RGBDS behavior)
         var tree = SyntaxTree.Parse(
-            SourceText.From("SECTION \"Main\", ROM0\nfoo: MACRO\n    nop\nENDM\nfoo:\n    nop\n", "main.asm"));
+            SourceText.From(
+                "SECTION \"Main\", ROM0\nfoo: MACRO\n    nop\nENDM\nfoo:\n    nop\n",
+                "main.asm"
+            )
+        );
 
         var compilation = Compilation.Create(tree);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsEqualTo(0);
@@ -301,14 +317,16 @@ public class SymbolOwnershipTests
     public async Task CrossOwnerSameNameMacros_Allowed()
     {
         var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\ninit: MACRO\n    nop\nENDM\n    init\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\ninit: MACRO\n    nop\nENDM\n    init\n", "a.asm")
+        );
         var treeB = SyntaxTree.Parse(
-            SourceText.From("SECTION \"B\", ROM0\ninit: MACRO\n    halt\nENDM\n    init\n", "b.asm"));
+            SourceText.From("SECTION \"B\", ROM0\ninit: MACRO\n    halt\nENDM\n    init\n", "b.asm")
+        );
 
         var compilation = Compilation.Create(treeA, treeB);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsEqualTo(0);
@@ -321,12 +339,16 @@ public class SymbolOwnershipTests
         resolver.AddTextFile("macros.inc", "foo: MACRO\n    nop\nENDM\n");
 
         var tree = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nfoo: MACRO\n    halt\nENDM\nINCLUDE \"macros.inc\"\n", "a.asm"));
+            SourceText.From(
+                "SECTION \"A\", ROM0\nfoo: MACRO\n    halt\nENDM\nINCLUDE \"macros.inc\"\n",
+                "a.asm"
+            )
+        );
 
         var compilation = Compilation.Create(resolver, tree);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsGreaterThan(0);
@@ -376,14 +398,16 @@ public class SymbolOwnershipTests
         resolver.AddTextFile("defs.inc", "MY_CONST EQU 42\n");
 
         var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nINCLUDE \"defs.inc\"\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\nINCLUDE \"defs.inc\"\n", "a.asm")
+        );
         var treeB = SyntaxTree.Parse(
-            SourceText.From("SECTION \"B\", ROM0\nINCLUDE \"defs.inc\"\n", "b.asm"));
+            SourceText.From("SECTION \"B\", ROM0\nINCLUDE \"defs.inc\"\n", "b.asm")
+        );
 
         var compilation = Compilation.Create(resolver, treeA, treeB);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsEqualTo(0);
@@ -396,12 +420,13 @@ public class SymbolOwnershipTests
         resolver.AddTextFile("defs.inc", "MY_CONST EQU 99\n");
 
         var tree = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nMY_CONST EQU 42\nINCLUDE \"defs.inc\"\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\nMY_CONST EQU 42\nINCLUDE \"defs.inc\"\n", "a.asm")
+        );
 
         var compilation = Compilation.Create(resolver, tree);
 
-        var errors = compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+        var errors = compilation
+            .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .ToList();
 
         await Assert.That(errors.Count).IsGreaterThan(0);
@@ -430,9 +455,9 @@ public class SymbolOwnershipTests
     public async Task GetSymbol_LocalLabelReference_ReturnsCorrectScopedSymbol()
     {
         var text =
-            "SECTION \"Main\", ROM0\n" +
-            "funcA:\n.done:\n    jr .done\n" +
-            "funcB:\n.done:\n    jr .done\n";
+            "SECTION \"Main\", ROM0\n"
+            + "funcA:\n.done:\n    jr .done\n"
+            + "funcB:\n.done:\n    jr .done\n";
         var tree = SyntaxTree.Parse(SourceText.From(text, "main.asm"));
         var compilation = Compilation.Create(tree);
         var model = compilation.GetSemanticModel(tree);
@@ -460,7 +485,8 @@ public class SymbolOwnershipTests
         var compilation = Compilation.Create(tree);
         var model = compilation.GetSemanticModel(tree);
 
-        var labelNode = tree.Root.ChildNodes()
+        var labelNode = tree
+            .Root.ChildNodes()
             .Where(n => n.Kind == SyntaxKind.LabelDeclaration)
             .First(n => n.ChildTokens().Any(t => t.Text == ".done"));
 
@@ -478,8 +504,7 @@ public class SymbolOwnershipTests
         var compilation = Compilation.Create(tree);
         var model = compilation.GetSemanticModel(tree);
 
-        var directive = tree.Root.ChildNodes()
-            .First(n => n.Kind == SyntaxKind.SymbolDirective);
+        var directive = tree.Root.ChildNodes().First(n => n.Kind == SyntaxKind.SymbolDirective);
 
         var sym = model.GetDeclaredSymbol(directive);
 
@@ -496,8 +521,7 @@ public class SymbolOwnershipTests
         var compilation = Compilation.Create(tree);
         var model = compilation.GetSemanticModel(tree);
 
-        var directive = tree.Root.ChildNodes()
-            .First(n => n.Kind == SyntaxKind.SymbolDirective);
+        var directive = tree.Root.ChildNodes().First(n => n.Kind == SyntaxKind.SymbolDirective);
 
         var sym = model.GetDeclaredSymbol(directive);
 
@@ -510,7 +534,8 @@ public class SymbolOwnershipTests
     public async Task LookupSymbols_DoesNotExposeOtherOwnerLocals()
     {
         var treeA = SyntaxTree.Parse(
-            SourceText.From("SECTION \"A\", ROM0\nsecret:\n    nop\n", "a.asm"));
+            SourceText.From("SECTION \"A\", ROM0\nsecret:\n    nop\n", "a.asm")
+        );
         var textB = "SECTION \"B\", ROM0\n    nop\n";
         var treeB = SyntaxTree.Parse(SourceText.From(textB, "b.asm"));
 
@@ -518,9 +543,7 @@ public class SymbolOwnershipTests
         var modelB = compilation.GetSemanticModel(treeB);
 
         int pos = textB.IndexOf("nop");
-        var visibleNames = modelB.LookupSymbols(pos)
-            .Select(s => s.Name)
-            .ToList();
+        var visibleNames = modelB.LookupSymbols(pos).Select(s => s.Name).ToList();
 
         await Assert.That(visibleNames).DoesNotContain("secret");
     }
@@ -534,9 +557,7 @@ public class SymbolOwnershipTests
         var model = compilation.GetSemanticModel(tree);
 
         int pos = text.IndexOf("nop");
-        var visibleNames = model.LookupSymbols(pos)
-            .Select(s => s.Name)
-            .ToList();
+        var visibleNames = model.LookupSymbols(pos).Select(s => s.Name).ToList();
 
         await Assert.That(visibleNames).Contains("main");
     }
@@ -545,21 +566,21 @@ public class SymbolOwnershipTests
     public async Task LookupSymbols_LocalLabelScope_OnlyShowsCurrentScope()
     {
         var text =
-            "SECTION \"Main\", ROM0\n" +
-            "funcA:\n.done:\n    nop\n" +
-            "funcB:\n.done:\n    nop\n";
+            "SECTION \"Main\", ROM0\n" + "funcA:\n.done:\n    nop\n" + "funcB:\n.done:\n    nop\n";
         var tree = SyntaxTree.Parse(SourceText.From(text, "main.asm"));
         var compilation = Compilation.Create(tree);
         var model = compilation.GetSemanticModel(tree);
 
         int posA = text.IndexOf("nop");
-        var namesA = model.LookupSymbols(posA)
+        var namesA = model
+            .LookupSymbols(posA)
             .Where(s => s.Name.Contains('.'))
             .Select(s => s.Name)
             .ToList();
 
         int posB = text.LastIndexOf("nop");
-        var namesB = model.LookupSymbols(posB)
+        var namesB = model
+            .LookupSymbols(posB)
             .Where(s => s.Name.Contains('.'))
             .Select(s => s.Name)
             .ToList();
@@ -574,24 +595,25 @@ public class SymbolOwnershipTests
     public async Task NullFilePath_MultiTree_Rejected()
     {
         var treeA = SyntaxTree.Parse("SECTION \"A\", ROM0\nmain:\n    nop\n");
-        var treeB = SyntaxTree.Parse(
-            SourceText.From("SECTION \"B\", ROM0\n    nop\n", "b.asm"));
+        var treeB = SyntaxTree.Parse(SourceText.From("SECTION \"B\", ROM0\n    nop\n", "b.asm"));
 
-        await Assert.That(() => Compilation.Create(treeA, treeB))
-            .Throws<ArgumentException>();
+        await Assert.That(() => Compilation.Create(treeA, treeB)).Throws<ArgumentException>();
     }
 
     [Test]
     public async Task SingleFile_NoChange()
     {
-        var tree = SyntaxTree.Parse(SourceText.From(
-            "SECTION \"Main\", ROM0\nmain:\n    jp main\n", "main.asm"));
+        var tree = SyntaxTree.Parse(
+            SourceText.From("SECTION \"Main\", ROM0\nmain:\n    jp main\n", "main.asm")
+        );
 
         var compilation = Compilation.Create(tree);
 
-        await Assert.That(compilation.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
-            .Count()).IsEqualTo(0);
+        await Assert
+            .That(
+                compilation.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Count()
+            )
+            .IsEqualTo(0);
     }
 
     private static IEnumerable<SyntaxNode> DescendantNodes(SyntaxNode node)

@@ -8,7 +8,7 @@ public sealed class BreakpointManager
     {
         public string? Condition;
         public int HitCount;
-        public int HitCountTarget;   // 0 = always break
+        public int HitCountTarget; // 0 = always break
     }
 
     private readonly Dictionary<uint, BreakpointState> _execution = new();
@@ -38,12 +38,17 @@ public sealed class BreakpointManager
     /// </summary>
     public bool ShouldBreak(BankedAddress address, Func<string, bool>? evaluateCondition)
     {
-        if (!_execution.TryGetValue(address.Packed, out var state)) return false;
+        if (!_execution.TryGetValue(address.Packed, out var state))
+            return false;
         state.HitCount++;
 
         if (state.HitCountTarget > 0 && state.HitCount < state.HitCountTarget)
             return false;
-        if (state.Condition is { } cond && evaluateCondition is not null && !evaluateCondition(cond))
+        if (
+            state.Condition is { } cond
+            && evaluateCondition is not null
+            && !evaluateCondition(cond)
+        )
             return false;
 
         return true;

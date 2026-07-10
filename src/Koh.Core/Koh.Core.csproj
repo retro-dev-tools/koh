@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Koh.Emit" />
+    <InternalsVisibleTo Include="Koh.Compiler" />
     <InternalsVisibleTo Include="Koh.Core.Tests" />
     <InternalsVisibleTo Include="Koh.Emit.Tests" />
     <InternalsVisibleTo Include="Koh.Linker.Tests" />

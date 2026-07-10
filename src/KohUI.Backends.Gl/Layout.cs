@@ -10,8 +10,9 @@ namespace KohUI.Backends.Gl;
 /// </summary>
 public readonly record struct Rect(int X, int Y, int W, int H)
 {
-    public int Right  => X + W;
+    public int Right => X + W;
     public int Bottom => Y + H;
+
     public bool Contains(int px, int py) => px >= X && py >= Y && px < Right && py < Bottom;
 }
 
@@ -80,14 +81,21 @@ public sealed class Layouter(Win98Theme theme)
 
         if (node.Type == "ColorSwatch")
         {
-            int size = node.Props.TryGetValue("size", out var sv) && sv is int si && si > 0 ? si : 12;
+            int size =
+                node.Props.TryGetValue("size", out var sv) && sv is int si && si > 0 ? si : 12;
             return (size, size);
         }
 
         if (node.Type == "ScrollPanel")
         {
-            int vw = node.Props.TryGetValue("viewportW", out var vwv) && vwv is int vwi && vwi > 0 ? vwi : 0;
-            int vh = node.Props.TryGetValue("viewportH", out var vhv) && vhv is int vhi && vhi > 0 ? vhi : 0;
+            int vw =
+                node.Props.TryGetValue("viewportW", out var vwv) && vwv is int vwi && vwi > 0
+                    ? vwi
+                    : 0;
+            int vh =
+                node.Props.TryGetValue("viewportH", out var vhv) && vhv is int vhi && vhi > 0
+                    ? vhi
+                    : 0;
             // If the caller didn't set a viewport width, fall back to
             // the measured child width so the panel never reports 0.
             if (vw == 0 && node.Children.Length == 1)
@@ -101,10 +109,10 @@ public sealed class Layouter(Win98Theme theme)
         var spec = SpecOf(node.Type);
         return spec.Layout switch
         {
-            LayoutKind.Leaf   => MeasureLeaf(node, spec),
+            LayoutKind.Leaf => MeasureLeaf(node, spec),
             LayoutKind.Border => MeasureBorder(node, spec),
-            LayoutKind.Stack  => MeasureStack(node, spec),
-            _                 => MeasureLeaf(node, spec),
+            LayoutKind.Stack => MeasureStack(node, spec),
+            _ => MeasureLeaf(node, spec),
         };
     }
 
@@ -135,13 +143,18 @@ public sealed class Layouter(Win98Theme theme)
 
         int w = tw + spec.PaddingX * 2;
         int h = th + spec.PaddingY * 2;
-        if (spec.BevelInset > 0) { w += spec.BevelInset * 2; h += spec.BevelInset * 2; }
+        if (spec.BevelInset > 0)
+        {
+            w += spec.BevelInset * 2;
+            h += spec.BevelInset * 2;
+        }
         return (Math.Max(spec.MinWidth, w), Math.Max(spec.MinHeight, h));
     }
 
     private (int W, int H) MeasureBorder(RenderNode node, WidgetSpec spec)
     {
-        int contentW = 0, contentH = 0;
+        int contentW = 0,
+            contentH = 0;
         foreach (var c in node.Children)
         {
             var (cw, ch) = Measure(c);
@@ -158,19 +171,22 @@ public sealed class Layouter(Win98Theme theme)
     private (int W, int H) MeasureStack(RenderNode node, WidgetSpec spec)
     {
         bool h = GetString(node, "direction") == "Horizontal";
-        int main = 0, cross = 0;
+        int main = 0,
+            cross = 0;
         for (int i = 0; i < node.Children.Length; i++)
         {
             var (cw, ch) = Measure(node.Children[i]);
             if (h)
             {
-                if (i > 0) main += spec.ChildrenGap;
+                if (i > 0)
+                    main += spec.ChildrenGap;
                 main += cw;
                 cross = Math.Max(cross, ch);
             }
             else
             {
-                if (i > 0) main += spec.ChildrenGap;
+                if (i > 0)
+                    main += spec.ChildrenGap;
                 main += ch;
                 cross = Math.Max(cross, cw);
             }
@@ -179,7 +195,11 @@ public sealed class Layouter(Win98Theme theme)
         int hh = h ? cross : main;
         // Stacks don't bevel themselves by default, but if a specific
         // stack subclass ever did, the inset is already expressed here.
-        if (spec.BevelInset > 0) { w += spec.BevelInset * 2; hh += spec.BevelInset * 2; }
+        if (spec.BevelInset > 0)
+        {
+            w += spec.BevelInset * 2;
+            hh += spec.BevelInset * 2;
+        }
         return (w + spec.PaddingX * 2, hh + spec.PaddingY * 2);
     }
 
@@ -204,14 +224,26 @@ public sealed class Layouter(Win98Theme theme)
         var children = spec.Layout switch
         {
             LayoutKind.Border => ArrangeBorder(node, path, bounds, spec),
-            LayoutKind.Stack  => ArrangeStack(node, path, bounds, spec),
-            _                 => ImmutableArray<LayoutNode>.Empty,
+            LayoutKind.Stack => ArrangeStack(node, path, bounds, spec),
+            _ => ImmutableArray<LayoutNode>.Empty,
         };
-        return new LayoutNode { Source = node, Path = path, Bounds = bounds, Children = children };
+        return new LayoutNode
+        {
+            Source = node,
+            Path = path,
+            Bounds = bounds,
+            Children = children,
+        };
     }
 
-    private LayoutNode Leaf(RenderNode node, string path, Rect bounds)
-        => new() { Source = node, Path = path, Bounds = bounds, Children = ImmutableArray<LayoutNode>.Empty };
+    private LayoutNode Leaf(RenderNode node, string path, Rect bounds) =>
+        new()
+        {
+            Source = node,
+            Path = path,
+            Bounds = bounds,
+            Children = ImmutableArray<LayoutNode>.Empty,
+        };
 
     /// <summary>
     /// ScrollPanel child is laid out at its measured size but
@@ -234,14 +266,25 @@ public sealed class Layouter(Win98Theme theme)
         // vertically-scrolling viewport.
         var childBounds = new Rect(bounds.X, bounds.Y - scrollY, cw, ch);
         var laid = ImmutableArray.Create(Arrange(child, Join(path, 0), childBounds));
-        return new LayoutNode { Source = node, Path = path, Bounds = bounds, Children = laid };
+        return new LayoutNode
+        {
+            Source = node,
+            Path = path,
+            Bounds = bounds,
+            Children = laid,
+        };
     }
 
-    private ImmutableArray<LayoutNode> ArrangeStack(RenderNode node, string path, Rect bounds, WidgetSpec spec)
+    private ImmutableArray<LayoutNode> ArrangeStack(
+        RenderNode node,
+        string path,
+        Rect bounds,
+        WidgetSpec spec
+    )
     {
         bool horizontal = GetString(node, "direction") == "Horizontal";
         int gap = spec.ChildrenGap;
-        int p = spec.PaddingX;                     // same on both axes for stacks today
+        int p = spec.PaddingX; // same on both axes for stacks today
         bool stretch = node.Props.TryGetValue("stretch", out var sv) && sv is true;
 
         int mainTotal = horizontal ? bounds.W - p * 2 : bounds.H - p * 2;
@@ -262,13 +305,16 @@ public sealed class Layouter(Win98Theme theme)
         var result = ImmutableArray.CreateBuilder<LayoutNode>(node.Children.Length);
         int cursor = horizontal ? bounds.X + p : bounds.Y + p;
         int crossStart = horizontal ? bounds.Y + p : bounds.X + p;
-        int crossSize  = horizontal ? bounds.H - p * 2 : bounds.W - p * 2;
+        int crossSize = horizontal ? bounds.H - p * 2 : bounds.W - p * 2;
 
         for (int i = 0; i < node.Children.Length; i++)
         {
             var (cw, ch) = Measure(node.Children[i]);
             int bump = slackPerChild + (i == node.Children.Length - 1 ? slackRemainder : 0);
-            if (horizontal) cw += bump; else ch += bump;
+            if (horizontal)
+                cw += bump;
+            else
+                ch += bump;
 
             Rect childBounds = horizontal
                 ? new Rect(cursor, crossStart, cw, crossSize)
@@ -279,12 +325,21 @@ public sealed class Layouter(Win98Theme theme)
         return result.ToImmutable();
     }
 
-    private ImmutableArray<LayoutNode> ArrangeBorder(RenderNode node, string path, Rect bounds, WidgetSpec spec)
+    private ImmutableArray<LayoutNode> ArrangeBorder(
+        RenderNode node,
+        string path,
+        Rect bounds,
+        WidgetSpec spec
+    )
     {
         int padX = spec.BevelInset + spec.PaddingX;
         int padY = spec.BevelInset + spec.PaddingY;
-        var inner = new Rect(bounds.X + padX, bounds.Y + padY,
-                             bounds.W - padX * 2, bounds.H - padY * 2);
+        var inner = new Rect(
+            bounds.X + padX,
+            bounds.Y + padY,
+            bounds.W - padX * 2,
+            bounds.H - padY * 2
+        );
 
         var result = ImmutableArray.CreateBuilder<LayoutNode>(node.Children.Length);
         int y = inner.Y;
@@ -300,8 +355,8 @@ public sealed class Layouter(Win98Theme theme)
 
     // ─── Helpers ─────────────────────────────────────────────────────
 
-    internal static string GetString(RenderNode node, string key)
-        => node.Props.TryGetValue(key, out var v) && v is string s ? s : "";
+    internal static string GetString(RenderNode node, string key) =>
+        node.Props.TryGetValue(key, out var v) && v is string s ? s : "";
 
     internal static string StripAccelerator(string text)
     {
@@ -309,5 +364,6 @@ public sealed class Layouter(Win98Theme theme)
         return amp < 0 || amp >= text.Length - 1 ? text : text.Remove(amp, 1);
     }
 
-    private static string Join(string parent, int i) => parent.Length == 0 ? i.ToString() : $"{parent}.{i}";
+    private static string Join(string parent, int i) =>
+        parent.Length == 0 ? i.ToString() : $"{parent}.{i}";
 }

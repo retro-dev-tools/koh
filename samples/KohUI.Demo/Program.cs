@@ -22,20 +22,30 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 // Release-built diagnostic binary needs the preview channel.
 
 bool previewOnly = args.Contains("--preview") || args.Contains("--headless");
-bool nativeOnly  = args.Contains("--native");
+bool nativeOnly = args.Contains("--native");
 
 var runner = new Runner<CounterModel, CounterMsg>(
-    initialModel: new CounterModel(Count: 0, Step: 1, AllowNegative: true, WindowOpen: true, Name: ""),
+    initialModel: new CounterModel(
+        Count: 0,
+        Step: 1,
+        AllowNegative: true,
+        WindowOpen: true,
+        Name: ""
+    ),
     update: CounterApp.Update,
-    view: CounterApp.View);
+    view: CounterApp.View
+);
 
 #if !KOHUI_DEV_PREVIEW
 if (previewOnly)
 {
-    await Console.Error.WriteLineAsync("[kohui-demo] --preview isn't available in this build "
-                                     + "(KohUIDevPreview=false at compile time).");
+    await Console.Error.WriteLineAsync(
+        "[kohui-demo] --preview isn't available in this build "
+            + "(KohUIDevPreview=false at compile time)."
+    );
     return 1;
 }
+
 // Release / preview-stripped build — native is the only code path.
 RunNative(runner);
 await runner.DisposeAsync();
@@ -80,9 +90,10 @@ static async Task<WebApplication> StartPreviewAsync(Runner<CounterModel, Counter
     app.UseKohUI(runner);
     await app.StartAsync();
 
-    var url = app.Services.GetRequiredService<IServer>()
-                 .Features.Get<IServerAddressesFeature>()!
-                 .Addresses.First();
+    var url = app
+        .Services.GetRequiredService<IServer>()
+        .Features.Get<IServerAddressesFeature>()!
+        .Addresses.First();
     Console.WriteLine($"[kohui-demo] preview listening on {url}");
     return app;
 }
@@ -93,7 +104,6 @@ static async Task RunPreviewOnlyAsync(Runner<CounterModel, CounterMsg> runner)
     Console.WriteLine("[kohui-demo] preview-only mode; open the URL in a browser. ctrl-c to stop.");
     await app.WaitForShutdownAsync();
 }
-
 #endif
 
 static void RunNative(Runner<CounterModel, CounterMsg> runner)

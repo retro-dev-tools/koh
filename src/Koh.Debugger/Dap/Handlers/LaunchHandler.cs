@@ -31,7 +31,7 @@ public sealed class LaunchHandler
         {
             "dmg" => HardwareMode.Dmg,
             "cgb" => HardwareMode.Cgb,
-            _     => DetectFromHeader(rom.Span),
+            _ => DetectFromHeader(rom.Span),
         };
 
         _session.Launch(rom, kdbg, mode);
@@ -41,7 +41,8 @@ public sealed class LaunchHandler
 
     private static HardwareMode DetectFromHeader(ReadOnlySpan<byte> rom)
     {
-        if (rom.Length < 0x150) return HardwareMode.Dmg;
+        if (rom.Length < 0x150)
+            return HardwareMode.Dmg;
         byte cgbByte = rom[0x143];
         return (cgbByte & 0x80) != 0 ? HardwareMode.Cgb : HardwareMode.Dmg;
     }

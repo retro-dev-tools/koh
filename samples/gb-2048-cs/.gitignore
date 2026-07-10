@@ -1,0 +1,6 @@
+bin/
+obj/
+*.kobj
+*.sym
+*.gb
+*.gbc

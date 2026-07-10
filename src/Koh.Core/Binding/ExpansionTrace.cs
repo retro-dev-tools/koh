@@ -9,7 +9,7 @@ public enum ExpansionKind
     ReptIteration,
     ForIteration,
     Include,
-    TextReplay
+    TextReplay,
 }
 
 public enum TextReplayReason
@@ -17,7 +17,7 @@ public enum TextReplayReason
     MacroParameterConcatenation,
     UniqueLabelSubstitution,
     ForTokenShapingSubstitution,
-    EqusReplay
+    EqusReplay,
 }
 
 public sealed record ExpansionFrame(
@@ -26,25 +26,35 @@ public sealed record ExpansionFrame(
     TextSpan SourceSpan,
     string? Name = null,
     int? Iteration = null,
-    TextReplayReason? ReplayReason = null)
+    TextReplayReason? ReplayReason = null
+)
 {
-    internal static ExpansionFrame ForMacro(MacroDefinition macro)
-        => new(ExpansionKind.MacroExpansion, macro.DefinitionFilePath,
-               macro.DefinitionSpan, macro.Name);
+    internal static ExpansionFrame ForMacro(MacroDefinition macro) =>
+        new(
+            ExpansionKind.MacroExpansion,
+            macro.DefinitionFilePath,
+            macro.DefinitionSpan,
+            macro.Name
+        );
 
-    public static ExpansionFrame ForRept(string filePath, TextSpan span, int iteration)
-        => new(ExpansionKind.ReptIteration, filePath, span, Iteration: iteration);
+    public static ExpansionFrame ForRept(string filePath, TextSpan span, int iteration) =>
+        new(ExpansionKind.ReptIteration, filePath, span, Iteration: iteration);
 
-    public static ExpansionFrame ForFor(string filePath, TextSpan span,
-        string? varName, int iteration)
-        => new(ExpansionKind.ForIteration, filePath, span, varName, iteration);
+    public static ExpansionFrame ForFor(
+        string filePath,
+        TextSpan span,
+        string? varName,
+        int iteration
+    ) => new(ExpansionKind.ForIteration, filePath, span, varName, iteration);
 
-    public static ExpansionFrame ForInclude(string filePath, TextSpan span)
-        => new(ExpansionKind.Include, filePath, span);
+    public static ExpansionFrame ForInclude(string filePath, TextSpan span) =>
+        new(ExpansionKind.Include, filePath, span);
 
-    public static ExpansionFrame ForTextReplay(string filePath, TextSpan sourceSpan,
-        TextReplayReason reason)
-        => new(ExpansionKind.TextReplay, filePath, sourceSpan, ReplayReason: reason);
+    public static ExpansionFrame ForTextReplay(
+        string filePath,
+        TextSpan sourceSpan,
+        TextReplayReason reason
+    ) => new(ExpansionKind.TextReplay, filePath, sourceSpan, ReplayReason: reason);
 }
 
 public sealed record ExpansionTrace(ImmutableArray<ExpansionFrame> Frames)
@@ -59,14 +69,16 @@ public sealed record ExpansionTrace(ImmutableArray<ExpansionFrame> Frames)
     public bool ContainsKind(ExpansionKind kind)
     {
         foreach (var f in Frames)
-            if (f.Kind == kind) return true;
+            if (f.Kind == kind)
+                return true;
         return false;
     }
 
     public ExpansionFrame? FindNearest(ExpansionKind kind)
     {
         for (int i = Frames.Length - 1; i >= 0; i--)
-            if (Frames[i].Kind == kind) return Frames[i];
+            if (Frames[i].Kind == kind)
+                return Frames[i];
         return null;
     }
 }

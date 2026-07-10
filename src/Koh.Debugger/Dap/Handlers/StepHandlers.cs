@@ -12,7 +12,10 @@ public sealed class StepHandlers
 {
     private readonly DebugSession _session;
 
-    public StepHandlers(DebugSession session) { _session = session; }
+    public StepHandlers(DebugSession session)
+    {
+        _session = session;
+    }
 
     public Response HandleStepIn(Request request)
     {
@@ -31,10 +34,13 @@ public sealed class StepHandlers
         // If the next instruction is a CALL or RST, step over it by running
         // until the stack returns to its current level. Otherwise step-in.
         byte opcode = gb.Mmu.DebugRead(gb.Registers.Pc);
-        bool isCall = opcode == 0xCD                                  // CALL a16
-                   || opcode == 0xC4 || opcode == 0xCC                // CALL cc,a16 (NZ,Z)
-                   || opcode == 0xD4 || opcode == 0xDC                // CALL cc,a16 (NC,C)
-                   || (opcode & 0xC7) == 0xC7;                        // RST xx ($C7,$CF,$D7,$DF,$E7,$EF,$F7,$FF)
+        bool isCall =
+            opcode == 0xCD // CALL a16
+            || opcode == 0xC4
+            || opcode == 0xCC // CALL cc,a16 (NZ,Z)
+            || opcode == 0xD4
+            || opcode == 0xDC // CALL cc,a16 (NC,C)
+            || (opcode & 0xC7) == 0xC7; // RST xx ($C7,$CF,$D7,$DF,$E7,$EF,$F7,$FF)
 
         if (!isCall)
         {
@@ -48,7 +54,8 @@ public sealed class StepHandlers
         for (int budget = 0; budget < 1_000_000; budget++)
         {
             gb.StepInstruction();
-            if (gb.Registers.Sp == spAtCall) break;
+            if (gb.Registers.Sp == spAtCall)
+                break;
         }
         return new Response { Success = true };
     }
@@ -68,7 +75,8 @@ public sealed class StepHandlers
         for (int budget = 0; budget < 1_000_000; budget++)
         {
             gb.StepInstruction();
-            if (gb.Registers.Pc == returnPc) break;
+            if (gb.Registers.Pc == returnPc)
+                break;
         }
         return new Response { Success = true };
     }

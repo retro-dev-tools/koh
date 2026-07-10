@@ -16,12 +16,14 @@ public class DapGeneratedRomIntegrationTests
         var model = Compilation.Create(tree).Emit();
         if (!model.Success)
             throw new InvalidOperationException(
-                $"assemble failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}");
+                $"assemble failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}"
+            );
 
         var result = new Koh.Linker.Core.Linker().Link([new LinkerInput(path, model)]);
         if (!result.Success)
             throw new InvalidOperationException(
-                $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}");
+                $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
+            );
 
         var builder = new DebugInfoBuilder();
         DebugInfoPopulator.Populate(builder, result);
@@ -31,24 +33,29 @@ public class DapGeneratedRomIntegrationTests
     }
 
     private static byte[] Encode(int seq, string command, object arguments) =>
-        JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
-        {
-            ["seq"] = seq,
-            ["type"] = "request",
-            ["command"] = command,
-            ["arguments"] = arguments,
-        });
+        JsonSerializer.SerializeToUtf8Bytes(
+            new Dictionary<string, object?>
+            {
+                ["seq"] = seq,
+                ["type"] = "request",
+                ["command"] = command,
+                ["arguments"] = arguments,
+            }
+        );
 
     [Test]
     public async Task GeneratedRomKdbg_DapLaunchBreakpointStackTraceScopesAndVariables()
     {
         const string sourcePath = "src/main.asm";
-        var (rom, kdbg) = AssembleLinkAndDebugInfo(sourcePath, """
+        var (rom, kdbg) = AssembleLinkAndDebugInfo(
+            sourcePath,
+            """
             SECTION "Entry", ROM0[$0100]
             Entry::
                 ld a, $42
                 nop
-            """);
+            """
+        );
 
         var dispatcher = new DapDispatcher();
         var session = new DebugSession();
@@ -57,16 +64,21 @@ public class DapGeneratedRomIntegrationTests
         HandlerRegistration.RegisterAll(
             dispatcher,
             session,
-            path => path.EndsWith(".kdbg", StringComparison.OrdinalIgnoreCase) ? kdbg : rom);
+            path => path.EndsWith(".kdbg", StringComparison.OrdinalIgnoreCase) ? kdbg : rom
+        );
 
-        dispatcher.HandleRequest(Encode(1, "launch", new { program = "game.gb", debugInfo = "game.kdbg" }));
+        dispatcher.HandleRequest(
+            Encode(1, "launch", new { program = "game.gb", debugInfo = "game.kdbg" })
+        );
         await Assert.That(session.IsLaunched).IsTrue();
 
-        dispatcher.HandleRequest(Encode(2, "setBreakpoints", new
-        {
-            source = new { path = sourcePath },
-            breakpoints = new[] { new { line = 3 } },
-        }));
+        dispatcher.HandleRequest(
+            Encode(
+                2,
+                "setBreakpoints",
+                new { source = new { path = sourcePath }, breakpoints = new[] { new { line = 3 } } }
+            )
+        );
         using (var bpDoc = JsonDocument.Parse(responses[^1]))
         {
             var bp = bpDoc.RootElement.GetProperty("body").GetProperty("breakpoints")[0];
@@ -79,7 +91,9 @@ public class DapGeneratedRomIntegrationTests
         {
             var frame = stackDoc.RootElement.GetProperty("body").GetProperty("stackFrames")[0];
             await Assert.That(frame.GetProperty("line").GetInt32()).IsEqualTo(3);
-            await Assert.That(frame.GetProperty("source").GetProperty("path").GetString()).IsEqualTo(sourcePath);
+            await Assert
+                .That(frame.GetProperty("source").GetProperty("path").GetString())
+                .IsEqualTo(sourcePath);
         }
 
         dispatcher.HandleRequest(Encode(4, "scopes", new { frameId = 0 }));
@@ -88,14 +102,18 @@ public class DapGeneratedRomIntegrationTests
             var scopes = scopesDoc.RootElement.GetProperty("body").GetProperty("scopes");
             await Assert.That(scopes.GetArrayLength()).IsEqualTo(4);
             await Assert.That(scopes[0].GetProperty("name").GetString()).IsEqualTo("Registers");
-            await Assert.That(scopes[3].GetProperty("name").GetString()).IsEqualTo("Source Context");
+            await Assert
+                .That(scopes[3].GetProperty("name").GetString())
+                .IsEqualTo("Source Context");
         }
 
         dispatcher.HandleRequest(Encode(5, "variables", new { variablesReference = 1 }));
         using (var registersDoc = JsonDocument.Parse(responses[^1]))
         {
             var registers = registersDoc.RootElement.GetProperty("body").GetProperty("variables");
-            var pc = registers.EnumerateArray().First(v => v.GetProperty("name").GetString() == "PC");
+            var pc = registers
+                .EnumerateArray()
+                .First(v => v.GetProperty("name").GetString() == "PC");
             await Assert.That(pc.GetProperty("value").GetString()).IsEqualTo("$0100");
         }
 
@@ -111,18 +129,22 @@ public class DapGeneratedRomIntegrationTests
         using (var symbolsDoc = JsonDocument.Parse(responses[^1]))
         {
             var vars = symbolsDoc.RootElement.GetProperty("body").GetProperty("variables");
-            await Assert.That(vars.EnumerateArray().Any(v =>
-                v.GetProperty("name").GetString() == "Entry")).IsTrue();
+            await Assert
+                .That(vars.EnumerateArray().Any(v => v.GetProperty("name").GetString() == "Entry"))
+                .IsTrue();
         }
     }
 
     [Test]
     public async Task StackTrace_UsesSourceForPcInsideMultiByteMappedRange()
     {
-        var (rom, kdbg) = AssembleLinkAndDebugInfo("range.asm", """
+        var (rom, kdbg) = AssembleLinkAndDebugInfo(
+            "range.asm",
+            """
             SECTION "Entry", ROM0[$0100]
                 ld a, $42
-            """);
+            """
+        );
 
         var dispatcher = new DapDispatcher();
         var session = new DebugSession();
@@ -137,6 +159,8 @@ public class DapGeneratedRomIntegrationTests
         using var doc = JsonDocument.Parse(responses[^1]);
         var frame = doc.RootElement.GetProperty("body").GetProperty("stackFrames")[0];
         await Assert.That(frame.GetProperty("line").GetInt32()).IsEqualTo(2);
-        await Assert.That(frame.GetProperty("source").GetProperty("path").GetString()).IsEqualTo("range.asm");
+        await Assert
+            .That(frame.GetProperty("source").GetProperty("path").GetString())
+            .IsEqualTo("range.asm");
     }
 }

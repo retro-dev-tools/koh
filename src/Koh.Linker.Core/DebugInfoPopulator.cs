@@ -20,14 +20,15 @@ public static class DebugInfoPopulator
     {
         foreach (var sym in result.Symbols)
         {
-            if (sym.AbsoluteAddress < 0) continue;   // unplaced
+            if (sym.AbsoluteAddress < 0)
+                continue; // unplaced
             byte bank = (byte)(sym.SectionName != null ? sym.PlacedBank : 0);
             ushort address = (ushort)(sym.AbsoluteAddress & 0xFFFF);
             var kind = sym.Kind switch
             {
                 SymbolKind.Constant => KdbgSymbolKind.EquConstant,
-                SymbolKind.Label    => KdbgSymbolKind.Label,
-                _                   => KdbgSymbolKind.Label,
+                SymbolKind.Label => KdbgSymbolKind.Label,
+                _ => KdbgSymbolKind.Label,
             };
 
             // sym.SourceFile is the .kobj input path (not the .asm path)
@@ -42,7 +43,8 @@ public static class DebugInfoPopulator
                 name: sym.Name,
                 scopeId: 0,
                 definitionSourceFile: null,
-                definitionLine: 0);
+                definitionLine: 0
+            );
         }
 
         foreach (var run in result.LineMap)
@@ -57,7 +59,8 @@ public static class DebugInfoPopulator
                     address: cursor,
                     byteCount: (byte)chunk,
                     sourceFile: run.File,
-                    line: run.Line);
+                    line: run.Line
+                );
                 cursor = (ushort)((cursor + chunk) & 0xFFFF);
                 remaining -= chunk;
             }
@@ -72,18 +75,20 @@ public static class DebugInfoPopulator
     /// </summary>
     public static void PopulateFromLinkerSymbols(
         DebugInfoBuilder builder,
-        IReadOnlyList<LinkerSymbol> symbols)
+        IReadOnlyList<LinkerSymbol> symbols
+    )
     {
         foreach (var sym in symbols)
         {
-            if (sym.AbsoluteAddress < 0) continue;
+            if (sym.AbsoluteAddress < 0)
+                continue;
             byte bank = (byte)(sym.SectionName != null ? sym.PlacedBank : 0);
             ushort address = (ushort)(sym.AbsoluteAddress & 0xFFFF);
             var kind = sym.Kind switch
             {
                 SymbolKind.Constant => KdbgSymbolKind.EquConstant,
-                SymbolKind.Label    => KdbgSymbolKind.Label,
-                _                   => KdbgSymbolKind.Label,
+                SymbolKind.Label => KdbgSymbolKind.Label,
+                _ => KdbgSymbolKind.Label,
             };
             builder.AddSymbol(
                 kind: kind,
@@ -93,7 +98,8 @@ public static class DebugInfoPopulator
                 name: sym.Name,
                 scopeId: 0,
                 definitionSourceFile: null,
-                definitionLine: 0);
+                definitionLine: 0
+            );
         }
     }
 }

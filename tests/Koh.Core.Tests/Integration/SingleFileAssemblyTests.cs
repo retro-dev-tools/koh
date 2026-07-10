@@ -107,7 +107,7 @@ public class SingleFileAssemblyTests
     public async Task Assemble_ForwardReference_Resolved()
     {
         var source = """
-            SECTION "Main", ROM0
+            SECTION "Main", ROM0[$0000]
                 dw end_label
                 nop
             end_label:
@@ -251,7 +251,7 @@ public class SingleFileAssemblyTests
     public async Task Assemble_JrForwardRef_Resolved()
     {
         var source = """
-            SECTION "Main", ROM0
+            SECTION "Main", ROM0[$0000]
                 jr end
                 nop
             end:
@@ -277,7 +277,7 @@ public class SingleFileAssemblyTests
     public async Task Assemble_DbForwardRef_Resolved()
     {
         var source = """
-            SECTION "Main", ROM0
+            SECTION "Main", ROM0[$0000]
                 db target
                 nop
             target:

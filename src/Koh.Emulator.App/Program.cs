@@ -13,8 +13,10 @@ string? dapPipe = null;
 var positional = new List<string>();
 foreach (var arg in args)
 {
-    if (arg.StartsWith("--dap=", StringComparison.Ordinal)) dapPipe = arg["--dap=".Length..];
-    else positional.Add(arg);
+    if (arg.StartsWith("--dap=", StringComparison.Ordinal))
+        dapPipe = arg["--dap=".Length..];
+    else
+        positional.Add(arg);
 }
 
 string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
@@ -33,13 +35,20 @@ string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
 // monitor vsync), which matters because GB is 59.73 Hz and a 60 Hz
 // display would otherwise introduce slow pitch drift.
 using var audio = new AudioSink();
-using var loop  = new EmulatorLoop(audio);
+using var loop = new EmulatorLoop(audio);
 using var dapServer = dapPipe is not null ? new DapServerHost(dapPipe, loop) : null;
 
 var runner = new Runner<EmulatorModel, EmulatorMsg>(
-    initialModel: new EmulatorModel(Loop: loop, RomPath: null, FrameCount: 0, Status: "Loading...", ShowDebug: false),
+    initialModel: new EmulatorModel(
+        Loop: loop,
+        RomPath: null,
+        FrameCount: 0,
+        Status: "Loading...",
+        ShowDebug: false
+    ),
     update: EmulatorApp.Update,
-    view: EmulatorApp.View);
+    view: EmulatorApp.View
+);
 
 // Load the ROM synchronously and seed the runner before the window
 // opens — that way the initial render already has the hardware booted
@@ -59,11 +68,16 @@ var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
     // Key resolution order: fast-forward hold (Tab) wins over
     // everything so it stays responsive even if Tab overlaps a
     // keyboard-focus cycle; one-shot shortcuts next; joypad last.
-    onKeyDown: name => name == "Tab" ? new SetFastForward(true)
-                    : EmulatorApp.MapShortcut(name)
-                   ?? (EmulatorApp.MapKey(name) is { } btn ? new JoypadDown(btn) : null),
-    onKeyUp:   name => name == "Tab" ? new SetFastForward(false)
-                    : (EmulatorApp.MapKey(name) is { } btn ? new JoypadUp(btn) : null));
+    onKeyDown: name =>
+        name == "Tab"
+            ? new SetFastForward(true)
+            : EmulatorApp.MapShortcut(name)
+                ?? (EmulatorApp.MapKey(name) is { } btn ? new JoypadDown(btn) : null),
+    onKeyUp: name =>
+        name == "Tab"
+            ? new SetFastForward(false)
+            : (EmulatorApp.MapKey(name) is { } btn ? new JoypadUp(btn) : null)
+);
 
 backend.Run();
 await runner.DisposeAsync();
@@ -78,7 +92,8 @@ static string FindDefaultRom()
     while (dir is not null)
     {
         var candidate = Path.Combine(dir, ".playwright-cli", "azure-dreams.gbc");
-        if (File.Exists(candidate)) return candidate;
+        if (File.Exists(candidate))
+            return candidate;
         dir = Path.GetDirectoryName(dir);
     }
     // Fall through to a blargg test ROM — always present under
@@ -86,9 +101,20 @@ static string FindDefaultRom()
     dir = AppContext.BaseDirectory;
     while (dir is not null)
     {
-        var candidate = Path.Combine(dir, "tests", "fixtures", "test-roms", "blargg", "cpu_instrs", "cpu_instrs.gb");
-        if (File.Exists(candidate)) return candidate;
+        var candidate = Path.Combine(
+            dir,
+            "tests",
+            "fixtures",
+            "test-roms",
+            "blargg",
+            "cpu_instrs",
+            "cpu_instrs.gb"
+        );
+        if (File.Exists(candidate))
+            return candidate;
         dir = Path.GetDirectoryName(dir);
     }
-    throw new FileNotFoundException("no default ROM found. Pass a path as arg1 or place azure-dreams.gbc under .playwright-cli/.");
+    throw new FileNotFoundException(
+        "no default ROM found. Pass a path as arg1 or place azure-dreams.gbc under .playwright-cli/."
+    );
 }

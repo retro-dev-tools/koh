@@ -2,7 +2,14 @@ namespace Koh.Core.Binding;
 
 public enum SectionType
 {
-    Rom0, RomX, Vram, Sram, Wram0, WramX, Oam, Hram,
+    Rom0,
+    RomX,
+    Vram,
+    Sram,
+    Wram0,
+    WramX,
+    Oam,
+    Hram,
 }
 
 public sealed class SectionBuffer
@@ -13,11 +20,13 @@ public sealed class SectionBuffer
     public int? Bank { get; }
     public int BaseAddress { get; }
     public int AlignBits { get; set; }
+
     /// <summary>
     /// Alignment offset recorded by the first ALIGN N, OFFSET directive in this section.
     /// Used by DS ALIGN to account for the section's known placement offset.
     /// </summary>
     public int AlignOffset { get; set; }
+
     /// <summary>
     /// True when this section was opened with the FRAGMENT keyword.
     /// Fragment sections are allowed to appear multiple times and are concatenated.
@@ -131,7 +140,8 @@ public sealed class SectionBuffer
 
     public void ReserveBytes(int count, byte fill = 0x00)
     {
-        if (count <= 0) return;
+        if (count <= 0)
+            return;
         RecordEmission(count);
         for (int i = 0; i < count; i++)
             _bytes.Add(fill);
@@ -191,7 +201,8 @@ public sealed class SectionBuffer
 
     private void RecordEmission(int byteCount)
     {
-        if (_currentFile is null || byteCount <= 0) return;
+        if (_currentFile is null || byteCount <= 0)
+            return;
 
         // Greedy coalesce: if the previous slot ends exactly where this
         // emission starts and has the same (file, line), extend it in
@@ -201,21 +212,25 @@ public sealed class SectionBuffer
         if (_lineMap.Count > 0)
         {
             var tail = _lineMap[_lineMap.Count - 1];
-            if (tail.Offset + tail.ByteCount == nextOffset
+            if (
+                tail.Offset + tail.ByteCount == nextOffset
                 && tail.Line == _currentLine
-                && string.Equals(tail.File, _currentFile, StringComparison.Ordinal))
+                && string.Equals(tail.File, _currentFile, StringComparison.Ordinal)
+            )
             {
                 tail.ByteCount += byteCount;
                 return;
             }
         }
-        _lineMap.Add(new LineMapSlot
-        {
-            Offset = nextOffset,
-            ByteCount = byteCount,
-            File = _currentFile,
-            Line = _currentLine,
-        });
+        _lineMap.Add(
+            new LineMapSlot
+            {
+                Offset = nextOffset,
+                ByteCount = byteCount,
+                File = _currentFile,
+                Line = _currentLine,
+            }
+        );
     }
 
     private sealed class LineMapSlot

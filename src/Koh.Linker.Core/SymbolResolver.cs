@@ -9,7 +9,9 @@ namespace Koh.Linker.Core;
 /// </summary>
 public sealed class SymbolResolver
 {
-    private readonly Dictionary<string, LinkerSymbol> _globals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LinkerSymbol> _globals = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly List<LinkerSymbol> _allSymbols = [];
     private readonly DiagnosticBag _diagnostics;
 
@@ -35,9 +37,11 @@ public sealed class SymbolResolver
             {
                 if (_globals.TryGetValue(sym.Name, out var existing))
                 {
-                    _diagnostics.Report(default,
-                        $"Duplicate exported symbol '{sym.Name}' " +
-                        $"(defined in '{existing.SourceFile}' and '{input.FilePath}')");
+                    _diagnostics.Report(
+                        default,
+                        $"Duplicate exported symbol '{sym.Name}' "
+                            + $"(defined in '{existing.SourceFile}' and '{input.FilePath}')"
+                    );
                 }
                 else
                 {
@@ -54,6 +58,34 @@ public sealed class SymbolResolver
     {
         _globals.TryGetValue(name, out var sym);
         return sym;
+    }
+
+    /// <summary>
+    /// Look up a symbol by name, searching local symbols from the given source file
+    /// in addition to globally exported symbols. Used by the linker to resolve
+    /// cross-section patches within the same object file.
+    /// </summary>
+    public LinkerSymbol? Lookup(string name, string? sourceFile)
+    {
+        // Prefer a file-local symbol match (handles intra-file cross-section refs)
+        if (sourceFile != null)
+        {
+            foreach (var sym in _allSymbols)
+            {
+                if (
+                    sym.Visibility != SymbolVisibility.Imported
+                    && StringComparer.OrdinalIgnoreCase.Equals(sym.SourceFile, sourceFile)
+                    && StringComparer.OrdinalIgnoreCase.Equals(sym.Name, name)
+                )
+                {
+                    return sym;
+                }
+            }
+        }
+
+        // Fall back to globally exported symbols
+        _globals.TryGetValue(name, out var globalSym);
+        return globalSym;
     }
 
     /// <summary>

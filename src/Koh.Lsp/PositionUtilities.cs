@@ -10,7 +10,8 @@ internal static class PositionUtilities
 {
     public static int ToOffset(SourceText source, LspPosition position)
     {
-        if (position.Line < 0) return 0;
+        if (position.Line < 0)
+            return 0;
         if (position.Line >= source.Lines.Count)
             return source.Length;
         var line = source.Lines[position.Line];
@@ -34,19 +35,32 @@ internal static class PositionUtilities
     }
 
     public static Microsoft.VisualStudio.LanguageServer.Protocol.Diagnostic ToLspDiagnostic(
-        Diagnostic diag, SourceText source)
+        Diagnostic diag,
+        SourceText source
+    )
     {
-        var range = diag.Span == default
-            ? new LspRange { Start = new LspPosition(0, 0), End = new LspPosition(0, 0) }
-            : ToLspRange(source, diag.Span);
+        var range =
+            diag.Span == default
+                ? new LspRange { Start = new LspPosition(0, 0), End = new LspPosition(0, 0) }
+                : ToLspRange(source, diag.Span);
 
         return new Microsoft.VisualStudio.LanguageServer.Protocol.Diagnostic
         {
             Range = range,
             Severity = diag.Severity switch
             {
-                DiagnosticSeverity.Error => Microsoft.VisualStudio.LanguageServer.Protocol.DiagnosticSeverity.Error,
-                DiagnosticSeverity.Warning => Microsoft.VisualStudio.LanguageServer.Protocol.DiagnosticSeverity.Warning,
+                DiagnosticSeverity.Error => Microsoft
+                    .VisualStudio
+                    .LanguageServer
+                    .Protocol
+                    .DiagnosticSeverity
+                    .Error,
+                DiagnosticSeverity.Warning => Microsoft
+                    .VisualStudio
+                    .LanguageServer
+                    .Protocol
+                    .DiagnosticSeverity
+                    .Warning,
                 _ => Microsoft.VisualStudio.LanguageServer.Protocol.DiagnosticSeverity.Information,
             },
             Source = "koh",

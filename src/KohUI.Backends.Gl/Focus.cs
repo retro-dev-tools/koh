@@ -15,7 +15,8 @@ internal static class Focus
     /// <summary>Flat, in-layout-order list of focusable-widget paths.</summary>
     public static ImmutableArray<string> Enumerate(LayoutNode? root)
     {
-        if (root is null) return ImmutableArray<string>.Empty;
+        if (root is null)
+            return ImmutableArray<string>.Empty;
         var builder = ImmutableArray.CreateBuilder<string>();
         Visit(root, builder);
         return builder.ToImmutable();
@@ -23,8 +24,10 @@ internal static class Focus
 
     private static void Visit(LayoutNode node, ImmutableArray<string>.Builder output)
     {
-        if (IsFocusable(node)) output.Add(node.Path);
-        foreach (var c in node.Children) Visit(c, output);
+        if (IsFocusable(node))
+            output.Add(node.Path);
+        foreach (var c in node.Children)
+            Visit(c, output);
     }
 
     public static bool IsFocusable(LayoutNode node)
@@ -33,26 +36,34 @@ internal static class Focus
         // user could address via keyboard — clickable for buttons/menu
         // items, onChange for text input. Add more slots here as
         // widgets with their own event shapes land.
-        if (node.Source.Props.TryGetValue("onClick", out var v1) && v1 is Delegate) return true;
-        if (node.Source.Props.TryGetValue("onChange", out var v2) && v2 is Delegate) return true;
+        if (node.Source.Props.TryGetValue("onClick", out var v1) && v1 is Delegate)
+            return true;
+        if (node.Source.Props.TryGetValue("onChange", out var v2) && v2 is Delegate)
+            return true;
         return false;
     }
 
     public static string? Next(ImmutableArray<string> order, string? current)
     {
-        if (order.IsEmpty) return null;
-        if (current is null) return order[0];
+        if (order.IsEmpty)
+            return null;
+        if (current is null)
+            return order[0];
         int idx = order.IndexOf(current);
-        if (idx < 0) return order[0];
+        if (idx < 0)
+            return order[0];
         return order[(idx + 1) % order.Length];
     }
 
     public static string? Prev(ImmutableArray<string> order, string? current)
     {
-        if (order.IsEmpty) return null;
-        if (current is null) return order[^1];
+        if (order.IsEmpty)
+            return null;
+        if (current is null)
+            return order[^1];
         int idx = order.IndexOf(current);
-        if (idx < 0) return order[^1];
+        if (idx < 0)
+            return order[^1];
         return order[(idx - 1 + order.Length) % order.Length];
     }
 
@@ -63,7 +74,8 @@ internal static class Focus
     /// </summary>
     public static string? ResolveAccelerator(LayoutNode? root, char ch)
     {
-        if (root is null) return null;
+        if (root is null)
+            return null;
         char target = char.ToUpperInvariant(ch);
         return FindAcc(root, target);
     }
@@ -74,9 +86,13 @@ internal static class Focus
         {
             var text = node.Source.Props.TryGetValue("text", out var v) && v is string s ? s : "";
             int amp = text.IndexOf('&');
-            if (amp >= 0 && amp < text.Length - 1
+            if (
+                amp >= 0
+                && amp < text.Length - 1
                 && char.ToUpperInvariant(text[amp + 1]) == target
-                && node.Source.Props.TryGetValue("onClick", out var h) && h is Delegate)
+                && node.Source.Props.TryGetValue("onClick", out var h)
+                && h is Delegate
+            )
             {
                 return node.Path;
             }
@@ -84,19 +100,23 @@ internal static class Focus
         foreach (var c in node.Children)
         {
             var hit = FindAcc(c, target);
-            if (hit is not null) return hit;
+            if (hit is not null)
+                return hit;
         }
         return null;
     }
 
     public static LayoutNode? FindByPath(LayoutNode? root, string? path)
     {
-        if (root is null || path is null) return null;
-        if (path == root.Path) return root;
+        if (root is null || path is null)
+            return null;
+        if (path == root.Path)
+            return root;
         foreach (var c in root.Children)
         {
             var hit = FindByPath(c, path);
-            if (hit is not null) return hit;
+            if (hit is not null)
+                return hit;
         }
         return null;
     }

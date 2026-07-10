@@ -40,10 +40,12 @@ public class RgbdsFormatTests
     [Test]
     public async Task Header_SymbolAndSectionCounts()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             my_label: nop
-            """);
+            """
+        );
         var bytes = WriteToBytes(model);
 
         var numSymbols = BitConverter.ToInt32(bytes, 8);
@@ -58,11 +60,13 @@ public class RgbdsFormatTests
     [Test]
     public async Task WriteAndRead_DoesNotThrow()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             nop
             ld a, b
-            """);
+            """
+        );
         var bytes = WriteToBytes(model);
         await Assert.That(bytes.Length).IsGreaterThan(20); // header + content
     }
@@ -70,12 +74,14 @@ public class RgbdsFormatTests
     [Test]
     public async Task Section_ContainsCorrectData()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Code", ROM0
             nop
             nop
             nop
-            """);
+            """
+        );
         var bytes = WriteToBytes(model);
 
         // The output should contain the section data bytes (3 NOPs = 0x00, 0x00, 0x00)
@@ -97,10 +103,12 @@ public class RgbdsFormatTests
     [Test]
     public async Task Symbol_ExportedLabelPresent()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             my_func:: nop
-            """);
+            """
+        );
         var bytes = WriteToBytes(model);
 
         // The exported symbol name should appear in the binary
@@ -111,12 +119,14 @@ public class RgbdsFormatTests
     [Test]
     public async Task MultipleSymbols_AllPresent()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             start:: nop
             loop:: nop
             done:: nop
-            """);
+            """
+        );
         var bytes = WriteToBytes(model);
         var text = System.Text.Encoding.UTF8.GetString(bytes);
 
@@ -131,11 +141,13 @@ public class RgbdsFormatTests
         var model = Emit("ASSERT 0"); // produces an error
         await Assert.That(model.Success).IsFalse();
 
-        await Assert.That(() =>
-        {
-            using var ms = new MemoryStream();
-            RgbdsObjectWriter.Write(ms, model);
-        }).Throws<InvalidOperationException>();
+        await Assert
+            .That(() =>
+            {
+                using var ms = new MemoryStream();
+                RgbdsObjectWriter.Write(ms, model);
+            })
+            .Throws<InvalidOperationException>();
     }
 
     [Test]
@@ -159,10 +171,12 @@ public class RgbdsFormatTests
     public async Task ImportSymbol_WrittenCorrectly()
     {
         // Assemble with AllowUndefinedSymbols — undefined symbol becomes an import
-        var tree = SyntaxTree.Parse("""
+        var tree = SyntaxTree.Parse(
+            """
             SECTION "Main", ROM0
             dw external_func
-            """);
+            """
+        );
         var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
         var model = Compilation.Create(options, tree).Emit();
         await Assert.That(model.Success).IsTrue();
@@ -170,7 +184,9 @@ public class RgbdsFormatTests
         // The symbol "external_func" should be in the model as Imported
         var importSym = model.Symbols.FirstOrDefault(s => s.Name == "external_func");
         await Assert.That(importSym).IsNotNull();
-        await Assert.That(importSym!.Visibility).IsEqualTo(Koh.Core.Symbols.SymbolVisibility.Imported);
+        await Assert
+            .That(importSym!.Visibility)
+            .IsEqualTo(Koh.Core.Symbols.SymbolVisibility.Imported);
 
         // Write to RGBDS format — should not throw
         var bytes = WriteToBytes(model);
@@ -184,10 +200,12 @@ public class RgbdsFormatTests
     [Test]
     public async Task ImportSymbol_PatchContainsRpnSymbolOpcode()
     {
-        var tree = SyntaxTree.Parse("""
+        var tree = SyntaxTree.Parse(
+            """
             SECTION "Main", ROM0
             dw external_func
-            """);
+            """
+        );
         var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
         var model = Compilation.Create(options, tree).Emit();
         await Assert.That(model.Success).IsTrue();
@@ -204,7 +222,11 @@ public class RgbdsFormatTests
         bool hasRpnSymbol = false;
         for (int i = 0; i < bytes.Length; i++)
         {
-            if (bytes[i] == 0x81) { hasRpnSymbol = true; break; }
+            if (bytes[i] == 0x81)
+            {
+                hasRpnSymbol = true;
+                break;
+            }
         }
         await Assert.That(hasRpnSymbol).IsTrue();
     }
@@ -213,11 +235,13 @@ public class RgbdsFormatTests
     public async Task ForwardRef_SameFile_NotImport()
     {
         // A forward-referenced label defined later in the same file should NOT become an import
-        var tree = SyntaxTree.Parse("""
+        var tree = SyntaxTree.Parse(
+            """
             SECTION "Main", ROM0
             dw my_label
             my_label: nop
-            """);
+            """
+        );
         var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
         var model = Compilation.Create(options, tree).Emit();
         await Assert.That(model.Success).IsTrue();
@@ -231,10 +255,12 @@ public class RgbdsFormatTests
     [Test]
     public async Task RamSection_NoDataEmitted()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "RAM", WRAM0
             my_var: ds 4
-            """);
+            """
+        );
         var bytes = WriteToBytes(model);
 
         // WRAM0 section should have size 4 but no data bytes in the output
@@ -249,9 +275,14 @@ public class RgbdsFormatTests
             bool match = true;
             for (int j = 0; j < needle.Length; j++)
             {
-                if (haystack[i + j] != needle[j]) { match = false; break; }
+                if (haystack[i + j] != needle[j])
+                {
+                    match = false;
+                    break;
+                }
             }
-            if (match) return i;
+            if (match)
+                return i;
         }
         return -1;
     }

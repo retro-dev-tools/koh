@@ -1,8 +1,8 @@
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Advanced;
+using SixLabors.ImageSharp.PixelFormats;
 using TUnit.Core;
 
 namespace Koh.Compat.Tests.Emulation;
@@ -17,7 +17,6 @@ namespace Koh.Compat.Tests.Emulation;
 /// </summary>
 public class Acid2Tests
 {
-
     private static readonly string FixturesRoot = LocateFixturesRoot();
 
     private static string LocateFixturesRoot()
@@ -26,14 +25,17 @@ public class Acid2Tests
         for (int i = 0; i < 8 && dir is not null; i++)
         {
             var candidate = Path.Combine(dir, "tests", "fixtures");
-            if (Directory.Exists(candidate)) return candidate;
+            if (Directory.Exists(candidate))
+                return candidate;
             dir = Path.GetDirectoryName(dir);
         }
         return Path.Combine(AppContext.BaseDirectory, "tests", "fixtures");
     }
 
     private static string RomPath(string name) => Path.Combine(FixturesRoot, "test-roms", name);
-    private static string ReferencePath(string name) => Path.Combine(FixturesRoot, "reference", name);
+
+    private static string ReferencePath(string name) =>
+        Path.Combine(FixturesRoot, "reference", name);
 
     [Test]
     public async Task DmgAcid2_Framebuffer_Matches_Reference()
@@ -42,7 +44,9 @@ public class Acid2Tests
         string refPath = ReferencePath("dmg-acid2.png");
         if (!File.Exists(romPath) || !File.Exists(refPath))
         {
-            Skip.Test($"acid2 fixtures missing (expected {romPath} + {refPath}). Run scripts/download-test-roms.sh.");
+            Skip.Test(
+                $"acid2 fixtures missing (expected {romPath} + {refPath}). Run scripts/download-test-roms.sh."
+            );
             return;
         }
 
@@ -51,7 +55,8 @@ public class Acid2Tests
         var gb = new GameBoySystem(HardwareMode.Dmg, cart);
 
         // Acid2 completes its rendering well before 60 frames. Give it 120 for headroom.
-        for (int i = 0; i < 120; i++) gb.RunFrame();
+        for (int i = 0; i < 120; i++)
+            gb.RunFrame();
 
         byte[] actual = gb.Framebuffer.Front.ToArray();
 
@@ -82,7 +87,8 @@ public class Acid2Tests
         var cart = CartridgeFactory.Load(rom);
         var gb = new GameBoySystem(HardwareMode.Cgb, cart);
 
-        for (int i = 0; i < 120; i++) gb.RunFrame();
+        for (int i = 0; i < 120; i++)
+            gb.RunFrame();
 
         byte[] actual = gb.Framebuffer.Front.ToArray();
 
@@ -106,23 +112,26 @@ public class Acid2Tests
         await img.SaveAsPngAsync(Path.Combine(outDir, filename));
     }
 
-    private static async Task SaveDiffFrameAsync(string filename, byte[] actualRgba, Image<Rgba32> reference)
+    private static async Task SaveDiffFrameAsync(
+        string filename,
+        byte[] actualRgba,
+        Image<Rgba32> reference
+    )
     {
         var outDir = Path.Combine(AppContext.BaseDirectory, "acid2-actual");
         Directory.CreateDirectory(outDir);
         using var diff = new Image<Rgba32>(reference.Width, reference.Height);
         for (int y = 0; y < reference.Height; y++)
-            for (int x = 0; x < reference.Width; x++)
-            {
-                var refPx = reference[x, y];
-                int idx = (y * reference.Width + x) * 4;
-                bool differs = refPx.R != actualRgba[idx] ||
-                               refPx.G != actualRgba[idx + 1] ||
-                               refPx.B != actualRgba[idx + 2];
-                diff[x, y] = differs
-                    ? new Rgba32(255, 0, 0, 255)
-                    : new Rgba32(255, 255, 255, 255);
-            }
+        for (int x = 0; x < reference.Width; x++)
+        {
+            var refPx = reference[x, y];
+            int idx = (y * reference.Width + x) * 4;
+            bool differs =
+                refPx.R != actualRgba[idx]
+                || refPx.G != actualRgba[idx + 1]
+                || refPx.B != actualRgba[idx + 2];
+            diff[x, y] = differs ? new Rgba32(255, 0, 0, 255) : new Rgba32(255, 255, 255, 255);
+        }
         await diff.SaveAsPngAsync(Path.Combine(outDir, filename));
     }
 
@@ -131,7 +140,10 @@ public class Acid2Tests
         int diff = 0;
         int width = reference.Width;
         int height = reference.Height;
-        int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
+        int minX = int.MaxValue,
+            maxX = int.MinValue,
+            minY = int.MaxValue,
+            maxY = int.MinValue;
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -144,10 +156,14 @@ public class Acid2Tests
                 if (pixel.R != ar || pixel.G != ag || pixel.B != ab)
                 {
                     diff++;
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
+                    if (x < minX)
+                        minX = x;
+                    if (x > maxX)
+                        maxX = x;
+                    if (y < minY)
+                        minY = y;
+                    if (y > maxY)
+                        maxY = y;
                 }
             }
         }

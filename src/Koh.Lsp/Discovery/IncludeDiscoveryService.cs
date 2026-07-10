@@ -48,7 +48,11 @@ internal sealed class IncludeDiscoveryService
             var includePath = TryExtractInclude(line);
             if (includePath is not null)
             {
-                var resolved = ResolveIncludePath(normalizedFilePath, includePath, workspaceFolderPath);
+                var resolved = ResolveIncludePath(
+                    normalizedFilePath,
+                    includePath,
+                    workspaceFolderPath
+                );
                 includes.Add(resolved);
             }
         }
@@ -187,7 +191,11 @@ internal sealed class IncludeDiscoveryService
     /// 2. Then relative to the containing file's directory
     /// Normalizes the result with <see cref="Path.GetFullPath(string)"/>.
     /// </summary>
-    private static string ResolveIncludePath(string containingFile, string includePath, string workspaceFolderPath)
+    private static string ResolveIncludePath(
+        string containingFile,
+        string includePath,
+        string workspaceFolderPath
+    )
     {
         // Try relative to workspace folder (CWD) first
         var cwdPath = Path.GetFullPath(Path.Combine(workspaceFolderPath, includePath));

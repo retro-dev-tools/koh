@@ -12,22 +12,26 @@ public class SignatureHelpTests
     private static JToken? GetSignatureHelp(Workspace ws, string uri, int offset)
     {
         var doc = ws.GetDocument(uri);
-        if (doc == null) return null;
+        if (doc == null)
+            return null;
 
         var (source, tree) = doc.Value;
         var token = tree.Root.FindToken(offset);
-        if (token == null) return null;
+        if (token == null)
+            return null;
 
         // Find enclosing MacroCall
         var macroCall = FindEnclosingMacroCall(token);
-        if (macroCall == null) return null;
+        if (macroCall == null)
+            return null;
 
         var macroNameToken = macroCall.ChildTokens().FirstOrDefault();
         if (macroNameToken == null || macroNameToken.Kind != SyntaxKind.IdentifierToken)
             return null;
 
         var model = ws.GetSemanticModel(uri);
-        if (model == null) return null;
+        if (model == null)
+            return null;
 
         var symbol = model.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
         if (symbol == null || symbol.Kind != Core.Symbols.SymbolKind.Macro)
@@ -50,10 +54,18 @@ public class SignatureHelpTests
                     bool foundLabel = false;
                     foreach (var child in parent2.ChildNodesAndTokens())
                     {
-                        if (!child.IsNode) continue;
-                        if (child.AsNode! == definitionNode) { foundLabel = true; continue; }
+                        if (!child.IsNode)
+                            continue;
+                        if (child.AsNode! == definitionNode)
+                        {
+                            foundLabel = true;
+                            continue;
+                        }
                         if (foundLabel && child.AsNode!.Kind == SyntaxKind.MacroDefinition)
-                        { macroStart = child.AsNode; break; }
+                        {
+                            macroStart = child.AsNode;
+                            break;
+                        }
                     }
                 }
             }
@@ -63,13 +75,21 @@ public class SignatureHelpTests
                 bool inBody = false;
                 foreach (var child in macroStart.Parent.ChildNodesAndTokens())
                 {
-                    if (!child.IsNode) continue;
+                    if (!child.IsNode)
+                        continue;
                     // Red tree nodes are created on-the-fly; compare by position
-                    if (child.AsNode!.Kind == SyntaxKind.MacroDefinition && child.AsNode!.Position == macroStart.Position)
-                    { inBody = true; continue; }
+                    if (
+                        child.AsNode!.Kind == SyntaxKind.MacroDefinition
+                        && child.AsNode!.Position == macroStart.Position
+                    )
+                    {
+                        inBody = true;
+                        continue;
+                    }
                     if (inBody)
                     {
-                        if (child.AsNode!.Kind == SyntaxKind.MacroDefinition) break;
+                        if (child.AsNode!.Kind == SyntaxKind.MacroDefinition)
+                            break;
                         ScanMacroParams(child.AsNode!, ref maxParam);
                     }
                 }
@@ -85,12 +105,17 @@ public class SignatureHelpTests
             if (child.IsToken)
             {
                 var t = child.AsToken!;
-                if (t.Span.Start >= offset) break;
-                if (t.Kind == SyntaxKind.OpenParenToken) parenDepth++;
-                else if (t.Kind == SyntaxKind.CloseParenToken) parenDepth--;
-                else if (t.Kind == SyntaxKind.CommaToken && parenDepth == 0) commaCount++;
+                if (t.Span.Start >= offset)
+                    break;
+                if (t.Kind == SyntaxKind.OpenParenToken)
+                    parenDepth++;
+                else if (t.Kind == SyntaxKind.CloseParenToken)
+                    parenDepth--;
+                else if (t.Kind == SyntaxKind.CommaToken && parenDepth == 0)
+                    commaCount++;
             }
-            else if (child.AsNode!.Position >= offset) break;
+            else if (child.AsNode!.Position >= offset)
+                break;
         }
 
         var parameters = new JArray();
@@ -103,7 +128,8 @@ public class SignatureHelpTests
             {
                 new JObject
                 {
-                    ["label"] = $"{macroNameToken.Text}({string.Join(", ", Enumerable.Range(1, arity).Select(i => $"\\{i}"))})",
+                    ["label"] =
+                        $"{macroNameToken.Text}({string.Join(", ", Enumerable.Range(1, arity).Select(i => $"\\{i}"))})",
                     ["parameters"] = parameters,
                     ["activeParameter"] = Math.Min(commaCount, Math.Max(0, arity - 1)),
                 },
@@ -118,7 +144,8 @@ public class SignatureHelpTests
         var node = token.Parent;
         while (node != null)
         {
-            if (node.Kind == SyntaxKind.MacroCall) return node;
+            if (node.Kind == SyntaxKind.MacroCall)
+                return node;
             node = node.Parent;
         }
         return null;
@@ -131,11 +158,17 @@ public class SignatureHelpTests
             if (child.IsToken)
             {
                 var t = child.AsToken!;
-                if (t.Kind == SyntaxKind.MacroParamToken && t.Text.Length == 2 &&
-                    t.Text[0] == '\\' && t.Text[1] >= '1' && t.Text[1] <= '9')
+                if (
+                    t.Kind == SyntaxKind.MacroParamToken
+                    && t.Text.Length == 2
+                    && t.Text[0] == '\\'
+                    && t.Text[1] >= '1'
+                    && t.Text[1] <= '9'
+                )
                 {
                     int idx = t.Text[1] - '0';
-                    if (idx > maxParam) maxParam = idx;
+                    if (idx > maxParam)
+                        maxParam = idx;
                 }
             }
             else

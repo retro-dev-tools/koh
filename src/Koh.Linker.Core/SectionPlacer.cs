@@ -52,20 +52,24 @@ public sealed class SectionPlacer
         // List.Sort is not stable — two sections of equal size can swap between runs.
         // This is normally acceptable, but if reproducible output is needed in future,
         // add a tertiary key such as section name to make the order deterministic.
-        sections.Sort((a, b) =>
-        {
-            if (a.FixedAddress.HasValue != b.FixedAddress.HasValue)
-                return a.FixedAddress.HasValue ? -1 : 1;
-            return b.Data.Length.CompareTo(a.Data.Length);
-        });
+        sections.Sort(
+            (a, b) =>
+            {
+                if (a.FixedAddress.HasValue != b.FixedAddress.HasValue)
+                    return a.FixedAddress.HasValue ? -1 : 1;
+                return b.Data.Length.CompareTo(a.Data.Length);
+            }
+        );
 
         // Track free space per bank: bank → next free offset.
         // ROMX banks are numbered 1–511; bank 0 is reserved for ROM0 (the fixed window
         // at 0x0000–0x3FFF that is always mapped). Floating allocation therefore starts
         // at bank 1 for ROMX. For all other regions (VRAM, WRAM, etc.) banks start at 0.
         var bankUsage = new Dictionary<int, int>();
-        int bankCount = region.Type == SectionType.Rom0 ? 1 :
-                        region.Type == SectionType.RomX ? 512 : region.BankCount;
+        int bankCount =
+            region.Type == SectionType.Rom0 ? 1
+            : region.Type == SectionType.RomX ? 512
+            : region.BankCount;
         int firstBank = region.Type == SectionType.RomX ? 1 : 0;
 
         for (int b = firstBank; b < bankCount; b++)
@@ -102,9 +106,11 @@ public sealed class SectionPlacer
                     {
                         int overlapStart = Math.Max(secStart, otherStart);
                         int overlapEnd = Math.Min(secEnd, otherEnd);
-                        _diagnostics.Report(default,
-                            $"Section '{section.Name}' overlaps with '{other.Name}' " +
-                            $"at ${overlapStart:X4}-${overlapEnd:X4} in bank {bank}");
+                        _diagnostics.Report(
+                            default,
+                            $"Section '{section.Name}' overlaps with '{other.Name}' "
+                                + $"at ${overlapStart:X4}-${overlapEnd:X4} in bank {bank}"
+                        );
                     }
                 }
             }
@@ -133,20 +139,26 @@ public sealed class SectionPlacer
                     if (section.Data.Length > capacity)
                     {
                         // Section exceeds single bank capacity
-                        _diagnostics.Report(default,
-                            $"Section '{section.Name}' ({section.Data.Length} bytes) " +
-                            $"exceeds {section.Type} bank capacity ({capacity} bytes)");
+                        _diagnostics.Report(
+                            default,
+                            $"Section '{section.Name}' ({section.Data.Length} bytes) "
+                                + $"exceeds {section.Type} bank capacity ({capacity} bytes)"
+                        );
                     }
                     else if (targetBank >= 0)
                     {
                         // Fixed bank but doesn't fit
-                        int used = bankUsage.GetValueOrDefault(targetBank, region.StartAddress) - region.StartAddress;
+                        int used =
+                            bankUsage.GetValueOrDefault(targetBank, region.StartAddress)
+                            - region.StartAddress;
                         int free = capacity - used;
                         int overflow = section.Data.Length - free;
-                        _diagnostics.Report(default,
-                            $"Section '{section.Name}' ({section.Data.Length} bytes) " +
-                            $"does not fit in bank {targetBank} of {section.Type} " +
-                            $"({free} bytes free space, overflow by {overflow} bytes)");
+                        _diagnostics.Report(
+                            default,
+                            $"Section '{section.Name}' ({section.Data.Length} bytes) "
+                                + $"does not fit in bank {targetBank} of {section.Type} "
+                                + $"({free} bytes free space, overflow by {overflow} bytes)"
+                        );
                     }
                     else
                     {
@@ -154,24 +166,32 @@ public sealed class SectionPlacer
                         int largestFree = 0;
                         for (int b = firstBank; b < bankCount; b++)
                         {
-                            int used = bankUsage.GetValueOrDefault(b, region.StartAddress) - region.StartAddress;
+                            int used =
+                                bankUsage.GetValueOrDefault(b, region.StartAddress)
+                                - region.StartAddress;
                             int free = capacity - used;
                             if (free > largestFree)
                                 largestFree = free;
                         }
                         int overflow = section.Data.Length - largestFree;
-                        _diagnostics.Report(default,
-                            $"Section '{section.Name}' ({section.Data.Length} bytes) " +
-                            $"does not fit in any {section.Type} bank " +
-                            $"(largest free space is {largestFree} bytes, overflow by {overflow} bytes)");
+                        _diagnostics.Report(
+                            default,
+                            $"Section '{section.Name}' ({section.Data.Length} bytes) "
+                                + $"does not fit in any {section.Type} bank "
+                                + $"(largest free space is {largestFree} bytes, overflow by {overflow} bytes)"
+                        );
                     }
                 }
             }
         }
     }
 
-    private static bool TryPlaceInBank(LinkerSection section, MemoryRegion region,
-        Dictionary<int, int> bankUsage, int bank)
+    private static bool TryPlaceInBank(
+        LinkerSection section,
+        MemoryRegion region,
+        Dictionary<int, int> bankUsage,
+        int bank
+    )
     {
         if (!bankUsage.ContainsKey(bank))
             bankUsage[bank] = region.StartAddress;
@@ -189,5 +209,9 @@ public sealed class SectionPlacer
     }
 
     private readonly record struct MemoryRegion(
-        SectionType Type, int StartAddress, int EndAddress, int BankCount);
+        SectionType Type,
+        int StartAddress,
+        int EndAddress,
+        int BankCount
+    );
 }

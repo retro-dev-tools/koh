@@ -100,26 +100,27 @@ public sealed record Win98Theme
     /// against 98.css (jdan/98.css) for byte-exact consistency with the
     /// DomBackend's hand-maintained subset.
     /// </summary>
-    public static Win98Theme Default { get; } = new()
-    {
-        Background       = new(0xc0, 0xc0, 0xc0),
-        BevelHilite      = new(0xff, 0xff, 0xff),
-        BevelShadow      = new(0x80, 0x80, 0x80),
-        BevelDarkShadow  = new(0x00, 0x00, 0x00),
-        Text             = new(0x00, 0x00, 0x00),
-        InputBackground  = new(0xff, 0xff, 0xff),
-        DisabledText     = new(0x7e, 0x7e, 0x7e),
-        TitleBarStart    = new(0x00, 0x00, 0x80),
-        TitleBarEnd      = new(0x10, 0x84, 0xd0),
-        TitleBarText     = new(0xff, 0xff, 0xff),
-        Desktop          = new(0x00, 0x80, 0x80),
-        UiFontSize       = 11f,
-        UiFontFamily     = "MS Sans Serif",
-        Padding          = 4,
-        Gap              = 4,
-        BevelWidth       = 2,
-        ButtonMinWidth   = 75,
-        ButtonMinHeight  = 23,
-        CheckRadioSize   = 13,
-    };
+    public static Win98Theme Default { get; } =
+        new()
+        {
+            Background = new(0xc0, 0xc0, 0xc0),
+            BevelHilite = new(0xff, 0xff, 0xff),
+            BevelShadow = new(0x80, 0x80, 0x80),
+            BevelDarkShadow = new(0x00, 0x00, 0x00),
+            Text = new(0x00, 0x00, 0x00),
+            InputBackground = new(0xff, 0xff, 0xff),
+            DisabledText = new(0x7e, 0x7e, 0x7e),
+            TitleBarStart = new(0x00, 0x00, 0x80),
+            TitleBarEnd = new(0x10, 0x84, 0xd0),
+            TitleBarText = new(0xff, 0xff, 0xff),
+            Desktop = new(0x00, 0x80, 0x80),
+            UiFontSize = 11f,
+            UiFontFamily = "MS Sans Serif",
+            Padding = 4,
+            Gap = 4,
+            BevelWidth = 2,
+            ButtonMinWidth = 75,
+            ButtonMinHeight = 23,
+            CheckRadioSize = 13,
+        };
 }

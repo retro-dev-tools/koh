@@ -42,13 +42,17 @@ public sealed class DomBackend<TModel, TMsg>
     private void OnPatchesReady(IReadOnlyList<Patch> patches)
     {
         var bytes = JsonPatchSerializer.SerializePatches(patches);
-        BroadcastAsync(bytes).ContinueWith(t =>
-        {
-            // Swallowing is intentional — a single dropped client shouldn't
-            // tear down the runner; the cleanup loop in HandleAsync will
-            // drop the socket from the set when it fails.
-            _ = t.Exception;
-        }, TaskScheduler.Default);
+        BroadcastAsync(bytes)
+            .ContinueWith(
+                t =>
+                {
+                    // Swallowing is intentional — a single dropped client shouldn't
+                    // tear down the runner; the cleanup loop in HandleAsync will
+                    // drop the socket from the set when it fails.
+                    _ = t.Exception;
+                },
+                TaskScheduler.Default
+            );
     }
 
     /// <summary>
@@ -74,20 +78,33 @@ public sealed class DomBackend<TModel, TMsg>
             while (!ct.IsCancellationRequested && socket.State == WebSocketState.Open)
             {
                 var result = await socket.ReceiveAsync(buffer, ct);
-                if (result.MessageType == WebSocketMessageType.Close) break;
-                if (result.MessageType != WebSocketMessageType.Text) continue;
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+                if (result.MessageType != WebSocketMessageType.Text)
+                    continue;
                 HandleInboundEvent(buffer.AsSpan(0, result.Count));
             }
         }
         catch (OperationCanceledException) { }
-        catch (WebSocketException) { /* client went away */ }
+        catch (WebSocketException)
+        { /* client went away */
+        }
         finally
         {
             _connections.TryRemove(id, out _);
             if (socket.State == WebSocketState.Open)
             {
-                try { await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); }
-                catch { /* best-effort */ }
+                try
+                {
+                    await socket.CloseAsync(
+                        WebSocketCloseStatus.NormalClosure,
+                        "",
+                        CancellationToken.None
+                    );
+                }
+                catch
+                { /* best-effort */
+                }
             }
         }
     }
@@ -97,25 +114,39 @@ public sealed class DomBackend<TModel, TMsg>
         // Shape: {"op":"event","path":"0.1","event":"click"}  (no value)
         //    or: {"op":"event","path":"0.3","event":"change","value":"hi"}
         var reader = new Utf8JsonReader(json);
-        string? op = null, path = null, evt = null, value = null;
+        string? op = null,
+            path = null,
+            evt = null,
+            value = null;
         while (reader.Read())
         {
-            if (reader.TokenType != JsonTokenType.PropertyName) continue;
+            if (reader.TokenType != JsonTokenType.PropertyName)
+                continue;
             var name = reader.GetString();
             reader.Read();
             var s = reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
             switch (name)
             {
-                case "op":    op = s;    break;
-                case "path":  path = s;  break;
-                case "event": evt = s;   break;
-                case "value": value = s; break;
+                case "op":
+                    op = s;
+                    break;
+                case "path":
+                    path = s;
+                    break;
+                case "event":
+                    evt = s;
+                    break;
+                case "value":
+                    value = s;
+                    break;
             }
         }
-        if (op != "event" || path is null || evt is null) return;
+        if (op != "event" || path is null || evt is null)
+            return;
 
         var handler = FindHandler(_runner.CurrentRender, path, evt);
-        if (handler is null) return;
+        if (handler is null)
+            return;
 
         try
         {
@@ -130,19 +161,23 @@ public sealed class DomBackend<TModel, TMsg>
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[kohui-dom] event handler threw at {path}.{evt}: {ex.Message}");
+            Console.Error.WriteLine(
+                $"[kohui-dom] event handler threw at {path}.{evt}: {ex.Message}"
+            );
         }
     }
 
     private static Delegate? FindHandler(RenderNode? root, string path, string evt)
     {
-        if (root is null) return null;
+        if (root is null)
+            return null;
         var node = root;
         if (path.Length > 0)
         {
             foreach (var seg in path.Split('.'))
             {
-                if (!int.TryParse(seg, out var i) || i < 0 || i >= node.Children.Length) return null;
+                if (!int.TryParse(seg, out var i) || i < 0 || i >= node.Children.Length)
+                    return null;
                 node = node.Children[i];
             }
         }
@@ -157,12 +192,19 @@ public sealed class DomBackend<TModel, TMsg>
         var dead = new List<Guid>();
         foreach (var (id, socket) in _connections)
         {
-            try { await SendAsync(socket, bytes, CancellationToken.None); }
-            catch { dead.Add(id); }
+            try
+            {
+                await SendAsync(socket, bytes, CancellationToken.None);
+            }
+            catch
+            {
+                dead.Add(id);
+            }
         }
-        foreach (var id in dead) _connections.TryRemove(id, out _);
+        foreach (var id in dead)
+            _connections.TryRemove(id, out _);
     }
 
-    private static Task SendAsync(WebSocket socket, byte[] bytes, CancellationToken ct)
-        => socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+    private static Task SendAsync(WebSocket socket, byte[] bytes, CancellationToken ct) =>
+        socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
 }

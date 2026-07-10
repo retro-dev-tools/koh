@@ -101,13 +101,15 @@ public class RepeatTests
         // Regression: FOR I, 0, 2 must not replace the 'I' inside 'ITEM_VAL'.
         // With naive string replacement "db ITEM_VAL" → "db 0TEM_VAL" which is a lex error.
         // ITEM_VAL is an EQU constant; the loop variable I is substituted at word boundaries only.
-        var model = Emit("""
+        var model = Emit(
+            """
             ITEM_VAL EQU $55
             SECTION "Main", ROM0
             FOR I, 0, 2
                 db ITEM_VAL
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Diagnostics).IsEmpty();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(2);
@@ -134,7 +136,9 @@ public class RepeatTests
     [Test]
     public async Task Rept_InsideIf_False()
     {
-        var model = Emit("FLAG EQU 0\nSECTION \"Main\", ROM0\nIF FLAG\nREPT 2\nnop\nENDR\nENDC\nhalt");
+        var model = Emit(
+            "FLAG EQU 0\nSECTION \"Main\", ROM0\nIF FLAG\nREPT 2\nnop\nENDR\nENDC\nhalt"
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1); // only halt
     }
@@ -143,8 +147,9 @@ public class RepeatTests
     public async Task Rept_WithoutEndr_ProducesDiagnostic()
     {
         var model = Emit("SECTION \"Main\", ROM0\nREPT 3\nnop");
-        await Assert.That(model.Diagnostics.Any(d =>
-            d.Message.Contains("REPT/FOR without matching ENDR"))).IsTrue();
+        await Assert
+            .That(model.Diagnostics.Any(d => d.Message.Contains("REPT/FOR without matching ENDR")))
+            .IsTrue();
     }
 
     [Test]
@@ -165,8 +170,9 @@ public class RepeatTests
     public async Task For_StepZero_ProducesDiagnostic()
     {
         var model = Emit("SECTION \"Main\", ROM0\nFOR I, 0, 4, 0\nnop\nENDR");
-        await Assert.That(model.Diagnostics.Any(d =>
-            d.Message.Contains("FOR step cannot be zero"))).IsTrue();
+        await Assert
+            .That(model.Diagnostics.Any(d => d.Message.Contains("FOR step cannot be zero")))
+            .IsTrue();
     }
 
     /// <summary>
@@ -185,14 +191,16 @@ public class RepeatTests
         // adjacent to 'T', another word character).
         // This is equivalent to the existing For_VariableDoesNotCorruptLongerIdentifier
         // but tests the specific boundary between the two substitution modes.
-        var model = Emit("""
+        var model = Emit(
+            """
             ITEM_VAL EQU $77
             SECTION "Main", ROM0
             FOR I, 5, 7
                 db I
                 db ITEM_VAL
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Diagnostics).IsEmpty();
         // Iteration 1: db 5, db $77. Iteration 2: db 6, db $77.
@@ -206,12 +214,14 @@ public class RepeatTests
     [Test]
     public async Task ForLoop_DataTable()
     {
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Data", ROM0
             FOR I, 0, 8
             db I * 2
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(8);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0);
@@ -228,7 +238,8 @@ public class RepeatTests
     public async Task ReptTrace_NestedReptWithFailingAssertion_RejectsAssembly()
     {
         // Deeply nested REPT/FOR with a STATIC_ASSERT 0 at the innermost level must fail
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "test", ROM0
             MACRO m
             static_assert \1
@@ -236,7 +247,8 @@ public class RepeatTests
             REPT 2
             m 0
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsFalse();
     }
 
@@ -251,7 +263,8 @@ public class RepeatTests
         // BREAK in the inner FOR exits only the inner loop; the outer REPT continues.
         // We test the simpler property: BREAK in a nested loop doesn't abort the outer.
         var sw = new System.IO.StringWriter();
-        var tree = SyntaxTree.Parse("""
+        var tree = SyntaxTree.Parse(
+            """
             def n = 1
             REPT 3
                 FOR x, 10
@@ -264,7 +277,8 @@ public class RepeatTests
             PRINTLN "done"
             SECTION "Main", ROM0
             nop
-            """);
+            """
+        );
         var model = Compilation.Create(sw, tree).Emit();
         await Assert.That(model.Success).IsTrue();
         await Assert.That(sw.ToString()).Contains("done");
@@ -275,7 +289,8 @@ public class RepeatTests
     {
         // RGBDS: nested-break.asm — outer REPT breaks when n==2
         var sw = new System.IO.StringWriter();
-        var tree = SyntaxTree.Parse("""
+        var tree = SyntaxTree.Parse(
+            """
             def n = 1
             REPT 10
                 if n == 2
@@ -287,7 +302,8 @@ public class RepeatTests
             PRINTLN "after n={d:n}"
             SECTION "Main", ROM0
             nop
-            """);
+            """
+        );
         var model = Compilation.Create(sw, tree).Emit();
         await Assert.That(model.Success).IsTrue();
         var output = sw.ToString();
@@ -308,12 +324,14 @@ public class RepeatTests
     public async Task ForLoopCount_PositiveRange_ExecutesCorrectIterations()
     {
         // RGBDS: for-loop-count.asm — basic positive range with step
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             FOR x, 0, 4, 1
             db x
             ENDR
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(4);
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0);
@@ -324,13 +342,15 @@ public class RepeatTests
     public async Task ForLoopCount_StartEqualsStop_ZeroIterations()
     {
         // RGBDS: for-loop-count.asm — start >= stop with positive step → count = 0
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             FOR x, 4, 4, 1
             db x
             ENDR
             nop
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1); // only nop
     }
@@ -339,13 +359,15 @@ public class RepeatTests
     public async Task ForLoopCount_BackwardsStepWarning_ZeroIterations()
     {
         // RGBDS: for-loop-count.asm — negative step backwards produces warning, 0 iterations
-        var model = Emit("""
+        var model = Emit(
+            """
             SECTION "Main", ROM0
             FOR x, -1, 4, -1
             db x
             ENDR
             nop
-            """);
+            """
+        );
         // backwards-for warning but assembles ok with 0 iterations
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(1); // only nop
@@ -360,7 +382,8 @@ public class RepeatTests
     {
         // RGBDS: unique-id-nested.asm — each macro call and REPT iteration gets distinct \@
         var sw = new System.IO.StringWriter();
-        var tree = SyntaxTree.Parse("""
+        var tree = SyntaxTree.Parse(
+            """
             MACRO m1
             PRINTLN "mac: \@"
             ENDM
@@ -370,7 +393,8 @@ public class RepeatTests
             ENDR
             SECTION "Main", ROM0
             nop
-            """);
+            """
+        );
         var model = Compilation.Create(sw, tree).Emit();
         await Assert.That(model.Success).IsTrue();
         var lines = sw.ToString().Split('\n', System.StringSplitOptions.RemoveEmptyEntries);
@@ -383,7 +407,8 @@ public class RepeatTests
     public async Task UniqueIdNested_NestedMacroDefinedInRept_UniqueLabels()
     {
         // RGBDS: unique-id-nested.asm — macro defined inside REPT body; inner \@ is unique
-        var model = Emit("""
+        var model = Emit(
+            """
             MACRO outer
             .label\@:
                 nop
@@ -392,7 +417,8 @@ public class RepeatTests
             outer
             outer
             outer
-            """);
+            """
+        );
         await Assert.That(model.Success).IsTrue();
         await Assert.That(model.Diagnostics).IsEmpty();
         await Assert.That(model.Sections[0].Data.Length).IsEqualTo(3);

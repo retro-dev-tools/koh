@@ -33,7 +33,8 @@ internal sealed class PatchResolver
                 // like "dw $ + 4" evaluate correctly even when deferred to this phase.
                 // Expression is null for patches deserialized from .kobj (linker-time patches).
                 // They cannot be resolved here — leave them for the linker to handle.
-                if (patch.Expression is null) continue;
+                if (patch.Expression is null)
+                    continue;
 
                 // Restore the global label anchor that was active when the patch was recorded,
                 // so local label references (.foo) resolve in the correct scope.
@@ -47,10 +48,17 @@ internal sealed class PatchResolver
                     _symbols.SetGlobalAnchor(null);
                 }
 
-                var evaluator = new ExpressionEvaluator(_symbols, _diagnostics,
-                    () => section.BaseAddress + patch.Offset);
+                var evaluator = new ExpressionEvaluator(
+                    _symbols,
+                    _diagnostics,
+                    () => section.BaseAddress + patch.Offset,
+                    section.Name,
+                    section.BaseAddress,
+                    currentSectionIsFloating: section.FixedAddress == null
+                );
                 var value = evaluator.TryEvaluate(patch.Expression);
-                if (value == null) continue; // keep for linker
+                if (value == null)
+                    continue; // keep for linker
 
                 resolved.Add(i);
 
@@ -66,12 +74,16 @@ internal sealed class PatchResolver
                         section.ApplyPatchLong(patch.Offset, (uint)(value.Value & 0xFFFFFFFF));
                         break;
                     case PatchKind.Relative8:
-                        long rel = value.Value - patch.PCAfterInstruction;
+                        // value.Value is an absolute address (evaluator adds section base).
+                        // PCAfterInstruction is section-relative; add BaseAddress to get absolute.
+                        long rel = value.Value - (section.BaseAddress + patch.PCAfterInstruction);
                         if (rel < -128 || rel > 127)
                         {
-                            _diagnostics.Report(patch.DiagnosticSpan,
+                            _diagnostics.Report(
+                                patch.DiagnosticSpan,
                                 $"JR target out of range: offset {rel} does not fit in signed byte",
-                                filePath: patch.FilePath);
+                                filePath: patch.FilePath
+                            );
                             break; // leave placeholder byte; error is reported
                         }
                         section.ApplyPatch(patch.Offset, (byte)(sbyte)rel);
