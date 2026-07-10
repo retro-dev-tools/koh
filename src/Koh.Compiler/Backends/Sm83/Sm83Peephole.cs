@@ -36,8 +36,11 @@ namespace Koh.Compiler.Backends.Sm83;
 /// (<c>allowDeadStore</c>) on the module having no interrupt handler: an interrupt can fire between the two
 /// stores and a handler can read a shared static, which no per-region scan can see. With no handler there
 /// is no asynchronous observer. (This matches the IR-level dead-store pass, likewise conservative — it only
-/// elides stores to non-escaping allocas.) This is the first rule that fires on backend-emitted redundancy
-/// the IR pass cannot see.</item>
+/// elides stores to non-escaping allocas.) A DMA already in flight when the pair runs is the one remaining
+/// asynchronous reader; for it to observe the first value the slot would have to sit in the active DMA
+/// source page while the program mutates that page mid-transfer, which yields indeterminate OAM regardless
+/// of this rewrite — so, as elsewhere, a plain WRAM store is treated as non-volatile. This is the first
+/// rule that fires on backend-emitted redundancy the IR pass cannot see.</item>
 /// </list>
 /// </summary>
 internal static class Sm83Peephole
