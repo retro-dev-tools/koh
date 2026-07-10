@@ -310,6 +310,43 @@ static byte Triple(byte x) { return x + x + x; }";
     }
 
     [Test]
+    public async Task TailCall_ToRecursiveCallee_FoldsAndReturnsCorrectly()
+    {
+        // The whitelist admits a recursive callee (it is a plain _funcs target), so a non-recursive void
+        // caller's `CALL Rec ; RET` folds to `JP Rec`. That is only sound because Rec's frame machinery
+        // (rt.pushframe/popframe) rides the software stack (SoftSp), leaving the hardware CALL stack — which
+        // still holds Work's caller's return address — untouched. Verify it on the emulator rather than by
+        // argument: Rec sums 5+4+3+2+1 = 15 into n and control must return cleanly through the folded jump.
+        const string src =
+            "static class M { static byte n; "
+            + "static byte Main() { Work(); return n; } "
+            + "static void Work() { Rec(5); } "
+            + "static void Rec(byte k) { if (k == 0) return; n = (byte)(n + k); Rec((byte)(k - 1)); } }";
+
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)15);
+
+        // The fold fired on the recursive callee. Rec is reached two ways: its recursive self-CALL and
+        // Work's tail position. If Work folded, Rec's entry is the operand of a JP (Work's `JP Rec`) as
+        // well as a CALL (the self-call) — an address that is both CALLed and JP'd is a folded tail call
+        // to a function entry (ordinary branches target block labels, never a function entry). Without the
+        // fold, Work would keep `CALL Rec ; RET` and Rec's address would appear only as a CALL operand.
+        // (A global "no CALL;RET remains" check would be wrong here: each of Rec's two returns legitimately
+        // keeps a `CALL rt.popframe ; RET`, since a runtime routine is deliberately not in the whitelist.)
+        var code = CompileOpt(src).Sections[0].Data;
+        var callTargets = new HashSet<int>();
+        var jpTargets = new HashSet<int>();
+        for (var i = 0; i + 2 < code.Length; i++)
+        {
+            var operand = code[i + 1] | (code[i + 2] << 8);
+            if (code[i] == 0xCD)
+                callTargets.Add(operand);
+            else if (code[i] == 0xC3)
+                jpTargets.Add(operand);
+        }
+        await Assert.That(callTargets.Overlaps(jpTargets)).IsTrue();
+    }
+
+    [Test]
     public async Task SignedNegate_Sbyte()
     {
         const string src = "static sbyte Neg(sbyte x) { return -x; }";
