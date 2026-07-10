@@ -42,6 +42,29 @@ internal sealed class Dominators
     public IReadOnlyList<IrBasicBlock> ChildrenOf(IrBasicBlock block) =>
         _children.TryGetValue(block, out var kids) ? kids : [];
 
+    /// <summary>The predecessors of <paramref name="block"/> in the CFG this instance was built over.
+    /// The map is computed once at construction, so this is a lookup rather than a rescan.</summary>
+    public IReadOnlyList<IrBasicBlock> PredecessorsOf(IrBasicBlock block) =>
+        _preds.GetValueOrDefault(block, []);
+
+    /// <summary>True if <paramref name="a"/> dominates <paramref name="b"/> — every path from the
+    /// entry to <paramref name="b"/> passes through <paramref name="a"/> (a block dominates itself).
+    /// Walks up the immediate-dominator chain from <paramref name="b"/> to the entry.</summary>
+    public bool Dominates(IrBasicBlock a, IrBasicBlock b)
+    {
+        var runner = b;
+        while (runner is not null)
+        {
+            if (ReferenceEquals(runner, a))
+                return true;
+            var next = _idom.GetValueOrDefault(runner);
+            if (next is null || ReferenceEquals(next, runner))
+                return false; // reached the entry without meeting `a`
+            runner = next;
+        }
+        return false;
+    }
+
     public Dictionary<IrBasicBlock, HashSet<IrBasicBlock>> DominanceFrontiers()
     {
         var frontier = new Dictionary<IrBasicBlock, HashSet<IrBasicBlock>>(
