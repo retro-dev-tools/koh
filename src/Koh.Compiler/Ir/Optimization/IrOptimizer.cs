@@ -27,7 +27,9 @@ public static class IrOptimizer
         new SimplifyCfgPass(),
         new RedundantLoadEliminationPass(),
         new LocalCsePass(),
+        new LoopInvariantCodeMotionPass(),
         new DeadStoreEliminationPass(),
+        new RedundantBankSelectEliminationPass(),
         new DeadCodeEliminationPass(),
     ];
 

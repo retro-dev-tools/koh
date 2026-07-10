@@ -3370,6 +3370,41 @@ static uint Log2(uint value) {
     }
 
     [Test]
+    public async Task Optimized_HoistsLoopInvariantInNestedLoopAndStaysCorrect()
+    {
+        // A nested loop whose inner body recomputes `i * b` — invariant to the inner (j) loop, but
+        // varying across the outer (i) loop. LICM (default-on) hoists it into the inner preheader on a
+        // real compiled program, exercising the preheader/phi-reroute path end-to-end through the
+        // backend and emulator. sum = Σ_{i<a} 2·(i·b) = b·a·(a-1).
+        const string src =
+            "static ushort F(ushort a, ushort b) { ushort sum = 0; for (ushort i = 0; i < a; i++) { for (ushort j = 0; j < 2; j++) { ushort m = (ushort)(i * b); sum = (ushort)(sum + m); } } return sum; }";
+        await Assert
+            .That(
+                RunHLOpt(
+                    src,
+                    gb =>
+                    {
+                        W16(gb, 0, 4);
+                        W16(gb, 2, 5);
+                    }
+                )
+            )
+            .IsEqualTo((ushort)60); // 5·4·3
+        await Assert
+            .That(
+                RunHLOpt(
+                    src,
+                    gb =>
+                    {
+                        W16(gb, 0, 1);
+                        W16(gb, 2, 9);
+                    }
+                )
+            )
+            .IsEqualTo((ushort)0); // single outer iteration with i=0 contributes nothing
+    }
+
+    [Test]
     public async Task Optimized_InlinesLeafAccessorAndRunsCorrectly()
     {
         // The leaf `Double` is spliced into `Apply`, which then computes n+n with no call/frame.
