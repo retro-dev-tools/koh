@@ -179,6 +179,8 @@ public sealed partial class Sm83Backend
         private static byte ResidentToAOpcode(Mir.Sm83Register reg, int k) =>
             (reg, k) switch
             {
+                (Mir.Sm83Register.C, 0) => 0x79, // LD A, C
+                (Mir.Sm83Register.D, 0) => 0x7A, // LD A, D
                 (Mir.Sm83Register.E, 0) => 0x7B, // LD A, E
                 (Mir.Sm83Register.Hl, 0) => 0x7D, // LD A, L
                 (Mir.Sm83Register.Hl, 1) => 0x7C, // LD A, H
@@ -191,6 +193,8 @@ public sealed partial class Sm83Backend
         private static byte AToResidentOpcode(Mir.Sm83Register reg, int k) =>
             (reg, k) switch
             {
+                (Mir.Sm83Register.C, 0) => 0x4F, // LD C, A
+                (Mir.Sm83Register.D, 0) => 0x57, // LD D, A
                 (Mir.Sm83Register.E, 0) => 0x5F, // LD E, A
                 (Mir.Sm83Register.Hl, 0) => 0x6F, // LD L, A
                 (Mir.Sm83Register.Hl, 1) => 0x67, // LD H, A

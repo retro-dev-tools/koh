@@ -80,15 +80,15 @@ internal sealed class FunctionAllocation
             )
                 colored.Add(instr);
 
-        var interference = ComputeInterference(fn, colored);
-
-        // Assign a CPU register to a conservative set of short-lived byte values; a resident value needs
-        // no WRAM slot, so it is dropped from the colouring set below.
+        // Assign CPU registers to a conservative set of short-lived values first; a resident value needs
+        // no WRAM slot, so it is dropped from the colouring set before the interference graph is built.
         var register = allowResidency
-            ? SelectResidents(fn, colored, interference)
+            ? SelectResidents(fn, colored)
             : new Dictionary<IrValue, Sm83Register>(Eq);
         foreach (var resident in register.Keys)
             colored.Remove(resident);
+
+        var interference = ComputeInterference(fn, colored);
 
         int colorBase = wram;
         int colorEnd = colorBase;
@@ -137,20 +137,34 @@ internal sealed class FunctionAllocation
         };
     }
 
-    // ---- Register residency (SOTA item #2, first increment) ---------------
+    // ---- Register residency (SOTA items #2, #5) ---------------------------
     //
-    // This first step is deliberately narrow so it is provably correct on an accumulator machine whose
-    // emitters freely clobber registers. It makes register-resident *only* a value produced by a "gentle"
-    // ALU op (ADD/SUB/AND/OR/XOR, one or two bytes) whose whole live range — its definition through its
-    // last use, all in one basic block — contains nothing but other gentle ALU ops. Those emitters route
-    // operands through A (and B for a register operand) and touch no other register, so a value parked in
-    // E (byte) or HL (16-bit pair) is provably untouched across the range. E and HL are physically disjoint
-    // and are the two registers the gentle path never uses, so a byte resident and a 16-bit resident never
-    // collide. The interference graph is the second guard, applied per physical resource: two residents in
-    // the same register that can be simultaneously live interfere, so each register holds exactly one live
-    // resident at a time (the coalescing case — v2 = v1 + c, where v1 dies exactly as v2 is born — does not
-    // interfere, so the two correctly share the register). Wider values (i32/i64) stay in WRAM — no register
-    // room. HL is the pointer register, but the gentle-only span contains no memory op, so it is free there.
+    // Deliberately narrow so it is provably correct on an accumulator machine whose emitters freely clobber
+    // registers. A value is register-resident *only* if it is produced by a "gentle" ALU op (ADD/SUB/AND/
+    // OR/XOR, one or two bytes) and its whole live range — definition through last use, all in one basic
+    // block — contains nothing but other gentle ALU ops. Those emitters route operands through A (and B for
+    // a register operand) and touch nothing else, so a byte value in C/D/E or a 16-bit value in the HL pair
+    // is provably untouched across its range. Because a resident's every use is a gentle op, it also never
+    // reaches the ret/call/phi/memory emitters — its entire interaction is with EmitBinary.
+    //
+    // Two candidates in the same block interfere iff their live ranges overlap (the SSA def-point rule in
+    // Interferes). Because every candidate is single-block and dies at its last use, candidates in different
+    // blocks never interfere. Registers are full-width and physically distinct (C/D/E each one byte, HL two;
+    // the byte set is disjoint from HL), so — unlike the WRAM colourer — there is no partial-slot-overlap
+    // hazard and no need for the wide-result interference rule: values that do not overlap can always share
+    // a register. That is what lets a chain coalesce (v2 = v1 + c: v1 dies exactly as v2 is born, so they do
+    // not interfere and reuse the same register), including 16-bit chains in HL, since a full-register write
+    // is low-byte-then-high and reads each source byte before overwriting it. Wider values (i32/i64) stay in
+    // WRAM — no register room. B is reserved as the gentle path's ALU scratch, so it is never a resident.
+
+    /// <summary>Registers a byte value may occupy, in preference order. B is excluded (the gentle ALU path
+    /// uses it for a register operand); H and L are reserved for the HL pair.</summary>
+    private static readonly Sm83Register[] ByteRegisters =
+    [
+        Sm83Register.E,
+        Sm83Register.D,
+        Sm83Register.C,
+    ];
 
     /// <summary>ADD/SUB/AND/OR/XOR at 8- or 16-bit width — the ops whose emitter (<c>EmitBinary</c>'s
     /// straight path) touches only <c>A</c> and <c>B</c>. Shifts and mul/div/rem are excluded: they use
@@ -165,62 +179,93 @@ internal sealed class FunctionAllocation
                 or IrBinaryOp.Or
                 or IrBinaryOp.Xor;
 
+    /// <summary>One residency candidate: a gentle-ALU value whose live range is a single block.</summary>
+    private readonly record struct Residency(
+        IrValue Value,
+        IrBasicBlock Block,
+        int DefIndex,
+        int LastUse
+    );
+
     private static Dictionary<IrValue, Sm83Register> SelectResidents(
         IrFunction fn,
-        HashSet<IrValue> colored,
-        Dictionary<IrValue, HashSet<IrValue>> interference
+        HashSet<IrValue> colored
     )
     {
-        var register = new Dictionary<IrValue, Sm83Register>(Eq);
-        var assignedE = new List<IrValue>(); // 8-bit residents in E
-        var assignedHL = new List<IrValue>(); // 16-bit residents in HL
-
+        // Gather candidates in program order.
+        var candidates = new List<Residency>();
         foreach (var block in fn.Blocks)
         {
             var instrs = block.Instructions;
             for (int defIndex = 0; defIndex < instrs.Count; defIndex++)
             {
                 var value = instrs[defIndex];
-                if (!colored.Contains(value) || !IsGentleBinary(value))
-                    continue;
-                if (!IsResidencyCandidate(fn, block, defIndex))
-                    continue;
+                if (
+                    colored.Contains(value)
+                    && IsGentleBinary(value)
+                    && TryResidencyRange(fn, block, defIndex, out int lastUse)
+                )
+                    candidates.Add(new Residency(value, block, defIndex, lastUse));
+            }
+        }
 
-                // Byte -> E, 16-bit -> HL. Because the two resources are physically disjoint, interference
-                // is only checked against residents already in the same register.
-                var (reg, pool) =
-                    value.Type.SizeInBytes == 1
-                        ? (Sm83Register.E, assignedE)
-                        : (Sm83Register.Hl, assignedHL);
+        // Greedy register assignment. A byte value takes the first free C/D/E; a 16-bit value takes HL.
+        // "Free" means not held by an already-assigned candidate whose range overlaps this one.
+        var register = new Dictionary<IrValue, Sm83Register>(Eq);
+        var assigned = new List<(Residency Cand, Sm83Register Reg)>();
 
-                bool conflict = false;
-                foreach (var other in pool)
-                    if (interference[value].Contains(other))
+        foreach (var cand in candidates)
+        {
+            var pool = cand.Value.Type.SizeInBytes == 1 ? ByteRegisters : [Sm83Register.Hl];
+            foreach (var reg in pool)
+            {
+                bool free = true;
+                foreach (var (other, otherReg) in assigned)
+                    if (otherReg == reg && Interferes(cand, other))
                     {
-                        conflict = true;
+                        free = false;
                         break;
                     }
-                if (conflict)
-                    continue;
-
-                register[value] = reg;
-                pool.Add(value);
+                if (free)
+                {
+                    register[cand.Value] = reg;
+                    assigned.Add((cand, reg));
+                    break;
+                }
             }
         }
 
         return register;
     }
 
-    /// <summary>Whether <paramref name="value"/> (the instruction at <paramref name="defIndex"/> of
-    /// <paramref name="block"/>) has all its uses inside its own block and every instruction from just
-    /// after its definition through its last use is a gentle byte ALU op — so a register holding it is
-    /// never clobbered across its live range.</summary>
-    private static bool IsResidencyCandidate(IrFunction fn, IrBasicBlock block, int defIndex)
+    /// <summary>Two single-block candidates interfere iff one is live just after the other's definition
+    /// (the standard SSA def-point interference test). A value is live-out of instruction <c>i</c> when it
+    /// is defined at or before <c>i</c> and used after <c>i</c>; the def == last-use boundary (a value that
+    /// dies exactly as the other is born) is therefore not interference, so the two may share a register.</summary>
+    private static bool Interferes(Residency a, Residency b)
+    {
+        if (!ReferenceEquals(a.Block, b.Block))
+            return false; // each dies at its last use in its own block; never simultaneously live
+        bool aLiveAfterBDef = a.DefIndex <= b.DefIndex && a.LastUse > b.DefIndex;
+        bool bLiveAfterADef = b.DefIndex <= a.DefIndex && b.LastUse > a.DefIndex;
+        return aLiveAfterBDef || bLiveAfterADef;
+    }
+
+    /// <summary>Whether the value at <paramref name="defIndex"/> of <paramref name="block"/> has all its
+    /// uses inside its own block and every instruction from just after its definition through its last use
+    /// is a gentle ALU op — so a register holding it is never clobbered across its live range. Outputs the
+    /// index of the last in-block use.</summary>
+    private static bool TryResidencyRange(
+        IrFunction fn,
+        IrBasicBlock block,
+        int defIndex,
+        out int lastUse
+    )
     {
         var value = block.Instructions[defIndex];
+        lastUse = -1;
 
         // Any use outside this block, or any use as a phi edge value, escapes the single-block window.
-        int lastUse = -1;
         foreach (var b in fn.Blocks)
         {
             var instrs = b.Instructions;

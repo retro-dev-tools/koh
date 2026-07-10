@@ -219,10 +219,10 @@ public class Sm83BackendTests
     }
 
     [Test]
-    public async Task Residency_DoesNotCoAssignSimultaneouslyLiveValues()
+    public async Task Residency_GivesSimultaneouslyLiveValuesDistinctRegisters()
     {
         // %0 = 3+4 ; %1 = 5+6 ; %2 = %0+%1 ; ret %2 — %0 and %1 are both live at %2, so they interfere
-        // and only one may occupy E. The result must still be 3+4+5+6 = 18.
+        // and must occupy different byte registers (E and D). The result must still be 3+4+5+6 = 18.
         var module = Function(
             (b, _) =>
             {
@@ -234,8 +234,62 @@ public class Sm83BackendTests
         var fn = module.Functions[0];
         var alloc = FunctionAllocation.For(fn, 0xC000, allowResidency: true);
 
-        await Assert.That(alloc.Register.Count).IsEqualTo(1);
+        await Assert.That(alloc.Register.Count).IsEqualTo(2);
+        await Assert
+            .That(alloc.Register[fn.Blocks[0].Instructions[0]])
+            .IsNotEqualTo(alloc.Register[fn.Blocks[0].Instructions[1]]);
         await Assert.That(RunMain(Compile(module))).IsEqualTo((byte)18);
+    }
+
+    [Test]
+    public async Task Residency_CoalescesChainIntoOneRegister()
+    {
+        // A chain of gentle byte adds where each value dies as the next is born: they do not interfere,
+        // so they all reuse the same register (E). Result = 10+20+5+7 = 42.
+        var module = Function(
+            (b, _) =>
+            {
+                var v0 = b.Add(
+                    IrBuilder.ConstInt(IrType.I8, 10),
+                    IrBuilder.ConstInt(IrType.I8, 20)
+                );
+                var v1 = b.Add(v0, IrBuilder.ConstInt(IrType.I8, 5));
+                var v2 = b.Add(v1, IrBuilder.ConstInt(IrType.I8, 7));
+                return b.Add(v2, IrBuilder.ConstInt(IrType.I8, 0));
+            }
+        );
+        var fn = module.Functions[0];
+        var alloc = FunctionAllocation.For(fn, 0xC000, allowResidency: true);
+        var instrs = fn.Blocks[0].Instructions;
+
+        // v0, v1, v2 are all resident and all in E (coalesced); v3 (feeds ret) is not resident.
+        await Assert.That(alloc.Register[instrs[0]]).IsEqualTo(Sm83Register.E);
+        await Assert.That(alloc.Register[instrs[1]]).IsEqualTo(Sm83Register.E);
+        await Assert.That(alloc.Register[instrs[2]]).IsEqualTo(Sm83Register.E);
+        await Assert.That(RunMain(Compile(module))).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Residency_CoalescesSixteenBitChainInHL()
+    {
+        // A 16-bit chain: each value dies as the next is born, so they coalesce in HL (the wide-result
+        // interference rule that blocks WRAM coalescing does not apply to full-register residents).
+        // Result = 300+40+100+200 = 640.
+        var module = new IrModule("test");
+        var fn = new IrFunction("main", IrType.I16, []);
+        module.Functions.Add(fn);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        var v0 = b.Add(IrBuilder.ConstInt(IrType.I16, 300), IrBuilder.ConstInt(IrType.I16, 40));
+        var v1 = b.Add(v0, IrBuilder.ConstInt(IrType.I16, 100));
+        b.Ret(b.Add(v1, IrBuilder.ConstInt(IrType.I16, 200)));
+        var instrs = fn.Blocks[0].Instructions;
+
+        var alloc = FunctionAllocation.For(fn, 0xC000, allowResidency: true);
+        // v0 and v1 both live in HL (coalesced in sequence); the last add feeds the ret, so it is not.
+        await Assert.That(alloc.Register[instrs[0]]).IsEqualTo(Sm83Register.Hl);
+        await Assert.That(alloc.Register[instrs[1]]).IsEqualTo(Sm83Register.Hl);
+        await Assert.That(RunMainHL(Compile(module))).IsEqualTo((ushort)640);
     }
 
     [Test]
