@@ -195,4 +195,97 @@ public class MirDecoderTests
         await Assert.That(ldiA.RegWrite.HasFlag(Sm83Register.L)).IsTrue();
         await Assert.That(ldiA.MemRead).IsTrue();
     }
+
+    // ---- Family-wide effect invariants ---------------------------------------
+    // Beyond the per-opcode spot checks above, assert an invariant that must hold for every member of a
+    // regular opcode family, so a wrong entry anywhere in the family is caught rather than only at the
+    // few opcodes named explicitly.
+
+    [Test]
+    public async Task Decode_EveryLoadRegRegLeavesFlagsUntouched()
+    {
+        for (var op = 0x40; op <= 0x7F; op++)
+        {
+            if (op == 0x76)
+                continue; // HALT, not a load
+            var e = DecodeOne((byte)op).Effects;
+            await Assert.That(e.FlagWrite).IsEqualTo(Sm83Flags.None);
+            await Assert.That(e.FlagRead).IsEqualTo(Sm83Flags.None);
+            await Assert.That(e.Control).IsEqualTo(MirControl.Fallthrough);
+        }
+    }
+
+    [Test]
+    public async Task Decode_EveryAluOpWritesAllFlagsAndReadsA()
+    {
+        for (var op = 0x80; op <= 0xBF; op++)
+        {
+            var e = DecodeOne((byte)op).Effects;
+            await Assert.That(e.FlagWrite).IsEqualTo(Sm83Flags.All);
+            await Assert.That(e.RegRead.HasFlag(Sm83Register.A)).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task Decode_EveryCbFamilyHasTheExpectedFlagShape()
+    {
+        for (var sub = 0; sub <= 0xFF; sub++)
+        {
+            var e = DecodeOne(0xCB, (byte)sub).Effects;
+            switch (sub >> 6)
+            {
+                case 0: // rotate / shift — writes all flags
+                    await Assert.That(e.FlagWrite).IsEqualTo(Sm83Flags.All);
+                    break;
+                case 1: // BIT — writes Z/N/H, never writes the register
+                    await Assert.That(e.FlagWrite).IsEqualTo(Sm83Flags.Z | Sm83Flags.N | Sm83Flags.H);
+                    await Assert.That(e.RegWrite).IsEqualTo(Sm83Register.None);
+                    break;
+                default: // RES / SET — no flag effect
+                    await Assert.That(e.FlagWrite).IsEqualTo(Sm83Flags.None);
+                    break;
+            }
+        }
+    }
+
+    [Test]
+    public async Task Decode_EveryIncDecByteWritesZnhNotCarry()
+    {
+        for (var op = 0x00; op < 0x40; op++)
+            if ((op & 7) is 4 or 5) // INC r8 / DEC r8 columns
+            {
+                var e = DecodeOne((byte)op).Effects;
+                await Assert.That(e.FlagWrite).IsEqualTo(Sm83Flags.Z | Sm83Flags.N | Sm83Flags.H);
+                await Assert.That(e.FlagWrite.HasFlag(Sm83Flags.C)).IsFalse();
+            }
+    }
+
+    // ---- Regressions for the reviewed findings -------------------------------
+
+    [Test]
+    public async Task Decode_TruncatedTrailingCbDoesNotThrow()
+    {
+        // A region ending on a lone 0xCB has no sub-opcode byte; decoding must not read past the buffer.
+        var program = MirDecoder.Decode(new byte[] { 0xCB });
+        var only = program.Instructions.Single();
+
+        await Assert.That(only.Length).IsEqualTo(1);
+        await Assert.That(only.Effects).IsEqualTo(MirEffects.Opaque); // a partial instruction is opaque
+        await Assert.That(program.ToBytes()).IsEquivalentTo(new byte[] { 0xCB });
+        await Assert.That(only.ToString()).IsNotNull(); // ToString must not index the absent second byte
+    }
+
+    [Test]
+    public async Task Decode_DiEiAreSideEffectingButNopIsNot()
+    {
+        // NOP is genuinely inert (removable); DI/EI toggle the interrupt-master flag, so they carry a
+        // side effect and must not be treated as dead by a consumer that removes empty-footprint ops.
+        await Assert.That(DecodeOne(0x00).Effects.SideEffect).IsFalse(); // NOP
+        var di = DecodeOne(0xF3).Effects; // DI
+        await Assert.That(di.SideEffect).IsTrue();
+        await Assert.That(di.RegWrite).IsEqualTo(Sm83Register.None);
+        await Assert.That(di.FlagWrite).IsEqualTo(Sm83Flags.None); // empty footprint but NOT removable
+        await Assert.That(DecodeOne(0xFB).Effects.SideEffect).IsTrue(); // EI
+        await Assert.That(DecodeOne(0xD9).Effects.SideEffect).IsTrue(); // RETI re-enables interrupts
+    }
 }

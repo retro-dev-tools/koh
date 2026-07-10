@@ -72,12 +72,22 @@ public readonly record struct MirEffects(
     Sm83Flags FlagWrite,
     bool MemRead,
     bool MemWrite,
-    MirControl Control
+    MirControl Control,
+    bool SideEffect = false
 )
 {
+    /// <summary>
+    /// True when the instruction has an observable effect this footprint does not otherwise capture —
+    /// notably toggling the interrupt-master-enable (<c>DI</c>/<c>EI</c>/<c>RETI</c>). Such an
+    /// instruction must never be deleted as "dead" or reordered across, even though it writes no
+    /// register, flag, or memory a consumer models. A consumer that removes instructions with an empty
+    /// read/write footprint must exclude those with <see cref="SideEffect"/> set.
+    /// </summary>
+    public bool SideEffect { get; init; } = SideEffect;
+
     /// <summary>A maximally-conservative footprint for an opcode the decoder does not model (an illegal
-    /// or unhandled encoding): assume it reads and writes everything and touches memory, so any consumer
-    /// treats it as an opaque barrier rather than reordering across it unsoundly.</summary>
+    /// or unhandled encoding): assume it reads and writes everything, touches memory, and has a side
+    /// effect, so any consumer treats it as an opaque barrier rather than reordering across it unsoundly.</summary>
     public static readonly MirEffects Opaque = new(
         Sm83Register.All,
         Sm83Register.All,
@@ -85,6 +95,7 @@ public readonly record struct MirEffects(
         Sm83Flags.All,
         MemRead: true,
         MemWrite: true,
-        MirControl.Fallthrough
+        MirControl.Fallthrough,
+        SideEffect: true
     );
 }

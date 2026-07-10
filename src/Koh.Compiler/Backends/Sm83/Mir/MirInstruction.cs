@@ -34,7 +34,8 @@ public sealed class MirInstruction
     public MirEffects Effects { get; }
 
     public override string ToString() =>
-        (IsCbPrefixed ? $"CB {Bytes[1]:X2}" : $"{Bytes[0]:X2}")
+        // A truncated CB tail has no second byte, so guard on length rather than assuming CB ⇒ 2 bytes.
+        (IsCbPrefixed && Bytes.Length > 1 ? $"CB {Bytes[1]:X2}" : $"{Bytes[0]:X2}")
         + $"  r-{Effects.RegRead} w-{Effects.RegWrite} fr-{Effects.FlagRead} fw-{Effects.FlagWrite}"
         + (Effects.MemRead ? " memR" : "")
         + (Effects.MemWrite ? " memW" : "")

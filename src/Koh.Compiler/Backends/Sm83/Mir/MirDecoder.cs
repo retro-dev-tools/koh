@@ -21,19 +21,26 @@ public static class MirDecoder
         var offset = 0;
         while (offset < code.Length)
         {
-            var length = InstructionLength(code, offset);
-            if (offset + length > code.Length)
-                length = code.Length - offset; // truncated tail — keep it, still round-trips
+            var naturalLength = InstructionLength(code, offset);
+            var length = Math.Min(naturalLength, code.Length - offset);
+            // A truncated tail (e.g. a region ending on a lone 0xCB or mid-operand) has no complete
+            // instruction to reason about — and computing its effects would read past the buffer, since
+            // EffectsOf dereferences the CB sub-opcode. Keep the bytes so decoding still round-trips, but
+            // give them an opaque footprint so no consumer treats a partial instruction as analyzable.
+            var truncated = length < naturalLength;
             var bytes = code.Slice(offset, length).ToArray();
-            instructions.Add(new MirInstruction(offset, bytes, EffectsOf(code, offset)));
+            var effects = truncated ? MirEffects.Opaque : EffectsOf(code, offset);
+            instructions.Add(new MirInstruction(offset, bytes, effects));
             offset += length;
         }
         return new MirProgram(instructions);
     }
 
-    /// <summary>Encoded length of the instruction at <paramref name="offset"/> (CB-prefixed = 2).</summary>
+    /// <summary>Encoded length of the instruction at <paramref name="offset"/> (CB-prefixed = 2).
+    /// Uses the shared <see cref="Sm83OpcodeLength"/> table, the single source shared with the byte
+    /// peephole.</summary>
     public static int InstructionLength(ReadOnlySpan<byte> code, int offset) =>
-        code[offset] == 0xCB ? 2 : Length[code[offset]];
+        Sm83OpcodeLength.Of(code[offset]);
 
     // ---- Effect computation --------------------------------------------------
 
@@ -196,7 +203,8 @@ public static class MirDecoder
 
         return op switch
         {
-            0x00 or 0xF3 or 0xFB => Nothing(), // NOP, DI, EI
+            0x00 => Nothing(), // NOP — genuinely inert
+            0xF3 or 0xFB => InterruptToggle(), // DI / EI — toggles IME (a side effect, not removable)
             0x10 => new MirEffects(
                 default,
                 default,
@@ -304,7 +312,7 @@ public static class MirDecoder
             0xC4 or 0xCC => CondStack(Sm83Flags.Z, MirControl.Call), // CALL NZ/Z
             0xD4 or 0xDC => CondStack(Sm83Flags.C, MirControl.Call), // CALL NC/C
             0xC7 or 0xCF or 0xD7 or 0xDF or 0xE7 or 0xEF or 0xF7 or 0xFF => Stack(MirControl.Call), // RST
-            0xC9 or 0xD9 => new MirEffects(
+            0xC9 => new MirEffects(
                 Sm83Register.Sp,
                 Sm83Register.Sp,
                 default,
@@ -312,7 +320,17 @@ public static class MirDecoder
                 true,
                 false,
                 MirControl.Return
-            ), // RET / RETI
+            ), // RET
+            0xD9 => new MirEffects(
+                Sm83Register.Sp,
+                Sm83Register.Sp,
+                default,
+                default,
+                true,
+                false,
+                MirControl.Return,
+                SideEffect: true
+            ), // RETI — also re-enables interrupts (IME)
             0xC0 or 0xC8 => new MirEffects(
                 Sm83Register.Sp,
                 Sm83Register.Sp,
@@ -425,6 +443,20 @@ public static class MirDecoder
 
     private static MirEffects Nothing() =>
         new(default, default, default, default, false, false, MirControl.Fallthrough);
+
+    /// <summary><c>DI</c>/<c>EI</c>: no register/flag/memory footprint, but toggling the interrupt-master
+    /// flag is an observable side effect, so the instruction is marked non-removable and non-reorderable.</summary>
+    private static MirEffects InterruptToggle() =>
+        new(
+            default,
+            default,
+            default,
+            default,
+            false,
+            false,
+            MirControl.Fallthrough,
+            SideEffect: true
+        );
 
     private static MirEffects Control(MirControl control) =>
         new(default, default, default, default, false, false, control);
@@ -543,27 +575,4 @@ public static class MirDecoder
             1 => Sm83Register.De,
             _ => Sm83Register.Hl,
         };
-
-    // Length in bytes of each unprefixed SM83 opcode; CB-prefixed instructions are always 2. Illegal
-    // opcodes are length 1. This is the canonical encoding-length table (matching the assembler's).
-    // csharpier-ignore
-    private static ReadOnlySpan<byte> Length =>
-    [
-        1, 3, 1, 1, 1, 1, 2, 1, 3, 1, 1, 1, 1, 1, 2, 1, // 0x00
-        2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1, // 0x10
-        2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1, // 0x20
-        2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1, // 0x30
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x40
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x50
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x70
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x80
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x90
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xA0
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xB0
-        1, 1, 3, 3, 3, 1, 2, 1, 1, 1, 3, 2, 3, 3, 2, 1, // 0xC0
-        1, 1, 3, 1, 3, 1, 2, 1, 1, 1, 3, 1, 3, 1, 2, 1, // 0xD0
-        2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1, // 0xE0
-        2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1, // 0xF0
-    ];
 }

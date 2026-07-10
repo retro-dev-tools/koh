@@ -13,33 +13,10 @@ namespace Koh.Compiler.Backends.Sm83;
 /// </summary>
 internal static class Sm83Peephole
 {
-    // Length in bytes of each unprefixed SM83 opcode (CB-prefixed instructions are always 2). Invalid
-    // opcodes (never emitted by this backend) are length 1. Declared as a span so the compiler emits it
-    // as a static blob (no heap array) and elides the bounds check when indexed by a byte.
-    // csharpier-ignore
-    private static ReadOnlySpan<byte> Length =>
-    [
-        1, 3, 1, 1, 1, 1, 2, 1, 3, 1, 1, 1, 1, 1, 2, 1, // 0x00
-        2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1, // 0x10
-        2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1, // 0x20
-        2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1, // 0x30
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x40  LD r,r' / (HL) / HALT
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x50
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x70
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x80  ALU A,r
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x90
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xA0
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xB0
-        1, 1, 3, 3, 3, 1, 2, 1, 1, 1, 3, 2, 3, 3, 2, 1, // 0xC0
-        1, 1, 3, 1, 3, 1, 2, 1, 1, 1, 3, 1, 3, 1, 2, 1, // 0xD0
-        2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1, // 0xE0
-        2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1, // 0xF0  (F0 = LDH A,(a8), 2 bytes)
-    ];
-
-    /// <summary>Length of the instruction whose opcode is at <paramref name="offset"/>.</summary>
+    /// <summary>Length of the instruction whose opcode is at <paramref name="offset"/>. Delegates to
+    /// the shared <see cref="Sm83OpcodeLength"/> table so the length data is not duplicated.</summary>
     public static int InstructionLength(IReadOnlyList<byte> code, int offset) =>
-        code[offset] == 0xCB ? 2 : Length[code[offset]];
+        Sm83OpcodeLength.Of(code[offset]);
 
     /// <summary>Positions of <c>LD A, 0</c> instructions in [start, end) that can become <c>XOR A</c>
     /// because all flags are dead at that point.</summary>
