@@ -128,6 +128,14 @@ public sealed partial class Sm83Backend : IBackend
             }
         }
 
+        // The cartridge boots into the frontend-marked entry (Main), or the first non-handler function
+        // if the module has none. An interrupt handler must never be the entry: its body runs on every
+        // interrupt and ends in RETI, so booting into it re-runs initializers and returns through a
+        // nonexistent interrupt frame.
+        var entryFunction =
+            module.Functions.FirstOrDefault(f => !f.IsExternal && f.IsEntry)
+            ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
+
         // Give every function a disjoint WRAM frame so a caller's live values and a callee's
         // storage never overlap (correct for a non-recursive call graph; frames are not yet
         // reused across functions that can't be live simultaneously).
@@ -141,9 +149,12 @@ public sealed partial class Sm83Backend : IBackend
                 continue;
             // Residency is disabled for interrupt handlers (their prologue push/pop and RETI epilogue)
             // and recursive functions (software-stack frame save/restore); the conservative model does
-            // not yet reason about those register constraints.
+            // not yet reason about those register constraints. A parameter may additionally be received in
+            // a register (the register calling convention) for any function except the entry, which has no
+            // caller to set its registers up.
             bool allowResidency = fn.InterruptVector is null && !recursive.Contains(fn);
-            var allocation = FunctionAllocation.For(fn, wram, allowResidency);
+            bool allowParamResidency = allowResidency && !ReferenceEquals(fn, entryFunction);
+            var allocation = FunctionAllocation.For(fn, wram, allowResidency, allowParamResidency);
             allocations[fn] = allocation;
             wram = allocation.FrameEnd;
         }
@@ -155,13 +166,6 @@ public sealed partial class Sm83Backend : IBackend
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
-        // The cartridge boots into the frontend-marked entry (Main), or the first non-handler function
-        // if the module has none. An interrupt handler must never be the entry: its body runs on every
-        // interrupt and ends in RETI, so booting into it re-runs initializers and returns through a
-        // nonexistent interrupt frame.
-        var entryFunction =
-            module.Functions.FirstOrDefault(f => !f.IsExternal && f.IsEntry)
-            ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
         var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {

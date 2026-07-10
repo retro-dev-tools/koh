@@ -33,27 +33,72 @@ internal sealed class FunctionAllocation
     /// Disabled for interrupt handlers and recursive functions, whose prologues/epilogues and
     /// frame-save paths impose register constraints the conservative residency model does not yet
     /// reason about.</param>
-    public static FunctionAllocation For(IrFunction fn, int baseAddr, bool allowResidency = false)
+    /// <param name="allowResidency">Whether short-lived instruction results may be assigned CPU registers.</param>
+    /// <param name="allowParamResidency">Whether parameters may be *received* in CPU registers (a register
+    /// calling convention). The caller places the argument in the register instead of the WRAM param slot.
+    /// Off for the entry function, which has no caller to set up its registers.</param>
+    public static FunctionAllocation For(
+        IrFunction fn,
+        int baseAddr,
+        bool allowResidency = false,
+        bool allowParamResidency = false
+    )
     {
         var staticAddr = new Dictionary<IrValue, int>(Eq);
         var slot = new Dictionary<IrValue, int>(Eq);
-        int wram = baseAddr;
         int phiTempBytes = 0;
 
-        // Parameters get fixed slots first: the caller writes them at these addresses, so they
-        // are a stable ABI and are never reused by colouring.
-        foreach (var p in fn.Parameters)
-        {
-            slot[p] = wram;
-            wram += p.Type.SizeInBytes;
-        }
-
-        // Permanent storage: alloca objects and constant-index geps (address-taken).
+        // Structural pass: classify static-address instructions (allocas, and constant-index geps rooted at
+        // one) and count phi cycle-breaking temps. Addresses come after residency is decided, since a
+        // resident param/value takes no WRAM.
+        var staticSet = new HashSet<IrValue>(Eq);
         foreach (var block in fn.Blocks)
         foreach (var instr in block.Instructions)
         {
             if (instr is PhiInstruction)
                 phiTempBytes += instr.Type.SizeInBytes; // cycle-breaking may stage one temp per phi
+            switch (instr)
+            {
+                case AllocaInstruction:
+                    staticSet.Add(instr);
+                    break;
+                case GetElementPtrInstruction g
+                    when g.Index is IrConstInt && staticSet.Contains(g.BasePointer):
+                    staticSet.Add(g);
+                    break;
+            }
+        }
+
+        // Values eligible for a WRAM slot: non-void results that are not static addresses.
+        var colored = new HashSet<IrValue>(Eq);
+        foreach (var block in fn.Blocks)
+        foreach (var instr in block.Instructions)
+            if (
+                instr.Type.Kind != IrTypeKind.Void
+                && instr is not AllocaInstruction
+                && !staticSet.Contains(instr)
+            )
+                colored.Add(instr);
+
+        // Assign CPU registers to a conservative set of short-lived values and (leaf) parameters; a
+        // resident value/param needs no WRAM slot.
+        var register = SelectResidents(fn, colored, allowResidency, allowParamResidency);
+        foreach (var resident in register.Keys)
+            colored.Remove(resident);
+
+        // Lay out WRAM: parameters first (a stable ABI — the caller writes them here), skipping any
+        // received in a register; then alloca/gep static storage; then the coloured values below.
+        int wram = baseAddr;
+        foreach (var p in fn.Parameters)
+        {
+            if (register.ContainsKey(p))
+                continue; // received in a register
+            slot[p] = wram;
+            wram += p.Type.SizeInBytes;
+        }
+
+        foreach (var block in fn.Blocks)
+        foreach (var instr in block.Instructions)
             switch (instr)
             {
                 case AllocaInstruction a:
@@ -66,27 +111,6 @@ internal sealed class FunctionAllocation
                     staticAddr[g] = b + (int)ci.Value * g.ElementType.SizeInBytes;
                     break;
             }
-        }
-
-        // Colour the remaining SSA value slots (non-void results that aren't static addresses):
-        // values whose live ranges never overlap share WRAM bytes.
-        var colored = new HashSet<IrValue>(Eq);
-        foreach (var block in fn.Blocks)
-        foreach (var instr in block.Instructions)
-            if (
-                instr.Type.Kind != IrTypeKind.Void
-                && instr is not AllocaInstruction
-                && !staticAddr.ContainsKey(instr)
-            )
-                colored.Add(instr);
-
-        // Assign CPU registers to a conservative set of short-lived values first; a resident value needs
-        // no WRAM slot, so it is dropped from the colouring set before the interference graph is built.
-        var register = allowResidency
-            ? SelectResidents(fn, colored)
-            : new Dictionary<IrValue, Sm83Register>(Eq);
-        foreach (var resident in register.Keys)
-            colored.Remove(resident);
 
         var interference = ComputeInterference(fn, colored);
 
@@ -137,33 +161,44 @@ internal sealed class FunctionAllocation
         };
     }
 
-    // ---- Register residency (SOTA items #2, #5) ---------------------------
+    // ---- Register residency (SOTA items #2, #4, #5) -----------------------
     //
     // Deliberately narrow so it is provably correct on an accumulator machine whose emitters freely clobber
     // registers. A value is register-resident *only* if it is produced by a "gentle" ALU op (ADD/SUB/AND/
     // OR/XOR, one or two bytes) and its whole live range — definition through last use, all in one basic
     // block — contains nothing but other gentle ALU ops. Those emitters route operands through A (and B for
-    // a register operand) and touch nothing else, so a byte value in C/D/E or a 16-bit value in the HL pair
-    // is provably untouched across its range. Because a resident's every use is a gentle op, it also never
-    // reaches the ret/call/phi/memory emitters — its entire interaction is with EmitBinary.
+    // a register operand) and touch nothing else, so a byte value in C/D/E/H/L or a 16-bit value in the HL
+    // pair is provably untouched across its range. Because a resident's every use is a gentle op, it also
+    // never reaches the ret/call/phi/memory emitters — its entire interaction is with EmitBinary.
     //
-    // Two candidates in the same block interfere iff their live ranges overlap (the SSA def-point rule in
-    // Interferes). Because every candidate is single-block and dies at its last use, candidates in different
-    // blocks never interfere. Registers are full-width and physically distinct (C/D/E each one byte, HL two;
-    // the byte set is disjoint from HL), so — unlike the WRAM colourer — there is no partial-slot-overlap
-    // hazard and no need for the wide-result interference rule: values that do not overlap can always share
-    // a register. That is what lets a chain coalesce (v2 = v1 + c: v1 dies exactly as v2 is born, so they do
-    // not interfere and reuse the same register), including 16-bit chains in HL, since a full-register write
-    // is low-byte-then-high and reads each source byte before overwriting it. Wider values (i32/i64) stay in
-    // WRAM — no register room. B is reserved as the gentle path's ALU scratch, so it is never a resident.
+    // A parameter is also a candidate (item #4, the register calling convention): if all its uses are a
+    // gentle prefix of the entry block, it is *received* in a register — the caller places the argument
+    // there (EmitCall) instead of writing the WRAM param slot, and the callee keeps it resident. A
+    // parameter is live from entry, so its whole entry prefix up to its last use must be gentle.
+    //
+    // Two candidates conflict iff they physically overlap AND their live ranges overlap. Physical overlap
+    // is bitwise (C/D/E are distinct bytes; a byte in L or H overlaps the HL pair — item #5's bytewise H:L
+    // allocation). Live-range overlap is the SSA def-point rule (Interferes); since every candidate is
+    // single-block and dies at its last use, candidates in different blocks never overlap. Registers are
+    // full-width, so — unlike the WRAM colourer — there is no partial-slot-overlap hazard and no need for
+    // the wide-result interference rule: values that do not overlap can always share a register. That is
+    // what lets a chain coalesce (v2 = v1 + c: v1 dies exactly as v2 is born, so they do not interfere and
+    // reuse the same register), including 16-bit chains in HL, since a full-register write is low-byte-then-
+    // high and reads each source byte before overwriting it. Wider values (i32/i64) stay in WRAM — no
+    // register room. B is reserved as the gentle path's ALU scratch, so it is never a resident.
 
     /// <summary>Registers a byte value may occupy, in preference order. B is excluded (the gentle ALU path
-    /// uses it for a register operand); H and L are reserved for the HL pair.</summary>
+    /// uses it for a register operand). H and L come last: a byte only takes half of the HL pair under
+    /// register pressure, leaving HL free for 16-bit residents when it can. A byte in H or L physically
+    /// aliases an HL pair, which the bitwise-overlap interference test below accounts for — so this is the
+    /// bytewise H:L allocation (Krause SCOPES 2015): L can hold a byte while H holds another value.</summary>
     private static readonly Sm83Register[] ByteRegisters =
     [
         Sm83Register.E,
         Sm83Register.D,
         Sm83Register.C,
+        Sm83Register.L,
+        Sm83Register.H,
     ];
 
     /// <summary>ADD/SUB/AND/OR/XOR at 8- or 16-bit width — the ops whose emitter (<c>EmitBinary</c>'s
@@ -189,29 +224,47 @@ internal sealed class FunctionAllocation
 
     private static Dictionary<IrValue, Sm83Register> SelectResidents(
         IrFunction fn,
-        HashSet<IrValue> colored
+        HashSet<IrValue> colored,
+        bool allowResidency,
+        bool allowParamResidency
     )
     {
-        // Gather candidates in program order.
+        var register = new Dictionary<IrValue, Sm83Register>(Eq);
+        if (!allowResidency && !allowParamResidency)
+            return register;
+
+        var entry = fn.EntryBlock;
+
+        // Gather candidates in program order. Parameters come first: they are the calling convention, so
+        // they claim registers ahead of any body value (they are all live from entry, so they interfere
+        // with each other and take distinct registers).
         var candidates = new List<Residency>();
-        foreach (var block in fn.Blocks)
-        {
-            var instrs = block.Instructions;
-            for (int defIndex = 0; defIndex < instrs.Count; defIndex++)
-            {
-                var value = instrs[defIndex];
+        if (allowParamResidency && entry is not null)
+            foreach (var p in fn.Parameters)
                 if (
-                    colored.Contains(value)
-                    && IsGentleBinary(value)
-                    && TryResidencyRange(fn, block, defIndex, out int lastUse)
+                    p.Type.SizeInBytes is 1 or 2
+                    && TryParamResidencyRange(fn, p, entry, out int last)
                 )
-                    candidates.Add(new Residency(value, block, defIndex, lastUse));
+                    candidates.Add(new Residency(p, entry, -1, last));
+
+        if (allowResidency)
+            foreach (var block in fn.Blocks)
+            {
+                var instrs = block.Instructions;
+                for (int defIndex = 0; defIndex < instrs.Count; defIndex++)
+                {
+                    var value = instrs[defIndex];
+                    if (
+                        colored.Contains(value)
+                        && IsGentleBinary(value)
+                        && TryResidencyRange(fn, block, defIndex, out int lastUse)
+                    )
+                        candidates.Add(new Residency(value, block, defIndex, lastUse));
+                }
             }
-        }
 
         // Greedy register assignment. A byte value takes the first free C/D/E; a 16-bit value takes HL.
         // "Free" means not held by an already-assigned candidate whose range overlaps this one.
-        var register = new Dictionary<IrValue, Sm83Register>(Eq);
         var assigned = new List<(Residency Cand, Sm83Register Reg)>();
 
         foreach (var cand in candidates)
@@ -221,7 +274,10 @@ internal sealed class FunctionAllocation
             {
                 bool free = true;
                 foreach (var (other, otherReg) in assigned)
-                    if (otherReg == reg && Interferes(cand, other))
+                    // Physical overlap is bitwise: E&D == 0 (distinct), but L&HL == L (a byte in L aliases
+                    // the HL pair). Two candidates conflict only if they physically overlap AND their live
+                    // ranges do.
+                    if ((otherReg & reg) != 0 && Interferes(cand, other))
                     {
                         free = false;
                         break;
@@ -296,6 +352,51 @@ internal sealed class FunctionAllocation
         // gentle — those are the only instructions that run while the value is live.
         for (int i = defIndex + 1; i <= lastUse; i++)
             if (!IsGentleBinary(block.Instructions[i]))
+                return false;
+
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="param"/> can be received in a register: all its uses are in the
+    /// entry block, none on a control-flow edge, and every entry instruction up to its last use is gentle
+    /// — so the argument register the caller set up survives from entry to the last read. A parameter is
+    /// live from function entry, so the whole prefix [0, lastUse] must be gentle (not just after a def).</summary>
+    private static bool TryParamResidencyRange(
+        IrFunction fn,
+        IrParameter param,
+        IrBasicBlock entry,
+        out int lastUse
+    )
+    {
+        lastUse = -1;
+        foreach (var b in fn.Blocks)
+        {
+            var instrs = b.Instructions;
+            for (int i = 0; i < instrs.Count; i++)
+            {
+                var instr = instrs[i];
+                if (instr is PhiInstruction phi)
+                {
+                    foreach (var (incoming, _) in phi.Incomings)
+                        if (ReferenceEquals(incoming, param))
+                            return false; // used on a control-flow edge
+                    continue;
+                }
+                foreach (var operand in instr.Operands)
+                    if (ReferenceEquals(operand, param))
+                    {
+                        if (!ReferenceEquals(b, entry))
+                            return false; // used outside the entry block
+                        lastUse = Math.Max(lastUse, i);
+                    }
+            }
+        }
+
+        if (lastUse < 0)
+            return false; // unused parameter: nothing to keep resident for
+
+        for (int i = 0; i <= lastUse; i++)
+            if (!IsGentleBinary(entry.Instructions[i]))
                 return false;
 
         return true;

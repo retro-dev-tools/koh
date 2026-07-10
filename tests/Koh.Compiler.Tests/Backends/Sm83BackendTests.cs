@@ -293,6 +293,108 @@ public class Sm83BackendTests
     }
 
     [Test]
+    public async Task Residency_UsesHalfOfHLUnderBytePressure()
+    {
+        // Four byte values are simultaneously live (v0..v3 all feed later adds), exhausting C/D/E, so one
+        // spills into L — a byte in half of the HL pair (the bytewise H:L allocation). Runs on the emulator
+        // to prove the L path is correct; result = (30+3)+(7+11) = 51.
+        var module = Function(
+            (b, _) =>
+            {
+                var v0 = b.Add(
+                    IrBuilder.ConstInt(IrType.I8, 10),
+                    IrBuilder.ConstInt(IrType.I8, 20)
+                ); // 30
+                var v1 = b.Add(IrBuilder.ConstInt(IrType.I8, 1), IrBuilder.ConstInt(IrType.I8, 2)); // 3
+                var v2 = b.Add(IrBuilder.ConstInt(IrType.I8, 3), IrBuilder.ConstInt(IrType.I8, 4)); // 7
+                var v3 = b.Add(IrBuilder.ConstInt(IrType.I8, 5), IrBuilder.ConstInt(IrType.I8, 6)); // 11
+                var v4 = b.Add(v0, v1); // 33
+                var v5 = b.Add(v2, v3); // 18
+                return b.Add(v4, v5); // 51
+            }
+        );
+        var fn = module.Functions[0];
+        var alloc = FunctionAllocation.For(fn, 0xC000, allowResidency: true);
+
+        await Assert.That(alloc.Register.Values).Contains(Sm83Register.L);
+        await Assert.That(RunMain(Compile(module))).IsEqualTo((byte)51);
+    }
+
+    // ---- Register calling convention (SOTA item #4) -----------------------
+
+    [Test]
+    public async Task Residency_ReceivesLeafParametersInRegisters()
+    {
+        // byte add(byte a, byte b) => a + b — a and b are used only by a gentle add in the entry block,
+        // so they are received in CPU registers (distinct ones — both are live at entry) with no WRAM slot.
+        var a = new IrParameter("a", IrType.I8);
+        var bb = new IrParameter("b", IrType.I8);
+        var fn = new IrFunction("add", IrType.I8, [a, bb]);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        b.Ret(b.Add(a, bb));
+
+        var alloc = FunctionAllocation.For(
+            fn,
+            0xC000,
+            allowResidency: true,
+            allowParamResidency: true
+        );
+
+        await Assert.That(alloc.Register.ContainsKey(a)).IsTrue();
+        await Assert.That(alloc.Register.ContainsKey(bb)).IsTrue();
+        await Assert.That(alloc.Register[a]).IsNotEqualTo(alloc.Register[bb]);
+        await Assert.That(alloc.Slot.ContainsKey(a)).IsFalse();
+        await Assert.That(alloc.Slot.ContainsKey(bb)).IsFalse();
+    }
+
+    [Test]
+    public async Task Residency_ParameterPassingIsOffWithoutOptIn()
+    {
+        // The same function without the param-residency opt-in (as for the entry, which has no caller to
+        // set its registers): parameters go to WRAM slots.
+        var a = new IrParameter("a", IrType.I8);
+        var bb = new IrParameter("b", IrType.I8);
+        var fn = new IrFunction("add", IrType.I8, [a, bb]);
+        var b = new IrBuilder();
+        b.PositionAtEnd(fn.AppendBlock("entry"));
+        b.Ret(b.Add(a, bb));
+
+        var alloc = FunctionAllocation.For(
+            fn,
+            0xC000,
+            allowResidency: true,
+            allowParamResidency: false
+        );
+
+        await Assert.That(alloc.Register.ContainsKey(a)).IsFalse();
+        await Assert.That(alloc.Slot.ContainsKey(a)).IsTrue();
+        await Assert.That(alloc.Slot.ContainsKey(bb)).IsTrue();
+    }
+
+    [Test]
+    public async Task Residency_LeafCallPassesArgsInRegisters()
+    {
+        // main() => add(40, 2), where add receives its params in registers. Runs on the emulator through
+        // the register calling convention; result = 42.
+        var m = new IrModule("test");
+        var main = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(main); // entry point must be first
+        var a = new IrParameter("a", IrType.I8);
+        var bb = new IrParameter("b", IrType.I8);
+        var add = new IrFunction("add", IrType.I8, [a, bb]);
+        m.Functions.Add(add);
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(add.AppendBlock("entry"));
+        b.Ret(b.Add(a, bb));
+        b.PositionAtEnd(main.AppendBlock("entry"));
+        b.Ret(b.Call(add, [IrBuilder.ConstInt(IrType.I8, 40), IrBuilder.ConstInt(IrType.I8, 2)]));
+
+        await Assert.That(RunMain(Compile(m))).IsEqualTo((byte)42);
+    }
+
+    [Test]
     public async Task Allocation_ReusesSlotsForNonOverlappingValues()
     {
         var fn = new IrFunction("chain", IrType.I8, []);

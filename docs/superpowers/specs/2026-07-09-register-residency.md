@@ -1,9 +1,10 @@
 # Register residency and a register calling convention
 
-Status: **residency landed (steps 1–3).** The reusable `IrLiveness` analysis, the unification of
-`FunctionAllocation` onto it, and a first, conservative register-resident value class (byte values in
-`E`, 16-bit values in `HL`) are implemented, emulator-validated, and on by default for plain functions.
-Steps 4 (register calling convention) and 5 (bytewise / aliasing-aware allocation) remain.
+Status: **all steps landed (1–5).** The reusable `IrLiveness` analysis, its unification into
+`FunctionAllocation`, a conservative register-resident value class (bytes in `C`/`D`/`E`/`H`/`L`, 16-bit
+values in `HL`, with chain coalescing), a register calling convention (leaf parameters received in
+registers), and bytewise `H:L` allocation are all implemented, emulator-validated, and on by default for
+plain (non-recursive, non-interrupt) functions. See the "Staged plan" section below for what each did.
 
 ## Why this is the biggest lever
 
@@ -63,15 +64,22 @@ is deliberately additive: the correctness-critical backend is untouched in this 
    stay in WRAM. Emitter changes: `LoadByteToA` sources a resident from its register and `StoreResultByte`
    sinks a producer's result into it. Validated end-to-end on the emulator (`Sm83BackendTests`).
 
-   *Known conservatism* (left for step 5): the `wideResult` interference rule prevents 16-bit residents
-   from coalescing, so only the first 16-bit value in a chain wins `HL`; and a resident already live in
-   `A` is still reloaded (`LD A,E`) rather than elided. Both are safe, just not yet optimal.
-4. **Register calling convention.** Pass small leaf-call arguments in `A`/`HL`/`BC` instead of
-   WRAM, and let a leaf keep them resident. This composes with step 3 and is where the review's
-   `__sdcccall`-style guidance (≤2 args, 8-bit unsigned) pays off.
-5. **Bytewise / aliasing-aware allocation.** Model `HL` as `H:L`, following Krause SCOPES 2015,
-   so a byte value can occupy `L` while `H` holds something else — and relax the wide-result interference
-   for register residents so 16-bit chains coalesce — the allocation quality the review highlights.
+4. **Register calling convention. — done.** A parameter whose uses are all a gentle prefix of the entry
+   block is *received* in a register instead of a WRAM param slot: `EmitCall` places the argument in the
+   callee's parameter register, and the callee keeps it resident. Safe because an argument is never itself
+   a caller-resident (it feeds the non-gentle call), so placing several in distinct registers cannot clobber
+   one another; and the far-call thunk preserves `B`–`L` (it only touches `A`/`F`), so this composes with
+   ROM banking. Off for the entry function (no caller to set its registers) and, like all residency, for
+   recursive/interrupt functions. Validated end-to-end on the emulator (`add(40,2) == 42`).
+5. **Bytewise / aliasing-aware allocation. — done.** Two refinements landed together:
+   (a) residency interference is now liveness-only (the WRAM colourer's wide-result rule does not apply to
+   full-register residents), so chains coalesce — a byte chain collapses to one register and a 16-bit chain
+   coalesces in `HL`; and (b) `HL` is modelled as `H:L` (Krause SCOPES 2015): `H` and `L` join the byte
+   register pool, so under pressure a byte occupies half the pair while the other half is free. Physical
+   aliasing falls out of the `Sm83Register` flags enum — `HL == H | L`, so a conflict is a bitwise-overlap
+   test. The byte pool is `E`,`D`,`C`,`L`,`H` (`H`/`L` last, to leave `HL` free for 16-bit residents when
+   possible). Validated on the emulator (byte/16-bit chain coalescing, and a four-live-byte case that spills
+   into `L`).
 
 ## Risks
 
