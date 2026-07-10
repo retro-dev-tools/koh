@@ -17,14 +17,26 @@ namespace Koh.Compiler.Backends.Sm83;
 /// the auto-increment/decrement form (<c>LD A,(HL+)</c> etc.), folding the pointer bump into the load or
 /// store. Neither instruction touches a flag, so the only guard is that the <c>INC</c>/<c>DEC HL</c> is
 /// not a branch target.</item>
+/// <item><c>CALL nn ; RET</c> → <c>JP nn</c> — a tail call: instead of calling and returning, jump so the
+/// callee's own <c>RET</c> returns straight to this function's caller. Sound only when the <c>CALL</c>
+/// targets a directly-returning function entry (not a far-call thunk, a runtime routine, or an interrupt
+/// handler whose epilogue is <c>RETI</c>); the caller supplies that whitelist as
+/// <c>tailCallSafeCalls</c>. The operand bytes are kept and the trailing <c>RET</c> is deleted, so unlike
+/// the other rules this one overwrites the opcode but deletes a non-adjacent byte.</item>
 /// </list>
 /// </summary>
 internal static class Sm83Peephole
 {
     /// <summary>One rewrite: overwrite the byte at <see cref="Offset"/> with <see cref="NewOpcode"/> and
-    /// delete the byte at <c>Offset + 1</c>. Both current rules collapse a two-byte sequence into the
-    /// single opcode, so this shape covers them.</summary>
-    public readonly record struct Edit(int Offset, byte NewOpcode);
+    /// delete the byte at <see cref="DeleteOffset"/>. The two "collapse a pair" rules delete the very next
+    /// byte (<c>Offset + 1</c>); the tail-call rule keeps the CALL's operand and deletes the trailing
+    /// <c>RET</c> instead, so the deleted byte is not necessarily adjacent.</summary>
+    public readonly record struct Edit(int Offset, byte NewOpcode, int DeleteOffset)
+    {
+        /// <summary>An adjacent collapse: overwrite <paramref name="offset"/> and delete the next byte.</summary>
+        public Edit(int offset, byte newOpcode)
+            : this(offset, newOpcode, offset + 1) { }
+    }
 
     /// <summary>Length of the instruction whose opcode is at <paramref name="offset"/>. Delegates to
     /// the shared <see cref="Sm83OpcodeLength"/> table so the length data is not duplicated.</summary>
@@ -33,12 +45,16 @@ internal static class Sm83Peephole
 
     /// <summary>The rewrites applicable in <c>[start, end)</c>, in ascending offset order.
     /// <paramref name="boundaries"/> holds the absolute offsets of branch targets / block joins, across
-    /// which liveness cannot be assumed and instructions must not be folded away.</summary>
+    /// which liveness cannot be assumed and instructions must not be folded away.
+    /// <paramref name="tailCallSafeCalls"/> holds the absolute offsets of <c>CALL</c> opcodes whose target
+    /// is a directly-returning function entry, the only ones the tail-call rule may rewrite (see the type
+    /// summary).</summary>
     public static List<Edit> FindEdits(
         IReadOnlyList<byte> code,
         int start,
         int end,
-        HashSet<int> boundaries
+        HashSet<int> boundaries,
+        HashSet<int> tailCallSafeCalls
     )
     {
         // Lift the region to typed instructions. Offsets in `instrs` are relative to `start`; the shared
@@ -72,6 +88,23 @@ internal static class Sm83Peephole
             {
                 edits.Add(new Edit(abs, folded));
                 i++; // the INC/DEC HL is consumed by the fold — don't reconsider it
+                continue;
+            }
+
+            // Rule 3 — tail call: CALL nn ; RET → JP nn. Only when the CALL targets a directly-returning
+            // function entry (tailCallSafeCalls) and the RET that follows it is not itself a branch target
+            // (something jumping to it would lose the return). The CALL's operand bytes stay; the RET byte
+            // is deleted, so this is the one rule whose deleted byte is not adjacent to the opcode.
+            if (
+                instr.Opcode == 0xCD
+                && tailCallSafeCalls.Contains(abs)
+                && i + 1 < instrs.Count
+                && instrs[i + 1].Opcode == 0xC9
+                && !boundaries.Contains(start + instrs[i + 1].Offset)
+            )
+            {
+                edits.Add(new Edit(abs, 0xC3, start + instrs[i + 1].Offset));
+                i++; // the RET is folded away
             }
         }
         return edits;

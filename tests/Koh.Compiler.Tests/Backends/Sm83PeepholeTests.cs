@@ -5,7 +5,13 @@ namespace Koh.Compiler.Tests.Backends;
 public class Sm83PeepholeTests
 {
     private static List<Sm83Peephole.Edit> Edits(byte[] code, params int[] boundaries) =>
-        Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries]);
+        Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries], []);
+
+    private static List<Sm83Peephole.Edit> EditsWithTailCalls(
+        byte[] code,
+        int[] safeCalls,
+        params int[] boundaries
+    ) => Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries], [.. safeCalls]);
 
     [Test]
     public async Task InstructionLength_MatchesTheOpcodeTable()
@@ -103,5 +109,38 @@ public class Sm83PeepholeTests
     {
         // LD A,(HL) ; INC B — the step is not INC/DEC HL, so there is nothing to fold.
         await Assert.That(Edits([0x7E, 0x04])).IsEmpty();
+    }
+
+    // ---- tail call: CALL nn ; RET → JP nn ------------------------------------
+
+    [Test]
+    public async Task FoldsTailCallToJump()
+    {
+        // CALL 0x1234 ; RET → JP 0x1234. Opcode 0xCD → 0xC3, operand kept, the RET at offset 3 deleted.
+        var edits = EditsWithTailCalls([0xCD, 0x34, 0x12, 0xC9], safeCalls: [0]);
+        await Assert.That(edits).IsEquivalentTo(new List<Sm83Peephole.Edit> { new(0, 0xC3, 3) });
+    }
+
+    [Test]
+    public async Task DoesNotFoldTailCall_WhenCallTargetIsNotWhitelisted()
+    {
+        // Same bytes, but the CALL is not in the safe set (e.g. a far-call thunk or runtime routine).
+        await Assert.That(EditsWithTailCalls([0xCD, 0x34, 0x12, 0xC9], safeCalls: [])).IsEmpty();
+    }
+
+    [Test]
+    public async Task DoesNotFoldTailCall_WhenCallIsNotFollowedByRet()
+    {
+        // CALL 0x1234 ; NOP — no RET to fold into the jump.
+        await Assert.That(EditsWithTailCalls([0xCD, 0x34, 0x12, 0x00], safeCalls: [0])).IsEmpty();
+    }
+
+    [Test]
+    public async Task DoesNotFoldTailCall_WhenRetIsABranchTarget()
+    {
+        // The RET at offset 3 is a jump target, so folding it away would drop that edge's return.
+        await Assert
+            .That(EditsWithTailCalls([0xCD, 0x34, 0x12, 0xC9], safeCalls: [0], boundaries: 3))
+            .IsEmpty();
     }
 }

@@ -285,6 +285,31 @@ static byte Triple(byte x) { return x + x + x; }";
     }
 
     [Test]
+    public async Task TailCall_FoldsToJump_AndStillRuns()
+    {
+        // Work's body is a bare tail call `Side();`, which the backend emits as `CALL Side ; RET` and the
+        // peephole folds to `JP Side`. Side is kept as a real function (its loop makes it multi-block, so
+        // the inliner leaves it) and Work is a non-leaf, so both survive to codegen.
+        const string src =
+            "static class M { static byte n; "
+            + "static byte Main() { Work(); return n; } "
+            + "static void Work() { Side(); } "
+            + "static void Side() { for (byte i = 0; i < 5; i = (byte)(i + 1)) n = (byte)(n + i); } }";
+
+        // Behaviour is preserved through the folded jump: Side accumulates 0+1+2+3+4 = 10 into n.
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)10);
+
+        // The fold fired: Work's `CALL Side ; RET` is the only tail call this program emits, and after the
+        // peephole no CALL is immediately followed by RET.
+        var code = CompileOpt(src).Sections[0].Data;
+        var adjacency = 0;
+        for (var i = 0; i + 3 < code.Length; i++)
+            if (code[i] == 0xCD && code[i + 3] == 0xC9)
+                adjacency++;
+        await Assert.That(adjacency).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task SignedNegate_Sbyte()
     {
         const string src = "static sbyte Neg(sbyte x) { return -x; }";

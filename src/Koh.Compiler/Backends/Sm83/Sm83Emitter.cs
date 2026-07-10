@@ -178,17 +178,32 @@ internal sealed class Emitter
         foreach (var label in labels)
             boundaries.Add(label.Offset);
 
-        var edits = Sm83Peephole.FindEdits(Code, start, end, boundaries);
+        // Absolute offsets of CALL opcodes whose target is a directly-returning function entry — the only
+        // CALLs the tail-call fold may touch. A function's fixup target is its `_funcs` label (interrupt
+        // handlers excluded: their epilogue is RETI, not RET); a far-call thunk (`_thunks`) or runtime
+        // routine (`_routines`) target is deliberately left out, so a banked callee (reached via its thunk)
+        // is never folded. The CALL opcode sits one byte before its operand fixup position.
+        var safeFuncLabels = new HashSet<Label>(ReferenceEqualityComparer.Instance);
+        foreach (var (fn, label) in _funcs)
+            if (fn.InterruptVector is null)
+                safeFuncLabels.Add(label);
+        var tailCallSafeCalls = new HashSet<int>();
+        foreach (var (pos, target) in _fixups)
+            if (pos - 1 >= start && pos - 1 < end && safeFuncLabels.Contains(target))
+                tailCallSafeCalls.Add(pos - 1);
+
+        var edits = Sm83Peephole.FindEdits(Code, start, end, boundaries, tailCallSafeCalls);
         if (edits.Count == 0)
             return;
 
-        // Each edit collapses a two-byte sequence to one: the byte at the edit offset becomes the new
-        // opcode and the following byte is deleted. Edits are ascending, so the deleted positions are too.
+        // Each edit overwrites the byte at its offset with a new opcode and deletes one other byte (the
+        // next byte for a two-into-one collapse, or the trailing RET for a tail call). Edits are ascending
+        // and non-overlapping, so the deleted positions are ascending too.
         var deletes = new int[edits.Count];
         for (var i = 0; i < edits.Count; i++)
         {
             Code[edits[i].Offset] = edits[i].NewOpcode;
-            deletes[i] = edits[i].Offset + 1;
+            deletes[i] = edits[i].DeleteOffset;
         }
 
         // Number of deleted bytes strictly below an offset — its leftward shift.
