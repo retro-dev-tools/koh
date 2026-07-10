@@ -146,11 +146,15 @@ public sealed partial class Sm83Backend
                 for (int i = 0; i < call.Arguments.Count; i++)
                 {
                     var param = callee.Parameters[i];
-                    _ctx.CopyToScratch(
-                        call.Arguments[i],
-                        calleeAllocation.Slot[param],
-                        SizeOf(param.Type)
-                    );
+                    int n = SizeOf(param.Type);
+                    // A parameter received in a register (the register calling convention) is placed there
+                    // directly; otherwise it is written to the callee's WRAM parameter slot. Arguments are
+                    // never caller-residents (they feed this non-gentle call), so loading one only touches
+                    // A — placing several in distinct registers cannot clobber one another.
+                    if (calleeAllocation.Register.TryGetValue(param, out var reg))
+                        _ctx.LoadValueIntoRegister(call.Arguments[i], reg, n);
+                    else
+                        _ctx.CopyToScratch(call.Arguments[i], calleeAllocation.Slot[param], n);
                 }
             }
 
