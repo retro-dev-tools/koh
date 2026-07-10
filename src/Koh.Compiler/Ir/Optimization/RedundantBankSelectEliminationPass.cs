@@ -3,12 +3,14 @@ namespace Koh.Compiler.Ir.Optimization;
 /// <summary>
 /// Removes a redundant MBC1 ROM bank-select — a write of a constant bank number to the bank-select
 /// register (<c>[0x2000, 0x4000)</c>, e.g. <c>*(byte*)0x2000 = 3;</c>) when the same bank is already
-/// known to be mapped on every path reaching it. Reading several read-only globals that all live in
-/// one banked region emits one <c>*(byte*)0x2000 = bank;</c> per access, so consecutive selects of the
-/// same bank are common; dropping the repeats saves the 3-byte <c>LD [0x2000], A</c> (plus loading the
-/// bank number into <c>A</c>) each time. This is the local increment of the "optimal placement of bank
-/// selection instructions" line the SM83 optimization review flags as directly relevant to Koh's
-/// banking model; a cross-block dataflow version is the natural follow-up.
+/// known to be mapped. Koh's banked-data model requires user code to select a banked global's bank
+/// before dereferencing it (<c>*(byte*)0x2000 = bank;</c>), so code that reads several read-only
+/// globals from one banked region repeats the same select by hand; dropping the repeats saves the
+/// 3-byte <c>LD [0x2000], A</c> (plus loading the bank number into <c>A</c>) each time. (The selects
+/// are author-written — no compiler stage auto-emits data-bank selects.) This is the local increment
+/// of the "optimal placement of bank selection instructions" line the SM83 optimization review flags
+/// as directly relevant to Koh's banking model; a cross-block dataflow version is the natural
+/// follow-up.
 ///
 /// The analysis is intra-block and deliberately conservative. Scanning a block in order it tracks the
 /// bank value currently known to be selected, if any, and resets that knowledge at every point where
@@ -17,6 +19,10 @@ namespace Koh.Compiler.Ir.Optimization;
 /// store to any other constant address in the MBC control range <c>[0x0000, 0x8000)</c> (RAM-enable,
 /// RAM-bank/high-ROM bits, banking mode). Writes to constant addresses at or above <c>0x8000</c>
 /// (RAM/VRAM/OAM/IO) and all loads leave the ROM bank untouched, so they are transparent.
+///
+/// Soundness assumes an interrupt handler leaves the mapped ROM bank as it found it — the same
+/// assumption every banked access already depends on, since a select and its dependent load are
+/// separate, interruptible instructions.
 /// </summary>
 public sealed class RedundantBankSelectEliminationPass : IIrFunctionPass
 {
@@ -98,7 +104,7 @@ public sealed class RedundantBankSelectEliminationPass : IIrFunctionPass
             ConvInstruction { Op: IrConvOp.Bitcast, Operand: var op } => TryConstAddress(op),
             ConvInstruction { Op: IrConvOp.ZExt, Operand: var op } => TryConstAddress(op),
             ConvInstruction { Op: IrConvOp.Trunc, Operand: var op, Type: var t }
-                when TryConstAddress(op) is { } inner => inner & ((1L << t.Bits) - 1),
+                when TryConstAddress(op) is { } inner => (long)IntWidth.ToUnsigned(inner, t.Bits),
             _ => null,
         };
 }
