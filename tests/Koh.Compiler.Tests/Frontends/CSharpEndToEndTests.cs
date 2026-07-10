@@ -2379,9 +2379,11 @@ static readonly byte[] Mark = { 0xAB };";
         // banked callee. Each Pi adds `adds` to its parameter (a long gentle chain that also bulks the
         // function enough to force banking) and tail-calls the next; result = seed + fns*adds (mod 256).
         // Built as IR directly (not C#) so the parameter is used in a gentle op and thus register-resident
-        // without relying on the optimizer, while the chain stays un-folded to keep the code large.
+        // without relying on the optimizer, while the chain stays un-folded to keep the code large. fns*adds
+        // must not be a multiple of 256, or the expected byte would collapse back to `seed` and the
+        // assertion would pass even if every add chain were dropped.
         const int fns = 16,
-            adds = 400,
+            adds = 401,
             seed = 10;
         var m = new IrModule("bankparam");
         var main = new IrFunction("main", IrType.I8, []);

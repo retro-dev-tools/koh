@@ -30,33 +30,9 @@ public class Sm83BackendTests
         return module;
     }
 
-    /// <summary>Link one EmitModel to a ROM and run @main, returning the final accumulator.</summary>
-    private static byte RunMain(EmitModel model)
-    {
-        var link = new LinkerType().Link([new LinkerInput("mvp", model)]);
-        var rom = link.RomData ?? throw new InvalidOperationException("link produced no ROM");
-
-        int start = Sm83Backend.CodeBase;
-        int length = model.Sections[0].Data.Length;
-
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
-        gb.Registers.Sp = 0xFFFE;
-        gb.Registers.Pc = (ushort)start;
-
-        // Step while the PC stays within the emitted function; the trailing RET exits the range.
-        for (int steps = 0; steps < 1000; steps++)
-        {
-            int pc = gb.Registers.Pc;
-            if (pc < start || pc >= start + length)
-                break;
-            gb.StepInstruction();
-        }
-
-        return gb.Registers.A;
-    }
-
-    /// <summary>As <see cref="RunMain"/>, but returns the 16-bit result (i16 is returned in HL).</summary>
-    private static ushort RunMainHL(EmitModel model)
+    /// <summary>Link one EmitModel to a ROM and run @main until the PC leaves the emitted function (the
+    /// trailing RET), returning the final machine state.</summary>
+    private static GameBoySystem RunToExit(EmitModel model)
     {
         var link = new LinkerType().Link([new LinkerInput("mvp", model)]);
         var rom = link.RomData ?? throw new InvalidOperationException("link produced no ROM");
@@ -76,8 +52,14 @@ public class Sm83BackendTests
             gb.StepInstruction();
         }
 
-        return gb.Registers.HL;
+        return gb;
     }
+
+    /// <summary>Run @main and return the final accumulator (i8 return).</summary>
+    private static byte RunMain(EmitModel model) => RunToExit(model).Registers.A;
+
+    /// <summary>Run @main and return the final HL (i16 return).</summary>
+    private static ushort RunMainHL(EmitModel model) => RunToExit(model).Registers.HL;
 
     [Test]
     public async Task Emits_ExpectedBytes_ForConstantFolding()
@@ -370,6 +352,36 @@ public class Sm83BackendTests
         await Assert.That(alloc.Register.ContainsKey(a)).IsFalse();
         await Assert.That(alloc.Slot.ContainsKey(a)).IsTrue();
         await Assert.That(alloc.Slot.ContainsKey(bb)).IsTrue();
+    }
+
+    [Test]
+    public async Task Residency_RejectsParameterWhenEntryIsLoopHeader()
+    {
+        // entry: %0 = a + 1 ; %1 = shl %0, 1 (clobbers D/E) ; condbr %1 -> entry | exit.  The parameter a
+        // is read only by the gentle add at index 0, so a naive gentle-prefix scan would make it resident —
+        // but the entry block loops, and the shift after a's last use would clobber a's register before the
+        // next iteration re-reads it. Because the entry block has a predecessor, a must stay in WRAM.
+        var a = new IrParameter("a", IrType.I8);
+        var fn = new IrFunction("loopy", IrType.I8, [a]);
+        var b = new IrBuilder();
+        var entry = fn.AppendBlock("entry");
+        var exit = fn.AppendBlock("exit");
+        b.PositionAtEnd(entry);
+        var v0 = b.Add(a, IrBuilder.ConstInt(IrType.I8, 1));
+        var v1 = b.Binary(IrBinaryOp.Shl, v0, IrBuilder.ConstInt(IrType.I8, 1));
+        b.CondBr(v1, entry, exit);
+        b.PositionAtEnd(exit);
+        b.Ret(v0);
+
+        var alloc = FunctionAllocation.For(
+            fn,
+            0xC000,
+            allowResidency: true,
+            allowParamResidency: true
+        );
+
+        await Assert.That(alloc.Register.ContainsKey(a)).IsFalse();
+        await Assert.That(alloc.Slot.ContainsKey(a)).IsTrue();
     }
 
     [Test]

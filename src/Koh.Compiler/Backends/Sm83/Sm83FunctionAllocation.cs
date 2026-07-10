@@ -235,19 +235,30 @@ internal sealed class FunctionAllocation
         if (!allowResidency && !allowParamResidency)
             return register;
 
+        var uses = BuildUseMap(fn); // one pass; consulted per candidate below
         var entry = fn.EntryBlock;
 
         // Gather candidates in program order. Parameters come first: they are the calling convention, so
         // they claim registers ahead of any body value (they are all live from entry, so they interfere
         // with each other and take distinct registers).
         var candidates = new List<Residency>();
-        if (allowParamResidency && entry is not null)
+
+        // A parameter is live from function entry and is never redefined, so if the entry block can be
+        // re-entered (a loop header) it must survive the whole block, not just the gentle prefix up to its
+        // last use — a non-gentle op *after* that use would clobber its register before the next iteration
+        // re-reads it. Only allow parameter residency when the entry block has no predecessor. (A body
+        // value has no such hazard: it is redefined at its def each iteration.)
+        if (allowParamResidency && entry is not null && !HasPredecessor(fn, entry))
             foreach (var p in fn.Parameters)
                 if (
                     p.Type.SizeInBytes is 1 or 2
-                    && TryParamResidencyRange(fn, p, entry, out int last)
+                    && uses.TryGetValue(p, out var u)
+                    && !u.PhiUse
+                    && !u.MultiBlock
+                    && ReferenceEquals(u.Block, entry)
+                    && GentleRange(entry, 0, u.LastUse) // parameter is live from entry: prefix [0, lastUse]
                 )
-                    candidates.Add(new Residency(p, entry, -1, last));
+                    candidates.Add(new Residency(p, entry, -1, u.LastUse));
 
         if (allowResidency)
             foreach (var block in fn.Blocks)
@@ -259,9 +270,13 @@ internal sealed class FunctionAllocation
                     if (
                         colored.Contains(value)
                         && IsGentleBinary(value)
-                        && TryResidencyRange(fn, block, defIndex, out int lastUse)
+                        && uses.TryGetValue(value, out var u)
+                        && !u.PhiUse
+                        && !u.MultiBlock
+                        && ReferenceEquals(u.Block, block)
+                        && GentleRange(block, defIndex + 1, u.LastUse)
                     )
-                        candidates.Add(new Residency(value, block, defIndex, lastUse));
+                        candidates.Add(new Residency(value, block, defIndex, u.LastUse));
                 }
             }
 
@@ -309,21 +324,24 @@ internal sealed class FunctionAllocation
         return aLiveAfterBDef || bLiveAfterADef;
     }
 
-    /// <summary>Whether the value at <paramref name="defIndex"/> of <paramref name="block"/> has all its
-    /// uses inside its own block and every instruction from just after its definition through its last use
-    /// is a gentle ALU op — so a register holding it is never clobbered across its live range. Outputs the
-    /// index of the last in-block use.</summary>
-    private static bool TryResidencyRange(
-        IrFunction fn,
-        IrBasicBlock block,
-        int defIndex,
-        out int lastUse
-    )
+    /// <summary>Where a value is used, gathered in one pass so residency selection does not re-scan the
+    /// whole function per candidate. <see cref="Block"/>/<see cref="LastUse"/> track the (single) block a
+    /// value is used in and the last index there; <see cref="MultiBlock"/> is set if it is used in a second
+    /// block, and <see cref="PhiUse"/> if it appears as a phi's incoming (a control-flow-edge use). A value
+    /// is single-block-resident-eligible iff <c>!PhiUse &amp;&amp; !MultiBlock</c> and its home block matches.</summary>
+    private sealed class UseInfo
     {
-        var value = block.Instructions[defIndex];
-        lastUse = -1;
+        public bool PhiUse;
+        public bool MultiBlock;
+        public IrBasicBlock? Block;
+        public int LastUse = -1;
+    }
 
-        // Any use outside this block, or any use as a phi edge value, escapes the single-block window.
+    private static Dictionary<IrValue, UseInfo> BuildUseMap(IrFunction fn)
+    {
+        var map = new Dictionary<IrValue, UseInfo>(Eq);
+        UseInfo Info(IrValue v) => map.TryGetValue(v, out var info) ? info : map[v] = new UseInfo();
+
         foreach (var b in fn.Blocks)
         {
             var instrs = b.Instructions;
@@ -333,75 +351,43 @@ internal sealed class FunctionAllocation
                 if (instr is PhiInstruction phi)
                 {
                     foreach (var (incoming, _) in phi.Incomings)
-                        if (ReferenceEquals(incoming, value))
-                            return false; // used on a control-flow edge
+                        Info(incoming).PhiUse = true; // phi operands are control-flow-edge uses
                     continue;
                 }
                 foreach (var operand in instr.Operands)
-                    if (ReferenceEquals(operand, value))
-                    {
-                        if (!ReferenceEquals(b, block))
-                            return false; // used in another block
-                        lastUse = Math.Max(lastUse, i);
-                    }
+                {
+                    var info = Info(operand);
+                    if (info.Block is null)
+                        (info.Block, info.LastUse) = (b, i);
+                    else if (ReferenceEquals(info.Block, b))
+                        info.LastUse = i; // a later index in the same block
+                    else
+                        info.MultiBlock = true; // used in a second block
+                }
             }
         }
+        return map;
+    }
 
-        if (lastUse < 0)
-            return false; // no in-block use: nothing to keep resident for
-
-        // Every instruction strictly after the definition, up to and including the last use, must be
-        // gentle — those are the only instructions that run while the value is live.
-        for (int i = defIndex + 1; i <= lastUse; i++)
+    /// <summary>Whether every instruction in <c>[start, lastUse]</c> of <paramref name="block"/> is a gentle
+    /// ALU op — so a register holding a value live across that span is never clobbered.</summary>
+    private static bool GentleRange(IrBasicBlock block, int start, int lastUse)
+    {
+        for (int i = start; i <= lastUse; i++)
             if (!IsGentleBinary(block.Instructions[i]))
                 return false;
-
         return true;
     }
 
-    /// <summary>Whether <paramref name="param"/> can be received in a register: all its uses are in the
-    /// entry block, none on a control-flow edge, and every entry instruction up to its last use is gentle
-    /// — so the argument register the caller set up survives from entry to the last read. A parameter is
-    /// live from function entry, so the whole prefix [0, lastUse] must be gentle (not just after a def).</summary>
-    private static bool TryParamResidencyRange(
-        IrFunction fn,
-        IrParameter param,
-        IrBasicBlock entry,
-        out int lastUse
-    )
+    /// <summary>Whether any block branches to <paramref name="target"/> (it is a re-entry / loop header).</summary>
+    private static bool HasPredecessor(IrFunction fn, IrBasicBlock target)
     {
-        lastUse = -1;
         foreach (var b in fn.Blocks)
-        {
-            var instrs = b.Instructions;
-            for (int i = 0; i < instrs.Count; i++)
-            {
-                var instr = instrs[i];
-                if (instr is PhiInstruction phi)
-                {
-                    foreach (var (incoming, _) in phi.Incomings)
-                        if (ReferenceEquals(incoming, param))
-                            return false; // used on a control-flow edge
-                    continue;
-                }
-                foreach (var operand in instr.Operands)
-                    if (ReferenceEquals(operand, param))
-                    {
-                        if (!ReferenceEquals(b, entry))
-                            return false; // used outside the entry block
-                        lastUse = Math.Max(lastUse, i);
-                    }
-            }
-        }
-
-        if (lastUse < 0)
-            return false; // unused parameter: nothing to keep resident for
-
-        for (int i = 0; i <= lastUse; i++)
-            if (!IsGentleBinary(entry.Instructions[i]))
-                return false;
-
-        return true;
+            if (b.Terminator?.Successors is { } successors)
+                foreach (var s in successors)
+                    if (ReferenceEquals(s, target))
+                        return true;
+        return false;
     }
 
     private static bool Overlaps(int s1, int z1, int s2, int z2) => s1 < s2 + z2 && s2 < s1 + z1;
