@@ -1,4 +1,6 @@
+using Koh.Compiler.Backends.Sm83.Mir;
 using Koh.Compiler.Ir;
+using Koh.Compiler.Ir.Analysis;
 
 namespace Koh.Compiler.Backends.Sm83;
 
@@ -7,6 +9,10 @@ namespace Koh.Compiler.Backends.Sm83;
 /// compile-time addresses for <c>alloca</c>/constant-<c>gep</c> pointers, and scratch for
 /// phi-cycle breaking. Computed for the whole module before any code is emitted so a caller
 /// knows where to place a callee's arguments.
+///
+/// A small set of short-lived byte values may instead be held in a CPU register (<see cref="Register"/>)
+/// rather than a WRAM slot — the first increment of register residency (SOTA item #2). See
+/// <see cref="SelectResidents"/> for the (deliberately conservative) candidate rule.
 /// </summary>
 internal sealed class FunctionAllocation
 {
@@ -14,11 +20,20 @@ internal sealed class FunctionAllocation
 
     public required Dictionary<IrValue, int> Slot { get; init; }
     public required Dictionary<IrValue, int> StaticAddr { get; init; }
+
+    /// <summary>Values held in a CPU register instead of a WRAM slot. A residency-assigned value has no
+    /// entry in <see cref="Slot"/>: the emitter sinks its producing instruction's result into the register
+    /// and sources every use from there. Empty unless residency is enabled for this function.</summary>
+    public required Dictionary<IrValue, Sm83Register> Register { get; init; }
     public required int PhiTempBase { get; init; }
     public required int FrameBase { get; init; }
     public required int FrameEnd { get; init; }
 
-    public static FunctionAllocation For(IrFunction fn, int baseAddr)
+    /// <param name="allowResidency">Whether short-lived byte values may be assigned CPU registers.
+    /// Disabled for interrupt handlers and recursive functions, whose prologues/epilogues and
+    /// frame-save paths impose register constraints the conservative residency model does not yet
+    /// reason about.</param>
+    public static FunctionAllocation For(IrFunction fn, int baseAddr, bool allowResidency = false)
     {
         var staticAddr = new Dictionary<IrValue, int>(Eq);
         var slot = new Dictionary<IrValue, int>(Eq);
@@ -66,6 +81,15 @@ internal sealed class FunctionAllocation
                 colored.Add(instr);
 
         var interference = ComputeInterference(fn, colored);
+
+        // Assign a CPU register to a conservative set of short-lived byte values; a resident value needs
+        // no WRAM slot, so it is dropped from the colouring set below.
+        var register = allowResidency
+            ? SelectResidents(fn, colored, interference)
+            : new Dictionary<IrValue, Sm83Register>(Eq);
+        foreach (var resident in register.Keys)
+            colored.Remove(resident);
+
         int colorBase = wram;
         int colorEnd = colorBase;
 
@@ -106,94 +130,147 @@ internal sealed class FunctionAllocation
         {
             Slot = slot,
             StaticAddr = staticAddr,
+            Register = register,
             PhiTempBase = phiTempBase,
             FrameBase = baseAddr,
             FrameEnd = wram,
         };
     }
 
+    // ---- Register residency (SOTA item #2, first increment) ---------------
+    //
+    // This first step is deliberately narrow so it is provably correct on an accumulator machine whose
+    // emitters freely clobber registers. It makes register-resident *only* a value produced by a "gentle"
+    // ALU op (ADD/SUB/AND/OR/XOR, one or two bytes) whose whole live range — its definition through its
+    // last use, all in one basic block — contains nothing but other gentle ALU ops. Those emitters route
+    // operands through A (and B for a register operand) and touch no other register, so a value parked in
+    // E (byte) or HL (16-bit pair) is provably untouched across the range. E and HL are physically disjoint
+    // and are the two registers the gentle path never uses, so a byte resident and a 16-bit resident never
+    // collide. The interference graph is the second guard, applied per physical resource: two residents in
+    // the same register that can be simultaneously live interfere, so each register holds exactly one live
+    // resident at a time (the coalescing case — v2 = v1 + c, where v1 dies exactly as v2 is born — does not
+    // interfere, so the two correctly share the register). Wider values (i32/i64) stay in WRAM — no register
+    // room. HL is the pointer register, but the gentle-only span contains no memory op, so it is free there.
+
+    /// <summary>ADD/SUB/AND/OR/XOR at 8- or 16-bit width — the ops whose emitter (<c>EmitBinary</c>'s
+    /// straight path) touches only <c>A</c> and <c>B</c>. Shifts and mul/div/rem are excluded: they use
+    /// E/D/BC/HL or call runtime routines that clobber everything.</summary>
+    private static bool IsGentleBinary(IrInstruction instr) =>
+        instr is BinaryInstruction b
+        && b.Type.SizeInBytes is 1 or 2
+        && b.Op
+            is IrBinaryOp.Add
+                or IrBinaryOp.Sub
+                or IrBinaryOp.And
+                or IrBinaryOp.Or
+                or IrBinaryOp.Xor;
+
+    private static Dictionary<IrValue, Sm83Register> SelectResidents(
+        IrFunction fn,
+        HashSet<IrValue> colored,
+        Dictionary<IrValue, HashSet<IrValue>> interference
+    )
+    {
+        var register = new Dictionary<IrValue, Sm83Register>(Eq);
+        var assignedE = new List<IrValue>(); // 8-bit residents in E
+        var assignedHL = new List<IrValue>(); // 16-bit residents in HL
+
+        foreach (var block in fn.Blocks)
+        {
+            var instrs = block.Instructions;
+            for (int defIndex = 0; defIndex < instrs.Count; defIndex++)
+            {
+                var value = instrs[defIndex];
+                if (!colored.Contains(value) || !IsGentleBinary(value))
+                    continue;
+                if (!IsResidencyCandidate(fn, block, defIndex))
+                    continue;
+
+                // Byte -> E, 16-bit -> HL. Because the two resources are physically disjoint, interference
+                // is only checked against residents already in the same register.
+                var (reg, pool) =
+                    value.Type.SizeInBytes == 1
+                        ? (Sm83Register.E, assignedE)
+                        : (Sm83Register.Hl, assignedHL);
+
+                bool conflict = false;
+                foreach (var other in pool)
+                    if (interference[value].Contains(other))
+                    {
+                        conflict = true;
+                        break;
+                    }
+                if (conflict)
+                    continue;
+
+                register[value] = reg;
+                pool.Add(value);
+            }
+        }
+
+        return register;
+    }
+
+    /// <summary>Whether <paramref name="value"/> (the instruction at <paramref name="defIndex"/> of
+    /// <paramref name="block"/>) has all its uses inside its own block and every instruction from just
+    /// after its definition through its last use is a gentle byte ALU op — so a register holding it is
+    /// never clobbered across its live range.</summary>
+    private static bool IsResidencyCandidate(IrFunction fn, IrBasicBlock block, int defIndex)
+    {
+        var value = block.Instructions[defIndex];
+
+        // Any use outside this block, or any use as a phi edge value, escapes the single-block window.
+        int lastUse = -1;
+        foreach (var b in fn.Blocks)
+        {
+            var instrs = b.Instructions;
+            for (int i = 0; i < instrs.Count; i++)
+            {
+                var instr = instrs[i];
+                if (instr is PhiInstruction phi)
+                {
+                    foreach (var (incoming, _) in phi.Incomings)
+                        if (ReferenceEquals(incoming, value))
+                            return false; // used on a control-flow edge
+                    continue;
+                }
+                foreach (var operand in instr.Operands)
+                    if (ReferenceEquals(operand, value))
+                    {
+                        if (!ReferenceEquals(b, block))
+                            return false; // used in another block
+                        lastUse = Math.Max(lastUse, i);
+                    }
+            }
+        }
+
+        if (lastUse < 0)
+            return false; // no in-block use: nothing to keep resident for
+
+        // Every instruction strictly after the definition, up to and including the last use, must be
+        // gentle — those are the only instructions that run while the value is live.
+        for (int i = defIndex + 1; i <= lastUse; i++)
+            if (!IsGentleBinary(block.Instructions[i]))
+                return false;
+
+        return true;
+    }
+
     private static bool Overlaps(int s1, int z1, int s2, int z2) => s1 < s2 + z2 && s2 < s1 + z1;
 
     /// <summary>
-    /// Live-range interference over the coloured values via SSA liveness (phi operands are used
-    /// on predecessor edges). Two values interfere if they can be simultaneously live.
+    /// Live-range interference over the coloured values. Two values interfere if they can be
+    /// simultaneously live. Liveness comes from the shared <see cref="IrLiveness"/> analysis (SSA
+    /// backward dataflow, phi-edge semantics); this method filters it to the coloured set and layers on
+    /// the backend-specific interference rules (a wide result and a wide phi must not partially overlap
+    /// their operands' slots — see the byte-by-byte emit note below).
     /// </summary>
     private static Dictionary<IrValue, HashSet<IrValue>> ComputeInterference(
         IrFunction fn,
         HashSet<IrValue> colored
     )
     {
-        var blocks = fn.Blocks;
-        var use = new Dictionary<IrBasicBlock, HashSet<IrValue>>(Eq);
-        var def = new Dictionary<IrBasicBlock, HashSet<IrValue>>(Eq);
-        var phis = new Dictionary<IrBasicBlock, List<PhiInstruction>>(Eq);
-
-        foreach (var b in blocks)
-        {
-            var u = new HashSet<IrValue>(Eq);
-            var d = new HashSet<IrValue>(Eq);
-            var blockPhis = new List<PhiInstruction>();
-            foreach (var instr in b.Instructions)
-                if (instr is PhiInstruction phi && colored.Contains(phi))
-                {
-                    d.Add(phi); // phis define at the top
-                    blockPhis.Add(phi);
-                }
-            var defined = new HashSet<IrValue>(d, Eq);
-            foreach (var instr in b.Instructions)
-            {
-                if (instr is PhiInstruction)
-                    continue;
-                foreach (var op in instr.Operands)
-                    if (colored.Contains(op) && !defined.Contains(op))
-                        u.Add(op); // used before defined in this block
-                if (colored.Contains(instr))
-                {
-                    d.Add(instr);
-                    defined.Add(instr);
-                }
-            }
-            use[b] = u;
-            def[b] = d;
-            phis[b] = blockPhis;
-        }
-
-        var liveIn = new Dictionary<IrBasicBlock, HashSet<IrValue>>(Eq);
-        var liveOut = new Dictionary<IrBasicBlock, HashSet<IrValue>>(Eq);
-        foreach (var b in blocks)
-        {
-            liveIn[b] = new HashSet<IrValue>(Eq);
-            liveOut[b] = new HashSet<IrValue>(Eq);
-        }
-        bool changed = true;
-        while (changed)
-        {
-            changed = false;
-            for (int i = blocks.Count - 1; i >= 0; i--)
-            {
-                var b = blocks[i];
-                var newOut = new HashSet<IrValue>(Eq);
-                foreach (var s in Successors(b))
-                {
-                    foreach (var v in liveIn[s])
-                        newOut.Add(v);
-                    foreach (var phi in phis[s]) // phi operands: live-out of the matching predecessor
-                    foreach (var (val, pred) in phi.Incomings)
-                        if (ReferenceEquals(pred, b) && colored.Contains(val))
-                            newOut.Add(val);
-                }
-                var newIn = new HashSet<IrValue>(use[b], Eq);
-                foreach (var v in newOut)
-                    if (!def[b].Contains(v))
-                        newIn.Add(v);
-                if (!newOut.SetEquals(liveOut[b]) || !newIn.SetEquals(liveIn[b]))
-                {
-                    liveOut[b] = newOut;
-                    liveIn[b] = newIn;
-                    changed = true;
-                }
-            }
-        }
+        var liveness = IrLiveness.Compute(fn);
 
         var graph = new Dictionary<IrValue, HashSet<IrValue>>(Eq);
         foreach (var v in colored)
@@ -207,14 +284,24 @@ internal sealed class FunctionAllocation
             }
         }
 
-        foreach (var b in blocks)
+        foreach (var b in fn.Blocks)
         {
-            var live = new HashSet<IrValue>(liveOut[b], Eq);
+            // Seed the backward walk from the coloured values live on block exit (IrLiveness tracks
+            // every trackable value; the WRAM colourer only cares about the ones it colours).
+            var live = new HashSet<IrValue>(Eq);
+            foreach (var v in liveness.LiveOut(b))
+                if (colored.Contains(v))
+                    live.Add(v);
+
+            var blockPhis = new List<PhiInstruction>();
             for (int i = b.Instructions.Count - 1; i >= 0; i--)
             {
                 var instr = b.Instructions[i];
-                if (instr is PhiInstruction)
+                if (instr is PhiInstruction phi)
+                {
+                    blockPhis.Add(phi);
                     continue;
+                }
                 if (colored.Contains(instr))
                 {
                     foreach (var w in live)
@@ -236,7 +323,7 @@ internal sealed class FunctionAllocation
                         live.Add(op);
                     }
             }
-            var blockPhis = phis[b];
+
             foreach (var p in blockPhis)
             foreach (var w in live)
                 Interfere(p, w);
@@ -257,7 +344,4 @@ internal sealed class FunctionAllocation
 
         return graph;
     }
-
-    private static IEnumerable<IrBasicBlock> Successors(IrBasicBlock block) =>
-        block.Terminator?.Successors ?? [];
 }

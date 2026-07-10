@@ -1,7 +1,9 @@
 # Register residency and a register calling convention
 
-Status: **design + first increment landed** (reusable `IrLiveness` + tests). The codegen
-change is a staged follow-up gated on the MIR layer (item #1).
+Status: **residency landed (steps 1–3).** The reusable `IrLiveness` analysis, the unification of
+`FunctionAllocation` onto it, and a first, conservative register-resident value class (byte values in
+`E`, 16-bit values in `HL`) are implemented, emulator-validated, and on by default for plain functions.
+Steps 4 (register calling convention) and 5 (bytewise / aliasing-aware allocation) remain.
 
 ## Why this is the biggest lever
 
@@ -43,23 +45,33 @@ is deliberately additive: the correctness-critical backend is untouched in this 
 
 ## Staged plan for the codegen change
 
-1. **Land the MIR layer (item #1).** Real register allocation needs machine-level liveness
-   (registers *and* flags) and a place to rewrite instructions. `MirEffects` provides the
-   footprint; emitting through MIR provides the rewrite surface. Do this first.
-2. **Unify liveness.** Refactor `FunctionAllocation.ComputeInterference` to consume
-   `IrLiveness` (this PR's component), deleting the inlined copy. Pure dedup, guarded by the
-   existing e2e suite.
-3. **Register-resident value class.** Introduce an allocation model where a value may be
-   assigned a CPU register (`B`,`C`,`D`,`E`,`H`,`L`, pair `BC`/`DE`/`HL`) instead of a WRAM
-   slot, chosen from the interference graph. Start conservative: only byte-width, single-block,
-   short-live-range values (loop induction variables, address cursors), spilling everything
-   else to WRAM exactly as today. Every step validated on the emulator harness.
+1. **Land the MIR layer (item #1). — done.** Real register allocation needs machine-level liveness
+   (registers *and* flags) and a place to rewrite instructions. `MirEffects` provides the footprint.
+2. **Unify liveness. — done.** `FunctionAllocation.ComputeInterference` now consumes `IrLiveness`,
+   with the backend interference rules (wide-result-vs-operands, wide-phi-vs-incomings) layered on top;
+   the inlined dataflow copy is deleted. Byte-identical, guarded by the e2e suite.
+3. **Register-resident value class. — done (conservative first cut).** `FunctionAllocation` may assign
+   a value a CPU register instead of a WRAM slot. The candidate rule is deliberately narrow so it is
+   provably correct on an accumulator machine whose emitters clobber registers freely: a value produced
+   by a *gentle* ALU op (`ADD/SUB/AND/OR/XOR`, 1 or 2 bytes) whose entire live range — definition through
+   last use, all in one block — contains only other gentle ALU ops. Those emitters touch only `A`/`B`, so
+   a byte value parked in `E` or a 16-bit value in the `HL` pair is provably untouched across its range;
+   `E` and `HL` are disjoint and are the two registers the gentle path never uses. The interference graph
+   is the second guard, applied per physical register, so each holds one live resident at a time (the
+   coalescing case — `v2 = v1 + c` — shares the register). Disabled for interrupt handlers and recursive
+   functions (their prologue/epilogue register constraints are not yet modelled); wider values (i32/i64)
+   stay in WRAM. Emitter changes: `LoadByteToA` sources a resident from its register and `StoreResultByte`
+   sinks a producer's result into it. Validated end-to-end on the emulator (`Sm83BackendTests`).
+
+   *Known conservatism* (left for step 5): the `wideResult` interference rule prevents 16-bit residents
+   from coalescing, so only the first 16-bit value in a chain wins `HL`; and a resident already live in
+   `A` is still reloaded (`LD A,E`) rather than elided. Both are safe, just not yet optimal.
 4. **Register calling convention.** Pass small leaf-call arguments in `A`/`HL`/`BC` instead of
    WRAM, and let a leaf keep them resident. This composes with step 3 and is where the review's
    `__sdcccall`-style guidance (≤2 args, 8-bit unsigned) pays off.
 5. **Bytewise / aliasing-aware allocation.** Model `HL` as `H:L`, following Krause SCOPES 2015,
-   so a byte value can occupy `L` while `H` holds something else — the allocation quality the
-   review highlights.
+   so a byte value can occupy `L` while `H` holds something else — and relax the wide-result interference
+   for register residents so 16-bit chains coalesce — the allocation quality the review highlights.
 
 ## Risks
 

@@ -20,6 +20,8 @@ public sealed partial class Sm83Backend
 
         public readonly Dictionary<IrValue, int> Slot;
 
+        public readonly Dictionary<IrValue, Mir.Sm83Register> Register;
+
         public readonly Dictionary<IrValue, int> StaticAddr;
 
         public readonly int PhiTempBase;
@@ -53,6 +55,7 @@ public sealed partial class Sm83Backend
             Globals = globals;
             var allocation = allocations[fn];
             Slot = allocation.Slot;
+            Register = allocation.Register;
             StaticAddr = allocation.StaticAddr;
             PhiTempBase = allocation.PhiTempBase;
             Recursive = recursive;
@@ -129,7 +132,12 @@ public sealed partial class Sm83Backend
                     E.U8(Sm83Ops.ByteOf(value, k));
                     break;
                 default:
-                    if (Slot.TryGetValue(value, out int addr))
+                    if (Register.TryGetValue(value, out var reg))
+                    {
+                        // Register-resident: LD A, r (byte k selects the low/high half of a pair).
+                        E.U8(ResidentToAOpcode(reg, k));
+                    }
+                    else if (Slot.TryGetValue(value, out int addr))
                     {
                         LoadAFromAddr(addr + k);
                     }
@@ -153,6 +161,43 @@ public sealed partial class Sm83Backend
             LoadByteToA(value, k);
             E.U8(0x47); // LD B, A
         }
+
+        /// <summary>Store byte <paramref name="k"/> of an instruction's result (already in <c>A</c>) to its
+        /// home: a CPU register if the value is register-resident (byte <paramref name="k"/> selects the
+        /// low/high half of a pair), else its WRAM slot. Emitters that produce a residency-eligible result
+        /// store through this instead of <see cref="StoreAToAddr"/> so the value can be kept in a register.</summary>
+        public void StoreResultByte(IrValue value, int k)
+        {
+            if (Register.TryGetValue(value, out var reg))
+                E.U8(AToResidentOpcode(reg, k));
+            else
+                StoreAToAddr(Slot[value] + k);
+        }
+
+        /// <summary><c>LD A, r</c> opcode to read byte <paramref name="k"/> of a resident value (0 = low).
+        /// A pair reads its low register for byte 0 and its high register for byte 1.</summary>
+        private static byte ResidentToAOpcode(Mir.Sm83Register reg, int k) =>
+            (reg, k) switch
+            {
+                (Mir.Sm83Register.E, 0) => 0x7B, // LD A, E
+                (Mir.Sm83Register.Hl, 0) => 0x7D, // LD A, L
+                (Mir.Sm83Register.Hl, 1) => 0x7C, // LD A, H
+                _ => throw new NotSupportedException(
+                    $"cannot load resident {reg} byte {k} into A."
+                ),
+            };
+
+        /// <summary><c>LD r, A</c> opcode to write byte <paramref name="k"/> of a resident value (0 = low).</summary>
+        private static byte AToResidentOpcode(Mir.Sm83Register reg, int k) =>
+            (reg, k) switch
+            {
+                (Mir.Sm83Register.E, 0) => 0x5F, // LD E, A
+                (Mir.Sm83Register.Hl, 0) => 0x6F, // LD L, A
+                (Mir.Sm83Register.Hl, 1) => 0x67, // LD H, A
+                _ => throw new NotSupportedException(
+                    $"cannot store A into resident {reg} byte {k}."
+                ),
+            };
 
         public void LoadAFromAddr(int addr) => E.LoadA(addr); // may be elided if A already holds it
 

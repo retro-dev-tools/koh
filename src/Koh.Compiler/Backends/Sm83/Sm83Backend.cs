@@ -139,7 +139,11 @@ public sealed partial class Sm83Backend : IBackend
         {
             if (fn.IsExternal)
                 continue;
-            var allocation = FunctionAllocation.For(fn, wram);
+            // Residency is disabled for interrupt handlers (their prologue push/pop and RETI epilogue)
+            // and recursive functions (software-stack frame save/restore); the conservative model does
+            // not yet reason about those register constraints.
+            bool allowResidency = fn.InterruptVector is null && !recursive.Contains(fn);
+            var allocation = FunctionAllocation.For(fn, wram, allowResidency);
             allocations[fn] = allocation;
             wram = allocation.FrameEnd;
         }
