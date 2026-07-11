@@ -5,7 +5,7 @@ namespace Koh.Compiler.Tests.Backends;
 public class Sm83PeepholeTests
 {
     private static List<Sm83Peephole.Edit> Edits(byte[] code, params int[] boundaries) =>
-        Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries], [], allowDeadStore: true);
+        Sm83Peephole.FindEdits(code, 0, code.Length, [.. boundaries], [], [], allowDeadStore: true);
 
     private static List<Sm83Peephole.Edit> EditsWithTailCalls(
         byte[] code,
@@ -18,6 +18,22 @@ public class Sm83PeepholeTests
             code.Length,
             [.. boundaries],
             [.. safeCalls],
+            [],
+            allowDeadStore: true
+        );
+
+    private static List<Sm83Peephole.Edit> EditsWithJumps(
+        byte[] code,
+        int[] redundantJumps,
+        params int[] boundaries
+    ) =>
+        Sm83Peephole.FindEdits(
+            code,
+            0,
+            code.Length,
+            [.. boundaries],
+            [],
+            [.. redundantJumps],
             allowDeadStore: true
         );
 
@@ -238,6 +254,7 @@ public class Sm83PeepholeTests
             6,
             [],
             [],
+            [],
             allowDeadStore: false
         );
         await Assert.That(edits).IsEmpty();
@@ -335,8 +352,40 @@ public class Sm83PeepholeTests
             7,
             [],
             [],
+            [],
             allowDeadStore: false
         );
         await Assert.That(edits).IsEmpty();
+    }
+
+    // ---- jump elimination: JP a16 to the immediately-following instruction ----
+
+    [Test]
+    public async Task DeletesJumpToFallThrough()
+    {
+        // JP 0x0003 ; NOP — the jump targets its own fall-through (offset 3), so it is a no-op. The caller
+        // marks offset 0 redundant; the whole 3-byte JP is deleted.
+        var edits = EditsWithJumps([0xC3, 0x00, 0x00, 0x00], redundantJumps: [0]);
+        await Assert
+            .That(edits)
+            .IsEquivalentTo(new List<Sm83Peephole.Edit> { Sm83Peephole.Edit.DeleteRun(0, 3) });
+    }
+
+    [Test]
+    public async Task KeepsJump_WhenNotMarkedRedundant()
+    {
+        // The same JP, but its target is not the fall-through (not in the redundant set), so it stays.
+        await Assert.That(EditsWithJumps([0xC3, 0x00, 0x00, 0x00], redundantJumps: [])).IsEmpty();
+    }
+
+    [Test]
+    public async Task DeletesJumpToFallThrough_EvenWhenTheJumpIsABranchTarget()
+    {
+        // A jump landing on the redundant JP is fine to delete: PeepholeFrom relocates that label onto the
+        // fall-through, which is where the jump went. FindEdits deletes it regardless of the boundary.
+        var edits = EditsWithJumps([0xC3, 0x00, 0x00, 0x00], redundantJumps: [0], boundaries: 0);
+        await Assert
+            .That(edits)
+            .IsEquivalentTo(new List<Sm83Peephole.Edit> { Sm83Peephole.Edit.DeleteRun(0, 3) });
     }
 }

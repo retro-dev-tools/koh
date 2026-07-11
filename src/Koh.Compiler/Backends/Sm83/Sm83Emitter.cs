@@ -183,16 +183,25 @@ internal sealed class Emitter
             if (fn.InterruptVector is null)
                 safeFuncLabels.Add(label);
 
-        // One pass over the fixups feeds both: the anonymous branch-edge labels that live only in the fixup
-        // list (which must relocate and are join points), and the CALL opcodes — one byte before their
-        // operand fixup — that target a safe entry. The CALL opcode sits one byte before its fixup position.
+        // One pass over the fixups feeds three things: the anonymous branch-edge labels that live only in
+        // the fixup list (which must relocate and are join points); the CALL opcodes — one byte before their
+        // operand fixup — that target a safe entry (tail-call fold); and the unconditional JP opcodes whose
+        // target is their own fall-through (jump elimination). Each opcode sits one byte before its fixup.
         var tailCallSafeCalls = new HashSet<int>();
+        var redundantJumps = new HashSet<int>();
         foreach (var (pos, target) in _fixups)
         {
             if (target.Offset >= start && target.Offset <= end)
                 labels.Add(target);
-            if (pos - 1 >= start && pos - 1 < end && safeFuncLabels.Contains(target))
-                tailCallSafeCalls.Add(pos - 1);
+            int opcodeOffset = pos - 1;
+            if (opcodeOffset < start || opcodeOffset >= end)
+                continue;
+            if (safeFuncLabels.Contains(target))
+                tailCallSafeCalls.Add(opcodeOffset);
+            // A JP a16 (opcode + 2-byte operand = 3 bytes) whose target resolves to the instruction right
+            // after it (opcodeOffset + 3 == target.Offset) jumps to its own fall-through.
+            if (Code[opcodeOffset] == 0xC3 && target.Offset == opcodeOffset + 3)
+                redundantJumps.Add(opcodeOffset);
         }
 
         var boundaries = new HashSet<int>();
@@ -205,6 +214,7 @@ internal sealed class Emitter
             end,
             boundaries,
             tailCallSafeCalls,
+            redundantJumps,
             allowDeadStore
         );
         if (edits.Count == 0)
@@ -221,6 +231,7 @@ internal sealed class Emitter
             .SelectMany(edit => Enumerable.Range(edit.DeleteStart, edit.DeleteCount))
             .ToArray();
         Array.Sort(deletes);
+        var deleted = new HashSet<int>(deletes);
 
         // Number of deleted bytes strictly below an offset — its leftward shift.
         int DeletesBelow(int offset)
@@ -233,9 +244,19 @@ internal sealed class Emitter
         foreach (var label in labels)
             label.Offset = Remap(label.Offset);
 
-        for (var i = 0; i < _fixups.Count; i++)
-            if (_fixups[i].Pos >= start && _fixups[i].Pos < end)
-                _fixups[i] = (Remap(_fixups[i].Pos), _fixups[i].Target);
+        // Remap each fixup in this region, or drop it if its operand byte was itself deleted — which happens
+        // only for an eliminated redundant JP, whose whole instruction (operand fixup included) goes away.
+        // Iterate in reverse so removals don't disturb the indices still to visit.
+        for (var i = _fixups.Count - 1; i >= 0; i--)
+        {
+            var (pos, target) = _fixups[i];
+            if (pos < start || pos >= end)
+                continue;
+            if (deleted.Contains(pos))
+                _fixups.RemoveAt(i);
+            else
+                _fixups[i] = (Remap(pos), target);
+        }
 
         // Shrink every line-map entry that covers deleted bytes. An entry can start before this region
         // yet extend into it (AddLineRange coalesces adjacent lines across the function boundary), so

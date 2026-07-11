@@ -48,6 +48,13 @@ namespace Koh.Compiler.Backends.Sm83;
 /// emitter's local <c>A</c>-tracking cannot (its knowledge dies at the next emit); only WRAM is tracked,
 /// and it is gated on the same no-interrupt-handler condition as the dead store, since a handler could
 /// asynchronously overwrite the slot with a value the elided reload would otherwise have observed.</item>
+/// <item>Jump elimination: an unconditional <c>JP a16</c> whose target is the instruction immediately
+/// after it — the fall-through — is deleted whole (three bytes). The backend emits a block-terminating
+/// <c>JP</c> for every fall-through edge, so this is frequent. Sound even when the jump is itself a branch
+/// target: the caller relocates that label onto the fall-through, which is where the jump went anyway.
+/// This is the first rule whose deleted bytes include a fixup operand, so <see cref="Emitter.PeepholeFrom"/>
+/// also drops the jump's fixup; the caller supplies the target-is-next set (<c>redundantJumps</c>) because
+/// the operand is still an unresolved placeholder at peephole time.</item>
 /// </list>
 /// </summary>
 internal static class Sm83Peephole
@@ -84,13 +91,18 @@ internal static class Sm83Peephole
     /// which liveness cannot be assumed and instructions must not be folded away.
     /// <paramref name="tailCallSafeCalls"/> holds the absolute offsets of <c>CALL</c> opcodes whose target
     /// is a directly-returning function entry, the only ones the tail-call rule may rewrite (see the type
-    /// summary).</summary>
+    /// summary).
+    /// <paramref name="redundantJumps"/> holds the absolute offsets of unconditional <c>JP a16</c> opcodes
+    /// whose target is the instruction immediately after them — a jump to the fall-through, deleted whole by
+    /// the jump-elimination rule. The caller computes it from the fixups, since the operand is an unresolved
+    /// placeholder in the bytes here.</summary>
     public static List<Edit> FindEdits(
         IReadOnlyList<byte> code,
         int start,
         int end,
         HashSet<int> boundaries,
         HashSet<int> tailCallSafeCalls,
+        HashSet<int> redundantJumps,
         bool allowDeadStore
     )
     {
@@ -244,7 +256,16 @@ internal static class Sm83Peephole
             {
                 edits.Add(new Edit(abs, 0xC3, start + instrs[i + 1].Offset));
                 i++; // the RET is folded away
+                continue;
             }
+
+            // Rule 6 — jump elimination: an unconditional JP a16 whose target is the very next instruction
+            // is a no-op (control reaches that instruction either way). Delete it whole. Sound even when the
+            // JP is itself a branch target: the caller relocates that label onto the fall-through, which is
+            // exactly where the jump went. The JP's operand is a fixup, so the caller drops it (see
+            // PeepholeFrom); every earlier rule deletes only non-fixup bytes.
+            if (instr is { Opcode: 0xC3, Length: 3 } && redundantJumps.Contains(abs))
+                edits.Add(Edit.DeleteRun(abs, instr.Length));
         }
         return edits;
     }
