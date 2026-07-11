@@ -144,6 +144,9 @@ constructs are reported as diagnostics.
 ## Gotchas
 
 - Building the C# sample ROM: `dotnet build samples/gb-2048-cs` (the Koh SDK emits `2048.gb` after the
-  managed build). `dotnet run --project samples/gb-2048-cs` plays the reference build on the desktop.
+  managed build). `dotnet run --project samples/gb-2048-cs` builds the ROM and opens it in the Koh
+  emulator — the SDK (`Sdk.targets`) overrides `RunCommand` to launch `Koh.Emulator.App` on the game's
+  ROM, so this is the default for every Koh game; the managed reference build is still the project's own
+  binary — `dotnet exec samples/gb-2048-cs/bin/<config>/net10.0/Gb2048CSharp.dll` for the terminal renderer.
 - Don't commit built ROMs (`*.gb`/`*.gbc`), `bin/`, `obj/` — samples ship a `.gitignore`.
 - The model identifier you run as must not appear in commits, PR bodies, or code.

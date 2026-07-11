@@ -31,11 +31,12 @@ project holds only what is specific to 2048:
 # Produces samples/gb-2048-cs/2048.gb
 dotnet build samples/gb-2048-cs
 
-# Play the reference build right here in the terminal (arrow keys to move).
+# Build the ROM and play it in the Koh emulator (a window opens).
 dotnet run --project samples/gb-2048-cs
 
-# Or play the real ROM in the Koh emulator.
-dotnet run --project src/Koh.Emulator.App -- samples/gb-2048-cs/2048.gb
+# The managed reference build still ships as the project's own binary — run it directly for the
+# terminal renderer (arrow keys to move). The path tracks your build config; Debug is the default.
+dotnet exec samples/gb-2048-cs/bin/Debug/net10.0/Gb2048CSharp.dll
 ```
 
 The project references neither the Koh compiler nor the linker — only the `Koh.GameBoy` runtime. The
