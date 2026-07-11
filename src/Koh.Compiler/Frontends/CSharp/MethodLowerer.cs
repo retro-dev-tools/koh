@@ -858,10 +858,12 @@ internal sealed class MethodLowerer
 
         long value = unchecked((long)Convert.ToUInt64(lit.Token.Value));
         // With no expected type, size the literal to its value so a wide constant isn't truncated
-        // to a neighbouring narrow type (e.g. `1000 == x`), and a small one still stays 8-bit.
-        var type =
-            expected
-            ?? value switch
+        // to a neighbouring narrow type (e.g. `1000 == x`), and a small one still stays 8-bit. A float
+        // `expected` is NOT adopted for an integer literal (that would reinterpret the int as raw float
+        // bits) — keep it integer-typed so the caller's Coerce numerically converts it (e.g. `float x = 5`).
+        var type = expected is { IsFloat: false } exp
+            ? exp
+            : value switch
             {
                 >= 0 and <= 0xFF => CsType.U8,
                 >= 0 and <= 0xFFFF => CsType.U16,
@@ -922,6 +924,14 @@ internal sealed class MethodLowerer
     /// would be an unsigned 251, so <c>x &lt; -5</c> would compare against 251 instead of -5.</summary>
     private (IrValue, CsType) LowerNegate(IrValue value, CsType type, CsType? expected)
     {
+        // `-x` on a float flips the sign bit (defined for zero/NaN/Inf); route to the runtime rather
+        // than integer-negating the IEEE bit pattern.
+        if (type.IsFloat)
+            return EmitFloatRuntimeCall(
+                type.Bits == 64 ? "__f64_neg" : "__f32_neg",
+                type,
+                (value, type)
+            );
         if (value is IrConstInt k)
         {
             long neg = -k.Value;
@@ -1277,9 +1287,20 @@ internal sealed class MethodLowerer
                 $"floating-point support needs the Koh softfloat runtime, but '{name}' is not in the "
                     + "compilation (include the numerics runtime source)."
             );
+        if (callee.Params.Count != args.Length)
+            throw new CSharpNotSupportedException(
+                $"softfloat runtime function '{name}' must take {args.Length} argument(s), but takes "
+                    + $"{callee.Params.Count}."
+            );
         var callArgs = new List<IrValue>(args.Length);
         for (int i = 0; i < args.Length; i++)
-            callArgs.Add(Coerce(args[i], callee.Params[i]));
+        {
+            // An arg carries a value's raw bits (a float is its IEEE bits); pass it to the runtime's
+            // integer parameter as a same-size reinterpret, never the numeric Coerce path.
+            var v = args[i].Value;
+            var pt = callee.Fn.Parameters[i].Type;
+            callArgs.Add(v.Type.StructurallyEquals(pt) ? v : _b.Conv(IrConvOp.Bitcast, v, pt));
+        }
         return (_b.Call(callee.Fn, callArgs), resultType);
     }
 
@@ -1300,11 +1321,25 @@ internal sealed class MethodLowerer
             ? (target.Bits == 64 ? CsType.I64 : CsType.I32)
             : (target.Bits == 64 ? CsType.U64 : CsType.U32);
         var iv = Coerce(v, itype);
-        string conv =
-            (target.Bits == 64 ? "__i64_to_f64" : "__i32_to_f32") is var _ && itype.Signed
-                ? (target.Bits == 64 ? "__i64_to_f64" : "__i32_to_f32")
-                : (target.Bits == 64 ? "__u64_to_f64" : "__u32_to_f32");
+        string conv = itype.Signed
+            ? (target.Bits == 64 ? "__i64_to_f64" : "__i32_to_f32")
+            : (target.Bits == 64 ? "__u64_to_f64" : "__u32_to_f32");
         return EmitFloatRuntimeCall(conv, target, (iv, itype)).Item1;
+    }
+
+    /// <summary>Convert a float value to an integer target through the runtime (`__f32_to_i32` etc.),
+    /// then resize the integer result to the exact target width/signedness.</summary>
+    private IrValue FloatToInt((IrValue Value, CsType Type) v, CsType target)
+    {
+        bool src64 = v.Type.Bits == 64;
+        var wide = target.Signed
+            ? (src64 ? CsType.I64 : CsType.I32)
+            : (src64 ? CsType.U64 : CsType.U32);
+        string conv = src64
+            ? (target.Signed ? "__f64_to_i64" : "__f64_to_u64")
+            : (target.Signed ? "__f32_to_i32" : "__f32_to_u32");
+        var (iv, _) = EmitFloatRuntimeCall(conv, wide, v);
+        return Coerce((iv, wide), target);
     }
 
     /// <summary>Lower a float arithmetic op (`+ - * /`) to a softfloat runtime call.</summary>
@@ -1312,7 +1347,7 @@ internal sealed class MethodLowerer
         SyntaxKind kind,
         (IrValue, CsType) left,
         (IrValue, CsType) right,
-        BinaryExpressionSyntax at
+        Microsoft.CodeAnalysis.SyntaxNode at
     )
     {
         var ft = (left.Item2.Bits == 64 || right.Item2.Bits == 64) ? CsType.F64 : CsType.F32;
@@ -1338,7 +1373,7 @@ internal sealed class MethodLowerer
         SyntaxKind kind,
         (IrValue, CsType) left,
         (IrValue, CsType) right,
-        BinaryExpressionSyntax at
+        Microsoft.CodeAnalysis.SyntaxNode at
     )
     {
         var ft = (left.Item2.Bits == 64 || right.Item2.Bits == 64) ? CsType.F64 : CsType.F32;
@@ -1510,6 +1545,25 @@ internal sealed class MethodLowerer
                 assign.Right,
                 subtract: kind == SyntaxKind.SubtractAssignmentExpression
             );
+        }
+        else if (type.IsFloat)
+        {
+            // Float compound assignment: compute `x OP y` through the softfloat runtime, never an
+            // integer op on the IEEE bit pattern.
+            var current = _b.Load(pointer);
+            var rhs = LowerExpression(assign.Right, type);
+            SyntaxKind binKind = kind switch
+            {
+                SyntaxKind.AddAssignmentExpression => SyntaxKind.AddExpression,
+                SyntaxKind.SubtractAssignmentExpression => SyntaxKind.SubtractExpression,
+                SyntaxKind.MultiplyAssignmentExpression => SyntaxKind.MultiplyExpression,
+                SyntaxKind.DivideAssignmentExpression => SyntaxKind.DivideExpression,
+                _ => throw new CSharpNotSupportedException(
+                    "this compound assignment is not supported on floating-point values.",
+                    assign.GetLocation()
+                ),
+            };
+            result = LowerFloatBinary(binKind, (current, type), rhs, assign).Item1;
         }
         else if (
             kind
@@ -2072,6 +2126,16 @@ internal sealed class MethodLowerer
     /// than emitting a <c>zext</c>/<c>trunc</c> onto a pointer type.</summary>
     private IrValue Coerce((IrValue Value, CsType Type) source, CsType target)
     {
+        // Floating point never shares the integer/bitcast path: reinterpreting or zero/sign-extending
+        // IEEE bits is meaningless. Route genuine numeric conversions (int<->float, f32<->f64) through
+        // the softfloat runtime; a same float type is identical bits and needs nothing.
+        if (source.Type.IsFloat || target.IsFloat)
+        {
+            if (source.Type.IsFloat && target.IsFloat && source.Type.Bits == target.Bits)
+                return source.Value;
+            return target.IsFloat ? CoerceToFloat(source, target) : FloatToInt(source, target);
+        }
+
         var s = source.Type.Ir;
         var t = target.Ir;
         if (s.StructurallyEquals(t))

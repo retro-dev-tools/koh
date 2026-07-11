@@ -1132,6 +1132,31 @@ static uint __f32_add(uint a, uint b) {
     }
 
     [Test]
+    public async Task Float_CompoundAdd_MatchesHost()
+    {
+        // `sum += 2.0f` must route through the softfloat runtime, not an integer add of the bits.
+        const string program = "static float Main() { float sum = 1.5f; sum += 2.0f; return sum; }";
+        await Assert
+            .That(RunI32(program + SoftFloat32Runtime))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f + 2.0f));
+    }
+
+    [Test]
+    public async Task Float_MissingRuntime_ReportsDiagnostic()
+    {
+        // A float op with no softfloat runtime in the unit must report a clean diagnostic, not crash.
+        await Assert.That(HasError("static float Main() { return 1.5f + 2.0f; }")).IsTrue();
+    }
+
+    [Test]
+    public async Task Float_IntToFloatConversion_NotSilentlyWrong()
+    {
+        // `return 5;` from a float method is an int->float conversion. Without the conversion runtime it
+        // must diagnose cleanly (it previously reinterpreted 5 as raw float bits, a silent wrong result).
+        await Assert.That(HasError("static float Main() { return 5; }")).IsTrue();
+    }
+
+    [Test]
     public async Task StaticClass_QualifiedAndSiblingCalls()
     {
         // A program written as top-level static classes: sibling calls resolve unqualified within a
