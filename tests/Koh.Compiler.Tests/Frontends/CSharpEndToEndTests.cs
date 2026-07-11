@@ -1149,13 +1149,52 @@ static ushort Run() {
     public async Task Using_MidUnitIsBlanked()
     {
         // Multiple files joined into one unit put every file-past-the-first's usings mid-unit, where a
-        // `using` is illegal C# and Roslyn drops it (no node to blank structurally). The frontend blanks
-        // usings by line so a second file can carry its own `using` and still compile.
+        // `using` is illegal C# and Roslyn drops it as skipped-token trivia. The frontend reassembles and
+        // blanks those tokens so a second file can carry its own `using` and still compile.
         const string src =
             "static class App { static byte Main() { return Lib.Answer(); } }\n"
             + "using Koh.GameBoy;\n"
             + "static class Lib { static byte Answer() { return 42; } }";
         await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
+    public async Task Using_WithTrailingCommentIsBlanked()
+    {
+        // The directive's own span is blanked, so a trailing comment on the same line does not keep the
+        // `using` alive (structured blanking, not a `... ends with ;` text scan).
+        const string src =
+            "using Koh.GameBoy; // the hardware framework\n"
+            + "static class App { static byte Main() { return 7; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)7);
+    }
+
+    [Test]
+    public async Task Using_InsideStringLiteralIsNotBlanked()
+    {
+        // A line that merely *looks* like a using directive but lives inside a multi-line string literal
+        // is real string data, not a directive — blanking must leave its bytes intact.
+        const string src =
+            "static byte Main() {\n"
+            + "    byte[] s = @\"a\nusing X;\nb\";\n"
+            + "    return s[2]; // 'u' of the string's \"using\", 117 — not a blanked space (32)\n"
+            + "}";
+        await Assert.That(RunA(src)).IsEqualTo((byte)'u');
+    }
+
+    [Test]
+    public async Task Using_VarStatementIsNotSilentlyDropped()
+    {
+        // A `using var` resource statement (out of subset) must be reported, not blanked away — blanking
+        // it would silently drop the initializer's side effects. It is not a directive, so it survives to
+        // the lowering pass, which rejects it.
+        const string src =
+            "static byte Main() {\n"
+            + "    using var x = Get();\n"
+            + "    return 0;\n"
+            + "}\n"
+            + "static byte Get() { return 1; }";
+        await Assert.That(CompilesClean(src)).IsFalse();
     }
 
     [Test]

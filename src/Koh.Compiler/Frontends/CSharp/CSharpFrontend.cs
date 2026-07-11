@@ -86,12 +86,17 @@ public sealed partial class CSharpFrontend : IFrontend
     {
         var root = CSharpSyntaxTree.ParseText(source).GetCompilationUnitRoot();
         // DescendantNodes (not just the leading .Usings) so that when several source files are compiled
-        // as one unit, their per-file namespaces — which land after the first file's types — are
-        // blanked too. (Usings are handled separately below; see there.)
+        // as one unit, their per-file usings/namespaces — which land after the first file's types — are
+        // blanked too. First-file usings are still valid UsingDirectiveSyntax here; mid-unit ones that
+        // Roslyn drops are recovered from skipped trivia further below.
         var spans = new List<Microsoft.CodeAnalysis.Text.TextSpan>();
         foreach (var node in root.DescendantNodes())
         {
-            if (node is FileScopedNamespaceDeclarationSyntax fns)
+            if (node is UsingDirectiveSyntax u)
+                // The directive's own span excludes any trailing comment (that stays), and a `using`
+                // inside a string literal is not a UsingDirectiveSyntax, so it can never be caught here.
+                spans.Add(u.Span);
+            else if (node is FileScopedNamespaceDeclarationSyntax fns)
                 // Blank only the `namespace X;` header, not its members.
                 spans.Add(
                     Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
@@ -113,18 +118,33 @@ public sealed partial class CSharpFrontend : IFrontend
             }
         }
         // A `using` directive is only legal before any type, so in a concatenated unit every file past the
-        // first has its usings land mid-unit — where Roslyn drops them as skipped trivia, yielding no
-        // UsingDirectiveSyntax to blank. Blank usings by line instead, which handles the valid first-file
-        // ones identically. ponytail: this subset has no `using` statements or aliases (the frontend
-        // rejects them), so a whole-line `using ...;` is always a directive and safe to blank.
-        for (int pos = 0; pos < source.Length; )
+        // first has its usings land mid-unit — illegal there, so Roslyn drops them as skipped-token trivia
+        // (no UsingDirectiveSyntax above). Reassemble those skipped tokens (Roslyn fragments the run into
+        // one trivia per token) and blank each `using … ;`. Working from real tokens — not a text scan —
+        // means a `using` inside a string literal or a `using var` statement (neither of which is skipped
+        // trivia) is left intact rather than corrupted or silently dropped.
+        var skipped = root.DescendantTrivia()
+            .Where(t => t.IsKind(SyntaxKind.SkippedTokensTrivia))
+            .SelectMany(t => ((SkippedTokensTriviaSyntax)t.GetStructure()!).Tokens)
+            .OrderBy(t => t.SpanStart)
+            .ToList();
+        for (int i = 0; i < skipped.Count; i++)
         {
-            int nl = source.IndexOf('\n', pos);
-            int end = nl < 0 ? source.Length : nl;
-            var trimmed = source.AsSpan(pos, end - pos).Trim();
-            if (trimmed.StartsWith("using ") && trimmed.EndsWith(";"))
-                spans.Add(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(pos, end));
-            pos = end + 1;
+            if (!skipped[i].IsKind(SyntaxKind.UsingKeyword))
+                continue;
+            int j = i;
+            while (j < skipped.Count && !skipped[j].IsKind(SyntaxKind.SemicolonToken))
+                j++;
+            if (j < skipped.Count) // a terminating ';' was found — blank the whole `using … ;` run
+            {
+                spans.Add(
+                    Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                        skipped[i].SpanStart,
+                        skipped[j].Span.End
+                    )
+                );
+                i = j;
+            }
         }
         if (spans.Count == 0)
             return source;
