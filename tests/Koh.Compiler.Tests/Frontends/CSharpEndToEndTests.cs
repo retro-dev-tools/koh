@@ -1046,114 +1046,123 @@ static ushort Run() {
         await Assert.That(RunA(src, gb => gb.DebugWriteByte(0xFF42, 0x55))).IsEqualTo((byte)0x55);
     }
 
-    // ---- Floating point (M0: single-precision add proves the whole architecture) ----------
+    // ---- Floating point (M1: full single-precision op set) --------------------
     //
-    // `float` is a frontend type carried as its IEEE-754 bits in an i32; `+` lowers to a call into the
-    // softfloat runtime (ordinary Koh-subset C# source, below — no backend/IR-float changes). The result
-    // must be bit-identical to the same expression evaluated in real .NET `float`, which is also the
-    // ROM-vs-managed dual-build consistency guarantee. (M1 relocates the runtime into a shipped library.)
-    private const string SoftFloat32Runtime =
-        @"
-static uint __f32_shr_sticky(uint v, int n) {
-    if (n >= 32) { if (v != 0) return 1; return 0; }
-    uint lost = v & (((uint)1 << n) - 1);
-    uint r = v >> n;
-    if (lost != 0) r = r | 1;
-    return r;
-}
-static uint __f32_add(uint a, uint b) {
-    uint sa = a >> 31;
-    uint sb = b >> 31;
-    int ea = (int)((a >> 23) & 0xFF);
-    int eb = (int)((b >> 23) & 0xFF);
-    uint ma = a & 0x7FFFFF;
-    uint mb = b & 0x7FFFFF;
-    if (ea == 0 && ma == 0) {
-        if (eb == 0 && mb == 0) return (sa & sb) << 31;
-        return b;
-    }
-    if (eb == 0 && mb == 0) return a;
-    uint siga = (ma | 0x800000) << 3;
-    uint sigb = (mb | 0x800000) << 3;
-    int exp;
-    if (ea > eb) { sigb = __f32_shr_sticky(sigb, ea - eb); exp = ea; }
-    else if (eb > ea) { siga = __f32_shr_sticky(siga, eb - ea); exp = eb; }
-    else { exp = ea; }
-    uint sig;
-    uint sign;
-    if (sa == sb) { sig = siga + sigb; sign = sa; }
-    else {
-        if (siga >= sigb) { sig = siga - sigb; sign = sa; }
-        else { sig = sigb - siga; sign = sb; }
-        if (sig == 0) return 0;
-    }
-    while (sig >= ((uint)1 << 27)) { sig = __f32_shr_sticky(sig, 1); exp = exp + 1; }
-    while (sig != 0 && sig < ((uint)1 << 26)) { sig = sig << 1; exp = exp - 1; }
-    uint roundBits = sig & 7;
-    sig = sig >> 3;
-    if (roundBits > 4 || (roundBits == 4 && (sig & 1) != 0)) {
-        sig = sig + 1;
-        if (sig >= ((uint)1 << 24)) { sig = sig >> 1; exp = exp + 1; }
-    }
-    if (exp >= 255) return (sign << 31) | ((uint)0xFF << 23);
-    if (exp <= 0) return sign << 31;
-    return (sign << 31) | ((uint)exp << 23) | (sig & 0x7FFFFF);
-}
-";
+    // `float` is a frontend type carried as its IEEE-754 bits in an i32; operators/comparisons/conversions
+    // lower to calls into the softfloat runtime (SoftFloatRuntime.Source, subset-C# the frontend appends
+    // when a program uses float). Each result must be bit-identical to the same expression in real .NET
+    // `float` — which is also the ROM-vs-managed dual-build consistency guarantee. Normal range only
+    // (subnormal inputs are flushed to zero by design).
+
+    /// <summary>A round-trippable C# `float` literal for a value (G9 round-trips single precision).</summary>
+    private static string Lit(float x) =>
+        x.ToString("G9", System.Globalization.CultureInfo.InvariantCulture) + "f";
 
     [Test]
-    public async Task Float_AddSinglePrecision_MatchesHost()
+    [Arguments("+", 1.5f, 2.0f)]
+    [Arguments("+", 0.1f, 0.2f)] // round-to-nearest-even
+    [Arguments("+", -2.5f, 0.75f)] // opposite signs
+    [Arguments("+", 1.0f, -1.0f)] // exact cancellation
+    [Arguments("-", 3.5f, 1.25f)]
+    [Arguments("-", 1.0f, 4.0f)] // negative result
+    [Arguments("*", 2.0f, 3.0f)]
+    [Arguments("*", 0.1f, 0.1f)] // rounding
+    [Arguments("*", -1.5f, 4.0f)]
+    [Arguments("/", 7.0f, 2.0f)]
+    [Arguments("/", 1.0f, 3.0f)] // non-terminating -> rounding
+    [Arguments("/", -9.0f, 4.0f)]
+    public async Task Float_Arithmetic_MatchesHost(string op, float x, float y)
     {
-        // `1.5f + 2.0f` lowers to a `__f32_add` call over IEEE bits; the returned bits (i32 in DE:HL)
-        // must equal the same sum computed in real .NET `float`.
-        const string program = "static float Main() { return 1.5f + 2.0f; }";
-        uint expected = BitConverter.SingleToUInt32Bits(1.5f + 2.0f);
-        // Main must be first (the harness runs the first-emitted function); the runtime follows it.
-        await Assert.That(RunI32(program + SoftFloat32Runtime)).IsEqualTo(expected);
+        string prog = $"static float Main() {{ return {Lit(x)} {op} {Lit(y)}; }}";
+        float expected = op switch
+        {
+            "+" => x + y,
+            "-" => x - y,
+            "*" => x * y,
+            "/" => x / y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunI32(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
     }
 
     [Test]
-    [Arguments(1.5f, 2.0f)] // simple, differing exponents
-    [Arguments(100.0f, 0.5f)] // wider exponent gap + rounding
-    [Arguments(0.1f, 0.2f)] // classic round-to-nearest-even case
-    [Arguments(-3.0f, 1.25f)] // opposite signs -> subtraction, negative result
-    [Arguments(1.0f, -1.0f)] // exact cancellation -> +0.0
-    [Arguments(-2.5f, -0.75f)] // both negative
-    public async Task Float_Add_GoldenVsHost(float x, float y)
+    [Arguments("<", 1.5f, 2.0f)]
+    [Arguments("<", 2.0f, 1.5f)]
+    [Arguments("<=", 2.0f, 2.0f)]
+    [Arguments(">", -1.0f, -2.0f)] // negatives: ordering reverses in magnitude
+    [Arguments(">=", 1.0f, 1.0f)]
+    [Arguments("==", 0.1f, 0.1f)]
+    [Arguments("!=", 0.1f, 0.2f)]
+    [Arguments("<", -0.0f, 0.0f)] // -0.0 == 0.0 -> not <
+    public async Task Float_Compare_MatchesHost(string op, float x, float y)
     {
-        // The softfloat add must be bit-identical to real .NET `float` addition (this is also the
-        // ROM-vs-managed dual-build consistency guarantee). Feed the operands as their IEEE bits.
-        uint a = BitConverter.SingleToUInt32Bits(x);
-        uint b = BitConverter.SingleToUInt32Bits(y);
-        string prog = $"static uint Main() {{ return __f32_add(0x{a:X8}, 0x{b:X8}); }}";
+        string prog = $"static byte Main() {{ if ({Lit(x)} {op} {Lit(y)}) return 1; return 0; }}";
+        bool expected = op switch
+        {
+            "<" => x < y,
+            "<=" => x <= y,
+            ">" => x > y,
+            ">=" => x >= y,
+            "==" => x == y,
+            "!=" => x != y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunA(prog)).IsEqualTo(expected ? (byte)1 : (byte)0);
+    }
+
+    [Test]
+    [Arguments(3.7f, 3)]
+    [Arguments(-3.7f, -3)] // truncates toward zero
+    [Arguments(5.0f, 5)]
+    [Arguments(0.9f, 0)]
+    [Arguments(-0.9f, 0)]
+    [Arguments(1000.25f, 1000)]
+    public async Task Float_ToInt_MatchesHost(float x, int expected)
+    {
+        string prog = $"static int Main() {{ return (int)({Lit(x)}); }}";
+        await Assert.That((int)RunI32(prog)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(5)]
+    [Arguments(-5)]
+    [Arguments(1000000)]
+    [Arguments(-1000000)]
+    [Arguments(16777217)] // 2^24 + 1: not exactly representable -> tests rounding
+    public async Task Float_FromInt_MatchesHost(int x)
+    {
+        string prog = $"static float Main() {{ int v = {x}; return (float)v; }}";
+        await Assert.That(RunI32(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits((float)x));
+    }
+
+    [Test]
+    public async Task Float_LocalsAndReturn_MatchesHost()
+    {
+        // Float locals are stored/loaded as their bits and summed through the runtime.
         await Assert
-            .That(RunI32(prog + SoftFloat32Runtime))
-            .IsEqualTo(BitConverter.SingleToUInt32Bits(x + y));
-    }
-
-    [Test]
-    public async Task Float_CompoundAdd_MatchesHost()
-    {
-        // `sum += 2.0f` must route through the softfloat runtime, not an integer add of the bits.
-        const string program = "static float Main() { float sum = 1.5f; sum += 2.0f; return sum; }";
-        await Assert
-            .That(RunI32(program + SoftFloat32Runtime))
+            .That(RunI32("static float Main() { float a = 1.5f; float b = 2.0f; return a + b; }"))
             .IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f + 2.0f));
     }
 
     [Test]
-    public async Task Float_MissingRuntime_ReportsDiagnostic()
+    public async Task Float_AutoAppendedRuntime_CompilesWithoutManualInclude()
     {
-        // A float op with no softfloat runtime in the unit must report a clean diagnostic, not crash.
-        await Assert.That(HasError("static float Main() { return 1.5f + 2.0f; }")).IsTrue();
+        // A program using float compiles clean with no runtime written by the user — the frontend appends
+        // the softfloat runtime automatically.
+        await Assert.That(HasError("static float Main() { return 1.5f + 2.0f; }")).IsFalse();
     }
 
     [Test]
-    public async Task Float_IntToFloatConversion_NotSilentlyWrong()
+    public async Task Float_UnusedByProgram_RuntimeNotAppended()
     {
-        // `return 5;` from a float method is an int->float conversion. Without the conversion runtime it
-        // must diagnose cleanly (it previously reinterpreted 5 as raw float bits, a silent wrong result).
-        await Assert.That(HasError("static float Main() { return 5; }")).IsTrue();
+        // A non-float program must not carry the softfloat runtime (no ROM bloat): the emitted module has
+        // no __f32_add function.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From("static byte Main() { return 3; }", "game.cs"),
+            new DiagnosticBag()
+        );
+        await Assert.That(module.Functions.Any(f => f.Name.Contains("__f32_add"))).IsFalse();
     }
 
     [Test]

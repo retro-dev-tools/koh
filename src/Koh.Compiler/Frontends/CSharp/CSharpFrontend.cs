@@ -130,6 +130,21 @@ public sealed partial class CSharpFrontend : IFrontend
     internal const string HeapPointerName = "__heap";
     internal const int HeapTop = 0xDE00;
 
+    /// <summary>Whether the program uses <c>float</c>/<c>double</c> (a type keyword or a float/double
+    /// literal), so the softfloat runtime must be appended. Checked on the parsed tree so a mention in a
+    /// comment or string can't false-trigger.</summary>
+    private static bool UsesFloat(CompilationUnitSyntax root)
+    {
+        foreach (var tok in root.DescendantTokens())
+        {
+            if (tok.IsKind(SyntaxKind.FloatKeyword) || tok.IsKind(SyntaxKind.DoubleKeyword))
+                return true;
+            if (tok.IsKind(SyntaxKind.NumericLiteralToken) && tok.Value is float or double)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>Whether the program calls into the arena allocator (<c>Mem.Alloc</c> / <c>Mem.Reset</c>).</summary>
     private static bool UsesHeap(CompilationUnitSyntax root) =>
         root.DescendantNodes()
@@ -168,6 +183,19 @@ public sealed partial class CSharpFrontend : IFrontend
         var wrapped = WrapperPrefix + BlankNamespacing(source.ToString()) + "\n}";
         var tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
         var root = tree.GetCompilationUnitRoot();
+
+        // Float support: a program that uses `float`/`double` needs the softfloat runtime (its operators
+        // lower to `__f32_add` etc.). Append that subset-C# source once — only when float is actually used
+        // (so non-float ROMs carry none of it) and not already present (a test may include it directly).
+        if (UsesFloat(root) && !wrapped.Contains("__f32_add"))
+        {
+            wrapped =
+                WrapperPrefix
+                + BlankNamespacing(source.ToString() + "\n" + SoftFloatRuntime.Source)
+                + "\n}";
+            tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
+            root = tree.GetCompilationUnitRoot();
+        }
 
         bool hasParseError = false;
         foreach (var diag in tree.GetDiagnostics())
@@ -487,6 +515,35 @@ public sealed partial class CSharpFrontend : IFrontend
                 );
             }
         }
+
+        // The softfloat runtime is appended whole, but a program uses only a few of its operations. Drop
+        // the runtime functions the program can't reach, so a float ROM carries only the ops it uses (and
+        // a handful of uncalled softfloat functions can't crowd the static frame allocation). Scoped to the
+        // `__`-prefixed runtime — user dead code is left alone.
+        PruneUnreachableRuntime(module);
+    }
+
+    /// <summary>Remove `__`-prefixed runtime functions not reachable through the call graph from the entry
+    /// or an interrupt handler. A no-op when there is no entry (e.g. a hand-written IR fragment).</summary>
+    private static void PruneUnreachableRuntime(IrModule module)
+    {
+        var reachable = new HashSet<IrFunction>();
+        var stack = new Stack<IrFunction>();
+        foreach (var f in module.Functions)
+            if ((f.IsEntry || f.InterruptVector is not null) && reachable.Add(f))
+                stack.Push(f);
+        if (reachable.Count == 0)
+            return;
+        while (stack.Count > 0)
+            foreach (var block in stack.Pop().Blocks)
+            foreach (var instr in block.Instructions)
+                if (instr is CallInstruction call && reachable.Add(call.Callee))
+                    stack.Push(call.Callee);
+        module.Functions.RemoveAll(f =>
+            !f.IsExternal
+            && f.Name.StartsWith("__", StringComparison.Ordinal)
+            && !reachable.Contains(f)
+        );
     }
 
     private static Location IdentifierLocation(SyntaxNode decl) =>
