@@ -1,0 +1,9 @@
+<Project>
+
+  <!-- Forward to the SDK's real, in-repo targets (see Sdk.props for why this is a shim). Koh.Sdk is
+       repo-internal: its targets reference the in-tree compiler, linker, and Koh.GameBoy by path, so a
+       project outside the Koh repo (no Koh.Ci.slnf above it) leaves KohRoot empty, skips this import, and
+       fails to build — by design; the SDK cannot work without the surrounding repo. -->
+  <Import Project="$(KohRoot)/sdk/Koh.Sdk/Sdk/Sdk.targets" Condition="'$(KohRoot)' != ''" />
+
+</Project>

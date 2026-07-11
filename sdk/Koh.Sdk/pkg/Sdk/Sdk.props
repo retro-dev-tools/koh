@@ -1,0 +1,17 @@
+<Project>
+
+  <!-- Koh.Sdk — packaged shim. The committed Koh.Sdk NuGet package is only this forwarder: it locates
+       the Koh repository from the consuming project and imports the SDK's real, in-repo props/targets,
+       which remain the single source of truth. Because the shim never changes, the committed package
+       cannot go stale when the real SDK logic is edited. Koh.Sdk is repo-internal — its targets reference
+       the in-tree compiler, linker, and Koh.GameBoy by path, so a project outside the Koh repo cannot use
+       it (Sdk.targets raises a clear error in that case). -->
+
+  <PropertyGroup>
+    <!-- Repo root: the nearest ancestor of the game project that holds the solution filter. -->
+    <KohRoot Condition="'$(KohRoot)' == ''">$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'Koh.Ci.slnf'))</KohRoot>
+  </PropertyGroup>
+
+  <Import Project="$(KohRoot)/sdk/Koh.Sdk/Sdk/Sdk.props" Condition="'$(KohRoot)' != ''" />
+
+</Project>
