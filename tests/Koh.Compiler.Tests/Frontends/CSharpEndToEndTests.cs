@@ -1063,6 +1063,8 @@ static ushort Run() {
     [Arguments("+", 0.1f, 0.2f)] // round-to-nearest-even
     [Arguments("+", -2.5f, 0.75f)] // opposite signs
     [Arguments("+", 1.0f, -1.0f)] // exact cancellation
+    [Arguments("+", 100.0f, 0.5f)] // wide exponent gap -> shift/sticky alignment
+    [Arguments("+", 1000000.0f, 0.25f)] // very wide gap -> the small operand mostly sticky
     [Arguments("-", 3.5f, 1.25f)]
     [Arguments("-", 1.0f, 4.0f)] // negative result
     [Arguments("*", 2.0f, 3.0f)]
@@ -1117,10 +1119,22 @@ static ushort Run() {
     [Arguments(0.9f, 0)]
     [Arguments(-0.9f, 0)]
     [Arguments(1000.25f, 1000)]
+    [Arguments(-2147483648.0f, -2147483648)] // int.MinValue exactly (2^31): exercises the saturation edge
     public async Task Float_ToInt_MatchesHost(float x, int expected)
     {
         string prog = $"static int Main() {{ return (int)({Lit(x)}); }}";
         await Assert.That((int)RunI32(prog)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments(5.0f)]
+    [Arguments(0.9f)]
+    [Arguments(2147483648.0f)] // 2^31: in [2^31, 2^32), the range the saturation off-by-one corrupted
+    [Arguments(3000000000.0f)] // ~3e9: also in [2^31, 2^32)
+    public async Task Float_ToUInt_MatchesHost(float x)
+    {
+        string prog = $"static uint Main() {{ return (uint)({Lit(x)}); }}";
+        await Assert.That(RunI32(prog)).IsEqualTo((uint)x);
     }
 
     [Test]
@@ -1143,6 +1157,54 @@ static ushort Run() {
         await Assert
             .That(RunI32("static float Main() { float a = 1.5f; float b = 2.0f; return a + b; }"))
             .IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f + 2.0f));
+    }
+
+    [Test]
+    public async Task Float_ImplicitIntToFloat_MatchesHost()
+    {
+        // `return 5;` from a float method is an implicit int->float conversion (not a reinterpret of the
+        // int bits) — the runtime auto-appends so it now compiles and returns 5.0f.
+        await Assert
+            .That(RunI32("static float Main() { return 5; }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(5.0f));
+    }
+
+    [Test]
+    public async Task Float_CompoundAdd_MatchesHost()
+    {
+        // `sum += 2.0f` must route through the softfloat runtime, not an integer add of the bits.
+        await Assert
+            .That(RunI32("static float Main() { float sum = 1.5f; sum += 2.0f; return sum; }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f + 2.0f));
+    }
+
+    [Test]
+    public async Task Float_UnusedRuntimeOpsPruned()
+    {
+        // A float program that uses only `+` must keep __f32_add but drop the unused runtime ops (mul/div),
+        // so a float ROM carries only what it uses.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From("static float Main() { return 1.5f + 2.0f; }", "game.cs"),
+            new DiagnosticBag()
+        );
+        await Assert.That(module.Functions.Any(f => f.Name == "__f32_add")).IsTrue();
+        await Assert.That(module.Functions.Any(f => f.Name == "__f32_mul")).IsFalse();
+        await Assert.That(module.Functions.Any(f => f.Name == "__f32_div")).IsFalse();
+    }
+
+    [Test]
+    public async Task Float_DoubleReportsClearDiagnostic()
+    {
+        // `double` is not yet supported; it must report a clear message, not the unsatisfiable "include
+        // the numerics runtime source" (the runtime is single-precision only).
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("static double Main() { double d = 1.0; return d + 2.0; }", "game.cs"),
+            diagnostics
+        );
+        await Assert
+            .That(diagnostics.Any(d => d.Message.Contains("double is not yet supported")))
+            .IsTrue();
     }
 
     [Test]

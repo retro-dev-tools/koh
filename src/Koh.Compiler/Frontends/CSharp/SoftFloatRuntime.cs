@@ -6,10 +6,14 @@ namespace Koh.Compiler.Frontends.CSharp;
 /// float operators/comparisons/conversions — which lower to calls like <c>__f32_add</c> — resolve to
 /// compiled code. Nothing here is hardcoded in the backend: it is ordinary source the compiler compiles,
 /// operating on the raw IEEE bits carried in <c>uint</c>. Correctness is pinned bit-for-bit against real
-/// .NET <c>float</c> by the golden tests over the normal range. (M1 covers single precision over normal
-/// numbers, zero, and infinity; <c>double</c> is a later milestone. Subnormal inputs are flushed to zero
-/// — a defined behavior, not garbage — rather than handled exactly; full subnormal support is a later
-/// refinement.)
+/// .NET <c>float</c> by the golden tests over finite normal numbers and zero, with round-to-nearest-even.
+/// (<c>double</c> is a later milestone.)
+///
+/// Scope / not-yet-handled (documented, later refinements): infinity and NaN as operands are not special-
+/// cased in arithmetic (e.g. <c>inf - inf</c> does not yield NaN), so results for non-finite operands may
+/// differ from .NET; division by a finite zero does yield infinity as a courtesy. Subnormal inputs are
+/// flushed to zero (a defined behavior, not garbage). The bit-identity guarantee therefore covers finite
+/// normal numbers and zero — exactly what the golden tests exercise.
 /// </summary>
 internal static class SoftFloatRuntime
 {
@@ -186,7 +190,7 @@ static uint __f32_to_u32(uint a) {
     uint sig = (a & 0x7FFFFF) | 0x800000; // 24-bit, value = sig * 2^(unbiased-23)
     int shift = unbiased - 23;
     if (shift >= 0) {
-        if (shift >= 8) return 0xFFFFFFFF; // saturate
+        if (shift >= 9) return 0xFFFFFFFF; // >= 2^32: saturate (shift 8 still fits: sig<<8 <= ~2^32)
         return sig << shift;
     }
     int rs = -shift;

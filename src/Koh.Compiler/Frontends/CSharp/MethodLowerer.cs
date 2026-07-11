@@ -1283,10 +1283,17 @@ internal sealed class MethodLowerer
     )
     {
         if (!_methods.TryGetValue(name, out var callee))
+        {
+            // `double` reaches here via a __f64_* callee the (single-precision) runtime doesn't define.
+            if (name.StartsWith("__f64", StringComparison.Ordinal))
+                throw new CSharpNotSupportedException(
+                    "double is not yet supported in Koh C# (use float)."
+                );
             throw new CSharpNotSupportedException(
                 $"floating-point support needs the Koh softfloat runtime, but '{name}' is not in the "
                     + "compilation (include the numerics runtime source)."
             );
+        }
         if (callee.Params.Count != args.Length)
             throw new CSharpNotSupportedException(
                 $"softfloat runtime function '{name}' must take {args.Length} argument(s), but takes "
