@@ -1,6 +1,6 @@
 # SM83 superoptimizer — productionized offline tool (`tools/Koh.Superopt`)
 
-Status: **landed** — miner + verifier in `tools/Koh.Superopt`, 13 tool tests green.
+Status: **landed** — miner + verifier in `tools/Koh.Superopt`, 16 tool tests green.
 
 ## What landed
 

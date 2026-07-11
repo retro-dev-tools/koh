@@ -66,8 +66,10 @@ public sealed class Miner
                     e.Bytes > best.Bytes || (e.Bytes == best.Bytes && e.Cycles > best.Cycles);
                 if (!strictlyCostlier)
                     continue;
-                // Re-verify with random trials to reject a coincidental bucket collision.
-                if (!_oracle.AreEquivalent(e.Code, best.Code, live))
+                // Re-verify with random trials to reject a coincidental bucket collision. Use a seed
+                // distinct from the probe battery's so the re-check is genuinely independent inputs,
+                // not the same ones that already grouped the pair.
+                if (!_oracle.AreEquivalent(e.Code, best.Code, live, seed: _seed ^ 0x3C3C))
                     continue;
                 rewrites.Add(
                     new Rewrite(
