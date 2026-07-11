@@ -28,4 +28,7 @@
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/gb-2048-cs/Gb2048CSharp.csproj" />
+  </Folder>
 </Solution>
