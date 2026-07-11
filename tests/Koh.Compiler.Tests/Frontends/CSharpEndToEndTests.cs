@@ -285,6 +285,103 @@ static byte Triple(byte x) { return x + x + x; }";
     }
 
     [Test]
+    public async Task TailCall_FoldsToJump_AndStillRuns()
+    {
+        // Work's body is a bare tail call `Side();`, which the backend emits as `CALL Side ; RET` and the
+        // peephole folds to `JP Side`. Side is kept as a real function (its loop makes it multi-block, so
+        // the inliner leaves it) and Work is a non-leaf, so both survive to codegen.
+        const string src =
+            "static class M { static byte n; "
+            + "static byte Main() { Work(); return n; } "
+            + "static void Work() { Side(); } "
+            + "static void Side() { for (byte i = 0; i < 5; i = (byte)(i + 1)) n = (byte)(n + i); } }";
+
+        // Behaviour is preserved through the folded jump: Side accumulates 0+1+2+3+4 = 10 into n.
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)10);
+
+        // The fold fired: Work's `CALL Side ; RET` is the only tail call this program emits, and after the
+        // peephole no CALL is immediately followed by RET.
+        var code = CompileOpt(src).Sections[0].Data;
+        var adjacency = 0;
+        for (var i = 0; i + 3 < code.Length; i++)
+            if (code[i] == 0xCD && code[i + 3] == 0xC9)
+                adjacency++;
+        await Assert.That(adjacency).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task TailCall_ToRecursiveCallee_FoldsAndReturnsCorrectly()
+    {
+        // The whitelist admits a recursive callee (it is a plain _funcs target), so a non-recursive void
+        // caller's `CALL Rec ; RET` folds to `JP Rec`. That is only sound because Rec's frame machinery
+        // (rt.pushframe/popframe) rides the software stack (SoftSp), leaving the hardware CALL stack — which
+        // still holds Work's caller's return address — untouched. Verify it on the emulator rather than by
+        // argument: Rec sums 5+4+3+2+1 = 15 into n and control must return cleanly through the folded jump.
+        const string src =
+            "static class M { static byte n; "
+            + "static byte Main() { Work(); return n; } "
+            + "static void Work() { Rec(5); } "
+            + "static void Rec(byte k) { if (k == 0) return; n = (byte)(n + k); Rec((byte)(k - 1)); } }";
+
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)15);
+
+        // The fold fired on the recursive callee. Rec is reached two ways: its recursive self-CALL and
+        // Work's tail position. If Work folded, Rec's entry is the operand of a JP (Work's `JP Rec`) as
+        // well as a CALL (the self-call) — an address that is both CALLed and JP'd is a folded tail call
+        // to a function entry (ordinary branches target block labels, never a function entry). Without the
+        // fold, Work would keep `CALL Rec ; RET` and Rec's address would appear only as a CALL operand.
+        // (A global "no CALL;RET remains" check would be wrong here: each of Rec's two returns legitimately
+        // keeps a `CALL rt.popframe ; RET`, since a runtime routine is deliberately not in the whitelist.)
+        var code = CompileOpt(src).Sections[0].Data;
+        var callTargets = new HashSet<int>();
+        var jpTargets = new HashSet<int>();
+        for (var i = 0; i + 2 < code.Length; i++)
+        {
+            var operand = code[i + 1] | (code[i + 2] << 8);
+            if (code[i] == 0xCD)
+                callTargets.Add(operand);
+            else if (code[i] == 0xC3)
+                jpTargets.Add(operand);
+        }
+        await Assert.That(callTargets.Overlaps(jpTargets)).IsTrue();
+    }
+
+    [Test]
+    public async Task DeadStore_IsElidedWithoutInterrupts_ButKeptWithThem()
+    {
+        // `g = 1; g = 2;` writes the static twice with no mainline read between, so the first store is
+        // dead — and gets elided. But an interrupt handler that reads g could fire between the two stores
+        // and observe the first value, so the presence of any handler must keep the store. The two
+        // programs are identical bar the handler.
+        const string body =
+            "static byte g; static byte h; static byte Main() { g = 1; g = 2; return g; }";
+        const string handler =
+            "\n[Interrupt(\"VBlank\")] static void OnVBlank() { if (g == 1) h = 1; }";
+
+        // The static g is stored to once (the dead first store elided) with no handler, and twice with one.
+        await Assert.That(MaxStoresToOneWramSlot(Compile(body))).IsEqualTo(1);
+        await Assert.That(MaxStoresToOneWramSlot(Compile(body + handler))).IsEqualTo(2);
+    }
+
+    /// <summary>The largest number of <c>LD (a16),A</c> stores to any single WRAM slot in the emitted
+    /// code — used to observe whether the dead-store peephole elided one of a pair of stores to a static.</summary>
+    private static int MaxStoresToOneWramSlot(EmitModel model)
+    {
+        var instrs = Koh
+            .Compiler.Backends.Sm83.Mir.MirDecoder.Decode(model.Sections[0].Data)
+            .Instructions;
+        var perSlot = new Dictionary<int, int>();
+        foreach (var instr in instrs)
+            if (instr is { Opcode: 0xEA, Length: 3 })
+            {
+                var addr = instr.Bytes[1] | (instr.Bytes[2] << 8);
+                if (addr is >= 0xC000 and < 0xE000)
+                    perSlot[addr] = perSlot.GetValueOrDefault(addr) + 1;
+            }
+        return perSlot.Count == 0 ? 0 : perSlot.Values.Max();
+    }
+
+    [Test]
     public async Task SignedNegate_Sbyte()
     {
         const string src = "static sbyte Neg(sbyte x) { return -x; }";
@@ -2341,9 +2438,17 @@ static readonly byte[] Mark = { 0xAB };";
         const int fns = 12;
         for (int i = 0; i < fns; i++)
         {
-            sb.Append($"static byte A{i}() {{ byte x = 1;\n");
+            // Padding to bulk each function past the ROM0 window. Two locals updated alternately, each
+            // reading the other, so every store's value is read before it is overwritten — the padding
+            // stays live against dead-store elimination (which would otherwise collapse a single-local
+            // accumulate chain to almost nothing and drop the program back under the multi-bank threshold).
+            sb.Append($"static byte A{i}() {{ byte x = 1; byte y = 2;\n");
             for (int j = 0; j < 200; j++)
-                sb.Append($"x = (byte)(x + {j % 7});\n"); // padding to bulk up
+                sb.Append(
+                    j % 2 == 0
+                        ? $"x = (byte)(x + y + {j % 7});\n"
+                        : $"y = (byte)(y + x + {j % 7});\n"
+                );
             sb.Append(i + 1 < fns ? $"return A{i + 1}();\n}}\n" : "return 77;\n}\n");
         }
         string src = sb.ToString();
@@ -2371,6 +2476,69 @@ static readonly byte[] Mark = { 0xAB };";
     }
 
     [Test]
+    public async Task CodeBanking_BankedCalleeReceivesParamInRegister()
+    {
+        // A multi-bank program (far-call thunks) whose banked functions each RECEIVE a byte parameter in a
+        // register. The entry (ROM0) calls P0 through its thunk; the thunk maps the bank and CALLs the
+        // callee but only touches A/F, so the argument the caller placed in a register survives into the
+        // banked callee. Each Pi adds `adds` to its parameter (a long gentle chain that also bulks the
+        // function enough to force banking) and tail-calls the next; result = seed + fns*adds (mod 256).
+        // Built as IR directly (not C#) so the parameter is used in a gentle op and thus register-resident
+        // without relying on the optimizer, while the chain stays un-folded to keep the code large. fns*adds
+        // must not be a multiple of 256, or the expected byte would collapse back to `seed` and the
+        // assertion would pass even if every add chain were dropped.
+        const int fns = 16,
+            adds = 401,
+            seed = 10;
+        var m = new IrModule("bankparam");
+        var main = new IrFunction("main", IrType.I8, []);
+        m.Functions.Add(main); // entry must be first
+
+        var ps = new List<IrFunction>();
+        var pParams = new List<IrParameter>();
+        for (int i = 0; i < fns; i++)
+        {
+            var a = new IrParameter("a", IrType.I8);
+            var f = new IrFunction($"P{i}", IrType.I8, [a]);
+            m.Functions.Add(f);
+            ps.Add(f);
+            pParams.Add(a);
+        }
+
+        var bld = new IrBuilder();
+        for (int i = 0; i < fns; i++)
+        {
+            bld.PositionAtEnd(ps[i].AppendBlock("entry"));
+            IrValue r = pParams[i]; // param used in the first add -> received in a register
+            for (int j = 0; j < adds; j++)
+                r = bld.Add(r, IrBuilder.ConstInt(IrType.I8, 1));
+            bld.Ret(i + 1 < fns ? bld.Call(ps[i + 1], [r]) : r);
+        }
+        bld.PositionAtEnd(main.AppendBlock("entry"));
+        bld.Ret(bld.Call(ps[0], [IrBuilder.ConstInt(IrType.I8, seed)]));
+
+        var model = new Sm83Backend().Compile(m, new DiagnosticBag());
+        // Two or more banked code sections => the multi-bank far-call-thunk path ran.
+        await Assert
+            .That(model.Sections.Count(s => s.Name.StartsWith("CODEX")))
+            .IsGreaterThanOrEqualTo(2);
+
+        var link = new LinkerType().Link([new LinkerInput("bank", model)]);
+        var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = Sm83Backend.CodeBase;
+        for (int steps = 0; steps < 5_000_000; steps++)
+        {
+            int pc = gb.Registers.Pc;
+            if (pc < Sm83Backend.CodeBase || pc >= 0x8000)
+                break;
+            gb.StepInstruction();
+        }
+        await Assert.That(gb.Registers.A).IsEqualTo(unchecked((byte)(seed + fns * adds)));
+    }
+
+    [Test]
     public async Task CodeBanking_RecursiveBankedFunction()
     {
         // A recursive function that is also banked exercises every convention at once: args via
@@ -2383,10 +2551,17 @@ static readonly byte[] Mark = { 0xAB };";
         );
         for (int i = 0; i < 12; i++)
         {
-            sb.Append($"static byte P{i}() {{ byte x = 1;\n");
+            // Padding that survives dead-store elimination — two locals updated alternately, each reading
+            // the other (see CodeBanking_MultiBankFarCalls) — so the functions stay large enough to force
+            // the multi-bank model.
+            sb.Append($"static byte P{i}() {{ byte x = 1; byte y = 2;\n");
             for (int j = 0; j < 200; j++)
-                sb.Append($"x = (byte)(x + {j % 7});\n");
-            sb.Append("return x;\n}\n");
+                sb.Append(
+                    j % 2 == 0
+                        ? $"x = (byte)(x + y + {j % 7});\n"
+                        : $"y = (byte)(y + x + {j % 7});\n"
+                );
+            sb.Append("return (byte)(x + y);\n}\n");
         }
         var model = Compile(sb.ToString());
         await Assert
@@ -3304,6 +3479,41 @@ static uint Log2(uint value) {
         const string src32 =
             "static uint Sum(uint n) { uint s = 0; for (uint i = 0; i < n; i++) { s = s + i; } return s; }";
         await Assert.That(RunI32Opt(src32, gb => W32(gb, 0, 10))).IsEqualTo(45u);
+    }
+
+    [Test]
+    public async Task Optimized_HoistsLoopInvariantInNestedLoopAndStaysCorrect()
+    {
+        // A nested loop whose inner body recomputes `i * b` — invariant to the inner (j) loop, but
+        // varying across the outer (i) loop. LICM (default-on) hoists it into the inner preheader on a
+        // real compiled program, exercising the preheader/phi-reroute path end-to-end through the
+        // backend and emulator. sum = Σ_{i<a} 2·(i·b) = b·a·(a-1).
+        const string src =
+            "static ushort F(ushort a, ushort b) { ushort sum = 0; for (ushort i = 0; i < a; i++) { for (ushort j = 0; j < 2; j++) { ushort m = (ushort)(i * b); sum = (ushort)(sum + m); } } return sum; }";
+        await Assert
+            .That(
+                RunHLOpt(
+                    src,
+                    gb =>
+                    {
+                        W16(gb, 0, 4);
+                        W16(gb, 2, 5);
+                    }
+                )
+            )
+            .IsEqualTo((ushort)60); // 5·4·3
+        await Assert
+            .That(
+                RunHLOpt(
+                    src,
+                    gb =>
+                    {
+                        W16(gb, 0, 1);
+                        W16(gb, 2, 9);
+                    }
+                )
+            )
+            .IsEqualTo((ushort)0); // single outer iteration with i=0 contributes nothing
     }
 
     [Test]

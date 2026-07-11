@@ -9,7 +9,31 @@
     <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
     <KohBuildTasksProject>$(KohRoot)src/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
     <KohBuildTasksAssembly>$(KohRoot)src/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
+    <KohEmulatorProject>$(KohRoot)src/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
+    <!-- Assumes the default (no-RID) build output; a RID-scoped `dotnet run -r <rid>` places the emulator
+         DLL under a rid subfolder this path does not include. -->
+    <KohEmulatorAssembly>$(KohRoot)src/Koh.Emulator.App/bin/$(Configuration)/net10.0/Koh.Emulator.App.dll</KohEmulatorAssembly>
   </PropertyGroup>
+
+  <!-- `dotnet run` opens the compiled ROM in the Koh emulator (a GL window): the build emits the ROM
+       (CompileKohRom below, AfterTargets=Build) and these override the run command to exec the emulator's
+       built binary on it. Unconditional and after the .NET SDK import, so it wins over the SDK's default
+       RunCommand (the app host); `dotnet run` reads these properties directly. This trades the terminal
+       reference renderer for the GL emulator on `dotnet run` (so it needs a display/audio device) — the
+       managed reference build a game also compiles to is still the project's own binary, run it directly
+       (`dotnet exec bin/<config>/net10.0/<AssemblyName>.dll`) for the terminal/headless renderer. -->
+  <PropertyGroup>
+    <RunCommand>dotnet</RunCommand>
+    <RunArguments>exec "$(KohEmulatorAssembly)" "$(KohRomPath)"</RunArguments>
+  </PropertyGroup>
+
+  <!-- Build the emulator as part of the game's build graph so `dotnet run` can exec it, but keep it off
+       the game's compile references (ReferenceOutputAssembly=false) - the game depends only on the
+       Koh.GameBoy runtime, not the emulator's GL/audio stack. -->
+  <ItemGroup>
+    <ProjectReference Include="$(KohEmulatorProject)"
+                      ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
 
   <!-- The game's own C# sources (excludes generated/output files) plus the framework's HAL, written
        in the Koh C# subset (Lcd, Joypad, Tilemap/TileData, Ppu, …). The frontend compiles both as one

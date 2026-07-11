@@ -1,9 +1,10 @@
 // 2048 for the Game Boy, written in Koh C#.
 //
 // This is an ordinary .NET project built by the Koh SDK. The same source compiles two ways:
-//   * the Koh compiler lowers it to a bootable Game Boy ROM (2048.gb);
-//   * the plain .NET SDK runs it on the desktop against the Koh.GameBoy reference runtime
-//     (`dotnet run`), which renders the board to the terminal.
+//   * the Koh compiler lowers it to a bootable Game Boy ROM (2048.gb), which `dotnet run` opens in the
+//     Koh emulator (the SDK's default run behavior);
+//   * the plain .NET SDK also builds it into a managed binary that renders the board to the terminal
+//     against the Koh.GameBoy reference runtime — run that binary directly (`dotnet exec`).
 //
 // The generic Game Boy surface — Lcd, Joypad, Tilemap/TileData, Ppu, Direction — lives in the
 // Koh.GameBoy framework. This project holds only what is specific to 2048: the Board rules, the

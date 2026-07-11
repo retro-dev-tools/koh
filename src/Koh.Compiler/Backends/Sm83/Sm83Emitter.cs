@@ -148,8 +148,11 @@ internal sealed class Emitter
     /// Safe to run per-function because nothing has been emitted after the region yet (so no later
     /// offset needs shifting) and the region's entry sits at <paramref name="start"/>, which never
     /// moves — so every cross-function reference (funcAddr, forward CALL fixups) stays valid.
+    /// <paramref name="allowDeadStore"/> enables the dead-store rule; the backend passes false when the
+    /// module has an interrupt handler, which could asynchronously read a stored slot (see
+    /// <see cref="Sm83Peephole"/>).
     /// </summary>
-    public void PeepholeFrom(int start)
+    public void PeepholeFrom(int start, bool allowDeadStore)
     {
         int end = Code.Count;
         if (start >= end)
@@ -170,26 +173,65 @@ internal sealed class Emitter
         Collect(_funcs);
         Collect(_routines);
         Collect(_thunks);
-        foreach (var (_, target) in _fixups)
+
+        // Function labels whose target is a directly-returning entry — the only CALLs the tail-call fold
+        // may touch. Interrupt handlers are excluded (their epilogue is RETI, not RET); a far-call thunk
+        // (`_thunks`) or runtime routine (`_routines`) target is deliberately left out, so a banked callee
+        // (reached via its thunk) is never folded.
+        var safeFuncLabels = new HashSet<Label>(ReferenceEqualityComparer.Instance);
+        foreach (var (fn, label) in _funcs)
+            if (fn.InterruptVector is null)
+                safeFuncLabels.Add(label);
+
+        // One pass over the fixups feeds three things: the anonymous branch-edge labels that live only in
+        // the fixup list (which must relocate and are join points); the CALL opcodes — one byte before their
+        // operand fixup — that target a safe entry (tail-call fold); and the unconditional JP opcodes whose
+        // target is their own fall-through (jump elimination). Each opcode sits one byte before its fixup.
+        var tailCallSafeCalls = new HashSet<int>();
+        var redundantJumps = new HashSet<int>();
+        foreach (var (pos, target) in _fixups)
+        {
             if (target.Offset >= start && target.Offset <= end)
                 labels.Add(target);
+            int opcodeOffset = pos - 1;
+            if (opcodeOffset < start || opcodeOffset >= end)
+                continue;
+            if (safeFuncLabels.Contains(target))
+                tailCallSafeCalls.Add(opcodeOffset);
+            // A JP a16 (opcode + 2-byte operand = 3 bytes) whose target resolves to the instruction right
+            // after it (opcodeOffset + 3 == target.Offset) jumps to its own fall-through.
+            if (Code[opcodeOffset] == 0xC3 && target.Offset == opcodeOffset + 3)
+                redundantJumps.Add(opcodeOffset);
+        }
 
         var boundaries = new HashSet<int>();
         foreach (var label in labels)
             boundaries.Add(label.Offset);
 
-        var edits = Sm83Peephole.FindZeroLoadEdits(Code, start, end, boundaries);
+        var edits = Sm83Peephole.FindEdits(
+            Code,
+            start,
+            end,
+            boundaries,
+            tailCallSafeCalls,
+            redundantJumps,
+            allowDeadStore
+        );
         if (edits.Count == 0)
             return;
 
-        // Each edit rewrites LD A,0 (3E 00) to XOR A (AF): the opcode byte becomes 0xAF and the
-        // immediate byte (o + 1) is deleted. Edits are ascending, so the deleted positions are too.
-        var deletes = new int[edits.Count];
-        for (var i = 0; i < edits.Count; i++)
-        {
-            Code[edits[i]] = 0xAF;
-            deletes[i] = edits[i] + 1;
-        }
+        // Each edit optionally overwrites one opcode byte, then deletes a run of bytes (the next byte for a
+        // two-into-one collapse, the trailing RET for a tail call, or a whole instruction for a dead store).
+        // Overwrites are position-independent; the deleted positions are disjoint across edits but not
+        // pre-sorted (the dead-store rule deletes an earlier offset), so gather then sort them.
+        foreach (var edit in edits)
+            if (edit.NewOpcode is { } opcode)
+                Code[edit.Offset] = opcode;
+        var deletes = edits
+            .SelectMany(edit => Enumerable.Range(edit.DeleteStart, edit.DeleteCount))
+            .ToArray();
+        Array.Sort(deletes);
+        var deleted = new HashSet<int>(deletes);
 
         // Number of deleted bytes strictly below an offset — its leftward shift.
         int DeletesBelow(int offset)
@@ -202,9 +244,19 @@ internal sealed class Emitter
         foreach (var label in labels)
             label.Offset = Remap(label.Offset);
 
-        for (var i = 0; i < _fixups.Count; i++)
-            if (_fixups[i].Pos >= start && _fixups[i].Pos < end)
-                _fixups[i] = (Remap(_fixups[i].Pos), _fixups[i].Target);
+        // Remap each fixup in this region, or drop it if its operand byte was itself deleted — which happens
+        // only for an eliminated redundant JP, whose whole instruction (operand fixup included) goes away.
+        // Iterate in reverse so removals don't disturb the indices still to visit.
+        for (var i = _fixups.Count - 1; i >= 0; i--)
+        {
+            var (pos, target) = _fixups[i];
+            if (pos < start || pos >= end)
+                continue;
+            if (deleted.Contains(pos))
+                _fixups.RemoveAt(i);
+            else
+                _fixups[i] = (Remap(pos), target);
+        }
 
         // Shrink every line-map entry that covers deleted bytes. An entry can start before this region
         // yet extend into it (AddLineRange coalesces adjacent lines across the function boundary), so

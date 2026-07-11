@@ -128,6 +128,14 @@ public sealed partial class Sm83Backend : IBackend
             }
         }
 
+        // The cartridge boots into the frontend-marked entry (Main), or the first non-handler function
+        // if the module has none. An interrupt handler must never be the entry: its body runs on every
+        // interrupt and ends in RETI, so booting into it re-runs initializers and returns through a
+        // nonexistent interrupt frame.
+        var entryFunction =
+            module.Functions.FirstOrDefault(f => !f.IsExternal && f.IsEntry)
+            ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
+
         // Give every function a disjoint WRAM frame so a caller's live values and a callee's
         // storage never overlap (correct for a non-recursive call graph; frames are not yet
         // reused across functions that can't be live simultaneously).
@@ -139,7 +147,14 @@ public sealed partial class Sm83Backend : IBackend
         {
             if (fn.IsExternal)
                 continue;
-            var allocation = FunctionAllocation.For(fn, wram);
+            // Residency is disabled for interrupt handlers (their prologue push/pop and RETI epilogue)
+            // and recursive functions (software-stack frame save/restore); the conservative model does
+            // not yet reason about those register constraints. A parameter may additionally be received in
+            // a register (the register calling convention) for any function except the entry, which has no
+            // caller to set its registers up.
+            bool allowResidency = fn.InterruptVector is null && !recursive.Contains(fn);
+            bool allowParamResidency = allowResidency && !ReferenceEquals(fn, entryFunction);
+            var allocation = FunctionAllocation.For(fn, wram, allowResidency, allowParamResidency);
             allocations[fn] = allocation;
             wram = allocation.FrameEnd;
         }
@@ -151,13 +166,10 @@ public sealed partial class Sm83Backend : IBackend
         var emitter = new Emitter();
         var symbols = new List<SymbolData>();
 
-        // The cartridge boots into the frontend-marked entry (Main), or the first non-handler function
-        // if the module has none. An interrupt handler must never be the entry: its body runs on every
-        // interrupt and ends in RETI, so booting into it re-runs initializers and returns through a
-        // nonexistent interrupt frame.
-        var entryFunction =
-            module.Functions.FirstOrDefault(f => !f.IsExternal && f.IsEntry)
-            ?? module.Functions.FirstOrDefault(f => !f.IsExternal && f.InterruptVector is null);
+        // The dead-store peephole is unsound when an interrupt handler could asynchronously read a stored
+        // WRAM slot between two mainline stores; disable it whenever the module has any handler.
+        bool allowDeadStore = !HasInterruptHandler(module);
+
         var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {
@@ -174,7 +186,7 @@ public sealed partial class Sm83Backend : IBackend
                 ReferenceEquals(fn, entryFunction),
                 softStackBase
             ).Compile();
-            emitter.PeepholeFrom(startOffset);
+            emitter.PeepholeFrom(startOffset, allowDeadStore);
         }
         int funcsEnd = emitter.Code.Count;
 
@@ -373,6 +385,9 @@ public sealed partial class Sm83Backend : IBackend
         if (entryFunction is null)
             throw new NotSupportedException("a banked program needs an entry function.");
 
+        // See CompileCore: the dead-store peephole is unsound with an interrupt handler present.
+        bool allowDeadStore = !HasInterruptHandler(module);
+
         // Sizes from the measurement pass.
         var order = new List<IrFunction>();
         var size = new Dictionary<IrFunction, int>(ReferenceEqualityComparer.Instance);
@@ -409,7 +424,7 @@ public sealed partial class Sm83Backend : IBackend
                 softStackBase,
                 banked
             ).Compile();
-            measure.PeepholeFrom(s0); // match real emission, or a fitting function is spuriously rejected
+            measure.PeepholeFrom(s0, allowDeadStore); // match real emission, or a fit is spuriously rejected
             size[f] = measure.Code.Count - s0;
         }
 
@@ -473,7 +488,7 @@ public sealed partial class Sm83Backend : IBackend
                 softStackBase,
                 banked
             ).Compile();
-            emitter.PeepholeFrom(startOffset);
+            emitter.PeepholeFrom(startOffset, allowDeadStore);
         }
 
         foreach (var f in order.Where(IsRom0))
@@ -675,6 +690,12 @@ public sealed partial class Sm83Backend : IBackend
                 }
         }
     }
+
+    /// <summary>Whether the module defines any interrupt handler. Gates the dead-store peephole (an
+    /// interrupt can asynchronously read a WRAM slot between two mainline stores), so it must be answered
+    /// the same way in every compile path.</summary>
+    private static bool HasInterruptHandler(IrModule module) =>
+        module.Functions.Any(f => f.InterruptVector is not null);
 
     /// <summary>Given the bank number in <c>A</c>, make it current: write it to both the CurBank shadow
     /// and the MBC1 bank-select register (0x2000).</summary>
