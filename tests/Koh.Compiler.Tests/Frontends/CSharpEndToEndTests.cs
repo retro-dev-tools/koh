@@ -1146,6 +1146,19 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task Using_MidUnitIsBlanked()
+    {
+        // Multiple files joined into one unit put every file-past-the-first's usings mid-unit, where a
+        // `using` is illegal C# and Roslyn drops it (no node to blank structurally). The frontend blanks
+        // usings by line so a second file can carry its own `using` and still compile.
+        const string src =
+            "static class App { static byte Main() { return Lib.Answer(); } }\n"
+            + "using Koh.GameBoy;\n"
+            + "static class Lib { static byte Answer() { return 42; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
+    }
+
+    [Test]
     public async Task StaticClass_StaticFieldIsState()
     {
         // A static field in a static class is program-scope WRAM state, shared across its methods.

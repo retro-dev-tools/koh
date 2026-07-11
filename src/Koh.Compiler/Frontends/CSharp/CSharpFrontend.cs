@@ -86,14 +86,12 @@ public sealed partial class CSharpFrontend : IFrontend
     {
         var root = CSharpSyntaxTree.ParseText(source).GetCompilationUnitRoot();
         // DescendantNodes (not just the leading .Usings) so that when several source files are compiled
-        // as one unit, their per-file usings/namespaces — which land after the first file's types — are
-        // blanked too.
+        // as one unit, their per-file namespaces — which land after the first file's types — are
+        // blanked too. (Usings are handled separately below; see there.)
         var spans = new List<Microsoft.CodeAnalysis.Text.TextSpan>();
         foreach (var node in root.DescendantNodes())
         {
-            if (node is UsingDirectiveSyntax u)
-                spans.Add(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(u.SpanStart, u.Span.End));
-            else if (node is FileScopedNamespaceDeclarationSyntax fns)
+            if (node is FileScopedNamespaceDeclarationSyntax fns)
                 // Blank only the `namespace X;` header, not its members.
                 spans.Add(
                     Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
@@ -113,6 +111,20 @@ public sealed partial class CSharpFrontend : IFrontend
                 );
                 spans.Add(bns.CloseBraceToken.Span);
             }
+        }
+        // A `using` directive is only legal before any type, so in a concatenated unit every file past the
+        // first has its usings land mid-unit — where Roslyn drops them as skipped trivia, yielding no
+        // UsingDirectiveSyntax to blank. Blank usings by line instead, which handles the valid first-file
+        // ones identically. ponytail: this subset has no `using` statements or aliases (the frontend
+        // rejects them), so a whole-line `using ...;` is always a directive and safe to blank.
+        for (int pos = 0; pos < source.Length; )
+        {
+            int nl = source.IndexOf('\n', pos);
+            int end = nl < 0 ? source.Length : nl;
+            var trimmed = source.AsSpan(pos, end - pos).Trim();
+            if (trimmed.StartsWith("using ") && trimmed.EndsWith(";"))
+                spans.Add(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(pos, end));
+            pos = end + 1;
         }
         if (spans.Count == 0)
             return source;

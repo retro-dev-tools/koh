@@ -2,6 +2,10 @@
 // 2x2 blocks. The generic parts — writing tile pixels and tile-map cells over VRAM — live in the
 // Koh.GameBoy framework (TileData / Tilemap); this file is only the 2048-specific art and layout.
 
+using Koh.GameBoy;
+
+namespace Koh.Samples.Gb2048CSharp;
+
 static class Tiles
 {
     // The 12 background tiles: tile 0 is empty (lightest shade); tiles 1..11 are framed blocks whose
