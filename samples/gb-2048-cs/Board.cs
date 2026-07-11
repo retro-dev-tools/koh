@@ -3,8 +3,6 @@
 // keeps every value in a byte. All of the game's rules live here, behind a small typed API; nothing
 // outside this file touches the raw cells. (`Direction` comes from the Koh.GameBoy framework.)
 
-using Koh.GameBoy;
-
 namespace Koh.Samples.Gb2048CSharp;
 
 static unsafe class Board

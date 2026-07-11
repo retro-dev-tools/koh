@@ -10,8 +10,6 @@
 // Koh.GameBoy framework. This project holds only what is specific to 2048: the Board rules, the
 // Tiles art, and this loop, which reads high-level and touches no bytes, registers, or addresses.
 
-using Koh.GameBoy;
-
 namespace Koh.Samples.Gb2048CSharp;
 
 static class Game
