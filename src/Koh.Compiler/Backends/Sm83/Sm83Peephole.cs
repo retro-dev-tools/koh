@@ -41,6 +41,13 @@ namespace Koh.Compiler.Backends.Sm83;
 /// source page while the program mutates that page mid-transfer, which yields indeterminate OAM regardless
 /// of this rewrite — so, as elsewhere, a plain WRAM store is treated as non-volatile. This is the first
 /// rule that fires on backend-emitted redundancy the IR pass cannot see.</item>
+/// <item>Redundant reload: <c>LD A,(a16)</c> whose value <c>A</c> already holds — because an earlier
+/// <c>LD A,(a16)</c> or <c>LD (a16),A</c> to the same WRAM slot ran, with nothing since that could change
+/// <c>A</c> (a write to <c>A</c>, a control transfer, a side effect) or that slot (an unknown-pointer
+/// memory write) — is deleted whole (three bytes). This catches the cross-instruction reloads the
+/// emitter's local <c>A</c>-tracking cannot (its knowledge dies at the next emit); only WRAM is tracked,
+/// and it is gated on the same no-interrupt-handler condition as the dead store, since a handler could
+/// asynchronously overwrite the slot with a value the elided reload would otherwise have observed.</item>
 /// </list>
 /// </summary>
 internal static class Sm83Peephole
@@ -100,11 +107,22 @@ internal static class Sm83Peephole
         int pendingStoreOffset = 0,
             pendingStoreLength = 0;
 
+        // Rule 5 (redundant reload) state: the WRAM addresses whose value A provably holds right now — after
+        // a `LD A,(a16)` or `LD (a16),A` to that slot, until something could change A or the slot. Gated on
+        // the same no-interrupt-handler condition as the dead store (an interrupt could asynchronously
+        // rewrite a slot, so the reload A skips would have observed a value A no longer holds).
+        var aMirrors = new HashSet<int>();
+
         var edits = new List<Edit>();
         for (var i = 0; i < instrs.Count; i++)
         {
             var instr = instrs[i];
             var abs = start + instr.Offset;
+
+            // A join makes A's contents unknown on entry (another path reaches here), so nothing A held on
+            // the fall-through path can be assumed. The store/load below re-establish it if they run.
+            if (boundaries.Contains(abs))
+                aMirrors.Clear();
 
             // Rule 4 — dead store: LD (a16),A whose value is overwritten by a later LD (a16),A to the same
             // WRAM address before anything reads it. Handled first because it is stateful, and because an
@@ -128,6 +146,36 @@ internal static class Sm83Peephole
                 pendingStoreAddr = trackable ? addr : null;
                 pendingStoreOffset = abs;
                 pendingStoreLength = instr.Length;
+                // The store writes A's value to a known slot without changing A, so A now also mirrors that
+                // slot (existing mirrors stay valid — A and their memory are both unchanged).
+                if (allowDeadStore && trackable)
+                    aMirrors.Add(addr);
+                continue;
+            }
+
+            // Rule 5 — redundant reload: LD A,(a16) whose value A already holds from an earlier load of, or
+            // store to, the same WRAM slot with nothing since that could change A or that slot. Delete the
+            // load. Like the barrier below it is a memory read, so it also ends any dead-store window.
+            if (instr is { Opcode: 0xFA, Length: 3 })
+            {
+                var addr = instr.Bytes[1] | (instr.Bytes[2] << 8);
+                var trackable = addr is >= 0xC000 and < 0xE000;
+                if (allowDeadStore)
+                {
+                    if (trackable && aMirrors.Contains(addr) && !boundaries.Contains(abs))
+                    {
+                        edits.Add(Edit.DeleteRun(abs, instr.Length)); // A already holds (addr)
+                    }
+                    else
+                    {
+                        // A is redefined to memory[addr]: it now mirrors exactly that slot, or nothing
+                        // trackable if the source is outside WRAM (possibly volatile).
+                        aMirrors.Clear();
+                        if (trackable)
+                            aMirrors.Add(addr);
+                    }
+                }
+                pendingStoreAddr = null; // a memory read ends any pending dead-store window
                 continue;
             }
             // Any memory access ends the window in which a pending store is dead: a read might observe the
@@ -145,6 +193,21 @@ internal static class Sm83Peephole
                 || boundaries.Contains(abs)
             )
                 pendingStoreAddr = null;
+
+            // A's mirror set is invalidated by anything that could change A or a tracked slot: a write to A,
+            // a memory write through an unknown pointer (an absolute LD (a16),A is handled above), or a
+            // control transfer / side effect (a callee may clobber A and shared statics). A plain memory
+            // read leaves A and every slot intact, so it does not clear the set.
+            if (
+                allowDeadStore
+                && (
+                    (effects.RegWrite & Sm83Register.A) != 0
+                    || effects.MemWrite
+                    || effects.Control != MirControl.Fallthrough
+                    || effects.SideEffect
+                )
+            )
+                aMirrors.Clear();
 
             // Rule 1 — LD A, 0 → XOR A, when the flags XOR A would clobber are dead.
             if (IsLoadAZero(instr))

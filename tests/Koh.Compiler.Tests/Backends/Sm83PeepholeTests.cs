@@ -242,4 +242,101 @@ public class Sm83PeepholeTests
         );
         await Assert.That(edits).IsEmpty();
     }
+
+    // ---- redundant reload: LD A,(a16) whose value A already holds ------------
+
+    [Test]
+    public async Task DeletesRedundantReload_AfterStoreToSameSlot()
+    {
+        // LD (0xC010),A ; INC B ; LD A,(0xC010) — A still holds the stored value (INC B touches neither A
+        // nor memory), so the reload is redundant.
+        var edits = Edits([0xEA, 0x10, 0xC0, 0x04, 0xFA, 0x10, 0xC0]);
+        await Assert
+            .That(edits)
+            .IsEquivalentTo(new List<Sm83Peephole.Edit> { Sm83Peephole.Edit.DeleteRun(4, 3) });
+    }
+
+    [Test]
+    public async Task DeletesRedundantReload_AfterLoadOfSameSlot()
+    {
+        // LD A,(0xC010) ; INC B ; LD A,(0xC010) — the second load re-reads a slot A already mirrors.
+        var edits = Edits([0xFA, 0x10, 0xC0, 0x04, 0xFA, 0x10, 0xC0]);
+        await Assert
+            .That(edits)
+            .IsEquivalentTo(new List<Sm83Peephole.Edit> { Sm83Peephole.Edit.DeleteRun(4, 3) });
+    }
+
+    [Test]
+    public async Task DeletesRedundantReload_AcrossAStoreToAnotherSlot()
+    {
+        // LD A,(0xC010) ; LD (0xC020),A ; LD A,(0xC010) — the store to a different slot leaves A holding
+        // 0xC010's value, so the reload is still redundant (A mirrors both slots).
+        var edits = Edits([0xFA, 0x10, 0xC0, 0xEA, 0x20, 0xC0, 0xFA, 0x10, 0xC0]);
+        await Assert
+            .That(edits)
+            .IsEquivalentTo(new List<Sm83Peephole.Edit> { Sm83Peephole.Edit.DeleteRun(6, 3) });
+    }
+
+    [Test]
+    public async Task KeepsReload_WhenAIsWrittenBetween()
+    {
+        // LD A,(0xC010) ; ADD A,B ; LD A,(0xC010) — ADD A,B redefines A, so it no longer mirrors the slot.
+        await Assert.That(Edits([0xFA, 0x10, 0xC0, 0x80, 0xFA, 0x10, 0xC0])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsReload_WhenAPointerWriteIntervenes()
+    {
+        // LD A,(0xC010) ; LD (HL),A ; LD A,(0xC010) — the (HL) store's address is unknown and could alias
+        // the slot, so conservatively A is no longer known to mirror it.
+        await Assert.That(Edits([0xFA, 0x10, 0xC0, 0x77, 0xFA, 0x10, 0xC0])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsReload_WhenACallIntervenes()
+    {
+        // LD A,(0xC010) ; CALL a16 ; LD A,(0xC010) — the callee may clobber A and the shared static slot.
+        await Assert.That(Edits([0xFA, 0x10, 0xC0, 0xCD, 0x00, 0x00, 0xFA, 0x10, 0xC0])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsReload_WhenAddressIsNotWram()
+    {
+        // LD A,(0xFF44) ; LD A,(0xFF44) — 0xFF44 is LY (volatile MMIO); re-reading can yield a new value,
+        // so the second load must stay.
+        await Assert.That(Edits([0xFA, 0x44, 0xFF, 0xFA, 0x44, 0xFF])).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsReload_WhenTheReloadIsABranchTarget()
+    {
+        // LD (0xC010),A ; <join> LD A,(0xC010) — a path entering at the reload has an unknown A, so keep it.
+        await Assert.That(Edits([0xEA, 0x10, 0xC0, 0xFA, 0x10, 0xC0], boundaries: 3)).IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsReload_WhenAJoinClearsTheMirror()
+    {
+        // LD (0xC010),A ; <join> INC B ; LD A,(0xC010) — the join makes A unknown on the INC B, so the
+        // later reload can no longer assume A still mirrors the slot.
+        await Assert
+            .That(Edits([0xEA, 0x10, 0xC0, 0x04, 0xFA, 0x10, 0xC0], boundaries: 3))
+            .IsEmpty();
+    }
+
+    [Test]
+    public async Task KeepsReload_WhenEliminationIsDisabled()
+    {
+        // With an interrupt handler present (allowDeadStore: false) a handler could rewrite the slot between
+        // the store and the reload, so the reload must stay.
+        var edits = Sm83Peephole.FindEdits(
+            [0xEA, 0x10, 0xC0, 0x04, 0xFA, 0x10, 0xC0],
+            0,
+            7,
+            [],
+            [],
+            allowDeadStore: false
+        );
+        await Assert.That(edits).IsEmpty();
+    }
 }
