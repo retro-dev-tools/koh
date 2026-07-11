@@ -1,7 +1,7 @@
 <Project>
 
-  <!-- Built by the Koh SDK: an ordinary C# project the plain compiler builds and `dotnet run` executes
-       against the Koh.GameBoy reference runtime, while `dotnet build` also emits 2048.gb. It references
+  <!-- Built by the Koh SDK: an ordinary C# project the plain compiler builds, while `dotnet build` also
+       emits 2048.gb and `dotnet run` opens it in the Koh emulator (both driven by the SDK). It references
        neither the Koh compiler nor the linker - the SDK drives those. -->
   <Import Project="$(MSBuildThisFileDirectory)../../sdk/Koh.Sdk/Sdk/Sdk.props" />
 

@@ -2,13 +2,15 @@
 
   <!-- The Koh SDK. A Game Boy game project consumes it by importing this file (and Sdk.targets); it
        layers on top of the standard .NET SDK so the game is an ordinary C# project that the plain
-       compiler builds and `dotnet run` executes against the Koh.GameBoy reference runtime, while
-       `dotnet build` additionally emits a .gb ROM. The game references neither the compiler nor the
-       linker - the SDK owns that. -->
+       compiler builds, `dotnet build` emits a .gb ROM, and `dotnet run` opens that ROM in the Koh
+       emulator (see Sdk.targets). The same source also compiles to a managed reference binary that runs
+       against the Koh.GameBoy runtime. The game references neither the compiler nor the linker - the SDK
+       owns that. -->
 
   <PropertyGroup>
-    <!-- A Koh game is an executable (`dotnet run` boots it against the reference runtime). Set before
-         the .NET SDK import so its Library default doesn't win; a project may still override. -->
+    <!-- A Koh game is an executable — the plain .NET SDK builds it into a managed reference binary (the
+         Koh.GameBoy runtime), which `dotnet run` overrides to instead launch the emulator on the ROM. Set
+         before the .NET SDK import so its Library default doesn't win; a project may still override. -->
     <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
   </PropertyGroup>
 
