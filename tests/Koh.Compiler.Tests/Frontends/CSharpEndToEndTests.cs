@@ -285,6 +285,103 @@ static byte Triple(byte x) { return x + x + x; }";
     }
 
     [Test]
+    public async Task TailCall_FoldsToJump_AndStillRuns()
+    {
+        // Work's body is a bare tail call `Side();`, which the backend emits as `CALL Side ; RET` and the
+        // peephole folds to `JP Side`. Side is kept as a real function (its loop makes it multi-block, so
+        // the inliner leaves it) and Work is a non-leaf, so both survive to codegen.
+        const string src =
+            "static class M { static byte n; "
+            + "static byte Main() { Work(); return n; } "
+            + "static void Work() { Side(); } "
+            + "static void Side() { for (byte i = 0; i < 5; i = (byte)(i + 1)) n = (byte)(n + i); } }";
+
+        // Behaviour is preserved through the folded jump: Side accumulates 0+1+2+3+4 = 10 into n.
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)10);
+
+        // The fold fired: Work's `CALL Side ; RET` is the only tail call this program emits, and after the
+        // peephole no CALL is immediately followed by RET.
+        var code = CompileOpt(src).Sections[0].Data;
+        var adjacency = 0;
+        for (var i = 0; i + 3 < code.Length; i++)
+            if (code[i] == 0xCD && code[i + 3] == 0xC9)
+                adjacency++;
+        await Assert.That(adjacency).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task TailCall_ToRecursiveCallee_FoldsAndReturnsCorrectly()
+    {
+        // The whitelist admits a recursive callee (it is a plain _funcs target), so a non-recursive void
+        // caller's `CALL Rec ; RET` folds to `JP Rec`. That is only sound because Rec's frame machinery
+        // (rt.pushframe/popframe) rides the software stack (SoftSp), leaving the hardware CALL stack — which
+        // still holds Work's caller's return address — untouched. Verify it on the emulator rather than by
+        // argument: Rec sums 5+4+3+2+1 = 15 into n and control must return cleanly through the folded jump.
+        const string src =
+            "static class M { static byte n; "
+            + "static byte Main() { Work(); return n; } "
+            + "static void Work() { Rec(5); } "
+            + "static void Rec(byte k) { if (k == 0) return; n = (byte)(n + k); Rec((byte)(k - 1)); } }";
+
+        await Assert.That(RunAOpt(src)).IsEqualTo((byte)15);
+
+        // The fold fired on the recursive callee. Rec is reached two ways: its recursive self-CALL and
+        // Work's tail position. If Work folded, Rec's entry is the operand of a JP (Work's `JP Rec`) as
+        // well as a CALL (the self-call) — an address that is both CALLed and JP'd is a folded tail call
+        // to a function entry (ordinary branches target block labels, never a function entry). Without the
+        // fold, Work would keep `CALL Rec ; RET` and Rec's address would appear only as a CALL operand.
+        // (A global "no CALL;RET remains" check would be wrong here: each of Rec's two returns legitimately
+        // keeps a `CALL rt.popframe ; RET`, since a runtime routine is deliberately not in the whitelist.)
+        var code = CompileOpt(src).Sections[0].Data;
+        var callTargets = new HashSet<int>();
+        var jpTargets = new HashSet<int>();
+        for (var i = 0; i + 2 < code.Length; i++)
+        {
+            var operand = code[i + 1] | (code[i + 2] << 8);
+            if (code[i] == 0xCD)
+                callTargets.Add(operand);
+            else if (code[i] == 0xC3)
+                jpTargets.Add(operand);
+        }
+        await Assert.That(callTargets.Overlaps(jpTargets)).IsTrue();
+    }
+
+    [Test]
+    public async Task DeadStore_IsElidedWithoutInterrupts_ButKeptWithThem()
+    {
+        // `g = 1; g = 2;` writes the static twice with no mainline read between, so the first store is
+        // dead — and gets elided. But an interrupt handler that reads g could fire between the two stores
+        // and observe the first value, so the presence of any handler must keep the store. The two
+        // programs are identical bar the handler.
+        const string body =
+            "static byte g; static byte h; static byte Main() { g = 1; g = 2; return g; }";
+        const string handler =
+            "\n[Interrupt(\"VBlank\")] static void OnVBlank() { if (g == 1) h = 1; }";
+
+        // The static g is stored to once (the dead first store elided) with no handler, and twice with one.
+        await Assert.That(MaxStoresToOneWramSlot(Compile(body))).IsEqualTo(1);
+        await Assert.That(MaxStoresToOneWramSlot(Compile(body + handler))).IsEqualTo(2);
+    }
+
+    /// <summary>The largest number of <c>LD (a16),A</c> stores to any single WRAM slot in the emitted
+    /// code — used to observe whether the dead-store peephole elided one of a pair of stores to a static.</summary>
+    private static int MaxStoresToOneWramSlot(EmitModel model)
+    {
+        var instrs = Koh
+            .Compiler.Backends.Sm83.Mir.MirDecoder.Decode(model.Sections[0].Data)
+            .Instructions;
+        var perSlot = new Dictionary<int, int>();
+        foreach (var instr in instrs)
+            if (instr is { Opcode: 0xEA, Length: 3 })
+            {
+                var addr = instr.Bytes[1] | (instr.Bytes[2] << 8);
+                if (addr is >= 0xC000 and < 0xE000)
+                    perSlot[addr] = perSlot.GetValueOrDefault(addr) + 1;
+            }
+        return perSlot.Count == 0 ? 0 : perSlot.Values.Max();
+    }
+
+    [Test]
     public async Task SignedNegate_Sbyte()
     {
         const string src = "static sbyte Neg(sbyte x) { return -x; }";
@@ -2341,9 +2438,17 @@ static readonly byte[] Mark = { 0xAB };";
         const int fns = 12;
         for (int i = 0; i < fns; i++)
         {
-            sb.Append($"static byte A{i}() {{ byte x = 1;\n");
+            // Padding to bulk each function past the ROM0 window. Two locals updated alternately, each
+            // reading the other, so every store's value is read before it is overwritten — the padding
+            // stays live against dead-store elimination (which would otherwise collapse a single-local
+            // accumulate chain to almost nothing and drop the program back under the multi-bank threshold).
+            sb.Append($"static byte A{i}() {{ byte x = 1; byte y = 2;\n");
             for (int j = 0; j < 200; j++)
-                sb.Append($"x = (byte)(x + {j % 7});\n"); // padding to bulk up
+                sb.Append(
+                    j % 2 == 0
+                        ? $"x = (byte)(x + y + {j % 7});\n"
+                        : $"y = (byte)(y + x + {j % 7});\n"
+                );
             sb.Append(i + 1 < fns ? $"return A{i + 1}();\n}}\n" : "return 77;\n}\n");
         }
         string src = sb.ToString();
@@ -2446,10 +2551,17 @@ static readonly byte[] Mark = { 0xAB };";
         );
         for (int i = 0; i < 12; i++)
         {
-            sb.Append($"static byte P{i}() {{ byte x = 1;\n");
+            // Padding that survives dead-store elimination — two locals updated alternately, each reading
+            // the other (see CodeBanking_MultiBankFarCalls) — so the functions stay large enough to force
+            // the multi-bank model.
+            sb.Append($"static byte P{i}() {{ byte x = 1; byte y = 2;\n");
             for (int j = 0; j < 200; j++)
-                sb.Append($"x = (byte)(x + {j % 7});\n");
-            sb.Append("return x;\n}\n");
+                sb.Append(
+                    j % 2 == 0
+                        ? $"x = (byte)(x + y + {j % 7});\n"
+                        : $"y = (byte)(y + x + {j % 7});\n"
+                );
+            sb.Append("return (byte)(x + y);\n}\n");
         }
         var model = Compile(sb.ToString());
         await Assert

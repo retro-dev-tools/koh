@@ -99,6 +99,38 @@ public class Game2048Tests
     }
 
     [Test]
+    public async Task Sample_HasNoAdjacentRedundantWramStores()
+    {
+        // The MIR-driven dead-store peephole fires on real code: the backend emits pairs of back-to-back
+        // `LD (a16),A ; LD (a16),A` to the same WRAM slot (a load between them elided by A-tracking), the
+        // first of which is dead. Compiling the game must leave none of those adjacent same-slot pairs.
+        // (Behaviour after the rewrite is covered by the game-logic tests below, which run on the emulator.)
+        var model = new Sm83Backend().Compile(
+            new CSharpFrontend().Lower(SourceText.From(GameSource, "2048.cs"), new DiagnosticBag()),
+            new DiagnosticBag()
+        );
+        var instrs = Koh
+            .Compiler.Backends.Sm83.Mir.MirDecoder.Decode(model.Sections[0].Data)
+            .Instructions;
+        var adjacent = 0;
+        for (var i = 0; i + 1 < instrs.Count; i++)
+        {
+            var a = instrs[i];
+            var b = instrs[i + 1];
+            if (a is not { Opcode: 0xEA, Length: 3 } || b is not { Opcode: 0xEA, Length: 3 })
+                continue;
+            var addr = a.Bytes[1] | (a.Bytes[2] << 8);
+            if (
+                a.Bytes[1] == b.Bytes[1]
+                && a.Bytes[2] == b.Bytes[2]
+                && addr is >= 0xC000 and < 0xE000
+            )
+                adjacent++;
+        }
+        await Assert.That(adjacent).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Sample_RomBootsIntoMainAndInitializes()
     {
         // The real ROM (with the sample's own Game.Main, not an injected bare Main) must boot into

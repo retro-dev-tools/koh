@@ -433,7 +433,8 @@ internal sealed class FunctionAllocation
                 var instr = b.Instructions[i];
                 if (instr is PhiInstruction phi)
                 {
-                    blockPhis.Add(phi);
+                    if (colored.Contains(phi))
+                        blockPhis.Add(phi); // only coloured phis have a graph node to interfere on
                     continue;
                 }
                 if (colored.Contains(instr))
