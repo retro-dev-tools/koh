@@ -70,11 +70,6 @@ internal static class Sm83Peephole
         public static Edit DeleteRun(int offset, int count) => new(offset, null, offset, count);
     }
 
-    /// <summary>Length of the instruction whose opcode is at <paramref name="offset"/>. Delegates to
-    /// the shared <see cref="Sm83OpcodeLength"/> table so the length data is not duplicated.</summary>
-    public static int InstructionLength(IReadOnlyList<byte> code, int offset) =>
-        Sm83OpcodeLength.Of(code[offset]);
-
     /// <summary>The rewrites applicable in <c>[start, end)</c>. Not necessarily in ascending offset order
     /// (the dead-store rule appends a deletion of an earlier store once the store that kills it is seen), so
     /// the caller sorts the byte positions it deletes.

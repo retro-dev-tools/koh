@@ -173,27 +173,31 @@ internal sealed class Emitter
         Collect(_funcs);
         Collect(_routines);
         Collect(_thunks);
-        foreach (var (_, target) in _fixups)
-            if (target.Offset >= start && target.Offset <= end)
-                labels.Add(target);
 
-        var boundaries = new HashSet<int>();
-        foreach (var label in labels)
-            boundaries.Add(label.Offset);
-
-        // Absolute offsets of CALL opcodes whose target is a directly-returning function entry — the only
-        // CALLs the tail-call fold may touch. A function's fixup target is its `_funcs` label (interrupt
-        // handlers excluded: their epilogue is RETI, not RET); a far-call thunk (`_thunks`) or runtime
-        // routine (`_routines`) target is deliberately left out, so a banked callee (reached via its thunk)
-        // is never folded. The CALL opcode sits one byte before its operand fixup position.
+        // Function labels whose target is a directly-returning entry — the only CALLs the tail-call fold
+        // may touch. Interrupt handlers are excluded (their epilogue is RETI, not RET); a far-call thunk
+        // (`_thunks`) or runtime routine (`_routines`) target is deliberately left out, so a banked callee
+        // (reached via its thunk) is never folded.
         var safeFuncLabels = new HashSet<Label>(ReferenceEqualityComparer.Instance);
         foreach (var (fn, label) in _funcs)
             if (fn.InterruptVector is null)
                 safeFuncLabels.Add(label);
+
+        // One pass over the fixups feeds both: the anonymous branch-edge labels that live only in the fixup
+        // list (which must relocate and are join points), and the CALL opcodes — one byte before their
+        // operand fixup — that target a safe entry. The CALL opcode sits one byte before its fixup position.
         var tailCallSafeCalls = new HashSet<int>();
         foreach (var (pos, target) in _fixups)
+        {
+            if (target.Offset >= start && target.Offset <= end)
+                labels.Add(target);
             if (pos - 1 >= start && pos - 1 < end && safeFuncLabels.Contains(target))
                 tailCallSafeCalls.Add(pos - 1);
+        }
+
+        var boundaries = new HashSet<int>();
+        foreach (var label in labels)
+            boundaries.Add(label.Offset);
 
         var edits = Sm83Peephole.FindEdits(
             Code,
