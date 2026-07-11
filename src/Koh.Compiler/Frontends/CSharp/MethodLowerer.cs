@@ -823,6 +823,28 @@ internal sealed class MethodLowerer
         if (lit.Kind() == SyntaxKind.FalseLiteralExpression)
             return (IrBuilder.ConstInt(IrType.I8, 0), CsType.Bool);
 
+        // A float/double literal folds to its exact IEEE-754 bit pattern on the host (real .NET, so it
+        // matches the managed build), carried in an i32/i64 constant. An `expected` float type selects
+        // the width (C#'s implicit constant float/double conversions, e.g. `float x = 1.5;`).
+        if (lit.Token.Value is float or double)
+        {
+            double d = Convert.ToDouble(lit.Token.Value);
+            bool asF32 =
+                expected?.IsFloat == true ? expected.Value.Ir.Bits == 32 : lit.Token.Value is float;
+            return asF32
+                ? (
+                    IrBuilder.ConstInt(IrType.I32, BitConverter.SingleToUInt32Bits((float)d)),
+                    CsType.F32
+                )
+                : (
+                    IrBuilder.ConstInt(
+                        IrType.I64,
+                        unchecked((long)BitConverter.DoubleToUInt64Bits(d))
+                    ),
+                    CsType.F64
+                );
+        }
+
         // A string literal is only valid as a byte-array initializer (handled in LowerArrayLocal);
         // elsewhere `Convert.ToInt64` would throw or silently parse it, so report it cleanly.
         if (
@@ -1148,6 +1170,10 @@ internal sealed class MethodLowerer
             // type and would truncate a literal operand); a common type reconciles the two.
             var leftOp = LowerExpression(binary.Left, expected: null);
             var rightOp = LowerExpression(binary.Right, expected: null);
+            // Floating point: route to a softfloat compare (not icmp) — -0.0 == +0.0 and NaN != NaN
+            // are wrong under an integer bit compare.
+            if (leftOp.Type.IsFloat || rightOp.Type.IsFloat)
+                return LowerFloatCompare(kind, leftOp, rightOp, binary);
             leftOp = AdoptConstant(leftOp, rightOp.Type);
             rightOp = AdoptConstant(rightOp, leftOp.Type);
             var (left, lt) = leftOp;
@@ -1201,6 +1227,11 @@ internal sealed class MethodLowerer
 
         var (r, rtype) = LowerExpression(binary.Right, ltype);
 
+        // Floating point: a float operand can never take an integer/pointer/shift path — every float
+        // op routes to the softfloat runtime. This must precede the shift/arithmetic paths below.
+        if (ltype.IsFloat || rtype.IsFloat)
+            return LowerFloatBinary(kind, (l, ltype), (r, rtype), binary);
+
         // Commuted form: i + p. The pointer is on the right; gep from it with the left as the index.
         if (kind == SyntaxKind.AddExpression && rtype.Ir.Kind == IrTypeKind.Pointer)
             return (_b.Gep(r, Coerce((l, ltype), CsType.U16), Pointee(rtype)), rtype);
@@ -1224,6 +1255,111 @@ internal sealed class MethodLowerer
             ),
             common
         );
+    }
+
+    // ---- Floating point ---------------------------------------------------
+    //
+    // `float`/`double` values are IEEE-754 bit patterns carried in i32/i64 IR values (see CsType). They
+    // must NEVER flow through an integer IR op: every float arithmetic/comparison/conversion lowers to a
+    // call into the softfloat runtime (ordinary Koh-subset C# source, e.g. `__f32_add`, compiled into the
+    // same unit). A stray integer op on float bits is a silent wrong result (-0.0 == +0.0, NaN != NaN).
+
+    /// <summary>Emit a call into a softfloat runtime function by name, coercing args to its parameters
+    /// and retyping the result. Throws a clear diagnostic if the runtime source was not included.</summary>
+    private (IrValue, CsType) EmitFloatRuntimeCall(
+        string name,
+        CsType resultType,
+        params (IrValue Value, CsType Type)[] args
+    )
+    {
+        if (!_methods.TryGetValue(name, out var callee))
+            throw new CSharpNotSupportedException(
+                $"floating-point support needs the Koh softfloat runtime, but '{name}' is not in the "
+                    + "compilation (include the numerics runtime source)."
+            );
+        var callArgs = new List<IrValue>(args.Length);
+        for (int i = 0; i < args.Length; i++)
+            callArgs.Add(Coerce(args[i], callee.Params[i]));
+        return (_b.Call(callee.Fn, callArgs), resultType);
+    }
+
+    /// <summary>Widen/convert a value to a target float type: a same-width float is a no-op; an integer
+    /// converts through the runtime (`__i32_to_f32` etc.); float↔float resizes through the runtime.</summary>
+    private IrValue CoerceToFloat((IrValue Value, CsType Type) v, CsType target)
+    {
+        if (v.Type.IsFloat && v.Type.Bits == target.Bits)
+            return v.Value;
+        if (v.Type.IsFloat) // f32 <-> f64
+            return EmitFloatRuntimeCall(
+                target.Bits == 64 ? "__f32_to_f64" : "__f64_to_f32",
+                target,
+                v
+            ).Item1;
+        // integer -> float: first make the integer exactly i32/i64 (signed or unsigned), then convert.
+        var itype = v.Type.Signed
+            ? (target.Bits == 64 ? CsType.I64 : CsType.I32)
+            : (target.Bits == 64 ? CsType.U64 : CsType.U32);
+        var iv = Coerce(v, itype);
+        string conv =
+            (target.Bits == 64 ? "__i64_to_f64" : "__i32_to_f32") is var _ && itype.Signed
+                ? (target.Bits == 64 ? "__i64_to_f64" : "__i32_to_f32")
+                : (target.Bits == 64 ? "__u64_to_f64" : "__u32_to_f32");
+        return EmitFloatRuntimeCall(conv, target, (iv, itype)).Item1;
+    }
+
+    /// <summary>Lower a float arithmetic op (`+ - * /`) to a softfloat runtime call.</summary>
+    private (IrValue, CsType) LowerFloatBinary(
+        SyntaxKind kind,
+        (IrValue, CsType) left,
+        (IrValue, CsType) right,
+        BinaryExpressionSyntax at
+    )
+    {
+        var ft = (left.Item2.Bits == 64 || right.Item2.Bits == 64) ? CsType.F64 : CsType.F32;
+        var lf = CoerceToFloat(left, ft);
+        var rf = CoerceToFloat(right, ft);
+        string op = kind switch
+        {
+            SyntaxKind.AddExpression => "add",
+            SyntaxKind.SubtractExpression => "sub",
+            SyntaxKind.MultiplyExpression => "mul",
+            SyntaxKind.DivideExpression => "div",
+            _ => throw new CSharpNotSupportedException(
+                $"operator is not supported on floating-point values.",
+                at.GetLocation()
+            ),
+        };
+        string prefix = ft.Bits == 64 ? "__f64_" : "__f32_";
+        return EmitFloatRuntimeCall(prefix + op, ft, (lf, ft), (rf, ft));
+    }
+
+    /// <summary>Lower a float comparison to a softfloat runtime call returning a bool.</summary>
+    private (IrValue, CsType) LowerFloatCompare(
+        SyntaxKind kind,
+        (IrValue, CsType) left,
+        (IrValue, CsType) right,
+        BinaryExpressionSyntax at
+    )
+    {
+        var ft = (left.Item2.Bits == 64 || right.Item2.Bits == 64) ? CsType.F64 : CsType.F32;
+        var lf = CoerceToFloat(left, ft);
+        var rf = CoerceToFloat(right, ft);
+        string op = kind switch
+        {
+            SyntaxKind.EqualsExpression => "eq",
+            SyntaxKind.NotEqualsExpression => "ne",
+            SyntaxKind.LessThanExpression => "lt",
+            SyntaxKind.LessThanOrEqualExpression => "le",
+            SyntaxKind.GreaterThanExpression => "gt",
+            SyntaxKind.GreaterThanOrEqualExpression => "ge",
+            _ => throw new CSharpNotSupportedException(
+                $"comparison is not supported on floating-point values.",
+                at.GetLocation()
+            ),
+        };
+        string prefix = ft.Bits == 64 ? "__f64_" : "__f32_";
+        var (result, _) = EmitFloatRuntimeCall(prefix + op, CsType.Bool, (lf, ft), (rf, ft));
+        return (result, CsType.Bool);
     }
 
     /// <summary>If <paramref name="operand"/> is a constant whose value fits <paramref name="other"/>,
