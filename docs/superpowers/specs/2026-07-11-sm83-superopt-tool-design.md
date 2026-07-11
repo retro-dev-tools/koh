@@ -1,6 +1,21 @@
 # SM83 superoptimizer — productionized offline tool (`tools/Koh.Superopt`)
 
-Status: **design approved, implementing.**
+Status: **landed** — miner + verifier in `tools/Koh.Superopt`, 13 tool tests green.
+
+## What landed
+
+- `tools/Koh.Superopt` console project referencing `Koh.Emulator.Core` (oracle) and
+  `Koh.Compiler` (MIR) — the emulator dependency lives in the tool, not the compiler.
+- **Slice 1 (miner):** `Sm83Oracle` (concrete-execution equivalence, ported and upgraded to
+  report T-cycles), `Sm83Alphabet` (MIR-validated straight-line/register-only ops), `Enumerator`,
+  `Miner` (behavior-bucketing discovery), and a `Program` report driver. `dotnet run --project
+  tools/Koh.Superopt` prints mined rewrites under `Live.All` and flags-dead `Live.AllRegs`,
+  rediscovering `LD A,0 → XOR A` (and larger wins) exactly where liveness permits.
+- **Slice 2 (verifier):** `RuleVerifier` certifies declared rules against emulator ground truth,
+  reporting a rule outside the register-only domain as not well-formed rather than mis-judging it.
+- Cost is measured, not tabulated: bytes from the encoding, T-cycles from `StepResult.TCyclesRan`.
+
+Design and plan: this file and `docs/superpowers/plans/2026-07-11-sm83-superopt-tool.md`.
 
 Productionizes the emulator-oracle superoptimizer PoC (PR #20, landed in the test
 project) now that item #1 — the SM83 MIR machine-instruction layer — has landed on
