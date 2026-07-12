@@ -1,6 +1,9 @@
 # SM83 bounded superoptimizer (emulator-oracle equivalence)
 
-Status: **proof-of-concept landed** (oracle + bounded search + tests, in the test project).
+Status: **superseded**. The PoC below was productionized into `tools/Koh.Superopt`
+(see `docs/superpowers/specs/2026-07-11-sm83-superopt-tool-design.md`); its code in
+`tests/Koh.Compiler.Tests/Superopt/` has been removed now that the tool's tests
+replicate the same behaviors.
 
 ## Motivation
 
@@ -12,8 +15,8 @@ end-to-end test harness. That is the piece most projects would have to build fir
 
 ## What landed
 
-In `tests/Koh.Compiler.Tests/Superopt/` (test project, because it drives the
-emulator — see "Home" below):
+It landed in `tests/Koh.Compiler.Tests/Superopt/` (test project, because it drives
+the emulator — see "Home" below):
 
 - **`Sm83Oracle`** — a concrete-execution equivalence oracle. It bakes a byte
   sequence into a minimal ROM-only cartridge at the code entry, sets the register
