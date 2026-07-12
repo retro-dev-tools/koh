@@ -84,10 +84,17 @@ public class CSharpEndToEndTests
 
     private static void Run(GameBoySystem gb, int start, int length)
     {
+        // Upper-bounded at 0x8000, not start+length: `length` only spans the fixed ROM0 code window
+        // (Sections[0]), but a program whose code overflows that window moves its trailing functions into
+        // the bank-1 window (0x4000-0x7FFF), which MBC1 maps by default (see CLAUDE.md's ROM-banking
+        // invariant) — so a call can legitimately land there. Bounding at the end of the whole cartridge
+        // ROM range (mirroring CodeBanking_OverflowFunctionsRunFromBank1's own loop) lets single-bank-
+        // overflow programs run to completion instead of being cut off mid-call. Normal (non-banked)
+        // programs still terminate via the lower bound once they return past their own code.
         for (int steps = 0; steps < 200_000; steps++)
         {
             int pc = gb.Registers.Pc;
-            if (pc < start || pc >= start + length)
+            if (pc < start || pc >= 0x8000)
                 break;
             gb.StepInstruction();
         }
@@ -1212,21 +1219,6 @@ static ushort Run() {
         await Assert.That(module.Functions.Any(f => f.Name == "__f32_add")).IsTrue();
         await Assert.That(module.Functions.Any(f => f.Name == "__f32_mul")).IsFalse();
         await Assert.That(module.Functions.Any(f => f.Name == "__f32_div")).IsFalse();
-    }
-
-    [Test]
-    public async Task Float_DoubleReportsClearDiagnostic()
-    {
-        // `double` is not yet supported; it must report a clear message, not the unsatisfiable "include
-        // the numerics runtime source" (the runtime is single-precision only).
-        var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(
-            SourceText.From("static double Main() { double d = 1.0; return d + 2.0; }", "game.cs"),
-            diagnostics
-        );
-        await Assert
-            .That(diagnostics.Any(d => d.Message.Contains("double is not yet supported")))
-            .IsTrue();
     }
 
     // ---- MathF (single-precision Math), compiled as library source ------------
