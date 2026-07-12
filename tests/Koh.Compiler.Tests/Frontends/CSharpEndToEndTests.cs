@@ -72,8 +72,10 @@ public class CSharpEndToEndTests
     {
         var link = new LinkerType().Link([new LinkerInput("cs", model)]);
         var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
-        start = Sm83Backend.CodeBase;
-        length = model.Sections[0].Data.Length;
+        // Boot at the cartridge entry (0x100), so the header's JP reaches the real entry (Main) wherever it
+        // was placed — not the first-emitted function. The run range spans the header and the code.
+        start = 0x100;
+        length = Sm83Backend.CodeBase + model.Sections[0].Data.Length - 0x100;
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start;
@@ -115,15 +117,35 @@ public class CSharpEndToEndTests
         return ((uint)gb.Registers.DE << 16) | gb.Registers.HL; // i32: high word DE, low word HL
     }
 
-    private static ulong RunI64(string src, Action<GameBoySystem>? args = null)
+    private static ulong RunI64(string src, Action<GameBoySystem>? args = null) =>
+        ReadReturnI64(Load(Compile(src), out int s, out int l), s, l, args);
+
+    private static ulong RunI64Opt(string src, Action<GameBoySystem>? args = null) =>
+        ReadReturnI64(Load(CompileOpt(src), out int s, out int l), s, l, args);
+
+    private static ulong ReadReturnI64(GameBoySystem gb, int s, int l, Action<GameBoySystem>? args)
     {
-        var gb = Load(Compile(src), out int s, out int l);
         args?.Invoke(gb);
         Run(gb, s, l);
         ulong result = 0; // i64 is returned little-endian in ReturnScratch memory
         for (int i = 0; i < 8; i++)
             result |= (ulong)gb.DebugReadByte((ushort)(Sm83Backend.ReturnScratch + i)) << (8 * i);
         return result;
+    }
+
+    [Test]
+    public async Task Optimizer_Wide128ConstFold_IsCorrect()
+    {
+        // The constant-folding pass held values in a 64-bit long, so it folded 128-bit ops wrong
+        // (`(UInt128)1 << 105` -> `1 << 41`). It must now leave >64-bit ops for the backend. This i128
+        // multiply/normalize/extract (as in the softfloat double path) must match on the optimized path,
+        // where the operands fold to constants.
+        const string src =
+            "static ulong Main(){ ulong siga = 0x18000000000000; ulong sigb = 0x10000000000000; "
+            + "UInt128 prod = (UInt128)siga * (UInt128)sigb; if (prod < ((UInt128)1 << 105)) { prod = prod << 1; } "
+            + "return (ulong)(prod >> 53); }";
+        await Assert.That(RunI64Opt(src)).IsEqualTo(0x18000000000000UL);
+        await Assert.That(RunI64(src)).IsEqualTo(0x18000000000000UL);
     }
 
     private static void W64(GameBoySystem gb, int offset, long value)
@@ -1046,6 +1068,299 @@ static ushort Run() {
         await Assert.That(RunA(src, gb => gb.DebugWriteByte(0xFF42, 0x55))).IsEqualTo((byte)0x55);
     }
 
+    // ---- Floating point (M1: full single-precision op set) --------------------
+    //
+    // `float` is a frontend type carried as its IEEE-754 bits in an i32; operators/comparisons/conversions
+    // lower to calls into the softfloat runtime (SoftFloatRuntime.Source, subset-C# the frontend appends
+    // when a program uses float). Each result must be bit-identical to the same expression in real .NET
+    // `float` — which is also the ROM-vs-managed dual-build consistency guarantee. Normal range only
+    // (subnormal inputs are flushed to zero by design).
+
+    /// <summary>A round-trippable C# `float` literal for a value (G9 round-trips single precision).</summary>
+    private static string Lit(float x) =>
+        x.ToString("G9", System.Globalization.CultureInfo.InvariantCulture) + "f";
+
+    [Test]
+    [Arguments("+", 1.5f, 2.0f)]
+    [Arguments("+", 0.1f, 0.2f)] // round-to-nearest-even
+    [Arguments("+", -2.5f, 0.75f)] // opposite signs
+    [Arguments("+", 1.0f, -1.0f)] // exact cancellation
+    [Arguments("+", 100.0f, 0.5f)] // wide exponent gap -> shift/sticky alignment
+    [Arguments("+", 1000000.0f, 0.25f)] // very wide gap -> the small operand mostly sticky
+    [Arguments("-", 3.5f, 1.25f)]
+    [Arguments("-", 1.0f, 4.0f)] // negative result
+    [Arguments("*", 2.0f, 3.0f)]
+    [Arguments("*", 0.1f, 0.1f)] // rounding
+    [Arguments("*", -1.5f, 4.0f)]
+    [Arguments("/", 7.0f, 2.0f)]
+    [Arguments("/", 1.0f, 3.0f)] // non-terminating -> rounding
+    [Arguments("/", -9.0f, 4.0f)]
+    public async Task Float_Arithmetic_MatchesHost(string op, float x, float y)
+    {
+        string prog = $"static float Main() {{ return {Lit(x)} {op} {Lit(y)}; }}";
+        float expected = op switch
+        {
+            "+" => x + y,
+            "-" => x - y,
+            "*" => x * y,
+            "/" => x / y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
+    }
+
+    [Test]
+    [Arguments("<", 1.5f, 2.0f)]
+    [Arguments("<", 2.0f, 1.5f)]
+    [Arguments("<=", 2.0f, 2.0f)]
+    [Arguments(">", -1.0f, -2.0f)] // negatives: ordering reverses in magnitude
+    [Arguments(">=", 1.0f, 1.0f)]
+    [Arguments("==", 0.1f, 0.1f)]
+    [Arguments("!=", 0.1f, 0.2f)]
+    [Arguments("<", -0.0f, 0.0f)] // -0.0 == 0.0 -> not <
+    public async Task Float_Compare_MatchesHost(string op, float x, float y)
+    {
+        string prog = $"static byte Main() {{ if ({Lit(x)} {op} {Lit(y)}) return 1; return 0; }}";
+        bool expected = op switch
+        {
+            "<" => x < y,
+            "<=" => x <= y,
+            ">" => x > y,
+            ">=" => x >= y,
+            "==" => x == y,
+            "!=" => x != y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunA(prog)).IsEqualTo(expected ? (byte)1 : (byte)0);
+    }
+
+    [Test]
+    [Arguments(3.7f, 3)]
+    [Arguments(-3.7f, -3)] // truncates toward zero
+    [Arguments(5.0f, 5)]
+    [Arguments(0.9f, 0)]
+    [Arguments(-0.9f, 0)]
+    [Arguments(1000.25f, 1000)]
+    [Arguments(-2147483648.0f, -2147483648)] // int.MinValue exactly (2^31): exercises the saturation edge
+    public async Task Float_ToInt_MatchesHost(float x, int expected)
+    {
+        string prog = $"static int Main() {{ return (int)({Lit(x)}); }}";
+        await Assert.That((int)RunI32Opt(prog)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments(5.0f)]
+    [Arguments(0.9f)]
+    [Arguments(2147483648.0f)] // 2^31: in [2^31, 2^32), the range the saturation off-by-one corrupted
+    [Arguments(3000000000.0f)] // ~3e9: also in [2^31, 2^32)
+    public async Task Float_ToUInt_MatchesHost(float x)
+    {
+        string prog = $"static uint Main() {{ return (uint)({Lit(x)}); }}";
+        await Assert.That(RunI32(prog)).IsEqualTo((uint)x);
+    }
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(5)]
+    [Arguments(-5)]
+    [Arguments(1000000)]
+    [Arguments(-1000000)]
+    [Arguments(16777217)] // 2^24 + 1: not exactly representable -> tests rounding
+    public async Task Float_FromInt_MatchesHost(int x)
+    {
+        string prog = $"static float Main() {{ int v = {x}; return (float)v; }}";
+        await Assert.That(RunI32(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits((float)x));
+    }
+
+    [Test]
+    public async Task Float_LocalsAndReturn_MatchesHost()
+    {
+        // Float locals are stored/loaded as their bits and summed through the runtime.
+        await Assert
+            .That(RunI32("static float Main() { float a = 1.5f; float b = 2.0f; return a + b; }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f + 2.0f));
+    }
+
+    [Test]
+    public async Task Float_ImplicitIntToFloat_MatchesHost()
+    {
+        // `return 5;` from a float method is an implicit int->float conversion (not a reinterpret of the
+        // int bits) — the runtime auto-appends so it now compiles and returns 5.0f.
+        await Assert
+            .That(RunI32("static float Main() { return 5; }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(5.0f));
+    }
+
+    [Test]
+    public async Task Float_CompoundAdd_MatchesHost()
+    {
+        // `sum += 2.0f` must route through the softfloat runtime, not an integer add of the bits.
+        await Assert
+            .That(RunI32("static float Main() { float sum = 1.5f; sum += 2.0f; return sum; }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f + 2.0f));
+    }
+
+    [Test]
+    public async Task Float_UnusedRuntimeOpsPruned()
+    {
+        // A float program that uses only `+` must keep __f32_add but drop the unused runtime ops (mul/div),
+        // so a float ROM carries only what it uses.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From("static float Main() { return 1.5f + 2.0f; }", "game.cs"),
+            new DiagnosticBag()
+        );
+        await Assert.That(module.Functions.Any(f => f.Name == "__f32_add")).IsTrue();
+        await Assert.That(module.Functions.Any(f => f.Name == "__f32_mul")).IsFalse();
+        await Assert.That(module.Functions.Any(f => f.Name == "__f32_div")).IsFalse();
+    }
+
+    [Test]
+    public async Task Float_DoubleReportsClearDiagnostic()
+    {
+        // `double` is not yet supported; it must report a clear message, not the unsatisfiable "include
+        // the numerics runtime source" (the runtime is single-precision only).
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From("static double Main() { double d = 1.0; return d + 2.0; }", "game.cs"),
+            diagnostics
+        );
+        await Assert
+            .That(diagnostics.Any(d => d.Message.Contains("double is not yet supported")))
+            .IsTrue();
+    }
+
+    // ---- MathF (single-precision Math), compiled as library source ------------
+
+    [Test]
+    [Arguments("Round", 2.5f)] // banker's rounding -> 2
+    [Arguments("Round", 3.5f)] // -> 4
+    [Arguments("Round", -2.5f)] // -> -2
+    [Arguments("Round", 2.4f)]
+    [Arguments("Round", 2.6f)]
+    [Arguments("Floor", 2.7f)]
+    [Arguments("Floor", -2.3f)]
+    [Arguments("Ceiling", 2.3f)]
+    [Arguments("Ceiling", -2.7f)]
+    [Arguments("Truncate", 2.7f)]
+    [Arguments("Truncate", -2.7f)]
+    [Arguments("Abs", -3.5f)]
+    [Arguments("Abs", 3.5f)]
+    public async Task MathF_UnaryFloat_MatchesHost(string fn, float x)
+    {
+        string prog = $"static float Main() {{ return MathF.{fn}({Lit(x)}); }}";
+        float expected = fn switch
+        {
+            "Round" => MathF.Round(x),
+            "Floor" => MathF.Floor(x),
+            "Ceiling" => MathF.Ceiling(x),
+            "Truncate" => MathF.Truncate(x),
+            "Abs" => MathF.Abs(x),
+            _ => throw new ArgumentException(fn),
+        };
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
+    }
+
+    [Test]
+    [Arguments("Min", 1.5f, 2.5f)]
+    [Arguments("Max", 1.5f, 2.5f)]
+    [Arguments("Min", -1.5f, -2.5f)]
+    [Arguments("Max", -1.5f, -2.5f)]
+    public async Task MathF_BinaryFloat_MatchesHost(string fn, float a, float b)
+    {
+        string prog = $"static float Main() {{ return MathF.{fn}({Lit(a)}, {Lit(b)}); }}";
+        float expected = fn == "Min" ? MathF.Min(a, b) : MathF.Max(a, b);
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
+    }
+
+    [Test]
+    [Arguments(3.5f, 1)]
+    [Arguments(-3.5f, -1)]
+    [Arguments(0.0f, 0)]
+    public async Task MathF_Sign_MatchesHost(float x, int expected)
+    {
+        string prog = $"static int Main() {{ return MathF.Sign({Lit(x)}); }}";
+        await Assert.That((int)RunI32Opt(prog)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task MathF_AcrossHelperCalls_MatchesHost()
+    {
+        // Float values (and MathF results) survive being passed to and returned from helper functions,
+        // with the entry declared last — the harness boots at the cartridge entry, which reaches Main
+        // wherever it is (as a real ROM does), so a non-inlined helper before Main can't be mistaken for it.
+        const string prog =
+            "static float Main(){ return Shift(2.7f) + Shift(5.3f); } "
+            + "static float Shift(float v){ return MathF.Floor(v) + 1f; }";
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(9.0f));
+    }
+
+    [Test]
+    public async Task BitConverter_ZeroArgReportsDiagnostic()
+    {
+        // A zero-arg BitConverter call must report a diagnostic, not crash the compiler.
+        await Assert
+            .That(HasError("static uint Main() { return BitConverter.SingleToUInt32Bits(); }"))
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task MathF_UserClassIsReserved()
+    {
+        // A user `static class MathF` collides with the appended library; report a clean reserved-name
+        // error, not confusing duplicate-method diagnostics.
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From(
+                "static class MathF { static float Round(float x){ return x; } } static float Main(){ return MathF.Round(1.5f); }",
+                "game.cs"
+            ),
+            diagnostics
+        );
+        await Assert.That(diagnostics.Any(d => d.Message.Contains("'MathF' is reserved"))).IsTrue();
+    }
+
+    [Test]
+    public async Task MathF_SystemPrefixResolves()
+    {
+        // `System.MathF.Round` resolves to the compiled MathF library (the namespace is dropped).
+        await Assert
+            .That(RunI32Opt("static float Main() { return System.MathF.Round(2.5f); }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(2.0f));
+    }
+
+    [Test]
+    public async Task MathF_UnusedFunctionsPruned()
+    {
+        // A program using MathF.Abs keeps it but drops the other MathF library functions.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From("static float Main() { return MathF.Abs(-1.5f); }", "game.cs"),
+            new DiagnosticBag()
+        );
+        await Assert.That(module.Functions.Any(f => f.Name == "MathF.Abs")).IsTrue();
+        await Assert.That(module.Functions.Any(f => f.Name == "MathF.Round")).IsFalse();
+        await Assert.That(module.Functions.Any(f => f.Name == "MathF.Floor")).IsFalse();
+    }
+
+    [Test]
+    public async Task Float_AutoAppendedRuntime_CompilesWithoutManualInclude()
+    {
+        // A program using float compiles clean with no runtime written by the user — the frontend appends
+        // the softfloat runtime automatically.
+        await Assert.That(HasError("static float Main() { return 1.5f + 2.0f; }")).IsFalse();
+    }
+
+    [Test]
+    public async Task Float_UnusedByProgram_RuntimeNotAppended()
+    {
+        // A non-float program must not carry the softfloat runtime (no ROM bloat): the emitted module has
+        // no __f32_add function.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From("static byte Main() { return 3; }", "game.cs"),
+            new DiagnosticBag()
+        );
+        await Assert.That(module.Functions.Any(f => f.Name.Contains("__f32_add"))).IsFalse();
+    }
+
     [Test]
     public async Task StaticClass_QualifiedAndSiblingCalls()
     {
@@ -1655,10 +1970,10 @@ static uint Main() {
     [Test]
     public async Task UnsupportedConstruct_ReportedAsDiagnostic()
     {
-        // 'float' is unsupported: reported into the bag with a location, not thrown.
+        // 'decimal' is unsupported: reported into the bag with a location, not thrown.
         var diagnostics = new DiagnosticBag();
         new CSharpFrontend().Lower(
-            SourceText.From("static float Bad() { return 0; }", "game.cs"),
+            SourceText.From("static decimal Bad() { return 0; }", "game.cs"),
             diagnostics
         );
         await Assert.That(diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error)).IsTrue();

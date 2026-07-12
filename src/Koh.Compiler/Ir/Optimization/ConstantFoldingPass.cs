@@ -45,6 +45,11 @@ public sealed class ConstantFoldingPass : IIrFunctionPass
         if (b.Type.Kind != IrTypeKind.Int)
             return null;
         var bits = b.Type.Bits;
+        // Constants are held in a 64-bit `long`, so a value wider than 64 bits (i128) can't be represented
+        // or folded correctly here (e.g. `(UInt128)1 << 105` would wrap to `1 << 41`). Leave those for the
+        // backend, whose width-N routines compute them correctly.
+        if (bits > 64)
+            return null;
 
         if (b.Left is IrConstInt l && b.Right is IrConstInt r)
             return FoldConstBinary(b.Op, l.Value, r.Value, bits, b.Type);
@@ -193,6 +198,8 @@ public sealed class ConstantFoldingPass : IIrFunctionPass
             return null;
 
         var bits = c.Left.Type.Bits;
+        if (bits > 64) // 128-bit operands don't fit the 64-bit fold; leave to the backend
+            return null;
         var (ua, ub) = (AsUnsigned(l.Value, bits), AsUnsigned(r.Value, bits));
         var (sa, sb) = (AsSigned(l.Value, bits), AsSigned(r.Value, bits));
 
@@ -222,6 +229,8 @@ public sealed class ConstantFoldingPass : IIrFunctionPass
             return null;
 
         var srcBits = operand.Type.Bits;
+        if (srcBits > 64 || c.Type.Bits > 64) // 128-bit conv doesn't fit the 64-bit fold; leave to the backend
+            return null;
         return c.Op switch
         {
             IrConvOp.Trunc when c.Type.Kind == IrTypeKind.Int => new IrConstInt(
