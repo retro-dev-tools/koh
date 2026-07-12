@@ -13,16 +13,15 @@ using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Compiler.Tests;
 
-/// <summary>Phase 4 of the semantic-model migration: <c>MethodLowerer</c>'s call/field/enum/struct
-/// resolution sites (<c>LowerCall</c>'s static-callee switch, <c>LowerInstanceCall</c>,
-/// <c>TryGlobal</c>/<c>TryModuleConst</c>, enum member access in <c>LowerMemberAccess</c>, and
-/// <c>StructFieldPointer</c>/<c>StructBaseOf</c>'s field-name resolution) now consult a resolved Roslyn
-/// symbol against <see cref="CSharpSemantics"/>'s symbol-keyed indexes first, falling back to the
-/// pre-migration string-keyed lookup only when no symbol resolves (a detached monomorphized-generic
-/// body, or no compilation). These tests exercise the real end-to-end pipeline (frontend -&gt; backend -&gt;
-/// linker -&gt; emulator), mirroring <see cref="CSharpSemanticsIntrinsicsTests"/>'s harness, proving ordinary
-/// programs still lower/run identically and that the symbol-first paths and their string fallbacks both
-/// actually fire.</summary>
+/// <summary><c>MethodLowerer</c>'s call/field/enum/struct resolution sites (<c>LowerCall</c>,
+/// <c>LowerInstanceCall</c>, <c>TryGlobal</c>/<c>TryModuleConst</c>, enum member access in
+/// <c>LowerMemberAccess</c>, and <c>StructFieldPointer</c>/<c>StructBaseOf</c>'s field-name resolution)
+/// resolve a Roslyn symbol against <see cref="CSharpSemantics"/>'s symbol-keyed indexes — since Stage-2
+/// P5 the ONLY resolution path (the pre-migration string-keyed lookups are deleted; a monomorphized
+/// generic instance's body binds in the constructed instances tree, so symbols resolve there too). These
+/// tests exercise the real end-to-end pipeline (frontend -&gt; backend -&gt; linker -&gt; emulator),
+/// mirroring <see cref="CSharpSemanticsIntrinsicsTests"/>'s harness, proving ordinary programs
+/// lower/run identically through the symbol-only paths.</summary>
 public class CSharpSemanticsResolutionTests
 {
     private static IrModule Frontend(string src)
@@ -96,9 +95,8 @@ public class CSharpSemanticsResolutionTests
     [Test]
     public async Task QualifiedStaticCall_ResolvesBySymbol_AndRuns()
     {
-        // A qualified `Board.Get()` call: LowerCall's symbol-first path resolves the invocation's method
-        // symbol, maps it via CSharpSemantics.Methods to the very same CsMethod the string-keyed switch
-        // would have found.
+        // A qualified `Board.Get()` call: LowerCall resolves the invocation's method symbol and maps it
+        // via CSharpSemantics.Methods to the registered CsMethod — the only callee lookup since Stage-2 P5.
         const string src =
             "static byte Main() { return Board.Get(); }\n"
             + "static class Board { public static byte Get() => 7; }";
@@ -190,18 +188,38 @@ public class CSharpSemanticsResolutionTests
     }
 
     [Test]
-    public async Task GenericBody_CallingOtherUserFunctions_StringFallbackStillWorks()
+    public async Task GenericBody_CallingOtherUserFunctions_ResolvesBySymbol()
     {
-        // Touch<T>'s specialized body is a detached synthesized tree (TypeParamRewriter), so
-        // CSharpSemantics.Sym returns null for every node inside it; a call from within that body to an
-        // ordinary sibling function must still resolve via the pre-migration string-keyed `_methods`
-        // table, not silently fail because there is no symbol to consult.
+        // Touch<byte>'s specialized body lives in the constructed instances tree (Stage-2 P2), a real
+        // member of the compilation — so a call from within it to an ordinary sibling function resolves
+        // by symbol exactly like any other call. Since Stage-2 P5 this is the ONLY way it can resolve
+        // (the string-keyed fallback that used to cover the pre-P2 detached body is deleted), so this
+        // test both runs the program end-to-end and pins the in-instance-body symbol resolution itself.
         const string src =
             "static byte Main() { return Touch<byte>(5); }\n"
             + "static T Touch<T>(T x) { return (T)Helper(x); }\n"
             + "static byte Helper(byte x) => (byte)(x + 1);";
         await Assert.That(LowerDiagnostics(src)).IsEmpty();
         await Assert.That(RunA(src)).IsEqualTo((byte)6);
+
+        // The call node inside the monomorphized instance body resolves to the real Helper declaration
+        // (SymOrCandidate — the same accessor LowerCall uses — yields Helper's own method symbol, and
+        // that symbol is a key in the symbol-keyed Methods index the callee is looked up in).
+        var diagnostics = new DiagnosticBag();
+        var (_, semantics) = CSharpFrontend.LowerForTest(src, diagnostics);
+        await Assert.That(diagnostics).IsEmpty();
+        var instancesRoot = semantics
+            .Compilation!.SyntaxTrees.First(t => t.FilePath == "__KohGenericInstances.cs")
+            .GetCompilationUnitRoot();
+        var helperCall = instancesRoot
+            .DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .First(i => i.Expression is IdentifierNameSyntax { Identifier.Text: "Helper" });
+        var resolved = semantics.SymOrCandidate(helperCall);
+        await Assert.That(resolved).IsTypeOf<Microsoft.CodeAnalysis.IMethodSymbol>();
+        var method = (Microsoft.CodeAnalysis.IMethodSymbol)resolved!;
+        await Assert.That(method.Name).IsEqualTo("Helper");
+        await Assert.That(semantics.Methods.ContainsKey(method.OriginalDefinition)).IsTrue();
     }
 
     // ---- Globals and module consts: read and write through symbol-first TryGlobal/TryModuleConst -----
@@ -220,8 +238,8 @@ public class CSharpSemanticsResolutionTests
     public async Task Global_InsideStaticClass_PrefersItsOwnMemberOverATopLevelGlobal()
     {
         // Board.Cell and a top-level Cell coexist; from within Board's own method, the unqualified name
-        // must resolve to Board's own field — exactly the preference TryGlobal's string fallback encodes,
-        // which a resolved field symbol (identifying Board's own field) must agree with.
+        // must resolve to Board's own field — C#'s own scoping (the enclosing type's member wins), which
+        // the resolved field symbol TryGlobal keys on encodes by construction.
         const string src =
             "static byte Cell = 1;\n"
             + "static class Board { static byte Cell = 9; public static byte Get() { Cell = (byte)(Cell + 1); return Cell; } }\n"

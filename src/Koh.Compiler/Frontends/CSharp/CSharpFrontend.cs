@@ -37,14 +37,18 @@ public sealed class CSharpNotSupportedException : Exception
 /// math without an <c>unsafe</c> block). A monomorphized generic instance's <em>body</em> is no
 /// longer detached syntax (Stage-2 P2): it lives in a second, constructed tree (see
 /// <see cref="BuildInstancesTree"/>) that Roslyn binds alongside the main tree, so ordinary symbol
-/// resolution runs inside it exactly as for any other declaration. Every resolution site still keeps
-/// the pre-migration string-keyed lookup as a fallback for when no symbol resolves at all (no
-/// compilation built, or resolution failure) and, for now, for routing a generic call site to its
-/// monomorphized instance (a constructed generic call's symbol maps to the *template*'s
-/// <c>OriginalDefinition</c>, which is never itself registered — only its instances are; see
-/// <c>CSharpFrontend.Generics.cs</c>). Static methods become IR functions; locals and parameters
-/// become <c>alloca</c>s (so control flow needs no phi construction here — mutable state lives in
-/// memory, and the backend statically allocates it).
+/// resolution runs inside it exactly as for any other declaration. Symbol resolution (via
+/// <see cref="CSharpSemantics"/>, including its candidate acceptance for Koh-legal-but-C#-illegal code
+/// — Stage-2 P3) is the ONLY name-resolution path (Stage-2 P5 deleted the pre-migration string-keyed
+/// fallbacks); a generic call site still routes to its monomorphized instance via
+/// <see cref="CSharpSemantics.TryGetGenericInstance"/> (a constructed generic call's symbol maps to the
+/// *template*'s <c>OriginalDefinition</c>, which is never itself registered — only its instances are —
+/// keyed alongside the call's own mangled type-argument suffix; see <c>CSharpFrontend.Generics.cs</c>
+/// and <c>MethodLowerer.LowerCall</c>). Building a compilation is therefore required, not optional
+/// (see <c>LowerCore</c>'s check of <see cref="CSharpSemantics.Compilation"/>) — no supported host
+/// leaves it unavailable. Static methods become IR functions; locals and parameters become
+/// <c>alloca</c>s (so control flow needs no phi construction here — mutable state lives in memory,
+/// and the backend statically allocates it).
 /// </summary>
 public sealed partial class CSharpFrontend : IFrontend
 {
@@ -302,14 +306,32 @@ public sealed partial class CSharpFrontend : IFrontend
         var instancesTree = BuildInstancesTree(genericInstances);
 
         // A real CSharpCompilation over the final tree(s), as a resolution oracle: MethodLowerer consults
-        // it symbol-first for intrinsic recognition, call/field/member resolution, and unresolved-name
-        // diagnostic text, falling back to the string-keyed tables only where no symbol resolves. Built
-        // from root.SyntaxTree (post-rewrite) plus instancesTree (if any generic instance exists), so node
+        // it for intrinsic recognition, call/field/member resolution, and unresolved-name diagnostic
+        // text — the only resolution path since Stage-2 P5, hence the required-compilation check below.
+        // Built from root.SyntaxTree (post-rewrite) plus instancesTree (if any generic instance exists), so node
         // identity here matches everything lowered below. The declaration passes register into it as they
         // go (see CSharpFrontend.Semantics.cs); onSemanticsBuilt is a test-only hook (see LowerForTest)
         // letting tests capture the same instance the passes populate.
         var semantics = BuildSemantics(root.SyntaxTree, instancesTree);
         onSemanticsBuilt?.Invoke(semantics);
+
+        // Stage-2 P5: symbol resolution is the only name-resolution path left, so a compilation is no
+        // longer optional — without one, every MethodLowerer resolution site (Sym/SymOrCandidate/
+        // DeclaredSym) would silently return null forever and every name in the program would report as
+        // unresolved. No supported host actually hits this (Koh.Compiler is never AOT-published, and both
+        // the TUnit test host and the in-proc MSBuild task run on the plain .NET runtime with a full TPA
+        // list — see TrustedPlatformReferences), so this is a defensive, single, clear diagnostic rather
+        // than a confusing cascade of per-name "unresolved identifier" reports.
+        if (semantics.Compilation is null)
+        {
+            Report(
+                diagnostics,
+                "internal: the C# frontend requires runtime assembly references to resolve names, and "
+                    + "none were found.",
+                null
+            );
+            return;
+        }
 
         // Recover the synthesized instances from the (freshly rooted) instances tree: placing a node into
         // a new tree gives it fresh (red-node) identity, so the MethodDeclarationSyntax instances returned
@@ -350,8 +372,11 @@ public sealed partial class CSharpFrontend : IFrontend
         // Pass 0.45: class layouts (reference types, heap-allocated) and their instance methods.
         var classes = CollectClasses(root, enums, diagnostics, semantics);
 
-        // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
-        var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(
+        // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays. The consts
+        // dictionary is discarded here: it exists only to fold const references while collecting statics
+        // and to feed semantics.RegisterConst (both inside CollectStatics); MethodLowerer's own const
+        // lookup (TryModuleConst) is symbol-only since Stage-2 P5 and no longer needs the string table.
+        var (globals, _, staticInits, moduleArrays) = CollectStatics(
             root,
             enums,
             module,
@@ -587,7 +612,6 @@ public sealed partial class CSharpFrontend : IFrontend
                     enums,
                     structs,
                     globals,
-                    moduleConsts,
                     hardware,
                     module.Name,
                     inits,

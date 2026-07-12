@@ -53,10 +53,11 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   `IrParser` (round-trips the printer), `IrVerifier`.
 - `Frontends/CSharp/` — Roslyn parses; `CSharpFrontend` + `MethodLowerer` lower a systems
   subset of C# to IR via syntax-directed lowering. A real `CSharpCompilation`/`SemanticModel`
-  (`CSharpSemantics`) is consulted symbol-first as a resolution oracle for names/members/calls/
-  intrinsics, falling back to the original string-keyed tables only for a detached
-  monomorphized-generic body; Koh's own C-like typing (widths/signedness) stays authoritative
-  regardless of what Roslyn would infer.
+  (`CSharpSemantics`, incl. candidate acceptance for Koh-legal-but-C#-illegal code) is the ONLY
+  resolution path for names/members/calls/intrinsics; monomorphized generic instances bind in a
+  second constructed tree, and generic calls route by template symbol + mangled type-arg suffix.
+  Koh's own C-like typing (widths/signedness) stays authoritative regardless of what Roslyn
+  would infer.
 - `Backends/Sm83/Sm83Backend.cs` — hand-written, correctness-first SM83 code generation.
 - `Targets/` — `DataLayout` (per-target pointer width / endianness / native int widths).
 
@@ -106,12 +107,13 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 - **Mixed signed/unsigned** binary ops go through `MethodLowerer.CommonType` (usual-arithmetic
   conversions: wider width wins; a mixed pair whose sign matters promotes to a signed type wide
   enough, else a diagnostic). Do not take signedness/width from the left operand alone.
-- **`CSharpSemantics`'s symbol-keyed indexes and `MethodLowerer`'s string-keyed tables must hold
-  the same Koh data** (`CsMethod`/`CsEnum`/`CsStruct`/`CsClass`/`IrGlobal`, populated by the same
-  declaration passes) — a symbol-first lookup and its string fallback are two paths to the same
-  answer, never two sources of truth. The string fallbacks are load-bearing (a monomorphized
-  generic instance's body is a syntax tree detached from the compilation, so no symbol resolves
-  there) — don't delete them as "dead" without proving no caller can reach them detached.
+- **Symbol resolution (via `CSharpSemantics`, incl. candidate acceptance) is the ONLY
+  name-resolution path** in the C# frontend. The remaining string-keyed tables (`_methods` for
+  softfloat runtime routing / MathF / duplicate detection, per-body locals dicts, and type-name
+  resolution in `Types.cs` until Stage-2 P6) are declaration plumbing, not resolution fallbacks —
+  don't reintroduce a string lookup where a symbol should resolve; an unresolved symbol is a
+  diagnostic. A compilation is required: `LowerCore` reports one diagnostic and stops if
+  `CSharpSemantics.Compilation` is null (no supported host hits this).
 - **Backend errors are not caught by the driver.** A `NotSupportedException` from the backend
   escapes; the frontend catches `CSharpNotSupportedException` and reports diagnostics. Prefer
   reporting a diagnostic over throwing where the input is user code.

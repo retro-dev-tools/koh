@@ -11,14 +11,15 @@ using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Compiler.Tests;
 
-/// <summary>Phase 3 of the semantic-model migration: <c>MethodLowerer</c>'s five intrinsic-recognition
-/// sites (Hardware register write/read, Gb region read, Hardware control-intrinsic calls, Mem.Alloc/
-/// Reset, BitConverter) now resolve the receiver's Roslyn symbol first and only fall back to the
-/// pre-migration exact-name string match when no symbol resolves (a detached monomorphized-generic
-/// body, or no compilation). These tests exercise the real end-to-end pipeline (frontend -&gt; backend -&gt;
-/// linker -&gt; emulator), mirroring <c>CSharpEndToEndTests</c>'s harness, so they prove both that ordinary
-/// programs still lower/run identically and that the new symbol-first path fixes a real name-collision
-/// bug the old string match had.</summary>
+/// <summary><c>MethodLowerer</c>'s five intrinsic-recognition sites (Hardware register write/read, Gb
+/// region read, Hardware control-intrinsic calls, Mem.Alloc/Reset, BitConverter) recognize the receiver
+/// purely by its resolved Roslyn symbol's identity — since Stage-2 P5 there is no string match at all,
+/// in ordinary bodies or in monomorphized generic instance bodies (which bind in the constructed
+/// instances tree). These tests exercise the real end-to-end pipeline (frontend -&gt; backend -&gt;
+/// linker -&gt; emulator), mirroring <c>CSharpEndToEndTests</c>'s harness, so they prove both that
+/// ordinary programs lower/run identically and that symbol identity fixes the name-collision bugs the
+/// old string match had — including inside a generic body, where the deleted string fallback used to
+/// hijack a user value named after an intrinsic surface.</summary>
 public class CSharpSemanticsIntrinsicsTests
 {
     private static IrModule Frontend(string src)
@@ -162,14 +163,15 @@ public class CSharpSemanticsIntrinsicsTests
         await Assert.That(RunI32(src)).IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f));
     }
 
-    // ---- Detached node fallback: a monomorphized generic instance's body is not in the compilation ----
+    // ---- Generic instance bodies: intrinsics resolve by symbol in the instances tree ------------------
 
     [Test]
-    public async Task GenericBody_UsingHardwareAndGb_LowersViaStringFallback()
+    public async Task GenericBody_UsingHardwareAndGb_LowersViaSymbol()
     {
-        // Touch<byte>'s body is copied into a detached synthesized tree (TypeParamRewriter), so
-        // CSharpSemantics.Sym returns null for every node in it; the Hardware/Gb sites must fall back to
-        // the exact string match rather than silently failing to recognize the intrinsic.
+        // Touch<byte>'s body lives in the constructed instances tree (Stage-2 P2), so CSharpSemantics.Sym
+        // resolves every node in it; the Hardware/Gb receivers are recognized by symbol identity against
+        // the intrinsic stub types, exactly as in an ordinary body. Since Stage-2 P5 that is the only
+        // recognition path — the exact-string match that used to cover the pre-P2 detached body is gone.
         const string src =
             "static byte Main() { return Touch<byte>(9); }\n"
             + "static T Touch<T>(T x) { Hardware.LCDC = 1; byte* v = Gb.Vram; *v = 7; return x; }";
@@ -177,6 +179,24 @@ public class CSharpSemanticsIntrinsicsTests
         await Assert.That(RunA(src)).IsEqualTo((byte)9);
         await Assert.That(RunThenRead(src, 0xFF40)).IsEqualTo((byte)1); // LCDC
         await Assert.That(RunThenRead(src, 0x8000)).IsEqualTo((byte)7); // Vram base
+    }
+
+    [Test]
+    public async Task GenericBody_ParameterNamedHardware_IsNotMistakenForTheIntrinsic()
+    {
+        // The generic-body counterpart of LocalNamedHardware_CallingUserMethod_IsNotMistakenForTheIntrinsic
+        // below, and the behavioral improvement the Stage-2 P5 deletion unlocks: inside Use<byte>'s
+        // monomorphized body, `Hardware` is a parameter of user class Robot, and the pre-P5 string
+        // fallback — which keyed intrinsic recognition purely off the receiver's spelled name whenever no
+        // symbol resolved (as in the pre-P2 detached instance bodies) — would have hijacked
+        // `Hardware.EnableInterrupts()` into the CPU `ei` intrinsic. Symbol-only recognition sees the
+        // parameter symbol (a Robot, not the Hardware stub type) and lowers the user's own instance call.
+        const string src =
+            "static byte Main() { Robot r = new Robot(); return Use<byte>(r, 5); }\n"
+            + "static byte Use<T>(Robot Hardware, T x) { return Hardware.EnableInterrupts(); }\n"
+            + "class Robot { byte id; byte EnableInterrupts() { return 42; } }";
+        await Assert.That(LowerDiagnostics(src)).IsEmpty();
+        await Assert.That(RunA(src)).IsEqualTo((byte)42);
     }
 
     // ---- Symbol identity beats name collision (the intended behavioral improvement) ------------------

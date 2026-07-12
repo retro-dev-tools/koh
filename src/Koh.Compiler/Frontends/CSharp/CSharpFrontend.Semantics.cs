@@ -120,13 +120,15 @@ public sealed partial class CSharpFrontend
 /// <see cref="InTree"/> guard, pre-resolved stub symbols for the intrinsic surface
 /// (<see cref="IntrinsicsStub"/>), and symbol-keyed indexes (<see cref="Methods"/>, <see cref="Globals"/>,
 /// <see cref="ModuleConsts"/>, <see cref="Enums"/>, <see cref="Structs"/>, <see cref="Classes"/>, and —
-/// since Stage-2 P4 — <see cref="GenericInstances"/>) that <see cref="MethodLowerer"/> consults
-/// symbol-first for name/member/call resolution, falling back to its own string-keyed tables only when no
-/// symbol resolves: no compilation built, a genuine resolution failure, or a generic call whose type
-/// arguments were inferred rather than written out (no <c>&lt;...&gt;</c> syntax to mangle a suffix from —
-/// still unsupported, unchanged by P4). A generic instance's own body is no longer detached syntax, see
-/// <see cref="CSharpFrontend.BuildInstancesTree"/>; the syntax-based mangled-name lookup in
-/// <see cref="MethodLowerer.LowerCall"/> remains as a fallback until Stage-2 P5 deletes it.
+/// since Stage-2 P4 — <see cref="GenericInstances"/>) that <see cref="MethodLowerer"/> consults for
+/// name/member/call resolution. Since Stage-2 P5 this is the ONLY resolution path — the pre-migration
+/// string-keyed lookups were deleted, so a name that resolves to no symbol (and no acceptable candidate,
+/// see <see cref="SymOrCandidate"/>) is a genuine resolution failure, reported as a diagnostic. A generic
+/// instance's own body is an ordinary bound tree, see <see cref="CSharpFrontend.BuildInstancesTree"/>;
+/// the one remaining resolution limit is a generic call whose type arguments were inferred rather than
+/// written out (no <c>&lt;...&gt;</c> syntax to mangle a suffix from — still unsupported; symbol-driven
+/// discovery of the instantiation from the constructed symbol's own <c>TypeArguments</c> is a future
+/// roadmap item).
 ///
 /// Everything that requires real Roslyn binding (the underlying <see cref="CSharpCompilation"/>, the
 /// <see cref="SemanticModel"/>, and the stub type symbols) is behind its own <see cref="Lazy{T}"/>, so
@@ -134,19 +136,19 @@ public sealed partial class CSharpFrontend
 /// reads one of these members. A <c>Lower()</c> whose program needs no resolution at all (rare) still
 /// pays nothing beyond constructing the <see cref="Lazy{T}"/> wrappers.
 /// </summary>
-// Stage-2 P3 adds SymOrCandidate alongside Sym: a callee/field lookup that would otherwise fall
-// through to the string-keyed fallback purely because Roslyn's OWN rules (overload resolution,
-// accessibility) reject Koh-legal code now gets one more chance via CandidateSymbols before giving up.
-// Stage-2 P4 adds GenericInstances/TryGetGenericInstance: a generic call's own resolved symbol (via
-// SymOrCandidate) now routes straight to its monomorphized instance, keyed by the template symbol
-// (OriginalDefinition) and the call's own mangled type-argument suffix — the syntax-based MangleGeneric
-// switch in MethodLowerer.LowerCall stays only as the fallback for an inferred-type-argument call.
+// Stage-2 P3 adds SymOrCandidate alongside Sym: a callee/field lookup that Roslyn's OWN rules (overload
+// resolution, accessibility) reject on Koh-legal code gets one more chance via CandidateSymbols before
+// giving up. Stage-2 P4 adds GenericInstances/TryGetGenericInstance: a generic call's own resolved symbol
+// (via SymOrCandidate) routes straight to its monomorphized instance, keyed by the template symbol
+// (OriginalDefinition) and the call's own mangled type-argument suffix. Stage-2 P5 deletes the
+// string-keyed resolution layer these were staged alongside, making the members here the sole authority.
 internal sealed class CSharpSemantics
 {
-    /// <summary>Used when a <see cref="CSharpSemantics"/> is needed with no source tree at all (e.g. a
-    /// <see cref="CSharpFrontend.PrepareRoot"/> failure before any tree exists). Every lookup safely
-    /// returns null/false rather than throwing, so a consuming site's string-based fallback always still
-    /// runs — semantics can only ever be a strict improvement, never a regression.</summary>
+    /// <summary>Used when a <see cref="CSharpSemantics"/> is needed with no source tree at all (a
+    /// <see cref="CSharpFrontend.PrepareRoot"/> failure before any tree exists — pre-lowering failure
+    /// paths only, since <see cref="CSharpFrontend.LowerCore"/> reports a diagnostic and stops before any
+    /// body lowers when no real compilation can be built). Every lookup safely returns null/false rather
+    /// than throwing.</summary>
     public static readonly CSharpSemantics Disabled = new();
 
     private readonly SyntaxTree? _mainTree;
@@ -333,10 +335,9 @@ internal sealed class CSharpSemantics
     /// <summary>Look up the monomorphized instance of generic method <paramref name="template"/> (its
     /// <c>OriginalDefinition</c> symbol) specialized at <paramref name="suffix"/> (the call site's own
     /// mangled type-argument suffix). Used by <see cref="MethodLowerer.LowerCall"/> to route a generic
-    /// call symbol-first: on a miss (an inferred type argument with no explicit <c>&lt;...&gt;</c> call
-    /// syntax to mangle, or a template this frontend never registered any instance for) the caller falls
-    /// back to the pre-migration syntax-based mangled-name lookup, exactly as before this index
-    /// existed.</summary>
+    /// call by symbol: on a miss (an inferred type argument with no explicit <c>&lt;...&gt;</c> call
+    /// syntax to mangle, or a template this frontend never registered any instance for) the caller
+    /// reports the call as unresolved (Stage-2 P5 — no other lookup exists).</summary>
     public bool TryGetGenericInstance(IMethodSymbol template, string suffix, out CsMethod method)
     {
         if (
@@ -496,8 +497,8 @@ internal sealed class CSharpSemantics
 
     /// <summary>The symbol a syntax node (identifier, member access, invocation, ...) refers to, or null
     /// if the node is detached, no compilation could be built, resolution failed, or these are
-    /// <see cref="Disabled"/>. Never throws — a caller keeps its string-based fallback regardless of the
-    /// result.</summary>
+    /// <see cref="Disabled"/>. Never throws — a null result is an ordinary "does not resolve" answer the
+    /// caller acts on (report, or decline an intrinsic match), never an exception path.</summary>
     public ISymbol? Sym(SyntaxNode node)
     {
         if (!InTree(node) || ModelFor(node) is not { } model)
@@ -542,7 +543,7 @@ internal sealed class CSharpSemantics
     /// for a method lookup this narrows to the single candidate that is already a known Koh declaration
     /// (its <c>OriginalDefinition</c> is a key in <see cref="Methods"/>) — if more than one candidate is
     /// itself registered there, the choice is genuinely ambiguous and this returns null rather than guess
-    /// (the caller's string fallback, or eventually an honest diagnostic, decides instead). Field lookups
+    /// (the caller's honest unresolved-name diagnostic decides instead). Field lookups
     /// never produce more than one candidate in practice (C# has no field overloading), so there is no
     /// analogous narrowing for them — multiple candidates for a non-method symbol always return null.
     ///
