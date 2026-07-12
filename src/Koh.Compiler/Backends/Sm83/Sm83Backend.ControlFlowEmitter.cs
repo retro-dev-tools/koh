@@ -315,14 +315,35 @@ public sealed partial class Sm83Backend
 
                 if (pending.Count == before)
                 {
-                    // Every remaining copy is part of a cycle: stage one destination through a temp,
-                    // redirect readers of that slot there, then let the next pass drain the chain.
+                    // Every remaining copy is part of a cycle: stage c's destination footprint through a
+                    // temp, redirect readers of that slot there, then let the next pass drain the chain.
+                    //
+                    // The staged range must be the *union* of c's destination and every blocked reader's
+                    // source, not just c's own width: a narrower copy can still block a wider one whose
+                    // source starts at the same address but extends past c's destination (e.g. a 4-byte
+                    // i32 phi and an 8-byte i64 phi swapping slots — the i64 reader needs bytes the i32
+                    // copy's own N never covers). Staging only `c.N` bytes there would redirect the wider
+                    // reader onto a temp region whose tail was never written, reading uninitialized WRAM.
                     var c = pending[0];
+                    int stageStart = c.DestSlot;
+                    int stageEnd = c.DestSlot + c.N;
+                    foreach (var o in pending)
+                        if (
+                            o != c
+                            && SourceSlot(o, out int osrcAddr)
+                            && osrcAddr < c.DestSlot + c.N
+                            && c.DestSlot < osrcAddr + o.N
+                        )
+                        {
+                            stageStart = Math.Min(stageStart, osrcAddr);
+                            stageEnd = Math.Max(stageEnd, osrcAddr + o.N);
+                        }
                     int tempAddr = temp;
-                    temp += c.N;
-                    for (int k = 0; k < c.N; k++)
+                    int stageLen = stageEnd - stageStart;
+                    temp += stageLen;
+                    for (int k = 0; k < stageLen; k++)
                     {
-                        _ctx.LoadAFromAddr(c.DestSlot + k);
+                        _ctx.LoadAFromAddr(stageStart + k);
                         _ctx.StoreAToAddr(tempAddr + k);
                     }
                     foreach (var o in pending)
@@ -333,10 +354,11 @@ public sealed partial class Sm83Backend
                             && c.DestSlot < srcAddr + o.N
                         )
                         {
-                            // Read from the staged copy at the source's offset within the range, so a
-                            // source coalesced at a non-zero position inside the slot still reads right.
+                            // Read from the staged copy at the source's offset within the (possibly
+                            // wider-than-c) staged range, so a source coalesced at a non-zero position
+                            // inside the slot still reads right.
                             o.Src = null;
-                            o.TempSrc = tempAddr + (srcAddr - c.DestSlot);
+                            o.TempSrc = tempAddr + (srcAddr - stageStart);
                         }
                 }
             }
