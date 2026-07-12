@@ -139,7 +139,7 @@ public class CSharpSemanticsResolutionTests
         // The call `Max<byte>(3, 7)` resolves (via Sym) to a constructed generic method symbol whose
         // OriginalDefinition is the `Max<T>` template — never registered in CSharpSemantics.Methods (only
         // monomorphized instances are, and those are detached), so this always falls through to the
-        // syntax-based mangled name `Max$1_4_byte`, exactly as before the symbol lookup was added.
+        // syntax-based mangled name `Max__g1_4_byte`, exactly as before the symbol lookup was added.
         const string src =
             "static byte Main() { return (byte)Max<byte>(3, 7); }\n"
             + "static T Max<T>(T a, T b) { if (a > b) return a; return b; }";
@@ -147,7 +147,7 @@ public class CSharpSemanticsResolutionTests
         await Assert.That(RunA(src)).IsEqualTo((byte)7);
 
         var module = Frontend(src);
-        await Assert.That(module.Functions.Any(f => f.Name.StartsWith("Max$"))).IsTrue();
+        await Assert.That(module.Functions.Any(f => f.Name.StartsWith("Max__g"))).IsTrue();
     }
 
     [Test]

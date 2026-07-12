@@ -193,7 +193,7 @@ public class CSharpSemanticsIndexTests
         var (module, semantics) = Build(src);
 
         // The specialization really was lowered (a normal IR function exists for it) ...
-        await Assert.That(module.Functions.Any(f => f.Name.StartsWith("Identity$"))).IsTrue();
+        await Assert.That(module.Functions.Any(f => f.Name.StartsWith("Identity__g"))).IsTrue();
         // ... but its declaration node is detached from the main tree, so DeclaredSym returns null for it
         // and Materialize silently drops it from the symbol-keyed index — no throw, no bogus entry.
         await Assert

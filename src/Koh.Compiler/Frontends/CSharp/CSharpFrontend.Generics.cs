@@ -22,18 +22,64 @@ public sealed partial class CSharpFrontend
     }
 
     /// <summary>The mangled name of a generic method instantiated at concrete type arguments, e.g.
-    /// <c>Max&lt;int&gt;</c> becomes <c>Max$1i3int</c>. Both the synthesized function and its call sites
-    /// use it. Each argument is length-prefixed so distinct argument lists can't alias (e.g. one arg
-    /// <c>A_B</c> vs two args <c>A</c>,<c>B</c>), which a plain <c>_</c>-join would collide.</summary>
+    /// <c>Max&lt;byte&gt;</c> becomes <c>Max__g1_4_byte</c>. Both the synthesized function and its call
+    /// sites use it.
+    ///
+    /// The name must be a legal C# identifier: a later migration phase moves monomorphized instances out
+    /// of detached syntax and into a second, constructed compilation unit that Roslyn actually binds, and
+    /// a real <c>MethodDeclarationSyntax</c> identifier has to parse as one — a punctuation-bearing name
+    /// like the pre-migration <c>Max$1_4_byte</c> never could.
+    ///
+    /// Scheme: <c>name + "__g" + argCount + ("_" + enc.Length + "_" + enc)*</c>, where <c>enc</c> is
+    /// <see cref="EncodeTypeArg"/> applied to each type argument's own source text
+    /// (<c>TypeSyntax.ToString()</c>). This is injective:
+    /// - Each encoded argument is prefixed by the *encoded* text's own length, so two distinct argument
+    ///   lists can never alias by picking a different split point — one argument <c>A_B</c> vs two
+    ///   arguments <c>A</c>, <c>B</c> land at different lengths/offsets and can't collide the way a plain
+    ///   <c>_</c>-join would.
+    /// - <see cref="EncodeTypeArg"/> doubles every literal <c>_</c> in the source text, which disambiguates
+    ///   a real underscore from a hex escape: a hex escape is always a single <c>_</c> followed by exactly
+    ///   two hex digits, a shape doubled underscores can never produce, so the encoded stream (and hence
+    ///   the length prefix computed from it) has one unambiguous reading.
+    ///
+    /// Collisions with a user-written identifier are possible in principle (nothing stops a user from
+    /// literally naming a method <c>Max__g1_4_byte</c>) but never silent: two functions would then share
+    /// one mangled name, and Pass 1's existing duplicate-function-name diagnostic fires — the same loud
+    /// failure as any other accidental name clash in the program.</summary>
     internal static string MangleGeneric(string name, IEnumerable<TypeSyntax> typeArgs)
     {
-        var sb = new System.Text.StringBuilder(name).Append('$');
         var args = typeArgs.ToList();
-        sb.Append(args.Count);
+        var sb = new System.Text.StringBuilder(name).Append("__g").Append(args.Count);
         foreach (var t in args)
         {
-            var s = t.ToString();
-            sb.Append('_').Append(s.Length).Append('_').Append(s);
+            var enc = EncodeTypeArg(t.ToString());
+            sb.Append('_').Append(enc.Length).Append('_').Append(enc);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Injectively sanitizes a type argument's source text into a legal fragment of a C#
+    /// identifier: <c>[A-Za-z0-9]</c> passes through unchanged, a literal <c>_</c> doubles to <c>__</c>,
+    /// and any other character (<c>*</c>, <c>[</c>, <c>]</c>, <c>&lt;</c>, <c>&gt;</c>, <c>.</c>, <c>,</c>,
+    /// space, ...) becomes <c>_</c> followed by its char code as lowercase 2-hex (so <c>byte*</c> becomes
+    /// <c>byte_2a</c>); a char above <c>0xFF</c> (a non-Latin identifier letter) gets a distinct
+    /// <c>_u</c> + 4-hex escape, since letting the 2-hex form grow to 4 digits would be ambiguous — the
+    /// digits are legal pass-through characters, so <c>_1234</c> must always mean escape(0x12) then
+    /// literal <c>34</c>. See <see cref="MangleGeneric"/> for why this must be injective and how the
+    /// underscore-doubling makes hex escapes unambiguous.</summary>
+    internal static string EncodeTypeArg(string s)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in s)
+        {
+            if (c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9')
+                sb.Append(c);
+            else if (c == '_')
+                sb.Append("__");
+            else if (c <= 0xFF)
+                sb.Append('_').Append(((int)c).ToString("x2"));
+            else
+                sb.Append("_u").Append(((int)c).ToString("x4"));
         }
         return sb.ToString();
     }
