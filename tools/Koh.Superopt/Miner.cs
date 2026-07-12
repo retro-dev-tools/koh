@@ -99,7 +99,9 @@ public sealed class Miner
     }
 
     /// <summary>Appends the live-out parts of <paramref name="s"/>, walking the shared <see
-    /// cref="Sm83State.LiveFields"/> table, then a '|' separator.</summary>
+    /// cref="Sm83State.LiveFields"/> table, then a '|' separator. SP is not part of that table — see
+    /// <see cref="Sm83State"/> — so it never enters the bucket signature; the alphabet's domain filter is
+    /// what keeps that sound.</summary>
     private static void AppendLive(StringBuilder sb, Sm83State s, Live live)
     {
         foreach (var (flag, get) in Sm83State.LiveFields)

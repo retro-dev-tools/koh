@@ -24,7 +24,11 @@ public sealed class Sm83Oracle
     private const int Trials = 64; // never overridden by a caller
 
     /// <summary>Run <paramref name="code"/> from <paramref name="input"/>; return the resulting state and
-    /// the total T-cycles executed. Stepping stops when the program counter leaves the byte range.</summary>
+    /// the total T-cycles executed. Stepping stops when the program counter leaves the byte range. Throws
+    /// if the sequence is still inside the range after <see cref="MaxSteps"/> — a mined, domain-filtered
+    /// sequence never does this, so it signals either a non-terminating or non-straight-line region passed
+    /// in directly by a caller, which must fail loudly rather than return a state as if execution had
+    /// completed.</summary>
     public (Sm83State State, ulong TCycles) Run(ReadOnlySpan<byte> code, Sm83State input)
     {
         var rom = new byte[0x8000]; // 32 KiB, zeroed header ⇒ parses as a ROM-only cartridge
@@ -49,6 +53,14 @@ public sealed class Sm83Oracle
         ulong tcycles = 0;
         for (var i = 0; i < MaxSteps && r.Pc >= CodeBase && r.Pc < end; i++)
             tcycles += gb.StepInstruction().TCyclesRan;
+
+        if (r.Pc >= CodeBase && r.Pc < end)
+            throw new InvalidOperationException(
+                $"Sm83Oracle.Run: the sequence was still executing inside its own code range after "
+                    + $"MaxSteps ({MaxSteps}) steps — either it doesn't terminate or it isn't straight-line. "
+                    + $"Sm83Alphabet.IsStraightLineRegisterOnly should have rejected it before it reached "
+                    + "the oracle; returning a state here would silently report a wrong result."
+            );
 
         return (new Sm83State(r.A, r.F, r.B, r.C, r.D, r.E, r.H, r.L, r.Sp), tcycles);
     }
@@ -92,7 +104,10 @@ public sealed class Sm83Oracle
     }
 
     /// <summary>Compare only the live-out parts of two states, walking the shared <see
-    /// cref="Sm83State.LiveFields"/> table (flags compared as the high nibble of F).</summary>
+    /// cref="Sm83State.LiveFields"/> table (flags compared as the high nibble of F). SP is deliberately
+    /// absent — it is outside the oracle's observed domain (see <see cref="Sm83State"/>), and the alphabet
+    /// filter keeps any SP-touching instruction out of mined sequences, so there is nothing unsound left
+    /// uncompared here.</summary>
     public static bool SameLive(Sm83State x, Sm83State y, Live live)
     {
         foreach (var (flag, get) in Sm83State.LiveFields)

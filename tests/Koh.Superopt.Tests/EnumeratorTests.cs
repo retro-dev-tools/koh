@@ -26,6 +26,21 @@ public class EnumeratorTests
     }
 
     [Test]
+    public async Task Rejects_an_sp_writing_op()
+    {
+        // 0x33 = INC SP — memory-free, falls through, but reads and writes SP, which is outside the
+        // oracle's observed state (Sm83State.Live has no SP bit).
+        await Assert.That(Sm83Alphabet.IsStraightLineRegisterOnly([0x33])).IsFalse();
+    }
+
+    [Test]
+    public async Task Rejects_an_sp_reading_op()
+    {
+        // 0xE8 = ADD SP,r8 — memory-free, falls through, no side effect, but reads and writes SP.
+        await Assert.That(Sm83Alphabet.IsStraightLineRegisterOnly([0xE8, 0x00])).IsFalse();
+    }
+
+    [Test]
     public async Task Sequences_include_empty_and_grow_to_bound()
     {
         var seqs = Enumerator.Sequences(2).ToList();

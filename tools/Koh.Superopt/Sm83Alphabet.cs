@@ -29,16 +29,28 @@ public static class Sm83Alphabet
         [0x3E, 0x00], // LD A,0
     ];
 
-    /// <summary>True iff every instruction the region decodes to is memory-free and falls through — the
-    /// soundness precondition for the register-state oracle. Uses the shared MIR decoder so the property
-    /// is derived from the canonical opcode semantics, not re-encoded here.</summary>
+    /// <summary>True iff every instruction the region decodes to is memory-free, falls through, and
+    /// touches only the bytes <see cref="Sm83State"/> exposes to the oracle (A/B/C/D/E/H/L and flags) —
+    /// the soundness precondition for the register-state oracle. <c>SP</c> is part of <see
+    /// cref="Sm83Register"/> but not of <see cref="Sm83State"/>'s comparable surface (there is no
+    /// <see cref="Live"/> bit for it), so any instruction that reads or writes SP (e.g. <c>INC SP</c>,
+    /// <c>ADD SP,r8</c>, <c>LD HL,SP+r8</c>) is rejected as outside the domain the oracle can observe.
+    /// Uses the shared MIR decoder so the property is derived from the canonical opcode semantics, not
+    /// re-encoded here.</summary>
     public static bool IsStraightLineRegisterOnly(ReadOnlySpan<byte> code)
     {
         var program = MirDecoder.Decode(code.ToArray());
         foreach (var instruction in program.Instructions)
         {
             var e = instruction.Effects;
-            if (e.MemRead || e.MemWrite || e.Control != MirControl.Fallthrough || e.SideEffect)
+            if (
+                e.MemRead
+                || e.MemWrite
+                || e.Control != MirControl.Fallthrough
+                || e.SideEffect
+                || (e.RegRead & Sm83Register.Sp) != 0
+                || (e.RegWrite & Sm83Register.Sp) != 0
+            )
                 return false;
         }
         return true;

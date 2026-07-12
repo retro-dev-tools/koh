@@ -30,4 +30,17 @@ public class Sm83OracleTests
         await Assert.That(state.A).IsEqualTo((byte)0);
         await Assert.That(tcycles).IsGreaterThan((ulong)0);
     }
+
+    [Test]
+    public async Task Run_throws_when_the_sequence_never_leaves_its_range()
+    {
+        // 0x18 0xFE = JR -2 — an unconditional jump back to itself, an in-range infinite loop. The PC
+        // never leaves [CodeBase, end), so the MaxSteps guard trips; Run must fail loudly rather than
+        // return a state as if the sequence had completed.
+        var oracle = new Sm83Oracle();
+        var input = new Sm83State(0, 0, 0, 0, 0, 0, 0, 0, 0xFFFE);
+        await Assert
+            .That(() => oracle.Run([0x18, 0xFE], input))
+            .Throws<InvalidOperationException>();
+    }
 }

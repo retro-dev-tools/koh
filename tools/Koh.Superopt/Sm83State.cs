@@ -1,9 +1,13 @@
 namespace Koh.Superopt;
 
-/// <summary>The 8-bit registers plus flags and SP — the observable machine state a straight-line,
-/// memory-free SM83 sequence can read or write. Enough to define input states and compare outputs for
-/// the equivalence oracle. Memory is deliberately out of scope; the enumerator rejects any sequence that
-/// touches it (see <see cref="Sm83Alphabet"/>), so the register file is the whole observable state.</summary>
+/// <summary>The 8-bit registers, flags, and SP that make up a concrete SM83 machine state — the input the
+/// oracle feeds a sequence and (for A..L plus flags) the output it compares. <see cref="Sp"/> is carried
+/// so a sequence runs against a realistic stack pointer (probes fix it at the DMG boot value, 0xFFFE),
+/// but it is <em>not</em> part of the comparable surface: <see cref="Live"/> has no SP bit, and <see
+/// cref="LiveFields"/> never projects it. That makes SP-touching code outside the oracle's domain — the
+/// enumerator's alphabet filter (<see cref="Sm83Alphabet.IsStraightLineRegisterOnly"/>) rejects any
+/// instruction that reads or writes SP, alongside memory and control-flow ops, so equivalence claims
+/// never depend on a value the oracle cannot see change.</summary>
 public readonly record struct Sm83State(
     byte A,
     byte F,
