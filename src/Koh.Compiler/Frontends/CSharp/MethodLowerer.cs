@@ -1,4 +1,5 @@
 using Koh.Compiler.Ir;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -59,10 +60,11 @@ internal sealed class MethodLowerer
     // can reach its siblings by bare name. Null for legacy top-level functions and instance methods.
     private readonly string? _staticClass;
 
-    // Roslyn as a resolution oracle (see CSharpFrontend.Semantics.cs). Plumbing only for now — nothing
-    // in this class consults it yet; a later phase of the semantic-model migration reads symbols from it
-    // to replace the string-keyed lookups above (with a string fallback kept for detached generic
-    // instances, which this can't resolve).
+    // Roslyn as a resolution oracle (see CSharpFrontend.Semantics.cs). The intrinsic-recognition sites
+    // (Hardware/Gb/Mem/BitConverter — see IsIntrinsicSubject/IsBitConverterSubject) consult it first and
+    // fall back to the pre-migration string match when no symbol resolves (a detached
+    // monomorphized-generic body, no compilation built, or resolution failure). A later phase reads
+    // symbols from it for call/field/enum/struct/class member resolution too.
     private readonly CSharpSemantics _semantics;
 
     /// <summary>The Roslyn resolution oracle this instance was constructed with. Exposed for tests
@@ -129,6 +131,36 @@ internal sealed class MethodLowerer
             return true;
         return _moduleConsts.TryGetValue(name, out value);
     }
+
+    /// <summary>Whether <paramref name="subject"/> — the bare identifier naming an intrinsic surface's
+    /// static class as the receiver of a member access (e.g. the "Hardware" in <c>Hardware.LCDC</c>) —
+    /// actually denotes that intrinsic. Symbol-first: when Roslyn resolves the identifier (it is always
+    /// used here as a type qualifier, so resolution yields the type symbol itself), recognition follows
+    /// symbol identity against <paramref name="stubType"/> rather than the spelled name — so a
+    /// user-declared local/field/type that happens to share the name (e.g. a local variable named
+    /// "Hardware" holding some other type) is never mistaken for the intrinsic surface; the resolved
+    /// symbol wins. Falls back to the pre-migration exact string match when no symbol resolves at all
+    /// (a detached monomorphized-generic body, no compilation built, or resolution failure) — the
+    /// fallback only runs when there is nothing to check identity against, so an already-working program
+    /// can only keep working, never regress.</summary>
+    private bool IsIntrinsicSubject(
+        IdentifierNameSyntax subject,
+        string fallbackName,
+        INamedTypeSymbol? stubType
+    ) =>
+        _semantics.Sym(subject) is { } resolved
+            ? SymbolEqualityComparer.Default.Equals(resolved, stubType)
+            : subject.Identifier.Text == fallbackName;
+
+    /// <summary>Same shape as <see cref="IsIntrinsicSubject"/>, but for <c>BitConverter</c>: there is no
+    /// stub type for it (<see cref="IntrinsicsStub"/>'s <c>global using System;</c> makes the bare name
+    /// bind to the real BCL <c>System.BitConverter</c>), so the identity check is a namespace+name match
+    /// on the resolved type instead of equality against a pre-resolved stub symbol.</summary>
+    private bool IsBitConverterSubject(IdentifierNameSyntax subject) =>
+        _semantics.Sym(subject) is { } resolved
+            ? resolved is INamedTypeSymbol { Name: "BitConverter" } bcl
+                && bcl.ContainingNamespace?.ToDisplayString() == "System"
+            : subject.Identifier.Text == "BitConverter";
 
     public void Lower()
     {
@@ -500,7 +532,7 @@ internal sealed class MethodLowerer
             return field;
         if (
             member.Expression is IdentifierNameSyntax subject
-            && subject.Identifier.Text == "Hardware"
+            && IsIntrinsicSubject(subject, "Hardware", _semantics.HardwareType)
             && _hardware.IsRegister(member.Name.Identifier.Text)
         )
             return (
@@ -1631,7 +1663,7 @@ internal sealed class MethodLowerer
         {
             // Hardware register read, e.g. Hardware.LCDC.
             if (
-                subject.Identifier.Text == "Hardware"
+                IsIntrinsicSubject(subject, "Hardware", _semantics.HardwareType)
                 && _hardware.IsRegister(member.Name.Identifier.Text)
             )
                 return (
@@ -1640,7 +1672,10 @@ internal sealed class MethodLowerer
                 );
 
             // Memory-region base pointer, e.g. Gb.Vram -> a byte* at the region's fixed address.
-            if (subject.Identifier.Text == "Gb" && _hardware.IsRegion(member.Name.Identifier.Text))
+            if (
+                IsIntrinsicSubject(subject, "Gb", _semantics.GbType)
+                && _hardware.IsRegion(member.Name.Identifier.Text)
+            )
                 return (
                     IrBuilder.GlobalRef(_hardware.Region(member.Name.Identifier.Text)),
                     new CsType(IrType.Pointer(IrType.I8), Signed: false)
@@ -1680,7 +1715,7 @@ internal sealed class MethodLowerer
         if (
             call.Expression is MemberAccessExpressionSyntax hw
             && hw.Expression is IdentifierNameSyntax hwId
-            && hwId.Identifier.Text == "Hardware"
+            && IsIntrinsicSubject(hwId, "Hardware", _semantics.HardwareType)
         )
         {
             var intrinsic = hw.Name.Identifier.Text switch
@@ -1700,7 +1735,8 @@ internal sealed class MethodLowerer
         // frees everything at once by resetting the pointer to the top of the heap.
         if (
             call.Expression is MemberAccessExpressionSyntax mem
-            && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" }
+            && mem.Expression is IdentifierNameSyntax memId
+            && IsIntrinsicSubject(memId, "Mem", _semantics.MemType)
         )
             return LowerMemCall(mem.Name.Identifier.Text, call);
 
@@ -1709,7 +1745,8 @@ internal sealed class MethodLowerer
         // IEEE bit patterns from `float` in pure subset source.
         if (
             call.Expression is MemberAccessExpressionSyntax bc
-            && bc.Expression is IdentifierNameSyntax { Identifier.Text: "BitConverter" }
+            && bc.Expression is IdentifierNameSyntax bcId
+            && IsBitConverterSubject(bcId)
         )
         {
             if (call.ArgumentList.Arguments.Count != 1)
