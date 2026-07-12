@@ -131,6 +131,9 @@ public sealed partial class CSharpFrontend
 /// reads one of these members. A <c>Lower()</c> whose program needs no resolution at all (rare) still
 /// pays nothing beyond constructing the <see cref="Lazy{T}"/> wrappers.
 /// </summary>
+// Stage-2 P3 adds SymOrCandidate alongside Sym: a callee/field lookup that would otherwise fall
+// through to the string-keyed fallback purely because Roslyn's OWN rules (overload resolution,
+// accessibility) reject Koh-legal code now gets one more chance via CandidateSymbols before giving up.
 internal sealed class CSharpSemantics
 {
     /// <summary>Used when a <see cref="CSharpSemantics"/> is needed with no source tree at all (e.g. a
@@ -401,6 +404,76 @@ internal sealed class CSharpSemantics
         {
             return null;
         }
+    }
+
+    /// <summary>Like <see cref="Sym"/>, but when Roslyn's own binder rejects the single best answer
+    /// (<c>SymbolInfo.Symbol</c> is null) this inspects <c>CandidateSymbols</c> and accepts one anyway,
+    /// for the two reasons Koh-legal-but-C#-illegal code routinely triggers (Stage-2 design decision 5 —
+    /// see <c>whats-the-state-of-sparkling-gem.md</c>):
+    /// <list type="bullet">
+    /// <item><see cref="CandidateReason.OverloadResolutionFailure"/> — Koh's own usual-arithmetic
+    /// conversions accept mixed-width/signedness operands freely (<c>Helper(a + b)</c> with <c>byte a,
+    /// b</c> types the sum as C#'s <c>int</c>; there is no user-visible <c>int</c>-to-<c>byte</c>
+    /// implicit conversion, so Roslyn's own overload resolution rejects the only real candidate even
+    /// though Koh's own arg-by-arg lowering accepts it happily);</item>
+    /// <item><see cref="CandidateReason.Inaccessible"/> — Koh ignores C# accessibility modifiers
+    /// entirely (a <c>private</c> field/method is reachable from any class), so a cross-class reference
+    /// to a private member resolves with exactly this reason.</item>
+    /// </list>
+    /// Every other <see cref="CandidateReason"/> is left alone (this returns null, same as if there were
+    /// no candidates at all) rather than guessed at:
+    /// <see cref="CandidateReason.Ambiguous"/> means more than one member is genuinely equally
+    /// applicable even by Koh's own looser rules — accepting either would be silently picking a winner
+    /// Roslyn (correctly) refused to; <see cref="CandidateReason.MemberGroup"/> covers a method group
+    /// used somewhere that needs a single value without ever being invoked (e.g. a delegate conversion),
+    /// which cannot arise at any call site here since every consumer of this method resolves either an
+    /// actual invocation or a field/member access, never a bare method-group expression; the remaining
+    /// reasons (<c>WrongArity</c>, <c>StaticInstanceMismatch</c>, <c>NotAValue</c>, ...) all indicate a
+    /// shape Koh's own lowering doesn't accept either, so nothing is lost by declining them.
+    ///
+    /// When exactly one candidate carries an accepted reason, it is accepted outright. More than one can
+    /// still occur under an accepted reason (e.g. two overloads both rejected by the same C#-only rule);
+    /// for a method lookup this narrows to the single candidate that is already a known Koh declaration
+    /// (its <c>OriginalDefinition</c> is a key in <see cref="Methods"/>) — if more than one candidate is
+    /// itself registered there, the choice is genuinely ambiguous and this returns null rather than guess
+    /// (the caller's string fallback, or eventually an honest diagnostic, decides instead). Field lookups
+    /// never produce more than one candidate in practice (C# has no field overloading), so there is no
+    /// analogous narrowing for them — multiple candidates for a non-method symbol always return null.
+    ///
+    /// Never throws; identical foreign-tree/no-compilation behavior to <see cref="Sym"/>. <see cref="Sym"/>
+    /// itself is unchanged and still candidate-blind — declaration passes and non-callee uses want the
+    /// single unambiguous answer or nothing, never a guess.</summary>
+    public ISymbol? SymOrCandidate(SyntaxNode node)
+    {
+        if (!InTree(node) || ModelFor(node) is not { } model)
+            return null;
+        SymbolInfo info;
+        try
+        {
+            info = model.GetSymbolInfo(node);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        if (info.Symbol is { } resolved)
+            return resolved;
+        if (
+            info.CandidateReason
+            is not (CandidateReason.OverloadResolutionFailure or CandidateReason.Inaccessible)
+        )
+            return null;
+        if (info.CandidateSymbols.Length == 1)
+            return info.CandidateSymbols[0];
+        IMethodSymbol? uniqueRegistered = null;
+        foreach (var candidate in info.CandidateSymbols)
+            if (candidate is IMethodSymbol method && Methods.ContainsKey(method.OriginalDefinition))
+            {
+                if (uniqueRegistered is not null)
+                    return null; // more than one plausible candidate is itself a known declaration
+                uniqueRegistered = method;
+            }
+        return uniqueRegistered;
     }
 
     /// <summary>The symbol a declaration node (a method/field/enum/... declaration) introduces, or null

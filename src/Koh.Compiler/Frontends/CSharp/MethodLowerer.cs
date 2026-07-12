@@ -15,10 +15,16 @@ namespace Koh.Compiler.Frontends.CSharp;
 /// <see cref="CSharpSemantics"/> (<see cref="_semantics"/>) symbol-first: a resolved symbol
 /// identifies the exact declaration Roslyn's own binder would pick, checked by identity rather than
 /// spelled text, against the very same <c>CsMethod</c>/<c>CsEnum</c>/<c>IrGlobal</c>/... instances
-/// the string-keyed tables below hold (both populated by the same declaration passes). Every such
-/// site keeps the pre-migration string-keyed lookup as a fallback for when no symbol resolves — a
-/// detached monomorphized-generic body, no compilation built, or resolution failure — so an
-/// already-working program can only keep working; those fallbacks are load-bearing, not dead code.
+/// the string-keyed tables below hold (both populated by the same declaration passes). Callee/field
+/// sites use <see cref="CSharpSemantics.SymOrCandidate"/> rather than the plain <see
+/// cref="CSharpSemantics.Sym"/> (Stage-2 P3): Roslyn's own binder rejects some Koh-legal code outright
+/// (mixed-width arithmetic in a call argument fails overload resolution; Koh ignores accessibility
+/// entirely, so a cross-class `private` reference is `Inaccessible` to Roslyn) — for exactly those two
+/// reasons, a resolvable <c>CandidateSymbols</c> entry is accepted in place of a null <c>Symbol</c>.
+/// Every such site keeps the pre-migration string-keyed lookup as a fallback for when no symbol or
+/// candidate resolves — a detached monomorphized-generic body, no compilation built, or a genuine
+/// resolution failure — so an already-working program can only keep working; those fallbacks are
+/// load-bearing, not dead code.
 /// </summary>
 internal sealed class MethodLowerer
 {
@@ -70,11 +76,15 @@ internal sealed class MethodLowerer
     private readonly string? _staticClass;
 
     // Roslyn as a resolution oracle (see CSharpFrontend.Semantics.cs). The intrinsic-recognition sites
-    // (Hardware/Gb/Mem/BitConverter — see IsIntrinsicSubject/IsBitConverterSubject), call/field/enum/
-    // struct/class member resolution (LowerCall, TryGlobal, TryModuleConst, ResolvedFieldName, ...), and
-    // unresolved-name diagnostic text (BetterUnresolvedMessage) all consult it first and fall back to the
-    // pre-migration string match when no symbol resolves (a detached monomorphized-generic body, no
-    // compilation built, or resolution failure).
+    // (Hardware/Gb/Mem/BitConverter — see IsIntrinsicSubject/IsBitConverterSubject) and the enum-member
+    // lookup in LowerMemberAccess stay on plain Sym — a bare type-qualifier identifier never produces a
+    // resolvable candidate (see each site's own remarks for why). Call/field resolution (LowerCall's
+    // symCallee, LowerInstanceCall's symbol parameter, TryGlobal, TryModuleConst, ResolvedFieldName) uses
+    // SymOrCandidate (Stage-2 P3) instead, since those sites are exactly where Roslyn's OverloadResolutionFailure/
+    // Inaccessible reasons show up on ordinary Koh-legal code. Unresolved-name diagnostic text
+    // (BetterUnresolvedMessage) consults DiagnosticsAt, unrelated to either. Every consulting site falls
+    // back to the pre-migration string match when neither a symbol nor an acceptable candidate resolves
+    // (a detached monomorphized-generic body, no compilation built, or a genuine resolution failure).
     private readonly CSharpSemantics _semantics;
 
     /// <summary>The Roslyn resolution oracle this instance was constructed with. Exposed for tests
@@ -183,13 +193,17 @@ internal sealed class MethodLowerer
     /// pick (which already agrees with the "enclosing class wins" preference below, since C#'s own
     /// scoping rules are the same), consulting <see cref="CSharpSemantics.Globals"/> — the very same
     /// <see cref="IrGlobal"/>/<see cref="CsType"/> instances the string-keyed table holds, since both are
-    /// populated by the same declaration-pass registration. Falls back to the pre-migration string match
-    /// when no symbol resolves (a detached monomorphized-generic body, or no compilation).</summary>
+    /// populated by the same declaration-pass registration. Uses <see cref="CSharpSemantics.SymOrCandidate"/>
+    /// (Stage-2 P3), not the plain <see cref="CSharpSemantics.Sym"/>, so a cross-class read of a
+    /// `private` global — <c>Inaccessible</c> to Roslyn, since Koh itself ignores accessibility — still
+    /// resolves symbol-first instead of silently taking the string fallback below. Falls back to the
+    /// pre-migration string match when no symbol/candidate resolves (a detached monomorphized-generic
+    /// body, no compilation, or a genuine resolution failure).</summary>
     private bool TryGlobal(SyntaxNode? node, string name, out (IrGlobal Global, CsType Type) global)
     {
         if (
             node is not null
-            && _semantics.Sym(node) is IFieldSymbol fieldSym
+            && _semantics.SymOrCandidate(node) is IFieldSymbol fieldSym
             && _semantics.Globals.TryGetValue(fieldSym, out global)
         )
             return true;
@@ -199,12 +213,13 @@ internal sealed class MethodLowerer
     }
 
     /// <summary>Look up a module const by simple name, preferring the enclosing static class's member.
-    /// Symbol-first when <paramref name="node"/> is given, same shape as <see cref="TryGlobal"/>.</summary>
+    /// Symbol-first when <paramref name="node"/> is given, same shape as <see cref="TryGlobal"/> (including
+    /// the candidate-aware <c>Inaccessible</c> acceptance for a cross-class private const read).</summary>
     private bool TryModuleConst(SyntaxNode? node, string name, out (CsType Type, long Value) value)
     {
         if (
             node is not null
-            && _semantics.Sym(node) is IFieldSymbol fieldSym
+            && _semantics.SymOrCandidate(node) is IFieldSymbol fieldSym
             && _semantics.ModuleConsts.TryGetValue(fieldSym, out value)
         )
             return true;
@@ -226,7 +241,11 @@ internal sealed class MethodLowerer
     /// symbol wins. Falls back to the pre-migration exact string match when no symbol resolves at all
     /// (a detached monomorphized-generic body, no compilation built, or resolution failure) — the
     /// fallback only runs when there is nothing to check identity against, so an already-working program
-    /// can only keep working, never regress.</summary>
+    /// can only keep working, never regress. Deliberately still plain Sym, not SymOrCandidate (Stage-2
+    /// P3): `subject` is always a bare type-qualifier identifier naming a public stub type
+    /// (<see cref="IntrinsicsStub"/>'s Hardware/Gb/Mem are public by construction), never an overload, so
+    /// there is no accessibility or overload-resolution failure this could ever recover from — Roslyn
+    /// either binds it outright or the name isn't in scope at all (no CandidateSymbols to consult).</summary>
     private bool IsIntrinsicSubject(
         IdentifierNameSyntax subject,
         string fallbackName,
@@ -239,7 +258,9 @@ internal sealed class MethodLowerer
     /// <summary>Same shape as <see cref="IsIntrinsicSubject"/>, but for <c>BitConverter</c>: there is no
     /// stub type for it (<see cref="IntrinsicsStub"/>'s <c>global using System;</c> makes the bare name
     /// bind to the real BCL <c>System.BitConverter</c>), so the identity check is a namespace+name match
-    /// on the resolved type instead of equality against a pre-resolved stub symbol.</summary>
+    /// on the resolved type instead of equality against a pre-resolved stub symbol. Same reasoning as
+    /// <see cref="IsIntrinsicSubject"/> for staying plain-Sym: a public BCL type named by a bare
+    /// qualifier identifier, never an overload — no candidate case to recover.</summary>
     private bool IsBitConverterSubject(IdentifierNameSyntax subject) =>
         _semantics.Sym(subject) is { } resolved
             ? resolved is INamedTypeSymbol { Name: "BitConverter" } bcl
@@ -1161,13 +1182,19 @@ internal sealed class MethodLowerer
     /// confirmed via <see cref="CSharpSemantics.Structs"/>/<see cref="CSharpSemantics.Classes"/> against
     /// the same <see cref="CsStruct"/>/<see cref="CsClass"/> instance already selected for the receiver
     /// (by the pre-migration, locals-based receiver resolution — out of this migration's scope) — else
-    /// <paramref name="fallbackName"/> (the written text, the pre-migration behavior). Never lets a
-    /// symbol that resolves to an unrelated type's field override the receiver Koh already established;
-    /// that would risk "struct has no field" on a program that lowers fine today.</summary>
+    /// <paramref name="fallbackName"/> (the written text, the pre-migration behavior). Uses <see
+    /// cref="CSharpSemantics.SymOrCandidate"/> (Stage-2 P3): Koh ignores field accessibility, so
+    /// <c>s.field</c> reading a `private` field of another class/struct is exactly Roslyn's
+    /// <c>Inaccessible</c> candidate reason — the receiver is already known good (it's <paramref
+    /// name="info"/>), so accepting that candidate here can't misattribute the field to an unrelated
+    /// type. Never lets a symbol/candidate that resolves to an unrelated type's field override the
+    /// receiver Koh already established; that would risk "struct has no field" on a program that lowers
+    /// fine today.</summary>
     private string ResolvedFieldName(SyntaxNode node, CsStruct info, string fallbackName)
     {
         if (
-            _semantics.Sym(node) is IFieldSymbol { ContainingType: { } containingType } fieldSym
+            _semantics.SymOrCandidate(node)
+                is IFieldSymbol { ContainingType: { } containingType } fieldSym
             && (
                 (
                     _semantics.Structs.TryGetValue(containingType, out var s)
@@ -1826,7 +1853,12 @@ internal sealed class MethodLowerer
             // comes from that CsEnum's folded Members table (ConstEval stays authoritative) — the symbol
             // only identifies which enum is meant, never recomputes the value. Falls back to the exact
             // string match when no symbol resolves (a detached monomorphized-generic body, or no
-            // compilation).
+            // compilation). Deliberately still plain Sym, not SymOrCandidate (Stage-2 P3): an enum's own
+            // members can't carry an accessibility modifier in C# (they're always as visible as the enum
+            // itself), and `subject` here is a bare, unqualified type-qualifier identifier, never an
+            // overload — so Roslyn only ever returns a real Symbol or nothing (a nested `private` enum
+            // referenced unqualified by bare name isn't merely inaccessible, it's out of scope entirely:
+            // CS0103, no CandidateSymbols at all), leaving no candidate case for SymOrCandidate to add.
             CsEnum? e =
                 _semantics.Sym(subject) is INamedTypeSymbol enumType
                 && _semantics.Enums.TryGetValue(enumType, out var bySymbol)
@@ -1934,10 +1966,19 @@ internal sealed class MethodLowerer
         if (TryLowerLinq(call) is { } linq)
             return linq;
 
-        // The callee symbol, if the invocation resolves at all (null for a detached monomorphized-
-        // generic body, no compilation, or resolution failure — every branch below keeps its syntax
-        // fallback for exactly those cases).
-        var symCallee = _semantics.Sym(call) as IMethodSymbol;
+        // The callee symbol, if the invocation resolves at all — via CSharpSemantics.SymOrCandidate
+        // (Stage-2 P3), so a call Roslyn's own overload resolution rejects for a C#-only reason (e.g.
+        // `Helper(a + b)` with `byte a, b`: the sum types as C#'s `int`, and there is no user-visible
+        // `int`-to-`byte` implicit conversion, even though Koh's own usual-arithmetic-conversion rules
+        // accept the call outright) still resolves to the real callee via its lone CandidateSymbols
+        // entry, instead of silently falling through to the syntax-based lookup below. Still null for a
+        // detached monomorphized-generic body, no compilation, or a genuine resolution failure (no symbol
+        // and no acceptable candidate) — every branch below keeps its syntax fallback for exactly those
+        // cases. A candidate accepted here for a call with the WRONG argument count is not a problem: the
+        // arity check below (`argList.Count != callee.Params.Count`) compares against the call's own
+        // syntax argument list, not the candidate's parameter count, so it still fires regardless of
+        // which method the candidate identifies.
+        var symCallee = _semantics.SymOrCandidate(call) as IMethodSymbol;
 
         // Instance method call: obj.Method(args) or this.Method(args).
         if (
