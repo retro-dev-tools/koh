@@ -1692,6 +1692,32 @@ internal sealed class MethodLowerer
         )
             return LowerMemCall(mem.Name.Identifier.Text, call);
 
+        // BitConverter float<->bits reinterpret (a same-size bitcast, not a numeric conversion), matching
+        // System.BitConverter so the managed build agrees. Lets the softfloat/Math library read and build
+        // IEEE bit patterns from `float` in pure subset source.
+        if (
+            call.Expression is MemberAccessExpressionSyntax bc
+            && bc.Expression is IdentifierNameSyntax { Identifier.Text: "BitConverter" }
+        )
+        {
+            var argExpr = call.ArgumentList.Arguments[0].Expression;
+            switch (bc.Name.Identifier.Text)
+            {
+                case "SingleToUInt32Bits":
+                    return (LowerExpression(argExpr, CsType.F32).Item1, CsType.U32);
+                case "SingleToInt32Bits":
+                    return (LowerExpression(argExpr, CsType.F32).Item1, CsType.I32);
+                case "UInt32BitsToSingle":
+                    return (LowerExpression(argExpr, CsType.U32).Item1, CsType.F32);
+                case "Int32BitsToSingle":
+                    return (LowerExpression(argExpr, CsType.I32).Item1, CsType.F32);
+                default:
+                    throw new CSharpNotSupportedException(
+                        $"unsupported BitConverter method '{bc.Name.Identifier.Text}'."
+                    );
+            }
+        }
+
         // Array LINQ: a Where/Select pipeline ending in a reduction (Sum/Count/Max/Min/Any/All),
         // compiled to a loop with the lambdas inlined.
         if (TryLowerLinq(call) is { } linq)
@@ -1740,6 +1766,14 @@ internal sealed class MethodLowerer
                 when _methods.ContainsKey(
                     $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}"
                 ) => $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}",
+            // A namespaced BCL-style call `Ns.Class.Method(...)` (e.g. `System.MathF.Round`) resolves as
+            // `Class.Method` — the frontend drops namespaces, so it reaches the compiled library.
+            MemberAccessExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax { Name: IdentifierNameSyntax cls },
+                Name: IdentifierNameSyntax mth
+            } when _methods.ContainsKey($"{cls.Identifier.Text}.{mth.Identifier.Text}") =>
+                $"{cls.Identifier.Text}.{mth.Identifier.Text}",
             // Bare generic call `M<...>(...)` -> a sibling instance of the enclosing static class
             // (`Class.M$...`) if one exists, else a top-level instance (`M$...`).
             GenericNameSyntax gn => ResolveStaticCallee(

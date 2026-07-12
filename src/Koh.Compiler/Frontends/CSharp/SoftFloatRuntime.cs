@@ -9,6 +9,12 @@ namespace Koh.Compiler.Frontends.CSharp;
 /// .NET <c>float</c> by the golden tests over finite normal numbers and zero, with round-to-nearest-even.
 /// (<c>double</c> is a later milestone.)
 ///
+/// Note: the softfloat/MathF functions form a call graph that the backend gives one disjoint WRAM frame
+/// per function (frames are not yet shared). A complex float expression therefore relies on the optimizer
+/// inlining the small helpers to keep the live-function count down; CompilerDriver always optimizes, so
+/// this holds for every shipped ROM. Bit-level ops (Round/Truncate/Abs) are kept self-contained to stay
+/// cheap. Sharing frames across non-interfering functions is the proper backend fix (later work).
+///
 /// Scope / not-yet-handled (documented, later refinements): infinity and NaN as operands are not special-
 /// cased in arithmetic (e.g. <c>inf - inf</c> does not yield NaN), so results for non-finite operands may
 /// differ from .NET; division by a finite zero does yield infinity as a courtesy. Subnormal inputs are
@@ -203,6 +209,85 @@ static int __f32_to_i32(uint a) {
     uint u = __f32_to_u32(mag);
     if ((a >> 31) != 0) return -(int)u;
     return (int)u;
+}
+
+// ---- MathF (single-precision Math), as ordinary compiled library source -----
+// Resolved by name (MathF.Round / System.MathF.Round), operating on float via the softfloat ops above and
+// BitConverter reinterprets. Matches real .NET MathF so the managed build agrees. (Sqrt is not yet
+// provided — a correctly-rounded software sqrt is a later refinement.)
+
+static class MathF {
+    static float Abs(float x) {
+        return BitConverter.UInt32BitsToSingle(BitConverter.SingleToUInt32Bits(x) & 0x7FFFFFFF);
+    }
+
+    static float Truncate(float x) {
+        uint bits = BitConverter.SingleToUInt32Bits(x);
+        int unbiased = (int)((bits >> 23) & 0xFF) - 127;
+        if (unbiased >= 23) return x;                                          // integral, or inf/NaN
+        if (unbiased < 0) return BitConverter.UInt32BitsToSingle(bits & 0x80000000); // |x| < 1 -> +/-0
+        uint mask = ~(((uint)1 << (23 - unbiased)) - 1);
+        return BitConverter.UInt32BitsToSingle(bits & mask);
+    }
+
+    static float Floor(float x) {
+        float t = Truncate(x);
+        if (x < 0f && t != x) return t - 1f;
+        return t;
+    }
+
+    static float Ceiling(float x) {
+        float t = Truncate(x);
+        if (x > 0f && t != x) return t + 1f;
+        return t;
+    }
+
+    // Round to nearest integer, ties to even — done purely on the bits (no calls to other float ops), so
+    // it stays one self-contained function.
+    static float Round(float x) {
+        uint bits = BitConverter.SingleToUInt32Bits(x);
+        uint sign = bits & 0x80000000;
+        int e = (int)((bits >> 23) & 0xFF) - 127;
+        if (e >= 23) return x;                                       // no fractional bits (integral/inf/nan)
+        if (e < -1) return BitConverter.UInt32BitsToSingle(sign);    // |x| < 0.5 -> +/-0
+        if (e == -1) {                                               // 0.5 <= |x| < 1
+            if ((bits & 0x7FFFFF) == 0) return BitConverter.UInt32BitsToSingle(sign);   // exactly 0.5 -> 0
+            return BitConverter.UInt32BitsToSingle(sign | 0x3F800000);                   // -> 1.0
+        }
+        int fracBits = 23 - e;
+        uint fracMask = ((uint)1 << fracBits) - 1;
+        uint frac = bits & fracMask;
+        uint kept = bits & ~fracMask;
+        uint half = (uint)1 << (fracBits - 1);
+        // Round up on > half, or on an exact tie when the kept integer's low bit is 1 (round to even).
+        if (frac > half || (frac == half && (bits & ((uint)1 << fracBits)) != 0))
+            kept = kept + ((uint)1 << fracBits);   // a carry into the exponent yields the correct next value
+        return BitConverter.UInt32BitsToSingle(kept);
+    }
+
+    static float Min(float a, float b) {
+        if (a != a) return a;                   // NaN propagates
+        if (b != b) return b;
+        if (a < b) return a;
+        if (b < a) return b;
+        if ((BitConverter.SingleToUInt32Bits(a) >> 31) != 0) return a; // signed zero: -0 is the min
+        return b;
+    }
+
+    static float Max(float a, float b) {
+        if (a != a) return a;
+        if (b != b) return b;
+        if (a > b) return a;
+        if (b > a) return b;
+        if ((BitConverter.SingleToUInt32Bits(a) >> 31) == 0) return a; // signed zero: +0 is the max
+        return b;
+    }
+
+    static int Sign(float x) {
+        if (x > 0f) return 1;
+        if (x < 0f) return -1;
+        return 0;
+    }
 }
 ";
 }

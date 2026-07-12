@@ -525,11 +525,17 @@ public sealed partial class CSharpFrontend : IFrontend
         // a handful of uncalled softfloat functions can't crowd the static frame allocation). Reuse the
         // optimizer's reachability walk, scoped to the `__`-prefixed runtime so user dead code is left to
         // later passes. Runs even unoptimized, so float works with or without the optimizer.
-        Ir.Optimization.IrOptimizer.RemoveUnreachableFunctions(
-            module,
-            f => f.Name.StartsWith("__", StringComparison.Ordinal)
-        );
+        Ir.Optimization.IrOptimizer.RemoveUnreachableFunctions(module, IsAppendedRuntimeFunction);
     }
+
+    /// <summary>Whether a function belongs to the appended float runtime (the <c>__</c>-prefixed softfloat
+    /// helpers and the <c>MathF</c>/<c>Math</c> library), so an unused one is pruned rather than costing
+    /// ROM. Only unreachable functions are dropped, so at worst this also removes a user's dead
+    /// <c>Math</c>/<c>MathF</c> method — harmless.</summary>
+    private static bool IsAppendedRuntimeFunction(IrFunction f) =>
+        f.Name.StartsWith("__", StringComparison.Ordinal)
+        || f.Name.StartsWith("MathF.", StringComparison.Ordinal)
+        || f.Name.StartsWith("Math.", StringComparison.Ordinal);
 
     private static Location IdentifierLocation(SyntaxNode decl) =>
         decl switch

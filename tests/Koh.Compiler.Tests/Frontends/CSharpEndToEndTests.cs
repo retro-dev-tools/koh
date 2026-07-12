@@ -1084,7 +1084,7 @@ static ushort Run() {
             "/" => x / y,
             _ => throw new ArgumentException(op),
         };
-        await Assert.That(RunI32(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
     }
 
     [Test]
@@ -1123,7 +1123,7 @@ static ushort Run() {
     public async Task Float_ToInt_MatchesHost(float x, int expected)
     {
         string prog = $"static int Main() {{ return (int)({Lit(x)}); }}";
-        await Assert.That((int)RunI32(prog)).IsEqualTo(expected);
+        await Assert.That((int)RunI32Opt(prog)).IsEqualTo(expected);
     }
 
     [Test]
@@ -1205,6 +1205,81 @@ static ushort Run() {
         await Assert
             .That(diagnostics.Any(d => d.Message.Contains("double is not yet supported")))
             .IsTrue();
+    }
+
+    // ---- MathF (single-precision Math), compiled as library source ------------
+
+    [Test]
+    [Arguments("Round", 2.5f)] // banker's rounding -> 2
+    [Arguments("Round", 3.5f)] // -> 4
+    [Arguments("Round", -2.5f)] // -> -2
+    [Arguments("Round", 2.4f)]
+    [Arguments("Round", 2.6f)]
+    [Arguments("Floor", 2.7f)]
+    [Arguments("Floor", -2.3f)]
+    [Arguments("Ceiling", 2.3f)]
+    [Arguments("Ceiling", -2.7f)]
+    [Arguments("Truncate", 2.7f)]
+    [Arguments("Truncate", -2.7f)]
+    [Arguments("Abs", -3.5f)]
+    [Arguments("Abs", 3.5f)]
+    public async Task MathF_UnaryFloat_MatchesHost(string fn, float x)
+    {
+        string prog = $"static float Main() {{ return MathF.{fn}({Lit(x)}); }}";
+        float expected = fn switch
+        {
+            "Round" => MathF.Round(x),
+            "Floor" => MathF.Floor(x),
+            "Ceiling" => MathF.Ceiling(x),
+            "Truncate" => MathF.Truncate(x),
+            "Abs" => MathF.Abs(x),
+            _ => throw new ArgumentException(fn),
+        };
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
+    }
+
+    [Test]
+    [Arguments("Min", 1.5f, 2.5f)]
+    [Arguments("Max", 1.5f, 2.5f)]
+    [Arguments("Min", -1.5f, -2.5f)]
+    [Arguments("Max", -1.5f, -2.5f)]
+    public async Task MathF_BinaryFloat_MatchesHost(string fn, float a, float b)
+    {
+        string prog = $"static float Main() {{ return MathF.{fn}({Lit(a)}, {Lit(b)}); }}";
+        float expected = fn == "Min" ? MathF.Min(a, b) : MathF.Max(a, b);
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(expected));
+    }
+
+    [Test]
+    [Arguments(3.5f, 1)]
+    [Arguments(-3.5f, -1)]
+    [Arguments(0.0f, 0)]
+    public async Task MathF_Sign_MatchesHost(float x, int expected)
+    {
+        string prog = $"static int Main() {{ return MathF.Sign({Lit(x)}); }}";
+        await Assert.That((int)RunI32Opt(prog)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task MathF_SystemPrefixResolves()
+    {
+        // `System.MathF.Round` resolves to the compiled MathF library (the namespace is dropped).
+        await Assert
+            .That(RunI32Opt("static float Main() { return System.MathF.Round(2.5f); }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(2.0f));
+    }
+
+    [Test]
+    public async Task MathF_UnusedFunctionsPruned()
+    {
+        // A program using MathF.Abs keeps it but drops the other MathF library functions.
+        var module = new CSharpFrontend().Lower(
+            SourceText.From("static float Main() { return MathF.Abs(-1.5f); }", "game.cs"),
+            new DiagnosticBag()
+        );
+        await Assert.That(module.Functions.Any(f => f.Name == "MathF.Abs")).IsTrue();
+        await Assert.That(module.Functions.Any(f => f.Name == "MathF.Round")).IsFalse();
+        await Assert.That(module.Functions.Any(f => f.Name == "MathF.Floor")).IsFalse();
     }
 
     [Test]
