@@ -12,10 +12,12 @@ namespace Koh.Compiler.Frontends.CSharp;
 // resolution oracle for MethodLowerer's symbol-first lookups (intrinsic recognition, call/field/member
 // resolution, unresolved-name diagnostic text — see MethodLowerer.cs). Lowering decisions still come
 // entirely from Koh's own C-like typing (CsType); Roslyn only identifies which declaration a name/member
-// refers to, never a type's width/signedness. Building the compilation is deferred until something
-// actually consults CSharpSemantics (see CSharpSemantics below): per-Lower() cost for a program whose
-// lowering never needs a symbol (rare — nearly everything routes through CSharpSemantics now) is then
-// just constructing a handful of Lazy<T> wrappers, not real Roslyn binding work.
+// refers to, never a type's width/signedness. The compilation is built behind a Lazy<T> (see
+// CSharpSemantics below), but since Stage-2 P5 symbol resolution is the ONLY name-resolution path,
+// CSharpFrontend.LowerCore forces it unconditionally right after this call (the required-compilation /
+// missing-TPA-list diagnostic guard) — so it is always built, on every Lower(). The Lazy<T> is an
+// initialization-order convenience (CSharpSemantics's constructor needs the tree/factory before the
+// compilation can exist), not a deferred/fast-path mechanism.
 public sealed partial class CSharpFrontend
 {
     /// <summary>A <see cref="MetadataReference"/> for every assembly the current runtime has loaded (the
@@ -72,8 +74,9 @@ public sealed partial class CSharpFrontend
     /// would make every node identity in the compilation stale. <paramref name="instancesTree"/> is the
     /// second, constructed tree housing monomorphized generic instances (see
     /// <see cref="BuildInstancesTree"/>), or null for a program with no generic instances. The actual
-    /// <c>CSharpCompilation.Create</c> call (and TPA reference load, on first use process-wide) only
-    /// happens if a caller consults the result — see <see cref="CSharpSemantics"/>.</summary>
+    /// <c>CSharpCompilation.Create</c> call (and TPA reference load, on first use process-wide) sits
+    /// behind a <see cref="Lazy{T}"/> for initialization-order reasons, but <see cref="LowerCore"/> forces
+    /// it unconditionally right after calling this — see <see cref="CSharpSemantics"/>.</summary>
     private static CSharpSemantics BuildSemantics(SyntaxTree mainTree, SyntaxTree? instancesTree) =>
         new(
             mainTree,
@@ -132,9 +135,12 @@ public sealed partial class CSharpFrontend
 ///
 /// Everything that requires real Roslyn binding (the underlying <see cref="CSharpCompilation"/>, the
 /// <see cref="SemanticModel"/>, and the stub type symbols) is behind its own <see cref="Lazy{T}"/>, so
-/// constructing an instance is cheap — the compiler doesn't do any of that work unless a caller actually
-/// reads one of these members. A <c>Lower()</c> whose program needs no resolution at all (rare) still
-/// pays nothing beyond constructing the <see cref="Lazy{T}"/> wrappers.
+/// constructing an instance itself does no Roslyn work — but <see cref="CSharpFrontend.LowerCore"/> forces
+/// <see cref="Compilation"/> unconditionally right after construction (Stage-2 P5: symbol resolution is
+/// the only resolution path, so a compilation is never optional — see that call site's own remarks), so
+/// in practice every <c>Lower()</c> always pays for it. The <see cref="Lazy{T}"/> wrapping is an
+/// initialization-order convenience (the compilation factory closes over the tree(s) this constructor
+/// receives), not a fast path for programs that need no resolution.
 /// </summary>
 // Stage-2 P3 adds SymOrCandidate alongside Sym: a callee/field lookup that Roslyn's OWN rules (overload
 // resolution, accessibility) reject on Koh-legal code gets one more chance via CandidateSymbols before

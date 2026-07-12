@@ -532,7 +532,7 @@ public sealed partial class CSharpFrontend : IFrontend
 
             var fn = new IrFunction(name, returnType?.Ir ?? IrType.Void, parameters)
             {
-                InterruptVector = InterruptVectorOf(decl, diagnostics),
+                InterruptVector = InterruptVectorOf(decl, semantics, diagnostics),
             };
             var method = new CsMethod(
                 fn,
@@ -756,7 +756,31 @@ public sealed partial class CSharpFrontend : IFrontend
         }
     }
 
-    private static int? InterruptVectorOf(SyntaxNode decl, DiagnosticBag diagnostics)
+    /// <summary>Whether <paramref name="attr"/> is an application of the real Koh <c>[Interrupt(...)]</c>
+    /// intrinsic. Symbol-only (matching <c>IsIntrinsicSubject</c>'s reasoning in MethodLowerer.cs): an
+    /// attribute application's own symbol is its resolved constructor (see
+    /// <see cref="CSharpSemanticsTests.IntrinsicSurface_ResolvesToStubSymbols"/>), so recognition follows
+    /// that constructor's containing type against <see cref="CSharpSemantics.InterruptAttributeType"/>
+    /// rather than the spelled attribute name — a user type that merely happens to be named
+    /// <c>Interrupt</c>/<c>InterruptAttribute</c> (and so is never the intrinsic's own constructor) is
+    /// never mistaken for it, regardless of spelling. Deliberately plain <c>Sym</c>, not
+    /// <c>SymOrCandidate</c>: when a distinct, legal user attribute type also answers to the same spelled
+    /// name (e.g. a user <c>class Interrupt : Attribute</c>), Roslyn itself reports the application as
+    /// ambiguous (CS1614) and <c>Symbol</c> comes back null — that null, like any other unresolved symbol,
+    /// is never treated as a match, so an ambiguous application is correctly NOT the intrinsic rather than
+    /// guessed at via <c>CandidateSymbols</c>.</summary>
+    private static bool IsInterruptAttribute(AttributeSyntax attr, CSharpSemantics semantics) =>
+        semantics.Sym(attr) is IMethodSymbol { MethodKind: MethodKind.Constructor } ctor
+        && SymbolEqualityComparer.Default.Equals(
+            ctor.ContainingType,
+            semantics.InterruptAttributeType
+        );
+
+    private static int? InterruptVectorOf(
+        SyntaxNode decl,
+        CSharpSemantics semantics,
+        DiagnosticBag diagnostics
+    )
     {
         SyntaxList<AttributeListSyntax> lists = decl switch
         {
@@ -768,8 +792,7 @@ public sealed partial class CSharpFrontend : IFrontend
         foreach (var list in lists)
         foreach (var attr in list.Attributes)
         {
-            var attrName = attr.Name.ToString();
-            if (attrName is not ("Interrupt" or "InterruptAttribute"))
+            if (!IsInterruptAttribute(attr, semantics))
                 continue;
             var arg = attr.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
             var kind = arg switch
