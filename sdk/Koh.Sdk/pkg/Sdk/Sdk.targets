@@ -1,0 +1,19 @@
+<Project InitialTargets="KohSdkOutsideRepoError">
+
+  <!-- Forward to the SDK's real, in-repo targets (see Sdk.props for why this is a shim). Koh.Sdk is
+       repo-internal: its targets reference the in-tree compiler, linker, and Koh.GameBoy by path, so a
+       project outside the Koh repo (no Koh.Ci.slnf above it) leaves KohRoot empty, skips this import, and
+       fails to build. The KohSdkOutsideRepoError InitialTargets below raises a clear error in that case
+       instead of leaving the consumer with a generic "no target in the project" MSB4040 (both this
+       import and the nested Microsoft.NET.Sdk import inside the real Sdk.props get skipped when KohRoot
+       is empty, so without this target there would be nothing left to report the real cause). -->
+  <Import Project="$(KohRoot)/sdk/Koh.Sdk/Sdk/Sdk.targets" Condition="'$(KohRoot)' != ''" />
+
+  <!-- InitialTargets (not a plain top-level task) so this still runs even though no other targets exist
+       when the import above is skipped. -->
+  <Target Name="KohSdkOutsideRepoError">
+    <Error Condition="'$(KohRoot)' == ''"
+           Text="Koh.Sdk is repo-internal; build a game project from inside the koh repository (no Koh.Ci.slnf found above this project)." />
+  </Target>
+
+</Project>

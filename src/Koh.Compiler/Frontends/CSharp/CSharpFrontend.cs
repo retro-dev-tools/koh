@@ -109,12 +109,15 @@ public sealed partial class CSharpFrontend : IFrontend
         var root = CSharpSyntaxTree.ParseText(source).GetCompilationUnitRoot();
         // DescendantNodes (not just the leading .Usings) so that when several source files are compiled
         // as one unit, their per-file usings/namespaces — which land after the first file's types — are
-        // blanked too.
+        // blanked too. First-file usings are still valid UsingDirectiveSyntax here; mid-unit ones that
+        // Roslyn drops are recovered from skipped trivia further below.
         var spans = new List<Microsoft.CodeAnalysis.Text.TextSpan>();
         foreach (var node in root.DescendantNodes())
         {
             if (node is UsingDirectiveSyntax u)
-                spans.Add(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(u.SpanStart, u.Span.End));
+                // The directive's own span excludes any trailing comment (that stays), and a `using`
+                // inside a string literal is not a UsingDirectiveSyntax, so it can never be caught here.
+                spans.Add(u.Span);
             else if (node is FileScopedNamespaceDeclarationSyntax fns)
                 // Blank only the `namespace X;` header, not its members.
                 spans.Add(
@@ -134,6 +137,56 @@ public sealed partial class CSharpFrontend : IFrontend
                     )
                 );
                 spans.Add(bns.CloseBraceToken.Span);
+            }
+        }
+        // A `using` directive is only legal before any type, so in a concatenated unit every file past the
+        // first has its usings land mid-unit — illegal there, so Roslyn drops them as skipped-token trivia
+        // (no UsingDirectiveSyntax above). Reassemble those skipped tokens (Roslyn fragments the run into
+        // one trivia per token) and blank each `using … ;`. Working from real tokens — not a text scan —
+        // means a `using` inside a string literal or a `using var` statement (neither of which is skipped
+        // trivia) is left intact rather than corrupted or silently dropped.
+        var skipped = root.DescendantTrivia()
+            .Where(t => t.IsKind(SyntaxKind.SkippedTokensTrivia))
+            .SelectMany(t => ((SkippedTokensTriviaSyntax)t.GetStructure()!).Tokens)
+            .OrderBy(t => t.SpanStart)
+            .ToList();
+        for (int i = 0; i < skipped.Count; i++)
+        {
+            if (!skipped[i].IsKind(SyntaxKind.UsingKeyword))
+                continue;
+            // `global using X;` puts `global` immediately before `using` in the skipped-token stream too
+            // (mirroring the ordinary UsingDirectiveSyntax branch above, whose span already includes
+            // GlobalKeyword) — start the blanked span there so a mid-unit `global using` doesn't leave a
+            // bare `global` behind for the reparse to choke on.
+            int start = i > 0 && skipped[i - 1].IsKind(SyntaxKind.GlobalKeyword) ? i - 1 : i;
+            // Bound the forward scan to the current source line: a malformed mid-unit `using` missing its
+            // `;` must not run on into a later, unrelated semicolon — that would blank everything between
+            // the two, including well-formed declarations sitting textually in between. If no semicolon
+            // terminates the directive on its own line, leave the text alone so the real parse error (a
+            // missing `;`) surfaces to the user instead of a misleading downstream diagnostic.
+            int lineEnd = source.IndexOf('\n', skipped[i].SpanStart);
+            if (lineEnd < 0)
+                lineEnd = source.Length;
+            int j = i;
+            while (
+                j < skipped.Count
+                && skipped[j].SpanStart < lineEnd
+                && !skipped[j].IsKind(SyntaxKind.SemicolonToken)
+            )
+                j++;
+            if (
+                j < skipped.Count
+                && skipped[j].SpanStart < lineEnd
+                && skipped[j].IsKind(SyntaxKind.SemicolonToken)
+            ) // a terminating ';' was found on the same line — blank the whole `using … ;` run
+            {
+                spans.Add(
+                    Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                        skipped[start].SpanStart,
+                        skipped[j].Span.End
+                    )
+                );
+                i = j;
             }
         }
         if (spans.Count == 0)
