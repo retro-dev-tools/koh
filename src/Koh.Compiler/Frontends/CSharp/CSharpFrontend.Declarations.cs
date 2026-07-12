@@ -360,10 +360,10 @@ public sealed partial class CSharpFrontend
                 continue; // the synthesized program wrapper, not a user class
 
             // Reserved intrinsic surfaces: a user class named `Mem` (arena allocator), `Hardware`
-            // (registers), or `Gb` (memory regions) would have its member access silently hijacked by
-            // the corresponding lowering. Reject rather than mis-compile — checked before the static
-            // skip below, so a `static class Gb` is caught too.
-            if (decl.Identifier.Text is "Mem" or "Hardware" or "Gb")
+            // (registers), `Gb` (memory regions), or `BitConverter` (float<->bits reinterpret) would have
+            // its member access silently hijacked by the corresponding lowering. Reject rather than
+            // mis-compile — checked before the static skip below, so a `static class Gb` is caught too.
+            if (decl.Identifier.Text is "Mem" or "Hardware" or "Gb" or "BitConverter")
             {
                 Report(
                     diagnostics,

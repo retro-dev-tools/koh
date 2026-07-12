@@ -56,8 +56,13 @@ public static class IrOptimizer
     }
 
     /// <summary>Remove functions unreachable from the entry or any interrupt handler through the call
-    /// graph. External declarations are always kept (they may be resolved by the linker).</summary>
-    private static void RemoveUnreachableFunctions(IrModule module)
+    /// graph. External declarations are always kept (they may be resolved by the linker). When
+    /// <paramref name="removable"/> is given, only unreachable functions it selects are dropped (e.g. the
+    /// frontend prunes just the appended <c>__</c>-runtime, leaving user dead code to later passes).</summary>
+    internal static void RemoveUnreachableFunctions(
+        IrModule module,
+        Func<IrFunction, bool>? removable = null
+    )
     {
         // Only prune when the module designates an entry (a real compiled program always marks Main).
         // Without one — a library fragment or a single function under test — every function is a
@@ -78,7 +83,7 @@ public static class IrOptimizer
                 if (instruction is CallInstruction call && keep.Add(call.Callee))
                     work.Push(call.Callee);
 
-        module.Functions.RemoveAll(f => !keep.Contains(f));
+        module.Functions.RemoveAll(f => !keep.Contains(f) && (removable is null || removable(f)));
     }
 
     private static void OptimizeFunction(IrFunction function)
