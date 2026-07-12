@@ -193,6 +193,21 @@ public sealed partial class CSharpFrontend : IFrontend
             .Any(m => m.Identifier.Text == "__f32_add");
         if (UsesFloat(root) && !runtimeAlreadyDeclared)
         {
+            // `MathF` is the appended library's class; a user class of that name would collide with it once
+            // the runtime is injected. Reject it cleanly (like Mem/Hardware/Gb/BitConverter) instead of
+            // emitting confusing duplicate-method diagnostics.
+            var userMathF = root.DescendantNodes()
+                .OfType<ClassDeclarationSyntax>()
+                .FirstOrDefault(c => c.Identifier.Text == "MathF");
+            if (userMathF is not null)
+            {
+                Report(
+                    diagnostics,
+                    "'MathF' is reserved for the built-in Math library and cannot name a class.",
+                    userMathF.Identifier.GetLocation()
+                );
+                return;
+            }
             wrapped =
                 WrapperPrefix
                 + BlankNamespacing(source.ToString() + "\n" + SoftFloatRuntime.Source)
@@ -529,13 +544,12 @@ public sealed partial class CSharpFrontend : IFrontend
     }
 
     /// <summary>Whether a function belongs to the appended float runtime (the <c>__</c>-prefixed softfloat
-    /// helpers and the <c>MathF</c>/<c>Math</c> library), so an unused one is pruned rather than costing
-    /// ROM. Only unreachable functions are dropped, so at worst this also removes a user's dead
-    /// <c>Math</c>/<c>MathF</c> method — harmless.</summary>
+    /// helpers and the <c>MathF</c> library), so an unused one is pruned rather than costing ROM. Only
+    /// unreachable functions are dropped; <c>MathF</c> is a reserved class name, so a user function is never
+    /// affected.</summary>
     private static bool IsAppendedRuntimeFunction(IrFunction f) =>
         f.Name.StartsWith("__", StringComparison.Ordinal)
-        || f.Name.StartsWith("MathF.", StringComparison.Ordinal)
-        || f.Name.StartsWith("Math.", StringComparison.Ordinal);
+        || f.Name.StartsWith("MathF.", StringComparison.Ordinal);
 
     private static Location IdentifierLocation(SyntaxNode decl) =>
         decl switch

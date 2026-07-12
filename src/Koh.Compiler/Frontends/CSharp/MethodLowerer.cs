@@ -1700,6 +1700,11 @@ internal sealed class MethodLowerer
             && bc.Expression is IdentifierNameSyntax { Identifier.Text: "BitConverter" }
         )
         {
+            if (call.ArgumentList.Arguments.Count != 1)
+                throw new CSharpNotSupportedException(
+                    $"BitConverter.{bc.Name.Identifier.Text} takes one argument.",
+                    call.GetLocation()
+                );
             var argExpr = call.ArgumentList.Arguments[0].Expression;
             switch (bc.Name.Identifier.Text)
             {
@@ -1766,11 +1771,16 @@ internal sealed class MethodLowerer
                 when _methods.ContainsKey(
                     $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}"
                 ) => $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}",
-            // A namespaced BCL-style call `Ns.Class.Method(...)` (e.g. `System.MathF.Round`) resolves as
-            // `Class.Method` — the frontend drops namespaces, so it reaches the compiled library.
+            // A namespaced BCL-style call `System.Class.Method(...)` (e.g. `System.MathF.Round`) resolves as
+            // `Class.Method` — the frontend drops the `System` namespace, reaching the compiled library.
+            // Restricted to `System` so it can't hijack an instance-field chain `a.b.M()` to a static `b.M`.
             MemberAccessExpressionSyntax
             {
-                Expression: MemberAccessExpressionSyntax { Name: IdentifierNameSyntax cls },
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Expression: IdentifierNameSyntax { Identifier.Text: "System" },
+                    Name: IdentifierNameSyntax cls
+                },
                 Name: IdentifierNameSyntax mth
             } when _methods.ContainsKey($"{cls.Identifier.Text}.{mth.Identifier.Text}") =>
                 $"{cls.Identifier.Text}.{mth.Identifier.Text}",

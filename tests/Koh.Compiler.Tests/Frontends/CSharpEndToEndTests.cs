@@ -72,8 +72,10 @@ public class CSharpEndToEndTests
     {
         var link = new LinkerType().Link([new LinkerInput("cs", model)]);
         var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
-        start = Sm83Backend.CodeBase;
-        length = model.Sections[0].Data.Length;
+        // Boot at the cartridge entry (0x100), so the header's JP reaches the real entry (Main) wherever it
+        // was placed — not the first-emitted function. The run range spans the header and the code.
+        start = 0x100;
+        length = Sm83Backend.CodeBase + model.Sections[0].Data.Length - 0x100;
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start;
@@ -1258,6 +1260,43 @@ static ushort Run() {
     {
         string prog = $"static int Main() {{ return MathF.Sign({Lit(x)}); }}";
         await Assert.That((int)RunI32Opt(prog)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task MathF_AcrossHelperCalls_MatchesHost()
+    {
+        // Float values (and MathF results) survive being passed to and returned from helper functions,
+        // with the entry declared last — the harness boots at the cartridge entry, which reaches Main
+        // wherever it is (as a real ROM does), so a non-inlined helper before Main can't be mistaken for it.
+        const string prog =
+            "static float Main(){ return Shift(2.7f) + Shift(5.3f); } "
+            + "static float Shift(float v){ return MathF.Floor(v) + 1f; }";
+        await Assert.That(RunI32Opt(prog)).IsEqualTo(BitConverter.SingleToUInt32Bits(9.0f));
+    }
+
+    [Test]
+    public async Task BitConverter_ZeroArgReportsDiagnostic()
+    {
+        // A zero-arg BitConverter call must report a diagnostic, not crash the compiler.
+        await Assert
+            .That(HasError("static uint Main() { return BitConverter.SingleToUInt32Bits(); }"))
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task MathF_UserClassIsReserved()
+    {
+        // A user `static class MathF` collides with the appended library; report a clean reserved-name
+        // error, not confusing duplicate-method diagnostics.
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(
+            SourceText.From(
+                "static class MathF { static float Round(float x){ return x; } } static float Main(){ return MathF.Round(1.5f); }",
+                "game.cs"
+            ),
+            diagnostics
+        );
+        await Assert.That(diagnostics.Any(d => d.Message.Contains("'MathF' is reserved"))).IsTrue();
     }
 
     [Test]
