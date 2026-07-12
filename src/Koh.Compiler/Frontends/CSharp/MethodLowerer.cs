@@ -11,20 +11,21 @@ namespace Koh.Compiler.Frontends.CSharp;
 /// <c>load</c> and written via <c>store</c>, so control flow (if/while) only needs br/condbr — no
 /// phi construction. Expression types are tracked with C-like rules (8-bit arithmetic stays 8-bit)
 /// and drive signed vs. unsigned operation selection — this is Koh's own typing, independent of
-/// (and authoritative over) whatever Roslyn would infer. Name/member/call resolution is symbol-only
-/// (Stage-2 P5): <see cref="CSharpSemantics"/> (<see cref="_semantics"/>) is the sole resolution path
-/// — a resolved symbol identifies the exact declaration Roslyn's own binder would pick, checked by
-/// identity rather than spelled text, against the very same <c>CsMethod</c>/<c>CsEnum</c>/<c>IrGlobal</c>/
-/// ... instances the surviving string-keyed tables hold (both populated by the same declaration passes;
-/// those tables now serve only declaration plumbing — softfloat/duplicate-name lookups, per-body locals,
-/// and type-name resolution until Stage-2 P6 — never a second name-resolution route). Callee/field sites
-/// use <see cref="CSharpSemantics.SymOrCandidate"/> rather than the plain <see cref="CSharpSemantics.Sym"/>
-/// (Stage-2 P3): Roslyn's own binder rejects some Koh-legal code outright (mixed-width arithmetic in a
-/// call argument fails overload resolution; Koh ignores accessibility entirely, so a cross-class
-/// `private` reference is `Inaccessible` to Roslyn) — for exactly those two reasons, a resolvable
-/// <c>CandidateSymbols</c> entry is accepted in place of a null <c>Symbol</c>. A name that resolves to
-/// neither a symbol nor an acceptable candidate is a genuine resolution failure, reported via
-/// <see cref="BetterUnresolvedMessage"/> — there is nothing further to fall back to.
+/// (and authoritative over) whatever Roslyn would infer. Name/member/call AND type-NAME resolution are
+/// symbol-only (Stage-2 P5/P6): <see cref="CSharpSemantics"/> (<see cref="_semantics"/>) is the sole
+/// resolution path — a resolved symbol identifies the exact declaration Roslyn's own binder would pick,
+/// checked by identity rather than spelled text, against the very same <c>CsMethod</c>/<c>CsEnum</c>/
+/// <c>CsStruct</c>/<c>CsClass</c>/<c>IrGlobal</c>/... instances the surviving string-keyed tables hold
+/// (both populated by the same declaration passes; those tables now serve only declaration plumbing —
+/// softfloat/duplicate-name lookups, per-body locals — never a second name- or type-resolution route).
+/// Callee/field sites use <see cref="CSharpSemantics.SymOrCandidate"/> rather than the plain
+/// <see cref="CSharpSemantics.Sym"/> (Stage-2 P3): Roslyn's own binder rejects some Koh-legal code
+/// outright (mixed-width arithmetic in a call argument fails overload resolution; Koh ignores
+/// accessibility entirely, so a cross-class `private` reference is `Inaccessible` to Roslyn) — for
+/// exactly those two reasons, a resolvable <c>CandidateSymbols</c> entry is accepted in place of a null
+/// <c>Symbol</c>. A name that resolves to neither a symbol nor an acceptable candidate is a genuine
+/// resolution failure, reported via <see cref="BetterUnresolvedMessage"/> — there is nothing further to
+/// fall back to.
 /// </summary>
 internal sealed class MethodLowerer
 {
@@ -35,17 +36,8 @@ internal sealed class MethodLowerer
     // Declaration plumbing (Stage-2 P5): no longer a name-resolution fallback. Consulted only by
     // EmitFloatRuntimeCall (softfloat runtime function names, e.g. "__f32_add" — synthesized names with
     // no user syntax node to resolve a symbol from) and by the MathF call-routing special case in
-    // LowerCall, plus InferType's best-effort call-return-type guess (a non-lowering, non-authoritative
-    // sizing heuristic — see InferType's own remarks; full symbol conversion there is Stage-2 P6 territory).
+    // LowerCall.
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
-
-    // Declaration plumbing (Stage-2 P5): enum MEMBER lookup (LowerMemberAccess) is symbol-only now: this
-    // table is consulted only by CSharpFrontend.ResolveType (Types.cs — type-NAME resolution, not a
-    // resolution fallback for the member-access sites above; symbol-first type-name resolution is
-    // Stage-2 P6 territory).
-    private readonly IReadOnlyDictionary<string, CsEnum> _enums;
-    private readonly IReadOnlyDictionary<string, CsStruct> _structs;
-    private readonly IReadOnlyDictionary<string, CsClass> _classes;
 
     // Declaration plumbing (Stage-2 P5): TryGlobal is symbol-only now; this table is consulted only for
     // the synthesized heap-pointer global (CSharpFrontend.HeapPointerName), a fixed compiler-internal
@@ -168,14 +160,11 @@ internal sealed class MethodLowerer
         BlockSyntax? body,
         ArrowExpressionClauseSyntax? arrow,
         IReadOnlyDictionary<string, CsMethod> methods,
-        IReadOnlyDictionary<string, CsEnum> enums,
-        IReadOnlyDictionary<string, CsStruct> structs,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> globals,
         HardwareRegisters hardware,
         string file,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays,
-        IReadOnlyDictionary<string, CsClass> classes,
         CSharpSemantics semantics
     )
     {
@@ -184,9 +173,6 @@ internal sealed class MethodLowerer
         _body = body;
         _arrow = arrow;
         _methods = methods;
-        _enums = enums;
-        _structs = structs;
-        _classes = classes;
         _globals = globals;
         _hardware = hardware;
         _staticInits = staticInits;
@@ -439,9 +425,13 @@ internal sealed class MethodLowerer
         }
 
         // A struct-typed local: reserve its bytes; fields default to zero (WRAM/emulator-zeroed).
+        // Symbol-first (Stage-2 P6): the type name's own resolved symbol identifies the exact struct
+        // declaration Roslyn's binder would pick, keyed against CSharpSemantics.Structs — the same
+        // CsStruct instance the (now declaration-plumbing-only) CollectStructs pass built.
         if (
             decl.Type is IdentifierNameSyntax typeName
-            && _structs.TryGetValue(typeName.Identifier.Text, out var structInfo)
+            && _semantics.Sym(typeName) is INamedTypeSymbol structSym
+            && _semantics.Structs.TryGetValue(structSym, out var structInfo)
         )
         {
             foreach (var v in decl.Variables)
@@ -453,9 +443,11 @@ internal sealed class MethodLowerer
         }
 
         // A class-typed local: a slot holding a pointer to the heap instance (e.g. from `new C()`).
+        // Symbol-first (Stage-2 P6), same rationale as the struct case above via CSharpSemantics.Classes.
         if (
             decl.Type is IdentifierNameSyntax className
-            && _classes.TryGetValue(className.Identifier.Text, out var classInfo)
+            && _semantics.Sym(className) is INamedTypeSymbol classSym
+            && _semantics.Classes.TryGetValue(classSym, out var classInfo)
         )
         {
             foreach (var v in decl.Variables)
@@ -475,7 +467,7 @@ internal sealed class MethodLowerer
             return;
         }
 
-        var type = CSharpFrontend.ResolveType(decl.Type, _enums);
+        var type = CSharpFrontend.ResolveType(decl.Type, _semantics);
         foreach (var v in decl.Variables)
         {
             if (isConst)
@@ -489,7 +481,8 @@ internal sealed class MethodLowerer
                     CSharpFrontend.ConstEval(
                         v.Initializer.Value,
                         ResolveConst,
-                        unsigned: !type.Signed
+                        unsigned: !type.Signed,
+                        semantics: _semantics
                     )
                 );
                 continue;
@@ -513,8 +506,13 @@ internal sealed class MethodLowerer
     {
         if (sa.Type is not ArrayTypeSyntax arr)
             throw new CSharpNotSupportedException("stackalloc requires an array type.");
-        var element = CSharpFrontend.ResolveType(arr.ElementType, _enums);
-        int length = (int)CSharpFrontend.ConstEval(arr.RankSpecifiers[0].Sizes[0], ResolveConst);
+        var element = CSharpFrontend.ResolveType(arr.ElementType, _semantics);
+        int length = (int)
+            CSharpFrontend.ConstEval(
+                arr.RankSpecifiers[0].Sizes[0],
+                ResolveConst,
+                semantics: _semantics
+            );
         if (length < 0)
             throw new CSharpNotSupportedException($"stackalloc has a negative length ({length}).");
         var storage = _b.Alloca(IrType.Array(element.Ir, length));
@@ -535,13 +533,18 @@ internal sealed class MethodLowerer
         // are accessed as `s[i].field`. It must be sized with `new T[n]` (there are no struct literals).
         if (
             arrayType.ElementType is IdentifierNameSyntax structName
-            && _structs.TryGetValue(structName.Identifier.Text, out var structElem)
+            && _semantics.Sym(structName) is INamedTypeSymbol structArrSym
+            && _semantics.Structs.TryGetValue(structArrSym, out var structElem)
         )
         {
             int count = initializer?.Value switch
             {
                 ArrayCreationExpressionSyntax { Initializer: null } c => (int)
-                    CSharpFrontend.ConstEval(c.Type.RankSpecifiers[0].Sizes[0], ResolveConst),
+                    CSharpFrontend.ConstEval(
+                        c.Type.RankSpecifiers[0].Sizes[0],
+                        ResolveConst,
+                        semantics: _semantics
+                    ),
                 _ => throw new CSharpNotSupportedException(
                     $"struct array '{name}' must be created with 'new {structName.Identifier.Text}[n]'."
                 ),
@@ -555,7 +558,7 @@ internal sealed class MethodLowerer
             return;
         }
 
-        var element = CSharpFrontend.ResolveType(arrayType.ElementType, _enums);
+        var element = CSharpFrontend.ResolveType(arrayType.ElementType, _semantics);
 
         // A string literal initializes a byte array with its characters' codes (`byte[] s = "HI"`).
         if (initializer?.Value is LiteralExpressionSyntax { Token.Value: string text })
@@ -584,7 +587,8 @@ internal sealed class MethodLowerer
                 else
                 {
                     var size = create.Type.RankSpecifiers[0].Sizes[0];
-                    length = (int)CSharpFrontend.ConstEval(size, ResolveConst);
+                    length = (int)
+                        CSharpFrontend.ConstEval(size, ResolveConst, semantics: _semantics);
                 }
                 break;
             case InitializerExpressionSyntax bare: // byte[] a = { 1, 2, 3 };
@@ -953,7 +957,7 @@ internal sealed class MethodLowerer
 
             case CastExpressionSyntax cast:
             {
-                var target = CSharpFrontend.ResolveType(cast.Type, _enums);
+                var target = CSharpFrontend.ResolveType(cast.Type, _semantics);
                 return (Coerce(LowerExpression(cast.Expression, target), target), target);
             }
 
@@ -1269,7 +1273,7 @@ internal sealed class MethodLowerer
             case CastExpressionSyntax cast:
                 try
                 {
-                    return CSharpFrontend.ResolveType(cast.Type, _enums);
+                    return CSharpFrontend.ResolveType(cast.Type, _semantics);
                 }
                 catch (CSharpNotSupportedException)
                 {
@@ -1314,13 +1318,15 @@ internal sealed class MethodLowerer
                     _ => null,
                 };
             // Best-effort only (this method never emits IR or gates lowering — LowerCall's own
-            // symbol-only resolution is what actually picks the callee): a bare-name lookup by spelled
-            // text against the declaration-plumbing `_methods` table is good enough to size a ternary's
-            // result slot, and a wrong guess here can't miscompile anything (Coerce narrows/widens the
-            // branch value to whatever slot type was picked). Left un-converted to symbol resolution
-            // (Stage-2 P6 territory, along with the rest of Types.cs' string-keyed type-name resolution).
-            case InvocationExpressionSyntax { Expression: IdentifierNameSyntax fn }
-                when _methods.TryGetValue(fn.Identifier.Text, out var callee):
+            // symbol-only resolution is what actually picks the callee): the invocation's own resolved
+            // callee symbol (Stage-2 P6, mirroring LowerCall's symCallee) is good enough to size a
+            // ternary's result slot, and a wrong guess here can't miscompile anything (Coerce narrows/
+            // widens the branch value to whatever slot type was picked). Bare-callee only (unlike
+            // LowerCall, this doesn't also route qualified/generic calls — a missed guess just falls
+            // through to the caller's own default).
+            case InvocationExpressionSyntax { Expression: IdentifierNameSyntax } inv
+                when _semantics.SymOrCandidate(inv) is IMethodSymbol invSym
+                    && _semantics.Methods.TryGetValue(invSym.OriginalDefinition, out var callee):
                 return callee.Return;
             case ConditionalExpressionSyntax nested:
                 return CommonInferred(nested.WhenTrue, nested.WhenFalse, nested);
@@ -2176,9 +2182,11 @@ internal sealed class MethodLowerer
     /// supported — initialize fields after construction.</summary>
     private (IrValue, CsType) LowerNew(ObjectCreationExpressionSyntax objNew)
     {
+        // Symbol-first (Stage-2 P6), same as the class-typed-local check in LowerLocalDeclaration.
         if (
             objNew.Type is not IdentifierNameSyntax cn
-            || !_classes.TryGetValue(cn.Identifier.Text, out var cls)
+            || _semantics.Sym(cn) is not INamedTypeSymbol classSym
+            || !_semantics.Classes.TryGetValue(classSym, out var cls)
         )
             throw new CSharpNotSupportedException(
                 $"'new {objNew.Type}' is not supported (only class instances are)."

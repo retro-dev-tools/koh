@@ -39,8 +39,9 @@ public sealed class CSharpNotSupportedException : Exception
 /// <see cref="BuildInstancesTree"/>) that Roslyn binds alongside the main tree, so ordinary symbol
 /// resolution runs inside it exactly as for any other declaration. Symbol resolution (via
 /// <see cref="CSharpSemantics"/>, including its candidate acceptance for Koh-legal-but-C#-illegal code
-/// — Stage-2 P3) is the ONLY name-resolution path (Stage-2 P5 deleted the pre-migration string-keyed
-/// fallbacks); a generic call site still routes to its monomorphized instance via
+/// — Stage-2 P3) is the ONLY name- AND type-name-resolution path (Stage-2 P5 deleted the pre-migration
+/// string-keyed name-resolution fallbacks; Stage-2 P6 did the same for <c>Types.cs</c>'s type-name
+/// resolution — see its header remarks); a generic call site still routes to its monomorphized instance via
 /// <see cref="CSharpSemantics.TryGetGenericInstance"/> (a constructed generic call's symbol maps to the
 /// *template*'s <c>OriginalDefinition</c>, which is never itself registered — only its instances are —
 /// keyed alongside the call's own mangled type-argument suffix; see <c>CSharpFrontend.Generics.cs</c>
@@ -363,14 +364,18 @@ public sealed partial class CSharpFrontend : IFrontend
         var bodies =
             new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
 
-        // Pass 0: enums (named constants), so their types and members resolve everywhere.
-        var enums = CollectEnums(root, diagnostics, semantics);
+        // Pass 0: enums (named constants), so their types and members resolve everywhere. The returned
+        // registrations live only in `semantics.Enums` from here on (Stage-2 P6): CollectEnums keeps its
+        // own local string-keyed dictionary only for its own self-/forward-referential member folding
+        // (see CSharpFrontend.Types.cs's TryEnumMember remarks) — nothing outside it needs the text form
+        // anymore, so it returns nothing.
+        CollectEnums(root, diagnostics, semantics);
 
         // Pass 0.4: struct layouts (value types with scalar fields).
-        var structs = CollectStructs(root, enums, diagnostics, semantics);
+        var structs = CollectStructs(root, diagnostics, semantics);
 
         // Pass 0.45: class layouts (reference types, heap-allocated) and their instance methods.
-        var classes = CollectClasses(root, enums, diagnostics, semantics);
+        var classes = CollectClasses(root, diagnostics, semantics);
 
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays. The consts
         // dictionary is discarded here: it exists only to fold const references while collecting statics
@@ -378,7 +383,6 @@ public sealed partial class CSharpFrontend : IFrontend
         // lookup (TryModuleConst) is symbol-only since Stage-2 P5 and no longer needs the string table.
         var (globals, _, staticInits, moduleArrays) = CollectStatics(
             root,
-            enums,
             module,
             diagnostics,
             semantics
@@ -436,7 +440,7 @@ public sealed partial class CSharpFrontend : IFrontend
                     pc,
                     new IrParameter(pname, IrType.Pointer(IrType.I8))
                 );
-            var t = ResolveType(p.Type!, enums);
+            var t = ResolveType(p.Type!, semantics);
             return (
                 t,
                 isRef,
@@ -457,7 +461,7 @@ public sealed partial class CSharpFrontend : IFrontend
         {
             var (simpleName, returnSyntax, parameterList, body, arrow) = Describe(decl);
             var name = ProgramMemberName(decl, simpleName);
-            var returnType = ResolveReturnTypeAllowingClass(returnSyntax, enums, classNames);
+            var returnType = ResolveReturnTypeAllowingClass(returnSyntax, semantics, classNames);
             var paramTypes = new List<CsType>();
             var refFlags = new List<bool>();
             var paramStructs = new List<CsStruct?>();
@@ -516,7 +520,11 @@ public sealed partial class CSharpFrontend : IFrontend
         foreach (var cls in classes.Values)
         foreach (var (mname, mdecl) in cls.Methods)
         {
-            var returnType = ResolveReturnTypeAllowingClass(mdecl.ReturnType, enums, classNames);
+            var returnType = ResolveReturnTypeAllowingClass(
+                mdecl.ReturnType,
+                semantics,
+                classNames
+            );
             var paramTypes = new List<CsType> { CsType.U16 };
             var refFlags = new List<bool> { false };
             var paramStructs = new List<CsStruct?> { null };
@@ -609,14 +617,11 @@ public sealed partial class CSharpFrontend : IFrontend
                     body,
                     arrow,
                     methods,
-                    enums,
-                    structs,
                     globals,
                     hardware,
                     module.Name,
                     inits,
                     moduleArrays,
-                    classes,
                     semantics
                 ).Lower();
             }
