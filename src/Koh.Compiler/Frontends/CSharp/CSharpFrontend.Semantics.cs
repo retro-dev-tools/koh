@@ -8,13 +8,14 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Koh.Compiler.Frontends.CSharp;
 
-// Roslyn semantic-model plumbing (Phase 1 of the semantic-model migration): a real CSharpCompilation is
-// available after every tree rewrite, as a resolution oracle. Nothing consults it yet — lowering
-// decisions still come entirely from Koh's own C-like typing (CsType / MethodLowerer's string-keyed
-// tables). Later phases read symbols out of CSharpSemantics; this phase only wires it up. Building the
-// compilation is deferred until something actually consults CSharpSemantics (see CSharpSemantics below):
-// per-Lower() cost for the ~500 tests that never touch it is then just constructing a handful of Lazy<T>
-// wrappers, not real Roslyn binding work.
+// Roslyn semantic-model plumbing: a real CSharpCompilation is available after every tree rewrite, as a
+// resolution oracle for MethodLowerer's symbol-first lookups (intrinsic recognition, call/field/member
+// resolution, unresolved-name diagnostic text — see MethodLowerer.cs). Lowering decisions still come
+// entirely from Koh's own C-like typing (CsType); Roslyn only identifies which declaration a name/member
+// refers to, never a type's width/signedness. Building the compilation is deferred until something
+// actually consults CSharpSemantics (see CSharpSemantics below): per-Lower() cost for a program whose
+// lowering never needs a symbol (rare — nearly everything routes through CSharpSemantics now) is then
+// just constructing a handful of Lazy<T> wrappers, not real Roslyn binding work.
 public sealed partial class CSharpFrontend
 {
     /// <summary>A <see cref="MetadataReference"/> for every assembly the current runtime has loaded (the
@@ -106,14 +107,17 @@ public sealed partial class CSharpFrontend
 /// <summary>
 /// Roslyn as a resolution oracle over the final wrapped tree: a lazy <see cref="SemanticModel"/>, an
 /// <see cref="InTree"/> guard, pre-resolved stub symbols for the intrinsic surface
-/// (<see cref="IntrinsicsStub"/>), and symbol-keyed indexes that later phases populate — empty here,
-/// since Phase 1 is plumbing only and nothing consults them yet.
+/// (<see cref="IntrinsicsStub"/>), and symbol-keyed indexes (<see cref="Methods"/>, <see cref="Globals"/>,
+/// <see cref="ModuleConsts"/>, <see cref="Enums"/>, <see cref="Structs"/>, <see cref="Classes"/>) that
+/// <see cref="MethodLowerer"/> consults symbol-first for name/member/call resolution, falling back to its
+/// own string-keyed tables only when no symbol resolves (a detached monomorphized-generic body, no
+/// compilation built, or resolution failure).
 ///
 /// Everything that requires real Roslyn binding (the underlying <see cref="CSharpCompilation"/>, the
 /// <see cref="SemanticModel"/>, and the stub type symbols) is behind its own <see cref="Lazy{T}"/>, so
 /// constructing an instance is cheap — the compiler doesn't do any of that work unless a caller actually
-/// reads one of these members (nothing does yet in Phase 1; <see cref="MethodLowerer"/> only stores the
-/// instance it's given).
+/// reads one of these members. A <c>Lower()</c> whose program needs no resolution at all (rare) still
+/// pays nothing beyond constructing the <see cref="Lazy{T}"/> wrappers.
 /// </summary>
 internal sealed class CSharpSemantics
 {
@@ -134,9 +138,9 @@ internal sealed class CSharpSemantics
     /// <summary>The underlying compilation, or null if none could be built (the runtime exposes no TPA
     /// list, or this is <see cref="Disabled"/>). Exposed for diagnostics (Roslyn's own errors, e.g.
     /// CS0266/CS0214 on Koh-legal-but-C#-illegal code, are never a gate — see the design's diagnostics
-    /// policy — but a later phase reads whitelisted messages from here, and tests use it to confirm
-    /// symbols still resolve despite such errors being present). Building it is what triggers the actual
-    /// Roslyn work — first access is the expensive one.</summary>
+    /// policy — but <see cref="DiagnosticsAt"/> reads whitelisted messages from here, and tests use it to
+    /// confirm symbols still resolve despite such errors being present). Building it is what triggers the
+    /// actual Roslyn work — first access is the expensive one.</summary>
     public Compilation? Compilation => _compilation.Value;
 
     public INamedTypeSymbol? HardwareType => _hardwareType.Value;
@@ -144,16 +148,16 @@ internal sealed class CSharpSemantics
     public INamedTypeSymbol? MemType => _memType.Value;
     public INamedTypeSymbol? InterruptAttributeType => _interruptAttributeType.Value;
 
-    // ---- Deferred declaration registration (Phase 2) -----------------------------------------------
+    // ---- Deferred declaration registration -----------------------------------------------------------
     //
     // The declaration passes (CSharpFrontend.cs Pass 1/1.5, CSharpFrontend.Declarations.cs) call
     // Register* alongside every string-keyed table insert. Register* is O(1) list-append — it never
     // touches the semantic model. Each symbol-keyed index below only walks its registration list (and so
     // only forces the compilation/model, via DeclaredSym) the first time a caller actually reads the
     // corresponding property; a Lower() call whose result nobody inspects this way costs nothing beyond
-    // the appends, same as Phase 1's empty dictionaries. A monomorphized generic instance's declaration
-    // node is detached from the main tree (see DeclaringClassAnnotation), so DeclaredSym returns null for
-    // it and Materialize silently skips it — no consumer needs to filter these out itself.
+    // the appends. A monomorphized generic instance's declaration node is detached from the main tree
+    // (see DeclaringClassAnnotation), so DeclaredSym returns null for it and Materialize silently skips
+    // it — no consumer needs to filter these out itself.
 
     private readonly List<(SyntaxNode Decl, CsMethod Value)> _methodRegs = [];
     private readonly List<(SyntaxNode Decl, (IrGlobal Global, CsType Type) Value)> _globalRegs = [];
@@ -227,8 +231,12 @@ internal sealed class CSharpSemantics
     }
 
     /// <summary>Method declarations (top-level functions and instance methods) keyed by their Roslyn
-    /// symbol. Empty until read; reading forces the compilation (see the class remarks). No consumer yet
-    /// (Phase 4).</summary>
+    /// symbol. Empty until read; reading forces the compilation (see the class remarks). Consulted by
+    /// <see cref="MethodLowerer.LowerCall"/> and <see cref="MethodLowerer.LowerInstanceCall"/> via
+    /// <c>OriginalDefinition</c>, so a constructed/inherited call signature still maps to the registered
+    /// template (a generic template itself is never registered — only its monomorphized instances are,
+    /// and those are detached nodes, so a generic call always falls through to the syntax-based
+    /// mangled-name lookup).</summary>
     public IReadOnlyDictionary<IMethodSymbol, CsMethod> Methods => _methodIndex.Value;
 
     /// <summary>Static fields (globals) keyed by their Roslyn symbol.</summary>
@@ -369,8 +377,8 @@ internal sealed class CSharpSemantics
         }
     }
 
-    /// <summary>Roslyn diagnostics overlapping <paramref name="node"/>'s own span (Phase 5: diagnostics
-    /// polish) — used only on <see cref="MethodLowerer"/>'s error path, to reword one of Koh's own
+    /// <summary>Roslyn diagnostics overlapping <paramref name="node"/>'s own span — used only on
+    /// <see cref="MethodLowerer"/>'s error path, to reword one of Koh's own
     /// generic "unresolved name" messages with Roslyn's clearer text when a whitelisted diagnostic covers
     /// the same span (see the design's Roslyn diagnostics policy: Roslyn's own diagnostics never gate
     /// compilation — Koh-legal code is routinely C#-illegal, e.g. CS0266 on <c>byte c = a + b;</c> — a

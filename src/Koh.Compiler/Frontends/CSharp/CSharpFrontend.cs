@@ -24,11 +24,21 @@ public sealed class CSharpNotSupportedException : Exception
 
 /// <summary>
 /// The C# frontend. Roslyn parses the source; this walks the syntax tree, rejecting constructs
-/// outside the supported systems subset ("Koh C#") and lowering the rest to Koh IR. It does not
-/// use the semantic model: types are tracked from declarations with C-like rules (see
-/// <see cref="CsType"/>). Static methods become IR functions; locals and parameters become
-/// <c>alloca</c>s (so control flow needs no phi construction here — mutable state lives in memory,
-/// and the backend statically allocates it).
+/// outside the supported systems subset ("Koh C#") and lowering the rest to Koh IR. Lowering is
+/// syntax-directed — the walk over the tree, not an <c>IOperation</c> pass — with a real
+/// <c>CSharpCompilation</c>/<see cref="Microsoft.CodeAnalysis.SemanticModel"/> (<see
+/// cref="CSharpSemantics"/>, see <c>CSharpFrontend.Semantics.cs</c>) consulted as a resolution
+/// oracle: it identifies which declaration a name/member/call refers to (symbol identity, not
+/// spelled text), so a user value that happens to share a name with an intrinsic surface or a
+/// sibling declaration is never mistaken for it. Koh's own C-like typing (see <see cref="CsType"/>)
+/// stays authoritative for widths and signedness regardless of what Roslyn would infer — <c>byte +
+/// byte</c> stays <c>byte</c>, where C#'s own int-promotion would widen it — and Roslyn's own
+/// diagnostics never gate compilation (Koh-legal code is routinely C#-illegal, e.g. unsafe pointer
+/// math without an <c>unsafe</c> block). A monomorphized generic instance's body is a syntax tree
+/// detached from the compilation (<c>GetSymbolInfo</c> would throw on it), so every resolution site
+/// keeps the pre-migration string-keyed lookup as a fallback for exactly that case. Static methods
+/// become IR functions; locals and parameters become <c>alloca</c>s (so control flow needs no phi
+/// construction here — mutable state lives in memory, and the backend statically allocates it).
 /// </summary>
 public sealed partial class CSharpFrontend : IFrontend
 {
@@ -275,11 +285,13 @@ public sealed partial class CSharpFrontend : IFrontend
         if (PrepareRoot(source, diagnostics) is not { } root)
             return;
 
-        // A real CSharpCompilation over the final tree, as a resolution oracle for later phases of the
-        // semantic-model migration. Built from root.SyntaxTree (post-rewrite), so node identity here
-        // matches everything lowered below. The declaration passes register into it as they go (see
-        // CSharpFrontend.Semantics.cs); nothing reads it back yet in production — onSemanticsBuilt is a
-        // test-only hook (see LowerForTest) letting tests capture the same instance the passes populate.
+        // A real CSharpCompilation over the final tree, as a resolution oracle: MethodLowerer consults it
+        // symbol-first for intrinsic recognition, call/field/member resolution, and unresolved-name
+        // diagnostic text, falling back to the string-keyed tables only for a detached monomorphized-
+        // generic body. Built from root.SyntaxTree (post-rewrite), so node identity here matches
+        // everything lowered below. The declaration passes register into it as they go (see
+        // CSharpFrontend.Semantics.cs); onSemanticsBuilt is a test-only hook (see LowerForTest) letting
+        // tests capture the same instance the passes populate.
         var semantics = BuildSemantics(root.SyntaxTree);
         onSemanticsBuilt?.Invoke(semantics);
 

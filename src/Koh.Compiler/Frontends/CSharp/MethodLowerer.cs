@@ -10,7 +10,15 @@ namespace Koh.Compiler.Frontends.CSharp;
 /// Lowers one method body to an IR function. Parameters and locals become <c>alloca</c>s read via
 /// <c>load</c> and written via <c>store</c>, so control flow (if/while) only needs br/condbr — no
 /// phi construction. Expression types are tracked with C-like rules (8-bit arithmetic stays 8-bit)
-/// and drive signed vs. unsigned operation selection.
+/// and drive signed vs. unsigned operation selection — this is Koh's own typing, independent of
+/// (and authoritative over) whatever Roslyn would infer. Name/member/call resolution goes through
+/// <see cref="CSharpSemantics"/> (<see cref="_semantics"/>) symbol-first: a resolved symbol
+/// identifies the exact declaration Roslyn's own binder would pick, checked by identity rather than
+/// spelled text, against the very same <c>CsMethod</c>/<c>CsEnum</c>/<c>IrGlobal</c>/... instances
+/// the string-keyed tables below hold (both populated by the same declaration passes). Every such
+/// site keeps the pre-migration string-keyed lookup as a fallback for when no symbol resolves — a
+/// detached monomorphized-generic body, no compilation built, or resolution failure — so an
+/// already-working program can only keep working; those fallbacks are load-bearing, not dead code.
 /// </summary>
 internal sealed class MethodLowerer
 {
@@ -62,17 +70,18 @@ internal sealed class MethodLowerer
     private readonly string? _staticClass;
 
     // Roslyn as a resolution oracle (see CSharpFrontend.Semantics.cs). The intrinsic-recognition sites
-    // (Hardware/Gb/Mem/BitConverter — see IsIntrinsicSubject/IsBitConverterSubject) consult it first and
-    // fall back to the pre-migration string match when no symbol resolves (a detached
-    // monomorphized-generic body, no compilation built, or resolution failure). A later phase reads
-    // symbols from it for call/field/enum/struct/class member resolution too.
+    // (Hardware/Gb/Mem/BitConverter — see IsIntrinsicSubject/IsBitConverterSubject), call/field/enum/
+    // struct/class member resolution (LowerCall, TryGlobal, TryModuleConst, ResolvedFieldName, ...), and
+    // unresolved-name diagnostic text (BetterUnresolvedMessage) all consult it first and fall back to the
+    // pre-migration string match when no symbol resolves (a detached monomorphized-generic body, no
+    // compilation built, or resolution failure).
     private readonly CSharpSemantics _semantics;
 
     /// <summary>The Roslyn resolution oracle this instance was constructed with. Exposed for tests
-    /// (asserting the plumbing wires it through) and for later phases to consult.</summary>
+    /// asserting the plumbing wires it through.</summary>
     internal CSharpSemantics Semantics => _semantics;
 
-    // ---- Diagnostics polish (Phase 5) ---------------------------------------------------------------
+    // ---- Unresolved-name diagnostics wording via the semantic model --------------------------------
     //
     // Roslyn diagnostic IDs whitelisted to improve one of Koh's own generic "unresolved name" messages
     // (see BetterUnresolvedMessage below): CS0103 (name not found), CS0117/CS1061 (member not found,
