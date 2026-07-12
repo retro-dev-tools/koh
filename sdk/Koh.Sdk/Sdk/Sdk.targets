@@ -39,7 +39,8 @@
   <!-- The game's own C# sources (excludes generated/output files) plus the framework's HAL, written
        in the Koh C# subset (Lcd, Joypad, Tilemap/TileData, Ppu, …). The frontend compiles both as one
        translation unit, so ROMs get the framework surface; the managed-only primitives (Gb, Hardware)
-       are special-cased by name and are not fed to it. -->
+       are special-cased by symbol (falling back to name matching only when no symbol resolves) and
+       are not fed to it. -->
   <ItemGroup>
     <KohSource Include="$(MSBuildProjectDirectory)/**/*.cs"
                Exclude="$(MSBuildProjectDirectory)/obj/**/*.cs;$(MSBuildProjectDirectory)/bin/**/*.cs" />

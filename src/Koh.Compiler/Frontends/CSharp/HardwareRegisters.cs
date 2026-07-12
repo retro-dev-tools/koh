@@ -93,6 +93,14 @@ internal sealed class HardwareRegisters
 
     public bool IsRegion(string name) => Regions.ContainsKey(name);
 
+    /// <summary>Every register name, so the <c>Hardware</c> intrinsics stub (<see cref="IntrinsicsStub"/>)
+    /// can be generated from this table instead of a hand-maintained duplicate list.</summary>
+    internal static IReadOnlyCollection<string> RegisterNames => Addresses.Keys;
+
+    /// <summary>Every region name, so the <c>Gb</c> intrinsics stub (<see cref="IntrinsicsStub"/>) can be
+    /// generated from this table instead of a hand-maintained duplicate list.</summary>
+    internal static IReadOnlyCollection<string> RegionNames => Regions.Keys;
+
     /// <summary>Get (creating on first use) the fixed-address I8 global whose address is a region base;
     /// taking its <see cref="IrBuilder.GlobalRef"/> yields a <c>byte*</c> pointing at the region. The
     /// emitted global name is qualified (<c>Gb.Vram</c>) so it can never collide with a user-declared

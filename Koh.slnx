@@ -14,8 +14,12 @@
     <Project Path="src/Koh.Emulator.App/Koh.Emulator.App.csproj" />
     <Project Path="src/Koh.Verify/Koh.Verify.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Koh.Superopt/Koh.Superopt.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
+    <Project Path="tests/Koh.Superopt.Tests/Koh.Superopt.Tests.csproj" />
     <Project Path="tests/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj" />
     <Project Path="tests/Koh.Core.Tests/Koh.Core.Tests.csproj" />
     <Project Path="tests/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />
@@ -27,5 +31,8 @@
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/gb-2048-cs/Gb2048CSharp.csproj" />
   </Folder>
 </Solution>

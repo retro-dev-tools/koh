@@ -52,7 +52,12 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 - `Ir/` — `IrType`, `IrValue`, `IrModule`, `IrInstruction`, `IrBuilder`, `IrPrinter`,
   `IrParser` (round-trips the printer), `IrVerifier`.
 - `Frontends/CSharp/` — Roslyn parses; `CSharpFrontend` + `MethodLowerer` lower a systems
-  subset of C# to IR **without the semantic model** (own C-like typing).
+  subset of C# to IR via syntax-directed lowering. A real `CSharpCompilation`/`SemanticModel`
+  (`CSharpSemantics`, incl. candidate acceptance for Koh-legal-but-C#-illegal code) is the ONLY
+  resolution path for names/members/calls/intrinsics; monomorphized generic instances bind in a
+  second constructed tree, and generic calls route by template symbol + mangled type-arg suffix.
+  Koh's own C-like typing (widths/signedness) stays authoritative regardless of what Roslyn
+  would infer.
 - `Backends/Sm83/Sm83Backend.cs` — hand-written, correctness-first SM83 code generation.
 - `Targets/` — `DataLayout` (per-target pointer width / endianness / native int widths).
 
@@ -102,6 +107,23 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 - **Mixed signed/unsigned** binary ops go through `MethodLowerer.CommonType` (usual-arithmetic
   conversions: wider width wins; a mixed pair whose sign matters promotes to a signed type wide
   enough, else a diagnostic). Do not take signedness/width from the left operand alone.
+- **Symbol resolution (via `CSharpSemantics`, incl. candidate acceptance) is the ONLY
+  name-resolution AND type-NAME-resolution path** in the C# frontend, including `Types.cs`'s
+  `ResolveType`/`ResolveTypeAllowingClass`/`ConstEval`'s `Enum.Member` arm (Stage-2 P6): a user
+  enum/struct/class type name resolves via its own Roslyn symbol into `CSharpSemantics.Enums`/
+  `Structs`/`Classes`. The remaining string-keyed tables (`_methods` for softfloat runtime routing /
+  MathF / duplicate detection, per-body locals dicts, and each declaration pass's own in-progress
+  dictionary) are declaration plumbing, not resolution fallbacks — don't reintroduce a string lookup
+  where a symbol should resolve; an unresolved symbol is a diagnostic. One hazard is temporal, not
+  structural: `CSharpSemantics.Enums`/`Classes` are lazily materialized from a registration list that
+  fills in as `CollectEnums`/`CollectClasses` run — consulting one before every relevant declaration
+  in the file is registered freezes it incomplete forever (`Lazy<T>` caches its first read). Two call
+  sites hit this window and deliberately stay off the symbol index there: `ConstEval`'s `Enum.Member`
+  arm (called from `CollectEnums` itself, for a member initializer referencing another enum) and
+  `ResolveTypeAllowingClass` (called from `CollectClasses` itself, for a self-/forward-referencing
+  class field) — see `CSharpFrontend.Types.cs`'s header remarks. A compilation is required: `LowerCore`
+  reports one diagnostic and stops if `CSharpSemantics.Compilation` is null (no supported host hits
+  this).
 - **Backend errors are not caught by the driver.** A `NotSupportedException` from the backend
   escapes; the frontend catches `CSharpNotSupportedException` and reports diagnostics. Prefer
   reporting a diagnostic over throwing where the input is user code.

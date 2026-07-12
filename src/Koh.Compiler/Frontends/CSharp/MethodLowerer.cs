@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using Koh.Compiler.Ir;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -8,19 +10,39 @@ namespace Koh.Compiler.Frontends.CSharp;
 /// Lowers one method body to an IR function. Parameters and locals become <c>alloca</c>s read via
 /// <c>load</c> and written via <c>store</c>, so control flow (if/while) only needs br/condbr — no
 /// phi construction. Expression types are tracked with C-like rules (8-bit arithmetic stays 8-bit)
-/// and drive signed vs. unsigned operation selection.
+/// and drive signed vs. unsigned operation selection — this is Koh's own typing, independent of
+/// (and authoritative over) whatever Roslyn would infer. Name/member/call AND type-NAME resolution are
+/// symbol-only (Stage-2 P5/P6): <see cref="CSharpSemantics"/> (<see cref="_semantics"/>) is the sole
+/// resolution path — a resolved symbol identifies the exact declaration Roslyn's own binder would pick,
+/// checked by identity rather than spelled text, against the very same <c>CsMethod</c>/<c>CsEnum</c>/
+/// <c>CsStruct</c>/<c>CsClass</c>/<c>IrGlobal</c>/... instances the surviving string-keyed tables hold
+/// (both populated by the same declaration passes; those tables now serve only declaration plumbing —
+/// softfloat/duplicate-name lookups, per-body locals — never a second name- or type-resolution route).
+/// Callee/field sites use <see cref="CSharpSemantics.SymOrCandidate"/> rather than the plain
+/// <see cref="CSharpSemantics.Sym"/> (Stage-2 P3): Roslyn's own binder rejects some Koh-legal code
+/// outright (mixed-width arithmetic in a call argument fails overload resolution; Koh ignores
+/// accessibility entirely, so a cross-class `private` reference is `Inaccessible` to Roslyn) — for
+/// exactly those two reasons, a resolvable <c>CandidateSymbols</c> entry is accepted in place of a null
+/// <c>Symbol</c>. A name that resolves to neither a symbol nor an acceptable candidate is a genuine
+/// resolution failure, reported via <see cref="BetterUnresolvedMessage"/> — there is nothing further to
+/// fall back to.
 /// </summary>
 internal sealed class MethodLowerer
 {
     private readonly CsMethod _method;
     private readonly BlockSyntax? _body;
     private readonly ArrowExpressionClauseSyntax? _arrow;
+
+    // Declaration plumbing (Stage-2 P5): no longer a name-resolution fallback. Consulted only by
+    // EmitFloatRuntimeCall (softfloat runtime function names, e.g. "__f32_add" — synthesized names with
+    // no user syntax node to resolve a symbol from) and by the MathF call-routing special case in
+    // LowerCall.
     private readonly IReadOnlyDictionary<string, CsMethod> _methods;
-    private readonly IReadOnlyDictionary<string, CsEnum> _enums;
-    private readonly IReadOnlyDictionary<string, CsStruct> _structs;
-    private readonly IReadOnlyDictionary<string, CsClass> _classes;
+
+    // Declaration plumbing (Stage-2 P5): TryGlobal is symbol-only now; this table is consulted only for
+    // the synthesized heap-pointer global (CSharpFrontend.HeapPointerName), a fixed compiler-internal
+    // name with no user syntax node, not a user-name resolution fallback.
     private readonly IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> _globals;
-    private readonly IReadOnlyDictionary<string, (CsType Type, long Value)> _moduleConsts;
     private readonly HardwareRegisters _hardware;
     private readonly string _file;
     private readonly IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> _staticInits;
@@ -55,24 +77,95 @@ internal sealed class MethodLowerer
     private readonly Stack<(IrBasicBlock Break, IrBasicBlock Continue)> _loops = new();
 
     // The enclosing top-level `static class` (from CsMethod.DeclaringClass), if this is one of its
-    // static methods. Unqualified calls/fields in the body resolve to `Class.member` first, so a method
-    // can reach its siblings by bare name. Null for legacy top-level functions and instance methods.
+    // static methods; null for legacy top-level functions and instance methods. Since Stage-2 P5 this no
+    // longer drives name resolution (unqualified sibling calls/fields resolve by symbol, and C#'s own
+    // scoping already prefers the enclosing class's member) — it only scopes which static data arrays are
+    // visible by simple name in Lower()'s module-array setup.
     private readonly string? _staticClass;
+
+    // Roslyn as a resolution oracle (see CSharpFrontend.Semantics.cs) — the ONLY name/member/call
+    // resolution path (Stage-2 P5). The intrinsic-recognition sites (Hardware/Gb/Mem/BitConverter — see
+    // IsIntrinsicSubject/IsBitConverterSubject) and the enum-member lookup in LowerMemberAccess stay on
+    // plain Sym — a bare type-qualifier identifier never produces a resolvable candidate (see each site's
+    // own remarks for why). Call/field resolution (LowerCall's symCallee, LowerInstanceCall's symbol
+    // parameter, TryGlobal, TryModuleConst, ResolvedFieldName) uses SymOrCandidate (Stage-2 P3) instead,
+    // since those sites are exactly where Roslyn's OverloadResolutionFailure/Inaccessible reasons show up
+    // on ordinary Koh-legal code. Unresolved-name diagnostic text (BetterUnresolvedMessage) consults
+    // DiagnosticsAt, unrelated to either. A name that resolves to neither a symbol nor an acceptable
+    // candidate is a genuine resolution failure — every consulting site reports one directly rather than
+    // falling back to a string-keyed table (the Stage-1/Stage-2 P1-P4 string fallbacks were deleted in P5).
+    private readonly CSharpSemantics _semantics;
+
+    /// <summary>The Roslyn resolution oracle this instance was constructed with. Exposed for tests
+    /// asserting the plumbing wires it through.</summary>
+    internal CSharpSemantics Semantics => _semantics;
+
+    // ---- Unresolved-name diagnostics wording via the semantic model --------------------------------
+    //
+    // Roslyn diagnostic IDs whitelisted to improve one of Koh's own generic "unresolved name" messages
+    // (see BetterUnresolvedMessage below): CS0103 (name not found), CS0117/CS1061 (member not found,
+    // with/without an extension-method search), CS0246 (type/namespace not found). Never consulted to
+    // decide whether lowering fails — only to reword a message after Koh's own lowering already decided
+    // to fail (the design's Roslyn diagnostics policy: Koh-legal code is routinely C#-illegal, e.g.
+    // CS0266 on `byte c = a + b;`, so Roslyn diagnostics never gate compilation).
+    private static readonly ImmutableHashSet<string> UnresolvedNameDiagnosticIds =
+        ImmutableHashSet.Create("CS0103", "CS0117", "CS1061", "CS0246");
+
+    /// <summary>When Koh's own lowering is about to report <paramref name="kohMessage"/> because a name
+    /// at <paramref name="node"/> failed to resolve, look for a whitelisted Roslyn diagnostic
+    /// (<see cref="UnresolvedNameDiagnosticIds"/>) at the same span and, if one exists, use its clearer
+    /// message text instead — still reported as a Koh diagnostic through the unchanged <c>Report</c> span
+    /// mapping in <c>CSharpFrontend</c> (only the text changes).
+    /// Only ever called from an already-failing throw site, so a successful compile never pays for this:
+    /// the query (<see cref="CSharpSemantics.DiagnosticsAt"/>) is scoped to <paramref name="node"/>'s own
+    /// span, not the whole compilation. Returns <paramref name="kohMessage"/> unchanged for a detached
+    /// node (a monomorphized generic instance's body), when no compilation could be built, or when no
+    /// whitelisted diagnostic covers the span.</summary>
+    private string BetterUnresolvedMessage(SyntaxNode node, string kohMessage)
+    {
+        foreach (var d in _semantics.DiagnosticsAt(node))
+            if (UnresolvedNameDiagnosticIds.Contains(d.Id))
+                return KohStyle(d.GetMessage());
+        return kohMessage;
+    }
+
+    /// <summary>Reformat a Roslyn diagnostic message to read like an existing Koh diagnostic:
+    /// <list type="bullet">
+    /// <item>strip the synthetic <see cref="CSharpFrontend.WrapperClassName"/> qualifier a nested
+    /// top-level static class picks up from being physically nested inside the wrapper (e.g. Roslyn's
+    /// "'__KohProgram.Board' does not contain a definition for 'Ghost'" names the user's type as it would
+    /// never be spelled in their own source) — the wrapper is an implementation detail the diagnostic
+    /// must never leak;</item>
+    /// <item>lowercase the leading word (Roslyn's messages are sentence-cased — "The name ..."; Koh's are
+    /// not — "unknown identifier ..."; a leading quoted identifier, e.g. CS0117's "'Board' does not ...",
+    /// is left as-is, since it's a name, not a sentence start);</item>
+    /// <item>ensure a trailing period (Roslyn's usually have none; a few already end in ')' from a
+    /// parenthetical aside, which reads fine without one).</item>
+    /// </list></summary>
+    private static string KohStyle(string roslynMessage)
+    {
+        if (roslynMessage.Length == 0)
+            return roslynMessage;
+        var stripped = roslynMessage.Replace(
+            CSharpFrontend.WrapperClassName + ".",
+            "",
+            StringComparison.Ordinal
+        );
+        var s = char.ToLowerInvariant(stripped[0]) + stripped[1..];
+        return s.EndsWith('.') || s.EndsWith(')') ? s : s + ".";
+    }
 
     public MethodLowerer(
         CsMethod method,
         BlockSyntax? body,
         ArrowExpressionClauseSyntax? arrow,
         IReadOnlyDictionary<string, CsMethod> methods,
-        IReadOnlyDictionary<string, CsEnum> enums,
-        IReadOnlyDictionary<string, CsStruct> structs,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Type)> globals,
-        IReadOnlyDictionary<string, (CsType Type, long Value)> moduleConsts,
         HardwareRegisters hardware,
         string file,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays,
-        IReadOnlyDictionary<string, CsClass> classes
+        CSharpSemantics semantics
     )
     {
         _file = file;
@@ -80,43 +173,96 @@ internal sealed class MethodLowerer
         _body = body;
         _arrow = arrow;
         _methods = methods;
-        _enums = enums;
-        _structs = structs;
-        _classes = classes;
         _globals = globals;
-        _moduleConsts = moduleConsts;
         _hardware = hardware;
         _staticInits = staticInits;
         _moduleArrays = moduleArrays;
         _staticClass = method.DeclaringClass;
+        _semantics = semantics;
     }
 
-    /// <summary>Resolve a bare callee name to a static method of the enclosing class if one exists,
-    /// else leave it as a top-level function name.</summary>
-    private string ResolveStaticCallee(string name) =>
-        _staticClass is not null && _methods.ContainsKey($"{_staticClass}.{name}")
-            ? $"{_staticClass}.{name}"
-            : name;
+    /// <summary>The explicit type-argument list of a generic call expression — a bare `M&lt;...&gt;(...)`
+    /// (<see cref="GenericNameSyntax"/> directly) or a qualified `Class.M&lt;...&gt;(...)`
+    /// (<see cref="MemberAccessExpressionSyntax"/> whose <c>Name</c> is generic) — or null when the
+    /// expression carries no `&lt;...&gt;` syntax at all (an ordinary non-generic call, or a generic call
+    /// whose type arguments were inferred rather than written out). Used by <see cref="LowerCall"/>'s
+    /// symbol-first generic-call routing (Stage-2 P4) to compute the same mangled suffix
+    /// <see cref="CSharpFrontend.SynthesizeGenericInstances"/> registered the instance under.</summary>
+    private static TypeArgumentListSyntax? GenericCallTypeArguments(ExpressionSyntax callee) =>
+        callee switch
+        {
+            GenericNameSyntax g => g.TypeArgumentList,
+            MemberAccessExpressionSyntax { Name: GenericNameSyntax g } => g.TypeArgumentList,
+            _ => null,
+        };
 
-    /// <summary>Look up a static global by simple name, preferring the enclosing static class's member
-    /// (Class.name) over an unqualified program-scope global.</summary>
-    private bool TryGlobal(string name, out (IrGlobal Global, CsType Type) global)
+    /// <summary>Look up a static global that <paramref name="node"/> (an identifier or field-access name)
+    /// refers to. Symbol-only (Stage-2 P5): a resolved field symbol identifies the exact global Roslyn's
+    /// own member lookup would pick — which already prefers the enclosing static class's own member over
+    /// an unqualified program-scope global of the same simple name, since C#'s own scoping rules are the
+    /// same — consulting <see cref="CSharpSemantics.Globals"/>, the very same <see cref="IrGlobal"/>/
+    /// <see cref="CsType"/> instances the (now declaration-plumbing-only) string-keyed table holds, since
+    /// both are populated by the same declaration-pass registration. Uses
+    /// <see cref="CSharpSemantics.SymOrCandidate"/> (Stage-2 P3), not the plain <see
+    /// cref="CSharpSemantics.Sym"/>, so a cross-class read of a `private` global — <c>Inaccessible</c> to
+    /// Roslyn, since Koh itself ignores accessibility — still resolves.</summary>
+    private bool TryGlobal(SyntaxNode node, out (IrGlobal Global, CsType Type) global)
     {
-        if (_staticClass is not null && _globals.TryGetValue($"{_staticClass}.{name}", out global))
-            return true;
-        return _globals.TryGetValue(name, out global);
+        if (_semantics.SymOrCandidate(node) is IFieldSymbol fieldSym)
+            return _semantics.Globals.TryGetValue(fieldSym, out global);
+        global = default;
+        return false;
     }
 
-    /// <summary>Look up a module const by simple name, preferring the enclosing static class's member.</summary>
-    private bool TryModuleConst(string name, out (CsType Type, long Value) value)
+    /// <summary>Look up a module const that <paramref name="node"/> refers to. Symbol-only (Stage-2 P5),
+    /// same shape as <see cref="TryGlobal"/> (including the candidate-aware <c>Inaccessible</c> acceptance
+    /// for a cross-class private const read).</summary>
+    private bool TryModuleConst(SyntaxNode node, out (CsType Type, long Value) value)
     {
-        if (
-            _staticClass is not null
-            && _moduleConsts.TryGetValue($"{_staticClass}.{name}", out value)
-        )
-            return true;
-        return _moduleConsts.TryGetValue(name, out value);
+        if (_semantics.SymOrCandidate(node) is IFieldSymbol fieldSym)
+            return _semantics.ModuleConsts.TryGetValue(fieldSym, out value);
+        value = default;
+        return false;
     }
+
+    /// <summary>Whether <paramref name="subject"/> — the bare identifier naming an intrinsic surface's
+    /// static class as the receiver of a member access (e.g. the "Hardware" in <c>Hardware.LCDC</c>) —
+    /// actually denotes that intrinsic. Symbol-only (Stage-2 P5): Roslyn resolves the identifier (it is
+    /// always used here as a type qualifier, so resolution yields the type symbol itself), and recognition
+    /// follows symbol identity against <paramref name="stubType"/> rather than the spelled name — so a
+    /// user-declared local/field/type that happens to share the name (e.g. a local variable named
+    /// "Hardware" holding some other type) is never mistaken for the intrinsic surface; an unresolved
+    /// symbol (null) is never treated as a match, regardless of <paramref name="stubType"/>. Deliberately
+    /// still plain Sym, not SymOrCandidate (Stage-2 P3): `subject` is always a bare type-qualifier
+    /// identifier naming a public stub type (<see cref="IntrinsicsStub"/>'s Hardware/Gb/Mem are public by
+    /// construction), never an overload, so there is no accessibility or overload-resolution failure this
+    /// could ever recover from — Roslyn either binds it outright or the name isn't in scope at all (no
+    /// CandidateSymbols to consult).</summary>
+    private bool IsIntrinsicSubject(IdentifierNameSyntax subject, INamedTypeSymbol? stubType) =>
+        _semantics.Sym(subject) is { } resolved
+        && SymbolEqualityComparer.Default.Equals(resolved, stubType);
+
+    /// <summary>Same shape as <see cref="IsIntrinsicSubject"/>, but for <c>BitConverter</c>: there is no
+    /// stub type for it (<see cref="IntrinsicsStub"/>'s <c>global using System;</c> makes the bare name
+    /// bind to the real BCL <c>System.BitConverter</c>), so the identity check is a namespace+name match
+    /// on the resolved type instead of equality against a pre-resolved stub symbol. Same reasoning as
+    /// <see cref="IsIntrinsicSubject"/> for staying plain-Sym: a public BCL type named by a bare
+    /// qualifier identifier, never an overload — no candidate case to recover.</summary>
+    private bool IsBitConverterSubject(IdentifierNameSyntax subject) =>
+        _semantics.Sym(subject) is INamedTypeSymbol { Name: "BitConverter" } bcl
+        && bcl.ContainingNamespace?.ToDisplayString() == "System";
+
+    /// <summary>Whether <paramref name="type"/> is the real BCL <c>System.MathF</c> — the trap a
+    /// qualified <c>System.MathF.Round(...)</c> call falls into once real BCL references are in the
+    /// compilation: `System.MathF` resolves to the actual .NET type (never in <see
+    /// cref="CSharpSemantics.Methods"/>, since Koh's own compiled <c>MathF</c> library is a distinct
+    /// in-tree declaration that shadows the bare, unqualified name — see <see
+    /// cref="IntrinsicsStub"/>'s <c>global using System;</c> remarks). A bare <c>MathF.Round(...)</c> call
+    /// needs no special-casing: it binds to Koh's own in-tree <c>MathF</c> class directly, which is an
+    /// ordinary registered method reached by the ordinary symbol/Methods lookup in <see
+    /// cref="LowerCall"/>.</summary>
+    private static bool IsBclMathF(INamedTypeSymbol? type) =>
+        type is { Name: "MathF" } && type.ContainingNamespace?.ToDisplayString() == "System";
 
     public void Lower()
     {
@@ -279,9 +425,13 @@ internal sealed class MethodLowerer
         }
 
         // A struct-typed local: reserve its bytes; fields default to zero (WRAM/emulator-zeroed).
+        // Symbol-first (Stage-2 P6): the type name's own resolved symbol identifies the exact struct
+        // declaration Roslyn's binder would pick, keyed against CSharpSemantics.Structs — the same
+        // CsStruct instance the (now declaration-plumbing-only) CollectStructs pass built.
         if (
             decl.Type is IdentifierNameSyntax typeName
-            && _structs.TryGetValue(typeName.Identifier.Text, out var structInfo)
+            && _semantics.Sym(typeName) is INamedTypeSymbol structSym
+            && _semantics.Structs.TryGetValue(structSym, out var structInfo)
         )
         {
             foreach (var v in decl.Variables)
@@ -293,9 +443,11 @@ internal sealed class MethodLowerer
         }
 
         // A class-typed local: a slot holding a pointer to the heap instance (e.g. from `new C()`).
+        // Symbol-first (Stage-2 P6), same rationale as the struct case above via CSharpSemantics.Classes.
         if (
             decl.Type is IdentifierNameSyntax className
-            && _classes.TryGetValue(className.Identifier.Text, out var classInfo)
+            && _semantics.Sym(className) is INamedTypeSymbol classSym
+            && _semantics.Classes.TryGetValue(classSym, out var classInfo)
         )
         {
             foreach (var v in decl.Variables)
@@ -315,7 +467,7 @@ internal sealed class MethodLowerer
             return;
         }
 
-        var type = CSharpFrontend.ResolveType(decl.Type, _enums);
+        var type = CSharpFrontend.ResolveType(decl.Type, _semantics);
         foreach (var v in decl.Variables)
         {
             if (isConst)
@@ -329,7 +481,8 @@ internal sealed class MethodLowerer
                     CSharpFrontend.ConstEval(
                         v.Initializer.Value,
                         ResolveConst,
-                        unsigned: !type.Signed
+                        unsigned: !type.Signed,
+                        semantics: _semantics
                     )
                 );
                 continue;
@@ -353,8 +506,13 @@ internal sealed class MethodLowerer
     {
         if (sa.Type is not ArrayTypeSyntax arr)
             throw new CSharpNotSupportedException("stackalloc requires an array type.");
-        var element = CSharpFrontend.ResolveType(arr.ElementType, _enums);
-        int length = (int)CSharpFrontend.ConstEval(arr.RankSpecifiers[0].Sizes[0], ResolveConst);
+        var element = CSharpFrontend.ResolveType(arr.ElementType, _semantics);
+        int length = (int)
+            CSharpFrontend.ConstEval(
+                arr.RankSpecifiers[0].Sizes[0],
+                ResolveConst,
+                semantics: _semantics
+            );
         if (length < 0)
             throw new CSharpNotSupportedException($"stackalloc has a negative length ({length}).");
         var storage = _b.Alloca(IrType.Array(element.Ir, length));
@@ -375,13 +533,18 @@ internal sealed class MethodLowerer
         // are accessed as `s[i].field`. It must be sized with `new T[n]` (there are no struct literals).
         if (
             arrayType.ElementType is IdentifierNameSyntax structName
-            && _structs.TryGetValue(structName.Identifier.Text, out var structElem)
+            && _semantics.Sym(structName) is INamedTypeSymbol structArrSym
+            && _semantics.Structs.TryGetValue(structArrSym, out var structElem)
         )
         {
             int count = initializer?.Value switch
             {
                 ArrayCreationExpressionSyntax { Initializer: null } c => (int)
-                    CSharpFrontend.ConstEval(c.Type.RankSpecifiers[0].Sizes[0], ResolveConst),
+                    CSharpFrontend.ConstEval(
+                        c.Type.RankSpecifiers[0].Sizes[0],
+                        ResolveConst,
+                        semantics: _semantics
+                    ),
                 _ => throw new CSharpNotSupportedException(
                     $"struct array '{name}' must be created with 'new {structName.Identifier.Text}[n]'."
                 ),
@@ -395,7 +558,7 @@ internal sealed class MethodLowerer
             return;
         }
 
-        var element = CSharpFrontend.ResolveType(arrayType.ElementType, _enums);
+        var element = CSharpFrontend.ResolveType(arrayType.ElementType, _semantics);
 
         // A string literal initializes a byte array with its characters' codes (`byte[] s = "HI"`).
         if (initializer?.Value is LiteralExpressionSyntax { Token.Value: string text })
@@ -424,7 +587,8 @@ internal sealed class MethodLowerer
                 else
                 {
                     var size = create.Type.RankSpecifiers[0].Sizes[0];
-                    length = (int)CSharpFrontend.ConstEval(size, ResolveConst);
+                    length = (int)
+                        CSharpFrontend.ConstEval(size, ResolveConst, semantics: _semantics);
                 }
                 break;
             case InitializerExpressionSyntax bare: // byte[] a = { 1, 2, 3 };
@@ -488,7 +652,7 @@ internal sealed class MethodLowerer
             return field;
         if (
             member.Expression is IdentifierNameSyntax subject
-            && subject.Identifier.Text == "Hardware"
+            && IsIntrinsicSubject(subject, _semantics.HardwareType)
             && _hardware.IsRegister(member.Name.Identifier.Text)
         )
             return (
@@ -505,7 +669,7 @@ internal sealed class MethodLowerer
         if (StructBaseOf(member.Expression) is not { } b)
             return null;
 
-        var fieldName = member.Name.Identifier.Text;
+        var fieldName = ResolvedFieldName(member, b.Info, member.Name.Identifier.Text);
         foreach (var field in b.Info.Fields)
             if (field.Name == fieldName)
             {
@@ -518,7 +682,9 @@ internal sealed class MethodLowerer
                     field.Type
                 );
             }
-        throw new CSharpNotSupportedException($"struct has no field '{fieldName}'.");
+        throw new CSharpNotSupportedException(
+            BetterUnresolvedMessage(member.Name, $"struct has no field '{fieldName}'.")
+        );
     }
 
     /// <summary>The (base pointer, struct layout) a member access reads a field of: a named struct
@@ -552,8 +718,14 @@ internal sealed class MethodLowerer
             expr is MemberAccessExpressionSyntax nested
             && StructBaseOf(nested.Expression) is { } parent
         )
+        {
+            var nestedFieldName = ResolvedFieldName(
+                nested,
+                parent.Info,
+                nested.Name.Identifier.Text
+            );
             foreach (var field in parent.Info.Fields)
-                if (field.Name == nested.Name.Identifier.Text && field.Struct is { } sub)
+                if (field.Name == nestedFieldName && field.Struct is { } sub)
                     return (
                         _b.Gep(
                             parent.Base,
@@ -562,6 +734,7 @@ internal sealed class MethodLowerer
                         ),
                         sub
                     );
+        }
         return null;
     }
 
@@ -749,18 +922,20 @@ internal sealed class MethodLowerer
                         IrBuilder.ConstInt(localConst.Type.Ir, localConst.Value),
                         localConst.Type
                     );
-                if (TryModuleConst(name, out var moduleConst))
+                if (TryModuleConst(id, out var moduleConst))
                     return (
                         IrBuilder.ConstInt(moduleConst.Type.Ir, moduleConst.Value),
                         moduleConst.Type
                     );
-                if (WritePlace(name) is { } place)
+                if (WritePlace(id) is { } place)
                     return (_b.Load(place.Pointer), place.Type);
                 // A class-instance local used as a value: its slot holds the heap pointer (so it can be
                 // returned or passed as byte*). Field/method access goes through ClassLocalOf instead.
                 if (_classLocals.TryGetValue(name, out var classLocal))
                     return (_b.Load(classLocal.Slot), new CsType(IrType.Pointer(IrType.I8), false));
-                throw new CSharpNotSupportedException($"unknown identifier '{name}'.");
+                throw new CSharpNotSupportedException(
+                    BetterUnresolvedMessage(id, $"unknown identifier '{name}'.")
+                );
             }
 
             case ThisExpressionSyntax when _classLocals.TryGetValue("this", out var self):
@@ -782,7 +957,7 @@ internal sealed class MethodLowerer
 
             case CastExpressionSyntax cast:
             {
-                var target = CSharpFrontend.ResolveType(cast.Type, _enums);
+                var target = CSharpFrontend.ResolveType(cast.Type, _semantics);
                 return (Coerce(LowerExpression(cast.Expression, target), target), target);
             }
 
@@ -949,10 +1124,7 @@ internal sealed class MethodLowerer
 
     private (IrValue, CsType) LowerIncDec(ExpressionSyntax operand, bool increment, bool prefix)
     {
-        if (
-            operand is not IdentifierNameSyntax id
-            || WritePlace(id.Identifier.Text) is not { } place
-        )
+        if (operand is not IdentifierNameSyntax id || WritePlace(id) is not { } place)
             throw new CSharpNotSupportedException("++/-- requires a variable.");
 
         var old = _b.Load(place.Pointer);
@@ -974,22 +1146,28 @@ internal sealed class MethodLowerer
     }
 
     /// <summary>An assignable storage location — a local's alloca or a global's address — or null.</summary>
-    private (IrValue Pointer, CsType Type)? WritePlace(string name)
+    private (IrValue Pointer, CsType Type)? WritePlace(IdentifierNameSyntax node)
     {
+        var name = node.Identifier.Text;
         if (_locals.TryGetValue(name, out var local))
             return (local.Slot, local.Type);
         if (_refs.TryGetValue(name, out var reference))
             return (reference.Address, reference.Element); // ref param: the address is the place
-        if (TryGlobal(name, out var global))
+        if (TryGlobal(node, out var global))
             return (IrBuilder.GlobalRef(global.Global), global.Type);
         // A class-instance local: its slot holds the heap pointer. Assignment stores a new pointer
         // (reference semantics); reads load the pointer.
         if (name != "this" && _classLocals.TryGetValue(name, out var classLocal))
             return (classLocal.Slot, new CsType(IrType.Pointer(IrType.I8), Signed: false));
-        // A bare field reference inside an instance method resolves against `this`.
+        // A bare field reference inside an instance method resolves against `this`. Symbol-first: a
+        // resolved field symbol confirms which field of `self`'s own class Roslyn's member lookup would
+        // pick (the field-name text always agrees with Koh's own field name today, but this keeps the
+        // site consistent with the rest of the migration and protects against any future divergence).
         if (_classLocals.TryGetValue("this", out var self))
+        {
+            var fieldName = ResolvedFieldName(node, self.Info.Layout, name);
             foreach (var field in self.Info.Layout.Fields)
-                if (field.Name == name && field.Struct is null)
+                if (field.Name == fieldName && field.Struct is null)
                 {
                     var basePtr = Reinterpret(_b.Load(self.Slot), IrType.Pointer(IrType.I8));
                     int index = field.Offset / field.Type.Ir.SizeInBytes;
@@ -998,7 +1176,46 @@ internal sealed class MethodLowerer
                         field.Type
                     );
                 }
+        }
         return null;
+    }
+
+    /// <summary>The field name a field reference denotes: the symbol Roslyn resolves for <paramref
+    /// name="node"/>, if it is a field of <paramref name="info"/>'s own type (struct or class) —
+    /// confirmed via <see cref="CSharpSemantics.Structs"/>/<see cref="CSharpSemantics.Classes"/> against
+    /// the same <see cref="CsStruct"/>/<see cref="CsClass"/> instance already selected for the receiver
+    /// (by Koh's own locals-based receiver resolution — out of this migration's scope) — else <paramref
+    /// name="fallbackName"/> (the written text). This default is receiver authority, not a name-resolution
+    /// fallback (Stage-2 P5 deleted those): the receiver's struct/class is already known good by the time
+    /// this runs (StructFieldPointer/StructBaseOf established it before ever calling here), so when the
+    /// symbol doesn't confirm a field of that exact type — an unrelated same-spelled field, or no symbol
+    /// at all — the written text is what the receiver's own field lookup was always going to key on
+    /// anyway; there is no separate name-resolution decision being deferred to this fallback. Uses <see
+    /// cref="CSharpSemantics.SymOrCandidate"/> (Stage-2 P3): Koh ignores field accessibility, so
+    /// <c>s.field</c> reading a `private` field of another class/struct is exactly Roslyn's
+    /// <c>Inaccessible</c> candidate reason — the receiver is already known good (it's <paramref
+    /// name="info"/>), so accepting that candidate here can't misattribute the field to an unrelated
+    /// type. Never lets a symbol/candidate that resolves to an unrelated type's field override the
+    /// receiver Koh already established; that would risk "struct has no field" on a program that lowers
+    /// fine today.</summary>
+    private string ResolvedFieldName(SyntaxNode node, CsStruct info, string fallbackName)
+    {
+        if (
+            _semantics.SymOrCandidate(node)
+                is IFieldSymbol { ContainingType: { } containingType } fieldSym
+            && (
+                (
+                    _semantics.Structs.TryGetValue(containingType, out var s)
+                    && ReferenceEquals(s, info)
+                )
+                || (
+                    _semantics.Classes.TryGetValue(containingType, out var c)
+                    && ReferenceEquals(c.Layout, info)
+                )
+            )
+        )
+            return fieldSym.Name;
+        return fallbackName;
     }
 
     /// <summary>The place denoted by <c>*ptr</c>: the pointer's value is the address to load/store.</summary>
@@ -1016,7 +1233,7 @@ internal sealed class MethodLowerer
         {
             // A struct value (local, array element, or nested field) is referenced by its base address.
             _ when StructBaseOf(expr) is { } s => s.Base,
-            IdentifierNameSyntax id when WritePlace(id.Identifier.Text) is { } p => p.Pointer,
+            IdentifierNameSyntax id when WritePlace(id) is { } p => p.Pointer,
             ElementAccessExpressionSyntax ea => ArrayElementPointer(ea).Pointer,
             MemberAccessExpressionSyntax ma when MemberPointer(ma) is { } mp => mp.Pointer,
             _ => throw new CSharpNotSupportedException($"cannot take a reference to '{expr}'."),
@@ -1056,7 +1273,7 @@ internal sealed class MethodLowerer
             case CastExpressionSyntax cast:
                 try
                 {
-                    return CSharpFrontend.ResolveType(cast.Type, _enums);
+                    return CSharpFrontend.ResolveType(cast.Type, _semantics);
                 }
                 catch (CSharpNotSupportedException)
                 {
@@ -1086,9 +1303,9 @@ internal sealed class MethodLowerer
                     return reference.Element;
                 if (_consts.TryGetValue(id.Identifier.Text, out var c))
                     return c.Type;
-                if (TryModuleConst(id.Identifier.Text, out var mc))
+                if (TryModuleConst(id, out var mc))
                     return mc.Type;
-                if (TryGlobal(id.Identifier.Text, out var g))
+                if (TryGlobal(id, out var g))
                     return g.Type;
                 return null;
             case PrefixUnaryExpressionSyntax u:
@@ -1100,8 +1317,16 @@ internal sealed class MethodLowerer
                     or SyntaxKind.BitwiseNotExpression => InferType(u.Operand),
                     _ => null,
                 };
-            case InvocationExpressionSyntax { Expression: IdentifierNameSyntax fn }
-                when _methods.TryGetValue(fn.Identifier.Text, out var callee):
+            // Best-effort only (this method never emits IR or gates lowering — LowerCall's own
+            // symbol-only resolution is what actually picks the callee): the invocation's own resolved
+            // callee symbol (Stage-2 P6, mirroring LowerCall's symCallee) is good enough to size a
+            // ternary's result slot, and a wrong guess here can't miscompile anything (Coerce narrows/
+            // widens the branch value to whatever slot type was picked). Bare-callee only (unlike
+            // LowerCall, this doesn't also route qualified/generic calls — a missed guess just falls
+            // through to the caller's own default).
+            case InvocationExpressionSyntax { Expression: IdentifierNameSyntax } inv
+                when _semantics.SymOrCandidate(inv) is IMethodSymbol invSym
+                    && _semantics.Methods.TryGetValue(invSym.OriginalDefinition, out var callee):
                 return callee.Return;
             case ConditionalExpressionSyntax nested:
                 return CommonInferred(nested.WhenTrue, nested.WhenFalse, nested);
@@ -1505,7 +1730,7 @@ internal sealed class MethodLowerer
 
         IrValue pointer;
         CsType type;
-        if (assign.Left is IdentifierNameSyntax id && WritePlace(id.Identifier.Text) is { } place)
+        if (assign.Left is IdentifierNameSyntax id && WritePlace(id) is { } place)
             (pointer, type) = place;
         else if (assign.Left is ElementAccessExpressionSyntax access)
             (pointer, type) = ArrayElementPointer(access);
@@ -1612,7 +1837,7 @@ internal sealed class MethodLowerer
         {
             // Hardware register read, e.g. Hardware.LCDC.
             if (
-                subject.Identifier.Text == "Hardware"
+                IsIntrinsicSubject(subject, _semantics.HardwareType)
                 && _hardware.IsRegister(member.Name.Identifier.Text)
             )
                 return (
@@ -1621,19 +1846,41 @@ internal sealed class MethodLowerer
                 );
 
             // Memory-region base pointer, e.g. Gb.Vram -> a byte* at the region's fixed address.
-            if (subject.Identifier.Text == "Gb" && _hardware.IsRegion(member.Name.Identifier.Text))
+            if (
+                IsIntrinsicSubject(subject, _semantics.GbType)
+                && _hardware.IsRegion(member.Name.Identifier.Text)
+            )
                 return (
                     IrBuilder.GlobalRef(_hardware.Region(member.Name.Identifier.Text)),
                     new CsType(IrType.Pointer(IrType.I8), Signed: false)
                 );
 
-            // Enum member reference, e.g. Color.Red.
-            if (_enums.TryGetValue(subject.Identifier.Text, out var e))
+            // Enum member reference, e.g. Color.Red. Symbol-only (Stage-2 P5): `subject` names the enum
+            // type (used here purely as a qualifier, like Hardware/Gb above), so resolution yields the
+            // enum's own type symbol; CSharpSemantics.Enums maps it to the very same CsEnum instance the
+            // (now declaration-plumbing-only) string table holds (both populated by the same CollectEnums
+            // pass). The member's VALUE always comes from that CsEnum's folded Members table (ConstEval
+            // stays authoritative) — the symbol only identifies which enum is meant, never recomputes the
+            // value. Deliberately still plain Sym, not SymOrCandidate (Stage-2 P3): an enum's own members
+            // can't carry an accessibility modifier in C# (they're always as visible as the enum itself),
+            // and `subject` here is a bare, unqualified type-qualifier identifier, never an overload — so
+            // Roslyn only ever returns a real Symbol or nothing (a nested `private` enum referenced
+            // unqualified by bare name isn't merely inaccessible, it's out of scope entirely: CS0103, no
+            // CandidateSymbols at all), leaving no candidate case for SymOrCandidate to add.
+            CsEnum? e =
+                _semantics.Sym(subject) is INamedTypeSymbol enumType
+                && _semantics.Enums.TryGetValue(enumType, out var bySymbol)
+                    ? bySymbol
+                    : null;
+            if (e is not null)
             {
                 var name = member.Name.Identifier.Text;
                 if (!e.Members.TryGetValue(name, out long value))
                     throw new CSharpNotSupportedException(
-                        $"enum '{subject.Identifier.Text}' has no member '{name}'."
+                        BetterUnresolvedMessage(
+                            member.Name,
+                            $"enum '{subject.Identifier.Text}' has no member '{name}'."
+                        )
                     );
                 return (IrBuilder.ConstInt(e.Underlying.Ir, value), e.Underlying);
             }
@@ -1652,7 +1899,9 @@ internal sealed class MethodLowerer
                 }
             }
         }
-        throw new CSharpNotSupportedException($"unsupported member access '{member}'.");
+        throw new CSharpNotSupportedException(
+            BetterUnresolvedMessage(member, $"unsupported member access '{member}'.")
+        );
     }
 
     private (IrValue, CsType) LowerCall(InvocationExpressionSyntax call)
@@ -1661,7 +1910,7 @@ internal sealed class MethodLowerer
         if (
             call.Expression is MemberAccessExpressionSyntax hw
             && hw.Expression is IdentifierNameSyntax hwId
-            && hwId.Identifier.Text == "Hardware"
+            && IsIntrinsicSubject(hwId, _semantics.HardwareType)
         )
         {
             var intrinsic = hw.Name.Identifier.Text switch
@@ -1682,7 +1931,8 @@ internal sealed class MethodLowerer
         // frees everything at once by resetting the pointer to the top of the heap.
         if (
             call.Expression is MemberAccessExpressionSyntax mem
-            && mem.Expression is IdentifierNameSyntax { Identifier.Text: "Mem" }
+            && mem.Expression is IdentifierNameSyntax memId
+            && IsIntrinsicSubject(memId, _semantics.MemType)
         )
             return LowerMemCall(mem.Name.Identifier.Text, call);
 
@@ -1691,7 +1941,8 @@ internal sealed class MethodLowerer
         // IEEE bit patterns from `float` in pure subset source.
         if (
             call.Expression is MemberAccessExpressionSyntax bc
-            && bc.Expression is IdentifierNameSyntax { Identifier.Text: "BitConverter" }
+            && bc.Expression is IdentifierNameSyntax bcId
+            && IsBitConverterSubject(bcId)
         )
         {
             if (call.ArgumentList.Arguments.Count != 1)
@@ -1722,6 +1973,20 @@ internal sealed class MethodLowerer
         if (TryLowerLinq(call) is { } linq)
             return linq;
 
+        // The callee symbol, if the invocation resolves at all — via CSharpSemantics.SymOrCandidate
+        // (Stage-2 P3), so a call Roslyn's own overload resolution rejects for a C#-only reason (e.g.
+        // `Helper(a + b)` with `byte a, b`: the sum types as C#'s `int`, and there is no user-visible
+        // `int`-to-`byte` implicit conversion, even though Koh's own usual-arithmetic-conversion rules
+        // accept the call outright) still resolves to the real callee via its lone CandidateSymbols
+        // entry. Null only for a genuine resolution failure (no symbol and no acceptable candidate) —
+        // Stage-2 P5 made this the only route to a callee; that case now falls straight through to the
+        // unresolved-call diagnostic below rather than a second, syntax-based lookup. A candidate accepted
+        // here for a call with the WRONG argument count is not a problem: the arity check below
+        // (`argList.Count != callee.Params.Count`) compares against the call's own syntax argument list,
+        // not the candidate's parameter count, so it still fires regardless of which method the candidate
+        // identifies.
+        var symCallee = _semantics.SymOrCandidate(call) as IMethodSymbol;
+
         // Instance method call: obj.Method(args) or this.Method(args).
         if (
             call.Expression is MemberAccessExpressionSyntax instCall
@@ -1731,13 +1996,19 @@ internal sealed class MethodLowerer
                 recv.Info,
                 recv.Slot,
                 instCall.Name.Identifier.Text,
-                call.ArgumentList.Arguments
+                call.ArgumentList.Arguments,
+                symCallee,
+                instCall.Name
             );
 
-        // Bare Method(args) inside an instance method resolves against `this`.
+        // Bare Method(args) inside an instance method resolves against `this`. Symbol-only (Stage-2 P5):
+        // `symCallee` (the invocation's own resolved method symbol, computed above) discriminates a
+        // sibling static/top-level function of the same name from an instance method of `this` — a
+        // resolved static callee (`IsStatic: true`) rules this branch out, exactly as a resolved instance-
+        // method symbol would confirm it.
         if (
             call.Expression is IdentifierNameSyntax bare
-            && !_methods.ContainsKey(bare.Identifier.Text)
+            && symCallee is not { IsStatic: true }
             && _classLocals.TryGetValue("this", out var self)
             && self.Info.Methods.ContainsKey(bare.Identifier.Text)
         )
@@ -1745,48 +2016,67 @@ internal sealed class MethodLowerer
                 self.Info,
                 self.Slot,
                 bare.Identifier.Text,
-                call.ArgumentList.Arguments
+                call.ArgumentList.Arguments,
+                symCallee,
+                bare
             );
 
         // A plain call, a sibling static-method call (bare name, resolved against the enclosing static
         // class), a qualified static-method call `Class.M(...)`, or a generic call `Foo<int>(...)`
-        // routed to its monomorphized instance `Foo$int`.
-        string? calleeName = call.Expression switch
+        // routed to its monomorphized instance `Foo__g...`.
+        //
+        // Symbol-only (Stage-2 P5): the resolved method symbol identifies the callee Roslyn's own member
+        // lookup would pick, which already agrees with C#'s own scoping (an unqualified call resolves
+        // within the caller's own enclosing type before its outer scope) — there is no separate
+        // "enclosing static class wins" preference to apply on top of it. `OriginalDefinition` maps a
+        // constructed generic call's symbol to its template; a generic template is never registered in
+        // Methods (only its monomorphized instances are — see CSharpSemantics.RegisterMethod), so a
+        // generic call's OriginalDefinition never hits Methods directly — it is instead routed through
+        // CSharpSemantics.TryGetGenericInstance: the call's own explicit `<...>` type-argument syntax
+        // (bare `M<...>` or qualified `Class.M<...>`) mangles to the same suffix
+        // SynthesizeGenericInstances recorded the instance under. A call whose type arguments were
+        // inferred rather than written out (no GenericNameSyntax to mangle a suffix from) is not yet
+        // supported — a future roadmap item is symbol-driven discovery of the instantiation (a constructed
+        // IMethodSymbol's own TypeArguments could re-mangle the suffix without needing call-site syntax at
+        // all). A BCL `System.MathF` member is special-cased: it resolves to the real BCL symbol (never in
+        // Methods, since Koh's own MathF is a distinct in-tree declaration), and is routed by name to the
+        // compiled library the softfloat runtime appends — declaration plumbing (like
+        // EmitFloatRuntimeCall's softfloat names), not a second user-name resolution route.
+        string? calleeName = null;
+        CsMethod? callee = null;
+        if (symCallee is not null)
         {
-            IdentifierNameSyntax idn => ResolveStaticCallee(idn.Identifier.Text),
-            // Qualified generic call `Class.M<...>(...)` -> its monomorphized instance `Class.M$...`.
-            MemberAccessExpressionSyntax
+            if (IsBclMathF(symCallee.ContainingType))
             {
-                Expression: IdentifierNameSyntax typeName,
-                Name: GenericNameSyntax gm
-            } => $"{typeName.Identifier.Text}."
-                + CSharpFrontend.MangleGeneric(gm.Identifier.Text, gm.TypeArgumentList.Arguments),
-            MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax typeName } qualified
-                when _methods.ContainsKey(
-                    $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}"
-                ) => $"{typeName.Identifier.Text}.{qualified.Name.Identifier.Text}",
-            // A namespaced BCL-style call `System.Class.Method(...)` (e.g. `System.MathF.Round`) resolves as
-            // `Class.Method` — the frontend drops the `System` namespace, reaching the compiled library.
-            // Restricted to `System` so it can't hijack an instance-field chain `a.b.M()` to a static `b.M`.
-            MemberAccessExpressionSyntax
+                calleeName = $"MathF.{symCallee.Name}";
+                _methods.TryGetValue(calleeName, out callee);
+            }
+            else if (_semantics.Methods.TryGetValue(symCallee.OriginalDefinition, out var found))
             {
-                Expression: MemberAccessExpressionSyntax
-                {
-                    Expression: IdentifierNameSyntax { Identifier.Text: "System" },
-                    Name: IdentifierNameSyntax cls
-                },
-                Name: IdentifierNameSyntax mth
-            } when _methods.ContainsKey($"{cls.Identifier.Text}.{mth.Identifier.Text}") =>
-                $"{cls.Identifier.Text}.{mth.Identifier.Text}",
-            // Bare generic call `M<...>(...)` -> a sibling instance of the enclosing static class
-            // (`Class.M$...`) if one exists, else a top-level instance (`M$...`).
-            GenericNameSyntax gn => ResolveStaticCallee(
-                CSharpFrontend.MangleGeneric(gn.Identifier.Text, gn.TypeArgumentList.Arguments)
-            ),
-            _ => null,
-        };
-        if (calleeName is null || !_methods.TryGetValue(calleeName, out var callee))
-            throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
+                callee = found;
+                calleeName = found.Fn.Name;
+            }
+            else if (
+                symCallee.IsGenericMethod
+                && GenericCallTypeArguments(call.Expression) is { } typeArgs
+                && _semantics.TryGetGenericInstance(
+                    symCallee.OriginalDefinition,
+                    CSharpFrontend.MangleSuffix(typeArgs.Arguments),
+                    out var instance
+                )
+            )
+            {
+                callee = instance;
+                calleeName = instance.Fn.Name;
+            }
+        }
+        if (callee is null)
+            throw new CSharpNotSupportedException(
+                BetterUnresolvedMessage(
+                    call.Expression,
+                    $"unsupported call target '{call.Expression}'."
+                )
+            );
 
         var args = new List<IrValue>();
         var argList = call.ArgumentList.Arguments;
@@ -1831,19 +2121,40 @@ internal sealed class MethodLowerer
         : null;
 
     /// <summary>Lower an instance-method call: pass the receiver pointer as the implicit <c>this</c>,
-    /// then the user arguments, and call the <c>Class.Method</c> function.</summary>
+    /// then the user arguments, and call the <c>Class.Method</c> function. Symbol-only (Stage-2 P5):
+    /// <paramref name="symbol"/> (the call's resolved method symbol, from <see cref="LowerCall"/>)
+    /// identifies the exact method Roslyn's own overload/member resolution reaches on the receiver's real
+    /// declared type, via <see cref="OriginalDefinition"/> so a call through a constructed/inherited
+    /// signature still maps to the template registered in <see cref="CSharpSemantics.Methods"/>. A call
+    /// whose symbol never resolves to a registered method is a genuine resolution failure, reported via
+    /// <paramref name="calleeNode"/>/<see cref="BetterUnresolvedMessage"/> when the method-name syntax at
+    /// the call site is available. <paramref name="cls"/> (from Koh's own locals-based receiver lookup —
+    /// out of this migration's scope) and <paramref name="methodName"/> are kept only to word that
+    /// diagnostic — never as a second lookup.</summary>
     private (IrValue, CsType) LowerInstanceCall(
         CsClass cls,
         IrValue thisSlot,
         string methodName,
-        Microsoft.CodeAnalysis.SeparatedSyntaxList<ArgumentSyntax> args
+        Microsoft.CodeAnalysis.SeparatedSyntaxList<ArgumentSyntax> args,
+        IMethodSymbol? symbol = null,
+        SyntaxNode? calleeNode = null
     )
     {
-        var qualified = $"{cls.Name}.{methodName}";
-        if (!_methods.TryGetValue(qualified, out var callee))
+        CsMethod? callee =
+            symbol is not null
+            && _semantics.Methods.TryGetValue(symbol.OriginalDefinition, out var bySymbol)
+                ? bySymbol
+                : null;
+        if (callee is null)
             throw new CSharpNotSupportedException(
-                $"class '{cls.Name}' has no method '{methodName}'."
+                calleeNode is not null
+                    ? BetterUnresolvedMessage(
+                        calleeNode,
+                        $"class '{cls.Name}' has no method '{methodName}'."
+                    )
+                    : $"class '{cls.Name}' has no method '{methodName}'."
             );
+        var qualified = $"{cls.Name}.{methodName}";
         if (args.Count != callee.Params.Count - 1)
             throw new CSharpNotSupportedException(
                 $"'{qualified}' takes {callee.Params.Count - 1} argument(s), but {args.Count} were given."
@@ -1865,9 +2176,11 @@ internal sealed class MethodLowerer
     /// supported — initialize fields after construction.</summary>
     private (IrValue, CsType) LowerNew(ObjectCreationExpressionSyntax objNew)
     {
+        // Symbol-first (Stage-2 P6), same as the class-typed-local check in LowerLocalDeclaration.
         if (
             objNew.Type is not IdentifierNameSyntax cn
-            || !_classes.TryGetValue(cn.Identifier.Text, out var cls)
+            || _semantics.Sym(cn) is not INamedTypeSymbol classSym
+            || !_semantics.Classes.TryGetValue(classSym, out var cls)
         )
             throw new CSharpNotSupportedException(
                 $"'new {objNew.Type}' is not supported (only class instances are)."
