@@ -144,27 +144,154 @@ internal sealed class CSharpSemantics
     public INamedTypeSymbol? MemType => _memType.Value;
     public INamedTypeSymbol? InterruptAttributeType => _interruptAttributeType.Value;
 
-    /// <summary>Method declarations keyed by their Roslyn symbol. Populated in a later phase's
-    /// declaration passes; empty here.</summary>
-    public Dictionary<IMethodSymbol, CsMethod> Methods { get; } =
-        new(SymbolEqualityComparer.Default);
+    // ---- Deferred declaration registration (Phase 2) -----------------------------------------------
+    //
+    // The declaration passes (CSharpFrontend.cs Pass 1/1.5, CSharpFrontend.Declarations.cs) call
+    // Register* alongside every string-keyed table insert. Register* is O(1) list-append — it never
+    // touches the semantic model. Each symbol-keyed index below only walks its registration list (and so
+    // only forces the compilation/model, via DeclaredSym) the first time a caller actually reads the
+    // corresponding property; a Lower() call whose result nobody inspects this way costs nothing beyond
+    // the appends, same as Phase 1's empty dictionaries. A monomorphized generic instance's declaration
+    // node is detached from the main tree (see DeclaringClassAnnotation), so DeclaredSym returns null for
+    // it and Materialize silently skips it — no consumer needs to filter these out itself.
 
-    /// <summary>Static fields (globals) keyed by their Roslyn symbol. Populated in a later phase; empty
-    /// here.</summary>
-    public Dictionary<IFieldSymbol, (IrGlobal Global, CsType Type)> Globals { get; } =
-        new(SymbolEqualityComparer.Default);
+    private readonly List<(SyntaxNode Decl, CsMethod Value)> _methodRegs = [];
+    private readonly List<(SyntaxNode Decl, (IrGlobal Global, CsType Type) Value)> _globalRegs = [];
+    private readonly List<(SyntaxNode Decl, (CsType Type, long Value) Value)> _constRegs = [];
+    private readonly List<(SyntaxNode Decl, CsEnum Value)> _enumRegs = [];
+    private readonly List<(SyntaxNode Decl, CsStruct Value)> _structRegs = [];
+    private readonly List<(SyntaxNode Decl, CsClass Value)> _classRegs = [];
 
-    /// <summary>Enum types keyed by their Roslyn symbol. Populated in a later phase; empty here.</summary>
-    public Dictionary<INamedTypeSymbol, CsEnum> Enums { get; } =
-        new(SymbolEqualityComparer.Default);
+    // Not `readonly`: a readonly field can only be assigned directly within a constructor body or a
+    // field initializer (which in turn can't reference other instance members at all, even inside a
+    // deferred lambda — CS0236). InitIndexes() assigns these identically from both constructors, so
+    // Disabled and a real instance build the same way; each Lazy only walks its registration list (and so
+    // only forces the compilation, via DeclaredSym) the first time a caller reads the property.
+    private Lazy<IReadOnlyDictionary<IMethodSymbol, CsMethod>> _methodIndex = null!;
+    private Lazy<IReadOnlyDictionary<IFieldSymbol, (IrGlobal Global, CsType Type)>> _globalIndex =
+        null!;
+    private Lazy<IReadOnlyDictionary<IFieldSymbol, (CsType Type, long Value)>> _moduleConstIndex =
+        null!;
+    private Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsEnum>> _enumIndex = null!;
+    private Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsStruct>> _structIndex = null!;
+    private Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsClass>> _classIndex = null!;
 
-    /// <summary>Struct types keyed by their Roslyn symbol. Populated in a later phase; empty here.</summary>
-    public Dictionary<INamedTypeSymbol, CsStruct> Structs { get; } =
-        new(SymbolEqualityComparer.Default);
+    /// <summary>Record a method declaration (top-level function or instance method) under its
+    /// declaration node; materialized into <see cref="Methods"/> keyed by <see cref="IMethodSymbol"/> on
+    /// first read. A no-op on <see cref="Disabled"/> (there is no tree to resolve against, so keeping the
+    /// entry would only leak memory in that shared singleton).</summary>
+    public void RegisterMethod(SyntaxNode decl, CsMethod method)
+    {
+        if (_mainTree is not null)
+            _methodRegs.Add((decl, method));
+    }
 
-    /// <summary>Class types keyed by their Roslyn symbol. Populated in a later phase; empty here.</summary>
-    public Dictionary<INamedTypeSymbol, CsClass> Classes { get; } =
-        new(SymbolEqualityComparer.Default);
+    /// <summary>Record a static field/global declaration (its <see cref="VariableDeclaratorSyntax"/>);
+    /// materialized into <see cref="Globals"/> keyed by <see cref="IFieldSymbol"/> on first read.</summary>
+    public void RegisterGlobal(SyntaxNode decl, IrGlobal global, CsType type)
+    {
+        if (_mainTree is not null)
+            _globalRegs.Add((decl, (global, type)));
+    }
+
+    /// <summary>Record a module-level <c>const</c> declaration (its <see cref="VariableDeclaratorSyntax"/>);
+    /// materialized into <see cref="ModuleConsts"/> keyed by <see cref="IFieldSymbol"/> on first read.</summary>
+    public void RegisterConst(SyntaxNode decl, CsType type, long value)
+    {
+        if (_mainTree is not null)
+            _constRegs.Add((decl, (type, value)));
+    }
+
+    /// <summary>Record an enum declaration; materialized into <see cref="Enums"/> keyed by
+    /// <see cref="INamedTypeSymbol"/> on first read.</summary>
+    public void RegisterEnum(SyntaxNode decl, CsEnum value)
+    {
+        if (_mainTree is not null)
+            _enumRegs.Add((decl, value));
+    }
+
+    /// <summary>Record a struct declaration; materialized into <see cref="Structs"/> keyed by
+    /// <see cref="INamedTypeSymbol"/> on first read.</summary>
+    public void RegisterStruct(SyntaxNode decl, CsStruct value)
+    {
+        if (_mainTree is not null)
+            _structRegs.Add((decl, value));
+    }
+
+    /// <summary>Record a class declaration; materialized into <see cref="Classes"/> keyed by
+    /// <see cref="INamedTypeSymbol"/> on first read.</summary>
+    public void RegisterClass(SyntaxNode decl, CsClass value)
+    {
+        if (_mainTree is not null)
+            _classRegs.Add((decl, value));
+    }
+
+    /// <summary>Method declarations (top-level functions and instance methods) keyed by their Roslyn
+    /// symbol. Empty until read; reading forces the compilation (see the class remarks). No consumer yet
+    /// (Phase 4).</summary>
+    public IReadOnlyDictionary<IMethodSymbol, CsMethod> Methods => _methodIndex.Value;
+
+    /// <summary>Static fields (globals) keyed by their Roslyn symbol.</summary>
+    public IReadOnlyDictionary<IFieldSymbol, (IrGlobal Global, CsType Type)> Globals =>
+        _globalIndex.Value;
+
+    /// <summary>Module-level <c>const</c> fields keyed by their Roslyn symbol (folded value; there is no
+    /// backing <see cref="IrGlobal"/> for a const).</summary>
+    public IReadOnlyDictionary<IFieldSymbol, (CsType Type, long Value)> ModuleConsts =>
+        _moduleConstIndex.Value;
+
+    /// <summary>Enum types keyed by their Roslyn symbol.</summary>
+    public IReadOnlyDictionary<INamedTypeSymbol, CsEnum> Enums => _enumIndex.Value;
+
+    /// <summary>Struct types keyed by their Roslyn symbol.</summary>
+    public IReadOnlyDictionary<INamedTypeSymbol, CsStruct> Structs => _structIndex.Value;
+
+    /// <summary>Class types keyed by their Roslyn symbol.</summary>
+    public IReadOnlyDictionary<INamedTypeSymbol, CsClass> Classes => _classIndex.Value;
+
+    /// <summary>Build a symbol-keyed dictionary from a registration list, resolving each declaration
+    /// node's symbol on demand. A node whose <see cref="DeclaredSym"/> is null (detached — a
+    /// monomorphized generic instance — or no compilation available) or resolves to an unexpected symbol
+    /// kind is silently skipped: callers never need to filter these out themselves.</summary>
+    private Dictionary<TSymbol, TValue> Materialize<TSymbol, TValue>(
+        List<(SyntaxNode Decl, TValue Value)> registrations
+    )
+        where TSymbol : class, ISymbol
+    {
+        var dict = new Dictionary<TSymbol, TValue>(SymbolEqualityComparer.Default);
+        foreach (var (decl, value) in registrations)
+            if (DeclaredSym(decl) is TSymbol sym)
+                dict[sym] = value;
+        return dict;
+    }
+
+    /// <summary>Wire up the (shared, list-driven) materialization for every symbol-keyed index. Called
+    /// from both constructors so <see cref="Disabled"/> and a real instance build the same way — for
+    /// <see cref="Disabled"/> the registration lists simply stay empty forever (Register* is a no-op when
+    /// <see cref="_mainTree"/> is null), so materializing them never touches the (also-null) model.</summary>
+    private void InitIndexes()
+    {
+        _methodIndex = new Lazy<IReadOnlyDictionary<IMethodSymbol, CsMethod>>(() =>
+            Materialize<IMethodSymbol, CsMethod>(_methodRegs)
+        );
+        _globalIndex = new Lazy<IReadOnlyDictionary<IFieldSymbol, (IrGlobal Global, CsType Type)>>(
+            () =>
+                Materialize<IFieldSymbol, (IrGlobal, CsType)>(_globalRegs)
+        );
+        _moduleConstIndex = new Lazy<IReadOnlyDictionary<IFieldSymbol, (CsType Type, long Value)>>(
+            () =>
+                Materialize<IFieldSymbol, (CsType, long)>(_constRegs)
+        );
+        _enumIndex = new Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsEnum>>(() =>
+            Materialize<INamedTypeSymbol, CsEnum>(_enumRegs)
+        );
+        _structIndex = new Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsStruct>>(() =>
+            Materialize<INamedTypeSymbol, CsStruct>(_structRegs)
+        );
+        _classIndex = new Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsClass>>(() =>
+            Materialize<INamedTypeSymbol, CsClass>(_classRegs)
+        );
+    }
 
     private CSharpSemantics()
     {
@@ -175,6 +302,7 @@ internal sealed class CSharpSemantics
         _gbType = new Lazy<INamedTypeSymbol?>(() => null);
         _memType = new Lazy<INamedTypeSymbol?>(() => null);
         _interruptAttributeType = new Lazy<INamedTypeSymbol?>(() => null);
+        InitIndexes();
     }
 
     /// <param name="mainTree">The final wrapped tree (see <see cref="CSharpFrontend.BuildSemantics"/>).</param>
@@ -197,6 +325,7 @@ internal sealed class CSharpSemantics
         _interruptAttributeType = new Lazy<INamedTypeSymbol?>(() =>
             _compilation.Value?.GetTypeByMetadataName("InterruptAttribute")
         );
+        InitIndexes();
     }
 
     /// <summary>Whether <paramref name="node"/> belongs to the tree the semantic model was built from.

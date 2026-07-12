@@ -171,6 +171,34 @@ public sealed partial class CSharpFrontend : IFrontend
         return module;
     }
 
+    /// <summary>Test-only entry point: runs the real <see cref="LowerCore"/> pipeline (declaration passes
+    /// through bodies) and hands back the <see cref="CSharpSemantics"/> instance those passes populated,
+    /// via <paramref name="onSemanticsBuilt"/> — an optional test-only hook, unused in production (see
+    /// <see cref="Lower"/>). Lets tests assert symbol-keyed index contents against the real production
+    /// registration calls instead of a reimplementation that could drift from them.</summary>
+    internal static (IrModule Module, CSharpSemantics Semantics) LowerForTest(
+        string source,
+        DiagnosticBag diagnostics
+    )
+    {
+        var module = new IrModule("test");
+        CSharpSemantics? captured = null;
+        try
+        {
+            LowerCore(
+                SourceText.From(source, "test.cs"),
+                module,
+                diagnostics,
+                onSemanticsBuilt: s => captured = s
+            );
+        }
+        catch (CSharpNotSupportedException ex)
+        {
+            Report(diagnostics, ex);
+        }
+        return (module, captured ?? CSharpSemantics.Disabled);
+    }
+
     /// <summary>Parse and wrap the source, then apply every whole-tree rewrite the rest of the pipeline
     /// depends on: synthesize the program-wrapper class, inject the softfloat runtime if the program
     /// uses float, and rewrite <c>yield return</c> iterators into state machines. Returns the final root
@@ -237,35 +265,44 @@ public sealed partial class CSharpFrontend : IFrontend
         return TransformIterators(root);
     }
 
-    private static void LowerCore(SourceText source, IrModule module, DiagnosticBag diagnostics)
+    private static void LowerCore(
+        SourceText source,
+        IrModule module,
+        DiagnosticBag diagnostics,
+        Action<CSharpSemantics>? onSemanticsBuilt = null
+    )
     {
         if (PrepareRoot(source, diagnostics) is not { } root)
             return;
 
         // A real CSharpCompilation over the final tree, as a resolution oracle for later phases of the
-        // semantic-model migration (nothing consults it yet — see CSharpFrontend.Semantics.cs). Built
-        // from root.SyntaxTree (post-rewrite), so node identity here matches everything lowered below.
+        // semantic-model migration. Built from root.SyntaxTree (post-rewrite), so node identity here
+        // matches everything lowered below. The declaration passes register into it as they go (see
+        // CSharpFrontend.Semantics.cs); nothing reads it back yet in production — onSemanticsBuilt is a
+        // test-only hook (see LowerForTest) letting tests capture the same instance the passes populate.
         var semantics = BuildSemantics(root.SyntaxTree);
+        onSemanticsBuilt?.Invoke(semantics);
 
         var methods = new Dictionary<string, CsMethod>(StringComparer.Ordinal);
         var bodies =
             new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
 
         // Pass 0: enums (named constants), so their types and members resolve everywhere.
-        var enums = CollectEnums(root, diagnostics);
+        var enums = CollectEnums(root, diagnostics, semantics);
 
         // Pass 0.4: struct layouts (value types with scalar fields).
-        var structs = CollectStructs(root, enums, diagnostics);
+        var structs = CollectStructs(root, enums, diagnostics, semantics);
 
         // Pass 0.45: class layouts (reference types, heap-allocated) and their instance methods.
-        var classes = CollectClasses(root, enums, diagnostics);
+        var classes = CollectClasses(root, enums, diagnostics, semantics);
 
         // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
         var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(
             root,
             enums,
             module,
-            diagnostics
+            diagnostics,
+            semantics
         );
 
         // Pass 0.6: if the program allocates (Mem.Alloc/Reset or `new` of a class), give it a heap-
@@ -430,6 +467,7 @@ public sealed partial class CSharpFrontend : IFrontend
                 );
                 continue;
             }
+            semantics.RegisterMethod(decl, method);
             module.Functions.Add(fn);
             bodies.Add((method, body, arrow));
         }
@@ -483,6 +521,7 @@ public sealed partial class CSharpFrontend : IFrontend
                 );
                 continue;
             }
+            semantics.RegisterMethod(mdecl, method);
             module.Functions.Add(fn);
             bodies.Add((method, mdecl.Body, mdecl.ExpressionBody));
         }

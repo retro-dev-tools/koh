@@ -13,7 +13,8 @@ public sealed partial class CSharpFrontend
 {
     private static Dictionary<string, CsEnum> CollectEnums(
         CompilationUnitSyntax root,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var enums = new Dictionary<string, CsEnum>(StringComparer.Ordinal);
@@ -38,12 +39,15 @@ public sealed partial class CSharpFrontend
                 next = value + 1;
             }
             var name = decl.Identifier.Text;
-            if (!enums.TryAdd(name, new CsEnum(underlying, members)))
+            var csEnum = new CsEnum(underlying, members);
+            if (!enums.TryAdd(name, csEnum))
                 Report(
                     diagnostics,
                     $"duplicate enum '{name}' (only the first definition is used).",
                     decl.Identifier.GetLocation()
                 );
+            else
+                semantics.RegisterEnum(decl, csEnum);
         }
         return enums;
     }
@@ -57,7 +61,8 @@ public sealed partial class CSharpFrontend
         CompilationUnitSyntax root,
         IReadOnlyDictionary<string, CsEnum> enums,
         IrModule module,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var globals = new Dictionary<string, (IrGlobal, CsType)>(StringComparer.Ordinal);
@@ -154,6 +159,7 @@ public sealed partial class CSharpFrontend
                             v.Identifier.GetLocation()
                         );
                     consts[name] = (type, cv);
+                    semantics.RegisterConst(v, type, cv);
                 }
                 else if (isReadonly && v.Initializer is { } roInit)
                 {
@@ -168,12 +174,14 @@ public sealed partial class CSharpFrontend
                     );
                     module.Globals.Add(g);
                     globals[name] = (g, type);
+                    semantics.RegisterGlobal(v, g, type);
                 }
                 else
                 {
                     var g = new IrGlobal(name, type.Ir, AddressSpace.Wram);
                     module.Globals.Add(g);
                     globals[name] = (g, type);
+                    semantics.RegisterGlobal(v, g, type);
                     if (v.Initializer is { } init)
                         inits.Add(
                             (g, ConstEval(init.Value, ConstLookup, enums, !type.Signed), type)
@@ -285,7 +293,8 @@ public sealed partial class CSharpFrontend
     private static Dictionary<string, CsStruct> CollectStructs(
         CompilationUnitSyntax root,
         IReadOnlyDictionary<string, CsEnum> enums,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var decls = new Dictionary<string, StructDeclarationSyntax>(StringComparer.Ordinal);
@@ -334,6 +343,11 @@ public sealed partial class CSharpFrontend
 
         foreach (var name in decls.Keys)
             Layout(name);
+        // Registered after every struct is laid out (rather than inline in Layout): Layout recurses into
+        // nested struct fields and memoizes, so a single pass here over `decls` is simpler than tracking
+        // registration through the recursion, and every name in `decls` is guaranteed laid out by now.
+        foreach (var (name, decl) in decls)
+            semantics.RegisterStruct(decl, structs[name]);
         return structs;
     }
 
@@ -342,7 +356,8 @@ public sealed partial class CSharpFrontend
     private static Dictionary<string, CsClass> CollectClasses(
         CompilationUnitSyntax root,
         IReadOnlyDictionary<string, CsEnum> enums,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var classes = new Dictionary<string, CsClass>(StringComparer.Ordinal);
@@ -428,6 +443,8 @@ public sealed partial class CSharpFrontend
                     $"duplicate class '{decl.Identifier.Text}' (only the first definition is used).",
                     decl.Identifier.GetLocation()
                 );
+            else
+                semantics.RegisterClass(decl, cls);
         }
         return classes;
     }
