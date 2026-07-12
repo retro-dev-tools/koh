@@ -117,15 +117,35 @@ public class CSharpEndToEndTests
         return ((uint)gb.Registers.DE << 16) | gb.Registers.HL; // i32: high word DE, low word HL
     }
 
-    private static ulong RunI64(string src, Action<GameBoySystem>? args = null)
+    private static ulong RunI64(string src, Action<GameBoySystem>? args = null) =>
+        ReadReturnI64(Load(Compile(src), out int s, out int l), s, l, args);
+
+    private static ulong RunI64Opt(string src, Action<GameBoySystem>? args = null) =>
+        ReadReturnI64(Load(CompileOpt(src), out int s, out int l), s, l, args);
+
+    private static ulong ReadReturnI64(GameBoySystem gb, int s, int l, Action<GameBoySystem>? args)
     {
-        var gb = Load(Compile(src), out int s, out int l);
         args?.Invoke(gb);
         Run(gb, s, l);
         ulong result = 0; // i64 is returned little-endian in ReturnScratch memory
         for (int i = 0; i < 8; i++)
             result |= (ulong)gb.DebugReadByte((ushort)(Sm83Backend.ReturnScratch + i)) << (8 * i);
         return result;
+    }
+
+    [Test]
+    public async Task Optimizer_Wide128ConstFold_IsCorrect()
+    {
+        // The constant-folding pass held values in a 64-bit long, so it folded 128-bit ops wrong
+        // (`(UInt128)1 << 105` -> `1 << 41`). It must now leave >64-bit ops for the backend. This i128
+        // multiply/normalize/extract (as in the softfloat double path) must match on the optimized path,
+        // where the operands fold to constants.
+        const string src =
+            "static ulong Main(){ ulong siga = 0x18000000000000; ulong sigb = 0x10000000000000; "
+            + "UInt128 prod = (UInt128)siga * (UInt128)sigb; if (prod < ((UInt128)1 << 105)) { prod = prod << 1; } "
+            + "return (ulong)(prod >> 53); }";
+        await Assert.That(RunI64Opt(src)).IsEqualTo(0x18000000000000UL);
+        await Assert.That(RunI64(src)).IsEqualTo(0x18000000000000UL);
     }
 
     private static void W64(GameBoySystem gb, int offset, long value)
