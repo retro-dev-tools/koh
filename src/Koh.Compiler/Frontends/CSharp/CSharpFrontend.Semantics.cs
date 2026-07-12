@@ -119,11 +119,14 @@ public sealed partial class CSharpFrontend
 /// Roslyn as a resolution oracle over the final wrapped tree: a lazy <see cref="SemanticModel"/>, an
 /// <see cref="InTree"/> guard, pre-resolved stub symbols for the intrinsic surface
 /// (<see cref="IntrinsicsStub"/>), and symbol-keyed indexes (<see cref="Methods"/>, <see cref="Globals"/>,
-/// <see cref="ModuleConsts"/>, <see cref="Enums"/>, <see cref="Structs"/>, <see cref="Classes"/>) that
-/// <see cref="MethodLowerer"/> consults symbol-first for name/member/call resolution, falling back to its
-/// own string-keyed tables only when no symbol resolves (no compilation built, resolution failure, or —
-/// for now — routing a generic call to its monomorphized instance; a generic instance's own body is no
-/// longer detached syntax, see <see cref="CSharpFrontend.BuildInstancesTree"/>).
+/// <see cref="ModuleConsts"/>, <see cref="Enums"/>, <see cref="Structs"/>, <see cref="Classes"/>, and —
+/// since Stage-2 P4 — <see cref="GenericInstances"/>) that <see cref="MethodLowerer"/> consults
+/// symbol-first for name/member/call resolution, falling back to its own string-keyed tables only when no
+/// symbol resolves: no compilation built, a genuine resolution failure, or a generic call whose type
+/// arguments were inferred rather than written out (no <c>&lt;...&gt;</c> syntax to mangle a suffix from —
+/// still unsupported, unchanged by P4). A generic instance's own body is no longer detached syntax, see
+/// <see cref="CSharpFrontend.BuildInstancesTree"/>; the syntax-based mangled-name lookup in
+/// <see cref="MethodLowerer.LowerCall"/> remains as a fallback until Stage-2 P5 deletes it.
 ///
 /// Everything that requires real Roslyn binding (the underlying <see cref="CSharpCompilation"/>, the
 /// <see cref="SemanticModel"/>, and the stub type symbols) is behind its own <see cref="Lazy{T}"/>, so
@@ -134,6 +137,10 @@ public sealed partial class CSharpFrontend
 // Stage-2 P3 adds SymOrCandidate alongside Sym: a callee/field lookup that would otherwise fall
 // through to the string-keyed fallback purely because Roslyn's OWN rules (overload resolution,
 // accessibility) reject Koh-legal code now gets one more chance via CandidateSymbols before giving up.
+// Stage-2 P4 adds GenericInstances/TryGetGenericInstance: a generic call's own resolved symbol (via
+// SymOrCandidate) now routes straight to its monomorphized instance, keyed by the template symbol
+// (OriginalDefinition) and the call's own mangled type-argument suffix — the syntax-based MangleGeneric
+// switch in MethodLowerer.LowerCall stays only as the fallback for an inferred-type-argument call.
 internal sealed class CSharpSemantics
 {
     /// <summary>Used when a <see cref="CSharpSemantics"/> is needed with no source tree at all (e.g. a
@@ -183,6 +190,16 @@ internal sealed class CSharpSemantics
     private readonly List<(SyntaxNode Decl, CsStruct Value)> _structRegs = [];
     private readonly List<(SyntaxNode Decl, CsClass Value)> _classRegs = [];
 
+    // One entry per monomorphized generic instance, recorded against its TEMPLATE's declaration node
+    // (a main-tree node, so DeclaredSym always resolves it — unlike the instance's own decl, which lives
+    // in the instances tree but resolves there just as well; the template is used as the key because a
+    // generic call site's resolved symbol's OriginalDefinition IS the template, never any one instance).
+    private readonly List<(
+        SyntaxNode TemplateDecl,
+        string Suffix,
+        CsMethod Value
+    )> _genericInstanceRegs = [];
+
     // Not `readonly`: a readonly field can only be assigned directly within a constructor body or a
     // field initializer (which in turn can't reference other instance members at all, even inside a
     // deferred lambda — CS0236). InitIndexes() assigns these identically from both constructors, so
@@ -196,6 +213,9 @@ internal sealed class CSharpSemantics
     private Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsEnum>> _enumIndex = null!;
     private Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsStruct>> _structIndex = null!;
     private Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsClass>> _classIndex = null!;
+    private Lazy<
+        IReadOnlyDictionary<IMethodSymbol, IReadOnlyDictionary<string, CsMethod>>
+    > _genericInstanceIndex = null!;
 
     /// <summary>Record a method declaration (top-level function or instance method) under its
     /// declaration node; materialized into <see cref="Methods"/> keyed by <see cref="IMethodSymbol"/> on
@@ -205,6 +225,25 @@ internal sealed class CSharpSemantics
     {
         if (_mainTree is not null)
             _methodRegs.Add((decl, method));
+    }
+
+    /// <summary>Record one monomorphized generic instance (Stage-2 P4): <paramref name="templateDecl"/> is
+    /// the generic template's own declaration node (a main-tree node — the template is never itself
+    /// lowered, but it is where the routing lookup's key, <see cref="TryGetGenericInstance"/>'s <c>template</c>
+    /// argument, comes from), <paramref name="mangledSuffix"/> is the concrete type arguments' mangled
+    /// suffix (<see cref="CSharpFrontend.MangleSuffix"/>) that produced this specific instance, and
+    /// <paramref name="method"/> is the instance's own <see cref="CsMethod"/> — the same one <see
+    /// cref="RegisterMethod"/> records under the instance's own (non-generic) symbol. Materialized into
+    /// <see cref="GenericInstances"/> on first read. A no-op on <see cref="Disabled"/>, like every other
+    /// Register* method.</summary>
+    public void RegisterGenericInstance(
+        SyntaxNode templateDecl,
+        string mangledSuffix,
+        CsMethod method
+    )
+    {
+        if (_mainTree is not null)
+            _genericInstanceRegs.Add((templateDecl, mangledSuffix, method));
     }
 
     /// <summary>Record a static field/global declaration (its <see cref="VariableDeclaratorSyntax"/>);
@@ -252,10 +291,14 @@ internal sealed class CSharpSemantics
     /// compilation (see the class remarks). Consulted by <see cref="MethodLowerer.LowerCall"/> and
     /// <see cref="MethodLowerer.LowerInstanceCall"/> via <c>OriginalDefinition</c>, so a
     /// constructed/inherited call signature still maps to the registered template — a generic
-    /// <em>template</em> itself is never registered (it is never lowered), so a constructed generic call's
-    /// symbol (whose <c>OriginalDefinition</c> is the template, not any instance) still falls through to
-    /// the syntax-based mangled-name lookup, even though the instance it should route to is itself now
-    /// indexed here under its own (non-generic) symbol.</summary>
+    /// <em>template</em> itself is never registered (it is never lowered). A constructed generic call's
+    /// own symbol (whose <c>OriginalDefinition</c> is the template, not any instance) therefore never hits
+    /// this index directly; since Stage-2 P4, <see cref="MethodLowerer.LowerCall"/> instead routes such a
+    /// call through
+    /// <see cref="GenericInstances"/>/<see cref="TryGetGenericInstance"/>, keyed by that same
+    /// <c>OriginalDefinition</c> plus the call's own mangled type-argument suffix — the instance found
+    /// that way is the very same <see cref="CsMethod"/> also indexed here under its own (non-generic)
+    /// symbol.</summary>
     public IReadOnlyDictionary<IMethodSymbol, CsMethod> Methods => _methodIndex.Value;
 
     /// <summary>Static fields (globals) keyed by their Roslyn symbol.</summary>
@@ -276,6 +319,38 @@ internal sealed class CSharpSemantics
     /// <summary>Class types keyed by their Roslyn symbol.</summary>
     public IReadOnlyDictionary<INamedTypeSymbol, CsClass> Classes => _classIndex.Value;
 
+    /// <summary>Monomorphized generic instances (Stage-2 P4), keyed by their template's Roslyn symbol
+    /// (an unbound generic method definition — the same symbol a call's own <c>OriginalDefinition</c>
+    /// produces) and then by the call's own mangled type-argument suffix (<see
+    /// cref="CSharpFrontend.MangleSuffix"/>), so two instances of the same template at different type
+    /// arguments (or two same-named templates at different arities/owners) stay distinct. Prefer <see
+    /// cref="TryGetGenericInstance"/> over reading this directly.</summary>
+    public IReadOnlyDictionary<
+        IMethodSymbol,
+        IReadOnlyDictionary<string, CsMethod>
+    > GenericInstances => _genericInstanceIndex.Value;
+
+    /// <summary>Look up the monomorphized instance of generic method <paramref name="template"/> (its
+    /// <c>OriginalDefinition</c> symbol) specialized at <paramref name="suffix"/> (the call site's own
+    /// mangled type-argument suffix). Used by <see cref="MethodLowerer.LowerCall"/> to route a generic
+    /// call symbol-first: on a miss (an inferred type argument with no explicit <c>&lt;...&gt;</c> call
+    /// syntax to mangle, or a template this frontend never registered any instance for) the caller falls
+    /// back to the pre-migration syntax-based mangled-name lookup, exactly as before this index
+    /// existed.</summary>
+    public bool TryGetGenericInstance(IMethodSymbol template, string suffix, out CsMethod method)
+    {
+        if (
+            GenericInstances.TryGetValue(template, out var bySuffix)
+            && bySuffix.TryGetValue(suffix, out var found)
+        )
+        {
+            method = found;
+            return true;
+        }
+        method = null!;
+        return false;
+    }
+
     /// <summary>Build a symbol-keyed dictionary from a registration list, resolving each declaration
     /// node's symbol on demand. A node whose <see cref="DeclaredSym"/> is null (a foreign node, no
     /// compilation available, or resolution failure) or resolves to an unexpected symbol kind is silently
@@ -290,6 +365,34 @@ internal sealed class CSharpSemantics
             if (DeclaredSym(decl) is TSymbol sym)
                 dict[sym] = value;
         return dict;
+    }
+
+    /// <summary>Like <see cref="Materialize{TSymbol,TValue}"/>, but two-level: groups registrations by
+    /// their template declaration's resolved symbol first, then by mangled suffix within that group. A
+    /// registration whose template's <see cref="DeclaredSym"/> is null is silently skipped, same as
+    /// <see cref="Materialize{TSymbol,TValue}"/>.</summary>
+    private Dictionary<
+        IMethodSymbol,
+        IReadOnlyDictionary<string, CsMethod>
+    > MaterializeGenericInstances()
+    {
+        var bySymbol = new Dictionary<IMethodSymbol, Dictionary<string, CsMethod>>(
+            SymbolEqualityComparer.Default
+        );
+        foreach (var (templateDecl, suffix, value) in _genericInstanceRegs)
+        {
+            if (DeclaredSym(templateDecl) is not IMethodSymbol sym)
+                continue;
+            if (!bySymbol.TryGetValue(sym, out var bySuffix))
+                bySymbol[sym] = bySuffix = new Dictionary<string, CsMethod>(StringComparer.Ordinal);
+            bySuffix[suffix] = value;
+        }
+        var result = new Dictionary<IMethodSymbol, IReadOnlyDictionary<string, CsMethod>>(
+            SymbolEqualityComparer.Default
+        );
+        foreach (var (sym, bySuffix) in bySymbol)
+            result[sym] = bySuffix;
+        return result;
     }
 
     /// <summary>Wire up the (shared, list-driven) materialization for every symbol-keyed index. Called
@@ -318,6 +421,9 @@ internal sealed class CSharpSemantics
         _classIndex = new Lazy<IReadOnlyDictionary<INamedTypeSymbol, CsClass>>(() =>
             Materialize<INamedTypeSymbol, CsClass>(_classRegs)
         );
+        _genericInstanceIndex = new Lazy<
+            IReadOnlyDictionary<IMethodSymbol, IReadOnlyDictionary<string, CsMethod>>
+        >(MaterializeGenericInstances);
     }
 
     private CSharpSemantics()

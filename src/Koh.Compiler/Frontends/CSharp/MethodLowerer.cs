@@ -187,6 +187,21 @@ internal sealed class MethodLowerer
             ? $"{_staticClass}.{name}"
             : name;
 
+    /// <summary>The explicit type-argument list of a generic call expression — a bare `M&lt;...&gt;(...)`
+    /// (<see cref="GenericNameSyntax"/> directly) or a qualified `Class.M&lt;...&gt;(...)`
+    /// (<see cref="MemberAccessExpressionSyntax"/> whose <c>Name</c> is generic) — or null when the
+    /// expression carries no `&lt;...&gt;` syntax at all (an ordinary non-generic call, or a generic call
+    /// whose type arguments were inferred rather than written out). Used by <see cref="LowerCall"/>'s
+    /// symbol-first generic-call routing (Stage-2 P4) to compute the same mangled suffix
+    /// <see cref="CSharpFrontend.SynthesizeGenericInstances"/> registered the instance under.</summary>
+    private static TypeArgumentListSyntax? GenericCallTypeArguments(ExpressionSyntax callee) =>
+        callee switch
+        {
+            GenericNameSyntax g => g.TypeArgumentList,
+            MemberAccessExpressionSyntax { Name: GenericNameSyntax g } => g.TypeArgumentList,
+            _ => null,
+        };
+
     /// <summary>Look up a static global by simple name, preferring the enclosing static class's member
     /// (Class.name) over an unqualified program-scope global. Symbol-first when <paramref name="node"/>
     /// is given: a resolved field symbol identifies the exact global Roslyn's own member lookup would
@@ -2019,12 +2034,18 @@ internal sealed class MethodLowerer
         // below, since C#'s own scoping rules are the same (an unqualified call resolves within the
         // caller's own enclosing type before its outer scope). `OriginalDefinition` maps a constructed
         // generic call's symbol to its template; a generic template is never registered in Methods (only
-        // its monomorphized instances are, and those are detached — see CSharpSemantics.RegisterMethod),
-        // so a generic call always and safely falls through to the syntax-based mangled-name lookup below
-        // (the symbol only ever *confirms* which template is meant; the `$`-mangled instance is still
-        // selected by MangleGeneric). A BCL `System.MathF` member is special-cased: it resolves to the
-        // real BCL symbol (never in Methods, since Koh's own MathF is a distinct in-tree declaration), and
-        // is routed by name to the compiled library the softfloat runtime appends.
+        // its monomorphized instances are — see CSharpSemantics.RegisterMethod), so a generic call's
+        // OriginalDefinition never hits Methods directly. Since Stage-2 P4, that case is instead routed
+        // through CSharpSemantics.TryGetGenericInstance: the call's own explicit `<...>` type-argument
+        // syntax (bare `M<...>` or qualified `Class.M<...>`) mangles to the same suffix
+        // SynthesizeGenericInstances recorded the instance under, so the lookup lands on the exact
+        // CsMethod the syntax-based MangleGeneric switch below would also find — this is a strict
+        // shortcut, not a second source of truth. It's a deliberate miss (falling through to that syntax
+        // switch, unchanged) when the call's type arguments were inferred rather than written out (no
+        // GenericNameSyntax to mangle a suffix from) or when the template has no registered instance at
+        // this suffix for any other reason. A BCL `System.MathF` member is special-cased: it resolves to
+        // the real BCL symbol (never in Methods, since Koh's own MathF is a distinct in-tree declaration),
+        // and is routed by name to the compiled library the softfloat runtime appends.
         string? calleeName = null;
         CsMethod? callee = null;
         if (symCallee is not null)
@@ -2035,6 +2056,19 @@ internal sealed class MethodLowerer
             {
                 callee = found;
                 calleeName = found.Fn.Name;
+            }
+            else if (
+                symCallee.IsGenericMethod
+                && GenericCallTypeArguments(call.Expression) is { } typeArgs
+                && _semantics.TryGetGenericInstance(
+                    symCallee.OriginalDefinition,
+                    CSharpFrontend.MangleSuffix(typeArgs.Arguments),
+                    out var instance
+                )
+            )
+            {
+                callee = instance;
+                calleeName = instance.Fn.Name;
             }
         }
         if (callee is null)

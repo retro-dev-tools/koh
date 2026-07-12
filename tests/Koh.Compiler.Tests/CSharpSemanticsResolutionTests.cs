@@ -7,6 +7,8 @@ using Koh.Core.Text;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
 using Koh.Linker.Core;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Compiler.Tests;
@@ -136,18 +138,55 @@ public class CSharpSemanticsResolutionTests
     [Test]
     public async Task GenericCall_Monomorphized_ResolvesTemplateBySymbol_InstanceByMangledName()
     {
-        // The call `Max<byte>(3, 7)` resolves (via Sym) to a constructed generic method symbol whose
-        // OriginalDefinition is the `Max<T>` template — never registered in CSharpSemantics.Methods (only
-        // monomorphized instances are, and those are detached), so this always falls through to the
-        // syntax-based mangled name `Max__g1_4_byte`, exactly as before the symbol lookup was added.
+        // The call `Max<byte>(3, 7)` resolves (via SymOrCandidate) to a constructed generic method symbol
+        // whose OriginalDefinition is the `Max<T>` template — never registered in CSharpSemantics.Methods
+        // directly (only monomorphized instances are). Since Stage-2 P4, LowerCall routes such a call
+        // through CSharpSemantics.GenericInstances: the template's OriginalDefinition symbol plus the
+        // call's own mangled suffix (`__g1_4_byte`, from its `<byte>` syntax) selects the very same
+        // instance the pre-P4 syntax-based mangled-name lookup would also have found — so behavior is
+        // unchanged, but this call is now reached by symbol rather than only by text.
         const string src =
             "static byte Main() { return (byte)Max<byte>(3, 7); }\n"
             + "static T Max<T>(T a, T b) { if (a > b) return a; return b; }";
         await Assert.That(LowerDiagnostics(src)).IsEmpty();
         await Assert.That(RunA(src)).IsEqualTo((byte)7);
 
-        var module = Frontend(src);
+        var diagnostics = new DiagnosticBag();
+        var (module, semantics) = CSharpFrontend.LowerForTest(src, diagnostics);
+        await Assert.That(diagnostics).IsEmpty();
         await Assert.That(module.Functions.Any(f => f.Name.StartsWith("Max__g"))).IsTrue();
+
+        // The instance really is reachable through the new symbol-keyed index: the template's own
+        // declaration resolves to a symbol, and that symbol plus the call's own mangled suffix finds the
+        // exact CsMethod whose IrFunction is the one just asserted to exist in the module.
+        var mainRoot = semantics
+            .Compilation!.SyntaxTrees.First(t =>
+                t != IntrinsicsStub.Tree && t.FilePath != "__KohGenericInstances.cs"
+            )
+            .GetCompilationUnitRoot();
+        var templateDecl = mainRoot
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .First(m => m.Identifier.Text == "Max");
+        var templateSymbol = semantics.DeclaredSym(templateDecl);
+        await Assert.That(templateSymbol).IsTypeOf<Microsoft.CodeAnalysis.IMethodSymbol>();
+
+        var call = mainRoot
+            .DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .First(i => i.Expression is GenericNameSyntax { Identifier.Text: "Max" });
+        var suffix = CSharpFrontend.MangleSuffix(
+            ((GenericNameSyntax)call.Expression).TypeArgumentList.Arguments
+        );
+        await Assert.That(suffix).IsEqualTo("__g1_4_byte");
+
+        var found = semantics.TryGetGenericInstance(
+            (Microsoft.CodeAnalysis.IMethodSymbol)templateSymbol!,
+            suffix,
+            out var instance
+        );
+        await Assert.That(found).IsTrue();
+        await Assert.That(instance.Fn.Name).IsEqualTo("Max__g1_4_byte");
     }
 
     [Test]

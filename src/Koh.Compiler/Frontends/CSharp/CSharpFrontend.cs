@@ -326,6 +326,17 @@ public sealed partial class CSharpFrontend : IFrontend
                 .OrderBy(n => int.Parse(n.GetAnnotations(InstanceIndexAnnotation).First().Data!))
                 .ToList();
 
+        // Stage-2 P4: pair each recovered instance decl back up with the (Template, MangledSuffix) record
+        // that produced it, so Pass 1 below can register it into CSharpSemantics's generic-instance index
+        // (keyed by the template's own symbol) alongside the ordinary RegisterMethod call.
+        // genericInstances and instanceDecls share both count and order — both are the same synthesis/
+        // worklist order (see InstanceIndexAnnotation above) — so a positional zip recovers "which record
+        // produced this decl" despite the decl's own node identity having changed when BuildInstancesTree
+        // re-rooted it into the instances tree.
+        var instanceRecordsByDecl = new Dictionary<MethodDeclarationSyntax, GenericInstance>();
+        for (int i = 0; i < instanceDecls.Count; i++)
+            instanceRecordsByDecl[instanceDecls[i]] = genericInstances[i];
+
         var methods = new Dictionary<string, CsMethod>(StringComparer.Ordinal);
         var bodies =
             new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
@@ -462,6 +473,15 @@ public sealed partial class CSharpFrontend : IFrontend
                 continue;
             }
             semantics.RegisterMethod(decl, method);
+            if (
+                decl is MethodDeclarationSyntax instanceDecl
+                && instanceRecordsByDecl.TryGetValue(instanceDecl, out var instanceRecord)
+            )
+                semantics.RegisterGenericInstance(
+                    instanceRecord.Template,
+                    instanceRecord.MangledSuffix,
+                    method
+                );
             module.Functions.Add(fn);
             bodies.Add((method, body, arrow));
         }
