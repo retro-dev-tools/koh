@@ -319,4 +319,45 @@ static T Pick<T, U>(T a, U b) { return a; }";
         await Assert.That(module.Functions.Any(f => f.Name == oneArgInstance.Fn.Name)).IsTrue();
         await Assert.That(module.Functions.Any(f => f.Name == twoArgInstance.Fn.Name)).IsTrue();
     }
+
+    // ---- module.Functions order for monomorphized instances follows SYNTHESIS order, not the -----------
+    // ---- instances tree's own document order (InstanceIndexAnnotation protocol) -------------------------
+
+    [Test]
+    public async Task SynthesisOrder_DiffersFromInstancesTreeDocumentOrder_ModuleFunctionsFollowsSynthesis()
+    {
+        // CSharpFrontend.Generics.cs's BuildInstancesTree nests every instance whose template has no
+        // owning class ("bare", e.g. a legacy top-level generic function) directly under the wrapper,
+        // ahead of every per-owner-class bucket, regardless of when each instance was synthesized (see its
+        // own remarks: "bareMembers" is built first, then one nested partial class per owner in
+        // `ownerOrder`). CSharpFrontend.cs's recovery of "the i'th instance" from that tree explicitly does
+        // NOT walk it in that document order — it reads InstanceIndexAnnotation (the synthesis/work-list
+        // order) back off each node and re-sorts by it, precisely so module.Functions order tracks
+        // synthesis order instead of which nesting bucket an instance happened to land in (see
+        // InstanceIndexAnnotation's and the recovery site's own remarks).
+        //
+        // This program is built so the two orders genuinely disagree: Main's first generic call is the
+        // per-owner-class one (`Owner.M<byte>`), synthesized first (InstanceIndexAnnotation 0); its second
+        // call is the bare one (`Bare<byte>`), synthesized second (annotation 1). But in the instances
+        // tree's own document order, the bare instance is nested ahead of the owner-class bucket regardless
+        // — so a walk of the tree in document order would see Bare before Owner.M, the OPPOSITE of
+        // synthesis order. If the OrderBy-by-annotation recovery in CSharpFrontend.cs were ever dropped in
+        // favor of walking the instances tree directly, Owner.M__g... and Bare__g... would swap places in
+        // module.Functions and this assertion would flip.
+        const string src =
+            "static byte Main() { return (byte)(Owner.M<byte>(1) + Bare<byte>(2)); }\n"
+            + "static class Owner { public static T M<T>(T x) => x; }\n"
+            + "static T Bare<T>(T x) => x;";
+        await Assert.That(LowerDiagnostics(src)).IsEmpty();
+        await Assert.That(RunA(src)).IsEqualTo((byte)3);
+
+        var (module, _) = Build(src);
+        int ownerIndex = module.Functions.FindIndex(f => f.Name.StartsWith("Owner.M__g"));
+        int bareIndex = module.Functions.FindIndex(f => f.Name.StartsWith("Bare__g"));
+        await Assert.That(ownerIndex).IsGreaterThanOrEqualTo(0);
+        await Assert.That(bareIndex).IsGreaterThanOrEqualTo(0);
+        // Synthesis order (Owner.M first, Bare second) — the opposite of the instances tree's own document
+        // order (bare bucket first, owner-class bucket second).
+        await Assert.That(ownerIndex).IsLessThan(bareIndex);
+    }
 }

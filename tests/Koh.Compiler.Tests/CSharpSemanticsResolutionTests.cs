@@ -340,6 +340,99 @@ public class CSharpSemanticsResolutionTests
         await Assert.That(RunA(src)).IsEqualTo((byte)8);
     }
 
+    // ---- Instance-field-vs-top-level-global shadowing: the unflagged sibling of the disclosed --------
+    // ---- instance-vs-static CALL collision (Stage-2 P5 commit message) --------------------------------
+
+    [Test]
+    public async Task InstanceField_ShadowsTopLevelGlobal_InsideInstanceMethod()
+    {
+        // C.x and the top-level `x` share a simple name. TryGlobal (WritePlace's read/write path) is
+        // symbol-keyed since Stage-2 P5: CSharpSemantics.Globals holds only program-scope statics, so a
+        // resolved field symbol identifying C's own instance field never matches an entry there — TryGlobal
+        // misses, and WritePlace falls through to the this-relative field branch instead. Per C#'s own
+        // scoping, the bare `x` inside an instance method always resolves to the enclosing type's own
+        // member first, so this was always the intended (C#-correct) resolution — this test pins it: the
+        // write lands in C's own instance field (through a this-relative GEP), not the top-level global.
+        const string src =
+            "static byte x = 1;\n"
+            + "class C { public byte x; public void M() { x = 5; } public byte Get() => x; }\n"
+            + "static byte Main() { C c = new C(); c.M(); return c.Get(); }";
+        await Assert.That(LowerDiagnostics(src)).IsEmpty();
+        await Assert.That(RunA(src)).IsEqualTo((byte)5);
+
+        // Direct IR-shape assertion: the store inside C.M targets a GEP off `this`, never a GlobalRef —
+        // the load-bearing evidence that the write actually went through the instance-field branch of
+        // WritePlace rather than (somehow) still hitting the top-level global of the same name.
+        var (module, _) = CSharpFrontend.LowerForTest(src, new DiagnosticBag());
+        var mFn = module.FindFunction("C.M");
+        await Assert.That(mFn).IsNotNull();
+        var store = mFn!
+            .Blocks.SelectMany(b => b.Instructions)
+            .OfType<StoreInstruction>()
+            .First(s => s.Value is IrConstInt { Value: 5 });
+        await Assert.That(store.Pointer).IsTypeOf<GetElementPtrInstruction>();
+    }
+
+    [Test]
+    public async Task InstanceField_ShadowsModuleConst_InsideInstanceMethod()
+    {
+        // Same shadowing as the global case, but for a module-level `const`: TryModuleConst is also
+        // symbol-keyed (CSharpSemantics.ModuleConsts holds only program-scope consts), so a resolved field
+        // symbol for C's own instance field never matches there either — the bare read inside the instance
+        // method resolves to C's own field, not the top-level const of the same simple name.
+        const string src =
+            "const byte Max = 9;\n"
+            + "class C { public byte Max; public byte Get() { Max = 3; return Max; } }\n"
+            + "static byte Main() { C c = new C(); return c.Get(); }";
+        await Assert.That(LowerDiagnostics(src)).IsEmpty();
+        await Assert.That(RunA(src)).IsEqualTo((byte)3);
+    }
+
+    [Test]
+    public async Task NonShadowedGlobal_StillResolvesFromInsideAnInstanceMethod()
+    {
+        // Guards the fix direction: when there is no same-named instance field to shadow it, a top-level
+        // global read from inside an instance method still resolves via TryGlobal exactly as before —
+        // shadowing is name-collision-specific, not a general regression in reading globals from `this`.
+        const string src =
+            "static byte Score = 7;\n"
+            + "class C { public byte Id; public byte Get() => Score; }\n"
+            + "static byte Main() { C c = new C(); return c.Get(); }";
+        await Assert.That(LowerDiagnostics(src)).IsEmpty();
+        await Assert.That(RunA(src)).IsEqualTo((byte)7);
+    }
+
+    // ---- Instance-vs-static CALL collision: the change the Stage-2 P5 commit message flagged as --------
+    // ---- latent and untested — pinned here. ------------------------------------------------------------
+
+    [Test]
+    public async Task BareCall_CollidesBetweenInstanceMethodAndSameNamedStatic_ResolvesToInstanceMethod()
+    {
+        // A genuine bare-name collision: the top-level (wrapper-scope) `Foo()` and `class C`'s own instance
+        // method `Foo()` share a simple name, and C — nested inside the synthetic wrapper class — has the
+        // wrapper as its enclosing outer scope, so both really are in a bare `Foo()` call's lookup path
+        // from inside one of C's own instance methods. C# scoping picks the nearer (enclosing type's own)
+        // member first: LowerCall's `symCallee is not { IsStatic: true }` check rules the top-level static
+        // out whenever the call's own resolved symbol is C's instance method, exactly mirroring Roslyn's own
+        // choice — C#'s own scoping, not the pre-migration static-first string gate this replaced (Stage-2
+        // P5 commit message: "a bare call name colliding between an instance method of `this` and a
+        // same-named static now follows C# scoping (instance wins) instead of the old static-first string
+        // gate; no existing program or test exercises the collision"). Distinct return values prove which
+        // Foo actually ran; a second, unrelated static (`S.Foo`) called by its qualified name from within C
+        // confirms a static method is still reachable at all once explicitly qualified — the change is a
+        // bare-name preference only, not a loss of access to statics in general.
+        const string src =
+            "static byte Foo() => 100;\n"
+            + "static class S { public static byte Foo() => 77; }\n"
+            + "class C { public byte Id; public byte Foo() => 11; public byte CallBare() => Foo(); public byte CallQualified() => S.Foo(); }\n"
+            + "static byte Main() { C c = new C(); return (byte)(c.CallBare() + c.CallQualified()); }";
+        await Assert.That(LowerDiagnostics(src)).IsEmpty();
+        // c.CallBare() must return 11 (C's own instance Foo wins the collision against the enclosing
+        // wrapper's top-level Foo) and c.CallQualified() must still return 77 (S's static Foo, reached
+        // explicitly): 11 + 77 = 88.
+        await Assert.That(RunA(src)).IsEqualTo((byte)88);
+    }
+
     // ---- MathF still routes to the compiled softfloat library, not the real BCL MathF --------------
 
     private static uint RunI32(string src, Action<GameBoySystem>? args = null)
