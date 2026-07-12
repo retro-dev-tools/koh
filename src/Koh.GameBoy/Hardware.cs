@@ -20,6 +20,12 @@ public static class Hardware
     public static byte SCY { get; set; }
     public static byte WX { get; set; }
     public static byte WY { get; set; }
+    public static byte IF { get; set; }
+    public static byte IE { get; set; }
+    public static byte KEY1 { get; set; } = 0xFF;
+    public static byte VBK { get; set; }
+    public static byte BCPS { get; set; }
+    public static byte BCPD { get; set; }
 
     /// <summary>The joypad register. Writing selects the d-pad or button matrix; reading returns the
     /// currently-pressed keys for the selected matrix, active-low, exactly like the hardware.</summary>
@@ -74,6 +80,8 @@ public static class Hardware
     public static void Halt() { }
 
     public static void Nop() { }
+
+    public static void Stop() { }
 
     /// <summary>Host-side pacing, input, and rendering for the desktop reference run.</summary>
     private static class Host

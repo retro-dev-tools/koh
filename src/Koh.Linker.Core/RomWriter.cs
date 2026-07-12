@@ -12,7 +12,11 @@ public static class RomWriter
     /// Build a ROM image from placed sections. The ROM is padded to the
     /// nearest power-of-two size (minimum 32KB).
     /// </summary>
-    public static byte[] BuildRom(IReadOnlyList<LinkerSection> sections, int minSize = 0x8000)
+    public static byte[] BuildRom(
+        IReadOnlyList<LinkerSection> sections,
+        int minSize = 0x8000,
+        bool cgbCompatible = false
+    )
     {
         // Determine ROM size from placed sections.
         // ROMX sections use a windowed GB address (0x4000–0x7FFF); the physical flat-ROM
@@ -42,6 +46,9 @@ public static class RomWriter
                 Array.Copy(s.Data, 0, rom, PhysicalOffset(s), s.Data.Length);
             }
         }
+
+        if (cgbCompatible && rom.Length > 0x143)
+            rom[0x143] = 0x80;
 
         // Header checksum must be fixed before global, because global covers byte $014D.
         FixHeaderChecksum(rom);

@@ -1,0 +1,13 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)../../../sdk/Koh.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <RootNamespace>Koh.Samples.CubeDoubleBuffered</RootNamespace>
+    <KohRomName>cube-double-buffered.gb</KohRomName>
+    <KohCgbCompatible>true</KohCgbCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
+    <KohSource Include="../shared/*.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../../sdk/Koh.Sdk/Sdk/Sdk.targets" />
+</Project>

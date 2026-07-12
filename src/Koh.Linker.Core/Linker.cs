@@ -3,6 +3,8 @@ using Koh.Core.Diagnostics;
 
 namespace Koh.Linker.Core;
 
+public sealed record LinkOptions(bool CgbCompatible = false);
+
 /// <summary>
 /// Result of the link operation.
 /// </summary>
@@ -50,7 +52,7 @@ public sealed class Linker
 {
     private readonly DiagnosticBag _diagnostics = new();
 
-    public LinkResult Link(IReadOnlyList<LinkerInput> inputs)
+    public LinkResult Link(IReadOnlyList<LinkerInput> inputs, LinkOptions? options = null)
     {
         // 1. Collect all sections and symbols
         var resolver = new SymbolResolver(_diagnostics);
@@ -76,7 +78,7 @@ public sealed class Linker
         // 5. Build ROM
         byte[]? rom = null;
         if (!HasErrors())
-            rom = RomWriter.BuildRom(sections);
+            rom = RomWriter.BuildRom(sections, cgbCompatible: options?.CgbCompatible == true);
 
         // 6. Resolve each input section's per-byte line map into the
         //    bank + 16-bit windowed-address form the .kdbg expects. Done

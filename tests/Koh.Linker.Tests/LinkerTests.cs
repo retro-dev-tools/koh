@@ -71,6 +71,30 @@ public class LinkerTests
         await Assert.That(result.RomData[0x014F]).IsEqualTo((byte)(expected & 0xFF));
     }
 
+    [Test]
+    public async Task Link_CgbCompatible_SetsHeaderFlagAndKeepsChecksumsValid()
+    {
+        var result = new Koh.Linker.Core.Linker().Link(
+            [Input("SECTION \"Main\", ROM0\nnop")],
+            new LinkOptions(CgbCompatible: true)
+        );
+
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.RomData![0x0143]).IsEqualTo((byte)0x80);
+
+        byte header = 0;
+        for (int i = 0x0134; i <= 0x014C; i++)
+            header = (byte)(header - result.RomData[i] - 1);
+        await Assert.That(result.RomData[0x014D]).IsEqualTo(header);
+
+        ushort global = 0;
+        for (int i = 0; i < result.RomData.Length; i++)
+            if (i != 0x014E && i != 0x014F)
+                global += result.RomData[i];
+        await Assert.That(result.RomData[0x014E]).IsEqualTo((byte)(global >> 8));
+        await Assert.That(result.RomData[0x014F]).IsEqualTo((byte)global);
+    }
+
     // =========================================================================
     // Symbol resolution
     // =========================================================================

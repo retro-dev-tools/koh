@@ -10,4 +10,15 @@ public static class Ppu
         while (Hardware.LY == 144) { } // leave the current vblank, if in one
         while (Hardware.LY != 144) { } // wait for the next one
     }
+
+    public static void WaitForVramAccess()
+    {
+        while ((Hardware.STAT & 3) == 3) { }
+    }
+
+    public static void WaitForHBlank()
+    {
+        while ((Hardware.STAT & 3) == 0) { }
+        while ((Hardware.STAT & 3) != 0) { }
+    }
 }

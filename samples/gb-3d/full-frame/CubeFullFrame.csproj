@@ -1,0 +1,6 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)../../../sdk/Koh.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup><RootNamespace>Koh.Samples.CubeFullFrame</RootNamespace><KohRomName>cube-full-frame.gb</KohRomName><KohCgbCompatible>true</KohCgbCompatible></PropertyGroup>
+  <ItemGroup><Compile Include="../shared/*.cs" Link="Shared/%(Filename)%(Extension)" /><KohSource Include="../shared/*.cs" /></ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../../sdk/Koh.Sdk/Sdk/Sdk.targets" />
+</Project>

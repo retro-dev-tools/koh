@@ -32,6 +32,8 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
     /// <summary>Linker program/module name.</summary>
     public string ProgramName { get; set; } = "rom";
 
+    public bool CgbCompatible { get; set; }
+
     public override bool Execute()
     {
         if (SourceFiles.Length == 0)
@@ -88,7 +90,10 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         if (hadError)
             return false;
 
-        var link = new LinkerType().Link([new LinkerInput(ProgramName, model)]);
+        var link = new LinkerType().Link(
+            [new LinkerInput(ProgramName, model)],
+            new LinkOptions(CgbCompatible)
+        );
         var rom = link.RomData;
         if (rom is null)
         {

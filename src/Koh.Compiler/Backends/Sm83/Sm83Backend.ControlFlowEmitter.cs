@@ -103,6 +103,10 @@ public sealed partial class Sm83Backend
                     _e.U8(0x76);
                     _e.U8(0x00);
                     break; // HALT + NOP (halt-bug guard)
+                case "stop":
+                    _e.U8(0x10);
+                    _e.U8(0x00);
+                    break;
                 case "nop":
                     _e.U8(0x00);
                     break;

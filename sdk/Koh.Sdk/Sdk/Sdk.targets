@@ -7,6 +7,7 @@
          KohRomName / KohRomPath per project. -->
     <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
     <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
+    <KohCgbCompatible Condition="'$(KohCgbCompatible)' == ''">false</KohCgbCompatible>
     <KohBuildTasksProject>$(KohRoot)src/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
     <KohBuildTasksAssembly>$(KohRoot)src/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
     <KohEmulatorProject>$(KohRoot)src/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
@@ -62,7 +63,7 @@
           Inputs="@(KohSource);@(KohFrameworkSource);$(KohBuildTasksAssembly)"
           Outputs="$(KohRomPath)">
     <CompileKohRom SourceFiles="@(KohSource);@(KohFrameworkSource)" OutputPath="$(KohRomPath)"
-                   ProgramName="$(AssemblyName)" />
+                   ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPath)" />
     </ItemGroup>
