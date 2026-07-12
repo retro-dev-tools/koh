@@ -24,9 +24,30 @@ public sealed class CSharpNotSupportedException : Exception
 
 /// <summary>
 /// The C# frontend. Roslyn parses the source; this walks the syntax tree, rejecting constructs
-/// outside the supported systems subset ("Koh C#") and lowering the rest to Koh IR. It does not
-/// use the semantic model: types are tracked from declarations with C-like rules (see
-/// <see cref="CsType"/>). Static methods become IR functions; locals and parameters become
+/// outside the supported systems subset ("Koh C#") and lowering the rest to Koh IR. Lowering is
+/// syntax-directed — the walk over the tree, not an <c>IOperation</c> pass — with a real
+/// <c>CSharpCompilation</c>/<see cref="Microsoft.CodeAnalysis.SemanticModel"/> (<see
+/// cref="CSharpSemantics"/>, see <c>CSharpFrontend.Semantics.cs</c>) consulted as a resolution
+/// oracle: it identifies which declaration a name/member/call refers to (symbol identity, not
+/// spelled text), so a user value that happens to share a name with an intrinsic surface or a
+/// sibling declaration is never mistaken for it. Koh's own C-like typing (see <see cref="CsType"/>)
+/// stays authoritative for widths and signedness regardless of what Roslyn would infer — <c>byte +
+/// byte</c> stays <c>byte</c>, where C#'s own int-promotion would widen it — and Roslyn's own
+/// diagnostics never gate compilation (Koh-legal code is routinely C#-illegal, e.g. unsafe pointer
+/// math without an <c>unsafe</c> block). A monomorphized generic instance's <em>body</em> is no
+/// longer detached syntax (Stage-2 P2): it lives in a second, constructed tree (see
+/// <see cref="BuildInstancesTree"/>) that Roslyn binds alongside the main tree, so ordinary symbol
+/// resolution runs inside it exactly as for any other declaration. Symbol resolution (via
+/// <see cref="CSharpSemantics"/>, including its candidate acceptance for Koh-legal-but-C#-illegal code
+/// — Stage-2 P3) is the ONLY name- AND type-name-resolution path (Stage-2 P5 deleted the pre-migration
+/// string-keyed name-resolution fallbacks; Stage-2 P6 did the same for <c>Types.cs</c>'s type-name
+/// resolution — see its header remarks); a generic call site still routes to its monomorphized instance via
+/// <see cref="CSharpSemantics.TryGetGenericInstance"/> (a constructed generic call's symbol maps to the
+/// *template*'s <c>OriginalDefinition</c>, which is never itself registered — only its instances are —
+/// keyed alongside the call's own mangled type-argument suffix; see <c>CSharpFrontend.Generics.cs</c>
+/// and <c>MethodLowerer.LowerCall</c>). Building a compilation is therefore required, not optional
+/// (see <c>LowerCore</c>'s check of <see cref="CSharpSemantics.Compilation"/>) — no supported host
+/// leaves it unavailable. Static methods become IR functions; locals and parameters become
 /// <c>alloca</c>s (so control flow needs no phi construction here — mutable state lives in memory,
 /// and the backend statically allocates it).
 /// </summary>
@@ -39,7 +60,12 @@ public sealed partial class CSharpFrontend : IFrontend
     /// <summary>The synthesized class that wraps top-level source; its direct members are the program's
     /// top-level functions and static fields (methods inside a user class are instance methods).</summary>
     internal const string WrapperClassName = "__KohProgram";
-    private const string WrapperPrefix = "static class " + WrapperClassName + " {\n";
+
+    /// <summary>The wrapper is <c>partial</c> so a second, constructed tree (see
+    /// <see cref="BuildInstancesTree"/>) can declare more of its members — the monomorphized generic
+    /// instances — and have Roslyn bind them as if they lived alongside the rest of the program, without a
+    /// text round-trip through the main tree.</summary>
+    private const string WrapperPrefix = "static partial class " + WrapperClassName + " {\n";
 
     /// <summary>Whether a node is a program-level declaration: a direct member of the synthesized
     /// wrapper (the legacy bare-top-level-function style), or a static member of a user <c>static
@@ -57,20 +83,16 @@ public sealed partial class CSharpFrontend : IFrontend
         && cd.Modifiers.Any(m => m.ValueText == "static")
         && cd.Parent is ClassDeclarationSyntax { Identifier.Text: WrapperClassName };
 
-    /// <summary>Annotation kind carrying the declaring class of a monomorphized generic instance, which
-    /// is a syntax node detached from the tree (so it has no <c>Parent</c> to read the class from).</summary>
-    internal const string DeclaringClassAnnotation = "Koh.DeclaringClass";
-
     /// <summary>The enclosing top-level user <c>static class</c> of a program-scope declaration, or null
-    /// for a direct wrapper member (a legacy top-level function/field).</summary>
+    /// for a direct wrapper member (a legacy top-level function/field). Every program-scope declaration —
+    /// including a monomorphized generic instance, once nested in the instances tree (see
+    /// <see cref="BuildInstancesTree"/>) — has a real <c>Parent</c> to read this from; a generic
+    /// <em>template</em> (never itself lowered) also has one, since it is always a live node in the main
+    /// tree.</summary>
     private static string? ProgramMemberClass(SyntaxNode decl) =>
-        decl.GetAnnotations(DeclaringClassAnnotation).FirstOrDefault()?.Data
-        ?? (
-            decl.Parent is ClassDeclarationSyntax { Identifier.Text: var cn }
-            && cn != WrapperClassName
-                ? cn
-                : null
-        );
+        decl.Parent is ClassDeclarationSyntax { Identifier.Text: var cn } && cn != WrapperClassName
+            ? cn
+            : null;
 
     /// <summary>The program-scope name of a top-level method/function/field: bare for the legacy
     /// wrapper, qualified <c>Class.Member</c> for a member of a user top-level <c>static class</c>.</summary>
@@ -224,7 +246,41 @@ public sealed partial class CSharpFrontend : IFrontend
         return module;
     }
 
-    private static void LowerCore(SourceText source, IrModule module, DiagnosticBag diagnostics)
+    /// <summary>Test-only entry point: runs the real <see cref="LowerCore"/> pipeline (declaration passes
+    /// through bodies) and hands back the <see cref="CSharpSemantics"/> instance those passes populated,
+    /// via <paramref name="onSemanticsBuilt"/> — an optional test-only hook, unused in production (see
+    /// <see cref="Lower"/>). Lets tests assert symbol-keyed index contents against the real production
+    /// registration calls instead of a reimplementation that could drift from them.</summary>
+    internal static (IrModule Module, CSharpSemantics Semantics) LowerForTest(
+        string source,
+        DiagnosticBag diagnostics
+    )
+    {
+        var module = new IrModule("test");
+        CSharpSemantics? captured = null;
+        try
+        {
+            LowerCore(
+                SourceText.From(source, "test.cs"),
+                module,
+                diagnostics,
+                onSemanticsBuilt: s => captured = s
+            );
+        }
+        catch (CSharpNotSupportedException ex)
+        {
+            Report(diagnostics, ex);
+        }
+        return (module, captured ?? CSharpSemantics.Disabled);
+    }
+
+    /// <summary>Parse and wrap the source, then apply every whole-tree rewrite the rest of the pipeline
+    /// depends on: synthesize the program-wrapper class, inject the softfloat runtime if the program
+    /// uses float, and rewrite <c>yield return</c> iterators into state machines. Returns the final root
+    /// — the tree <see cref="BuildSemantics"/> must build the compilation from, and the one every later
+    /// pass lowers — or null if an error was already reported (a reserved <c>MathF</c> class name, or a
+    /// parse error), in which case the caller stops.</summary>
+    private static CompilationUnitSyntax? PrepareRoot(SourceText source, DiagnosticBag diagnostics)
     {
         // Wrap in an implicit static class so plain `static T F(...)` methods and enum/struct
         // declarations coexist without hitting C#'s "top-level statements first" rule. (Source
@@ -259,7 +315,7 @@ public sealed partial class CSharpFrontend : IFrontend
                     "'MathF' is reserved for the built-in Math library and cannot name a class.",
                     userMathF.Identifier.GetLocation()
                 );
-                return;
+                return null;
             }
             wrapped =
                 WrapperPrefix
@@ -277,31 +333,112 @@ public sealed partial class CSharpFrontend : IFrontend
                 hasParseError = true;
             }
         if (hasParseError)
-            return;
+            return null;
 
         // Pass 0.0: rewrite `yield return` iterators into cooperative-coroutine state machines (a state
         // class with MoveNext/Current plus a factory), so the rest of the pipeline sees ordinary classes.
-        root = TransformIterators(root);
+        return TransformIterators(root);
+    }
+
+    private static void LowerCore(
+        SourceText source,
+        IrModule module,
+        DiagnosticBag diagnostics,
+        Action<CSharpSemantics>? onSemanticsBuilt = null
+    )
+    {
+        if (PrepareRoot(source, diagnostics) is not { } root)
+            return;
+
+        // Pass 0.7: monomorphize generic methods — synthesize a specialized copy per concrete
+        // instantiation, BEFORE building semantics, so the instances tree it produces (see
+        // BuildInstancesTree) is part of the compilation the rest of the pipeline resolves against.
+        // Generic templates themselves are never lowered; the specializations are, via the instances tree
+        // (see below and CollectGenericTemplates/SynthesizeGenericInstances/BuildInstancesTree).
+        var genericTemplates = CollectGenericTemplates(root, diagnostics);
+        var genericInstances = SynthesizeGenericInstances(root, genericTemplates);
+        var instancesTree = BuildInstancesTree(genericInstances);
+
+        // A real CSharpCompilation over the final tree(s), as a resolution oracle: MethodLowerer consults
+        // it for intrinsic recognition, call/field/member resolution, and unresolved-name diagnostic
+        // text — the only resolution path since Stage-2 P5, hence the required-compilation check below.
+        // Built from root.SyntaxTree (post-rewrite) plus instancesTree (if any generic instance exists), so node
+        // identity here matches everything lowered below. The declaration passes register into it as they
+        // go (see CSharpFrontend.Semantics.cs); onSemanticsBuilt is a test-only hook (see LowerForTest)
+        // letting tests capture the same instance the passes populate.
+        var semantics = BuildSemantics(root.SyntaxTree, instancesTree);
+        onSemanticsBuilt?.Invoke(semantics);
+
+        // Stage-2 P5: symbol resolution is the only name-resolution path left, so a compilation is no
+        // longer optional — without one, every MethodLowerer resolution site (Sym/SymOrCandidate/
+        // DeclaredSym) would silently return null forever and every name in the program would report as
+        // unresolved. No supported host actually hits this (Koh.Compiler is never AOT-published, and both
+        // the TUnit test host and the in-proc MSBuild task run on the plain .NET runtime with a full TPA
+        // list — see TrustedPlatformReferences), so this is a defensive, single, clear diagnostic rather
+        // than a confusing cascade of per-name "unresolved identifier" reports.
+        if (semantics.Compilation is null)
+        {
+            Report(
+                diagnostics,
+                "internal: the C# frontend requires runtime assembly references to resolve names, and "
+                    + "none were found.",
+                null
+            );
+            return;
+        }
+
+        // Recover the synthesized instances from the (freshly rooted) instances tree: placing a node into
+        // a new tree gives it fresh (red-node) identity, so the MethodDeclarationSyntax instances returned
+        // by SynthesizeGenericInstances above are now stale — find "the i'th instance" again via its
+        // InstanceIndexAnnotation instead. Ordered by that index (synthesis/worklist order), NOT instances-
+        // tree document order, so module.Functions order is unaffected by which nesting bucket an instance
+        // landed in.
+        List<MethodDeclarationSyntax> instanceDecls = instancesTree is null
+            ? []
+            : instancesTree
+                .GetRoot()
+                .GetAnnotatedNodes(InstanceIndexAnnotation)
+                .OfType<MethodDeclarationSyntax>()
+                .OrderBy(n => int.Parse(n.GetAnnotations(InstanceIndexAnnotation).First().Data!))
+                .ToList();
+
+        // Stage-2 P4: pair each recovered instance decl back up with the (Template, MangledSuffix) record
+        // that produced it, so Pass 1 below can register it into CSharpSemantics's generic-instance index
+        // (keyed by the template's own symbol) alongside the ordinary RegisterMethod call.
+        // genericInstances and instanceDecls share both count and order — both are the same synthesis/
+        // worklist order (see InstanceIndexAnnotation above) — so a positional zip recovers "which record
+        // produced this decl" despite the decl's own node identity having changed when BuildInstancesTree
+        // re-rooted it into the instances tree.
+        var instanceRecordsByDecl = new Dictionary<MethodDeclarationSyntax, GenericInstance>();
+        for (int i = 0; i < instanceDecls.Count; i++)
+            instanceRecordsByDecl[instanceDecls[i]] = genericInstances[i];
 
         var methods = new Dictionary<string, CsMethod>(StringComparer.Ordinal);
         var bodies =
             new List<(CsMethod Method, BlockSyntax? Body, ArrowExpressionClauseSyntax? Arrow)>();
 
-        // Pass 0: enums (named constants), so their types and members resolve everywhere.
-        var enums = CollectEnums(root, diagnostics);
+        // Pass 0: enums (named constants), so their types and members resolve everywhere. The returned
+        // registrations live only in `semantics.Enums` from here on (Stage-2 P6): CollectEnums keeps its
+        // own local string-keyed dictionary only for its own self-/forward-referential member folding
+        // (see CSharpFrontend.Types.cs's TryEnumMember remarks) — nothing outside it needs the text form
+        // anymore, so it returns nothing.
+        CollectEnums(root, diagnostics, semantics);
 
         // Pass 0.4: struct layouts (value types with scalar fields).
-        var structs = CollectStructs(root, enums, diagnostics);
+        var structs = CollectStructs(root, diagnostics, semantics);
 
         // Pass 0.45: class layouts (reference types, heap-allocated) and their instance methods.
-        var classes = CollectClasses(root, enums, diagnostics);
+        var classes = CollectClasses(root, diagnostics, semantics);
 
-        // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays.
-        var (globals, moduleConsts, staticInits, moduleArrays) = CollectStatics(
+        // Pass 0.5: static fields -> globals (WRAM) / ROM data / folded consts / data arrays. The consts
+        // dictionary is discarded here: it exists only to fold const references while collecting statics
+        // and to feed semantics.RegisterConst (both inside CollectStatics); MethodLowerer's own const
+        // lookup (TryModuleConst) is symbol-only since Stage-2 P5 and no longer needs the string table.
+        var (globals, _, staticInits, moduleArrays) = CollectStatics(
             root,
-            enums,
             module,
-            diagnostics
+            diagnostics,
+            semantics
         );
 
         // Pass 0.6: if the program allocates (Mem.Alloc/Reset or `new` of a class), give it a heap-
@@ -315,55 +452,6 @@ public sealed partial class CSharpFrontend : IFrontend
         }
 
         var hardware = new HardwareRegisters(module);
-
-        // Pass 0.7: monomorphize generic methods — synthesize a specialized copy per concrete
-        // instantiation. Generic templates themselves are not lowered; the specializations are.
-        // Key templates by (name, type-parameter count): an invocation carries a name and a type-argument
-        // count, and that pair selects the template — so `Wrap<T>` and `Wrap<T,U>` stay distinct. Two
-        // templates sharing both (a value-arity overload like `Max<T>(T,T)` vs `Max<T>(T,T,T)`) would
-        // mangle to the same specialized name, so that is reported rather than silently mis-specialized.
-        var genericMethods =
-            new Dictionary<(string? Class, string Name, int Arity), MethodDeclarationSyntax>();
-        foreach (
-            var m in root.DescendantNodes()
-                .OfType<MethodDeclarationSyntax>()
-                .Where(m => m.TypeParameterList is { Parameters.Count: > 0 } && IsWrapperMember(m))
-        )
-        {
-            // Key by declaring class too, so `A.Id<T>` and `B.Id<T>` are distinct rather than colliding.
-            int arity = m.TypeParameterList!.Parameters.Count;
-            var key = (ProgramMemberClass(m), m.Identifier.Text, arity);
-            if (!genericMethods.TryAdd(key, m))
-                Report(
-                    diagnostics,
-                    $"generic method '{m.Identifier.Text}' with {arity} type parameter(s) is declared "
-                        + "more than once; overloaded generic methods are not supported.",
-                    m.Identifier.GetLocation()
-                );
-
-            // Monomorphization substitutes type-parameter names by identifier text alone, so a parameter
-            // or local named like a type parameter would be rewritten to the concrete type (e.g. a local
-            // `T` becomes `byte`). Reject that shadowing rather than mis-specialize.
-            var typeParams = m
-                .TypeParameterList.Parameters.Select(tp => tp.Identifier.Text)
-                .ToHashSet(StringComparer.Ordinal);
-            var shadow = m
-                .ParameterList.Parameters.Select(p => p.Identifier.Text)
-                .Concat(
-                    m.DescendantNodes()
-                        .OfType<VariableDeclaratorSyntax>()
-                        .Select(v => v.Identifier.Text)
-                )
-                .FirstOrDefault(typeParams.Contains);
-            if (shadow is not null)
-                Report(
-                    diagnostics,
-                    $"in generic method '{m.Identifier.Text}', '{shadow}' shadows a type parameter of the "
-                        + "same name; rename the value.",
-                    m.Identifier.GetLocation()
-                );
-        }
-        var genericInstances = SynthesizeGenericInstances(root, genericMethods);
 
         var classNames = (IReadOnlySet<string>)classes.Keys.ToHashSet(StringComparer.Ordinal);
 
@@ -405,7 +493,7 @@ public sealed partial class CSharpFrontend : IFrontend
                     pc,
                     new IrParameter(pname, IrType.Pointer(IrType.I8))
                 );
-            var t = ResolveType(p.Type!, enums);
+            var t = ResolveType(p.Type!, semantics);
             return (
                 t,
                 isRef,
@@ -421,12 +509,12 @@ public sealed partial class CSharpFrontend : IFrontend
             .Where(d =>
                 d is not MethodDeclarationSyntax { TypeParameterList.Parameters.Count: > 0 }
             )
-            .Concat(genericInstances);
+            .Concat(instanceDecls);
         foreach (var decl in methodDecls)
         {
             var (simpleName, returnSyntax, parameterList, body, arrow) = Describe(decl);
             var name = ProgramMemberName(decl, simpleName);
-            var returnType = ResolveReturnTypeAllowingClass(returnSyntax, enums, classNames);
+            var returnType = ResolveReturnTypeAllowingClass(returnSyntax, semantics, classNames);
             var paramTypes = new List<CsType>();
             var refFlags = new List<bool>();
             var paramStructs = new List<CsStruct?>();
@@ -444,7 +532,7 @@ public sealed partial class CSharpFrontend : IFrontend
 
             var fn = new IrFunction(name, returnType?.Ir ?? IrType.Void, parameters)
             {
-                InterruptVector = InterruptVectorOf(decl, diagnostics),
+                InterruptVector = InterruptVectorOf(decl, semantics, diagnostics),
             };
             var method = new CsMethod(
                 fn,
@@ -466,6 +554,16 @@ public sealed partial class CSharpFrontend : IFrontend
                 );
                 continue;
             }
+            semantics.RegisterMethod(decl, method);
+            if (
+                decl is MethodDeclarationSyntax instanceDecl
+                && instanceRecordsByDecl.TryGetValue(instanceDecl, out var instanceRecord)
+            )
+                semantics.RegisterGenericInstance(
+                    instanceRecord.Template,
+                    instanceRecord.MangledSuffix,
+                    method
+                );
             module.Functions.Add(fn);
             bodies.Add((method, body, arrow));
         }
@@ -475,7 +573,11 @@ public sealed partial class CSharpFrontend : IFrontend
         foreach (var cls in classes.Values)
         foreach (var (mname, mdecl) in cls.Methods)
         {
-            var returnType = ResolveReturnTypeAllowingClass(mdecl.ReturnType, enums, classNames);
+            var returnType = ResolveReturnTypeAllowingClass(
+                mdecl.ReturnType,
+                semantics,
+                classNames
+            );
             var paramTypes = new List<CsType> { CsType.U16 };
             var refFlags = new List<bool> { false };
             var paramStructs = new List<CsStruct?> { null };
@@ -519,6 +621,7 @@ public sealed partial class CSharpFrontend : IFrontend
                 );
                 continue;
             }
+            semantics.RegisterMethod(mdecl, method);
             module.Functions.Add(fn);
             bodies.Add((method, mdecl.Body, mdecl.ExpressionBody));
         }
@@ -567,15 +670,12 @@ public sealed partial class CSharpFrontend : IFrontend
                     body,
                     arrow,
                     methods,
-                    enums,
-                    structs,
                     globals,
-                    moduleConsts,
                     hardware,
                     module.Name,
                     inits,
                     moduleArrays,
-                    classes
+                    semantics
                 ).Lower();
             }
             catch (CSharpNotSupportedException ex)
@@ -656,7 +756,31 @@ public sealed partial class CSharpFrontend : IFrontend
         }
     }
 
-    private static int? InterruptVectorOf(SyntaxNode decl, DiagnosticBag diagnostics)
+    /// <summary>Whether <paramref name="attr"/> is an application of the real Koh <c>[Interrupt(...)]</c>
+    /// intrinsic. Symbol-only (matching <c>IsIntrinsicSubject</c>'s reasoning in MethodLowerer.cs): an
+    /// attribute application's own symbol is its resolved constructor (see
+    /// <see cref="CSharpSemanticsTests.IntrinsicSurface_ResolvesToStubSymbols"/>), so recognition follows
+    /// that constructor's containing type against <see cref="CSharpSemantics.InterruptAttributeType"/>
+    /// rather than the spelled attribute name — a user type that merely happens to be named
+    /// <c>Interrupt</c>/<c>InterruptAttribute</c> (and so is never the intrinsic's own constructor) is
+    /// never mistaken for it, regardless of spelling. Deliberately plain <c>Sym</c>, not
+    /// <c>SymOrCandidate</c>: when a distinct, legal user attribute type also answers to the same spelled
+    /// name (e.g. a user <c>class Interrupt : Attribute</c>), Roslyn itself reports the application as
+    /// ambiguous (CS1614) and <c>Symbol</c> comes back null — that null, like any other unresolved symbol,
+    /// is never treated as a match, so an ambiguous application is correctly NOT the intrinsic rather than
+    /// guessed at via <c>CandidateSymbols</c>.</summary>
+    private static bool IsInterruptAttribute(AttributeSyntax attr, CSharpSemantics semantics) =>
+        semantics.Sym(attr) is IMethodSymbol { MethodKind: MethodKind.Constructor } ctor
+        && SymbolEqualityComparer.Default.Equals(
+            ctor.ContainingType,
+            semantics.InterruptAttributeType
+        );
+
+    private static int? InterruptVectorOf(
+        SyntaxNode decl,
+        CSharpSemantics semantics,
+        DiagnosticBag diagnostics
+    )
     {
         SyntaxList<AttributeListSyntax> lists = decl switch
         {
@@ -668,8 +792,7 @@ public sealed partial class CSharpFrontend : IFrontend
         foreach (var list in lists)
         foreach (var attr in list.Attributes)
         {
-            var attrName = attr.Name.ToString();
-            if (attrName is not ("Interrupt" or "InterruptAttribute"))
+            if (!IsInterruptAttribute(attr, semantics))
                 continue;
             var arg = attr.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
             var kind = arg switch

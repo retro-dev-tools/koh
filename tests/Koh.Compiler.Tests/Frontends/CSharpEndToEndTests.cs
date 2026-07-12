@@ -3281,7 +3281,7 @@ class Node { byte v; Node next; }";
     [Test]
     public async Task Generics_Monomorphized()
     {
-        // A generic method is specialized per concrete type argument (Max$byte, Max$ushort).
+        // A generic method is specialized per concrete type argument (Max__g1_4_byte, Max__g1_6_ushort).
         await Assert
             .That(
                 RunA(

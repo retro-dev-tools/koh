@@ -11,16 +11,28 @@ namespace Koh.Compiler.Frontends.CSharp;
 // classes) into the tables the lowerer consults.
 public sealed partial class CSharpFrontend
 {
-    private static Dictionary<string, CsEnum> CollectEnums(
+    /// <summary>Collect every enum declaration. <c>enums</c> below is purely this pass's own local
+    /// bookkeeping (duplicate detection, plus the safe self-/forward-reference fallback <see
+    /// cref="ConstEval"/>/<see cref="TryEnumMember"/> use while it grows in file order — see
+    /// CSharpFrontend.Types.cs's header remarks and <see cref="TryEnumMember"/> for why this pass must
+    /// NOT read <see cref="CSharpSemantics.Enums"/> for that): nothing outside this method needs the text
+    /// form anymore (Stage-2 P6), so it isn't returned — every other consumer of enum types resolves
+    /// symbol-first through <see cref="CSharpSemantics.Enums"/>, materialized only after every
+    /// <see cref="CSharpSemantics.RegisterEnum"/> call below has fired.</summary>
+    private static void CollectEnums(
         CompilationUnitSyntax root,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var enums = new Dictionary<string, CsEnum>(StringComparer.Ordinal);
         foreach (var decl in root.DescendantNodes().OfType<EnumDeclarationSyntax>())
         {
+            // `semantics: null`: an enum's base-list type is never itself a user enum in valid C#, so this
+            // never needs symbol resolution — and consulting CSharpSemantics.Enums here (before this
+            // enum, or any later one, is registered) would be unsafe (see the class remarks).
             var underlying = decl.BaseList is { Types.Count: > 0 } bases
-                ? ResolveType(bases.Types[0].Type, enums)
+                ? ResolveType(bases.Types[0].Type, semantics: null)
                 : CsType.U8; // Koh C# defaults enums to byte (int has no place on an 8-bit CPU)
 
             var members = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -38,14 +50,16 @@ public sealed partial class CSharpFrontend
                 next = value + 1;
             }
             var name = decl.Identifier.Text;
-            if (!enums.TryAdd(name, new CsEnum(underlying, members)))
+            var csEnum = new CsEnum(underlying, members);
+            if (!enums.TryAdd(name, csEnum))
                 Report(
                     diagnostics,
                     $"duplicate enum '{name}' (only the first definition is used).",
                     decl.Identifier.GetLocation()
                 );
+            else
+                semantics.RegisterEnum(decl, csEnum);
         }
-        return enums;
     }
 
     private static (
@@ -55,9 +69,9 @@ public sealed partial class CSharpFrontend
         Dictionary<string, (IrGlobal Global, CsType Element, int Length)> Arrays
     ) CollectStatics(
         CompilationUnitSyntax root,
-        IReadOnlyDictionary<string, CsEnum> enums,
         IrModule module,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var globals = new Dictionary<string, (IrGlobal, CsType)>(StringComparer.Ordinal);
@@ -110,7 +124,7 @@ public sealed partial class CSharpFrontend
             // `static T[] x = new T[n]` is a zero-initialized WRAM buffer.
             if (field.Declaration.Type is ArrayTypeSyntax arrayType)
             {
-                var element = ResolveType(arrayType.ElementType, enums);
+                var element = ResolveType(arrayType.ElementType, semantics);
                 foreach (var v in field.Declaration.Variables)
                 {
                     // Qualify a static class's field by class (Board.cells) so two classes can each
@@ -124,7 +138,7 @@ public sealed partial class CSharpFrontend
                         element,
                         isReadonly,
                         ConstLookup,
-                        enums,
+                        semantics,
                         module,
                         arrays
                     );
@@ -132,7 +146,7 @@ public sealed partial class CSharpFrontend
                 continue;
             }
 
-            var type = ResolveType(field.Declaration.Type, enums);
+            var type = ResolveType(field.Declaration.Type, semantics);
             int size = type.Ir.SizeInBytes;
 
             foreach (var v in field.Declaration.Variables)
@@ -147,13 +161,19 @@ public sealed partial class CSharpFrontend
                             $"const '{name}' needs an initializer.",
                             v.Identifier.GetLocation()
                         );
-                    long cv = ConstEval(v.Initializer.Value, ConstLookup, enums, !type.Signed);
+                    long cv = ConstEval(
+                        v.Initializer.Value,
+                        ConstLookup,
+                        unsigned: !type.Signed,
+                        semantics: semantics
+                    );
                     if (!FitsInBytes(cv, size))
                         throw new CSharpNotSupportedException(
                             $"const '{name}' value {cv} does not fit in {size} byte(s).",
                             v.Identifier.GetLocation()
                         );
                     consts[name] = (type, cv);
+                    semantics.RegisterConst(v, type, cv);
                 }
                 else if (isReadonly && v.Initializer is { } roInit)
                 {
@@ -162,21 +182,37 @@ public sealed partial class CSharpFrontend
                         type.Ir,
                         AddressSpace.Rom,
                         initializer: ToLittleEndian(
-                            ConstEval(roInit.Value, ConstLookup, enums, !type.Signed),
+                            ConstEval(
+                                roInit.Value,
+                                ConstLookup,
+                                unsigned: !type.Signed,
+                                semantics: semantics
+                            ),
                             size
                         )
                     );
                     module.Globals.Add(g);
                     globals[name] = (g, type);
+                    semantics.RegisterGlobal(v, g, type);
                 }
                 else
                 {
                     var g = new IrGlobal(name, type.Ir, AddressSpace.Wram);
                     module.Globals.Add(g);
                     globals[name] = (g, type);
+                    semantics.RegisterGlobal(v, g, type);
                     if (v.Initializer is { } init)
                         inits.Add(
-                            (g, ConstEval(init.Value, ConstLookup, enums, !type.Signed), type)
+                            (
+                                g,
+                                ConstEval(
+                                    init.Value,
+                                    ConstLookup,
+                                    unsigned: !type.Signed,
+                                    semantics: semantics
+                                ),
+                                type
+                            )
                         );
                 }
             }
@@ -192,7 +228,7 @@ public sealed partial class CSharpFrontend
         CsType element,
         bool isReadonly,
         Func<string, long?> constLookup,
-        IReadOnlyDictionary<string, CsEnum> enums,
+        CSharpSemantics semantics,
         IrModule module,
         Dictionary<string, (IrGlobal, CsType, int)> arrays
     )
@@ -237,7 +273,10 @@ public sealed partial class CSharpFrontend
             var bytes = new List<byte>(elements.Count * elemSize);
             foreach (var e in elements)
                 bytes.AddRange(
-                    ToLittleEndian(ConstEval(e, constLookup, enums, !element.Signed), elemSize)
+                    ToLittleEndian(
+                        ConstEval(e, constLookup, unsigned: !element.Signed, semantics: semantics),
+                        elemSize
+                    )
                 );
             var rom = new IrGlobal(
                 name,
@@ -258,7 +297,7 @@ public sealed partial class CSharpFrontend
                 when create.Type.RankSpecifiers[0].Sizes[0] is { } size => ConstEval(
                 size,
                 constLookup,
-                enums
+                semantics: semantics
             ),
             _ => throw new CSharpNotSupportedException(
                 $"static array '{name}' needs an initializer or a size.",
@@ -284,8 +323,8 @@ public sealed partial class CSharpFrontend
 
     private static Dictionary<string, CsStruct> CollectStructs(
         CompilationUnitSyntax root,
-        IReadOnlyDictionary<string, CsEnum> enums,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var decls = new Dictionary<string, StructDeclarationSyntax>(StringComparer.Ordinal);
@@ -320,7 +359,7 @@ public sealed partial class CSharpFrontend
                 CsStruct? nested = isStruct
                     ? Layout(((IdentifierNameSyntax)typeSyntax).Identifier.Text)
                     : null;
-                var type = isStruct ? CsType.U8 : ResolveType(typeSyntax, enums);
+                var type = isStruct ? CsType.U8 : ResolveType(typeSyntax, semantics);
                 int size = nested?.Size ?? type.Ir.SizeInBytes;
                 int fieldAlign = nested is not null ? 1 : size; // nested aggregates pack byte-aligned
                 foreach (var v in member.Declaration.Variables)
@@ -334,6 +373,11 @@ public sealed partial class CSharpFrontend
 
         foreach (var name in decls.Keys)
             Layout(name);
+        // Registered after every struct is laid out (rather than inline in Layout): Layout recurses into
+        // nested struct fields and memoizes, so a single pass here over `decls` is simpler than tracking
+        // registration through the recursion, and every name in `decls` is guaranteed laid out by now.
+        foreach (var (name, decl) in decls)
+            semantics.RegisterStruct(decl, structs[name]);
         return structs;
     }
 
@@ -341,8 +385,8 @@ public sealed partial class CSharpFrontend
     /// non-static scalar fields like a struct and record their instance methods.</summary>
     private static Dictionary<string, CsClass> CollectClasses(
         CompilationUnitSyntax root,
-        IReadOnlyDictionary<string, CsEnum> enums,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        CSharpSemantics semantics
     )
     {
         var classes = new Dictionary<string, CsClass>(StringComparer.Ordinal);
@@ -394,7 +438,17 @@ public sealed partial class CSharpFrontend
                     );
                     continue;
                 }
-                var type = ResolveTypeAllowingClass(member.Declaration.Type, enums, classNames);
+                // classIndexSafe: false — this pass's own field-layout loop registers classes as it goes
+                // (RegisterClass, below), so a field naming a not-yet-registered class (self- or later-
+                // declared, e.g. a linked-list node) must NOT consult CSharpSemantics.Classes yet (see
+                // CSharpFrontend.Types.cs's header remarks and ResolveTypeAllowingClass's own remarks);
+                // `classNames` (gathered up front, above) is the safe check here instead.
+                var type = ResolveTypeAllowingClass(
+                    member.Declaration.Type,
+                    semantics,
+                    classNames,
+                    classIndexSafe: false
+                );
                 int fsize = type.Ir.SizeInBytes;
                 foreach (var v in member.Declaration.Variables)
                     specs.Add((v.Identifier.Text, type, fsize, fsize, null));
@@ -428,6 +482,8 @@ public sealed partial class CSharpFrontend
                     $"duplicate class '{decl.Identifier.Text}' (only the first definition is used).",
                     decl.Identifier.GetLocation()
                 );
+            else
+                semantics.RegisterClass(decl, cls);
         }
         return classes;
     }
