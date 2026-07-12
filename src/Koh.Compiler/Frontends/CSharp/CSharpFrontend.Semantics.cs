@@ -368,4 +368,28 @@ internal sealed class CSharpSemantics
             return null;
         }
     }
+
+    /// <summary>Roslyn diagnostics overlapping <paramref name="node"/>'s own span (Phase 5: diagnostics
+    /// polish) — used only on <see cref="MethodLowerer"/>'s error path, to reword one of Koh's own
+    /// generic "unresolved name" messages with Roslyn's clearer text when a whitelisted diagnostic covers
+    /// the same span (see the design's Roslyn diagnostics policy: Roslyn's own diagnostics never gate
+    /// compilation — Koh-legal code is routinely C#-illegal, e.g. CS0266 on <c>byte c = a + b;</c> — a
+    /// whitelisted one only improves a message Koh's own lowering already decided to report). Scoped to
+    /// the node's span rather than <c>Compilation.GetDiagnostics()</c> (which binds every method in the
+    /// program), so a successful compile — which never calls this — pays nothing, and even the error path
+    /// stays cheap. Empty for a detached node (a monomorphized generic instance's body) or when no
+    /// compilation could be built.</summary>
+    public ImmutableArray<Microsoft.CodeAnalysis.Diagnostic> DiagnosticsAt(SyntaxNode node)
+    {
+        if (!InTree(node) || _model.Value is not { } model)
+            return ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>.Empty;
+        try
+        {
+            return model.GetDiagnostics(node.Span);
+        }
+        catch (ArgumentException)
+        {
+            return ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>.Empty;
+        }
+    }
 }

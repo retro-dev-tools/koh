@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Koh.Compiler.Ir;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -70,6 +71,61 @@ internal sealed class MethodLowerer
     /// <summary>The Roslyn resolution oracle this instance was constructed with. Exposed for tests
     /// (asserting the plumbing wires it through) and for later phases to consult.</summary>
     internal CSharpSemantics Semantics => _semantics;
+
+    // ---- Diagnostics polish (Phase 5) ---------------------------------------------------------------
+    //
+    // Roslyn diagnostic IDs whitelisted to improve one of Koh's own generic "unresolved name" messages
+    // (see BetterUnresolvedMessage below): CS0103 (name not found), CS0117/CS1061 (member not found,
+    // with/without an extension-method search), CS0246 (type/namespace not found). Never consulted to
+    // decide whether lowering fails — only to reword a message after Koh's own lowering already decided
+    // to fail (the design's Roslyn diagnostics policy: Koh-legal code is routinely C#-illegal, e.g.
+    // CS0266 on `byte c = a + b;`, so Roslyn diagnostics never gate compilation).
+    private static readonly ImmutableHashSet<string> UnresolvedNameDiagnosticIds =
+        ImmutableHashSet.Create("CS0103", "CS0117", "CS1061", "CS0246");
+
+    /// <summary>When Koh's own lowering is about to report <paramref name="kohMessage"/> because a name
+    /// at <paramref name="node"/> failed to resolve, look for a whitelisted Roslyn diagnostic
+    /// (<see cref="UnresolvedNameDiagnosticIds"/>) at the same span and, if one exists, use its clearer
+    /// message text instead — still reported as a Koh diagnostic through the unchanged <c>Report</c> span
+    /// mapping in <c>CSharpFrontend</c> (only the text changes).
+    /// Only ever called from an already-failing throw site, so a successful compile never pays for this:
+    /// the query (<see cref="CSharpSemantics.DiagnosticsAt"/>) is scoped to <paramref name="node"/>'s own
+    /// span, not the whole compilation. Returns <paramref name="kohMessage"/> unchanged for a detached
+    /// node (a monomorphized generic instance's body), when no compilation could be built, or when no
+    /// whitelisted diagnostic covers the span.</summary>
+    private string BetterUnresolvedMessage(SyntaxNode node, string kohMessage)
+    {
+        foreach (var d in _semantics.DiagnosticsAt(node))
+            if (UnresolvedNameDiagnosticIds.Contains(d.Id))
+                return KohStyle(d.GetMessage());
+        return kohMessage;
+    }
+
+    /// <summary>Reformat a Roslyn diagnostic message to read like an existing Koh diagnostic:
+    /// <list type="bullet">
+    /// <item>strip the synthetic <see cref="CSharpFrontend.WrapperClassName"/> qualifier a nested
+    /// top-level static class picks up from being physically nested inside the wrapper (e.g. Roslyn's
+    /// "'__KohProgram.Board' does not contain a definition for 'Ghost'" names the user's type as it would
+    /// never be spelled in their own source) — the wrapper is an implementation detail the diagnostic
+    /// must never leak;</item>
+    /// <item>lowercase the leading word (Roslyn's messages are sentence-cased — "The name ..."; Koh's are
+    /// not — "unknown identifier ..."; a leading quoted identifier, e.g. CS0117's "'Board' does not ...",
+    /// is left as-is, since it's a name, not a sentence start);</item>
+    /// <item>ensure a trailing period (Roslyn's usually have none; a few already end in ')' from a
+    /// parenthetical aside, which reads fine without one).</item>
+    /// </list></summary>
+    private static string KohStyle(string roslynMessage)
+    {
+        if (roslynMessage.Length == 0)
+            return roslynMessage;
+        var stripped = roslynMessage.Replace(
+            CSharpFrontend.WrapperClassName + ".",
+            "",
+            StringComparison.Ordinal
+        );
+        var s = char.ToLowerInvariant(stripped[0]) + stripped[1..];
+        return s.EndsWith('.') || s.EndsWith(')') ? s : s + ".";
+    }
 
     public MethodLowerer(
         CsMethod method,
@@ -593,7 +649,9 @@ internal sealed class MethodLowerer
                     field.Type
                 );
             }
-        throw new CSharpNotSupportedException($"struct has no field '{fieldName}'.");
+        throw new CSharpNotSupportedException(
+            BetterUnresolvedMessage(member.Name, $"struct has no field '{fieldName}'.")
+        );
     }
 
     /// <summary>The (base pointer, struct layout) a member access reads a field of: a named struct
@@ -842,7 +900,9 @@ internal sealed class MethodLowerer
                 // returned or passed as byte*). Field/method access goes through ClassLocalOf instead.
                 if (_classLocals.TryGetValue(name, out var classLocal))
                     return (_b.Load(classLocal.Slot), new CsType(IrType.Pointer(IrType.I8), false));
-                throw new CSharpNotSupportedException($"unknown identifier '{name}'.");
+                throw new CSharpNotSupportedException(
+                    BetterUnresolvedMessage(id, $"unknown identifier '{name}'.")
+                );
             }
 
             case ThisExpressionSyntax when _classLocals.TryGetValue("this", out var self):
@@ -1770,7 +1830,10 @@ internal sealed class MethodLowerer
                 var name = member.Name.Identifier.Text;
                 if (!e.Members.TryGetValue(name, out long value))
                     throw new CSharpNotSupportedException(
-                        $"enum '{subject.Identifier.Text}' has no member '{name}'."
+                        BetterUnresolvedMessage(
+                            member.Name,
+                            $"enum '{subject.Identifier.Text}' has no member '{name}'."
+                        )
                     );
                 return (IrBuilder.ConstInt(e.Underlying.Ir, value), e.Underlying);
             }
@@ -1789,7 +1852,9 @@ internal sealed class MethodLowerer
                 }
             }
         }
-        throw new CSharpNotSupportedException($"unsupported member access '{member}'.");
+        throw new CSharpNotSupportedException(
+            BetterUnresolvedMessage(member, $"unsupported member access '{member}'.")
+        );
     }
 
     private (IrValue, CsType) LowerCall(InvocationExpressionSyntax call)
@@ -1875,7 +1940,8 @@ internal sealed class MethodLowerer
                 recv.Slot,
                 instCall.Name.Identifier.Text,
                 call.ArgumentList.Arguments,
-                symCallee
+                symCallee,
+                instCall.Name
             );
 
         // Bare Method(args) inside an instance method resolves against `this`.
@@ -1890,7 +1956,8 @@ internal sealed class MethodLowerer
                 self.Slot,
                 bare.Identifier.Text,
                 call.ArgumentList.Arguments,
-                symCallee
+                symCallee,
+                bare
             );
 
         // A plain call, a sibling static-method call (bare name, resolved against the enclosing static
@@ -1963,7 +2030,12 @@ internal sealed class MethodLowerer
                 _methods.TryGetValue(calleeName, out callee);
         }
         if (callee is null)
-            throw new CSharpNotSupportedException($"unsupported call target '{call.Expression}'.");
+            throw new CSharpNotSupportedException(
+                BetterUnresolvedMessage(
+                    call.Expression,
+                    $"unsupported call target '{call.Expression}'."
+                )
+            );
 
         var args = new List<IrValue>();
         var argList = call.ArgumentList.Arguments;
@@ -2014,13 +2086,16 @@ internal sealed class MethodLowerer
     /// via <see cref="OriginalDefinition"/> so a call through a constructed/inherited signature still maps
     /// to the template registered in <see cref="CSharpSemantics.Methods"/>. Falls back to the qualified
     /// name Koh's own class-info resolution already established (<paramref name="cls"/>, from the
-    /// locals-based receiver lookup — out of this migration's scope) when no symbol resolves.</summary>
+    /// locals-based receiver lookup — out of this migration's scope) when no symbol resolves. <paramref
+    /// name="calleeNode"/> is the method-name syntax at the call site, consulted only if lowering fails
+    /// (see <see cref="BetterUnresolvedMessage"/>).</summary>
     private (IrValue, CsType) LowerInstanceCall(
         CsClass cls,
         IrValue thisSlot,
         string methodName,
         Microsoft.CodeAnalysis.SeparatedSyntaxList<ArgumentSyntax> args,
-        IMethodSymbol? symbol = null
+        IMethodSymbol? symbol = null,
+        SyntaxNode? calleeNode = null
     )
     {
         CsMethod? callee =
@@ -2031,7 +2106,12 @@ internal sealed class MethodLowerer
         var qualified = $"{cls.Name}.{methodName}";
         if (callee is null && !_methods.TryGetValue(qualified, out callee))
             throw new CSharpNotSupportedException(
-                $"class '{cls.Name}' has no method '{methodName}'."
+                calleeNode is not null
+                    ? BetterUnresolvedMessage(
+                        calleeNode,
+                        $"class '{cls.Name}' has no method '{methodName}'."
+                    )
+                    : $"class '{cls.Name}' has no method '{methodName}'."
             );
         if (args.Count != callee.Params.Count - 1)
             throw new CSharpNotSupportedException(
