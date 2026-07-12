@@ -66,41 +66,52 @@ public sealed partial class CSharpFrontend
         nullableContextOptions: NullableContextOptions.Disable
     );
 
-    /// <summary>Build the (deferred) semantic-model oracle for the final wrapped tree. <paramref
+    /// <summary>Build the (deferred) semantic-model oracle for the final wrapped tree(s). <paramref
     /// name="mainTree"/> must be <c>root.SyntaxTree</c> taken AFTER every rewrite (the softfloat
     /// re-parse, then <see cref="TransformIterators"/>) — building the compilation from an earlier tree
-    /// would make every node identity in the compilation stale. The actual <c>CSharpCompilation.Create</c>
-    /// call (and TPA reference load, on first use process-wide) only happens if a caller consults the
-    /// result — see <see cref="CSharpSemantics"/>.</summary>
-    private static CSharpSemantics BuildSemantics(SyntaxTree mainTree) =>
+    /// would make every node identity in the compilation stale. <paramref name="instancesTree"/> is the
+    /// second, constructed tree housing monomorphized generic instances (see
+    /// <see cref="BuildInstancesTree"/>), or null for a program with no generic instances. The actual
+    /// <c>CSharpCompilation.Create</c> call (and TPA reference load, on first use process-wide) only
+    /// happens if a caller consults the result — see <see cref="CSharpSemantics"/>.</summary>
+    private static CSharpSemantics BuildSemantics(SyntaxTree mainTree, SyntaxTree? instancesTree) =>
         new(
             mainTree,
+            instancesTree,
             () =>
             {
                 var references = TrustedPlatformReferences.Value;
-                return references.IsEmpty
-                    ? null
-                    : CSharpCompilation.Create(
-                        "KohCSharpFrontend",
-                        [mainTree, IntrinsicsStub.Tree],
-                        references,
-                        SemanticsCompilationOptions
-                    );
+                if (references.IsEmpty)
+                    return null;
+                var trees = instancesTree is null
+                    ? new[] { mainTree, IntrinsicsStub.Tree }
+                    : new[] { mainTree, instancesTree, IntrinsicsStub.Tree };
+                return CSharpCompilation.Create(
+                    "KohCSharpFrontend",
+                    trees,
+                    references,
+                    SemanticsCompilationOptions
+                );
             }
         );
 
     /// <summary>Test-only entry point: parses and wraps <paramref name="source"/> exactly as
-    /// <see cref="LowerCore"/> does (through every tree rewrite), then builds semantics for the result,
-    /// without lowering any method body. Lets tests assert against the real production tree/compilation
-    /// instead of a re-implementation that could drift from it.</summary>
+    /// <see cref="LowerCore"/> does (through every tree rewrite, plus generic-instance synthesis and its
+    /// instances tree), then builds semantics for the result, without lowering any method body. Lets tests
+    /// assert against the real production tree/compilation shape instead of a re-implementation that could
+    /// drift from it.</summary>
     internal static (CompilationUnitSyntax Root, CSharpSemantics Semantics) BuildSemanticsForTest(
         string source
     )
     {
-        var root = PrepareRoot(SourceText.From(source, "test.cs"), new DiagnosticBag());
-        return root is null
-            ? (SyntaxFactory.CompilationUnit(), CSharpSemantics.Disabled)
-            : (root, BuildSemantics(root.SyntaxTree));
+        var diagnostics = new DiagnosticBag();
+        var root = PrepareRoot(SourceText.From(source, "test.cs"), diagnostics);
+        if (root is null)
+            return (SyntaxFactory.CompilationUnit(), CSharpSemantics.Disabled);
+        var genericTemplates = CollectGenericTemplates(root, diagnostics);
+        var genericInstances = SynthesizeGenericInstances(root, genericTemplates);
+        var instancesTree = BuildInstancesTree(genericInstances);
+        return (root, BuildSemantics(root.SyntaxTree, instancesTree));
     }
 }
 
@@ -110,8 +121,9 @@ public sealed partial class CSharpFrontend
 /// (<see cref="IntrinsicsStub"/>), and symbol-keyed indexes (<see cref="Methods"/>, <see cref="Globals"/>,
 /// <see cref="ModuleConsts"/>, <see cref="Enums"/>, <see cref="Structs"/>, <see cref="Classes"/>) that
 /// <see cref="MethodLowerer"/> consults symbol-first for name/member/call resolution, falling back to its
-/// own string-keyed tables only when no symbol resolves (a detached monomorphized-generic body, no
-/// compilation built, or resolution failure).
+/// own string-keyed tables only when no symbol resolves (no compilation built, resolution failure, or —
+/// for now — routing a generic call to its monomorphized instance; a generic instance's own body is no
+/// longer detached syntax, see <see cref="CSharpFrontend.BuildInstancesTree"/>).
 ///
 /// Everything that requires real Roslyn binding (the underlying <see cref="CSharpCompilation"/>, the
 /// <see cref="SemanticModel"/>, and the stub type symbols) is behind its own <see cref="Lazy{T}"/>, so
@@ -128,8 +140,10 @@ internal sealed class CSharpSemantics
     public static readonly CSharpSemantics Disabled = new();
 
     private readonly SyntaxTree? _mainTree;
+    private readonly SyntaxTree? _instancesTree;
     private readonly Lazy<CSharpCompilation?> _compilation;
-    private readonly Lazy<SemanticModel?> _model;
+    private readonly Lazy<SemanticModel?> _mainModel;
+    private readonly Lazy<SemanticModel?> _instancesModel;
     private readonly Lazy<INamedTypeSymbol?> _hardwareType;
     private readonly Lazy<INamedTypeSymbol?> _gbType;
     private readonly Lazy<INamedTypeSymbol?> _memType;
@@ -155,9 +169,9 @@ internal sealed class CSharpSemantics
     // touches the semantic model. Each symbol-keyed index below only walks its registration list (and so
     // only forces the compilation/model, via DeclaredSym) the first time a caller actually reads the
     // corresponding property; a Lower() call whose result nobody inspects this way costs nothing beyond
-    // the appends. A monomorphized generic instance's declaration node is detached from the main tree
-    // (see DeclaringClassAnnotation), so DeclaredSym returns null for it and Materialize silently skips
-    // it — no consumer needs to filter these out itself.
+    // the appends. A monomorphized generic instance's declaration node lives in the instances tree (see
+    // CSharpFrontend.BuildInstancesTree), not the main tree, but DeclaredSym resolves either tree (see
+    // InTree/ModelFor below) — so it registers into Methods exactly like any other declaration.
 
     private readonly List<(SyntaxNode Decl, CsMethod Value)> _methodRegs = [];
     private readonly List<(SyntaxNode Decl, (IrGlobal Global, CsType Type) Value)> _globalRegs = [];
@@ -230,13 +244,15 @@ internal sealed class CSharpSemantics
             _classRegs.Add((decl, value));
     }
 
-    /// <summary>Method declarations (top-level functions and instance methods) keyed by their Roslyn
-    /// symbol. Empty until read; reading forces the compilation (see the class remarks). Consulted by
-    /// <see cref="MethodLowerer.LowerCall"/> and <see cref="MethodLowerer.LowerInstanceCall"/> via
-    /// <c>OriginalDefinition</c>, so a constructed/inherited call signature still maps to the registered
-    /// template (a generic template itself is never registered — only its monomorphized instances are,
-    /// and those are detached nodes, so a generic call always falls through to the syntax-based
-    /// mangled-name lookup).</summary>
+    /// <summary>Method declarations (top-level functions, instance methods, and — since Stage-2 P2 — each
+    /// monomorphized generic instance) keyed by their Roslyn symbol. Empty until read; reading forces the
+    /// compilation (see the class remarks). Consulted by <see cref="MethodLowerer.LowerCall"/> and
+    /// <see cref="MethodLowerer.LowerInstanceCall"/> via <c>OriginalDefinition</c>, so a
+    /// constructed/inherited call signature still maps to the registered template — a generic
+    /// <em>template</em> itself is never registered (it is never lowered), so a constructed generic call's
+    /// symbol (whose <c>OriginalDefinition</c> is the template, not any instance) still falls through to
+    /// the syntax-based mangled-name lookup, even though the instance it should route to is itself now
+    /// indexed here under its own (non-generic) symbol.</summary>
     public IReadOnlyDictionary<IMethodSymbol, CsMethod> Methods => _methodIndex.Value;
 
     /// <summary>Static fields (globals) keyed by their Roslyn symbol.</summary>
@@ -258,9 +274,9 @@ internal sealed class CSharpSemantics
     public IReadOnlyDictionary<INamedTypeSymbol, CsClass> Classes => _classIndex.Value;
 
     /// <summary>Build a symbol-keyed dictionary from a registration list, resolving each declaration
-    /// node's symbol on demand. A node whose <see cref="DeclaredSym"/> is null (detached — a
-    /// monomorphized generic instance — or no compilation available) or resolves to an unexpected symbol
-    /// kind is silently skipped: callers never need to filter these out themselves.</summary>
+    /// node's symbol on demand. A node whose <see cref="DeclaredSym"/> is null (a foreign node, no
+    /// compilation available, or resolution failure) or resolves to an unexpected symbol kind is silently
+    /// skipped: callers never need to filter these out themselves.</summary>
     private Dictionary<TSymbol, TValue> Materialize<TSymbol, TValue>(
         List<(SyntaxNode Decl, TValue Value)> registrations
     )
@@ -304,8 +320,10 @@ internal sealed class CSharpSemantics
     private CSharpSemantics()
     {
         _mainTree = null;
+        _instancesTree = null;
         _compilation = new Lazy<CSharpCompilation?>(() => null);
-        _model = new Lazy<SemanticModel?>(() => null);
+        _mainModel = new Lazy<SemanticModel?>(() => null);
+        _instancesModel = new Lazy<SemanticModel?>(() => null);
         _hardwareType = new Lazy<INamedTypeSymbol?>(() => null);
         _gbType = new Lazy<INamedTypeSymbol?>(() => null);
         _memType = new Lazy<INamedTypeSymbol?>(() => null);
@@ -314,13 +332,24 @@ internal sealed class CSharpSemantics
     }
 
     /// <param name="mainTree">The final wrapped tree (see <see cref="CSharpFrontend.BuildSemantics"/>).</param>
+    /// <param name="instancesTree">The second, constructed tree housing monomorphized generic instances
+    /// (see <see cref="CSharpFrontend.BuildInstancesTree"/>), or null for a program with no generic
+    /// instances.</param>
     /// <param name="compilationFactory">Builds the compilation on first use; never invoked if nothing
     /// consults this instance.</param>
-    public CSharpSemantics(SyntaxTree mainTree, Func<CSharpCompilation?> compilationFactory)
+    public CSharpSemantics(
+        SyntaxTree mainTree,
+        SyntaxTree? instancesTree,
+        Func<CSharpCompilation?> compilationFactory
+    )
     {
         _mainTree = mainTree;
+        _instancesTree = instancesTree;
         _compilation = new Lazy<CSharpCompilation?>(compilationFactory);
-        _model = new Lazy<SemanticModel?>(() => _compilation.Value?.GetSemanticModel(mainTree));
+        _mainModel = new Lazy<SemanticModel?>(() => _compilation.Value?.GetSemanticModel(mainTree));
+        _instancesModel = new Lazy<SemanticModel?>(() =>
+            instancesTree is null ? null : _compilation.Value?.GetSemanticModel(instancesTree)
+        );
         _hardwareType = new Lazy<INamedTypeSymbol?>(() =>
             _compilation.Value?.GetTypeByMetadataName("Hardware")
         );
@@ -336,12 +365,25 @@ internal sealed class CSharpSemantics
         InitIndexes();
     }
 
-    /// <summary>Whether <paramref name="node"/> belongs to the tree the semantic model was built from.
-    /// A monomorphized generic instance's body (<see cref="CSharpFrontend.TypeParamRewriter"/>) is a
-    /// syntax node detached from that tree, so this is false for it — and every symbol lookup below
-    /// checks this first, since <c>GetSymbolInfo</c>/<c>GetDeclaredSymbol</c> throw given a node from a
-    /// foreign tree.</summary>
-    public bool InTree(SyntaxNode node) => _mainTree is not null && node.SyntaxTree == _mainTree;
+    /// <summary>Whether <paramref name="node"/> belongs to a tree the semantic model was built from — the
+    /// main tree, or the instances tree (see <see cref="CSharpFrontend.BuildInstancesTree"/>) once
+    /// generic instances live there instead of as detached syntax. Every symbol lookup below checks this
+    /// first, since <c>GetSymbolInfo</c>/<c>GetDeclaredSymbol</c> throw given a node from a foreign tree
+    /// (e.g. one from an entirely separate parse, standing in for pre-migration detached syntax in
+    /// tests).</summary>
+    public bool InTree(SyntaxNode node) =>
+        _mainTree is not null
+        && (
+            node.SyntaxTree == _mainTree
+            || (_instancesTree is not null && node.SyntaxTree == _instancesTree)
+        );
+
+    /// <summary>The lazy <see cref="SemanticModel"/> for whichever of the two trees <paramref name="node"/>
+    /// belongs to, or null if it belongs to neither.</summary>
+    private SemanticModel? ModelFor(SyntaxNode node) =>
+        node.SyntaxTree == _mainTree ? _mainModel.Value
+        : node.SyntaxTree == _instancesTree ? _instancesModel.Value
+        : null;
 
     /// <summary>The symbol a syntax node (identifier, member access, invocation, ...) refers to, or null
     /// if the node is detached, no compilation could be built, resolution failed, or these are
@@ -349,7 +391,7 @@ internal sealed class CSharpSemantics
     /// result.</summary>
     public ISymbol? Sym(SyntaxNode node)
     {
-        if (!InTree(node) || _model.Value is not { } model)
+        if (!InTree(node) || ModelFor(node) is not { } model)
             return null;
         try
         {
@@ -365,7 +407,7 @@ internal sealed class CSharpSemantics
     /// under the same conditions as <see cref="Sym"/>.</summary>
     public ISymbol? DeclaredSym(SyntaxNode node)
     {
-        if (!InTree(node) || _model.Value is not { } model)
+        if (!InTree(node) || ModelFor(node) is not { } model)
             return null;
         try
         {
@@ -385,11 +427,11 @@ internal sealed class CSharpSemantics
     /// whitelisted one only improves a message Koh's own lowering already decided to report). Scoped to
     /// the node's span rather than <c>Compilation.GetDiagnostics()</c> (which binds every method in the
     /// program), so a successful compile — which never calls this — pays nothing, and even the error path
-    /// stays cheap. Empty for a detached node (a monomorphized generic instance's body) or when no
-    /// compilation could be built.</summary>
+    /// stays cheap. Empty for a node from neither tracked tree, or when no compilation could be
+    /// built.</summary>
     public ImmutableArray<Microsoft.CodeAnalysis.Diagnostic> DiagnosticsAt(SyntaxNode node)
     {
-        if (!InTree(node) || _model.Value is not { } model)
+        if (!InTree(node) || ModelFor(node) is not { } model)
             return ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>.Empty;
         try
         {

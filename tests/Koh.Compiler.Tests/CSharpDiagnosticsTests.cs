@@ -16,8 +16,9 @@ namespace Koh.Compiler.Tests;
 /// enriched wording on a genuinely-unresolved name (a) and member (b), that ordinary Koh-legal-but-C#-
 /// illegal programs — including the full <c>gb-2048-cs</c> sample — still lower with zero diagnostics
 /// (c), that the enriched message still reports through the unchanged wrapper-offset span math (d), and
-/// that a detached monomorphized-generic body (no symbol to consult) still gets Koh's plain original
-/// message rather than throwing or leaking a Roslyn artifact (e).</summary>
+/// that a monomorphized-generic instance's body — a real member of the constructed instances tree since
+/// Stage-2 P2, not detached syntax — gets the same enriched message as ordinary code, without throwing or
+/// leaking a raw Roslyn artifact (e).</summary>
 public class CSharpDiagnosticsTests
 {
     private static DiagnosticBag Diagnostics(string src)
@@ -158,19 +159,22 @@ public class CSharpDiagnosticsTests
         await Assert.That(error.Message).Contains("does not exist in the current context");
     }
 
-    // ---- (e) a detached monomorphized-generic body has no symbol to consult: plain message, no throw ---
+    // ---- (e) a monomorphized-generic instance body now lives in the instances tree (Stage-2 P2) and gets
+    // the same Roslyn-enriched message as ordinary code, not a throw or a leaked Roslyn artifact ----------
 
     [Test]
-    public async Task GenericBody_UnresolvedCall_KeepsPlainMessage_NoRoslynLeak_NoThrow()
+    public async Task GenericBody_UnresolvedCall_UsesRoslynsClearerMessage_NoThrow()
     {
-        // Touch<T>'s specialized body is a detached synthesized tree (TypeParamRewriter) — CSharpSemantics
-        // reports it as out-of-tree, so BetterUnresolvedMessage's Roslyn lookup can't run there at all and
-        // must fall back to Koh's own plain message, reported as an ordinary diagnostic (not an unhandled
-        // exception escaping Lower()).
+        // Touch<T>'s specialized body (Touch__g1_4_byte) is a real member of the constructed instances tree
+        // (CSharpFrontend.BuildInstancesTree, Stage-2 P2) — no longer detached syntax — so
+        // BetterUnresolvedMessage's Roslyn lookup runs there exactly as it would for ordinary code, and
+        // reports through the unchanged diagnostic-bag path (not an unhandled exception escaping Lower()).
         const string src =
             "static byte Main() { return Touch<byte>(5); }\n"
             + "static T Touch<T>(T x) { return (T)Ghost(x); }\n";
         var error = OnlyError(src);
-        await Assert.That(error.Message).IsEqualTo("unsupported call target 'Ghost'.");
+        await Assert
+            .That(error.Message)
+            .IsEqualTo("the name 'Ghost' does not exist in the current context.");
     }
 }

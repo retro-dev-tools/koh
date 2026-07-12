@@ -25,11 +25,21 @@ public class CSharpSemanticsIndexTests
             );
     }
 
-    /// <summary>The main (non-stub) syntax tree the declaration passes ran over, so a test can find the
-    /// declaration node whose registered symbol it wants to look up.</summary>
+    /// <summary>The main (non-stub, non-instances) syntax tree the declaration passes ran over, so a test
+    /// can find the declaration node whose registered symbol it wants to look up.</summary>
     private static CompilationUnitSyntax MainRoot(CSharpSemantics semantics) =>
         semantics
-            .Compilation!.SyntaxTrees.First(t => t != IntrinsicsStub.Tree)
+            .Compilation!.SyntaxTrees.First(t =>
+                t != IntrinsicsStub.Tree && t.FilePath != "__KohGenericInstances.cs"
+            )
+            .GetCompilationUnitRoot();
+
+    /// <summary>The second, constructed tree housing monomorphized generic instances (Stage-2 P2's
+    /// "instances tree" — see <c>CSharpFrontend.BuildInstancesTree</c>), so a test can find a synthesized
+    /// instance's own declaration node. Only present when the program actually has a generic instance.</summary>
+    private static CompilationUnitSyntax InstancesRoot(CSharpSemantics semantics) =>
+        semantics
+            .Compilation!.SyntaxTrees.First(t => t.FilePath == "__KohGenericInstances.cs")
             .GetCompilationUnitRoot();
 
     // ---- One index per declaration kind --------------------------------------------------------------
@@ -180,10 +190,10 @@ public class CSharpSemanticsIndexTests
         await Assert.That(semantics.Methods[(IMethodSymbol)getSymbol!].ThisClass).IsNotNull();
     }
 
-    // ---- Monomorphized generic instances are skipped, not errored ------------------------------------
+    // ---- Monomorphized generic instances resolve via the instances tree (Stage-2 P2) ------------------
 
     [Test]
-    public async Task GenericMethodInstance_IsSkippedWithoutError()
+    public async Task GenericMethodInstance_Resolves_AndAppearsInMethods()
     {
         const string src = """
             static T Identity<T>(T x) => x;
@@ -194,11 +204,21 @@ public class CSharpSemanticsIndexTests
 
         // The specialization really was lowered (a normal IR function exists for it) ...
         await Assert.That(module.Functions.Any(f => f.Name.StartsWith("Identity__g"))).IsTrue();
-        // ... but its declaration node is detached from the main tree, so DeclaredSym returns null for it
-        // and Materialize silently drops it from the symbol-keyed index — no throw, no bogus entry.
+
+        // ... and, since Stage-2 P2, its declaration node is a real member of the constructed instances
+        // tree (not detached syntax), so DeclaredSym resolves it and Materialize registers it in Methods
+        // exactly like any other declaration.
+        var instancesRoot = InstancesRoot(semantics);
+        var identityInstanceDecl = instancesRoot
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .First(m => m.Identifier.Text.StartsWith("Identity__g"));
+        var identitySymbol = semantics.DeclaredSym(identityInstanceDecl);
+        await Assert.That(identitySymbol).IsTypeOf<IMethodSymbol>();
+        await Assert.That(semantics.Methods.ContainsKey((IMethodSymbol)identitySymbol!)).IsTrue();
         await Assert
-            .That(semantics.Methods.Values.Any(m => m.Fn.Name.StartsWith("Identity")))
-            .IsFalse();
+            .That(semantics.Methods[(IMethodSymbol)identitySymbol!].Fn.Name)
+            .IsEqualTo(identityInstanceDecl.Identifier.Text);
 
         // An ordinary sibling method in the same program still indexes normally.
         var root = MainRoot(semantics);
@@ -208,6 +228,87 @@ public class CSharpSemanticsIndexTests
         var useItSymbol = semantics.DeclaredSym(useItDecl);
         await Assert.That(useItSymbol).IsTypeOf<IMethodSymbol>();
         await Assert.That(semantics.Methods.ContainsKey((IMethodSymbol)useItSymbol!)).IsTrue();
+    }
+
+    [Test]
+    public async Task GenericInstanceBody_Sym_ResolvesSiblingCallAndField()
+    {
+        // Inside a monomorphized instance's own body (now a real member of the instances tree, not
+        // detached syntax), an ordinary call to a sibling top-level function and a reference to a
+        // top-level static field both resolve through the semantic model exactly as they would for
+        // ordinary code — proving cross-tree binding works for a real Pass-2-shaped body, not just the
+        // synthetic spike.
+        const string src = """
+            static byte Helper(byte x) => x;
+            static byte Field = 5;
+
+            static T Touch<T>(T x) => (T)(Helper(x) + Field);
+
+            static byte UseIt() => Touch<byte>(9);
+            """;
+        var (_, semantics) = Build(src);
+
+        var instancesRoot = InstancesRoot(semantics);
+        var touchInstanceDecl = instancesRoot
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .First(m => m.Identifier.Text.StartsWith("Touch__g"));
+
+        var call = touchInstanceDecl.DescendantNodes().OfType<InvocationExpressionSyntax>().First();
+        var callSymbol = semantics.Sym(call) as IMethodSymbol;
+        await Assert.That(callSymbol).IsNotNull();
+        await Assert.That(callSymbol!.Name).IsEqualTo("Helper");
+
+        var fieldRef = touchInstanceDecl
+            .DescendantNodes()
+            .OfType<IdentifierNameSyntax>()
+            .First(i => i.Identifier.Text == "Field");
+        var fieldSymbol = semantics.Sym(fieldRef) as IFieldSymbol;
+        await Assert.That(fieldSymbol).IsNotNull();
+        await Assert.That(fieldSymbol!.Name).IsEqualTo("Field");
+    }
+
+    [Test]
+    public async Task GenericInstances_BothNestingShapes_MirrorTemplateOwner()
+    {
+        // A bare wrapper-level template's instance is nested directly under the partial wrapper; a
+        // template declared inside a top-level user `static class Owner` gets its instance inside a
+        // synthesized `static partial class Owner` nested in the wrapper (CSharpFrontend.BuildInstancesTree).
+        const string src = """
+            static T Bare<T>(T x) => x;
+
+            static class Owner
+            {
+                static T Nested<T>(T x) => x;
+            }
+
+            static byte UseBare() => Bare<byte>(1);
+            static byte UseNested() => Owner.Nested<byte>(2);
+            """;
+        var (_, semantics) = Build(src);
+        var instancesRoot = InstancesRoot(semantics);
+
+        var bareInstance = instancesRoot
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .First(m => m.Identifier.Text.StartsWith("Bare__g"));
+        await Assert.That(bareInstance.Parent).IsTypeOf<ClassDeclarationSyntax>();
+        await Assert
+            .That(((ClassDeclarationSyntax)bareInstance.Parent!).Identifier.Text)
+            .IsEqualTo(CSharpFrontend.WrapperClassName);
+
+        var nestedInstance = instancesRoot
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .First(m => m.Identifier.Text.StartsWith("Nested__g"));
+        await Assert.That(nestedInstance.Parent).IsTypeOf<ClassDeclarationSyntax>();
+        var ownerNode = (ClassDeclarationSyntax)nestedInstance.Parent!;
+        await Assert.That(ownerNode.Identifier.Text).IsEqualTo("Owner");
+        await Assert.That(ownerNode.Modifiers.Any(m => m.ValueText == "partial")).IsTrue();
+        await Assert.That(ownerNode.Parent).IsTypeOf<ClassDeclarationSyntax>();
+        await Assert
+            .That(((ClassDeclarationSyntax)ownerNode.Parent!).Identifier.Text)
+            .IsEqualTo(CSharpFrontend.WrapperClassName);
     }
 
     // ---- Disabled ignores registrations ---------------------------------------------------------------
