@@ -1485,6 +1485,41 @@ static ushort Run() {
     }
 
     [Test]
+    public async Task GlobalUsing_MidUnitIsBlanked()
+    {
+        // A mid-unit `global using` (a later joined file starting with `global using`) must have the
+        // whole `global using … ;` run blanked, not just `using … ;` — leaving a bare `global` behind made
+        // the reparse fail with an unrelated error ("static modifier must occur before the type and
+        // member name") and LowerCore bailed on the parse error, so the program lowered zero functions.
+        const string src =
+            "static class App { static byte Main() { return Lib.Get(); } }\n"
+            + "global using Koh.GameBoy;\n"
+            + "static class Lib { static byte Get() { return 9; } }";
+        await Assert.That(RunA(src)).IsEqualTo((byte)9);
+    }
+
+    [Test]
+    public async Task Using_MidUnitMalformedDoesNotDeleteFollowingCode()
+    {
+        // A malformed mid-unit `using` (missing its `;`) must not have its forward scan run on past the
+        // end of its own line looking for a semicolon — that would find a later, unrelated one and blank
+        // everything in between, silently deleting a legitimate declaration sitting textually between the
+        // two. The malformed directive is left intact so the real parse error (the missing `;`) surfaces,
+        // instead of a misleading downstream "unsupported call target" diagnostic once `Lib` is gone.
+        const string src =
+            "static class App { static byte Main() { return Lib.Answer(); } }\n"
+            + "using Koh.GameBoy\n" // missing semicolon
+            + "static class Lib { static byte Answer() { return 42; } }\n"
+            + "using System.Collections;\n";
+        var diagnostics = new DiagnosticBag();
+        new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Message.Contains("C# parse error"))).IsTrue();
+        await Assert
+            .That(diagnostics.Any(d => d.Message.Contains("unsupported call target")))
+            .IsFalse();
+    }
+
+    [Test]
     public async Task Using_InsideStringLiteralIsNotBlanked()
     {
         // A line that merely *looks* like a using directive but lives inside a multi-line string literal

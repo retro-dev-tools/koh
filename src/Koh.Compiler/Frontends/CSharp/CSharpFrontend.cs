@@ -132,14 +132,35 @@ public sealed partial class CSharpFrontend : IFrontend
         {
             if (!skipped[i].IsKind(SyntaxKind.UsingKeyword))
                 continue;
+            // `global using X;` puts `global` immediately before `using` in the skipped-token stream too
+            // (mirroring the ordinary UsingDirectiveSyntax branch above, whose span already includes
+            // GlobalKeyword) — start the blanked span there so a mid-unit `global using` doesn't leave a
+            // bare `global` behind for the reparse to choke on.
+            int start = i > 0 && skipped[i - 1].IsKind(SyntaxKind.GlobalKeyword) ? i - 1 : i;
+            // Bound the forward scan to the current source line: a malformed mid-unit `using` missing its
+            // `;` must not run on into a later, unrelated semicolon — that would blank everything between
+            // the two, including well-formed declarations sitting textually in between. If no semicolon
+            // terminates the directive on its own line, leave the text alone so the real parse error (a
+            // missing `;`) surfaces to the user instead of a misleading downstream diagnostic.
+            int lineEnd = source.IndexOf('\n', skipped[i].SpanStart);
+            if (lineEnd < 0)
+                lineEnd = source.Length;
             int j = i;
-            while (j < skipped.Count && !skipped[j].IsKind(SyntaxKind.SemicolonToken))
+            while (
+                j < skipped.Count
+                && skipped[j].SpanStart < lineEnd
+                && !skipped[j].IsKind(SyntaxKind.SemicolonToken)
+            )
                 j++;
-            if (j < skipped.Count) // a terminating ';' was found — blank the whole `using … ;` run
+            if (
+                j < skipped.Count
+                && skipped[j].SpanStart < lineEnd
+                && skipped[j].IsKind(SyntaxKind.SemicolonToken)
+            ) // a terminating ';' was found on the same line — blank the whole `using … ;` run
             {
                 spans.Add(
                     Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
-                        skipped[i].SpanStart,
+                        skipped[start].SpanStart,
                         skipped[j].Span.End
                     )
                 );
