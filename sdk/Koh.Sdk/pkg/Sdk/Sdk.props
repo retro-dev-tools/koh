@@ -5,7 +5,9 @@
        which remain the single source of truth. Because the shim never changes, the committed package
        cannot go stale when the real SDK logic is edited. Koh.Sdk is repo-internal — its targets reference
        the in-tree compiler, linker, and Koh.GameBoy by path, so a project outside the Koh repo cannot use
-       it (Sdk.targets raises a clear error in that case). -->
+       it (Sdk.targets' KohSdkOutsideRepoError InitialTargets raises a clear error in that case, rather
+       than the generic MSB4040 "no target in the project" that would otherwise result from this import
+       and the nested Microsoft.NET.Sdk import inside the real Sdk.props both being skipped). -->
 
   <PropertyGroup>
     <!-- Repo root: the nearest ancestor of the game project that holds the solution filter. -->

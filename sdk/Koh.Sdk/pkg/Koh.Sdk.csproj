@@ -16,7 +16,7 @@
     <EnableDefaultItems>false</EnableDefaultItems>
     <PackageType>MSBuildSdk</PackageType>
     <PackageId>Koh.Sdk</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Koh</Authors>
     <Description>Koh Game Boy SDK (repo-internal): compiles a C# game project into a Game Boy ROM and runs it in the Koh emulator.</Description>
     <PackageOutputPath>$(MSBuildThisFileDirectory)../../feed</PackageOutputPath>
