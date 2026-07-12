@@ -171,7 +171,13 @@ public sealed partial class CSharpFrontend : IFrontend
         return module;
     }
 
-    private static void LowerCore(SourceText source, IrModule module, DiagnosticBag diagnostics)
+    /// <summary>Parse and wrap the source, then apply every whole-tree rewrite the rest of the pipeline
+    /// depends on: synthesize the program-wrapper class, inject the softfloat runtime if the program
+    /// uses float, and rewrite <c>yield return</c> iterators into state machines. Returns the final root
+    /// — the tree <see cref="BuildSemantics"/> must build the compilation from, and the one every later
+    /// pass lowers — or null if an error was already reported (a reserved <c>MathF</c> class name, or a
+    /// parse error), in which case the caller stops.</summary>
+    private static CompilationUnitSyntax? PrepareRoot(SourceText source, DiagnosticBag diagnostics)
     {
         // Wrap in an implicit static class so plain `static T F(...)` methods and enum/struct
         // declarations coexist without hitting C#'s "top-level statements first" rule. (Source
@@ -206,7 +212,7 @@ public sealed partial class CSharpFrontend : IFrontend
                     "'MathF' is reserved for the built-in Math library and cannot name a class.",
                     userMathF.Identifier.GetLocation()
                 );
-                return;
+                return null;
             }
             wrapped =
                 WrapperPrefix
@@ -224,11 +230,22 @@ public sealed partial class CSharpFrontend : IFrontend
                 hasParseError = true;
             }
         if (hasParseError)
-            return;
+            return null;
 
         // Pass 0.0: rewrite `yield return` iterators into cooperative-coroutine state machines (a state
         // class with MoveNext/Current plus a factory), so the rest of the pipeline sees ordinary classes.
-        root = TransformIterators(root);
+        return TransformIterators(root);
+    }
+
+    private static void LowerCore(SourceText source, IrModule module, DiagnosticBag diagnostics)
+    {
+        if (PrepareRoot(source, diagnostics) is not { } root)
+            return;
+
+        // A real CSharpCompilation over the final tree, as a resolution oracle for later phases of the
+        // semantic-model migration (nothing consults it yet — see CSharpFrontend.Semantics.cs). Built
+        // from root.SyntaxTree (post-rewrite), so node identity here matches everything lowered below.
+        var semantics = BuildSemantics(root.SyntaxTree);
 
         var methods = new Dictionary<string, CsMethod>(StringComparer.Ordinal);
         var bodies =
@@ -522,7 +539,8 @@ public sealed partial class CSharpFrontend : IFrontend
                     module.Name,
                     inits,
                     moduleArrays,
-                    classes
+                    classes,
+                    semantics
                 ).Lower();
             }
             catch (CSharpNotSupportedException ex)

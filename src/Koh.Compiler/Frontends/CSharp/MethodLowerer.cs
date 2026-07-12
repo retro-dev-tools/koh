@@ -59,6 +59,16 @@ internal sealed class MethodLowerer
     // can reach its siblings by bare name. Null for legacy top-level functions and instance methods.
     private readonly string? _staticClass;
 
+    // Roslyn as a resolution oracle (see CSharpFrontend.Semantics.cs). Plumbing only for now — nothing
+    // in this class consults it yet; a later phase of the semantic-model migration reads symbols from it
+    // to replace the string-keyed lookups above (with a string fallback kept for detached generic
+    // instances, which this can't resolve).
+    private readonly CSharpSemantics _semantics;
+
+    /// <summary>The Roslyn resolution oracle this instance was constructed with. Exposed for tests
+    /// (asserting the plumbing wires it through) and for later phases to consult.</summary>
+    internal CSharpSemantics Semantics => _semantics;
+
     public MethodLowerer(
         CsMethod method,
         BlockSyntax? body,
@@ -72,7 +82,8 @@ internal sealed class MethodLowerer
         string file,
         IReadOnlyList<(IrGlobal Global, long Value, CsType Type)> staticInits,
         IReadOnlyDictionary<string, (IrGlobal Global, CsType Element, int Length)> moduleArrays,
-        IReadOnlyDictionary<string, CsClass> classes
+        IReadOnlyDictionary<string, CsClass> classes,
+        CSharpSemantics semantics
     )
     {
         _file = file;
@@ -89,6 +100,7 @@ internal sealed class MethodLowerer
         _staticInits = staticInits;
         _moduleArrays = moduleArrays;
         _staticClass = method.DeclaringClass;
+        _semantics = semantics;
     }
 
     /// <summary>Resolve a bare callee name to a static method of the enclosing class if one exists,
