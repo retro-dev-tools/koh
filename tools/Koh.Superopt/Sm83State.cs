@@ -14,7 +14,24 @@ public readonly record struct Sm83State(
     byte H,
     byte L,
     ushort Sp
-);
+)
+{
+    /// <summary>Every <see cref="Live"/> flag paired with the projection of <see cref="Sm83State"/> it
+    /// gates. Shared by every walk over live-out fields (comparison, serialization) so the flag-to-field
+    /// mapping is defined once. Flags project to the high nibble of F, matching how the SM83 only ever
+    /// exposes the top 4 bits.</summary>
+    internal static readonly (Live Flag, Func<Sm83State, byte> Get)[] LiveFields =
+    [
+        (Live.A, s => s.A),
+        (Live.B, s => s.B),
+        (Live.C, s => s.C),
+        (Live.D, s => s.D),
+        (Live.E, s => s.E),
+        (Live.H, s => s.H),
+        (Live.L, s => s.L),
+        (Live.Flags, s => (byte)(s.F & 0xF0)),
+    ];
+}
 
 /// <summary>Which parts of <see cref="Sm83State"/> a caller cares about after a sequence runs — the
 /// live-out set. A rewrite need only preserve these, so a smaller live-out admits more (and cheaper)

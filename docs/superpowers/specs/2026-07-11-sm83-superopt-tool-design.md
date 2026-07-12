@@ -1,70 +1,57 @@
 # SM83 superoptimizer — productionized offline tool (`tools/Koh.Superopt`)
 
-Status: **landed** — miner + verifier in `tools/Koh.Superopt`, 16 tool tests green.
+Status: **landed** — miner in `tools/Koh.Superopt`, 13 tool tests green.
 
 ## What landed
 
 - `tools/Koh.Superopt` console project referencing `Koh.Emulator.Core` (oracle) and
   `Koh.Compiler` (MIR) — the emulator dependency lives in the tool, not the compiler.
-- **Slice 1 (miner):** `Sm83Oracle` (concrete-execution equivalence, ported and upgraded to
-  report T-cycles), `Sm83Alphabet` (MIR-validated straight-line/register-only ops), `Enumerator`,
-  `Miner` (behavior-bucketing discovery), and a `Program` report driver. `dotnet run --project
-  tools/Koh.Superopt` prints mined rewrites under `Live.All` and flags-dead `Live.AllRegs`,
-  rediscovering `LD A,0 → XOR A` (and larger wins) exactly where liveness permits.
-- **Slice 2 (verifier):** `RuleVerifier` certifies declared rules against emulator ground truth,
-  reporting a rule outside the register-only domain as not well-formed rather than mis-judging it.
-- Cost is measured, not tabulated: bytes from the encoding, T-cycles from `StepResult.TCyclesRan`.
+- `Sm83Oracle` (concrete-execution equivalence, ported from the PoC and upgraded to
+  report T-cycles), `Sm83Alphabet` (a hand-curated straight-line/register-only op set,
+  validated against the MIR decoder), `Enumerator` (bounded sequence enumeration),
+  `Miner` (behavior-bucketing discovery), `RewriteFormatting`, and a `Program` report
+  driver. `dotnet run --project tools/Koh.Superopt` prints mined rewrites under
+  `Live.All` and flags-dead `Live.AllRegs`, rediscovering `LD A,0 → XOR A` (and larger
+  wins) exactly where liveness permits.
+- Cost is measured, not tabulated: bytes from the sequence length, T-cycles from
+  `StepResult.TCyclesRan`.
 
 Design and plan: this file and `docs/superpowers/plans/2026-07-11-sm83-superopt-tool.md`.
 
-Productionizes the emulator-oracle superoptimizer PoC (PR #20, landed in the test
-project) now that item #1 — the SM83 MIR machine-instruction layer — has landed on
-master (`src/Koh.Compiler/Backends/Sm83/Mir/`). The PoC's own "Home" note called for
-exactly this: a dedicated `tools/Koh.Superopt` project referencing the emulator (and,
-now that it exists, the MIR layer) without inverting the compiler→emulator layering.
+Productionizes the emulator-oracle superoptimizer PoC (PR #20). See
+`docs/superpowers/specs/2026-07-09-sm83-superoptimizer.md` for the PoC's own history
+and "Next steps" — this tool is that spec's next step, now that item #1 (the SM83 MIR
+machine-instruction layer, `src/Koh.Compiler/Backends/Sm83/Mir/`) has landed.
 
 ## Why now
 
-The PoC hand-rolled three things because the MIR layer did not yet exist. It now does,
-so this tool derives them structurally instead:
-
-| PoC hand-rolled | This tool derives from |
-|---|---|
-| curated 12-op alphabet + hand-coded byte/cycle costs | `Sm83OpcodeLength` + `Sm83InstructionTable` (cycle cost) |
-| per-op effects implicit in the test cases | `MirEffects` (reg/flag read·write, mem, control) via `MirDecoder` |
-| a caller-passed `Live` set | `MirEffects` write/read footprints |
-| "memory out of scope" hand-wave | `MemRead`/`MemWrite`/`Control` → a *principled* rejection filter |
+The PoC hand-rolled its instruction effects (reads/writes/memory) implicitly in test
+cases. This tool derives them structurally instead, via `MirEffects` (through
+`MirDecoder`): a "memory out of scope" hand-wave becomes a principled rejection filter
+(`MemRead`/`MemWrite`/`Control` disqualify a candidate). The instruction alphabet
+itself stays hand-curated (`Sm83Alphabet`, marked with a `ponytail:` note) — enough to
+rediscover canonical peephole wins without exploding the search space.
 
 ## Scope
 
-Two slices on this branch. **Slice 1 (miner) first**, then **slice 2 (verifier)**
-reusing the same oracle.
-
-### Slice 1 — discovery miner
-
-Enumerate short, straight-line SM83 sequences over a table-derived alphabet, up to a
-length bound, and for each input pattern find the cheapest candidate the oracle judges
-equivalent under the input's live-out. Emit a **human-readable report** of candidate
-rewrites (`input → rewrite`, bytes/cycles saved, required live-out) for a human to fold
-into the existing MIR peephole by hand. No compile-time search, no auto-injection.
-
-### Slice 2 — rule verifier / regression guard
-
-Reuse the oracle to certify a list of rewrite rules — including the peephole's existing
-hand-written ones — against emulator ground truth, so a bad or bit-rotted rule shows up
-as a test failure rather than a miscompile. Same oracle, different driver.
+Discovery only: enumerate short, straight-line SM83 sequences over the curated
+alphabet, up to a length bound, and for each input pattern find the cheapest candidate
+the oracle judges equivalent under the input's live-out. Emit a **human-readable
+report** of candidate rewrites (`input → rewrite`, bytes/cycles saved, required
+live-out) for a human to fold into the existing MIR peephole by hand. No compile-time
+search, no auto-injection.
 
 ## Home and layering
 
 New console project `tools/Koh.Superopt`, referencing:
 - `Koh.Emulator.Core` — the equivalence oracle (`GameBoySystem`).
-- `Koh.Compiler` — the MIR layer (`MirDecoder`, `MirEffects`, `Sm83OpcodeLength`).
-- `Koh.Core` — `Sm83InstructionTable` for cycle cost.
+- `Koh.Compiler` — the MIR layer (`MirDecoder`, `MirEffects`) used to validate the
+  alphabet and reject memory/control-flow candidates.
 
 The emulator dependency lives here, in the tool, never in `Koh.Compiler` — so the
 compiler→emulator layering is preserved. The `Sm83Oracle` is **ported** (not
-referenced) from the test project, because that copy is `internal` to the test assembly;
-the test-project PoC stays as-is for its own regression coverage.
+referenced) from the test project, because that copy is `internal` to the test
+assembly.
 
 ## Components
 
@@ -74,14 +61,11 @@ Each is small and independently testable.
    minimal ROM-only cartridge at the code entry, sets register state, single-steps until
    control leaves the sequence, reads state back. `AreEquivalent(a, b, live)` runs both
    over randomized inputs and compares only live-out registers/flags. Ported from the
-   PoC; upgraded to take its live-out from MIR and to enforce the memory/control
-   rejection below.
-2. **`Cost`** — bytes first (ROM is the scarce SM83 resource), then cycles, from
-   `Sm83OpcodeLength` + `Sm83InstructionTable`. Replaces the PoC's hand-coded costs.
-3. **`Enumerator`** — bounded enumeration over a table-derived straight-line alphabet
-   (8-bit reg moves, ALU, a few immediates), up to length *L*. Skips any op with
-   `MemRead`/`MemWrite` or `Control != Fallthrough`, so every candidate is straight-line
-   and register-only.
+   PoC; upgraded to measure T-cycles and to enforce the memory/control rejection below.
+2. **`Sm83Alphabet`** — a curated straight-line, register-only op set (reg/reg moves,
+   accumulator ALU, INC/DEC A, a couple of immediates), each entry checked against
+   `MirEffects` so membership is a verified property, not a hand assertion.
+3. **`Enumerator`** — bounded enumeration over the alphabet, up to length *L*.
 4. **`Miner`** — for each input pattern, compute its live-out and the cheapest equivalent
    candidate; collect `(input, best, live-out, savingsBytes, savingsCycles)`.
 5. **`Program`** — runs the miner over a bounded search and prints the report table.
@@ -95,7 +79,7 @@ random testing is sound-for-refutation (one disagreeing input disproves equivale
 a strong acceptance filter.
 
 `// ponytail: random-input filter only; add an exhaustive small-window or symbolic check
-before auto-trusting a mined rule.` — the PoC's and this slice's acceptance rigor. A
+before auto-trusting a mined rule.` — the PoC's and this tool's acceptance rigor. A
 mined rule is a *candidate for human review*, not yet a rule the compiler trusts blind.
 
 ## Testing
@@ -104,11 +88,13 @@ mined rule is a *candidate for human review*, not yet a rule the compiler trusts
 - **Regression (from the PoC):** rediscovers `LD A,0 → XOR A` when flags are dead;
   **declines** it when flags are live-out; shrinks `LD A,B; LD A,B → LD A,B`; the oracle
   distinguishes flag-live vs flag-dead.
-- **New:** `Cost` matches `Sm83InstructionTable` for a sampled opcode set; the enumerator
-  rejects a memory op (e.g. `LD (HL),A`) and a control op (e.g. `JR`).
+- **New:** the enumerator/alphabet reject a memory op (e.g. `LD (HL),A`) and a control op
+  (e.g. `JR`) via `MirEffects`.
 
 ## Non-goals (YAGNI)
 
 Inline compile-time superoptimization; auto-injecting mined rules into the peephole;
-memory/`(HL)` modeling; symbolic or exhaustive verification; LLM-rewrite verification.
-Each is a documented future step, not this branch.
+memory/`(HL)` modeling; symbolic or exhaustive verification; LLM-rewrite verification;
+a declarative rule verifier (cut in review — no consumer; the peephole expresses rules
+imperatively over `MirEffects`, not as a `(From, To, Live)` list). Each is a documented
+future step, not this tool.

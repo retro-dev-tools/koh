@@ -21,16 +21,15 @@ public readonly record struct Rewrite(
 /// </summary>
 public sealed class Miner
 {
+    private const int ProbeCount = 24; // never varied by a caller
+    private const int Seed = 0x5A83; // never varied by a caller
+
     private readonly int _maxLength;
-    private readonly int _probeCount;
-    private readonly int _seed;
     private readonly Sm83Oracle _oracle = new();
 
-    public Miner(int maxLength = 2, int probeCount = 24, int seed = 0x5A83)
+    public Miner(int maxLength = 2)
     {
         _maxLength = maxLength;
-        _probeCount = probeCount;
-        _seed = seed;
     }
 
     public IReadOnlyList<Rewrite> Mine(Live live)
@@ -54,11 +53,9 @@ public sealed class Miner
         {
             if (list.Count < 2)
                 continue;
-            // Cheapest member: fewest bytes, then fewest cycles.
-            var best = list[0];
-            foreach (var e in list)
-                if (e.Bytes < best.Bytes || (e.Bytes == best.Bytes && e.Cycles < best.Cycles))
-                    best = e;
+            // Cheapest member: fewest bytes, then fewest cycles. MinBy keeps the first minimum, same as
+            // a manual scan would.
+            var best = list.MinBy(e => (e.Bytes, e.Cycles));
 
             foreach (var e in list)
             {
@@ -69,7 +66,7 @@ public sealed class Miner
                 // Re-verify with random trials to reject a coincidental bucket collision. Use a seed
                 // distinct from the probe battery's so the re-check is genuinely independent inputs,
                 // not the same ones that already grouped the pair.
-                if (!_oracle.AreEquivalent(e.Code, best.Code, live, seed: _seed ^ 0x3C3C))
+                if (!_oracle.AreEquivalent(e.Code, best.Code, live, seed: Seed ^ 0x3C3C))
                     continue;
                 rewrites.Add(
                     new Rewrite(
@@ -101,47 +98,22 @@ public sealed class Miner
         return (sb.ToString(), cycles);
     }
 
+    /// <summary>Appends the live-out parts of <paramref name="s"/>, walking the shared <see
+    /// cref="Sm83State.LiveFields"/> table, then a '|' separator.</summary>
     private static void AppendLive(StringBuilder sb, Sm83State s, Live live)
     {
-        if (live.HasFlag(Live.A))
-            sb.Append((char)s.A);
-        if (live.HasFlag(Live.B))
-            sb.Append((char)s.B);
-        if (live.HasFlag(Live.C))
-            sb.Append((char)s.C);
-        if (live.HasFlag(Live.D))
-            sb.Append((char)s.D);
-        if (live.HasFlag(Live.E))
-            sb.Append((char)s.E);
-        if (live.HasFlag(Live.H))
-            sb.Append((char)s.H);
-        if (live.HasFlag(Live.L))
-            sb.Append((char)s.L);
-        if (live.HasFlag(Live.Flags))
-            sb.Append((char)(s.F & 0xF0));
+        foreach (var (flag, get) in Sm83State.LiveFields)
+            if (live.HasFlag(flag))
+                sb.Append((char)get(s));
         sb.Append('|');
     }
 
-    private Sm83State[] Probes()
+    private static Sm83State[] Probes()
     {
-        var random = new Random(_seed);
-        var probes = new Sm83State[_probeCount];
-        Span<byte> bytes = stackalloc byte[8];
-        for (var i = 0; i < _probeCount; i++)
-        {
-            random.NextBytes(bytes);
-            probes[i] = new Sm83State(
-                bytes[0],
-                bytes[1],
-                bytes[2],
-                bytes[3],
-                bytes[4],
-                bytes[5],
-                bytes[6],
-                bytes[7],
-                0xFFFE
-            );
-        }
+        var random = new Random(Seed);
+        var probes = new Sm83State[ProbeCount];
+        for (var i = 0; i < ProbeCount; i++)
+            probes[i] = Sm83Oracle.RandomState(random);
         return probes;
     }
 }
