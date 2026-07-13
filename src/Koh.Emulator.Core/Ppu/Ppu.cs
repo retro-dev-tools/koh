@@ -53,6 +53,10 @@ public sealed class Ppu
     // Previous STAT IRQ line for edge detection.
     private bool _prevStatLine;
 
+    // Tracks LCDC bit 7 across ticks so re-enabling the LCD can be detected as
+    // a rising edge (see TickDot).
+    private bool _lcdWasEnabled = true;
+
     /// <summary>Raised when the PPU transitions from Drawing to HBlank. Used by HDMA.</summary>
     public event Action? HBlankEntered;
 
@@ -72,7 +76,27 @@ public sealed class Ppu
             LY = 0;
             Dot = 0;
             Mode = PpuMode.HBlank;
+            _lcdWasEnabled = false;
             return;
+        }
+
+        if (!_lcdWasEnabled)
+        {
+            // Rising edge: the LCD was just switched back on. Real hardware
+            // starts a fresh frame at line 0 in OAM scan (mode 2) — nothing
+            // carries over from before the LCD was disabled (Pan Docs,
+            // "Enabling and disabling the LCD"). Without this reset the mode
+            // stays stuck at the HBlank forced above and its next 456-dot
+            // rollover increments LY straight to 1 without ever re-running an
+            // OAM scan for line 0.
+            LY = 0;
+            Dot = 0;
+            Mode = PpuMode.OamScan;
+            _windowLineCounter = 0;
+            _windowTriggeredThisLine = false;
+            _initialDiscardDone = false;
+            _fifo.Reset();
+            _lcdWasEnabled = true;
         }
 
         switch (Mode)
@@ -561,6 +585,7 @@ public sealed class Ppu
         _windowTriggeredThisLine = false;
         _initialDiscardDone = false;
         _prevStatLine = false;
+        _lcdWasEnabled = (LCDC & LcdControl.LcdEnable) != 0;
     }
 
     public void WriteState(StateWriter w)
@@ -583,6 +608,7 @@ public sealed class Ppu
         w.WriteBool(_windowTriggeredThisLine);
         w.WriteBool(_initialDiscardDone);
         w.WriteBool(_prevStatLine);
+        w.WriteBool(_lcdWasEnabled);
         BgPalette.WriteState(w);
         ObjPalette.WriteState(w);
 
@@ -625,6 +651,7 @@ public sealed class Ppu
         _windowTriggeredThisLine = r.ReadBool();
         _initialDiscardDone = r.ReadBool();
         _prevStatLine = r.ReadBool();
+        _lcdWasEnabled = r.ReadBool();
         BgPalette.ReadState(r);
         ObjPalette.ReadState(r);
 

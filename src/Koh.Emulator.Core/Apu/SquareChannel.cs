@@ -44,11 +44,22 @@ public sealed class SquareChannel
 
     public void TickEnvelope() => Envelope.Tick();
 
-    public void TickSweep()
+    /// <summary>
+    /// Clocked by the frame sequencer's 128 Hz sweep event. <paramref name="nr10"/>
+    /// is the CURRENT (live) NR10 byte: period/shift/direction are re-read
+    /// from it every time the sweep timer fires, not cached from trigger.
+    /// Returns the new frequency when the sweep wrote one back, so the
+    /// caller can also mirror it into the NR13/NR14 register storage (a
+    /// later trigger with no NR13 rewrite must see the swept frequency, not
+    /// the original written value — Blargg dmg_sound 05: "Subtract mode uses
+    /// two's complement").
+    /// </summary>
+    public int? TickSweep(byte nr10)
     {
-        var newFreq = Sweep?.Tick(() => Enabled = false);
+        var newFreq = Sweep?.Tick(nr10, () => Enabled = false);
         if (newFreq is int f)
             Frequency = f;
+        return newFreq;
     }
 
     public int Output()
@@ -59,17 +70,34 @@ public sealed class SquareChannel
         return dutyValue * Envelope.Volume;
     }
 
-    public void Trigger(byte nrx0, byte nrx1, byte nrx2, byte nrx3, byte nrx4)
+    public void Trigger(
+        byte nrx0,
+        byte nrx1,
+        byte nrx2,
+        byte nrx3,
+        byte nrx4,
+        bool lengthSkipsNext = false
+    )
     {
         Enabled = true;
-        Length.Counter = Length.MaxLength - (nrx1 & 0x3F);
         Length.Enabled = (nrx4 & 0x40) != 0;
+        // Trigger only reloads the length counter when it has run out; a
+        // running counter is left untouched (Blargg dmg_sound 02: "Trigger
+        // shouldn't affect length"). If the reload coincides with a frame
+        // sequencer step that won't clock length next, the obscure extra-clock
+        // quirk immediately consumes one count (63/255 instead of 64/256).
+        if (Length.Counter == 0)
+        {
+            Length.Counter = Length.MaxLength;
+            if (Length.Enabled && lengthSkipsNext)
+                Length.Counter--;
+        }
         Frequency = ((nrx4 & 0x07) << 8) | nrx3;
         Envelope.Trigger(nrx2);
         DutyPattern = (nrx1 >> 6) & 0x03;
         _freqCycleCounter = (2048 - Frequency) * 4;
         if (HasSweep)
-            Sweep!.Trigger(nrx0, Frequency);
+            Sweep!.Trigger(nrx0, Frequency, () => Enabled = false);
         // DAC disabled (NRx2 bits 3..7 all zero) → trigger immediately disables
         // the channel. Per pandocs APU channel DAC behaviour.
         if ((nrx2 & 0xF8) == 0)

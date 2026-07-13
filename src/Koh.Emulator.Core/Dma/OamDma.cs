@@ -70,6 +70,17 @@ public sealed class OamDma
     private void TransferByte()
     {
         ushort src = (ushort)((SourceHighByte << 8) | _byteIndex);
+
+        // Hardware quirk (Mooneye acceptance/oam_dma/sources-GS): the OAM DMA
+        // source address decoder doesn't fully decode the top of the memory
+        // map. A source in $E000-$FFFF (echo RAM, OAM, unmapped, I/O, HRAM,
+        // IE) all alias into WRAM $C000-$DFFF by dropping address bit 13,
+        // same as the ordinary $E000-$FDFF echo — DMA just applies it over
+        // the whole top quarter instead of stopping at $FDFF. Below $E000 the
+        // regular bus decode (ROM/VRAM/cart RAM/WRAM) is already correct.
+        if (src >= 0xE000)
+            src &= 0xDFFF;
+
         byte value = _mmu.ReadByteDirect(src);
         _mmu.OamArray[_byteIndex] = value;
     }

@@ -164,41 +164,63 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
         ServiceInterrupts();
     }
 
+    /// <summary>
+    /// Dispatch is 5 M-cycles on real hardware: 2 internal, 2 stack writes, 1
+    /// PC reload. Which interrupt (if any) actually gets serviced is decided
+    /// TWICE: once up front just to know a dispatch sequence is starting at
+    /// all, and — critically — a SECOND time after the high-PC-byte push,
+    /// because that push can itself land on $FFFF and clobber IE (Mooneye
+    /// acceptance/interrupts/ie_push). The second read of IE&amp;IF is what
+    /// actually decides the serviced vector and which IF bit gets cleared;
+    /// a push that cancels every pending source redirects PC to $0000
+    /// instead of jumping to a vector (and leaves IF untouched). The
+    /// low-PC-byte push can also clobber IE the same way, but by then the
+    /// vector/IF-clear decision is already locked in, so it can't change the
+    /// outcome — only IE's resting value afterwards.
+    /// </summary>
     private void ServiceInterrupts()
     {
         if (!Ime)
             return;
-        byte pending = (byte)(_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F);
-        if (pending == 0)
+        byte gatePending = (byte)(_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F);
+        if (gatePending == 0)
             return;
 
-        int bit = 0;
-        byte mask = pending;
-        while ((mask & 1) == 0)
-        {
-            mask >>= 1;
-            bit++;
-        }
-
-        _mmu.Io.Interrupts.IF &= (byte)~(1 << bit);
         Ime = false;
         Halted = false;
 
-        // Dispatch is 5 M-cycles on real hardware:
-        //   2 internal, 2 stack writes, 1 PC reload.
         TickMCycle();
         TickMCycle();
 
+        // Push PC high byte — may land on $FFFF and overwrite IE.
         Registers.Sp = (ushort)(Registers.Sp - 1);
         TickMCycle();
         _mmu.WriteByte(Registers.Sp, (byte)(Registers.Pc >> 8));
 
+        // Re-evaluate now that IE may have just changed. This decides both
+        // the destination vector and which IF bit (if any) gets cleared.
+        byte selected = (byte)(_mmu.Io.Interrupts.IF & _mmu.Io.Interrupts.IE & 0x1F);
+        int bit = -1;
+        if (selected != 0)
+        {
+            bit = 0;
+            byte mask = selected;
+            while ((mask & 1) == 0)
+            {
+                mask >>= 1;
+                bit++;
+            }
+            _mmu.Io.Interrupts.IF &= (byte)~(1 << bit);
+        }
+
+        // Push PC low byte — may also land on $FFFF, but too late to affect
+        // the vector/IF decision already made above.
         Registers.Sp = (ushort)(Registers.Sp - 1);
         TickMCycle();
         _mmu.WriteByte(Registers.Sp, (byte)(Registers.Pc & 0xFF));
 
         TickMCycle();
-        Registers.Pc = (ushort)(0x40 + bit * 8);
+        Registers.Pc = bit >= 0 ? (ushort)(0x40 + bit * 8) : (ushort)0x0000;
     }
 
     // ─────────────────────────────────────────────────────────────

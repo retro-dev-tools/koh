@@ -66,4 +66,15 @@ public class MmuTests
         mmu.WriteByte(0xFFFF, 0xFF);
         await Assert.That(mmu.ReadByte(0xFFFF)).IsEqualTo((byte)0xFF);
     }
+
+    [Test]
+    public async Task Rp_Register_Reads_FF_On_Dmg_Regardless_Of_Write()
+    {
+        // $FF56 (RP, infrared port) is CGB-only; on DMG/SGB it is unmapped and
+        // must read back $FF no matter what was written (Mooneye
+        // acceptance/bits/unused_hwio-GS.gb).
+        var mmu = MakeMmu();
+        mmu.WriteByte(0xFF56, 0x00);
+        await Assert.That(mmu.ReadByte(0xFF56)).IsEqualTo((byte)0xFF);
+    }
 }

@@ -163,4 +163,210 @@ public class ApuTests
         for (int i = 0; i < 16; i++)
             await Assert.That(apu.Read((ushort)(0xFF30 + i))).IsEqualTo((byte)(0xA0 + i));
     }
+
+    // --- Blargg dmg_sound quirks ---------------------------------------
+
+    [Test]
+    public async Task Trigger_Does_Not_Reload_Running_Length_Counter()
+    {
+        // Blargg dmg_sound 02 "Trigger shouldn't affect length": a running
+        // (non-zero) length counter must survive a retrigger untouched.
+        var ch = new SquareChannel(hasSweep: false);
+        ch.Length.Counter = 10;
+        ch.Trigger(nrx0: 0, nrx1: 0, nrx2: 0xF0, nrx3: 0, nrx4: 0x80);
+        await Assert.That(ch.Length.Counter).IsEqualTo(10);
+    }
+
+    [Test]
+    public async Task Trigger_Reloads_Length_To_Max_When_Counter_Is_Zero()
+    {
+        var ch = new SquareChannel(hasSweep: false);
+        ch.Length.Counter = 0;
+        ch.Trigger(nrx0: 0, nrx1: 0, nrx2: 0xF0, nrx3: 0, nrx4: 0x80);
+        await Assert.That(ch.Length.Counter).IsEqualTo(64);
+    }
+
+    [Test]
+    public async Task Trigger_Reloads_Length_To_MaxMinusOne_When_Step_Skips_Length_And_Enabled()
+    {
+        var ch = new SquareChannel(hasSweep: false);
+        ch.Length.Counter = 0;
+        // nrx4 bit6 (0x40) enables length; lengthSkipsNext=true models the
+        // extra-clock quirk firing on the very same trigger write.
+        ch.Trigger(nrx0: 0, nrx1: 0, nrx2: 0xF0, nrx3: 0, nrx4: 0xC0, lengthSkipsNext: true);
+        await Assert.That(ch.Length.Counter).IsEqualTo(63);
+    }
+
+    [Test]
+    public async Task Nrx4_Enabling_Length_On_Skipped_Step_Extra_Clocks_And_Can_Disable()
+    {
+        // Blargg dmg_sound 02/07: enabling length (0->1) on a NRx4 write
+        // whose next frame-sequencer step would NOT clock length steals one
+        // count immediately; if that reaches zero and it's not also a
+        // trigger, the channel disables right away.
+        var apu = new Koh.Emulator.Core.Apu.Apu();
+        apu.Write(0xFF26, 0x80); // power on
+        apu.Write(0xFF12, 0xF0); // DAC on
+        apu.Write(0xFF14, 0x80); // trigger, length disabled; Length.Counter -> 64
+        apu.Ch1.Length.Counter = 1;
+        apu.FrameSequencer.Step = 0; // even step -> next step (odd) skips length
+
+        apu.Write(0xFF14, 0x40); // enable length only (no trigger)
+
+        await Assert.That(apu.Ch1.Length.Counter).IsEqualTo(0);
+        await Assert.That((apu.Read(0xFF26) & 0x01)).IsEqualTo(0); // channel 1 off
+    }
+
+    [Test]
+    public async Task PowerOff_Resets_DutyStep_But_Not_Length_Counter()
+    {
+        var apu = new Koh.Emulator.Core.Apu.Apu();
+        apu.Write(0xFF26, 0x80);
+        apu.Write(0xFF12, 0xF0);
+        apu.Write(0xFF14, 0x80);
+        apu.Ch1.DutyStep = 5;
+        apu.Ch1.Length.Counter = 30;
+
+        apu.Write(0xFF26, 0x00); // power off
+
+        await Assert.That(apu.Ch1.DutyStep).IsEqualTo(0);
+        await Assert.That(apu.Ch1.Length.Counter).IsEqualTo(30);
+    }
+
+    [Test]
+    public async Task Sweep_Overflow_Check_Runs_Immediately_On_Trigger_When_Shift_NonZero()
+    {
+        // Blargg dmg_sound 06 "overflow on trigger": shift != 0 must run the
+        // overflow check at trigger time, disabling the channel immediately
+        // if the shadow frequency already overflows.
+        var ch = new SquareChannel(hasSweep: true);
+        // NR10 = period 1, shift 2, increase: freq 0x7FF (2047) overflows on
+        // the very first shift-by-2 addition.
+        ch.Trigger(nrx0: 0x12, nrx1: 0, nrx2: 0xF0, nrx3: 0xFF, nrx4: 0x87);
+        await Assert.That(ch.Enabled).IsFalse();
+    }
+
+    [Test]
+    public async Task Sweep_Period_Zero_Skips_Periodic_Calculation()
+    {
+        // Blargg dmg_sound 04 "If calculation<=$7FF, doesn't disable
+        // channel"/"If period=0, doesn't calculate": a period-0 sweep still
+        // clocks its (period-treated-as-8) timer but performs no calculation
+        // or overflow check while doing so.
+        var ch = new SquareChannel(hasSweep: true);
+        // NR10 = period 0, shift 1, increase; freq 1023 is safe for the
+        // trigger-time immediate check (1023 + 511 = 1534 <= 2047) but would
+        // overflow after a couple of real periodic doublings if the periodic
+        // clock were allowed to calculate with period == 0.
+        ch.Trigger(nrx0: 0x01, nrx1: 0, nrx2: 0xF0, nrx3: 0xFF, nrx4: 0x83);
+        await Assert.That(ch.Enabled).IsTrue();
+        for (int i = 0; i < 64; i++)
+            ch.Sweep!.Tick(nr10: 0x01, disableChannel: () => ch.Enabled = false);
+        await Assert.That(ch.Enabled).IsTrue();
+    }
+
+    [Test]
+    public async Task Sweep_Reads_Shift_And_Period_Live_From_Nr10_Not_Cached_At_Trigger()
+    {
+        // Blargg dmg_sound 05 "period and shift can be changed without
+        // channel disabling": a plain NR10 write with no retrigger changes
+        // subsequent periodic sweep behavior.
+        var ch = new SquareChannel(hasSweep: true);
+        // Trigger with shift=0 (no calculation possible at all), period=1.
+        ch.Trigger(nrx0: 0x10, nrx1: 0, nrx2: 0xF0, nrx3: 0xFF, nrx4: 0x87); // freq 0x7FF
+        await Assert.That(ch.Enabled).IsTrue();
+
+        // Now a bare NR10 write raises shift to a value that WILL overflow on
+        // the next periodic tick, without any new trigger.
+        ch.Sweep!.Tick(nr10: 0x11, disableChannel: () => ch.Enabled = false);
+        await Assert.That(ch.Enabled).IsFalse();
+    }
+
+    [Test]
+    public async Task Sweep_Exiting_Negate_After_Calculation_Disables_Channel()
+    {
+        // Blargg dmg_sound 05 "Exiting negate mode after calculation
+        // disables channel".
+        var ch = new SquareChannel(hasSweep: true);
+        // shift=1 (nonzero) so the immediate trigger-time calculation runs in
+        // negate mode (nrx0 bit3 set).
+        ch.Trigger(nrx0: 0x09, nrx1: 0, nrx2: 0xF0, nrx3: 0, nrx4: 0x80);
+        await Assert.That(ch.Enabled).IsTrue();
+
+        // Clearing the negate bit (direction bit3 -> 0) after that
+        // subtraction calculation disables the channel immediately.
+        ch.Sweep!.OnNr10Write(nr10: 0x10, disableChannel: () => ch.Enabled = false);
+        await Assert.That(ch.Enabled).IsFalse();
+    }
+
+    [Test]
+    public async Task WaveChannel_Trigger_Delays_Playback_By_One_Sample()
+    {
+        // Pan Docs "access order"/"playback delay": retriggering does not
+        // refill the sample buffer, and the first sample actually read after
+        // a trigger is index 1 (not index 0).
+        var ch = new WaveChannel();
+        ch.WavePattern[0] = 0xAB; // nibble0 = 0xA, nibble1 = 0xB
+        ch.Trigger(nr30: 0x80, nr31: 0, nr32: 0x20, nr33: 0, nr34: 0x80);
+        // Immediately after trigger, output reflects the STALE buffer (0 for
+        // a freshly constructed channel), not the newly-triggered position.
+        await Assert.That(ch.Output()).IsEqualTo(0);
+        // First tick to complete a period reads sample index 1 (low nibble
+        // of byte 0), not index 0.
+        for (int i = 0; i < 4096; i++)
+            ch.TickT();
+        await Assert.That(ch.Output()).IsEqualTo(0x0B);
+    }
+
+    [Test]
+    public async Task WaveChannel_Retrigger_While_Reading_Corrupts_First_Four_Bytes()
+    {
+        // Blargg dmg_sound 10 / Pan Docs DMG wave-trigger-corruption: if a
+        // retrigger lands on the exact cycle CH3 is reading a byte from one
+        // of the LATER 12 bytes, the corruption copies that byte's aligned
+        // 4-byte block over bytes 0-3.
+        var ch = new WaveChannel();
+        for (int i = 0; i < 16; i++)
+            ch.WavePattern[i] = (byte)(i * 0x11);
+        ch.Trigger(nr30: 0x80, nr31: 0, nr32: 0x20, nr33: 0, nr34: 0x80);
+        for (int i = 0; i < 4096; i++)
+            ch.TickT(); // advance until a sample has just been latched
+
+        // Force the channel to be mid-read at byte index 9 (one of the
+        // "later 12 bytes"), then retrigger on that exact cycle.
+        typeof(WaveChannel)
+            .GetField(
+                "_waveIndex",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
+            )!
+            .SetValue(ch, 18); // waveIndex 18 -> byte 9
+        typeof(WaveChannel)
+            .GetField(
+                "_justReadCountdown",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
+            )!
+            .SetValue(ch, 1);
+
+        ch.Trigger(nr30: 0x80, nr31: 0, nr32: 0x20, nr33: 0, nr34: 0x80);
+
+        await Assert.That(ch.WavePattern[0]).IsEqualTo((byte)(8 * 0x11));
+        await Assert.That(ch.WavePattern[1]).IsEqualTo((byte)(9 * 0x11));
+        await Assert.That(ch.WavePattern[2]).IsEqualTo((byte)(10 * 0x11));
+        await Assert.That(ch.WavePattern[3]).IsEqualTo((byte)(11 * 0x11));
+    }
+
+    [Test]
+    public async Task WaveRam_Access_While_Channel_On_Redirects_To_Current_Byte()
+    {
+        var apu = new Koh.Emulator.Core.Apu.Apu();
+        apu.Write(0xFF26, 0x80);
+        for (int i = 0; i < 16; i++)
+            apu.Write((ushort)(0xFF30 + i), (byte)(i * 0x11));
+        apu.Write(0xFF1A, 0x80); // DAC on
+        apu.Write(0xFF1E, 0x87); // trigger CH3
+
+        // Immediately after trigger (not mid-read), access is outside the
+        // narrow window and reads back $FF regardless of address.
+        await Assert.That(apu.Read(0xFF35)).IsEqualTo((byte)0xFF);
+    }
 }

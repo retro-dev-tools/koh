@@ -63,4 +63,33 @@ public class OamDmaTests
         byte result = gb.Mmu.ReadByte(0xFF90);
         await Assert.That(result).IsEqualTo((byte)0x42);
     }
+
+    /// <summary>
+    /// Hardware quirk (Mooneye acceptance/oam_dma/sources-GS): a DMA source in
+    /// $E000-$FFFF (echo/OAM/unmapped/IO/HRAM) aliases into WRAM $C000-$DFFF
+    /// by dropping address bit 13, rather than reading through the normal bus
+    /// decode for OAM/IO/HRAM.
+    /// </summary>
+    [Test]
+    [Arguments((ushort)0xE000, (ushort)0xC000)] // plain echo
+    [Arguments((ushort)0xFE00, (ushort)0xDE00)] // aliases into WRAM, not OAM itself
+    [Arguments((ushort)0xFF00, (ushort)0xDF00)] // aliases into WRAM, not I/O
+    public async Task Dma_From_High_Source_Aliases_Into_Wram(
+        ushort source,
+        ushort expectedWramAlias
+    )
+    {
+        var gb = MakeSystem();
+        for (int i = 0; i < 0xA0; i++)
+            gb.Mmu.WriteByte((ushort)(expectedWramAlias + i), (byte)(0x80 + i));
+
+        gb.Mmu.WriteByte(0xFF46, (byte)(source >> 8));
+        for (int i = 0; i < 648; i++)
+            gb.OamDma.TickT();
+
+        for (int i = 0; i < 0xA0; i++)
+        {
+            await Assert.That(gb.Mmu.OamArray[i]).IsEqualTo((byte)(0x80 + i));
+        }
+    }
 }

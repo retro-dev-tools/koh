@@ -44,10 +44,15 @@ public sealed class NoiseChannel
         return (~ShiftRegister & 1) * Envelope.Volume;
     }
 
-    public void Trigger(byte nr41, byte nr42, byte nr43, byte nr44)
+    public void Trigger(byte nr41, byte nr42, byte nr43, byte nr44, bool lengthSkipsNext = false)
     {
-        Length.Counter = Length.MaxLength - (nr41 & 0x3F);
         Length.Enabled = (nr44 & 0x40) != 0;
+        if (Length.Counter == 0)
+        {
+            Length.Counter = Length.MaxLength;
+            if (Length.Enabled && lengthSkipsNext)
+                Length.Counter--;
+        }
         Envelope.Trigger(nr42);
         ClockShift = (nr43 >> 4) & 0x0F;
         WidthMode = (nr43 & 0x08) != 0;

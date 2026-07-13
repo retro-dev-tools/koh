@@ -68,4 +68,33 @@ public class PpuModeTimingTests
         Tick(gb, 154 * 456);
         await Assert.That(gb.Ppu.LY).IsEqualTo((byte)0);
     }
+
+    [Test]
+    public async Task Reenabling_Lcd_Starts_A_Fresh_Frame_At_OamScan()
+    {
+        // Advance mid-scanline, disable, tick a while (forced LY=0/HBlank per
+        // Pan Docs "Enabling and disabling the LCD"), then re-enable. Real
+        // hardware begins a fresh frame at line 0 in mode 2 (OAM scan) rather
+        // than resuming wherever HBlank's forced state was left.
+        var gb = MakeSystem();
+        byte enabledLcdc = LcdControl.LcdEnable | LcdControl.BgWindowEnableOrPriority;
+        gb.Ppu.LCDC = enabledLcdc;
+
+        Tick(gb, 200); // mid-scanline, well into Drawing/HBlank territory
+
+        gb.Ppu.LCDC = LcdControl.BgWindowEnableOrPriority; // LCD off
+        Tick(gb, 1000); // several forced-off ticks; would roll LY over if buggy
+
+        await Assert.That(gb.Ppu.LY).IsEqualTo((byte)0);
+
+        gb.Ppu.LCDC = enabledLcdc; // re-enable
+        Tick(gb, 1); // the rising-edge tick itself
+
+        await Assert.That(gb.Ppu.LY).IsEqualTo((byte)0);
+        await Assert.That(gb.Ppu.Mode).IsEqualTo(PpuMode.OamScan);
+
+        // And the fresh frame still times out normally from here.
+        Tick(gb, 455);
+        await Assert.That(gb.Ppu.LY).IsEqualTo((byte)1);
+    }
 }

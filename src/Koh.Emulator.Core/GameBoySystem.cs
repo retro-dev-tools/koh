@@ -47,6 +47,11 @@ public sealed class GameBoySystem
         Mmu.AttachPpu(Ppu);
         Hdma = new Hdma(Mmu);
         Ppu.HBlankEntered += Hdma.OnHBlankEntered;
+        // Real hardware clocks the APU frame sequencer from the falling edge
+        // of a fixed bit of the shared Timer's internal counter (DIV-APU),
+        // not an independent counter — so a DIV write (which resets that
+        // counter) can force a known frame-sequencer phase.
+        Timer.FrameSequencerFallingEdge += Apu.FrameSequencer.Advance;
         Io.AttachPpu(Ppu);
         Io.AttachHdma(Hdma);
         Io.AttachKeyOne(KeyOne);
@@ -117,7 +122,7 @@ public sealed class GameBoySystem
         // same wall-clock rate as normal speed.
         for (int t = 0; t < 4; t++)
         {
-            Timer.TickT(ref Io.Interrupts);
+            Timer.TickT(ref Io.Interrupts, Clock.DoubleSpeed);
             OamDma.TickT();
             if (Hdma.Active)
                 Hdma.TickT();

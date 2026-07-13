@@ -165,6 +165,12 @@ public sealed class IoRegisters
             case 0xFF55:
                 return IsCgb ? (_hdma?.ReadLengthRegister() ?? 0xFF) : (byte)0xFF;
 
+            // RP ($FF56, infrared port): CGB-only; unmapped on DMG/SGB (reads
+            // $FF). Not otherwise implemented (no IR peer) — bits 2-5 are
+            // reserved (read 1) even on CGB.
+            case 0xFF56:
+                return IsCgb ? (byte)(_io[idx] | 0x3C) : (byte)0xFF;
+
             case 0xFF68:
                 return IsCgb && _ppu is not null ? _ppu.BgPalette.IndexRegister : (byte)0xFF;
             case 0xFF69:
