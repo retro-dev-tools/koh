@@ -35,6 +35,18 @@ public sealed class Timer
     public byte TMA => _tma;
     public byte TAC => _tac;
 
+    /// <summary>
+    /// The DIV-APU tap bit's CURRENT level (bit 12 at normal speed, bit 13 in
+    /// CGB double-speed), independent of APU power. Powering the APU on while
+    /// this bit is already high glitches real hardware into skipping the next
+    /// DIV-APU falling edge entirely (Pan Docs / SameBoy `GB_apu_init`: "APU
+    /// glitch: When turning the APU on while DIV's bit 4 is on, the first
+    /// DIV/APU event is skipped") -- the caller (Apu, via GameBoySystem's
+    /// wiring) reads this at the moment NR52 powers on to decide whether to
+    /// arm that skip.
+    /// </summary>
+    public bool DivApuBitHigh => _lastDivApuBit;
+
     private static int DivApuBit(bool doubleSpeed) => doubleSpeed ? 13 : 12;
 
     public void WriteDiv()

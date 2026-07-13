@@ -24,6 +24,13 @@ public sealed class Apu
 
     private int _sampleAccum;
 
+    /// <summary>
+    /// Set once by GameBoySystem to Timer's <c>DivApuBitHigh</c>: lets
+    /// NR52's power-on handler check the DIV-APU tap bit's current level
+    /// without Apu taking a hard dependency on Timer.
+    /// </summary>
+    public Func<bool>? DivApuBitHighProvider;
+
     public AudioSampleBuffer SampleBuffer { get; } = new();
 
     public Apu()
@@ -354,6 +361,19 @@ public sealed class Apu
                 bool newEnabled = (value & 0x80) != 0;
                 if (!newEnabled && Enabled)
                     PowerOff();
+                if (newEnabled && !Enabled && DivApuBitHighProvider?.Invoke() == true)
+                {
+                    // "APU glitch: when turning the APU on while DIV's bit 4
+                    // (bit 12 of the internal counter; bit 5/13 in CGB double
+                    // speed) is on, the first DIV/APU event is skipped" (Pan
+                    // Docs obscure behavior / SameBoy GB_apu_init). That
+                    // pushes the next Length/Sweep/Envelope tick out by a
+                    // full extra ~8192 T-cycle DIV-APU period -- dmg_sound
+                    // 07 subtest 5 ("Powering up APU MODs next frame time
+                    // with 8192") retriggers right after a power-on and
+                    // measures exactly this.
+                    FrameSequencer.SkipNext = true;
+                }
                 Enabled = newEnabled;
                 break;
             }
@@ -432,6 +452,7 @@ public sealed class Apu
         w.WriteBytes(Ch3.WavePattern);
         w.WriteI32(_sampleAccum);
         w.WriteI32(FrameSequencer.Step);
+        w.WriteBool(FrameSequencer.SkipNext);
         // Channel live-state (enable + envelope volume) to resume audibly.
         w.WriteBool(Ch1.Enabled);
         w.WriteI32(Ch1.Envelope.Volume);
@@ -470,6 +491,7 @@ public sealed class Apu
         r.ReadBytes(Ch3.WavePattern.AsSpan());
         _sampleAccum = r.ReadI32();
         FrameSequencer.Step = r.ReadI32();
+        FrameSequencer.SkipNext = r.ReadBool();
         Ch1.Enabled = r.ReadBool();
         Ch1.Envelope.Volume = r.ReadI32();
         Ch1.Frequency = r.ReadI32();

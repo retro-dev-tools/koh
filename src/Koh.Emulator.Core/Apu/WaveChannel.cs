@@ -19,13 +19,21 @@ public sealed class WaveChannel
     // sample period (Pan Docs "playback delay" / "access order").
     private int _sampleBuffer;
 
-    // Counts down from 2 the T-cycle a sample is latched; while non-zero,
-    // wave RAM is accessible to the CPU. On DMG, wave RAM is only accessible
-    // during the couple of T-cycles the channel itself is reading it; used
-    // both for the FF30-FF3F access quirk and the trigger-time corruption
-    // quirk. Real hardware's read pulse is a couple of T-cycles wide, and the
-    // bus commits CPU reads/writes at the END of the M-cycle (see
-    // Sm83.ReadByte/WriteByte), so a 1-cycle window would miss real hits.
+    // Nonzero only during the exact T-cycle the channel itself latches a
+    // wave RAM sample; while nonzero, wave RAM is accessible to the CPU. On
+    // DMG, wave RAM is only accessible "on the same cycle that CH3 does"
+    // (Pan Docs, Sound Controller "Obscure Behavior"/wave access notes) --
+    // a single-T-cycle pulse, not a multi-cycle window. Sm83.ReadByte/
+    // WriteByte tick peripherals for the whole M-cycle (4 T-cycles) BEFORE
+    // committing the CPU's access, so the CPU's read only ever observes the
+    // state as of the LAST T-cycle of its own M-cycle; a width-1 pulse set
+    // the instant the fetch happens and cleared by the very next TickT call
+    // reproduces "same cycle" exactly -- it survives to the CPU's access
+    // only when the fetch itself happened on that M-cycle's final T-cycle.
+    // (A wider window, tried previously, is wrong: for periods <= 4 T-cycles
+    // -- reachable via NR33/NR34, e.g. dmg_sound 09/10/12's period-4 case --
+    // a width-4 window never closes, so JustRead was permanently true and
+    // FF30-FF3F reads never saw the "locked out" $FF the ROMs check for.)
     private int _justReadCountdown;
 
     public int CurrentBytePosition => _waveIndex / 2;
@@ -55,7 +63,7 @@ public sealed class WaveChannel
         _waveIndex = (_waveIndex + 1) & 31;
         int sampleByte = WavePattern[_waveIndex / 2];
         _sampleBuffer = (_waveIndex & 1) == 0 ? (sampleByte >> 4) : (sampleByte & 0x0F);
-        _justReadCountdown = 4;
+        _justReadCountdown = 1;
     }
 
     public void TickLength() => Length.Tick(() => Enabled = false);

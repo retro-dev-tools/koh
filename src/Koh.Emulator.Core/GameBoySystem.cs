@@ -52,6 +52,7 @@ public sealed class GameBoySystem
         // not an independent counter — so a DIV write (which resets that
         // counter) can force a known frame-sequencer phase.
         Timer.FrameSequencerFallingEdge += Apu.FrameSequencer.Advance;
+        Apu.DivApuBitHighProvider = () => Timer.DivApuBitHigh;
         Io.AttachPpu(Ppu);
         Io.AttachHdma(Hdma);
         Io.AttachKeyOne(KeyOne);
