@@ -29,7 +29,31 @@ public sealed class CgbPalette
         return (ushort)(_data[offset] | (_data[offset + 1] << 8));
     }
 
+    /// <summary>Sets the 15-bit BGR555 color for a given palette index and color slot.</summary>
+    public void SetColor(int paletteIndex, int colorSlot, ushort bgr555)
+    {
+        int offset = paletteIndex * 8 + colorSlot * 2;
+        _data[offset] = (byte)bgr555;
+        _data[offset + 1] = (byte)(bgr555 >> 8);
+    }
+
     public ReadOnlySpan<byte> RawData => _data;
+
+    /// <summary>
+    /// Sets every color slot to white ($7FFF, BGR555). The real CGB boot ROM
+    /// fades all BG palettes to white before handing off to the cartridge
+    /// (Pan Docs, "Power-Up Sequence" — Color models behavior), so a CGB
+    /// program that hasn't written its own palette yet sees a blank white
+    /// screen, matching hardware/mGBA instead of black.
+    /// </summary>
+    public void FillWhite()
+    {
+        for (int i = 0; i < _data.Length; i += 2)
+        {
+            _data[i] = 0xFF;
+            _data[i + 1] = 0x7F;
+        }
+    }
 
     public void WriteState(State.StateWriter w)
     {

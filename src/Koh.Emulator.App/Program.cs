@@ -52,14 +52,10 @@ var runner = new Runner<EmulatorModel, EmulatorMsg>(
 
 // Load the ROM synchronously and seed the runner before the window
 // opens — that way the initial render already has the hardware booted
-// and we don't paint a frame with the grey placeholder.
-// .gbc → CGB, everything else → DMG. Covers the common case without
-// needing to parse the cartridge header for the pick; CartridgeFactory
-// still validates header + MBC shape.
-var mode = string.Equals(Path.GetExtension(romPath), ".gbc", StringComparison.OrdinalIgnoreCase)
-    ? HardwareMode.Cgb
-    : HardwareMode.Dmg;
-runner.Dispatch(EmulatorApp.LoadRomFromDisk(romPath, mode));
+// and we don't paint a frame with the grey placeholder. Hardware mode
+// (DMG vs CGB) comes from the cartridge header's CGB flag inside
+// LoadRomFromDisk, matching what a real Game Boy Color would do.
+runner.Dispatch(EmulatorApp.LoadRomFromDisk(romPath));
 
 var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
     runner,

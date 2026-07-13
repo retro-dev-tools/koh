@@ -172,14 +172,7 @@ public static class EmulatorApp
         // enough to be unnoticeable.
         if (m.RomPath is null)
             return m;
-        var mode = string.Equals(
-            Path.GetExtension(m.RomPath),
-            ".gbc",
-            StringComparison.OrdinalIgnoreCase
-        )
-            ? HardwareMode.Cgb
-            : HardwareMode.Dmg;
-        var msg = LoadRomFromDisk(m.RomPath, mode);
+        var msg = LoadRomFromDisk(m.RomPath);
         return msg is LoadRomSucceeded ok ? OnLoadSuccess(m with { Status = "Reset" }, ok) : m;
     }
 
@@ -549,14 +542,7 @@ public static class EmulatorApp
         string? path = FileDialog.OpenRom();
         if (path is null)
             return new Noop();
-        var mode = string.Equals(
-            Path.GetExtension(path),
-            ".gbc",
-            StringComparison.OrdinalIgnoreCase
-        )
-            ? HardwareMode.Cgb
-            : HardwareMode.Dmg;
-        return LoadRomFromDisk(path, mode);
+        return LoadRomFromDisk(path);
     }
 
     private static readonly byte[] s_placeholder = BuildPlaceholder();
@@ -574,13 +560,23 @@ public static class EmulatorApp
         return buf;
     }
 
-    public static EmulatorMsg LoadRomFromDisk(string path, HardwareMode mode)
+    public static EmulatorMsg LoadRomFromDisk(string path)
     {
         try
         {
             var bytes = File.ReadAllBytes(path);
             var cart = CartridgeFactory.Load(bytes);
+            // Pick the hardware the way a real Game Boy Color would: a cartridge
+            // whose header sets the CGB flag ($0143 bit 7) boots in CGB mode
+            // regardless of file extension. mGBA selects the same way.
+            var mode = cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg;
             var system = new GameBoySystem(mode, cart);
+            // The interactive App is the one caller that opts into the visible
+            // HLE boot sequence (logo scroll + chime) GameBoySystem can play
+            // before the cartridge starts — off by default everywhere else
+            // (tests, the debugger, headless tooling) since they expect
+            // PC=$0100 to execute starting on the very first frame.
+            system.ArmBootAnimation();
             return new LoadRomSucceeded(system, path);
         }
         catch (Exception ex)
