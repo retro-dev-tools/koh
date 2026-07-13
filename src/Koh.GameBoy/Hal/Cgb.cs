@@ -13,8 +13,17 @@ public static class Cgb
             return false;
         if ((Hardware.KEY1 & 0x80) != 0)
             return true;
+
+        // Pan Docs' canonical speed-switch sequence: a pending/firing interrupt right at STOP can
+        // derail the switch on real hardware, so mask interrupts, deselect the joypad matrix
+        // (P1/JOYP = $30, per Pan Docs) and clear IF before arming KEY1 and executing STOP, then
+        // restore interrupts once the switch has resolved.
+        Hardware.DisableInterrupts();
+        Hardware.JOYP = 0x30;
+        Hardware.IF = 0;
         Hardware.KEY1 = 1;
         Hardware.Stop();
+        Hardware.EnableInterrupts();
         return (Hardware.KEY1 & 0x80) != 0;
     }
 

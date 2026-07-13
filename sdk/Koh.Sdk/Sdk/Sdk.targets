@@ -57,11 +57,36 @@
 
   <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
 
+  <!-- CompileKohRom's Inputs (below) are file-timestamp based, so an MSBuild *property* the task
+       consumes (ProgramName/CgbCompatible - see CompileKohRom.cs's task parameters) doesn't naturally
+       participate: flipping KohCgbCompatible without touching a source file would leave a stale ROM
+       built under the old flag. Standard idiom: stamp the property values to a file that only changes
+       (and so only bumps its timestamp) when their content actually changes, and make that stamp file
+       an Input too. -->
+  <PropertyGroup>
+    <KohRomPropsStampFile>$(IntermediateOutputPath)Koh.CompileKohRom.props.txt</KohRomPropsStampFile>
+  </PropertyGroup>
+
+  <Target Name="_KohWriteRomPropsStamp">
+    <ItemGroup>
+      <_KohRomProps Include="ProgramName=$(AssemblyName)" />
+      <_KohRomProps Include="CgbCompatible=$(KohCgbCompatible)" />
+      <_KohRomProps Include="OutputPath=$(KohRomPath)" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(KohRomPropsStampFile)" Lines="@(_KohRomProps)" Overwrite="true"
+                       WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <FileWrites Include="$(KohRomPropsStampFile)" />
+    </ItemGroup>
+  </Target>
+
   <!-- After the ordinary managed build succeeds, compile the game + framework HAL to a Game Boy ROM.
        The compile task assembly is an Input too, so a change to the compiler/linker/task (not just the
-       game sources) re-emits the ROM instead of leaving a stale one built by the old toolchain. -->
-  <Target Name="CompileKohRom" AfterTargets="Build"
-          Inputs="@(KohSource);@(KohFrameworkSource);$(KohBuildTasksAssembly)"
+       game sources) re-emits the ROM instead of leaving a stale one built by the old toolchain. The
+       props stamp (written just above) makes toggling KohCgbCompatible or renaming the assembly do the
+       same, without a source-file edit. -->
+  <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
+          Inputs="@(KohSource);@(KohFrameworkSource);$(KohBuildTasksAssembly);$(KohRomPropsStampFile)"
           Outputs="$(KohRomPath)">
     <CompileKohRom SourceFiles="@(KohSource);@(KohFrameworkSource)" OutputPath="$(KohRomPath)"
                    ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)" />
