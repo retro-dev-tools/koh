@@ -21,8 +21,32 @@ public sealed partial class Sm83Backend
 
         public void EmitLoad(LoadInstruction l)
         {
-            int dst = _ctx.Slot[l];
             int n = SizeOf(l.Type);
+
+            // Layer 2 (stride-1 pointer residency): this load is the pointer local's own reload from its
+            // fixed WRAM home — the register left behind by the previous iteration (or the preheader
+            // sync, on the first) is already the live value, so there is nothing to emit at all (see
+            // FunctionAllocation's "Loop-pointer register residency" region).
+            if (_ctx.Register.ContainsKey(l) && !_ctx.Slot.ContainsKey(l))
+                return;
+
+            // Layer 2, continued: this load is the pointer's one designated dereference — the fused
+            // opcode both reads through the resident register and advances it to represent `reload + 1`
+            // (the paired gep's value), so that gep needs no separate emission at all either.
+            if (_ctx.FusedPointerSite.TryGetValue(l, out var fusedReg))
+            {
+                if (fusedReg == Mir.Sm83Register.Hl)
+                    _e.U8(0x2A); // LD A, (HL+)
+                else
+                {
+                    _e.U8(0x1A); // LD A, (DE)
+                    _e.U8(0x13); // INC DE   (SM83 has no (de+) addressing mode)
+                }
+                _ctx.StoreResultByte(l, 0);
+                return;
+            }
+
+            int dst = _ctx.Slot[l];
 
             if (_ctx.TryStaticAddr(l.Pointer, out int addr))
             {
@@ -47,6 +71,20 @@ public sealed partial class Sm83Backend
         public void EmitStore(StoreInstruction s)
         {
             int n = SizeOf(s.Value.Type);
+
+            // Layer 2 (stride-1 pointer residency): symmetric with the fused load above.
+            if (_ctx.FusedPointerSite.TryGetValue(s, out var fusedReg))
+            {
+                _ctx.LoadByteToA(s.Value, 0);
+                if (fusedReg == Mir.Sm83Register.Hl)
+                    _e.U8(0x22); // LD (HL+), A
+                else
+                {
+                    _e.U8(0x12); // LD (DE), A
+                    _e.U8(0x13); // INC DE
+                }
+                return;
+            }
 
             if (_ctx.TryStaticAddr(s.Pointer, out int addr))
             {

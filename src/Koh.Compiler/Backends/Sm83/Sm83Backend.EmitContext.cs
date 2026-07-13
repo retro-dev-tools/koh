@@ -26,6 +26,27 @@ public sealed partial class Sm83Backend
 
         public readonly int PhiTempBase;
 
+        /// <summary>Layer-1 loop-induction residency: per preheader block, the one-time register loads
+        /// <see cref="FunctionEmitter"/> must emit right before that block's (unconditional) branch to
+        /// the loop header it precedes. See <see cref="FunctionAllocation.LoopInductionPreheaderSync"/>.</summary>
+        public readonly Dictionary<
+            IrBasicBlock,
+            List<FunctionAllocation.LoopInductionSync>
+        > LoopInductionPreheaderSync;
+
+        /// <summary>Layer-2 pointer residency: see <see cref="FunctionAllocation.FusedPointerSite"/>.
+        /// Consulted by <see cref="MemoryEmitter"/>'s <c>EmitLoad</c>/<c>EmitStore</c>.</summary>
+        public readonly Dictionary<IrInstruction, Mir.Sm83Register> FusedPointerSite;
+
+        /// <summary>Layer-2 pointer residency's preheader sync: see
+        /// <see cref="FunctionAllocation.PointerHomePreheaderSync"/>. Consulted by
+        /// <see cref="FunctionEmitter"/>'s <c>BrInstruction</c> dispatch, alongside
+        /// <see cref="LoopInductionPreheaderSync"/>.</summary>
+        public readonly Dictionary<
+            IrBasicBlock,
+            List<FunctionAllocation.PointerHomeSync>
+        > PointerHomePreheaderSync;
+
         public readonly IReadOnlySet<IrFunction> Recursive;
 
         public readonly IReadOnlySet<IrFunction> Banked;
@@ -75,6 +96,9 @@ public sealed partial class Sm83Backend
             Register = allocation.Register;
             StaticAddr = allocation.StaticAddr;
             PhiTempBase = allocation.PhiTempBase;
+            LoopInductionPreheaderSync = allocation.LoopInductionPreheaderSync;
+            FusedPointerSite = allocation.FusedPointerSite;
+            PointerHomePreheaderSync = allocation.PointerHomePreheaderSync;
             Recursive = recursive;
             Banked = banked ?? System.Collections.Immutable.ImmutableHashSet<IrFunction>.Empty;
             IsEntry = isEntry;
@@ -268,6 +292,18 @@ public sealed partial class Sm83Backend
             }
         }
 
+        /// <summary>Load the 16-bit value currently stored AT a fixed WRAM address into a register pair —
+        /// Layer 2's preheader sync, where the register's initial value must come from memory (a pointer
+        /// local's own home slot) rather than an SSA value's bytes (contrast <see cref="LoadValueIntoRegister"/>,
+        /// which loads a *value*, not a dereference).</summary>
+        public void LoadAddressContentsIntoRegisterPair(int addr, Mir.Sm83Register reg)
+        {
+            LoadAFromAddr(addr);
+            E.U8(AToResidentOpcode(reg, 0));
+            LoadAFromAddr(addr + 1);
+            E.U8(AToResidentOpcode(reg, 1));
+        }
+
         /// <summary><c>LD A, r</c> opcode to read byte <paramref name="k"/> of a resident value (0 = low).
         /// A pair reads its low register for byte 0 and its high register for byte 1.</summary>
         private static byte ResidentToAOpcode(Mir.Sm83Register reg, int k) =>
@@ -280,6 +316,8 @@ public sealed partial class Sm83Backend
                 (Mir.Sm83Register.L, 0) => 0x7D, // LD A, L
                 (Mir.Sm83Register.Hl, 0) => 0x7D, // LD A, L
                 (Mir.Sm83Register.Hl, 1) => 0x7C, // LD A, H
+                (Mir.Sm83Register.De, 0) => 0x7B, // LD A, E
+                (Mir.Sm83Register.De, 1) => 0x7A, // LD A, D
                 _ => throw new NotSupportedException(
                     $"cannot load resident {reg} byte {k} into A."
                 ),
@@ -296,6 +334,8 @@ public sealed partial class Sm83Backend
                 (Mir.Sm83Register.L, 0) => 0x6F, // LD L, A
                 (Mir.Sm83Register.Hl, 0) => 0x6F, // LD L, A
                 (Mir.Sm83Register.Hl, 1) => 0x67, // LD H, A
+                (Mir.Sm83Register.De, 0) => 0x5F, // LD E, A
+                (Mir.Sm83Register.De, 1) => 0x57, // LD D, A
                 _ => throw new NotSupportedException(
                     $"cannot store A into resident {reg} byte {k}."
                 ),

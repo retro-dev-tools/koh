@@ -161,6 +161,7 @@ public sealed partial class Sm83Backend
                     _cf.EmitRet(r);
                     break;
                 case BrInstruction br:
+                    EmitLoopInductionPreheaderSync(block);
                     _cf.EmitBr(block, br);
                     break;
                 case CondBrInstruction cb:
@@ -180,6 +181,39 @@ public sealed partial class Sm83Backend
                         $"MVP SM83 backend does not support '{instr.Mnemonic}' (in '@{_ctx.Fn.Name}')."
                     );
             }
+        }
+
+        /// <summary>Layer 1 (loop-induction register residency — see <c>Sm83FunctionAllocation</c>'s
+        /// "Loop-induction register residency" region): if <paramref name="block"/> is a residency-
+        /// admitted loop's preheader, load each admitted phi's init value into its resident register
+        /// right here, before <see cref="ControlFlowEmitter.EmitBr"/>'s unconditional jump to the header
+        /// — the one and only place this register is ever loaded from anything but the loop body's own
+        /// gentle binary. Deliberately placed in the dispatch of the block's <c>BrInstruction</c> (not
+        /// inside <c>ControlFlowEmitter</c>, which is out of this package's file ownership) — emitting
+        /// before that call keeps this code entirely before the unconditional jump it precedes, so
+        /// ordering relative to the (unmodified) phi-copy-to-slot emission that call performs does not
+        /// matter: both read the same init value fresh and write disjoint destinations (register here,
+        /// the phi's WRAM slot there).</summary>
+        private void EmitLoopInductionPreheaderSync(IrBasicBlock block)
+        {
+            if (_ctx.LoopInductionPreheaderSync.TryGetValue(block, out var syncs))
+                foreach (var sync in syncs)
+                    _ctx.LoadValueIntoRegister(sync.Init, sync.Reg, n: 1); // Layer 1: always a lone byte
+
+            // Layer 2 (stride-1 pointer residency): the register's initial value has no SSA "incoming
+            // value" to read (pointer locals are never SSA-promoted — see Sm83FunctionAllocation's
+            // "Loop-pointer register residency" region) — it comes straight out of the local's own fixed
+            // WRAM home instead. Same injection point and same "one and only place this register is ever
+            // loaded from anything but the loop body's own fused dereference" rule as Layer 1 above.
+            if (_ctx.PointerHomePreheaderSync.TryGetValue(block, out var ptrSyncs))
+                foreach (var sync in ptrSyncs)
+                {
+                    if (!_ctx.TryStaticAddr(sync.Home, out int addr))
+                        throw new NotSupportedException(
+                            "Layer 2 pointer residency requires a fixed-address home alloca."
+                        );
+                    _ctx.LoadAddressContentsIntoRegisterPair(addr, sync.Reg);
+                }
         }
     }
 }
