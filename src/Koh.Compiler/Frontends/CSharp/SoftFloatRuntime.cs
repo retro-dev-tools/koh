@@ -7,7 +7,7 @@ namespace Koh.Compiler.Frontends.CSharp;
 /// compiled code. Nothing here is hardcoded in the backend: it is ordinary source the compiler compiles,
 /// operating on the raw IEEE bits carried in <c>uint</c>. Correctness is pinned bit-for-bit against real
 /// .NET <c>float</c> by the golden tests over finite normal numbers and zero, with round-to-nearest-even.
-/// (<c>double</c> is a later milestone.)
+/// The <c>__f64_*</c> family is the same, widened to <c>double</c> (64-bit) over <c>ulong</c>/<c>UInt128</c>.
 ///
 /// Note: the softfloat/MathF functions form a call graph that the backend gives one disjoint WRAM frame
 /// per function (frames are not yet shared). A complex float expression therefore relies on the optimizer
@@ -207,8 +207,238 @@ static uint __f32_to_u32(uint a) {
 static int __f32_to_i32(uint a) {
     uint mag = a & 0x7FFFFFFF;
     uint u = __f32_to_u32(mag);
-    if ((a >> 31) != 0) return -(int)u;
+    uint signBit = 0x80000000;
+    if ((a >> 31) != 0) {
+        // Same saturation shape as __f64_to_i64 (see its comment): a magnitude beyond int.MinValue must
+        // saturate explicitly, or -(int)u wraps back to a wrong positive result instead of saturating like
+        // a host `(int)` cast does.
+        if (u > signBit) return (int)signBit; // saturate to int.MinValue
+        return -(int)u;
+    }
+    if (u >= signBit) return (int)(signBit - 1); // saturate to int.MaxValue
     return (int)u;
+}
+
+// ---- Koh softfloat (IEEE-754 double precision) ----------------------------
+// Same algorithms as the single-precision family, widened to 64-bit (11-bit exponent, bias 1023, 52-bit
+// mantissa) over ulong, using UInt128 for the 53x53 product and the division numerator.
+
+static ulong __f64_shr_sticky(ulong v, int n) {
+    if (n >= 64) { if (v != 0) return 1; return 0; }
+    ulong lost = v & (((ulong)1 << n) - 1);
+    ulong r = v >> n;
+    if (lost != 0) r = r | 1;
+    return r;
+}
+
+static ulong __f64_neg(ulong a) { return a ^ 0x8000000000000000; }
+
+static ulong __f64_add(ulong a, ulong b) {
+    ulong sa = a >> 63;
+    ulong sb = b >> 63;
+    int ea = (int)((a >> 52) & 0x7FF);
+    int eb = (int)((b >> 52) & 0x7FF);
+    ulong ma = a & 0xFFFFFFFFFFFFF;
+    ulong mb = b & 0xFFFFFFFFFFFFF;
+    if (ea == 0) { if (eb == 0) return (sa & sb) << 63; return b; }
+    if (eb == 0) return a;
+    ulong siga = (ma | 0x10000000000000) << 3;
+    ulong sigb = (mb | 0x10000000000000) << 3;
+    int exp;
+    if (ea > eb) { sigb = __f64_shr_sticky(sigb, ea - eb); exp = ea; }
+    else if (eb > ea) { siga = __f64_shr_sticky(siga, eb - ea); exp = eb; }
+    else { exp = ea; }
+    ulong sig;
+    ulong sign;
+    if (sa == sb) { sig = siga + sigb; sign = sa; }
+    else {
+        if (siga >= sigb) { sig = siga - sigb; sign = sa; }
+        else { sig = sigb - siga; sign = sb; }
+        if (sig == 0) return 0;
+    }
+    while (sig >= ((ulong)1 << 56)) { sig = __f64_shr_sticky(sig, 1); exp = exp + 1; }
+    while (sig != 0 && sig < ((ulong)1 << 55)) { sig = sig << 1; exp = exp - 1; }
+    ulong roundBits = sig & 7;
+    sig = sig >> 3;
+    if (roundBits > 4 || (roundBits == 4 && (sig & 1) != 0)) {
+        sig = sig + 1;
+        if (sig >= ((ulong)1 << 53)) { sig = sig >> 1; exp = exp + 1; }
+    }
+    if (exp >= 2047) return (sign << 63) | ((ulong)0x7FF << 52);
+    if (exp <= 0) return sign << 63;
+    return (sign << 63) | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
+}
+
+static ulong __f64_sub(ulong a, ulong b) { return __f64_add(a, b ^ 0x8000000000000000); }
+
+static ulong __f64_mul(ulong a, ulong b) {
+    ulong sign = (a ^ b) & 0x8000000000000000;
+    int ea = (int)((a >> 52) & 0x7FF);
+    int eb = (int)((b >> 52) & 0x7FF);
+    ulong ma = a & 0xFFFFFFFFFFFFF;
+    ulong mb = b & 0xFFFFFFFFFFFFF;
+    if (ea == 0 || eb == 0) return sign;
+    ulong siga = ma | 0x10000000000000;
+    ulong sigb = mb | 0x10000000000000;
+    UInt128 prod = (UInt128)siga * (UInt128)sigb; // up to 106 bits
+    int exp = ea + eb - 1023;
+    if (prod >= ((UInt128)1 << 105)) { exp = exp + 1; }
+    else { prod = prod << 1; } // leading 1 at bit 105
+    ulong sig = (ulong)(prod >> 53);                    // 53-bit significand
+    ulong rem = (ulong)(prod & (((UInt128)1 << 53) - 1));
+    ulong half = (ulong)1 << 52;
+    if (rem > half || (rem == half && (sig & 1) != 0)) {
+        sig = sig + 1;
+        if (sig >= ((ulong)1 << 53)) { sig = sig >> 1; exp = exp + 1; }
+    }
+    if (exp >= 2047) return sign | ((ulong)0x7FF << 52);
+    if (exp <= 0) return sign;
+    return sign | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
+}
+
+static ulong __f64_div(ulong a, ulong b) {
+    ulong sign = (a ^ b) & 0x8000000000000000;
+    int ea = (int)((a >> 52) & 0x7FF);
+    int eb = (int)((b >> 52) & 0x7FF);
+    ulong ma = a & 0xFFFFFFFFFFFFF;
+    ulong mb = b & 0xFFFFFFFFFFFFF;
+    if (ea == 0) return sign;
+    if (eb == 0) return sign | ((ulong)0x7FF << 52);
+    ulong siga = ma | 0x10000000000000;
+    ulong sigb = mb | 0x10000000000000;
+    int exp = ea - eb + 1023;
+    UInt128 num = (UInt128)siga << 54;
+    ulong q = (ulong)(num / (UInt128)sigb);
+    ulong r = (ulong)(num % (UInt128)sigb);
+    if (q >= ((ulong)1 << 54)) { exp = exp; }
+    else { q = q << 1; exp = exp - 1; }
+    ulong sig = q >> 2;
+    ulong low = q & 3;
+    ulong sticky = (r != 0) ? (ulong)1 : (ulong)0;
+    bool up;
+    if ((low & 2) == 0) up = false;
+    else if (low == 2 && sticky == 0) up = (sig & 1) != 0;
+    else up = true;
+    if (up) {
+        sig = sig + 1;
+        if (sig >= ((ulong)1 << 53)) { sig = sig >> 1; exp = exp + 1; }
+    }
+    if (exp >= 2047) return sign | ((ulong)0x7FF << 52);
+    if (exp <= 0) return sign;
+    return sign | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
+}
+
+static byte __f64_isnan(ulong a) {
+    if (((a >> 52) & 0x7FF) == 0x7FF && (a & 0xFFFFFFFFFFFFF) != 0) return 1;
+    return 0;
+}
+
+static byte __f64_cmp(ulong a, ulong b) {
+    if (__f64_isnan(a) != 0 || __f64_isnan(b) != 0) return 3;
+    if (((a | b) << 1) == 0) return 0;
+    ulong sa = a >> 63;
+    ulong sb = b >> 63;
+    if (sa != sb) { if (sa != 0) return 1; return 2; }
+    ulong ma = a & 0x7FFFFFFFFFFFFFFF;
+    ulong mb = b & 0x7FFFFFFFFFFFFFFF;
+    if (ma == mb) return 0;
+    if (sa == 0) { if (ma < mb) return 1; return 2; }
+    if (ma > mb) return 1;
+    return 2;
+}
+
+static bool __f64_lt(ulong a, ulong b) { return __f64_cmp(a, b) == 1; }
+static bool __f64_le(ulong a, ulong b) { byte c = __f64_cmp(a, b); return c == 1 || c == 0; }
+static bool __f64_gt(ulong a, ulong b) { return __f64_cmp(a, b) == 2; }
+static bool __f64_ge(ulong a, ulong b) { byte c = __f64_cmp(a, b); return c == 2 || c == 0; }
+static bool __f64_eq(ulong a, ulong b) { return __f64_cmp(a, b) == 0; }
+static bool __f64_ne(ulong a, ulong b) { return __f64_cmp(a, b) != 0; }
+
+static ulong __u64_to_f64(ulong mag) {
+    if (mag == 0) return 0;
+    int e = 63;
+    while ((mag & 0x8000000000000000) == 0) { mag = mag << 1; e = e - 1; }
+    ulong sig = mag >> 11;      // 53-bit significand
+    ulong rem = mag & 0x7FF;    // low 11 bits -> rounding
+    int exp = e + 1023;
+    ulong half = 0x400;
+    if (rem > half || (rem == half && (sig & 1) != 0)) {
+        sig = sig + 1;
+        if (sig >= ((ulong)1 << 53)) { sig = sig >> 1; exp = exp + 1; }
+    }
+    return ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
+}
+
+static ulong __i64_to_f64(long a) {
+    if (a == 0) return 0;
+    if (a < 0) return 0x8000000000000000 | __u64_to_f64((ulong)(-a));
+    return __u64_to_f64((ulong)a);
+}
+
+static ulong __f64_to_u64(ulong a) {
+    if ((a >> 63) != 0) return 0;
+    int e = (int)((a >> 52) & 0x7FF);
+    if (e == 0) return 0;
+    int unbiased = e - 1023;
+    if (unbiased < 0) return 0;
+    ulong sig = (a & 0xFFFFFFFFFFFFF) | 0x10000000000000;
+    int shift = unbiased - 52;
+    if (shift >= 0) {
+        if (shift >= 12) return 0xFFFFFFFFFFFFFFFF; // >= 2^64: saturate
+        return sig << shift;
+    }
+    int rs = -shift;
+    if (rs >= 64) return 0;
+    return sig >> rs;
+}
+
+static long __f64_to_i64(ulong a) {
+    ulong mag = a & 0x7FFFFFFFFFFFFFFF;
+    ulong u = __f64_to_u64(mag);
+    ulong signBit = 0x8000000000000000;
+    if ((a >> 63) != 0) {
+        // Negative: magnitudes up to 2^63 (exactly long.MinValue) negate cleanly via wraparound; a
+        // magnitude beyond that must saturate explicitly, or -(long)u wraps back to a positive result
+        // (e.g. u = 0xFFFFFFFFFFFFFFFF -> -(long)u = 1, not long.MinValue) instead of saturating like a
+        // host `(long)` cast does.
+        if (u > signBit) return (long)signBit; // saturate to long.MinValue
+        return -(long)u;
+    }
+    if (u >= signBit) return (long)(signBit - 1); // saturate to long.MaxValue
+    return (long)u;
+}
+
+static ulong __f32_to_f64(uint a) {
+    ulong sign64 = (ulong)(a & 0x80000000) << 32;
+    int e = (int)((a >> 23) & 0xFF);
+    ulong mant = (ulong)(a & 0x7FFFFF) << 29; // 23-bit mantissa -> top of 52
+    if (e == 0) return sign64;                 // zero (subnormal flushed)
+    if (e == 0xFF) return sign64 | ((ulong)0x7FF << 52) | mant; // inf/nan
+    int exp = e - 127 + 1023;
+    return sign64 | ((ulong)exp << 52) | mant;
+}
+
+static uint __f64_to_f32(ulong a) {
+    uint sign = (uint)(a >> 32) & 0x80000000;
+    int e = (int)((a >> 52) & 0x7FF);
+    ulong m = a & 0xFFFFFFFFFFFFF;
+    if (e == 0) return sign; // zero (subnormal flushed)
+    if (e == 0x7FF) {
+        uint nan = (uint)(m >> 29);
+        if (m != 0 && nan == 0) nan = 1;
+        return sign | ((uint)0xFF << 23) | nan;
+    }
+    int exp = e - 1023 + 127;
+    uint sig = (uint)(m >> 29);   // 23-bit
+    ulong rem = m & 0x1FFFFFFF;   // low 29 bits -> rounding
+    ulong half = 0x10000000;
+    if (rem > half || (rem == half && (sig & 1) != 0)) {
+        sig = sig + 1;
+        if (sig >= 0x800000) { sig = 0; exp = exp + 1; }
+    }
+    if (exp >= 255) return sign | ((uint)0xFF << 23);
+    if (exp <= 0) return sign;
+    return sign | ((uint)exp << 23) | (sig & 0x7FFFFF);
 }
 
 // ---- MathF (single-precision Math), as ordinary compiled library source -----

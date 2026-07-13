@@ -1,0 +1,14 @@
+<Project Sdk="Koh.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Koh.Samples.CubeFullFrame</RootNamespace>
+    <KohRomName>cube-full-frame.gb</KohRomName>
+    <KohCgbCompatible>true</KohCgbCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
+    <KohSource Include="../shared/*.cs" />
+  </ItemGroup>
+
+</Project>

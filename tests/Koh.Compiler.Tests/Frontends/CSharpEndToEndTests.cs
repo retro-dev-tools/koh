@@ -84,10 +84,17 @@ public class CSharpEndToEndTests
 
     private static void Run(GameBoySystem gb, int start, int length)
     {
+        // Upper-bounded at 0x8000, not start+length: `length` only spans the fixed ROM0 code window
+        // (Sections[0]), but a program whose code overflows that window moves its trailing functions into
+        // the bank-1 window (0x4000-0x7FFF), which MBC1 maps by default (see CLAUDE.md's ROM-banking
+        // invariant) — so a call can legitimately land there. Bounding at the end of the whole cartridge
+        // ROM range (mirroring CodeBanking_OverflowFunctionsRunFromBank1's own loop) lets single-bank-
+        // overflow programs run to completion instead of being cut off mid-call. Normal (non-banked)
+        // programs still terminate via the lower bound once they return past their own code.
         for (int steps = 0; steps < 200_000; steps++)
         {
             int pc = gb.Registers.Pc;
-            if (pc < start || pc >= start + length)
+            if (pc < start || pc >= 0x8000)
                 break;
             gb.StepInstruction();
         }
@@ -1142,6 +1149,8 @@ static ushort Run() {
     [Arguments(-0.9f, 0)]
     [Arguments(1000.25f, 1000)]
     [Arguments(-2147483648.0f, -2147483648)] // int.MinValue exactly (2^31): exercises the saturation edge
+    [Arguments(1e20f, int.MaxValue)] // magnitude overflows int -> saturate (positive)
+    [Arguments(-1e20f, int.MinValue)] // magnitude overflows int -> saturate (negative)
     public async Task Float_ToInt_MatchesHost(float x, int expected)
     {
         string prog = $"static int Main() {{ return (int)({Lit(x)}); }}";
@@ -1212,21 +1221,6 @@ static ushort Run() {
         await Assert.That(module.Functions.Any(f => f.Name == "__f32_add")).IsTrue();
         await Assert.That(module.Functions.Any(f => f.Name == "__f32_mul")).IsFalse();
         await Assert.That(module.Functions.Any(f => f.Name == "__f32_div")).IsFalse();
-    }
-
-    [Test]
-    public async Task Float_DoubleReportsClearDiagnostic()
-    {
-        // `double` is not yet supported; it must report a clear message, not the unsatisfiable "include
-        // the numerics runtime source" (the runtime is single-precision only).
-        var diagnostics = new DiagnosticBag();
-        new CSharpFrontend().Lower(
-            SourceText.From("static double Main() { double d = 1.0; return d + 2.0; }", "game.cs"),
-            diagnostics
-        );
-        await Assert
-            .That(diagnostics.Any(d => d.Message.Contains("double is not yet supported")))
-            .IsTrue();
     }
 
     // ---- MathF (single-precision Math), compiled as library source ------------
@@ -1327,6 +1321,123 @@ static ushort Run() {
             .That(RunI32Opt("static float Main() { return System.MathF.Round(2.5f); }"))
             .IsEqualTo(BitConverter.SingleToUInt32Bits(2.0f));
     }
+
+    [Test]
+    [Arguments("+", 1.5, 2.0)]
+    [Arguments("+", 5.5, -2.25)] // opposite signs via a single literal add (no separate __f64_sub call)
+    [Arguments("-", 5.5, 2.25)]
+    [Arguments("*", 3.0, 4.0)]
+    public async Task Double_Arithmetic_UnoptimizedPath_MatchesHost(string op, double x, double y)
+    {
+        // Double_Arithmetic_MatchesHost only runs the optimized (Mem2Reg -> phis) backend path. The
+        // unoptimized path (alloca/load/store IR straight into the backend) is a distinct code path the
+        // backend must also get right; run the same __f64_* runtime through it here.
+        string prog = $"static double Main() {{ return {LitD(x)} {op} {LitD(y)}; }}";
+        double expected = op switch
+        {
+            "+" => x + y,
+            "-" => x - y,
+            "*" => x * y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunI64(prog)).IsEqualTo(BitConverter.DoubleToUInt64Bits(expected));
+    }
+
+    [Test]
+    public async Task Double_IntToDouble_UnoptimizedPath_MatchesHost() =>
+        // As Double_IntToDouble_MatchesHost, but through the unoptimized backend path (see
+        // Double_Arithmetic_UnoptimizedPath_MatchesHost for why that path needs its own coverage).
+        await Assert
+            .That(RunI64("static double Main() { int i = 5; return (double)i + 0.5; }"))
+            .IsEqualTo(BitConverter.DoubleToUInt64Bits(5.5));
+
+    // ---- double (IEEE-754 double precision) -----------------------------------
+
+    /// <summary>A round-trippable C# `double` literal for a value (G17 round-trips double).</summary>
+    private static string LitD(double x) =>
+        x.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) + "d";
+
+    [Test]
+    [Arguments("+", 1.5, 2.0)]
+    [Arguments("+", 0.1, 0.2)] // round-to-nearest-even
+    [Arguments("+", -2.5, 0.75)]
+    [Arguments("+", 100.0, 0.5)] // wide exponent gap
+    [Arguments("-", 5.5, 2.25)]
+    [Arguments("-", 1.0, 4.0)]
+    [Arguments("*", 3.0, 4.0)]
+    [Arguments("*", 0.1, 0.1)] // rounding
+    [Arguments("*", -1.5, 4.0)]
+    [Arguments("/", 7.0, 2.0)]
+    [Arguments("/", 1.0, 3.0)] // non-terminating -> rounding
+    [Arguments("+", 0.0, -0.0)] // 0.0 + -0.0 -> +0.0, not -0.0
+    [Arguments("*", -0.0, 4.0)] // sign of zero still multiplies out
+    public async Task Double_Arithmetic_MatchesHost(string op, double x, double y)
+    {
+        string prog = $"static double Main() {{ return {LitD(x)} {op} {LitD(y)}; }}";
+        double expected = op switch
+        {
+            "+" => x + y,
+            "-" => x - y,
+            "*" => x * y,
+            "/" => x / y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunI64Opt(prog)).IsEqualTo(BitConverter.DoubleToUInt64Bits(expected));
+    }
+
+    [Test]
+    [Arguments("<", 1.5, 2.0)]
+    [Arguments(">", 2.0, 1.5)]
+    [Arguments("<=", 2.0, 2.0)]
+    [Arguments("==", 0.1, 0.1)]
+    [Arguments("!=", 0.1, 0.2)]
+    [Arguments("==", 0.0, -0.0)] // 0.0 and -0.0 must compare equal
+    [Arguments("<", -0.0, 0.0)] // -0.0 == 0.0 -> not <
+    public async Task Double_Compare_MatchesHost(string op, double x, double y)
+    {
+        string prog = $"static byte Main() {{ if ({LitD(x)} {op} {LitD(y)}) return 1; return 0; }}";
+        bool expected = op switch
+        {
+            "<" => x < y,
+            ">" => x > y,
+            "<=" => x <= y,
+            "==" => x == y,
+            "!=" => x != y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunAOpt(prog)).IsEqualTo(expected ? (byte)1 : (byte)0);
+    }
+
+    [Test]
+    public async Task Double_FloatToDouble_MatchesHost() =>
+        await Assert
+            .That(RunI64Opt("static double Main() { float f = 1.5f; return (double)f + 0.5; }"))
+            .IsEqualTo(BitConverter.DoubleToUInt64Bits(2.0));
+
+    [Test]
+    public async Task Double_IntToDouble_MatchesHost() =>
+        await Assert
+            .That(RunI64Opt("static double Main() { int i = 5; return (double)i + 0.5; }"))
+            .IsEqualTo(BitConverter.DoubleToUInt64Bits(5.5));
+
+    [Test]
+    [Arguments(3.7, 3L)]
+    [Arguments(-3.7, -3L)] // truncates toward zero
+    [Arguments(1e30, long.MaxValue)] // magnitude overflows long -> saturate (positive)
+    [Arguments(-1e30, long.MinValue)] // magnitude overflows long -> saturate (negative)
+    [Arguments(1e19, long.MaxValue)] // just above long.MaxValue (~9.223e18): saturate, not wrap
+    public async Task Double_ToInt_MatchesHost(double x, long expected) =>
+        await Assert
+            .That(
+                (long)RunI64Opt($"static long Main() {{ double d = {LitD(x)}; return (long)d; }}")
+            )
+            .IsEqualTo(expected);
+
+    [Test]
+    public async Task Double_DoubleToFloat_MatchesHost() =>
+        await Assert
+            .That(RunI32Opt("static float Main() { double d = 1.5; return (float)d; }"))
+            .IsEqualTo(BitConverter.SingleToUInt32Bits(1.5f));
 
     [Test]
     public async Task MathF_UnusedFunctionsPruned()
@@ -2662,6 +2773,20 @@ static void Main() { Hardware.EnableInterrupts(); }";
                 )
             )
             .IsEqualTo(1UL << 40);
+        // Unsigned (logical) right shift by a variable (non-constant) amount, distinct from the signed
+        // (arithmetic) shift below.
+        await Assert
+            .That(
+                RunI64(
+                    "static ulong Shr(ulong v, int n) { return v >> n; }",
+                    gb =>
+                    {
+                        W64(gb, 0, 0xC0000000000000);
+                        W32(gb, 8, 1);
+                    }
+                )
+            )
+            .IsEqualTo(0x60000000000000UL);
         await Assert
             .That(
                 RunI64(

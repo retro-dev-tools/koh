@@ -18,7 +18,9 @@
   </PropertyGroup>
 
   <Target Name="Test">
-    <Exec Command="dotnet test Koh.NoCompat.slnf" />
+    <!-- The solution flag is required: a bare positional arg is ambiguous to the .NET 10 SDK's
+         `dotnet test` when the repo root has multiple sln/slnf files (see ci.yml, fixed the same way). -->
+    <Exec Command="dotnet test --solution Koh.NoCompat.slnf" />
   </Target>
 
   <Target Name="CompatTests">
