@@ -22,7 +22,19 @@ static class CubeRenderer
         short cx = FixedMath.Cos((byte)(phase + phase / 2));
         short centerX = (short)(Surface.Width() / 2);
         short centerY = (short)(Surface.Height() / 2);
-        short scale = Surface.Width() > 64 ? (short)112 : (short)(Surface.Width() * 2);
+        // Projection scale, budgeted against the WORST-case vertex, not the average one. The
+        // triangle-wave Sin/Cos satisfy |sin p| + |cos p| = 126 (of 128), so a rotated coordinate
+        // is bounded by 34 * 126 / 128 = 33, and the perspective distance below is rz2 + 150 in
+        // [117, 183]. The worst projected offset is therefore 33 * scale / 117, which must stay
+        // under half the viewport minus a margin. For the small (<= 64 px) viewports the old
+        // Width() * 2 scale (64 at 32 px) only fit the AVERAGE distance: near phases projected
+        // 33 * 64 / 117 = 18 px > 16, so the cube overflowed and clipped against the viewport
+        // edge for over 100 of the 256 phases. Width() * 3 / 2 (48 at 32 px) bounds the offset
+        // at 33 * 48 / 117 = 13 px, keeping every phase at least 2 px clear of the edge (the
+        // byte-width sum is safe: 64 + 32 = 96 fits a byte). 112 for the larger viewports is
+        // already inside its budget (33 * 112 / 117 = 31 <= 80 / 2 - 2) and stays unchanged.
+        short scale =
+            Surface.Width() > 64 ? (short)112 : (short)(Surface.Width() + Surface.Width() / 2);
 
         for (byte i = 0; i < 8; i++)
         {

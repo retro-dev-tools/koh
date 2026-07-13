@@ -95,4 +95,6 @@ foreach (var (modeName, mode) in new[] { ("dmg", HardwareMode.Dmg), ("cgb", Hard
     );
 }
 
+failed |= !PhaseSweepCheck.Run();
+
 return failed ? 1 : 0;
