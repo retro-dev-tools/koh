@@ -124,4 +124,18 @@ internal static class Surface
             return;
         pixels[x, y] = color;
     }
+
+    /// <summary>Reference implementation of the byte-granular FillSpan the real Surface.cs samples now
+    /// ship: the naive per-pixel loop applying the identical ordered-dither rule FillTriangle used to
+    /// apply directly (`((x ^ y) & 3) == 0 &amp;&amp; color > 1` draws `color - 1`, else `color`). Kept
+    /// deliberately dumb (not span/byte-optimized) so this sweep exercises the shared renderer's new
+    /// FillSpan call site meaningfully without duplicating the optimized bit-twiddling under test.</summary>
+    internal static void FillSpan(byte y, byte xa, byte xb, byte color)
+    {
+        for (int x = xa; x <= xb; x++)
+        {
+            byte shaded = ((x ^ y) & 3) == 0 && color > 1 ? (byte)(color - 1) : color;
+            SetPixel((byte)x, y, shaded);
+        }
+    }
 }

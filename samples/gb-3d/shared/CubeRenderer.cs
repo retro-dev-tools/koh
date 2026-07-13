@@ -212,11 +212,8 @@ static class CubeRenderer
                 xa = 0;
             if (xb >= Surface.Width())
                 xb = (short)(Surface.Width() - 1);
-            for (short x = xa; x <= xb; x++)
-            {
-                byte shaded = ((x ^ y) & 3) == 0 && color > 1 ? (byte)(color - 1) : color;
-                Surface.SetPixel((byte)x, (byte)y, shaded);
-            }
+            if (xa <= xb)
+                Surface.FillSpan((byte)y, (byte)xa, (byte)xb, color);
         }
     }
 
