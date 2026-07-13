@@ -30,14 +30,6 @@ public class BlarggDmgSoundTests
 
     private static async Task Run(string rel, int maxFrames = 60_000)
     {
-        if (Environment.GetEnvironmentVariable("KOH_RUN_BLARGG_DMG_SOUND") is not "1")
-        {
-            Skip.Test(
-                "dmg_sound requires APU quirks (length-on-power, wave-trigger-corruption, sweep-reload) not yet implemented. Set KOH_RUN_BLARGG_DMG_SOUND=1 to attempt."
-            );
-            return;
-        }
-
         var romPath = RomPath(rel);
         if (!File.Exists(romPath))
         {
@@ -80,6 +72,20 @@ public class BlarggDmgSoundTests
         );
     }
 
+    /// <summary>
+    /// Gate for the ROMs that still fail on documented, narrow gaps (see each
+    /// call site). Set KOH_RUN_BLARGG_DMG_SOUND=1 to attempt them anyway.
+    /// </summary>
+    private static async Task RunGated(string rel, string reason)
+    {
+        if (Environment.GetEnvironmentVariable("KOH_RUN_BLARGG_DMG_SOUND") is not "1")
+        {
+            Skip.Test($"{rel}: {reason} Set KOH_RUN_BLARGG_DMG_SOUND=1 to attempt.");
+            return;
+        }
+        await Run(rel);
+    }
+
     [Test]
     public Task S01_Registers() => Run("01-registers.gb");
 
@@ -99,20 +105,57 @@ public class BlarggDmgSoundTests
     public Task S06_OverflowOnTrigger() => Run("06-overflow on trigger.gb");
 
     [Test]
-    public Task S07_LenSweepPeriodSync() => Run("07-len sweep period sync.gb");
+    public Task S07_LenSweepPeriodSync() =>
+        RunGated(
+            "07-len sweep period sync.gb",
+            "subtests 1-4 and the first case of subtest 5 pass after wiring the frame sequencer "
+                + "to Timer's shared internal-counter falling edge (bit 12). That coupling is "
+                + "verified NOT to be the cause of the remaining failure: it is bit-identical to "
+                + "the old free-running Apu counter for this DMG run (both start at 0 and tick "
+                + "once per T-cycle), and this ROM's sync_apu/sync_sweep helpers never write DIV "
+                + "($FF04) anywhere in source (grepped), disproving the prior gating rationale. "
+                + "The remaining failure is subtest 5's second case (retrigger via "
+                + "test_power_off, i.e. power off then on before retriggering, vs. the passing "
+                + "first case which doesn't power off first): measured length-counter-clear "
+                + "timing is ~16140 T-cycles after the retrigger, well past the ROM's expected "
+                + "budget. Root cause is unconfirmed -- plausibly the length-enable \"extra "
+                + "clock\" quirk's interaction with Apu.PowerOff() clearing Length.Enabled while "
+                + "Length.Counter is still 0 (only reloaded nonzero by a later NR11 write), but "
+                + "that's inference, not a verified diagnosis. Independent of DIV-APU phase; "
+                + "needs its own investigation with a reference trace."
+        );
 
     [Test]
     public Task S08_LenCtrDuringPower() => Run("08-len ctr during power.gb");
 
     [Test]
-    public Task S09_WaveReadWhileOn() => Run("09-wave read while on.gb");
+    public Task S09_WaveReadWhileOn() =>
+        RunGated(
+            "09-wave read while on.gb",
+            "requires bit-exact alignment of the narrow (DMG: only-while-CH3-is-reading) wave "
+                + "RAM access window against the CPU's bus-access timing; the window/model "
+                + "converges to a fully self-consistent pattern (verified against "
+                + "10-wave-trigger-while-on's corruption shape) but doesn't yet match the ROM's "
+                + "reference CRC without a reference dump or emulator to diff against."
+        );
 
     [Test]
-    public Task S10_WaveTriggerWhileOn() => Run("10-wave trigger while on.gb");
+    public Task S10_WaveTriggerWhileOn() =>
+        RunGated(
+            "10-wave trigger while on.gb",
+            "same narrow-window alignment gap as 09/12: the corruption logic itself matches Pan "
+                + "Docs exactly (verified byte-for-byte), but the per-iteration window phase "
+                + "doesn't yet match the ROM's reference CRC."
+        );
 
     [Test]
     public Task S11_RegsAfterPower() => Run("11-regs after power.gb");
 
     [Test]
-    public Task S12_WaveWriteWhileOn() => Run("12-wave write while on.gb");
+    public Task S12_WaveWriteWhileOn() =>
+        RunGated(
+            "12-wave write while on.gb",
+            "same narrow-window alignment gap as 09/10: writes land at a fully systematic, "
+                + "self-consistent position but don't yet match the ROM's reference CRC."
+        );
 }
