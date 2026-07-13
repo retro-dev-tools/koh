@@ -25,4 +25,38 @@ public static unsafe class Mem
 
     /// <summary>Restore the heap pointer to the top of the arena, freeing every allocation.</summary>
     public static void Reset() => _heap = HeapTop;
+
+    /// <summary>Copy <paramref name="count"/> bytes from <paramref name="source"/> to
+    /// <paramref name="destination"/>, in ascending address order (a forward copy). Overlapping regions
+    /// are only defined when <paramref name="destination"/> &lt; <paramref name="source"/> (each source
+    /// byte is read before a lower/equal destination index could reach and overwrite it); a
+    /// <paramref name="count"/> of zero is a no-op. NOT vblank-aware — same stance as
+    /// <c>Cgb.CopyToVram</c>: the caller is responsible for PPU-mode safety when the destination is
+    /// VRAM/OAM. Mirrors the compiler's <c>__mem_copy</c> runtime (<c>MemRuntime.cs</c>) bit-for-bit, so
+    /// desktop and ROM builds agree.</summary>
+    public static void Copy(byte* destination, byte* source, ushort count)
+    {
+        while (count != 0)
+        {
+            *destination = *source;
+            destination++;
+            source++;
+            count--;
+        }
+    }
+
+    /// <summary>Fill <paramref name="count"/> bytes starting at <paramref name="destination"/> with
+    /// <paramref name="value"/>, in ascending address order. A <paramref name="count"/> of zero is a
+    /// no-op. NOT vblank-aware — same stance as <c>Cgb.CopyToVram</c>: the caller is responsible for
+    /// PPU-mode safety when the destination is VRAM/OAM. Mirrors the compiler's <c>__mem_fill</c> runtime
+    /// (<c>MemRuntime.cs</c>) bit-for-bit, so desktop and ROM builds agree.</summary>
+    public static void Fill(byte* destination, byte value, ushort count)
+    {
+        while (count != 0)
+        {
+            *destination = value;
+            destination++;
+            count--;
+        }
+    }
 }

@@ -2465,7 +2465,11 @@ internal sealed class MethodLowerer
 
     /// <summary>Lower an arena-allocator call. <c>Mem.Alloc(n)</c> bumps the heap pointer down by n and
     /// returns the new pointer as a <c>byte*</c>; <c>Mem.Reset()</c> restores it to the top of the heap
-    /// (freeing every prior allocation at once — the arena's whole-region free).</summary>
+    /// (freeing every prior allocation at once — the arena's whole-region free); <c>Mem.Copy</c>/
+    /// <c>Mem.Fill</c> route to the <see cref="MemRuntime"/> functions <c>__mem_copy</c>/<c>__mem_fill</c>
+    /// (ordinary compiled Koh-subset source, appended to the compilation when either is called — see
+    /// <c>CSharpFrontend.UsesMemRuntime</c> — exactly like <see cref="EmitFloatRuntimeCall"/> routes float
+    /// operators into the softfloat runtime).</summary>
     private (IrValue, CsType) LowerMemCall(string method, InvocationExpressionSyntax call)
     {
         var heap = IrBuilder.GlobalRef(_globals[CSharpFrontend.HeapPointerName].Global);
@@ -2489,9 +2493,63 @@ internal sealed class MethodLowerer
             case "Reset":
                 _b.Store(IrBuilder.ConstInt(IrType.I16, CSharpFrontend.HeapTop), heap);
                 return (IrBuilder.ConstInt(IrType.I8, 0), CsType.U8);
+            case "Copy":
+                return EmitMemRuntimeCall(
+                    "__mem_copy",
+                    "Mem.Copy",
+                    call,
+                    (bytePtr, "destination"),
+                    (bytePtr, "source"),
+                    (CsType.U16, "count")
+                );
+            case "Fill":
+                return EmitMemRuntimeCall(
+                    "__mem_fill",
+                    "Mem.Fill",
+                    call,
+                    (bytePtr, "destination"),
+                    (CsType.U8, "value"),
+                    (CsType.U16, "count")
+                );
             default:
                 throw new CSharpNotSupportedException($"unknown Mem method '{method}'.");
         }
+    }
+
+    /// <summary>Emit a call into a <see cref="MemRuntime"/> function by name, coercing each call-site
+    /// argument to the runtime function's parameter type. Mirrors <see cref="EmitFloatRuntimeCall"/>'s
+    /// shape, but starting from call-site syntax (the mem intrinsics take ordinary argument expressions,
+    /// not already-lowered values) and returning void (<c>Mem.Copy</c>/<c>Mem.Fill</c> have no result).
+    /// Throws a clear diagnostic if the runtime source was not appended (<c>CSharpFrontend.PrepareRoot</c>
+    /// only appends it when the program calls <c>Mem.Copy</c>/<c>Mem.Fill</c>).</summary>
+    private (IrValue, CsType) EmitMemRuntimeCall(
+        string runtimeName,
+        string surfaceName,
+        InvocationExpressionSyntax call,
+        params (CsType Type, string ParamName)[] parameters
+    )
+    {
+        if (!_methods.TryGetValue(runtimeName, out var callee))
+            throw new CSharpNotSupportedException(
+                $"{surfaceName} needs the Koh mem runtime, but '{runtimeName}' is not in the "
+                    + "compilation (include the mem runtime source)."
+            );
+        var argExprs = call.ArgumentList.Arguments;
+        if (argExprs.Count != parameters.Length)
+            throw new CSharpNotSupportedException(
+                $"{surfaceName} takes {parameters.Length} argument(s) "
+                    + $"({string.Join(", ", parameters.Select(p => p.ParamName))})."
+            );
+        var args = new List<IrValue>(parameters.Length);
+        for (int i = 0; i < parameters.Length; i++)
+            args.Add(
+                Coerce(
+                    LowerExpression(argExprs[i].Expression, parameters[i].Type),
+                    parameters[i].Type
+                )
+            );
+        _b.Call(callee.Fn, args);
+        return (IrBuilder.ConstInt(IrType.I8, 0), CsType.U8);
     }
 
     // ---- Types & operators -------------------------------------------------

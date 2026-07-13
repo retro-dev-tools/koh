@@ -232,6 +232,22 @@ public sealed partial class CSharpFrontend : IFrontend
                     }
             );
 
+    /// <summary>Whether the program calls <c>Mem.Copy</c>/<c>Mem.Fill</c>, so the <see cref="MemRuntime"/>
+    /// source must be appended (mirrors <see cref="UsesFloat"/>'s reasoning for the softfloat runtime:
+    /// checked on the parsed tree, only appended when actually used, so a non-copying ROM carries none of
+    /// it).</summary>
+    private static bool UsesMemRuntime(CompilationUnitSyntax root) =>
+        root.DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Any(inv =>
+                inv.Expression
+                    is MemberAccessExpressionSyntax
+                    {
+                        Expression: IdentifierNameSyntax { Identifier.Text: "Mem" },
+                        Name.Identifier.Text: "Copy" or "Fill"
+                    }
+            );
+
     public IrModule Lower(SourceText source, DiagnosticBag diagnostics)
     {
         var module = new IrModule(source.FilePath.Length > 0 ? source.FilePath : "csharp");
@@ -300,7 +316,17 @@ public sealed partial class CSharpFrontend : IFrontend
         bool runtimeAlreadyDeclared = root.DescendantNodes()
             .OfType<MethodDeclarationSyntax>()
             .Any(m => m.Identifier.Text == "__f32_add");
-        if (UsesFloat(root) && !runtimeAlreadyDeclared)
+        bool needsFloatRuntime = UsesFloat(root) && !runtimeAlreadyDeclared;
+
+        // Mem.Copy/Mem.Fill support: same shape as the float runtime above — append MemRuntime.cs's
+        // source once, only when the program actually calls one of them, and only if it isn't already
+        // declared (a test may include it directly).
+        bool memRuntimeAlreadyDeclared = root.DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .Any(m => m.Identifier.Text == "__mem_copy");
+        bool needsMemRuntime = UsesMemRuntime(root) && !memRuntimeAlreadyDeclared;
+
+        if (needsFloatRuntime)
         {
             // `MathF` is the appended library's class; a user class of that name would collide with it once
             // the runtime is injected. Reject it cleanly (like Mem/Hardware/Gb/BitConverter) instead of
@@ -317,10 +343,16 @@ public sealed partial class CSharpFrontend : IFrontend
                 );
                 return null;
             }
-            wrapped =
-                WrapperPrefix
-                + BlankNamespacing(source.ToString() + "\n" + SoftFloatRuntime.Source)
-                + "\n}";
+        }
+
+        if (needsFloatRuntime || needsMemRuntime)
+        {
+            var extra = "";
+            if (needsFloatRuntime)
+                extra += "\n" + SoftFloatRuntime.Source;
+            if (needsMemRuntime)
+                extra += "\n" + MemRuntime.Source;
+            wrapped = WrapperPrefix + BlankNamespacing(source.ToString() + extra) + "\n}";
             tree = CSharpSyntaxTree.ParseText(wrapped, path: source.FilePath);
             root = tree.GetCompilationUnitRoot();
         }

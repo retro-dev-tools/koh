@@ -58,11 +58,18 @@ internal static class IntrinsicsStub
         sb.AppendLine("}");
         sb.AppendLine();
 
-        // Mem: the arena allocator intrinsics.
+        // Mem: the arena allocator intrinsics, plus the Copy/Fill byte-block intrinsics (routed to the
+        // MemRuntime.cs runtime the same way Alloc/Reset route to the bump allocator).
         sb.AppendLine("public static class Mem");
         sb.AppendLine("{");
         sb.AppendLine("    public static unsafe byte* Alloc(int size) => null;");
         sb.AppendLine("    public static void Reset() { }");
+        sb.AppendLine(
+            "    public static unsafe void Copy(byte* destination, byte* source, ushort count) { }"
+        );
+        sb.AppendLine(
+            "    public static unsafe void Fill(byte* destination, byte value, ushort count) { }"
+        );
         sb.AppendLine("}");
         sb.AppendLine();
 
