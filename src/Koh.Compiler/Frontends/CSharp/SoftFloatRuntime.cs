@@ -207,7 +207,15 @@ static uint __f32_to_u32(uint a) {
 static int __f32_to_i32(uint a) {
     uint mag = a & 0x7FFFFFFF;
     uint u = __f32_to_u32(mag);
-    if ((a >> 31) != 0) return -(int)u;
+    uint signBit = 0x80000000;
+    if ((a >> 31) != 0) {
+        // Same saturation shape as __f64_to_i64 (see its comment): a magnitude beyond int.MinValue must
+        // saturate explicitly, or -(int)u wraps back to a wrong positive result instead of saturating like
+        // a host `(int)` cast does.
+        if (u > signBit) return (int)signBit; // saturate to int.MinValue
+        return -(int)u;
+    }
+    if (u >= signBit) return (int)(signBit - 1); // saturate to int.MaxValue
     return (int)u;
 }
 
@@ -387,7 +395,16 @@ static ulong __f64_to_u64(ulong a) {
 static long __f64_to_i64(ulong a) {
     ulong mag = a & 0x7FFFFFFFFFFFFFFF;
     ulong u = __f64_to_u64(mag);
-    if ((a >> 63) != 0) return -(long)u;
+    ulong signBit = 0x8000000000000000;
+    if ((a >> 63) != 0) {
+        // Negative: magnitudes up to 2^63 (exactly long.MinValue) negate cleanly via wraparound; a
+        // magnitude beyond that must saturate explicitly, or -(long)u wraps back to a positive result
+        // (e.g. u = 0xFFFFFFFFFFFFFFFF -> -(long)u = 1, not long.MinValue) instead of saturating like a
+        // host `(long)` cast does.
+        if (u > signBit) return (long)signBit; // saturate to long.MinValue
+        return -(long)u;
+    }
+    if (u >= signBit) return (long)(signBit - 1); // saturate to long.MaxValue
     return (long)u;
 }
 

@@ -1149,6 +1149,8 @@ static ushort Run() {
     [Arguments(-0.9f, 0)]
     [Arguments(1000.25f, 1000)]
     [Arguments(-2147483648.0f, -2147483648)] // int.MinValue exactly (2^31): exercises the saturation edge
+    [Arguments(1e20f, int.MaxValue)] // magnitude overflows int -> saturate (positive)
+    [Arguments(-1e20f, int.MinValue)] // magnitude overflows int -> saturate (negative)
     public async Task Float_ToInt_MatchesHost(float x, int expected)
     {
         string prog = $"static int Main() {{ return (int)({Lit(x)}); }}";
@@ -1321,199 +1323,33 @@ static ushort Run() {
     }
 
     [Test]
-    public async Task DbgDumpAddAlloc()
+    [Arguments("+", 1.5, 2.0)]
+    [Arguments("+", 5.5, -2.25)] // opposite signs via a single literal add (no separate __f64_sub call)
+    [Arguments("-", 5.5, 2.25)]
+    [Arguments("*", 3.0, 4.0)]
+    public async Task Double_Arithmetic_UnoptimizedPath_MatchesHost(string op, double x, double y)
     {
-        const string src =
-            "static ulong Shr(ulong v, int n){ if (n >= 64) { if (v != 0) return 1; return 0; } ulong lost = v & (((ulong)1 << n) - 1); ulong r = v >> n; if (lost != 0) r = r | 1; return r; } "
-            + "static ulong Add(ulong a, ulong b){ "
-            + "ulong sa = a >> 63; ulong sb = b >> 63; "
-            + "int ea = (int)((a >> 52) & 0x7FF); int eb = (int)((b >> 52) & 0x7FF); "
-            + "ulong ma = a & 0xFFFFFFFFFFFFF; ulong mb = b & 0xFFFFFFFFFFFFF; "
-            + "if (ea == 0) { if (eb == 0) return (sa & sb) << 63; return b; } if (eb == 0) return a; "
-            + "ulong siga = (ma | 0x10000000000000) << 3; ulong sigb = (mb | 0x10000000000000) << 3; int exp; "
-            + "if (ea > eb) { sigb = Shr(sigb, ea - eb); exp = ea; } else if (eb > ea) { siga = Shr(siga, eb - ea); exp = eb; } else { exp = ea; } "
-            + "ulong sig; ulong sign; "
-            + "if (sa == sb) { sig = siga + sigb; sign = sa; } else { if (siga >= sigb) { sig = siga - sigb; sign = sa; } else { sig = sigb - siga; sign = sb; } if (sig == 0) return 0; } "
-            + "while (sig >= 0x100000000000000) { sig = Shr(sig, 1); exp = exp + 1; } "
-            + "while (sig != 0 && sig < 0x80000000000000) { sig = sig << 1; exp = exp - 1; } "
-            + "ulong roundBits = sig & 7; sig = sig >> 3; "
-            + "if (roundBits > 4 || (roundBits == 4 && (sig & 1) != 0)) { sig = sig + 1; if (sig >= 0x20000000000000) { sig = sig >> 1; exp = exp + 1; } } "
-            + "if (exp >= 2047) return (sign << 63) | ((ulong)0x7FF << 52); if (exp <= 0) return sign << 63; "
-            + "return (sign << 63) | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF); } "
-            + "static ulong Main(){ return Add(0x3FF8000000000000, 0x4000000000000000); }";
-        var module = Frontend(src);
-        var add = module.Functions.First(f => f.Name == "Add");
-        var alloc = FunctionAllocation.For(
-            add,
-            0xC000,
-            allowResidency: true,
-            allowParamResidency: true
-        );
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine(IrPrinter.Print(module));
-        sb.AppendLine("---- Add i64 slot map ----");
-        foreach (var (v, s) in alloc.Slot.OrderBy(kv => kv.Value))
-            sb.AppendLine($"slot {s:X4}..{s + v.Type.SizeInBytes - 1:X4}  ({v.Type})  {v}");
-        System.IO.File.WriteAllText(
-            @"C:\Users\ADMINI~1\AppData\Local\Temp\claude\C--projekty-koh\3b8de4e2-daac-4b40-ba01-028e67cd1a34\scratchpad\addalloc.txt",
-            sb.ToString()
-        );
-        await Assert.That(alloc.Slot.Count).IsGreaterThan(0);
+        // Double_Arithmetic_MatchesHost only runs the optimized (Mem2Reg -> phis) backend path. The
+        // unoptimized path (alloca/load/store IR straight into the backend) is a distinct code path the
+        // backend must also get right; run the same __f64_* runtime through it here.
+        string prog = $"static double Main() {{ return {LitD(x)} {op} {LitD(y)}; }}";
+        double expected = op switch
+        {
+            "+" => x + y,
+            "-" => x - y,
+            "*" => x * y,
+            _ => throw new ArgumentException(op),
+        };
+        await Assert.That(RunI64(prog)).IsEqualTo(BitConverter.DoubleToUInt64Bits(expected));
     }
 
     [Test]
-    public async Task DbgAddSumOnly() =>
+    public async Task Double_IntToDouble_UnoptimizedPath_MatchesHost() =>
+        // As Double_IntToDouble_MatchesHost, but through the unoptimized backend path (see
+        // Double_Arithmetic_UnoptimizedPath_MatchesHost for why that path needs its own coverage).
         await Assert
-            .That(
-                RunI64(
-                    "static ulong Shr(ulong v, int n){ if (n >= 64) { if (v != 0) return 1; return 0; } ulong lost = v & (((ulong)1 << n) - 1); ulong r = v >> n; if (lost != 0) r = r | 1; return r; } "
-                        + "static ulong Add(ulong a, ulong b){ "
-                        + "ulong sa = a >> 63; ulong sb = b >> 63; "
-                        + "int ea = (int)((a >> 52) & 0x7FF); int eb = (int)((b >> 52) & 0x7FF); "
-                        + "ulong ma = a & 0xFFFFFFFFFFFFF; ulong mb = b & 0xFFFFFFFFFFFFF; "
-                        + "if (ea == 0) { if (eb == 0) return (sa & sb) << 63; return b; } if (eb == 0) return a; "
-                        + "ulong siga = (ma | 0x10000000000000) << 3; ulong sigb = (mb | 0x10000000000000) << 3; int exp; "
-                        + "if (ea > eb) { sigb = Shr(sigb, ea - eb); exp = ea; } else if (eb > ea) { siga = Shr(siga, eb - ea); exp = eb; } else { exp = ea; } "
-                        + "ulong sig; ulong sign; "
-                        + "if (sa == sb) { sig = siga + sigb; sign = sa; } else { if (siga >= sigb) { sig = siga - sigb; sign = sa; } else { sig = sigb - siga; sign = sb; } if (sig == 0) return 0; } "
-                        + "ulong dbg = sig; "
-                        + "while (sig >= 0x100000000000000) { sig = Shr(sig, 1); exp = exp + 1; } "
-                        + "while (sig != 0 && sig < 0x80000000000000) { sig = sig << 1; exp = exp - 1; } "
-                        + "return dbg; } "
-                        + "static ulong Main(){ return Add(0x3FF8000000000000, 0x4000000000000000); }"
-                )
-            )
-            .IsEqualTo(0xE0000000000000UL); // sig right before normalize
-
-    [Test]
-    public async Task DbgFullAddStandalone() =>
-        await Assert
-            .That(
-                RunI64(
-                    "static ulong Shr(ulong v, int n){ if (n >= 64) { if (v != 0) return 1; return 0; } ulong lost = v & (((ulong)1 << n) - 1); ulong r = v >> n; if (lost != 0) r = r | 1; return r; } "
-                        + "static ulong Add(ulong a, ulong b){ "
-                        + "ulong sa = a >> 63; ulong sb = b >> 63; "
-                        + "int ea = (int)((a >> 52) & 0x7FF); int eb = (int)((b >> 52) & 0x7FF); "
-                        + "ulong ma = a & 0xFFFFFFFFFFFFF; ulong mb = b & 0xFFFFFFFFFFFFF; "
-                        + "if (ea == 0) { if (eb == 0) return (sa & sb) << 63; return b; } if (eb == 0) return a; "
-                        + "ulong siga = (ma | 0x10000000000000) << 3; ulong sigb = (mb | 0x10000000000000) << 3; int exp; "
-                        + "if (ea > eb) { sigb = Shr(sigb, ea - eb); exp = ea; } else if (eb > ea) { siga = Shr(siga, eb - ea); exp = eb; } else { exp = ea; } "
-                        + "ulong sig; ulong sign; "
-                        + "if (sa == sb) { sig = siga + sigb; sign = sa; } else { if (siga >= sigb) { sig = siga - sigb; sign = sa; } else { sig = sigb - siga; sign = sb; } if (sig == 0) return 0; } "
-                        + "while (sig >= ((ulong)1 << 56)) { sig = Shr(sig, 1); exp = exp + 1; } "
-                        + "while (sig != 0 && sig < ((ulong)1 << 55)) { sig = sig << 1; exp = exp - 1; } "
-                        + "ulong roundBits = sig & 7; sig = sig >> 3; "
-                        + "if (roundBits > 4 || (roundBits == 4 && (sig & 1) != 0)) { sig = sig + 1; if (sig >= ((ulong)1 << 53)) { sig = sig >> 1; exp = exp + 1; } } "
-                        + "if (exp >= 2047) return (sign << 63) | ((ulong)0x7FF << 52); if (exp <= 0) return sign << 63; "
-                        + "return (sign << 63) | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF); } "
-                        + "static ulong Main(){ return Add(0x3FF8000000000000, 0x4000000000000000); }"
-                )
-            ) // 1.5 + 2.0
-            .IsEqualTo(BitConverter.DoubleToUInt64Bits(3.5));
-
-    [Test]
-    public async Task DbgU64LiveAcrossCall() =>
-        await Assert
-            .That(
-                RunI64(
-                    "static ulong Shr(ulong v, int n){ return v >> n; } "
-                        + "static ulong Main(){ ulong siga = 0xC0000000000000; ulong sigb = 0x80000000000000; "
-                        + "siga = Shr(siga, 1); ulong sig = siga + sigb; return sig; }"
-                )
-            )
-            .IsEqualTo(0xE0000000000000UL); // 0x60.. + 0x80.. ; sigb must survive the call
-
-    [Test]
-    public async Task DbgU64Uge() =>
-        await Assert
-            .That(
-                RunI64(
-                    "static ulong Main(){ ulong a = 0xB0000000000000; ulong b = 0x48000000000000; if (a >= b) return 111; return 222; }"
-                )
-            )
-            .IsEqualTo(111UL);
-
-    [Test]
-    public async Task DbgU64NormLoop() =>
-        await Assert
-            .That(
-                RunI64(
-                    "static ulong Main(){ ulong sig = 0xE0000000000000; int exp = 1024; while (sig != 0 && sig < ((ulong)1 << 55)) { sig = sig << 1; exp = exp - 1; } return (ulong)exp; }"
-                )
-            )
-            .IsEqualTo(1024UL);
-
-    [Test]
-    public async Task DbgU64ShrVar() => // shift by a variable amount, i64
-        await Assert
-            .That(
-                RunI64(
-                    "static ulong Main(){ ulong v = 0xC0000000000000; int n = 1; return v >> n; }"
-                )
-            )
-            .IsEqualTo(0x60000000000000UL);
-
-    [Test]
-    public async Task DbgDAdd() =>
-        await Assert
-            .That(RunI64("static double Main(){ return 1.5 + 2.0; }"))
-            .IsEqualTo(BitConverter.DoubleToUInt64Bits(3.5));
-
-    [Test]
-    public async Task DbgDAddNeg() => // opposite signs, both literals (no __f64_sub)
-        await Assert
-            .That(RunI64("static double Main(){ return 5.5 + -2.25; }"))
-            .IsEqualTo(BitConverter.DoubleToUInt64Bits(3.25));
-
-    [Test]
-    public async Task DbgDConvInt() =>
-        await Assert
-            .That(RunI64("static double Main(){ int i = 5; return (double)i; }"))
-            .IsEqualTo(BitConverter.DoubleToUInt64Bits(5.0));
-
-    [Test]
-    public async Task DbgChainI64() => // 2-level i64-returning call chain
-        await Assert
-            .That(
-                RunI64(
-                    "static ulong H(ulong v){ return v+1; } static ulong G(ulong v){ return H(v)+10; } static ulong Main(){ return G(5); }"
-                )
-            )
-            .IsEqualTo(16UL);
-
-    [Test]
-    public async Task DbgChainI64Wrapper() => // G just forwards to H (like __f64_sub -> __f64_add)
-        await Assert
-            .That(
-                RunI64(
-                    "static ulong H(ulong v){ return v+1; } static ulong G(ulong v){ return H(v); } static ulong Main(){ return G(5); }"
-                )
-            )
-            .IsEqualTo(6UL);
-
-    [Test]
-    public async Task DbgDMulNonOpt() =>
-        await Assert
-            .That(RunI64("static double Main(){ return 3d * 4d; }"))
-            .IsEqualTo(BitConverter.DoubleToUInt64Bits(12.0));
-
-    [Test]
-    public async Task DbgDSubNonOpt() =>
-        await Assert
-            .That(RunI64("static double Main(){ return 5.5 - 2.25; }"))
-            .IsEqualTo(BitConverter.DoubleToUInt64Bits(3.25));
-
-    [Test]
-    public async Task DbgDIntNonOpt() =>
-        await Assert
-            .That(RunI64("static double Main(){ int i = 5; return (double)i + 0.5; }"))
+            .That(RunI64("static double Main() { int i = 5; return (double)i + 0.5; }"))
             .IsEqualTo(BitConverter.DoubleToUInt64Bits(5.5));
-
-    [Test]
-    public async Task DbgDMulOptViaVar() =>
-        await Assert
-            .That(RunI64Opt("static double Main(){ double a = 3d; double b = 4d; return a * b; }"))
-            .IsEqualTo(BitConverter.DoubleToUInt64Bits(12.0));
 
     // ---- double (IEEE-754 double precision) -----------------------------------
 
@@ -1533,6 +1369,8 @@ static ushort Run() {
     [Arguments("*", -1.5, 4.0)]
     [Arguments("/", 7.0, 2.0)]
     [Arguments("/", 1.0, 3.0)] // non-terminating -> rounding
+    [Arguments("+", 0.0, -0.0)] // 0.0 + -0.0 -> +0.0, not -0.0
+    [Arguments("*", -0.0, 4.0)] // sign of zero still multiplies out
     public async Task Double_Arithmetic_MatchesHost(string op, double x, double y)
     {
         string prog = $"static double Main() {{ return {LitD(x)} {op} {LitD(y)}; }}";
@@ -1553,6 +1391,8 @@ static ushort Run() {
     [Arguments("<=", 2.0, 2.0)]
     [Arguments("==", 0.1, 0.1)]
     [Arguments("!=", 0.1, 0.2)]
+    [Arguments("==", 0.0, -0.0)] // 0.0 and -0.0 must compare equal
+    [Arguments("<", -0.0, 0.0)] // -0.0 == 0.0 -> not <
     public async Task Double_Compare_MatchesHost(string op, double x, double y)
     {
         string prog = $"static byte Main() {{ if ({LitD(x)} {op} {LitD(y)}) return 1; return 0; }}";
@@ -1581,10 +1421,17 @@ static ushort Run() {
             .IsEqualTo(BitConverter.DoubleToUInt64Bits(5.5));
 
     [Test]
-    public async Task Double_ToInt_MatchesHost() =>
+    [Arguments(3.7, 3L)]
+    [Arguments(-3.7, -3L)] // truncates toward zero
+    [Arguments(1e30, long.MaxValue)] // magnitude overflows long -> saturate (positive)
+    [Arguments(-1e30, long.MinValue)] // magnitude overflows long -> saturate (negative)
+    [Arguments(1e19, long.MaxValue)] // just above long.MaxValue (~9.223e18): saturate, not wrap
+    public async Task Double_ToInt_MatchesHost(double x, long expected) =>
         await Assert
-            .That((long)RunI64Opt("static long Main() { double d = 3.7; return (long)d; }"))
-            .IsEqualTo(3L);
+            .That(
+                (long)RunI64Opt($"static long Main() {{ double d = {LitD(x)}; return (long)d; }}")
+            )
+            .IsEqualTo(expected);
 
     [Test]
     public async Task Double_DoubleToFloat_MatchesHost() =>
@@ -2926,6 +2773,20 @@ static void Main() { Hardware.EnableInterrupts(); }";
                 )
             )
             .IsEqualTo(1UL << 40);
+        // Unsigned (logical) right shift by a variable (non-constant) amount, distinct from the signed
+        // (arithmetic) shift below.
+        await Assert
+            .That(
+                RunI64(
+                    "static ulong Shr(ulong v, int n) { return v >> n; }",
+                    gb =>
+                    {
+                        W64(gb, 0, 0xC0000000000000);
+                        W32(gb, 8, 1);
+                    }
+                )
+            )
+            .IsEqualTo(0x60000000000000UL);
         await Assert
             .That(
                 RunI64(

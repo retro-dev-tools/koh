@@ -837,4 +837,99 @@ public class Sm83ControlFlowTests
         );
         await Assert.That(result).IsEqualTo((ushort)45);
     }
+
+    /// <summary>
+    /// A loop with two phis of mismatched width -- P (i32) and Q (i64) -- whose back-edge sources (u32,
+    /// v64) are trivial constant-derived values, and whose slots are otherwise never read after those
+    /// sources are computed. Neither P nor Q is read within the loop body after u32/v64 are defined (P is
+    /// never read at all; Q's only read -- the correctness check below -- happens *before* u32/v64 are
+    /// computed). The iteration counter and the running check result live in allocas, not phis, so they
+    /// never join the small set of values the allocator treats as "live across the back edge" (which would
+    /// otherwise block the path from the frame base down to P's and Q's slots). That leaves P's and Q's
+    /// slots free for the allocator to reuse for unrelated values, which is what lets u32 land on Q's slot
+    /// and v64 land on P's slot: a real (not synthesized) instance of the "differently-sized copy in the
+    /// same phi cycle" that 53173ac fixed, without needing P and Q to literally swap values. Comparing q
+    /// against the *full* predicted value (an alloca-backed "expected" slot updated each iteration) catches
+    /// corruption anywhere in its 8 bytes -- not just a truncated slice, which corrupted garbage could
+    /// coincidentally match.
+    /// </summary>
+    private static IrModule MixedWidthPhiCycleLoop()
+    {
+        const long q0 = 0x0102030405060708L;
+        const long q1 = 0x1102030405060708L; // touches the top byte, so a zeroed-upper-bytes corruption is caught
+        const int p0 = 1000;
+        const int p1 = 1001;
+
+        var module = new IrModule("t");
+        var fn = new IrFunction("main", IrType.I8, []);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var loop = fn.AppendBlock("loop");
+        var done = fn.AppendBlock("done");
+        var b = new IrBuilder();
+
+        b.PositionAtEnd(entry);
+        var eptr = b.Alloca(IrType.I64); // "expected q for this iteration"
+        var cntPtr = b.Alloca(IrType.I16); // iteration counter
+        var accPtr = b.Alloca(IrType.I8); // count of iterations where q matched its predicted value
+        b.Store(I64(q0), eptr);
+        b.Store(I16(0), cntPtr);
+        b.Store(I8(0), accPtr);
+        b.Br(loop);
+
+        b.PositionAtEnd(loop);
+        // Declaration order matters: p leads (so its phi-copy is examined first when EmitPhiCopies breaks
+        // the cycle -- see the comment on the assertion below), then pad (pure filler that forces q away
+        // from p's slot, opening a window for v64 to land on p instead), then q.
+        var p = b.Phi(IrType.I32); // never read in the loop body -- a pure "victim" slot
+        var pad = b.Phi(IrType.I32); // filler: forces q's slot away from p's, and (via u32 below) forces
+        // u32 past pad's own slot and onto q's -- without it, u32 and q's slot end up adjacent instead of
+        // overlapping, and p and v64's slot end up too far apart to overlap either.
+        var q = b.Phi(IrType.I64); // checked below, then dead for the rest of the iteration
+
+        // q's only in-loop use: check it against the expected value stored last iteration, *before*
+        // u32/v64 (below) are computed -- so q is dead by the time the allocator considers u32's slot.
+        var expected = b.Load(eptr);
+        var qOk = b.Compare(IrCompareOp.Eq, q, expected);
+        var acc = b.Load(accPtr);
+        b.Store(b.Add(acc, qOk), accPtr);
+
+        // u32/v64: the next P/Q values. v64 never reads p or q, so it never extends their liveness past
+        // the check above. u32 reads `pad` purely to force u32's own slot away from pad's (the wide-result-
+        // vs-operand allocator rule), which is what pushes u32 onto q's slot instead of stopping short of it.
+        var u32 = b.Add(pad, I32(p1));
+        var v64 = b.Add(I64(q1), I64(0));
+        b.Store(v64, eptr); // next iteration's expectation
+
+        var cnt = b.Load(cntPtr);
+        var cntNext = b.Add(cnt, I16(1));
+        b.Store(cntNext, cntPtr);
+        var cond = b.Compare(IrCompareOp.Ult, cntNext, I16(2));
+        b.CondBr(cond, loop, done);
+
+        p.AddIncoming(I32(p0), entry);
+        p.AddIncoming(u32, loop);
+        pad.AddIncoming(I32(0), entry);
+        pad.AddIncoming(I32(0), loop); // trivial: pad's own value is never checked
+        q.AddIncoming(I64(q0), entry);
+        q.AddIncoming(v64, loop);
+
+        b.PositionAtEnd(done);
+        b.Ret(b.Load(accPtr));
+        return module;
+    }
+
+    private static IrConstInt I64(long v) => IrBuilder.ConstInt(IrType.I64, v);
+
+    [Test]
+    public async Task PhiCopyCycle_MixedWidth_DoesNotCorruptWiderValue()
+    {
+        // Both iterations must observe q matching its predicted value: the running count comes back 2.
+        // A staging bug that covers only the narrower copy's (p's) own width -- reverting 53173ac --
+        // stages 4 of the 8 bytes q's back-edge copy needs, leaving the top 4 uninitialized/aliased.
+        // Verified by hand: temporarily reverting EmitPhiCopies to stage only `c.N` bytes makes this
+        // test fail with 1 instead of 2 (q's corrupted upper bytes fail the second iteration's check);
+        // restoring 53173ac's union-of-overlapping-ranges staging makes it pass again.
+        await Assert.That(RunA(MixedWidthPhiCycleLoop())).IsEqualTo((byte)2);
+    }
 }
