@@ -38,6 +38,11 @@ public sealed partial class Sm83Backend
 
         public readonly int FrameSize;
 
+        /// <summary>Byte size of the contiguous WRAM-globals region starting at <see cref="WramBase"/> —
+        /// every module-scope static field/array's fixed storage. Zero unless this context is the entry
+        /// function, which is the only one that needs it (to emit the boot-only zero-clear).</summary>
+        public readonly int WramGlobalsSize;
+
         public EmitContext(
             Emitter emitter,
             IrFunction fn,
@@ -46,7 +51,8 @@ public sealed partial class Sm83Backend
             IReadOnlySet<IrFunction> recursive,
             bool isEntry,
             int softStackBase,
-            IReadOnlySet<IrFunction>? banked = null
+            IReadOnlySet<IrFunction>? banked = null,
+            int wramGlobalsSize = 0
         )
         {
             E = emitter;
@@ -64,6 +70,7 @@ public sealed partial class Sm83Backend
             SoftStackBase = softStackBase;
             FrameBase = allocation.FrameBase;
             FrameSize = allocation.FrameEnd - allocation.FrameBase;
+            WramGlobalsSize = wramGlobalsSize;
         }
 
         public bool IsRecursive => Recursive.Contains(Fn);

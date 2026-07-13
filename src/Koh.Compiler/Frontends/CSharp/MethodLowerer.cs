@@ -319,7 +319,9 @@ internal sealed class MethodLowerer
             }
         }
 
-        // Entry function only: apply static-field initializers.
+        // Entry function only: apply static-field initializers (no-initializer fields and static arrays
+        // default to zero via the backend's unconditional, boot-only WRAM-globals clear instead — see the
+        // remark on this same shape in CSharpFrontend.Declarations.cs's CollectStatics).
         foreach (var (global, value, type) in _staticInits)
             _b.Store(IrBuilder.ConstInt(type.Ir, value), IrBuilder.GlobalRef(global));
 
@@ -554,6 +556,9 @@ internal sealed class MethodLowerer
                     $"array '{name}' has a negative length ({count})."
                 );
             var basePtr = _b.Alloca(IrType.Array(IrType.I8, structElem.Size * count));
+            // Struct arrays only support bare `new T[n]` (no struct-array initializer list exists),
+            // so C#'s default-init semantics require zeroing every element unconditionally here.
+            EmitZeroFill(Reinterpret(basePtr, IrType.Pointer(IrType.I8)), structElem.Size * count);
             _structArrays[name] = (basePtr, structElem, count);
             return;
         }
@@ -614,6 +619,13 @@ internal sealed class MethodLowerer
                 var slot = _b.Gep(arrayPtr, IrBuilder.ConstInt(IrType.I16, i), element.Ir);
                 _b.Store(Coerce(LowerExpression(elements[i], element), element), slot);
             }
+        else
+            // A bare `new T[n]` with no initializer list still needs C#'s default-init: every
+            // element is 0. (An initializer list, handled above, already writes every slot.)
+            EmitZeroFill(
+                Reinterpret(arrayPtr, IrType.Pointer(IrType.I8)),
+                length * element.Ir.SizeInBytes
+            );
     }
 
     /// <summary>Compute the pointer to <c>arr[index]</c> or <c>ptr[index]</c> (the latter is
@@ -2199,38 +2211,45 @@ internal sealed class MethodLowerer
         _b.Store(raw, heap);
         var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
 
-        // Zero the instance in a runtime loop rather than unrolling one GEP+Store per byte, which made
-        // `new` cost O(size) ROM (a 16-byte object was hundreds of bytes). The loop is O(1) code.
-        // ponytail: a byte-at-a-time loop; a rt.memclear routine (ld (hl+),a) would be faster if hot.
-        if (cls.Layout.Size > 0)
-        {
-            var fn = _method.Fn;
-            var iSlot = _b.Alloca(IrType.I16);
-            _b.Store(IrBuilder.ConstInt(IrType.I16, 0), iSlot);
-            var head = fn.AppendBlock("new.zero.head");
-            var body = fn.AppendBlock("new.zero.body");
-            var done = fn.AppendBlock("new.zero.done");
-            _b.Br(head);
-            _b.PositionAtEnd(head);
-            _b.CondBr(
-                _b.Compare(
-                    IrCompareOp.Ult,
-                    _b.Load(iSlot),
-                    IrBuilder.ConstInt(IrType.I16, cls.Layout.Size)
-                ),
-                body,
-                done
-            );
-            _b.PositionAtEnd(body);
-            _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, _b.Load(iSlot), IrType.I8));
-            _b.Store(
-                _b.Binary(IrBinaryOp.Add, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)),
-                iSlot
-            );
-            _b.Br(head);
-            _b.PositionAtEnd(done);
-        }
+        EmitZeroFill(basePtr, cls.Layout.Size);
         return (basePtr, new CsType(IrType.Pointer(IrType.I8), Signed: false));
+    }
+
+    /// <summary>Zero <paramref name="size"/> bytes starting at <paramref name="basePtr"/> in a runtime
+    /// loop rather than unrolling one GEP+Store per byte, which would make a freshly heap-allocated
+    /// instance cost O(size) ROM (a 16-byte object became hundreds of bytes of unrolled stores). The loop
+    /// is O(1) code regardless of <paramref name="size"/> — heap memory from the arena is uninitialized,
+    /// so a class instance's fields need this before use. (A mutable WRAM static array/field has the same
+    /// zero-default need, but for a different reason — WRAM is not guaranteed zeroed at boot on real
+    /// hardware or in mGBA — and is handled at the backend level instead, in a boot-only stub immune to a
+    /// recursive entry function's re-entry; see <c>Sm83Backend.EmitWramGlobalsClear</c>.)
+    /// <c>ponytail</c>: a byte-at-a-time loop; a <c>rt.memclear</c> routine (<c>ld (hl+),a</c>) would be
+    /// faster if this shows up hot.</summary>
+    private void EmitZeroFill(IrValue basePtr, int size)
+    {
+        if (size <= 0)
+            return;
+        var fn = _method.Fn;
+        var iSlot = _b.Alloca(IrType.I16);
+        _b.Store(IrBuilder.ConstInt(IrType.I16, 0), iSlot);
+        var head = fn.AppendBlock("new.zero.head");
+        var body = fn.AppendBlock("new.zero.body");
+        var done = fn.AppendBlock("new.zero.done");
+        _b.Br(head);
+        _b.PositionAtEnd(head);
+        _b.CondBr(
+            _b.Compare(IrCompareOp.Ult, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, size)),
+            body,
+            done
+        );
+        _b.PositionAtEnd(body);
+        _b.Store(IrBuilder.ConstInt(IrType.I8, 0), _b.Gep(basePtr, _b.Load(iSlot), IrType.I8));
+        _b.Store(
+            _b.Binary(IrBinaryOp.Add, _b.Load(iSlot), IrBuilder.ConstInt(IrType.I16, 1)),
+            iSlot
+        );
+        _b.Br(head);
+        _b.PositionAtEnd(done);
     }
 
     /// <summary>Inline an expression lambda: bind its parameter to <paramref name="arg"/> in a temporary

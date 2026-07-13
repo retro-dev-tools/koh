@@ -127,6 +127,10 @@ public sealed partial class Sm83Backend : IBackend
                 wramGlobals += SizeOf(g.Type);
             }
         }
+        // The whole contiguous span this loop's "plain WRAM" bucket assigned — every module-scope static
+        // field/array with no <c>FixedAddress</c>/ROM placement/HRAM/SRAM address space. The entry
+        // function's boot-only stub zero-clears exactly this range once (see EmitWramGlobalsClear).
+        int wramGlobalsSize = wramGlobals - WramBase;
 
         // The cartridge boots into the frontend-marked entry (Main), or the first non-handler function
         // if the module has none. An interrupt handler must never be the entry: its body runs on every
@@ -184,7 +188,8 @@ public sealed partial class Sm83Backend : IBackend
                 globalAddresses,
                 recursive,
                 ReferenceEquals(fn, entryFunction),
-                softStackBase
+                softStackBase,
+                wramGlobalsSize: wramGlobalsSize
             ).Compile();
             emitter.PeepholeFrom(startOffset, allowDeadStore);
         }
@@ -226,7 +231,8 @@ public sealed partial class Sm83Backend : IBackend
                     recursive,
                     entryFunction,
                     softStackBase,
-                    emitter.NeededRoutines
+                    emitter.NeededRoutines,
+                    wramGlobalsSize
                 );
         }
 
@@ -379,7 +385,8 @@ public sealed partial class Sm83Backend : IBackend
         HashSet<IrFunction> recursive,
         IrFunction? entryFunction,
         int softStackBase,
-        HashSet<string> neededRoutines
+        HashSet<string> neededRoutines,
+        int wramGlobalsSize = 0
     )
     {
         if (entryFunction is null)
@@ -459,6 +466,10 @@ public sealed partial class Sm83Backend : IBackend
         emitter.U8(0x3E);
         emitter.U8(0x01); // LD A, 1
         SelectBank(emitter); // seed current-bank shadow + MBC1
+        // See EmitWramGlobalsClear: every module-scope static field/array with no explicit initializer
+        // defaults to zero in C#, and this boot stub — never reached again once execution passes the JP
+        // below — is the one place that can run it exactly once regardless of recursion.
+        EmitWramGlobalsClear(emitter, wramGlobalsSize);
         if (recursive.Count > 0)
         {
             // One-time recursion setup lives here (not in the entry's prologue) because the JP below lands
@@ -1254,6 +1265,32 @@ public sealed partial class Sm83Backend : IBackend
         LdAAbs(e, RtN);
         e.U8(0x47);
     } // A=(RtN); LD B,A
+
+    /// <summary>Zero <paramref name="size"/> bytes starting at <see cref="WramBase"/> — the whole
+    /// contiguous WRAM-globals region (every module-scope static field/array without an explicit
+    /// initializer defaults to zero there). Emitted once, unconditionally, in the entry function's
+    /// boot-only stub (see <see cref="FunctionEmitter.Compile"/> and <see cref="CompileMultiBank"/>'s own
+    /// boot stub) — never as IR store instructions in the entry function's own callable body, which
+    /// re-runs on every recursive re-entry (Main calling Main) and would re-zero the region on every call
+    /// instead of only at true boot. Uses a 16-bit BC countdown (unlike the fixed-size, B-only
+    /// <c>rt.clracc</c>) since the globals region can exceed 255 bytes.</summary>
+    private static void EmitWramGlobalsClear(Emitter e, int size)
+    {
+        if (size <= 0)
+            return;
+        LdHL(e, WramBase); // HL = WramBase
+        e.U8(0x01); // LD BC, size
+        e.U16(size);
+        int loopStart = e.Code.Count;
+        e.U8(0xAF); // xor a            (A = 0; re-derived each iteration since B/C below clobbers it)
+        e.U8(0x22); // ld (hl+), a
+        e.U8(0x0B); // dec bc
+        e.U8(0x78); // ld a, b
+        e.U8(0xB1); // or c             (Z set iff BC == 0)
+        int jrOffset = e.Code.Count;
+        e.U8(0x20); // jr nz, loop
+        e.U8((byte)(loopStart - (jrOffset + 2)));
+    }
 
     /// <summary>HL += (RtN - 1), so a pointer at an operand's low byte moves to its high byte.</summary>
     private static void AdvanceHLToMsb(Emitter e)

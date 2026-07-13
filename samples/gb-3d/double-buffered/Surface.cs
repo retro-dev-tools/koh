@@ -47,6 +47,11 @@ static unsafe class Surface
 
     internal static void Present()
     {
+        // TODO(vram-write-race): WaitForVramAccess() polls STAT then writes; mode 3 can start again
+        // between the poll and the write (register read + pointer store take several M-cycles), tearing
+        // a byte into the next frame. Harmless per-byte (worst case one wrong pixel for one frame), not
+        // eliminated. A real fix needs either HDMA (not usable for a live BG write like this) or
+        // restricting the transfer to a margin inside mode 0/1 only — out of scope for the hang fix.
         byte firstTile = page == 0 ? (byte)0 : (byte)120;
         ushort baseOffset = (ushort)((ushort)firstTile * 16);
         for (ushort i = 0; i < 1920; i++)

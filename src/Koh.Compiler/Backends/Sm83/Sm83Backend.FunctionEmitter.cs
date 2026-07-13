@@ -23,7 +23,8 @@ public sealed partial class Sm83Backend
             IReadOnlySet<IrFunction> recursive,
             bool isEntry,
             int softStackBase,
-            IReadOnlySet<IrFunction>? banked = null
+            IReadOnlySet<IrFunction>? banked = null,
+            int wramGlobalsSize = 0
         )
         {
             _ctx = new EmitContext(
@@ -34,7 +35,8 @@ public sealed partial class Sm83Backend
                 recursive,
                 isEntry,
                 softStackBase,
-                banked
+                banked,
+                wramGlobalsSize
             );
             _e = emitter;
             _arith = new ArithmeticEmitter(_ctx);
@@ -45,11 +47,20 @@ public sealed partial class Sm83Backend
         public void Compile()
         {
             // Boot-only, and deliberately BEFORE the CALL label: the cartridge boots into this byte (the
-            // recorded entry address), but a recursive CALL targets FunctionLabel below and skips it.
-            // Re-running it on every recursive re-entry would reset SP and the software stack and destroy
-            // the return chain, so the entry can never unwind. In multi-bank mode the boot stub jumps
-            // straight to FunctionLabel (it can't reach a pre-label byte), so there the init lives in the
-            // boot stub instead; a non-empty Banked set marks that mode.
+            // recorded entry address), but a recursive CALL targets FunctionLabel below and skips it. Both
+            // sections below run for EVERY program (not just a recursive one) exactly once, which is the
+            // whole point of placing them here rather than as ordinary instructions in the entry function's
+            // own IR body: that body re-runs on every recursive re-entry (Main calling Main), which would
+            // undo either one on every call instead of only at true boot. In multi-bank mode the boot stub
+            // jumps straight to FunctionLabel (it can't reach a pre-label byte), so there both live in the
+            // boot stub instead (see CompileMultiBank); a non-empty Banked set marks that mode.
+            if (_ctx.IsEntry && _ctx.Banked.Count == 0)
+            {
+                // Zero the WRAM-globals region: every module-scope static field/array with no explicit
+                // initializer defaults to zero in C#, but real hardware (and mGBA) do not guarantee WRAM
+                // starts zeroed the way the managed test-harness emulator's byte[]-backed memory happens to.
+                EmitWramGlobalsClear(_e, _ctx.WramGlobalsSize);
+            }
             if (_ctx.IsEntry && _ctx.Recursive.Count > 0 && _ctx.Banked.Count == 0)
             {
                 // Move the hardware CALL stack into WRAM (it defaults to the tiny HRAM window, where deep
