@@ -936,41 +936,87 @@ internal sealed class FunctionAllocation
         if (candidates.Count == 0)
             return (register, preheaderSync, fusedSite);
 
-        var allReloads = new HashSet<IrInstruction>(
-            candidates.Select(c => (IrInstruction)c.Reload),
-            ReferenceEqualityComparer.Instance
-        );
-        var allSteps = new HashSet<IrInstruction>(
-            candidates.Select(c => (IrInstruction)c.Step),
-            ReferenceEqualityComparer.Instance
-        );
-        var allDerefs = new HashSet<IrInstruction>(
-            candidates.Select(c => c.Deref),
-            ReferenceEqualityComparer.Instance
-        );
-        var allStorebacks = new HashSet<IrInstruction>(
-            candidates.Select(c => (IrInstruction)c.Storeback),
-            ReferenceEqualityComparer.Instance
-        );
-
-        // Phase 2: audit each candidate's own loop body against the combined whitelist, then assign a
-        // free register pair — loads first so a load candidate has first claim on Hl (cheaper: one
-        // opcode) when both shapes are present; a pool miss (both pairs already taken, e.g. a third
-        // candidate sharing the loop) simply drops that candidate — Layer 2 leaves it on the normal path.
+        // Phase 2: admit whole LOOPS at a time, atomically — never one candidate at a time across the
+        // whole function. Two structurally-shaped candidates that share the same loop body (e.g. a
+        // copy loop's src-load and dst-store pointers) are mutually trusted by the whitelist below:
+        // each one's audit treats the OTHER's reload/step/storeback as safe, on the assumption both end
+        // up register-resident together. That assumption is only sound if it always holds. Committing
+        // candidates one at a time from a single function-wide register pool breaks it the moment the
+        // pool runs low: picture two sequential copy loops, each needing Hl+De for its src/dst pair —
+        // the first loop's src and the SECOND loop's src both get admitted first (loads sorted first),
+        // claiming Hl and De between them, leaving neither loop's dst pointer a register — so loop 1's
+        // dst silently falls back to the ordinary path. But the ordinary path computes a dynamic gep by
+        // materializing the address in HL (ComputeGepIntoHL/LoadPointerToHL) and the index in DE
+        // (LoadIndexToDE) — unconditionally, on every use — which stomps the SAME Hl the loop's own src
+        // pointer is still resident in, mid-loop-body, corrupting it before the loop's fused dereference
+        // reads it again next iteration. (Confirmed by end-to-end repro: two sequential/branched/nested
+        // stride-1 pointer-walk loops in one function corrupted memory — see
+        // Sm83LoopCodegenTests.TwoSequentialCopyLoops_DistinctBuffers.)
+        //
+        // The fix: group candidates by their owning loop (Preheader uniquely identifies one — a block
+        // can end in only one terminator, so it can be the unconditional-branch preheader of at most one
+        // header) and audit/admit each group as a single unit. A group's whitelist is scoped to ONLY
+        // that group's own reload/step/deref/storeback instructions (not the whole function's — a
+        // sibling loop's candidates share no blocks with this one anyway, so widening the whitelist to
+        // them bought nothing and only invited exactly this hazard). If the group doesn't fit the
+        // register pairs still free at this point (bitwise, against everything assigned so far — Layer 0
+        // residents and any earlier-admitted loop group), NONE of the group's candidates are admitted —
+        // every one of them falls back to the ordinary path together, so there is no partial-admission
+        // window for the ordinary path's HL/DE scratch use to corrupt a sibling that DID get a register.
+        //
+        // ponytail: a loop group's Hl/De claim is never released once assigned — it is held "for the
+        // rest of the function" exactly like Layer 1's registers (see that region's header comment), so
+        // a SECOND sequential copy loop always declines once the first one saturates the pool, even
+        // though the two never run concurrently and could safely share the same physical registers.
+        // Correct but leaves residency on the floor for any function with 2+ two-candidate loops.
+        // Upgrade path (not yet needed by any measured hot loop): track each admitted group's live range
+        // (its Body block set) and free its claimed pair(s) once no later-processed group's Body can
+        // reach a point after this group's loop exits without passing back through it — i.e. once the
+        // groups are provably sequential, not nested/overlapping (reuse Dominators/CollectLoopBody,
+        // already computed above, rather than adding a new liveness pass).
         var pairPool = new[] { Sm83Register.Hl, Sm83Register.De };
 
-        foreach (var cand in candidates.OrderByDescending(c => c.IsLoad))
+        foreach (
+            var loopGroup in candidates.GroupBy(
+                c => c.Preheader,
+                ReferenceEqualityComparer.Instance
+            )
+        )
         {
+            // Loads first within the group so a load candidate keeps first claim on Hl (cheaper: one
+            // opcode) when both shapes are present in the same loop — same preference as before.
+            var group = loopGroup.OrderByDescending(c => c.IsLoad).ToList();
+            if (group.Count > pairPool.Length)
+                continue; // more pointers in this one loop than register pairs exist — never admitted
+
+            var groupReloads = new HashSet<IrInstruction>(
+                group.Select(c => (IrInstruction)c.Reload),
+                ReferenceEqualityComparer.Instance
+            );
+            var groupSteps = new HashSet<IrInstruction>(
+                group.Select(c => (IrInstruction)c.Step),
+                ReferenceEqualityComparer.Instance
+            );
+            var groupDerefs = new HashSet<IrInstruction>(
+                group.Select(c => c.Deref),
+                ReferenceEqualityComparer.Instance
+            );
+            var groupStorebacks = new HashSet<IrInstruction>(
+                group.Select(c => (IrInstruction)c.Storeback),
+                ReferenceEqualityComparer.Instance
+            );
+
             bool safe = true;
+            foreach (var cand in group)
             foreach (var block in cand.Body)
             foreach (var instr in block.Instructions)
                 if (
                     !IsPointerLoopSafeInstruction(
                         instr,
-                        allReloads,
-                        allDerefs,
-                        allSteps,
-                        allStorebacks
+                        groupReloads,
+                        groupDerefs,
+                        groupSteps,
+                        groupStorebacks
                     )
                 )
                 {
@@ -980,27 +1026,32 @@ internal sealed class FunctionAllocation
             if (!safe)
                 continue;
 
-            Sm83Register? chosen = null;
+            // Every candidate in the group must get a register, or none do (atomic admission — see the
+            // region comment above). Collect enough distinct free pairs before committing any of them.
+            var freeRegs = new List<Sm83Register>();
             foreach (var reg in pairPool)
                 if (
                     assigned.Values.All(r => (r & reg) == 0)
                     && register.Values.All(r => (r & reg) == 0)
                 )
-                {
-                    chosen = reg;
-                    break;
-                }
-            if (chosen is not { } picked)
+                    freeRegs.Add(reg);
+            if (freeRegs.Count < group.Count)
                 continue;
 
-            register[cand.Reload] = picked;
-            register[cand.Step] = picked;
-            fusedSite[cand.Deref] = picked;
+            for (int i = 0; i < group.Count; i++)
+            {
+                var cand = group[i];
+                var picked = freeRegs[i];
 
-            var home = (AllocaInstruction)cand.Reload.Pointer; // guaranteed by the Phase 1 filter above
-            if (!preheaderSync.TryGetValue(cand.Preheader, out var syncs))
-                preheaderSync[cand.Preheader] = syncs = new List<PointerHomeSync>();
-            syncs.Add(new PointerHomeSync(home, picked));
+                register[cand.Reload] = picked;
+                register[cand.Step] = picked;
+                fusedSite[cand.Deref] = picked;
+
+                var home = (AllocaInstruction)cand.Reload.Pointer; // guaranteed by the Phase 1 filter
+                if (!preheaderSync.TryGetValue(cand.Preheader, out var syncs))
+                    preheaderSync[cand.Preheader] = syncs = new List<PointerHomeSync>();
+                syncs.Add(new PointerHomeSync(home, picked));
+            }
         }
 
         return (register, preheaderSync, fusedSite);

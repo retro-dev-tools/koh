@@ -433,4 +433,227 @@ public class Sm83LoopCodegenTests
         await Assert.That(ReadByte(gb, 0xC104)).IsEqualTo((byte)10);
         await Assert.That(ReadByte(gb, 0xC105)).IsEqualTo((byte)20);
     }
+
+    // ---- Layer 1 (i8 induction) multi-loop coverage ------------------------------------------------
+    //
+    // Layer 1's residency unit is always exactly one (phi, bodyValue) pair sharing one register - there
+    // is never more than one candidate per loop, so there is no per-loop register-pool arbitration and
+    // no partial-admission window (contrast Layer 2, which can have 2 candidates - src/dst - sharing one
+    // loop and one 2-pair pool). A dropped Layer 1 candidate's fallback (WRAM reload/gentle-add/store)
+    // touches only A and B, never C/D/E/H/L - disjoint from the residency registers - so it cannot
+    // corrupt a sibling the way Layer 2's HL/DE-clobbering ordinary gep path did. These tests confirm
+    // that structural argument empirically for the same multi-loop shapes that broke Layer 2.
+
+    [Test]
+    public async Task TwoSequentialI8CountedLoops_DistinctCounters()
+    {
+        const string src = """
+            public static class Program {
+                public static void Main() {
+                    byte total1 = 0;
+                    for (byte i = 0; i < 10; i++) {
+                        total1 = (byte)(total1 + 1);
+                    }
+                    *(byte*)0xC100 = total1;
+                    byte total2 = 0;
+                    for (byte j = 0; j < 20; j++) {
+                        total2 = (byte)(total2 + 1);
+                    }
+                    *(byte*)0xC200 = total2;
+                }
+            }
+            """;
+        var gb = Load(src, "twoi8_1.cs", out int start);
+        Run(gb, start);
+        await Assert.That(ReadByte(gb, 0xC100)).IsEqualTo((byte)10);
+        await Assert.That(ReadByte(gb, 0xC200)).IsEqualTo((byte)20);
+    }
+
+    [Test]
+    public async Task TwoI8CountedLoopsInIfElseBranches()
+    {
+        const string src = """
+            public static class Program {
+                public static void Main() {
+                    *(byte*)0xC000 = 0;
+                    bool which = *(byte*)0xC000 != 0;
+                    byte total = 0;
+                    if (which) {
+                        for (byte i = 0; i < 10; i++) {
+                            total = (byte)(total + 1);
+                        }
+                    } else {
+                        for (byte j = 0; j < 20; j++) {
+                            total = (byte)(total + 1);
+                        }
+                    }
+                    *(byte*)0xC300 = total;
+                }
+            }
+            """;
+        var gb = Load(src, "twoi8_ifelse1.cs", out int start);
+        Run(gb, start);
+        // which == false -> else arm's 20-iteration loop runs.
+        await Assert.That(ReadByte(gb, 0xC300)).IsEqualTo((byte)20);
+    }
+
+    // ---- Repro: two textually-distinct stride-1 pointer-walk loops in one function ---------------
+
+    [Test]
+    public async Task TwoSequentialFillLoops_DistinctBuffers()
+    {
+        const string src = """
+            public static unsafe class Program {
+                public static void Main() {
+                    byte* a = (byte*)0xC100;
+                    byte countA = 10;
+                    while (countA != 0) {
+                        *a = 0x11;
+                        a++;
+                        countA--;
+                    }
+                    byte* b = (byte*)0xC200;
+                    byte countB = 10;
+                    while (countB != 0) {
+                        *b = 0x22;
+                        b++;
+                        countB--;
+                    }
+                }
+            }
+            """;
+        var gb = Load(src, "twofill1.cs", out int start);
+        Run(gb, start);
+        for (int i = 0; i < 10; i++)
+            await Assert.That(ReadByte(gb, 0xC100 + i)).IsEqualTo((byte)0x11);
+        for (int i = 0; i < 10; i++)
+            await Assert.That(ReadByte(gb, 0xC200 + i)).IsEqualTo((byte)0x22);
+    }
+
+    [Test]
+    public async Task TwoLoopsInIfElseBranches()
+    {
+        // Each branch is a two-candidate COPY loop (src load-fused + dst store-fused) - the shape that
+        // actually exercises partial admission (a single-candidate fill loop per branch never hits it,
+        // and would have passed even before the fix). The branch condition reads WRAM (explicitly
+        // zeroed first -> false -> else arm) so the optimizer cannot constant-fold the branch away.
+        // WRAM is NOT zero-initialized by this harness (it defaults to 0xFF), so the zero-write is
+        // required.
+        const string srcA = """
+            public static unsafe class Program {
+                public static void Main() {
+                    *(byte*)0xC000 = 0;
+                    bool which = *(byte*)0xC000 != 0;
+                    if (which) {
+                        byte* sa = (byte*)0xC100;
+                        byte* da = (byte*)0xC110;
+                        byte countA = 10;
+                        while (countA != 0) {
+                            *da = *sa;
+                            da++;
+                            sa++;
+                            countA--;
+                        }
+                    } else {
+                        byte* sb = (byte*)0xC200;
+                        byte* db = (byte*)0xC210;
+                        for (byte i = 0; i < 10; i++) {
+                            sb[i] = (byte)(i + 1);
+                        }
+                        byte countB = 10;
+                        while (countB != 0) {
+                            *db = *sb;
+                            db++;
+                            sb++;
+                            countB--;
+                        }
+                    }
+                }
+            }
+            """;
+        var gb = Load(srcA, "ifelse1.cs", out int start);
+        Run(gb, start);
+        // which == false -> else arm runs: sb filled with 1..10, then copied db <- sb.
+        for (int i = 0; i < 10; i++)
+            await Assert.That(ReadByte(gb, 0xC210 + i)).IsEqualTo((byte)(i + 1));
+    }
+
+    [Test]
+    public async Task TwoSequentialCopyLoops_DistinctBuffers()
+    {
+        // The task's canonical Layer 2 shape (src load-fused into Hl, dst store-fused into De) repeated
+        // twice with fresh, non-overlapping pointer locals for each copy.
+        const string src = """
+            public static unsafe class Program {
+                public static void Main() {
+                    byte* s1 = (byte*)0xC100;
+                    byte* d1 = (byte*)0xC200;
+                    for (byte i = 0; i < 10; i++) {
+                        s1[i] = i;
+                    }
+                    byte count1 = 10;
+                    while (count1 != 0) {
+                        *d1 = *s1;
+                        d1++;
+                        s1++;
+                        count1--;
+                    }
+                    byte* s2 = (byte*)0xC300;
+                    byte* d2 = (byte*)0xC400;
+                    for (byte i = 0; i < 10; i++) {
+                        s2[i] = (byte)(i + 100);
+                    }
+                    byte count2 = 10;
+                    while (count2 != 0) {
+                        *d2 = *s2;
+                        d2++;
+                        s2++;
+                        count2--;
+                    }
+                }
+            }
+            """;
+        var gb = Load(src, "twocopy1.cs", out int start);
+        Run(gb, start);
+        for (int i = 0; i < 10; i++)
+            await Assert.That(ReadByte(gb, 0xC200 + i)).IsEqualTo((byte)i);
+        for (int i = 0; i < 10; i++)
+            await Assert.That(ReadByte(gb, 0xC400 + i)).IsEqualTo((byte)(i + 100));
+    }
+
+    [Test]
+    public async Task CopyLoopFollowedByFillLoop()
+    {
+        const string src = """
+            public static unsafe class Program {
+                public static void Main() {
+                    byte* s = (byte*)0xC100;
+                    byte* d = (byte*)0xC200;
+                    for (byte i = 0; i < 10; i++) {
+                        s[i] = i;
+                    }
+                    byte count = 10;
+                    while (count != 0) {
+                        *d = *s;
+                        d++;
+                        s++;
+                        count--;
+                    }
+                    byte* f = (byte*)0xC300;
+                    byte countF = 10;
+                    while (countF != 0) {
+                        *f = 0x33;
+                        f++;
+                        countF--;
+                    }
+                }
+            }
+            """;
+        var gb = Load(src, "copyfill1.cs", out int start);
+        Run(gb, start);
+        for (int i = 0; i < 10; i++)
+            await Assert.That(ReadByte(gb, 0xC200 + i)).IsEqualTo((byte)i);
+        for (int i = 0; i < 10; i++)
+            await Assert.That(ReadByte(gb, 0xC300 + i)).IsEqualTo((byte)0x33);
+    }
 }
