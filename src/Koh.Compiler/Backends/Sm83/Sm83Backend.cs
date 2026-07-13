@@ -254,7 +254,10 @@ public sealed partial class Sm83Backend : IBackend
                     SymbolKind.Label,
                     SymbolVisibility.Exported,
                     CodeSectionName,
-                    addr
+                    // SymbolResolver.ResolveAddresses computes `section.PlacedAddress + Value`, so Value
+                    // must be section-relative, not `addr` itself — the "CODE" section is always placed
+                    // at CodeBase (see the section below), so subtracting it here recovers `addr` there.
+                    addr - CodeBase
                 )
             );
         }
@@ -360,7 +363,10 @@ public sealed partial class Sm83Backend : IBackend
                     SymbolKind.Label,
                     SymbolVisibility.Exported,
                     CodeSectionName,
-                    addr
+                    // See the function-symbol loop above: Value must be relative to CodeSectionName's
+                    // placed address (CodeBase), regardless of which real memory region `addr` lives in
+                    // (WRAM/HRAM/SRAM/ROM data) — the resolver just adds CodeBase back at link time.
+                    addr - CodeBase
                 )
             );
 
@@ -551,7 +557,11 @@ public sealed partial class Sm83Backend : IBackend
                     SymbolKind.Label,
                     SymbolVisibility.Exported,
                     CodeSectionName,
-                    funcAddr[f]
+                    // See CompileCore: Value must be relative to CodeSectionName's placed address
+                    // (CodeBase) — true here too even for a banked function's `funcAddr[f]` (a
+                    // BankWindow-relative address in a different section), since the resolver only ever
+                    // adds CodeSectionName's placed address back on top of Value.
+                    funcAddr[f] - CodeBase
                 )
             );
         foreach (var (g, addr) in globalAddresses)
@@ -561,7 +571,7 @@ public sealed partial class Sm83Backend : IBackend
                     SymbolKind.Label,
                     SymbolVisibility.Exported,
                     CodeSectionName,
-                    addr
+                    addr - CodeBase
                 )
             );
 
