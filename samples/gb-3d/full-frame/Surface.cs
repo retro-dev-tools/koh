@@ -7,7 +7,12 @@ static unsafe class Surface
     const byte SpareTileStart = 240;
     const byte BlankTile = 255;
 
-    static byte[] pixels = new byte[3840];
+    // The 3840-byte render target. Allocated from the WRAM arena (not a static array) and 16-byte
+    // aligned, mirroring double-buffered/Surface.cs's Initialize pattern: the CGB path hands this
+    // address to Cgb.CopyToVram, whose HDMA1/2 source registers ignore the low 4 bits, so a real,
+    // aligned address is required (a managed array's address can't be taken in legal C#, and this
+    // source also has to build as the desktop reference binary).
+    static byte* pixels;
 
     internal static byte Width()
     {
@@ -21,8 +26,7 @@ static unsafe class Surface
 
     internal static void Clear()
     {
-        for (ushort i = 0; i < 3840; i++)
-            pixels[i] = 0;
+        Mem.Fill(pixels, 0, 3840);
     }
 
     internal static void SetPixel(byte x, byte y, byte color)
@@ -33,18 +37,18 @@ static unsafe class Surface
         ushort o = (ushort)(tile * 16 + (y & 7) * 2);
         byte m = (byte)(0x80 >> (x & 7));
         if ((color & 1) != 0)
-            pixels[o] |= m;
+            *(pixels + o) |= m;
         else
-            pixels[o] &= (byte)~m;
+            *(pixels + o) &= (byte)~m;
         if ((color & 2) != 0)
-            pixels[o + 1] |= m;
+            *(pixels + o + 1) |= m;
         else
-            pixels[o + 1] &= (byte)~m;
+            *(pixels + o + 1) &= (byte)~m;
     }
 
     // Byte-granular span fill for FillTriangle's scanlines — same dither/coverage derivation as
-    // double-buffered/Surface.cs's FillSpan (see there for the full comment); array-indexed here
-    // instead of pointer-based, tilesPerRow = 16.
+    // double-buffered/Surface.cs's FillSpan (see there for the full comment); pointer-based here,
+    // tilesPerRow = 16.
     internal static void FillSpan(byte y, byte xa, byte xb, byte color)
     {
         byte dither = color > 1 ? (byte)(0x88 >> (y & 3)) : (byte)0x00;
@@ -62,36 +66,38 @@ static unsafe class Surface
         if (firstByte == lastByte)
         {
             byte cover = (byte)((byte)(0xFF >> (xa & 7)) & (byte)(0xFF << (7 - (xb & 7))));
-            pixels[o] &= (byte)~cover;
-            pixels[o] |= (byte)(plane0 & cover);
-            pixels[o + 1] &= (byte)~cover;
-            pixels[o + 1] |= (byte)(plane1 & cover);
+            *(pixels + o) &= (byte)~cover;
+            *(pixels + o) |= (byte)(plane0 & cover);
+            *(pixels + o + 1) &= (byte)~cover;
+            *(pixels + o + 1) |= (byte)(plane1 & cover);
             return;
         }
 
         byte coverFirst = (byte)(0xFF >> (xa & 7));
-        pixels[o] &= (byte)~coverFirst;
-        pixels[o] |= (byte)(plane0 & coverFirst);
-        pixels[o + 1] &= (byte)~coverFirst;
-        pixels[o + 1] |= (byte)(plane1 & coverFirst);
+        *(pixels + o) &= (byte)~coverFirst;
+        *(pixels + o) |= (byte)(plane0 & coverFirst);
+        *(pixels + o + 1) &= (byte)~coverFirst;
+        *(pixels + o + 1) |= (byte)(plane1 & coverFirst);
 
         for (byte b = (byte)(firstByte + 1); b < lastByte; b++)
         {
             o = (ushort)(o + 16);
-            pixels[o] = plane0;
-            pixels[o + 1] = plane1;
+            *(pixels + o) = plane0;
+            *(pixels + o + 1) = plane1;
         }
 
         byte coverLast = (byte)(0xFF << (7 - (xb & 7)));
         o = (ushort)(o + 16);
-        pixels[o] &= (byte)~coverLast;
-        pixels[o] |= (byte)(plane0 & coverLast);
-        pixels[o + 1] &= (byte)~coverLast;
-        pixels[o + 1] |= (byte)(plane1 & coverLast);
+        *(pixels + o) &= (byte)~coverLast;
+        *(pixels + o) |= (byte)(plane0 & coverLast);
+        *(pixels + o + 1) &= (byte)~coverLast;
+        *(pixels + o + 1) |= (byte)(plane1 & coverLast);
     }
 
     internal static void Initialize()
     {
+        pixels = Mem.Alloc(3840 + 15);
+        pixels = (byte*)(((ulong)pixels + 15) & ~15UL);
         Lcd.Off();
         Tilemap.Clear(BlankTile);
         for (byte t = SpareTileStart; t != 0; t++)
@@ -103,17 +109,34 @@ static unsafe class Surface
 
     internal static void Present()
     {
-        // Pace to the hardware frame rate and align the LCD-off tile upload with the start of vblank
-        // (as the other demos do via Ppu.WaitVBlank()), so the whole-frame rewrite lands in the blanked
-        // window instead of at an arbitrary point relative to the previous frame's display time. Without
-        // this the loop is uncapped: rotation speed tracks raw CPU speed (and doubles again under CGB
-        // double-speed) and the LCD-off/on cycle straddles frames unpredictably. Turning the LCD off for
-        // the whole copy (not just an edge-synchronized burst) sidesteps the mode-3 VRAM lock entirely —
-        // simplest-safe over edge-sync since this demo already accepted the LCD-off flash tradeoff.
-        Ppu.WaitVBlank();
-        Lcd.Off();
-        for (ushort i = 0; i < 3840; i++)
-            *(Gb.Vram + i) = pixels[i];
-        Lcd.On();
+        if (Cgb.IsColor())
+        {
+            // CGB: LCD stays ON the whole time — no more per-frame Lcd.Off flash. The 3840-byte
+            // page doesn't fit Cgb.CopyToVram's 2048-byte-per-transfer limit in one shot, so it goes
+            // as two 1920-byte GDMA transfers across two consecutive vblanks (the first half at
+            // $8000, the second at $8000+1920=$8780, the double-buffered demo's absolute-address
+            // precedent). Each transfer is safe from the mode-3 VRAM lock the same way
+            // double-buffered's CGB path is (HDMA writes, not CPU writes, so Mode3WriteGuard is
+            // untouched). Accepted tradeoff: for the one frame between the two WaitVBlank calls, the
+            // top half of the screen shows the new frame's content while the bottom half still shows
+            // the previous frame's — a one-frame horizontal seam, not a full-frame flash. Pacing to
+            // Ppu.WaitVBlank() (as before) still caps rotation speed to the hardware frame rate.
+            Ppu.WaitVBlank();
+            Cgb.CopyToVram(pixels, 0x8000, 1920);
+            Ppu.WaitVBlank();
+            Cgb.CopyToVram(pixels + 1920, 0x8780, 1920);
+        }
+        else
+        {
+            // DMG: no DMA to VRAM exists, so the LCD-off flash tradeoff stays, but the manual
+            // per-byte loop becomes one Mem.Copy(Gb.Vram, pixels, 3840) call (the tuned block-loop
+            // runtime; see MemRuntime.cs). Measured directly: 1,162,016 dots for the whole call, i.e.
+            // ~16.5 DMG frames (70224 dots/frame) of blanked screen per render. Pacing to
+            // Ppu.WaitVBlank() still aligns the flash to the start of a frame.
+            Ppu.WaitVBlank();
+            Lcd.Off();
+            Mem.Copy(Gb.Vram, pixels, 3840);
+            Lcd.On();
+        }
     }
 }

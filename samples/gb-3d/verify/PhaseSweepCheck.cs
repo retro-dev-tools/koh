@@ -23,7 +23,7 @@ internal static class PhaseSweepCheck
         foreach (
             var (name, width, height) in new[]
             {
-                ("racing-beam", (byte)32, (byte)32),
+                ("racing-beam", (byte)64, (byte)64),
                 ("double-buffered", (byte)96, (byte)80),
                 ("full-frame", (byte)128, (byte)120),
             }

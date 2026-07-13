@@ -9,22 +9,25 @@ Directory.CreateDirectory(output);
 // gets checked against; the second is later so the two snapshots can be compared and must differ (the
 // cube is animating, not a frozen/garbage framebuffer) — so the gap doubles as an ANIMATION-RATE
 // assertion: it must clear one full render+present cycle, and tightening it pins how fast the demo has
-// to flip. The software rasterizer is slow relative to hardware vblank (a full render+present pass
-// takes well over 100 real frames for the larger viewports, measured up to ~180 in DMG single speed),
-// so the gap has to clear that or two samples can land in the same still-rendering frame and the
-// animation check would false-fail. double-buffered's flip rate differs per mode, so it gets per-mode
-// counts (measured by frame-by-frame framebuffer diffing against these exact ROMs):
-//   - cgb: Surface.Present() moves the whole 1920-byte page with one general-purpose DMA inside a
-//     single vblank and page-flips via LCDC.4, so a flip lands every ~62-91 frames (rasterization-
-//     bound; first content at ~frame 115). first=300 is steady-state; gap=200 asserts a flip happens
-//     at least every ~3.3 s — a regression back to chunked CPU uploads would fail it.
-//   - dmg: no DMA to VRAM exists, so the vblank-chunked CPU upload stands (3 bytes/vblank = 640
-//     frames/page, plus ~150 render frames: a flip every ~790 frames, first at ~836). Slow is
-//     accepted for the monochrome fallback; gap=900 clears one full cycle.
-// full-frame/racing-beam stay at the original, fast-settling counts in both modes (a larger gap for
-// them just burns test time for no reason, and — found empirically — runs the cube through enough of
-// its rotation to hit CubeRenderer's near-camera perspective-divide singularity, an unrelated existing
-// issue in the shared renderer, not something the VRAM-timing work touches).
+// to flip.
+//
+// Both columns are sized as first ~= boot + 3x-cadence, gap (second - first) ~= 2.5x-cadence, from a
+// frame-by-frame framebuffer diff against these exact ROMs (2000 frames each, both modes): "boot" is
+// the frame of the first observed content change; "cadence" is the steady-state interval between
+// render+present cycles (the interval between framebuffer changes, once past startup — for
+// full-frame/CGB, whose two-vblank GDMA halves each show up as a change, cadence is the sum of both
+// half-transfers' deltas; racing-beam's per-scanline SCX wobble shows up as extra 1-frame deltas within
+// a cycle and is excluded from "cadence"). Both budgets carry headroom above that formula (not tuned
+// to the exact minimum) since a too-tight budget trades a faster CI run for flakiness the first time a
+// phase lands on a slower-than-typical render — not worth it. Per ROM x mode, measured cadence ranged
+// (min..max over the 2000-frame sample, not the full 256-phase cycle):
+//   - double-buffered: cgb 19-47 frames/flip (one GDMA transfer per vblank flip, rasterization-bound);
+//     dmg 340-344 frames/flip (the vblank-chunked Mem.Copy upload, ~275 frames/page at
+//     PixelChunkSize=7, plus render). Kept at the already-generous 300/500 (cgb) and 1100/2000 (dmg).
+//   - full-frame: cgb 23-51 frames/cycle (two-vblank GDMA halves, seam included); dmg 59-114
+//     frames/cycle (one Lcd-off Mem.Copy(3840) present, ~16.5 frames of that, plus render).
+//   - racing-beam: cgb 17-41 frames/cycle; dmg 33-80 frames/cycle (one Lcd-off Mem.Copy(1024) present,
+//     plus render, plus the SCX wobble sequence which is itself paced to real hblank timing).
 var roms = new (string Name, string Rom, int DmgFirst, int DmgSecond, int CgbFirst, int CgbSecond)[]
 {
     (
@@ -38,18 +41,18 @@ var roms = new (string Name, string Rom, int DmgFirst, int DmgSecond, int CgbFir
     (
         "full-frame",
         Path.Combine(root, "samples", "gb-3d", "full-frame", "cube-full-frame.gb"),
-        600,
-        600 + 240,
-        600,
-        600 + 240
+        450,
+        450 + 300,
+        300,
+        300 + 200
     ),
     (
         "racing-beam",
         Path.Combine(root, "samples", "gb-3d", "racing-beam", "cube-racing-beam.gb"),
-        600,
-        600 + 240,
-        600,
-        600 + 240
+        400,
+        400 + 300,
+        300,
+        300 + 150
     ),
 };
 

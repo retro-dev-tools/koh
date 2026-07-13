@@ -153,22 +153,23 @@ public class Cube3dTests
     // ---- Running the real demo renders an actual, non-trivial cube -----------------------------------
 
     [Test]
-    [Arguments("double-buffered", 300, HardwareMode.Cgb)]
-    [Arguments("full-frame", 300, HardwareMode.Dmg)]
+    [Arguments("double-buffered", 200, HardwareMode.Cgb)]
+    [Arguments("full-frame", 250, HardwareMode.Dmg)]
     public async Task Demo_RunOnHardwareRendersARealCube(
         string variant,
         int frames,
         HardwareMode mode
     )
     {
-        // The software rasterizer is slow relative to hardware vblank: from a cold boot, the first full
-        // render+present pass (tileset setup plus one whole-cube transform/sort/rasterize) does not land
-        // until frame ~200 for full-frame, measured directly. double-buffered runs on CGB here because
-        // that is its fast path: Surface.Present() moves the whole page with one general-purpose DMA
-        // inside a single vblank and flips via LCDC.4, so first content lands at ~frame 115 (measured) —
-        // comfortably inside the same 300-frame budget as full-frame. Its DMG fallback stays a
-        // vblank-chunked CPU upload whose first flip needs ~840 frames; that slow path (and this ROM on
-        // DMG generally) is covered by samples/gb-3d/verify, not re-run here.
+        // The software rasterizer is slow relative to hardware vblank. Frame-by-frame framebuffer
+        // diffing against the real built ROMs (samples/gb-3d/verify/Program.cs's technique) measured:
+        // double-buffered/CGB's first content lands at ~frame 63 (Surface.Present() moves the whole
+        // page with one general-purpose DMA inside a single vblank and flips via LCDC.4), with a
+        // steady-state render+present cadence of 19-47 frames — 200 frames clears boot plus more than
+        // two full cycles. full-frame/DMG's first content lands at ~frame 17, with a cadence of 59-114
+        // frames (one Lcd-off Mem.Copy(3840) present plus render) — 250 frames clears boot plus more
+        // than one full cycle. Both ROMs' DMG (double-buffered) or CGB (full-frame) counterpart, and
+        // racing-beam in both modes, are covered by samples/gb-3d/verify, not re-run here.
         var rgb = Boot(Compile(ReadDemo(variant)), frames, mode);
         var (distinctShades, litPixels) = Analyze(rgb);
 

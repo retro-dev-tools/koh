@@ -9,8 +9,15 @@ static unsafe class Surface
     // share $8800-$8FFF), so a single blank tile pads the border cells whichever page is showing.
     const byte BlankTile = 255;
 
-    // DMG fallback: VRAM bytes uploaded per vblank (see the cycle budget note in Present()).
-    const byte PixelChunkSize = 4;
+    // DMG fallback: VRAM bytes uploaded per vblank via one Mem.Copy call (see the cycle budget note
+    // in Present()). Sized by measuring whole Mem.Copy(dst, src, n) calls directly (two calls minus
+    // one, to strip shared setup) rather than extrapolating a per-byte rate: cost(n) = 1528 + 300n
+    // dots (measured for n = 4..24; matches the tuned block-loop runtime's ~300 dots/byte marginal
+    // rate plus a ~1528-dot fixed call overhead). n=7 costs 3628 dots, leaving 476 of the ~4104-dot
+    // usable vblank — over the 300-dot margin; n=8 costs 3928, leaving only 176 (under margin). Up
+    // from the old 4-bytes/vblank manual-loop drip (1920/4 = 480 frames/page); 1920/7 ~= 275
+    // frames/page now.
+    const byte PixelChunkSize = 7;
 
     // The 1920-byte render target. Allocated from the WRAM arena rather than declared as a static
     // array so its address can be handed to the CGB GDMA source registers (Cgb.CopyToVram casts it
@@ -33,8 +40,7 @@ static unsafe class Surface
 
     internal static void Clear()
     {
-        for (ushort i = 0; i < 1920; i++)
-            *(pixels + i) = 0;
+        Mem.Fill(pixels, 0, 1920);
     }
 
     internal static void SetPixel(byte x, byte y, byte color)
@@ -121,12 +127,10 @@ static unsafe class Surface
         pixels = (byte*)(((ulong)pixels + 15) & ~15UL);
         Lcd.Off();
         // Both pixel pages start as garbage (the DMG boot ROM leaves its logo tiles inside page 0's
-        // range): clear them, plus the shared blank border tile at $8FF0.
-        for (ushort i = 0; i < 1920; i++)
-        {
-            *(Gb.Vram + i) = 0;
-            *(Gb.Vram + 0x1000 + i) = 0;
-        }
+        // range): clear them, plus the shared blank border tile at $8FF0. LCD is off here, so a bulk
+        // VRAM write is safe regardless of PPU mode.
+        Mem.Fill(Gb.Vram, 0, 1920);
+        Mem.Fill(Gb.Vram + 0x1000, 0, 1920);
         TileData.Clear(BlankTile);
         Tilemap.Clear(BlankTile);
         for (byte r = 0; r < 10; r++)
@@ -157,35 +161,30 @@ static unsafe class Surface
         }
         else
         {
-            // DMG fallback: no DMA to VRAM exists, so keep the timing-safe vblank-chunked CPU
-            // upload. Each compiled `*(Gb.Vram + ...) = *(pixels + ...)` iteration cost ~820 dots
-            // against the original per-instruction codegen; the SM83 backend now fuses a single-use
-            // `gep` directly into the load/store it feeds instead of round-tripping it through a WRAM
-            // slot (Sm83Backend.EmitContext.FusedGep), which measures ~645 dots/iteration for this
-            // exact loop shape (baseOffset + i, dmg, single-bank) — about 11% less. Still more than
-            // mode 0's worst-case 204-dot window, so per-hblank bursts can't work; only vblank's
-            // ~4104 usable dots (10 lines minus WaitVBlank()'s edge-detection line) fit a chunk. 4
-            // bytes (3 x ~645 dots = ~1935 between first and last write) still leaves comfortable
-            // margin (~2169 dots) — re-verified against Cube3dVerify's Mode3WriteGuard, which fails on
-            // any real VRAM write during mode 3 — where a chunk of 5 produced sporadic real mode-3
-            // writes under the older, slower codegen (a chunk of 5 now costs 4 x ~645 = ~2580, likely
-            // fine too, but not re-validated here — leave at 4 unless a future measurement re-checks
-            // it). Slow — a page takes 1920/4 = 480 frames (~8.5 s) — but tear-free and zero mode-3
-            // writes; accepted for the monochrome fallback. The LCDC.4 flip still applies here and
-            // removes the old 120-cell tilemap rewrite (60 more vblanks) per flip.
+            // DMG fallback: no DMA to VRAM exists, so keep the timing-safe vblank-chunked upload, but
+            // each chunk is now one Mem.Copy call instead of a manual per-byte loop (Mem.Copy is the
+            // tuned block-loop runtime — see MemRuntime.cs — measured at ~300 dots/byte marginal, plus
+            // a ~1528-dot fixed per-call overhead: cost(n) = 1528 + 300n dots, measured directly per
+            // chunk size, not extrapolated from the marginal rate alone). Only vblank's ~4104 usable
+            // dots (10 lines minus WaitVBlank()'s edge-detection line) fit a chunk; a hblank burst can't
+            // (mode 0's worst case is 204 dots). PixelChunkSize=7 costs 3628 dots, leaving a 476-dot
+            // margin (over the required 300) — re-verified against Cube3dVerify's Mode3WriteGuard, which
+            // fails on any real VRAM write during mode 3. Slow — a page takes ceil(1920/7) = 275 frames
+            // (~4.9 s) — but tear-free and zero mode-3 writes; accepted for the monochrome fallback (down
+            // from 480 frames/page at the old 4-bytes/vblank rate). The LCDC.4 flip still applies here
+            // and removes the old 120-cell tilemap rewrite (60 more vblanks) per flip.
             ushort baseOffset = page == 0 ? (ushort)0x0000 : (ushort)0x1000;
             ushort i = 0;
             while (i < 1920)
             {
                 Ppu.WaitVBlank();
-                for (byte k = 0; k < PixelChunkSize && i < 1920; k++)
-                {
-                    *(Gb.Vram + baseOffset + i) = *(pixels + i);
-                    i++;
-                }
+                ushort remaining = (ushort)(1920 - i);
+                byte chunk = remaining < PixelChunkSize ? (byte)remaining : PixelChunkSize;
+                Mem.Copy(Gb.Vram + baseOffset + i, pixels + i, chunk);
+                i += chunk;
             }
-            // The final chunk leaves us ~2500 dots into its vblank (3 writes x ~820 dots), still
-            // well inside the 4560-dot window: flip immediately, no extra frame.
+            // The final chunk leaves comfortable margin inside its vblank (see PixelChunkSize's
+            // derivation): flip immediately, no extra frame.
             Lcd.SelectTileData(page == 0);
         }
         page ^= 1;

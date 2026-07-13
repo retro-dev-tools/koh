@@ -246,13 +246,42 @@ public class MemRuntimeTests
         double dotsPerByte = (double)dots / count;
         Console.WriteLine(
             $"Mem.Copy measured cost: {dots} dots for {count} bytes = {dotsPerByte:F1} dots/byte "
-                + "(includes fixed Mem.Alloc/call overhead, not pure per-iteration loop cost)"
+                + "(includes fixed Mem.Alloc/call overhead, not pure per-iteration loop cost; count < "
+                + "256 so this exercises only the remainder loop, not the tuned block path)"
         );
-        // Loose ceiling: today's compiled byte-copy loop (call + compare/branch/load/store/pointer-
-        // increment/decrement per byte, no vectorization) measures around 900 dots/byte on SM83 — this
-        // only guards against a severe regression (e.g. losing an optimizer pass), not a performance
-        // target, hence the generous headroom above the measured baseline. A later wave (the parallel
-        // loop-optimizer package) tightens this once it lands; keep this assertion loose until then.
+        // Loose ceiling: guards against a severe regression, not a performance target. count=64 stays
+        // below the block loop's 256-byte threshold, so this measures the remainder loop plus fixed
+        // call/alloc overhead, not the tuned block path — see
+        // Copy_MarginalCostPerByte_IsWithinLooseCeiling for the block path's marginal per-byte rate.
         await Assert.That(dotsPerByte).IsLessThanOrEqualTo(1000.0);
+    }
+
+    /// <summary>Marginal (fixed-overhead-free) cost per byte of the block-loop path, computed as the
+    /// slope between two large counts: (dots(1920) - dots(256)) / (1920 - 256). Both counts exceed the
+    /// 256-byte block threshold, and subtracting cancels the shared Mem.Alloc/call/prologue overhead
+    /// that <see cref="Copy_CostPerByte_IsWithinLooseCeiling"/>'s small count can't strip out. This is
+    /// the number items 1-4 of the samples/gb-3d rework size their per-vblank chunk budgets against.</summary>
+    [Test]
+    public async Task Copy_MarginalCostPerByte_IsWithinLooseCeiling()
+    {
+        double DotsFor(int count)
+        {
+            string src =
+                "static void Main() { byte* dst = Mem.Alloc(2000); byte* src = Mem.Alloc(2000); "
+                + $"Mem.Copy(dst, src, {count}); }}";
+            var gb = Load(src, out var s, out var l);
+            return Run(gb, s, l);
+        }
+
+        double dots256 = DotsFor(256);
+        double dots1920 = DotsFor(1920);
+        double marginal = (dots1920 - dots256) / (1920 - 256);
+        Console.WriteLine(
+            $"Mem.Copy marginal cost: ({dots1920} - {dots256}) / {1920 - 256} = {marginal:F1} dots/byte"
+        );
+        // Measured ~302 dots/byte with the block-loop tuning (down from 424.6 dots/byte pre-tuning; see
+        // MemRuntime.cs's remarks on why the block/remainder passes share one loop node instead of two
+        // sequential ones). Loose ceiling above that leaves headroom for measurement noise.
+        await Assert.That(marginal).IsLessThanOrEqualTo(360.0);
     }
 }
