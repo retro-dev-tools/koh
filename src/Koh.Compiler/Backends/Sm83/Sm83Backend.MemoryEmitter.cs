@@ -71,6 +71,16 @@ public sealed partial class Sm83Backend
         /// <summary>Compute a dynamic pointer <c>base + index * sizeof(element)</c> into its slot.</summary>
         public void EmitGep(GetElementPtrInstruction g)
         {
+            ComputeGepIntoHL(g);
+            _ctx.StoreRegPair(_ctx.Slot[g], 2, hi: 0x7C, lo: 0x7D); // HL -> slot
+        }
+
+        /// <summary>Compute <paramref name="g"/>'s address into <c>HL</c> without touching its slot — the
+        /// shared core of <see cref="EmitGep"/> (materialize-to-slot) and the fused path in
+        /// <see cref="LoadPointerToHL"/> (materialize-and-use-immediately, for a gep with exactly one
+        /// consumer; see <see cref="EmitContext.FusedGep"/>).</summary>
+        private void ComputeGepIntoHL(GetElementPtrInstruction g)
+        {
             int size = SizeOf(g.ElementType);
 
             LoadIndexToDE(g.Index); // offset = index (widened to 16 bits)
@@ -99,7 +109,6 @@ public sealed partial class Sm83Backend
 
             LoadPointerToHL(g.BasePointer); // HL = base
             _e.U8(0x19); // ADD HL, DE
-            _ctx.StoreRegPair(_ctx.Slot[g], 2, hi: 0x7C, lo: 0x7D); // HL -> slot
         }
 
         private void LoadIndexToDE(IrValue index)
@@ -120,9 +129,16 @@ public sealed partial class Sm83Backend
             }
         }
 
-        /// <summary>Load a pointer value into HL: a static address as an immediate, else from its slot.</summary>
+        /// <summary>Load a pointer value into HL: a static address as an immediate, a fused single-use
+        /// <c>gep</c> computed inline (skipping its slot entirely — see <see cref="EmitContext.FusedGep"/>),
+        /// else reloaded from its slot.</summary>
         private void LoadPointerToHL(IrValue pointer)
         {
+            if (pointer is GetElementPtrInstruction fusedGep && _ctx.FusedGep.Contains(fusedGep))
+            {
+                ComputeGepIntoHL(fusedGep);
+                return;
+            }
             if (_ctx.TryStaticAddr(pointer, out int addr))
             {
                 LdHL(_e, addr); // LD HL, addr

@@ -10,7 +10,7 @@ static unsafe class Surface
     const byte BlankTile = 255;
 
     // DMG fallback: VRAM bytes uploaded per vblank (see the cycle budget note in Present()).
-    const byte PixelChunkSize = 3;
+    const byte PixelChunkSize = 4;
 
     // The 1920-byte render target. Allocated from the WRAM arena rather than declared as a static
     // array so its address can be handed to the CGB GDMA source registers (Cgb.CopyToVram casts it
@@ -97,14 +97,21 @@ static unsafe class Surface
         else
         {
             // DMG fallback: no DMA to VRAM exists, so keep the timing-safe vblank-chunked CPU
-            // upload. Each compiled `*(Gb.Vram + ...) = *(pixels + ...)` iteration costs ~820 dots
-            // (measured against this codegen) — more than mode 0's worst-case 204-dot window, so
-            // per-hblank bursts can't work; only vblank's ~4104 usable dots (10 lines minus
-            // WaitVBlank()'s edge-detection line) fit a chunk, and 3 bytes (2 x 820 dots between
-            // first and last write) leaves wide margin where a chunk of 5 produced sporadic real
-            // mode-3 writes. Slow — a page takes 1920/3 = 640 frames (~11 s) — but tear-free and
-            // zero mode-3 writes; accepted for the monochrome fallback. The LCDC.4 flip still
-            // applies here and removes the old 120-cell tilemap rewrite (60 more vblanks) per flip.
+            // upload. Each compiled `*(Gb.Vram + ...) = *(pixels + ...)` iteration cost ~820 dots
+            // against the original per-instruction codegen; the SM83 backend now fuses a single-use
+            // `gep` directly into the load/store it feeds instead of round-tripping it through a WRAM
+            // slot (Sm83Backend.EmitContext.FusedGep), which measures ~645 dots/iteration for this
+            // exact loop shape (baseOffset + i, dmg, single-bank) — about 11% less. Still more than
+            // mode 0's worst-case 204-dot window, so per-hblank bursts can't work; only vblank's
+            // ~4104 usable dots (10 lines minus WaitVBlank()'s edge-detection line) fit a chunk. 4
+            // bytes (3 x ~645 dots = ~1935 between first and last write) still leaves comfortable
+            // margin (~2169 dots) — re-verified against Cube3dVerify's Mode3WriteGuard, which fails on
+            // any real VRAM write during mode 3 — where a chunk of 5 produced sporadic real mode-3
+            // writes under the older, slower codegen (a chunk of 5 now costs 4 x ~645 = ~2580, likely
+            // fine too, but not re-validated here — leave at 4 unless a future measurement re-checks
+            // it). Slow — a page takes 1920/4 = 480 frames (~8.5 s) — but tear-free and zero mode-3
+            // writes; accepted for the monochrome fallback. The LCDC.4 flip still applies here and
+            // removes the old 120-cell tilemap rewrite (60 more vblanks) per flip.
             ushort baseOffset = page == 0 ? (ushort)0x0000 : (ushort)0x1000;
             ushort i = 0;
             while (i < 1920)

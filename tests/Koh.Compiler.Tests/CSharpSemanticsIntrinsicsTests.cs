@@ -79,9 +79,10 @@ public class CSharpSemanticsIntrinsicsTests
         return ((uint)gb.Registers.DE << 16) | gb.Registers.HL;
     }
 
-    private static byte RunThenRead(string src, int address)
+    private static byte RunThenRead(string src, int address, Action<GameBoySystem>? args = null)
     {
         var gb = Load(Compile(src), out int s, out int l);
+        args?.Invoke(gb);
         Run(gb, s, l);
         return gb.DebugReadByte((ushort)address);
     }
@@ -127,7 +128,14 @@ public class CSharpSemanticsIntrinsicsTests
         // it via CSharpSemantics.GbType, and pointer arithmetic off it must still work.
         const string src = "static void Main() { byte* v = Gb.Vram; *(v + 5) = 0x3C; }";
         await Assert.That(LowerDiagnostics(src)).IsEmpty();
-        await Assert.That(RunThenRead(src, 0x8005)).IsEqualTo((byte)0x3C);
+        // LCD off before running: this checks the pointer math resolves and the store lands at the right
+        // address, not whether the write survives PPU mode-3 timing (boot leaves the LCD on, and this
+        // program never waits for a safe window before writing VRAM — real hardware, and this emulator
+        // faithfully, blocks a VRAM write made during mode 3, so whether it lands is otherwise a
+        // coincidence of exactly how many cycles the compiled code takes before the store).
+        await Assert
+            .That(RunThenRead(src, 0x8005, gb => gb.DebugWriteByte(0xFF40, 0x00)))
+            .IsEqualTo((byte)0x3C);
     }
 
     [Test]

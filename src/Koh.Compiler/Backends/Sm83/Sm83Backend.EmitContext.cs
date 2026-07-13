@@ -43,6 +43,17 @@ public sealed partial class Sm83Backend
         /// function, which is the only one that needs it (to emit the boot-only zero-clear).</summary>
         public readonly int WramGlobalsSize;
 
+        /// <summary>Dynamic <c>gep</c> instructions eligible to be computed directly at their single
+        /// consuming load/store instead of through a WRAM slot round-trip (see
+        /// <see cref="MemoryEmitter.LoadPointerToHL"/>). A naive per-instruction lowering emits every
+        /// SSA value's result to its slot and reloads it at every use — correct, but on an address that
+        /// is used exactly once, immediately, that round trip is pure waste: computing the address right
+        /// before the load/store it feeds is exactly as correct and skips two WRAM round-trips (measured
+        /// ~11% fewer dots/iteration on a tight byte-copy loop — see <see cref="ComputeFusedGeps"/> for
+        /// the eligibility rule, why it must be "immediately next" and not just "later in the block," and
+        /// why that is safe).</summary>
+        public readonly HashSet<GetElementPtrInstruction> FusedGep;
+
         public EmitContext(
             Emitter emitter,
             IrFunction fn,
@@ -71,9 +82,74 @@ public sealed partial class Sm83Backend
             FrameBase = allocation.FrameBase;
             FrameSize = allocation.FrameEnd - allocation.FrameBase;
             WramGlobalsSize = wramGlobalsSize;
+            FusedGep = ComputeFusedGeps(fn, Slot);
         }
 
         public bool IsRecursive => Recursive.Contains(Fn);
+
+        /// <summary>A dynamic <c>gep</c> (one with a WRAM slot — a constant-index gep is already a
+        /// compile-time address and never reaches here) is fusable when its result has exactly one use in
+        /// the whole function, and that use is the <em>immediately following instruction</em> in the same
+        /// block — a <see cref="LoadInstruction"/> or <see cref="StoreInstruction"/> reading/writing
+        /// through it. All three restrictions matter:
+        /// <list type="bullet">
+        /// <item>Single use: fusing recomputes the address at its use site instead of materializing it
+        /// once to a slot, so a second use would recompute it twice — only correct/valuable when there is
+        /// exactly one consumer.</item>
+        /// <item>Same block: <see cref="LoopInvariantCodeMotionPass"/> may have hoisted this very gep out
+        /// of an enclosing loop specifically so it is computed once instead of every iteration. Fusing it
+        /// back into a use inside that loop would silently undo the hoist and recompute it every
+        /// iteration — a correctness-preserving but performance-hostile move this pass must not make.</item>
+        /// <item><b>Immediately next, not just "later in the block":</b> deferring a gep's computation
+        /// from its own position to a later use is only sound if nothing gets a chance to run in between.
+        /// <see cref="FunctionAllocation"/> assigns every value's WRAM slot from the IR's original
+        /// instruction order and freely reuses a slot once that value's original last use is behind it —
+        /// it has no idea this pass will later delay reading that operand. Fuse across a gap and an
+        /// intervening instruction can be allocated the very slot the deferred computation still needs to
+        /// read, silently corrupting the address it computes. Requiring the use to be the *immediately
+        /// next* instruction closes that gap to zero width: nothing can be allocated in between, so the
+        /// allocator's assumptions about every operand's liveness stay valid. (An earlier version of this
+        /// rule allowed any later same-block use and produced exactly this corruption — caught by
+        /// <c>CSharpEndToEndTests.Pointer_IndexedStoreWithVariableOffset</c> and 27 similar end-to-end
+        /// failures.)</item>
+        /// </list>
+        /// This never reorders or removes an actual load/store — those keep their original relative
+        /// order and still execute exactly once each; only the pure gep arithmetic moves, and only by one
+        /// instruction slot.</summary>
+        private static HashSet<GetElementPtrInstruction> ComputeFusedGeps(
+            IrFunction fn,
+            Dictionary<IrValue, int> slot
+        )
+        {
+            var useCounts = new Dictionary<IrValue, int>(ReferenceEqualityComparer.Instance);
+            foreach (var block in fn.Blocks)
+            foreach (var instr in block.Instructions)
+            foreach (var operand in instr.Operands)
+                useCounts[operand] = useCounts.GetValueOrDefault(operand) + 1;
+
+            var fused = new HashSet<GetElementPtrInstruction>(ReferenceEqualityComparer.Instance);
+            foreach (var block in fn.Blocks)
+            {
+                var instructions = block.Instructions;
+                for (var i = 0; i < instructions.Count - 1; i++)
+                {
+                    if (instructions[i] is not GetElementPtrInstruction g)
+                        continue;
+                    if (!slot.ContainsKey(g)) // a static (constant-address) gep needs no fusion
+                        continue;
+                    if (useCounts.GetValueOrDefault(g) != 1)
+                        continue;
+
+                    var next = instructions[i + 1];
+                    if (
+                        (next is LoadInstruction l && ReferenceEquals(l.Pointer, g))
+                        || (next is StoreInstruction s && ReferenceEquals(s.Pointer, g))
+                    )
+                        fused.Add(g);
+                }
+            }
+            return fused;
+        }
 
         /// <summary>Whether this function returns its value through <see cref="ReturnScratch"/> rather
         /// than registers: recursive functions (so the frame restore cannot clobber it) and banked

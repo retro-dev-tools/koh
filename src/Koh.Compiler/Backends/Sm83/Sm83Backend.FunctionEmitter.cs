@@ -150,6 +150,8 @@ public sealed partial class Sm83Backend
                 case AllocaInstruction:
                     break; // storage pre-assigned
                 case GetElementPtrInstruction g:
+                    if (_ctx.FusedGep.Contains(g))
+                        break; // computed inline at its single load/store use instead — see EmitContext
                     if (_ctx.Slot.ContainsKey(g)) // dynamic: compute the pointer at runtime
                         _mem.EmitGep(g);
                     break; // static: address pre-assigned
