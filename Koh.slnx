@@ -34,5 +34,8 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/gb-2048-cs/Gb2048CSharp.csproj" />
+    <Project Path="samples/gb-3d/double-buffered/CubeDoubleBuffered.csproj" />
+    <Project Path="samples/gb-3d/full-frame/CubeFullFrame.csproj" />
+    <Project Path="samples/gb-3d/racing-beam/CubeRacingBeam.csproj" />
   </Folder>
 </Solution>

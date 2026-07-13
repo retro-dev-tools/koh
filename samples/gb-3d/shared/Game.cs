@@ -12,7 +12,6 @@ static class Game
             Cgb.SetBackgroundColor(0, 2, 0x318C);
             Cgb.SetBackgroundColor(0, 3, 0x1084);
         }
-        Benchmark.Begin(3);
         Lcd.On();
         byte phase = 24;
         while (true)

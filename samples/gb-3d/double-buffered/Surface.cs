@@ -59,6 +59,5 @@ static unsafe class Surface
         for (byte c = 0; c < 12; c++)
             Tilemap.SetTile((byte)(4 + c), (byte)(4 + r), (byte)(firstTile + r * 12 + c));
         page ^= 1;
-        Benchmark.CompleteFrame();
     }
 }

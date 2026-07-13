@@ -45,13 +45,15 @@ static unsafe class Surface
 
     internal static void Present()
     {
+        // Pace to the hardware frame rate and align the LCD-off tile upload with the start of vblank
+        // (as the other demos do via Ppu.WaitVBlank()), so the whole-frame rewrite lands in the blanked
+        // window instead of at an arbitrary point relative to the previous frame's display time. Without
+        // this the loop is uncapped: rotation speed tracks raw CPU speed (and doubles again under CGB
+        // double-speed) and the LCD-off/on cycle straddles frames unpredictably.
+        Ppu.WaitVBlank();
         Lcd.Off();
-        byte start = Hardware.DIV;
         for (ushort i = 0; i < 4096; i++)
             *(Gb.Vram + i) = pixels[i];
-        Benchmark.AddTransfer((byte)(Hardware.DIV - start));
-        Benchmark.Refresh();
         Lcd.On();
-        Benchmark.CompleteFrame();
     }
 }

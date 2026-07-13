@@ -15,22 +15,41 @@ var roms = new[]
     ("racing-beam", Path.Combine(root, "samples", "gb-3d", "racing-beam", "cube-racing-beam.gb")),
 };
 
+// Frame counts to boot to. The first is the steady-state snapshot everything gets checked against; the
+// second is later so the two snapshots can be compared and must differ (the cube is animating, not a
+// frozen/garbage framebuffer). The software rasterizer is slow relative to hardware vblank (a full
+// render+present pass takes well over 100 real frames for the larger viewports, measured up to ~180 in
+// DMG single speed), so the gap has to clear that or two samples can land in the same still-rendering
+// frame and the animation check would false-fail.
+const int FirstFrameCount = 600;
+const int SecondFrameCount = FirstFrameCount + 240;
+
 var failed = false;
 foreach (var (name, rom) in roms)
 foreach (var (modeName, mode) in new[] { ("dmg", HardwareMode.Dmg), ("cgb", HardwareMode.Cgb) })
 {
     if (args.Length != 0 && !args.Contains(name, StringComparer.OrdinalIgnoreCase))
         continue;
+
     var harness = new RomHarness(rom, mode);
-    harness.Frames(600);
-    var rgb = harness.CaptureRgb();
-    var colors = new HashSet<int>();
-    for (var i = 0; i < rgb.Length; i += 3)
-        colors.Add((rgb[i] << 16) | (rgb[i + 1] << 8) | rgb[i + 2]);
-    var visible = colors.Count >= 2;
-    Console.WriteLine($"{name}/{modeName}: {colors.Count} colors, visible={visible}");
+    harness.Frames(FirstFrameCount);
+    var first = harness.CaptureRgb();
     harness.SaveScreenshotPng(Path.Combine(output, $"{name}-{modeName}.png"), 3);
-    failed |= !visible;
+    harness.Frames(SecondFrameCount - FirstFrameCount);
+    var second = harness.CaptureRgb();
+
+    var failures = CubeFrameChecks.Check(
+        first,
+        second,
+        Koh.Emulator.Core.Ppu.Framebuffer.Width,
+        Koh.Emulator.Core.Ppu.Framebuffer.Height
+    );
+    var ok = failures.Count == 0;
+    failed |= !ok;
+
+    Console.WriteLine(
+        ok ? $"{name}/{modeName}: PASS" : $"{name}/{modeName}: FAIL ({string.Join("; ", failures)})"
+    );
 }
 
 return failed ? 1 : 0;

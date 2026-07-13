@@ -36,9 +36,12 @@ the ROM in Koh.Emulator.
 dotnet run --project samples/gb-3d/verify/Cube3dVerify.csproj
 ```
 
-The verifier boots all three ROMs in both DMG and CGB modes, runs 600 hardware frames, checks that the
-framebuffer is nonblank, and writes screenshots under `verify/out/`. Pass one or more renderer names
-(`double-buffered`, `full-frame`, `racing-beam`) to limit a run.
+The verifier boots all three ROMs in both DMG and CGB modes, runs 600 hardware frames, and checks
+structural properties a real rendered cube must have (deterministic, not a golden-image comparison): at
+least two distinct non-background shades on screen, all of them inside one bounding box comfortably clear
+of the screen edge and of a plausible size, a uniform background outside that box, and a later frame that
+differs from the first (the cube is animating, not frozen). It writes screenshots under `verify/out/`.
+Pass one or more renderer names (`double-buffered`, `full-frame`, `racing-beam`) to limit a run.
 
 The PPU still consumes tile-formatted VRAM because that is the Game Boy's display hardware. Here the
 tiles are a transport for a runtime-generated bitmap, not a tileset or authored art pipeline.

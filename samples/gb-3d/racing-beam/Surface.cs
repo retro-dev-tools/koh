@@ -61,12 +61,8 @@ static unsafe class Surface
         {
             Ppu.WaitForHBlank();
             Hardware.SCX = (byte)(FixedMath.Sin((byte)(line * 4)) / 32 + 2);
-            if ((Hardware.STAT & 3) != 0)
-                Benchmark.MissDeadline();
         }
         Ppu.WaitVBlank();
         Hardware.SCX = 0;
-        Benchmark.Refresh();
-        Benchmark.CompleteFrame();
     }
 }
