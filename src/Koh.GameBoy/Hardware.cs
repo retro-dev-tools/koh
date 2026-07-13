@@ -27,6 +27,15 @@ public static class Hardware
     public static byte BCPS { get; set; }
     public static byte BCPD { get; set; }
 
+    // CGB HDMA/GDMA registers ($FF51-$FF55). Inert plain storage here: the desktop reference run
+    // never starts a transfer (Cgb.IsColor() is false because KEY1 reads $FF), matching real DMG
+    // hardware where writes to these addresses are no-ops.
+    public static byte HDMA1 { get; set; }
+    public static byte HDMA2 { get; set; }
+    public static byte HDMA3 { get; set; }
+    public static byte HDMA4 { get; set; }
+    public static byte HDMA5 { get; set; }
+
     /// <summary>The joypad register. Writing selects the d-pad or button matrix; reading returns the
     /// currently-pressed keys for the selected matrix, active-low, exactly like the hardware.</summary>
     public static byte JOYP

@@ -74,9 +74,9 @@ public class Cube3dTests
 
     /// <summary>Boot a compiled ROM and run it for a bounded number of hardware frames, returning the RGB
     /// framebuffer at the end (mirrors samples/gb-3d/verify/Cube3dVerify's capture, simplified).</summary>
-    private static byte[] Boot(byte[] rom, int frames)
+    private static byte[] Boot(byte[] rom, int frames, HardwareMode mode = HardwareMode.Dmg)
     {
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(mode, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100; // boot: NOP; JP entry
         gb.Registers.Sp = 0xFFFE;
         for (var i = 0; i < frames; i++)
@@ -153,14 +153,23 @@ public class Cube3dTests
     // ---- Running the real demo renders an actual, non-trivial cube -----------------------------------
 
     [Test]
-    [Arguments("double-buffered")]
-    [Arguments("full-frame")]
-    public async Task Demo_RunOnHardwareRendersARealCube(string variant)
+    [Arguments("double-buffered", 300, HardwareMode.Cgb)]
+    [Arguments("full-frame", 300, HardwareMode.Dmg)]
+    public async Task Demo_RunOnHardwareRendersARealCube(
+        string variant,
+        int frames,
+        HardwareMode mode
+    )
     {
         // The software rasterizer is slow relative to hardware vblank: from a cold boot, the first full
         // render+present pass (tileset setup plus one whole-cube transform/sort/rasterize) does not land
-        // until frame ~200 for either demo, measured directly. The budget below leaves clear margin.
-        var rgb = Boot(Compile(ReadDemo(variant)), frames: 300);
+        // until frame ~200 for full-frame, measured directly. double-buffered runs on CGB here because
+        // that is its fast path: Surface.Present() moves the whole page with one general-purpose DMA
+        // inside a single vblank and flips via LCDC.4, so first content lands at ~frame 115 (measured) —
+        // comfortably inside the same 300-frame budget as full-frame. Its DMG fallback stays a
+        // vblank-chunked CPU upload whose first flip needs ~840 frames; that slow path (and this ROM on
+        // DMG generally) is covered by samples/gb-3d/verify, not re-run here.
+        var rgb = Boot(Compile(ReadDemo(variant)), frames, mode);
         var (distinctShades, litPixels) = Analyze(rgb);
 
         await Assert.That(distinctShades).IsGreaterThanOrEqualTo(2); // dithered cube faces

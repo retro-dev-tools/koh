@@ -38,10 +38,16 @@ static unsafe class Surface
     internal static void Initialize()
     {
         Lcd.Off();
-        TileData.Clear(20);
-        for (byte r = 0; r < 18; r++)
-        for (byte c = 0; c < 20; c++)
-            Tilemap.SetTile(c, r, 20);
+        // Tile data 0..15 holds the 4x4 content grid and 20 is the blank filler; 16..19 and 21..255
+        // are spare and unowned — zero them so nothing but the blank tile can ever show through (the
+        // DMG boot hand-off leaves the cartridge logo in tiles 1-24).
+        for (ushort t = 16; t < 256; t++)
+            TileData.Clear((byte)t);
+        // Blank the full 32x32 map, not just the visible 20x18 window: Present() scrolls SCX by a few
+        // pixels, which wraps columns >= 20 (and column 31) into view. Leaving those uninitialized let
+        // them replicate whatever tile the leftover byte pointed at (tile 0's live content), which is
+        // what produced the striped background.
+        Tilemap.Clear(20);
         for (byte r = 0; r < 4; r++)
         for (byte c = 0; c < 4; c++)
             Tilemap.SetTile((byte)(8 + c), (byte)(7 + r), (byte)(r * 4 + c));

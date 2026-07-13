@@ -23,6 +23,20 @@ public static class Lcd
         Hardware.LCDC = 0x91;
     }
 
+    /// <summary>Select which tile-data block the background uses (LCDC bit 4): <c>true</c> for
+    /// $8000 addressing (indexes 0..127 read pixel data at $8000-$87FF), <c>false</c> for $8800
+    /// addressing (the same indexes 0..127 read $9000-$97FF). Indexes 128..255 map to $8800-$8FFF
+    /// in BOTH modes, so a tile there (e.g. a blank border tile) is shared. A single register write,
+    /// which is what makes the classic double-buffer trick work: keep one static tilemap and flip
+    /// the visible page with this during vblank instead of rewriting map cells.</summary>
+    public static void SelectTileData(bool at8000)
+    {
+        if (at8000)
+            Hardware.LCDC |= 0x10;
+        else
+            Hardware.LCDC &= 0xEF;
+    }
+
     /// <summary>The background palette (two bits per shade, darkest first).</summary>
     public static void SetPalette(byte palette)
     {
