@@ -36,15 +36,12 @@
                       ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
-  <!-- The game's own C# sources (excludes generated/output files) plus the framework's HAL, written
-       in the Koh C# subset (Lcd, Joypad, Tilemap/TileData, Ppu, …). The frontend compiles both as one
-       translation unit, so ROMs get the framework surface; the managed-only primitives (Gb, Hardware)
-       are special-cased by symbol (falling back to name matching only when no symbol resolves) and
-       are not fed to it. -->
+  <!-- The game's own C# sources (excludes generated/output files); used only by the csharp frontend
+       (see CompileKohRom below). The cil frontend instead lowers the already-built assembly plus its
+       referenced assemblies (including Koh.GameBoy's Hal framework code), so it needs no source list. -->
   <ItemGroup>
     <KohSource Include="$(MSBuildProjectDirectory)/**/*.cs"
                Exclude="$(MSBuildProjectDirectory)/obj/**/*.cs;$(MSBuildProjectDirectory)/bin/**/*.cs" />
-    <KohFrameworkSource Include="$(KohRoot)src/Koh.GameBoy/Hal/**/*.cs" />
   </ItemGroup>
 
   <!-- Build the in-process compile task (and, transitively, the compiler and linker) as part of the
@@ -81,17 +78,21 @@
     </ItemGroup>
   </Target>
 
-  <!-- After the ordinary managed build succeeds, compile the game + framework HAL to a Game Boy ROM.
-       The compile task assembly is an Input too, so a change to the compiler/linker/task (not just the
-       game sources) re-emits the ROM instead of leaving a stale one built by the old toolchain. The
-       props stamp (written just above) makes toggling KohCgbCompatible or renaming the assembly do the
-       same, without a source-file edit. -->
+  <!-- After the ordinary managed build succeeds, compile the game (cil frontend: the built assembly
+       plus its referenced assemblies, e.g. Koh.GameBoy's Hal framework; csharp frontend: @(KohSource))
+       to a Game Boy ROM. AfterTargets="Build" runs after CoreCompile/ResolveReferences/the copy to
+       $(TargetPath), so the managed assembly exists and @(ReferencePath) is populated by the time this
+       runs. Both the assembly and its references are Inputs, so a changed reference (e.g. editing
+       Koh.GameBoy) re-emits the ROM, not just a changed game source. The compile task assembly is an
+       Input too, so a change to the compiler/linker/task re-emits the ROM instead of leaving a stale one
+       built by the old toolchain. The props stamp (written just above) makes toggling KohCgbCompatible
+       or renaming the assembly do the same, without a source-file edit. -->
   <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
-          Inputs="@(KohSource);@(KohFrameworkSource);@(IntermediateAssembly);$(KohBuildTasksAssembly);$(KohRomPropsStampFile)"
+          Inputs="@(KohSource);$(TargetPath);@(ReferencePath);$(KohBuildTasksAssembly);$(KohRomPropsStampFile)"
           Outputs="$(KohRomPath)">
-    <CompileKohRom SourceFiles="@(KohSource);@(KohFrameworkSource)" OutputPath="$(KohRomPath)"
+    <CompileKohRom SourceFiles="@(KohSource)" OutputPath="$(KohRomPath)"
                    Frontend="$(KohFrontend)"
-                   AssemblyPath="@(IntermediateAssembly->'%(FullPath)')"
+                   AssemblyPath="$(TargetPath)"
                    ReferencePaths="@(ReferencePath)"
                    ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)" />
     <ItemGroup>

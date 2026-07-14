@@ -23,7 +23,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Which Koh.Compiler frontend lowers the game: "csharp" (source, default) or "cil" (the
          already-built assembly). Registered names live in CompilerRegistry. -->
-    <KohFrontend Condition="'$(KohFrontend)' == ''">csharp</KohFrontend>
+    <KohFrontend Condition="'$(KohFrontend)' == ''">cil</KohFrontend>
   </PropertyGroup>
 
   <ItemGroup>
