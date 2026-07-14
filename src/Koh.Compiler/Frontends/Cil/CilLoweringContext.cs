@@ -316,7 +316,13 @@ internal sealed class CilLoweringContext
                 $"{method.DeclaringType.Name}.{method.Name}",
                 returnType,
                 parameters
-            );
+            )
+            {
+                // Only a static method (mirrors CSharpFrontend, which only ever reads [Interrupt] off a
+                // top-level/local function — never an instance method) can be an interrupt handler; an
+                // instance method's implicit 'this' parameter has no receiver at interrupt time anyway.
+                InterruptVector = method.HasThis ? null : InterruptVectorOf(method),
+            };
             Module.Functions.Add(fn);
             FunctionsByMethod[method] = fn;
             if (!ReferenceEquals(method.Module, GameModule))
@@ -328,6 +334,38 @@ internal sealed class CilLoweringContext
             Diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, Module.Name);
             return null;
         }
+    }
+
+    /// <summary>Reads <c>[Interrupt(kind)]</c> (<c>Koh.GameBoy.InterruptAttribute</c>) off
+    /// <paramref name="method"/>, matched by the attribute type's SIMPLE NAME ("InterruptAttribute") —
+    /// same reasoning as <see cref="CilIntrinsicIndex"/>'s <c>[KohIntrinsic]</c> match: <c>Koh.Compiler</c>
+    /// must never reference <c>Koh.GameBoy</c>. Maps the kind string through
+    /// <see cref="Koh.Compiler.Frontends.CSharp.HardwareRegisters.InterruptVector"/> — the same
+    /// kind-&gt;vector table <c>CSharpFrontend</c> uses, so both frontends wire a handler to the same
+    /// vector address for the same kind. A present-but-unrecognized kind (typo, wrong string) is a
+    /// diagnostic rather than silently leaving the method an ordinary, never-invoked function.</summary>
+    private int? InterruptVectorOf(MethodDefinition method)
+    {
+        foreach (var attr in method.CustomAttributes)
+        {
+            if (attr.AttributeType.Name != "InterruptAttribute")
+                continue;
+            var kind =
+                attr.ConstructorArguments.Count > 0
+                    ? attr.ConstructorArguments[0].Value as string
+                    : null;
+            var vector = Koh.Compiler.Frontends.CSharp.HardwareRegisters.InterruptVector(kind);
+            if (vector is null)
+                Diagnostics.Report(
+                    default,
+                    $"unknown interrupt kind '{kind ?? "?"}' on '{method.FullName}' "
+                        + "(expected VBlank, Stat/LcdStat/Lcd, Timer, Serial, or Joypad).",
+                    DiagnosticSeverity.Error,
+                    Module.Name
+                );
+            return vector;
+        }
+        return null;
     }
 
     /// <summary>Monomorphize (or reuse an already-monomorphized) specialization of the open generic
