@@ -29,6 +29,21 @@ internal sealed class CilLoweringContext
     private readonly HashSet<MethodDefinition> _inProgress = new();
     private IrGlobal? _heapGlobal;
 
+    // One monomorphized generic-method instance per (open-generic template, mangled type-argument
+    // suffix) — see CilMethodLowerer.Generics.cs. Keyed by suffix rather than by the concrete
+    // TypeReference list itself: two instantiations at the "same" type can be distinct TypeReference
+    // objects (imported from different call sites), so the mangled string (already the injective,
+    // call-site-independent key CSharpFrontend's own routing relies on) is the only stable key. A
+    // SEPARATE table from FunctionsByMethod is required, not an accident: FunctionsByMethod is keyed by
+    // MethodDefinition alone, and one open-generic MethodDefinition maps to MANY IrFunctions here (one
+    // per distinct instantiation) — reusing that table would alias every instantiation onto whichever
+    // one happened to be lowered first.
+    private readonly Dictionary<
+        (MethodDefinition Template, string Suffix),
+        IrFunction
+    > _genericInstances = new();
+    private readonly HashSet<(MethodDefinition Template, string Suffix)> _genericInProgress = new();
+
     /// <summary>Bump-pointer heap top, WRAM address — identical convention to
     /// <c>Koh.Compiler.Frontends.CSharp.CSharpFrontend.HeapTop</c> (not shared code: the two frontends
     /// compile disjoint modules, so only the convention, not the constant's storage, needs to agree).</summary>
@@ -80,7 +95,7 @@ internal sealed class CilLoweringContext
     {
         if (_classLayouts.TryGetValue(type, out var layout))
             return layout;
-        layout = CilClassLayout.Compute(type);
+        layout = CilClassLayout.Compute(type, GetLayout);
         _classLayouts[type] = layout;
         return layout;
     }
@@ -111,6 +126,15 @@ internal sealed class CilLoweringContext
             return existing;
         try
         {
+            // Struct-by-value RETURN is a diagnostic, not a lowering: parity with CSharpFrontend, whose
+            // own return-type resolver has no struct path at all (see CilMethodLowerer.Structs.cs's
+            // class remarks) — the backend's calling convention has no proven aggregate-by-value return
+            // shape, unlike a byval struct PARAMETER (an ordinary address plus a call-site copy).
+            if (CilStructSupport.ResolveStruct(method.ReturnType) is not null)
+                throw new CilNotSupportedException(
+                    $"'{method.FullName}' returns a struct by value, which the CIL frontend does not "
+                        + "support (return it via an out/ref parameter instead)."
+                );
             var parameters = new List<IrParameter>();
             if (method.HasThis)
             {
@@ -120,8 +144,8 @@ internal sealed class CilLoweringContext
             for (var i = 0; i < method.Parameters.Count; i++)
             {
                 var p = method.Parameters[i];
-                var (irType, _) = CilTypeMapper.Map(p.ParameterType);
-                parameters.Add(new IrParameter(p.Name ?? $"arg{i}", irType));
+                var shape = CilTypeMapper.MapParam(p.ParameterType);
+                parameters.Add(new IrParameter(p.Name ?? $"arg{i}", shape.IrType));
             }
             var (returnType, _) = CilTypeMapper.Map(method.ReturnType);
             var fn = new IrFunction(
@@ -138,6 +162,119 @@ internal sealed class CilLoweringContext
             Diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, Module.Name);
             return null;
         }
+    }
+
+    /// <summary>Monomorphize (or reuse an already-monomorphized) specialization of the open generic
+    /// method <paramref name="template"/> at concrete type arguments <paramref name="concreteArgs"/>
+    /// (already substituted through any ENCLOSING instantiation's own map — see
+    /// <c>CilMethodLowerer.Generics.cs</c>'s <c>LowerGenericCall</c> for how transitive instantiation
+    /// falls out of that), <paramref name="suffix"/> being the caller's own precomputed mangled name for
+    /// it (<see cref="CilGenericSubst.MangledSuffix"/>). On-demand, exactly like <see cref="EnsureLowered"/>
+    /// — a template is never swept eagerly (<c>CilModuleLowerer.Lower</c> skips every
+    /// <c>HasGenericParameters</c> method), only specialized the first time some call site actually
+    /// instantiates it. A per-instantiation failure (signature or body) reports a diagnostic and returns
+    /// null/the signature-only stub respectively — mirrors <see cref="EnsureSignature"/>/<see cref="LowerBody"/>'s
+    /// own split so a body failure doesn't retroactively invalidate an already-registered signature other
+    /// call sites may share.</summary>
+    public IrFunction? EnsureGenericInstance(
+        MethodDefinition template,
+        IReadOnlyList<TypeReference> concreteArgs,
+        string suffix
+    )
+    {
+        var key = (template, suffix);
+        if (_genericInstances.TryGetValue(key, out var existing))
+            return existing;
+
+        IrFunction fn;
+        try
+        {
+            fn = BuildGenericSignature(template, concreteArgs, suffix);
+        }
+        catch (CilNotSupportedException ex)
+        {
+            Diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, Module.Name);
+            return null;
+        }
+        _genericInstances[key] = fn;
+
+        if (!_genericInProgress.Add(key))
+        {
+            Diagnostics.Report(
+                default,
+                $"'{template.FullName}{suffix}' cannot be lowered (recursive generic instantiation).",
+                DiagnosticSeverity.Error,
+                Module.Name
+            );
+            return fn;
+        }
+        try
+        {
+            new CilMethodLowerer(template, fn, this, isEntry: false, concreteArgs).Run();
+        }
+        catch (CilNotSupportedException ex)
+        {
+            Diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, Module.Name);
+        }
+        finally
+        {
+            _genericInProgress.Remove(key);
+        }
+        return fn;
+    }
+
+    /// <summary>Build one generic instantiation's IR signature — the generic-aware sibling of
+    /// <see cref="EnsureSignature"/>: every parameter/return type is run through
+    /// <see cref="CilGenericSubst.Substitute"/> against <paramref name="concreteArgs"/> before mapping,
+    /// since the template's own <see cref="MethodDefinition.Parameters"/>/<see cref="MethodDefinition.ReturnType"/>
+    /// still name the OPEN type parameter (<c>!!0</c>) directly off Cecil metadata. Scope: a static
+    /// method only (an instance generic method would need virtual/interface dispatch devirtualization
+    /// layered on top of monomorphization — out of scope, matching <c>CSharpFrontend</c>, which has no
+    /// generic-class/generic-instance-method support either) and scalar/pointer parameters/return only
+    /// (a struct-typed one is a diagnostic here rather than a silent wrong-copy — byval struct
+    /// semantics need PrepareArg's fresh-copy path, which <c>LowerGenericCall</c>'s own arg-prep does
+    /// not thread through, unlike the ordinary call path's <c>PrepareArg</c>).</summary>
+    private IrFunction BuildGenericSignature(
+        MethodDefinition template,
+        IReadOnlyList<TypeReference> concreteArgs,
+        string suffix
+    )
+    {
+        if (template.HasThis)
+            throw new CilNotSupportedException(
+                $"'{template.FullName}' is a generic INSTANCE method; the CIL frontend monomorphizes "
+                    + "static generic methods only."
+            );
+        var substReturn = CilGenericSubst.Substitute(template.ReturnType, concreteArgs);
+        if (CilStructSupport.ResolveStruct(substReturn) is not null)
+            throw new CilNotSupportedException(
+                $"'{template.FullName}{suffix}' returns a struct by value, which the CIL frontend does "
+                    + "not support (return it via an out/ref parameter instead)."
+            );
+        var parameters = new List<IrParameter>();
+        for (var i = 0; i < template.Parameters.Count; i++)
+        {
+            var p = template.Parameters[i];
+            var substituted = CilGenericSubst.Substitute(p.ParameterType, concreteArgs);
+            if (
+                substituted is not ByReferenceType
+                && CilStructSupport.ResolveStruct(substituted) is not null
+            )
+                throw new CilNotSupportedException(
+                    $"'{template.FullName}{suffix}' has a struct-typed parameter, which generic "
+                        + "monomorphization does not support yet."
+                );
+            var shape = CilTypeMapper.MapParam(substituted);
+            parameters.Add(new IrParameter(p.Name ?? $"arg{i}", shape.IrType));
+        }
+        var (returnType, _) = CilTypeMapper.Map(substReturn);
+        var fn = new IrFunction(
+            $"{template.DeclaringType.Name}.{template.Name}{suffix}",
+            returnType,
+            parameters
+        );
+        Module.Functions.Add(fn);
+        return fn;
     }
 
     /// <summary>Lower <paramref name="method"/> now if it hasn't been already: build its signature

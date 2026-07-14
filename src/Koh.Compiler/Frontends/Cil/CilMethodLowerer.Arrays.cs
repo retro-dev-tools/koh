@@ -37,9 +37,26 @@ internal sealed partial class CilMethodLowerer
     /// type/signedness/count for later LINQ/element-access lowering.</summary>
     private void LowerNewarr(TypeReference elementTypeRef, List<IrValue> stack)
     {
-        var (elemType, elemSigned) = CilTypeMapper.Map(elementTypeRef);
+        // A struct element (e.g. `new Point[3]`) has no scalar IrType to report — its bytes are laid
+        // out exactly like a struct local (see CilMethodLowerer.Structs.cs). elemType/elemSigned below
+        // are placeholders in that case: struct array elements are never consumed as scalars (no LINQ
+        // pipeline over a struct array is in scope), only via Ldelema/the generic Ldelem/Stelem (see
+        // ElementPointerGeneric), which re-derive the real per-access size from their own type operand.
+        IrType elemType;
+        bool elemSigned;
+        int elemSize;
+        if (CilStructSupport.ResolveStruct(elementTypeRef) is { } structDef)
+        {
+            elemSize = Math.Max(_ctx.GetLayout(structDef).Size, 1);
+            elemType = IrType.I8;
+            elemSigned = false;
+        }
+        else
+        {
+            (elemType, elemSigned) = CilTypeMapper.Map(elementTypeRef);
+            elemSize = Math.Max(elemType.SizeInBytes, 1);
+        }
         var count = Pop(stack);
-        var elemSize = Math.Max(elemType.SizeInBytes, 1);
         var count16 = CoerceStore(count, IrType.I16);
         var sizeBytes = _b.Mul(count16, IrBuilder.ConstInt(IrType.I16, elemSize));
 
@@ -99,5 +116,69 @@ internal sealed partial class CilMethodLowerer
         var index = Pop(stack);
         var arrayRef = Pop(stack);
         stack.Add(WidenToStack(_b.Load(ElementPointer(arrayRef, index, elementType)), signed));
+    }
+
+    // ---- Generic ldelema/ldelem/stelem (a struct element type — Roslyn always uses the typed
+    // ldelem.*/stelem.* opcodes above for a primitive) ------------------------------------------------
+
+    /// <summary>The address of element <paramref name="index"/> for the generic (type-operand-carrying)
+    /// <c>ldelema</c>/<c>ldelem</c>/<c>stelem</c> opcodes: a struct element indexes by its whole laid-
+    /// out size (an <c>Array(I8,size)</c>-typed <c>gep</c> bitcast down to a plain byte pointer —
+    /// exactly <c>CSharpFrontend.CollectStructs</c>'s own struct-array element addressing); a scalar
+    /// element falls back to the ordinary typed <see cref="ElementPointer"/>.</summary>
+    private IrValue ElementPointerGeneric(IrValue arrayRef, IrValue index, TypeReference typeRef)
+    {
+        if (CilStructSupport.ResolveStruct(typeRef) is { } structDef)
+        {
+            var layout = _ctx.GetLayout(structDef);
+            var elementPtr = _b.Gep(
+                arrayRef,
+                CoerceStore(index, IrType.I16),
+                IrType.Array(IrType.I8, Math.Max(layout.Size, 1))
+            );
+            return _b.Conv(IrConvOp.Bitcast, elementPtr, IrType.Pointer(IrType.I8));
+        }
+        var (irType, _) = CilTypeMapper.Map(typeRef);
+        return ElementPointer(arrayRef, index, irType);
+    }
+
+    private void LowerLdelema(TypeReference typeRef, List<IrValue> stack)
+    {
+        var index = Pop(stack);
+        var arrayRef = Pop(stack);
+        stack.Add(ElementPointerGeneric(arrayRef, index, typeRef));
+    }
+
+    private void LowerLdelemAny(TypeReference typeRef, List<IrValue> stack)
+    {
+        var index = Pop(stack);
+        var arrayRef = Pop(stack);
+        if (CilStructSupport.ResolveStruct(typeRef) is not null)
+        {
+            // Same "the value IS its address" representation as every other struct read — see
+            // CilMethodLowerer.Structs.cs's class remarks.
+            stack.Add(ElementPointerGeneric(arrayRef, index, typeRef));
+            return;
+        }
+        var (irType, signed) = CilTypeMapper.Map(typeRef);
+        stack.Add(WidenToStack(_b.Load(ElementPointer(arrayRef, index, irType)), signed));
+    }
+
+    private void LowerStelemAny(TypeReference typeRef, List<IrValue> stack)
+    {
+        var value = Pop(stack);
+        var index = Pop(stack);
+        var arrayRef = Pop(stack);
+        if (CilStructSupport.ResolveStruct(typeRef) is { } structDef)
+        {
+            EmitCopy(
+                ElementPointerGeneric(arrayRef, index, typeRef),
+                value,
+                _ctx.GetLayout(structDef).Size
+            );
+            return;
+        }
+        var (irType, _) = CilTypeMapper.Map(typeRef);
+        _b.Store(CoerceStore(value, irType), ElementPointer(arrayRef, index, irType));
     }
 }

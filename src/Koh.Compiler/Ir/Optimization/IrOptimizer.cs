@@ -18,11 +18,17 @@ public static class IrOptimizer
     // Ordered so each pass tends to expose work for the next, then the whole list re-runs to a fixed
     // point: folding turns branch conditions constant (→ SimplifyCfg), simplified control flow and
     // store→load forwarding expose more constants (→ ConstantFolding again) and unused code (→ DCE).
-    private static readonly IIrFunctionPass[] Passes =
+    // NarrowPass runs right after phi construction settles (a byte loop counter's compare/increment
+    // only exposes its zext/trunc chain once Mem2RegPass has promoted the counter's alloca away) and
+    // before StrengthReduction, so a newly-narrowed multiply is still eligible for the shift/mask
+    // reduction. Internal (not private) so tests can measure the pass's effect by running a filtered
+    // copy of this list — see NarrowPassTests/CilNarrowingEndToEndTests.
+    internal static readonly IIrFunctionPass[] Passes =
     [
         new ConstantFoldingPass(),
         new Mem2RegPass(),
         new TrivialPhiEliminationPass(),
+        new NarrowPass(),
         new StrengthReductionPass(),
         new SimplifyCfgPass(),
         new RedundantLoadEliminationPass(),
@@ -34,7 +40,15 @@ public static class IrOptimizer
     ];
 
     /// <summary>Optimize every defined function in <paramref name="module"/> in place.</summary>
-    public static void Optimize(IrModule module)
+    public static void Optimize(IrModule module) => Optimize(module, Passes);
+
+    /// <summary>
+    /// Same pipeline as <see cref="Optimize(IrModule)"/>, but over a caller-supplied pass list.
+    /// Internal — its only caller is test code that needs to measure one pass's effect by running the
+    /// pipeline with and without it (e.g. NarrowPass's ROM-size/cycle-count delta); production code
+    /// always goes through the public overload's fixed <see cref="Passes"/> list.
+    /// </summary>
+    internal static void Optimize(IrModule module, IReadOnlyList<IIrFunctionPass> passes)
     {
         // Interprocedural first: splice tiny leaf callees into their call sites (to a fixed point,
         // which terminates because each inline removes a call and adds none), then drop functions no
@@ -47,7 +61,7 @@ public static class IrOptimizer
         {
             if (function.IsExternal || function.Blocks.Count == 0)
                 continue;
-            OptimizeFunction(function);
+            OptimizeFunction(function, passes);
         }
 
         // A per-function pass (constant-branch folding, DCE) can delete the last call to a function;
@@ -86,12 +100,12 @@ public static class IrOptimizer
         module.Functions.RemoveAll(f => !keep.Contains(f) && (removable is null || removable(f)));
     }
 
-    private static void OptimizeFunction(IrFunction function)
+    private static void OptimizeFunction(IrFunction function, IReadOnlyList<IIrFunctionPass> passes)
     {
         for (var round = 0; round < MaxRounds; round++)
         {
             var changed = false;
-            foreach (var pass in Passes)
+            foreach (var pass in passes)
                 changed |= pass.Run(function);
             if (!changed)
                 return;

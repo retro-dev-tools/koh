@@ -23,9 +23,35 @@ internal static class CilTypeMapper
 {
     public static (IrType Type, bool Signed) Map(TypeReference typeReference)
     {
+        // An unsubstituted generic parameter (a bare '!!0'/'!0', or any pointer/array/byref/generic-
+        // instance built from one) reaching here means some caller lowering a generic method's
+        // specialized body forgot to run it through CilGenericSubst.Substitute first — see
+        // CilMethodLowerer.Generics.cs's remarks. Without this guard the reference-type shortcut just
+        // below would silently treat an open 'T' as "pointer to byte" (a GenericParameter's own
+        // IsValueType defaults to false), a wrong-type miscompile rather than a loud failure — so this
+        // is checked FIRST and unconditionally, not folded into the switch below.
+        if (typeReference.ContainsGenericParameter)
+            throw new CilNotSupportedException(
+                $"'{typeReference.FullName}' still names an open generic parameter during lowering "
+                    + "(a missing type-argument substitution site — the CIL frontend monomorphizes "
+                    + "generic methods on demand; see CilMethodLowerer.Generics.cs)."
+            );
+
         if (typeReference is PointerType pointerType)
         {
             var (element, _) = Map(pointerType.ElementType);
+            return (IrType.Pointer(element), false);
+        }
+
+        // A byref (ref/out/in parameter, or a managed pointer produced by ldloca/ldarga/ldflda) is,
+        // for lowering purposes, just an address — the CIL frontend never distinguishes a managed
+        // pointer from an unmanaged one (see docs/superpowers/specs/2026-07-14-cil-frontend-design.md's
+        // struct/pointer task): every ref/out/in access in Roslyn-emitted IL is already explicit
+        // (ldarg then ldind/stind), so no extra deref bookkeeping is needed here — see
+        // CilMethodLowerer.Structs.cs's remarks on ref/out/in parameters.
+        if (typeReference is ByReferenceType byRefType)
+        {
+            var (element, _) = Map(byRefType.ElementType);
             return (IrType.Pointer(element), false);
         }
 
@@ -36,6 +62,19 @@ internal static class CilTypeMapper
         // switch below rather than by this shortcut.
         if (typeReference.MetadataType != MetadataType.Void && !typeReference.IsValueType)
             return (IrType.Pointer(IrType.I8), false);
+
+        // An enum is just its underlying integer in IL (ECMA-335 II.14.3) — every enum-typed local/
+        // field/param collapses to that integer type here. A user struct also reaches this branch
+        // (MetadataType.ValueType, IsValueType true) but is never mapped through this generic path:
+        // every struct-aware call site (CilLoweringContext.EnsureSignature, CilMethodLowerer.Run's
+        // param/local setup, CilClassLayout.Compute) checks IsStructType and branches to struct
+        // handling BEFORE calling Map — see CilMethodLowerer.Structs.cs.
+        if (
+            typeReference.IsValueType
+            && typeReference.MetadataType == MetadataType.ValueType
+            && CilModuleLowerer.ResolveSafe(typeReference) is { IsEnum: true } enumDef
+        )
+            return Map(CilStructSupport.EnumUnderlyingType(enumDef));
 
         return typeReference.MetadataType switch
         {
@@ -56,7 +95,40 @@ internal static class CilTypeMapper
             ),
         };
     }
+
+    /// <summary>Struct-aware sibling of <see cref="Map"/> for a parameter type — the ONE place that
+    /// checks "is this a struct" (byval, or byref via <see cref="ByReferenceType"/>) before falling
+    /// back to the ordinary scalar/pointer mapping. Used by both
+    /// <see cref="CilLoweringContext.EnsureSignature"/> (building the IR function's own parameter list)
+    /// and <c>CilMethodLowerer.Structs.cs</c>'s <c>DeclareParam</c> (building that same parameter's
+    /// local storage) — the two must agree on shape, so both call this rather than duplicating the
+    /// struct/byref detection.</summary>
+    public static CilParamShape MapParam(TypeReference typeReference)
+    {
+        if (typeReference is ByReferenceType byRefType)
+        {
+            if (CilStructSupport.ResolveStruct(byRefType.ElementType) is { } byRefStruct)
+                return new CilParamShape(IrType.Pointer(IrType.I8), false, byRefStruct);
+            var (elementType, _) = Map(byRefType.ElementType);
+            return new CilParamShape(IrType.Pointer(elementType), false, null);
+        }
+        if (CilStructSupport.ResolveStruct(typeReference) is { } structDef)
+            return new CilParamShape(IrType.Pointer(IrType.I8), false, structDef);
+        var (irType, signed) = Map(typeReference);
+        return new CilParamShape(irType, signed, null);
+    }
 }
+
+/// <summary>The IR shape of one parameter: its type/signedness for ordinary lowering, plus
+/// <paramref name="StructType"/> when it names a struct (byval or byref) — the one extra bit
+/// <see cref="CilTypeMapper.MapParam"/>'s callers need to also copy-in a byval argument (see
+/// <c>CilMethodLowerer.Structs.cs</c>'s <c>PrepareArg</c>) or skip the ordinary alloca-wrapping (see
+/// its <c>DeclareParam</c>).</summary>
+internal readonly record struct CilParamShape(
+    IrType IrType,
+    bool Signed,
+    TypeDefinition? StructType
+);
 
 /// <summary>
 /// Lowers every eligible static method of a game module's own assembly to Koh IR (see
@@ -89,8 +161,18 @@ internal static class CilModuleLowerer
                 // Static, has-a-body methods only, eagerly. Constructors (.ctor/.cctor — a static
                 // field initializer emits a .cctor that is IsStatic && HasBody) are excluded here:
                 // static-field initialization is out of scope, and an INSTANCE .ctor is reached (when
-                // needed at all) via a resolved `newobj`, on demand.
-                if (!method.IsStatic || !method.HasBody || method.IsConstructor)
+                // needed at all) via a resolved `newobj`, on demand. An open generic method
+                // (HasGenericParameters) is a TEMPLATE, never lowered directly — its own body still
+                // names its type parameter as '!!0' off raw Cecil metadata, which CilTypeMapper.Map
+                // now rejects outright (see its ContainsGenericParameter guard). It is only ever
+                // specialized on demand, the first time some call site instantiates it at concrete type
+                // arguments — see CilMethodLowerer.Generics.cs's CilLoweringContext.EnsureGenericInstance.
+                if (
+                    !method.IsStatic
+                    || !method.HasBody
+                    || method.IsConstructor
+                    || method.HasGenericParameters
+                )
                     continue;
                 methods.Add(method);
             }
@@ -281,13 +363,15 @@ internal sealed partial class CilMethodLowerer
         MethodDefinition method,
         IrFunction function,
         CilLoweringContext ctx,
-        bool isEntry
+        bool isEntry,
+        IReadOnlyList<TypeReference>? genericArgs = null
     )
     {
         _method = method;
         _function = function;
         _ctx = ctx;
         _isEntry = isEntry;
+        _genericArgs = genericArgs;
     }
 
     /// <summary>The parameter/local slot for CIL argument index <paramref name="index"/>, accounting
@@ -333,23 +417,11 @@ internal sealed partial class CilMethodLowerer
             paramIndex++;
         }
         for (var i = 0; i < _method.Parameters.Count; i++, paramIndex++)
-        {
-            var p = _method.Parameters[i];
-            var (irType, signed) = CilTypeMapper.Map(p.ParameterType);
-            var alloca = _b.Alloca(irType);
-            _b.Store(_function.Parameters[paramIndex], alloca);
-            _params[p] = (alloca, irType, signed);
-        }
+            DeclareParam(_method.Parameters[i], _function.Parameters[paramIndex]);
 
         if (body.HasVariables)
-        {
             foreach (var v in body.Variables)
-            {
-                var (irType, signed) = CilTypeMapper.Map(v.VariableType);
-                var alloca = _b.Alloca(irType);
-                _locals[v] = (alloca, irType, signed);
-            }
-        }
+                DeclareLocal(v);
 
         // The entry function alone seeds the shared heap pointer (mirrors CSharpFrontend's
         // MethodLowerer, which does the same for its own `_staticInits` — see CilLoweringContext's
@@ -439,6 +511,7 @@ internal sealed partial class CilMethodLowerer
     private static bool IsBranchOrReturn(Code code) =>
         code
             is Code.Ret
+                or Code.Switch
                 or Code.Br
                 or Code.Br_S
                 or Code.Brtrue
@@ -469,7 +542,15 @@ internal sealed partial class CilMethodLowerer
                 or Code.Leave_S;
 
     private static IEnumerable<Instruction> BranchTargets(Instruction instr) =>
-        instr.OpCode.Code == Code.Ret ? [] : [(Instruction)instr.Operand];
+        instr.OpCode.Code switch
+        {
+            Code.Ret => [],
+            // A jump table's operand is every case target; the "next instruction" (added separately by
+            // ComputeLeaders' unconditional instr.Next handling, same as every other branch) is the
+            // default/fallthrough target (ECMA-335 III.3.66: an out-of-range selector falls through).
+            Code.Switch => (Instruction[])instr.Operand,
+            _ => [(Instruction)instr.Operand],
+        };
 
     /// <summary>The stack an already-positioned block starts with: reloads from its spill allocas
     /// (see <see cref="Deliver"/>) if any predecessor already delivered a non-empty stack to it, else
@@ -526,17 +607,47 @@ internal sealed partial class CilMethodLowerer
     }
 
     /// <summary>Narrow (or, best-effort, widen) a stack value down to a storage/return target type —
-    /// the mirror of <see cref="WidenToStack"/>, used by stores back to a local/argument/return slot.</summary>
+    /// the mirror of <see cref="WidenToStack"/>, used by stores back to a local/argument/return slot.
+    /// Also reinterprets across the pointer/address-width-int boundary in either direction (a raw
+    /// pointer cast, which Roslyn emits no opcode for at all — both sides are already "address-shaped"
+    /// on the real CLR stack; or a round-trip through <c>conv.i</c>/<c>conv.u</c> — see
+    /// <see cref="AddOrSub"/>'s remarks) — never a resize, since a pointer's storage width is always
+    /// the target's address width regardless of its pointee's size.</summary>
     private IrValue CoerceStore(IrValue value, IrType target)
     {
         if (value.Type.StructurallyEquals(target))
             return value;
         if (value.Type.Kind == IrTypeKind.Int && target.Kind == IrTypeKind.Int)
         {
+            // Fold a compile-time constant directly rather than wrapping it in a runtime 'conv' —
+            // keeps a constant a constant (IrOptimizer would fold it right back anyway, but some
+            // frontend-local decisions, e.g. LowerLocalloc's compile-time-size requirement, need to see
+            // through a stack-typing conv/coercion pair immediately, before any optimizer pass runs).
+            if (value is IrConstInt constValue)
+                return IrBuilder.ConstInt(
+                    target,
+                    target.Bits >= 64
+                        ? constValue.Value
+                        : constValue.Value & ((1L << target.Bits) - 1)
+                );
             if (value.Type.Bits > target.Bits)
                 return _b.Conv(IrConvOp.Trunc, value, target);
             if (value.Type.Bits < target.Bits)
                 return _b.Conv(IrConvOp.ZExt, value, target);
+            return value;
+        }
+        if (target.Kind == IrTypeKind.Pointer)
+        {
+            var asAddr =
+                value.Type.Kind == IrTypeKind.Pointer
+                    ? value
+                    : CoerceStore(value, IrType.Int(target.SizeInBits));
+            return _b.Conv(IrConvOp.Bitcast, asAddr, target);
+        }
+        if (value.Type.Kind == IrTypeKind.Pointer && target.Kind == IrTypeKind.Int)
+        {
+            var asInt = _b.Conv(IrConvOp.Bitcast, value, IrType.Int(value.Type.SizeInBits));
+            return CoerceStore(asInt, target);
         }
         return value;
     }
@@ -551,6 +662,10 @@ internal sealed partial class CilMethodLowerer
 
     private IrValue LoadLocal(VariableDefinition v)
     {
+        // A struct-typed local's "value" is its address — see CilMethodLowerer.Structs.cs's class
+        // remarks; none of the scalar side-table round-trips below apply to it.
+        if (TryLoadStructLocal(v, out var structAddr))
+            return structAddr;
         var (alloca, _, signed) = _locals[v];
         var loaded = WidenToStack(_b.Load(alloca), signed);
         // Carry a resolved delegate's target method forward across the load — see
@@ -568,6 +683,8 @@ internal sealed partial class CilMethodLowerer
 
     private void StoreLocal(VariableDefinition v, IrValue value)
     {
+        if (TryStoreStructLocal(v, value))
+            return;
         var (alloca, type, _) = _locals[v];
         if (_pendingDelegateProvenance.TryGetValue(value, out var target))
             _localDelegateTarget[v] = target;
@@ -593,6 +710,8 @@ internal sealed partial class CilMethodLowerer
 
     private IrValue LoadArg(ParameterDefinition p)
     {
+        if (TryLoadStructArg(p, out var structAddr))
+            return structAddr;
         var (alloca, _, signed) = _params[p];
         var loaded = WidenToStack(_b.Load(alloca), signed);
         // A sealed declaring type's own 'this' is always exactly that type (no subclass can exist to
@@ -611,6 +730,8 @@ internal sealed partial class CilMethodLowerer
 
     private void StoreArg(ParameterDefinition p, IrValue value)
     {
+        if (TryStoreStructArg(p, value))
+            return;
         var (alloca, type, _) = _params[p];
         _b.Store(CoerceStore(value, type), alloca);
     }
@@ -657,6 +778,9 @@ internal sealed partial class CilMethodLowerer
             case Code.Ldc_I4:
                 stack.Add(IrBuilder.ConstInt(IrType.I32, (int)instr.Operand));
                 break;
+            case Code.Ldc_I8:
+                stack.Add(IrBuilder.ConstInt(IrType.I64, (long)instr.Operand));
+                break;
 
             // ---- Locals / arguments -----------------------------------------------------------
             case Code.Ldloc_0:
@@ -677,7 +801,7 @@ internal sealed partial class CilMethodLowerer
                 break;
             case Code.Ldloca_S:
             case Code.Ldloca:
-                stack.Add(_locals[(VariableDefinition)instr.Operand].Alloca);
+                stack.Add(AddressOfLocal((VariableDefinition)instr.Operand));
                 break;
             case Code.Stloc_0:
                 StoreLocal(_method.Body.Variables[0], Pop(stack));
@@ -715,6 +839,10 @@ internal sealed partial class CilMethodLowerer
             case Code.Starg:
                 StoreArg((ParameterDefinition)instr.Operand, Pop(stack));
                 break;
+            case Code.Ldarga_S:
+            case Code.Ldarga:
+                stack.Add(AddressOfArg((ParameterDefinition)instr.Operand));
+                break;
 
             case Code.Dup:
                 stack.Add(stack[^1]);
@@ -725,10 +853,10 @@ internal sealed partial class CilMethodLowerer
 
             // ---- Arithmetic / logic ------------------------------------------------------------
             case Code.Add:
-                BinaryOp(stack, IrBinaryOp.Add);
+                AddOrSub(stack, subtract: false);
                 break;
             case Code.Sub:
-                BinaryOp(stack, IrBinaryOp.Sub);
+                AddOrSub(stack, subtract: true);
                 break;
             case Code.Mul:
                 BinaryOp(stack, IrBinaryOp.Mul);
@@ -750,6 +878,18 @@ internal sealed partial class CilMethodLowerer
                 break;
             case Code.Shr_Un:
                 ShiftOp(stack, IrBinaryOp.LShr);
+                break;
+            case Code.Div:
+                BinaryOp(stack, IrBinaryOp.SDiv);
+                break;
+            case Code.Div_Un:
+                BinaryOp(stack, IrBinaryOp.UDiv);
+                break;
+            case Code.Rem:
+                BinaryOp(stack, IrBinaryOp.SRem);
+                break;
+            case Code.Rem_Un:
+                BinaryOp(stack, IrBinaryOp.URem);
                 break;
             case Code.Neg:
             {
@@ -825,6 +965,82 @@ internal sealed partial class CilMethodLowerer
                 stack.Add(v.Type.Bits > 32 ? _b.Conv(IrConvOp.Trunc, v, IrType.I32) : v);
                 break;
             }
+            // conv.i8 sign-extends a narrower stack value to 64 bits (a no-op if already 64-bit);
+            // conv.u8 zero-extends. Real CLR semantics (ECMA-335 III.3.27/III.3.29) — unlike
+            // conv.i1/u1/i2/u2 above, there is no re-narrowing step, since int64 IS a native stack
+            // width (see class remarks), not something later widened back up.
+            case Code.Conv_I8:
+            {
+                var v = Pop(stack);
+                stack.Add(v.Type.Bits >= 64 ? v : _b.Conv(IrConvOp.SExt, v, IrType.I64));
+                break;
+            }
+            case Code.Conv_U8:
+            {
+                var v = Pop(stack);
+                stack.Add(v.Type.Bits >= 64 ? v : _b.Conv(IrConvOp.ZExt, v, IrType.I64));
+                break;
+            }
+            // conv.i/conv.u: to "native int" — this target's address width (I16). A pointer operand
+            // reinterprets (a numeric pointer-value cast, e.g. `(nint)p` or the first step of unsafe
+            // pointer arithmetic — see AddOrSub); an integer operand narrows/widens like any other
+            // conv.* (real CLR native int is address-width, not fixed at 32/64).
+            case Code.Conv_I:
+            case Code.Conv_U:
+                stack.Add(CoerceStore(Pop(stack), IrType.I16));
+                break;
+
+            // ---- Pointer dereference (ldind.*/stind.*) -----------------------------------------
+            case Code.Ldind_I1:
+                LoadIndirect(stack, IrType.I8, signed: true);
+                break;
+            case Code.Ldind_U1:
+                LoadIndirect(stack, IrType.I8, signed: false);
+                break;
+            case Code.Ldind_I2:
+                LoadIndirect(stack, IrType.I16, signed: true);
+                break;
+            case Code.Ldind_U2:
+                LoadIndirect(stack, IrType.I16, signed: false);
+                break;
+            case Code.Ldind_I4:
+                LoadIndirect(stack, IrType.I32, signed: true);
+                break;
+            case Code.Ldind_U4:
+                LoadIndirect(stack, IrType.I32, signed: false);
+                break;
+            case Code.Ldind_I8:
+                LoadIndirect(stack, IrType.I64, signed: true);
+                break;
+            case Code.Ldind_I:
+                LoadIndirect(stack, IrType.I16, signed: false);
+                break;
+            case Code.Ldind_Ref:
+                LoadIndirect(stack, IrType.Pointer(IrType.I8), signed: false);
+                break;
+            case Code.Stind_I1:
+                StoreIndirect(stack, IrType.I8);
+                break;
+            case Code.Stind_I2:
+                StoreIndirect(stack, IrType.I16);
+                break;
+            case Code.Stind_I4:
+                StoreIndirect(stack, IrType.I32);
+                break;
+            case Code.Stind_I8:
+                StoreIndirect(stack, IrType.I64);
+                break;
+            case Code.Stind_I:
+                StoreIndirect(stack, IrType.I16);
+                break;
+            case Code.Stind_Ref:
+                StoreIndirect(stack, IrType.Pointer(IrType.I8));
+                break;
+
+            // ---- localloc (stackalloc) ----------------------------------------------------------
+            case Code.Localloc:
+                LowerLocalloc(stack);
+                break;
 
             // ---- Control flow ---------------------------------------------------------------------
             case Code.Br:
@@ -902,6 +1118,21 @@ internal sealed partial class CilMethodLowerer
                 break;
             }
 
+            case Code.Switch:
+            {
+                var targets = (Instruction[])instr.Operand;
+                var value = AsComparable(Pop(stack));
+                var defaultTarget = _blockOf[instr.Next!];
+                var cases = new List<(IrConstInt, IrBasicBlock)>(targets.Length);
+                for (var i = 0; i < targets.Length; i++)
+                    cases.Add((IrBuilder.ConstInt(value.Type, i), _blockOf[targets[i]]));
+                Deliver(stack, defaultTarget);
+                foreach (var (_, caseTarget) in cases)
+                    Deliver(stack, caseTarget);
+                _b.Switch(value, defaultTarget, cases);
+                break;
+            }
+
             case Code.Call:
                 LowerCall((MethodReference)instr.Operand, stack);
                 break;
@@ -960,15 +1191,18 @@ internal sealed partial class CilMethodLowerer
             {
                 var fieldRef = (FieldReference)instr.Operand;
                 var objRef = Pop(stack);
-                var (ptr, fieldType, signed) = FieldPointer(fieldRef, objRef);
-                stack.Add(WidenToStack(_b.Load(ptr), signed));
+                var (ptr, _, signed, nested) = FieldPointer(fieldRef, objRef);
+                // A struct-typed field is never loaded as a scalar — its "value" IS its address (see
+                // CilMethodLowerer.Structs.cs's remarks); a real independent copy happens wherever that
+                // address is eventually consumed (stloc/stfld/stobj/a byval call argument).
+                stack.Add(nested is null ? WidenToStack(_b.Load(ptr), signed) : ptr);
                 break;
             }
             case Code.Ldflda:
             {
                 var fieldRef = (FieldReference)instr.Operand;
                 var objRef = Pop(stack);
-                var (ptr, _, _) = FieldPointer(fieldRef, objRef);
+                var (ptr, _, _, _) = FieldPointer(fieldRef, objRef);
                 stack.Add(ptr);
                 break;
             }
@@ -977,12 +1211,29 @@ internal sealed partial class CilMethodLowerer
                 var fieldRef = (FieldReference)instr.Operand;
                 var value = Pop(stack);
                 var objRef = Pop(stack);
-                var (ptr, fieldType, _) = FieldPointer(fieldRef, objRef);
-                _b.Store(CoerceStore(value, fieldType), ptr);
+                var (ptr, fieldType, _, nested) = FieldPointer(fieldRef, objRef);
+                if (nested is not null)
+                    EmitCopy(ptr, value, nested.Size);
+                else
+                    _b.Store(CoerceStore(value, fieldType), ptr);
                 break;
             }
             case Code.Ldnull:
                 stack.Add(IrBuilder.ConstInt(IrType.Pointer(IrType.I8), 0));
+                break;
+
+            // ---- Value types (see CilMethodLowerer.Structs.cs) ---------------------------------
+            case Code.Ldobj:
+                LowerLdobj((TypeReference)instr.Operand, stack);
+                break;
+            case Code.Stobj:
+                LowerStobj((TypeReference)instr.Operand, stack);
+                break;
+            case Code.Initobj:
+                LowerInitobj((TypeReference)instr.Operand, stack);
+                break;
+            case Code.Cpobj:
+                LowerCpobj((TypeReference)instr.Operand, stack);
                 break;
 
             // ---- SZ-arrays (see CilMethodLowerer.Arrays.cs) ------------------------------------
@@ -1015,6 +1266,22 @@ internal sealed partial class CilMethodLowerer
                 break;
             case Code.Ldelem_U4:
                 LoadElem(stack, IrType.I32, signed: false);
+                break;
+            // The generic (type-operand) variants — Roslyn emits these for a struct element (a
+            // primitive element always uses one of the typed opcodes above).
+            case Code.Ldelema:
+                LowerLdelema((TypeReference)instr.Operand, stack);
+                break;
+            case Code.Ldelem_Any:
+                LowerLdelemAny((TypeReference)instr.Operand, stack);
+                break;
+            case Code.Stelem_Any:
+                LowerStelemAny((TypeReference)instr.Operand, stack);
+                break;
+            // A pure verification hint (suppresses the array-covariance check 'ldelema' would
+            // otherwise need on a reference-type array — irrelevant to a struct element array, and to
+            // this frontend's own unchecked element addressing either way): a complete no-op.
+            case Code.Readonly:
                 break;
 
             // ---- try/finally (see CilMethodLowerer.Iterators.cs) ------------------------------
@@ -1082,6 +1349,61 @@ internal sealed partial class CilMethodLowerer
         stack.Add(_b.Binary(op, a, b));
     }
 
+    /// <summary><c>add</c>/<c>sub</c> where either operand is a pointer never reaches
+    /// <see cref="IrBuilder.Binary"/> (<see cref="IrVerifier"/> requires integer operands) — real
+    /// pointer arithmetic instead. C#'s own compiler already scales a <c>T*</c> offset to bytes ahead
+    /// of the CIL <c>add</c>/<c>sub</c> (an explicit <c>sizeof</c>/<c>conv.i</c>/<c>mul</c> sequence for
+    /// any <c>T</c> wider than a byte — the raw opcode operates on two already-byte-scaled native
+    /// ints), so a byte-granularity <c>gep</c> (element type i8) reproduces it exactly without needing
+    /// to know <c>T</c>'s size here at all. <c>ptr - ptr</c> (byte distance; C# then divides by
+    /// <c>sizeof(T)</c> as ordinary, separately-lowered int arithmetic) is the one shape that yields a
+    /// scalar rather than an address.</summary>
+    private void AddOrSub(List<IrValue> stack, bool subtract)
+    {
+        var b = Pop(stack);
+        var a = Pop(stack);
+        if (a.Type.Kind == IrTypeKind.Pointer)
+        {
+            if (b.Type.Kind == IrTypeKind.Pointer)
+            {
+                var ai = _b.Conv(IrConvOp.Bitcast, a, IrType.Int(a.Type.SizeInBits));
+                var bi = _b.Conv(IrConvOp.Bitcast, b, IrType.Int(b.Type.SizeInBits));
+                stack.Add(_b.Sub(ai, bi));
+                return;
+            }
+            var offset = CoerceStore(b, IrType.I16);
+            if (subtract)
+                offset = _b.Sub(IrBuilder.ConstInt(IrType.I16, 0), offset);
+            var addr = _b.Gep(a, offset, IrType.I8);
+            // Reinterpret back to the original pointee type ONLY when it actually differs (a byte
+            // pointer's own gep already comes out as Pointer(I8) == its own type, so wrapping it in a
+            // no-op bitcast here would needlessly hide the gep from the backend's single-use fusion
+            // (see Sm83Backend.MemoryEmitter's FusedGep) behind an extra materialized value).
+            stack.Add(
+                addr.Type.StructurallyEquals(a.Type)
+                    ? addr
+                    : _b.Conv(IrConvOp.Bitcast, addr, a.Type)
+            );
+            return;
+        }
+        if (b.Type.Kind == IrTypeKind.Pointer)
+        {
+            // int/native-int + pointer (commutative form, e.g. `n + p`) — same byte-scaled gep, base
+            // and offset swapped.
+            var offset = CoerceStore(a, IrType.I16);
+            var addr = _b.Gep(b, offset, IrType.I8);
+            stack.Add(
+                addr.Type.StructurallyEquals(b.Type)
+                    ? addr
+                    : _b.Conv(IrConvOp.Bitcast, addr, b.Type)
+            );
+            return;
+        }
+        if (!a.Type.StructurallyEquals(b.Type))
+            b = CoerceStore(b, a.Type);
+        stack.Add(_b.Binary(subtract ? IrBinaryOp.Sub : IrBinaryOp.Add, a, b));
+    }
+
     private void ShiftOp(List<IrValue> stack, IrBinaryOp op)
     {
         var count = Pop(stack);
@@ -1136,6 +1458,19 @@ internal sealed partial class CilMethodLowerer
             return;
         }
 
+        // A call to a user generic method instantiated at concrete type arguments (Cecil exposes this
+        // as a GenericInstanceMethod operand) — monomorphize on demand (see
+        // CilMethodLowerer.Generics.cs). Placed AFTER the LINQ check above: Enumerable.Select/Where/…
+        // are themselves generic BCL methods, so their own call sites are ALSO GenericInstanceMethod
+        // operands and must keep routing through LowerLinqCall, never through generic monomorphization
+        // (whose template-body lowering would try — and fail — to lower Enumerable's own unlowerable
+        // BCL IL).
+        if (calleeRef is GenericInstanceMethod gim)
+        {
+            LowerGenericCall(gim, stack);
+            return;
+        }
+
         MethodDefinition? def;
         try
         {
@@ -1164,9 +1499,11 @@ internal sealed partial class CilMethodLowerer
             // The stack's own widen-narrow-to-i32 discipline (see class remarks) means an argument
             // narrower than i32 arrives here already widened; narrow it back to the callee's declared
             // parameter type (e.g. i8 for a byte parameter) before the call, matching what stloc/starg
-            // do for locals/arguments and what the real CLR calling convention truncates on entry.
+            // do for locals/arguments and what the real CLR calling convention truncates on entry. A
+            // byval struct argument additionally gets its own independent copy here — see
+            // CilMethodLowerer.Structs.cs's PrepareArg.
             for (var i = 0; i < args.Length; i++)
-                args[i] = CoerceStore(args[i], callee.Parameters[i].Type);
+                args[i] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i].Type);
             var call = _b.Call(callee, args);
             if (callee.ReturnType.Kind != IrTypeKind.Void)
             {

@@ -134,8 +134,10 @@ internal sealed partial class CilMethodLowerer
     /// — an element-scaled <c>gep</c> (offset / element-size = index), exactly
     /// <c>CSharpFrontend.MethodLowerer.WritePlace</c>'s class-field addressing, which is what lets the
     /// same aligned-offset invariant (<see cref="CilClassLayout"/>'s remarks) drive both frontends'
-    /// field access identically.</summary>
-    private (IrValue Pointer, IrType Type, bool Signed) FieldPointer(
+    /// field access identically. <see cref="CilClassLayout.FieldInfo.Nested"/> is forwarded so a
+    /// struct-typed field's caller (Ldfld/Stfld/Ldflda — see <c>CilMethodLowerer.Structs.cs</c>) can
+    /// tell a scalar field (load/store a value) from an aggregate one (address only, byte-copy).</summary>
+    private (IrValue Pointer, IrType Type, bool Signed, CilClassLayout? Nested) FieldPointer(
         FieldReference fieldRef,
         IrValue objRef
     )
@@ -161,7 +163,7 @@ internal sealed partial class CilMethodLowerer
             IrBuilder.ConstInt(IrType.I16, info.Offset / elementSize),
             info.Type
         );
-        return (ptr, info.Type, info.Signed);
+        return (ptr, info.Type, info.Signed, info.Nested);
     }
 
     // ---- Object construction -------------------------------------------------------------------------
@@ -234,7 +236,12 @@ internal sealed partial class CilMethodLowerer
         var allArgs = new IrValue[argCount + 1];
         allArgs[0] = CoerceStore(basePtr, callee.Parameters[0].Type);
         for (var i = 0; i < argCount; i++)
-            allArgs[i + 1] = CoerceStore(ctorArgs[i], callee.Parameters[i + 1].Type);
+            allArgs[i + 1] = PrepareArg(
+                ctorArgs[i],
+                ctorDef.Parameters,
+                i,
+                callee.Parameters[i + 1].Type
+            );
         _b.Call(callee, allArgs);
 
         // The allocation's exact runtime type is known statically (right here, at the 'newobj' site) —
@@ -411,7 +418,7 @@ internal sealed partial class CilMethodLowerer
         var allArgs = new IrValue[argCount + 1];
         allArgs[0] = CoerceStore(thisValue, callee.Parameters[0].Type);
         for (var i = 0; i < argCount; i++)
-            allArgs[i + 1] = CoerceStore(args[i], callee.Parameters[i + 1].Type);
+            allArgs[i + 1] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i + 1].Type);
         var call = _b.Call(callee, allArgs);
         if (callee.ReturnType.Kind != IrTypeKind.Void)
         {
