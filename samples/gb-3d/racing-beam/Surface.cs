@@ -1,9 +1,10 @@
 static unsafe class Surface
 {
     // 64 content tiles (0..63, an 8x8 grid) plus one blank filler tile (64); tiles 65..255 are spare
-    // and unowned. The DMG boot hand-off leaves the cartridge logo in tiles 1-24, so every tile from
-    // the blank filler up must be zeroed at Initialize — nothing but the blank tile can ever show
-    // through.
+    // and unowned. The DMG boot hand-off leaves the cartridge logo in tiles 1-24 — inside the content
+    // range, which Initialize maps into the visible grid right away — so Initialize must zero 0..63
+    // too, not just the blank filler up through 255: nothing but the blank tile or freshly rendered
+    // content can ever show through.
     const byte BlankTile = 64;
 
     // The 1024-byte render target (64x64 px, 2bpp: 64*64/8*2 = 1024). Allocated from the WRAM arena
@@ -44,52 +45,12 @@ static unsafe class Surface
             *(pixels + offset + 1) &= (byte)~mask;
     }
 
-    // Byte-granular span fill for FillTriangle's scanlines — same dither/coverage derivation as
-    // double-buffered/Surface.cs's FillSpan (see there for the full comment); pointer-based,
-    // tilesPerRow = 8.
+    // Byte-granular span fill for FillTriangle's scanlines; the dither/coverage derivation and the
+    // full body live once in shared/SpanFill.cs (see there), since it's identical across all three
+    // Surface variants except for the tilemap row stride. tilesPerRow = 8 (8x8 content grid).
     internal static void FillSpan(byte y, byte xa, byte xb, byte color)
     {
-        byte dither = color > 1 ? (byte)(0x88 >> (y & 3)) : (byte)0x00;
-        byte fullBit0 = (color & 1) != 0 ? (byte)0xFF : (byte)0x00;
-        byte plane0 = (byte)(fullBit0 ^ dither);
-        byte bit1Dither = (color & 1) == 0 ? dither : (byte)0x00;
-        byte fullBit1 = (color & 2) != 0 ? (byte)0xFF : (byte)0x00;
-        byte plane1 = (byte)(fullBit1 ^ bit1Dither);
-
-        byte firstByte = (byte)(xa >> 3);
-        byte lastByte = (byte)(xb >> 3);
-        ushort tile = (ushort)((ushort)(y >> 3) * 8 + firstByte);
-        ushort o = (ushort)(tile * 16 + (y & 7) * 2);
-
-        if (firstByte == lastByte)
-        {
-            byte cover = (byte)((byte)(0xFF >> (xa & 7)) & (byte)(0xFF << (7 - (xb & 7))));
-            *(pixels + o) &= (byte)~cover;
-            *(pixels + o) |= (byte)(plane0 & cover);
-            *(pixels + o + 1) &= (byte)~cover;
-            *(pixels + o + 1) |= (byte)(plane1 & cover);
-            return;
-        }
-
-        byte coverFirst = (byte)(0xFF >> (xa & 7));
-        *(pixels + o) &= (byte)~coverFirst;
-        *(pixels + o) |= (byte)(plane0 & coverFirst);
-        *(pixels + o + 1) &= (byte)~coverFirst;
-        *(pixels + o + 1) |= (byte)(plane1 & coverFirst);
-
-        for (byte b = (byte)(firstByte + 1); b < lastByte; b++)
-        {
-            o = (ushort)(o + 16);
-            *(pixels + o) = plane0;
-            *(pixels + o + 1) = plane1;
-        }
-
-        byte coverLast = (byte)(0xFF << (7 - (xb & 7)));
-        o = (ushort)(o + 16);
-        *(pixels + o) &= (byte)~coverLast;
-        *(pixels + o) |= (byte)(plane0 & coverLast);
-        *(pixels + o + 1) &= (byte)~coverLast;
-        *(pixels + o + 1) |= (byte)(plane1 & coverLast);
+        SpanFill.Fill(pixels, y, xa, xb, color, 8);
     }
 
     internal static void Initialize()
@@ -98,8 +59,14 @@ static unsafe class Surface
         pixels = (byte*)(((ulong)pixels + 15) & ~15UL);
         Lcd.Off();
         // Tile data 0..63 holds the 8x8 content grid and 64 is the blank filler; 65..255 are spare
-        // and unowned. Clear from the blank filler through 255 (byte wraps 255 -> 0, ending the loop)
-        // — nothing but the blank tile can ever show through the boot hand-off's leftover logo tiles.
+        // and unowned. Zero the content grid too (not just the blank filler up through 255): the boot
+        // hand-off leaves the cartridge logo in tiles 1-24, which sit inside 0..63 and get mapped into
+        // the visible grid below, so without this the logo would flash for the frames before the first
+        // Present() overwrites it. LCD is off here, so the bulk VRAM write is safe regardless of PPU
+        // mode.
+        Mem.Fill(Gb.Vram, 0, 1024);
+        // Clear from the blank filler through 255 (byte wraps 255 -> 0, ending the loop) — nothing but
+        // the blank tile can ever show through.
         for (byte t = BlankTile; t != 0; t++)
             TileData.Clear(t);
         // Blank the full 32x32 map, not just the visible 20x18 window: Present() scrolls SCX by a few

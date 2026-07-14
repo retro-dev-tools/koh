@@ -1,8 +1,9 @@
 // All-phases sweep of the shared CubeRenderer on the managed (desktop) build. The ROM checks in
 // Program.cs sample two frame counts per ROM, which covers two rotation phases out of 256; this
 // sweep drives the real shared renderer (compiled into this project, see Cube3dVerify.csproj)
-// across every phase the demos can ever show (phase is a byte stepping by 3: gcd(3, 256) = 1, so
-// all 256 values occur) on each sample's viewport geometry, and asserts the projected cube never
+// across every phase the demos can ever show (this sweep iterates all 256 byte phase values 0..255
+// directly, independent of the ROMs' own per-frame phase increment — shared/Game.cs's `PhaseStep`,
+// currently 1) on each sample's viewport geometry, and asserts the projected cube never
 // degenerates: it must keep a clearance from every viewport edge (the historical failure — the
 // small-viewport projection scale only budgeted for the average perspective distance, so near
 // phases overflowed the 32x32 viewport and clipped flat against its edges) and its lit bounding
@@ -20,6 +21,12 @@ internal static class PhaseSweepCheck
     public static bool Run()
     {
         var ok = true;
+        // Viewport geometries mirror each sample's own Surface.Width()/Height() (a second source of
+        // truth, kept in sync by hand): ../racing-beam/Surface.cs, ../double-buffered/Surface.cs,
+        // ../full-frame/Surface.cs. The verify project can't derive these instead — it references only
+        // shared/FixedMath.cs and shared/CubeRenderer.cs (see Cube3dVerify.csproj), not the per-ROM
+        // Surface.cs files, which are unsafe-pointer Koh C# writing real VRAM addresses and can't run
+        // outside a booted ROM.
         foreach (
             var (name, width, height) in new[]
             {

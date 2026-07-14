@@ -40,11 +40,14 @@ public static unsafe class Cgb
     /// collide with PPU mode 3 are dropped on real hardware (Pan Docs). Hardware-imposed
     /// constraints: <paramref name="source"/> and <paramref name="vramDest"/> are 16-byte aligned
     /// (the registers ignore the low 4 bits), and <paramref name="byteCount"/> is a multiple of 16,
-    /// at most 2048 (128 blocks per transfer). No-op on DMG, where these registers don't exist —
-    /// callers keep a CPU-copy fallback behind <see cref="IsColor"/>.</summary>
+    /// at most 2048 (128 blocks per transfer). A <paramref name="byteCount"/> of 0 is a no-op —
+    /// without this guard, <c>(0 &gt;&gt; 4) - 1</c> underflows to 0xFF, whose bit 7 being SET selects
+    /// HBlank-DMA mode (not general-purpose) with a 0x7F length field (128 blocks = 2048 bytes),
+    /// silently kicking off an unwanted transfer instead of doing nothing. No-op on DMG, where these
+    /// registers don't exist — callers keep a CPU-copy fallback behind <see cref="IsColor"/>.</summary>
     public static void CopyToVram(byte* source, ushort vramDest, ushort byteCount)
     {
-        if (!IsColor())
+        if (!IsColor() || byteCount == 0)
             return;
         ushort src = (ushort)source;
         Hardware.HDMA1 = (byte)(src >> 8);

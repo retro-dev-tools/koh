@@ -3,7 +3,9 @@ static unsafe class Surface
     // 16 cols x 15 rows of content tiles (0..239) instead of a full 16x16 (0..255): giving up one tile
     // row of drawing area buys 16 spare tile-data slots (240..255) that are never part of the rotating
     // content, so they can hold a genuinely static blank tile instead of a byte that's overwritten (and
-    // would otherwise flash live cube pixels) every frame.
+    // would otherwise flash live cube pixels) every frame. The DMG boot hand-off leaves the cartridge
+    // logo in tiles 1-24 — inside the content range, mapped into the visible grid right away by
+    // Initialize — so Initialize also zeroes 0..239, not just the spare slots.
     const byte SpareTileStart = 240;
     const byte BlankTile = 255;
 
@@ -46,52 +48,12 @@ static unsafe class Surface
             *(pixels + o + 1) &= (byte)~m;
     }
 
-    // Byte-granular span fill for FillTriangle's scanlines — same dither/coverage derivation as
-    // double-buffered/Surface.cs's FillSpan (see there for the full comment); pointer-based here,
-    // tilesPerRow = 16.
+    // Byte-granular span fill for FillTriangle's scanlines; the dither/coverage derivation and the
+    // full body live once in shared/SpanFill.cs (see there), since it's identical across all three
+    // Surface variants except for the tilemap row stride. tilesPerRow = 16 (16x15 content grid).
     internal static void FillSpan(byte y, byte xa, byte xb, byte color)
     {
-        byte dither = color > 1 ? (byte)(0x88 >> (y & 3)) : (byte)0x00;
-        byte fullBit0 = (color & 1) != 0 ? (byte)0xFF : (byte)0x00;
-        byte plane0 = (byte)(fullBit0 ^ dither);
-        byte bit1Dither = (color & 1) == 0 ? dither : (byte)0x00;
-        byte fullBit1 = (color & 2) != 0 ? (byte)0xFF : (byte)0x00;
-        byte plane1 = (byte)(fullBit1 ^ bit1Dither);
-
-        byte firstByte = (byte)(xa >> 3);
-        byte lastByte = (byte)(xb >> 3);
-        ushort tile = (ushort)((ushort)(y >> 3) * 16 + firstByte);
-        ushort o = (ushort)(tile * 16 + (y & 7) * 2);
-
-        if (firstByte == lastByte)
-        {
-            byte cover = (byte)((byte)(0xFF >> (xa & 7)) & (byte)(0xFF << (7 - (xb & 7))));
-            *(pixels + o) &= (byte)~cover;
-            *(pixels + o) |= (byte)(plane0 & cover);
-            *(pixels + o + 1) &= (byte)~cover;
-            *(pixels + o + 1) |= (byte)(plane1 & cover);
-            return;
-        }
-
-        byte coverFirst = (byte)(0xFF >> (xa & 7));
-        *(pixels + o) &= (byte)~coverFirst;
-        *(pixels + o) |= (byte)(plane0 & coverFirst);
-        *(pixels + o + 1) &= (byte)~coverFirst;
-        *(pixels + o + 1) |= (byte)(plane1 & coverFirst);
-
-        for (byte b = (byte)(firstByte + 1); b < lastByte; b++)
-        {
-            o = (ushort)(o + 16);
-            *(pixels + o) = plane0;
-            *(pixels + o + 1) = plane1;
-        }
-
-        byte coverLast = (byte)(0xFF << (7 - (xb & 7)));
-        o = (ushort)(o + 16);
-        *(pixels + o) &= (byte)~coverLast;
-        *(pixels + o) |= (byte)(plane0 & coverLast);
-        *(pixels + o + 1) &= (byte)~coverLast;
-        *(pixels + o + 1) |= (byte)(plane1 & coverLast);
+        SpanFill.Fill(pixels, y, xa, xb, color, 16);
     }
 
     internal static void Initialize()
@@ -99,6 +61,11 @@ static unsafe class Surface
         pixels = Mem.Alloc(3840 + 15);
         pixels = (byte*)(((ulong)pixels + 15) & ~15UL);
         Lcd.Off();
+        // Zero the content tile range too (not just the spare slots below): the boot hand-off leaves
+        // the cartridge logo in tiles 1-24, which sit inside 0..239 and get mapped into the visible
+        // grid below, so without this the logo would flash for the frames before the first Present()
+        // overwrites it. LCD is off here, so the bulk VRAM write is safe regardless of PPU mode.
+        Mem.Fill(Gb.Vram, 0, 3840);
         Tilemap.Clear(BlankTile);
         for (byte t = SpareTileStart; t != 0; t++)
             TileData.Clear(t);

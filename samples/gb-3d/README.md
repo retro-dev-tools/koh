@@ -63,5 +63,7 @@ faster flip):
 | full-frame | 23-51 frames/cycle (two-VBlank GDMA halves) | 59-114 frames/cycle (one LCD-off `Mem.Copy(3840)`) |
 | racing-beam | 17-41 frames/cycle | 33-80 frames/cycle (one LCD-off `Mem.Copy(1024)` plus the HBlank-paced SCX wobble) |
 
-double-buffered and racing-beam's DMG paths, and full-frame's DMG path, keep the LCD-off/vblank-chunked
-tradeoffs documented in each `Surface.cs`; CGB always uses `Cgb.CopyToVram` general-purpose DMA instead.
+double-buffered's and full-frame's DMG paths keep the LCD-off/vblank-chunked tradeoffs documented in
+each `Surface.cs`; on CGB those two switch to `Cgb.CopyToVram` general-purpose DMA instead.
+racing-beam is the exception: its `Present()` doesn't branch on `Cgb.IsColor()` at all — both DMG and
+CGB take the same LCD-off `Mem.Copy(1024)` upload ahead of the per-scanline SCX wobble.
