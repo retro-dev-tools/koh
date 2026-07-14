@@ -29,6 +29,14 @@ internal static class CilTypeMapper
             return (IrType.Pointer(element), false);
         }
 
+        // A reference type (class, delegate, interface) — every instance is heap-allocated and
+        // referred to by a raw byte pointer, exactly like CSharpFrontend's class instances (see
+        // CSharpFrontend.HeapPointerName / MethodLowerer.LowerNew). `System.Void`'s own IsValueType
+        // is not reliable across Cecil readers, so it is excluded explicitly and handled by the
+        // switch below rather than by this shortcut.
+        if (typeReference.MetadataType != MetadataType.Void && !typeReference.IsValueType)
+            return (IrType.Pointer(IrType.I8), false);
+
         return typeReference.MetadataType switch
         {
             MetadataType.Void => (IrType.Void, false),
@@ -52,9 +60,13 @@ internal static class CilTypeMapper
 
 /// <summary>
 /// Lowers every eligible static method of a game module's own assembly to Koh IR (see
-/// <c>docs/superpowers/specs/2026-07-14-cil-frontend-design.md</c>, phase 1). Compiler-generated types
-/// and anything from a referenced assembly are skipped; entry-point selection follows
-/// <see cref="ModuleDefinition.EntryPoint"/>, falling back to a single static <c>Main</c>.
+/// <c>docs/superpowers/specs/2026-07-14-cil-frontend-design.md</c>, phase 1, and the delegates/closures
+/// task). Entry-point selection follows <see cref="ModuleDefinition.EntryPoint"/>, falling back to a
+/// single static <c>Main</c>. A compiler-generated type's own members (a lambda body, a display-class
+/// ctor/field-holder, a no-capture cache singleton's method) are never swept eagerly — only lowered
+/// on demand, the first time a resolved call site references them (see
+/// <see cref="CilLoweringContext.EnsureLowered"/>), so a construct this frontend can't yet devirtualize
+/// stays a diagnostic at its call site rather than a spurious failure on an unrelated dead member.
 /// </summary>
 internal static class CilModuleLowerer
 {
@@ -65,20 +77,19 @@ internal static class CilModuleLowerer
     )
     {
         var intrinsics = CilIntrinsicIndex.Build(cecilModule);
-        var registerGlobals = new Dictionary<int, IrGlobal>();
-        var regionGlobals = new Dictionary<int, IrGlobal>();
-        var functionsByMethod = new Dictionary<MethodDefinition, IrFunction>();
+        var ctx = new CilLoweringContext(module, diagnostics, intrinsics);
         var methods = new List<MethodDefinition>();
 
         foreach (var type in cecilModule.GetTypes())
         {
-            if (IsCompilerGenerated(type))
+            if (type.Name == "<Module>")
                 continue;
             foreach (var method in type.Methods)
             {
-                // Static, has-a-body methods only (phase 1: no instance methods). Constructors
-                // (.ctor/.cctor — a static field initializer emits a .cctor that is IsStatic &&
-                // HasBody) are excluded: static-field initialization is out of phase-1 scope.
+                // Static, has-a-body methods only, eagerly. Constructors (.ctor/.cctor — a static
+                // field initializer emits a .cctor that is IsStatic && HasBody) are excluded here:
+                // static-field initialization is out of scope, and an INSTANCE .ctor is reached (when
+                // needed at all) via a resolved `newobj`, on demand.
                 if (!method.IsStatic || !method.HasBody || method.IsConstructor)
                     continue;
                 methods.Add(method);
@@ -87,63 +98,91 @@ internal static class CilModuleLowerer
 
         // Pass 1: signatures, so calls resolve regardless of declaration order (mirrors
         // CSharpFrontend). A per-method failure here (an unsupported parameter/return type) reports a
-        // diagnostic and leaves that method out of functionsByMethod — its body pass is skipped below.
+        // diagnostic and leaves that method out of FunctionsByMethod — its body pass is skipped below.
         foreach (var method in methods)
-        {
-            try
-            {
-                var parameters = new List<IrParameter>();
-                for (var i = 0; i < method.Parameters.Count; i++)
-                {
-                    var p = method.Parameters[i];
-                    var (irType, _) = CilTypeMapper.Map(p.ParameterType);
-                    parameters.Add(new IrParameter(p.Name ?? $"arg{i}", irType));
-                }
-                var (returnType, _) = CilTypeMapper.Map(method.ReturnType);
-                var fn = new IrFunction(
-                    $"{method.DeclaringType.Name}.{method.Name}",
-                    returnType,
-                    parameters
-                );
-                module.Functions.Add(fn);
-                functionsByMethod[method] = fn;
-            }
-            catch (CilNotSupportedException ex)
-            {
-                diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, module.Name);
-            }
-        }
+            ctx.EnsureSignature(method);
 
         var entryMethod = ResolveEntryPoint(cecilModule, methods, diagnostics, module.Name);
+
+        // A non-delegate `newobj` anywhere in the assembly (today: only a display-class capture
+        // allocation) needs the shared bump-pointer heap global, seeded at the entry's prologue —
+        // exactly CSharpFrontend's Pass-0.6 gate (CSharpFrontend.cs UsesHeap/ObjectCreationExpression
+        // check), done here on raw IL instead of syntax since this frontend has no syntax tree.
+        if (NeedsHeap(cecilModule))
+            ctx.EnsureHeapGlobal();
 
         // Pass 2: bodies. Report per-method so one bad method doesn't sink the whole compile.
         foreach (var method in methods)
         {
-            if (!functionsByMethod.TryGetValue(method, out var fn))
+            if (!ctx.FunctionsByMethod.TryGetValue(method, out var fn))
                 continue;
-            try
-            {
-                new CilMethodLowerer(
-                    method,
-                    fn,
-                    module,
-                    intrinsics,
-                    functionsByMethod,
-                    registerGlobals,
-                    regionGlobals
-                ).Run();
-            }
-            catch (CilNotSupportedException ex)
-            {
-                diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, module.Name);
-            }
+            ctx.LowerBody(method, fn, isEntry: ReferenceEquals(method, entryMethod));
         }
 
         // Mark the entry authoritatively (the backend boots into it by flag, not by name-matching) —
-        // only once its body actually lowered (functionsByMethod still holds it even on a body
+        // only once its body actually lowered (FunctionsByMethod still holds it even on a body
         // failure; IsEntry on a diagnosed-broken function is harmless since compilation already failed).
-        if (entryMethod is not null && functionsByMethod.TryGetValue(entryMethod, out var entryFn))
+        if (
+            entryMethod is not null
+            && ctx.FunctionsByMethod.TryGetValue(entryMethod, out var entryFn)
+        )
             entryFn.IsEntry = true;
+    }
+
+    /// <summary>True if any method body in the assembly (hand-written or compiler-generated —
+    /// a display-class ctor lives on the generated type, not the hand-written one) constructs a
+    /// non-delegate reference type. A delegate's own <c>newobj</c> (<c>Func`2::.ctor(object, native
+    /// int)</c>) is intercepted, never allocated (see <c>CilMethodLowerer.LowerNewobj</c>), so it must
+    /// not itself trigger the heap.</summary>
+    private static bool NeedsHeap(ModuleDefinition cecilModule)
+    {
+        foreach (var type in cecilModule.GetTypes())
+        {
+            if (type.Name == "<Module>")
+                continue;
+            foreach (var method in type.Methods)
+            {
+                // A static constructor (`.cctor`) is never lowered by this frontend (excluded from
+                // the eager sweep the same as any other constructor, and never reached on demand — a
+                // no-capture lambda's cache idiom is intercepted entirely, so the `<>c` singleton
+                // `.cctor` that would `newobj <>c::.ctor()` to build it is dead code from this
+                // frontend's perspective) — skip it so it can't false-positive NeedsHeap.
+                if (!method.HasBody || (method.IsConstructor && method.IsStatic))
+                    continue;
+                foreach (var instr in method.Body.Instructions)
+                {
+                    // A 'newarr' (see CilMethodLowerer.Arrays.cs) always needs the heap — there is no
+                    // delegate-construction-style interception for it the way Newobj has.
+                    if (instr.OpCode.Code == Code.Newarr)
+                        return true;
+                    if (instr.OpCode.Code != Code.Newobj)
+                        continue;
+                    var ctorRef = (MethodReference)instr.Operand;
+                    var declaringType = ResolveSafe(ctorRef.DeclaringType);
+                    if (declaringType is not null && !IsDelegateType(declaringType))
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>A delegate type's (<c>Func`2</c>, a user-declared <c>delegate</c>, …) direct base is
+    /// always exactly <c>System.MulticastDelegate</c> (never <c>System.Delegate</c> for a real,
+    /// instantiable delegate type — that is MulticastDelegate's own base, one level further up).</summary>
+    internal static bool IsDelegateType(TypeDefinition type) =>
+        type.BaseType?.FullName == "System.MulticastDelegate";
+
+    internal static TypeDefinition? ResolveSafe(TypeReference typeReference)
+    {
+        try
+        {
+            return typeReference.Resolve();
+        }
+        catch (AssemblyResolutionException)
+        {
+            return null;
+        }
     }
 
     /// <summary><see cref="ModuleDefinition.EntryPoint"/> when the assembly declares one (an EXE-style
@@ -186,14 +225,6 @@ internal static class CilModuleLowerer
         }
         return mains[0];
     }
-
-    /// <summary>Skip the module pseudo-type, closures/state machines (Roslyn always names these with a
-    /// leading '&lt;'), and anything explicitly marked <c>[CompilerGenerated]</c> — phase 1 lowers only
-    /// the game's own hand-written static methods.</summary>
-    private static bool IsCompilerGenerated(TypeDefinition type) =>
-        type.Name == "<Module>"
-        || type.Name.StartsWith('<')
-        || type.CustomAttributes.Any(a => a.AttributeType.Name == "CompilerGeneratedAttribute");
 }
 
 /// <summary>
@@ -218,15 +249,12 @@ internal static class CilModuleLowerer
 /// the stack across a backward branch, blocks are processed in program order and a block's entry depth
 /// is always known — via a prior forward delivery, or implicitly zero — by the time it's reached.
 /// </summary>
-internal sealed class CilMethodLowerer
+internal sealed partial class CilMethodLowerer
 {
     private readonly MethodDefinition _method;
     private readonly IrFunction _function;
-    private readonly IrModule _module;
-    private readonly IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> _intrinsics;
-    private readonly IReadOnlyDictionary<MethodDefinition, IrFunction> _functionsByMethod;
-    private readonly Dictionary<int, IrGlobal> _registerGlobals;
-    private readonly Dictionary<int, IrGlobal> _regionGlobals;
+    private readonly CilLoweringContext _ctx;
+    private readonly bool _isEntry;
 
     private readonly IrBuilder _b = new();
     private readonly Dictionary<
@@ -252,21 +280,26 @@ internal sealed class CilMethodLowerer
     public CilMethodLowerer(
         MethodDefinition method,
         IrFunction function,
-        IrModule module,
-        IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> intrinsics,
-        IReadOnlyDictionary<MethodDefinition, IrFunction> functionsByMethod,
-        Dictionary<int, IrGlobal> registerGlobals,
-        Dictionary<int, IrGlobal> regionGlobals
+        CilLoweringContext ctx,
+        bool isEntry
     )
     {
         _method = method;
         _function = function;
-        _module = module;
-        _intrinsics = intrinsics;
-        _functionsByMethod = functionsByMethod;
-        _registerGlobals = registerGlobals;
-        _regionGlobals = regionGlobals;
+        _ctx = ctx;
+        _isEntry = isEntry;
     }
+
+    /// <summary>The parameter/local slot for CIL argument index <paramref name="index"/>, accounting
+    /// for the implicit <c>this</c> the real CLR evaluation stack (and <c>ldarg.0..3</c>'s macro
+    /// encoding) always counts as argument 0 on an instance method — <see cref="MethodDefinition.Parameters"/>
+    /// itself never includes it.</summary>
+    private ParameterDefinition ArgAt(int index) =>
+        _method.HasThis
+            ? index == 0
+                ? _method.Body.ThisParameter
+                : _method.Parameters[index - 1]
+            : _method.Parameters[index];
 
     public void Run()
     {
@@ -277,6 +310,9 @@ internal sealed class CilMethodLowerer
                 $"method '{_method.FullName}' has an empty body (unsupported)."
             );
 
+        DetectDelegateCacheIdioms();
+        PrepareExceptionHandlers();
+
         // Every leader gets its own block, created up front and in program order — the first leader
         // (instructions[0]) becomes the entry block, so parameter/local allocas (added to it next) sit
         // before any of the method's own translated instructions.
@@ -286,12 +322,22 @@ internal sealed class CilMethodLowerer
 
         _b.PositionAtEnd(_entryBlock);
 
-        for (var i = 0; i < _method.Parameters.Count; i++)
+        var paramIndex = 0;
+        if (_method.HasThis)
+        {
+            var thisParam = _method.Body.ThisParameter;
+            var (thisType, _) = CilTypeMapper.Map(_method.DeclaringType);
+            var thisAlloca = _b.Alloca(thisType);
+            _b.Store(_function.Parameters[paramIndex], thisAlloca);
+            _params[thisParam] = (thisAlloca, thisType, false);
+            paramIndex++;
+        }
+        for (var i = 0; i < _method.Parameters.Count; i++, paramIndex++)
         {
             var p = _method.Parameters[i];
             var (irType, signed) = CilTypeMapper.Map(p.ParameterType);
             var alloca = _b.Alloca(irType);
-            _b.Store(_function.Parameters[i], alloca);
+            _b.Store(_function.Parameters[paramIndex], alloca);
             _params[p] = (alloca, irType, signed);
         }
 
@@ -305,27 +351,47 @@ internal sealed class CilMethodLowerer
             }
         }
 
-        var currentBlock = _entryBlock;
+        // The entry function alone seeds the shared heap pointer (mirrors CSharpFrontend's
+        // MethodLowerer, which does the same for its own `_staticInits` — see CilLoweringContext's
+        // remarks). A no-op when the assembly never allocates (HeapGlobal stays null).
+        if (_isEntry && _ctx.HeapGlobal is { } heap)
+            _b.Store(
+                IrBuilder.ConstInt(IrType.I16, CilLoweringContext.HeapTop),
+                IrBuilder.GlobalRef(heap)
+            );
+
         var stack = new List<IrValue>();
 
         foreach (var instr in instructions)
         {
+            // A 'finally' handler's own instruction range is never part of the normal instruction
+            // stream — it is only ever reached via a cloned copy emitted at each 'leave' (see
+            // CilMethodLowerer.Iterators.cs's LowerFinallyBody).
+            if (_finallyHandlerInstructions.Contains(instr))
+                continue;
+
+            // Always resolve "where are we" from the builder itself, never a separately tracked
+            // variable — a helper Simulate calls into (EmitZeroFill/EmitZeroFillDynamic,
+            // LowerFinallyBody's own clone) can reposition the builder to an ad-hoc block it created
+            // (e.g. a zero-fill loop's "done" block) and leave it positioned there for the caller to
+            // keep appending to; a stale local snapshot of "the current block" would then rewind to the
+            // wrong (empty, since-abandoned) block on the next leader transition, orphaning whatever was
+            // actually appended to the ad-hoc block (verified by a real bug this fixed: an iterator's
+            // dead-at-runtime-but-still-compiled 'newobj' branch inside GetEnumerator).
             if (
                 _blockOf.TryGetValue(instr, out var leaderBlock)
-                && !ReferenceEquals(leaderBlock, currentBlock)
+                && !ReferenceEquals(leaderBlock, _b.CurrentBlock)
             )
             {
-                if (currentBlock.Terminator is null)
+                if (_b.CurrentBlock.Terminator is null)
                 {
                     // Fell through a leader boundary without an explicit branch/ret (e.g. a block that
                     // is someone else's jump target but otherwise just runs into the next instruction).
-                    _b.PositionAtEnd(currentBlock);
                     Deliver(stack, leaderBlock);
                     _b.Br(leaderBlock);
                 }
-                currentBlock = leaderBlock;
-                _b.PositionAtEnd(currentBlock);
-                stack = EntryStack(currentBlock);
+                _b.PositionAtEnd(leaderBlock);
+                stack = EntryStack(leaderBlock);
             }
 
             Simulate(instr, stack);
@@ -335,8 +401,11 @@ internal sealed class CilMethodLowerer
     /// <summary>Leader instructions: the first instruction, every branch target, and the instruction
     /// immediately after any branch or <c>ret</c> (a block boundary even with no label pointing at it —
     /// the next byte is reachable only by falling through, or not at all, but either way it starts a
-    /// fresh block per <see cref="Run"/>'s "implicit fallthrough" handling).</summary>
-    private static IEnumerable<Instruction> ComputeLeaders(
+    /// fresh block per <see cref="Run"/>'s "implicit fallthrough" handling). A branch instruction that
+    /// is part of a recognized delegate-cache idiom (<see cref="DetectDelegateCacheIdioms"/>) is
+    /// excluded from leader contribution — that guard is resolved entirely at compile time (see
+    /// <see cref="_suppressed"/>'s remarks), so it must not fork the control-flow graph.</summary>
+    private IEnumerable<Instruction> ComputeLeaders(
         Mono.Collections.Generic.Collection<Instruction> instructions
     )
     {
@@ -346,16 +415,25 @@ internal sealed class CilMethodLowerer
 
         foreach (var instr in instructions)
         {
-            if (!IsBranchOrReturn(instr.OpCode.Code))
+            // A 'finally' handler's own instructions are never leaders of the normal block graph — see
+            // CilMethodLowerer.Iterators.cs's remarks (they're only ever reached via a clone).
+            if (_finallyHandlerInstructions.Contains(instr))
+                continue;
+            if (_suppressed.Contains(instr) || !IsBranchOrReturn(instr.OpCode.Code))
                 continue;
             foreach (var target in BranchTargets(instr))
-                leaders.Add(target);
-            if (instr.Next is not null)
+                if (!_finallyHandlerInstructions.Contains(target))
+                    leaders.Add(target);
+            if (instr.Next is not null && !_finallyHandlerInstructions.Contains(instr.Next))
                 leaders.Add(instr.Next);
         }
 
-        // Preserve program order (the caller relies on it to create blocks front-to-back).
-        return instructions.Where(leaders.Contains);
+        // Preserve program order (the caller relies on it to create blocks front-to-back). Defensively
+        // exclude handler-range instructions from the returned set too, even though nothing above
+        // should have added one.
+        return instructions.Where(i =>
+            leaders.Contains(i) && !_finallyHandlerInstructions.Contains(i)
+        );
     }
 
     private static bool IsBranchOrReturn(Code code) =>
@@ -386,7 +464,9 @@ internal sealed class CilMethodLowerer
                 or Code.Bge
                 or Code.Bge_S
                 or Code.Bge_Un
-                or Code.Bge_Un_S;
+                or Code.Bge_Un_S
+                or Code.Leave
+                or Code.Leave_S;
 
     private static IEnumerable<Instruction> BranchTargets(Instruction instr) =>
         instr.OpCode.Code == Code.Ret ? [] : [(Instruction)instr.Operand];
@@ -472,19 +552,61 @@ internal sealed class CilMethodLowerer
     private IrValue LoadLocal(VariableDefinition v)
     {
         var (alloca, _, signed) = _locals[v];
-        return WidenToStack(_b.Load(alloca), signed);
+        var loaded = WidenToStack(_b.Load(alloca), signed);
+        // Carry a resolved delegate's target method forward across the load — see
+        // CilMethodLowerer.Delegates.cs's remarks on _pendingDelegateProvenance/_localDelegateTarget.
+        if (_localDelegateTarget.TryGetValue(v, out var target))
+            _pendingDelegateProvenance[loaded] = target;
+        // Same round-trip for a 'newarr'-allocated array's element type/signedness/count — see
+        // CilMethodLowerer.Arrays.cs's remarks on _pendingArrayInfo/_localArrayInfo.
+        if (_localArrayInfo.TryGetValue(v, out var arrayInfo))
+            _pendingArrayInfo[loaded] = arrayInfo;
+        if (_localConcreteType.TryGetValue(v, out var concreteType))
+            _pendingConcreteType[loaded] = concreteType;
+        return loaded;
     }
 
     private void StoreLocal(VariableDefinition v, IrValue value)
     {
         var (alloca, type, _) = _locals[v];
+        if (_pendingDelegateProvenance.TryGetValue(value, out var target))
+            _localDelegateTarget[v] = target;
+        else
+            _localDelegateTarget.Remove(v);
+        if (_pendingArrayInfo.TryGetValue(value, out var arrayInfo))
+            _localArrayInfo[v] = arrayInfo;
+        else
+            _localArrayInfo.Remove(v);
+        // Same round-trip for a Newobj/known-return's concrete type — see
+        // CilMethodLowerer.Iterators.cs's remarks on _pendingConcreteType/_localConcreteType. NOTE:
+        // like the two tables above, this is a simple last-write-wins side table with no phi-aware
+        // merge across predecessors — sound only because every join this frontend actually lowers (the
+        // iterator kickoff/GetEnumerator reuse-vs-fresh shapes) has every predecessor agree on the
+        // concrete type; a real divergence would silently lose provenance (falling back to the
+        // ordinary sealed/final devirtualization rule, not a miscompile) rather than being asserted.
+        if (_pendingConcreteType.TryGetValue(value, out var concreteType))
+            _localConcreteType[v] = concreteType;
+        else
+            _localConcreteType.Remove(v);
         _b.Store(CoerceStore(value, type), alloca);
     }
 
     private IrValue LoadArg(ParameterDefinition p)
     {
         var (alloca, _, signed) = _params[p];
-        return WidenToStack(_b.Load(alloca), signed);
+        var loaded = WidenToStack(_b.Load(alloca), signed);
+        // A sealed declaring type's own 'this' is always exactly that type (no subclass can exist to
+        // make it otherwise) — seeds concrete-type devirtualization for an iterator state machine's own
+        // instance methods (GetEnumerator/MoveNext/Dispose/get_Current all read 'this' this way). Not
+        // safe to assume for a non-sealed declaring type (a derived instance could be calling through
+        // a base method), so restricted to sealed — see CilMethodLowerer.Iterators.cs's remarks.
+        if (
+            _method.HasThis
+            && ReferenceEquals(p, _method.Body.ThisParameter)
+            && _method.DeclaringType.IsSealed
+        )
+            _pendingConcreteType[loaded] = _method.DeclaringType;
+        return loaded;
     }
 
     private void StoreArg(ParameterDefinition p, IrValue value)
@@ -495,6 +617,19 @@ internal sealed class CilMethodLowerer
 
     private void Simulate(Instruction instr, List<IrValue> stack)
     {
+        // A delegate-cache idiom's interior instructions (see DetectDelegateCacheIdioms) resolve
+        // entirely at compile time and emit nothing at runtime — every one of them, including its
+        // starting `ldsfld`, is either suppressed outright or replaced below.
+        if (_suppressed.Contains(instr))
+            return;
+        if (_ldsfldDelegateProvenance.TryGetValue(instr, out var cachedTarget))
+        {
+            var env = IrBuilder.ConstInt(IrType.Pointer(IrType.I8), 0);
+            _pendingDelegateProvenance[env] = cachedTarget;
+            stack.Add(env);
+            return;
+        }
+
         var code = instr.OpCode.Code;
         switch (code)
         {
@@ -561,16 +696,16 @@ internal sealed class CilMethodLowerer
                 StoreLocal((VariableDefinition)instr.Operand, Pop(stack));
                 break;
             case Code.Ldarg_0:
-                stack.Add(LoadArg(_method.Parameters[0]));
+                stack.Add(LoadArg(ArgAt(0)));
                 break;
             case Code.Ldarg_1:
-                stack.Add(LoadArg(_method.Parameters[1]));
+                stack.Add(LoadArg(ArgAt(1)));
                 break;
             case Code.Ldarg_2:
-                stack.Add(LoadArg(_method.Parameters[2]));
+                stack.Add(LoadArg(ArgAt(2)));
                 break;
             case Code.Ldarg_3:
-                stack.Add(LoadArg(_method.Parameters[3]));
+                stack.Add(LoadArg(ArgAt(3)));
                 break;
             case Code.Ldarg_S:
             case Code.Ldarg:
@@ -770,12 +905,164 @@ internal sealed class CilMethodLowerer
             case Code.Call:
                 LowerCall((MethodReference)instr.Operand, stack);
                 break;
+            case Code.Callvirt:
+                LowerCallvirt((MethodReference)instr.Operand, stack);
+                break;
+            case Code.Newobj:
+                LowerNewobj((MethodReference)instr.Operand, stack);
+                break;
+            case Code.Ldftn:
+            {
+                var target =
+                    ((MethodReference)instr.Operand).Resolve()
+                    ?? throw new CilNotSupportedException(
+                        $"cannot resolve 'ldftn' target in '{_method.FullName}'."
+                    );
+                // A placeholder value that is never itself emitted as real IR — see LowerNewobj, which
+                // consumes it purely to look up the method it stands for in _ldftnProvenance.
+                var placeholder = IrBuilder.ConstInt(IrType.I16, 0);
+                _ldftnProvenance[placeholder] = target;
+                stack.Add(placeholder);
+                break;
+            }
+            case Code.Ldvirtftn:
+            {
+                // A method-group delegate off a virtual method (`Func<T> f = obj.Method;`): unlike
+                // `ldftn`, `ldvirtftn`'s whole point is RUNTIME dispatch through the receiver it also
+                // pops here (Roslyn's own emitted shape always `dup`s the env first, so the outer
+                // delegate `newobj` still gets its copy — see LowerNewobj's remarks). The instruction's
+                // own operand only names the vtable SLOT (e.g. `Base::Get`), not the receiver's actual
+                // runtime override — binding that token statically would silently invoke the wrong
+                // method whenever the receiver's concrete type differs from the token's declaring
+                // type. Exactly the same guard LowerInstanceCall already applies to a `callvirt` that
+                // can't be devirtualized: resolvable only when the target is non-virtual, final, or
+                // its declaring type is sealed (task 3 adds concrete-type tracking to do better).
+                Pop(stack);
+                var target =
+                    ((MethodReference)instr.Operand).Resolve()
+                    ?? throw new CilNotSupportedException(
+                        $"cannot resolve 'ldvirtftn' target in '{_method.FullName}'."
+                    );
+                if (target.IsVirtual && !target.IsFinal && !target.DeclaringType.IsSealed)
+                    throw new CilNotSupportedException(
+                        $"'ldvirtftn' on '{target.FullName}' in '{_method.FullName}' cannot be "
+                            + "resolved to a single target (its vtable-slot operand only identifies "
+                            + "the declared method, not the receiver's actual runtime override; "
+                            + "devirtualization needs a sealed declaring type or a final method; an "
+                            + "indirect-call backend is out of scope)."
+                    );
+                var placeholder = IrBuilder.ConstInt(IrType.I16, 0);
+                _ldftnProvenance[placeholder] = target;
+                stack.Add(placeholder);
+                break;
+            }
+            case Code.Ldfld:
+            {
+                var fieldRef = (FieldReference)instr.Operand;
+                var objRef = Pop(stack);
+                var (ptr, fieldType, signed) = FieldPointer(fieldRef, objRef);
+                stack.Add(WidenToStack(_b.Load(ptr), signed));
+                break;
+            }
+            case Code.Ldflda:
+            {
+                var fieldRef = (FieldReference)instr.Operand;
+                var objRef = Pop(stack);
+                var (ptr, _, _) = FieldPointer(fieldRef, objRef);
+                stack.Add(ptr);
+                break;
+            }
+            case Code.Stfld:
+            {
+                var fieldRef = (FieldReference)instr.Operand;
+                var value = Pop(stack);
+                var objRef = Pop(stack);
+                var (ptr, fieldType, _) = FieldPointer(fieldRef, objRef);
+                _b.Store(CoerceStore(value, fieldType), ptr);
+                break;
+            }
+            case Code.Ldnull:
+                stack.Add(IrBuilder.ConstInt(IrType.Pointer(IrType.I8), 0));
+                break;
+
+            // ---- SZ-arrays (see CilMethodLowerer.Arrays.cs) ------------------------------------
+            case Code.Newarr:
+                LowerNewarr((TypeReference)instr.Operand, stack);
+                break;
+            case Code.Stelem_I1:
+                StoreElem(stack, IrType.I8);
+                break;
+            case Code.Stelem_I2:
+                StoreElem(stack, IrType.I16);
+                break;
+            case Code.Stelem_I4:
+                StoreElem(stack, IrType.I32);
+                break;
+            case Code.Ldelem_I1:
+                LoadElem(stack, IrType.I8, signed: true);
+                break;
+            case Code.Ldelem_U1:
+                LoadElem(stack, IrType.I8, signed: false);
+                break;
+            case Code.Ldelem_I2:
+                LoadElem(stack, IrType.I16, signed: true);
+                break;
+            case Code.Ldelem_U2:
+                LoadElem(stack, IrType.I16, signed: false);
+                break;
+            case Code.Ldelem_I4:
+                LoadElem(stack, IrType.I32, signed: true);
+                break;
+            case Code.Ldelem_U4:
+                LoadElem(stack, IrType.I32, signed: false);
+                break;
+
+            // ---- try/finally (see CilMethodLowerer.Iterators.cs) ------------------------------
+            case Code.Leave:
+            case Code.Leave_S:
+            {
+                // 'leave' always empties the CIL evaluation stack (ECMA-335 III.3.36) — never a
+                // Deliver here, unlike every other branch above.
+                var targetBlock = _blockOf[(Instruction)instr.Operand];
+                if (FindEnclosingFinally(instr) is { } handler)
+                {
+                    var finallyEntry = _function.AppendBlock("finally.entry");
+                    _b.Br(finallyEntry);
+                    _b.PositionAtEnd(finallyEntry);
+                    LowerFinallyBody(handler, targetBlock);
+                }
+                else
+                {
+                    _b.Br(targetBlock);
+                }
+                break;
+            }
 
             case Code.Ret:
                 if (_function.ReturnType.Kind == IrTypeKind.Void)
                     _b.Ret();
                 else
-                    _b.Ret(CoerceStore(Pop(stack), _function.ReturnType));
+                {
+                    var retValue = Pop(stack);
+                    // A LINQ chain placeholder (see CilMethodLowerer.Linq.cs) escaping without a
+                    // terminal is never valid IR to build (it's a never-materialized I16 constant, not a
+                    // real value) — diagnose it here explicitly rather than letting it reach CoerceStore/
+                    // IrVerifier as an opaque type-mismatch.
+                    if (_pendingLinqPipeline.ContainsKey(retValue))
+                        throw new CilNotSupportedException(
+                            $"LINQ pipeline in '{_method.FullName}' is returned without a terminal "
+                                + "operation (phase supports Where/Select pipelines ending in "
+                                + "Sum/Count/Any/All only)."
+                        );
+                    // Record this ret site's concrete-type provenance (or its absence) for the callee-
+                    // side devirtualization the design spike's iterator finding needs — see
+                    // CilMethodLowerer.Iterators.cs's remarks on CilLoweringContext.RecordConcreteReturn.
+                    _ctx.RecordConcreteReturn(
+                        _method,
+                        _pendingConcreteType.TryGetValue(retValue, out var retType) ? retType : null
+                    );
+                    _b.Ret(CoerceStore(retValue, _function.ReturnType));
+                }
                 break;
 
             default:
@@ -814,15 +1101,40 @@ internal sealed class CilMethodLowerer
         stack.Add(_b.Conv(IrConvOp.ZExt, cmp, IrType.I32));
     }
 
-    /// <summary>A <c>call</c>: either a <c>[KohIntrinsic]</c>-attributed method (Hardware/Gb — see
-    /// <see cref="LowerIntrinsicCall"/>), a call to another function of this same game module, or —
-    /// out of phase-1 scope — anything else, reported as a diagnostic rather than silently miscompiled.</summary>
+    /// <summary>A <c>call</c>: an instance call (always non-virtual by CIL definition — a base-ctor
+    /// call, a <c>base.Method()</c> call, or a devirtualization-irrelevant direct instance call — see
+    /// <see cref="LowerInstanceCall"/>), a <c>[KohIntrinsic]</c>-attributed method (Hardware/Gb — see
+    /// <see cref="LowerIntrinsicCall"/>), a call to another static function of this same game module,
+    /// or — out of scope — anything else, reported as a diagnostic rather than silently miscompiled.</summary>
     private void LowerCall(MethodReference calleeRef, List<IrValue> stack)
     {
         if (calleeRef.HasThis)
-            throw new CilNotSupportedException(
-                $"instance call '{calleeRef.FullName}' is not supported (phase 1: static methods only)."
-            );
+        {
+            LowerInstanceCall(calleeRef, stack, isVirtualDispatch: false);
+            return;
+        }
+
+        if (IsLinqEnumerableCall(calleeRef))
+        {
+            LowerLinqCall(calleeRef, stack);
+            return;
+        }
+
+        // System.Environment::get_CurrentManagedThreadId() -> a constant. Not a hardware address (see
+        // CLAUDE.md's no-hardcoded-hardware-addresses rule for this frontend) — a runtime-semantics
+        // substitution for a single-threaded target, so a lowered iterator's GetEnumerator reuse-vs-
+        // fresh-copy thread check becomes ordinary, foldable code (see
+        // CilMethodLowerer.Iterators.cs's remarks). Intercepted by name before Resolve() — the BCL
+        // method's own body (an internal call) is never something this frontend could lower anyway.
+        if (
+            !calleeRef.HasThis
+            && calleeRef.DeclaringType.FullName == "System.Environment"
+            && calleeRef.Name == "get_CurrentManagedThreadId"
+        )
+        {
+            stack.Add(IrBuilder.ConstInt(IrType.I32, 1));
+            return;
+        }
 
         MethodDefinition? def;
         try
@@ -841,13 +1153,13 @@ internal sealed class CilMethodLowerer
         for (var i = argCount - 1; i >= 0; i--)
             args[i] = Pop(stack);
 
-        if (_intrinsics.TryGetValue(def, out var entry))
+        if (_ctx.Intrinsics.TryGetValue(def, out var entry))
         {
             LowerIntrinsicCall(def, entry, args, stack);
             return;
         }
 
-        if (_functionsByMethod.TryGetValue(def, out var callee))
+        if (_ctx.FunctionsByMethod.TryGetValue(def, out var callee))
         {
             // The stack's own widen-narrow-to-i32 discipline (see class remarks) means an argument
             // narrower than i32 arrives here already widened; narrow it back to the callee's declared
@@ -857,7 +1169,16 @@ internal sealed class CilMethodLowerer
                 args[i] = CoerceStore(args[i], callee.Parameters[i].Type);
             var call = _b.Call(callee, args);
             if (callee.ReturnType.Kind != IrTypeKind.Void)
-                stack.Add(WidenToStack(call, IsSignedReturn(def)));
+            {
+                var result = WidenToStack(call, IsSignedReturn(def));
+                // Thread this static call's callee-inferred concrete return type (see
+                // CilLoweringContext.GetConcreteReturnType) onto the pushed result, so a subsequent
+                // callvirt through an interface-typed result (the iterator kickoff's own shape) can
+                // devirtualize — see CilMethodLowerer.Iterators.cs.
+                if (_ctx.GetConcreteReturnType(def) is { } concreteType)
+                    _pendingConcreteType[result] = concreteType;
+                stack.Add(result);
+            }
             return;
         }
 
@@ -920,33 +1241,7 @@ internal sealed class CilMethodLowerer
         }
     }
 
-    private IrGlobal RegisterGlobal(int address)
-    {
-        if (_registerGlobals.TryGetValue(address, out var g))
-            return g;
-        g = new IrGlobal(
-            $"Hardware.0x{address:X4}",
-            IrType.I8,
-            AddressSpace.Default,
-            fixedAddress: address
-        );
-        _module.Globals.Add(g);
-        _registerGlobals[address] = g;
-        return g;
-    }
+    private IrGlobal RegisterGlobal(int address) => _ctx.RegisterGlobal(address);
 
-    private IrGlobal RegionGlobal(int address)
-    {
-        if (_regionGlobals.TryGetValue(address, out var g))
-            return g;
-        g = new IrGlobal(
-            $"Gb.0x{address:X4}",
-            IrType.I8,
-            AddressSpace.Default,
-            fixedAddress: address
-        );
-        _module.Globals.Add(g);
-        _regionGlobals[address] = g;
-        return g;
-    }
+    private IrGlobal RegionGlobal(int address) => _ctx.RegionGlobal(address);
 }
