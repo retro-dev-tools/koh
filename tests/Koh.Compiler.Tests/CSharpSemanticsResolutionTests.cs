@@ -73,9 +73,10 @@ public class CSharpSemanticsResolutionTests
         return gb.Registers.A;
     }
 
-    private static byte RunThenRead(string src, int address)
+    private static byte RunThenRead(string src, int address, Action<GameBoySystem>? args = null)
     {
         var gb = Load(Compile(src), out int s, out int l);
+        args?.Invoke(gb);
         Run(gb, s, l);
         return gb.DebugReadByte((ushort)address);
     }
@@ -473,7 +474,14 @@ public class CSharpSemanticsResolutionTests
             "static void Main() { Hardware.BGP = 0xE4; byte* v = Gb.Vram; *(v + 2) = 0x11; }";
         await Assert.That(LowerDiagnostics(src)).IsEmpty();
         await Assert.That(RunThenRead(src, 0xFF47)).IsEqualTo((byte)0xE4);
-        await Assert.That(RunThenRead(src, 0x8002)).IsEqualTo((byte)0x11);
+        // The VRAM store's correctness (not its hardware-timing safety) is what this test is checking, so
+        // the LCD is turned off before the program runs — real hardware (and this emulator, faithfully)
+        // blocks VRAM writes during PPU mode 3, and boot leaves the LCD on; this program never waits for
+        // a safe window before writing, so whether the write lands is otherwise a coincidence of how many
+        // cycles the compiled code takes, which a compiler optimization can legitimately shift either way.
+        await Assert
+            .That(RunThenRead(src, 0x8002, gb => gb.DebugWriteByte(0xFF40, 0x00)))
+            .IsEqualTo((byte)0x11);
     }
 
     [Test]

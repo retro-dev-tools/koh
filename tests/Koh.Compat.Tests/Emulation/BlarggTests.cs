@@ -5,10 +5,14 @@ using TUnit.Core;
 namespace Koh.Compat.Tests.Emulation;
 
 /// <summary>
-/// Blargg test ROM runner. ROMs report pass/fail via the serial port ($FF02
-/// start-transfer triggers a byte-send that we buffer). The harness runs frames
-/// until the buffer contains "Passed" or "Failed" or the wall-clock deadline
-/// expires. Tests are skipped if the corresponding ROM is missing.
+/// Blargg test ROM runner. Most ROMs report pass/fail via the serial port
+/// ($FF02 start-transfer triggers a byte-send that we buffer); a few builds
+/// (e.g. halt_bug.gb, mem_timing-2) never call the serial-print routine at
+/// all, so <see cref="ScreenText"/> also scans the BG tile maps, where the
+/// shared test shell always renders its "Passed"/"Failed" verdict as plain
+/// ASCII. The harness runs frames until either source contains "Passed" or
+/// "Failed" or the wall-clock deadline expires. Tests are skipped if the
+/// corresponding ROM is missing.
 /// </summary>
 public class BlarggTests
 {
@@ -44,12 +48,19 @@ public class BlarggTests
 
         var rom = await File.ReadAllBytesAsync(romPath);
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        // A handful of Blargg ROMs (e.g. interrupt_time.gb, which measures
+        // CGB double-speed dispatch timing) are CGB-only ($0143 = $C0) and
+        // never even reach their pass/fail check under DMG. Most Blargg ROMs
+        // set only the "CGB-enhanced but DMG-compatible" flag ($80), so key
+        // off CgbOnly specifically rather than CgbFlag — using CgbFlag here
+        // would also flip every already-passing DMG-compatible ROM to CGB.
+        var mode = cart.Header.CgbOnly ? HardwareMode.Cgb : HardwareMode.Dmg;
+        var gb = new GameBoySystem(mode, cart);
 
         for (int frame = 0; frame < maxFrames; frame++)
         {
             gb.RunFrame();
-            string output = gb.Io.Serial.ReadBufferAsString();
+            string output = gb.Io.Serial.ReadBufferAsString() + ScreenText(gb);
             if (output.Contains("Passed", StringComparison.Ordinal))
                 return;
             if (output.Contains("Failed", StringComparison.Ordinal))
@@ -59,15 +70,37 @@ public class BlarggTests
                 for (int drain = 0; drain < 20; drain++)
                     gb.RunFrame();
                 throw new Exception(
-                    $"[Blargg {romRelPath}] Failed: {gb.Io.Serial.ReadBufferAsString().Trim()}"
+                    $"[Blargg {romRelPath}] Failed: {(gb.Io.Serial.ReadBufferAsString() + ScreenText(gb)).Trim()}"
                 );
             }
         }
 
-        string finalOutput = gb.Io.Serial.ReadBufferAsString();
+        string finalOutput = gb.Io.Serial.ReadBufferAsString() + ScreenText(gb);
         throw new TimeoutException(
-            $"Blargg test {romRelPath} did not report pass/fail within {maxFrames} frames. Serial output: '{finalOutput}' (PC=${gb.Registers.Pc:X4})"
+            $"Blargg test {romRelPath} did not report pass/fail within {maxFrames} frames. Output: '{finalOutput}' (PC=${gb.Registers.Pc:X4})"
         );
+    }
+
+    /// <summary>
+    /// Blargg's shared test shell always renders its "Passed"/"Failed" verdict
+    /// as plain ASCII tile indices in both BG tile maps ($9800/$9C00), even on
+    /// ROMs (e.g. halt_bug.gb) whose build never exercises the serial-print
+    /// routine at all — its result vector is a bare RET there, so the serial
+    /// buffer stays empty forever. Scanning the tile maps directly makes
+    /// detection work regardless of which channel a given ROM build uses.
+    /// </summary>
+    private static string ScreenText(GameBoySystem gb)
+    {
+        var sb = new System.Text.StringBuilder(2 * 32 * 32);
+        for (ushort baseAddr = 0x9800; baseAddr < 0xA000; baseAddr += 0x0400)
+        {
+            for (int i = 0; i < 32 * 32; i++)
+            {
+                byte b = gb.DebugReadByte((ushort)(baseAddr + i));
+                sb.Append(b is >= 0x20 and < 0x7F ? (char)b : ' ');
+            }
+        }
+        return sb.ToString();
     }
 
     [Test]
@@ -112,27 +145,14 @@ public class BlarggTests
     [Test]
     public Task MemTiming() => RunBlarggTest("mem_timing/mem_timing.gb");
 
-    // Still failing pending additional per-edge-case timing work; they hang
-    // or fail specific subtests. Skipped by default to keep CI green; opt in
-    // with KOH_RUN_BLARGG_TIMING=1 to investigate.
+    // HALT-bug semantics (§7.4) are implemented in Sm83 and verified here.
     [Test]
-    public Task HaltBug() => SkipOrRun("halt_bug.gb");
+    public Task HaltBug() => RunBlarggTest("halt_bug.gb");
 
     [Test]
-    public Task MemTiming2() => SkipOrRun("mem_timing-2/mem_timing.gb");
+    public Task MemTiming2() => RunBlarggTest("mem_timing-2/mem_timing.gb");
 
+    // CGB-only ROM (header $0143=$C0); RunBlarggTest now runs it in CGB mode.
     [Test]
-    public Task InterruptTime() => SkipOrRun("interrupt_time/interrupt_time.gb");
-
-    private async Task SkipOrRun(string romRelPath)
-    {
-        if (Environment.GetEnvironmentVariable("KOH_RUN_BLARGG_TIMING") is not "1")
-        {
-            Skip.Test(
-                "Requires per-M-cycle memory timing (micro-op scheduler refactor). Set KOH_RUN_BLARGG_TIMING=1 to attempt."
-            );
-            return;
-        }
-        await RunBlarggTest(romRelPath);
-    }
+    public Task InterruptTime() => RunBlarggTest("interrupt_time/interrupt_time.gb");
 }

@@ -30,7 +30,10 @@ namespace Koh.Compiler.Backends.Sm83;
 /// might observe the slot, and a write through a register pointer goes to an address unknown here that
 /// could be an MMIO register (e.g. an OAM-DMA trigger, which asynchronously reads WRAM); an absolute
 /// <c>LD (a16),A</c> is exempt since its address is known — and free of control flow, a modeled side
-/// effect, or a join. Only WRAM <c>[0xC000, 0xE000)</c> — where the backend puts its globals/temps and a
+/// effect, or a join. Pending stores are tracked per address (not a single slot), since a store to one
+/// global commonly interleaves with a store to another (e.g. each static's own zero-init store at program
+/// entry) between two stores to the same slot — an intervening store to a different, known address neither
+/// kills nor is affected by another address's still-pending store. Only WRAM <c>[0xC000, 0xE000)</c> — where the backend puts its globals/temps and a
 /// repeated write is idempotent — is tracked (MMIO/HRAM, VRAM/OAM, cartridge RAM excluded). Those barriers
 /// still cover only <em>synchronous</em> observers, so the rule is additionally gated
 /// (<c>allowDeadStore</c>) on the module having no interrupt handler: an interrupt can fire between the two
@@ -113,11 +116,14 @@ internal static class Sm83Peephole
             region[i] = code[start + i];
         var instrs = MirDecoder.Decode(region).Instructions;
 
-        // Rule 4 (dead store) state: the last `LD (a16),A` seen with a pending, not-yet-observed value —
-        // its address, the absolute offset of its opcode, and its length — or null once a barrier clears it.
-        int? pendingStoreAddr = null;
-        int pendingStoreOffset = 0,
-            pendingStoreLength = 0;
+        // Rule 4 (dead store) state: every `LD (a16),A` seen so far whose value has not yet been observed,
+        // keyed by address — the absolute offset of its opcode and its length — cleared per-address once its
+        // own slot is read, or wholesale once a barrier could touch any address. Keyed by address (not a
+        // single pending slot) because two different globals' stores commonly interleave (e.g. each static's
+        // zero-init store at entry, one per global, ahead of the first store real code makes to either one);
+        // a single-slot tracker would lose the earlier store's pending status the moment a store to a
+        // different address came between it and its own killing store.
+        var pendingStores = new Dictionary<int, (int Offset, int Length)>();
 
         // Rule 5 (redundant reload) state: the WRAM addresses whose value A provably holds right now — after
         // a `LD A,(a16)` or `LD (a16),A` to that slot, until something could change A or the slot. Gated on
@@ -151,13 +157,12 @@ internal static class Sm83Peephole
                 if (
                     allowDeadStore
                     && trackable
-                    && pendingStoreAddr == addr
-                    && !boundaries.Contains(pendingStoreOffset)
+                    && pendingStores.TryGetValue(addr, out var pending)
+                    && !boundaries.Contains(pending.Offset)
                 )
-                    edits.Add(Edit.DeleteRun(pendingStoreOffset, pendingStoreLength));
-                pendingStoreAddr = trackable ? addr : null;
-                pendingStoreOffset = abs;
-                pendingStoreLength = instr.Length;
+                    edits.Add(Edit.DeleteRun(pending.Offset, pending.Length));
+                if (trackable)
+                    pendingStores[addr] = (abs, instr.Length);
                 // The store writes A's value to a known slot without changing A, so A now also mirrors that
                 // slot (existing mirrors stay valid — A and their memory are both unchanged).
                 if (allowDeadStore && trackable)
@@ -187,7 +192,9 @@ internal static class Sm83Peephole
                             aMirrors.Add(addr);
                     }
                 }
-                pendingStoreAddr = null; // a memory read ends any pending dead-store window
+                // A read of this exact known address ends only its own pending dead-store window — a
+                // different address's still-unread pending store is unaffected.
+                pendingStores.Remove(addr);
                 continue;
             }
             // Any memory access ends the window in which a pending store is dead: a read might observe the
@@ -195,7 +202,9 @@ internal static class Sm83Peephole
             // that could be an MMIO register — e.g. an OAM-DMA trigger, which then reads WRAM asynchronously.
             // (An absolute LD (a16),A carries a known address and is handled above, so it is not barred here.)
             // A control transfer, a modeled side effect, or a join (another path could read the slot) also
-            // end the window. What survives between the two stores is therefore memory-access-free.
+            // end the window. Unlike the known-address read above, none of these carries a specific address,
+            // so every pending store must be dropped. What survives between two stores that do get elided is
+            // therefore memory-access-free.
             var effects = instr.Effects;
             if (
                 effects.MemRead
@@ -204,7 +213,7 @@ internal static class Sm83Peephole
                 || effects.SideEffect
                 || boundaries.Contains(abs)
             )
-                pendingStoreAddr = null;
+                pendingStores.Clear();
 
             // A's mirror set is invalidated by anything that could change A or a tracked slot: a write to A,
             // a memory write through an unknown pointer (an absolute LD (a16),A is handled above), or a

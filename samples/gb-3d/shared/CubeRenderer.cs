@@ -22,7 +22,19 @@ static class CubeRenderer
         short cx = FixedMath.Cos((byte)(phase + phase / 2));
         short centerX = (short)(Surface.Width() / 2);
         short centerY = (short)(Surface.Height() / 2);
-        short scale = Surface.Width() > 64 ? (short)112 : (short)(Surface.Width() * 2);
+        // Projection scale, budgeted against the WORST-case vertex, not the average one. The
+        // triangle-wave Sin/Cos satisfy |sin p| + |cos p| = 126 (of 128), so a rotated coordinate
+        // is bounded by 34 * 126 / 128 = 33, and the perspective distance below is rz2 + 150 in
+        // [117, 183]. The worst projected offset is therefore 33 * scale / 117, which must stay
+        // under half the viewport minus a margin. A Width() * 2 scale would only fit the AVERAGE
+        // distance (at racing-beam's 64 px viewport: 33 * 128 / 117 = 36 px > 30, overflowing and
+        // clipping against the edge on near phases). Width() * 3 / 2 (96 at 64 px) bounds the
+        // offset at 33 * 96 / 117 = 27 px <= 64 / 2 - 2 = 30, keeping every phase clear of the
+        // edge — PhaseSweepCheck asserts this across all 256 phases (the byte-width sum is safe:
+        // 64 + 32 = 96 fits a byte). 112 for the larger viewports is already inside its budget
+        // (33 * 112 / 117 = 31 <= 80 / 2 - 2) and stays unchanged.
+        short scale =
+            Surface.Width() > 64 ? (short)112 : (short)(Surface.Width() + Surface.Width() / 2);
 
         for (byte i = 0; i < 8; i++)
         {
@@ -200,11 +212,8 @@ static class CubeRenderer
                 xa = 0;
             if (xb >= Surface.Width())
                 xb = (short)(Surface.Width() - 1);
-            for (short x = xa; x <= xb; x++)
-            {
-                byte shaded = ((x ^ y) & 3) == 0 && color > 1 ? (byte)(color - 1) : color;
-                Surface.SetPixel((byte)x, (byte)y, shaded);
-            }
+            if (xa <= xb)
+                Surface.FillSpan((byte)y, (byte)xa, (byte)xb, color);
         }
     }
 

@@ -38,6 +38,19 @@ public sealed class Mmu
     {
         _cart = cart;
         Io = io;
+
+        // Real hardware powers on with unpredictable (not zeroed) RAM
+        // contents. A zero-filled emulator masks real bugs — e.g. a compiled
+        // ROM that reads an uninitialized WRAM static and happens to see 0
+        // here but garbage on real hardware/mGBA. Poison every RAM array with
+        // a fixed, deterministic non-zero pattern instead, so a read-before-
+        // write shows up here too. $FF is the simplest defensible choice
+        // (matches mGBA/SameBoy's undefined-RAM convention) and keeps tests
+        // reproducible (no RNG).
+        Array.Fill(_vram, (byte)0xFF);
+        Array.Fill(_wram, (byte)0xFF);
+        Array.Fill(_oam, (byte)0xFF);
+        Array.Fill(_hram, (byte)0xFF);
     }
 
     public void AttachOamDma(OamDma oamDma) => _oamDma = oamDma;

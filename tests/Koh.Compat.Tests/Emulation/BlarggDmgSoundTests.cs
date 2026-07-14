@@ -30,14 +30,6 @@ public class BlarggDmgSoundTests
 
     private static async Task Run(string rel, int maxFrames = 60_000)
     {
-        if (Environment.GetEnvironmentVariable("KOH_RUN_BLARGG_DMG_SOUND") is not "1")
-        {
-            Skip.Test(
-                "dmg_sound requires APU quirks (length-on-power, wave-trigger-corruption, sweep-reload) not yet implemented. Set KOH_RUN_BLARGG_DMG_SOUND=1 to attempt."
-            );
-            return;
-        }
-
         var romPath = RomPath(rel);
         if (!File.Exists(romPath))
         {
@@ -80,6 +72,20 @@ public class BlarggDmgSoundTests
         );
     }
 
+    /// <summary>
+    /// Gate for the ROMs that still fail on documented, narrow gaps (see each
+    /// call site). Set KOH_RUN_BLARGG_DMG_SOUND=1 to attempt them anyway.
+    /// </summary>
+    private static async Task RunGated(string rel, string reason)
+    {
+        if (Environment.GetEnvironmentVariable("KOH_RUN_BLARGG_DMG_SOUND") is not "1")
+        {
+            Skip.Test($"{rel}: {reason} Set KOH_RUN_BLARGG_DMG_SOUND=1 to attempt.");
+            return;
+        }
+        await Run(rel);
+    }
+
     [Test]
     public Task S01_Registers() => Run("01-registers.gb");
 
@@ -99,20 +105,81 @@ public class BlarggDmgSoundTests
     public Task S06_OverflowOnTrigger() => Run("06-overflow on trigger.gb");
 
     [Test]
-    public Task S07_LenSweepPeriodSync() => Run("07-len sweep period sync.gb");
+    public Task S07_LenSweepPeriodSync() =>
+        RunGated(
+            "07-len sweep period sync.gb",
+            "subtests 1-4 and subtest 5's first case (test_power: power-on retrigger, no prior "
+                + "power-off) pass. The gate is subtest 5's SECOND case (test_power_off: power off "
+                + "then on before the same retrigger) -- traced both cases cycle-by-cycle via NR14/"
+                + "NR52/length-clock instrumentation. Two candidate mechanisms were checked and "
+                + "RULED OUT: (1) DIV-APU frame-sequencer phase divergence -- bit-identical between "
+                + "the two cases (both start the post-trigger wait from Length.Counter=1, "
+                + "Length.Enabled newly true, with the length-enable \"extra clock\" quirk NOT "
+                + "firing in either case because Counter reads 0 at the moment each case's initial "
+                + "NR14,$40 write lands). (2) The real, SameBoy-sourced \"APU glitch: powering on "
+                + "while the DIV-APU tap bit is already high skips the next DIV-APU tick\" "
+                + "(implemented here: Timer.DivApuBitHigh + FrameSequencer.SkipNext, wired in "
+                + "GameBoySystem) -- traced and confirmed the DIV-APU bit reads LOW at this ROM's "
+                + "test_power_off power-on instant, so the glitch never arms for this case; "
+                + "verified it changes nothing here (same fail code/PC before and after) though it "
+                + "is now correctly modeled for ROMs/games that do hit it. What remains "
+                + "unexplained: both cases measure the SAME trigger-to-disable interval in this "
+                + "emulator (~16159 T-cycles for the passing case, ~16139 for the failing one -- "
+                + "both consistent with \"wait for the next natural 256 Hz length clock, no "
+                + "immediate-disable\"), but the ROM's own timing budgets (test_timing's DE preload: "
+                + "-$16F for the passing case vs. -$B5 for the failing one -- an ~2:1 ratio in "
+                + "identical-cost polling-loop iterations) imply real hardware disables roughly "
+                + "TWICE as fast for the failing case as for the passing one. That asymmetry is not "
+                + "reproduced here and its cause is unconfirmed; it needs a reference cycle trace "
+                + "from real hardware or a known-accurate emulator to pin down, not further "
+                + "DIV-APU-phase tuning (already shown identical between the two cases)."
+        );
 
     [Test]
     public Task S08_LenCtrDuringPower() => Run("08-len ctr during power.gb");
 
     [Test]
-    public Task S09_WaveReadWhileOn() => Run("09-wave read while on.gb");
+    public Task S09_WaveReadWhileOn() =>
+        RunGated(
+            "09-wave read while on.gb",
+            "WaveChannel's JustRead pulse had a genuine bug (fixed): it was 4 T-cycles wide, so "
+                + "for any period <= 4 T-cycles -- exactly what this ROM's phase sweep uses via "
+                + "NR33/NR34 -- the pulse never closed and FF30-FF3F reads never saw the $FF the "
+                + "ROM checks for. Narrowed to a true 1-T-cycle pulse (matches Pan Docs 'wave RAM "
+                + "can only be accessed on the same cycle CH3 does' and SameBoy's "
+                + "wave_form_just_read, which is true only when a fetch lands on the exact T-cycle "
+                + "the CPU's own access commits). Verified via the ROM's own on-screen CRC32 "
+                + "readout (it prints the computed CRC on mismatch) that the reachable outcome "
+                + "space is small and structurally bounded: steady state settles at period=4, so "
+                + "every read's hit/miss is fixed by one of only 2 T-cycle-residue classes, and "
+                + "sweeping window width/delay across that space (plus a SameBoy/SameSuite-"
+                + "documented 'trigger's first period is +3 T-cycles longer' hypothesis, which was "
+                + "tried and reverted -- it regressed WaveChannel_Trigger_Delays_Playback_By_One_"
+                + "Sample and my reconstruction of the SameSuite timing math didn't cleanly confirm "
+                + "+3 either) never reaches the ROM's expected CRC ($118A3620 DMG). The remaining "
+                + "gap needs a real hardware or reference-emulator cycle trace to pin the bit-exact "
+                + "CPU-vs-APU phase; it is not reachable by further tuning WaveChannel in isolation."
+        );
 
     [Test]
-    public Task S10_WaveTriggerWhileOn() => Run("10-wave trigger while on.gb");
+    public Task S10_WaveTriggerWhileOn() =>
+        RunGated(
+            "10-wave trigger while on.gb",
+            "same root cause as 09/12: the corruption logic matches Pan Docs byte-for-byte, and "
+                + "the JustRead window-width bug fixed for 09 applies here too, but the same "
+                + "structurally-bounded phase search (see 09's comment) doesn't reach this ROM's "
+                + "expected CRC ($533D6D4D DMG)."
+        );
 
     [Test]
     public Task S11_RegsAfterPower() => Run("11-regs after power.gb");
 
     [Test]
-    public Task S12_WaveWriteWhileOn() => Run("12-wave write while on.gb");
+    public Task S12_WaveWriteWhileOn() =>
+        RunGated(
+            "12-wave write while on.gb",
+            "same root cause as 09/10: writes land at a fully systematic, self-consistent "
+                + "position (same window fix applies), but the same structurally-bounded phase "
+                + "search (see 09's comment) doesn't reach this ROM's expected CRC."
+        );
 }

@@ -742,6 +742,26 @@ static byte Sum(byte n) {
     }
 
     [Test]
+    public async Task Array_BareNew_IsZeroed_EvenWhenWramStartsPoisoned()
+    {
+        // `byte[] a = new byte[n];` with no initializer list must still default every element to 0
+        // per C# semantics. Locals are static WRAM allocations (NESFab-style), so explicitly poison
+        // the WRAM region before running to prove the alloca site itself zero-fills the array rather
+        // than relying on the managed test harness's byte[]-backed RAM happening to start zeroed.
+        const string src =
+            @"
+static byte Get() {
+    byte[] a = new byte[8];
+    return a[3];
+}";
+        var gb = Load(Compile(src), out int s, out int l);
+        for (int i = 0; i < 32; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + i), 0xFF);
+        Run(gb, s, l);
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)0);
+    }
+
+    [Test]
     public async Task Array_Initializer()
     {
         const string src =
@@ -1509,6 +1529,80 @@ static ushort Run() {
             + "static byte[] grid = new byte[Cells]; "
             + "static byte Main() { grid[15] = 9; return (byte)(grid[15] + Cells); } }";
         await Assert.That(RunA(src)).IsEqualTo((byte)25); // 9 + 16
+    }
+
+    [Test]
+    public async Task StaticField_NoInitializer_IsZeroedAtEntry_EvenWhenWramStartsPoisoned()
+    {
+        // C# guarantees a static field with no initializer defaults to zero. The managed test-harness
+        // emulator's byte[]-backed RAM happens to start zeroed regardless, so this would pass by accident
+        // without an explicit zero-store; poison WRAM before running to prove the entry prologue itself
+        // zeroes the field, matching real hardware / mGBA, which do NOT guarantee zeroed WRAM at boot.
+        const string src = "static byte flag; static byte Main() { return flag; }";
+        var gb = Load(Compile(src), out int s, out int l);
+        for (int i = 0; i < 16; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + i), 0xFF);
+        Run(gb, s, l);
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task StaticField_NoInitializer_IsZeroedAtEntry_Optimized()
+    {
+        var gb = Load(
+            CompileOpt("static byte flag; static byte Main() { return flag; }"),
+            out int s,
+            out int l
+        );
+        for (int i = 0; i < 16; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + i), 0xFF);
+        Run(gb, s, l);
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task StaticArray_NoInitializer_IsZeroedAtEntry_EvenWhenWramStartsPoisoned()
+    {
+        // `static byte[] buf = new byte[n];` (no element list) is a mutable WRAM zero buffer per
+        // CollectStaticArray's contract. Like the scalar case above, this only holds at real-hardware/
+        // mGBA boot if the entry prologue actually zero-fills it; poison WRAM first to prove that.
+        const string src = "static byte[] buf = new byte[4]; static byte Main() { return buf[2]; }";
+        var gb = Load(Compile(src), out int s, out int l);
+        for (int i = 0; i < 16; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + i), 0xFF);
+        Run(gb, s, l);
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task StaticArray_NoInitializer_IsZeroedAtEntry_Optimized()
+    {
+        var gb = Load(
+            CompileOpt("static byte[] buf = new byte[4]; static byte Main() { return buf[2]; }"),
+            out int s,
+            out int l
+        );
+        for (int i = 0; i < 16; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + i), 0xFF);
+        Run(gb, s, l);
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)0);
+    }
+
+    [Test]
+    public async Task StaticField_ZeroInit_RunsOnceAtBoot_NotOnEveryRecursiveReEntry()
+    {
+        // Regression: zero-initializing a no-initializer static field as an ordinary store in the entry
+        // function's own IR body ran on every recursive re-entry (Main calling Main re-enters the very
+        // same compiled body), resetting the field on each call instead of only at true boot — breaking a
+        // counter-driven recursive entry like this one (it never reached n==5). The fix moved the
+        // zero-init to the backend's boot-only stub, which a recursive CALL to FunctionLabel cannot reach.
+        const string src =
+            "static byte n;\n" + "static byte Main() { n++; if (n < 5) return Main(); return n; }";
+        var gb = Load(Compile(src), out int s, out int l);
+        for (int i = 0; i < 16; i++)
+            gb.DebugWriteByte((ushort)(Sm83Backend.WramBase + i), 0xFF);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte((ushort)Sm83Backend.ReturnScratch)).IsEqualTo((byte)5);
     }
 
     [Test]

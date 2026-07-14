@@ -7,7 +7,9 @@
 //   2. every non-background pixel falls inside one bounding box, comfortably clear of the screen edge
 //      (a centered cube, not full-screen noise) and of a plausible size (not a few stray pixels, not
 //      the whole screen);
-//   3. everything outside that bounding box is uniform background (the "one bounded region" property);
+//   3. the non-background pixels form exactly one 8-connected region (a solid cube silhouette, not
+//      stray/garbage pixels scattered outside it — the bounding box alone can't catch this, since it is
+//      by construction the bbox of every non-background pixel, so nothing can ever fall outside it);
 //   4. a frame sampled later differs from the first (the cube is actually animating, not frozen).
 internal static class CubeFrameChecks
 {
@@ -80,11 +82,11 @@ internal static class CubeFrameChecks
                 $"lit bounding-box area {area}px^2 covers too much of the screen (> {maxArea}px^2 of {width * height}px^2)"
             );
 
-        var stray = FindPixelOutsideBox(first, width, height, background, minX, minY, maxX, maxY);
-        if (stray is { } p)
+        var regions = CountNonBackgroundRegions(first, width, height, background);
+        if (regions != 1)
             failures.Add(
-                $"non-background pixel at ({p.x},{p.y}) lies outside the cube's bounding box "
-                    + $"[{minX},{minY}]-[{maxX},{maxY}]: border is not uniform background"
+                $"non-background pixels form {regions} disjoint 8-connected region(s), expected exactly "
+                    + "1 (a solid cube silhouette): stray or garbage pixels are present outside the cube"
             );
 
         if (first.AsSpan().SequenceEqual(second))
@@ -93,26 +95,50 @@ internal static class CubeFrameChecks
         return failures;
     }
 
-    private static (int x, int y)? FindPixelOutsideBox(
-        byte[] rgb,
-        int width,
-        int height,
-        int background,
-        int minX,
-        int minY,
-        int maxX,
-        int maxY
-    )
+    /// <summary>Counts connected components (8-connectivity, so triangles/wireframe touching only at a
+    /// corner still count as one region) among the non-background pixels. A real rendered cube — filled
+    /// triangles plus the wireframe edges that border them — is always a single solid blob; any stray or
+    /// garbage pixel elsewhere on screen shows up as an extra, disconnected region.</summary>
+    private static int CountNonBackgroundRegions(byte[] rgb, int width, int height, int background)
     {
-        for (var y = 0; y < height; y++)
-        for (var x = 0; x < width; x++)
+        var visited = new bool[width * height];
+        var stack = new Stack<int>();
+        var count = 0;
+        for (var start = 0; start < width * height; start++)
         {
-            if (x >= minX && x <= maxX && y >= minY && y <= maxY)
+            if (visited[start])
                 continue;
-            if (PixelAt(rgb, width, x, y) != background)
-                return (x, y);
+            var sx = start % width;
+            var sy = start / width;
+            if (PixelAt(rgb, width, sx, sy) == background)
+                continue;
+
+            count++;
+            visited[start] = true;
+            stack.Push(start);
+            while (stack.Count > 0)
+            {
+                var idx = stack.Pop();
+                var x = idx % width;
+                var y = idx / width;
+                for (var dy = -1; dy <= 1; dy++)
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0)
+                        continue;
+                    var nx = x + dx;
+                    var ny = y + dy;
+                    if (nx < 0 || nx >= width || ny < 0 || ny >= height)
+                        continue;
+                    var nIdx = ny * width + nx;
+                    if (visited[nIdx] || PixelAt(rgb, width, nx, ny) == background)
+                        continue;
+                    visited[nIdx] = true;
+                    stack.Push(nIdx);
+                }
+            }
         }
-        return null;
+        return count;
     }
 
     private static int PixelAt(byte[] rgb, int width, int x, int y)

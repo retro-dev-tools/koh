@@ -74,9 +74,9 @@ public class Cube3dTests
 
     /// <summary>Boot a compiled ROM and run it for a bounded number of hardware frames, returning the RGB
     /// framebuffer at the end (mirrors samples/gb-3d/verify/Cube3dVerify's capture, simplified).</summary>
-    private static byte[] Boot(byte[] rom, int frames)
+    private static byte[] Boot(byte[] rom, int frames, HardwareMode mode = HardwareMode.Dmg)
     {
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(mode, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100; // boot: NOP; JP entry
         gb.Registers.Sp = 0xFFFE;
         for (var i = 0; i < frames; i++)
@@ -153,14 +153,24 @@ public class Cube3dTests
     // ---- Running the real demo renders an actual, non-trivial cube -----------------------------------
 
     [Test]
-    [Arguments("double-buffered")]
-    [Arguments("full-frame")]
-    public async Task Demo_RunOnHardwareRendersARealCube(string variant)
+    [Arguments("double-buffered", 200, HardwareMode.Cgb)]
+    [Arguments("full-frame", 250, HardwareMode.Dmg)]
+    public async Task Demo_RunOnHardwareRendersARealCube(
+        string variant,
+        int frames,
+        HardwareMode mode
+    )
     {
-        // The software rasterizer is slow relative to hardware vblank: from a cold boot, the first full
-        // render+present pass (tileset setup plus one whole-cube transform/sort/rasterize) does not land
-        // until frame ~200 for either demo, measured directly. The budget below leaves clear margin.
-        var rgb = Boot(Compile(ReadDemo(variant)), frames: 300);
+        // The software rasterizer is slow relative to hardware vblank. Frame-by-frame framebuffer
+        // diffing against the real built ROMs (samples/gb-3d/verify/Program.cs's technique) measured:
+        // double-buffered/CGB's first content lands at ~frame 63 (Surface.Present() moves the whole
+        // page with one general-purpose DMA inside a single vblank and flips via LCDC.4), with a
+        // steady-state render+present cadence of 19-47 frames — 200 frames clears boot plus more than
+        // two full cycles. full-frame/DMG's first content lands at ~frame 17, with a cadence of 59-114
+        // frames (one Lcd-off Mem.Copy(3840) present plus render) — 250 frames clears boot plus more
+        // than one full cycle. Both ROMs' DMG (double-buffered) or CGB (full-frame) counterpart, and
+        // racing-beam in both modes, are covered by samples/gb-3d/verify, not re-run here.
+        var rgb = Boot(Compile(ReadDemo(variant)), frames, mode);
         var (distinctShades, litPixels) = Analyze(rgb);
 
         await Assert.That(distinctShades).IsGreaterThanOrEqualTo(2); // dithered cube faces

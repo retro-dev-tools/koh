@@ -144,7 +144,10 @@ buffers), the `Gb.*` memory regions (`Gb.Vram`/`Gb.TileMap`/… as constant base
 (heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`; a class
 type also names fields — including of its own type, so linked structures work — parameters, and returns,
 all as heap pointers; an instance is usable as a value/`byte*` (`return this;`), and assignment copies the
-reference, not the bytes); dynamic allocation (`Mem.Alloc`/`Mem.Reset`); generic methods (monomorphized —
+reference, not the bytes); dynamic allocation (`Mem.Alloc`/`Mem.Reset`/`Mem.Copy`/`Mem.Fill` — the latter
+two are ordinary compiled Koh C# themselves, appended from `MemRuntime.cs` the same way the softfloat
+runtime is, not hand-written assembly; forward copy, overlap defined only when destination < source,
+count==0 a no-op, NOT vblank-aware — caller's responsibility like `Cgb.CopyToVram`); generic methods (monomorphized —
 specialized per concrete type argument, transitively; a value shadowing a type parameter is a diagnostic);
 array LINQ reductions (`Where`/`Select` pipelines ending in `Sum`/`Count`/`Any`/`All`, plus `Max`/`Min`
 directly on an array, compiled to a loop with inlined lambdas); cooperative coroutines (a linear run of

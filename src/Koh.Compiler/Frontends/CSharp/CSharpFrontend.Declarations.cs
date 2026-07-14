@@ -201,6 +201,12 @@ public sealed partial class CSharpFrontend
                     module.Globals.Add(g);
                     globals[name] = (g, type);
                     semantics.RegisterGlobal(v, g, type);
+                    // No-initializer fields default to zero via the backend's unconditional, boot-only
+                    // WRAM-globals clear (Sm83Backend's pre-FunctionLabel boot stub), not a per-field store
+                    // here: a store in the entry function's own IR body re-runs on every recursive
+                    // re-entry (Main calling Main), which would reset the field on every call instead of
+                    // only at true boot. Only an explicit initializer needs a store, since only it carries
+                    // a value the backend-level zero-clear doesn't already produce.
                     if (v.Initializer is { } init)
                         inits.Add(
                             (

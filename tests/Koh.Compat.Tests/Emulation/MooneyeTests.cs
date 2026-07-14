@@ -46,14 +46,7 @@ public class MooneyeTests
     private static readonly HashSet<string> KnownTimingFailures = new(
         StringComparer.OrdinalIgnoreCase
     )
-    {
-        "acceptance/bits/unused_hwio-GS.gb",
-        "acceptance/oam_dma/sources-GS.gb",
-        "acceptance/interrupts/ie_push.gb",
-        "acceptance/timer/tima_write_reloading.gb",
-        "acceptance/timer/tma_write_reloading.gb",
-        "acceptance/timer/rapid_toggle.gb",
-    };
+    { };
 
     private static async Task RunMooneyeTest(string relPath, int maxFrames = 4_000)
     {
