@@ -247,6 +247,55 @@ public class Sm83LoopCodegenTests
     }
 
     [Test]
+    public async Task InductionValueSavedBeforeIncrement_UsedAfterIt()
+    {
+        // Regression: the saved pre-increment copy of the induction value is consumed AFTER the
+        // back-edge increment. Naive phi/binary register coalescing reads the incremented value here
+        // (the store lands 10, not 9) - admission must decline any candidate whose phi has a use past
+        // its back-edge binary (see PhiIsUsedAfterBackEdgeBinary).
+        const string src = """
+            public static class Program {
+                public static void Main() {
+                    byte i = 0;
+                    while (i < 10) {
+                        byte old = i;
+                        i = (byte)(i + 1);
+                        *(byte*)0xC100 = old;
+                    }
+                }
+            }
+            """;
+        var gb = Load(src, "saveold1.cs", out int start);
+        Run(gb, start);
+        await Assert.That(ReadByte(gb, 0xC100)).IsEqualTo((byte)9);
+    }
+
+    [Test]
+    public async Task InductionValueSavedBeforeIncrement_ReadAfterLoopExit()
+    {
+        // Same hazard through the loop-exit edge: the saved pre-increment value flows out of the loop
+        // (a phi/live-out use past the back-edge binary) and is only read after it - the final read
+        // must see 9, not the incremented 10 left in a coalesced register.
+        const string src = """
+            public static class Program {
+                public static void Main() {
+                    byte i = 0;
+                    byte last = 0;
+                    while (i < 10) {
+                        byte old = i;
+                        i = (byte)(i + 1);
+                        last = old;
+                    }
+                    *(byte*)0xC101 = last;
+                }
+            }
+            """;
+        var gb = Load(src, "saveold2.cs", out int start);
+        Run(gb, start);
+        await Assert.That(ReadByte(gb, 0xC101)).IsEqualTo((byte)9);
+    }
+
+    [Test]
     public async Task PointerCopyLoop_RegressionSafe()
     {
         // Layer 2's shape (a dynamic byte* induction pointer), not yet residency-optimized by layer 1 -

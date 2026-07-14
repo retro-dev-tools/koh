@@ -131,11 +131,15 @@ internal sealed class FunctionAllocation
         // iteration, whereas losing a Layer 1 byte candidate (below) merely falls back to one WRAM
         // reload/store per iteration — the cheaper miss. Layer 1's own conflict check is bitwise (see
         // below), so it correctly steps around whatever bytes Layer 2 claims.
+        // Both loop layers honor the same allowResidency gate as SelectResidents: an interrupt
+        // handler's prologue/epilogue and a recursive function's frame save/restore path have register
+        // constraints the residency model does not reason about (see Sm83Backend's gate computation).
         var preheaderSync = new Dictionary<IrBasicBlock, List<LoopInductionSync>>(Eq);
         var (ptrRegister, ptrHomeSync, fusedSite) = SelectLoopPointerResidents(
             fn,
             register,
-            staticSet
+            staticSet,
+            allowResidency
         );
         foreach (var (value, reg) in ptrRegister)
         {
@@ -147,7 +151,11 @@ internal sealed class FunctionAllocation
         // its back-edge-defining gentle binary share one CPU register for the loop's duration. Unlike the
         // mechanism above, the *phi* keeps its WRAM slot (dual placement — see the region's header comment
         // for why); only the defining binary loses its slot.
-        var (loopRegister, loopPreheaderSync) = SelectLoopInductionResidents(fn, register);
+        var (loopRegister, loopPreheaderSync) = SelectLoopInductionResidents(
+            fn,
+            register,
+            allowResidency
+        );
         foreach (var (value, reg) in loopRegister)
         {
             register[value] = reg;
@@ -578,6 +586,42 @@ internal sealed class FunctionAllocation
         return true;
     }
 
+    /// <summary>Whether any use of <paramref name="phi"/> can execute after <paramref name="bodyValue"/>
+    /// (the back-edge binary that overwrites their shared register) within an iteration: an operand use
+    /// later in the tail block, liveness out of the tail (a use on a loop-exit path leaving the tail,
+    /// which runs after the binary), or another phi consuming this phi along the tail's back edge. At
+    /// all such points the register already holds the incremented value, so Layer 1 must decline.</summary>
+    private static bool PhiIsUsedAfterBackEdgeBinary(
+        IrFunction fn,
+        IrLiveness liveness,
+        PhiInstruction phi,
+        IrBasicBlock tail,
+        BinaryInstruction bodyValue
+    )
+    {
+        bool pastBinary = false;
+        foreach (var instr in tail.Instructions)
+        {
+            if (pastBinary && instr.Operands.Any(o => ReferenceEquals(o, phi)))
+                return true;
+            if (ReferenceEquals(instr, bodyValue))
+                pastBinary = true;
+        }
+        if (liveness.LiveOut(tail).Contains(phi))
+            return true;
+        foreach (var block in fn.Blocks)
+        foreach (var instr in block.Instructions)
+            if (
+                instr is PhiInstruction other
+                && !ReferenceEquals(other, phi)
+                && other.Incomings.Any(i =>
+                    ReferenceEquals(i.Block, tail) && ReferenceEquals(i.Value, phi)
+                )
+            )
+                return true;
+        return false;
+    }
+
     /// <summary>Select Layer-1 loop-induction residency candidates: see the region header comment for
     /// the full design. Returns the extra register assignments (folded into the caller's <c>register</c>
     /// dictionary — the phi dual-placed, its body value register-only) and the per-preheader init loads
@@ -585,11 +629,15 @@ internal sealed class FunctionAllocation
     private static (
         Dictionary<IrValue, Sm83Register> Register,
         Dictionary<IrBasicBlock, List<LoopInductionSync>> PreheaderSync
-    ) SelectLoopInductionResidents(IrFunction fn, Dictionary<IrValue, Sm83Register> assigned)
+    ) SelectLoopInductionResidents(
+        IrFunction fn,
+        Dictionary<IrValue, Sm83Register> assigned,
+        bool allowResidency
+    )
     {
         var register = new Dictionary<IrValue, Sm83Register>(Eq);
         var preheaderSync = new Dictionary<IrBasicBlock, List<LoopInductionSync>>(Eq);
-        if (fn.EntryBlock is null || fn.Blocks.Count < 2)
+        if (!allowResidency || fn.EntryBlock is null || fn.Blocks.Count < 2)
             return (register, preheaderSync);
 
         var dom = new Dominators(fn);
@@ -602,9 +650,25 @@ internal sealed class FunctionAllocation
                 continue;
             if (assigned.ContainsKey(phi) || register.ContainsKey(phi))
                 continue;
-            if (!TryFindLoopShape(dom, header, phi, out _, out var bodyValue, out var preheader))
+            if (
+                !TryFindLoopShape(
+                    dom,
+                    header,
+                    phi,
+                    out var tail,
+                    out var bodyValue,
+                    out var preheader
+                )
+            )
                 continue;
             if (assigned.ContainsKey(bodyValue) || register.ContainsKey(bodyValue))
+                continue;
+
+            // The phi and its back-edge binary share one physical register (below), so the binary's
+            // write redefines the phi's runtime value mid-iteration: any use of the phi at a program
+            // point that executes after the binary would silently read the incremented value instead
+            // of the iteration's own — a miscompile, not a missed optimization. Reject the candidate.
+            if (PhiIsUsedAfterBackEdgeBinary(fn, liveness, phi, tail, bodyValue))
                 continue;
 
             var liveBlocks = LiveBlocksOf(fn, liveness, phi, bodyValue);
@@ -829,6 +893,26 @@ internal sealed class FunctionAllocation
         if (stepUses != 1 || foundStoreback is null)
             return false;
 
+        // reload -> deref -> storeback must sit in ONE block, in that order. Today that always holds —
+        // RedundantLoadEliminationPass forwards loads strictly intra-block, so a deref in another block
+        // can never share this reload — but the fused deref post-increments the register at every deref
+        // *execution*, so if load forwarding ever became cross-block (e.g. dominance-based), a deref in
+        // an inner loop would step the pointer once per inner iteration. Check locally rather than
+        // trusting that non-local invariant forever. (The step gep's position is immaterial: it emits
+        // nothing, and its only consumer is the storeback, ordered here.)
+        int roundTripOrder = 0;
+        foreach (var instr in reload.Parent!.Instructions)
+        {
+            if (ReferenceEquals(instr, reload) && roundTripOrder == 0)
+                roundTripOrder = 1;
+            else if (ReferenceEquals(instr, derefInstr) && roundTripOrder == 1)
+                roundTripOrder = 2;
+            else if (ReferenceEquals(instr, foundStoreback) && roundTripOrder == 2)
+                roundTripOrder = 3;
+        }
+        if (roundTripOrder != 3)
+            return false;
+
         step = stepGep;
         deref = derefInstr;
         isLoad = foundIsLoad;
@@ -871,7 +955,8 @@ internal sealed class FunctionAllocation
     ) SelectLoopPointerResidents(
         IrFunction fn,
         Dictionary<IrValue, Sm83Register> assigned,
-        HashSet<IrValue> staticSet
+        HashSet<IrValue> staticSet,
+        bool allowResidency
     )
     {
         var register = new Dictionary<IrValue, Sm83Register>(Eq);
@@ -879,7 +964,7 @@ internal sealed class FunctionAllocation
         var fusedSite = new Dictionary<IrInstruction, Sm83Register>(
             ReferenceEqualityComparer.Instance
         );
-        if (fn.EntryBlock is null || fn.Blocks.Count < 2)
+        if (!allowResidency || fn.EntryBlock is null || fn.Blocks.Count < 2)
             return (register, preheaderSync, fusedSite);
 
         var dom = new Dominators(fn);
