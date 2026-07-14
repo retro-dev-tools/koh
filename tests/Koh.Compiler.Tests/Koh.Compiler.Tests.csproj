@@ -15,6 +15,10 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+    <!-- The compiler itself no longer references Roslyn (CSharpFrontend was deleted; CilFrontend reads
+         compiled assemblies via Mono.Cecil). Tests still need it to compile C# source fixtures to real
+         assemblies on disk for CilFrontend to lower (see e.g. CilLoweringTests.CompileToAssembly). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" ExcludeAssets="analyzers" />
   </ItemGroup>
 
 </Project>

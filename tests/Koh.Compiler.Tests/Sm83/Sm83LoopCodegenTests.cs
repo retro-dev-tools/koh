@@ -1,12 +1,15 @@
+using System.Collections.Immutable;
 using Koh.Compiler.Backends.Sm83;
-using Koh.Compiler.Frontends.CSharp;
+using Koh.Compiler.Frontends;
+using Koh.Compiler.Frontends.Cil;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Diagnostics;
-using Koh.Core.Text;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
 using Koh.Linker.Core;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Compiler.Tests.Sm83;
@@ -14,20 +17,75 @@ namespace Koh.Compiler.Tests.Sm83;
 /// <summary>
 /// SM83 backend loop-codegen perf/correctness suite (emulator-accuracy-stabilization Package A, layers
 /// 1-3: loop-carried induction/pointer register residency). Mirrors the harness pattern in
-/// <c>Samples.Cube3dTests</c>/<c>MemRuntimeTests</c>: real Koh C# frontend -&gt; IR (optimized, matching
-/// <c>CompilerDriver</c>'s default path) -&gt; SM83 backend -&gt; linker -&gt; <see cref="GameBoySystem"/>,
-/// reading results back out of WRAM and measuring T-cycles ("dots") via <see cref="TickCounter"/> - the
-/// repo's first codegen perf-regression harness.
+/// <c>Samples.Cube3dTests</c>/<c>MemRuntimeTests</c>: real C# compiled by Roslyn to a real assembly -&gt;
+/// <see cref="CilFrontend"/> -&gt; IR (optimized, matching <c>CompilerDriver</c>'s default path) -&gt; SM83
+/// backend -&gt; linker -&gt; <see cref="GameBoySystem"/>, reading results back out of WRAM and measuring
+/// T-cycles ("dots") via <see cref="TickCounter"/> - the repo's first codegen perf-regression harness.
 /// </summary>
 public class Sm83LoopCodegenTests
 {
-    // ---- Harness --------------------------------------------------------------------------------
+    // ---- Harness: real C# compiled by Roslyn to a real assembly, lowered by CilFrontend -----------
+
+    private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>
+    {
+        var builder = ImmutableArray.CreateBuilder<MetadataReference>();
+        if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
+        {
+            foreach (
+                var path in tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            )
+            {
+                try
+                {
+                    builder.Add(MetadataReference.CreateFromFile(path));
+                }
+                catch (IOException) { }
+                catch (BadImageFormatException) { }
+            }
+        }
+        return builder.ToImmutable();
+    });
+
+    private static readonly string ScratchDir = Path.Combine(
+        Path.GetTempPath(),
+        "koh-sm83-loop-codegen-tests"
+    );
+
+    private static string CompileToAssembly(string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var compilation = CSharpCompilation.Create(
+            "Sm83LoopAsm_" + Guid.NewGuid().ToString("N"),
+            [tree],
+            References.Value,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                // Release IL, not the default Debug: this is a codegen perf-ceiling harness measuring
+                // T-cycles, and Debug IL's redundant local stores/un-folded constants would inflate every
+                // measurement far past what a real ROM build (which also compiles Release) ever sees.
+                optimizationLevel: OptimizationLevel.Release,
+                nullableContextOptions: NullableContextOptions.Disable,
+                allowUnsafe: true
+            )
+        );
+        Directory.CreateDirectory(ScratchDir);
+        var path = Path.Combine(ScratchDir, $"sm83loop_{Guid.NewGuid():N}.dll");
+        var emitResult = compilation.Emit(path);
+        if (!emitResult.Success)
+            throw new InvalidOperationException(
+                "Roslyn compile failed:\n"
+                    + string.Join("\n", emitResult.Diagnostics.Select(d => d.ToString()))
+            );
+        return path;
+    }
 
     private static IrModule Frontend(string src, string file)
     {
+        var assemblyPath = CompileToAssembly(src);
+        var input = CompilerInput.FromAssembly(assemblyPath, []);
         var diagnostics = new DiagnosticBag();
-        var module = new CSharpFrontend().Lower(SourceText.From(src, file), diagnostics);
-        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        var module = new CilFrontend().Lower(input, diagnostics);
+        if (diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))
             throw new InvalidOperationException(
                 string.Join("; ", diagnostics.Select(d => d.Message))
             );
@@ -113,7 +171,7 @@ public class Sm83LoopCodegenTests
         // does one gentle add and one store through a *constant* address (no dynamic gep - that is
         // layer 2's pointer-residency shape).
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     for (byte i = 0; i < 100; i++) {
                         *(byte*)0xC100 = i;
@@ -133,7 +191,7 @@ public class Sm83LoopCodegenTests
     public async Task CountedConstAddrStoreLoop_MeetsCeiling()
     {
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     for (byte i = 0; i < 100; i++) {
                         *(byte*)0xC100 = i;
@@ -157,7 +215,7 @@ public class Sm83LoopCodegenTests
         // get wrong if the register's live range weren't proven safe end-to-end (see
         // Sm83FunctionAllocation's LiveBlocksOf/IsLoopSafeInstruction).
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     byte i = 0;
                     while (i < 50) {
@@ -180,7 +238,7 @@ public class Sm83LoopCodegenTests
         // admission's liveness scan is wrong, this either corrupts i (register clobbered by the call)
         // or throws (the call is not in the register-safe whitelist, so admission should simply decline).
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static byte Touch(byte x) {
                     return (byte)(x + 5);
                 }
@@ -203,7 +261,7 @@ public class Sm83LoopCodegenTests
     public async Task NestedLoops()
     {
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     byte total = 0;
                     for (byte i = 0; i < 10; i++) {
@@ -228,7 +286,7 @@ public class Sm83LoopCodegenTests
         // - see the EmitCompare audit) while the loop's own compare is Ult (leaves C available) - a
         // mixed-compare loop, exercising the per-candidate pool selection.
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     byte i = 0;
                     while (i < 100) {
@@ -254,7 +312,7 @@ public class Sm83LoopCodegenTests
         // (the store lands 10, not 9) - admission must decline any candidate whose phi has a use past
         // its back-edge binary (see PhiIsUsedAfterBackEdgeBinary).
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     byte i = 0;
                     while (i < 10) {
@@ -277,7 +335,7 @@ public class Sm83LoopCodegenTests
         // (a phi/live-out use past the back-edge binary) and is only read after it - the final read
         // must see 9, not the incremented 10 left in a coalesced register.
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     byte i = 0;
                     byte last = 0;
@@ -497,7 +555,7 @@ public class Sm83LoopCodegenTests
     public async Task TwoSequentialI8CountedLoops_DistinctCounters()
     {
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     byte total1 = 0;
                     for (byte i = 0; i < 10; i++) {
@@ -522,7 +580,7 @@ public class Sm83LoopCodegenTests
     public async Task TwoI8CountedLoopsInIfElseBranches()
     {
         const string src = """
-            public static class Program {
+            public static unsafe class Program {
                 public static void Main() {
                     *(byte*)0xC000 = 0;
                     bool which = *(byte*)0xC000 != 0;

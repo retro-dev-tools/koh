@@ -34,30 +34,52 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
 - `src/Koh.Emulator.Core` (+ `Koh.Emulator.App`), `src/Koh.Debugger`, `src/Koh.Lsp`, `KohUI*`.
 - `src/Koh.Compiler` — the compiler platform (details below).
 - `src/Koh.GameBoy` — the managed reference runtime a Koh C# game builds/runs against under the plain
-  .NET SDK: `Hardware`/`Gb` primitives (managed-only, special-cased by the frontend) plus a `Hal/`
-  framework written in the Koh C# subset (`Lcd`, `Joypad`, `Tilemap`/`TileData`, `Ppu`, `Direction`)
-  that the SDK also feeds to the frontend, so ROMs get it too. `src/Koh.Build.Tasks` — the in-process
-  MSBuild task (`CompileKohRom`) that drives the compiler+linker; `sdk/Koh.Sdk` — the MSBuild SDK that
-  ties them together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
+  .NET SDK: `Hardware`/`Gb` primitives (`[KohIntrinsic]`-tagged: a managed desktop implementation plus
+  the metadata the CIL frontend reads for the ROM address) plus a `Hal/` framework (`Lcd`, `Joypad`,
+  `Tilemap`/`TileData`, `Ppu`, `Cgb`, `Direction`) and `Mem.cs`/`SoftFloat.cs` that are ordinary compiled
+  C# — a ROM gets them not by being fed extra source, but because the CIL frontend lowers
+  `Koh.GameBoy.dll` (a normal build reference, listed in `@(ReferencePath)`) on demand, transitively,
+  the first time a game actually calls into it. `src/Koh.Build.Tasks` — the in-process MSBuild task
+  (`CompileKohRom`) that drives the compiler+linker; `sdk/Koh.Sdk` — the MSBuild SDK that ties them
+  together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
 - `tests/Koh.*.Tests` mirror `src/`. `samples/` holds runnable examples (e.g. `gb-2048`,
   `gb-2048-cs`). `docs/superpowers/specs/` holds design specs.
 
 ## The compiler platform (`src/Koh.Compiler`)
 
 Two-waist hourglass: a generic typed-SSA IR waist, and the existing `EmitModel`/`.kobj`
-waist. Pipeline: `IFrontend.Lower(source) -> IrModule` then `IBackend.Compile(module) -> EmitModel`,
+waist. Pipeline: `IFrontend.Lower(CompilerInput) -> IrModule` then `IBackend.Compile(module) -> EmitModel`,
 orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 `CompilerRegistry` (AOT-safe; no reflection scanning).
 
 - `Ir/` — `IrType`, `IrValue`, `IrModule`, `IrInstruction`, `IrBuilder`, `IrPrinter`,
   `IrParser` (round-trips the printer), `IrVerifier`.
-- `Frontends/CSharp/` — Roslyn parses; `CSharpFrontend` + `MethodLowerer` lower a systems
-  subset of C# to IR via syntax-directed lowering. A real `CSharpCompilation`/`SemanticModel`
-  (`CSharpSemantics`, incl. candidate acceptance for Koh-legal-but-C#-illegal code) is the ONLY
-  resolution path for names/members/calls/intrinsics; monomorphized generic instances bind in a
-  second constructed tree, and generic calls route by template symbol + mangled type-arg suffix.
-  Koh's own C-like typing (widths/signedness) stays authoritative regardless of what Roslyn
-  would infer.
+- `Frontends/Cil/` — the ONLY frontend (the former `Frontends/CSharp/` Roslyn-syntax-directed
+  frontend was deleted once this one reached parity; see `docs/superpowers/specs/
+  2026-07-14-cil-frontend-design.md`). Lowers a **compiled assembly** (`CompilerInput.FromAssembly`,
+  never source text) read with Mono.Cecil — a resolved object model over standard C# IL, not
+  hand-parsed syntax, so the game's own source is ordinary, standard-semantics C# a plain `csc`/Roslyn
+  build already accepts. `CilFrontend` -> `CilModuleLowerer` (declarations) -> `CilMethodLowerer` (IL
+  opcode-by-opcode body lowering, split across `CilMethodLowerer.*.cs` for structs/arrays/delegates/
+  generics/iterators/LINQ/statics/floats) -> `CilLoweringContext` (the shared per-compile state: function/
+  global/class-layout caches, on-demand lowering entry point `EnsureLowered`). `Koh.Compiler` never
+  references `Koh.GameBoy` — the hardware/runtime surface arrives entirely through two attributes read
+  by SIMPLE TYPE NAME off metadata (`CilIntrinsicIndex`/`CilRuntimeIndex` build the lookup tables by
+  scanning for these names, not a hardcoded assembly reference):
+  - `[KohIntrinsic(kind, address)]` on a `Koh.GameBoy.Hardware`/`Gb` member — `"register"`/`"region"`
+    (a fixed MMIO address), `"alloc"`/`"heapreset"` (the arena heap), or an address-less control
+    intrinsic (`"ei"`/`"di"`/`"halt"`/`"nop"`/`"stop"`). This is where hardware addresses live now —
+    NOT in the compiler.
+  - `[KohRuntime(key)]` on a method — the ROM implementation the frontend CALLS for an IL-level
+    operation it can't inline (e.g. `[KohRuntime("f32.add")]` on `Koh.GameBoy.SoftFloat`'s add routine
+    for a `float` `add` opcode).
+  Framework code that is neither of those (the `Hal/` classes, `Mem.Copy`/`Fill`'s byte-shuffling loops)
+  is ordinary compiled Koh.GameBoy.dll IL, lowered ON DEMAND the first time a game actually calls it
+  (`CilLoweringContext.EnsureLowered`, transitively) — never eagerly, never by a name-keyed table. A
+  game module's own dead code is deliberately left un-pruned (parity with the old frontend leaving it to
+  diagnostics), but an unreachable REFERENCED-assembly function IS pruned
+  (`IrOptimizer.RemoveUnreachableFunctions` called unconditionally, before the optimizer) — see the
+  KNOWN ISSUE below, this asymmetry has a real bug in it.
 - `Backends/Sm83/Sm83Backend.cs` — hand-written, correctness-first SM83 code generation.
 - `Targets/` — `DataLayout` (per-target pointer width / endianness / native int widths).
 
@@ -66,7 +88,7 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 - **Type sizes flow through `IrType.SizeInBytes`/`SizeInBits`.** A pointer is *not*
   `IrType.Bits` (that is 0 for pointers); its width comes from `DataLayout`. Never size a
   type with `(Ir.Bits + 7) / 8` — use the accessor, or pointer struct fields / globals break.
-- **The C# frontend produces no phis** — locals/params are `alloca`s, so control flow needs
+- **The CIL frontend produces no phis** — locals/params are `alloca`s, so control flow needs
   no phi construction. But the IR optimizer's `Mem2RegPass` (default-on in `CompilerDriver`) *does*
   insert phis, so the backend's phi path runs on real compiled programs, not just hand-written/parsed
   IR (`Sm83ControlFlowTests`). A wide phi is forced to interfere with its incoming values in
@@ -104,34 +126,63 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   - Code and data banking are **mutually exclusive** (banked code needs its bank mapped, banked data
     needs to switch away). A single banked function can't exceed 16KB, and the ROM0 thunk table must
     fit the ROM0 code window; overflowing either is a diagnostic.
-- **Mixed signed/unsigned** binary ops go through `MethodLowerer.CommonType` (usual-arithmetic
-  conversions: wider width wins; a mixed pair whose sign matters promotes to a signed type wide
-  enough, else a diagnostic). Do not take signedness/width from the left operand alone.
-- **Symbol resolution (via `CSharpSemantics`, incl. candidate acceptance) is the ONLY
-  name-resolution AND type-NAME-resolution path** in the C# frontend, including `Types.cs`'s
-  `ResolveType`/`ResolveTypeAllowingClass`/`ConstEval`'s `Enum.Member` arm (Stage-2 P6): a user
-  enum/struct/class type name resolves via its own Roslyn symbol into `CSharpSemantics.Enums`/
-  `Structs`/`Classes`. The remaining string-keyed tables (`_methods` for softfloat runtime routing /
-  MathF / duplicate detection, per-body locals dicts, and each declaration pass's own in-progress
-  dictionary) are declaration plumbing, not resolution fallbacks — don't reintroduce a string lookup
-  where a symbol should resolve; an unresolved symbol is a diagnostic. One hazard is temporal, not
-  structural: `CSharpSemantics.Enums`/`Classes` are lazily materialized from a registration list that
-  fills in as `CollectEnums`/`CollectClasses` run — consulting one before every relevant declaration
-  in the file is registered freezes it incomplete forever (`Lazy<T>` caches its first read). Two call
-  sites hit this window and deliberately stay off the symbol index there: `ConstEval`'s `Enum.Member`
-  arm (called from `CollectEnums` itself, for a member initializer referencing another enum) and
-  `ResolveTypeAllowingClass` (called from `CollectClasses` itself, for a self-/forward-referencing
-  class field) — see `CSharpFrontend.Types.cs`'s header remarks. A compilation is required: `LowerCore`
-  reports one diagnostic and stops if `CSharpSemantics.Compilation` is null (no supported host hits
-  this).
+- **Mixed signed/unsigned** binary ops follow the IL's own usual-arithmetic-conversion shape (Roslyn
+  already promoted mixed operands per ECMA-334 by the time the frontend sees the IL — see the next
+  bullet); the frontend does not re-derive width/signedness from source syntax the way the deleted
+  C# frontend's `MethodLowerer.CommonType` did.
+- **Arithmetic promotion is now standard C# (ECMA-334), not the old Koh-C#-subset rule.** The deleted
+  `CSharpFrontend` never widened operands before a mixed-width op (`byte * 16` wrapped mod 256); the
+  CIL frontend lowers whatever IL Roslyn already emitted, and Roslyn performs ordinary C# int/usual-
+  arithmetic promotion before that IL exists. A game written against the old subset's narrow-arithmetic
+  assumption computes a DIFFERENT result under the CIL frontend for the same source — this is by
+  design (the whole point of the CIL frontend is standard C# semantics), not a bug to chase.
+- **Name/member/intrinsic resolution has no string-keyed table to get wrong** — Mono.Cecil hands the
+  frontend already-resolved `MethodReference`/`TypeReference`/`FieldReference` operands (the CLR did
+  the binding when the game assembly was compiled), so there is no Koh-side symbol table to keep in
+  sync the way the deleted C# frontend's `CSharpSemantics` was. The two places a NAME still matters are
+  both metadata-attribute matches by SIMPLE TYPE NAME (`CilIntrinsicIndex`/`CilRuntimeIndex`, and
+  `[Interrupt]` kind lookup in `CilLoweringContext.InterruptVectorOf`) — deliberate, since
+  `Koh.Compiler` must never reference `Koh.GameBoy` directly.
 - **Backend errors are not caught by the driver.** A `NotSupportedException` from the backend
-  escapes; the frontend catches `CSharpNotSupportedException` and reports diagnostics. Prefer
-  reporting a diagnostic over throwing where the input is user code.
+  escapes; the frontend catches its own `CilNotSupportedException` per-method (one bad method reports
+  a diagnostic and is skipped, not a whole-compile abort) and reports diagnostics. Prefer reporting a
+  diagnostic over throwing where the input is user code.
 - **Verify end-to-end on the emulator**, not just via unit types: link the `EmitModel` to a
   ROM (`Koh.Linker.Core.Linker`), load it in `GameBoySystem`, set `PC`/`SP`, step, read
-  registers/memory. See `Game2048Tests` and `CSharpEndToEndTests` for the harness pattern.
+  registers/memory. A CIL-frontend test compiles real C# with Roslyn to a real assembly on disk first
+  (`CompilerInput.FromAssembly`) — see `CilLoweringTests`/`CilEndToEndTests`/`CilGame2048Tests` for the
+  harness pattern; the test project keeps `Microsoft.CodeAnalysis.CSharp` for exactly this (compiling
+  fixtures to assemblies), even though `Koh.Compiler` itself no longer references Roslyn at all. A perf-
+  or timing-sensitive fixture must compile that Roslyn step at `OptimizationLevel.Release`, not the
+  default `Debug` — Debug IL's redundant stores/un-folded constants are real cost the CIL frontend
+  lowers faithfully, unlike the old syntax-directed frontend which never saw IL at all and so never
+  varied with build configuration.
+- **KNOWN ISSUE — dangling call after referenced-assembly pruning** (found 2026-07,
+  `CilGame2048Tests`): `CilMethodLowerer.cs`'s post-lowering sweep
+  (`IrOptimizer.RemoveUnreachableFunctions(module, ctx.IsFromReferencedAssembly)`) prunes a referenced-
+  assembly function (e.g. `Koh.GameBoy`'s `TileData.Clear`) from `Module.Functions` when it is
+  unreachable from the entry/an interrupt handler — but a GAME-MODULE function that calls it and is
+  ITSELF unreachable from entry is deliberately left un-pruned (dead game code is left alone, by
+  policy). The result: the still-present, still-compiled dead game function retains a `Call` to a
+  callee that no longer exists in the module, and `Sm83Backend.ControlFlowEmitter.EmitCall` throws
+  `KeyNotFoundException` reading `_ctx.Allocations[callee]`. Reproduces deterministically (confirmed via
+  `--treenode-filter` in isolation, not a parallelism artifact) whenever a compiled program includes a
+  type with an unreachable method that itself calls into referenced-assembly code — e.g. compiling
+  `Board.cs` + `Tiles.cs` together with a synthetic entry that never calls `Tiles.RenderBoard`/
+  `GenerateTileset` still lowers those two (dead) methods (Pass 1 eagerly declares every game-module
+  static method regardless of reachability), and their calls into `Koh.GameBoy`'s `TileData`/`Tilemap`
+  dangle once pruning removes the callees. Not fixed as of this writing — several
+  `CilGame2048Tests`/`Sm83LoopCodegenTests`/`Cube3dTests` cases hit it and are left failing (see git
+  history around the `CSharpFrontend` deletion commit for the precise repro and failing test names).
 
-### The "Koh C#" subset
+### "Koh C#" is now standard C# — a subset by what the backend can lower, not by parser rules
+
+There is no Koh-specific syntax or Koh-specific typing rule left: a game is an ordinary C# project a
+plain `csc`/Roslyn build already accepts (`AllowUnsafeBlocks=true`, nothing else nonstandard), and the
+CIL frontend lowers WHATEVER IL that produces. Arithmetic promotion, operator overload resolution,
+overload/generic-method binding, `switch` pattern lowering — all of it is Roslyn's, decided before the
+CIL frontend ever runs. What makes a program compile to a ROM is purely whether the SM83 backend can
+lower the resulting IL shapes; an out-of-scope construct is a diagnostic, not a parse error.
 
 Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`long`/`ulong`/`Int128`/`UInt128`/`bool`
 (full arithmetic including mul/div/rem/shift at every width — i8/i16 via register routines, i32/i64/
@@ -139,32 +190,44 @@ i128 via generic width-N memory routines; i64/i128 have no register room so they
 `Sm83Backend.ReturnScratch`),
 `char`/string literals (strings only as `byte[]` initializers), `enum` (custom base), `const`,
 pointers (`T*` incl. arithmetic/`++`/compare/casts, `*(T*)addr` MMIO, and `stackalloc T[n]` frame
-buffers), the `Gb.*` memory regions (`Gb.Vram`/`Gb.TileMap`/… as constant base pointers), fixed arrays
-(local + static ROM/WRAM data), value-type `struct`s (nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es
-(heap-allocated via the `Mem` arena, instance fields + non-virtual instance methods with `this`; a class
-type also names fields — including of its own type, so linked structures work — parameters, and returns,
-all as heap pointers; an instance is usable as a value/`byte*` (`return this;`), and assignment copies the
-reference, not the bytes); dynamic allocation (`Mem.Alloc`/`Mem.Reset`/`Mem.Copy`/`Mem.Fill` — the latter
-two are ordinary compiled Koh C# themselves, appended from `MemRuntime.cs` the same way the softfloat
-runtime is, not hand-written assembly; forward copy, overlap defined only when destination < source,
-count==0 a no-op, NOT vblank-aware — caller's responsibility like `Cgb.CopyToVram`); generic methods (monomorphized —
-specialized per concrete type argument, transitively; a value shadowing a type parameter is a diagnostic);
-array LINQ reductions (`Where`/`Select` pipelines ending in `Sum`/`Count`/`Any`/`All`, plus `Max`/`Min`
-directly on an array, compiled to a loop with inlined lambdas); cooperative coroutines (a linear run of
-`yield return`s, or a single counted `for` loop with one `yield`, lowered to a MoveNext/Current
-state-machine class that captures the iterator's parameters);
+buffers — ordinary C# unsafe code, so every containing method/type needs the real `unsafe` keyword,
+unlike the deleted frontend's own parser which never required it), the `Gb.*` memory regions
+(`Gb.Vram`/`Gb.TileMap`/… — `[KohIntrinsic("region", addr)]`-tagged properties on `Koh.GameBoy.Gb`,
+constant base pointers on a ROM), fixed arrays (local + static ROM/WRAM data), value-type `struct`s
+(nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es (heap-allocated via the `Mem`
+arena, instance fields + non-virtual instance methods with `this`; a class type also names fields —
+including of its own type, so linked structures work — parameters, and returns, all as heap pointers;
+an instance is usable as a value/`byte*` (`return this;`), and assignment copies the reference, not the
+bytes); dynamic allocation (`Mem.Alloc`/`Mem.Reset` are `[KohIntrinsic("alloc"/"heapreset")]`;
+`Mem.Copy`/`Mem.Fill` are ordinary compiled `Koh.GameBoy` code (`Mem.cs`), lowered on demand like any
+other referenced-assembly method — not appended/hand-written; forward copy, overlap defined only when
+destination < source, count==0 a no-op, NOT vblank-aware — caller's responsibility like
+`Cgb.CopyToVram`); generic methods (monomorphized — specialized per concrete type argument,
+transitively via `CilMethodLowerer.Generics.cs`'s `CilGenericSubst`, which substitutes Cecil's own
+`GenericInstanceMethod` type arguments directly — no syntax-tree rewriting, since Cecil already exposes
+the concrete types at the call site); array LINQ reductions (`Where`/`Select` pipelines ending in
+`Sum`/`Count`/`Any`/`All`, plus `Max`/`Min` directly on an array, compiled to a loop with inlined
+lambdas — matched off the BCL `Enumerable`/lambda IL shape, not source syntax); cooperative coroutines
+(a linear run of `yield return`s, or a single counted `for` loop with one `yield`, lowered from the
+C# compiler's OWN generated state-machine class — the frontend recognizes and re-lowers Roslyn's
+iterator boilerplate rather than building its own);
 `if`/`while`/`do`/`for`/`switch`/`break`/`continue`/`return`; arithmetic/bitwise/shift/compare/`~`,
-`&&`/`||`/`?:`/`++`/`--`, compound assignment, usual-arithmetic conversions on mixed signed/unsigned
-(mixed pairs promote to a wider signed type up to `long`); a program written as bare top-level
-functions **or** as top-level `static class`es (their static methods lower to `Class.Method` functions
-— qualified calls plus unqualified sibling calls — and their static fields become program-scope
-statics; the entry is the `Main` method wherever it lives; `using` directives and a file-scoped
-`namespace` are accepted and dropped, since the frontend resolves by simple name),
-`static` fields (WRAM/ROM/const), `ref`/`out`/`in`; a `Hardware` register surface and
-`[Interrupt("VBlank")]` handlers, and recursion (direct and mutual; a recursive program moves the CALL
-stack into WRAM so it runs hundreds of levels deep, and `rt.pushframe` traps on a stack/heap collision
-rather than corrupting memory). Out by design: 128-bit+, classes/GC/generics/async/LINQ. Out-of-subset
-constructs are reported as diagnostics.
+`&&`/`||`/`?:`/`++`/`--`, compound assignment, STANDARD C# (ECMA-334) usual-arithmetic conversions on
+mixed signed/unsigned (int promotion applies — `byte * 16` no longer wraps mod 256 the way the deleted
+frontend's own narrower rule did; this is a deliberate, load-bearing behavior change, not a bug); a
+program written as top-level `static class`es (their static methods lower to `Class.Method` functions;
+static fields become program-scope statics; the entry is whichever method is actually named `Main`) —
+delegates and closures (a capturing lambda's compiler-generated display class, lowered like any other
+class); `static` fields (WRAM/ROM/const) plus a `.cctor` for non-trivial static initializers/ROM array
+data; `ref`/`out`/`in`; a `Hardware` register surface (`[KohIntrinsic("register", addr)]`-tagged
+properties on `Koh.GameBoy.Hardware`) and `[Interrupt("VBlank")]` handlers (matched by the attribute
+type's simple name — `Koh.Compiler` never references `Koh.GameBoy`); recursion (direct and mutual; a
+recursive program moves the CALL stack into WRAM so it runs hundreds of levels deep, and
+`rt.pushframe` traps on a stack/heap collision rather than corrupting memory); and `float`/`double`
+arithmetic, routed through `[KohRuntime(key)]`-tagged `Koh.GameBoy.SoftFloat` routines rather than
+inline codegen. Out by design: 128-bit+ float, reflection, unbounded/dynamic allocation patterns the
+backend can't statically size. Out-of-subset constructs are reported as diagnostics, never silently
+miscompiled.
 
 ## Gotchas
 
@@ -172,6 +235,13 @@ constructs are reported as diagnostics.
   managed build). `dotnet run --project samples/gb-2048-cs` builds the ROM and opens it in the Koh
   emulator — the SDK (`Sdk.targets`) overrides `RunCommand` to launch `Koh.Emulator.App` on the game's
   ROM, so this is the default for every Koh game; the managed reference build is still the project's own
-  binary — `dotnet exec samples/gb-2048-cs/bin/<config>/net10.0/Gb2048CSharp.dll` for the terminal renderer.
+  binary — `dotnet exec samples/gb-2048-cs/bin/<config>/net10.0/Gb2048CSharp.dll` for the terminal
+  renderer. Under the hood this is the `cil` frontend (`Koh.Sdk`'s `KohFrontend` MSBuild property,
+  `CompileKohRom` task): the plain .NET SDK compiles the game to a real managed assembly first, then
+  `CompileKohRom` hands `TargetPath` + `@(ReferencePath)` (which includes `Koh.GameBoy.dll`, so the Hal
+  framework/`Mem.Copy`/softfloat all resolve) to `CilFrontend` — no source files are read a second time.
+  There is only ever one frontend registered (`cil`); `KohFrontend`/`CompileKohRom.Frontend` exist so a
+  future frontend can be added without touching `Sdk.targets` again, not because `csharp` is still an
+  option.
 - Don't commit built ROMs (`*.gb`/`*.gbc`), `bin/`, `obj/` — samples ship a `.gitignore`.
 - The model identifier you run as must not appear in commits, PR bodies, or code.

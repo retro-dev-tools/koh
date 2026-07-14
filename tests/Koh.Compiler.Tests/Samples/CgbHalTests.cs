@@ -1,62 +1,105 @@
-using System.Text;
+using System.Collections.Immutable;
 using Koh.Compiler.Backends.Sm83;
-using Koh.Compiler.Frontends.CSharp;
+using Koh.Compiler.Frontends;
+using Koh.Compiler.Frontends.Cil;
 using Koh.Core.Diagnostics;
-using Koh.Core.Text;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
 using Koh.Linker.Core;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Compiler.Tests.Samples;
 
+/// <summary>
+/// The Koh.GameBoy/Hal framework (Cgb, Ppu, ...) is ordinary compiled code already shipped inside
+/// Koh.GameBoy.dll (see CLAUDE.md: "framework code ... lowered on demand from REFERENCED ASSEMBLIES"),
+/// so unlike the pre-CIL version of this file, no Hal source needs concatenating here — a test just
+/// compiles its own small entry point with Roslyn, referencing Koh.GameBoy.dll, and
+/// <see cref="CilFrontend"/> pulls in Cgb/Ppu's IL on demand.
+/// </summary>
 public class CgbHalTests
 {
-    private static string RepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
-            dir = dir.Parent;
-        return dir?.FullName
-            ?? throw new InvalidOperationException("could not locate repository root");
-    }
+    // ---- Roslyn: compile real C# to a real assembly on disk, referencing Koh.GameBoy.dll -----------
 
-    /// <summary>The Koh.GameBoy/Hal framework sources (Cgb, Lcd, Ppu, ...), concatenated as the SDK
-    /// compiles them alongside a game. No Main of its own, so a test supplies one.</summary>
-    private static readonly string HalLibrary = ReadHal();
-
-    private static string ReadHal()
+    private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>
     {
-        var hal = Path.Combine(RepositoryRoot(), "src", "Koh.GameBoy", "Hal");
-        var sb = new StringBuilder();
-        foreach (var file in Directory.GetFiles(hal, "*.cs").Order())
-            sb.Append(File.ReadAllText(file)).Append('\n');
-        return sb.ToString();
+        var builder = ImmutableArray.CreateBuilder<MetadataReference>();
+        if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
+        {
+            foreach (
+                var path in tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            )
+            {
+                try
+                {
+                    builder.Add(MetadataReference.CreateFromFile(path));
+                }
+                catch (IOException) { }
+                catch (BadImageFormatException) { }
+            }
+        }
+        builder.Add(
+            MetadataReference.CreateFromFile(typeof(Koh.GameBoy.Hardware).Assembly.Location)
+        );
+        return builder.ToImmutable();
+    });
+
+    private static readonly string ScratchDir = Path.Combine(
+        Path.GetTempPath(),
+        "koh-cgb-hal-tests"
+    );
+
+    private const string GlobalUsings = "global using Koh.GameBoy;\n";
+
+    private static string CompileToAssembly(string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(GlobalUsings + source);
+        var compilation = CSharpCompilation.Create(
+            "CgbHalAsm_" + Guid.NewGuid().ToString("N"),
+            [tree],
+            References.Value,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableContextOptions.Disable,
+                allowUnsafe: true
+            )
+        );
+        Directory.CreateDirectory(ScratchDir);
+        var path = Path.Combine(ScratchDir, $"cgbhal_{Guid.NewGuid():N}.dll");
+        var emitResult = compilation.Emit(path);
+        if (!emitResult.Success)
+            throw new InvalidOperationException(
+                "Roslyn compile failed:\n"
+                    + string.Join("\n", emitResult.Diagnostics.Select(d => d.ToString()))
+            );
+        return path;
     }
 
     [Test]
     public async Task CgbHal_CompilesThroughTheRealBackend()
     {
-        var source = new StringBuilder(
-            "static byte Main() { "
-                + "bool color = Cgb.IsColor(); "
-                + "Cgb.SelectVramBank(1); "
-                + "Cgb.SetBackgroundColor(0, 0, 0x1234); "
-                + "Cgb.TryEnableDoubleSpeed(); "
-                + "Ppu.WaitForVramAccess(); Ppu.WaitForHBlank(); "
-                + "return (byte)(color ? 1 : 0); }\n"
-        );
-        source.Append(HalLibrary);
+        const string source =
+            "static class Program { static byte Main() { "
+            + "bool color = Cgb.IsColor(); "
+            + "Cgb.SelectVramBank(1); "
+            + "Cgb.SetBackgroundColor(0, 0, 0x1234); "
+            + "Cgb.TryEnableDoubleSpeed(); "
+            + "Ppu.WaitForVramAccess(); Ppu.WaitForHBlank(); "
+            + "return (byte)(color ? 1 : 0); } }\n";
 
-        var diagnostics = new DiagnosticBag();
-        var module = new CSharpFrontend().Lower(
-            SourceText.From(source.ToString(), "cgb-hal.cs"),
-            diagnostics
+        var assemblyPath = CompileToAssembly(source);
+        var input = CompilerInput.FromAssembly(
+            assemblyPath,
+            [typeof(Koh.GameBoy.Hardware).Assembly.Location]
         );
+        var diagnostics = new DiagnosticBag();
+        var module = new CilFrontend().Lower(input, diagnostics);
         new Sm83Backend().Compile(module, diagnostics);
 
         var errors = diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Where(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error)
             .Select(d => d.Message)
             .ToArray();
         await Assert.That(errors).IsEmpty();
@@ -80,17 +123,18 @@ public class CgbHalTests
     //     emulator either, per Sm83.Stop()'s comment).
     //   - OBJ palette RAM (OCPS/OCPD) and HDMA are modeled too but unused by Cgb.cs, so not asserted here.
 
-    /// <summary>Compile <paramref name="testMain"/> plus the framework HAL as one program (test Main
-    /// first, so it lands at the ROM entry, exactly like <c>Game2048Tests.Run</c>), link it, boot it on
-    /// a <see cref="GameBoySystem"/> in <paramref name="mode"/>, and run it to completion. Returns both
-    /// the result (HL) and the live system so a test can inspect emulator-side CGB state directly.</summary>
+    /// <summary>Compile <paramref name="testMain"/> (wrapped in a class - Hal's Cgb/Ppu resolve from the
+    /// referenced Koh.GameBoy.dll on demand, see <see cref="CilFrontend"/>), link it, boot it on a
+    /// <see cref="GameBoySystem"/> in <paramref name="mode"/>, and run it to completion. Returns both the
+    /// result (HL) and the live system so a test can inspect emulator-side CGB state directly.</summary>
     private static (ushort Hl, GameBoySystem Gb) Run(string testMain, HardwareMode mode)
     {
-        var src = testMain + "\n" + HalLibrary;
-        var module = new CSharpFrontend().Lower(
-            SourceText.From(src, "cgb.cs"),
-            new DiagnosticBag()
+        var assemblyPath = CompileToAssembly("static class Program {\n" + testMain + "\n}");
+        var input = CompilerInput.FromAssembly(
+            assemblyPath,
+            [typeof(Koh.GameBoy.Hardware).Assembly.Location]
         );
+        var module = new CilFrontend().Lower(input, new DiagnosticBag());
         var model = new Sm83Backend().Compile(module, new DiagnosticBag());
         var rom = new LinkerType().Link([new LinkerInput("t", model)]).RomData!;
 

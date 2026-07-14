@@ -364,14 +364,27 @@ internal sealed class CilLoweringContext
         }
     }
 
+    /// <summary>Maps an <c>[Interrupt]</c> kind name (e.g. "VBlank") to its vector address. The sole
+    /// consumer is <see cref="InterruptVectorOf"/>; kept as a small static table here now that the CIL
+    /// frontend is the only frontend (formerly shared with the deleted <c>CSharpFrontend</c> via
+    /// <c>HardwareRegisters.InterruptVector</c>).</summary>
+    internal static int? InterruptVector(string? kind) =>
+        kind?.ToLowerInvariant() switch
+        {
+            "vblank" => 0x40,
+            "stat" or "lcdstat" or "lcd" => 0x48,
+            "timer" => 0x50,
+            "serial" => 0x58,
+            "joypad" => 0x60,
+            _ => null,
+        };
+
     /// <summary>Reads <c>[Interrupt(kind)]</c> (<c>Koh.GameBoy.InterruptAttribute</c>) off
     /// <paramref name="method"/>, matched by the attribute type's SIMPLE NAME ("InterruptAttribute") —
     /// same reasoning as <see cref="CilIntrinsicIndex"/>'s <c>[KohIntrinsic]</c> match: <c>Koh.Compiler</c>
-    /// must never reference <c>Koh.GameBoy</c>. Maps the kind string through
-    /// <see cref="Koh.Compiler.Frontends.CSharp.HardwareRegisters.InterruptVector"/> — the same
-    /// kind-&gt;vector table <c>CSharpFrontend</c> uses, so both frontends wire a handler to the same
-    /// vector address for the same kind. A present-but-unrecognized kind (typo, wrong string) is a
-    /// diagnostic rather than silently leaving the method an ordinary, never-invoked function.</summary>
+    /// must never reference <c>Koh.GameBoy</c>. Maps the kind string through <see cref="InterruptVector"/>.
+    /// A present-but-unrecognized kind (typo, wrong string) is a diagnostic rather than silently leaving
+    /// the method an ordinary, never-invoked function.</summary>
     private int? InterruptVectorOf(MethodDefinition method)
     {
         foreach (var attr in method.CustomAttributes)
@@ -382,7 +395,7 @@ internal sealed class CilLoweringContext
                 attr.ConstructorArguments.Count > 0
                     ? attr.ConstructorArguments[0].Value as string
                     : null;
-            var vector = Koh.Compiler.Frontends.CSharp.HardwareRegisters.InterruptVector(kind);
+            var vector = InterruptVector(kind);
             if (vector is null)
                 Diagnostics.Report(
                     default,

@@ -1,15 +1,18 @@
+using System.Collections.Immutable;
 using Koh.Compiler.Backends.Sm83;
-using Koh.Compiler.Frontends.CSharp;
+using Koh.Compiler.Frontends;
+using Koh.Compiler.Frontends.Cil;
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
-using Koh.Core.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using LinkerType = Koh.Linker.Core.Linker;
 
-namespace Koh.Linker.Tests;
+namespace Koh.Compiler.Tests.Sm83;
 
 /// <summary>
-/// Regression coverage for a real bug in the Koh C# compiler pipeline (distinct from the
-/// rgbds-compat assembler path covered by <see cref="AssemblerLinkerGoldenIntegrationTests"/>):
+/// Regression coverage for a real bug in the Koh compiler pipeline (distinct from the rgbds-compat
+/// assembler path covered by <c>AssemblerLinkerGoldenIntegrationTests</c> in <c>Koh.Linker.Tests</c>):
 /// <see cref="Sm83Backend"/> emits a function/global Label symbol's <c>Value</c> as an already-absolute
 /// address (e.g. <c>Sm83Backend.CodeBase + offset</c>), but
 /// <see cref="Koh.Linker.Core.SymbolResolver.ResolveAddresses"/> treats every Label symbol's
@@ -18,17 +21,75 @@ namespace Koh.Linker.Tests;
 /// <c>AssemblerLinkerGoldenIntegrationTests.WramFixedSectionLabel_SymbolAtFixedAddress</c> and
 /// <c>docs/known-issues.md</c> item 3). For Sm83Backend's output this double-counts
 /// <see cref="Sm83Backend.CodeBase"/>, so <see cref="Koh.Linker.Core.LinkerSymbol.AbsoluteAddress"/> is
-/// wrong for every function/global symbol the C# backend emits. Program behavior is unaffected (call
+/// wrong for every function/global symbol the backend emits. Program behavior is unaffected (call
 /// targets are baked into machine code before linking; only linker-computed symbol metadata is wrong) —
-/// but any consumer of <c>AbsoluteAddress</c> for a Koh C# ROM (<c>.sym</c> files, <c>.kdbg</c> debug
-/// info, the DAP debugger) sees the wrong address.
+/// but any consumer of <c>AbsoluteAddress</c> for a Koh ROM (<c>.sym</c> files, <c>.kdbg</c> debug info,
+/// the DAP debugger) sees the wrong address.
+///
+/// Moved from <c>Koh.Linker.Tests</c> (which had no Roslyn/Cecil reference) when the CIL frontend
+/// replaced <c>CSharpFrontend</c> as the only frontend: this project already carries both for its own
+/// Cil* fixtures, so the harness below mirrors <see cref="CilLoweringTests"/>'s compile-to-assembly
+/// shape (real C# source -&gt; Roslyn -&gt; assembly on disk -&gt; <see cref="CilFrontend"/> -&gt; IR).
 /// </summary>
 public class Sm83SymbolAddressTests
 {
+    // ---- Roslyn: compile real C# to a real assembly on disk -----------------------------------
+
+    private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>
+    {
+        var builder = ImmutableArray.CreateBuilder<MetadataReference>();
+        if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
+        {
+            foreach (
+                var path in tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            )
+            {
+                try
+                {
+                    builder.Add(MetadataReference.CreateFromFile(path));
+                }
+                catch (IOException) { }
+                catch (BadImageFormatException) { }
+            }
+        }
+        return builder.ToImmutable();
+    });
+
+    private static readonly string ScratchDir = Path.Combine(
+        Path.GetTempPath(),
+        "koh-sm83-symbol-address-tests"
+    );
+
+    private static string CompileToAssembly(string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var compilation = CSharpCompilation.Create(
+            "Sm83SymAddrAsm_" + Guid.NewGuid().ToString("N"),
+            [tree],
+            References.Value,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableContextOptions.Disable
+            )
+        );
+        Directory.CreateDirectory(ScratchDir);
+        var path = Path.Combine(ScratchDir, $"sm83symaddr_{Guid.NewGuid():N}.dll");
+        var emitResult = compilation.Emit(path);
+        if (!emitResult.Success)
+            throw new InvalidOperationException(
+                "Roslyn compile failed:\n"
+                    + string.Join("\n", emitResult.Diagnostics.Select(d => d.ToString()))
+            );
+        return path;
+    }
+
     private static EmitModel Compile(string src)
     {
+        var wrapped = "class Program {\n" + src + "\n}";
+        var assemblyPath = CompileToAssembly(wrapped);
+        var input = CompilerInput.FromAssembly(assemblyPath, []);
         var diagnostics = new DiagnosticBag();
-        var module = new CSharpFrontend().Lower(SourceText.From(src, "game.cs"), diagnostics);
+        var module = new CilFrontend().Lower(input, diagnostics);
         return new Sm83Backend().Compile(module, diagnostics);
     }
 
@@ -60,7 +121,9 @@ public class Sm83SymbolAddressTests
         var link = new LinkerType().Link([new Koh.Linker.Core.LinkerInput("game", model)]);
         await Assert.That(link.Success).IsTrue();
 
-        var helper = link.Symbols.Single(s => s.Name == "Helper");
+        // CilFrontend names a function "{DeclaringType.Name}.{Method.Name}" (CilLoweringContext), unlike
+        // the deleted CSharpFrontend's bare top-level-function names.
+        var helper = link.Symbols.Single(s => s.Name == "Program.Helper");
         await Assert.That(helper.AbsoluteAddress).IsEqualTo((long)calledAddress);
     }
 
@@ -78,7 +141,7 @@ public class Sm83SymbolAddressTests
         byte[] rom = link.RomData!;
         int headerEntry = rom[0x0102] | (rom[0x0103] << 8); // `nop; jp <entry>` at 0x0100
 
-        var main = link.Symbols.Single(s => s.Name == "Main");
+        var main = link.Symbols.Single(s => s.Name == "Program.Main");
         await Assert.That(main.AbsoluteAddress).IsEqualTo((long)headerEntry);
     }
 
@@ -95,7 +158,7 @@ public class Sm83SymbolAddressTests
         var link = new LinkerType().Link([new Koh.Linker.Core.LinkerInput("game", model)]);
         await Assert.That(link.Success).IsTrue();
 
-        var counter = link.Symbols.Single(s => s.Name == "counter");
+        var counter = link.Symbols.Single(s => s.Name == "Program.counter");
         await Assert.That(counter.AbsoluteAddress).IsEqualTo((long)Sm83Backend.WramBase);
     }
 }

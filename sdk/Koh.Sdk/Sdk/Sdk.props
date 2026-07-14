@@ -21,8 +21,9 @@
     <KohRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)../../../'))</KohRoot>
     <!-- The game pokes raw Game Boy addresses through pointers; allow unsafe by default. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- Which Koh.Compiler frontend lowers the game: "csharp" (source, default) or "cil" (the
-         already-built assembly). Registered names live in CompilerRegistry. -->
+    <!-- Which Koh.Compiler frontend lowers the game. "cil" (the already-built assembly, over
+         Mono.Cecil) is the only one registered in CompilerRegistry today; the property exists so a
+         future frontend can be selected without touching Sdk.targets. -->
     <KohFrontend Condition="'$(KohFrontend)' == ''">cil</KohFrontend>
   </PropertyGroup>
 

@@ -4,11 +4,6 @@
     <ProjectReference Include="..\..\src\Koh.Linker.Core\Koh.Linker.Core.csproj" />
     <ProjectReference Include="..\..\src\Koh.Core\Koh.Core.csproj" />
     <ProjectReference Include="..\..\src\Koh.Emit\Koh.Emit.csproj" />
-    <!-- Needed only for Sm83SymbolAddressTests.cs, which reproduces a real Koh.Compiler backend bug
-         (Sm83Backend emits absolute addresses as Label symbol Value, but SymbolResolver.ResolveAddresses
-         expects section-relative values and re-adds the section's placed address) end-to-end through the
-         real frontend/backend/linker pipeline, not a hand-rolled EmitModel. -->
-    <ProjectReference Include="..\..\src\Koh.Compiler\Koh.Compiler.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -7,11 +7,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Exclude the analyzers that ship with the package: they target analyzer authors (RS**** rules)
-         and would trip TreatWarningsAsErrors on ordinary Roslyn API usage. -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" ExcludeAssets="analyzers" />
     <!-- Pure metadata/IL reader for the CIL frontend (Frontends/Cil): a resolved object model over
-         assemblies, AOT-safe (no codegen/emit surface used). -->
+         assemblies, AOT-safe (no codegen/emit surface used). This is the compiler's only frontend now
+         (CSharpFrontend, the Roslyn-source-driven frontend, was deleted once the CIL frontend reached
+         parity) - Koh.Compiler itself needs no Roslyn reference; the test project still uses Roslyn to
+         compile fixtures to assemblies for CilFrontend to lower. -->
     <PackageReference Include="Mono.Cecil" />
   </ItemGroup>
 

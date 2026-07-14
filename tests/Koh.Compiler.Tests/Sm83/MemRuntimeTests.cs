@@ -1,41 +1,112 @@
+using System.Collections.Immutable;
 using Koh.Compiler.Backends.Sm83;
-using Koh.Compiler.Frontends.CSharp;
+using Koh.Compiler.Frontends;
+using Koh.Compiler.Frontends.Cil;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Diagnostics;
-using Koh.Core.Text;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
 using Koh.Linker.Core;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Compiler.Tests.Sm83;
 
 /// <summary>
 /// End-to-end coverage for <c>Mem.Copy</c>/<c>Mem.Fill</c> (Package A2 of the emulator-accuracy-
-/// stabilization plan): both route to <c>MemRuntime.cs</c>'s <c>__mem_copy</c>/<c>__mem_fill</c> — ordinary
-/// compiled Koh C# subset source appended to the compilation the same way the softfloat runtime is (see
-/// <c>CSharpFrontend.PrepareRoot</c>/<c>UsesMemRuntime</c>), not hand-written assembly. Mirrors the harness
-/// pattern in <c>Cube3dTests</c>/<c>CSharpEndToEndTests</c>: real frontend -&gt; IR -&gt; SM83 backend -&gt;
-/// linker -&gt; <see cref="GameBoySystem"/>, with the program itself seeding a known pattern into WRAM,
-/// performing the copy/fill, and the test reading the result back out of WRAM after running to completion.
+/// stabilization plan): both are <c>[KohIntrinsic]</c>-routed, ordinary compiled Koh.GameBoy code (see
+/// <c>Mem.cs</c>), not hand-written assembly. Mirrors the harness pattern in
+/// <c>Cube3dTests</c>/<c>CilEndToEndTests</c>: real C# compiled by Roslyn to a real assembly (referencing
+/// Koh.GameBoy.dll) -&gt; <see cref="CilFrontend"/> -&gt; IR -&gt; SM83 backend -&gt; linker -&gt;
+/// <see cref="GameBoySystem"/>, with the program itself seeding a known pattern into WRAM, performing the
+/// copy/fill, and the test reading the result back out of WRAM after running to completion.
 ///
 /// Every test buffer comes from <c>Mem.Alloc</c>, not a hardcoded literal WRAM pointer: literal addresses
 /// near <c>Sm83Backend.WramBase</c> (0xC000) collide with the backend's own static per-function frame
 /// allocation (locals/params are NESFab-style statically assigned WRAM, not stack-based) — a scratch
 /// buffer planted there is silently the storage for some function's own locals. <c>Mem.Alloc</c> instead
-/// bumps down from <c>CSharpFrontend.HeapTop</c> (0xDE00), a region reserved for the heap and far from the
-/// frame area, so allocations are safe by construction. Each allocation's resulting address is
+/// bumps down from <c>CilLoweringContext.HeapTop</c> (0xDE00), a region reserved for the heap and far from
+/// the frame area, so allocations are safe by construction. Each allocation's resulting address is
 /// deterministic (<c>HeapTop</c> minus the running total of prior allocation sizes, in call order) —
 /// mirrored here by <see cref="AllocAddr"/> — so the test can read the exact bytes back out afterward.
 /// </summary>
 public class MemRuntimeTests
 {
+    // ---- Harness: real C# compiled by Roslyn to a real assembly, lowered by CilFrontend -----------
+
+    private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>
+    {
+        var builder = ImmutableArray.CreateBuilder<MetadataReference>();
+        if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
+        {
+            foreach (
+                var path in tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            )
+            {
+                try
+                {
+                    builder.Add(MetadataReference.CreateFromFile(path));
+                }
+                catch (IOException) { }
+                catch (BadImageFormatException) { }
+            }
+        }
+        builder.Add(
+            MetadataReference.CreateFromFile(typeof(Koh.GameBoy.Hardware).Assembly.Location)
+        );
+        return builder.ToImmutable();
+    });
+
+    private static readonly string ScratchDir = Path.Combine(
+        Path.GetTempPath(),
+        "koh-mem-runtime-tests"
+    );
+
+    private static string CompileToAssembly(string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var compilation = CSharpCompilation.Create(
+            "MemRuntimeAsm_" + Guid.NewGuid().ToString("N"),
+            [tree],
+            References.Value,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                // Release IL, not the default Debug: several tests here measure T-cycle cost against a
+                // ceiling, and Debug IL's redundant stores/un-folded constants would inflate every
+                // measurement far past what a real ROM build (which also compiles Release) ever sees.
+                optimizationLevel: OptimizationLevel.Release,
+                nullableContextOptions: NullableContextOptions.Disable,
+                allowUnsafe: true
+            )
+        );
+        Directory.CreateDirectory(ScratchDir);
+        var path = Path.Combine(ScratchDir, $"memrt_{Guid.NewGuid():N}.dll");
+        var emitResult = compilation.Emit(path);
+        if (!emitResult.Success)
+            throw new InvalidOperationException(
+                "Roslyn compile failed:\n"
+                    + string.Join("\n", emitResult.Diagnostics.Select(d => d.ToString()))
+            );
+        return path;
+    }
+
     private static IrModule Frontend(string src)
     {
+        // Bare top-level members (e.g. "static void Main() { ... }") are Koh-C#-subset shorthand, not
+        // valid standard C# - wrap in a class so Roslyn accepts it, same as CilGame2048Tests.TestEntry.
+        // Mem.* is unqualified in every fixture below, mirroring the Koh SDK's global `using Koh.GameBoy;`
+        // (Sdk.props) that a real game gets for free.
+        var wrapped = "global using Koh.GameBoy;\nstatic unsafe class Program {\n" + src + "\n}";
+        var assemblyPath = CompileToAssembly(wrapped);
+        var input = CompilerInput.FromAssembly(
+            assemblyPath,
+            [typeof(Koh.GameBoy.Hardware).Assembly.Location]
+        );
         var diagnostics = new DiagnosticBag();
-        var module = new CSharpFrontend().Lower(SourceText.From(src, "mem.cs"), diagnostics);
-        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        var module = new CilFrontend().Lower(input, diagnostics);
+        if (diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))
             throw new InvalidOperationException(
                 string.Join("; ", diagnostics.Select(d => d.Message))
             );
@@ -88,7 +159,8 @@ public class MemRuntimeTests
 
     /// <summary>Mirrors the compiler's own bump-down arena allocator: the address a <c>Mem.Alloc(size)</c>
     /// call in the compiled program receives, given <paramref name="heap"/> tracks the current heap
-    /// pointer across successive calls in program order (starting at <see cref="CSharpFrontend.HeapTop"/>).</summary>
+    /// pointer across successive calls in program order (starting at
+    /// <see cref="CilLoweringContext.HeapTop"/>).</summary>
     private static int AllocAddr(ref int heap, int size) => heap -= size;
 
     [Test]
@@ -110,7 +182,7 @@ public class MemRuntimeTests
             + "Mem.Copy(dst, src, 0); }";
         var gb = Load(src, out var s, out var l);
         Run(gb, s, l);
-        int heap = CSharpFrontend.HeapTop;
+        int heap = CilLoweringContext.HeapTop;
         int dst = AllocAddr(ref heap, 8);
         AllocAddr(ref heap, 8); // src (unused address, order-only)
         await Assert.That(ReadRange(gb, dst, 8)).IsEquivalentTo(Enumerable.Repeat((byte)0xAA, 8));
@@ -125,7 +197,7 @@ public class MemRuntimeTests
             + "Mem.Copy(dst, src, 1); }";
         var gb = Load(src, out var s, out var l);
         Run(gb, s, l);
-        int heap = CSharpFrontend.HeapTop;
+        int heap = CilLoweringContext.HeapTop;
         int dst = AllocAddr(ref heap, 8);
         AllocAddr(ref heap, 8);
         // Only dst[0] moves to src[0] (=1); the rest of the 8-byte buffer stays the seeded 0xAA.
@@ -143,7 +215,7 @@ public class MemRuntimeTests
             + "Mem.Copy(dst, src, 7); }";
         var gb = Load(src, out var s, out var l);
         Run(gb, s, l);
-        int heap = CSharpFrontend.HeapTop;
+        int heap = CilLoweringContext.HeapTop;
         int dst = AllocAddr(ref heap, 8);
         AllocAddr(ref heap, 8);
         // The first 7 bytes come from src (1..7); the 8th byte is untouched (still 0xAA).
@@ -164,7 +236,7 @@ public class MemRuntimeTests
             + "Mem.Copy(dst, src, 300); }";
         var gb = Load(src, out var s, out var l);
         Run(gb, s, l);
-        int heap = CSharpFrontend.HeapTop;
+        int heap = CilLoweringContext.HeapTop;
         int dst = AllocAddr(ref heap, 300);
         AllocAddr(ref heap, 300);
         var result = ReadRange(gb, dst, 300);
@@ -183,7 +255,7 @@ public class MemRuntimeTests
             + "Mem.Fill(dst + 4, 0xCC, 7); }";
         var gb = Load(src, out var s, out var l);
         Run(gb, s, l);
-        int heap = CSharpFrontend.HeapTop;
+        int heap = CilLoweringContext.HeapTop;
         int dst = AllocAddr(ref heap, 16);
         var result = ReadRange(gb, dst, 16);
         // Fill(dst, _, 0): no-op, dst[0] stays 0x55.
@@ -206,7 +278,7 @@ public class MemRuntimeTests
             "static void Main() { byte* dst = Mem.Alloc(300); Mem.Fill(dst, 0x7E, 300); }";
         var gb = Load(src, out var s, out var l);
         Run(gb, s, l);
-        int heap = CSharpFrontend.HeapTop;
+        int heap = CilLoweringContext.HeapTop;
         int dst = AllocAddr(ref heap, 300);
         var result = ReadRange(gb, dst, 300);
         for (int i = 0; i < 300; i++)
@@ -226,7 +298,7 @@ public class MemRuntimeTests
             + "Mem.Copy(buf, buf + 3, 7); }";
         var gb = Load(src, out var s, out var l);
         Run(gb, s, l);
-        int heap = CSharpFrontend.HeapTop;
+        int heap = CilLoweringContext.HeapTop;
         int buf = AllocAddr(ref heap, 10);
         // buf[0..6] = original buf[3..9] = 3..9; buf[7..9] untouched = original 7..9.
         await Assert

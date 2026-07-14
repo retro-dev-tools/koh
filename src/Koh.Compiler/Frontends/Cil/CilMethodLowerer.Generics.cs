@@ -1,5 +1,4 @@
 using System.Linq;
-using Koh.Compiler.Frontends.CSharp;
 using Koh.Compiler.Ir;
 using Mono.Cecil;
 
@@ -66,20 +65,39 @@ internal static class CilGenericSubst
         }
     }
 
-    /// <summary>The mangled suffix for a concrete type-argument list — the CIL frontend's own analog of
-    /// <c>CSharpFrontend.Generics.cs</c>'s <c>MangleSuffix</c>. Reuses the SAME encoder
-    /// (<see cref="CSharpFrontend.EncodeTypeArg"/>, internal, same-assembly) rather than a parallel
-    /// implementation, so a maintenance change to the escaping scheme automatically keeps both frontends
-    /// in lockstep — only <see cref="SourceLikeName"/> (this file's own inverse of
-    /// <see cref="CilTypeMapper.Map"/>'s keyword switch) differs, because the input here is a CLR
-    /// <see cref="TypeReference"/> rather than a C# <c>TypeSyntax</c>'s own source spelling.</summary>
+    /// <summary>The mangled suffix for a concrete type-argument list. Injective, same scheme
+    /// <c>CSharpFrontend</c> (deleted) used: each type argument's <see cref="SourceLikeName"/> spelling
+    /// is escaped by <see cref="EncodeTypeArg"/> and prefixed with its own encoded length, so two
+    /// distinct argument lists can never alias by picking a different split point.</summary>
     public static string MangledSuffix(IReadOnlyList<TypeReference> concreteArgs)
     {
         var sb = new System.Text.StringBuilder("__g").Append(concreteArgs.Count);
         foreach (var t in concreteArgs)
         {
-            var enc = CSharpFrontend.EncodeTypeArg(SourceLikeName(t));
+            var enc = EncodeTypeArg(SourceLikeName(t));
             sb.Append('_').Append(enc.Length).Append('_').Append(enc);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Injectively sanitizes a type spelling into a legal fragment of a C# identifier:
+    /// <c>[A-Za-z0-9]</c> passes through unchanged, a literal <c>_</c> doubles to <c>__</c>, and any
+    /// other character (<c>*</c>, <c>[</c>, <c>]</c>, ...) becomes <c>_</c> followed by its char code as
+    /// lowercase 2-hex (so <c>byte*</c> becomes <c>byte_2a</c>); a char above <c>0xFF</c> gets a distinct
+    /// <c>_u</c> + 4-hex escape, since letting the 2-hex form grow to 4 digits would be ambiguous.</summary>
+    internal static string EncodeTypeArg(string s)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in s)
+        {
+            if (c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9')
+                sb.Append(c);
+            else if (c == '_')
+                sb.Append("__");
+            else if (c <= 0xFF)
+                sb.Append('_').Append(((int)c).ToString("x2"));
+            else
+                sb.Append("_u").Append(((int)c).ToString("x4"));
         }
         return sb.ToString();
     }

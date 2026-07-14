@@ -685,7 +685,7 @@ public sealed partial class Sm83Backend : IBackend
     private static int HeapAddress(IReadOnlyDictionary<IrGlobal, int> globals)
     {
         foreach (var (g, addr) in globals)
-            if (g.Name == Frontends.CSharp.CSharpFrontend.HeapPointerName)
+            if (g.Name == Frontends.Cil.CilLoweringContext.HeapPointerName)
                 return addr;
         return -1;
     }
