@@ -2,6 +2,7 @@ using Koh.Compiler.Ir;
 using Koh.Compiler.Targets;
 using Koh.Core.Diagnostics;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace Koh.Compiler.Frontends.Cil;
 
@@ -28,6 +29,110 @@ internal sealed class CilLoweringContext
     private readonly Dictionary<TypeDefinition, CilClassLayout> _classLayouts = new();
     private readonly HashSet<MethodDefinition> _inProgress = new();
     private IrGlobal? _heapGlobal;
+
+    // ---- Static fields (see CilMethodLowerer.Statics.cs and the statics task in
+    // docs/superpowers/specs/2026-07-14-cil-frontend-design.md) ------------------------------------
+
+    // Every static field's storage, once decided. A field NOT yet present here is still undecided —
+    // EnsureStaticGlobal lazily creates an ordinary mutable WRAM holder for it the first time anything
+    // references it (correct for a mutable scalar/pointer/array-reference field, since there is no
+    // ordering hazard: whichever method touches it first settles it, and every later reference agrees).
+    // A field that IS present was placed here by CilStaticFieldSupport.Collect — a pure-metadata
+    // pre-pass over every type's static constructor that runs BEFORE any method body (including a
+    // cctor's own) is lowered, so a readonly field's ROM/alias classification is always settled before
+    // any consumer (including another type's cctor) can race it into the wrong (plain WRAM) shape.
+    private readonly Dictionary<FieldDefinition, IrGlobal> _staticFields = new();
+
+    // A field in this set has no separate holder cell: its own global's address (Ldsfld/Ldsflda push
+    // GlobalRef directly, never Load) IS its value — used for a readonly array-literal folded to a ROM
+    // blob, and for a fixed-size array field (readonly or mutable) whose 'newarr' carries no literal
+    // content, which becomes a dedicated Array-typed global instead of a heap allocation (matches
+    // CSharpFrontend's own static-array placement; see CilStaticFieldSupport's remarks).
+    private readonly HashSet<FieldDefinition> _staticFieldIsAlias = new();
+
+    // Element type/signedness/count for every aliased ARRAY field (not populated for a folded SCALAR
+    // constant) — mirrors CilMethodLowerer.Arrays.cs's _pendingArrayInfo shape, so Ldsfld can tag its
+    // pushed value the same way a 'newarr' or a static-array identifier does.
+    private readonly Dictionary<
+        FieldDefinition,
+        (IrType ElemType, bool Signed, int Count)
+    > _staticArrayInfo = new();
+
+    // Per static-constructor MethodDefinition, the instructions CilStaticFieldSupport.Collect proved
+    // redundant (fully accounted for by a field's ROM/alias classification) — CilMethodLowerer seeds
+    // Simulate's _suppressed set from this at the top of Run(), exactly like DetectDelegateCacheIdioms'
+    // own idiom collapses to nothing at runtime.
+    private readonly Dictionary<MethodDefinition, HashSet<Instruction>> _elidedCctorInstructions =
+        new();
+    private static readonly HashSet<Instruction> EmptyElidedSet = new();
+
+    /// <summary>Every type's lowered static-constructor <see cref="IrFunction"/>, in module-sweep
+    /// order — the entry function calls each of these once, in its own prologue (mirrors
+    /// CSharpFrontend's <c>staticInits</c>, emitted the same way at the top of <c>Main</c>, but as a
+    /// real call rather than inlined stores: a CIL static constructor can contain arbitrary lowerable
+    /// IL, not just a flat list of constant stores).</summary>
+    public List<IrFunction> CctorFunctions { get; } = new();
+
+    /// <summary>True once <paramref name="field"/>'s storage has been decided (by
+    /// <see cref="RegisterFoldedStatic"/>/<see cref="RegisterFoldedStaticArray"/>, or by a prior
+    /// <see cref="EnsureStaticGlobal"/> call settling it as an ordinary mutable holder).</summary>
+    public bool HasStaticFieldDecision(FieldDefinition field) => _staticFields.ContainsKey(field);
+
+    /// <summary>Fold a readonly SCALAR static field to a ROM global carrying its compile-time-constant
+    /// value — <paramref name="romGlobal"/>'s own <see cref="IrGlobal.Initializer"/> already holds the
+    /// bytes; Ldsfld for this field becomes an ordinary <c>Load</c> off it (no alias — the field still
+    /// has real, if read-only, storage).</summary>
+    public void RegisterFoldedStatic(FieldDefinition field, IrGlobal romGlobal) =>
+        _staticFields[field] = romGlobal;
+
+    /// <summary>Alias a static ARRAY field straight onto <paramref name="arrayGlobal"/> — the field has
+    /// no separate holder; the global's own address IS the field's value (Ldsfld/Ldsflda push
+    /// <c>GlobalRef</c> directly). Used both for a readonly array literal (ROM, content-initialized)
+    /// and a fixed-size array with no literal content (ROM if readonly, else WRAM, zero-initialized by
+    /// the backend's unconditional boot-only WRAM clear — see CSharpFrontend's own static-array
+    /// remarks).</summary>
+    public void RegisterFoldedStaticArray(
+        FieldDefinition field,
+        IrGlobal arrayGlobal,
+        IrType elemType,
+        bool elemSigned,
+        int count
+    )
+    {
+        _staticFields[field] = arrayGlobal;
+        _staticFieldIsAlias.Add(field);
+        _staticArrayInfo[field] = (elemType, elemSigned, count);
+    }
+
+    public bool IsStaticFieldAlias(FieldDefinition field) => _staticFieldIsAlias.Contains(field);
+
+    public bool TryGetStaticArrayInfo(
+        FieldDefinition field,
+        out (IrType ElemType, bool Signed, int Count) info
+    ) => _staticArrayInfo.TryGetValue(field, out info);
+
+    /// <summary>The global backing <paramref name="field"/>, creating an ordinary mutable WRAM holder
+    /// the first time anything references an undecided field (see the class's remarks on why this is
+    /// safe with no pre-pass: only a readonly field's ROM/alias placement needs settling ahead of time,
+    /// and every one of those is already in the table by the time any method body lowers).</summary>
+    public IrGlobal EnsureStaticGlobal(FieldDefinition field)
+    {
+        if (_staticFields.TryGetValue(field, out var g))
+            return g;
+        var (irType, _) = CilTypeMapper.Map(field.FieldType);
+        g = new IrGlobal($"{field.DeclaringType.FullName}.{field.Name}", irType, AddressSpace.Wram);
+        Module.Globals.Add(g);
+        _staticFields[field] = g;
+        return g;
+    }
+
+    public void RegisterElidedCctorInstructions(
+        MethodDefinition cctor,
+        HashSet<Instruction> elided
+    ) => _elidedCctorInstructions[cctor] = elided;
+
+    public IReadOnlySet<Instruction> ElidedInstructionsFor(MethodDefinition method) =>
+        _elidedCctorInstructions.TryGetValue(method, out var set) ? set : EmptyElidedSet;
 
     // One monomorphized generic-method instance per (open-generic template, mangled type-argument
     // suffix) — see CilMethodLowerer.Generics.cs. Keyed by suffix rather than by the concrete

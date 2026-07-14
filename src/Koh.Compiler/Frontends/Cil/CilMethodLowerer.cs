@@ -158,10 +158,11 @@ internal static class CilModuleLowerer
                 continue;
             foreach (var method in type.Methods)
             {
-                // Static, has-a-body methods only, eagerly. Constructors (.ctor/.cctor — a static
-                // field initializer emits a .cctor that is IsStatic && HasBody) are excluded here:
-                // static-field initialization is out of scope, and an INSTANCE .ctor is reached (when
-                // needed at all) via a resolved `newobj`, on demand. An open generic method
+                // Static, has-a-body methods only, eagerly. A constructor is excluded here: an instance
+                // .ctor is reached (when needed at all) via a resolved `newobj`, on demand; a static
+                // constructor (.cctor — a static field initializer emits one that is IsStatic &&
+                // HasBody) is lowered separately, in its own eager pass below (see
+                // CilMethodLowerer.Statics.cs), before this list's own bodies. An open generic method
                 // (HasGenericParameters) is a TEMPLATE, never lowered directly — its own body still
                 // names its type parameter as '!!0' off raw Cecil metadata, which CilTypeMapper.Map
                 // now rejects outright (see its ContainsGenericParameter guard). It is only ever
@@ -178,6 +179,13 @@ internal static class CilModuleLowerer
             }
         }
 
+        // Pass 0: a pure-metadata pre-pass over every type's '.cctor', deciding each static field's
+        // storage (ROM-folded constant, ROM/WRAM array alias, or an ordinary mutable WRAM holder) BEFORE
+        // anything lowers a method body — see CilMethodLowerer.Statics.cs's class remarks for why this
+        // must run first (a readonly field's classification would otherwise race whichever method
+        // happens to reference it first, including another type's own '.cctor').
+        CilStaticFieldSupport.Collect(cecilModule, ctx);
+
         // Pass 1: signatures, so calls resolve regardless of declaration order (mirrors
         // CSharpFrontend). A per-method failure here (an unsupported parameter/return type) reports a
         // diagnostic and leaves that method out of FunctionsByMethod — its body pass is skipped below.
@@ -189,9 +197,39 @@ internal static class CilModuleLowerer
         // A non-delegate `newobj` anywhere in the assembly (today: only a display-class capture
         // allocation) needs the shared bump-pointer heap global, seeded at the entry's prologue —
         // exactly CSharpFrontend's Pass-0.6 gate (CSharpFrontend.cs UsesHeap/ObjectCreationExpression
-        // check), done here on raw IL instead of syntax since this frontend has no syntax tree.
+        // check), done here on raw IL instead of syntax since this frontend has no syntax tree. Scans
+        // EVERY method's body, including a '.cctor' (Pass 0's idiom-matched instructions are elided at
+        // LOWERING time, not here, so an un-elided 'newarr' inside a static constructor — e.g. a
+        // non-constant-sized array — still needs the heap this scan provisions).
         if (NeedsHeap(cecilModule))
             ctx.EnsureHeapGlobal();
+
+        // Pass 1.5: every HAND-WRITTEN type's static constructor, eagerly and BEFORE any other body —
+        // an ordinary method (including the entry) may reference a static field that only Pass 0
+        // classified but a '.cctor' body lowering is what actually EXECUTES the corresponding store;
+        // lowering every '.cctor' now means CctorFunctions is complete by the time the entry's own
+        // Run() needs to call each of them from its prologue (see CilMethodLowerer.Run's isEntry
+        // cctor-call block). A compiler-generated type's own '.cctor' (a name starting with '<' — no
+        // hand-written type can be named that: `<>c`'s no-capture-lambda-cache singleton, an iterator/
+        // display-class's declaring type, `<PrivateImplementationDetails>`) is skipped: it exists only
+        // to build a cache field (`<>9`) that this frontend's own delegate-cache-idiom interception
+        // (CilMethodLowerer.Delegates.cs) never actually reads — calling it would resurrect a heap
+        // allocation and a write-only global into every lambda-bearing ROM for no observable effect.
+        foreach (var type in cecilModule.GetTypes())
+        {
+            if (type.Name.StartsWith('<'))
+                continue;
+            var cctor = type.Methods.FirstOrDefault(m =>
+                m.IsConstructor && m.IsStatic && m.HasBody
+            );
+            if (cctor is null)
+                continue;
+            var cctorFn = ctx.EnsureSignature(cctor);
+            if (cctorFn is null)
+                continue;
+            ctx.LowerBody(cctor, cctorFn, isEntry: false);
+            ctx.CctorFunctions.Add(cctorFn);
+        }
 
         // Pass 2: bodies. Report per-method so one bad method doesn't sink the whole compile.
         foreach (var method in methods)
@@ -224,12 +262,14 @@ internal static class CilModuleLowerer
                 continue;
             foreach (var method in type.Methods)
             {
-                // A static constructor (`.cctor`) is never lowered by this frontend (excluded from
-                // the eager sweep the same as any other constructor, and never reached on demand — a
-                // no-capture lambda's cache idiom is intercepted entirely, so the `<>c` singleton
-                // `.cctor` that would `newobj <>c::.ctor()` to build it is dead code from this
-                // frontend's perspective) — skip it so it can't false-positive NeedsHeap.
-                if (!method.HasBody || (method.IsConstructor && method.IsStatic))
+                // A static constructor ('.cctor') IS scanned here (unlike the eager ordinary-method
+                // sweep, which lowers it separately — see CilMethodLowerer.Statics.cs): its
+                // idiom-matched instructions are elided at LOWERING time, not here, so a 'newarr' that
+                // Pass 0 could NOT fold away (e.g. a non-constant-sized array) still needs the heap this
+                // scan provisions. A '.cctor' whose every 'newarr' WAS folded away costs nothing extra
+                // beyond an unused heap-pointer global — a harmless over-approximation, not a
+                // correctness issue.
+                if (!method.HasBody)
                     continue;
                 foreach (var instr in method.Body.Instructions)
                 {
@@ -395,6 +435,12 @@ internal sealed partial class CilMethodLowerer
             );
 
         DetectDelegateCacheIdioms();
+        // A static constructor's own idiom-matched instructions (see CilMethodLowerer.Statics.cs's
+        // CilStaticFieldSupport.Collect, run once for the whole module before any body lowers) are
+        // seeded here — exactly like DetectDelegateCacheIdioms' own idiom, they collapse to nothing at
+        // runtime (a no-op on this method for anything that isn't itself a '.cctor').
+        foreach (var elided in _ctx.ElidedInstructionsFor(_method))
+            _suppressed.Add(elided);
         PrepareExceptionHandlers();
 
         // Every leader gets its own block, created up front and in program order — the first leader
@@ -431,6 +477,14 @@ internal sealed partial class CilMethodLowerer
                 IrBuilder.ConstInt(IrType.I16, CilLoweringContext.HeapTop),
                 IrBuilder.GlobalRef(heap)
             );
+
+        // The entry function alone runs every type's static constructor, once, before its own body —
+        // mirrors CSharpFrontend's staticInits, emitted at the top of Main, but as a real call (a CIL
+        // '.cctor' can contain arbitrary lowerable IL, not just a flat constant-store list) — see
+        // CilMethodLowerer.Statics.cs.
+        if (_isEntry)
+            foreach (var cctorFn in _ctx.CctorFunctions)
+                _b.Call(cctorFn, []);
 
         var stack = new List<IrValue>();
 
@@ -1221,6 +1275,27 @@ internal sealed partial class CilMethodLowerer
             case Code.Ldnull:
                 stack.Add(IrBuilder.ConstInt(IrType.Pointer(IrType.I8), 0));
                 break;
+
+            // ---- Static fields (see CilMethodLowerer.Statics.cs) ------------------------------
+            case Code.Ldsfld:
+            {
+                var field = ResolveStaticField((FieldReference)instr.Operand);
+                stack.Add(LoadStaticField(field));
+                break;
+            }
+            case Code.Ldsflda:
+            {
+                var field = ResolveStaticField((FieldReference)instr.Operand);
+                stack.Add(StaticFieldAddress(field));
+                break;
+            }
+            case Code.Stsfld:
+            {
+                var field = ResolveStaticField((FieldReference)instr.Operand);
+                var value = Pop(stack);
+                StoreStaticField(field, value);
+                break;
+            }
 
             // ---- Value types (see CilMethodLowerer.Structs.cs) ---------------------------------
             case Code.Ldobj:
