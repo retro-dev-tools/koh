@@ -24,11 +24,33 @@ internal sealed class CilLoweringContext
     public IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> Intrinsics { get; }
     public Dictionary<MethodDefinition, IrFunction> FunctionsByMethod { get; } = new();
 
+    /// <summary>The game's own module — everything else a call resolves into (Koh.GameBoy's Hal,
+    /// <c>Mem.Copy</c>/<c>Fill</c>, …) is a REFERENCED assembly (see
+    /// <see cref="IsFromReferencedAssembly"/>/the on-demand-lowering task, docs/superpowers/specs/
+    /// 2026-07-14-cil-frontend-design.md, task 2).</summary>
+    public ModuleDefinition GameModule { get; }
+
     private readonly Dictionary<int, IrGlobal> _registerGlobals = new();
     private readonly Dictionary<int, IrGlobal> _regionGlobals = new();
     private readonly Dictionary<TypeDefinition, CilClassLayout> _classLayouts = new();
     private readonly HashSet<MethodDefinition> _inProgress = new();
     private IrGlobal? _heapGlobal;
+
+    // Every IrFunction whose MethodDefinition's module is NOT GameModule — i.e. lowered on demand from
+    // a referenced (non-BCL) assembly. Populated as EnsureSignature/BuildGenericSignature create each
+    // function, so it stays complete regardless of which pass (eager game-module sweep, or an on-demand
+    // call-site resolution) created a given entry. Used only to scope
+    // IrOptimizer.RemoveUnreachableFunctions' pruning — the game module's own dead code is deliberately
+    // left alone here (see CilModuleLowerer.Lower's remarks).
+    private readonly HashSet<IrFunction> _referencedAssemblyFunctions = new(
+        ReferenceEqualityComparer.Instance
+    );
+
+    /// <summary>Whether <paramref name="function"/> came from a referenced assembly rather than the
+    /// game's own module — the pruning predicate <see cref="CilModuleLowerer.Lower"/> passes to
+    /// <c>IrOptimizer.RemoveUnreachableFunctions</c>.</summary>
+    public bool IsFromReferencedAssembly(IrFunction function) =>
+        _referencedAssemblyFunctions.Contains(function);
 
     // ---- Static fields (see CilMethodLowerer.Statics.cs and the statics task in
     // docs/superpowers/specs/2026-07-14-cil-frontend-design.md) ------------------------------------
@@ -158,12 +180,14 @@ internal sealed class CilLoweringContext
     public CilLoweringContext(
         IrModule module,
         DiagnosticBag diagnostics,
-        IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> intrinsics
+        IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> intrinsics,
+        ModuleDefinition gameModule
     )
     {
         Module = module;
         Diagnostics = diagnostics;
         Intrinsics = intrinsics;
+        GameModule = gameModule;
     }
 
     public IrGlobal RegisterGlobal(int address)
@@ -260,6 +284,8 @@ internal sealed class CilLoweringContext
             );
             Module.Functions.Add(fn);
             FunctionsByMethod[method] = fn;
+            if (!ReferenceEquals(method.Module, GameModule))
+                _referencedAssemblyFunctions.Add(fn);
             return fn;
         }
         catch (CilNotSupportedException ex)
@@ -379,6 +405,8 @@ internal sealed class CilLoweringContext
             parameters
         );
         Module.Functions.Add(fn);
+        if (!ReferenceEquals(template.Module, GameModule))
+            _referencedAssemblyFunctions.Add(fn);
         return fn;
     }
 
@@ -392,6 +420,23 @@ internal sealed class CilLoweringContext
     /// current subset (no recursive closures), but guarded rather than assumed away.</summary>
     public IrFunction? EnsureLowered(MethodDefinition method)
     {
+        // Defense-in-depth for the same invariant CilMethodLowerer.LowerCall's referenced-assembly
+        // branch already enforces with its own, call-site-specific message (see its remarks): the BCL
+        // is never lowered, from ANY on-demand path (instance call, delegate target, constructor) — not
+        // just the static-call path the referenced-assembly task opens up. Checked BEFORE EnsureSignature
+        // so a BCL method never gets a dangling signature-only stub in FunctionsByMethod either.
+        if (CilModuleLowerer.IsBclMethod(method))
+        {
+            Diagnostics.Report(
+                default,
+                $"'{method.FullName}' is a Base Class Library method; the CIL frontend cannot lower "
+                    + "BCL IL (only [KohIntrinsic] members and code from a referenced non-BCL assembly "
+                    + "are supported).",
+                DiagnosticSeverity.Error,
+                Module.Name
+            );
+            return null;
+        }
         var fn = EnsureSignature(method);
         if (fn is null)
             return null;

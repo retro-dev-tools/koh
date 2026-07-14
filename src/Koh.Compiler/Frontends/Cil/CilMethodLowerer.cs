@@ -149,7 +149,7 @@ internal static class CilModuleLowerer
     )
     {
         var intrinsics = CilIntrinsicIndex.Build(cecilModule);
-        var ctx = new CilLoweringContext(module, diagnostics, intrinsics);
+        var ctx = new CilLoweringContext(module, diagnostics, intrinsics, cecilModule);
         var methods = new List<MethodDefinition>();
 
         foreach (var type in cecilModule.GetTypes())
@@ -247,6 +247,23 @@ internal static class CilModuleLowerer
             && ctx.FunctionsByMethod.TryGetValue(entryMethod, out var entryFn)
         )
             entryFn.IsEntry = true;
+
+        // Prune framework functions lowered on demand (see the referenced-assembly task, docs/
+        // superpowers/specs/2026-07-14-cil-frontend-design.md, task 2) that turn out not to be
+        // reachable from the entry/an interrupt handler through the call graph — mirrors
+        // CSharpFrontend's own softfloat-runtime pruning (CSharpFrontend.IsAppendedRuntimeFunction),
+        // generalized from a name-prefix predicate to module identity: a function is only a pruning
+        // CANDIDATE when its MethodDefinition's module is not the game's own (ctx.IsFromReferencedAssembly)
+        // — the game module's own dead code is left alone here, same as CSharpFrontend leaves it to
+        // later passes/diagnostics rather than this eager sweep. In practice on-demand lowering already
+        // means a never-called framework method is never even added to the module, so this mostly
+        // covers the case where a call site itself is later found unreachable; this call runs
+        // unconditionally, before the optimizer, so a game pays only for the framework code it calls
+        // even when run without IrOptimizer.Optimize.
+        Ir.Optimization.IrOptimizer.RemoveUnreachableFunctions(
+            module,
+            ctx.IsFromReferencedAssembly
+        );
     }
 
     /// <summary>True if any method body in the assembly (hand-written or compiler-generated —
@@ -294,6 +311,26 @@ internal static class CilModuleLowerer
     /// instantiable delegate type — that is MulticastDelegate's own base, one level further up).</summary>
     internal static bool IsDelegateType(TypeDefinition type) =>
         type.BaseType?.FullName == "System.MulticastDelegate";
+
+    /// <summary>True when <paramref name="method"/> lives in the Base Class Library — the one category
+    /// of referenced code the on-demand lowering task (docs/superpowers/specs/2026-07-14-cil-frontend-
+    /// design.md, task 2) explicitly keeps off-limits: a BCL method's IL is not written for this
+    /// frontend's opcode subset (the LINQ spike is why LINQ itself is intercepted at the call site
+    /// rather than lowered), so attempting to lower one would cascade into an opaque, unpredictable
+    /// diagnostic deep in framework internals no user code could ever reach anyway, rather than a clean
+    /// one at the actual call site. Identified by assembly name — <c>Koh.Compiler</c> has no reference
+    /// to any BCL assembly to check identity against (same constraint as <see cref="CilIntrinsicIndex"/>'s
+    /// simple-name attribute match) — covering both the modern (<c>System.Private.CoreLib</c> plus the
+    /// <c>System.*</c>/<c>Microsoft.*</c> facade assemblies a multi-assembly BCL splits into) and legacy
+    /// (<c>mscorlib</c>, <c>netstandard</c>) naming. <c>Koh.GameBoy</c> and a game's own assembly never
+    /// match this.</summary>
+    internal static bool IsBclMethod(MethodDefinition method)
+    {
+        var name = method.Module.Assembly.Name.Name;
+        return name is "System.Private.CoreLib" or "mscorlib" or "netstandard"
+            || name.StartsWith("System.", StringComparison.Ordinal)
+            || name.StartsWith("Microsoft.", StringComparison.Ordinal);
+    }
 
     internal static TypeDefinition? ResolveSafe(TypeReference typeReference)
     {
@@ -1569,35 +1606,52 @@ internal sealed partial class CilMethodLowerer
             return;
         }
 
-        if (_ctx.FunctionsByMethod.TryGetValue(def, out var callee))
+        if (!_ctx.FunctionsByMethod.TryGetValue(def, out var callee))
         {
-            // The stack's own widen-narrow-to-i32 discipline (see class remarks) means an argument
-            // narrower than i32 arrives here already widened; narrow it back to the callee's declared
-            // parameter type (e.g. i8 for a byte parameter) before the call, matching what stloc/starg
-            // do for locals/arguments and what the real CLR calling convention truncates on entry. A
-            // byval struct argument additionally gets its own independent copy here — see
-            // CilMethodLowerer.Structs.cs's PrepareArg.
-            for (var i = 0; i < args.Length; i++)
-                args[i] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i].Type);
-            var call = _b.Call(callee, args);
-            if (callee.ReturnType.Kind != IrTypeKind.Void)
-            {
-                var result = WidenToStack(call, IsSignedReturn(def));
-                // Thread this static call's callee-inferred concrete return type (see
-                // CilLoweringContext.GetConcreteReturnType) onto the pushed result, so a subsequent
-                // callvirt through an interface-typed result (the iterator kickoff's own shape) can
-                // devirtualize — see CilMethodLowerer.Iterators.cs.
-                if (_ctx.GetConcreteReturnType(def) is { } concreteType)
-                    _pendingConcreteType[result] = concreteType;
-                stack.Add(result);
-            }
-            return;
+            // A static method reached for the first time: either a game-module method this eager
+            // sweep hasn't seen yet (shouldn't happen — Pass 1 signs every one up front — but handled
+            // uniformly rather than assumed), or — the point of the referenced-assembly task (see
+            // docs/superpowers/specs/2026-07-14-cil-frontend-design.md, task 2) — a method from a
+            // REFERENCED assembly (Koh.GameBoy's Hal, Mem.Copy/Fill, …): lower it on demand,
+            // transitively, exactly like CilLoweringContext.EnsureLowered already does for an instance
+            // call/delegate target/constructor. The BCL is excluded explicitly (with its own message,
+            // rather than falling into EnsureLowered's own diagnostic) so this, the one call shape that
+            // newly reaches arbitrary referenced code, never attempts to lower unlowerable framework
+            // internals no user code could ever reach anyway (the LINQ spike proved why: a BCL method's
+            // IL is not written for this frontend's opcode subset).
+            if (CilModuleLowerer.IsBclMethod(def))
+                throw new CilNotSupportedException(
+                    $"call to unsupported BCL method '{def.FullName}' (the CIL frontend cannot lower "
+                        + "Base Class Library IL; only [KohIntrinsic] members, game-module static "
+                        + "methods, and code from a referenced non-BCL assembly are supported)."
+                );
+            callee =
+                _ctx.EnsureLowered(def)
+                ?? throw new CilNotSupportedException(
+                    $"cannot lower referenced method '{def.FullName}'."
+                );
         }
 
-        throw new CilNotSupportedException(
-            $"call to unsupported external method '{def.FullName}' (phase 1: only "
-                + "[KohIntrinsic] members and other game-module static methods are supported)."
-        );
+        // The stack's own widen-narrow-to-i32 discipline (see class remarks) means an argument
+        // narrower than i32 arrives here already widened; narrow it back to the callee's declared
+        // parameter type (e.g. i8 for a byte parameter) before the call, matching what stloc/starg
+        // do for locals/arguments and what the real CLR calling convention truncates on entry. A
+        // byval struct argument additionally gets its own independent copy here — see
+        // CilMethodLowerer.Structs.cs's PrepareArg.
+        for (var i = 0; i < args.Length; i++)
+            args[i] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i].Type);
+        var call = _b.Call(callee, args);
+        if (callee.ReturnType.Kind != IrTypeKind.Void)
+        {
+            var result = WidenToStack(call, IsSignedReturn(def));
+            // Thread this static call's callee-inferred concrete return type (see
+            // CilLoweringContext.GetConcreteReturnType) onto the pushed result, so a subsequent
+            // callvirt through an interface-typed result (the iterator kickoff's own shape) can
+            // devirtualize — see CilMethodLowerer.Iterators.cs.
+            if (_ctx.GetConcreteReturnType(def) is { } concreteType)
+                _pendingConcreteType[result] = concreteType;
+            stack.Add(result);
+        }
     }
 
     private static bool IsSignedReturn(MethodDefinition def) =>
