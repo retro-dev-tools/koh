@@ -1,5 +1,6 @@
 using Koh.Compiler.Ir;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace Koh.Compiler.Frontends.Cil;
 
@@ -156,14 +157,66 @@ internal sealed partial class CilMethodLowerer
             return false;
         var b = Pop(stack);
         var a = Pop(stack);
-        var prefix = Prefix(width);
-        var isNanA = CallRuntime(prefix + "isNan", a);
-        var isNanB = CallRuntime(prefix + "isNan", b);
-        var ordered = CallRuntime(prefix + (greaterThan ? "gt" : "lt"), a, b);
-        var anyNan = _b.Binary(IrBinaryOp.Or, isNanA, isNanB);
-        var combined = _b.Binary(IrBinaryOp.Or, anyNan, ordered);
+        var combined = UnorderedOr(Prefix(width), greaterThan ? "gt" : "lt", a, b);
         stack.Add(_b.Conv(IrConvOp.ZExt, combined, IrType.I32));
         return true;
+    }
+
+    /// <summary><c>isNan(a) | isNan(b) | [KohRuntime(prefix + orderedKey)](a, b)</c> — the composition
+    /// both <see cref="TryFloatCompareUnOp"/> (value-producing <c>clt.un</c>/<c>cgt.un</c>) and
+    /// <see cref="TryFloatBranchCondition"/> (branch-position <c>blt.un</c>/<c>ble.un</c>/<c>bgt.un</c>/
+    /// <c>bge.un</c>) share for an "unordered-or-compare" float predicate — see their own remarks.</summary>
+    private IrValue UnorderedOr(string prefix, string orderedKey, IrValue a, IrValue b)
+    {
+        var isNanA = CallRuntime(prefix + "isNan", a);
+        var isNanB = CallRuntime(prefix + "isNan", b);
+        var ordered = CallRuntime(prefix + orderedKey, a, b);
+        var anyNan = _b.Binary(IrBinaryOp.Or, isNanA, isNanB);
+        return _b.Binary(IrBinaryOp.Or, anyNan, ordered);
+    }
+
+    /// <summary>Float-tagged sibling of the ordinary int/pointer branch-compare path (<c>beq</c>/
+    /// <c>bne.un</c>/<c>blt</c>/<c>ble</c>/<c>bgt</c>/<c>bge</c> and their <c>.un</c> forms, in
+    /// <c>CilMethodLowerer.cs</c>'s <c>Simulate</c>) — used directly as <c>CondBr</c>'s boolean condition
+    /// (no i32 widening: unlike the value-producing compare opcodes, a branch condition never goes back
+    /// onto the CIL stack). Roslyn compiles a float relational used AS a branch condition (an `if`/
+    /// `while`/`for` test, or a `?:`'s condition) directly to one of these fused branch-compare opcodes —
+    /// never to a `clt`/`cgt`/`ceq` followed by `brtrue`/`brfalse` — so this is a genuinely separate
+    /// interception point from <see cref="TryFloatCompareOp"/>/<see cref="TryFloatCompareUnOp"/>, not
+    /// just a call-site convenience.
+    ///
+    /// <c>beq</c>/<c>bne.un</c> need no separate unordered composition: <c>Koh.GameBoy.SoftFloat</c>'s
+    /// <c>Cmp</c> routine already reports NaN as its own distinct "unordered" outcome (neither equal,
+    /// less, nor greater), so <c>"eq"</c> is already false and <c>"ne"</c> already true whenever either
+    /// operand is NaN — exactly <c>beq</c>'s/<c>bne.un</c>'s own required semantics, with no extra
+    /// <c>isNan</c> check needed. Returns null (do the ordinary int/pointer path) when neither operand is
+    /// float-tagged.</summary>
+    private IrValue? TryFloatBranchCondition(List<IrValue> stack, Code code)
+    {
+        if (stack.Count < 2)
+            return null;
+        var kind = FloatKindOf(stack[^2]) ?? FloatKindOf(stack[^1]);
+        if (kind is not { } width)
+            return null;
+        var b = Pop(stack);
+        var a = Pop(stack);
+        var prefix = Prefix(width);
+        return code switch
+        {
+            Code.Beq or Code.Beq_S => CallRuntime(prefix + "eq", a, b),
+            Code.Bne_Un or Code.Bne_Un_S => CallRuntime(prefix + "ne", a, b),
+            Code.Blt or Code.Blt_S => CallRuntime(prefix + "lt", a, b),
+            Code.Ble or Code.Ble_S => CallRuntime(prefix + "le", a, b),
+            Code.Bgt or Code.Bgt_S => CallRuntime(prefix + "gt", a, b),
+            Code.Bge or Code.Bge_S => CallRuntime(prefix + "ge", a, b),
+            Code.Blt_Un or Code.Blt_Un_S => UnorderedOr(prefix, "lt", a, b),
+            Code.Ble_Un or Code.Ble_Un_S => UnorderedOr(prefix, "le", a, b),
+            Code.Bgt_Un or Code.Bgt_Un_S => UnorderedOr(prefix, "gt", a, b),
+            Code.Bge_Un or Code.Bge_Un_S => UnorderedOr(prefix, "ge", a, b),
+            _ => throw new InvalidOperationException(
+                $"'{code}' is not a float-tagged branch-compare opcode."
+            ),
+        };
     }
 
     /// <summary><c>conv.r4</c>/<c>conv.r8</c>: pop, convert to <paramref name="target"/> width, tag,
@@ -201,10 +254,16 @@ internal sealed partial class CilMethodLowerer
     {
         if (v.Type.Bits > 32)
             return CallRuntime("i64.toF64", CoerceStore(v, IrType.I64));
-        // int32 -> float64: no direct "i32.toF64" key: compose through float32 (exact here — float32
-        // fully round-trips through float64 with no precision loss, unlike the i64->f32 case above).
-        var asF32 = CallRuntime("i32.toF32", CoerceStore(v, IrType.I32));
-        return CallRuntime("f32.toF64", asF32);
+        // int32 -> float64: no direct "i32.toF64" key. Composing through float32 first ("i32.toF32"
+        // then "f32.toF64") would DOUBLE-ROUND — float32's 24-bit mantissa already loses precision on
+        // any |value| >= 2^24 (e.g. 16777217 -> 16777216.0f), before the widen to float64 ever runs, so
+        // the final result would be wrong for an utterly ordinary finite int32 well inside this port's
+        // pinned-correct domain. Sign-extending to int64 first and going through "i64.toF64" is a SINGLE
+        // rounding step and exact for every int32 (every int32, sign-extended, is far inside int64's/
+        // float64's exactly-representable range) — unlike ConvertIntToF32's genuinely-unavoidable
+        // int64->float32 double-rounding (no "i64.toF32" key exists to sidestep it there).
+        var asI64 = _b.Conv(IrConvOp.SExt, CoerceStore(v, IrType.I32), IrType.I64);
+        return CallRuntime("i64.toF64", asI64);
     }
 
     /// <summary>If <paramref name="v"/> is float-tagged, convert it to an ORDINARY (untagged) int of
@@ -249,15 +308,18 @@ internal sealed partial class CilMethodLowerer
     /// precision (real CLR semantics: the "F" stack type this opcode produces is unspecified/native
     /// precision, always subsequently narrowed by an explicit <c>conv.r4</c> when the source expression
     /// wants float32 — see <see cref="ConvertToFloat"/>'s own same-width/different-width handling, which
-    /// then does that narrowing when a <c>conv.r4</c> follows). No direct <c>"u32.toF64"</c> key: compose
-    /// through float32 (exact — see <see cref="ConvertIntToF64"/>'s remarks on the u32/i32 case).</summary>
+    /// then does that narrowing when a <c>conv.r4</c> follows). No direct <c>"u32.toF64"</c> key: zero-
+    /// extend to int64 first and use <c>"u64.toF64"</c> — a SINGLE rounding step, exact for every uint32
+    /// (see <see cref="ConvertIntToF64"/>'s matching remarks on why composing through float32 instead
+    /// would double-round and be wrong for any magnitude >= 2^24).</summary>
     private void LowerConvRUn(List<IrValue> stack)
     {
         var v = Pop(stack);
-        var result =
+        var asI64 =
             v.Type.Bits > 32
-                ? CallRuntime("u64.toF64", CoerceStore(v, IrType.I64))
-                : CallRuntime("f32.toF64", CallRuntime("u32.toF32", CoerceStore(v, IrType.I32)));
+                ? CoerceStore(v, IrType.I64)
+                : _b.Conv(IrConvOp.ZExt, CoerceStore(v, IrType.I32), IrType.I64);
+        var result = CallRuntime("u64.toF64", asI64);
         TagFloat(result, FloatWidth.F64);
         stack.Add(result);
     }

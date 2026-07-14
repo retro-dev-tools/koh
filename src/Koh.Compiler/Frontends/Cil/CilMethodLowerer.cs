@@ -1366,25 +1366,35 @@ internal sealed partial class CilMethodLowerer
             case Code.Bge_Un:
             case Code.Bge_Un_S:
             {
-                var b = AsComparable(Pop(stack));
-                var a = AsComparable(Pop(stack));
-                if (!a.Type.StructurallyEquals(b.Type))
-                    b = CoerceStore(b, a.Type);
-                var predicate = code switch
+                // A float-tagged operand routes through SoftFloat instead (see
+                // CilMethodLowerer.Floats.cs's TryFloatBranchCondition) — Roslyn compiles a float
+                // relational used directly as a branch condition (`if (a < b)`, `a < b ? x : y`, …) to
+                // exactly these fused branch-compare opcodes, never to a `clt`/`cgt`/`ceq` followed by
+                // `brtrue`/`brfalse`, so this path needs its own float routing distinct from
+                // TryFloatCompareOp/TryFloatCompareUnOp's (value-producing) one.
+                var cmp = TryFloatBranchCondition(stack, code);
+                if (cmp is null)
                 {
-                    Code.Beq or Code.Beq_S => IrCompareOp.Eq,
-                    Code.Bne_Un or Code.Bne_Un_S => IrCompareOp.Ne,
-                    Code.Blt or Code.Blt_S => IrCompareOp.Slt,
-                    Code.Blt_Un or Code.Blt_Un_S => IrCompareOp.Ult,
-                    Code.Ble or Code.Ble_S => IrCompareOp.Sle,
-                    Code.Ble_Un or Code.Ble_Un_S => IrCompareOp.Ule,
-                    Code.Bgt or Code.Bgt_S => IrCompareOp.Sgt,
-                    Code.Bgt_Un or Code.Bgt_Un_S => IrCompareOp.Ugt,
-                    Code.Bge or Code.Bge_S => IrCompareOp.Sge,
-                    Code.Bge_Un or Code.Bge_Un_S => IrCompareOp.Uge,
-                    _ => throw new InvalidOperationException(),
-                };
-                var cmp = _b.Compare(predicate, a, b);
+                    var b = AsComparable(Pop(stack));
+                    var a = AsComparable(Pop(stack));
+                    if (!a.Type.StructurallyEquals(b.Type))
+                        b = CoerceStore(b, a.Type);
+                    var predicate = code switch
+                    {
+                        Code.Beq or Code.Beq_S => IrCompareOp.Eq,
+                        Code.Bne_Un or Code.Bne_Un_S => IrCompareOp.Ne,
+                        Code.Blt or Code.Blt_S => IrCompareOp.Slt,
+                        Code.Blt_Un or Code.Blt_Un_S => IrCompareOp.Ult,
+                        Code.Ble or Code.Ble_S => IrCompareOp.Sle,
+                        Code.Ble_Un or Code.Ble_Un_S => IrCompareOp.Ule,
+                        Code.Bgt or Code.Bgt_S => IrCompareOp.Sgt,
+                        Code.Bgt_Un or Code.Bgt_Un_S => IrCompareOp.Ugt,
+                        Code.Bge or Code.Bge_S => IrCompareOp.Sge,
+                        Code.Bge_Un or Code.Bge_Un_S => IrCompareOp.Uge,
+                        _ => throw new InvalidOperationException(),
+                    };
+                    cmp = _b.Compare(predicate, a, b);
+                }
                 var target = _blockOf[(Instruction)instr.Operand];
                 var fallThrough = _blockOf[instr.Next!];
                 Deliver(stack, target);

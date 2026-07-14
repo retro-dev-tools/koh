@@ -299,6 +299,152 @@ public class CilFloatTests
     }
 
     // ============================================================================================
+    // A float relational used DIRECTLY as a branch condition (`if (a < b)`) — Roslyn compiles this to
+    // a fused branch-compare opcode (`blt`/`ble`/`bgt`/`bge`/`beq`/`bne.un` and their `.un` forms), NOT
+    // to `clt`/`cgt`/`ceq` followed by `brtrue`/`brfalse` — a genuinely separate interception point
+    // from F32_Compare_MatchesHost above (see CilMethodLowerer.Floats.cs's TryFloatBranchCondition).
+    // Negative operands are deliberately included: comparing the raw IEEE bit patterns as ordinary
+    // SIGNED integers (the bug this exercises) gets a negative-vs-negative comparison backwards.
+    // ============================================================================================
+
+    [Test]
+    [Arguments("<", 1.5f, 2.0f)]
+    [Arguments("<", 2.0f, 1.5f)]
+    [Arguments("<", -1.0f, -2.0f)] // negatives: integer-bits comparison would get this backwards
+    [Arguments("<", -2.0f, -1.0f)]
+    [Arguments(">=", -1.0f, -1.0f)]
+    [Arguments("==", 0.1f, 0.1f)]
+    [Arguments("!=", -0.5f, -0.5f)]
+    public async Task F32_CompareInBranchPosition_MatchesHost(string op, float x, float y)
+    {
+        bool expected = op switch
+        {
+            "<" => x < y,
+            ">=" => x >= y,
+            "==" => x == y,
+            "!=" => x != y,
+            _ => throw new ArgumentException(op),
+        };
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public class Program
+            {
+                public static void Main()
+                {
+                    float a = {{LitF32(x)}};
+                    float b = {{LitF32(y)}};
+                    int result;
+                    if (a {{op}} b)
+                        result = 1;
+                    else
+                        result = 0;
+                    Hardware.SCX = (byte)(result == {{(expected ? 1 : 0)}} ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    // ============================================================================================
+    // `a < b ? a : b` (a "min" idiom): the float relational feeds a `?:`'s condition (branch position
+    // again) AND its two arms join at a control-flow spill/reload (see CilMethodLowerer.cs's Deliver/
+    // EntryStack and _spillFloatKind) — the result must still be routable through more float arithmetic
+    // (here, just read back), not silently lose its float tag across the join.
+    // ============================================================================================
+
+    [Test]
+    [Arguments(1.5f, 2.5f)]
+    [Arguments(2.5f, 1.5f)]
+    [Arguments(-1.0f, -2.0f)] // negatives: also exercises the branch-compare fix above
+    public async Task F32_TernaryMin_MatchesHost(float x, float y)
+    {
+        // The join result feeds MORE float arithmetic (`+ 1.0f`), not just a bit readback — a reload
+        // that silently lost its float tag (see _spillFloatKind's remarks) would route this `+` through
+        // the ordinary int path instead of SoftFloat, giving a wrong answer this catches.
+        float expected = (x < y ? x : y) + 1.0f;
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    float a = {{LitF32(x)}};
+                    float b = {{LitF32(y)}};
+                    float m = (a < b ? a : b) + 1.0f;
+                    uint bits = *(uint*)&m;
+                    Hardware.SCX = (byte)(bits == {{HexU32(
+                BitConverter.SingleToUInt32Bits(expected)
+            )}}u ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    // ============================================================================================
+    // Unary `neg`: TryFloatNeg routes to "f32.neg"/"f64.neg". Negating a LOCAL (not a literal
+    // constant, which Roslyn would just constant-fold to a different `ldc.r4`) is required to actually
+    // emit a `neg` opcode in Debug IL — mirrors F32_Add_RoutesThroughRealSoftFloatFunction's own
+    // "Debug doesn't fold locals" reasoning.
+    // ============================================================================================
+
+    [Test]
+    [Arguments(1.5f)]
+    [Arguments(-2.5f)]
+    [Arguments(0.0f)]
+    public async Task F32_Neg_MatchesHost(float x)
+    {
+        float expected = -x;
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    float a = {{LitF32(x)}};
+                    float c = -a;
+                    uint bits = *(uint*)&c;
+                    Hardware.SCX = (byte)(bits == {{HexU32(
+                BitConverter.SingleToUInt32Bits(expected)
+            )}}u ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    [Test]
+    public async Task F32_Neg_RoutesThroughRealSoftFloatFunction()
+    {
+        const string source = """
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    float a = 1.5f;
+                    float c = -a;
+                    uint bits = *(uint*)&c;
+                    Hardware.SCX = (byte)(bits == 0xBFC00000u ? 1 : 0); // -1.5f
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        var module = Frontend(source, OptimizationLevel.Debug, new DiagnosticBag());
+        await Assert.That(module.Functions.Select(f => f.Name)).Contains("SoftFloat.NegF32");
+    }
+
+    // ============================================================================================
     // Conversions: int<->float32.
     // ============================================================================================
 
@@ -346,6 +492,201 @@ public class CilFloatTests
                     float f = (float)i;
                     uint bits = *(uint*)&f;
                     Hardware.SCX = (byte)(bits == {{HexU32(expectedBits)}}u ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    // ============================================================================================
+    // Cross-width conversions: float32<->float64, and float64<->int. Each of these composes through a
+    // DIFFERENT [KohRuntime] key than the int<->float32 tests above ("f32.toF64"/"f64.toF32" directly;
+    // "f64.toI64" via ResolveFloatToInt's documented int32-target composition — see
+    // CilMethodLowerer.Floats.cs's remarks) — every one of those keys is otherwise never resolved by
+    // any other fixture in this file, so this is the only place a mistyped key or a broken composition
+    // would surface. A LOCAL (not a literal) source is required so Roslyn actually emits a `conv.r4`/
+    // `conv.r8` opcode in Debug IL rather than constant-folding the whole expression away — same
+    // discipline as F32_Neg_MatchesHost/F32_Add_RoutesThroughRealSoftFloatFunction.
+    // ============================================================================================
+
+    [Test]
+    [Arguments(1.5f)]
+    [Arguments(-2.5f)]
+    [Arguments(0.1f)] // not exactly representable in either width -> exercises real widening, not a no-op
+    public async Task F32_ToF64_MatchesHost(float x)
+    {
+        ulong expectedBits = BitConverter.DoubleToUInt64Bits((double)x);
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    float a = {{LitF32(x)}};
+                    double d = a;
+                    ulong bits = *(ulong*)&d;
+                    Hardware.SCX = (byte)(bits == {{HexU64(expectedBits)}} ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    [Test]
+    public async Task F32_ToF64_RoutesThroughRealSoftFloatFunction()
+    {
+        const string source = """
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    float a = 1.5f;
+                    double d = a;
+                    ulong bits = *(ulong*)&d;
+                    Hardware.SCX = (byte)(bits == 0x3FF8000000000000UL ? 1 : 0); // (double)1.5f
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        var module = Frontend(source, OptimizationLevel.Debug, new DiagnosticBag());
+        await Assert.That(module.Functions.Select(f => f.Name)).Contains("SoftFloat.ToF64");
+    }
+
+    [Test]
+    [Arguments(1.5)]
+    [Arguments(-2.5)]
+    [Arguments(0.1)] // rounds down when narrowed -> exercises SoftFloat.ToF32's real rounding logic
+    public async Task F64_ToF32_MatchesHost(double x)
+    {
+        uint expectedBits = BitConverter.SingleToUInt32Bits((float)x);
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    double a = {{LitF64(x)}};
+                    float f = (float)a;
+                    uint bits = *(uint*)&f;
+                    Hardware.SCX = (byte)(bits == {{HexU32(expectedBits)}}u ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    [Test]
+    public async Task F64_ToF32_RoutesThroughRealSoftFloatFunction()
+    {
+        const string source = """
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    double a = 1.5;
+                    float f = (float)a;
+                    uint bits = *(uint*)&f;
+                    Hardware.SCX = (byte)(bits == 0x3FC00000u ? 1 : 0); // (float)1.5
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        var module = Frontend(source, OptimizationLevel.Debug, new DiagnosticBag());
+        await Assert.That(module.Functions.Select(f => f.Name)).Contains("SoftFloat.ToF32");
+    }
+
+    [Test]
+    [Arguments(3.7)]
+    [Arguments(-3.7)]
+    [Arguments(1000.25)]
+    public async Task F64_ToInt_MatchesHost(double x)
+    {
+        int expected = (int)x;
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public class Program
+            {
+                public static void Main()
+                {
+                    double a = {{LitF64(x)}};
+                    int i = (int)a;
+                    Hardware.SCX = (byte)(i == {{expected}} ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    // 16777217 (2^24 + 1) is exactly representable in f64 but NOT f32 (float32's 24-bit mantissa rounds
+    // it to 16777216.0f): catches ConvertIntToF64 composing through float32 first (a double-rounding
+    // bug), since a direct int32->f64 conversion (via int64->f64, a single rounding step) is exact.
+    [Test]
+    [Arguments(0)]
+    [Arguments(5)]
+    [Arguments(-5)]
+    [Arguments(1000000)]
+    [Arguments(16777217)]
+    [Arguments(-16777217)]
+    public async Task F64_FromInt_MatchesHost(int x)
+    {
+        ulong expectedBits = BitConverter.DoubleToUInt64Bits((double)x);
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    int i = {{x}};
+                    double d = i;
+                    ulong bits = *(ulong*)&d;
+                    Hardware.SCX = (byte)(bits == {{HexU64(expectedBits)}} ? 1 : 0);
+                    Hardware.SCY = 0xEE;
+                }
+            }
+            """;
+        await AssertPasses(source, OptimizationLevel.Debug);
+        await AssertPasses(source, OptimizationLevel.Release);
+    }
+
+    // An UNSIGNED source (`uint`) routes through `conv.r.un` first (see LowerConvRUn), a genuinely
+    // separate opcode path from F64_FromInt_MatchesHost's plain (signed) `conv.r8` above. 16777217u is
+    // the same discriminating value: exact int32(unsigned)->f64 needs a single rounding step (via
+    // int64), not a double-rounding composition through float32.
+    [Test]
+    [Arguments(0u)]
+    [Arguments(5u)]
+    [Arguments(1000000u)]
+    [Arguments(16777217u)]
+    public async Task F64_FromUInt_MatchesHost(uint x)
+    {
+        ulong expectedBits = BitConverter.DoubleToUInt64Bits((double)x);
+        string source = $$"""
+            using Koh.GameBoy;
+
+            public unsafe class Program
+            {
+                public static void Main()
+                {
+                    uint u = {{x}}u;
+                    double d = u;
+                    ulong bits = *(ulong*)&d;
+                    Hardware.SCX = (byte)(bits == {{HexU64(expectedBits)}} ? 1 : 0);
                     Hardware.SCY = 0xEE;
                 }
             }
