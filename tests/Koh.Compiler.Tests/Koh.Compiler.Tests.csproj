@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\src\Koh.Compiler\Koh.Compiler.csproj" />
     <ProjectReference Include="..\..\src\Koh.Linker.Core\Koh.Linker.Core.csproj" />
     <ProjectReference Include="..\..\src\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
+    <ProjectReference Include="..\..\src\Koh.GameBoy\Koh.GameBoy.csproj" />
   </ItemGroup>
 
   <ItemGroup>

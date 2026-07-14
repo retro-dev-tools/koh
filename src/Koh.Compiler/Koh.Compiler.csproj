@@ -10,6 +10,9 @@
     <!-- Exclude the analyzers that ship with the package: they target analyzer authors (RS**** rules)
          and would trip TreatWarningsAsErrors on ordinary Roslyn API usage. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" ExcludeAssets="analyzers" />
+    <!-- Pure metadata/IL reader for the CIL frontend (Frontends/Cil): a resolved object model over
+         assemblies, AOT-safe (no codegen/emit surface used). -->
+    <PackageReference Include="Mono.Cecil" />
   </ItemGroup>
 
   <ItemGroup>

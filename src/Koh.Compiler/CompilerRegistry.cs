@@ -1,6 +1,7 @@
 using Koh.Compiler.Backends;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
+using Koh.Compiler.Frontends.Cil;
 using Koh.Compiler.Frontends.CSharp;
 
 namespace Koh.Compiler;
@@ -14,7 +15,8 @@ namespace Koh.Compiler;
 /// </summary>
 public static class CompilerRegistry
 {
-    public static IReadOnlyList<IFrontend> Frontends { get; } = [new CSharpFrontend()];
+    public static IReadOnlyList<IFrontend> Frontends { get; } =
+    [new CSharpFrontend(), new CilFrontend()];
 
     public static IReadOnlyList<IBackend> Backends { get; } = [new Sm83Backend()];
 
