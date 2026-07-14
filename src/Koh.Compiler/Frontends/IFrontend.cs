@@ -1,6 +1,5 @@
 using Koh.Compiler.Ir;
 using Koh.Core.Diagnostics;
-using Koh.Core.Text;
 
 namespace Koh.Compiler.Frontends;
 
@@ -19,8 +18,11 @@ public interface IFrontend
     IReadOnlyList<string> Extensions { get; }
 
     /// <summary>
-    /// Lower parsed source to IR. Errors are reported into <paramref name="diagnostics"/>;
-    /// on hard failure the returned module may be incomplete and callers should check the bag.
+    /// Lower <paramref name="input"/> to IR. Errors are reported into
+    /// <paramref name="diagnostics"/>; on hard failure the returned module may be incomplete
+    /// and callers should check the bag. A frontend that cannot consume the given
+    /// <see cref="CompilerInput"/> shape (e.g. a text frontend handed an assembly-only input)
+    /// reports a diagnostic rather than throwing.
     /// </summary>
-    IrModule Lower(SourceText source, DiagnosticBag diagnostics);
+    IrModule Lower(CompilerInput input, DiagnosticBag diagnostics);
 }

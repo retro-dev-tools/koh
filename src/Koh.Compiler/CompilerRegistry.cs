@@ -23,6 +23,11 @@ public static class CompilerRegistry
             f.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
         );
 
+    public static IFrontend? FrontendByName(string name) =>
+        Frontends.FirstOrDefault(f =>
+            string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)
+        );
+
     public static IBackend? BackendByName(string name) =>
         Backends.FirstOrDefault(b =>
             string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase)

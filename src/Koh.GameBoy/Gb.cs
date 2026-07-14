@@ -23,20 +23,26 @@ public static unsafe class Gb
     internal static byte Peek(int address) => MemoryArray[address];
 
     /// <summary>Video RAM / background tile data (0x8000).</summary>
+    [KohIntrinsic("region", 0x8000)]
     public static byte* Vram => Base + 0x8000;
 
     /// <summary>Background tile data, alias of <see cref="Vram"/> (0x8000).</summary>
+    [KohIntrinsic("region", 0x8000)]
     public static byte* TileData => Base + 0x8000;
 
     /// <summary>Background tile map 0 (0x9800).</summary>
+    [KohIntrinsic("region", 0x9800)]
     public static byte* TileMap => Base + 0x9800;
 
     /// <summary>Background tile map 1 (0x9C00).</summary>
+    [KohIntrinsic("region", 0x9C00)]
     public static byte* TileMap1 => Base + 0x9C00;
 
     /// <summary>Work RAM (0xC000).</summary>
+    [KohIntrinsic("region", 0xC000)]
     public static byte* Wram => Base + 0xC000;
 
     /// <summary>Object attribute memory / sprites (0xFE00).</summary>
+    [KohIntrinsic("region", 0xFE00)]
     public static byte* Oam => Base + 0xFE00;
 }

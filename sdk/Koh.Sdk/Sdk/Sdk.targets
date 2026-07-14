@@ -72,6 +72,7 @@
       <_KohRomProps Include="ProgramName=$(AssemblyName)" />
       <_KohRomProps Include="CgbCompatible=$(KohCgbCompatible)" />
       <_KohRomProps Include="OutputPath=$(KohRomPath)" />
+      <_KohRomProps Include="KohFrontend=$(KohFrontend)" />
     </ItemGroup>
     <WriteLinesToFile File="$(KohRomPropsStampFile)" Lines="@(_KohRomProps)" Overwrite="true"
                        WriteOnlyWhenDifferent="true" />
@@ -86,9 +87,12 @@
        props stamp (written just above) makes toggling KohCgbCompatible or renaming the assembly do the
        same, without a source-file edit. -->
   <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
-          Inputs="@(KohSource);@(KohFrameworkSource);$(KohBuildTasksAssembly);$(KohRomPropsStampFile)"
+          Inputs="@(KohSource);@(KohFrameworkSource);@(IntermediateAssembly);$(KohBuildTasksAssembly);$(KohRomPropsStampFile)"
           Outputs="$(KohRomPath)">
     <CompileKohRom SourceFiles="@(KohSource);@(KohFrameworkSource)" OutputPath="$(KohRomPath)"
+                   Frontend="$(KohFrontend)"
+                   AssemblyPath="@(IntermediateAssembly->'%(FullPath)')"
+                   ReferencePaths="@(ReferencePath)"
                    ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPath)" />

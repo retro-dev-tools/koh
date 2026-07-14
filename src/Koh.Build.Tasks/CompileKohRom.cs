@@ -1,4 +1,5 @@
 using Koh.Compiler;
+using Koh.Compiler.Frontends;
 using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Core.Text;
@@ -10,24 +11,37 @@ using LinkerType = Koh.Linker.Core.Linker;
 namespace Koh.Build.Tasks;
 
 /// <summary>
-/// MSBuild task that compiles a Koh C# game to a Game Boy ROM in-process, the same way the toolchain
-/// does: pick a frontend by file extension and a backend by name from <see cref="CompilerRegistry"/>,
-/// run <see cref="CompilerDriver"/> to get an <c>EmitModel</c>, then link it to a <c>.gb</c>. This is
-/// what the Koh SDK invokes after the ordinary build, so a game project needs no build driver of its
-/// own and never references the compiler or linker directly.
+/// MSBuild task that compiles a Koh game to a Game Boy ROM in-process, the same way the toolchain
+/// does: pick a frontend (by name, default <c>csharp</c>) and a backend (by name) from
+/// <see cref="CompilerRegistry"/>, run <see cref="CompilerDriver"/> to get an <c>EmitModel</c>,
+/// then link it to a <c>.gb</c>. This is what the Koh SDK invokes after the ordinary build, so a
+/// game project needs no build driver of its own and never references the compiler or linker
+/// directly. The <c>csharp</c> frontend compiles <see cref="SourceFiles"/> as one translation unit
+/// (the original path); a non-csharp frontend (e.g. <c>cil</c>) instead lowers the already-built
+/// <see cref="AssemblyPath"/> plus <see cref="ReferencePaths"/> — no source files are read in that
+/// case.
 /// </summary>
 public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
 {
-    /// <summary>The game's C# source file(s). Compiled as a single translation unit.</summary>
-    [Required]
+    /// <summary>The game's C# source file(s), used by the <c>csharp</c> frontend. Compiled as a
+    /// single translation unit.</summary>
     public ITaskItem[] SourceFiles { get; set; } = [];
 
     /// <summary>Absolute path of the ROM to write.</summary>
     [Required]
     public string OutputPath { get; set; } = "";
 
+    /// <summary>Frontend name registered in <see cref="CompilerRegistry"/> (default <c>csharp</c>).</summary>
+    public string Frontend { get; set; } = "csharp";
+
     /// <summary>Backend name registered in <see cref="CompilerRegistry"/> (default <c>sm83</c>).</summary>
     public string Backend { get; set; } = "sm83";
+
+    /// <summary>The game's already-built assembly, used by assembly-driven frontends (e.g. <c>cil</c>).</summary>
+    public string AssemblyPath { get; set; } = "";
+
+    /// <summary>Reference assembly paths for assembly-driven frontends (e.g. <c>cil</c>).</summary>
+    public ITaskItem[] ReferencePaths { get; set; } = [];
 
     /// <summary>Linker program/module name.</summary>
     public string ProgramName { get; set; } = "rom";
@@ -36,17 +50,22 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
 
     public override bool Execute()
     {
-        if (SourceFiles.Length == 0)
+        bool isCSharp = string.Equals(Frontend, "csharp", StringComparison.OrdinalIgnoreCase);
+        if (isCSharp && SourceFiles.Length == 0)
         {
             Log.LogError("Koh: no source files to compile.");
             return false;
         }
+        if (!isCSharp && string.IsNullOrEmpty(AssemblyPath))
+        {
+            Log.LogError($"Koh: frontend '{Frontend}' requires AssemblyPath.");
+            return false;
+        }
 
-        string primary = SourceFiles[0].GetMetadata("FullPath");
-        var frontend = CompilerRegistry.FrontendForExtension(Path.GetExtension(primary));
+        var frontend = CompilerRegistry.FrontendByName(Frontend);
         if (frontend is null)
         {
-            Log.LogError($"Koh: no frontend registered for '{Path.GetExtension(primary)}'.");
+            Log.LogError($"Koh: no frontend named '{Frontend}'.");
             return false;
         }
         var backend = CompilerRegistry.BackendByName(Backend);
@@ -56,22 +75,36 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
             return false;
         }
 
-        // A Koh program is one translation unit; concatenate multiple sources (the common case is one).
-        // Track where each file starts in the joined text so a diagnostic's offset can be mapped back
-        // to the file it actually came from, not just the first one.
-        var files = new List<(string Path, int Start, SourceText Source)>();
-        var joined = new System.Text.StringBuilder();
-        foreach (var item in SourceFiles)
+        CompilerInput input;
+        string primary;
+        List<(string Path, int Start, SourceText Source)> files = [];
+        if (isCSharp)
         {
-            string path = item.GetMetadata("FullPath");
-            string content = File.ReadAllText(path);
-            files.Add((path, joined.Length, SourceText.From(content, path)));
-            joined.Append(content).Append('\n');
+            primary = SourceFiles[0].GetMetadata("FullPath");
+
+            // A Koh program is one translation unit; concatenate multiple sources (the common case is
+            // one). Track where each file starts in the joined text so a diagnostic's offset can be
+            // mapped back to the file it actually came from, not just the first one.
+            var joined = new System.Text.StringBuilder();
+            foreach (var item in SourceFiles)
+            {
+                string path = item.GetMetadata("FullPath");
+                string content = File.ReadAllText(path);
+                files.Add((path, joined.Length, SourceText.From(content, path)));
+                joined.Append(content).Append('\n');
+            }
+            var source = SourceText.From(joined.ToString(), primary);
+            input = CompilerInput.FromSource(source);
         }
-        var source = SourceText.From(joined.ToString(), primary);
+        else
+        {
+            primary = AssemblyPath;
+            var referencePaths = ReferencePaths.Select(r => r.GetMetadata("FullPath")).ToList();
+            input = CompilerInput.FromAssembly(AssemblyPath, referencePaths);
+        }
 
         var diagnostics = new DiagnosticBag();
-        EmitModel model = CompilerDriver.Compile(frontend, backend, source, diagnostics);
+        EmitModel model = CompilerDriver.Compile(frontend, backend, input, diagnostics);
 
         bool hadError = false;
         foreach (var d in diagnostics)

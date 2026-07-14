@@ -262,6 +262,29 @@ public sealed partial class CSharpFrontend : IFrontend
         return module;
     }
 
+    /// <summary>
+    /// <see cref="IFrontend"/> entry point: this frontend is text-driven, so it requires
+    /// <see cref="CompilerInput.Text"/> and delegates to <see cref="Lower(SourceText, DiagnosticBag)"/>.
+    /// An assembly-only input (no <see cref="CompilerInput.Text"/>) is a diagnostic, not a throw —
+    /// the caller controls which frontend runs on which input, and a mismatch is user-reachable
+    /// (e.g. a misconfigured build).
+    /// </summary>
+    public IrModule Lower(CompilerInput input, DiagnosticBag diagnostics)
+    {
+        if (input.Text is null)
+        {
+            var module = new IrModule(input.FilePath.Length > 0 ? input.FilePath : "csharp");
+            diagnostics.Report(
+                default,
+                $"The '{Name}' frontend requires source text, but '{input.FilePath}' was given as an assembly-only input.",
+                Koh.Core.Diagnostics.DiagnosticSeverity.Error,
+                input.FilePath
+            );
+            return module;
+        }
+        return Lower(input.Text, diagnostics);
+    }
+
     /// <summary>Test-only entry point: runs the real <see cref="LowerCore"/> pipeline (declaration passes
     /// through bodies) and hands back the <see cref="CSharpSemantics"/> instance those passes populated,
     /// via <paramref name="onSemanticsBuilt"/> — an optional test-only hook, unused in production (see

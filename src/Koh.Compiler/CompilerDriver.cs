@@ -26,9 +26,21 @@ public static class CompilerDriver
         IBackend backend,
         SourceText source,
         DiagnosticBag diagnostics
+    ) => Compile(frontend, backend, CompilerInput.FromSource(source), diagnostics);
+
+    /// <summary>
+    /// Compile <paramref name="input"/> with the given frontend and backend. Same pipeline as the
+    /// <see cref="SourceText"/> overload, but accepts any <see cref="CompilerInput"/> shape
+    /// (assembly-driven frontends included).
+    /// </summary>
+    public static EmitModel Compile(
+        IFrontend frontend,
+        IBackend backend,
+        CompilerInput input,
+        DiagnosticBag diagnostics
     )
     {
-        var module = frontend.Lower(source, diagnostics);
+        var module = frontend.Lower(input, diagnostics);
         if (!diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
             IrOptimizer.Optimize(module);
         return backend.Compile(module, diagnostics);

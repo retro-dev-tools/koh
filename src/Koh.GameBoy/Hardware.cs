@@ -13,31 +13,66 @@ public static class Hardware
 {
     // Plain register storage. The game writes these to configure the display; the renderer reads LCDC
     // (bit 7 = LCD on) and BGP (the palette) to decide what and how to draw.
+    [KohIntrinsic("register", 0xFF40)]
     public static byte LCDC { get; set; }
+
+    [KohIntrinsic("register", 0xFF41)]
     public static byte STAT { get; set; }
+
+    [KohIntrinsic("register", 0xFF47)]
     public static byte BGP { get; set; }
+
+    [KohIntrinsic("register", 0xFF43)]
     public static byte SCX { get; set; }
+
+    [KohIntrinsic("register", 0xFF42)]
     public static byte SCY { get; set; }
+
+    [KohIntrinsic("register", 0xFF4B)]
     public static byte WX { get; set; }
+
+    [KohIntrinsic("register", 0xFF4A)]
     public static byte WY { get; set; }
+
+    [KohIntrinsic("register", 0xFF0F)]
     public static byte IF { get; set; }
+
+    [KohIntrinsic("register", 0xFFFF)]
     public static byte IE { get; set; }
+
+    [KohIntrinsic("register", 0xFF4D)]
     public static byte KEY1 { get; set; } = 0xFF;
+
+    [KohIntrinsic("register", 0xFF4F)]
     public static byte VBK { get; set; }
+
+    [KohIntrinsic("register", 0xFF68)]
     public static byte BCPS { get; set; }
+
+    [KohIntrinsic("register", 0xFF69)]
     public static byte BCPD { get; set; }
 
     // CGB HDMA/GDMA registers ($FF51-$FF55). Inert plain storage here: the desktop reference run
     // never starts a transfer (Cgb.IsColor() is false because KEY1 reads $FF), matching real DMG
     // hardware where writes to these addresses are no-ops.
+    [KohIntrinsic("register", 0xFF51)]
     public static byte HDMA1 { get; set; }
+
+    [KohIntrinsic("register", 0xFF52)]
     public static byte HDMA2 { get; set; }
+
+    [KohIntrinsic("register", 0xFF53)]
     public static byte HDMA3 { get; set; }
+
+    [KohIntrinsic("register", 0xFF54)]
     public static byte HDMA4 { get; set; }
+
+    [KohIntrinsic("register", 0xFF55)]
     public static byte HDMA5 { get; set; }
 
     /// <summary>The joypad register. Writing selects the d-pad or button matrix; reading returns the
     /// currently-pressed keys for the selected matrix, active-low, exactly like the hardware.</summary>
+    [KohIntrinsic("register", 0xFF00)]
     public static byte JOYP
     {
         get
@@ -54,6 +89,7 @@ public static class Hardware
 
     /// <summary>The divider register: a free-running counter games use as cheap entropy. Each read
     /// advances it, so successive reads give different values (as on hardware, where it ticks fast).</summary>
+    [KohIntrinsic("register", 0xFF04)]
     public static byte DIV
     {
         get
@@ -68,6 +104,7 @@ public static class Hardware
     /// <summary>The LCD scanline. Reads cycle 0..153; a game spins on <c>LY == 144</c> to wait for
     /// vertical blank, so each read also advances the host clock (drawing a frame and polling input at
     /// the frame boundary). This is what makes a <c>while (Hardware.LY != 144) {}</c> loop actually run.</summary>
+    [KohIntrinsic("register", 0xFF44)]
     public static byte LY
     {
         get
@@ -82,14 +119,19 @@ public static class Hardware
 
     // Interrupt/CPU control intrinsics. The compiler maps these to ei/di/halt/nop; on the desktop they
     // are no-ops (the reference run is a plain loop with no interrupt hardware).
+    [KohIntrinsic("ei")]
     public static void EnableInterrupts() { }
 
+    [KohIntrinsic("di")]
     public static void DisableInterrupts() { }
 
+    [KohIntrinsic("halt")]
     public static void Halt() { }
 
+    [KohIntrinsic("nop")]
     public static void Nop() { }
 
+    [KohIntrinsic("stop")]
     public static void Stop() { }
 
     /// <summary>Host-side pacing, input, and rendering for the desktop reference run.</summary>

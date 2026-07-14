@@ -21,6 +21,9 @@
     <KohRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)../../../'))</KohRoot>
     <!-- The game pokes raw Game Boy addresses through pointers; allow unsafe by default. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Which Koh.Compiler frontend lowers the game: "csharp" (source, default) or "cil" (the
+         already-built assembly). Registered names live in CompilerRegistry. -->
+    <KohFrontend Condition="'$(KohFrontend)' == ''">csharp</KohFrontend>
   </PropertyGroup>
 
   <ItemGroup>
