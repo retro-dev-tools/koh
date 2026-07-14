@@ -128,10 +128,17 @@ internal static class CilTypeMapper
             MetadataType.UInt32 => (IrType.I32, false),
             MetadataType.Int64 => (IrType.I64, true),
             MetadataType.UInt64 => (IrType.I64, false),
+            // float32/float64 carry their raw IEEE bits as an ordinary (unsigned) 32-/64-bit int — see
+            // CilMethodLowerer's float-op routing (CallRuntime/TryFloatBinaryOp/TryFloatCompareOp/
+            // ConvertToFloat): every arithmetic/compare/convert opcode on a float-tagged value routes to
+            // a Koh.GameBoy.SoftFloat [KohRuntime] routine instead of an ordinary IrBinaryOp/IrCompareOp,
+            // so the raw-bits representation here is exactly what those routines already operate on.
+            MetadataType.Single => (IrType.I32, false),
+            MetadataType.Double => (IrType.I64, false),
             _ => throw new CilNotSupportedException(
                 $"unsupported CIL type '{typeReference.FullName}' (phase 1 supports byte/sbyte/"
-                    + "short/ushort/char/int/uint/long/ulong/Int128/UInt128/bool/void, pointers, and "
-                    + "ReadOnlySpan<T>/Span<T> only)."
+                    + "short/ushort/char/int/uint/long/ulong/Int128/UInt128/bool/float/double/void, "
+                    + "pointers, and ReadOnlySpan<T>/Span<T> only)."
             ),
         };
     }
@@ -189,7 +196,8 @@ internal static class CilModuleLowerer
     )
     {
         var intrinsics = CilIntrinsicIndex.Build(cecilModule);
-        var ctx = new CilLoweringContext(module, diagnostics, intrinsics, cecilModule);
+        var runtime = CilRuntimeIndex.Build(cecilModule);
+        var ctx = new CilLoweringContext(module, diagnostics, intrinsics, runtime, cecilModule);
         var methods = new List<MethodDefinition>();
 
         foreach (var type in cecilModule.GetTypes())
@@ -500,6 +508,10 @@ internal sealed partial class CilMethodLowerer
     // in the function's entry block, the first time some predecessor delivers to that target.
     private readonly Dictionary<IrBasicBlock, List<AllocaInstruction>> _spillSlots = new();
 
+    // A spill slot's floatness, recorded once at creation (see Deliver) and consulted on every reload
+    // (see EntryStack) — see CilMethodLowerer.Floats.cs's class remarks.
+    private readonly Dictionary<AllocaInstruction, FloatWidth> _spillFloatKind = new();
+
     private IrBasicBlock _entryBlock = null!;
 
     public CilMethodLowerer(
@@ -719,7 +731,16 @@ internal sealed partial class CilMethodLowerer
             return [];
         var stack = new List<IrValue>(slots.Count);
         foreach (var slot in slots)
-            stack.Add(_b.Load(slot));
+        {
+            var loaded = _b.Load(slot);
+            // Re-tag a float value across the spill/reload round-trip — see Deliver's matching remark
+            // and CilMethodLowerer.Floats.cs's class remarks (a bare alloca/Load has no floatness of its
+            // own; without this, a `cond ? floatA : floatB` join would silently lose its tag and route
+            // any FOLLOWING arithmetic on it through the ordinary int path instead of SoftFloat).
+            if (_spillFloatKind.TryGetValue(slot, out var floatKind))
+                TagFloat(loaded, floatKind);
+            stack.Add(loaded);
+        }
         return stack;
     }
 
@@ -740,6 +761,9 @@ internal sealed partial class CilMethodLowerer
                 var alloca = new AllocaInstruction(v.Type) { Parent = _entryBlock };
                 _entryBlock.Instructions.Insert(0, alloca);
                 slots.Add(alloca);
+                // Record this slot's floatness once, at creation — see EntryStack's matching remark.
+                if (FloatKindOf(v) is { } floatKind)
+                    _spillFloatKind[alloca] = floatKind;
             }
             _spillSlots[target] = slots;
         }
@@ -826,6 +850,11 @@ internal sealed partial class CilMethodLowerer
             return structAddr;
         var (alloca, _, signed) = _locals[v];
         var loaded = WidenToStack(_b.Load(alloca), signed);
+        // A float-typed local carries no separate durable tag (unlike delegate/array/concrete-type
+        // provenance below): its declared type (post generic substitution) is always available again
+        // right here, every load — see CilMethodLowerer.Floats.cs's class remarks.
+        if (FloatKindOfType(Subst(v.VariableType)) is { } floatKind)
+            TagFloat(loaded, floatKind);
         // Carry a resolved delegate's target method forward across the load — see
         // CilMethodLowerer.Delegates.cs's remarks on _pendingDelegateProvenance/_localDelegateTarget.
         if (_localDelegateTarget.TryGetValue(v, out var target))
@@ -872,6 +901,10 @@ internal sealed partial class CilMethodLowerer
             return structAddr;
         var (alloca, _, signed) = _params[p];
         var loaded = WidenToStack(_b.Load(alloca), signed);
+        // See LoadLocal's matching remark: a float-typed parameter's tag is re-derived from its
+        // declared type on every load rather than tracked in a separate durable table.
+        if (FloatKindOfType(Subst(p.ParameterType)) is { } floatKind)
+            TagFloat(loaded, floatKind);
         // A sealed declaring type's own 'this' is always exactly that type (no subclass can exist to
         // make it otherwise) — seeds concrete-type devirtualization for an iterator state machine's own
         // instance methods (GetEnumerator/MoveNext/Dispose/get_Current all read 'this' this way). Not
@@ -939,6 +972,22 @@ internal sealed partial class CilMethodLowerer
             case Code.Ldc_I8:
                 stack.Add(IrBuilder.ConstInt(IrType.I64, (long)instr.Operand));
                 break;
+            case Code.Ldc_R4:
+            {
+                var bits = BitConverter.SingleToUInt32Bits((float)instr.Operand);
+                var c = IrBuilder.ConstInt(IrType.I32, unchecked((int)bits));
+                TagFloat(c, FloatWidth.F32);
+                stack.Add(c);
+                break;
+            }
+            case Code.Ldc_R8:
+            {
+                var bits = BitConverter.DoubleToUInt64Bits((double)instr.Operand);
+                var c = IrBuilder.ConstInt(IrType.I64, unchecked((long)bits));
+                TagFloat(c, FloatWidth.F64);
+                stack.Add(c);
+                break;
+            }
 
             // ---- Locals / arguments -----------------------------------------------------------
             case Code.Ldloc_0:
@@ -1010,14 +1059,20 @@ internal sealed partial class CilMethodLowerer
                 break;
 
             // ---- Arithmetic / logic ------------------------------------------------------------
+            // Each of add/sub/mul/div/rem tries the float-tagged path first (see
+            // CilMethodLowerer.Floats.cs) — a no-op fall-through to the ordinary int/pointer path when
+            // neither operand is float-tagged.
             case Code.Add:
-                AddOrSub(stack, subtract: false);
+                if (!TryFloatBinaryOp(stack, "add"))
+                    AddOrSub(stack, subtract: false);
                 break;
             case Code.Sub:
-                AddOrSub(stack, subtract: true);
+                if (!TryFloatBinaryOp(stack, "sub"))
+                    AddOrSub(stack, subtract: true);
                 break;
             case Code.Mul:
-                BinaryOp(stack, IrBinaryOp.Mul);
+                if (!TryFloatBinaryOp(stack, "mul"))
+                    BinaryOp(stack, IrBinaryOp.Mul);
                 break;
             case Code.And:
                 BinaryOp(stack, IrBinaryOp.And);
@@ -1038,23 +1093,30 @@ internal sealed partial class CilMethodLowerer
                 ShiftOp(stack, IrBinaryOp.LShr);
                 break;
             case Code.Div:
-                BinaryOp(stack, IrBinaryOp.SDiv);
+                if (!TryFloatBinaryOp(stack, "div"))
+                    BinaryOp(stack, IrBinaryOp.SDiv);
                 break;
             case Code.Div_Un:
                 BinaryOp(stack, IrBinaryOp.UDiv);
                 break;
+            // "rem" is not in the [KohRuntime] vocabulary (no "f32.rem"/"f64.rem" key — see
+            // CilMethodLowerer.Floats.cs's class remarks): a float-tagged operand here throws a
+            // diagnostic (via CallRuntime/EnsureRuntime) naming the missing key rather than falling
+            // through to an int remainder of the raw bits.
             case Code.Rem:
-                BinaryOp(stack, IrBinaryOp.SRem);
+                if (!TryFloatBinaryOp(stack, "rem"))
+                    BinaryOp(stack, IrBinaryOp.SRem);
                 break;
             case Code.Rem_Un:
                 BinaryOp(stack, IrBinaryOp.URem);
                 break;
             case Code.Neg:
-            {
-                var a = Pop(stack);
-                stack.Add(_b.Sub(IrBuilder.ConstInt(a.Type, 0), a));
+                if (!TryFloatNeg(stack))
+                {
+                    var a = Pop(stack);
+                    stack.Add(_b.Sub(IrBuilder.ConstInt(a.Type, 0), a));
+                }
                 break;
-            }
             case Code.Not:
             {
                 var a = Pop(stack);
@@ -1063,28 +1125,40 @@ internal sealed partial class CilMethodLowerer
             }
 
             case Code.Ceq:
-                CompareOp(stack, IrCompareOp.Eq);
+                if (!TryFloatCompareOp(stack, "eq"))
+                    CompareOp(stack, IrCompareOp.Eq);
                 break;
             case Code.Clt:
-                CompareOp(stack, IrCompareOp.Slt);
+                if (!TryFloatCompareOp(stack, "lt"))
+                    CompareOp(stack, IrCompareOp.Slt);
                 break;
             case Code.Clt_Un:
-                CompareOp(stack, IrCompareOp.Ult);
+                if (!TryFloatCompareUnOp(stack, greaterThan: false))
+                    CompareOp(stack, IrCompareOp.Ult);
                 break;
             case Code.Cgt:
-                CompareOp(stack, IrCompareOp.Sgt);
+                if (!TryFloatCompareOp(stack, "gt"))
+                    CompareOp(stack, IrCompareOp.Sgt);
                 break;
             case Code.Cgt_Un:
-                CompareOp(stack, IrCompareOp.Ugt);
+                if (!TryFloatCompareUnOp(stack, greaterThan: true))
+                    CompareOp(stack, IrCompareOp.Ugt);
                 break;
 
             // ---- Conversions ---------------------------------------------------------------------
             // conv.i1/u1/i2/u2 narrow then re-widen to i32 (real CLR semantics — see class remarks).
+            // Every one of these also accepts a float-tagged source (real CLR conv.* accepts an "F"
+            // stack value too — ECMA-335 III.3.27 family): ResolveFloatToInt resolves it to an ordinary
+            // int32 first (a no-op for an already-ordinary int source) — see CilMethodLowerer.Floats.cs.
             case Code.Conv_I1:
                 stack.Add(
                     _b.Conv(
                         IrConvOp.SExt,
-                        _b.Conv(IrConvOp.Trunc, Pop(stack), IrType.I8),
+                        _b.Conv(
+                            IrConvOp.Trunc,
+                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            IrType.I8
+                        ),
                         IrType.I32
                     )
                 );
@@ -1093,7 +1167,11 @@ internal sealed partial class CilMethodLowerer
                 stack.Add(
                     _b.Conv(
                         IrConvOp.ZExt,
-                        _b.Conv(IrConvOp.Trunc, Pop(stack), IrType.I8),
+                        _b.Conv(
+                            IrConvOp.Trunc,
+                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            IrType.I8
+                        ),
                         IrType.I32
                     )
                 );
@@ -1102,7 +1180,11 @@ internal sealed partial class CilMethodLowerer
                 stack.Add(
                     _b.Conv(
                         IrConvOp.SExt,
-                        _b.Conv(IrConvOp.Trunc, Pop(stack), IrType.I16),
+                        _b.Conv(
+                            IrConvOp.Trunc,
+                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            IrType.I16
+                        ),
                         IrType.I32
                     )
                 );
@@ -1111,7 +1193,11 @@ internal sealed partial class CilMethodLowerer
                 stack.Add(
                     _b.Conv(
                         IrConvOp.ZExt,
-                        _b.Conv(IrConvOp.Trunc, Pop(stack), IrType.I16),
+                        _b.Conv(
+                            IrConvOp.Trunc,
+                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            IrType.I16
+                        ),
                         IrType.I32
                     )
                 );
@@ -1119,7 +1205,7 @@ internal sealed partial class CilMethodLowerer
             case Code.Conv_I4:
             case Code.Conv_U4:
             {
-                var v = Pop(stack);
+                var v = ResolveFloatToInt(Pop(stack), 32, signed: code == Code.Conv_I4);
                 stack.Add(v.Type.Bits > 32 ? _b.Conv(IrConvOp.Trunc, v, IrType.I32) : v);
                 break;
             }
@@ -1129,23 +1215,40 @@ internal sealed partial class CilMethodLowerer
             // width (see class remarks), not something later widened back up.
             case Code.Conv_I8:
             {
-                var v = Pop(stack);
+                var v = ResolveFloatToInt(Pop(stack), 64, signed: true);
                 stack.Add(v.Type.Bits >= 64 ? v : _b.Conv(IrConvOp.SExt, v, IrType.I64));
                 break;
             }
             case Code.Conv_U8:
             {
-                var v = Pop(stack);
+                var v = ResolveFloatToInt(Pop(stack), 64, signed: false);
                 stack.Add(v.Type.Bits >= 64 ? v : _b.Conv(IrConvOp.ZExt, v, IrType.I64));
                 break;
             }
             // conv.i/conv.u: to "native int" — this target's address width (I16). A pointer operand
             // reinterprets (a numeric pointer-value cast, e.g. `(nint)p` or the first step of unsafe
             // pointer arithmetic — see AddOrSub); an integer operand narrows/widens like any other
-            // conv.* (real CLR native int is address-width, not fixed at 32/64).
+            // conv.* (real CLR native int is address-width, not fixed at 32/64); a float-tagged operand
+            // resolves through ResolveFloatToInt exactly like the other conv.* cases above.
             case Code.Conv_I:
             case Code.Conv_U:
-                stack.Add(CoerceStore(Pop(stack), IrType.I16));
+                stack.Add(
+                    CoerceStore(
+                        ResolveFloatToInt(Pop(stack), 32, signed: code == Code.Conv_I),
+                        IrType.I16
+                    )
+                );
+                break;
+
+            // ---- Float conversions (see CilMethodLowerer.Floats.cs) ---------------------------
+            case Code.Conv_R4:
+                ConvertToFloat(stack, FloatWidth.F32);
+                break;
+            case Code.Conv_R8:
+                ConvertToFloat(stack, FloatWidth.F64);
+                break;
+            case Code.Conv_R_Un:
+                LowerConvRUn(stack);
                 break;
 
             // ---- Pointer dereference (ldind.*/stind.*) -----------------------------------------
@@ -1176,6 +1279,14 @@ internal sealed partial class CilMethodLowerer
             case Code.Ldind_Ref:
                 LoadIndirect(stack, IrType.Pointer(IrType.I8), signed: false);
                 break;
+            case Code.Ldind_R4:
+                LoadIndirect(stack, IrType.I32, signed: false);
+                TagFloat(stack[^1], FloatWidth.F32);
+                break;
+            case Code.Ldind_R8:
+                LoadIndirect(stack, IrType.I64, signed: false);
+                TagFloat(stack[^1], FloatWidth.F64);
+                break;
             case Code.Stind_I1:
                 StoreIndirect(stack, IrType.I8);
                 break;
@@ -1193,6 +1304,12 @@ internal sealed partial class CilMethodLowerer
                 break;
             case Code.Stind_Ref:
                 StoreIndirect(stack, IrType.Pointer(IrType.I8));
+                break;
+            case Code.Stind_R4:
+                StoreIndirect(stack, IrType.I32);
+                break;
+            case Code.Stind_R8:
+                StoreIndirect(stack, IrType.I64);
                 break;
 
             // ---- localloc (stackalloc) ----------------------------------------------------------
@@ -1353,7 +1470,17 @@ internal sealed partial class CilMethodLowerer
                 // A struct-typed field is never loaded as a scalar — its "value" IS its address (see
                 // CilMethodLowerer.Structs.cs's remarks); a real independent copy happens wherever that
                 // address is eventually consumed (stloc/stfld/stobj/a byval call argument).
-                stack.Add(nested is null ? WidenToStack(_b.Load(ptr), signed) : ptr);
+                if (nested is null)
+                {
+                    var loaded = WidenToStack(_b.Load(ptr), signed);
+                    if (FloatKindOfType(fieldRef.FieldType) is { } fk)
+                        TagFloat(loaded, fk);
+                    stack.Add(loaded);
+                }
+                else
+                {
+                    stack.Add(ptr);
+                }
                 break;
             }
             case Code.Ldflda:
@@ -1384,7 +1511,10 @@ internal sealed partial class CilMethodLowerer
             case Code.Ldsfld:
             {
                 var field = ResolveStaticField((FieldReference)instr.Operand);
-                stack.Add(LoadStaticField(field));
+                var value = LoadStaticField(field);
+                if (FloatKindOfType(field.FieldType) is { } fk)
+                    TagFloat(value, fk);
+                stack.Add(value);
                 break;
             }
             case Code.Ldsflda:
@@ -1869,6 +1999,11 @@ internal sealed partial class CilMethodLowerer
         if (callee.ReturnType.Kind != IrTypeKind.Void)
         {
             var result = WidenToStack(call, IsSignedReturn(def));
+            // A float/double-returning callee's result is tagged the same way a local/arg/field read
+            // is (see CilMethodLowerer.Floats.cs) — the callee's declared return type, so a caller
+            // chaining more float arithmetic onto this call's result routes correctly.
+            if (FloatKindOfType(def.ReturnType) is { } floatKind)
+                TagFloat(result, floatKind);
             // Thread this static call's callee-inferred concrete return type (see
             // CilLoweringContext.GetConcreteReturnType) onto the pushed result, so a subsequent
             // callvirt through an interface-typed result (the iterator kickoff's own shape) can

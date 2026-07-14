@@ -22,6 +22,11 @@ internal sealed class CilLoweringContext
     public IrModule Module { get; }
     public DiagnosticBag Diagnostics { get; }
     public IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> Intrinsics { get; }
+
+    /// <summary>Every <c>[KohRuntime(key)]</c>-tagged method reachable from the module, keyed by its
+    /// key string (see <see cref="CilRuntimeIndex"/>) — the float/double IL routing table
+    /// (<c>CilMethodLowerer</c>'s <c>CallRuntime</c>/<c>EnsureRuntime</c>).</summary>
+    public IReadOnlyDictionary<string, MethodDefinition> Runtime { get; }
     public Dictionary<MethodDefinition, IrFunction> FunctionsByMethod { get; } = new();
 
     /// <summary>The game's own module — everything else a call resolves into (Koh.GameBoy's Hal,
@@ -216,13 +221,36 @@ internal sealed class CilLoweringContext
         IrModule module,
         DiagnosticBag diagnostics,
         IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> intrinsics,
+        IReadOnlyDictionary<string, MethodDefinition> runtime,
         ModuleDefinition gameModule
     )
     {
         Module = module;
         Diagnostics = diagnostics;
         Intrinsics = intrinsics;
+        Runtime = runtime;
         GameModule = gameModule;
+    }
+
+    /// <summary>Resolve and lower (on demand, exactly like <see cref="EnsureLowered"/> — the same
+    /// referenced-assembly path <c>Koh.GameBoy.SoftFloat</c>'s routines travel) the <c>[KohRuntime(key)]</c>
+    /// routine for <paramref name="key"/> — a float/double IL operation's (add/sub/mul/div/neg/compare/
+    /// convert) implementation. A missing key is a diagnostic naming the exact key expected, never a
+    /// silent miscompile (see CLAUDE.md's "never hardcode a routine name" rule for this frontend — the
+    /// vocabulary lives entirely in <c>[KohRuntime]</c> metadata, so a gap here means the metadata
+    /// doesn't cover this operation yet, not that the frontend guessed a name wrong).</summary>
+    public IrFunction EnsureRuntime(string key)
+    {
+        if (!Runtime.TryGetValue(key, out var def))
+            throw new CilNotSupportedException(
+                $"no [KohRuntime(\"{key}\")] routine is registered (the CIL frontend routes float/"
+                    + "double IL operations through Koh.GameBoy.SoftFloat; add a "
+                    + $"[KohRuntime(\"{key}\")]-tagged method to supply this operation)."
+            );
+        return EnsureLowered(def)
+            ?? throw new CilNotSupportedException(
+                $"cannot lower runtime routine '{def.FullName}' for [KohRuntime(\"{key}\")]."
+            );
     }
 
     public IrGlobal RegisterGlobal(int address)
