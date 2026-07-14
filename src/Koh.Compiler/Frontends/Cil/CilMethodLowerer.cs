@@ -241,7 +241,7 @@ internal static class CilModuleLowerer
         // EVERY method's body, including a '.cctor' (Pass 0's idiom-matched instructions are elided at
         // LOWERING time, not here, so an un-elided 'newarr' inside a static constructor — e.g. a
         // non-constant-sized array — still needs the heap this scan provisions).
-        if (NeedsHeap(cecilModule))
+        if (NeedsHeap(cecilModule, intrinsics))
             ctx.EnsureHeapGlobal();
 
         // Pass 1.5: every HAND-WRITTEN type's static constructor, eagerly and BEFORE any other body —
@@ -308,10 +308,17 @@ internal static class CilModuleLowerer
 
     /// <summary>True if any method body in the assembly (hand-written or compiler-generated —
     /// a display-class ctor lives on the generated type, not the hand-written one) constructs a
-    /// non-delegate reference type. A delegate's own <c>newobj</c> (<c>Func`2::.ctor(object, native
-    /// int)</c>) is intercepted, never allocated (see <c>CilMethodLowerer.LowerNewobj</c>), so it must
-    /// not itself trigger the heap.</summary>
-    private static bool NeedsHeap(ModuleDefinition cecilModule)
+    /// non-delegate reference type, OR calls a <c>[KohIntrinsic("alloc")]</c>/<c>[KohIntrinsic(
+    /// "heapreset")]</c> member (<c>Mem.Alloc</c>/<c>Mem.Reset</c>): both bump/reset the SAME shared
+    /// heap global <c>new</c> does (see <see cref="CilLoweringContext.EnsureHeapGlobal"/>), so a
+    /// program that only calls <c>Mem.Alloc</c> — no <c>new</c>/<c>newarr</c> anywhere — must still
+    /// provision and seed that global, or the first allocation reads an unseeded value. A delegate's
+    /// own <c>newobj</c> (<c>Func`2::.ctor(object, native int)</c>) is intercepted, never allocated
+    /// (see <c>CilMethodLowerer.LowerNewobj</c>), so it must not itself trigger the heap.</summary>
+    private static bool NeedsHeap(
+        ModuleDefinition cecilModule,
+        IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> intrinsics
+    )
     {
         foreach (var type in cecilModule.GetTypes())
         {
@@ -334,6 +341,25 @@ internal static class CilModuleLowerer
                     // delegate-construction-style interception for it the way Newobj has.
                     if (instr.OpCode.Code == Code.Newarr)
                         return true;
+                    if (instr.OpCode.Code == Code.Call || instr.OpCode.Code == Code.Callvirt)
+                    {
+                        MethodDefinition? calleeDef;
+                        try
+                        {
+                            calleeDef = ((MethodReference)instr.Operand).Resolve();
+                        }
+                        catch (AssemblyResolutionException)
+                        {
+                            calleeDef = null;
+                        }
+                        if (
+                            calleeDef is not null
+                            && intrinsics.TryGetValue(calleeDef, out var entry)
+                            && entry.Kind is "alloc" or "heapreset"
+                        )
+                            return true;
+                        continue;
+                    }
                     if (instr.OpCode.Code != Code.Newobj)
                         continue;
                     var ctorRef = (MethodReference)instr.Operand;
@@ -1898,10 +1924,32 @@ internal sealed partial class CilMethodLowerer
             case "stop":
                 _b.Intrinsic("stop");
                 break;
+            // Arena allocator: Mem.Alloc(size) bumps the shared heap pointer (CilLoweringContext.
+            // EnsureHeapGlobal — same global/convention `new` uses) down by size and returns the new
+            // pointer as a byte*; Mem.Reset() restores it to HeapTop, freeing every allocation at once.
+            // The heap global is guaranteed non-null here: NeedsHeap's pre-scan (CilModuleLowerer.Lower)
+            // treats any call resolving to an "alloc"/"heapreset" intrinsic the same as a `newobj`/
+            // `newarr`, so EnsureHeapGlobal has already run — and been seeded in the entry prologue —
+            // before any method body (including this call site) lowers.
+            case "alloc":
+            {
+                var heap = IrBuilder.GlobalRef(_ctx.HeapGlobal!);
+                var size = CoerceStore(args[0], IrType.I16);
+                var updated = _b.Binary(IrBinaryOp.Sub, _b.Load(heap), size);
+                _b.Store(updated, heap);
+                stack.Add(_b.Conv(IrConvOp.Bitcast, updated, IrType.Pointer(IrType.I8)));
+                break;
+            }
+            case "heapreset":
+                _b.Store(
+                    IrBuilder.ConstInt(IrType.I16, CilLoweringContext.HeapTop),
+                    IrBuilder.GlobalRef(_ctx.HeapGlobal!)
+                );
+                break;
             default:
                 throw new CilNotSupportedException(
                     $"unsupported [KohIntrinsic] kind '{entry.Kind}' on '{def.FullName}' (phase 1 "
-                        + "supports register/region/ei/di/halt/nop/stop only)."
+                        + "supports register/region/ei/di/halt/nop/stop/alloc/heapreset only)."
                 );
         }
     }

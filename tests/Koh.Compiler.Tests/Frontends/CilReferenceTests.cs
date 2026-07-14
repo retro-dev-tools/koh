@@ -474,20 +474,18 @@ public class CilReferenceTests
             .IsTrue();
     }
 
-    // ---- Mem.Alloc/Mem.Reset: NOT yet the compiler-owned [KohIntrinsic] the design calls for -----
+    // ---- Mem.Alloc/Mem.Reset: the compiler-owned [KohIntrinsic] arena allocator ------------------
     //
     // docs/superpowers/specs/2026-07-14-cil-frontend-design.md's task 2 says Mem.Alloc/Mem.Reset
-    // "stay [KohIntrinsic]" (the arena heap is compiler-owned — 'new' bumps the same global). That
-    // is the INTENDED end state, but as of this task neither method is actually attributed
-    // [KohIntrinsic] in Koh.GameBoy, and this frontend has no "alloc"/"reset" intrinsic kind (only
-    // register/region/ei/di/halt/nop/stop). A Mem.Alloc call therefore falls through to ordinary
-    // on-demand lowering — ordinary and correct as far as it goes, but Mem.Alloc's body reaches
-    // Gb.Base's getter, which calls System.Runtime.CompilerServices.Unsafe.AsPointer (a genuine BCL
-    // generic method) — so it still ends in a diagnostic, per the same non-negotiable proven above,
-    // just a less direct one than a plain unsupported-call message. Pinned here as "diagnoses,
-    // never miscompiles" so this is a known, tracked gap (see notesForNextAgent — samples/gb-3d
-    // DOES call Mem.Alloc, so this blocks that sample on the CIL path until closed) rather than a
-    // silent one a future change could regress without any test noticing.
+    // "stay [KohIntrinsic]" (the arena heap is compiler-owned — 'new' bumps the same global). Both
+    // are now attributed [KohIntrinsic("alloc")]/[KohIntrinsic("heapreset")] in Koh.GameBoy, and
+    // this frontend recognizes those kinds (CilMethodLowerer.LowerIntrinsicCall) rather than
+    // lowering Mem.Alloc's managed body (which reaches Gb.Base's Unsafe.AsPointer — BCL,
+    // unlowerable). Deliberately NO 'new'/'newarr' anywhere in this fixture: that is precisely what
+    // exercises CilModuleLowerer.NeedsHeap's intrinsic-call recognition (a Mem.Alloc-only program
+    // must still provision and seed the shared __heap global, or the very first allocation reads an
+    // unseeded value) rather than piggy-backing on the heap already being needed for some other
+    // reason.
     private const string MemAllocSource = """
         using Koh.GameBoy;
 
@@ -496,16 +494,129 @@ public class CilReferenceTests
             public static unsafe void Main()
             {
                 byte* p = Mem.Alloc(4);
+                *p = 0x42;
                 Hardware.BGP = *p;
             }
         }
         """;
 
     [Test]
-    public async Task MemAlloc_NotYetAnIntrinsic_DiagnosesRatherThanMiscompiles()
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task MemAlloc_IsACompilerOwnedIntrinsic_AndAllocatesAtTheExpectedAddress(
+        OptimizationLevel level
+    )
     {
         var diagnostics = new DiagnosticBag();
-        Frontend(MemAllocSource, OptimizationLevel.Release, diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error)).IsTrue();
+        var module = Frontend(MemAllocSource, level, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse();
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var gb = Load(Compile(MemAllocSource, level), out int s, out int l);
+        Run(gb, s, l);
+        // BGP proves the round-trip (write through the returned pointer, read it back).
+        await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)0x42);
+        // The allocation address itself: Mem.Alloc(4) from HeapTop (0xDE00) is the deterministic
+        // HeapTop-minus-running-total Sm83/MemRuntimeTests.AllocAddr assumes — 0xDE00 - 4 = 0xDDFC —
+        // read directly, since this IS the allocation the program made (not a hand-picked scratch
+        // literal; see this file's class remarks on that distinction).
+        await Assert.That(gb.DebugReadByte(0xDDFC)).IsEqualTo((byte)0x42);
+    }
+
+    [Test]
+    public async Task MemAlloc_DebugAndReleaseProduceIdenticalObservableState()
+    {
+        var debugGb = Load(
+            Compile(MemAllocSource, OptimizationLevel.Debug),
+            out int ds,
+            out int dl
+        );
+        Run(debugGb, ds, dl);
+        var releaseGb = Load(
+            Compile(MemAllocSource, OptimizationLevel.Release),
+            out int rs,
+            out int rl
+        );
+        Run(releaseGb, rs, rl);
+        await Assert.That(releaseGb.DebugReadByte(0xFF47)).IsEqualTo(debugGb.DebugReadByte(0xFF47));
+        await Assert.That(releaseGb.DebugReadByte(0xDDFC)).IsEqualTo(debugGb.DebugReadByte(0xDDFC));
+    }
+
+    // Two allocations are distinct, writable, and independent — mirrors CSharpEndToEndTests'
+    // Arena_AllocatesDistinctBlocks. Verdict crosses out through SCX (never a raw literal WRAM
+    // pointer as scratch — see class remarks).
+    private const string ArenaDistinctBlocksSource = """
+        using Koh.GameBoy;
+
+        public class Program
+        {
+            public static unsafe void Main()
+            {
+                byte* a = Mem.Alloc(4);
+                byte* b = Mem.Alloc(4);
+                a[0] = 11;
+                b[0] = 22;
+                byte ok = 1;
+                if (a[0] + b[0] != 33)
+                    ok = 0;
+                if (a == b)
+                    ok = 0;
+                Hardware.SCX = ok;
+            }
+        }
+        """;
+
+    [Test]
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task Arena_AllocatesDistinctBlocks(OptimizationLevel level)
+    {
+        var diagnostics = new DiagnosticBag();
+        var module = Frontend(ArenaDistinctBlocksSource, level, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse();
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var gb = Load(Compile(ArenaDistinctBlocksSource, level), out int s, out int l);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte(0xFF43)).IsEqualTo((byte)1);
+    }
+
+    // Mem.Reset() frees the whole arena at once, so the next allocation reuses the same address —
+    // mirrors CSharpEndToEndTests' Arena_ResetReclaimsEverything.
+    private const string ArenaResetReclaimsSource = """
+        using Koh.GameBoy;
+
+        public class Program
+        {
+            public static unsafe void Main()
+            {
+                byte* a = Mem.Alloc(4);
+                a[0] = 5;
+                Mem.Reset();
+                byte* b = Mem.Alloc(4);
+                Hardware.SCX = (byte)(a == b ? 42 : 0);
+            }
+        }
+        """;
+
+    [Test]
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task Arena_ResetReclaimsEverything(OptimizationLevel level)
+    {
+        var diagnostics = new DiagnosticBag();
+        var module = Frontend(ArenaResetReclaimsSource, level, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse();
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var gb = Load(Compile(ArenaResetReclaimsSource, level), out int s, out int l);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte(0xFF43)).IsEqualTo((byte)42);
     }
 }

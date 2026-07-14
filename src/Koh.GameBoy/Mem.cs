@@ -16,14 +16,21 @@ public static unsafe class Mem
     private static ushort _heap = HeapTop;
 
     /// <summary>Bump the heap pointer down by <paramref name="size"/> bytes and return the new
-    /// pointer. No individual free — <see cref="Reset"/> releases the whole arena at once.</summary>
+    /// pointer. No individual free — <see cref="Reset"/> releases the whole arena at once.
+    /// <c>[KohIntrinsic("alloc")]</c>: the arena heap is COMPILER-owned (<c>new</c> bumps the same
+    /// <c>__heap</c> global — see <c>CilLoweringContext.EnsureHeapGlobal</c>/<c>CSharpFrontend.HeapTop</c>),
+    /// and this managed body reaches <see cref="Gb.Base"/>'s <c>Unsafe.AsPointer</c> (BCL, unlowerable),
+    /// so a frontend must intercept the call rather than lower this body.</summary>
+    [KohIntrinsic("alloc")]
     public static byte* Alloc(int size)
     {
         _heap = (ushort)(_heap - size);
         return Gb.Base + _heap;
     }
 
-    /// <summary>Restore the heap pointer to the top of the arena, freeing every allocation.</summary>
+    /// <summary>Restore the heap pointer to the top of the arena, freeing every allocation.
+    /// <c>[KohIntrinsic("heapreset")]</c> — same compiler-owned-heap reasoning as <see cref="Alloc"/>.</summary>
+    [KohIntrinsic("heapreset")]
     public static void Reset() => _heap = HeapTop;
 
     /// <summary>Copy <paramref name="count"/> bytes from <paramref name="source"/> to
