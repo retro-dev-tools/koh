@@ -19,6 +19,14 @@ internal static class CilStructSupport
             return null;
         if (typeReference.MetadataType != MetadataType.ValueType)
             return null; // a primitive (Byte, Int32, ...) — Map handles it directly
+        // System.Int128/UInt128 are ValueType-shaped in CIL (ECMA-335 has no primitive element type
+        // for a 128-bit integer — confirmed against a real Cecil read) but are, for this frontend's
+        // purposes, ordinary 128-bit scalars (see CilTypeMapper.Map's matching remarks), not a
+        // user-declared struct laid out as a byte buffer. Must be excluded here — the ONE gate every
+        // struct-aware call site checks before Map — or an Int128/UInt128 local/field/param would be
+        // misrouted through the byte-buffer struct path instead of CilTypeMapper.Map's scalar mapping.
+        if (typeReference.Namespace == "System" && typeReference.Name is "Int128" or "UInt128")
+            return null;
         return CilModuleLowerer.ResolveSafe(typeReference) is { IsEnum: false } def ? def : null;
     }
 

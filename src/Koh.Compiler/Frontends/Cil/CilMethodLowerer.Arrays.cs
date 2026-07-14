@@ -31,6 +31,113 @@ internal sealed partial class CilMethodLowerer
         (IrType ElemType, bool Signed, IrValue Count)
     > _localArrayInfo = new();
 
+    // A `newarr` instruction this method's DetectArrayLiteralIdioms pre-pass proved is Roslyn's own
+    // array-literal idiom ('ldc.i4 N ; newarr T ; dup ; ldtoken <blob> ; call
+    // RuntimeHelpers::InitializeArray') -> the ROM global carrying the literal's bytes, its element
+    // type, and its element count. Populated once per method body, before Run's main simulation loop
+    // — see DetectArrayLiteralIdioms.
+    private readonly Dictionary<
+        Instruction,
+        (IrGlobal Global, IrType ElemType, int Count)
+    > _newarrLiteralGlobal = new();
+
+    /// <summary>
+    /// Recognizes Roslyn's array-literal idiom for a LOCAL (or any other non-static-field) array —
+    /// <c>ldc.i4 N ; newarr T ; dup ; ldtoken &lt;blob&gt; ; call RuntimeHelpers::InitializeArray</c> —
+    /// the exact same instruction shape <c>CilMethodLowerer.Statics.cs</c>'s
+    /// <c>CilStaticFieldSupport.TryMatchArrayLiteral</c> matches for a <c>static readonly</c> field's
+    /// initializer, just ending in whatever consumes the array next (typically <c>stloc</c>, but
+    /// equally an inline call argument — see <c>Simulate</c>'s <c>Code.Newarr</c> case, which doesn't
+    /// require any particular consumer) instead of always <c>stsfld</c>. Also the exact idiom Roslyn
+    /// emits for standard C#'s <c>byte[] x = { 1, 2, 3 };</c> — which, note, is the ONLY way a byte-
+    /// array literal can reach this frontend at all: Koh's own former "string literal as byte[]
+    /// initializer" support was Koh-legal-but-C#-illegal (no int-promotion Koh C# accepted syntax real
+    /// C# rejects), so it has no assembly representation to lower in the first place — see
+    /// <c>docs/superpowers/specs/2026-07-14-cil-frontend-design.md</c>'s whole premise. On a match, the
+    /// literal's constant bytes get a ROM global (shared across every occurrence of the same content —
+    /// see <see cref="CilLoweringContext.EnsureRvaBlobGlobal"/>) instead of being rebuilt on the heap at
+    /// startup; the interior <c>dup</c>/<c>ldtoken</c>/<c>call</c> triple is marked
+    /// <see cref="_suppressed"/> (matching <see cref="DetectDelegateCacheIdioms"/>'s own technique), and
+    /// <c>Code.Newarr</c>'s own handling (not suppressed — it still needs to POP the count and PUSH the
+    /// resulting array reference) consults <see cref="_newarrLiteralGlobal"/> to push the ROM global's
+    /// address instead of heap-allocating.
+    /// </summary>
+    private void DetectArrayLiteralIdioms()
+    {
+        foreach (var instr in _method.Body.Instructions)
+        {
+            if (instr.OpCode.Code != Code.Newarr)
+                continue;
+            var dup = instr.Next;
+            if (dup?.OpCode.Code != Code.Dup)
+                continue;
+            var ldtoken = dup.Next;
+            if (ldtoken?.OpCode.Code != Code.Ldtoken)
+                continue;
+            var call = ldtoken.Next;
+            if (
+                call?.OpCode.Code != Code.Call
+                || call.Operand is not MethodReference callee
+                || callee.Name != "InitializeArray"
+                || callee.DeclaringType.FullName != "System.Runtime.CompilerServices.RuntimeHelpers"
+            )
+                continue;
+
+            // The count immediately preceding 'newarr' must be the SAME compile-time constant the
+            // blob's own byte length implies — the same cross-check
+            // CilStaticFieldSupport.TryMatchArrayLiteral makes for the static-field shape, guarding
+            // against a hypothetical non-Roslyn IL shape where the two disagree.
+            if (
+                !CilStaticFieldSupport.TryReadConstLong(
+                    CilStaticFieldSupport.Prev(instr),
+                    out var count
+                )
+            )
+                continue;
+
+            IrType elemType;
+            try
+            {
+                (elemType, _) = CilTypeMapper.Map((TypeReference)instr.Operand);
+            }
+            catch (CilNotSupportedException)
+            {
+                continue;
+            }
+            var dataField = (ldtoken.Operand as FieldReference)?.Resolve();
+            var bytes = dataField?.InitialValue;
+            var elemSize = Math.Max(elemType.SizeInBytes, 1);
+            if (bytes is null || bytes.Length != count * elemSize)
+                continue;
+
+            var romGlobal = _ctx.EnsureRvaBlobGlobal(dataField!);
+            _newarrLiteralGlobal[instr] = (romGlobal, elemType, (int)count);
+            _suppressed.Add(dup);
+            _suppressed.Add(ldtoken);
+            _suppressed.Add(call);
+        }
+    }
+
+    /// <summary>The literal branch of <c>Code.Newarr</c>'s dispatch (see
+    /// <see cref="DetectArrayLiteralIdioms"/>): the runtime count already on the stack was already
+    /// cross-checked against the blob's own byte length at compile time, so it is simply discarded —
+    /// no heap allocation, no zero-fill, just the ROM global's address with the same array-info
+    /// provenance an ordinary heap <c>newarr</c> would carry.</summary>
+    private void LowerNewarrLiteral(
+        (IrGlobal Global, IrType ElemType, int Count) literal,
+        List<IrValue> stack
+    )
+    {
+        Pop(stack);
+        var ptr = IrBuilder.GlobalRef(literal.Global);
+        _pendingArrayInfo[ptr] = (
+            literal.ElemType,
+            false,
+            IrBuilder.ConstInt(IrType.I16, literal.Count)
+        );
+        stack.Add(ptr);
+    }
+
     /// <summary><c>newarr</c>: bump the shared heap pointer down by <c>count * sizeof(element)</c>,
     /// zero-fill it (a dynamic-size variant of <see cref="EmitZeroFill"/> — the count is a runtime
     /// value, not necessarily a compile-time constant), and record the array's element

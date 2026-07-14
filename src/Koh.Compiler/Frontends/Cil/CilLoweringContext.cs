@@ -148,6 +148,41 @@ internal sealed class CilLoweringContext
         return g;
     }
 
+    // A compiler-generated '<PrivateImplementationDetails>' RVA blob field (Roslyn's own storage for
+    // the raw bytes behind BOTH a local array literal's RuntimeHelpers.InitializeArray idiom and a
+    // `"..."u8` ReadOnlySpan<byte> literal — see CilMethodLowerer.Arrays.cs's DetectArrayLiteralIdioms
+    // and CilMethodLowerer.Delegates.cs's TryLowerSpanCall) -> the ROM global carrying its bytes.
+    // Roslyn deduplicates identical literal content onto ONE blob field across the whole module, so
+    // keying this cache by the field (rather than by call site) means two `{1,2,3}` literals anywhere
+    // in the program share one ROM global for free, exactly like a hand-written 'static readonly'
+    // array field already would.
+    private readonly Dictionary<FieldDefinition, IrGlobal> _rvaBlobGlobals = new();
+
+    /// <summary>The ROM global backing <paramref name="blobField"/>'s raw bytes (a compiler-generated
+    /// RVA-initialized field — <see cref="FieldDefinition.InitialValue"/> is already exactly the bytes
+    /// the CLR loader would have mapped from the PE image), creating it the first time anything
+    /// references this particular blob field. Note this is a wholly different field shape from an
+    /// ordinary user 'static readonly' field (<see cref="EnsureStaticGlobal"/>/<see cref="RegisterFoldedStatic"/>
+    /// above): a blob field is never scanned by <c>CilStaticFieldSupport.Collect</c> (it has no
+    /// '.cctor' store at all — its content is baked directly into the assembly, not assigned at
+    /// runtime), so it would otherwise fall through <c>EnsureStaticGlobal</c>'s generic path and get a
+    /// zero-initialized WRAM holder with none of its real content.</summary>
+    public IrGlobal EnsureRvaBlobGlobal(FieldDefinition blobField)
+    {
+        if (_rvaBlobGlobals.TryGetValue(blobField, out var g))
+            return g;
+        var bytes = blobField.InitialValue;
+        g = new IrGlobal(
+            $"__rvablob.{blobField.FullName}",
+            IrType.Array(IrType.I8, bytes.Length),
+            AddressSpace.Rom,
+            initializer: bytes
+        );
+        Module.Globals.Add(g);
+        _rvaBlobGlobals[blobField] = g;
+        return g;
+    }
+
     public void RegisterElidedCctorInstructions(
         MethodDefinition cctor,
         HashSet<Instruction> elided

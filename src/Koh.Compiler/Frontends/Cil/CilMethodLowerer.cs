@@ -63,6 +63,45 @@ internal static class CilTypeMapper
         if (typeReference.MetadataType != MetadataType.Void && !typeReference.IsValueType)
             return (IrType.Pointer(IrType.I8), false);
 
+        // System.ReadOnlySpan<T>/System.Span<T> — a 'ref struct' whose own internal layout (a managed
+        // pointer field this frontend cannot generically lay out; see CilClassLayout's remarks on why
+        // a struct's fields must each have a scalar IrType) is never itself modeled. Standard C#'s
+        // replacement for Koh's old "string literal as byte[] initializer" idiom (that idiom was
+        // Koh-legal-but-C#-illegal, so it cannot exist in a compiled assembly at all — see
+        // CilMethodLowerer's TryLowerSpanCall/CilMethodLowerer.Statics.cs's array-literal remarks) is
+        // `"..."u8`, which Roslyn compiles to exactly a ReadOnlySpan<byte> over RVA data. Represented,
+        // like every array in this frontend (CilMethodLowerer.Arrays.cs), as a raw pointer to its
+        // element type — the length is call-site provenance tracked separately (see
+        // CilMethodLowerer.Delegates.cs's TryLowerSpanCall), not part of the type itself. Checked here,
+        // ahead of the struct-routing MetadataType.ValueType branches below, because a generic instance
+        // type's own MetadataType is GenericInstance, not ValueType (confirmed against a real Cecil
+        // read of "ReadOnlySpan<byte> x = ...u8;" — see the CIL frontend's design task), so it would
+        // otherwise fall through to the "unsupported CIL type" diagnostic at the bottom.
+        if (
+            typeReference is GenericInstanceType spanGit
+            && spanGit.ElementType.Namespace == "System"
+            && spanGit.ElementType.Name is "ReadOnlySpan`1" or "Span`1"
+        )
+        {
+            var (spanElement, _) = Map(spanGit.GenericArguments[0]);
+            return (IrType.Pointer(spanElement), false);
+        }
+
+        // System.Int128/System.UInt128 have no dedicated ECMA-335 element type (confirmed against a
+        // real Cecil read: MetadataType.ValueType, same as any user struct) but are, for this
+        // frontend's purposes, ordinary 128-bit scalars — CLAUDE.md's "Koh C# subset" lists i128
+        // arithmetic as routing through the SM83 backend's existing generic width-N memory routines
+        // (already proven for i32/i64), so only the type mapping and the operator-method call-site
+        // interception (every Int128/UInt128 arithmetic/comparison/conversion op arrives in IL as a
+        // call to a static operator method, never a primitive opcode — see
+        // CilMethodLowerer.LowerCall's TryLowerInt128Operator) are new. Checked before
+        // CilStructSupport.ResolveStruct would otherwise misclassify it as a user value-type struct —
+        // see that method's own matching exclusion.
+        if (typeReference.Namespace == "System" && typeReference.Name == "Int128")
+            return (IrType.Int(128), true);
+        if (typeReference.Namespace == "System" && typeReference.Name == "UInt128")
+            return (IrType.Int(128), false);
+
         // An enum is just its underlying integer in IL (ECMA-335 II.14.3) — every enum-typed local/
         // field/param collapses to that integer type here. A user struct also reaches this branch
         // (MetadataType.ValueType, IsValueType true) but is never mapped through this generic path:
@@ -91,7 +130,8 @@ internal static class CilTypeMapper
             MetadataType.UInt64 => (IrType.I64, false),
             _ => throw new CilNotSupportedException(
                 $"unsupported CIL type '{typeReference.FullName}' (phase 1 supports byte/sbyte/"
-                    + "short/ushort/char/int/uint/long/ulong/bool/void and pointers only)."
+                    + "short/ushort/char/int/uint/long/ulong/Int128/UInt128/bool/void, pointers, and "
+                    + "ReadOnlySpan<T>/Span<T> only)."
             ),
         };
     }
@@ -472,6 +512,7 @@ internal sealed partial class CilMethodLowerer
             );
 
         DetectDelegateCacheIdioms();
+        DetectArrayLiteralIdioms();
         // A static constructor's own idiom-matched instructions (see CilMethodLowerer.Statics.cs's
         // CilStaticFieldSupport.Collect, run once for the whole module before any body lowers) are
         // seeded here — exactly like DetectDelegateCacheIdioms' own idiom, they collapse to nothing at
@@ -1322,7 +1363,31 @@ internal sealed partial class CilMethodLowerer
             }
             case Code.Ldsflda:
             {
-                var field = ResolveStaticField((FieldReference)instr.Operand);
+                var fieldRef = (FieldReference)instr.Operand;
+                // A compiler-generated RVA blob field (Roslyn's own storage for a `"..."u8` literal's
+                // bytes — see CilMethodLowerer.Delegates.cs's TryLowerSpanCall) is addressed directly by
+                // 'ldsflda', never via 'ldtoken' (that's the OTHER Roslyn idiom — an array literal's
+                // RuntimeHelpers.InitializeArray call, see CilMethodLowerer.Arrays.cs's
+                // DetectArrayLiteralIdioms). It must be intercepted here, before ResolveStaticField/
+                // StaticFieldAddress: a blob field has no '.cctor' store for CilStaticFieldSupport.Collect
+                // to ever see, so the ordinary static-field machinery would otherwise hand it a
+                // zero-initialized WRAM holder with none of its real (compile-time-constant) content —
+                // see CilLoweringContext.EnsureRvaBlobGlobal's remarks. Identified structurally (non-empty
+                // InitialValue, i.e. Cecil's own HasFieldRVA-backed accessor), not by the
+                // '<PrivateImplementationDetails>' name Roslyn happens to use today.
+                if (fieldRef.Resolve() is { InitialValue.Length: > 0 } blobField)
+                {
+                    var blob = _ctx.EnsureRvaBlobGlobal(blobField);
+                    var blobPtr = IrBuilder.GlobalRef(blob);
+                    _pendingArrayInfo[blobPtr] = (
+                        IrType.I8,
+                        false,
+                        IrBuilder.ConstInt(IrType.I16, blobField.InitialValue.Length)
+                    );
+                    stack.Add(blobPtr);
+                    break;
+                }
+                var field = ResolveStaticField(fieldRef);
                 stack.Add(StaticFieldAddress(field));
                 break;
             }
@@ -1350,7 +1415,10 @@ internal sealed partial class CilMethodLowerer
 
             // ---- SZ-arrays (see CilMethodLowerer.Arrays.cs) ------------------------------------
             case Code.Newarr:
-                LowerNewarr((TypeReference)instr.Operand, stack);
+                if (_newarrLiteralGlobal.TryGetValue(instr, out var literalArray))
+                    LowerNewarrLiteral(literalArray, stack);
+                else
+                    LowerNewarr((TypeReference)instr.Operand, stack);
                 break;
             case Code.Stelem_I1:
                 StoreElem(stack, IrType.I8);
@@ -1535,6 +1603,134 @@ internal sealed partial class CilMethodLowerer
         stack.Add(_b.Conv(IrConvOp.ZExt, cmp, IrType.I32));
     }
 
+    /// <summary>
+    /// System.Int128/UInt128 arithmetic/comparison/conversion: unlike every primitive width, IL never
+    /// has a native opcode for these (ECMA-335 predates 128-bit integers) — Roslyn instead emits a
+    /// STATIC call to the type's own operator method (<c>op_Addition</c>, <c>op_LessThan</c>,
+    /// <c>op_Implicit</c>, …), confirmed against a real Cecil dump of <c>a + b</c>/<c>(long)i128Value</c>/
+    /// etc. (see the design task). This intercepts exactly that call shape and lowers it to the SAME
+    /// generic <see cref="IrBinaryOp"/>/<see cref="IrCompareOp"/>/<see cref="IrConvOp"/> machinery every
+    /// OTHER width already uses (<see cref="AddOrSub"/>/<see cref="BinaryOp"/>/<see cref="ShiftOp"/>/
+    /// <see cref="CompareOp"/> above are width-agnostic — they operate on whatever <see cref="IrType"/>
+    /// the popped operands already carry) — CLAUDE.md's "Koh C# subset" already routes i32/i64/i128
+    /// arithmetic through the SM83 backend's generic width-N memory routines, so 128-bit width itself
+    /// needed no NEW backend work, only this call-site interception plus <see cref="CilTypeMapper.Map"/>'s
+    /// matching Int128/UInt128 type mapping. Placed ahead of the LINQ/BCL-method checks in
+    /// <see cref="LowerCall"/> — an Int128/UInt128 operator method is real BCL IL this frontend could
+    /// never lower (its actual implementation is a runtime intrinsic), so it must never reach that path.
+    /// </summary>
+    private bool TryLowerInt128Operator(MethodReference calleeRef, List<IrValue> stack)
+    {
+        var declaring = calleeRef.DeclaringType.FullName;
+        if (declaring != "System.Int128" && declaring != "System.UInt128")
+            return false;
+        if (!calleeRef.Name.StartsWith("op_", StringComparison.Ordinal))
+            return false;
+        var signed = declaring == "System.Int128";
+
+        switch (calleeRef.Name)
+        {
+            case "op_Addition":
+                AddOrSub(stack, subtract: false);
+                return true;
+            case "op_Subtraction":
+                AddOrSub(stack, subtract: true);
+                return true;
+            case "op_Multiply":
+                BinaryOp(stack, IrBinaryOp.Mul);
+                return true;
+            case "op_Division":
+                BinaryOp(stack, signed ? IrBinaryOp.SDiv : IrBinaryOp.UDiv);
+                return true;
+            case "op_Modulus":
+                BinaryOp(stack, signed ? IrBinaryOp.SRem : IrBinaryOp.URem);
+                return true;
+            case "op_BitwiseAnd":
+                BinaryOp(stack, IrBinaryOp.And);
+                return true;
+            case "op_BitwiseOr":
+                BinaryOp(stack, IrBinaryOp.Or);
+                return true;
+            case "op_ExclusiveOr":
+                BinaryOp(stack, IrBinaryOp.Xor);
+                return true;
+            case "op_LeftShift":
+                ShiftOp(stack, IrBinaryOp.Shl);
+                return true;
+            case "op_RightShift":
+            case "op_UnsignedRightShift":
+                ShiftOp(
+                    stack,
+                    signed && calleeRef.Name == "op_RightShift" ? IrBinaryOp.AShr : IrBinaryOp.LShr
+                );
+                return true;
+            case "op_UnaryNegation":
+            {
+                var a = Pop(stack);
+                stack.Add(_b.Sub(IrBuilder.ConstInt(a.Type, 0), a));
+                return true;
+            }
+            case "op_OnesComplement":
+            {
+                var a = Pop(stack);
+                stack.Add(_b.Binary(IrBinaryOp.Xor, a, IrBuilder.ConstInt(a.Type, -1)));
+                return true;
+            }
+            case "op_UnaryPlus":
+                return true; // identity — leave the operand exactly as-is on the stack.
+            case "op_Equality":
+                CompareOp(stack, IrCompareOp.Eq);
+                return true;
+            case "op_Inequality":
+                CompareOp(stack, IrCompareOp.Ne);
+                return true;
+            case "op_LessThan":
+                CompareOp(stack, signed ? IrCompareOp.Slt : IrCompareOp.Ult);
+                return true;
+            case "op_LessThanOrEqual":
+                CompareOp(stack, signed ? IrCompareOp.Sle : IrCompareOp.Ule);
+                return true;
+            case "op_GreaterThan":
+                CompareOp(stack, signed ? IrCompareOp.Sgt : IrCompareOp.Ugt);
+                return true;
+            case "op_GreaterThanOrEqual":
+                CompareOp(stack, signed ? IrCompareOp.Sge : IrCompareOp.Uge);
+                return true;
+            case "op_Implicit":
+            case "op_Explicit":
+                LowerInt128Conversion(calleeRef, stack);
+                return true;
+            default:
+                return false; // an unrecognized Int128/UInt128 member (e.g. a named method like
+            // 'Parse') falls through to the ordinary BCL-method diagnostic in LowerCall.
+        }
+    }
+
+    /// <summary>An Int128/UInt128 <c>op_Implicit</c>/<c>op_Explicit</c> conversion: widen/narrow the
+    /// popped operand to the operator's declared RETURN type, using the operator's declared PARAMETER
+    /// type's own signedness to choose sign- vs zero-extension (never the popped stack value's current
+    /// physical width alone — a narrower-than-i32 parameter, e.g. an implicit conversion from <c>byte</c>,
+    /// already arrived widened to i32 by the ordinary CIL stack-typing discipline; see
+    /// <see cref="WidenToStack"/>'s remarks — so it is the DECLARED parameter type that carries the real
+    /// signedness here, exactly as <see cref="IsSignedReturn"/> does for an ordinary call's return).
+    /// Bit-identical when source and target are the same width (an Int128&lt;-&gt;UInt128 explicit
+    /// conversion, or a round-trip through the same width) — signedness is not itself stored in
+    /// <see cref="IrType"/>, so no conversion instruction is needed at all in that case.</summary>
+    private void LowerInt128Conversion(MethodReference calleeRef, List<IrValue> stack)
+    {
+        var (targetType, targetSigned) = CilTypeMapper.Map(calleeRef.ReturnType);
+        var (_, paramSigned) = CilTypeMapper.Map(calleeRef.Parameters[0].ParameterType);
+        var v = Pop(stack);
+        IrValue converted;
+        if (v.Type.Bits == targetType.Bits)
+            converted = v;
+        else if (v.Type.Bits > targetType.Bits)
+            converted = _b.Conv(IrConvOp.Trunc, v, targetType);
+        else
+            converted = _b.Conv(paramSigned ? IrConvOp.SExt : IrConvOp.ZExt, v, targetType);
+        stack.Add(WidenToStack(converted, targetSigned));
+    }
+
     /// <summary>A <c>call</c>: an instance call (always non-virtual by CIL definition — a base-ctor
     /// call, a <c>base.Method()</c> call, or a devirtualization-irrelevant direct instance call — see
     /// <see cref="LowerInstanceCall"/>), a <c>[KohIntrinsic]</c>-attributed method (Hardware/Gb — see
@@ -1547,6 +1743,9 @@ internal sealed partial class CilMethodLowerer
             LowerInstanceCall(calleeRef, stack, isVirtualDispatch: false);
             return;
         }
+
+        if (TryLowerInt128Operator(calleeRef, stack))
+            return;
 
         if (IsLinqEnumerableCall(calleeRef))
         {

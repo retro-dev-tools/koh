@@ -89,8 +89,11 @@ internal static class CilStaticFieldSupport
     /// <summary>The instruction immediately preceding <paramref name="instr"/> in program order,
     /// skipping <c>nop</c>s (Debug IL pads between statements, but never inside a single expression's
     /// own push sequence — confirmed for this exact idiom shape by a real Debug/Release Cecil dump; see
-    /// the design task's delegate-cache spike for the same technique).</summary>
-    private static Instruction? Prev(Instruction? instr)
+    /// the design task's delegate-cache spike for the same technique). <c>internal</c>, not
+    /// <c>private</c>: also reused by <c>CilMethodLowerer.Arrays.cs</c>'s
+    /// <c>DetectArrayLiteralIdioms</c> for the same idiom's LOCAL-variable shape (a <c>newarr</c>
+    /// inside an ordinary method body rather than a static constructor).</summary>
+    internal static Instruction? Prev(Instruction? instr)
     {
         var p = instr?.Previous;
         while (p is not null && p.OpCode.Code == Code.Nop)
@@ -98,7 +101,7 @@ internal static class CilStaticFieldSupport
         return p;
     }
 
-    private static bool TryReadConstLong(Instruction? instr, out long value)
+    internal static bool TryReadConstLong(Instruction? instr, out long value)
     {
         value = 0;
         if (instr is null)

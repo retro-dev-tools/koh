@@ -48,6 +48,16 @@ internal sealed partial class CilMethodLowerer
     // re-derives a fresh _pendingDelegateProvenance entry for the value it loads.
     private readonly Dictionary<VariableDefinition, MethodDefinition> _localDelegateTarget = new();
 
+    // A ReadOnlySpan<T>/Span<T> local's own storage address (see TryLowerSpanCall — the exact same
+    // stable IrValue AddressOfLocal returns for every 'ldloca'/'ldloca.s' of that local, matching
+    // _pendingArrayInfo/_structLocals' own reference-identity keying elsewhere in this frontend) -> its
+    // element type/signedness/length, recorded the moment its constructing '.ctor(void*, int32)' call is
+    // intercepted; consulted by a later 'get_Item'/'get_Length' call on the SAME local.
+    private readonly Dictionary<
+        IrValue,
+        (IrType ElemType, bool Signed, IrValue Count)
+    > _spanBackingInfo = new();
+
     /// <summary>
     /// Recognizes Roslyn's no-capture-lambda cache guard (design spike, finding (a)):
     /// <code>
@@ -361,6 +371,81 @@ internal sealed partial class CilMethodLowerer
     /// on a method that is virtual, not final, and whose declaring type isn't sealed — cannot be
     /// resolved to one target without concrete-type tracking (out of this task's scope; task 3's
     /// iterators need it) and is a diagnostic.</summary>
+    /// <summary>
+    /// Intercepts the three <c>System.ReadOnlySpan&lt;T&gt;</c>/<c>System.Span&lt;T&gt;</c> instance
+    /// members Roslyn's own lowering of a <c>"..."u8</c> literal needs: the pointer/length constructor,
+    /// and reading an element back out (<c>get_Item</c>, plus <c>get_Length</c> for completeness). A
+    /// real Cecil dump of <c>ReadOnlySpan&lt;byte&gt; s = "hi"u8; return s[1];</c> confirms the exact
+    /// shape: <c>ldloca.s V ; ldsflda &lt;blob&gt; ; ldc.i4 N ; call instance void
+    /// ReadOnlySpan&lt;byte&gt;::.ctor(void*, int32)</c>, later followed by <c>ldloca.s V ; ldc.i4 idx ;
+    /// call instance !0&amp; ReadOnlySpan&lt;byte&gt;::get_Item(int32) ; ldind.u1</c>. This is standard
+    /// C#'s ONLY way to spell a byte-array-of-constants literal inline (see
+    /// <c>CilMethodLowerer.Arrays.cs</c>'s <c>DetectArrayLiteralIdioms</c> remarks on why Koh's old
+    /// "string literal as byte[] initializer" idiom cannot exist in a compiled assembly at all — it was
+    /// Koh-legal-but-C#-illegal).
+    ///
+    /// Neither member's real implementation is lowerable (a <c>ref struct</c>'s internal managed-pointer
+    /// field has no representable <see cref="IrType"/> — see <see cref="CilTypeMapper.Map"/>'s matching
+    /// ReadOnlySpan/Span case), so both are intercepted by shape here instead: the span is represented
+    /// exactly like any other array in this frontend (<c>CilMethodLowerer.Arrays.cs</c>) — its "value" is
+    /// a raw base pointer, physically stored into the span-local's own <c>alloca</c> (so a later
+    /// <c>ldloca</c> reference to the SAME local sees it, via <see cref="_spanBackingInfo"/> keyed by
+    /// that alloca's own reference-stable <see cref="IrValue"/> — see <see cref="AddressOfLocal"/>).
+    /// Returns false (no-op) for any other Span/ReadOnlySpan member, e.g. <c>Slice</c>/<c>CopyTo</c> —
+    /// out of this task's scope, and a diagnostic (via the ordinary BCL-method path below) rather than a
+    /// silent miscompile.
+    /// </summary>
+    private bool TryLowerSpanCall(
+        MethodReference calleeRef,
+        IrValue thisValue,
+        IrValue[] args,
+        List<IrValue> stack
+    )
+    {
+        if (calleeRef.DeclaringType is not GenericInstanceType git)
+            return false;
+        if (
+            git.ElementType.Namespace != "System"
+            || git.ElementType.Name is not ("ReadOnlySpan`1" or "Span`1")
+        )
+            return false;
+        var (elemType, elemSigned) = CilTypeMapper.Map(git.GenericArguments[0]);
+
+        switch (calleeRef.Name)
+        {
+            case ".ctor" when args.Length == 2:
+                _b.Store(CoerceStore(args[0], IrType.Pointer(elemType)), thisValue);
+                _spanBackingInfo[thisValue] = (elemType, elemSigned, args[1]);
+                return true;
+            case "get_Item" when args.Length == 1:
+            {
+                if (!_spanBackingInfo.TryGetValue(thisValue, out var info))
+                    throw new CilNotSupportedException(
+                        $"'{calleeRef.FullName}' in '{_method.FullName}' indexes a "
+                            + "ReadOnlySpan<T>/Span<T> this frontend cannot trace back to its "
+                            + "constructing '.ctor' call (only the direct pointer/length "
+                            + "constructor — the `\"...\"u8` literal's own shape — is supported)."
+                    );
+                var basePtr = _b.Load(thisValue);
+                stack.Add(ElementPointer(basePtr, args[0], info.ElemType));
+                return true;
+            }
+            case "get_Length" when args.Length == 0:
+            {
+                if (!_spanBackingInfo.TryGetValue(thisValue, out var info))
+                    throw new CilNotSupportedException(
+                        $"'{calleeRef.FullName}' in '{_method.FullName}' reads the length of a "
+                            + "ReadOnlySpan<T>/Span<T> this frontend cannot trace back to its "
+                            + "constructing '.ctor' call."
+                    );
+                stack.Add(WidenToStack(CoerceStore(info.Count, IrType.I32), signed: false));
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
     private void LowerInstanceCall(
         MethodReference calleeRef,
         List<IrValue> stack,
@@ -372,6 +457,9 @@ internal sealed partial class CilMethodLowerer
         for (var i = argCount - 1; i >= 0; i--)
             args[i] = Pop(stack);
         var thisValue = Pop(stack);
+
+        if (TryLowerSpanCall(calleeRef, thisValue, args, stack))
+            return;
 
         if (
             calleeRef.DeclaringType.FullName == "System.Object"
