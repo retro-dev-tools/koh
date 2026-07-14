@@ -369,4 +369,103 @@ public class ApuTests
         // narrow window and reads back $FF regardless of address.
         await Assert.That(apu.Read(0xFF35)).IsEqualTo((byte)0xFF);
     }
+
+    [Test]
+    public async Task WaveRam_Access_During_JustRead_Window_Hits_Current_Byte()
+    {
+        // Complement to WaveRam_Access_While_Channel_On_Redirects_To_Current_Byte
+        // above, which only covers the DMG $FF MISS path. This reaches the
+        // narrow HIT window organically -- the single T-cycle during which
+        // JustRead is open -- by driving Apu.TickT() directly, then asserts a
+        // CPU access during it redirects to WavePattern[CurrentBytePosition]
+        // regardless of the address used, for both reads and writes.
+        var apu = new Koh.Emulator.Core.Apu.Apu();
+        apu.Write(0xFF26, 0x80); // power on
+        for (int i = 0; i < 16; i++)
+            apu.Write((ushort)(0xFF30 + i), (byte)(i * 0x11));
+        apu.Write(0xFF1A, 0x80); // NR30: DAC on
+        apu.Write(0xFF1D, 0xFF); // NR33: frequency low byte -> shortest period
+        apu.Write(0xFF1E, 0x87); // NR34: frequency high bits + trigger
+
+        bool sawWindow = false;
+        for (int i = 0; i < 16 && !sawWindow; i++)
+        {
+            apu.TickT();
+            sawWindow = apu.Ch3.JustRead;
+        }
+        await Assert.That(sawWindow).IsTrue();
+
+        int pos = apu.Ch3.CurrentBytePosition;
+        byte expectedRead = (byte)(pos * 0x11);
+        ushort readAddr = (ushort)(0xFF30 + ((pos + 8) % 16));
+        await Assert.That(apu.Read(readAddr)).IsEqualTo(expectedRead);
+
+        ushort writeAddr = (ushort)(0xFF30 + ((pos + 3) % 16));
+        apu.Write(writeAddr, 0x55);
+        await Assert.That(apu.Ch3.WavePattern[pos]).IsEqualTo((byte)0x55);
+    }
+
+    // --- CGB: both DMG wave-RAM obscure-behavior quirks are fixed --------
+
+    [Test]
+    public async Task Cgb_WaveRam_Access_While_Channel_On_Always_Redirects_No_Miss()
+    {
+        // Pan Docs "Audio — Obscure Behavior": on CGB, wave-RAM access while
+        // CH3 plays reliably redirects to the byte at the current position --
+        // no narrow same-cycle window like DMG. Unlike
+        // WaveRam_Access_While_Channel_On_Redirects_To_Current_Byte (DMG,
+        // misses immediately after trigger), the CGB access below happens
+        // right after trigger too, but must NOT miss.
+        var apu = new Koh.Emulator.Core.Apu.Apu(HardwareMode.Cgb);
+        apu.Write(0xFF26, 0x80);
+        for (int i = 0; i < 16; i++)
+            apu.Write((ushort)(0xFF30 + i), (byte)(i * 0x11));
+        apu.Write(0xFF1A, 0x80); // DAC on
+        apu.Write(0xFF1E, 0x87); // trigger CH3
+
+        await Assert.That(apu.Read(0xFF35)).IsNotEqualTo((byte)0xFF);
+        await Assert
+            .That(apu.Read(0xFF35))
+            .IsEqualTo(apu.Ch3.WavePattern[apu.Ch3.CurrentBytePosition]);
+
+        apu.Write(0xFF36, 0x77);
+        await Assert.That(apu.Ch3.WavePattern[apu.Ch3.CurrentBytePosition]).IsEqualTo((byte)0x77);
+    }
+
+    [Test]
+    public async Task Cgb_WaveChannel_Retrigger_While_Reading_Does_Not_Corrupt()
+    {
+        // Same setup as WaveChannel_Retrigger_While_Reading_Corrupts_First_Four_Bytes
+        // (DMG), but on CGB hardware fixed the retrigger-corruption quirk --
+        // bytes 0-3 must be left untouched by the retrigger.
+        var ch = new WaveChannel(isCgb: true);
+        for (int i = 0; i < 16; i++)
+            ch.WavePattern[i] = (byte)(i * 0x11);
+        ch.Trigger(nr30: 0x80, nr31: 0, nr32: 0x20, nr33: 0, nr34: 0x80);
+        for (int i = 0; i < 4096; i++)
+            ch.TickT(); // advance until a sample has just been latched
+
+        // Force the channel to be mid-read at byte index 9 (one of the
+        // "later 12 bytes" that would corrupt bytes 0-3 on DMG), then
+        // retrigger on that exact cycle.
+        typeof(WaveChannel)
+            .GetField(
+                "_waveIndex",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
+            )!
+            .SetValue(ch, 18); // waveIndex 18 -> byte 9
+        typeof(WaveChannel)
+            .GetField(
+                "_justReadCountdown",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
+            )!
+            .SetValue(ch, 1);
+
+        ch.Trigger(nr30: 0x80, nr31: 0, nr32: 0x20, nr33: 0, nr34: 0x80);
+
+        await Assert.That(ch.WavePattern[0]).IsEqualTo((byte)(0 * 0x11));
+        await Assert.That(ch.WavePattern[1]).IsEqualTo((byte)(1 * 0x11));
+        await Assert.That(ch.WavePattern[2]).IsEqualTo((byte)(2 * 0x11));
+        await Assert.That(ch.WavePattern[3]).IsEqualTo((byte)(3 * 0x11));
+    }
 }

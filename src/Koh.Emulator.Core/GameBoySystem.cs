@@ -20,7 +20,7 @@ public sealed class GameBoySystem
     public Ppu.Ppu Ppu { get; }
     public OamDma OamDma { get; }
     public Hdma Hdma { get; }
-    public Apu.Apu Apu { get; } = new();
+    public Apu.Apu Apu { get; }
     public KeyOneRegister KeyOne { get; } = new();
     public JoypadState Joypad;
 
@@ -42,6 +42,7 @@ public sealed class GameBoySystem
         Io = new IoRegisters(Timer) { HardwareMode = mode };
         Mmu = new Mmu(cart, Io);
         Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
+        Apu = new Apu.Apu(mode);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
         Mmu.AttachPpu(Ppu);

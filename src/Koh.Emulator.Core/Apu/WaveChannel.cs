@@ -9,6 +9,12 @@ public sealed class WaveChannel
     public int VolumeShift; // 0 = mute, 1 = 100%, 2 = 50%, 3 = 25%
     public readonly byte[] WavePattern = new byte[16]; // $FF30-$FF3F, 32 4-bit samples
 
+    // CGB fixed the DMG-only retrigger-corruption quirk (Pan Docs, "Audio —
+    // Obscure Behavior"): retriggering while the channel is mid-read no
+    // longer corrupts wave RAM. Set once at construction, mirroring how
+    // Ppu takes its HardwareMode.
+    private readonly bool _isCgb;
+
     private int _waveIndex;
     private int _freqCycleCounter;
 
@@ -38,6 +44,11 @@ public sealed class WaveChannel
 
     public int CurrentBytePosition => _waveIndex / 2;
     public bool JustRead => _justReadCountdown > 0;
+
+    public WaveChannel(bool isCgb = false)
+    {
+        _isCgb = isCgb;
+    }
 
     /// <summary>
     /// Powering the APU off clears the internal sample buffer (CH3 emits
@@ -96,8 +107,9 @@ public sealed class WaveChannel
         Frequency = ((nr34 & 0x07) << 8) | nr33;
 
         // DMG-only quirk: retriggering while the channel is actively reading
-        // a wave RAM byte corrupts the first four bytes.
-        if (Enabled && JustRead)
+        // a wave RAM byte corrupts the first four bytes. CGB fixed this --
+        // no corruption on retrigger.
+        if (!_isCgb && Enabled && JustRead)
             CorruptWaveRam();
 
         _waveIndex = 0; // position resets; the sample buffer is NOT refilled.

@@ -33,11 +33,19 @@ public sealed class Apu
 
     public AudioSampleBuffer SampleBuffer { get; } = new();
 
-    public Apu()
+    // CGB fixed both DMG-only wave-RAM obscure-behavior quirks (Pan Docs,
+    // "Audio — Obscure Behavior"): see Read/Write below and
+    // WaveChannel._isCgb. Set once at construction, mirroring how Ppu takes
+    // its HardwareMode; GameBoySystem constructs Apu the same way it
+    // constructs Ppu.
+    private readonly bool _isCgb;
+
+    public Apu(HardwareMode mode = HardwareMode.Dmg)
     {
+        _isCgb = mode == HardwareMode.Cgb;
         Ch1 = new SquareChannel(hasSweep: true);
         Ch2 = new SquareChannel(hasSweep: false);
-        Ch3 = new WaveChannel();
+        Ch3 = new WaveChannel(_isCgb);
         Ch4 = new NoiseChannel();
 
         FrameSequencer.LengthClock += OnLength;
@@ -134,8 +142,12 @@ public sealed class Apu
             // DMG quirk: while CH3 is active, wave RAM is only accessible to
             // the CPU during the exact T-cycle the channel itself reads it;
             // any other access returns $FF regardless of the address used.
+            // CGB fixed this: access while CH3 plays reliably redirects to
+            // the byte at the channel's current position, no narrow window.
             if (Ch3.Enabled)
-                return Ch3.JustRead ? Ch3.WavePattern[Ch3.CurrentBytePosition] : (byte)0xFF;
+                return _isCgb || Ch3.JustRead
+                    ? Ch3.WavePattern[Ch3.CurrentBytePosition]
+                    : (byte)0xFF;
             return Ch3.WavePattern[address - 0xFF30];
         }
 
@@ -180,11 +192,12 @@ public sealed class Apu
     {
         if (address >= 0xFF30 && address <= 0xFF3F)
         {
-            // See Read(): the same DMG narrow-access-window quirk applies to
-            // writes; outside the window the write is simply dropped.
+            // See Read(): the same DMG narrow-access-window quirk (fixed on
+            // CGB) applies to writes; outside the window the write is simply
+            // dropped.
             if (Ch3.Enabled)
             {
-                if (Ch3.JustRead)
+                if (_isCgb || Ch3.JustRead)
                     Ch3.WavePattern[Ch3.CurrentBytePosition] = value;
                 return;
             }
