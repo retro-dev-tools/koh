@@ -75,11 +75,15 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
     for a `float` `add` opcode).
   Framework code that is neither of those (the `Hal/` classes, `Mem.Copy`/`Fill`'s byte-shuffling loops)
   is ordinary compiled Koh.GameBoy.dll IL, lowered ON DEMAND the first time a game actually calls it
-  (`CilLoweringContext.EnsureLowered`, transitively) — never eagerly, never by a name-keyed table. A
-  game module's own dead code is deliberately left un-pruned (parity with the old frontend leaving it to
-  diagnostics), but an unreachable REFERENCED-assembly function IS pruned
-  (`IrOptimizer.RemoveUnreachableFunctions` called unconditionally, before the optimizer) — see the
-  KNOWN ISSUE below, this asymmetry has a real bug in it.
+  (`CilLoweringContext.EnsureLowered`, transitively) — never eagerly, never by a name-keyed table. Pass 1
+  eagerly declares (and Pass 2 lowers) every hand-written static method in the game's own module
+  regardless of reachability, so `CilModuleLowerer.Lower` prunes EVERY function — game module's own dead
+  code included, not just an unreachable referenced-assembly function — unconditionally, before the
+  optimizer (`IrOptimizer.RemoveUnreachableFunctions(module)`, no `removable` scope), from the real roots
+  (the entry function plus every function with an `InterruptVector`): pruning a dead game function removes
+  its dangling calls too, so a call can never point at a callee the sweep already dropped. An interrupt
+  handler is never called explicitly, so it must be (and is) a root in its own right, or it would be
+  wrongly pruned as unreachable.
 - `Backends/Sm83/Sm83Backend.cs` — hand-written, correctness-first SM83 code generation.
 - `Targets/` — `DataLayout` (per-target pointer width / endianness / native int widths).
 
@@ -157,24 +161,6 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   default `Debug` — Debug IL's redundant stores/un-folded constants are real cost the CIL frontend
   lowers faithfully, unlike the old syntax-directed frontend which never saw IL at all and so never
   varied with build configuration.
-- **KNOWN ISSUE — dangling call after referenced-assembly pruning** (found 2026-07,
-  `CilGame2048Tests`): `CilMethodLowerer.cs`'s post-lowering sweep
-  (`IrOptimizer.RemoveUnreachableFunctions(module, ctx.IsFromReferencedAssembly)`) prunes a referenced-
-  assembly function (e.g. `Koh.GameBoy`'s `TileData.Clear`) from `Module.Functions` when it is
-  unreachable from the entry/an interrupt handler — but a GAME-MODULE function that calls it and is
-  ITSELF unreachable from entry is deliberately left un-pruned (dead game code is left alone, by
-  policy). The result: the still-present, still-compiled dead game function retains a `Call` to a
-  callee that no longer exists in the module, and `Sm83Backend.ControlFlowEmitter.EmitCall` throws
-  `KeyNotFoundException` reading `_ctx.Allocations[callee]`. Reproduces deterministically (confirmed via
-  `--treenode-filter` in isolation, not a parallelism artifact) whenever a compiled program includes a
-  type with an unreachable method that itself calls into referenced-assembly code — e.g. compiling
-  `Board.cs` + `Tiles.cs` together with a synthetic entry that never calls `Tiles.RenderBoard`/
-  `GenerateTileset` still lowers those two (dead) methods (Pass 1 eagerly declares every game-module
-  static method regardless of reachability), and their calls into `Koh.GameBoy`'s `TileData`/`Tilemap`
-  dangle once pruning removes the callees. Not fixed as of this writing — several
-  `CilGame2048Tests`/`Sm83LoopCodegenTests`/`Cube3dTests` cases hit it and are left failing (see git
-  history around the `CSharpFrontend` deletion commit for the precise repro and failing test names).
-
 ### "Koh C#" is now standard C# — a subset by what the backend can lower, not by parser rules
 
 There is no Koh-specific syntax or Koh-specific typing rule left: a game is an ordinary C# project a

@@ -160,15 +160,25 @@ public class CilGame2048Tests
         var model = Compile(sources, optimize);
         var rom = new LinkerType().Link([new LinkerInput("t", model)]).RomData!;
 
-        int start = Sm83Backend.CodeBase;
-        int length = model.Sections[0].Data.Length;
+        int codeStart = Sm83Backend.CodeBase;
+        int codeEnd = codeStart + model.Sections[0].Data.Length;
+        // The single-bank backend emits functions in `IrModule.Functions` order (Board's/Tiles's
+        // methods first, the synthetic TestEntry.Main wherever it lands after them) — CodeBase is only
+        // the entry's address by construction when the ROM boots for real, through the header's reset
+        // vector at 0x100 (NOP; JP <entry>, entry resolved to whatever address the entry function
+        // actually got — see Sm83Backend's `entryAddress` local). A real ROM always boots through that
+        // indirection; this harness starts execution straight at the entry's own code instead, so it has
+        // to look the address up the same way rather than assume it equals CodeBase.
+        var entrySymbol = model.Symbols.Single(s => s.Name == "TestEntry.Main");
+        int entryPc = codeStart + (int)entrySymbol.Value;
+
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Sp = 0xFFFE;
-        gb.Registers.Pc = (ushort)start;
+        gb.Registers.Pc = (ushort)entryPc;
         for (int steps = 0; steps < 1_000_000; steps++)
         {
             int pc = gb.Registers.Pc;
-            if (pc < start || pc >= start + length)
+            if (pc < codeStart || pc >= codeEnd)
                 break;
             gb.StepInstruction();
         }

@@ -296,22 +296,20 @@ internal static class CilModuleLowerer
         )
             entryFn.IsEntry = true;
 
-        // Prune framework functions lowered on demand (see the referenced-assembly task, docs/
-        // superpowers/specs/2026-07-14-cil-frontend-design.md, task 2) that turn out not to be
-        // reachable from the entry/an interrupt handler through the call graph — mirrors
-        // CSharpFrontend's own softfloat-runtime pruning (CSharpFrontend.IsAppendedRuntimeFunction),
-        // generalized from a name-prefix predicate to module identity: a function is only a pruning
-        // CANDIDATE when its MethodDefinition's module is not the game's own (ctx.IsFromReferencedAssembly)
-        // — the game module's own dead code is left alone here, same as CSharpFrontend leaves it to
-        // later passes/diagnostics rather than this eager sweep. In practice on-demand lowering already
-        // means a never-called framework method is never even added to the module, so this mostly
-        // covers the case where a call site itself is later found unreachable; this call runs
-        // unconditionally, before the optimizer, so a game pays only for the framework code it calls
-        // even when run without IrOptimizer.Optimize.
-        Ir.Optimization.IrOptimizer.RemoveUnreachableFunctions(
-            module,
-            ctx.IsFromReferencedAssembly
-        );
+        // Prune every function unreachable from the entry/an interrupt handler through the call graph —
+        // both framework functions lowered on demand (see the referenced-assembly task, docs/
+        // superpowers/specs/2026-07-14-cil-frontend-design.md, task 2) AND the game module's own dead
+        // code. Pruning must be uniform: Pass 1 eagerly declares (and Pass 2 lowers) every hand-written
+        // static method regardless of reachability, so a dead game function can itself hold a `Call` to
+        // a framework function; leaving the dead caller in place while pruning only its unreachable
+        // callee (module-identity-scoped, as this used to do) strands a `Call` to a function no longer
+        // in `Module.Functions`, and `Sm83Backend.ControlFlowEmitter.EmitCall` throws reading
+        // `_ctx.Allocations[callee]` for it. Computing the live set first and then dropping whatever
+        // isn't in it (the plain, no-`removable` overload) prunes both the dead caller and, transitively,
+        // any callee that only the dead caller reached — so nothing can end up calling a pruned function.
+        // This call runs unconditionally, before the optimizer, so a game pays only for the framework
+        // code it calls even when run without IrOptimizer.Optimize.
+        Ir.Optimization.IrOptimizer.RemoveUnreachableFunctions(module);
     }
 
     /// <summary>True if any method body in the assembly (hand-written or compiler-generated —

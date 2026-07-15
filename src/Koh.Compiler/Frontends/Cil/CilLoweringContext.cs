@@ -30,9 +30,8 @@ internal sealed class CilLoweringContext
     public Dictionary<MethodDefinition, IrFunction> FunctionsByMethod { get; } = new();
 
     /// <summary>The game's own module — everything else a call resolves into (Koh.GameBoy's Hal,
-    /// <c>Mem.Copy</c>/<c>Fill</c>, …) is a REFERENCED assembly (see
-    /// <see cref="IsFromReferencedAssembly"/>/the on-demand-lowering task, docs/superpowers/specs/
-    /// 2026-07-14-cil-frontend-design.md, task 2).</summary>
+    /// <c>Mem.Copy</c>/<c>Fill</c>, …) is a REFERENCED assembly (see the on-demand-lowering task,
+    /// docs/superpowers/specs/2026-07-14-cil-frontend-design.md, task 2).</summary>
     public ModuleDefinition GameModule { get; }
 
     private readonly Dictionary<int, IrGlobal> _registerGlobals = new();
@@ -40,22 +39,6 @@ internal sealed class CilLoweringContext
     private readonly Dictionary<TypeDefinition, CilClassLayout> _classLayouts = new();
     private readonly HashSet<MethodDefinition> _inProgress = new();
     private IrGlobal? _heapGlobal;
-
-    // Every IrFunction whose MethodDefinition's module is NOT GameModule — i.e. lowered on demand from
-    // a referenced (non-BCL) assembly. Populated as EnsureSignature/BuildGenericSignature create each
-    // function, so it stays complete regardless of which pass (eager game-module sweep, or an on-demand
-    // call-site resolution) created a given entry. Used only to scope
-    // IrOptimizer.RemoveUnreachableFunctions' pruning — the game module's own dead code is deliberately
-    // left alone here (see CilModuleLowerer.Lower's remarks).
-    private readonly HashSet<IrFunction> _referencedAssemblyFunctions = new(
-        ReferenceEqualityComparer.Instance
-    );
-
-    /// <summary>Whether <paramref name="function"/> came from a referenced assembly rather than the
-    /// game's own module — the pruning predicate <see cref="CilModuleLowerer.Lower"/> passes to
-    /// <c>IrOptimizer.RemoveUnreachableFunctions</c>.</summary>
-    public bool IsFromReferencedAssembly(IrFunction function) =>
-        _referencedAssemblyFunctions.Contains(function);
 
     // ---- Static fields (see CilMethodLowerer.Statics.cs and the statics task in
     // docs/superpowers/specs/2026-07-14-cil-frontend-design.md) ------------------------------------
@@ -353,8 +336,6 @@ internal sealed class CilLoweringContext
             };
             Module.Functions.Add(fn);
             FunctionsByMethod[method] = fn;
-            if (!ReferenceEquals(method.Module, GameModule))
-                _referencedAssemblyFunctions.Add(fn);
             return fn;
         }
         catch (CilNotSupportedException ex)
@@ -519,8 +500,6 @@ internal sealed class CilLoweringContext
             parameters
         );
         Module.Functions.Add(fn);
-        if (!ReferenceEquals(template.Module, GameModule))
-            _referencedAssemblyFunctions.Add(fn);
         return fn;
     }
 
