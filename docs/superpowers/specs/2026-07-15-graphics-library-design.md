@@ -370,3 +370,18 @@ Slices in dependency order; ★ = parallelizable with siblings once its arrows a
 4. **String literals in the CIL frontend.** `Text.Draw(..., string)` assumes `ldstr` lowers to ROM byte data. The frontend is in-flight (uncommitted `Frontends/Cil/`); if strings aren't supported at implementation time, does Text ship `byte[]`-only for v1, or is string-literal lowering added to the frontend as part of this work? (Recommendation: add it — `Text.Draw(1, 0, "SCORE")` vs a byte-array literal is exactly the "pleasant API" the goal asks for.)
 
 Key file paths referenced: `src/Koh.GameBoy/Hal/{Lcd,Ppu,Tilemap,TileData,Cgb,Joypad}.cs`, `src/Koh.GameBoy/{Hardware,Gb,Mem}.cs`, `samples/gb-2048-cs/{Game,Tiles,Board}.cs`, `samples/gb-3d/{shared/SpanFill.cs,shared/CubeRenderer.cs,*/Surface.cs}`, `src/Koh.Compiler/Frontends/Cil/CilMethodLowerer.Statics.cs`, `docs/superpowers/specs/2026-07-14-cil-frontend-design.md`.
+---
+
+## 8. RESOLVED DECISIONS (authoritative — override §7)
+
+Reviewed with the maintainer; these override the Open Questions above and the affected API sketches in §3.
+
+1. **Canvas IS in v1.** Build it, port gb-3d/double-buffered to it, run the gb-3d verify harness (present budget must not regress).
+2. **Palettes use EXPLICIT DUAL AUTHORING** — no luminance auto-quantization. Every palette call takes the CGB colors AND the DMG shade byte:
+   - `Palettes.SetBg(byte slot, ushort c0, ushort c1, ushort c2, ushort c3, byte dmgShades)`
+   - `Palettes.SetObj(byte slot, ushort c0, ushort c1, ushort c2, ushort c3, byte dmgShades)` (c0 transparent)
+   On CGB the RGB555 colors are written to palette RAM; on DMG the `dmgShades` byte is written to BGP/OBP0/OBP1 (slot picks which OBP). Drop the auto-quantizer and the separate `SetDmgShades` escape hatch — dual authoring makes it redundant.
+3. **`Text.Draw(..., string)` ships with real string literals.** Add `ldstr`→ROM-byte lowering to the CIL frontend (ASCII bytes into an `AddressSpace.Rom` global, mirroring the existing u8/array-literal ROM-data path) as build-plan **slice 0**, before Font/Text. Keep a `byte[]` overload too, but the string overload must work.
+4. **Namespace `Koh.GameBoy.Graphics`; lifecycle class `Video`.** All new Graphics types live in `namespace Koh.GameBoy.Graphics` under `src/Koh.GameBoy/Graphics/`. A game adds `using Koh.GameBoy.Graphics;` in addition to `using Koh.GameBoy;`. The Hal layer stays in `Koh.GameBoy`.
+
+Revised build-plan order: **slice 0 (ldstr lowering, CIL frontend)** → slice 1 (Hardware plumbing) → slice 2 (compiler pair: `[KohAligned]` + `oamdma`) → slices 3–9 (modules) → slice 10 (demo + retrofits). Slice 0 is compiler work (verify with an assembly→ROM→GameBoySystem test reading the ROM'd string bytes), independent of the Hardware plumbing.
