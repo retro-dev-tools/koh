@@ -481,12 +481,20 @@ internal sealed class FunctionAllocation
 
     /// <summary>Whether <paramref name="v"/> is a literal constant pointer address (e.g. <c>(byte*)
     /// 0xFF40</c>) — the only pointer shape Layer 1 admits for a load/store in the resident's live
-    /// range. An alloca/gep static address or a global is deliberately NOT included here: recognizing
-    /// those needs the module's <c>Globals</c> table, which is not available at this per-function,
+    /// range. Accepts both a directly pointer-typed constant and a <c>bitcast</c> of a constant integer
+    /// to a pointer: the CIL frontend lowers <c>(byte*)0xC100</c> as <c>bitcast i16 0xC100 to i8*</c>
+    /// (an absolute address known at compile time, exactly as clobber-free as a bare pointer constant),
+    /// so without seeing through the bitcast a hot constant-address store loop would never go resident.
+    /// An alloca/gep static address or a global is deliberately NOT included here: recognizing those
+    /// needs the module's <c>Globals</c> table, which is not available at this per-function,
     /// pre-EmitContext stage — a real but documented scope limit (TODO: thread globals through
     /// <see cref="For"/> to widen this if a hot loop needs it).</summary>
     private static bool IsLiteralPointerConst(IrValue v) =>
-        v is IrConstInt c && v.Type.Kind == IrTypeKind.Pointer;
+        (v is IrConstInt && v.Type.Kind == IrTypeKind.Pointer)
+        || (
+            v is ConvInstruction { Op: IrConvOp.Bitcast, Operand: IrConstInt } bc
+            && bc.Type.Kind == IrTypeKind.Pointer
+        );
 
     /// <summary>Every instruction kind Layer 1 proves cannot clobber a resident register — see the
     /// region header comment. Applied uniformly to every block in a candidate's live range (header,

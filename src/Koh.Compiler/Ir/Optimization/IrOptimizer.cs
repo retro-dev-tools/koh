@@ -23,12 +23,17 @@ public static class IrOptimizer
     // before StrengthReduction, so a newly-narrowed multiply is still eligible for the shift/mask
     // reduction. Internal (not private) so tests can measure the pass's effect by running a filtered
     // copy of this list — see NarrowPassTests/CilNarrowingEndToEndTests.
+    // RedundantConversionEliminationPass runs immediately after NarrowPass so it cleans up the
+    // trunc(zext/sext(x)) identity pairs NarrowPass's demotion leaves behind each fixed-point round
+    // (CIL's implicit re-widen on every narrow-local read) — DeadCodeEliminationPass then removes the
+    // orphaned zext/sext.
     internal static readonly IIrFunctionPass[] Passes =
     [
         new ConstantFoldingPass(),
         new Mem2RegPass(),
         new TrivialPhiEliminationPass(),
         new NarrowPass(),
+        new RedundantConversionEliminationPass(),
         new StrengthReductionPass(),
         new SimplifyCfgPass(),
         new RedundantLoadEliminationPass(),
