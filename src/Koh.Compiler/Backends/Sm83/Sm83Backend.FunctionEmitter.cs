@@ -198,7 +198,10 @@ public sealed partial class Sm83Backend
         {
             if (_ctx.LoopInductionPreheaderSync.TryGetValue(block, out var syncs))
                 foreach (var sync in syncs)
-                    _ctx.LoadValueIntoRegister(sync.Init, sync.Reg, n: 1); // Layer 1: always a lone byte
+                    // Layer 1: a lone byte for an i8 candidate, or both bytes of the pair for a width-2
+                    // (i16/pointer) candidate — SizeOf(sync.Init.Type) tracks the phi's width (Init's
+                    // type matches the phi's by SSA well-formedness).
+                    _ctx.LoadValueIntoRegister(sync.Init, sync.Reg, n: SizeOf(sync.Init.Type));
 
             // Layer 2 (stride-1 pointer residency): the register's initial value has no SSA "incoming
             // value" to read (pointer locals are never SSA-promoted — see Sm83FunctionAllocation's

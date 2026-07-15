@@ -147,11 +147,13 @@ internal sealed class FunctionAllocation
             colored.Remove(value); // both the reload and its stride-1 gep are register-only (no dual)
         }
 
-        // Layer 1 (loop-carried induction residency): a byte induction phi in a simple counted loop and
-        // its back-edge-defining gentle binary share one CPU register for the loop's duration. Unlike the
-        // mechanism above, the *phi* keeps its WRAM slot (dual placement — see the region's header comment
-        // for why); only the defining binary loses its slot.
-        var (loopRegister, loopPreheaderSync) = SelectLoopInductionResidents(
+        // Layer 1 (loop-carried induction residency): a loop-carried phi in a simple counted/walked loop
+        // and its back-edge-defining gentle binary or stride-1 gep share one CPU register (or, at width
+        // 2, register pair) for the loop's duration. Unlike the mechanism above, the *phi* keeps its WRAM
+        // slot (dual placement — see the region's header comment for why); only the body value loses its
+        // slot. A width-2 pointer-step body value's one fused dereference lands in the same FusedSite
+        // table Layer 2 populates — MemoryEmitter does not distinguish which layer produced an entry.
+        var (loopRegister, loopPreheaderSync, loopFusedSite) = SelectLoopInductionResidents(
             fn,
             register,
             allowResidency
@@ -168,6 +170,8 @@ internal sealed class FunctionAllocation
                 preheaderSync[block] = existing = new List<LoopInductionSync>();
             existing.AddRange(syncs);
         }
+        foreach (var (instr, reg) in loopFusedSite)
+            fusedSite[instr] = reg;
 
         // Lay out WRAM: parameters first (a stable ABI — the caller writes them here), skipping any
         // received in a register; then alloca/gep static storage; then the coloured values below.
@@ -444,7 +448,13 @@ internal sealed class FunctionAllocation
     // pulled from the candidate pool whenever an Eq/Ne compare is live in the same range.
     //
     // Scope, deliberately conservative for a first correct cut (documented, not silently dropped):
-    //   - i8 only (register room; i16 would need a whole free HL, contended with Layer 2's pointers).
+    //   - i8 (a byte register from LoopBytePool) or i16/pointer (an Hl/De pair from LoopPairPool) —
+    //     width 1 or 2 only; i32/i64 stay in WRAM (no register room). A width-2 candidate whose back-edge
+    //     value is a stride-1 gep(phi, +1) is the phi-keyed analogue of Layer 2's memory-shape recognizer
+    //     (see that region's header comment): its one in-loop dereference of the phi, if any, is fused to
+    //     the post-increment addressing mode exactly as Layer 2 does, but sourced from the phi's own
+    //     register pair instead of a separate reload local — see TryFindLoopShape and the deref-site scan
+    //     in SelectLoopInductionResidents.
     //   - The loop's preheader must end in a plain, unconditional `br` to the header (so the injection
     //     point in FunctionEmitter is unconditionally reached — a guarded preheader, e.g. `if (n > 0)
     //     { for (...) }`, is not yet admitted).
@@ -476,6 +486,22 @@ internal sealed class FunctionAllocation
     /// compare (EmitCompare's equality path always clobbers C, constant operand or not).</summary>
     private static readonly Sm83Register[] LoopBytePoolNoC = [Sm83Register.D, Sm83Register.E];
 
+    /// <summary>The loop pool for a width-2 (i16/pointer) candidate: <c>Hl</c> preferred when the phi's
+    /// live range holds exactly one dereference of the phi itself (fuses to <c>ld a,(hl+)</c> /
+    /// <c>ld (hl+),a</c> — one opcode), <c>De</c> otherwise (a non-dereferencing i16 counter, or a
+    /// pointer walk with no in-loop dereference — needs an explicit <c>inc de</c>, the SM83 has no
+    /// <c>(de+)</c> mode). Mirrors Layer 2's own Hl-before-De preference for the same reason.</summary>
+    private static readonly Sm83Register[] LoopPairPoolPreferHl =
+    [
+        Sm83Register.Hl,
+        Sm83Register.De,
+    ];
+    private static readonly Sm83Register[] LoopPairPoolPreferDe =
+    [
+        Sm83Register.De,
+        Sm83Register.Hl,
+    ];
+
     private static bool IsEqNeCompare(IrInstruction instr) =>
         instr is CompareInstruction { Op: IrCompareOp.Eq or IrCompareOp.Ne };
 
@@ -499,11 +525,13 @@ internal sealed class FunctionAllocation
     /// <summary>Every instruction kind Layer 1 proves cannot clobber a resident register — see the
     /// region header comment. Applied uniformly to every block in a candidate's live range (header,
     /// tail, and any interior blocks alike), not just the loop body, so a use of the resident after the
-    /// loop exits is exactly as safe as a use inside it.</summary>
+    /// loop exits is exactly as safe as a use inside it. A compare is safe at any operand width (like
+    /// Layer 2's own <c>IsPointerLoopSafeInstruction</c>): <c>EmitCompare</c> only ever touches A/B/C
+    /// plus fixed <c>RtCmp*</c> memory scratch, regardless of the compared type's size.</summary>
     private static bool IsLoopSafeInstruction(IrInstruction instr) =>
         instr is PhiInstruction
         || IsGentleBinary(instr)
-        || (instr is CompareInstruction cmp && cmp.Left.Type.SizeInBytes == 1)
+        || instr is CompareInstruction
         || (instr is LoadInstruction load && IsLiteralPointerConst(load.Pointer))
         || (instr is StoreInstruction store && IsLiteralPointerConst(store.Pointer))
         || instr is BrInstruction or CondBrInstruction
@@ -539,14 +567,16 @@ internal sealed class FunctionAllocation
     /// <paramref name="phi"/>: exactly two incomings, one from a block the header dominates (a back
     /// edge — the standard natural-loop test reused from <c>LoopInvariantCodeMotionPass.FindNaturalLoops</c>
     /// and <see cref="Dominators"/>, specialised to a single phi instead of a whole loop discovery pass)
-    /// whose value is a gentle binary over the phi and a constant, and one from a genuinely external
-    /// block (the preheader) ending in a plain, unconditional branch straight to the header.</summary>
+    /// whose value is either a gentle binary over the phi and a constant (an i8/i16 counter), or a
+    /// stride-1 <c>gep(phi, +1)</c> over a single-byte element (a pointer walk — the phi-keyed analogue
+    /// of Layer 2's memory-shape recognizer, see that region's header comment), and one from a genuinely
+    /// external block (the preheader) ending in a plain, unconditional branch straight to the header.</summary>
     private static bool TryFindLoopShape(
         Dominators dom,
         IrBasicBlock header,
         PhiInstruction phi,
         out IrBasicBlock tail,
-        out BinaryInstruction bodyValue,
+        out IrInstruction bodyValue,
         out IrBasicBlock preheader
     )
     {
@@ -568,15 +598,27 @@ internal sealed class FunctionAllocation
         if (tailIncoming is not { } t || preheaderIncoming is not { } p)
             return false;
 
+        IrInstruction? body = null;
         if (
-            t.Value is not BinaryInstruction binary
-            || !IsGentleBinary(binary)
-            || !ReferenceEquals(binary.Parent, t.Block)
-            || !(
+            t.Value is BinaryInstruction binary
+            && IsGentleBinary(binary)
+            && ReferenceEquals(binary.Parent, t.Block)
+            && (
                 (ReferenceEquals(binary.Left, phi) && binary.Right is IrConstInt)
                 || (ReferenceEquals(binary.Right, phi) && binary.Left is IrConstInt)
             )
         )
+            body = binary;
+        else if (
+            t.Value is GetElementPtrInstruction gep
+            && ReferenceEquals(gep.Parent, t.Block)
+            && ReferenceEquals(gep.BasePointer, phi)
+            && gep.Index is IrConstInt { Value: 1 }
+            && gep.ElementType.SizeInBytes == 1
+        )
+            body = gep;
+
+        if (body is null)
             return false;
 
         // The preheader must reach the header unconditionally — FunctionEmitter injects the register's
@@ -589,7 +631,7 @@ internal sealed class FunctionAllocation
             return false;
 
         tail = t.Block;
-        bodyValue = binary;
+        bodyValue = body;
         preheader = p.Block;
         return true;
     }
@@ -604,7 +646,7 @@ internal sealed class FunctionAllocation
         IrLiveness liveness,
         PhiInstruction phi,
         IrBasicBlock tail,
-        BinaryInstruction bodyValue
+        IrInstruction bodyValue
     )
     {
         bool pastBinary = false;
@@ -630,13 +672,56 @@ internal sealed class FunctionAllocation
         return false;
     }
 
+    /// <summary>Whether <paramref name="phi"/> (a width-2 candidate whose back-edge value is a stride-1
+    /// pointer step) has exactly one dereference of itself — a <c>Load</c>/<c>Store</c> whose
+    /// <c>Pointer</c> operand IS the phi, of a single byte — within <paramref name="liveBlocks"/>. Zero
+    /// or more-than-one both return <see langword="false"/> ("when in doubt, disqualify", matching
+    /// Layer 2's own <c>derefCount != 1</c> rule): a second dereference would need a second fused
+    /// post-increment the SM83's addressing modes cannot express on the same register in one
+    /// instruction, and a phi with no dereference at all is not the shape this overlay is proven safe
+    /// for (a plain pointer walk with no in-loop use is not yet a measured case).</summary>
+    private static bool TryFindPhiDerefSite(
+        HashSet<IrBasicBlock> liveBlocks,
+        PhiInstruction phi,
+        out IrInstruction derefSite
+    )
+    {
+        derefSite = null!;
+        int count = 0;
+        IrInstruction? found = null;
+        foreach (var block in liveBlocks)
+        foreach (var instr in block.Instructions)
+        {
+            if (instr is LoadInstruction load && ReferenceEquals(load.Pointer, phi))
+            {
+                count++;
+                if (load.Type.SizeInBytes == 1)
+                    found = load;
+            }
+            else if (instr is StoreInstruction store && ReferenceEquals(store.Pointer, phi))
+            {
+                count++;
+                if (store.Value.Type.SizeInBytes == 1)
+                    found = store;
+            }
+        }
+        if (count != 1 || found is null)
+            return false;
+        derefSite = found;
+        return true;
+    }
+
     /// <summary>Select Layer-1 loop-induction residency candidates: see the region header comment for
     /// the full design. Returns the extra register assignments (folded into the caller's <c>register</c>
-    /// dictionary — the phi dual-placed, its body value register-only) and the per-preheader init loads
-    /// <see cref="FunctionEmitter"/> must emit.</summary>
+    /// dictionary — the phi dual-placed, its body value register-only), the per-preheader init loads
+    /// <see cref="FunctionEmitter"/> must emit, and — for a width-2 candidate whose one in-loop
+    /// dereference of the phi was recognised — the fused post-increment site (folded into the caller's
+    /// shared <c>FusedPointerSite</c> table alongside Layer 2's own entries; <see cref="MemoryEmitter"/>
+    /// does not care which layer produced an entry).</summary>
     private static (
         Dictionary<IrValue, Sm83Register> Register,
-        Dictionary<IrBasicBlock, List<LoopInductionSync>> PreheaderSync
+        Dictionary<IrBasicBlock, List<LoopInductionSync>> PreheaderSync,
+        Dictionary<IrInstruction, Sm83Register> FusedSite
     ) SelectLoopInductionResidents(
         IrFunction fn,
         Dictionary<IrValue, Sm83Register> assigned,
@@ -645,8 +730,11 @@ internal sealed class FunctionAllocation
     {
         var register = new Dictionary<IrValue, Sm83Register>(Eq);
         var preheaderSync = new Dictionary<IrBasicBlock, List<LoopInductionSync>>(Eq);
+        var fusedSite = new Dictionary<IrInstruction, Sm83Register>(
+            ReferenceEqualityComparer.Instance
+        );
         if (!allowResidency || fn.EntryBlock is null || fn.Blocks.Count < 2)
-            return (register, preheaderSync);
+            return (register, preheaderSync, fusedSite);
 
         var dom = new Dominators(fn);
         var liveness = IrLiveness.Compute(fn);
@@ -654,7 +742,7 @@ internal sealed class FunctionAllocation
         foreach (var header in fn.Blocks)
         foreach (var instr in header.Instructions)
         {
-            if (instr is not PhiInstruction phi || phi.Type.SizeInBytes != 1)
+            if (instr is not PhiInstruction phi || phi.Type.SizeInBytes is not (1 or 2))
                 continue;
             if (assigned.ContainsKey(phi) || register.ContainsKey(phi))
                 continue;
@@ -672,19 +760,53 @@ internal sealed class FunctionAllocation
             if (assigned.ContainsKey(bodyValue) || register.ContainsKey(bodyValue))
                 continue;
 
-            // The phi and its back-edge binary share one physical register (below), so the binary's
-            // write redefines the phi's runtime value mid-iteration: any use of the phi at a program
-            // point that executes after the binary would silently read the incremented value instead
-            // of the iteration's own — a miscompile, not a missed optimization. Reject the candidate.
+            // The phi and its back-edge binary/gep share one physical register (below), so the body
+            // value's write redefines the phi's runtime value mid-iteration: any use of the phi at a
+            // program point that executes after it would silently read the next iteration's value
+            // instead of the current one's — a miscompile, not a missed optimization. Reject the
+            // candidate.
             if (PhiIsUsedAfterBackEdgeBinary(fn, liveness, phi, tail, bodyValue))
                 continue;
 
             var liveBlocks = LiveBlocksOf(fn, liveness, phi, bodyValue);
-            if (!liveBlocks.All(b => b.Instructions.All(IsLoopSafeInstruction)))
+
+            // A width-2 pointer-step candidate may fuse its one in-loop dereference of the phi with the
+            // post-increment addressing mode, exactly as Layer 2 does for a memory-alloca pointer — see
+            // TryFindPhiDerefSite. A width-2 body value that is NOT a pointer step (a plain i16 counter,
+            // recognised via the gentle-binary arm of TryFindLoopShape) has no dereference to fuse.
+            IrInstruction? derefSite = null;
+            if (bodyValue is GetElementPtrInstruction)
+            {
+                if (!TryFindPhiDerefSite(liveBlocks, phi, out var found))
+                    continue; // ambiguous/absent dereference — decline the whole candidate, not just fusion
+                derefSite = found;
+            }
+
+            // The candidate's own body value is safe by construction (TryFindLoopShape only accepted a
+            // gentle binary or the exact controlled gep(phi,+1) shape) — needed explicitly for the gep
+            // arm, which IsLoopSafeInstruction does not otherwise recognise (the binary arm is already
+            // covered incidentally via IsGentleBinary). A DIFFERENT loop-carried phi's own body
+            // value/dereference sharing the same blocks (e.g. a sibling pointer phi in a two-pointer copy
+            // loop) is deliberately NOT whitelisted here: that would need atomic all-or-nothing admission
+            // across the whole loop, mirroring Layer 2's own group-admission comment, to avoid one
+            // candidate's ordinary (non-resident) fallback path clobbering another's resident Hl/De
+            // mid-loop — out of scope for this cut. A multi-pointer-phi loop therefore has every candidate
+            // decline (each sees a sibling's dynamic step/deref as unrecognised), the same safe conservative
+            // floor as before this overlay existed; Layer 2 still covers that shape via the memory-alloca
+            // path until pointer promotion (loop-residency-generalization spec step 3) retargets it.
+            bool LoopSafe(IrInstruction i) =>
+                IsLoopSafeInstruction(i)
+                || ReferenceEquals(i, bodyValue)
+                || (derefSite is not null && ReferenceEquals(i, derefSite));
+            if (!liveBlocks.All(b => b.Instructions.All(LoopSafe)))
                 continue;
 
             bool hasEqNe = liveBlocks.Any(b => b.Instructions.Any(IsEqNeCompare));
-            var pool = hasEqNe ? LoopBytePoolNoC : LoopBytePool;
+            var pool = phi.Type.SizeInBytes switch
+            {
+                1 => hasEqNe ? LoopBytePoolNoC : LoopBytePool,
+                _ => derefSite is not null ? LoopPairPoolPreferHl : LoopPairPoolPreferDe,
+            };
 
             // Bitwise, not exact-value: Layer 2 may have already claimed Hl or De (whose bits are H/L or
             // D/E), and a lone byte in one of those bits would otherwise go undetected by an exact match.
@@ -703,6 +825,8 @@ internal sealed class FunctionAllocation
 
             register[phi] = reg;
             register[bodyValue] = reg;
+            if (derefSite is not null)
+                fusedSite[derefSite] = reg;
 
             var init = phi.Incomings.First(i => ReferenceEquals(i.Block, preheader)).Value;
             if (!preheaderSync.TryGetValue(preheader, out var syncs))
@@ -710,7 +834,7 @@ internal sealed class FunctionAllocation
             syncs.Add(new LoopInductionSync(init, reg));
         }
 
-        return (register, preheaderSync);
+        return (register, preheaderSync, fusedSite);
     }
 
     // ---- Loop-pointer register residency (Layer 2) -------------------------
