@@ -277,6 +277,23 @@ public sealed partial class Sm83Backend
         /// on entry to the edge. Copies whose destination is still needed as a source are deferred,
         /// and cycles (e.g. a swap <c>a,b = b,a</c>) are broken by staging one value through a temp.
         /// </summary>
+        /// <remarks>
+        /// Already width- and residency-agnostic, including for a width-2 (i16/pointer) resident phi —
+        /// no change needed to widen Layer 1's induction residency (loop-residency-generalization spec,
+        /// step 1). <c>PhiCopy.N</c> is <c>SizeOf(phi.Type)</c>, which for a pointer resolves through
+        /// <c>IrType.SizeInBytes</c> to <c>DataLayout.Sm83.PointerSize</c> (2), never the bit-derived
+        /// <c>(Bits + 7) / 8</c> that would silently size a pointer at 0 (see CLAUDE.md's pointer-sizing
+        /// invariant). <c>EmitMove</c> reads each byte via <c>LoadByteToA</c>, which for a
+        /// register-resident source already selects the low/high half of an <c>Hl</c>/<c>De</c> pair at
+        /// <c>k</c> = 0/1 (<c>ResidentToAOpcode</c>) exactly as it does a single byte register — so a
+        /// dual-placement resident phi (phi keeps its <c>Slot</c> entry, its back-edge value is
+        /// register-only, per Layer 1's scheme) collapses each byte of the edge copy from a
+        /// slot-to-slot reload+store into a register-to-slot store, for any width. <c>SourceSlot</c>
+        /// already treats a register-only source (no <c>Slot</c> entry) as reading no live slot, so it
+        /// never blocks another pending copy or gets pulled into the cycle-breaking path. What is
+        /// missing is purely on the selection side (step 2): no residency selector admits a width-2
+        /// loop-carried phi yet, so this path is unreached until then.
+        /// </remarks>
         private void EmitPhiCopies(IrBasicBlock source, IrBasicBlock target)
         {
             var pending = new List<PhiCopy>();
