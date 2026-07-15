@@ -171,6 +171,36 @@ internal sealed class CilLoweringContext
         return g;
     }
 
+    // A string literal (`ldstr`, straight from the #US metadata heap — there is no backing
+    // FieldDefinition to key by the way EnsureRvaBlobGlobal's blob fields have) -> the ROM global
+    // carrying its ASCII bytes. Keyed by the literal's own content (ordinal) so two occurrences of the
+    // same literal text anywhere in the module share one ROM global, matching EnsureRvaBlobGlobal's own
+    // dedup rationale.
+    private readonly Dictionary<string, IrGlobal> _stringLiteralGlobals = new(
+        StringComparer.Ordinal
+    );
+
+    /// <summary>The ROM global carrying <paramref name="value"/>'s ASCII bytes (one byte per char — see
+    /// <c>CilMethodLowerer.Strings.cs</c>'s class remarks for why this is ASCII, not UTF-16, and for the
+    /// non-ASCII-character diagnostic), creating it the first time this exact literal text is seen
+    /// anywhere in the module. <paramref name="asciiBytes"/> is supplied by the caller (already
+    /// validated/converted) rather than recomputed here, since only <c>CilMethodLowerer.LowerLdstr</c>
+    /// has the method context needed to report a non-ASCII character with a useful diagnostic.</summary>
+    public IrGlobal EnsureStringLiteralGlobal(string value, byte[] asciiBytes)
+    {
+        if (_stringLiteralGlobals.TryGetValue(value, out var g))
+            return g;
+        g = new IrGlobal(
+            $"__strlit.{_stringLiteralGlobals.Count}",
+            IrType.Array(IrType.I8, asciiBytes.Length),
+            AddressSpace.Rom,
+            initializer: asciiBytes
+        );
+        Module.Globals.Add(g);
+        _stringLiteralGlobals[value] = g;
+        return g;
+    }
+
     public void RegisterElidedCctorInstructions(
         MethodDefinition cctor,
         HashSet<Instruction> elided

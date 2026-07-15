@@ -986,6 +986,11 @@ internal sealed partial class CilMethodLowerer
                 stack.Add(c);
                 break;
             }
+            // A string literal — see CilMethodLowerer.Strings.cs's class remarks (ASCII-bytes-in-ROM,
+            // one byte per char).
+            case Code.Ldstr:
+                stack.Add(LowerLdstr((string)instr.Operand));
+                break;
 
             // ---- Locals / arguments -----------------------------------------------------------
             case Code.Ldloc_0:

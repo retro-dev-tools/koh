@@ -460,6 +460,8 @@ internal sealed partial class CilMethodLowerer
 
         if (TryLowerSpanCall(calleeRef, thisValue, args, stack))
             return;
+        if (TryLowerStringCall(calleeRef, thisValue, args, stack))
+            return;
 
         if (
             calleeRef.DeclaringType.FullName == "System.Object"
