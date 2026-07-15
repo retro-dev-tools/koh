@@ -177,6 +177,15 @@ public static class Hardware
     [KohIntrinsic("stop")]
     public static void Stop() { }
 
+    /// <summary>Trigger a hardware OAM DMA from <c>sourcePage * 0x100</c> and wait for it to finish —
+    /// the ROM path this lowers to (a boot-installed HRAM trampoline, see the <c>[KohIntrinsic]</c>
+    /// "oamdma" kind) executes the trigger+160-M-cycle wait from HRAM, since OAM DMA locks the bus to
+    /// everything but HRAM for that whole window and a ROM-resident wait loop would corrupt its own
+    /// instruction fetch. The desktop reference build has no such bus lock to model, so it performs the
+    /// same synchronous copy as <see cref="DMA"/>'s setter (in fact, is exactly that).</summary>
+    [KohIntrinsic("oamdma")]
+    public static void RunOamDma(byte sourcePage) => Gb.DmaOam(sourcePage);
+
     /// <summary>Host-side pacing, input, and rendering for the desktop reference run.</summary>
     private static class Host
     {

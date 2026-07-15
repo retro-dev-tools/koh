@@ -110,6 +110,13 @@ public sealed partial class Sm83Backend
                 case "nop":
                     _e.U8(0x00);
                     break;
+                case "oamdma":
+                    // CALL the boot-installed HRAM trampoline (Sm83Backend.EmitOamDmaTrampolineInstall)
+                    // at its fixed absolute address — not a Label/RoutineLabel fixup, since HRAM is
+                    // always mapped regardless of which ROM bank this call site itself lives in.
+                    _e.U8(0xCD); // CALL a16
+                    _e.U16(OamDmaTrampoline);
+                    break;
                 default:
                     throw new NotSupportedException($"unknown intrinsic '{instr.Intrinsic}'.");
             }

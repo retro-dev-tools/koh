@@ -101,6 +101,23 @@ internal static class CilStaticFieldSupport
         return p;
     }
 
+    /// <summary>Reads <c>[KohAligned(n)]</c> off <paramref name="field"/> (matched by the attribute
+    /// type's SIMPLE NAME, "KohAlignedAttribute" — same reasoning as <see cref="CilIntrinsicIndex"/>:
+    /// <c>Koh.Compiler</c> must never reference <c>Koh.GameBoy</c>), or null if absent. Consulted by
+    /// both a plain mutable static field's holder (<see cref="CilLoweringContext.EnsureStaticGlobal"/>)
+    /// and a fixed-size array field with no literal content (<see cref="TryMatchFixedSizeArray"/>) —
+    /// the two WRAM-placed shapes the SM83 backend's static-WRAM allocator can actually align.</summary>
+    internal static int? ReadAlignment(FieldDefinition field)
+    {
+        foreach (var attr in field.CustomAttributes)
+        {
+            if (attr.AttributeType.Name != "KohAlignedAttribute")
+                continue;
+            return (int)attr.ConstructorArguments[0].Value;
+        }
+        return null;
+    }
+
     internal static bool TryReadConstLong(Instruction? instr, out long value)
     {
         value = 0;
@@ -299,7 +316,8 @@ internal static class CilStaticFieldSupport
         var arrayGlobal = new IrGlobal(
             $"{field.DeclaringType.FullName}.{field.Name}",
             IrType.Array(elemType, (int)count),
-            space
+            space,
+            alignment: ReadAlignment(field)
         );
         ctx.Module.Globals.Add(arrayGlobal);
         ctx.RegisterFoldedStaticArray(field, arrayGlobal, elemType, elemSigned: false, (int)count);

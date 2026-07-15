@@ -103,6 +103,16 @@ public sealed class IrGlobal
     /// <summary>Initial bytes for ROM globals; null for uninitialized RAM globals.</summary>
     public byte[]? Initializer { get; }
 
+    /// <summary>
+    /// Required byte alignment (a power of two), or null for no constraint. Honored by the SM83
+    /// backend's static-WRAM allocator (<see cref="Backends.Sm83.Sm83Backend"/>'s global-placement
+    /// loop rounds the placement cursor up to the next multiple before assigning this global's
+    /// address) — e.g. a page-aligned OAM DMA shadow buffer (<c>[KohAligned(256)]</c> in
+    /// <c>Koh.GameBoy</c>). Not honored for a <see cref="FixedAddress"/> global (its address is
+    /// already pinned) or ROM-placed data (the backend's ROM data section is not alignment-aware yet).
+    /// </summary>
+    public int? Alignment { get; }
+
     public IrGlobal(
         string name,
         IrType type,
@@ -110,7 +120,8 @@ public sealed class IrGlobal
         int? bank = null,
         string? section = null,
         byte[]? initializer = null,
-        int? fixedAddress = null
+        int? fixedAddress = null,
+        int? alignment = null
     )
     {
         Name = name;
@@ -120,5 +131,6 @@ public sealed class IrGlobal
         Section = section;
         Initializer = initializer;
         FixedAddress = fixedAddress;
+        Alignment = alignment;
     }
 }

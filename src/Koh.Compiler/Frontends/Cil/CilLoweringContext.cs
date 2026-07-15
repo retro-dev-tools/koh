@@ -130,7 +130,12 @@ internal sealed class CilLoweringContext
         if (_staticFields.TryGetValue(field, out var g))
             return g;
         var (irType, _) = CilTypeMapper.Map(field.FieldType);
-        g = new IrGlobal($"{field.DeclaringType.FullName}.{field.Name}", irType, AddressSpace.Wram);
+        g = new IrGlobal(
+            $"{field.DeclaringType.FullName}.{field.Name}",
+            irType,
+            AddressSpace.Wram,
+            alignment: CilStaticFieldSupport.ReadAlignment(field)
+        );
         Module.Globals.Add(g);
         _staticFields[field] = g;
         return g;
@@ -320,6 +325,33 @@ internal sealed class CilLoweringContext
     }
 
     public IrGlobal? HeapGlobal => _heapGlobal;
+
+    // ---- OAM DMA intrinsic (see CilMethodLowerer.LowerIntrinsicCall's "oamdma" case and the graphics
+    // library design doc's build-plan slice 2) --------------------------------------------------------
+
+    private IrGlobal? _oamDmaSourceGlobal;
+
+    /// <summary>The one-byte WRAM scratch cell staging <c>Hardware.RunOamDma(sourcePage)</c>'s argument
+    /// for the backend's boot-installed HRAM trampoline to read (see <see cref="Sm83Backend"/>'s
+    /// "oamdma" gating — it looks this global up BY NAME, the same convention <see cref="HeapGlobal"/>'s
+    /// own backend-side lookup uses). Created lazily the first time any call lowers to this intrinsic —
+    /// unlike the heap pointer, it needs no boot-time seed value, so (unlike <see cref="EnsureHeapGlobal"/>)
+    /// there is no eager pre-scan requirement: whichever call site references it first settles its
+    /// placement, and the backend only ever reads its assigned address, never its (nonexistent) initial
+    /// value.</summary>
+    public IrGlobal EnsureOamDmaSourceGlobal()
+    {
+        if (_oamDmaSourceGlobal is { } existing)
+            return existing;
+        var g = new IrGlobal(OamDmaSourceGlobalName, IrType.I8, AddressSpace.Wram);
+        Module.Globals.Add(g);
+        _oamDmaSourceGlobal = g;
+        return g;
+    }
+
+    /// <summary>The fixed name <see cref="Sm83Backend"/> looks this global up by (see
+    /// <see cref="EnsureOamDmaSourceGlobal"/>'s remarks) — same convention as <see cref="HeapPointerName"/>.</summary>
+    internal const string OamDmaSourceGlobalName = "__oamdma_src";
 
     /// <summary>Signature only (Pass 1 of the eager, hand-written-static-method sweep) — adds
     /// <paramref name="method"/> to <see cref="FunctionsByMethod"/> so later calls resolve regardless

@@ -41,6 +41,18 @@ public sealed partial class Sm83Backend : IBackend
     /// <summary>First WRAM byte used for parameters and statically-allocated SSA storage.</summary>
     public const int WramBase = 0xC000;
 
+    /// <summary>Fixed HRAM address the boot stub installs the OAM DMA trigger+wait trampoline at (see
+    /// <see cref="EmitOamDmaTrampolineInstall"/>). OAM DMA locks the bus to everything but HRAM for
+    /// ~161 M-cycles, so this routine's own CODE — not just its call target — must physically reside in
+    /// HRAM at runtime; a ROM-resident routine would have its own instruction fetch corrupted mid-wait.
+    /// Reserved unconditionally (like <see cref="HwStackTop"/>/<see cref="SoftSp"/>), whether or not a
+    /// given program calls <c>Hardware.RunOamDma</c>.</summary>
+    internal const int OamDmaTrampoline = 0xFF80;
+
+    /// <summary>Byte length of the installed trampoline (see <see cref="EmitOamDmaTrampolineInstall"/>'s
+    /// remarks for the exact instruction sequence this reserves room for).</summary>
+    internal const int OamDmaTrampolineSize = 11;
+
     private const string CodeSectionName = "CODE";
 
     public string Name => "sm83";
@@ -98,7 +110,11 @@ public sealed partial class Sm83Backend : IBackend
         // (physical banks 1, 2, … each windowed at 0x4000–0x7FFF). bankData[i] is bank (i + 1).
         var bankData = new List<List<byte>>();
         int wramGlobals = WramBase,
-            hramGlobals = 0xFF80,
+            // The OAM DMA HRAM trampoline (see EmitOamDmaTrampolineInstall) always owns
+            // [OamDmaTrampoline, OamDmaTrampoline + OamDmaTrampolineSize) — reserved unconditionally,
+            // like HwStackTop/SoftSp/ArgScratch are always-fixed WRAM addresses regardless of whether a
+            // given program recurses, rather than conditionally shifting this cursor per-module.
+            hramGlobals = OamDmaTrampoline + OamDmaTrampolineSize,
             sramGlobals = 0xA000;
         foreach (var g in module.Globals)
         {
@@ -123,6 +139,10 @@ public sealed partial class Sm83Backend : IBackend
             }
             else
             {
+                // [KohAligned(n)] (Koh.GameBoy) rounds the placement cursor up to the next multiple of n
+                // before assigning this global's address — e.g. a page-aligned OAM DMA shadow buffer.
+                if (g.Alignment is int align && align > 1)
+                    wramGlobals = (wramGlobals + align - 1) / align * align;
                 globalAddresses[g] = wramGlobals;
                 wramGlobals += SizeOf(g.Type);
             }
@@ -174,6 +194,11 @@ public sealed partial class Sm83Backend : IBackend
         // WRAM slot between two mainline stores; disable it whenever the module has any handler.
         bool allowDeadStore = !HasInterruptHandler(module);
 
+        // -1 unless the program calls Hardware.RunOamDma (CilLoweringContext.EnsureOamDmaSourceGlobal
+        // only ever creates this global from that call's own lowering) — gates the boot-only HRAM
+        // trampoline install below (EmitOamDmaTrampolineInstall no-ops when this is negative).
+        int oamDmaSrcAddr = OamDmaSourceAddress(globalAddresses);
+
         var funcOffsets = new List<(IrFunction Fn, int Offset)>();
         foreach (var fn in module.Functions)
         {
@@ -189,7 +214,8 @@ public sealed partial class Sm83Backend : IBackend
                 recursive,
                 ReferenceEquals(fn, entryFunction),
                 softStackBase,
-                wramGlobalsSize: wramGlobalsSize
+                wramGlobalsSize: wramGlobalsSize,
+                oamDmaSrcAddr: oamDmaSrcAddr
             ).Compile();
             emitter.PeepholeFrom(startOffset, allowDeadStore);
         }
@@ -476,6 +502,10 @@ public sealed partial class Sm83Backend : IBackend
         // defaults to zero in C#, and this boot stub — never reached again once execution passes the JP
         // below — is the one place that can run it exactly once regardless of recursion.
         EmitWramGlobalsClear(emitter, wramGlobalsSize);
+        // See FunctionEmitter.Compile's own call: same boot-only, run-exactly-once-regardless-of-
+        // recursion install, just living in this path's separate boot stub instead (see that method's
+        // remarks for why multi-bank mode can't share the single-bank placement).
+        EmitOamDmaTrampolineInstall(emitter, OamDmaSourceAddress(globalAddresses));
         if (recursive.Count > 0)
         {
             // One-time recursion setup lives here (not in the entry's prologue) because the JP below lands
@@ -692,6 +722,67 @@ public sealed partial class Sm83Backend : IBackend
             if (g.Name == Frontends.Cil.CilLoweringContext.HeapPointerName)
                 return addr;
         return -1;
+    }
+
+    /// <summary>The fixed WRAM address of the OAM DMA source-page scratch cell (<c>__oamdma_src</c>,
+    /// see <c>CilLoweringContext.EnsureOamDmaSourceGlobal</c>), or -1 if the program never calls
+    /// <c>Hardware.RunOamDma</c>. The trampoline the boot stub installs (see
+    /// <see cref="EmitOamDmaTrampolineInstall"/>) reads the source page back from this exact address.</summary>
+    private static int OamDmaSourceAddress(IReadOnlyDictionary<IrGlobal, int> globals)
+    {
+        foreach (var (g, addr) in globals)
+            if (g.Name == Frontends.Cil.CilLoweringContext.OamDmaSourceGlobalName)
+                return addr;
+        return -1;
+    }
+
+    /// <summary>Copy the fixed OAM-DMA trigger+wait trampoline into HRAM at
+    /// <see cref="OamDmaTrampoline"/> — boot-only, unconditionally before any recursive re-entry could
+    /// see it, exactly like <see cref="EmitWramGlobalsClear"/> (see both call sites' remarks for why
+    /// this must run once at true boot rather than as ordinary IR in the entry function's own body).
+    /// Emitted only when <paramref name="srcAddr"/> is non-negative (<see cref="OamDmaSourceAddress"/>
+    /// found the scratch global — i.e. the program actually calls <c>Hardware.RunOamDma</c>).
+    ///
+    /// The installed 11-byte routine (assembled by hand, since this is the one piece of Koh-authored
+    /// machine code the compiler itself emits, not code selected from IR):
+    /// <code>
+    ///   LD A,(srcAddr)     ; FA lo hi   - the page RunOamDma staged in the WRAM scratch cell
+    ///   LDH (0xFF46),A     ; E0 46      - triggers the DMA (write side effect)
+    ///   LD A,50            ; 3E 32      - wait-loop counter
+    /// loop:
+    ///   DEC A              ; 3D
+    ///   JR NZ,loop         ; 20 FD
+    ///   RET                ; C9
+    /// </code>
+    /// The canonical real-hardware Pan Docs/rgbds-tutorial routine this mirrors uses a count of 40,
+    /// tuned to land at exactly the emulated 1 M-cycle start delay + 160 M-cycle transfer
+    /// (<c>Koh.Emulator.Core.Dma.OamDma</c>) = 161 M-cycles from the LDH trigger to RET. This uses 50
+    /// instead — a deliberate ~40 M-cycle margin over the exact minimum, since RET returning even one
+    /// M-cycle before the bus unlocks reads a corrupted ROM opcode ($FF = RST 38h) rather than merely
+    /// running slow; overshoot costs a few extra M-cycles once per call and is always safe.</summary>
+    private static void EmitOamDmaTrampolineInstall(Emitter e, int srcAddr)
+    {
+        if (srcAddr < 0)
+            return;
+        void Byte(int addr, int value)
+        {
+            e.U8(0x3E); // LD A, d8
+            e.U8(value & 0xFF);
+            e.U8(0xEA); // LD (a16), A
+            e.U16(addr);
+        }
+        int t = OamDmaTrampoline;
+        Byte(t + 0, 0xFA); // LD A,(srcAddr) opcode
+        Byte(t + 1, srcAddr & 0xFF);
+        Byte(t + 2, (srcAddr >> 8) & 0xFF);
+        Byte(t + 3, 0xE0); // LDH (0xFF46),A opcode
+        Byte(t + 4, 0x46);
+        Byte(t + 5, 0x3E); // LD A,50 opcode
+        Byte(t + 6, 50);
+        Byte(t + 7, 0x3D); // loop: DEC A
+        Byte(t + 8, 0x20); // JR NZ, loop
+        Byte(t + 9, 0xFD); // rel -3 (loop is 3 bytes back from the instruction after this operand)
+        Byte(t + 10, 0xC9); // RET
     }
 
     private static void EmitRuntimeRoutines(Emitter emitter, int heapAddr)

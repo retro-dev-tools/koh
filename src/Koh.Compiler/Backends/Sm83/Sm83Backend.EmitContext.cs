@@ -64,6 +64,12 @@ public sealed partial class Sm83Backend
         /// function, which is the only one that needs it (to emit the boot-only zero-clear).</summary>
         public readonly int WramGlobalsSize;
 
+        /// <summary>The OAM DMA source scratch global's WRAM address (see
+        /// <see cref="Sm83Backend.OamDmaSourceAddress"/>), or -1 if the program never calls
+        /// <c>Hardware.RunOamDma</c>. Only consulted when this context is the entry function (to emit
+        /// the boot-only HRAM trampoline install, mirroring <see cref="WramGlobalsSize"/>'s own gating).</summary>
+        public readonly int OamDmaSrcAddr;
+
         /// <summary>Dynamic <c>gep</c> instructions eligible to be computed directly at their single
         /// consuming load/store instead of through a WRAM slot round-trip (see
         /// <see cref="MemoryEmitter.LoadPointerToHL"/>). A naive per-instruction lowering emits every
@@ -84,7 +90,8 @@ public sealed partial class Sm83Backend
             bool isEntry,
             int softStackBase,
             IReadOnlySet<IrFunction>? banked = null,
-            int wramGlobalsSize = 0
+            int wramGlobalsSize = 0,
+            int oamDmaSrcAddr = -1
         )
         {
             E = emitter;
@@ -106,6 +113,7 @@ public sealed partial class Sm83Backend
             FrameBase = allocation.FrameBase;
             FrameSize = allocation.FrameEnd - allocation.FrameBase;
             WramGlobalsSize = wramGlobalsSize;
+            OamDmaSrcAddr = oamDmaSrcAddr;
             FusedGep = ComputeFusedGeps(fn, Slot);
         }
 

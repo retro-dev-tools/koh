@@ -2097,10 +2097,22 @@ internal sealed partial class CilMethodLowerer
                     IrBuilder.GlobalRef(_ctx.HeapGlobal!)
                 );
                 break;
+            // OAM DMA: OAM DMA locks the bus to everything but HRAM for ~161 M-cycles, so the
+            // trigger+wait cannot run from ROM — the backend installs a fixed HRAM trampoline once, at
+            // boot, and this call becomes: stage the source page in a dedicated WRAM scratch global (the
+            // trampoline reads it back by its known address), then CALL the trampoline (see
+            // CilLoweringContext.EnsureOamDmaSourceGlobal's remarks and Sm83Backend's "oamdma" gating).
+            case "oamdma":
+                _b.Store(
+                    CoerceStore(args[0], IrType.I8),
+                    IrBuilder.GlobalRef(_ctx.EnsureOamDmaSourceGlobal())
+                );
+                _b.Intrinsic("oamdma");
+                break;
             default:
                 throw new CilNotSupportedException(
                     $"unsupported [KohIntrinsic] kind '{entry.Kind}' on '{def.FullName}' (phase 1 "
-                        + "supports register/region/ei/di/halt/nop/stop/alloc/heapreset only)."
+                        + "supports register/region/ei/di/halt/nop/stop/alloc/heapreset/oamdma only)."
                 );
         }
     }
