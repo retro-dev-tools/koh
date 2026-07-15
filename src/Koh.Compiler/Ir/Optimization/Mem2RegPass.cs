@@ -1,12 +1,13 @@
 namespace Koh.Compiler.Ir.Optimization;
 
 /// <summary>
-/// Promotes non-escaping integer scalar <c>alloca</c>s to SSA values, inserting phis where a value
-/// merges — the enabler that lifts a local whose live range spans control flow (read after an
-/// <c>if</c>, a loop counter) out of memory, past what intra-block
-/// <see cref="RedundantLoadEliminationPass"/> can reach. Standard construction: place phis at the
-/// iterated dominance frontier of each alloca's store blocks, then rename by a dominator-tree walk
-/// carrying each alloca's reaching definition. Arrays, structs, and pointers are left in memory.
+/// Promotes non-escaping register-sized scalar <c>alloca</c>s (integers and pointers) to SSA values,
+/// inserting phis where a value merges — the enabler that lifts a local whose live range spans
+/// control flow (read after an <c>if</c>, a loop counter, a walking pointer) out of memory, past what
+/// intra-block <see cref="RedundantLoadEliminationPass"/> can reach. Standard construction: place
+/// phis at the iterated dominance frontier of each alloca's store blocks, then rename by a
+/// dominator-tree walk carrying each alloca's reaching definition. Arrays and structs are left in
+/// memory (not register-sized).
 /// </summary>
 public sealed class Mem2RegPass : IIrFunctionPass
 {
@@ -15,12 +16,15 @@ public sealed class Mem2RegPass : IIrFunctionPass
         if (function.EntryBlock is null)
             return false;
 
-        // Integer scalars only. A pointer local read before any write (the frontend has no
-        // definite-assignment check, so that is reachable) would need a synthesized undef, and a
-        // pointer-typed IrConstInt is ill-formed — leave pointers in memory for RLE to forward.
+        // Register-sized scalars: integers and pointers. A slot read before any write (the frontend
+        // has no definite-assignment check, so that is reachable in hand-built IR, but valid CIL's
+        // definite-assignment rule means real programs never hit it) reaches `Reaching`, which
+        // synthesizes a correctly-typed zero — a null pointer for a pointer type, since IrConstInt
+        // carries whatever IrType it's constructed with (see IrValue.cs) and the backend already
+        // handles a pointer-typed IrConstInt (Sm83Backend.EmitContext.TryStaticAddr/LoadByteToA).
         var promotable = new HashSet<AllocaInstruction>(ReferenceEqualityComparer.Instance);
         foreach (var alloca in AllocaAnalysis.NonEscaping(function))
-            if (alloca.Allocated.Kind is IrTypeKind.Int)
+            if (alloca.Allocated.Kind is IrTypeKind.Int or IrTypeKind.Pointer)
                 promotable.Add(alloca);
         if (promotable.Count == 0)
             return false;
@@ -155,8 +159,9 @@ public sealed class Mem2RegPass : IIrFunctionPass
             stacks[alloca].Pop();
     }
 
-    /// <summary>The reaching definition on top of the stack, or zero when the (integer) slot is read
-    /// before any write — the C# default, and well-typed since only integer allocas are promoted.</summary>
+    /// <summary>The reaching definition on top of the stack, or zero when the slot is read before any
+    /// write — the C# default, and well-typed for both promoted kinds (an integer zero or a null
+    /// pointer, since IrConstInt takes its type from the alloca's allocated type).</summary>
     private static IrValue Reaching(Stack<IrValue> stack, AllocaInstruction alloca) =>
         stack.Count > 0 ? stack.Peek() : new IrConstInt(alloca.Allocated, 0);
 

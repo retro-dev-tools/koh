@@ -718,6 +718,18 @@ internal sealed class FunctionAllocation
     /// dereference of the phi was recognised — the fused post-increment site (folded into the caller's
     /// shared <c>FusedPointerSite</c> table alongside Layer 2's own entries; <see cref="MemoryEmitter"/>
     /// does not care which layer produced an entry).</summary>
+    /// <summary>One Phase-1-gathered Layer-1 candidate: a loop-carried phi whose shape
+    /// <see cref="TryFindLoopShape"/> recognised, independent of any cross-candidate safety/register-pool
+    /// decision (those are Phase 2/3 concerns — see <see cref="SelectLoopInductionResidents"/>).</summary>
+    private readonly record struct LoopInductionCandidate(
+        PhiInstruction Phi,
+        IrBasicBlock Tail,
+        IrInstruction BodyValue,
+        IrBasicBlock Preheader,
+        IrInstruction? DerefSite,
+        HashSet<IrBasicBlock> LiveBlocks
+    );
+
     private static (
         Dictionary<IrValue, Sm83Register> Register,
         Dictionary<IrBasicBlock, List<LoopInductionSync>> PreheaderSync,
@@ -738,6 +750,11 @@ internal sealed class FunctionAllocation
 
         var dom = new Dominators(fn);
         var liveness = IrLiveness.Compute(fn);
+
+        // Phase 1: gather every structurally-shaped candidate (loop shape + admissible body-value/
+        // deref-site), independent of any cross-candidate safety/register-pool decision — those are
+        // Phase 2 (GEP-arm pointer candidates) and Phase 3 (plain gentle-binary candidates) below.
+        var candidates = new List<LoopInductionCandidate>();
 
         foreach (var header in fn.Blocks)
         foreach (var instr in header.Instructions)
@@ -782,34 +799,125 @@ internal sealed class FunctionAllocation
                 derefSite = found;
             }
 
-            // The candidate's own body value is safe by construction (TryFindLoopShape only accepted a
-            // gentle binary or the exact controlled gep(phi,+1) shape) — needed explicitly for the gep
-            // arm, which IsLoopSafeInstruction does not otherwise recognise (the binary arm is already
-            // covered incidentally via IsGentleBinary). A DIFFERENT loop-carried phi's own body
-            // value/dereference sharing the same blocks (e.g. a sibling pointer phi in a two-pointer copy
-            // loop) is deliberately NOT whitelisted here: that would need atomic all-or-nothing admission
-            // across the whole loop, mirroring Layer 2's own group-admission comment, to avoid one
-            // candidate's ordinary (non-resident) fallback path clobbering another's resident Hl/De
-            // mid-loop — out of scope for this cut. A multi-pointer-phi loop therefore has every candidate
-            // decline (each sees a sibling's dynamic step/deref as unrecognised), the same safe conservative
-            // floor as before this overlay existed; Layer 2 still covers that shape via the memory-alloca
-            // path until pointer promotion (loop-residency-generalization spec step 3) retargets it.
-            bool LoopSafe(IrInstruction i) =>
-                IsLoopSafeInstruction(i)
-                || ReferenceEquals(i, bodyValue)
-                || (derefSite is not null && ReferenceEquals(i, derefSite));
-            if (!liveBlocks.All(b => b.Instructions.All(LoopSafe)))
+            candidates.Add(
+                new LoopInductionCandidate(phi, tail, bodyValue, preheader, derefSite, liveBlocks)
+            );
+        }
+
+        if (candidates.Count == 0)
+            return (register, preheaderSync, fusedSite);
+
+        // Phase 2: admit every GEP-arm (pointer-walk) candidate's loop atomically, all-or-nothing per
+        // loop — mirrors Layer 2's own group-admission scheme (see that region's header comment for the
+        // full hazard rationale). A declined GEP-arm candidate's ordinary fallback (EmitGep's
+        // ComputeGepIntoHL) computes its address dynamically through Hl AND De unconditionally, so
+        // partially admitting a two-pointer loop (e.g. a copy loop's src/dst) would let the declined
+        // sibling's fallback clobber the admitted one's resident pair mid-loop. A plain (gentle-binary)
+        // candidate has no such hazard — see Phase 3's own comment — so only GEP-arm candidates need this
+        // atomic treatment. Grouped by Preheader, the same key Layer 2 uses (a block can be the
+        // unconditional-branch preheader of at most one header, so it uniquely identifies one loop).
+        var admittedGepBodyValues = new HashSet<IrInstruction>(ReferenceEqualityComparer.Instance);
+        var admittedGepDerefSites = new HashSet<IrInstruction>(ReferenceEqualityComparer.Instance);
+
+        var gepGroups = candidates
+            .Where(c => c.BodyValue is GetElementPtrInstruction)
+            .GroupBy(c => c.Preheader, ReferenceEqualityComparer.Instance);
+
+        foreach (var loopGroup in gepGroups)
+        {
+            // A load-fused deref claims Hl before a store-fused one (cheaper opcode: `ld a,(hl+)` is one
+            // instruction vs. De's `ld a,(de)` + `inc de`) — the same preference Layer 2 uses when both
+            // shapes share one loop.
+            var group = loopGroup.OrderByDescending(c => c.DerefSite is LoadInstruction).ToList();
+            if (group.Count > 2) // only Hl/De exist as pair registers — never admitted past two per loop
                 continue;
 
-            bool hasEqNe = liveBlocks.Any(b => b.Instructions.Any(IsEqNeCompare));
-            var pool = phi.Type.SizeInBytes switch
+            var groupBodyValues = new HashSet<IrInstruction>(
+                group.Select(c => c.BodyValue),
+                ReferenceEqualityComparer.Instance
+            );
+            var groupDerefSites = new HashSet<IrInstruction>(
+                group.Select(c => c.DerefSite!),
+                ReferenceEqualityComparer.Instance
+            );
+            bool GroupSafe(IrInstruction i) =>
+                IsLoopSafeInstruction(i)
+                || groupBodyValues.Contains(i)
+                || groupDerefSites.Contains(i);
+
+            var liveBlocksUnion = new HashSet<IrBasicBlock>(Eq);
+            foreach (var c in group)
+                liveBlocksUnion.UnionWith(c.LiveBlocks);
+            if (!liveBlocksUnion.All(b => b.Instructions.All(GroupSafe)))
+                continue;
+
+            // Every candidate in the group must get a register, or none do (atomic — see the region
+            // comment above). Collect enough distinct free pairs before committing any of them.
+            var freeRegs = new List<Sm83Register>();
+            foreach (var reg in LoopPairPoolPreferHl)
+                if (
+                    assigned.Values.All(r => (r & reg) == 0)
+                    && register.Values.All(r => (r & reg) == 0)
+                )
+                    freeRegs.Add(reg);
+            if (freeRegs.Count < group.Count)
+                continue;
+
+            for (int i = 0; i < group.Count; i++)
+            {
+                var c = group[i];
+                var reg = freeRegs[i];
+                register[c.Phi] = reg;
+                register[c.BodyValue] = reg;
+                fusedSite[c.DerefSite!] = reg;
+                admittedGepBodyValues.Add(c.BodyValue);
+                admittedGepDerefSites.Add(c.DerefSite!);
+
+                var init = c
+                    .Phi.Incomings.First(i2 => ReferenceEquals(i2.Block, c.Preheader))
+                    .Value;
+                if (!preheaderSync.TryGetValue(c.Preheader, out var syncs))
+                    preheaderSync[c.Preheader] = syncs = new List<LoopInductionSync>();
+                syncs.Add(new LoopInductionSync(init, reg));
+            }
+        }
+
+        // Phase 3: plain (gentle-binary) candidates — i8/i16 counters with no in-loop dereference of
+        // themselves. Each is still admitted independently, one at a time: unlike Phase 2, a declined
+        // plain candidate's fallback never touches Hl/De (EmitBinary's gentle path only ever reads/writes
+        // A and B), so there is no partial-admission hazard between two plain candidates, or between a
+        // plain candidate and a GEP-arm one — only two GEP-arm candidates sharing a loop are mutually
+        // unsafe to admit partially (Phase 2's own reason for atomicity). The only change from treating
+        // each of these in isolation is the whitelist: an ADMITTED sibling GEP-arm candidate's body
+        // value/deref site (Phase 2, above) must be recognised as safe here too, or a copy loop's byte
+        // counter would see the pointer candidates' own (now harmless, register-resident) step/deref
+        // instructions as unrecognised and decline for a reason that no longer applies once Phase 2 has
+        // made them safe.
+        foreach (var c in candidates)
+        {
+            if (c.BodyValue is GetElementPtrInstruction)
+                continue; // handled atomically in Phase 2, admitted or not
+            if (assigned.ContainsKey(c.Phi) || register.ContainsKey(c.Phi))
+                continue; // already resident (kept for symmetry; Phase 1 already filtered this)
+
+            bool LoopSafe(IrInstruction i) =>
+                IsLoopSafeInstruction(i)
+                || ReferenceEquals(i, c.BodyValue)
+                || admittedGepBodyValues.Contains(i)
+                || admittedGepDerefSites.Contains(i);
+            if (!c.LiveBlocks.All(b => b.Instructions.All(LoopSafe)))
+                continue;
+
+            bool hasEqNe = c.LiveBlocks.Any(b => b.Instructions.Any(IsEqNeCompare));
+            var pool = c.Phi.Type.SizeInBytes switch
             {
                 1 => hasEqNe ? LoopBytePoolNoC : LoopBytePool,
-                _ => derefSite is not null ? LoopPairPoolPreferHl : LoopPairPoolPreferDe,
+                _ => LoopPairPoolPreferDe, // a plain candidate never dereferences itself (see above)
             };
 
-            // Bitwise, not exact-value: Layer 2 may have already claimed Hl or De (whose bits are H/L or
-            // D/E), and a lone byte in one of those bits would otherwise go undetected by an exact match.
+            // Bitwise, not exact-value: Phase 2 (or Layer 2) may have already claimed Hl or De (whose
+            // bits are H/L or D/E), and a lone byte in one of those bits would otherwise go undetected by
+            // an exact match.
             Sm83Register? chosen = null;
             foreach (var candidate in pool)
                 if (
@@ -823,14 +931,12 @@ internal sealed class FunctionAllocation
             if (chosen is not { } reg)
                 continue;
 
-            register[phi] = reg;
-            register[bodyValue] = reg;
-            if (derefSite is not null)
-                fusedSite[derefSite] = reg;
+            register[c.Phi] = reg;
+            register[c.BodyValue] = reg;
 
-            var init = phi.Incomings.First(i => ReferenceEquals(i.Block, preheader)).Value;
-            if (!preheaderSync.TryGetValue(preheader, out var syncs))
-                preheaderSync[preheader] = syncs = new List<LoopInductionSync>();
+            var init = c.Phi.Incomings.First(i => ReferenceEquals(i.Block, c.Preheader)).Value;
+            if (!preheaderSync.TryGetValue(c.Preheader, out var syncs))
+                preheaderSync[c.Preheader] = syncs = new List<LoopInductionSync>();
             syncs.Add(new LoopInductionSync(init, reg));
         }
 
