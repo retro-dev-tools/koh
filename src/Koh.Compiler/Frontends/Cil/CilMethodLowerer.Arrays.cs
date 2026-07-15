@@ -271,6 +271,31 @@ internal sealed partial class CilMethodLowerer
         stack.Add(WidenToStack(_b.Load(ElementPointer(arrayRef, index, irType)), signed));
     }
 
+    /// <summary><c>ldlen</c>: this frontend's arrays carry no runtime length header (see class
+    /// remarks) — the element count only exists as the compile-time <see cref="_pendingArrayInfo"/>/
+    /// <see cref="_localArrayInfo"/> side channel a <c>newarr</c> seeds and <c>LoadLocal</c>/
+    /// <c>StoreLocal</c>/<c>Dup</c> carry forward, exactly the provenance <see cref="ResolvePipeline"/>
+    /// (<c>CilMethodLowerer.Linq.cs</c>) already relies on for the same reason. Pushes the tracked
+    /// count (already <see cref="IrType.I16"/> — this target's native-int width, matching real CLR
+    /// <c>ldlen</c>'s "native unsigned int" result) straight back; Roslyn's usual
+    /// <c>ldlen ; conv.i4</c> shape for <c>array.Length</c> then passes it through unchanged (conv.i4
+    /// only truncates a wider-than-32-bit value — see <c>Code.Conv_I4</c>'s case). An array that
+    /// can't be traced to a <c>newarr</c> in THIS method (received as a parameter, returned from a
+    /// call, or read back out of a field/array element) has no tracked count at all — a diagnostic,
+    /// not a wrong answer.</summary>
+    private void LowerLdlen(List<IrValue> stack)
+    {
+        var arrayRef = Pop(stack);
+        if (!_pendingArrayInfo.TryGetValue(arrayRef, out var info))
+            throw new CilNotSupportedException(
+                $"'ldlen' in '{_method.FullName}' could not be traced to a 'newarr'-allocated array in "
+                    + "this method (this frontend's arrays carry no runtime length header — an array "
+                    + "received as a parameter, returned from a call, or read from a field/element is "
+                    + "out of scope for 'array.Length')."
+            );
+        stack.Add(info.Count);
+    }
+
     private void LowerStelemAny(TypeReference typeRef, List<IrValue> stack)
     {
         var value = Pop(stack);

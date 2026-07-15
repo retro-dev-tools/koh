@@ -1622,6 +1622,9 @@ internal sealed partial class CilMethodLowerer
             case Code.Stelem_Any:
                 LowerStelemAny((TypeReference)instr.Operand, stack);
                 break;
+            case Code.Ldlen:
+                LowerLdlen(stack);
+                break;
             // A pure verification hint (suppresses the array-covariance check 'ldelema' would
             // otherwise need on a reference-type array — irrelevant to a struct element array, and to
             // this frontend's own unchecked element addressing either way): a complete no-op.

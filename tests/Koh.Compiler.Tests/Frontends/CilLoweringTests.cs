@@ -428,4 +428,91 @@ public class CilLoweringTests
         Frontend(UnsupportedCallSource, OptimizationLevel.Debug, diagnostics);
         await Assert.That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error)).IsTrue();
     }
+
+    // ldlen (array.Length): a loop bounded by arr.Length, summing every element. The array's element
+    // count is tracked only as a compile-time side channel seeded by 'newarr' and carried through
+    // locals/Dup (CilMethodLowerer.Arrays.cs's _pendingArrayInfo/_localArrayInfo — the same provenance
+    // LINQ's ResolvePipeline relies on), so the loop condition ('i < arr.Length', re-evaluated every
+    // iteration in a block distinct from the 'newarr' that defined the count) exercises a genuine
+    // cross-block SSA reference to that tracked value, not just a same-block use.
+    private const string ArrayLengthLoopSource = """
+        using Koh.GameBoy;
+
+        public class Program
+        {
+            public static void Main()
+            {
+                int[] arr = new int[5];
+                arr[0] = 10;
+                arr[1] = 20;
+                arr[2] = 30;
+                arr[3] = 40;
+                arr[4] = 50;
+                int sum = 0;
+                for (int i = 0; i < arr.Length; i++)
+                {
+                    sum += arr[i];
+                }
+                Hardware.BGP = (byte)sum;
+            }
+        }
+        """;
+
+    [Test]
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task ArrayLength_LoopBoundSumsAllElements_DebugAndRelease(OptimizationLevel level)
+    {
+        // Prove the fixture genuinely reaches 'ldlen' (Roslyn does not const-fold a local array's
+        // .Length, even against a fixed-size 'new int[5]') rather than passing for the wrong reason.
+        var probePath = CompileToAssembly(ArrayLengthLoopSource, level);
+        using (var probeModule = Mono.Cecil.ModuleDefinition.ReadModule(probePath))
+        {
+            var main = probeModule.GetType("Program").Methods.Single(m => m.Name == "Main");
+            await Assert
+                .That(main.Body.Instructions.Any(i => i.OpCode.Code == Mono.Cecil.Cil.Code.Ldlen))
+                .IsTrue()
+                .Because("fixture must genuinely exercise 'ldlen', not a constant-folded length");
+        }
+
+        var diagnostics = new DiagnosticBag();
+        var module = Frontend(ArrayLengthLoopSource, level, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse()
+            .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var gb = Load(Compile(ArrayLengthLoopSource, level), out int s, out int l);
+        Run(gb, s, l);
+        // 10+20+30+40+50 = 150.
+        await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)150);
+    }
+
+    // An array that can't be traced to a 'newarr' in the SAME method (here: received as a parameter)
+    // has no tracked element count at all — this frontend's arrays carry no runtime length header (see
+    // CilMethodLowerer.Arrays.cs's class remarks), so 'ldlen' degrades to a diagnostic, not a wrong
+    // answer or a crash. Same contract as LINQ's identical "traced to a local newarr" limitation.
+    private const string ArrayLengthOnParameterSource = """
+        using Koh.GameBoy;
+
+        public class Program
+        {
+            private static int Len(int[] a) => a.Length;
+
+            public static void Main()
+            {
+                int[] arr = new int[3];
+                Hardware.BGP = (byte)Len(arr);
+            }
+        }
+        """;
+
+    [Test]
+    public async Task ArrayLength_OnUntraceableArray_ReportsDiagnostic_DoesNotThrow()
+    {
+        var diagnostics = new DiagnosticBag();
+        Frontend(ArrayLengthOnParameterSource, OptimizationLevel.Debug, diagnostics);
+        await Assert.That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error)).IsTrue();
+    }
 }
