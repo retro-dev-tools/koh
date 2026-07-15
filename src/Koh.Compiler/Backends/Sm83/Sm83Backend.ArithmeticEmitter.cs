@@ -134,10 +134,17 @@ public sealed partial class Sm83Backend
             _e.U8(0x3E);
             _e.U8(n);
             _ctx.StoreAToAddr(RtN); // LD A,n ; RtN = n
-            string routine = b.Op switch
+            // N=4 (i32) is what CIL's int-promotion routes essentially every sub-int32 arithmetic
+            // expression through, so it gets a specialized routine (see EmitMulWide4/EmitUDivWide4/
+            // EmitSDivWide4's own doc comments) — same algorithm, unrolled main loop, no CALL/RET or
+            // B-reload overhead per bit. Every other width (i64, i128) keeps the generic routine.
+            string routine = (b.Op, n) switch
             {
-                IrBinaryOp.Mul => "mul_wide",
-                IrBinaryOp.UDiv or IrBinaryOp.URem => "udivmod_wide",
+                (IrBinaryOp.Mul, 4) => "mul_wide4",
+                (IrBinaryOp.Mul, _) => "mul_wide",
+                (IrBinaryOp.UDiv or IrBinaryOp.URem, 4) => "udivmod_wide4",
+                (IrBinaryOp.UDiv or IrBinaryOp.URem, _) => "udivmod_wide",
+                (_, 4) => "sdivmod_wide4",
                 _ => "sdivmod_wide",
             };
             _e.Jump(0xCD, _e.RoutineLabel(routine));
@@ -148,54 +155,57 @@ public sealed partial class Sm83Backend
             _ctx.CopyFromScratch(result, dst, n);
         }
 
-        /// <summary>Lower a 32-/64-bit shift: copy the subject into scratch, store the clamped count, call
-        /// the width-N shift routine, and copy the result back. Mirrors the 16-bit count clamp.</summary>
+        /// <summary>Lower a 32-/64-bit shift. A CONSTANT amount (known at codegen time) is fully
+        /// unrolled at the call site (see <see cref="EmitWideShiftConst"/>) instead of driving the
+        /// generic per-bit shift_wide/lshr_wide/ashr_wide routine, which costs roughly one CALL per bit
+        /// shifted — cheap for a small count, but <see cref="Koh.Compiler.Ir.Optimization.StrengthReductionPass"/>'s
+        /// signed-divide-by-power-of-two reduction emits a "shift by (width-1)" sign broadcast on every
+        /// reduced SDiv (31 bits for i32), which the per-bit routine would make far more expensive than
+        /// the division it is replacing. A runtime (non-constant) amount still calls the generic routine
+        /// below, unchanged.</summary>
         private void EmitWideShift(BinaryInstruction b, int n)
         {
             int dst = _ctx.Slot[b];
             int width = n * 8;
+
+            if (b.Right is IrConstInt amount)
+            {
+                EmitWideShiftConst(b.Op, n, dst, b.Left, Math.Min((int)amount.Value, width));
+                return;
+            }
+
             _ctx.CopyToScratch(b.Left, RtOpA, n);
             _e.U8(0x3E);
             _e.U8(n);
             _ctx.StoreAToAddr(RtN); // LD A,n ; RtN = n
 
-            if (b.Right is IrConstInt amount)
+            // Clamp the runtime count to the width: accumulate the high bytes in C; if any are set the
+            // count meets/exceeds the width and saturates, else compare the low byte against the width.
+            _ctx.LoadByteToA(b.Right, 0);
+            _e.U8(0x47); // LD B, A  (tentative low byte)
+            _e.U8(0xAF); // XOR A
+            _e.U8(0x4F); // LD C, A  (high-byte accumulator = 0)
+            for (int k = 1; k < n; k++)
             {
-                int steps = Math.Min((int)amount.Value, width);
-                _e.U8(0x3E);
-                _e.U8((byte)steps);
-                _ctx.StoreAToAddr(RtBits);
+                _ctx.LoadByteToA(b.Right, k);
+                _e.U8(0xB1); // OR C
+                _e.U8(0x4F); // LD C, A
             }
-            else
-            {
-                // Clamp the runtime count to the width: accumulate the high bytes in C; if any are set the
-                // count meets/exceeds the width and saturates, else compare the low byte against the width.
-                _ctx.LoadByteToA(b.Right, 0);
-                _e.U8(0x47); // LD B, A  (tentative low byte)
-                _e.U8(0xAF); // XOR A
-                _e.U8(0x4F); // LD C, A  (high-byte accumulator = 0)
-                for (int k = 1; k < n; k++)
-                {
-                    _ctx.LoadByteToA(b.Right, k);
-                    _e.U8(0xB1); // OR C
-                    _e.U8(0x4F); // LD C, A
-                }
-                var sat = new Label();
-                var counted = new Label();
-                _e.U8(0x79);
-                _e.U8(0xB7); // LD A, C ; OR A  (Z iff no high bits)
-                _e.Jump(0xC2, sat); // JP NZ, sat
-                _e.U8(0x78); // LD A, B
-                _e.U8(0xFE);
-                _e.U8((byte)width); // CP width
-                _e.Jump(0xDA, counted); // JP C, counted
-                _e.Place(sat);
-                _e.U8(0x06);
-                _e.U8((byte)width); // LD B, width
-                _e.Place(counted);
-                _e.U8(0x78); // LD A, B
-                _ctx.StoreAToAddr(RtBits);
-            }
+            var sat = new Label();
+            var counted = new Label();
+            _e.U8(0x79);
+            _e.U8(0xB7); // LD A, C ; OR A  (Z iff no high bits)
+            _e.Jump(0xC2, sat); // JP NZ, sat
+            _e.U8(0x78); // LD A, B
+            _e.U8(0xFE);
+            _e.U8((byte)width); // CP width
+            _e.Jump(0xDA, counted); // JP C, counted
+            _e.Place(sat);
+            _e.U8(0x06);
+            _e.U8((byte)width); // LD B, width
+            _e.Place(counted);
+            _e.U8(0x78); // LD A, B
+            _ctx.StoreAToAddr(RtBits);
 
             string routine = b.Op switch
             {
@@ -205,6 +215,104 @@ public sealed partial class Sm83Backend
             };
             _e.Jump(0xCD, _e.RoutineLabel(routine));
             _ctx.CopyFromScratch(RtOpA, dst, n);
+        }
+
+        /// <summary>Constant-amount n-byte shift, unrolled at the call site: whole-byte moves for the
+        /// byte-granular part of the count (<paramref name="steps"/> / 8), then a straight-line sequence
+        /// of single-bit rotate CALLs (rt.rlmem/rt.rrmem — the same leaf routines the generic per-bit
+        /// loop uses, just invoked directly instead of via a runtime-counted loop) for the remaining 0-7
+        /// bits. Total cost is O(n + steps/8 + steps%8), never more than 7 rotate CALLs regardless of how
+        /// large <paramref name="steps"/> is, versus the generic routine's O(steps) CALLs.</summary>
+        private void EmitWideShiftConst(IrBinaryOp op, int n, int dst, IrValue left, int steps)
+        {
+            _ctx.CopyToScratch(left, RtOpA, n);
+            int byteShift = steps / 8;
+            int bitShift = steps % 8;
+
+            if (byteShift > 0)
+                EmitByteShift(op, n, byteShift);
+            for (int iter = 0; iter < bitShift; iter++)
+                EmitBitShiftOnce(op, n);
+
+            _ctx.CopyFromScratch(RtOpA, dst, n);
+        }
+
+        /// <summary>Move whole bytes of the n-byte value at RtOpA by <paramref name="byteShift"/> bytes
+        /// (0 &lt; byteShift &lt;= n), filling the vacated bytes with 0 (Shl, LShr) or the operand's sign
+        /// byte (AShr, read before any byte is overwritten — for LShr/AShr the copy walks ascending
+        /// indices, always reading a higher, not-yet-written index, so the read-then-write order never
+        /// clobbers a source byte before it is consumed).</summary>
+        private void EmitByteShift(IrBinaryOp op, int n, int byteShift)
+        {
+            if (op == IrBinaryOp.Shl)
+            {
+                for (int i = n - 1; i >= byteShift; i--)
+                {
+                    LdAAbs(_e, RtOpA + i - byteShift);
+                    StAAbs(_e, RtOpA + i);
+                }
+                for (int i = 0; i < byteShift; i++)
+                {
+                    _e.U8(0xAF); // xor a
+                    StAAbs(_e, RtOpA + i);
+                }
+                return;
+            }
+
+            if (op == IrBinaryOp.AShr)
+            {
+                LdAAbs(_e, RtOpA + n - 1); // original top byte, before any copy overwrites it
+                _e.U8(0x07); // rlca (bit7 -> carry)
+                _e.U8(0x9F); // sbc a,a  -> A = 0x00 or 0xFF (sign-extended fill byte)
+            }
+            else
+            {
+                _e.U8(0xAF); // xor a  (logical fill = 0x00)
+            }
+            _e.U8(0x47); // ld b,a  (save fill byte across the copy loop below)
+
+            for (int i = 0; i <= n - 1 - byteShift; i++)
+            {
+                LdAAbs(_e, RtOpA + i + byteShift);
+                StAAbs(_e, RtOpA + i);
+            }
+            for (int i = n - byteShift; i < n; i++)
+            {
+                _e.U8(0x78); // ld a,b
+                StAAbs(_e, RtOpA + i);
+            }
+        }
+
+        /// <summary>Shift the n-byte value at RtOpA by exactly one bit via a single CALL to rt.rlmem
+        /// (Shl) or rt.rrmem (LShr/AShr, MSB-first), matching the carry/sign setup the generic per-bit
+        /// shift_wide/lshr_wide/ashr_wide routines use for the same op.</summary>
+        private void EmitBitShiftOnce(IrBinaryOp op, int n)
+        {
+            if (op == IrBinaryOp.Shl)
+            {
+                LdHL(_e, RtOpA);
+                _e.U8(0xAF); // xor a  (clear carry -> shift in 0 at LSB)
+                _e.U8(0x06);
+                _e.U8((byte)n); // ld b,n
+                _e.U8(0xCD);
+                AddRoutineCall(_e, "rt.rlmem");
+                return;
+            }
+
+            LdHL(_e, RtOpA + n - 1); // MSB first
+            if (op == IrBinaryOp.AShr)
+            {
+                _e.U8(0x7E); // ld a,(hl)  (current top byte)
+                _e.U8(0x07); // rlca -> its sign bit into carry
+            }
+            else
+            {
+                _e.U8(0xAF); // xor a  (clear carry -> logical 0 shift in at MSB)
+            }
+            _e.U8(0x06);
+            _e.U8((byte)n); // ld b,n
+            _e.U8(0xCD);
+            AddRoutineCall(_e, "rt.rrmem");
         }
 
         private void LoadWorking(IrValue value, int n)

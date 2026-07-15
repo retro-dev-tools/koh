@@ -549,18 +549,60 @@ public class OptimizationTests
     }
 
     [Test]
-    public async Task StrengthReduction_LeavesSignedDivideAndNonPowersAlone()
+    public async Task StrengthReduction_LeavesNonPowersAlone()
     {
-        var (_, sfn, sb, _) = NewFn(IrType.I8, new IrParameter("x", IrType.I8));
-        sb.Ret(sb.Binary(IrBinaryOp.SDiv, sfn.Parameters[0], IrBuilder.ConstInt(IrType.I8, 4)));
-
         var (_, mfn, mb, _) = NewFn(IrType.I8, new IrParameter("x", IrType.I8));
         mb.Ret(mb.Mul(mfn.Parameters[0], IrBuilder.ConstInt(IrType.I8, 3)));
 
-        await Assert.That(new StrengthReductionPass().Run(sfn)).IsFalse();
         await Assert.That(new StrengthReductionPass().Run(mfn)).IsFalse();
-        await Assert.That(OnlyBinary(sfn).Op).IsEqualTo(IrBinaryOp.SDiv);
         await Assert.That(OnlyBinary(mfn).Op).IsEqualTo(IrBinaryOp.Mul);
+    }
+
+    // Signed divide by a POSITIVE constant power of two now reduces too (see
+    // StrengthReductionPass's class remarks for the bias-before-shift identity this builds):
+    // x/4 (i8) -> AShr(x,7) [sign broadcast] -> And(_,1) [bias, 2^2-1] -> Add(x,_) -> AShr(_,2).
+    [Test]
+    public async Task StrengthReduction_SignedDivideByPositivePowerOfTwoBecomesBiasedShift()
+    {
+        var (module, fn, b, _) = NewFn(IrType.I8, new IrParameter("x", IrType.I8));
+        var x = fn.Parameters[0];
+        var ret = b.Ret(b.Binary(IrBinaryOp.SDiv, x, IrBuilder.ConstInt(IrType.I8, 4)));
+
+        var changed = new StrengthReductionPass().Run(fn);
+
+        await Assert.That(changed).IsTrue();
+        var ops = fn.EntryBlock!.Instructions.OfType<BinaryInstruction>().ToList();
+        await Assert.That(ops.Count).IsEqualTo(4);
+        var (signBcast, bias, biased, quotient) = (ops[0], ops[1], ops[2], ops[3]);
+        await Assert.That(signBcast.Op).IsEqualTo(IrBinaryOp.AShr);
+        await Assert.That(signBcast.Left).IsSameReferenceAs((IrValue)x);
+        await Assert.That(ConstValueOf(signBcast.Right)).IsEqualTo(7L); // bits-1
+        await Assert.That(bias.Op).IsEqualTo(IrBinaryOp.And);
+        await Assert.That(bias.Left).IsSameReferenceAs((IrValue)signBcast);
+        await Assert.That(ConstValueOf(bias.Right)).IsEqualTo(3L); // 2^2 - 1 (k=2)
+        await Assert.That(biased.Op).IsEqualTo(IrBinaryOp.Add);
+        await Assert.That(biased.Left).IsSameReferenceAs((IrValue)x);
+        await Assert.That(biased.Right).IsSameReferenceAs((IrValue)bias);
+        await Assert.That(quotient.Op).IsEqualTo(IrBinaryOp.AShr);
+        await Assert.That(quotient.Left).IsSameReferenceAs((IrValue)biased);
+        await Assert.That(ConstValueOf(quotient.Right)).IsEqualTo(2L); // log2(4)
+        await Assert.That(ret.Value).IsSameReferenceAs((IrValue)quotient);
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    // 2^(bits-1) (0x80 = -128 as an i8) is a power of two BY BIT PATTERN but a negative divisor
+    // once reinterpreted as signed — the bias identity assumes a positive divisor, so this must
+    // NOT reduce (see PositivePow2Log's doc comment).
+    [Test]
+    public async Task StrengthReduction_LeavesSignedDivideByNegativePowerBoundaryAlone()
+    {
+        var (_, fn, b, _) = NewFn(IrType.I8, new IrParameter("x", IrType.I8));
+        b.Ret(b.Binary(IrBinaryOp.SDiv, fn.Parameters[0], IrBuilder.ConstInt(IrType.I8, -128)));
+
+        var changed = new StrengthReductionPass().Run(fn);
+
+        await Assert.That(changed).IsFalse();
+        await Assert.That(OnlyBinary(fn).Op).IsEqualTo(IrBinaryOp.SDiv);
     }
 
     // ---- Local CSE -----------------------------------------------------------

@@ -650,6 +650,7 @@ public sealed partial class Sm83Backend : IBackend
     [
         ("sdivmod16", "udivmod16"),
         ("sdivmod_wide", "udivmod_wide"),
+        ("sdivmod_wide4", "udivmod_wide4"),
     ];
 
     // Every runtime routine and its emitter, in placement order. Composite routines precede the leaf
@@ -662,6 +663,9 @@ public sealed partial class Sm83Backend : IBackend
         ("mul_wide", EmitMulWide),
         ("udivmod_wide", EmitUDivWide),
         ("sdivmod_wide", EmitSDivWide),
+        ("mul_wide4", EmitMulWide4),
+        ("udivmod_wide4", EmitUDivWide4),
+        ("sdivmod_wide4", EmitSDivWide4),
         ("shl_wide", e => EmitShiftWide(e, "shl_wide", IrBinaryOp.Shl)),
         ("lshr_wide", e => EmitShiftWide(e, "lshr_wide", IrBinaryOp.LShr)),
         ("ashr_wide", e => EmitShiftWide(e, "ashr_wide", IrBinaryOp.AShr)),
@@ -1529,13 +1533,92 @@ public sealed partial class Sm83Backend : IBackend
     private static void AddRoutineCall(Emitter e, string routine) =>
         e.CallTarget(e.RoutineLabel(routine));
 
-    /// <summary>rt.mul_wide: RtAcc = RtOpA * RtOpB (low N bytes) by shift-and-add.</summary>
+    /// <summary>Given A = a known-nonzero byte, and RtBits already holding a whole-byte-granularity bit
+    /// count whose last (most significant) 8 bits correspond to this byte, refine RtBits down to exact
+    /// bit granularity by subtracting this byte's own leading-zero-bit count (0..7), found by rotating A
+    /// left through carry until a 1 bit rotates out of bit 7 (bounded: A is nonzero, so some bit is set
+    /// and this always terminates within 8 rotations). Only valid for a caller that consumes RtBits
+    /// LSB-first overall (so the top significant byte's own leading zero bits are the LAST iterations
+    /// that would run, and stopping RtBits early skips exactly them) — see EmitMulWide, which shifts its
+    /// tested operand right and is therefore LSB-first end to end. Clobbers A and D.</summary>
+    private static void RefineTopByteBitCount(Emitter e)
+    {
+        e.U8(0x16);
+        e.U8(0x00); // ld d,0  (leading-zero-bit counter)
+        var bitScan = new Label();
+        var bitFound = new Label();
+        e.Place(bitScan);
+        e.U8(0x07); // rlca   (bit7 -> carry, wraps into bit0)
+        e.Jump(0xDA, bitFound); // jp c, bitFound
+        e.U8(0x14); // inc d
+        e.Jump(0xC3, bitScan); // jp bitScan
+        e.Place(bitFound);
+        LdAAbs(e, RtBits);
+        e.U8(0x92); // sub d
+        StAAbs(e, RtBits);
+    }
+
+    /// <summary>Scan <paramref name="scratch"/> (an RtN-byte operand) from its high byte down for the
+    /// highest nonzero byte, and set RtBits to that operand's exact significant bit count (byte
+    /// granularity from the scan, refined to bit granularity via <see cref="RefineTopByteBitCount"/>).
+    /// If the operand is entirely zero, emits a `ret` that returns from the ENCLOSING routine directly
+    /// (the routine's already-zeroed accumulator is the correct final result in that case) — so this can
+    /// only be called as the first thing after establishing that zero result (see rt.clracc in every
+    /// caller). Shared by both the generic (any width, via RtN) and the width-4-specialized multiply
+    /// routines, since the scan/refine logic itself doesn't depend on how the caller's main loop consumes
+    /// RtBits afterward — only <see cref="RefineTopByteBitCount"/>'s LSB-first assumption does, which
+    /// every caller of this method satisfies (see its own doc comment).</summary>
+    private static void EmitScanAndRefineBitsForMul(Emitter e, int scratch)
+    {
+        LdHL(e, scratch);
+        AdvanceHLToMsb(e); // HL = &scratch[N-1] (highest byte)
+        LdBFromN(e); // B = N
+        var scan = new Label();
+        var found = new Label();
+        e.Place(scan);
+        e.U8(0x7E); // ld a,(hl)
+        e.U8(0xA7); // and a
+        e.Jump(0xC2, found); // jp nz, found
+        e.U8(0x2B); // dec hl
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, scan); // jp nz, scan
+        e.U8(0xC9); // ret   (B reached 0: operand is entirely zero, product stays 0)
+        e.Place(found);
+        // B now holds the count of significant bytes (1..N): the scan walked from the top byte down,
+        // decrementing B once per zero byte skipped, and stopped at the first nonzero byte with B still
+        // counting that byte and everything below it. RtBits = B * 8, then refined to bit granularity
+        // using that same top byte's value (HL still points at it; A still holds it from the `ld a,(hl)`
+        // that found it, but gets read again for clarity after the intervening B*8 arithmetic).
+        e.U8(0x78); // ld a,b
+        e.U8(0x87);
+        e.U8(0x87);
+        e.U8(0x87); // add a,a x3 -> A = B*8
+        StAAbs(e, RtBits);
+        e.U8(0x7E); // ld a,(hl)  (re-read the top significant byte; HL unchanged since `found`)
+        RefineTopByteBitCount(e);
+    }
+
+    /// <summary>rt.mul_wide: RtAcc = RtOpA * RtOpB (low N bytes) by shift-and-add.
+    ///
+    /// Before the bit loop, scans RtOpB from its high byte down for the highest nonzero byte, then
+    /// refines that down to the exact bit (see <see cref="EmitScanAndRefineBitsForMul"/> and
+    /// <see cref="RefineTopByteBitCount"/>), so the loop runs only over RtOpB's actually-significant
+    /// bits. RtOpB's low-order bits are exactly what the loop consumes first (it shifts RtOpB right,
+    /// testing bit 0 each time) and its highest set bit is exactly the LAST bit that needs testing, so
+    /// this only ever SHORTENS the loop from the end — it changes nothing about which bits get
+    /// processed, just stops once every remaining bit is (provably) zero and can only ever contribute
+    /// more zero-shifts and no-op adds. CIL's int-promotion routes plenty of genuinely-small
+    /// (i16/i8-sourced) values through this i32+ routine (see NarrowPass's class remarks on why the
+    /// source of that promotion can't always be undone at the IR level), so this is a real, common-case
+    /// win, not just a defensive edge case; a RtOpB that is entirely zero (multiply by zero) skips the
+    /// loop outright, since the product is already 0 from rt.clracc above.</summary>
     private static void EmitMulWide(Emitter e)
     {
         e.PlaceRoutine("mul_wide");
         e.U8(0xCD);
         AddRoutineCall(e, "rt.clracc"); // RtAcc = 0
-        LoadFullBitCount(e); // RtBits = N*8
+        EmitScanAndRefineBitsForMul(e, RtOpB);
+
         var loop = new Label();
         var noadd = new Label();
         e.Place(loop);
@@ -1557,13 +1640,255 @@ public sealed partial class Sm83Backend : IBackend
         e.U8(0xC9); // ret
     }
 
-    /// <summary>rt.udivmod_wide: RtOpA / RtOpB -> quotient in RtOpA, remainder in RtAcc (unsigned, restoring).</summary>
+    /// <summary>rt.mul_wide4: exactly <see cref="EmitMulWide"/>'s algorithm (including the scan/refine
+    /// preamble, unchanged and reused as-is), specialized for the one width (N=4, i.e. i32 -- what CIL's
+    /// int-promotion routes here for essentially every sub-int32 arithmetic expression) that matters most
+    /// for ROM-wide performance. The only difference from the generic routine is the main loop's body:
+    /// where EmitMulWide's loop CALLs rt.addmem/rt.rlmem/rt.rrmem (each reloading B from RtN and its own
+    /// HL/DE, then driving its own N-counted DEC-B loop) once per bit, this hard-codes N=4 and unrolls
+    /// each of those into four straight-line byte operations addressed directly off RtOpA/RtOpB/RtAcc, cutting
+    /// the fixed CALL+RET+reload overhead this specific routine pays roughly N-outer-loop-iterations
+    /// times over. Only reached when <c>ArithmeticEmitter.EmitWideMulDivRem</c> sees a statically-known
+    /// 4-byte operand type; every other width keeps using the generic routine untouched.</summary>
+    /// <summary>Inline N=4 zero of the 4 bytes at <paramref name="baseAddr"/>, matching rt.clracc without
+    /// the CALL/RET/B-loop overhead.</summary>
+    private static void EmitClrAcc4(Emitter e, int baseAddr)
+    {
+        e.U8(0xAF); // xor a
+        StAAbs(e, baseAddr);
+        StAAbs(e, baseAddr + 1);
+        StAAbs(e, baseAddr + 2);
+        StAAbs(e, baseAddr + 3);
+    }
+
+    private static void EmitMulWide4(Emitter e)
+    {
+        e.PlaceRoutine("mul_wide4");
+
+        // Register fast path: unlike division (see EmitUDivWide4's matching check), a product can need
+        // the FULL width even when both factors individually fit in 16 bits, so "both operands fit in 16
+        // bits" is not by itself enough to safely truncate to a 16-bit mul16 result. But "both operands
+        // fit in 8 bits" (<= 255, i.e. bytes 1-3 all zero) IS always safe: the largest possible product,
+        // 255*255 = 65025, still fits in 16 bits, so mul16's result needs no more than a zero-extend back
+        // into the 4-byte RtAcc slot. This is a plain runtime check on the actual operand values, sound
+        // for every input, not a range proof about any particular program.
+        LdAAbs(e, RtOpA + 1);
+        e.U8(0x47); // ld b,a
+        LdAAbs(e, RtOpA + 2);
+        e.U8(0xB0); // or b
+        e.U8(0x47); // ld b,a
+        LdAAbs(e, RtOpA + 3);
+        e.U8(0xB0); // or b
+        var wide = new Label();
+        e.Jump(0xC2, wide); // jp nz, wide
+        LdAAbs(e, RtOpB + 1);
+        e.U8(0x47); // ld b,a
+        LdAAbs(e, RtOpB + 2);
+        e.U8(0xB0); // or b
+        e.U8(0x47); // ld b,a
+        LdAAbs(e, RtOpB + 3);
+        e.U8(0xB0); // or b
+        e.Jump(0xC2, wide); // jp nz, wide
+        e.U8(0x16);
+        e.U8(0x00); // ld d,0
+        LdAAbs(e, RtOpA);
+        e.U8(0x5F); // ld e,a       -> DE = RtOpA (zero-extended)
+        e.U8(0x06);
+        e.U8(0x00); // ld b,0
+        LdAAbs(e, RtOpB);
+        e.U8(0x4F); // ld c,a       -> BC = RtOpB (zero-extended)
+        e.U8(0xCD);
+        AddRoutineCall(e, "mul16"); // product -> HL (exact: <= 255*255, fits 16 bits)
+        e.U8(0x7D); // ld a,l
+        StAAbs(e, RtAcc);
+        e.U8(0x7C); // ld a,h
+        StAAbs(e, RtAcc + 1);
+        e.U8(0xAF); // xor a
+        StAAbs(e, RtAcc + 2);
+        StAAbs(e, RtAcc + 3);
+        e.U8(0xC9); // ret
+        e.Place(wide);
+
+        EmitClrAcc4(e, RtAcc); // RtAcc = 0
+        EmitScanAndRefineBitsForMul(e, RtOpB);
+
+        var loop = new Label();
+        var noadd = new Label();
+        e.Place(loop);
+        LdAAbs(e, RtOpB);
+        e.U8(0x0F); // rrca -> bit0 into carry
+        e.Jump(0xD2, noadd); // jp nc, noadd
+        // RtAcc[0..3] += RtOpA[0..3], unrolled (no CALL, no B counter).
+        LdHL(e, RtAcc);
+        e.U8(0xAF); // xor a  (clear carry)
+        for (var k = 0; k < 4; k++)
+        {
+            LdAAbs(e, RtOpA + k);
+            e.U8(0x8E); // adc a,(hl)
+            e.U8(0x77); // ld (hl),a
+            if (k < 3)
+                e.U8(0x23); // inc hl
+        }
+        e.Place(noadd);
+        // RtOpA[0..3] <<= 1, unrolled.
+        LdHL(e, RtOpA);
+        e.U8(0xAF); // xor a  (clear carry -> shift in 0)
+        for (var k = 0; k < 4; k++)
+        {
+            e.U8(0xCB);
+            e.U8(0x16); // rl (hl)
+            if (k < 3)
+                e.U8(0x23); // inc hl
+        }
+        // RtOpB[3..0] >>= 1 logical, unrolled (MSB-first walk, matching ShrOpBOnce/rt.rrmem's convention).
+        LdHL(e, RtOpB + 3);
+        e.U8(0xAF); // xor a  (clear carry -> logical)
+        for (var k = 0; k < 4; k++)
+        {
+            e.U8(0xCB);
+            e.U8(0x1E); // rr (hl)
+            if (k < 3)
+                e.U8(0x2B); // dec hl
+        }
+        LdAAbs(e, RtBits);
+        e.U8(0x3D);
+        StAAbs(e, RtBits); // dec RtBits
+        e.Jump(0xC2, loop); // jp nz, loop
+        e.U8(0xC9); // ret
+    }
+
+    /// <summary>Scan the dividend at <paramref name="scratch"/> (an RtN-byte operand) from its high byte
+    /// down for the highest nonzero byte, byte-pre-shift it (see the class remarks on
+    /// <see cref="EmitUDivWide"/>) so its significant bytes sit at the top of the buffer, then further
+    /// bit-pre-shift so its highest set bit lands in bit 7, leaving RtBits set to the operand's exact
+    /// significant bit count. If entirely zero, emits a `ret` that returns from the ENCLOSING routine
+    /// directly (quotient/remainder are already 0 from rt.clracc/the untouched dividend). Shared by both
+    /// the generic (any width, via RtN) and the width-4-specialized divide routines.</summary>
+    private static void EmitScanAndShiftForDiv(Emitter e, int scratch)
+    {
+        LdHL(e, scratch);
+        AdvanceHLToMsb(e); // HL = &scratch[N-1] (highest byte)
+        LdBFromN(e); // B = N
+        var scan = new Label();
+        var found = new Label();
+        e.Place(scan);
+        e.U8(0x7E); // ld a,(hl)
+        e.U8(0xA7); // and a
+        e.Jump(0xC2, found); // jp nz, found
+        e.U8(0x2B); // dec hl
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, scan); // jp nz, scan
+        e.U8(0xC9); // ret   (B reached 0: dividend is entirely zero, quotient/remainder stay 0)
+        e.Place(found);
+        // B = significant byte count (1..N), same derivation as EmitMulWide's scan. RtBits = B * 8.
+        e.U8(0x78); // ld a,b
+        e.U8(0x87);
+        e.U8(0x87);
+        e.U8(0x87); // add a,a x3 -> A = B*8
+        StAAbs(e, RtBits);
+
+        // lead = N - B: how many high bytes of the dividend are zero and can be fast-forwarded past.
+        LdAAbs(e, RtN);
+        e.U8(0x90); // sub b
+        var skipShift = new Label();
+        e.Jump(0xCA, skipShift); // jp z, skipShift   (lead == 0: dividend already needs every byte)
+        e.U8(0x4F); // ld c,a   (stash lead)
+
+        // Pre-shift the dividend left by `lead` bytes: dst walks down from &scratch[N-1], src = dst -
+        // lead, for B iterations (copying the B significant bytes up into the top of the buffer), then
+        // zero-fill the `lead` bytes now vacated at the bottom.
+        LdHL(e, scratch);
+        AdvanceHLToMsb(e); // HL = &scratch[N-1]  (dst)
+        e.U8(0x5D); // ld e,l
+        e.U8(0x54); // ld d,h    -> DE = HL
+        e.U8(0x7B); // ld a,e
+        e.U8(0x91); // sub c
+        e.U8(0x5F); // ld e,a
+        e.U8(0x7A); // ld a,d
+        e.U8(0xDE);
+        e.U8(0x00); // sbc a,0
+        e.U8(0x57); // ld d,a    -> DE = HL - lead = &scratch[B-1] (src)
+
+        var copyLoop = new Label();
+        e.Place(copyLoop);
+        e.U8(0x1A); // ld a,(de)
+        e.U8(0x77); // ld (hl),a
+        e.U8(0x2B); // dec hl
+        e.U8(0x1B); // dec de
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, copyLoop); // jp nz, copyLoop
+
+        // HL now sits at &scratch[lead-1] (the top of the vacated low region); zero-fill `lead` bytes.
+        e.U8(0x41); // ld b,c   -> B = lead
+        var zeroLoop = new Label();
+        e.Place(zeroLoop);
+        e.U8(0xAF); // xor a
+        e.U8(0x77); // ld (hl),a
+        e.U8(0x2B); // dec hl
+        e.U8(0x05); // dec b
+        e.Jump(0xC2, zeroLoop); // jp nz, zeroLoop
+        e.Place(skipShift);
+
+        // scratch[N-1] now holds the dividend's top significant byte, whichever path got here (already
+        // in place when lead was 0, or moved there by the byte copy above). Refine RtBits from byte to
+        // bit granularity: unlike EmitMulWide's LSB-first refinement (subtract and stop early), this
+        // routine processes MSB-first (it shifts the dividend left, extracting bit 7 each iteration), so
+        // the leading zero bits of the top byte are the FIRST iterations that would run, not the last --
+        // subtracting them from RtBits alone would skip the wrong end. Instead, physically shift the
+        // dividend left by that many bits (0..7, reusing ShlOpAOnce -- the same "shift the full N-byte
+        // buffer left by 1" primitive the main loop itself uses) so the true top bit lands in bit 7,
+        // THEN reduce RtBits by the same count. This is the bit-granularity continuation of the
+        // byte-granularity pre-shift above: both exist to skip iterations that are provably no-ops
+        // (shifting a 0 into the remainder, borrowing, clearing the quotient bit) without changing the
+        // final quotient/remainder. ShlOpAOnce always shifts RtOpA specifically (not `scratch` in
+        // general), which is fine — the only caller today, EmitUDivWide[4], always passes RtOpA.
+        LdHL(e, scratch);
+        AdvanceHLToMsb(e); // HL = &scratch[N-1]
+        e.U8(0x7E); // ld a,(hl)
+        e.U8(0x16);
+        e.U8(0x00); // ld d,0
+        var bitScan = new Label();
+        var bitFound = new Label();
+        e.Place(bitScan);
+        e.U8(0x07); // rlca
+        e.Jump(0xDA, bitFound); // jp c, bitFound
+        e.U8(0x14); // inc d
+        e.Jump(0xC3, bitScan); // jp bitScan
+        e.Place(bitFound);
+        // D = leading zero bit count (0..7) of the top significant byte.
+        LdAAbs(e, RtBits);
+        e.U8(0x92); // sub d
+        StAAbs(e, RtBits);
+        e.U8(0x7A); // ld a,d
+        e.U8(0xA7); // and a
+        var skipBitShift = new Label();
+        e.Jump(0xCA, skipBitShift); // jp z, skipBitShift  (top bit already in bit 7)
+        var shiftBitLoop = new Label();
+        e.Place(shiftBitLoop);
+        ShlOpAOnce(e); // RtOpA <<= 1 (all N bytes)
+        e.U8(0x15); // dec d
+        e.Jump(0xC2, shiftBitLoop); // jp nz, shiftBitLoop
+        e.Place(skipBitShift);
+    }
+
+    /// <summary>rt.udivmod_wide: RtOpA / RtOpB -> quotient in RtOpA, remainder in RtAcc (unsigned, restoring).
+    ///
+    /// Before the bit loop, <see cref="EmitScanAndShiftForDiv"/> fast-forwards past every leading zero
+    /// byte and bit of the dividend (RtOpA): each one demonstrably contributes nothing (shifting a 0 bit
+    /// out of the dividend into the remainder always keeps the remainder below any nonzero divisor --
+    /// borrow, quotient bit 0), so pre-shifting the dividend and running the loop only over its remaining
+    /// significant bits lands on the exact same final quotient/remainder as running all N*8 iterations
+    /// unshortened. sdivmod_wide already takes the absolute value of both operands before calling here,
+    /// so this also transparently speeds up every SDiv/SRem whose operands' true magnitude is small --
+    /// exactly the fixed-point math in samples/gb-3d that motivated this fix. A dividend that already
+    /// needs every byte and bit takes the unshortened N*8-iteration path unchanged.</summary>
     private static void EmitUDivWide(Emitter e)
     {
         e.PlaceRoutine("udivmod_wide");
         e.U8(0xCD);
         AddRoutineCall(e, "rt.clracc"); // remainder RtAcc = 0
-        LoadFullBitCount(e); // RtBits = N*8
+        EmitScanAndShiftForDiv(e, RtOpA);
+
         var loop = new Label();
         var restore = new Label();
         var next = new Label();
@@ -1596,6 +1921,135 @@ public sealed partial class Sm83Backend : IBackend
         LdDE(e, RtOpB); // ld de, RtOpB
         e.U8(0xCD);
         AddRoutineCall(e, "rt.addmem"); // restore remainder
+        e.Place(next);
+        LdAAbs(e, RtBits);
+        e.U8(0x3D);
+        StAAbs(e, RtBits);
+        e.Jump(0xC2, loop);
+        e.U8(0xC9); // ret
+    }
+
+    /// <summary>rt.udivmod_wide4: exactly <see cref="EmitUDivWide"/>'s algorithm (including the shared
+    /// <see cref="EmitScanAndShiftForDiv"/> preamble, unchanged and reused as-is), specialized for N=4
+    /// the same way <see cref="EmitMulWide4"/> specializes the multiply — the main loop's three CALLs
+    /// (rt.rlmem x2, then rt.submem or rt.addmem) each reload B from RtN and re-derive HL/DE before
+    /// driving their own N-counted DEC-B loop; this hard-codes N=4 and unrolls each into four
+    /// straight-line byte operations instead. The two rt.rlmem calls are order-sensitive — the first
+    /// (RtOpA) clears carry itself and its final carry-out (RtOpA[3]'s old MSB) must flow untouched into
+    /// the second (RtAcc) as its carry-in, exactly as the generic routine relies on — so nothing between
+    /// them here may touch the carry flag either (LD reg,nn and LD (nn),A never do).</summary>
+    private static void EmitUDivWide4(Emitter e)
+    {
+        e.PlaceRoutine("udivmod_wide4");
+
+        // Register fast path: if both operands already fit in 16 bits (bytes 2 and 3 of each are zero
+        // -- true for RtOpA/RtOpB here regardless of whether the caller is a genuinely-unsigned UDiv/URem
+        // or sdivmod_wide4's already-negated-to-absolute-value SDiv/SRem), the whole scan/shift/N=4-loop
+        // machinery below is unnecessary: udivmod16 (Sm83Backend.EmitUDivMod16) computes the exact same
+        // mathematical quotient/remainder directly in registers, with no memory scratch and no per-bit
+        // loop overhead at all -- roughly an order of magnitude cheaper than even the width-4-specialized
+        // wide path above for the same small values. A quotient/remainder of a <=16-bit-by-<=16-bit
+        // unsigned division always itself fits in 16 bits (quotient <= dividend, remainder < divisor), so
+        // zero-extending udivmod16's 16-bit results back into the 4-byte RtOpA/RtAcc slots is exact, not
+        // an approximation. This is a plain runtime check on the actual operand values (not a static
+        // range proof), so it is sound for every possible input, not just the fixed-point magnitudes
+        // samples/gb-3d happens to use -- unlike a multiply, whose product can need the full 32 bits even
+        // when both factors individually fit in 16, a divide's result is always bounded by its dividend.
+        LdAAbs(e, RtOpA + 2);
+        e.U8(0x47); // ld b,a
+        LdAAbs(e, RtOpA + 3);
+        e.U8(0xB0); // or b
+        var wide = new Label();
+        e.Jump(0xC2, wide); // jp nz, wide
+        LdAAbs(e, RtOpB + 2);
+        e.U8(0x47); // ld b,a
+        LdAAbs(e, RtOpB + 3);
+        e.U8(0xB0); // or b
+        e.Jump(0xC2, wide); // jp nz, wide
+        LdAAbs(e, RtOpA);
+        e.U8(0x5F); // ld e,a
+        LdAAbs(e, RtOpA + 1);
+        e.U8(0x57); // ld d,a
+        LdAAbs(e, RtOpB);
+        e.U8(0x4F); // ld c,a
+        LdAAbs(e, RtOpB + 1);
+        e.U8(0x47); // ld b,a
+        e.U8(0xCD);
+        AddRoutineCall(e, "udivmod16"); // quotient -> DE, remainder -> HL
+        e.U8(0x7B); // ld a,e
+        StAAbs(e, RtOpA);
+        e.U8(0x7A); // ld a,d
+        StAAbs(e, RtOpA + 1);
+        e.U8(0xAF); // xor a
+        StAAbs(e, RtOpA + 2);
+        StAAbs(e, RtOpA + 3);
+        e.U8(0x7D); // ld a,l
+        StAAbs(e, RtAcc);
+        e.U8(0x7C); // ld a,h
+        StAAbs(e, RtAcc + 1);
+        e.U8(0xAF); // xor a
+        StAAbs(e, RtAcc + 2);
+        StAAbs(e, RtAcc + 3);
+        e.U8(0xC9); // ret
+        e.Place(wide);
+
+        EmitClrAcc4(e, RtAcc); // remainder RtAcc = 0
+        EmitScanAndShiftForDiv(e, RtOpA);
+
+        var loop = new Label();
+        var restore = new Label();
+        var next = new Label();
+        e.Place(loop);
+        // Shift RtOpA[0..3] left by 1 (carry cleared first): old MSB of RtOpA[3] ends up in carry.
+        e.U8(0xAF); // xor a
+        LdHL(e, RtOpA);
+        for (var k = 0; k < 4; k++)
+        {
+            e.U8(0xCB);
+            e.U8(0x16); // rl (hl)
+            if (k < 3)
+                e.U8(0x23); // inc hl
+        }
+        // Shift RtAcc[0..3] left by 1, carry-in preserved from above (LD HL,nn below does not touch it).
+        LdHL(e, RtAcc);
+        for (var k = 0; k < 4; k++)
+        {
+            e.U8(0xCB);
+            e.U8(0x16); // rl (hl)
+            if (k < 3)
+                e.U8(0x23); // inc hl
+        }
+        // RtAcc[0..3] -= RtOpB[0..3], unrolled; carry out = final borrow.
+        e.U8(0xA7); // and a  (clear borrow)
+        LdHL(e, RtAcc);
+        for (var k = 0; k < 4; k++)
+        {
+            LdAAbs(e, RtOpB + k);
+            e.U8(0x4F); // ld c,a
+            e.U8(0x7E); // ld a,(hl)
+            e.U8(0x99); // sbc a,c
+            e.U8(0x77); // ld (hl),a
+            if (k < 3)
+                e.U8(0x23); // inc hl
+        }
+        e.Jump(0xDA, restore); // jp c, restore   (remainder < divisor)
+        LdAAbs(e, RtOpA);
+        e.U8(0xF6);
+        e.U8(0x01);
+        StAAbs(e, RtOpA); // set quotient bit0
+        e.Jump(0xC3, next); // jp next
+        e.Place(restore);
+        // RtAcc[0..3] += RtOpB[0..3], unrolled (restore the remainder rt.submem just subtracted away).
+        e.U8(0xAF); // xor a  (clear carry)
+        LdHL(e, RtAcc);
+        for (var k = 0; k < 4; k++)
+        {
+            LdAAbs(e, RtOpB + k);
+            e.U8(0x8E); // adc a,(hl)
+            e.U8(0x77); // ld (hl),a
+            if (k < 3)
+                e.U8(0x23); // inc hl
+        }
         e.Place(next);
         LdAAbs(e, RtBits);
         e.U8(0x3D);
@@ -1664,6 +2118,81 @@ public sealed partial class Sm83Backend : IBackend
         LdHL(e, RtAcc);
         e.U8(0xCD);
         AddRoutineCall(e, "rt.negmem");
+        e.Place(rPos);
+        e.U8(0xC9); // ret
+    }
+
+    /// <summary>Inline N=4 two's-complement negate at a compile-time-known base address, matching
+    /// rt.negmem's algorithm (LSB first, "and a" to clear borrow, then per byte "ld a,0; sbc a,(hl);
+    /// ld (hl),a") exactly, minus the CALL/RET and B-driven loop overhead.</summary>
+    private static void EmitNegate4(Emitter e, int baseAddr)
+    {
+        e.U8(0xA7); // and a  (clear borrow)
+        LdHL(e, baseAddr);
+        for (var k = 0; k < 4; k++)
+        {
+            e.U8(0x3E);
+            e.U8(0x00); // ld a,0
+            e.U8(0x9E); // sbc a,(hl)
+            e.U8(0x77); // ld (hl),a
+            if (k < 3)
+                e.U8(0x23); // inc hl
+        }
+    }
+
+    /// <summary>rt.sdivmod_wide4: exactly <see cref="EmitSDivWide"/>'s algorithm (sign extraction,
+    /// negate-to-absolute, unsigned divide, sign fixup), specialized for N=4 the same way
+    /// <see cref="EmitMulWide4"/>/<see cref="EmitUDivWide4"/> specialize their own routines: the
+    /// negate-to-absolute and sign-fixup steps use <see cref="EmitNegate4"/> (inline, no CALL/RET/B-loop)
+    /// instead of the generic rt.negmem, and the unsigned divide itself calls <c>udivmod_wide4</c>. Every
+    /// one of these steps runs at most once per call (not once per bit-loop iteration), but SDiv is
+    /// pervasive in the CIL-int-promoted arithmetic this whole family of routines targets (every signed
+    /// division in samples/gb-3d's fixed-point math goes through here), so their combined fixed overhead
+    /// is still worth trimming.</summary>
+    private static void EmitSDivWide4(Emitter e)
+    {
+        e.PlaceRoutine("sdivmod_wide4");
+        LdHL(e, RtOpA);
+        AdvanceHLToMsb(e);
+        e.U8(0x7E);
+        StAAbs(e, RtSignRem); // A = dividend MSB
+        e.U8(0x47); // ld b, a  (save dividend sign byte)
+        LdHL(e, RtOpB);
+        AdvanceHLToMsb(e);
+        e.U8(0x7E); // A = divisor MSB
+        e.U8(0xA8); // xor b
+        StAAbs(e, RtSignQuot);
+        var aPos = new Label();
+        LdAAbs(e, RtSignRem);
+        e.U8(0xE6);
+        e.U8(0x80); // and 0x80
+        e.Jump(0xCA, aPos);
+        EmitNegate4(e, RtOpA);
+        e.Place(aPos);
+        var bPos = new Label();
+        LdHL(e, RtOpB);
+        AdvanceHLToMsb(e);
+        e.U8(0x7E);
+        e.U8(0xE6);
+        e.U8(0x80); // divisor MSB & 0x80
+        e.Jump(0xCA, bPos);
+        EmitNegate4(e, RtOpB);
+        e.Place(bPos);
+        e.U8(0xCD);
+        AddRoutineCall(e, "udivmod_wide4");
+        var qPos = new Label();
+        LdAAbs(e, RtSignQuot);
+        e.U8(0xE6);
+        e.U8(0x80);
+        e.Jump(0xCA, qPos);
+        EmitNegate4(e, RtOpA);
+        e.Place(qPos);
+        var rPos = new Label();
+        LdAAbs(e, RtSignRem);
+        e.U8(0xE6);
+        e.U8(0x80);
+        e.Jump(0xCA, rPos);
+        EmitNegate4(e, RtAcc);
         e.Place(rPos);
         e.U8(0xC9); // ret
     }
