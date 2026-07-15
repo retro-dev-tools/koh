@@ -301,9 +301,26 @@ public sealed partial class Sm83Backend
             {
                 if (instr is not PhiInstruction phi)
                     break; // phis lead the block
-                pending.Add(
-                    new PhiCopy(_ctx.Slot[phi], SizeOf(phi.Type), FindIncoming(phi, source))
-                );
+                var incoming = FindIncoming(phi, source);
+                int destSlot = _ctx.Slot[phi];
+
+                // Identity copy: this edge's incoming value already lives at the phi's own slot
+                // address — either it IS the phi itself (a pass-through loop-carried value that this
+                // block's own back edge never changes, e.g. Mem.Copy's outer block/remainder counters
+                // ambient across its shared inner loop — see Sm83FunctionAllocation's "Loop-induction
+                // register residency" region), or some other SSA value the allocator's interference
+                // colouring happened to coalesce onto the exact same address. Either way, writing a
+                // slot with the bytes already sitting there changes no memory — a same-address,
+                // same-width move is a no-op by construction (phi/incoming types match, so the byte
+                // ranges are identical) — so skip the WRAM read+store round trip entirely rather than
+                // paying for it every time this edge runs (once per outer iteration here; once per
+                // back edge in a tighter loop). Never touches a register-resident source (Layer 1's
+                // dual-placement phis, whose incoming never resolves a Slot address here at all) — that
+                // back-edge write stays exactly as the module's design notes require.
+                if (TryResolveSlotAddress(incoming, out int srcSlot) && srcSlot == destSlot)
+                    continue;
+
+                pending.Add(new PhiCopy(destSlot, SizeOf(phi.Type), incoming));
             }
             if (pending.Count == 0)
                 return;
@@ -395,6 +412,18 @@ public sealed partial class Sm83Backend
                 return false;
             return _ctx.TryStaticAddr(o.Src, out srcAddr)
                 || _ctx.Slot.TryGetValue(o.Src, out srcAddr);
+        }
+
+        /// <summary>The WRAM address <paramref name="value"/> resolves to (a static address or a
+        /// coloured slot), used only by <see cref="EmitPhiCopies"/>'s identity-copy check above — a
+        /// constant never aliases a slot address, and a register-resident value has none, so both
+        /// correctly report no slot.</summary>
+        private bool TryResolveSlotAddress(IrValue value, out int addr)
+        {
+            addr = 0;
+            if (value is IrConstInt)
+                return false;
+            return _ctx.TryStaticAddr(value, out addr) || _ctx.Slot.TryGetValue(value, out addr);
         }
 
         private void EmitMove(PhiCopy c)

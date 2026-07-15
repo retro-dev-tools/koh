@@ -564,38 +564,51 @@ internal sealed class FunctionAllocation
     }
 
     /// <summary>Whether <paramref name="header"/> holds a simple counted-loop shape for
-    /// <paramref name="phi"/>: exactly two incomings, one from a block the header dominates (a back
-    /// edge — the standard natural-loop test reused from <c>LoopInvariantCodeMotionPass.FindNaturalLoops</c>
-    /// and <see cref="Dominators"/>, specialised to a single phi instead of a whole loop discovery pass)
-    /// whose value is either a gentle binary over the phi and a constant (an i8/i16 counter), or a
-    /// stride-1 <c>gep(phi, +1)</c> over a single-byte element (a pointer walk — the phi-keyed analogue
-    /// of Layer 2's memory-shape recognizer, see that region's header comment), and one from a genuinely
-    /// external block (the preheader) ending in a plain, unconditional branch straight to the header.</summary>
+    /// <paramref name="phi"/>: exactly one incoming from a block the header dominates (the single back
+    /// edge/latch — the standard natural-loop test reused from
+    /// <c>LoopInvariantCodeMotionPass.FindNaturalLoops</c> and <see cref="Dominators"/>, specialised to a
+    /// single phi instead of a whole loop discovery pass) whose value is either a gentle binary over the
+    /// phi and a constant (an i8/i16 counter), or a stride-1 <c>gep(phi, +1)</c> over a single-byte
+    /// element (a pointer walk — the phi-keyed analogue of Layer 2's memory-shape recognizer, see that
+    /// region's header comment), and one OR MORE genuinely external "entry" incomings, each ending in a
+    /// plain, unconditional branch straight to the header (Mem.Copy's tuned block/remainder loop is the
+    /// motivating shape: an <c>if</c>/<c>else</c> that only picks the loop's starting counter/pointer
+    /// value, both arms falling straight into one shared inner <c>do</c>/<c>while</c> — see
+    /// <c>Sm83LoopPointerPhiResidencyTests</c>). A single-latch requirement is load-bearing: the
+    /// shared-register/back-edge coalescing this feeds needs exactly one back-edge-defining value to
+    /// coalesce the register onto; two or more back edges would mean two different "next" values racing
+    /// for the same register with no way to tell which one just ran. A conditional (non-<c>Br</c>) entry
+    /// edge is a critical edge — out of scope, declined cleanly here (not silently mishandled): the
+    /// register's init-load has nowhere unconditional to sit on that edge.</summary>
     private static bool TryFindLoopShape(
         Dominators dom,
         IrBasicBlock header,
         PhiInstruction phi,
         out IrBasicBlock tail,
         out IrInstruction bodyValue,
-        out IrBasicBlock preheader
+        out List<(IrValue Value, IrBasicBlock Block)> entryEdges
     )
     {
         tail = null!;
         bodyValue = null!;
-        preheader = null!;
-        if (phi.Incomings.Count != 2)
+        entryEdges = null!;
+        if (phi.Incomings.Count < 2)
             return false;
 
         (IrValue Value, IrBasicBlock Block)? tailIncoming = null;
-        (IrValue Value, IrBasicBlock Block)? preheaderIncoming = null;
+        var entries = new List<(IrValue Value, IrBasicBlock Block)>();
         foreach (var incoming in phi.Incomings)
         {
             if (dom.Dominates(header, incoming.Block))
+            {
+                if (tailIncoming is not null)
+                    return false; // more than one back edge/latch - not this simple shape
                 tailIncoming = incoming;
+            }
             else
-                preheaderIncoming = incoming;
+                entries.Add(incoming);
         }
-        if (tailIncoming is not { } t || preheaderIncoming is not { } p)
+        if (tailIncoming is not { } t || entries.Count == 0)
             return false;
 
         IrInstruction? body = null;
@@ -621,18 +634,21 @@ internal sealed class FunctionAllocation
         if (body is null)
             return false;
 
-        // The preheader must reach the header unconditionally — FunctionEmitter injects the register's
-        // one-time init load right before this exact branch, so the edge must be unguarded (see the
-        // region header comment's scope note).
-        if (
-            p.Block.Terminator is not BrInstruction { Target: var target }
-            || !ReferenceEquals(target, header)
-        )
-            return false;
+        // Every entry edge must reach the header unconditionally — FunctionEmitter injects the
+        // register's one-time init load right before that exact branch, so each edge must be unguarded
+        // (see the region header comment's scope note). A single failing entry edge declines the whole
+        // candidate rather than admitting the others: FunctionEmitter has no injection point on a
+        // conditional edge, so a mixed admit would silently leave that one path un-synced.
+        foreach (var entry in entries)
+            if (
+                entry.Block.Terminator is not BrInstruction { Target: var target }
+                || !ReferenceEquals(target, header)
+            )
+                return false;
 
         tail = t.Block;
         bodyValue = body;
-        preheader = p.Block;
+        entryEdges = entries;
         return true;
     }
 
@@ -720,12 +736,17 @@ internal sealed class FunctionAllocation
     /// does not care which layer produced an entry).</summary>
     /// <summary>One Phase-1-gathered Layer-1 candidate: a loop-carried phi whose shape
     /// <see cref="TryFindLoopShape"/> recognised, independent of any cross-candidate safety/register-pool
-    /// decision (those are Phase 2/3 concerns — see <see cref="SelectLoopInductionResidents"/>).</summary>
+    /// decision (those are Phase 2/3 concerns — see <see cref="SelectLoopInductionResidents"/>).
+    /// <see cref="Header"/> (not <see cref="EntryEdges"/>, which may now number more than one — see
+    /// <see cref="TryFindLoopShape"/>) is the grouping key sibling candidates in the same loop share: a
+    /// block has exactly one set of phis, so it uniquely identifies at most one loop, unlike a preheader
+    /// once a loop can have several.</summary>
     private readonly record struct LoopInductionCandidate(
         PhiInstruction Phi,
+        IrBasicBlock Header,
         IrBasicBlock Tail,
         IrInstruction BodyValue,
-        IrBasicBlock Preheader,
+        List<(IrValue Value, IrBasicBlock Block)> EntryEdges,
         IrInstruction? DerefSite,
         HashSet<IrBasicBlock> LiveBlocks
     );
@@ -770,7 +791,7 @@ internal sealed class FunctionAllocation
                     phi,
                     out var tail,
                     out var bodyValue,
-                    out var preheader
+                    out var entryEdges
                 )
             )
                 continue;
@@ -800,7 +821,15 @@ internal sealed class FunctionAllocation
             }
 
             candidates.Add(
-                new LoopInductionCandidate(phi, tail, bodyValue, preheader, derefSite, liveBlocks)
+                new LoopInductionCandidate(
+                    phi,
+                    header,
+                    tail,
+                    bodyValue,
+                    entryEdges,
+                    derefSite,
+                    liveBlocks
+                )
             );
         }
 
@@ -814,14 +843,15 @@ internal sealed class FunctionAllocation
         // partially admitting a two-pointer loop (e.g. a copy loop's src/dst) would let the declined
         // sibling's fallback clobber the admitted one's resident pair mid-loop. A plain (gentle-binary)
         // candidate has no such hazard — see Phase 3's own comment — so only GEP-arm candidates need this
-        // atomic treatment. Grouped by Preheader, the same key Layer 2 uses (a block can be the
-        // unconditional-branch preheader of at most one header, so it uniquely identifies one loop).
+        // atomic treatment. Grouped by Header (a block has exactly one phi set, so it uniquely identifies
+        // one loop — unlike Preheader, which no longer identifies a loop uniquely now that a loop can
+        // have several entry edges/preheaders, see TryFindLoopShape).
         var admittedGepBodyValues = new HashSet<IrInstruction>(ReferenceEqualityComparer.Instance);
         var admittedGepDerefSites = new HashSet<IrInstruction>(ReferenceEqualityComparer.Instance);
 
         var gepGroups = candidates
             .Where(c => c.BodyValue is GetElementPtrInstruction)
-            .GroupBy(c => c.Preheader, ReferenceEqualityComparer.Instance);
+            .GroupBy(c => c.Header, ReferenceEqualityComparer.Instance);
 
         foreach (var loopGroup in gepGroups)
         {
@@ -873,12 +903,16 @@ internal sealed class FunctionAllocation
                 admittedGepBodyValues.Add(c.BodyValue);
                 admittedGepDerefSites.Add(c.DerefSite!);
 
-                var init = c
-                    .Phi.Incomings.First(i2 => ReferenceEquals(i2.Block, c.Preheader))
-                    .Value;
-                if (!preheaderSync.TryGetValue(c.Preheader, out var syncs))
-                    preheaderSync[c.Preheader] = syncs = new List<LoopInductionSync>();
-                syncs.Add(new LoopInductionSync(init, reg));
+                // One sync per entry edge (usually one, but Mem.Copy-shaped multi-entry loops have more):
+                // each edge's own incoming value must load the register on ITS OWN edge, so re-entering
+                // the loop through either arm starts from that arm's correct pointer — see
+                // TryFindLoopShape's region comment.
+                foreach (var (initValue, entryBlock) in c.EntryEdges)
+                {
+                    if (!preheaderSync.TryGetValue(entryBlock, out var syncs))
+                        preheaderSync[entryBlock] = syncs = new List<LoopInductionSync>();
+                    syncs.Add(new LoopInductionSync(initValue, reg));
+                }
             }
         }
 
@@ -934,10 +968,12 @@ internal sealed class FunctionAllocation
             register[c.Phi] = reg;
             register[c.BodyValue] = reg;
 
-            var init = c.Phi.Incomings.First(i => ReferenceEquals(i.Block, c.Preheader)).Value;
-            if (!preheaderSync.TryGetValue(c.Preheader, out var syncs))
-                preheaderSync[c.Preheader] = syncs = new List<LoopInductionSync>();
-            syncs.Add(new LoopInductionSync(init, reg));
+            foreach (var (initValue, entryBlock) in c.EntryEdges)
+            {
+                if (!preheaderSync.TryGetValue(entryBlock, out var syncs))
+                    preheaderSync[entryBlock] = syncs = new List<LoopInductionSync>();
+                syncs.Add(new LoopInductionSync(initValue, reg));
+            }
         }
 
         return (register, preheaderSync, fusedSite);
