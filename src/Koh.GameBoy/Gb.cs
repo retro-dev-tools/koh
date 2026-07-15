@@ -45,4 +45,11 @@ public static unsafe class Gb
     /// <summary>Object attribute memory / sprites (0xFE00).</summary>
     [KohIntrinsic("region", 0xFE00)]
     public static byte* Oam => Base + 0xFE00;
+
+    /// <summary>Desktop-reference OAM DMA: copies the 160-byte page starting at
+    /// <c>page * 0x100</c> into OAM (0xFE00-0xFE9F), mirroring the hardware DMA a ROM triggers by
+    /// writing <see cref="Hardware.DMA"/> (0xFF46). Called from <see cref="Hardware.DMA"/>'s setter;
+    /// there is no cycle-accurate bus to model on the desktop build, so the copy is synchronous.</summary>
+    internal static void DmaOam(byte page) =>
+        Array.Copy(MemoryArray, page << 8, MemoryArray, 0xFE00, 160);
 }

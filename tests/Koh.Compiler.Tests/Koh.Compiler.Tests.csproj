@@ -4,6 +4,9 @@
     <OutputType>Exe</OutputType>
     <UseTestingPlatformRunner>true</UseTestingPlatformRunner>
     <TestingPlatformCommandLineArguments>--ignore-exit-code 8</TestingPlatformCommandLineArguments>
+    <!-- CilSpritePaletteHardwareTests pokes Gb.Wram/Gb.Oam (byte*) directly in-process to prove the
+         desktop reference build's Hardware.DMA setter performs a real OAM DMA copy. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
