@@ -67,7 +67,8 @@ public class CilStringLiteralTests
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: level,
-                nullableContextOptions: NullableContextOptions.Disable
+                nullableContextOptions: NullableContextOptions.Disable,
+                allowUnsafe: true // the WriteAscii(byte*, string) fixture below needs a pointer parameter
             )
         );
         Directory.CreateDirectory(ScratchDir);
@@ -208,14 +209,17 @@ public class CilStringLiteralTests
             .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
         await Assert.That(IrVerifier.Verify(module)).IsEmpty();
 
-        // The literal itself must live in a ROM global carrying exactly the ASCII bytes of "SCORE" —
-        // the representation CilMethodLowerer.Strings.cs documents (one byte per char, ASCII, not
-        // UTF-16), not a heap allocation or a WRAM holder.
+        // The literal itself must live in a ROM global carrying its LENGTH-PREFIXED ASCII bytes — the
+        // representation CilMethodLowerer.Strings.cs documents: a u16 length (little-endian) followed by
+        // one byte per char, ASCII not UTF-16, not a heap allocation or a WRAM holder.
         var expectedAscii = ScoreText.Select(c => (byte)c).ToArray();
+        var expectedBlob = new byte[] { (byte)expectedAscii.Length, 0 }
+            .Concat(expectedAscii)
+            .ToArray();
         var romGlobal = module.Globals.SingleOrDefault(g =>
             g.AddressSpace == AddressSpace.Rom
             && g.Initializer is not null
-            && g.Initializer.AsSpan().SequenceEqual(expectedAscii)
+            && g.Initializer.AsSpan().SequenceEqual(expectedBlob)
         );
         await Assert.That(romGlobal).IsNotNull();
 
@@ -315,8 +319,12 @@ public class CilStringLiteralTests
         await Assert.That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error)).IsTrue();
     }
 
-    // ---- A string value that crosses a real call boundary (received as a parameter here) carries ---
-    // ---- no traceable provenance — same contract as CilLoweringTests' matching array.Length limit. --
+    // ---- WAVE 2: a string value that crosses a real call boundary (received as a parameter) is now --
+    // ---- fully supported — see CilMethodLowerer.Strings.cs's class remarks. A string is represented --
+    // ---- as a pointer to a LENGTH-PREFIXED ROM blob, so '.Length'/the indexer are ordinary runtime ---
+    // ---- memory reads off whatever pointer value the receiver holds, not a compile-time-provenance ---
+    // ---- lookup — a parameter is just as valid a receiver as a same-method 'ldstr'. (Formerly this ---
+    // ---- reported a diagnostic under wave 1's "no traceable provenance" representation.) -------------
 
     private const string StringLengthOnParameterSource = """
         using Koh.GameBoy;
@@ -333,23 +341,32 @@ public class CilStringLiteralTests
         """;
 
     [Test]
-    public async Task StringLength_OnUntraceableString_ReportsDiagnostic_DoesNotThrow()
+    public async Task StringLength_OnParameterAcrossCallBoundary_Compiles_ReturnsRealLength()
     {
         var diagnostics = new DiagnosticBag();
-        Frontend(StringLengthOnParameterSource, OptimizationLevel.Debug, diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error)).IsTrue();
+        var module = Frontend(StringLengthOnParameterSource, OptimizationLevel.Debug, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse()
+            .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var model = Compile(module);
+        var gb = Load(model, out int s, out int l, out _);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)ScoreText.Length);
     }
 
-    // ---- KNOWN GAP, documented deliberately (see notesForNextAgent / the graphics-library design ---
-    // ---- doc's slice-0 acceptance criterion): the graphics library's actual target shape is a ------
-    // ---- LIBRARY METHOD — Text.Draw(byte col, byte row, string text) — that loops on '.Length'/the --
-    // ---- indexer INSIDE ITS OWN BODY, called from game code with a literal ("SCORE"). That crosses a
-    // ---- real call boundary (the string value the library method receives is a PARAMETER, not an ----
-    // ---- 'ldstr' this same method's own _pendingArrayInfo table saw), so it hits the exact same -----
-    // ---- "untraceable provenance" diagnostic as StringLength_OnUntraceableString above — this slice -
-    // ---- does NOT yet unblock 'Text.Draw(1, 0, "SCORE")' as a real library call, only same-method ---
-    // ---- literal-and-loop code. This test pins that gap down concretely (rather than leaving it ----
-    // ---- implicit) so the next slice can't miss it.
+    // ---- WAVE 2 SLICE (was the wave-1 KNOWN GAP, now closed): the graphics library's actual target --
+    // ---- shape — a LIBRARY METHOD, Text.Draw(byte col, byte row, string text), that loops on --------
+    // ---- '.Length'/the indexer INSIDE ITS OWN BODY, called from game code with a literal ("SCORE") — -
+    // ---- now compiles and runs. See CilMethodLowerer.Strings.cs's class remarks / --------------------
+    // ---- CilLoweringContext.EnsureStringLiteralGlobal for the length-prefixed-ROM-blob representation
+    // ---- that makes this possible: the string parameter Draw receives is just an ordinary pointer to
+    // ---- the same blob Main's 'ldstr' produced, so Draw's own '.Length'/'[i]' reads work identically
+    // ---- to the same-method case above. This is exactly the RESOLVED DECISION 3 shape
+    // ---- (docs/superpowers/specs/2026-07-15-graphics-library-design.md §8): 'Text.Draw(1, 0, "SCORE")'
+    // ---- as a real library call.
     private const string TextDrawShapedSource = """
         using Koh.GameBoy;
 
@@ -376,19 +393,101 @@ public class CilStringLiteralTests
         """;
 
     [Test]
-    public async Task TextDrawShapedLibraryCall_StringParameterAcrossCallBoundary_ReportsDiagnostic()
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task TextDrawShapedLibraryCall_StringParameterAcrossCallBoundary_CompilesAndRuns(
+        OptimizationLevel level
+    )
     {
         var diagnostics = new DiagnosticBag();
-        Frontend(TextDrawShapedSource, OptimizationLevel.Debug, diagnostics);
+        var module = Frontend(TextDrawShapedSource, level, diagnostics);
         await Assert
             .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
-            .IsTrue()
-            .Because(
-                "this pins down a known gap: Text.Draw(col, row, \"SCORE\") as an actual library call "
-                    + "is NOT yet supported by slice 0 — only a literal indexed in the SAME method that "
-                    + "produced it from 'ldstr'. See notesForNextAgent for the representation options "
-                    + "(NUL-terminated ROM strings, a hidden length argument, or byte[]+length in the "
-                    + "library API) a later slice must choose between."
-            );
+            .IsFalse()
+            .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var model = Compile(module);
+        var gb = Load(model, out int s, out int l, out var link);
+        Run(gb, s, l);
+
+        var destSymbol = link.Symbols.Single(sym => sym.Name.EndsWith(".Dest"));
+        var bytes = new byte[ScoreText.Length];
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + i));
+        await Assert.That(bytes).IsEquivalentTo(ScoreText.Select(c => (byte)c).ToArray());
+        await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)'S');
+    }
+
+    // ---- Graphics-library slice 0 acceptance criterion: a helper shaped exactly like ----------------
+    // ---- 'static void WriteAscii(byte* dst, string s) { for (int i=0;i<s.Length;i++) dst[i]=(byte)s[i]; }'
+    // ---- called with a literal — the string PARAMETER flows across the call boundary, its '.Length'/--
+    // ---- indexer are read at runtime, and the literal's blob lands in ROM. -----------------------------
+
+    private const string WriteAsciiSource = """
+        using Koh.GameBoy;
+
+        public class Program
+        {
+            public static byte[] Dest = new byte[5];
+
+            private static unsafe void WriteAscii(byte* dst, string s)
+            {
+                for (int i = 0; i < s.Length; i++)
+                {
+                    dst[i] = (byte)s[i];
+                }
+            }
+
+            public static unsafe void Main()
+            {
+                byte* buf = stackalloc byte[5];
+                WriteAscii(buf, "SCORE");
+                for (int i = 0; i < 5; i++)
+                {
+                    Dest[i] = buf[i];
+                }
+                Hardware.BGP = Dest[0];
+            }
+        }
+        """;
+
+    [Test]
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task WriteAsciiHelper_StringParameter_LandsAsciiBytesAndRomBlob(
+        OptimizationLevel level
+    )
+    {
+        var diagnostics = new DiagnosticBag();
+        var module = Frontend(WriteAsciiSource, level, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse()
+            .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        // The literal's ROM blob carries the u16 length prefix ahead of the ASCII bytes — see
+        // CilLoweringContext.EnsureStringLiteralGlobal.
+        var expectedAscii = ScoreText.Select(c => (byte)c).ToArray();
+        var expectedBlob = new byte[] { (byte)expectedAscii.Length, 0 }
+            .Concat(expectedAscii)
+            .ToArray();
+        var romGlobal = module.Globals.SingleOrDefault(g =>
+            g.AddressSpace == AddressSpace.Rom
+            && g.Initializer is not null
+            && g.Initializer.AsSpan().SequenceEqual(expectedBlob)
+        );
+        await Assert.That(romGlobal).IsNotNull();
+
+        var model = Compile(module);
+        var gb = Load(model, out int s, out int l, out var link);
+        Run(gb, s, l);
+
+        var destSymbol = link.Symbols.Single(sym => sym.Name.EndsWith(".Dest"));
+        var bytes = new byte[ScoreText.Length];
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + i));
+        await Assert.That(bytes).IsEquivalentTo(expectedAscii);
     }
 }

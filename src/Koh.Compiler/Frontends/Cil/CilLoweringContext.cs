@@ -178,16 +178,22 @@ internal sealed class CilLoweringContext
 
     // A string literal (`ldstr`, straight from the #US metadata heap — there is no backing
     // FieldDefinition to key by the way EnsureRvaBlobGlobal's blob fields have) -> the ROM global
-    // carrying its ASCII bytes. Keyed by the literal's own content (ordinal) so two occurrences of the
-    // same literal text anywhere in the module share one ROM global, matching EnsureRvaBlobGlobal's own
-    // dedup rationale.
+    // carrying its LENGTH-PREFIXED ASCII bytes (see EnsureStringLiteralGlobal). Keyed by the literal's
+    // own content (ordinal) so two occurrences of the same literal text anywhere in the module share one
+    // ROM global, matching EnsureRvaBlobGlobal's own dedup rationale.
     private readonly Dictionary<string, IrGlobal> _stringLiteralGlobals = new(
         StringComparer.Ordinal
     );
 
-    /// <summary>The ROM global carrying <paramref name="value"/>'s ASCII bytes (one byte per char — see
-    /// <c>CilMethodLowerer.Strings.cs</c>'s class remarks for why this is ASCII, not UTF-16, and for the
-    /// non-ASCII-character diagnostic), creating it the first time this exact literal text is seen
+    /// <summary>The ROM global carrying <paramref name="value"/>'s runtime representation: a
+    /// LENGTH-PREFIXED ASCII blob — <c>[u16 length (little-endian, matching <see cref="DataLayout.Sm83"/>)]
+    /// [one byte per char]</c> — so a <c>string</c> value is just a pointer to this global that flows
+    /// through locals/params/returns/fields like any other pointer, and <c>.Length</c>/the indexer can
+    /// be read straight out of memory at the receiving end (a runtime load, not compile-time
+    /// provenance-tracing) — see <c>CilMethodLowerer.Strings.cs</c>'s class remarks for why this
+    /// representation is what unblocks a string PARAMETER (e.g. the graphics library's
+    /// <c>Text.Draw(col, row, string text)</c>), and for why the bytes are ASCII, not UTF-16, and the
+    /// non-ASCII-character diagnostic. Creates the global the first time this exact literal text is seen
     /// anywhere in the module. <paramref name="asciiBytes"/> is supplied by the caller (already
     /// validated/converted) rather than recomputed here, since only <c>CilMethodLowerer.LowerLdstr</c>
     /// has the method context needed to report a non-ASCII character with a useful diagnostic.</summary>
@@ -195,11 +201,15 @@ internal sealed class CilLoweringContext
     {
         if (_stringLiteralGlobals.TryGetValue(value, out var g))
             return g;
+        var blob = new byte[2 + asciiBytes.Length];
+        blob[0] = (byte)(asciiBytes.Length & 0xFF);
+        blob[1] = (byte)((asciiBytes.Length >> 8) & 0xFF);
+        System.Array.Copy(asciiBytes, 0, blob, 2, asciiBytes.Length);
         g = new IrGlobal(
             $"__strlit.{_stringLiteralGlobals.Count}",
-            IrType.Array(IrType.I8, asciiBytes.Length),
+            IrType.Array(IrType.I8, blob.Length),
             AddressSpace.Rom,
-            initializer: asciiBytes
+            initializer: blob
         );
         Module.Globals.Add(g);
         _stringLiteralGlobals[value] = g;
