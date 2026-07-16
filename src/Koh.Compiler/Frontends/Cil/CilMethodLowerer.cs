@@ -674,6 +674,20 @@ internal sealed partial class CilMethodLowerer
                 stack = EntryStack(leaderBlock);
             }
 
+            // A sequence point only exists at statement-boundary IL offsets (most instructions have
+            // none) — carry the last one forward, mirroring how a source debugger attributes an
+            // instruction with no mapping of its own to "wherever execution last stepped from". Hidden
+            // sequence points (compiler-generated bookkeeping, StartLine == 0xfeefee) are never a real
+            // source line, so they're skipped rather than clearing the carried-forward location.
+            // IrBuilder.CurrentSource (see its own remarks) stamps every instruction Simulate appends
+            // below, so no manual before/after slicing of the block's instruction list is needed here.
+            var sequencePoint = _method.DebugInformation.GetSequencePoint(instr);
+            if (sequencePoint is { IsHidden: false })
+                _b.CurrentSource = new IrSourceLocation(
+                    sequencePoint.Document.Url,
+                    (uint)sequencePoint.StartLine
+                );
+
             Simulate(instr, stack);
         }
     }
