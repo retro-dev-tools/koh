@@ -569,8 +569,16 @@ internal sealed partial class CilMethodLowerer
         var paramIndex = 0;
         if (_method.HasThis)
         {
+            // See CilLoweringContext.EnsureSignature's matching remark: MapParam (not the plain Map)
+            // so a struct instance method's 'this' resolves to Pointer(I8) instead of throwing. The
+            // incoming value is stored through an ordinary alloca+load round trip like any other
+            // pointer-typed parameter (LoadArg falls back to this path when the arg isn't registered in
+            // _structParams — see CilMethodLowerer.Structs.cs) rather than routing 'this' through
+            // _structParams directly: FieldPointer treats any Pointer-typed value as a valid field base
+            // regardless of which path produced it, so the extra indirection costs a WRAM round trip,
+            // not correctness.
             var thisParam = _method.Body.ThisParameter;
-            var (thisType, _) = CilTypeMapper.Map(_method.DeclaringType);
+            var thisType = CilTypeMapper.MapParam(_method.DeclaringType).IrType;
             var thisAlloca = _b.Alloca(thisType);
             _b.Store(_function.Parameters[paramIndex], thisAlloca);
             _params[thisParam] = (thisAlloca, thisType, false);

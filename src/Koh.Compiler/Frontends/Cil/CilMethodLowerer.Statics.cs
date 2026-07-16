@@ -42,48 +42,71 @@ namespace Koh.Compiler.Frontends.Cil;
 /// </summary>
 internal static class CilStaticFieldSupport
 {
-    /// <summary>Run once per module, before any method body (including a <c>.cctor</c>'s own) is
-    /// lowered — see the class remarks for why the ordering matters.</summary>
+    /// <summary>Run once per the GAME's OWN module, before any method body (including a <c>.cctor</c>'s
+    /// own) is lowered — see the class remarks for why the ordering matters. Deliberately does NOT walk
+    /// referenced assemblies eagerly (a first attempt at this — mirroring <see cref="CilIntrinsicIndex.Build"/>'s
+    /// whole-reference-graph traversal — was reverted: unlike an intrinsic-method lookup table, this
+    /// pass has a real, permanent side effect per match, <c>ctx.Module.Globals.Add(...)</c>, and the
+    /// SM83 backend places EVERY entry in <c>module.Globals</c> unconditionally, with no reachability
+    /// filtering (<c>Sm83Backend.Compile</c>'s <c>foreach (var g in module.Globals)</c>). Walking the
+    /// whole reference graph eagerly classified (and permanently placed) hundreds of unrelated BCL
+    /// statics — confirmed by a real IR dump: <c>System.Globalization.OrdinalCasing.s_basicLatin</c>
+    /// (512 ROM bytes), <c>System.Globalization.HebrewNumber.s_numberPassingState</c> (170 ROM bytes),
+    /// dozens more — bloating every ROM this frontend compiles regardless of whether the game ever
+    /// touches them. See <see cref="CilLoweringContext.EnsureStaticGlobal"/> for the ON-DEMAND
+    /// counterpart that actually handles a cross-assembly library static like Koh.GameBoy's
+    /// <c>[KohAligned(n)] static byte[] Shadow</c> (the Sprites module's shadow OAM) correctly: it
+    /// classifies a field's declaring type's <c>.cctor</c> the first time REACHABLE code actually
+    /// references one of that type's fields, exactly mirroring how <c>CilLoweringContext.EnsureLowered</c>
+    /// lowers a cross-assembly METHOD body on demand rather than eagerly sweeping every referenced
+    /// assembly's methods.</summary>
     public static void Collect(ModuleDefinition module, CilLoweringContext ctx)
     {
         foreach (var type in module.GetTypes())
+            CollectType(type, ctx);
+    }
+
+    /// <summary>Classifies every static field of <paramref name="type"/> whose <c>.cctor</c> initializer
+    /// matches one of the three fixed shapes (see the class remarks) — the per-TYPE unit of work
+    /// <see cref="Collect"/>'s eager module-wide sweep and <see cref="CilLoweringContext.EnsureStaticGlobal"/>'s
+    /// lazy on-demand fallback both call, so the two paths share one implementation and can never
+    /// disagree. Idempotent: a field already decided (by either path, or a duplicate initializer) is
+    /// left alone (<see cref="CilLoweringContext.HasStaticFieldDecision"/>).</summary>
+    internal static void CollectType(TypeDefinition type, CilLoweringContext ctx)
+    {
+        // A compiler-generated type (name starting with '<' — no hand-written type can be named that)
+        // never declares a static field this frontend's own general Ldsfld/Stsfld path would ever
+        // read/write for real (see CilModuleLowerer.Lower's matching Pass-1.5 skip, whose remarks
+        // explain why `<>c::.cctor` must never be lowered/called).
+        if (type.Name.StartsWith('<'))
+            return;
+        var cctor = type.Methods.FirstOrDefault(m => m.IsConstructor && m.IsStatic && m.HasBody);
+        if (cctor is null)
+            return;
+
+        var elided = new HashSet<Instruction>();
+        foreach (var instr in cctor.Body.Instructions)
         {
-            // A compiler-generated type (name starting with '<' — no hand-written type can be named
-            // that) never declares a static field this frontend's own general Ldsfld/Stsfld path would
-            // ever read/write for real (see CilModuleLowerer.Lower's matching Pass-1.5 skip, whose
-            // remarks explain why `<>c::.cctor` must never be lowered/called).
-            if (type.Name.StartsWith('<'))
+            if (instr.OpCode.Code != Code.Stsfld)
                 continue;
-            var cctor = type.Methods.FirstOrDefault(m =>
-                m.IsConstructor && m.IsStatic && m.HasBody
-            );
-            if (cctor is null)
+            if ((instr.Operand as FieldReference)?.Resolve() is not { } field)
                 continue;
+            // Only THIS type's own fields are this cctor's business (defensive — Roslyn never emits a
+            // cross-type stsfld from a static initializer in valid C#).
+            if (!ReferenceEquals(field.DeclaringType, type))
+                continue;
+            if (ctx.HasStaticFieldDecision(field))
+                continue; // already classified (e.g. a field with two initializers is a duplicate).
 
-            var elided = new HashSet<Instruction>();
-            foreach (var instr in cctor.Body.Instructions)
-            {
-                if (instr.OpCode.Code != Code.Stsfld)
-                    continue;
-                if ((instr.Operand as FieldReference)?.Resolve() is not { } field)
-                    continue;
-                // Only THIS type's own fields are this cctor's business (defensive — Roslyn never
-                // emits a cross-type stsfld from a static initializer in valid C#).
-                if (!ReferenceEquals(field.DeclaringType, type))
-                    continue;
-                if (ctx.HasStaticFieldDecision(field))
-                    continue; // already classified (e.g. a field with two initializers is a duplicate).
-
-                if (TryMatchArrayLiteral(instr, field, ctx, elided))
-                    continue;
-                if (TryMatchFixedSizeArray(instr, field, ctx, elided))
-                    continue;
-                TryMatchScalarConstant(instr, field, ctx, elided);
-            }
-
-            if (elided.Count > 0)
-                ctx.RegisterElidedCctorInstructions(cctor, elided);
+            if (TryMatchArrayLiteral(instr, field, ctx, elided))
+                continue;
+            if (TryMatchFixedSizeArray(instr, field, ctx, elided))
+                continue;
+            TryMatchScalarConstant(instr, field, ctx, elided);
         }
+
+        if (elided.Count > 0)
+            ctx.RegisterElidedCctorInstructions(cctor, elided);
     }
 
     /// <summary>The instruction immediately preceding <paramref name="instr"/> in program order,
@@ -339,13 +362,27 @@ internal sealed partial class CilMethodLowerer
 
     /// <summary><c>ldsfld</c>: an aliased field (see <see cref="CilStaticFieldSupport"/>) pushes its
     /// backing global's address directly (no separate holder exists); an ordinary field loads its
-    /// holder cell, widened onto the simulated stack exactly like a local/argument read.</summary>
+    /// holder cell, widened onto the simulated stack exactly like a local/argument read.
+    ///
+    /// <see cref="CilLoweringContext.EnsureStaticGlobal"/> is called FIRST, unconditionally, before the
+    /// <see cref="CilLoweringContext.IsStaticFieldAlias"/> check — not the other way around. For a
+    /// cross-assembly field (declared outside the game's own module — see <c>EnsureStaticGlobal</c>'s
+    /// own remarks on why it, not the eager module-only <c>CilStaticFieldSupport.Collect</c>, is what
+    /// classifies such a field), checking <c>IsStaticFieldAlias</c> BEFORE ever calling
+    /// <c>EnsureStaticGlobal</c> would read a not-yet-populated answer on this field's very first
+    /// reference anywhere in the program: always false, since nothing has classified the field yet,
+    /// sending an aliased array field down the "ordinary scalar holder" branch below — which then
+    /// tries to <c>Load</c> a whole array-typed global as if it were a POINTER-holding scalar cell, an
+    /// invalid load the IR verifier rejects the moment something (e.g. <c>Ldelema</c>) tries to use that
+    /// load's result as a pointer (confirmed by a real repro: <c>Sprites.HideAll</c>, the first function
+    /// in a real program to reference the Sprites module's <c>Shadow</c> array, hit exactly this
+    /// verifier failure — "'gep' base must be a pointer" — before this reordering).</summary>
     private IrValue LoadStaticField(FieldDefinition field)
     {
+        var g = _ctx.EnsureStaticGlobal(field);
         if (_ctx.IsStaticFieldAlias(field))
         {
-            var aliasGlobal = _ctx.EnsureStaticGlobal(field);
-            var ptr = IrBuilder.GlobalRef(aliasGlobal);
+            var ptr = IrBuilder.GlobalRef(g);
             if (_ctx.TryGetStaticArrayInfo(field, out var info))
                 _pendingArrayInfo[ptr] = (
                     info.ElemType,
@@ -354,9 +391,8 @@ internal sealed partial class CilMethodLowerer
                 );
             return ptr;
         }
-        var holder = _ctx.EnsureStaticGlobal(field);
         var (_, signed) = CilTypeMapper.Map(field.FieldType);
-        return WidenToStack(_b.Load(IrBuilder.GlobalRef(holder)), signed);
+        return WidenToStack(_b.Load(IrBuilder.GlobalRef(g)), signed);
     }
 
     /// <summary><c>ldsflda</c>: the field's global address either way (an aliased field's global IS its
@@ -367,16 +403,20 @@ internal sealed partial class CilMethodLowerer
     /// <summary><c>stsfld</c>: a diagnostic for an aliased field — its identity is fixed at compile
     /// time (a ROM constant, or a fixed-size array whose ONE assignment was already accounted for by
     /// the pre-pass), so any OTHER store to it is a shape this frontend does not support, not a value
-    /// to silently miscompile. An ordinary field stores to its holder cell.</summary>
+    /// to silently miscompile. An ordinary field stores to its holder cell.
+    ///
+    /// Same ordering fix as <see cref="LoadStaticField"/>: <see cref="CilLoweringContext.EnsureStaticGlobal"/>
+    /// runs FIRST, so a cross-assembly field's alias status is settled before
+    /// <see cref="CilLoweringContext.IsStaticFieldAlias"/> is consulted.</summary>
     private void StoreStaticField(FieldDefinition field, IrValue value)
     {
+        var holder = _ctx.EnsureStaticGlobal(field);
         if (_ctx.IsStaticFieldAlias(field))
             throw new CilNotSupportedException(
                 $"'{field.FullName}' is a fixed-identity static field (its storage was folded from "
                     + "its declaring type's static constructor); only that one recognized "
                     + "initialization is supported, not a later reassignment."
             );
-        var holder = _ctx.EnsureStaticGlobal(field);
         _b.Store(CoerceStore(value, holder.Type), IrBuilder.GlobalRef(holder));
     }
 }

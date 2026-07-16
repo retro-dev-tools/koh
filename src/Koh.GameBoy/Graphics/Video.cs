@@ -56,6 +56,10 @@ public static unsafe class Video
         Tilemap.Clear(0);
         Mem.Fill(Gb.TileMap1, 0, 1024); // window map ($9C00), 32x32 tiles
         Mem.Fill(Gb.Oam, 0, 160); // all 40 sprites: Y=0 hides every one
+        // Also clear the Sprites shadow (WRAM is not guaranteed zero at power-on): without this, the
+        // first sprite a game sets would DMA its 39 untouched neighbor slots' garbage onto the real OAM
+        // this line just cleared, the next time EndFrame flushes.
+        Sprites.HideAll();
 
         _lcdcMirror = 0x11; // BG enable (bit0) + BG/window tile data at $8000 (bit4); screen stays off
         ApplyLcdc();
@@ -124,8 +128,9 @@ public static unsafe class Video
     public static void EndFrame()
     {
         Ppu.WaitVBlank();
-        // Sprite shadow-OAM flush (Hardware.RunOamDma on the dirty shadow) and pending CGB palette
-        // writes land here once the Sprites/Palettes modules exist. No-op until then.
+        Sprites.Flush(); // no-op unless a Sprite was mutated since the last flush (see Sprites.Flush)
+        // Pending CGB palette writes land here once the Palettes module needs a deferred path (it
+        // currently writes immediate-checked, so there is nothing to flush yet).
         FrameCount++;
     }
 

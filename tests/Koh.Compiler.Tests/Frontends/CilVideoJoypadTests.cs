@@ -139,13 +139,23 @@ public class CilVideoJoypadTests
     /// <c>Koh.Emulator.Core.Ppu.Ppu</c>) — one full vblank wait (~17.5K M-cycles) on top of
     /// <c>Init</c>'s own map/OAM clears (unoptimized SM83 loop bodies, not raw M-cycles), so the step
     /// budget needs real headroom over a handful of instructions (measured ~241K steps for
-    /// <c>Video.Init()</c> alone in Debug IL).</summary>
+    /// <c>Video.Init()</c> alone in Debug IL).
+    ///
+    /// Also allows the HRAM OAM-DMA trampoline (0xFF80+, <c>Sm83Backend.OamDmaTrampoline</c>) — since
+    /// the Sprites module's wiring into <c>Video.EndFrame</c> (graphics-library design doc, slice 8),
+    /// <c>EndFrame</c> legitimately calls <c>Hardware.RunOamDma</c> whenever the shadow OAM is dirty
+    /// (every fixture here: <c>Video.Init</c> itself dirties it via <c>Sprites.HideAll</c>), so PC
+    /// visits HRAM, not just ROM, before this loop's own "left ROM -&gt; done" exit condition would
+    /// otherwise fire early and strand a fixture mid-<c>EndFrame</c> — mirrors
+    /// <c>CilGraphicsSlice2Tests.Run</c>'s and <c>CilSpritesTests.Run</c>'s own identical allowance.</summary>
     private static void Run(GameBoySystem gb, int start)
     {
         for (int steps = 0; steps < 1_000_000; steps++)
         {
             int pc = gb.Registers.Pc;
-            if (pc < start || pc >= 0x8000)
+            bool inRom = pc >= start && pc < 0x8000;
+            bool inHram = pc >= Sm83Backend.OamDmaTrampoline && pc <= 0xFFFF;
+            if (!inRom && !inHram)
                 return;
             gb.StepInstruction();
         }
