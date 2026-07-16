@@ -28,7 +28,23 @@ static unsafe class Board
     {
         for (byte i = 0; i < 16; i++)
             cells[i] = 0;
+        Score = 0;
+        CursorRow = 0;
+        CursorCol = 0;
     }
+
+    // ---- Score & cursor ----------------------------------------------------
+    // Added for the graphics-library retrofit: neither had anywhere to live before there was a way to
+    // render them (Text.DrawNumber / Sprites).
+
+    // Classic 2048 scoring: each merge adds the value of the tile it produces (2^newExponent), tallied
+    // where the only merge happens — SlideLine. Cleared by Reset().
+    internal static ushort Score;
+
+    // The board cell (row, col) SpawnTile most recently placed a tile in — the "active" cell Game.cs's
+    // sprite cursor tracks. (0, 0) until the first spawn.
+    internal static byte CursorRow;
+    internal static byte CursorCol;
 
     // ---- Moves -----------------------------------------------------------
 
@@ -57,8 +73,10 @@ static unsafe class Board
         {
             if (*(a + i) != 0 && *(a + i) == *(a + i + 1))
             {
-                *(a + i) = (byte)(*(a + i) + 1);
+                byte merged = (byte)(*(a + i) + 1);
+                *(a + i) = merged;
                 *(a + i + 1) = 0;
+                Score += (ushort)(1 << merged);
             }
         }
         Compact(a);
@@ -126,6 +144,8 @@ static unsafe class Board
                 if (pick == 0)
                 {
                     cells[i] = val;
+                    CursorRow = (byte)(i / 4);
+                    CursorCol = (byte)(i % 4);
                     return true;
                 }
                 pick--;
