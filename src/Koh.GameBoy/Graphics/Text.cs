@@ -55,24 +55,36 @@ public static unsafe class Text
     /// <summary>Decimal, left-aligned: draws exactly as many tiles as <paramref name="value"/> has
     /// digits (1-5), no padding.</summary>
     public static void DrawNumber(byte col, byte row, ushort value) =>
-        WriteNumber(col, row, value, 0);
+        WriteNumber(col, row, value, 0, toWindow: false);
 
     /// <summary>Decimal, right-aligned within <paramref name="width"/> tiles: space-pads on the left
     /// when <paramref name="value"/> has fewer digits than <paramref name="width"/>; a value with MORE
     /// digits than <paramref name="width"/> draws in full (no truncation), same "caller's responsibility"
     /// stance as the rest of this library.</summary>
     public static void DrawNumber(byte col, byte row, ushort value, byte width) =>
-        WriteNumber(col, row, value, width);
+        WriteNumber(col, row, value, width, toWindow: false);
 
-    /// <summary>Shared digit-extraction/draw core for both <see cref="DrawNumber(byte, byte, ushort)"/>
-    /// overloads (<paramref name="width"/> = 0 from the 3-arg overload always yields zero padding, since
-    /// a value always has at least 1 digit — so one implementation serves both). No BCL formatting: digits
-    /// come out least-significant-first via repeated <c>% 10</c> / <c>/ 10</c> (manual, matching this
-    /// subset's "no BCL" arithmetic stance elsewhere, e.g. <c>TileSet</c>'s bit-plane expansion), landed
-    /// in a small <c>stackalloc</c> buffer (a proven CIL-frontend shape — see
+    /// <summary>Same as <see cref="DrawNumber(byte, byte, ushort)"/> but to the window layer — the
+    /// <see cref="DrawToWindow"/> counterpart <see cref="DrawNumber(byte, byte, ushort)"/> was missing:
+    /// a HUD showing a live number (e.g. a score) next to window text has no way to keep both on the
+    /// same layer without this (design doc §5 demo item 2, "a window HUD showing SCORE 01234").</summary>
+    public static void DrawNumberToWindow(byte col, byte row, ushort value) =>
+        WriteNumber(col, row, value, 0, toWindow: true);
+
+    /// <summary>Same as <see cref="DrawNumber(byte, byte, ushort, byte)"/> but to the window layer.</summary>
+    public static void DrawNumberToWindow(byte col, byte row, ushort value, byte width) =>
+        WriteNumber(col, row, value, width, toWindow: true);
+
+    /// <summary>Shared digit-extraction/draw core for every <c>DrawNumber</c>/<c>DrawNumberToWindow</c>
+    /// overload (<paramref name="width"/> = 0 from a 2-arg overload always yields zero padding, since a
+    /// value always has at least 1 digit — so one implementation serves all four). No BCL formatting:
+    /// digits come out least-significant-first via repeated <c>% 10</c> / <c>/ 10</c> (manual, matching
+    /// this subset's "no BCL" arithmetic stance elsewhere, e.g. <c>TileSet</c>'s bit-plane expansion),
+    /// landed in a small <c>stackalloc</c> buffer (a proven CIL-frontend shape — see
     /// <c>CilStringLiteralTests.WriteAsciiSource</c>), then drawn most-significant-first. <c>ushort</c>'s
-    /// max (65535) is 5 digits, so a 5-byte buffer always suffices.</summary>
-    private static void WriteNumber(byte col, byte row, ushort value, byte width)
+    /// max (65535) is 5 digits, so a 5-byte buffer always suffices. <paramref name="toWindow"/> picks
+    /// <see cref="Win.SetTile"/> over <see cref="Bg.SetTile"/> — both already immediate-checked.</summary>
+    private static void WriteNumber(byte col, byte row, ushort value, byte width, bool toWindow)
     {
         byte* digits = stackalloc byte[5];
         byte count = 0;
@@ -96,14 +108,22 @@ public static unsafe class Text
         byte pad = width > count ? (byte)(width - count) : (byte)0;
         for (byte i = 0; i < pad; i++)
         {
-            Bg.SetTile(c, row, Glyph((byte)' '));
+            SetGlyphTile(c, row, (byte)' ', toWindow);
             c++;
         }
         for (byte i = count; i > 0; i--)
         {
-            Bg.SetTile(c, row, Glyph((byte)('0' + digits[i - 1])));
+            SetGlyphTile(c, row, (byte)('0' + digits[i - 1]), toWindow);
             c++;
         }
+    }
+
+    private static void SetGlyphTile(byte col, byte row, byte ch, bool toWindow)
+    {
+        if (toWindow)
+            Win.SetTile(col, row, Glyph(ch));
+        else
+            Bg.SetTile(col, row, Glyph(ch));
     }
 
     /// <summary>Maps an ASCII byte to its VRAM tile index: <see cref="Font.FirstTile"/> plus the
