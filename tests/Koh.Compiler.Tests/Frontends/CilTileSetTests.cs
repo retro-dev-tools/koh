@@ -17,30 +17,8 @@ using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Compiler.Tests.Frontends;
 
-/// <summary>
-/// Records every CPU write that lands in VRAM ($8000-$9FFF) while the PPU owns the bus (mode 3,
-/// "Drawing", with the LCD on) — the same thing real hardware silently drops. Mirrors
-/// <c>samples/gb-3d/verify/Mode3WriteGuard.cs</c> (not referenced directly: that's a sample project,
-/// not something this test project depends on) exactly, including its "LCD off -&gt; PPU doesn't own the
-/// bus -&gt; no lockout" and "mode != Drawing -&gt; no lockout" early-outs.
-/// </summary>
-file sealed class Mode3WriteGuard(GameBoySystem system) : MemoryHook
-{
-    public List<(ushort Address, byte Value, byte Ly)> Violations { get; } = new();
-
-    public override void OnRead(ushort address, byte value) { }
-
-    public override void OnWrite(ushort address, byte value)
-    {
-        if (address < 0x8000 || address >= 0xA000)
-            return;
-        if ((system.Ppu.LCDC & 0x80) == 0)
-            return;
-        if (system.Ppu.Mode != PpuMode.Drawing)
-            return;
-        Violations.Add((address, value, system.Ppu.LY));
-    }
-}
+// Mode3WriteGuard now lives at Koh.Emulator.Core.Debug.Mode3WriteGuard (promoted from this file's
+// former verbatim copy, see docs/superpowers/specs/2026-07-16-koh-debug-tooling-design.md section 3).
 
 /// <summary>
 /// Graphics library WAVE 2 / module A: TileSet

@@ -436,67 +436,201 @@ public sealed class GameBoySystem
         );
     }
 
+    /// <summary>
+    /// Runs until <paramref name="condition"/> is met, a <see cref="RunGuard"/> stop is
+    /// requested, or (only when the condition includes <see cref="StopConditionKind.Spinning"/>
+    /// or <see cref="StopConditionKind.MaxCycles"/>) the run has spun in place or exhausted its
+    /// budget.
+    ///
+    /// <para>
+    /// There is no memory-address stop condition here by design: attach a
+    /// <c>Koh.Debugger.Session.WatchpointHook</c> (or a
+    /// <c>Koh.Emulator.Core.Debug.CompositeMemoryHook</c> to combine it with another hook) to
+    /// <see cref="Mmu"/>.Hook before calling <see cref="RunUntil"/> — it calls
+    /// <see cref="RunGuard"/>.RequestStop(<see cref="StopReason.Watchpoint"/>) on a matching
+    /// read/write, and the <see cref="RunGuard.StopRequested"/> check below already polls for
+    /// that every instruction, so no separate mechanism is needed.
+    /// </para>
+    /// <para>
+    /// Only <see cref="StopConditionKind.Spinning"/> and <see cref="StopConditionKind.MaxCycles"/>
+    /// self-terminate independent of any particular PC value, so only they license looping past a
+    /// single frame — a bare <c>Pc*</c> condition (or no condition at all) keeps the original
+    /// single-frame contract (return <see cref="StopReason.FrameComplete"/> after one frame if
+    /// never hit), so a caller can never accidentally hang <see cref="RunUntil"/> by omitting a
+    /// cap.
+    /// </para>
+    /// <para>
+    /// Spin detection tracks the last up-to-<c>maxSetSize</c> DISTINCT post-instruction PCs seen
+    /// (see <see cref="SpinDetected"/>). Every time the current PC is already in that small set,
+    /// it counts as "stable"; every time it's a new address, either the set grows (if under the
+    /// cap) or is thrown away and restarted from this new address (if at the cap) — either way
+    /// the stable counter resets, because seeing a genuinely new address means the program is
+    /// still making progress, not spinning. Only when the SAME small set has been fully re-entered
+    /// for <c>stableThreshold</c> consecutive instructions (no new address for that whole window)
+    /// does this declare spinning. A loop body larger than <c>maxSetSize</c> (e.g. a real counted
+    /// copy loop with many instructions per iteration) keeps forcing set resets and so never
+    /// accumulates stable steps, no matter how many total iterations it runs — this is what
+    /// prevents false positives on a <c>Tilemap.Clear</c>-style 1024x loop.
+    /// </para>
+    /// <para>
+    /// A caller whose real (non-spin) loop body happens to have &lt;=
+    /// <see cref="StopCondition.DefaultSpinPcSetSize"/> distinct addresses AND runs more than
+    /// <see cref="StopCondition.DefaultSpinStableInstructions"/> iterations will be misreported as
+    /// <see cref="StopReason.Spinning"/> — this is an accepted tradeoff of the K/M tuning, which is
+    /// exactly why <see cref="StopConditionKind.Spinning"/> is meant to be paired with
+    /// <see cref="StopConditionKind.MaxCycles"/> (see <see cref="StopCondition.SpinningOrBudget"/>)
+    /// rather than relied on alone.
+    /// </para>
+    /// </summary>
     public StepResult RunUntil(in StopCondition condition)
     {
         _running = true;
         RunGuard.Clear();
         Clock.ResetFrameCounter();
         ulong startT = Cpu.TotalTCycles;
-        ulong frameBudget = (ulong)SystemClock.SystemTicksPerFrame;
 
-        while (Clock.FrameSystemTicks < frameBudget)
+        // Only Spinning/MaxCycles self-terminate independent of any particular PC value, so only
+        // they license looping past a single frame — a bare Pc* condition (or no condition at
+        // all) keeps the original single-frame contract (return FrameComplete after one frame if
+        // never hit), so a caller can never accidentally hang RunUntil by omitting a cap.
+        bool crossFrames =
+            (condition.Kind & (StopConditionKind.Spinning | StopConditionKind.MaxCycles)) != 0;
+
+        bool trackSpin = (condition.Kind & StopConditionKind.Spinning) != 0;
+        var recentPcs = trackSpin ? new HashSet<ushort>() : null;
+        int stableSteps = 0;
+        int spinSetSize =
+            condition.SpinPcSetSize > 0
+                ? condition.SpinPcSetSize
+                : StopCondition.DefaultSpinPcSetSize;
+        int spinThreshold =
+            condition.SpinStableInstructions > 0
+                ? condition.SpinStableInstructions
+                : StopCondition.DefaultSpinStableInstructions;
+
+        while (true)
         {
-            StepCpu();
-
-            if (RunGuard.StopRequested)
+            ulong frameBudget = (ulong)SystemClock.SystemTicksPerFrame;
+            while (Clock.FrameSystemTicks < frameBudget)
             {
-                _running = false;
-                return new StepResult(RunGuard.Reason, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+                StepCpu();
+
+                if (RunGuard.StopRequested)
+                {
+                    _running = false;
+                    return new StepResult(
+                        RunGuard.Reason,
+                        Cpu.TotalTCycles - startT,
+                        Cpu.Registers.Pc
+                    );
+                }
+
+                // Checked before spin detection so a BudgetExceeded hit is never masked by a
+                // coincidentally-simultaneous spin declaration — the cap must always be able to
+                // report itself distinctly ("loud"), per the anti-footgun goal this primitive
+                // exists for.
+                if (StopConditionMet(in condition, startT) is { } reason)
+                {
+                    _running = false;
+                    return new StepResult(reason, Cpu.TotalTCycles - startT, Cpu.Registers.Pc);
+                }
+
+                if (
+                    trackSpin
+                    && SpinDetected(
+                        recentPcs!,
+                        ref stableSteps,
+                        Cpu.Registers.Pc,
+                        spinSetSize,
+                        spinThreshold
+                    )
+                )
+                {
+                    _running = false;
+                    return new StepResult(
+                        StopReason.Spinning,
+                        Cpu.TotalTCycles - startT,
+                        Cpu.Registers.Pc
+                    );
+                }
             }
 
-            if (StopConditionMet(in condition))
+            if (!crossFrames)
             {
                 _running = false;
                 return new StepResult(
-                    StopReason.Breakpoint,
+                    StopReason.FrameComplete,
                     Cpu.TotalTCycles - startT,
                     Cpu.Registers.Pc
                 );
             }
-        }
 
-        _running = false;
-        return new StepResult(
-            StopReason.FrameComplete,
-            Cpu.TotalTCycles - startT,
-            Cpu.Registers.Pc
-        );
+            Clock.ResetFrameCounter();
+        }
     }
 
-    private bool StopConditionMet(in StopCondition condition)
+    private StopReason? StopConditionMet(in StopCondition condition, ulong startT)
     {
         if (condition.Kind == StopConditionKind.None)
-            return false;
+            return null;
 
         ushort pc = Cpu.Registers.Pc;
 
         if ((condition.Kind & StopConditionKind.PcEquals) != 0 && pc == condition.PcEquals)
-            return true;
+            return StopReason.Breakpoint;
 
         if (
             (condition.Kind & StopConditionKind.PcInRange) != 0
             && pc >= condition.PcRangeStart
             && pc < condition.PcRangeEnd
         )
-            return true;
+            return StopReason.Breakpoint;
 
         if (
             (condition.Kind & StopConditionKind.PcLeavesRange) != 0
             && (pc < condition.PcRangeStart || pc >= condition.PcRangeEnd)
         )
-            return true;
+            return StopReason.Breakpoint;
 
-        return false;
+        if (
+            (condition.Kind & StopConditionKind.MaxCycles) != 0
+            && (Cpu.TotalTCycles - startT) >= condition.MaxTCycles
+        )
+            return StopReason.BudgetExceeded;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Tracks the last up-to-<paramref name="maxSetSize"/> DISTINCT post-instruction PCs seen.
+    /// Returns true once the same small set has been fully re-entered for
+    /// <paramref name="stableThreshold"/> consecutive instructions with no new address — see the
+    /// <see cref="RunUntil"/> doc comment for the full rationale.
+    /// </summary>
+    private static bool SpinDetected(
+        HashSet<ushort> recentPcs,
+        ref int stableSteps,
+        ushort pc,
+        int maxSetSize,
+        int stableThreshold
+    )
+    {
+        if (recentPcs.Contains(pc))
+        {
+            stableSteps++;
+        }
+        else if (recentPcs.Count < maxSetSize)
+        {
+            recentPcs.Add(pc);
+            stableSteps = 0;
+        }
+        else
+        {
+            recentPcs.Clear();
+            recentPcs.Add(pc);
+            stableSteps = 0;
+        }
+        return stableSteps >= stableThreshold;
     }
 
     /// <summary>Press a joypad button and raise the Joypad interrupt on transition.</summary>
