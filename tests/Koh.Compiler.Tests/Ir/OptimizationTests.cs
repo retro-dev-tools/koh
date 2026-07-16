@@ -252,6 +252,86 @@ public class OptimizationTests
         await Assert.That(entry.Instructions.OfType<CallInstruction>().Any()).IsTrue();
     }
 
+    [Test]
+    public async Task DeadCodeElimination_SweepsClosedDeadPhiCycle()
+    {
+        // A loop header with two phis that reference only each other (a closed cycle) and nothing
+        // else — no store/call/return ever consumes either. This is the exact shape Mem2RegPass
+        // produces when promoting a local written from inside an if{...} block to a loop-header
+        // phi (a value threaded in on the skip/continue predecessor edge): the one-hop "is this an
+        // operand somewhere" check CollectUsed used to perform can never sweep it, because each phi
+        // always shows up as an operand of the other, forever. A real mark-and-sweep never reaches
+        // either phi from a root, so both must be removed.
+        var module = new IrModule("test");
+        var cond = new IrParameter("cond", IrType.I8);
+        var fn = new IrFunction("f", IrType.Void, [cond]);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var loop = fn.AppendBlock("loop");
+        var exit = fn.AppendBlock("exit");
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(entry);
+        b.Br(loop);
+
+        b.PositionAtEnd(loop);
+        var phiA = b.Phi(IrType.I8);
+        var phiB = b.Phi(IrType.I8);
+        phiA.AddIncoming(IrBuilder.ConstInt(IrType.I8, 1), entry);
+        phiA.AddIncoming(phiB, loop);
+        phiB.AddIncoming(IrBuilder.ConstInt(IrType.I8, 2), entry);
+        phiB.AddIncoming(phiA, loop);
+        b.CondBr(cond, loop, exit); // condition is independent of phiA/phiB
+
+        b.PositionAtEnd(exit);
+        b.Ret();
+
+        var changed = new DeadCodeEliminationPass().Run(fn);
+
+        await Assert.That(changed).IsTrue();
+        await Assert.That(loop.Instructions.OfType<PhiInstruction>().Any()).IsFalse();
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
+    [Test]
+    public async Task DeadCodeElimination_KeepsPhiCycleReachableFromStore()
+    {
+        // Same 2-phi cycle shape as above, but phiA feeds a store every iteration — a real root
+        // reaches phiA directly and phiB transitively (through phiA's loop-edge incoming). Both
+        // phis, and the alloca the store targets, must survive.
+        var module = new IrModule("test");
+        var cond = new IrParameter("cond", IrType.I8);
+        var fn = new IrFunction("f", IrType.Void, [cond]);
+        module.Functions.Add(fn);
+        var entry = fn.AppendBlock("entry");
+        var loop = fn.AppendBlock("loop");
+        var exit = fn.AppendBlock("exit");
+
+        var b = new IrBuilder();
+        b.PositionAtEnd(entry);
+        var p = b.Alloca(IrType.I8);
+        b.Br(loop);
+
+        b.PositionAtEnd(loop);
+        var phiA = b.Phi(IrType.I8);
+        var phiB = b.Phi(IrType.I8);
+        phiA.AddIncoming(IrBuilder.ConstInt(IrType.I8, 1), entry);
+        phiA.AddIncoming(phiB, loop);
+        phiB.AddIncoming(IrBuilder.ConstInt(IrType.I8, 2), entry);
+        phiB.AddIncoming(phiA, loop);
+        b.Store(phiA, p);
+        b.CondBr(cond, loop, exit);
+
+        b.PositionAtEnd(exit);
+        b.Ret();
+
+        new DeadCodeEliminationPass().Run(fn);
+
+        await Assert.That(loop.Instructions.OfType<PhiInstruction>().Count()).IsEqualTo(2);
+        await Assert.That(entry.Instructions.OfType<AllocaInstruction>().Any()).IsTrue();
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+    }
+
     // ---- Full pipeline -------------------------------------------------------
 
     [Test]
