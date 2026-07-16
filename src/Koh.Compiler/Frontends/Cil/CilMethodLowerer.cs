@@ -312,67 +312,99 @@ internal static class CilModuleLowerer
         Ir.Optimization.IrOptimizer.RemoveUnreachableFunctions(module);
     }
 
-    /// <summary>True if any method body in the assembly (hand-written or compiler-generated —
-    /// a display-class ctor lives on the generated type, not the hand-written one) constructs a
-    /// non-delegate reference type, OR calls a <c>[KohIntrinsic("alloc")]</c>/<c>[KohIntrinsic(
-    /// "heapreset")]</c> member (<c>Mem.Alloc</c>/<c>Mem.Reset</c>): both bump/reset the SAME shared
-    /// heap global <c>new</c> does (see <see cref="CilLoweringContext.EnsureHeapGlobal"/>), so a
-    /// program that only calls <c>Mem.Alloc</c> — no <c>new</c>/<c>newarr</c> anywhere — must still
-    /// provision and seed that global, or the first allocation reads an unseeded value. A delegate's
-    /// own <c>newobj</c> (<c>Func`2::.ctor(object, native int)</c>) is intercepted, never allocated
-    /// (see <c>CilMethodLowerer.LowerNewobj</c>), so it must not itself trigger the heap.</summary>
+    /// <summary>True if any method REACHABLE from the game module (hand-written or compiler-generated —
+    /// a display-class ctor lives on the generated type, not the hand-written one; and, transitively,
+    /// any non-BCL method a reachable method CALLS — see below) constructs a non-delegate reference
+    /// type, OR calls a <c>[KohIntrinsic("alloc")]</c>/<c>[KohIntrinsic("heapreset")]</c> member
+    /// (<c>Mem.Alloc</c>/<c>Mem.Reset</c>): both bump/reset the SAME shared heap global <c>new</c> does
+    /// (see <see cref="CilLoweringContext.EnsureHeapGlobal"/>), so a program that only calls
+    /// <c>Mem.Alloc</c> — no <c>new</c>/<c>newarr</c> anywhere — must still provision and seed that
+    /// global, or the first allocation reads an unseeded value. A delegate's own <c>newobj</c>
+    /// (<c>Func`2::.ctor(object, native int)</c>) is intercepted, never allocated (see
+    /// <c>CilMethodLowerer.LowerNewobj</c>), so it must not itself trigger the heap.
+    ///
+    /// <b>Transitive, not just the game module's own methods:</b> a REFERENCED-assembly method (e.g.
+    /// <c>Koh.GameBoy.Graphics.Canvas.Init</c>, which calls <c>Mem.Alloc</c> — see the graphics-library
+    /// design doc §3 "Canvas.cs" / §2 "Allocation discipline") can itself be the only call site that
+    /// needs the heap, with no <c>new</c>/<c>newarr</c>/<c>Mem.Alloc</c> anywhere in the game's own
+    /// code — confirmed by a real compile of a <c>Canvas.Init</c>-calling program throwing a
+    /// <c>NullReferenceException</c> off an unseeded <see cref="CilLoweringContext.HeapGlobal"/> before
+    /// this method walked past the game module's own types. This pre-scan therefore does a worklist
+    /// walk over every method reachable from the game module's own methods through <c>call</c>/
+    /// <c>callvirt</c> (skipping BCL methods — <see cref="IsBclMethod"/> — the same "off-limits"
+    /// category the on-demand lowering task already excludes, and whose IL this frontend's opcode
+    /// subset was never written to read), so a heap need buried inside Koh.GameBoy (or any other
+    /// referenced assembly) is found before Pass 2 lowers the entry's prologue — the only point that can
+    /// still provision+seed <see cref="CilLoweringContext.HeapGlobal"/> before something reads it. Purely
+    /// a METADATA walk (Cecil instructions, no IR lowering) — a method visited here that turns out to be
+    /// unreachable after full lowering (this walk is a reachable-through-calls over-approximation, e.g.
+    /// it does not evaluate a runtime-only-false branch) costs nothing beyond an unused heap-pointer
+    /// global, the same harmless-over-approximation stance the '.cctor' scan below already accepts.</summary>
     private static bool NeedsHeap(
         ModuleDefinition cecilModule,
         IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> intrinsics
     )
     {
+        var visited = new HashSet<MethodDefinition>();
+        var worklist = new Queue<MethodDefinition>();
         foreach (var type in cecilModule.GetTypes())
         {
             if (type.Name == "<Module>")
                 continue;
             foreach (var method in type.Methods)
+                worklist.Enqueue(method);
+        }
+
+        while (worklist.Count > 0)
+        {
+            var method = worklist.Dequeue();
+            if (!visited.Add(method))
+                continue; // already walked (or queued twice) — recursion/shared-callee safe.
+            if (IsBclMethod(method))
+                continue;
+            // A static constructor ('.cctor') IS scanned here (unlike the eager ordinary-method
+            // sweep, which lowers it separately — see CilMethodLowerer.Statics.cs): its
+            // idiom-matched instructions are elided at LOWERING time, not here, so a 'newarr' that
+            // Pass 0 could NOT fold away (e.g. a non-constant-sized array) still needs the heap this
+            // scan provisions. A '.cctor' whose every 'newarr' WAS folded away costs nothing extra
+            // beyond an unused heap-pointer global — a harmless over-approximation, not a
+            // correctness issue.
+            if (!method.HasBody)
+                continue;
+            foreach (var instr in method.Body.Instructions)
             {
-                // A static constructor ('.cctor') IS scanned here (unlike the eager ordinary-method
-                // sweep, which lowers it separately — see CilMethodLowerer.Statics.cs): its
-                // idiom-matched instructions are elided at LOWERING time, not here, so a 'newarr' that
-                // Pass 0 could NOT fold away (e.g. a non-constant-sized array) still needs the heap this
-                // scan provisions. A '.cctor' whose every 'newarr' WAS folded away costs nothing extra
-                // beyond an unused heap-pointer global — a harmless over-approximation, not a
-                // correctness issue.
-                if (!method.HasBody)
-                    continue;
-                foreach (var instr in method.Body.Instructions)
+                // A 'newarr' (see CilMethodLowerer.Arrays.cs) always needs the heap — there is no
+                // delegate-construction-style interception for it the way Newobj has.
+                if (instr.OpCode.Code == Code.Newarr)
+                    return true;
+                if (instr.OpCode.Code == Code.Call || instr.OpCode.Code == Code.Callvirt)
                 {
-                    // A 'newarr' (see CilMethodLowerer.Arrays.cs) always needs the heap — there is no
-                    // delegate-construction-style interception for it the way Newobj has.
-                    if (instr.OpCode.Code == Code.Newarr)
-                        return true;
-                    if (instr.OpCode.Code == Code.Call || instr.OpCode.Code == Code.Callvirt)
+                    MethodDefinition? calleeDef;
+                    try
                     {
-                        MethodDefinition? calleeDef;
-                        try
-                        {
-                            calleeDef = ((MethodReference)instr.Operand).Resolve();
-                        }
-                        catch (AssemblyResolutionException)
-                        {
-                            calleeDef = null;
-                        }
-                        if (
-                            calleeDef is not null
-                            && intrinsics.TryGetValue(calleeDef, out var entry)
-                            && entry.Kind is "alloc" or "heapreset"
-                        )
-                            return true;
-                        continue;
+                        calleeDef = ((MethodReference)instr.Operand).Resolve();
                     }
-                    if (instr.OpCode.Code != Code.Newobj)
+                    catch (AssemblyResolutionException)
+                    {
+                        calleeDef = null;
+                    }
+                    if (calleeDef is null)
                         continue;
-                    var ctorRef = (MethodReference)instr.Operand;
-                    var declaringType = ResolveSafe(ctorRef.DeclaringType);
-                    if (declaringType is not null && !IsDelegateType(declaringType))
+                    if (
+                        intrinsics.TryGetValue(calleeDef, out var entry)
+                        && entry.Kind is "alloc" or "heapreset"
+                    )
                         return true;
+                    if (!visited.Contains(calleeDef))
+                        worklist.Enqueue(calleeDef);
+                    continue;
                 }
+                if (instr.OpCode.Code != Code.Newobj)
+                    continue;
+                var ctorRef = (MethodReference)instr.Operand;
+                var declaringType = ResolveSafe(ctorRef.DeclaringType);
+                if (declaringType is not null && !IsDelegateType(declaringType))
+                    return true;
             }
         }
         return false;
