@@ -10,11 +10,13 @@ public sealed partial class Sm83Backend
     {
         private readonly EmitContext _ctx;
         private readonly Emitter _e;
+        private readonly ArithmeticEmitter _arith;
 
-        public ControlFlowEmitter(EmitContext ctx)
+        public ControlFlowEmitter(EmitContext ctx, ArithmeticEmitter arith)
         {
             _ctx = ctx;
             _e = ctx.E;
+            _arith = arith;
         }
 
         // ---- Control flow --------------------------------------------------
@@ -217,6 +219,12 @@ public sealed partial class Sm83Backend
 
         public void EmitCondBr(IrBasicBlock source, CondBrInstruction cb)
         {
+            if (cb.Condition is CompareInstruction c && _ctx.FusedCompareBranch.Contains(c))
+            {
+                EmitFusedCompareBranch(source, cb, c);
+                return;
+            }
+
             _ctx.LoadByteToA(cb.Condition, 0);
             _e.U8(0xA7); // AND A -> Z set iff false
             var trueEdge = new Label();
@@ -230,6 +238,32 @@ public sealed partial class Sm83Backend
             _e.Place(trueEdge);
             EmitPhiCopies(source, cb.IfTrue);
             _e.Jump(0xC3, _e.BlockLabel(cb.IfTrue));
+        }
+
+        /// <summary>Compare-branch fusion (see EmitContext.FusedCompareBranch): <paramref name="c"/>'s only
+        /// use in the whole function is this branch's condition, and it is the instruction immediately
+        /// preceding this condbr in <paramref name="source"/> — so instead of materializing a 0/1 byte to a
+        /// WRAM slot and reloading/testing it (the generic path above), emit the comparison's flag-setting
+        /// sequence directly here and branch on the resulting CPU flags. This removes the WRAM
+        /// materialize-store-reload-test round trip on every comparison-fed if/while/for.</summary>
+        private void EmitFusedCompareBranch(
+            IrBasicBlock source,
+            CondBrInstruction cb,
+            CompareInstruction c
+        )
+        {
+            int falseJumpOpcode = _arith.EmitCompareCore(c);
+            var falseEdge = new Label();
+            _e.Jump(falseJumpOpcode, falseEdge); // predicate false -> jump to the false edge
+
+            // True edge (fall-through region): copy phis then jump.
+            EmitPhiCopies(source, cb.IfTrue);
+            _e.Jump(0xC3, _e.BlockLabel(cb.IfTrue));
+
+            // False edge.
+            _e.Place(falseEdge);
+            EmitPhiCopies(source, cb.IfFalse);
+            _e.Jump(0xC3, _e.BlockLabel(cb.IfFalse));
         }
 
         /// <summary>Lower a switch as a chain of equality tests, each branching to a split edge.</summary>

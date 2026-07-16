@@ -43,7 +43,7 @@ public sealed partial class Sm83Backend
             _e = emitter;
             _arith = new ArithmeticEmitter(_ctx);
             _mem = new MemoryEmitter(_ctx);
-            _cf = new ControlFlowEmitter(_ctx);
+            _cf = new ControlFlowEmitter(_ctx, _arith);
         }
 
         public void Compile()
@@ -141,6 +141,8 @@ public sealed partial class Sm83Backend
                     _arith.EmitBinary(b);
                     break;
                 case CompareInstruction c:
+                    if (_ctx.FusedCompareBranch.Contains(c))
+                        break; // emitted directly at its single condbr use instead — see EmitContext.FusedCompareBranch
                     _arith.EmitCompare(c);
                     break;
                 case ConvInstruction cv:

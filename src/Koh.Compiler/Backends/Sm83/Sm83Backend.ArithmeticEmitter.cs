@@ -435,11 +435,23 @@ public sealed partial class Sm83Backend
 
         public void EmitCompare(CompareInstruction c)
         {
+            int dst = _ctx.Slot[c];
+            int falseJump = EmitCompareCore(c);
+            MaterializeBoolean(falseJump, dst);
+        }
+
+        /// <summary>The comparison's flag-setting sequence only — no 0/1 materialization. Returns the
+        /// "branch if predicate false" SM83 opcode (JP NC/C/NZ/Z per predicate) the caller must test
+        /// IMMEDIATELY after this call with nothing emitted in between: the CPU flags this sets do not
+        /// survive any intervening instruction. Two callers: MaterializeBoolean (EmitCompare's own
+        /// materializing path, unchanged) and ControlFlowEmitter.EmitCondBr's fused compare-branch path,
+        /// which branches directly on these flags instead of ever materializing a byte.</summary>
+        public int EmitCompareCore(CompareInstruction c)
+        {
             var (pred, swap, signed) = Sm83Ops.Normalize(c.Op);
             IrValue left = swap ? c.Right : c.Left;
             IrValue right = swap ? c.Left : c.Right;
             int n = SizeOf(c.Left.Type);
-            int dst = _ctx.Slot[c];
             bool rightConst = right is IrConstInt;
 
             int falseJump;
@@ -529,7 +541,7 @@ public sealed partial class Sm83Backend
                 ;
             }
 
-            MaterializeBoolean(falseJump, dst);
+            return falseJump;
         }
 
         /// <summary>A = 1 if the predicate holds (flags already set), else 0; stored to <paramref name="dst"/>.</summary>
