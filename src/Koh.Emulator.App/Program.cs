@@ -7,19 +7,53 @@ using KohUI.Backends.Gl;
 // fixture so the emulator window opens on something interesting —
 // file-picker UI comes in phase 2. CLI arg override keeps local
 // debugging flexible.
-// Parse --dap=<pipe> before anything else so it can be ignored by
-// the ROM-path arg logic. Everything else is still positional.
+// Parse --dap=<pipe> and the headless-mode flags before anything else so they
+// can be ignored by the ROM-path arg logic. Everything else is still positional.
 string? dapPipe = null;
+string? screenshotPath = null;
+int frames = 120;
+string? inputScriptPath = null;
+bool mode3ReportRequested = false;
+string? mode3ReportPath = null;
 var positional = new List<string>();
 foreach (var arg in args)
 {
     if (arg.StartsWith("--dap=", StringComparison.Ordinal))
         dapPipe = arg["--dap=".Length..];
+    else if (arg.StartsWith("--screenshot=", StringComparison.Ordinal))
+        screenshotPath = arg["--screenshot=".Length..];
+    else if (arg.StartsWith("--frames=", StringComparison.Ordinal))
+        frames = int.Parse(arg["--frames=".Length..]);
+    else if (arg.StartsWith("--input=", StringComparison.Ordinal))
+        inputScriptPath = arg["--input=".Length..];
+    else if (arg == "--mode3-report")
+        mode3ReportRequested = true;
+    else if (arg.StartsWith("--mode3-report=", StringComparison.Ordinal))
+    {
+        mode3ReportRequested = true;
+        mode3ReportPath = arg["--mode3-report=".Length..];
+    }
     else
         positional.Add(arg);
 }
 
 string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
+
+// Headless mode: run to completion and exit before any window/audio/GL/DAP backend is
+// constructed — this sandboxed build environment has no audio device or display, so
+// constructing those headlessly would hang or throw. See
+// docs/superpowers/specs/2026-07-16-koh-debug-tooling-design.md section 1.
+if (screenshotPath is not null || mode3ReportRequested)
+{
+    return HeadlessRunner.Run(
+        romPath,
+        screenshotPath,
+        frames,
+        inputScriptPath,
+        mode3ReportRequested,
+        mode3ReportPath
+    );
+}
 
 // When VS Code launches us in debug mode it passes --dap=<pipe>.
 // The server runs on its own thread and stays open for the whole
