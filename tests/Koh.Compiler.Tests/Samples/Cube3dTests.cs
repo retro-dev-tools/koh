@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
@@ -35,23 +34,40 @@ public class Cube3dTests
         return dir?.FullName ?? throw new InvalidOperationException("repository root not found");
     }
 
-    /// <summary>The real demo source, concatenated the way the Koh SDK compiles it: the shared renderer
-    /// + entry point (Game.cs), then the demo's own Surface.cs. The framework Hal is NOT read here - it
-    /// is already compiled into Koh.GameBoy.dll, referenced below, and CilFrontend lowers its IL on
-    /// demand.</summary>
-    private static string ReadDemo(string variant)
+    /// <summary>The real demo source, read as SEPARATE files the way the Koh SDK compiles it (each its
+    /// own <c>&lt;Compile&gt;</c> item / Roslyn syntax tree, per-file <c>using</c> directives legal at
+    /// each file's own top - see <see cref="CompileToAssembly"/>, mirroring <c>CilGame2048Tests</c>'s own
+    /// multi-tree pattern): the shared renderer + entry point (Game.cs), then the demo's own files
+    /// (Surface.cs, or - for double-buffered, since its graphics-library retrofit - its own local
+    /// Game.cs/CubeRenderer.cs). A shared file is skipped when the demo directory has a same-named file
+    /// of its own (mirrors CubeDoubleBuffered.csproj's <Compile Exclude="..."> for those exact files -
+    /// see its comment), so a variant-local override doesn't get compiled twice alongside the shared
+    /// definition it replaces. The framework Hal is NOT read here - it is already compiled into
+    /// Koh.GameBoy.dll, referenced below, and CilFrontend lowers its IL on demand.</summary>
+    private static IReadOnlyList<string> ReadDemo(string variant)
     {
         var root = Root();
         var shared = Path.Combine(root, "samples", "gb-3d", "shared");
         var demo = Path.Combine(root, "samples", "gb-3d", variant);
 
-        var sb = new StringBuilder();
-        foreach (var dir in new[] { shared, demo })
+        var demoFileNames = Directory
+            .GetFiles(demo, "*.cs")
+            .Select(Path.GetFileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var sources = new List<string>();
         foreach (
-            var file in Directory.GetFiles(dir, "*.cs").OrderBy(f => f, StringComparer.Ordinal)
+            var file in Directory
+                .GetFiles(shared, "*.cs")
+                .Where(f => !demoFileNames.Contains(Path.GetFileName(f)))
+                .OrderBy(f => f, StringComparer.Ordinal)
         )
-            sb.Append(File.ReadAllText(file)).Append('\n');
-        return sb.ToString();
+            sources.Add(File.ReadAllText(file));
+        foreach (
+            var file in Directory.GetFiles(demo, "*.cs").OrderBy(f => f, StringComparer.Ordinal)
+        )
+            sources.Add(File.ReadAllText(file));
+        return sources;
     }
 
     // ---- Roslyn: compile real C# to a real assembly on disk, referencing Koh.GameBoy.dll -----------
@@ -88,12 +104,15 @@ public class Cube3dTests
     // the demo files directly with Roslyn (no SDK) needs the same global using injected explicitly.
     private const string GlobalUsings = "global using Koh.GameBoy;\n";
 
-    private static string CompileToAssembly(string source)
+    private static string CompileToAssembly(IReadOnlyList<string> sources)
     {
-        var tree = CSharpSyntaxTree.ParseText(GlobalUsings + source);
+        var trees = sources
+            .Append(GlobalUsings)
+            .Select(s => CSharpSyntaxTree.ParseText(s))
+            .ToArray();
         var compilation = CSharpCompilation.Create(
             "Cube3dAsm_" + Guid.NewGuid().ToString("N"),
-            [tree],
+            trees,
             References.Value,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
@@ -117,16 +136,16 @@ public class Cube3dTests
         return path;
     }
 
-    private static CompilerInput InputFor(string source)
+    private static CompilerInput InputFor(IReadOnlyList<string> sources)
     {
-        var assemblyPath = CompileToAssembly(source);
+        var assemblyPath = CompileToAssembly(sources);
         return CompilerInput.FromAssembly(
             assemblyPath,
             [typeof(Koh.GameBoy.Hardware).Assembly.Location]
         );
     }
 
-    private static byte[] Compile(string source)
+    private static byte[] Compile(IReadOnlyList<string> sources)
     {
         // Mirror Koh.Build.Tasks.CompileKohRom exactly (CompilerDriver.Compile, which optimizes by
         // default) rather than calling the frontend/backend directly - the real ROM build runs the IR
@@ -135,7 +154,7 @@ public class Cube3dTests
         var model = CompilerDriver.Compile(
             new CilFrontend(),
             new Sm83Backend(),
-            InputFor(source),
+            InputFor(sources),
             diagnostics
         );
         if (diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))

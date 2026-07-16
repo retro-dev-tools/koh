@@ -84,13 +84,25 @@ public static unsafe class Canvas
 
     /// <summary>Safe per-vblank CPU-copy chunk (DMG, or a CGB build reached before <see cref="Init"/> —
     /// this module has no unaligned-source case since <see cref="_pixels"/> is always 16-byte aligned by
-    /// construction). Reuses <see cref="TileSet"/>'s <c>VblankCpuChunkBytes</c> figure (4) rather than
-    /// re-deriving a new one: <see cref="Present"/>'s DMG path reaches <c>Mem.Copy</c> through the same
-    /// two-call-layer depth as <c>TileSet.Load -&gt; LoadCore -&gt; DripCpu</c> (here:
-    /// <c>Present -&gt; PresentCpu -&gt; Mem.Copy</c>), the exact shape <c>TileSet</c>'s own remarks say
-    /// n=7 (the flatter <c>Surface.cs</c> Present()'s own tuned figure) overruns once counted — so this
-    /// takes the SAME proven-safe fallback instead of re-risking the same overrun.</summary>
-    private const byte VblankCpuChunkBytes = 4;
+    /// construction).
+    ///
+    /// EMPIRICALLY RE-DERIVED for this module's own call shape — do not assume it transfers to another
+    /// module. An earlier version of this constant reused <see cref="TileSet"/>'s <c>VblankCpuChunkBytes</c>
+    /// figure (4) on the theory that <see cref="Present"/> -&gt; <c>PresentCpu</c> -&gt; <c>Mem.Copy</c>
+    /// is the same call-depth shape as <c>TileSet.Load</c> -&gt; <c>LoadCore</c> -&gt; <c>DripCpu</c> -&gt;
+    /// <c>Mem.Copy</c>. That theory was never actually exercised at realistic scale by either module's own
+    /// unit tests (both only drove a handful of chunks) and turned out to be WRONG at scale: retrofitting
+    /// <c>samples/gb-3d/double-buffered</c> onto this module (graphics-library design doc §5, item 2) and
+    /// running the real 1920-byte, ~480-chunk-per-page DMG present against
+    /// <c>samples/gb-3d/verify</c>'s <c>Mode3WriteGuard</c> caught n=4 landing 295 real VRAM writes during
+    /// PPU mode 3 over a 2000-frame run — this module's own extra per-iteration static-field reads
+    /// (<see cref="_pixels"/>/<see cref="_bufferBytes"/>, absent from <c>Surface.cs</c>'s original
+    /// all-local-variable loop that n=7 was tuned against) push the per-chunk dot cost past budget even
+    /// at TileSet's more conservative n=4. Bisected directly against that same guard at full 1920-byte
+    /// scale: n=4 fails (295 violations), n=3 is clean (zero violations across the full
+    /// <c>samples/gb-3d/verify</c> double-buffered/dmg run, both the 1100- and 2000-frame snapshots) —
+    /// n=3 is this module's own proven-safe figure, not a re-guess.</summary>
+    private const byte VblankCpuChunkBytes = 3;
 
     private static byte* _pixels;
     private static byte _widthTiles;

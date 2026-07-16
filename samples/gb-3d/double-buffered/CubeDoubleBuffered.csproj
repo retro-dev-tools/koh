@@ -6,9 +6,17 @@
     <KohCgbCompatible>true</KohCgbCompatible>
   </PropertyGroup>
 
+  <!-- This variant is retrofitted onto Koh.GameBoy.Graphics's Canvas module (graphics-library design
+       doc §5, item 2): Game.cs and CubeRenderer.cs are LOCAL overrides (not the shared/ versions full-
+       frame and racing-beam still use) — Excluded here so the wildcard below doesn't pull in duplicate
+       definitions from shared/. shared/SpanFill.cs is also Excluded: Canvas.FillSpan replaces it, and
+       it is otherwise unused by this variant (full-frame/racing-beam still compile it). -->
   <ItemGroup>
-    <Compile Include="../shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
-    <KohSource Include="../shared/*.cs" />
+    <Compile Include="../shared/*.cs"
+             Exclude="../shared/Game.cs;../shared/CubeRenderer.cs;../shared/SpanFill.cs"
+             Link="Shared/%(Filename)%(Extension)" />
+    <KohSource Include="../shared/*.cs"
+               Exclude="../shared/Game.cs;../shared/CubeRenderer.cs;../shared/SpanFill.cs" />
   </ItemGroup>
 
 </Project>
