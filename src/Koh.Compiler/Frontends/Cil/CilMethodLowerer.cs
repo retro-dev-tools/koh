@@ -840,6 +840,16 @@ internal sealed partial class CilMethodLowerer
             ? _b.Conv(IrConvOp.Bitcast, v, IrType.Int(v.Type.SizeInBits))
             : v;
 
+    /// <summary>A pointer can't feed the <c>conv.i1/u1/i2/u2</c> narrowing chain directly (same
+    /// "Trunc requires an integer operand" constraint <see cref="AsComparable"/> works around for
+    /// <c>icmp</c>): reinterpret it as an address-width integer, then widen/narrow that to i32 so it
+    /// matches the i32 contract every caller of this (<see cref="ResolveFloatToInt"/>'s own return
+    /// contract) already assumes. A no-op for an already-integer operand.</summary>
+    private IrValue ResolvePointerForNarrowConv(IrValue v) =>
+        v.Type.Kind == IrTypeKind.Pointer
+            ? CoerceStore(_b.Conv(IrConvOp.Bitcast, v, IrType.Int(v.Type.SizeInBits)), IrType.I32)
+            : v;
+
     private IrValue LoadLocal(VariableDefinition v)
     {
         // A struct-typed local's "value" is its address — see CilMethodLowerer.Structs.cs's class
@@ -1153,13 +1163,25 @@ internal sealed partial class CilMethodLowerer
             // Every one of these also accepts a float-tagged source (real CLR conv.* accepts an "F"
             // stack value too — ECMA-335 III.3.27 family): ResolveFloatToInt resolves it to an ordinary
             // int32 first (a no-op for an already-ordinary int source) — see CilMethodLowerer.Floats.cs.
+            // An explicit pointer-to-narrower-integer cast (e.g. Koh.GameBoy.Cgb.CopyToVram's
+            // `(ushort)source` on a `byte*` parameter — a real, shipped call shape, not hypothetical)
+            // also reaches here as one of these four opcodes: real CLR conv.u2/i2/u1/i1 accept a
+            // native-int-tagged (pointer) stack value (ECMA-335 III.3.27), but this frontend's operand
+            // is Pointer-typed, not Int-typed, so it can't feed `Trunc` directly (IrVerifier: "'trunc'
+            // requires integer operand and result") — ResolvePointerForNarrowConv reinterprets it as
+            // an address-width integer first (bitcast, then widened/narrowed to i32 exactly like
+            // ResolveFloatToInt's own int32 contract), a no-op for an already-integer operand.
             case Code.Conv_I1:
                 stack.Add(
                     _b.Conv(
                         IrConvOp.SExt,
                         _b.Conv(
                             IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            ResolveFloatToInt(
+                                ResolvePointerForNarrowConv(Pop(stack)),
+                                32,
+                                signed: true
+                            ),
                             IrType.I8
                         ),
                         IrType.I32
@@ -1172,7 +1194,11 @@ internal sealed partial class CilMethodLowerer
                         IrConvOp.ZExt,
                         _b.Conv(
                             IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            ResolveFloatToInt(
+                                ResolvePointerForNarrowConv(Pop(stack)),
+                                32,
+                                signed: true
+                            ),
                             IrType.I8
                         ),
                         IrType.I32
@@ -1185,7 +1211,11 @@ internal sealed partial class CilMethodLowerer
                         IrConvOp.SExt,
                         _b.Conv(
                             IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            ResolveFloatToInt(
+                                ResolvePointerForNarrowConv(Pop(stack)),
+                                32,
+                                signed: true
+                            ),
                             IrType.I16
                         ),
                         IrType.I32
@@ -1198,7 +1228,11 @@ internal sealed partial class CilMethodLowerer
                         IrConvOp.ZExt,
                         _b.Conv(
                             IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
+                            ResolveFloatToInt(
+                                ResolvePointerForNarrowConv(Pop(stack)),
+                                32,
+                                signed: true
+                            ),
                             IrType.I16
                         ),
                         IrType.I32
