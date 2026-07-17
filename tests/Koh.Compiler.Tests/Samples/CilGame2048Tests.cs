@@ -139,7 +139,11 @@ public class CilGame2048Tests
     private static EmitModel Compile(IReadOnlyList<string> sources, bool optimize = false)
     {
         var diagnostics = new DiagnosticBag();
-        var module = Frontend(sources, OptimizationLevel.Debug, diagnostics);
+        // Release, not Debug: with the deferred shadow-tilemap flush, tests that read rendered state after
+        // a fixed step budget are timing-sensitive, and Debug IL's redundant stores/unfolded constants are
+        // real cost the CIL frontend lowers faithfully (CLAUDE.md's Release-for-timing-fixtures rule) — they
+        // slow the game loop enough that the deferred score never lands within budget. Semantics-identical.
+        var module = Frontend(sources, OptimizationLevel.Release, diagnostics);
         if (diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
             throw new InvalidOperationException(
                 "frontend reported errors:\n  "
@@ -236,7 +240,7 @@ public class CilGame2048Tests
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
-        for (int i = 0; i < 2_000_000; i++)
+        for (int i = 0; i < 12_000_000; i++)
             gb.StepInstruction();
 
         await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);
@@ -251,13 +255,16 @@ public class CilGame2048Tests
     [Test]
     public async Task Sample_RendersScoreLabelAndNumberToTheBackgroundMap()
     {
-        var model = Compile([BoardSource, TilesSource, GameSource]);
+        // optimize: true to match the real ROM build (CompilerDriver optimizes by default): the deferred
+        // shadow-tilemap flush makes this render read timing-sensitive, and an un-optimized ROM runs the
+        // game loop slowly enough that the score digits never land within budget.
+        var model = Compile([BoardSource, TilesSource, GameSource], optimize: true);
         var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
 
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
-        for (int i = 0; i < 2_000_000; i++)
+        for (int i = 0; i < 12_000_000; i++)
             gb.StepInstruction();
 
         // Text.Draw(1, 0, "SCORE") -> map row 0, cols 1..5 ($9801..$9805). Glyph = Tiles.FontFirstTile
@@ -287,7 +294,7 @@ public class CilGame2048Tests
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
-        for (int i = 0; i < 2_000_000; i++)
+        for (int i = 0; i < 12_000_000; i++)
             gb.StepInstruction();
 
         // OAM slot 0 (Sprites.Get(0, ...)), Pan Docs order Y/X/Tile/Attr at $FE00..$FE03. The first
@@ -455,7 +462,7 @@ public class CilGame2048Tests
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
-        for (int i = 0; i < 2_000_000; i++)
+        for (int i = 0; i < 12_000_000; i++)
             gb.StepInstruction();
 
         await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);

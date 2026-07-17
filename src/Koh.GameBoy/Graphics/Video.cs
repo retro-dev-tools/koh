@@ -42,19 +42,21 @@ public static unsafe class Video
     /// off-screen), default palettes (DMG 0xE4 flat shades; CGB slot-0 grayscale), CGB detected and
     /// cached. The screen stays off — call <see cref="Start"/> once authoring is done.
     ///
-    /// The two bulk clears go through <see cref="Mem.Fill"/> rather than a loop written here: this
-    /// method already calls <see cref="Tilemap.Clear"/> (which loops internally), and
-    /// <c>Mem.Copy</c>/<c>Mem.Fill</c>'s own doc remarks warn that two textually distinct stride-1
-    /// pointer-walk loops in the SAME function corrupt each other under the SM83 backend's register
-    /// allocator — so every additional bulk clear here reuses an already-tuned, single-loop helper
-    /// instead of adding another loop body to this one.</summary>
+    /// The two tilemap clears go through <see cref="MapWriter"/> (via <see cref="Bg.Clear"/> and
+    /// <see cref="MapWriter.Clear"/>) rather than a loop written here — both are function calls, so this
+    /// method never grows a second inline stride-1 pointer-walk loop (which <c>Mem.Copy</c>/<c>Mem.Fill</c>'s
+    /// own doc remarks warn corrupts a sibling loop under the SM83 backend's register allocator). Clearing
+    /// through <see cref="MapWriter"/> (not a raw <c>Mem.Fill</c> into VRAM) also seeds the WRAM tilemap
+    /// SHADOW to the same blank state: because the LCD is off here, each clear writes VRAM directly AND
+    /// populates the shadow, so every later vblank flush draws from a fully-mirrored map. The OAM clear
+    /// stays a direct <see cref="Mem.Fill"/>; <see cref="Sprites.HideAll"/> seeds the sprite shadow.</summary>
     public static void Init()
     {
         Lcd.Off();
         IsCgb = Cgb.IsColor();
 
-        Tilemap.Clear(0);
-        Mem.Fill(Gb.TileMap1, 0, 1024); // window map ($9C00), 32x32 tiles
+        Bg.Clear(0); // BG map ($9800): shadow + VRAM cleared (LCD off -> direct)
+        MapWriter.Clear(1, 0); // window map ($9C00): shadow + VRAM cleared
         Mem.Fill(Gb.Oam, 0, 160); // all 40 sprites: Y=0 hides every one
         // Also clear the Sprites shadow (WRAM is not guaranteed zero at power-on): without this, the
         // first sprite a game sets would DMA its 39 untouched neighbor slots' garbage onto the real OAM
@@ -123,12 +125,18 @@ public static unsafe class Video
     /// <summary>Scroll the background to (x, y) (wraps <see cref="Lcd.Scroll"/>).</summary>
     public static void Scroll(byte x, byte y) => Lcd.Scroll(x, y);
 
-    /// <summary>THE frame call: wait for vertical blank, flush pending OAM/palette writes (hooks for
-    /// the Sprites/Palettes modules — later slices), then advance <see cref="FrameCount"/>.</summary>
+    /// <summary>THE frame call: wait for vertical blank, then — inside that vblank — flush the deferred
+    /// shadow writes to hardware: OAM (<see cref="Sprites.Flush"/>) and the tile maps
+    /// (<see cref="MapWriter.Flush"/>, the counterpart for <see cref="Bg"/>/<see cref="Win"/>/
+    /// <see cref="Text"/> tile-index writes). Both run AFTER <see cref="Ppu.WaitVBlank"/> so their VRAM/OAM
+    /// touches land while the PPU is idle — this is what makes the mode-3 hazard impossible to express from
+    /// game code (a game only ever mutates the WRAM shadows; the one timing-sensitive copy lives here, not
+    /// in every public write). Then advance <see cref="FrameCount"/>.</summary>
     public static void EndFrame()
     {
         Ppu.WaitVBlank();
         Sprites.Flush(); // no-op unless a Sprite was mutated since the last flush (see Sprites.Flush)
+        MapWriter.Flush(); // copy dirty tilemap cells from the WRAM shadow into VRAM, in this vblank
         // Pending CGB palette writes land here once the Palettes module needs a deferred path (it
         // currently writes immediate-checked, so there is nothing to flush yet).
         FrameCount++;

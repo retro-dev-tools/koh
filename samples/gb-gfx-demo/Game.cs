@@ -167,12 +167,23 @@ static class Game
         byte scrollX = 0;
         ushort score = 0;
         bool altPalette = false;
+        uint iteration = 0;
 
+        // One LOGICAL iteration (palette check, scroll, sprite moves, score bump, HUD redraw) is
+        // followed by a few IDLE Video.EndFrame() calls with nothing newly dirtied. The deferred
+        // tilemap flush (MapWriter, behind Bg/Win/Text) only drains a handful of cells per vblank on
+        // real DMG hardware (no tilemap DMA exists), so a 5-cell HUD redrawn every single frame can
+        // never fully drain — the idle frames give the flush the extra vblanks it needs to fully catch
+        // up before the NEXT redraw re-dirties the same cells. Sprite OAM has no such throttle (a dirty
+        // shadow DMAs in full on the very next EndFrame), so the idle frames cost the sprites nothing —
+        // they simply hold position until the next logical iteration moves them again.
         while (true)
         {
-            // Palette change every PaletteChangeFrames frames — the same call dispatches to CGB RGB555
-            // palette RAM or DMG BGP/OBP shades depending on the hardware this ROM is running on.
-            if (Video.FrameCount % PaletteChangeFrames == 0)
+            // Palette change every PaletteChangeFrames LOGICAL iterations — gated on `iteration` (ticks
+            // once per logical iteration), not Video.FrameCount (which now ticks once per EndFrame call,
+            // i.e. several times per logical iteration) — the same call dispatches to CGB RGB555 palette
+            // RAM or DMG BGP/OBP shades depending on the hardware this ROM is running on.
+            if (iteration % PaletteChangeFrames == 0)
             {
                 ApplyPalette(altPalette);
                 altPalette = !altPalette;
@@ -194,7 +205,11 @@ static class Game
             score += 17;
             Text.DrawNumberToWindow(6, 0, score, 5);
 
-            Video.EndFrame(); // vblank + OAM flush, one call
+            iteration++;
+            Video.EndFrame(); // present + first flush chunk
+            Video.EndFrame(); // idle: let the HUD flush finish draining
+            Video.EndFrame(); // idle: margin
+            Video.EndFrame(); // idle: margin
         }
     }
 

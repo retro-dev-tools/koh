@@ -7,7 +7,9 @@ namespace Koh.GameBoy.Graphics;
 /// "Font.cs / Text.cs") — the confirmed hole that neither existing sample could fill at all. A glyph
 /// index is <c>Font.FirstTile + ((byte)ch - Font.FirstCodePoint)</c>; every <c>Draw</c> overload below
 /// walks its text source left to right and writes one tile per character via <see cref="Bg.SetTile"/>/
-/// <see cref="Win.SetTile"/> (both already immediate-checked — <see cref="Text"/> adds no extra gating).
+/// <see cref="Win.SetTile"/> — which route through <see cref="MapWriter"/>'s WRAM shadow + vblank flush, so
+/// <see cref="Text"/> inherits the same impossible-by-construction write safety and needs no timing calls
+/// of its own (the deferred VRAM copy happens in <see cref="Video.EndFrame"/>).
 ///
 /// <b>String overloads work because strings flow across CIL call boundaries</b> (graphics-library design
 /// doc §8, resolved decision 3): <paramref name="text"/> is a pointer to a length-prefixed ROM blob, so
@@ -83,7 +85,7 @@ public static unsafe class Text
     /// landed in a small <c>stackalloc</c> buffer (a proven CIL-frontend shape — see
     /// <c>CilStringLiteralTests.WriteAsciiSource</c>), then drawn most-significant-first. <c>ushort</c>'s
     /// max (65535) is 5 digits, so a 5-byte buffer always suffices. <paramref name="toWindow"/> picks
-    /// <see cref="Win.SetTile"/> over <see cref="Bg.SetTile"/> — both already immediate-checked.</summary>
+    /// <see cref="Win.SetTile"/> over <see cref="Bg.SetTile"/> — both route through the same shadow.</summary>
     private static void WriteNumber(byte col, byte row, ushort value, byte width, bool toWindow)
     {
         byte* digits = stackalloc byte[5];

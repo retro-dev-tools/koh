@@ -8,6 +8,7 @@ using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Emulator.Core;
 using Koh.Emulator.Core.Cartridge;
+using Koh.Emulator.Core.Debug;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using KohDiagnosticSeverity = Koh.Core.Diagnostics.DiagnosticSeverity;
@@ -366,6 +367,105 @@ public class CilBgWinTests
         // run the port always reads 0xFF regardless (IoRegisters.ReadVbkRegister's IsCgb gate), so this
         // only proves nothing crashed poking it -- the load-bearing assertions are the bank-1 zeros above.
         await Assert.That(gb.DebugReadByte(0xFF4F)).IsEqualTo((byte)0xFF);
+    }
+
+    // ---- Fixture 5: an LCD-on full-board redraw (MapWriter's own worst-case benchmark shape: 16x
+    // Bg.Fill 2x2 rects = 64 cells, mirroring samples/gb-2048-cs's Tiles.RenderBoard) never lands a write
+    // during PPU mode 3 -- guaranteed now by the WRAM-shadow + vblank-flush redesign (MapWriter's class
+    // remarks): every Bg.Fill call while the LCD is on only marks cells dirty in the WRAM shadow, and the
+    // one place that ever touches real VRAM is MapWriter.Flush(), called from Video.EndFrame() strictly
+    // after Ppu.WaitVBlank() -- so game code (here, the direct Bg.Fill calls below) is timing-free, no
+    // BeginUpdate/EndUpdate batching API required. Warms up with a few idle Video.EndFrame() vblanks
+    // first, matching the real game's own call shape (RenderBoard's first LCD-on call is never the very
+    // first vblank after Video.Start()), rather than firing the big batch on a cold LCD-just-turned-on
+    // frame (an untested, unrelated edge case). The fill runs with the LCD ON (mid-loop, not gated behind
+    // vblank) and the flush that actually reaches VRAM happens inside the following Video.EndFrame() --
+    // this is what exercises the real hazard window this test guards against.
+    // OptimizationLevel.Release per CLAUDE.md: a timing-sensitive fixture must compile at Release, not
+    // Debug, so the codegen this asserts against matches what a real `dotnet build` (Release) produces.
+    //
+    // FIXED: this fixture used to reproduce a real MapWriter bug (per-row dirty tracking scanned all 32
+    // rows on every Flush() call; that scan alone burned enough SM83 cycles that LY could leave the
+    // vblank window before later dirty rows were reached, silently dropping them forever -- an
+    // 8-distinct-row repro read back [10,0,12,0,0,0,0,0] instead of all 8 values landing). Fixed by the
+    // single-contiguous-dirty-range redesign in MapWriter.cs: DirtyBg/MinIdxBg/MaxIdxBg (and the Win
+    // equivalents) replace the per-row arrays, and FlushBg/FlushWin each make exactly one FlushRun call
+    // over the whole [MinIdx..MaxIdx] range instead of looping over 32 rows -- no per-row scan cost left
+    // to pay, so LY never leaves vblank mid-flush for this fixture's write volume.
+    private const string BoardRedrawSource = """
+        using Koh.GameBoy;
+        using Koh.GameBoy.Graphics;
+
+        public class Program
+        {
+            public static void Main()
+            {
+                Video.Init();
+                Video.Start();
+                for (int i = 0; i < 5; i++)
+                    Video.EndFrame();
+                for (byte r = 0; r < 4; r++)
+                for (byte c = 0; c < 4; c++)
+                    Bg.Fill((byte)(3 + c * 4), (byte)(3 + r * 3), 2, 2, 7);
+                // The shadow flush drains a bounded number of cells per vblank, so a full board spans
+                // several frames — keep calling EndFrame every frame like a real game loop, not once.
+                while (true)
+                    Video.EndFrame();
+            }
+        }
+        """;
+
+    [Test]
+    public async Task BatchedFullBoardRedraw_WithLcdOn_ProducesZeroMode3Violations()
+    {
+        var diagnostics = new DiagnosticBag();
+        var module = Frontend(BoardRedrawSource, OptimizationLevel.Release, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse()
+            .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var gb = Load(
+            Compile(BoardRedrawSource, OptimizationLevel.Release),
+            out int start,
+            HardwareMode.Dmg
+        );
+        var guard = new Mode3WriteGuard(gb);
+        gb.Mmu.Hook = guard;
+
+        bool AllFilled()
+        {
+            for (byte r = 0; r < 4; r++)
+            for (byte c = 0; c < 4; c++)
+            for (byte dr = 0; dr < 2; dr++)
+            for (byte dc = 0; dc < 2; dc++)
+                if (
+                    gb.DebugReadByte(
+                        MapAddress(0x9800, (byte)(3 + c * 4 + dc), (byte)(3 + r * 3 + dr))
+                    ) != 7
+                )
+                    return false;
+            return true;
+        }
+
+        for (int steps = 0; steps < 20_000_000 && !AllFilled(); steps++)
+            gb.StepInstruction();
+
+        await Assert
+            .That(AllFilled())
+            .IsTrue()
+            .Because("the 64-cell board fill did not complete within the step budget");
+        await Assert
+            .That(guard.Violations)
+            .IsEmpty()
+            .Because(
+                "Mode3 write violations: "
+                    + string.Join(
+                        ", ",
+                        guard.Violations.Select(v => $"${v.Address:X4}=${v.Value:X2}@LY={v.Ly}")
+                    )
+            );
     }
 
     // ---- helpers --------------------------------------------------------------------------------
