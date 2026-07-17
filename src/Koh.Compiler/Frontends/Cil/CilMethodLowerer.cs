@@ -904,6 +904,21 @@ internal sealed partial class CilMethodLowerer
             ? CoerceStore(_b.Conv(IrConvOp.Bitcast, v, IrType.Int(v.Type.SizeInBits)), IrType.I32)
             : v;
 
+    /// <summary>Lower a <c>conv.i1/u1/i2/u2</c>: reduce the operand to <paramref name="narrowType"/>'s
+    /// value range, then re-widen to the i32 CIL stack type with the conv's own signedness. The narrowing
+    /// <c>trunc</c> is emitted ONLY when the operand is genuinely wider than the target — an operand that
+    /// already fits (e.g. <c>(ushort)p</c> on this target, where a pointer is address-width i16 and reaches
+    /// here already at 16 bits) is passed straight to the widen, since <c>trunc</c> requires a strictly
+    /// narrower target (<see cref="IrVerifier"/>: "'trunc' target must be narrower than source"). Roslyn's
+    /// Release IL exposes this same-width case that Debug IL's extra pointer round-trip hides.</summary>
+    private IrValue LowerNarrowingConv(IrValue operand, IrType narrowType, bool signedResult)
+    {
+        var iv = ResolveFloatToInt(ResolvePointerForNarrowConv(operand), 32, signed: true);
+        var narrowed =
+            iv.Type.Bits > narrowType.Bits ? _b.Conv(IrConvOp.Trunc, iv, narrowType) : iv;
+        return _b.Conv(signedResult ? IrConvOp.SExt : IrConvOp.ZExt, narrowed, IrType.I32);
+    }
+
     private IrValue LoadLocal(VariableDefinition v)
     {
         // A struct-typed local's "value" is its address — see CilMethodLowerer.Structs.cs's class
@@ -1226,72 +1241,16 @@ internal sealed partial class CilMethodLowerer
             // an address-width integer first (bitcast, then widened/narrowed to i32 exactly like
             // ResolveFloatToInt's own int32 contract), a no-op for an already-integer operand.
             case Code.Conv_I1:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.SExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(
-                                ResolvePointerForNarrowConv(Pop(stack)),
-                                32,
-                                signed: true
-                            ),
-                            IrType.I8
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I8, signedResult: true));
                 break;
             case Code.Conv_U1:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.ZExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(
-                                ResolvePointerForNarrowConv(Pop(stack)),
-                                32,
-                                signed: true
-                            ),
-                            IrType.I8
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I8, signedResult: false));
                 break;
             case Code.Conv_I2:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.SExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(
-                                ResolvePointerForNarrowConv(Pop(stack)),
-                                32,
-                                signed: true
-                            ),
-                            IrType.I16
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I16, signedResult: true));
                 break;
             case Code.Conv_U2:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.ZExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(
-                                ResolvePointerForNarrowConv(Pop(stack)),
-                                32,
-                                signed: true
-                            ),
-                            IrType.I16
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I16, signedResult: false));
                 break;
             case Code.Conv_I4:
             case Code.Conv_U4:
