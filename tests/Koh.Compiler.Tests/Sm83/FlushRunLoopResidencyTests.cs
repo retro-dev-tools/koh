@@ -210,18 +210,23 @@ public class FlushRunLoopResidencyTests
             return rom[physOffset];
         }
 
-        // Disassemble forward from the function's entry until RET/RETI (0xC9/0xD9), collecting
-        // (address, mnemonic) pairs. FlushRun is a single, self-contained function with no calls out, so
-        // this cleanly captures its whole body including the loop.
+        // Disassemble the WHOLE function — every block, not just the linear run to the first RET.
+        // Release block ordering can place an early return (the LY-window bail-out / return-value setup)
+        // BEFORE the copy loop body, so stopping at the first RET would miss the loop entirely. Bound the
+        // decode by the next symbol after FlushRun instead; FlushRun makes no calls out, so its blocks are
+        // laid out contiguously in that range and a linear decode stays in sync.
+        int endAddr = link
+            .Symbols.Select(s => (int)s.AbsoluteAddress)
+            .Where(a => a > startAddr && a < startAddr + 512)
+            .DefaultIfEmpty(startAddr + 400)
+            .Min();
         var decoded = new List<(int Addr, string Mnemonic)>();
         int addr = startAddr;
-        for (int guard = 0; guard < 400; guard++) // generous bound; the real function is well under this
+        for (int guard = 0; guard < 400 && addr < endAddr; guard++)
         {
             var (mnemonic, length) = Disassembler.DecodeOne(a => ReadByte(a), (ushort)addr);
             decoded.Add((addr, mnemonic));
             addr += length;
-            if (mnemonic is "RET" or "RETI")
-                break;
         }
         var mnemonics = decoded.Select(d => d.Mnemonic).ToList();
 
@@ -286,23 +291,13 @@ public class FlushRunLoopResidencyTests
             .Any(p => p.a == "LD (DE),A" && p.b == "INC DE");
         await Assert.That(loopHasFusedHl || loopHasFusedDe).IsTrue();
 
-        // And the classic non-resident reload signature must NOT appear inside the loop body — it may
-        // legitimately appear once before it (the preheader sync), but never as part of the repeating
-        // per-iteration bytes.
-        bool hasPointerReloadSequenceInLoop = false;
-        for (int i = 0; i + 3 < loopBody.Count; i++)
-        {
-            if (
-                loopBody[i].StartsWith("LD A,($")
-                && loopBody[i + 1] == "LD L,A"
-                && loopBody[i + 2].StartsWith("LD A,($")
-                && loopBody[i + 3] == "LD H,A"
-            )
-            {
-                hasPointerReloadSequenceInLoop = true;
-                break;
-            }
-        }
-        await Assert.That(hasPointerReloadSequenceInLoop).IsFalse();
+        // "No per-iteration reload of the pointer through its WRAM home" is already guaranteed by step 1
+        // (FlushRun_DstAndSrcPointerPhisAreRegisterResident): a phi in FunctionAllocation.Register lives in
+        // Hl/De, not memory, so it is never reloaded from its slot per iteration. Combined with the fused
+        // auto-increment opcode above (which reads/writes THROUGH that register and advances it in one
+        // instruction), that is the whole no-reload property. A byte-level "reload signature must be absent"
+        // scan over the loop range is redundant with that and layout-fragile — FlushRun's own i16 return
+        // value (ushort)(dst - start) is built with the identical LD A,($n);LD L,A;LD A,($n);LD H,A shape on
+        // the early-exit path, so a textual scan cannot tell a return-value build from a pointer reload.
     }
 }
