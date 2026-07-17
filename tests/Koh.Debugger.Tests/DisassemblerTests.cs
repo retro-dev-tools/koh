@@ -69,4 +69,19 @@ public class DisassemblerTests
         await Assert.That(mnemonic).IsEqualTo("RST $38");
         await Assert.That(length).IsEqualTo(1);
     }
+
+    // The 0xD_ conditional control-flow opcodes (carry-flag variants) — the SM83 backend emits absolute
+    // JP C/JP NC for loop back edges, so a disassembler that skips them desyncs mid-function.
+    [Test]
+    [Arguments(new byte[] { 0xD2, 0x00, 0x40 }, "JP NC,$4000", 3)]
+    [Arguments(new byte[] { 0xD4, 0x00, 0x40 }, "CALL NC,$4000", 3)]
+    [Arguments(new byte[] { 0xD8 }, "RET C", 1)]
+    [Arguments(new byte[] { 0xDA, 0x51, 0x4E }, "JP C,$4E51", 3)]
+    [Arguments(new byte[] { 0xDC, 0x00, 0x40 }, "CALL C,$4000", 3)]
+    public async Task Decodes_CarryConditionalOps(byte[] code, string expected, int expectedLength)
+    {
+        var (mnemonic, length) = Disassembler.DecodeOne(a => code[a], 0);
+        await Assert.That(mnemonic).IsEqualTo(expected);
+        await Assert.That(length).IsEqualTo(expectedLength);
+    }
 }

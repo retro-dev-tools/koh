@@ -111,9 +111,14 @@ public static class Disassembler
 
             0xD0 => ("RET NC", 1),
             0xD1 => ("POP DE", 1),
+            0xD2 => ($"JP NC,${ReadU16(read, 1):X4}", 3),
+            0xD4 => ($"CALL NC,${ReadU16(read, 1):X4}", 3),
             0xD5 => ("PUSH DE", 1),
             0xD6 => ($"SUB ${read(1):X2}", 2),
+            0xD8 => ("RET C", 1),
             0xD9 => ("RETI", 1),
+            0xDA => ($"JP C,${ReadU16(read, 1):X4}", 3),
+            0xDC => ($"CALL C,${ReadU16(read, 1):X4}", 3),
             0xDE => ($"SBC A,${read(1):X2}", 2),
 
             0xE0 => ($"LDH (${read(1):X2}),A", 2),
