@@ -169,7 +169,15 @@ public sealed partial class Sm83Backend
 
         /// <summary>Load a pointer value into HL: a static address as an immediate, a fused single-use
         /// <c>gep</c> computed inline (skipping its slot entirely — see <see cref="EmitContext.FusedGep"/>),
-        /// else reloaded from its slot.</summary>
+        /// else reloaded from its slot.
+        /// <para>TODO: this method checks <c>Slot</c> without checking <c>Register</c> first (unlike
+        /// <c>LoadByteToA</c>). A register-resident pointer used as a Load/Store/Gep base OUTSIDE its own
+        /// designated fused-dereference site would therefore read a stale <c>Slot</c> value here. Currently a
+        /// non-issue: every admission path (Layer 1 Phase 2's <c>TryFindPhiDerefSite</c>, Layer 2's
+        /// <c>TryFindPointerReloadShape</c>) provably admits a candidate only when it has at most one in-loop
+        /// dereference, and that one dereference is always caught by <c>EmitLoad</c>/<c>EmitStore</c>'s own
+        /// <c>FusedPointerSite</c> check before this method is ever called. Flag for whoever next widens
+        /// residency admission to allow more than one dereference per resident.</para></summary>
         private void LoadPointerToHL(IrValue pointer)
         {
             if (pointer is GetElementPtrInstruction fusedGep && _ctx.FusedGep.Contains(fusedGep))

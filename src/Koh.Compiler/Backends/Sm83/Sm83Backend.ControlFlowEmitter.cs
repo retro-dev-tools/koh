@@ -335,6 +335,40 @@ public sealed partial class Sm83Backend
         /// missing is purely on the selection side (step 2): no residency selector admits a width-2
         /// loop-carried phi yet, so this path is unreached until then.
         /// </remarks>
+        private HashSet<int>? _reliedUponSlots;
+
+        /// <summary>Every WRAM address some phi's incoming value resolves to, ANYWHERE in this function — computed
+        /// once, lazily, and cached (one <see cref="ControlFlowEmitter"/> instance exists per function compile, so
+        /// this is safely scoped to one function). Used by <see cref="EmitPhiCopies"/> to decide when a
+        /// register-resident (dual-placed) phi's slot write is provably dead.
+        ///
+        /// Sufficiency argument: the only code paths anywhere in the backend that read a value's WRAM slot AS ITS
+        /// CURRENT VALUE (rather than via the Register-first <c>LoadByteToA</c>) are (a) <see cref="EmitPhiCopies"/>'s
+        /// own identity-elision check, (b) this method's cycle-break staging (<c>SourceSlot</c>) — which only ever
+        /// inspects PENDING copies, which by construction are all some phi's incoming, and (c) <c>LoadPointerToHL</c>
+        /// (Sm83Backend.MemoryEmitter.cs), a documented non-issue for any admitted Phase-2/Layer-2 candidate today
+        /// (see the TODO there) because every admission path proves at most one in-loop dereference per resident.
+        /// (a) and (b) are both exactly covered by "does this set contain the address" — both only ever fire on a
+        /// value that IS literally some phi's incoming. Therefore skipping a register-resident phi's slot write is
+        /// safe exactly when its slot address is not in this set — necessary (an address IN the set genuinely needs
+        /// the write) and sufficient (no other code path depends on the slot being current).</summary>
+        private HashSet<int> ReliedUponSlots()
+        {
+            if (_reliedUponSlots is not null)
+                return _reliedUponSlots;
+            var set = new HashSet<int>();
+            foreach (var block in _ctx.Fn.Blocks)
+            foreach (var instr in block.Instructions)
+            {
+                if (instr is not PhiInstruction phi)
+                    continue;
+                foreach (var (incoming, _) in phi.Incomings)
+                    if (TryResolveSlotAddress(incoming, out int addr))
+                        set.Add(addr);
+            }
+            return _reliedUponSlots = set;
+        }
+
         private void EmitPhiCopies(IrBasicBlock source, IrBasicBlock target)
         {
             var pending = new List<PhiCopy>();
@@ -359,6 +393,13 @@ public sealed partial class Sm83Backend
                 // dual-placement phis, whose incoming never resolves a Slot address here at all) — that
                 // back-edge write stays exactly as the module's design notes require.
                 if (TryResolveSlotAddress(incoming, out int srcSlot) && srcSlot == destSlot)
+                    continue;
+
+                // A register-resident (Layer 1 dual-placed) phi's slot write may ALSO be skipped when nothing in the
+                // function relies on that exact slot address as some phi's incoming value — see ReliedUponSlots for the
+                // full sufficiency argument. (A plain, non-phi register resident never reaches here at all: EmitPhiCopies
+                // only ever processes PhiInstructions, and Layer 2's pointer residents are never phis to begin with.)
+                if (_ctx.Register.ContainsKey(phi) && !ReliedUponSlots().Contains(destSlot))
                     continue;
 
                 pending.Add(new PhiCopy(destSlot, SizeOf(phi.Type), incoming));

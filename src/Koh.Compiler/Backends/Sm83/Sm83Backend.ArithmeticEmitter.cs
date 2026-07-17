@@ -559,6 +559,13 @@ public sealed partial class Sm83Backend
 
         public void EmitConv(ConvInstruction cv)
         {
+            if (_ctx.Register.ContainsKey(cv))
+                return; // Register-aliased by Sm83FunctionAllocation's Phase-4 bitcast alias (loop-induction
+            // residency, Phase 2/GEP-arm) — every reader of `cv` resolves it via Register
+            // (LoadByteToA checks Register before Slot), so there is nothing to materialize;
+            // falling through to the Slot-based switch below would throw KeyNotFoundException,
+            // since an aliased conv has no Slot entry at all.
+
             int srcBytes = SizeOf(cv.Operand.Type);
             int dstBytes = SizeOf(cv.Type);
             int dst = _ctx.Slot[cv];
