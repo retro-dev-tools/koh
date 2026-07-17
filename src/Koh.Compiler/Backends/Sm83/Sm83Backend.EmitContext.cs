@@ -64,6 +64,12 @@ public sealed partial class Sm83Backend
         /// function, which is the only one that needs it (to emit the boot-only zero-clear).</summary>
         public readonly int WramGlobalsSize;
 
+        /// <summary>The OAM DMA source scratch global's WRAM address (see
+        /// <see cref="Sm83Backend.OamDmaSourceAddress"/>), or -1 if the program never calls
+        /// <c>Hardware.RunOamDma</c>. Only consulted when this context is the entry function (to emit
+        /// the boot-only HRAM trampoline install, mirroring <see cref="WramGlobalsSize"/>'s own gating).</summary>
+        public readonly int OamDmaSrcAddr;
+
         /// <summary>Dynamic <c>gep</c> instructions eligible to be computed directly at their single
         /// consuming load/store instead of through a WRAM slot round-trip (see
         /// <see cref="MemoryEmitter.LoadPointerToHL"/>). A naive per-instruction lowering emits every
@@ -75,6 +81,39 @@ public sealed partial class Sm83Backend
         /// why that is safe).</summary>
         public readonly HashSet<GetElementPtrInstruction> FusedGep;
 
+        /// <summary><c>compare</c> instructions eligible to be lowered directly at their single
+        /// consuming <see cref="CondBrInstruction"/> instead of through the generic materialize-then-
+        /// test path (see <see cref="ArithmeticEmitter.EmitCompareCore"/> and
+        /// <see cref="ControlFlowEmitter.EmitCondBr"/>). A naive per-instruction lowering always
+        /// materializes a comparison's result to a 0/1 byte in its WRAM slot (<c>EmitCompare</c> +
+        /// <c>MaterializeBoolean</c>), then the branch reloads and tests that byte — correct, but on a
+        /// compare that feeds nothing but the very next branch, the CPU already set the flags this
+        /// needs; storing them to a byte and re-deriving them is pure waste. This is the same fusion
+        /// shape as <see cref="FusedGep"/>/<see cref="ComputeFusedGeps"/> (single use, immediately next
+        /// instruction, same block) with one simplification: unlike a gep, which has a compile-time-
+        /// constant-address case that already skips a slot, every <see cref="CompareInstruction"/> is
+        /// dynamic, so there is no analogous "already has no slot" check to make first.
+        /// <list type="bullet">
+        /// <item>Single use: <see cref="CondBrInstruction.Operands"/> and
+        /// <see cref="PhiInstruction.Operands"/> are both non-empty, so a whole-function use count built
+        /// from every instruction's <c>Operands</c> (phis included) already counts a compare that feeds
+        /// both a condbr and a phi incoming as use-count 2 — correctly excluding it from fusion without a
+        /// separate phi special-case.</item>
+        /// <item><b>Immediately next, not just "later in the block":</b> nothing may be emitted between
+        /// the compare's flag-setting sequence and the branch that tests those flags — the SM83 has no
+        /// way to save/restore flags except through a register, and any intervening instruction (even one
+        /// that doesn't touch the flag-setting registers) can silently alter Z/C/N/H, making the branch
+        /// test the wrong condition. Requiring "immediately next, same block" makes this a structural
+        /// guarantee rather than one this pass has to reason about per-instruction.</item>
+        /// <item>Same block, no separate LICM guard needed: unlike gep fusion (which needs an explicit
+        /// note that <see cref="LoopInvariantCodeMotionPass"/> may have hoisted the gep out of a loop), a
+        /// compare hoisted to a different block by an optimizer pass is automatically ineligible here —
+        /// the adjacency check itself is inherently per-block, so there is nothing extra to guard
+        /// against.</item>
+        /// </list>
+        /// </summary>
+        public readonly HashSet<CompareInstruction> FusedCompareBranch;
+
         public EmitContext(
             Emitter emitter,
             IrFunction fn,
@@ -84,7 +123,8 @@ public sealed partial class Sm83Backend
             bool isEntry,
             int softStackBase,
             IReadOnlySet<IrFunction>? banked = null,
-            int wramGlobalsSize = 0
+            int wramGlobalsSize = 0,
+            int oamDmaSrcAddr = -1
         )
         {
             E = emitter;
@@ -106,7 +146,9 @@ public sealed partial class Sm83Backend
             FrameBase = allocation.FrameBase;
             FrameSize = allocation.FrameEnd - allocation.FrameBase;
             WramGlobalsSize = wramGlobalsSize;
+            OamDmaSrcAddr = oamDmaSrcAddr;
             FusedGep = ComputeFusedGeps(fn, Slot);
+            FusedCompareBranch = ComputeFusedCompareBranches(fn);
         }
 
         public bool IsRecursive => Recursive.Contains(Fn);
@@ -170,6 +212,35 @@ public sealed partial class Sm83Backend
                         || (next is StoreInstruction s && ReferenceEquals(s.Pointer, g))
                     )
                         fused.Add(g);
+                }
+            }
+            return fused;
+        }
+
+        private static HashSet<CompareInstruction> ComputeFusedCompareBranches(IrFunction fn)
+        {
+            var useCounts = new Dictionary<IrValue, int>(ReferenceEqualityComparer.Instance);
+            foreach (var block in fn.Blocks)
+            foreach (var instr in block.Instructions)
+            foreach (var operand in instr.Operands)
+                useCounts[operand] = useCounts.GetValueOrDefault(operand) + 1;
+
+            var fused = new HashSet<CompareInstruction>(ReferenceEqualityComparer.Instance);
+            foreach (var block in fn.Blocks)
+            {
+                var instructions = block.Instructions;
+                for (var i = 0; i < instructions.Count - 1; i++)
+                {
+                    if (instructions[i] is not CompareInstruction c)
+                        continue;
+                    if (useCounts.GetValueOrDefault(c) != 1)
+                        continue;
+
+                    if (
+                        instructions[i + 1] is CondBrInstruction cb
+                        && ReferenceEquals(cb.Condition, c)
+                    )
+                        fused.Add(c);
                 }
             }
             return fused;

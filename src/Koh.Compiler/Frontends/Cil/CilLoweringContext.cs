@@ -121,16 +121,44 @@ internal sealed class CilLoweringContext
         out (IrType ElemType, bool Signed, int Count) info
     ) => _staticArrayInfo.TryGetValue(field, out info);
 
+    /// <summary>Declaring types already run through <see cref="CilStaticFieldSupport.CollectType"/> by
+    /// <see cref="EnsureStaticGlobal"/>'s on-demand fallback below — guards against re-walking the same
+    /// cross-assembly type's <c>.cctor</c> once per undecided field it declares (each call is otherwise
+    /// idempotent on its own — <c>CollectType</c>'s own per-field <c>HasStaticFieldDecision</c> early-out
+    /// — but this keeps it O(types-referenced), not O(fields-referenced), for a type with several
+    /// mutable fields).</summary>
+    private readonly HashSet<TypeDefinition> _sweptTypes = new();
+
     /// <summary>The global backing <paramref name="field"/>, creating an ordinary mutable WRAM holder
-    /// the first time anything references an undecided field (see the class's remarks on why this is
-    /// safe with no pre-pass: only a readonly field's ROM/alias placement needs settling ahead of time,
-    /// and every one of those is already in the table by the time any method body lowers).</summary>
+    /// the first time anything references an undecided field. For a field declared in the GAME's own
+    /// module, every readonly/fold-eligible field is already decided by the time any method body lowers
+    /// (<see cref="CilStaticFieldSupport.Collect"/>'s eager Pass 0 pre-pass), so this is reached only for
+    /// an ordinary mutable field — matching the original "no pre-pass needed" reasoning. For a field
+    /// declared in a REFERENCED assembly (e.g. Koh.GameBoy's own <c>[KohAligned(n)] static byte[]</c>
+    /// library statics — <c>Collect</c> deliberately does not sweep referenced assemblies eagerly, see
+    /// its own remarks), no pre-pass ever ran over its declaring type at all — so this classifies that
+    /// type ON DEMAND, the first time reachable code references any of its fields, via the same
+    /// <see cref="CilStaticFieldSupport.CollectType"/> Pass 0 itself calls, before falling back to the
+    /// ordinary holder. This mirrors <see cref="EnsureLowered"/>'s own on-demand lowering of a
+    /// cross-assembly METHOD body — classify/lower the first time something reachable actually needs
+    /// it, never eagerly for an assembly's entire type set (which would place every matched field's
+    /// global permanently, unconditionally, regardless of reachability — see <c>CollectType</c>'s
+    /// remarks on why an eager whole-reference-graph sweep was tried and reverted).</summary>
     public IrGlobal EnsureStaticGlobal(FieldDefinition field)
     {
         if (_staticFields.TryGetValue(field, out var g))
             return g;
+        if (_sweptTypes.Add(field.DeclaringType))
+            CilStaticFieldSupport.CollectType(field.DeclaringType, this);
+        if (_staticFields.TryGetValue(field, out g))
+            return g;
         var (irType, _) = CilTypeMapper.Map(field.FieldType);
-        g = new IrGlobal($"{field.DeclaringType.FullName}.{field.Name}", irType, AddressSpace.Wram);
+        g = new IrGlobal(
+            $"{field.DeclaringType.FullName}.{field.Name}",
+            irType,
+            AddressSpace.Wram,
+            alignment: CilStaticFieldSupport.ReadAlignment(field)
+        );
         Module.Globals.Add(g);
         _staticFields[field] = g;
         return g;
@@ -168,6 +196,46 @@ internal sealed class CilLoweringContext
         );
         Module.Globals.Add(g);
         _rvaBlobGlobals[blobField] = g;
+        return g;
+    }
+
+    // A string literal (`ldstr`, straight from the #US metadata heap — there is no backing
+    // FieldDefinition to key by the way EnsureRvaBlobGlobal's blob fields have) -> the ROM global
+    // carrying its LENGTH-PREFIXED ASCII bytes (see EnsureStringLiteralGlobal). Keyed by the literal's
+    // own content (ordinal) so two occurrences of the same literal text anywhere in the module share one
+    // ROM global, matching EnsureRvaBlobGlobal's own dedup rationale.
+    private readonly Dictionary<string, IrGlobal> _stringLiteralGlobals = new(
+        StringComparer.Ordinal
+    );
+
+    /// <summary>The ROM global carrying <paramref name="value"/>'s runtime representation: a
+    /// LENGTH-PREFIXED ASCII blob — <c>[u16 length (little-endian, matching <see cref="DataLayout.Sm83"/>)]
+    /// [one byte per char]</c> — so a <c>string</c> value is just a pointer to this global that flows
+    /// through locals/params/returns/fields like any other pointer, and <c>.Length</c>/the indexer can
+    /// be read straight out of memory at the receiving end (a runtime load, not compile-time
+    /// provenance-tracing) — see <c>CilMethodLowerer.Strings.cs</c>'s class remarks for why this
+    /// representation is what unblocks a string PARAMETER (e.g. the graphics library's
+    /// <c>Text.Draw(col, row, string text)</c>), and for why the bytes are ASCII, not UTF-16, and the
+    /// non-ASCII-character diagnostic. Creates the global the first time this exact literal text is seen
+    /// anywhere in the module. <paramref name="asciiBytes"/> is supplied by the caller (already
+    /// validated/converted) rather than recomputed here, since only <c>CilMethodLowerer.LowerLdstr</c>
+    /// has the method context needed to report a non-ASCII character with a useful diagnostic.</summary>
+    public IrGlobal EnsureStringLiteralGlobal(string value, byte[] asciiBytes)
+    {
+        if (_stringLiteralGlobals.TryGetValue(value, out var g))
+            return g;
+        var blob = new byte[2 + asciiBytes.Length];
+        blob[0] = (byte)(asciiBytes.Length & 0xFF);
+        blob[1] = (byte)((asciiBytes.Length >> 8) & 0xFF);
+        System.Array.Copy(asciiBytes, 0, blob, 2, asciiBytes.Length);
+        g = new IrGlobal(
+            $"__strlit.{_stringLiteralGlobals.Count}",
+            IrType.Array(IrType.I8, blob.Length),
+            AddressSpace.Rom,
+            initializer: blob
+        );
+        Module.Globals.Add(g);
+        _stringLiteralGlobals[value] = g;
         return g;
     }
 
@@ -291,6 +359,33 @@ internal sealed class CilLoweringContext
 
     public IrGlobal? HeapGlobal => _heapGlobal;
 
+    // ---- OAM DMA intrinsic (see CilMethodLowerer.LowerIntrinsicCall's "oamdma" case and the graphics
+    // library design doc's build-plan slice 2) --------------------------------------------------------
+
+    private IrGlobal? _oamDmaSourceGlobal;
+
+    /// <summary>The one-byte WRAM scratch cell staging <c>Hardware.RunOamDma(sourcePage)</c>'s argument
+    /// for the backend's boot-installed HRAM trampoline to read (see <see cref="Sm83Backend"/>'s
+    /// "oamdma" gating — it looks this global up BY NAME, the same convention <see cref="HeapGlobal"/>'s
+    /// own backend-side lookup uses). Created lazily the first time any call lowers to this intrinsic —
+    /// unlike the heap pointer, it needs no boot-time seed value, so (unlike <see cref="EnsureHeapGlobal"/>)
+    /// there is no eager pre-scan requirement: whichever call site references it first settles its
+    /// placement, and the backend only ever reads its assigned address, never its (nonexistent) initial
+    /// value.</summary>
+    public IrGlobal EnsureOamDmaSourceGlobal()
+    {
+        if (_oamDmaSourceGlobal is { } existing)
+            return existing;
+        var g = new IrGlobal(OamDmaSourceGlobalName, IrType.I8, AddressSpace.Wram);
+        Module.Globals.Add(g);
+        _oamDmaSourceGlobal = g;
+        return g;
+    }
+
+    /// <summary>The fixed name <see cref="Sm83Backend"/> looks this global up by (see
+    /// <see cref="EnsureOamDmaSourceGlobal"/>'s remarks) — same convention as <see cref="HeapPointerName"/>.</summary>
+    internal const string OamDmaSourceGlobalName = "__oamdma_src";
+
     /// <summary>Signature only (Pass 1 of the eager, hand-written-static-method sweep) — adds
     /// <paramref name="method"/> to <see cref="FunctionsByMethod"/> so later calls resolve regardless
     /// of declaration order. A per-method failure reports a diagnostic and leaves the method out (its
@@ -313,7 +408,13 @@ internal sealed class CilLoweringContext
             var parameters = new List<IrParameter>();
             if (method.HasThis)
             {
-                var (thisType, _) = CilTypeMapper.Map(method.DeclaringType);
+                // MapParam, not the plain Map: 'this' on a struct instance method is a byref to the
+                // struct's own bytes (Pointer(I8), via CilStructSupport.ResolveStruct), exactly like any
+                // other struct parameter (CilTypeMapper.MapParam's remarks) — Map alone has no struct
+                // branch and throws "unsupported CIL type" for a value-type declaring type. For a class
+                // 'this' MapParam falls through to Map's own reference-type shortcut, so this is a
+                // strict superset of the previous behavior.
+                var thisType = CilTypeMapper.MapParam(method.DeclaringType).IrType;
                 parameters.Add(new IrParameter("this", thisType));
             }
             for (var i = 0; i < method.Parameters.Count; i++)

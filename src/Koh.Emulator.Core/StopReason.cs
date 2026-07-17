@@ -9,4 +9,6 @@ public enum StopReason
     Watchpoint,
     HaltedBySystem,
     StopRequested,
+    BudgetExceeded,
+    Spinning,
 }

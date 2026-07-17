@@ -42,4 +42,59 @@ public static class Joypad
             return (buttons & UpBit) != 0;
         return (buttons & DownBit) != 0; // Down
     }
+
+    // Mask returned by ReadAll()/Pressed() vs the previous scan.
+    private static byte _previousAll;
+
+    /// <summary>Read all 8 buttons as one active-high mask (<see cref="Button"/>). d-pad comes from the
+    /// same matrix line as <see cref="Read"/>; A/B/Select/Start come from the other matrix line
+    /// (P15 low), unreachable from <see cref="Read"/>. Same two-read settle idiom as <see cref="Read"/>
+    /// for each matrix.</summary>
+    public static byte ReadAll()
+    {
+        Hardware.JOYP = 0x20; // select the d-pad (P14 low)
+        byte dpadRaw = Hardware.JOYP;
+        dpadRaw = Hardware.JOYP; // read twice to let the lines settle
+
+        Hardware.JOYP = 0x10; // select the buttons (P15 low)
+        byte buttonsRaw = Hardware.JOYP;
+        buttonsRaw = Hardware.JOYP;
+
+        Hardware.JOYP = 0x30; // deselect
+
+        // Inputs are active-low; ~x on a byte is (255 - x). d-pad occupies bits 0-3 of the result
+        // directly (Right/Left/Up/Down); the button matrix's own bits 0-3 (A/B/Select/Start) shift up
+        // into bits 4-7.
+        byte dpad = (byte)((byte)(255 - dpadRaw) & 0x0F);
+        byte buttons = (byte)((byte)(255 - buttonsRaw) & 0x0F);
+        return (byte)(dpad | (buttons << 4));
+    }
+
+    /// <summary>Buttons that transitioned from released to pressed since the previous call to
+    /// <see cref="Pressed"/> (rising edges only — a button held across two calls reports once).</summary>
+    public static byte Pressed()
+    {
+        byte current = ReadAll();
+        byte rising = (byte)(current & ~_previousAll);
+        _previousAll = current;
+        return rising;
+    }
+
+    /// <summary>Whether a button's bit is set in a mask returned by <see cref="ReadAll"/> or
+    /// <see cref="Pressed"/>.</summary>
+    public static bool IsPressed(byte mask, Button button) => (mask & (byte)button) != 0;
+}
+
+/// <summary>All 8 physical buttons as an active-high bitmask, matching the JOYP two-matrix protocol's
+/// combined layout (d-pad in bits 0-3, A/B/Select/Start in bits 4-7).</summary>
+public enum Button : byte
+{
+    Right = 0x01,
+    Left = 0x02,
+    Up = 0x04,
+    Down = 0x08,
+    A = 0x10,
+    B = 0x20,
+    Select = 0x40,
+    Start = 0x80,
 }

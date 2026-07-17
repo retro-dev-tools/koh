@@ -10,11 +10,13 @@ public sealed partial class Sm83Backend
     {
         private readonly EmitContext _ctx;
         private readonly Emitter _e;
+        private readonly ArithmeticEmitter _arith;
 
-        public ControlFlowEmitter(EmitContext ctx)
+        public ControlFlowEmitter(EmitContext ctx, ArithmeticEmitter arith)
         {
             _ctx = ctx;
             _e = ctx.E;
+            _arith = arith;
         }
 
         // ---- Control flow --------------------------------------------------
@@ -109,6 +111,13 @@ public sealed partial class Sm83Backend
                     break;
                 case "nop":
                     _e.U8(0x00);
+                    break;
+                case "oamdma":
+                    // CALL the boot-installed HRAM trampoline (Sm83Backend.EmitOamDmaTrampolineInstall)
+                    // at its fixed absolute address — not a Label/RoutineLabel fixup, since HRAM is
+                    // always mapped regardless of which ROM bank this call site itself lives in.
+                    _e.U8(0xCD); // CALL a16
+                    _e.U16(OamDmaTrampoline);
                     break;
                 default:
                     throw new NotSupportedException($"unknown intrinsic '{instr.Intrinsic}'.");
@@ -210,6 +219,12 @@ public sealed partial class Sm83Backend
 
         public void EmitCondBr(IrBasicBlock source, CondBrInstruction cb)
         {
+            if (cb.Condition is CompareInstruction c && _ctx.FusedCompareBranch.Contains(c))
+            {
+                EmitFusedCompareBranch(source, cb, c);
+                return;
+            }
+
             _ctx.LoadByteToA(cb.Condition, 0);
             _e.U8(0xA7); // AND A -> Z set iff false
             var trueEdge = new Label();
@@ -223,6 +238,32 @@ public sealed partial class Sm83Backend
             _e.Place(trueEdge);
             EmitPhiCopies(source, cb.IfTrue);
             _e.Jump(0xC3, _e.BlockLabel(cb.IfTrue));
+        }
+
+        /// <summary>Compare-branch fusion (see EmitContext.FusedCompareBranch): <paramref name="c"/>'s only
+        /// use in the whole function is this branch's condition, and it is the instruction immediately
+        /// preceding this condbr in <paramref name="source"/> — so instead of materializing a 0/1 byte to a
+        /// WRAM slot and reloading/testing it (the generic path above), emit the comparison's flag-setting
+        /// sequence directly here and branch on the resulting CPU flags. This removes the WRAM
+        /// materialize-store-reload-test round trip on every comparison-fed if/while/for.</summary>
+        private void EmitFusedCompareBranch(
+            IrBasicBlock source,
+            CondBrInstruction cb,
+            CompareInstruction c
+        )
+        {
+            int falseJumpOpcode = _arith.EmitCompareCore(c);
+            var falseEdge = new Label();
+            _e.Jump(falseJumpOpcode, falseEdge); // predicate false -> jump to the false edge
+
+            // True edge (fall-through region): copy phis then jump.
+            EmitPhiCopies(source, cb.IfTrue);
+            _e.Jump(0xC3, _e.BlockLabel(cb.IfTrue));
+
+            // False edge.
+            _e.Place(falseEdge);
+            EmitPhiCopies(source, cb.IfFalse);
+            _e.Jump(0xC3, _e.BlockLabel(cb.IfFalse));
         }
 
         /// <summary>Lower a switch as a chain of equality tests, each branching to a split edge.</summary>
@@ -294,6 +335,40 @@ public sealed partial class Sm83Backend
         /// missing is purely on the selection side (step 2): no residency selector admits a width-2
         /// loop-carried phi yet, so this path is unreached until then.
         /// </remarks>
+        private HashSet<int>? _reliedUponSlots;
+
+        /// <summary>Every WRAM address some phi's incoming value resolves to, ANYWHERE in this function — computed
+        /// once, lazily, and cached (one <see cref="ControlFlowEmitter"/> instance exists per function compile, so
+        /// this is safely scoped to one function). Used by <see cref="EmitPhiCopies"/> to decide when a
+        /// register-resident (dual-placed) phi's slot write is provably dead.
+        ///
+        /// Sufficiency argument: the only code paths anywhere in the backend that read a value's WRAM slot AS ITS
+        /// CURRENT VALUE (rather than via the Register-first <c>LoadByteToA</c>) are (a) <see cref="EmitPhiCopies"/>'s
+        /// own identity-elision check, (b) this method's cycle-break staging (<c>SourceSlot</c>) — which only ever
+        /// inspects PENDING copies, which by construction are all some phi's incoming, and (c) <c>LoadPointerToHL</c>
+        /// (Sm83Backend.MemoryEmitter.cs), a documented non-issue for any admitted Phase-2/Layer-2 candidate today
+        /// (see the TODO there) because every admission path proves at most one in-loop dereference per resident.
+        /// (a) and (b) are both exactly covered by "does this set contain the address" — both only ever fire on a
+        /// value that IS literally some phi's incoming. Therefore skipping a register-resident phi's slot write is
+        /// safe exactly when its slot address is not in this set — necessary (an address IN the set genuinely needs
+        /// the write) and sufficient (no other code path depends on the slot being current).</summary>
+        private HashSet<int> ReliedUponSlots()
+        {
+            if (_reliedUponSlots is not null)
+                return _reliedUponSlots;
+            var set = new HashSet<int>();
+            foreach (var block in _ctx.Fn.Blocks)
+            foreach (var instr in block.Instructions)
+            {
+                if (instr is not PhiInstruction phi)
+                    continue;
+                foreach (var (incoming, _) in phi.Incomings)
+                    if (TryResolveSlotAddress(incoming, out int addr))
+                        set.Add(addr);
+            }
+            return _reliedUponSlots = set;
+        }
+
         private void EmitPhiCopies(IrBasicBlock source, IrBasicBlock target)
         {
             var pending = new List<PhiCopy>();
@@ -318,6 +393,13 @@ public sealed partial class Sm83Backend
                 // dual-placement phis, whose incoming never resolves a Slot address here at all) — that
                 // back-edge write stays exactly as the module's design notes require.
                 if (TryResolveSlotAddress(incoming, out int srcSlot) && srcSlot == destSlot)
+                    continue;
+
+                // A register-resident (Layer 1 dual-placed) phi's slot write may ALSO be skipped when nothing in the
+                // function relies on that exact slot address as some phi's incoming value — see ReliedUponSlots for the
+                // full sufficiency argument. (A plain, non-phi register resident never reaches here at all: EmitPhiCopies
+                // only ever processes PhiInstructions, and Layer 2's pointer residents are never phis to begin with.)
+                if (_ctx.Register.ContainsKey(phi) && !ReliedUponSlots().Contains(destSlot))
                     continue;
 
                 pending.Add(new PhiCopy(destSlot, SizeOf(phi.Type), incoming));

@@ -312,67 +312,99 @@ internal static class CilModuleLowerer
         Ir.Optimization.IrOptimizer.RemoveUnreachableFunctions(module);
     }
 
-    /// <summary>True if any method body in the assembly (hand-written or compiler-generated —
-    /// a display-class ctor lives on the generated type, not the hand-written one) constructs a
-    /// non-delegate reference type, OR calls a <c>[KohIntrinsic("alloc")]</c>/<c>[KohIntrinsic(
-    /// "heapreset")]</c> member (<c>Mem.Alloc</c>/<c>Mem.Reset</c>): both bump/reset the SAME shared
-    /// heap global <c>new</c> does (see <see cref="CilLoweringContext.EnsureHeapGlobal"/>), so a
-    /// program that only calls <c>Mem.Alloc</c> — no <c>new</c>/<c>newarr</c> anywhere — must still
-    /// provision and seed that global, or the first allocation reads an unseeded value. A delegate's
-    /// own <c>newobj</c> (<c>Func`2::.ctor(object, native int)</c>) is intercepted, never allocated
-    /// (see <c>CilMethodLowerer.LowerNewobj</c>), so it must not itself trigger the heap.</summary>
+    /// <summary>True if any method REACHABLE from the game module (hand-written or compiler-generated —
+    /// a display-class ctor lives on the generated type, not the hand-written one; and, transitively,
+    /// any non-BCL method a reachable method CALLS — see below) constructs a non-delegate reference
+    /// type, OR calls a <c>[KohIntrinsic("alloc")]</c>/<c>[KohIntrinsic("heapreset")]</c> member
+    /// (<c>Mem.Alloc</c>/<c>Mem.Reset</c>): both bump/reset the SAME shared heap global <c>new</c> does
+    /// (see <see cref="CilLoweringContext.EnsureHeapGlobal"/>), so a program that only calls
+    /// <c>Mem.Alloc</c> — no <c>new</c>/<c>newarr</c> anywhere — must still provision and seed that
+    /// global, or the first allocation reads an unseeded value. A delegate's own <c>newobj</c>
+    /// (<c>Func`2::.ctor(object, native int)</c>) is intercepted, never allocated (see
+    /// <c>CilMethodLowerer.LowerNewobj</c>), so it must not itself trigger the heap.
+    ///
+    /// <b>Transitive, not just the game module's own methods:</b> a REFERENCED-assembly method (e.g.
+    /// <c>Koh.GameBoy.Graphics.Canvas.Init</c>, which calls <c>Mem.Alloc</c> — see the graphics-library
+    /// design doc §3 "Canvas.cs" / §2 "Allocation discipline") can itself be the only call site that
+    /// needs the heap, with no <c>new</c>/<c>newarr</c>/<c>Mem.Alloc</c> anywhere in the game's own
+    /// code — confirmed by a real compile of a <c>Canvas.Init</c>-calling program throwing a
+    /// <c>NullReferenceException</c> off an unseeded <see cref="CilLoweringContext.HeapGlobal"/> before
+    /// this method walked past the game module's own types. This pre-scan therefore does a worklist
+    /// walk over every method reachable from the game module's own methods through <c>call</c>/
+    /// <c>callvirt</c> (skipping BCL methods — <see cref="IsBclMethod"/> — the same "off-limits"
+    /// category the on-demand lowering task already excludes, and whose IL this frontend's opcode
+    /// subset was never written to read), so a heap need buried inside Koh.GameBoy (or any other
+    /// referenced assembly) is found before Pass 2 lowers the entry's prologue — the only point that can
+    /// still provision+seed <see cref="CilLoweringContext.HeapGlobal"/> before something reads it. Purely
+    /// a METADATA walk (Cecil instructions, no IR lowering) — a method visited here that turns out to be
+    /// unreachable after full lowering (this walk is a reachable-through-calls over-approximation, e.g.
+    /// it does not evaluate a runtime-only-false branch) costs nothing beyond an unused heap-pointer
+    /// global, the same harmless-over-approximation stance the '.cctor' scan below already accepts.</summary>
     private static bool NeedsHeap(
         ModuleDefinition cecilModule,
         IReadOnlyDictionary<MethodDefinition, CilIntrinsicIndex.Entry> intrinsics
     )
     {
+        var visited = new HashSet<MethodDefinition>();
+        var worklist = new Queue<MethodDefinition>();
         foreach (var type in cecilModule.GetTypes())
         {
             if (type.Name == "<Module>")
                 continue;
             foreach (var method in type.Methods)
+                worklist.Enqueue(method);
+        }
+
+        while (worklist.Count > 0)
+        {
+            var method = worklist.Dequeue();
+            if (!visited.Add(method))
+                continue; // already walked (or queued twice) — recursion/shared-callee safe.
+            if (IsBclMethod(method))
+                continue;
+            // A static constructor ('.cctor') IS scanned here (unlike the eager ordinary-method
+            // sweep, which lowers it separately — see CilMethodLowerer.Statics.cs): its
+            // idiom-matched instructions are elided at LOWERING time, not here, so a 'newarr' that
+            // Pass 0 could NOT fold away (e.g. a non-constant-sized array) still needs the heap this
+            // scan provisions. A '.cctor' whose every 'newarr' WAS folded away costs nothing extra
+            // beyond an unused heap-pointer global — a harmless over-approximation, not a
+            // correctness issue.
+            if (!method.HasBody)
+                continue;
+            foreach (var instr in method.Body.Instructions)
             {
-                // A static constructor ('.cctor') IS scanned here (unlike the eager ordinary-method
-                // sweep, which lowers it separately — see CilMethodLowerer.Statics.cs): its
-                // idiom-matched instructions are elided at LOWERING time, not here, so a 'newarr' that
-                // Pass 0 could NOT fold away (e.g. a non-constant-sized array) still needs the heap this
-                // scan provisions. A '.cctor' whose every 'newarr' WAS folded away costs nothing extra
-                // beyond an unused heap-pointer global — a harmless over-approximation, not a
-                // correctness issue.
-                if (!method.HasBody)
-                    continue;
-                foreach (var instr in method.Body.Instructions)
+                // A 'newarr' (see CilMethodLowerer.Arrays.cs) always needs the heap — there is no
+                // delegate-construction-style interception for it the way Newobj has.
+                if (instr.OpCode.Code == Code.Newarr)
+                    return true;
+                if (instr.OpCode.Code == Code.Call || instr.OpCode.Code == Code.Callvirt)
                 {
-                    // A 'newarr' (see CilMethodLowerer.Arrays.cs) always needs the heap — there is no
-                    // delegate-construction-style interception for it the way Newobj has.
-                    if (instr.OpCode.Code == Code.Newarr)
-                        return true;
-                    if (instr.OpCode.Code == Code.Call || instr.OpCode.Code == Code.Callvirt)
+                    MethodDefinition? calleeDef;
+                    try
                     {
-                        MethodDefinition? calleeDef;
-                        try
-                        {
-                            calleeDef = ((MethodReference)instr.Operand).Resolve();
-                        }
-                        catch (AssemblyResolutionException)
-                        {
-                            calleeDef = null;
-                        }
-                        if (
-                            calleeDef is not null
-                            && intrinsics.TryGetValue(calleeDef, out var entry)
-                            && entry.Kind is "alloc" or "heapreset"
-                        )
-                            return true;
-                        continue;
+                        calleeDef = ((MethodReference)instr.Operand).Resolve();
                     }
-                    if (instr.OpCode.Code != Code.Newobj)
+                    catch (AssemblyResolutionException)
+                    {
+                        calleeDef = null;
+                    }
+                    if (calleeDef is null)
                         continue;
-                    var ctorRef = (MethodReference)instr.Operand;
-                    var declaringType = ResolveSafe(ctorRef.DeclaringType);
-                    if (declaringType is not null && !IsDelegateType(declaringType))
+                    if (
+                        intrinsics.TryGetValue(calleeDef, out var entry)
+                        && entry.Kind is "alloc" or "heapreset"
+                    )
                         return true;
+                    if (!visited.Contains(calleeDef))
+                        worklist.Enqueue(calleeDef);
+                    continue;
                 }
+                if (instr.OpCode.Code != Code.Newobj)
+                    continue;
+                var ctorRef = (MethodReference)instr.Operand;
+                var declaringType = ResolveSafe(ctorRef.DeclaringType);
+                if (declaringType is not null && !IsDelegateType(declaringType))
+                    return true;
             }
         }
         return false;
@@ -569,8 +601,16 @@ internal sealed partial class CilMethodLowerer
         var paramIndex = 0;
         if (_method.HasThis)
         {
+            // See CilLoweringContext.EnsureSignature's matching remark: MapParam (not the plain Map)
+            // so a struct instance method's 'this' resolves to Pointer(I8) instead of throwing. The
+            // incoming value is stored through an ordinary alloca+load round trip like any other
+            // pointer-typed parameter (LoadArg falls back to this path when the arg isn't registered in
+            // _structParams — see CilMethodLowerer.Structs.cs) rather than routing 'this' through
+            // _structParams directly: FieldPointer treats any Pointer-typed value as a valid field base
+            // regardless of which path produced it, so the extra indirection costs a WRAM round trip,
+            // not correctness.
             var thisParam = _method.Body.ThisParameter;
-            var (thisType, _) = CilTypeMapper.Map(_method.DeclaringType);
+            var thisType = CilTypeMapper.MapParam(_method.DeclaringType).IrType;
             var thisAlloca = _b.Alloca(thisType);
             _b.Store(_function.Parameters[paramIndex], thisAlloca);
             _params[thisParam] = (thisAlloca, thisType, false);
@@ -633,6 +673,20 @@ internal sealed partial class CilMethodLowerer
                 _b.PositionAtEnd(leaderBlock);
                 stack = EntryStack(leaderBlock);
             }
+
+            // A sequence point only exists at statement-boundary IL offsets (most instructions have
+            // none) — carry the last one forward, mirroring how a source debugger attributes an
+            // instruction with no mapping of its own to "wherever execution last stepped from". Hidden
+            // sequence points (compiler-generated bookkeeping, StartLine == 0xfeefee) are never a real
+            // source line, so they're skipped rather than clearing the carried-forward location.
+            // IrBuilder.CurrentSource (see its own remarks) stamps every instruction Simulate appends
+            // below, so no manual before/after slicing of the block's instruction list is needed here.
+            var sequencePoint = _method.DebugInformation.GetSequencePoint(instr);
+            if (sequencePoint is { IsHidden: false })
+                _b.CurrentSource = new IrSourceLocation(
+                    sequencePoint.Document.Url,
+                    (uint)sequencePoint.StartLine
+                );
 
             Simulate(instr, stack);
         }
@@ -840,6 +894,31 @@ internal sealed partial class CilMethodLowerer
             ? _b.Conv(IrConvOp.Bitcast, v, IrType.Int(v.Type.SizeInBits))
             : v;
 
+    /// <summary>A pointer can't feed the <c>conv.i1/u1/i2/u2</c> narrowing chain directly (same
+    /// "Trunc requires an integer operand" constraint <see cref="AsComparable"/> works around for
+    /// <c>icmp</c>): reinterpret it as an address-width integer, then widen/narrow that to i32 so it
+    /// matches the i32 contract every caller of this (<see cref="ResolveFloatToInt"/>'s own return
+    /// contract) already assumes. A no-op for an already-integer operand.</summary>
+    private IrValue ResolvePointerForNarrowConv(IrValue v) =>
+        v.Type.Kind == IrTypeKind.Pointer
+            ? CoerceStore(_b.Conv(IrConvOp.Bitcast, v, IrType.Int(v.Type.SizeInBits)), IrType.I32)
+            : v;
+
+    /// <summary>Lower a <c>conv.i1/u1/i2/u2</c>: reduce the operand to <paramref name="narrowType"/>'s
+    /// value range, then re-widen to the i32 CIL stack type with the conv's own signedness. The narrowing
+    /// <c>trunc</c> is emitted ONLY when the operand is genuinely wider than the target — an operand that
+    /// already fits (e.g. <c>(ushort)p</c> on this target, where a pointer is address-width i16 and reaches
+    /// here already at 16 bits) is passed straight to the widen, since <c>trunc</c> requires a strictly
+    /// narrower target (<see cref="IrVerifier"/>: "'trunc' target must be narrower than source"). Roslyn's
+    /// Release IL exposes this same-width case that Debug IL's extra pointer round-trip hides.</summary>
+    private IrValue LowerNarrowingConv(IrValue operand, IrType narrowType, bool signedResult)
+    {
+        var iv = ResolveFloatToInt(ResolvePointerForNarrowConv(operand), 32, signed: true);
+        var narrowed =
+            iv.Type.Bits > narrowType.Bits ? _b.Conv(IrConvOp.Trunc, iv, narrowType) : iv;
+        return _b.Conv(signedResult ? IrConvOp.SExt : IrConvOp.ZExt, narrowed, IrType.I32);
+    }
+
     private IrValue LoadLocal(VariableDefinition v)
     {
         // A struct-typed local's "value" is its address — see CilMethodLowerer.Structs.cs's class
@@ -986,6 +1065,11 @@ internal sealed partial class CilMethodLowerer
                 stack.Add(c);
                 break;
             }
+            // A string literal — see CilMethodLowerer.Strings.cs's class remarks (ASCII-bytes-in-ROM,
+            // one byte per char).
+            case Code.Ldstr:
+                stack.Add(LowerLdstr((string)instr.Operand));
+                break;
 
             // ---- Locals / arguments -----------------------------------------------------------
             case Code.Ldloc_0:
@@ -1148,57 +1232,25 @@ internal sealed partial class CilMethodLowerer
             // Every one of these also accepts a float-tagged source (real CLR conv.* accepts an "F"
             // stack value too — ECMA-335 III.3.27 family): ResolveFloatToInt resolves it to an ordinary
             // int32 first (a no-op for an already-ordinary int source) — see CilMethodLowerer.Floats.cs.
+            // An explicit pointer-to-narrower-integer cast (e.g. Koh.GameBoy.Cgb.CopyToVram's
+            // `(ushort)source` on a `byte*` parameter — a real, shipped call shape, not hypothetical)
+            // also reaches here as one of these four opcodes: real CLR conv.u2/i2/u1/i1 accept a
+            // native-int-tagged (pointer) stack value (ECMA-335 III.3.27), but this frontend's operand
+            // is Pointer-typed, not Int-typed, so it can't feed `Trunc` directly (IrVerifier: "'trunc'
+            // requires integer operand and result") — ResolvePointerForNarrowConv reinterprets it as
+            // an address-width integer first (bitcast, then widened/narrowed to i32 exactly like
+            // ResolveFloatToInt's own int32 contract), a no-op for an already-integer operand.
             case Code.Conv_I1:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.SExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
-                            IrType.I8
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I8, signedResult: true));
                 break;
             case Code.Conv_U1:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.ZExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
-                            IrType.I8
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I8, signedResult: false));
                 break;
             case Code.Conv_I2:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.SExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
-                            IrType.I16
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I16, signedResult: true));
                 break;
             case Code.Conv_U2:
-                stack.Add(
-                    _b.Conv(
-                        IrConvOp.ZExt,
-                        _b.Conv(
-                            IrConvOp.Trunc,
-                            ResolveFloatToInt(Pop(stack), 32, signed: true),
-                            IrType.I16
-                        ),
-                        IrType.I32
-                    )
-                );
+                stack.Add(LowerNarrowingConv(Pop(stack), IrType.I16, signedResult: false));
                 break;
             case Code.Conv_I4:
             case Code.Conv_U4:
@@ -2092,10 +2144,22 @@ internal sealed partial class CilMethodLowerer
                     IrBuilder.GlobalRef(_ctx.HeapGlobal!)
                 );
                 break;
+            // OAM DMA: OAM DMA locks the bus to everything but HRAM for ~161 M-cycles, so the
+            // trigger+wait cannot run from ROM — the backend installs a fixed HRAM trampoline once, at
+            // boot, and this call becomes: stage the source page in a dedicated WRAM scratch global (the
+            // trampoline reads it back by its known address), then CALL the trampoline (see
+            // CilLoweringContext.EnsureOamDmaSourceGlobal's remarks and Sm83Backend's "oamdma" gating).
+            case "oamdma":
+                _b.Store(
+                    CoerceStore(args[0], IrType.I8),
+                    IrBuilder.GlobalRef(_ctx.EnsureOamDmaSourceGlobal())
+                );
+                _b.Intrinsic("oamdma");
+                break;
             default:
                 throw new CilNotSupportedException(
                     $"unsupported [KohIntrinsic] kind '{entry.Kind}' on '{def.FullName}' (phase 1 "
-                        + "supports register/region/ei/di/halt/nop/stop/alloc/heapreset only)."
+                        + "supports register/region/ei/di/halt/nop/stop/alloc/heapreset/oamdma only)."
                 );
         }
     }

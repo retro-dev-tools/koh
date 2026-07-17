@@ -1,0 +1,16 @@
+<Project Sdk="Koh.Sdk">
+
+  <!-- The graphics-library showcase: one ROM exercising every module under src/Koh.GameBoy/Graphics/
+       (docs/superpowers/specs/2026-07-15-graphics-library-design.md §5, item 3). An ordinary C# project
+       the plain compiler builds into a managed reference binary, while `dotnet build` also emits
+       gfx-demo.gb and `dotnet run` opens it in the Koh emulator (both driven by the Koh SDK). -->
+
+  <PropertyGroup>
+    <RootNamespace>Koh.Samples.GbGfxDemo</RootNamespace>
+    <KohRomName>gfx-demo.gb</KohRomName>
+    <!-- The demo dispatches its palette calls on Video.IsCgb at runtime (Palettes.SetBg/SetObj), so one
+         ROM is meant to run correctly on both DMG and CGB hardware. -->
+    <KohCgbCompatible>true</KohCgbCompatible>
+  </PropertyGroup>
+
+</Project>

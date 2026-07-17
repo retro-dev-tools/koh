@@ -24,7 +24,8 @@ public sealed partial class Sm83Backend
             bool isEntry,
             int softStackBase,
             IReadOnlySet<IrFunction>? banked = null,
-            int wramGlobalsSize = 0
+            int wramGlobalsSize = 0,
+            int oamDmaSrcAddr = -1
         )
         {
             _ctx = new EmitContext(
@@ -36,12 +37,13 @@ public sealed partial class Sm83Backend
                 isEntry,
                 softStackBase,
                 banked,
-                wramGlobalsSize
+                wramGlobalsSize,
+                oamDmaSrcAddr
             );
             _e = emitter;
             _arith = new ArithmeticEmitter(_ctx);
             _mem = new MemoryEmitter(_ctx);
-            _cf = new ControlFlowEmitter(_ctx);
+            _cf = new ControlFlowEmitter(_ctx, _arith);
         }
 
         public void Compile()
@@ -60,6 +62,9 @@ public sealed partial class Sm83Backend
                 // initializer defaults to zero in C#, but real hardware (and mGBA) do not guarantee WRAM
                 // starts zeroed the way the managed test-harness emulator's byte[]-backed memory happens to.
                 EmitWramGlobalsClear(_e, _ctx.WramGlobalsSize);
+                // Install the OAM DMA trampoline (no-op if the program never calls Hardware.RunOamDma —
+                // see EmitOamDmaTrampolineInstall's srcAddr < 0 guard).
+                EmitOamDmaTrampolineInstall(_e, _ctx.OamDmaSrcAddr);
             }
             if (_ctx.IsEntry && _ctx.Recursive.Count > 0 && _ctx.Banked.Count == 0)
             {
@@ -136,6 +141,8 @@ public sealed partial class Sm83Backend
                     _arith.EmitBinary(b);
                     break;
                 case CompareInstruction c:
+                    if (_ctx.FusedCompareBranch.Contains(c))
+                        break; // emitted directly at its single condbr use instead — see EmitContext.FusedCompareBranch
                     _arith.EmitCompare(c);
                     break;
                 case ConvInstruction cv:

@@ -308,6 +308,25 @@ internal sealed class FunctionAllocation
                 or IrBinaryOp.Or
                 or IrBinaryOp.Xor;
 
+    /// <summary>ADD/SUB/AND/OR/XOR at ANY width — used only by the loop-safety predicates below
+    /// (<see cref="IsLoopSafeInstruction"/>/<see cref="IsPointerLoopSafeInstruction"/>) to admit a wide gentle
+    /// binary that merely lives in a resident's live range without itself being a residency candidate.
+    /// Distinct from <see cref="IsGentleBinary"/>, which additionally caps width at 1-2 bytes because
+    /// <see cref="SelectResidents"/> also consults it to decide whether a VALUE ITSELF can fit in a single
+    /// register — do not fold the two together. Verified safe at any width: <c>EmitBinary</c>'s straight path
+    /// (<c>Sm83Backend.ArithmeticEmitter.cs</c>) is a <c>for k in 0..SizeOf(b.Type)</c> loop using only
+    /// <c>LoadByteToA</c>/<c>LoadByteToB</c>/an ALU op on <c>A</c>/<c>StoreResultByte</c> — it never touches
+    /// Hl/De regardless of width. Only Mul/UDiv/SDiv/URem/SRem and the shifts route through Hl/De/BC or a
+    /// runtime call, and both are excluded here exactly as <see cref="IsGentleBinary"/> excludes them.</summary>
+    private static bool IsWidthAgnosticGentleBinary(IrInstruction instr) =>
+        instr is BinaryInstruction b
+        && b.Op
+            is IrBinaryOp.Add
+                or IrBinaryOp.Sub
+                or IrBinaryOp.And
+                or IrBinaryOp.Or
+                or IrBinaryOp.Xor;
+
     /// <summary>One residency candidate: a gentle-ALU value whose live range is a single block.</summary>
     private readonly record struct Residency(
         IrValue Value,
@@ -527,15 +546,30 @@ internal sealed class FunctionAllocation
     /// tail, and any interior blocks alike), not just the loop body, so a use of the resident after the
     /// loop exits is exactly as safe as a use inside it. A compare is safe at any operand width (like
     /// Layer 2's own <c>IsPointerLoopSafeInstruction</c>): <c>EmitCompare</c> only ever touches A/B/C
-    /// plus fixed <c>RtCmp*</c> memory scratch, regardless of the compared type's size.</summary>
+    /// plus fixed <c>RtCmp*</c> memory scratch, regardless of the compared type's size. Also admits: any
+    /// width conversion (<c>ConvInstruction</c> — <c>EmitConv</c>'s Bitcast/Trunc/ZExt/SExt cases only ever
+    /// touch <c>A</c> plus the destination slot, never Hl/De), a load/store of a global MMIO register
+    /// (<c>IrGlobalRef</c> — resolves through <c>EmitContext.TryStaticAddr</c>'s literal-address path, same
+    /// as a static/alloca address, never through Hl/De), a width-agnostic gentle binary
+    /// (<see cref="IsWidthAgnosticGentleBinary"/>), and any-<c>Value</c> <c>RetInstruction</c> (a terminator
+    /// with no successors — whatever it clobbers materializing a return value can never be observed by a
+    /// resident afterward).</summary>
     private static bool IsLoopSafeInstruction(IrInstruction instr) =>
         instr is PhiInstruction
         || IsGentleBinary(instr)
+        || IsWidthAgnosticGentleBinary(instr)
         || instr is CompareInstruction
-        || (instr is LoadInstruction load && IsLiteralPointerConst(load.Pointer))
-        || (instr is StoreInstruction store && IsLiteralPointerConst(store.Pointer))
+        || instr is ConvInstruction
+        || (
+            instr is LoadInstruction load
+            && (IsLiteralPointerConst(load.Pointer) || load.Pointer is IrGlobalRef)
+        )
+        || (
+            instr is StoreInstruction store
+            && (IsLiteralPointerConst(store.Pointer) || store.Pointer is IrGlobalRef)
+        )
         || instr is BrInstruction or CondBrInstruction
-        || instr is RetInstruction { Value: null };
+        || instr is RetInstruction;
 
     /// <summary>Every block where <paramref name="a"/> or <paramref name="b"/> is live, by the same
     /// whole-function <see cref="IrLiveness"/> dataflow <see cref="ComputeInterference"/> uses — not
@@ -900,6 +934,7 @@ internal sealed class FunctionAllocation
                 register[c.Phi] = reg;
                 register[c.BodyValue] = reg;
                 fusedSite[c.DerefSite!] = reg;
+                AliasBitcastsOntoRegister(fn, c.Phi, reg, c.LiveBlocks, register);
                 admittedGepBodyValues.Add(c.BodyValue);
                 admittedGepDerefSites.Add(c.DerefSite!);
 
@@ -977,6 +1012,68 @@ internal sealed class FunctionAllocation
         }
 
         return (register, preheaderSync, fusedSite);
+    }
+
+    /// <summary>Phase 4 (bitcast aliasing): once a Phase-2 GEP-arm phi is admitted to a register, alias any
+    /// same-size <c>bitcast</c> Conv of that EXACT phi onto the SAME register too — e.g. the
+    /// <c>dst - start</c> pointer-difference idiom the CIL frontend lowers as <c>bitcast(dst) -&gt; i16</c>
+    /// then a plain <c>sub</c> — without this, reading the phi through a bitcast still works (a bitcast's
+    /// operand read goes through <c>LoadByteToA</c>, which already checks <c>Register</c> before <c>Slot</c>),
+    /// but the bitcast RESULT itself still gets a needless WRAM slot and round-trip store. Confining every use
+    /// of the bitcast to the phi's own certified <paramref name="liveBlocks"/> is load-bearing: that is exactly
+    /// the window <see cref="SelectLoopInductionResidents"/> already proved clobber-free for the phi's
+    /// register, so a bitcast whose result never escapes it is exactly as safe to alias as the phi itself. A
+    /// same-size requirement (<c>conv.Type.SizeInBytes == phi.Type.SizeInBytes</c>) means this is a
+    /// reinterpret, not a truncation/extension — <see cref="Sm83Backend.ArithmeticEmitter.EmitConv"/>'s
+    /// Bitcast/Trunc case copies exactly <c>dstBytes</c> source bytes 1:1, so aliasing changes nothing about
+    /// which bytes are read. Requires <c>EmitConv</c>'s Register-first short-circuit (piece 2) so a
+    /// register-aliased conv is never looked up in <c>Slot</c> and throws. <c>PhiInstruction.Operands</c> IS
+    /// confirmed to expose incomings (verified against <c>Ir/IrInstruction.cs</c>), so a phi elsewhere using
+    /// this bitcast as an incoming value is correctly detected as an out-of-range use by the
+    /// <c>useInstr.Operands.Any(...)</c> scan below.
+    /// <para>Scoped to Phase 2 (GEP-arm) only, per design. NOT wired into Phase 3 (plain gentle-binary
+    /// counters) or Layer 2 (<see cref="SelectLoopPointerResidents"/>) — either could plausibly benefit from
+    /// the same aliasing, but that is a distinct, unaudited extension left for later (TODO: revisit if a hot
+    /// loop needs a bitcast of a Phase-3 counter or a Layer-2 pointer local aliased this way).</para></summary>
+    private static void AliasBitcastsOntoRegister(
+        IrFunction fn,
+        PhiInstruction phi,
+        Sm83Register reg,
+        HashSet<IrBasicBlock> liveBlocks,
+        Dictionary<IrValue, Sm83Register> register
+    )
+    {
+        foreach (var block in liveBlocks)
+        foreach (var instr in block.Instructions)
+        {
+            if (instr is not ConvInstruction { Op: IrConvOp.Bitcast } conv)
+                continue;
+            if (!ReferenceEquals(conv.Operand, phi))
+                continue;
+            if (conv.Type.SizeInBytes != phi.Type.SizeInBytes)
+                continue;
+            if (register.ContainsKey(conv))
+                continue;
+
+            bool usesConfined = true;
+            foreach (var useBlock in fn.Blocks)
+            {
+                if (liveBlocks.Contains(useBlock))
+                    continue;
+                foreach (var useInstr in useBlock.Instructions)
+                    if (useInstr.Operands.Any(o => ReferenceEquals(o, conv)))
+                    {
+                        usesConfined = false;
+                        break;
+                    }
+                if (!usesConfined)
+                    break;
+            }
+            if (!usesConfined)
+                continue;
+
+            register[conv] = reg;
+        }
     }
 
     // ---- Loop-pointer register residency (Layer 2) -------------------------
@@ -1197,7 +1294,11 @@ internal sealed class FunctionAllocation
     /// <summary>Every instruction kind Layer 2 proves cannot clobber a resident pointer pair, applied to
     /// every block of a candidate's loop body — mirrors <see cref="IsLoopSafeInstruction"/>, widened to
     /// any-width compares/gentle ops (both provably A/B/C-only) and to this batch's own reloads/fused
-    /// sites/steps/storebacks (so a sibling candidate sharing the same loop body is recognised too).</summary>
+    /// sites/steps/storebacks (so a sibling candidate sharing the same loop body is recognised too). Also
+    /// admits any width conversion (<c>ConvInstruction</c>), a load/store of a global MMIO register
+    /// (<c>IrGlobalRef</c>), a width-agnostic gentle binary, and any-<c>Value</c> <c>RetInstruction</c> —
+    /// see <see cref="IsLoopSafeInstruction"/>'s doc comment for the safety argument for each; it applies
+    /// identically here.</summary>
     private static bool IsPointerLoopSafeInstruction(
         IrInstruction instr,
         HashSet<IrInstruction> reloads,
@@ -1207,20 +1308,30 @@ internal sealed class FunctionAllocation
     ) =>
         instr is PhiInstruction
         || IsGentleBinary(instr) // 1 or 2 bytes; touches only A/B
+        || IsWidthAgnosticGentleBinary(instr)
         || instr is CompareInstruction // any width; touches only A/B/C plus RtCmp* memory scratch
+        || instr is ConvInstruction
         || reloads.Contains(instr) // the designated reload itself: a no-op (register already holds it)
         || steps.Contains(instr) // the designated step gep: a no-op (its value is the fused site's result)
         || storebacks.Contains(instr) // the designated storeback: unmodified, sources from the register
         || (
             instr is LoadInstruction load
-            && (IsLiteralPointerConst(load.Pointer) || fusedDerefs.Contains(instr))
+            && (
+                IsLiteralPointerConst(load.Pointer)
+                || load.Pointer is IrGlobalRef
+                || fusedDerefs.Contains(instr)
+            )
         )
         || (
             instr is StoreInstruction store
-            && (IsLiteralPointerConst(store.Pointer) || fusedDerefs.Contains(instr))
+            && (
+                IsLiteralPointerConst(store.Pointer)
+                || store.Pointer is IrGlobalRef
+                || fusedDerefs.Contains(instr)
+            )
         )
         || instr is BrInstruction or CondBrInstruction
-        || instr is RetInstruction { Value: null };
+        || instr is RetInstruction;
 
     private static (
         Dictionary<IrValue, Sm83Register> Register,

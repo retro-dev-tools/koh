@@ -4,6 +4,9 @@
     <OutputType>Exe</OutputType>
     <UseTestingPlatformRunner>true</UseTestingPlatformRunner>
     <TestingPlatformCommandLineArguments>--ignore-exit-code 8</TestingPlatformCommandLineArguments>
+    <!-- CilSpritePaletteHardwareTests pokes Gb.Wram/Gb.Oam (byte*) directly in-process to prove the
+         desktop reference build's Hardware.DMA setter performs a real OAM DMA copy. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,6 +14,7 @@
     <ProjectReference Include="..\..\src\Koh.Linker.Core\Koh.Linker.Core.csproj" />
     <ProjectReference Include="..\..\src\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
     <ProjectReference Include="..\..\src\Koh.GameBoy\Koh.GameBoy.csproj" />
+    <ProjectReference Include="..\..\src\Koh.Debugger\Koh.Debugger.csproj" />
   </ItemGroup>
 
   <ItemGroup>

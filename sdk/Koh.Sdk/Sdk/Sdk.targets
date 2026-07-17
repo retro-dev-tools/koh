@@ -8,6 +8,12 @@
     <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
     <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
     <KohCgbCompatible Condition="'$(KohCgbCompatible)' == ''">false</KohCgbCompatible>
+    <KohEmitDebugInfo Condition="'$(KohEmitDebugInfo)' == ''">true</KohEmitDebugInfo>
+    <KohKdbgPath>$([System.IO.Path]::ChangeExtension('$(KohRomPath)', '.kdbg'))</KohKdbgPath>
+    <!-- Only counts as a tracked incremental Output/FileWrite when actually emitted, so disabling
+         KohEmitDebugInfo doesn't make the target perpetually "out of date" chasing a file that's
+         never written. -->
+    <KohKdbgOutput Condition="'$(KohEmitDebugInfo)' == 'true'">$(KohKdbgPath)</KohKdbgOutput>
     <KohBuildTasksProject>$(KohRoot)src/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
     <KohBuildTasksAssembly>$(KohRoot)src/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
     <KohEmulatorProject>$(KohRoot)src/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
@@ -62,6 +68,7 @@
       <_KohRomProps Include="CgbCompatible=$(KohCgbCompatible)" />
       <_KohRomProps Include="OutputPath=$(KohRomPath)" />
       <_KohRomProps Include="KohFrontend=$(KohFrontend)" />
+      <_KohRomProps Include="EmitDebugInfo=$(KohEmitDebugInfo)" />
     </ItemGroup>
     <WriteLinesToFile File="$(KohRomPropsStampFile)" Lines="@(_KohRomProps)" Overwrite="true"
                        WriteOnlyWhenDifferent="true" />
@@ -81,14 +88,16 @@
        or renaming the assembly do the same, without a source-file edit. -->
   <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
           Inputs="$(TargetPath);@(ReferencePath);$(KohBuildTasksAssembly);$(KohRomPropsStampFile)"
-          Outputs="$(KohRomPath)">
+          Outputs="$(KohRomPath);$(KohKdbgOutput)">
     <CompileKohRom OutputPath="$(KohRomPath)"
                    Frontend="$(KohFrontend)"
                    AssemblyPath="$(TargetPath)"
                    ReferencePaths="@(ReferencePath)"
-                   ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)" />
+                   ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)"
+                   EmitDebugInfo="$(KohEmitDebugInfo)" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPath)" />
+      <FileWrites Condition="'$(KohEmitDebugInfo)' == 'true'" Include="$(KohKdbgPath)" />
     </ItemGroup>
   </Target>
 

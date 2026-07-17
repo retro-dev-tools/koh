@@ -18,12 +18,12 @@ public sealed class DeadCodeEliminationPass : IIrFunctionPass
         do
         {
             changedThisRound = false;
-            var used = CollectUsed(function);
+            var live = CollectLive(function);
 
             foreach (var block in function.Blocks)
             {
                 var removed = block.Instructions.RemoveAll(instruction =>
-                    IsTriviallyDead(instruction) && !used.Contains(instruction)
+                    IsTriviallyDead(instruction) && !live.Contains(instruction)
                 );
                 if (removed > 0)
                     changedThisRound = true;
@@ -35,14 +35,46 @@ public sealed class DeadCodeEliminationPass : IIrFunctionPass
         return changedOverall;
     }
 
-    private static HashSet<IrValue> CollectUsed(IrFunction function)
+    /// <summary>
+    /// Transitive mark-and-sweep liveness. Seeds the live set from every instruction that is
+    /// NOT a removal candidate per <see cref="IsTriviallyDead"/> — i.e. every instruction with a
+    /// side effect or observable output (store/call/intrinsic), every terminator (ret/br/condbr/
+    /// switch), and load (kept unconditionally: a load can target volatile MMIO). Each root, and
+    /// then transitively every value reachable from a root through operand edges (including phi
+    /// incomings), is marked live.
+    ///
+    /// This is deliberately NOT the one-hop "is this an operand somewhere" check it replaces: a
+    /// one-hop check can never sweep a closed cycle of otherwise-dead instructions whose only
+    /// uses are each other (e.g. two phis in a loop header that each list the other as an
+    /// incoming, with no store/call/return ever consuming either) — no root reaches into the
+    /// cycle, so a real mark-and-sweep leaves both unmarked and both get swept, whereas the old
+    /// one-hop check saw each phi "used" by the other, forever, and never removed either.
+    /// </summary>
+    private static HashSet<IrValue> CollectLive(IrFunction function)
     {
-        var used = new HashSet<IrValue>(ReferenceEqualityComparer.Instance);
+        var live = new HashSet<IrValue>(ReferenceEqualityComparer.Instance);
+        var worklist = new Stack<IrValue>();
+
+        void Mark(IrValue value)
+        {
+            if (live.Add(value))
+                worklist.Push(value);
+        }
+
         foreach (var block in function.Blocks)
         foreach (var instruction in block.Instructions)
-        foreach (var operand in instruction.Operands)
-            used.Add(operand);
-        return used;
+            if (!IsTriviallyDead(instruction))
+                Mark(instruction);
+
+        while (worklist.Count > 0)
+        {
+            var value = worklist.Pop();
+            if (value is IrInstruction instruction)
+                foreach (var operand in instruction.Operands)
+                    Mark(operand);
+        }
+
+        return live;
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using Koh.Compiler.Ir;
 using Koh.Core.Diagnostics;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace Koh.Compiler.Frontends.Cil;
 
@@ -57,11 +58,34 @@ public sealed class CilFrontend : IFrontend
         }
 
         using var resolver = BuildResolver(input);
-        var readerParameters = new ReaderParameters { AssemblyResolver = resolver };
+        // ReadSymbols asks Cecil to load the game assembly's own portable PDB (embedded or the
+        // adjacent .pdb the .NET SDK already emits by default) so CilMethodLowerer can read sequence
+        // points and stamp IrInstruction.Source for the .kdbg address map (see CompileKohRom's
+        // DebugInfoPopulator call) — Mono.Cecil.dll itself already bundles portable-PDB support
+        // (Mono.Cecil.Cil.PortablePdbReaderProvider), no extra package needed. A Release build (or any
+        // build that suppressed its PDB) has none to find; Cecil throws SymbolsNotFoundException in
+        // that case, so this falls back to reading without symbols rather than failing the whole
+        // compile over missing (optional) debug info.
         try
         {
-            using var cecilModule = ModuleDefinition.ReadModule(input.FilePath, readerParameters);
-            CilModuleLowerer.Lower(cecilModule, module, diagnostics);
+            try
+            {
+                ReadAndLower(
+                    input.FilePath,
+                    new ReaderParameters { AssemblyResolver = resolver, ReadSymbols = true }
+                );
+            }
+            catch (Exception ex)
+                when (ex is SymbolsNotFoundException or SymbolsNotMatchingException)
+            {
+                ReadAndLower(input.FilePath, new ReaderParameters { AssemblyResolver = resolver });
+            }
+
+            void ReadAndLower(string path, ReaderParameters parameters)
+            {
+                using var cecilModule = ModuleDefinition.ReadModule(path, parameters);
+                CilModuleLowerer.Lower(cecilModule, module, diagnostics);
+            }
         }
         catch (Exception ex) when (ex is BadImageFormatException or IOException)
         {

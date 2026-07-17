@@ -1,4 +1,5 @@
 using Koh.Emulator.Core;
+using Koh.Emulator.Core.Debug;
 using Koh.Verify;
 
 var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../"));
@@ -84,10 +85,11 @@ foreach (var (modeName, mode) in new[] { ("dmg", HardwareMode.Dmg), ("cgb", Hard
     );
     if (guard.Violations.Count != 0)
     {
-        var (addr, val, ly) = guard.Violations[0];
+        var firstViolation = guard.Violations[0];
         failures.Add(
             $"{guard.Violations.Count} VRAM write(s) landed during PPU mode 3 (dropped on real "
-                + $"hardware); first at ${addr:X4}=${val:X2} LY={ly}"
+                + $"hardware); first at ${firstViolation.Address:X4}=${firstViolation.Value:X2} "
+                + $"LY={firstViolation.Ly}"
         );
     }
     var ok = failures.Count == 0;

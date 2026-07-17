@@ -22,6 +22,16 @@ public static class Hardware
     [KohIntrinsic("register", 0xFF47)]
     public static byte BGP { get; set; }
 
+    /// <summary>DMG object palette 0 (0xFF48). Object color index 0 is always transparent regardless
+    /// of the value stored there.</summary>
+    [KohIntrinsic("register", 0xFF48)]
+    public static byte OBP0 { get; set; }
+
+    /// <summary>DMG object palette 1 (0xFF49). Object color index 0 is always transparent regardless
+    /// of the value stored there.</summary>
+    [KohIntrinsic("register", 0xFF49)]
+    public static byte OBP1 { get; set; }
+
     [KohIntrinsic("register", 0xFF43)]
     public static byte SCX { get; set; }
 
@@ -51,6 +61,34 @@ public static class Hardware
 
     [KohIntrinsic("register", 0xFF69)]
     public static byte BCPD { get; set; }
+
+    /// <summary>CGB object palette index (0xFF6A). Mirrors <see cref="BCPS"/> but selects into the
+    /// object palette RAM that <see cref="OCPD"/> reads/writes.</summary>
+    [KohIntrinsic("register", 0xFF6A)]
+    public static byte OCPS { get; set; }
+
+    /// <summary>CGB object palette data (0xFF6B). Mirrors <see cref="BCPD"/> but targets object
+    /// palette RAM instead of background palette RAM.</summary>
+    [KohIntrinsic("register", 0xFF6B)]
+    public static byte OCPD { get; set; }
+
+    /// <summary>OAM DMA source page (0xFF46). Writing a page value starts a hardware DMA that copies
+    /// 160 bytes from <c>page * 0x100</c> into OAM (0xFE00-0xFE9F) over ~160 M-cycles while the bus is
+    /// locked to everything but HRAM; the emulator (<c>Koh.Emulator.Core.Dma.OamDma</c>) models that
+    /// timing on the ROM path. The desktop reference build has no cycle-accurate bus to model, so the
+    /// setter performs the equivalent copy synchronously via <see cref="Gb.DmaOam"/>.</summary>
+    [KohIntrinsic("register", 0xFF46)]
+    public static byte DMA
+    {
+        get => _dma;
+        set
+        {
+            _dma = value;
+            Gb.DmaOam(value);
+        }
+    }
+
+    private static byte _dma;
 
     // CGB HDMA/GDMA registers ($FF51-$FF55). Inert plain storage here: the desktop reference run
     // never starts a transfer (Cgb.IsColor() is false because KEY1 reads $FF), matching real DMG
@@ -117,6 +155,11 @@ public static class Hardware
 
     private static byte _ly;
 
+    /// <summary>LY compare (0xFF45): the STAT interrupt fires when LY equals this value. Plain
+    /// storage on the desktop reference build (the reference run has no STAT interrupt to raise).</summary>
+    [KohIntrinsic("register", 0xFF45)]
+    public static byte LYC { get; set; }
+
     // Interrupt/CPU control intrinsics. The compiler maps these to ei/di/halt/nop; on the desktop they
     // are no-ops (the reference run is a plain loop with no interrupt hardware).
     [KohIntrinsic("ei")]
@@ -133,6 +176,15 @@ public static class Hardware
 
     [KohIntrinsic("stop")]
     public static void Stop() { }
+
+    /// <summary>Trigger a hardware OAM DMA from <c>sourcePage * 0x100</c> and wait for it to finish —
+    /// the ROM path this lowers to (a boot-installed HRAM trampoline, see the <c>[KohIntrinsic]</c>
+    /// "oamdma" kind) executes the trigger+160-M-cycle wait from HRAM, since OAM DMA locks the bus to
+    /// everything but HRAM for that whole window and a ROM-resident wait loop would corrupt its own
+    /// instruction fetch. The desktop reference build has no such bus lock to model, so it performs the
+    /// same synchronous copy as <see cref="DMA"/>'s setter (in fact, is exactly that).</summary>
+    [KohIntrinsic("oamdma")]
+    public static void RunOamDma(byte sourcePage) => Gb.DmaOam(sourcePage);
 
     /// <summary>Host-side pacing, input, and rendering for the desktop reference run.</summary>
     private static class Host

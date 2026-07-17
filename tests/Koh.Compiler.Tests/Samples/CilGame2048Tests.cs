@@ -139,7 +139,11 @@ public class CilGame2048Tests
     private static EmitModel Compile(IReadOnlyList<string> sources, bool optimize = false)
     {
         var diagnostics = new DiagnosticBag();
-        var module = Frontend(sources, OptimizationLevel.Debug, diagnostics);
+        // Release, not Debug: with the deferred shadow-tilemap flush, tests that read rendered state after
+        // a fixed step budget are timing-sensitive, and Debug IL's redundant stores/unfolded constants are
+        // real cost the CIL frontend lowers faithfully (CLAUDE.md's Release-for-timing-fixtures rule) — they
+        // slow the game loop enough that the deferred score never lands within budget. Semantics-identical.
+        var module = Frontend(sources, OptimizationLevel.Release, diagnostics);
         if (diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
             throw new InvalidOperationException(
                 "frontend reported errors:\n  "
@@ -236,10 +240,70 @@ public class CilGame2048Tests
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
-        for (int i = 0; i < 2_000_000; i++)
+        for (int i = 0; i < 12_000_000; i++)
             gb.StepInstruction();
 
         await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);
+    }
+
+    // ---- What the retrofit ADDED (score text, sprite cursor) actually renders -----------------
+    // Boots the real, unmodified ROM exactly like Sample_RomBootsIntoMainAndInitializes, then reads back
+    // the two things Game.cs could not do before this slice: a text label + live number on the BG map
+    // (Text.Draw/Text.DrawNumber), and a sprite tracking the active cell (Sprites). No input is sent, so
+    // Board.Score stays 0 for the whole run — the digits are deterministic.
+
+    [Test]
+    public async Task Sample_RendersScoreLabelAndNumberToTheBackgroundMap()
+    {
+        // optimize: true to match the real ROM build (CompilerDriver optimizes by default): the deferred
+        // shadow-tilemap flush makes this render read timing-sensitive, and an un-optimized ROM runs the
+        // game loop slowly enough that the score digits never land within budget.
+        var model = Compile([BoardSource, TilesSource, GameSource], optimize: true);
+        var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Pc = 0x100;
+        gb.Registers.Sp = 0xFFFE;
+        for (int i = 0; i < 12_000_000; i++)
+            gb.StepInstruction();
+
+        // Text.Draw(1, 0, "SCORE") -> map row 0, cols 1..5 ($9801..$9805). Glyph = Tiles.FontFirstTile
+        // (13) + (ch - 0x20): 'S'=64, 'C'=48, 'O'=60, 'R'=63, 'E'=50.
+        await Assert.That(gb.DebugReadByte(0x9801)).IsEqualTo((byte)64); // S
+        await Assert.That(gb.DebugReadByte(0x9802)).IsEqualTo((byte)48); // C
+        await Assert.That(gb.DebugReadByte(0x9803)).IsEqualTo((byte)60); // O
+        await Assert.That(gb.DebugReadByte(0x9804)).IsEqualTo((byte)63); // R
+        await Assert.That(gb.DebugReadByte(0x9805)).IsEqualTo((byte)50); // E
+
+        // Text.DrawNumber(7, 0, Board.Score, 5) with Score == 0 (no input sent) right-aligns "    0":
+        // 4 space glyphs (13) at cols 7..10 ($9807..$980A), then the '0' glyph (13 + 16 = 29) at col 11
+        // ($980B).
+        await Assert.That(gb.DebugReadByte(0x9807)).IsEqualTo((byte)13);
+        await Assert.That(gb.DebugReadByte(0x9808)).IsEqualTo((byte)13);
+        await Assert.That(gb.DebugReadByte(0x9809)).IsEqualTo((byte)13);
+        await Assert.That(gb.DebugReadByte(0x980A)).IsEqualTo((byte)13);
+        await Assert.That(gb.DebugReadByte(0x980B)).IsEqualTo((byte)29);
+    }
+
+    [Test]
+    public async Task Sample_CursorSpriteIsVisibleAndFlushedToOam()
+    {
+        var model = Compile([BoardSource, TilesSource, GameSource]);
+        var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
+
+        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        gb.Registers.Pc = 0x100;
+        gb.Registers.Sp = 0xFFFE;
+        for (int i = 0; i < 12_000_000; i++)
+            gb.StepInstruction();
+
+        // OAM slot 0 (Sprites.Get(0, ...)), Pan Docs order Y/X/Tile/Attr at $FE00..$FE03. The first
+        // Video.EndFrame() flushes the shadow to real OAM via RunOamDma well within this step budget.
+        // CursorRow/CursorCol come from the DIV-seeded random spawn, so X/Y aren't asserted exactly —
+        // only that the DMA actually landed the cursor's own tile and that it isn't hidden (Y == 0 is
+        // this library's one hide convention).
+        await Assert.That(gb.DebugReadByte(0xFE02)).IsEqualTo((byte)12); // Tiles.CursorSpriteTile
+        await Assert.That(gb.DebugReadByte(0xFE00)).IsNotEqualTo((byte)0); // Y != 0 -> not hidden
     }
 
     // ---- Its game logic runs correctly in the emulator (CIL-lowered) --------------------------
@@ -398,7 +462,7 @@ public class CilGame2048Tests
         var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
-        for (int i = 0; i < 2_000_000; i++)
+        for (int i = 0; i < 12_000_000; i++)
             gb.StepInstruction();
 
         await Assert.That(gb.DebugReadByte(0x8010)).IsEqualTo((byte)0xFF);

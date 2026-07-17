@@ -44,6 +44,14 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
 
     public bool CgbCompatible { get; set; }
 
+    /// <summary>
+    /// When true (the default), also write a <c>.kdbg</c> debug-info file next to <see cref="OutputPath"/>
+    /// (same base name, <c>.kdbg</c> extension) — mirrors <c>Koh.Link/Program.cs</c>'s own
+    /// <c>DebugInfoBuilder</c>/<c>DebugInfoPopulator</c>/<c>KdbgFileWriter</c> call, so every SDK-built ROM
+    /// gets the file the DAP debugger (<c>Koh.Debugger.Session.DebugInfoLoader</c>) already knows how to load.
+    /// </summary>
+    public bool EmitDebugInfo { get; set; } = true;
+
     public override bool Execute()
     {
         if (string.IsNullOrEmpty(AssemblyPath))
@@ -108,6 +116,17 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
             Directory.CreateDirectory(outputDir);
         File.WriteAllBytes(OutputPath, rom);
         Log.LogMessage(MessageImportance.High, $"Koh: built {OutputPath} ({rom.Length} bytes).");
+
+        if (EmitDebugInfo)
+        {
+            var kdbgPath = Path.ChangeExtension(OutputPath, ".kdbg");
+            var builder = new DebugInfoBuilder();
+            DebugInfoPopulator.Populate(builder, link);
+            using var kdbgStream = File.Create(kdbgPath);
+            KdbgFileWriter.Write(kdbgStream, builder);
+            Log.LogMessage(MessageImportance.Normal, $"Koh: wrote {kdbgPath}.");
+        }
+
         return true;
     }
 }
