@@ -489,30 +489,55 @@ public class CilLoweringTests
         await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)150);
     }
 
-    // An array that can't be traced to a 'newarr' in the SAME method (here: received as a parameter)
-    // has no tracked element count at all — this frontend's arrays carry no runtime length header (see
-    // CilMethodLowerer.Arrays.cs's class remarks), so 'ldlen' degrades to a diagnostic, not a wrong
-    // answer or a crash. Same contract as LINQ's identical "traced to a local newarr" limitation.
+    // An array that can't be traced to a 'newarr' in the SAME method (here: received as a
+    // parameter) used to be a diagnostic; since enabler E4 (length-carrying arrays — see
+    // CilMethodLowerer.Arrays.cs's class remarks) every array producer writes a u16 element count
+    // at payload−2, so an untraceable 'ldlen' loads the real length at runtime. This fixture pins
+    // the fallback for all three producers: a heap 'newarr', a ROM static readonly literal, and a
+    // WRAM fixed-size static (whose count the entry prologue stores).
     private const string ArrayLengthOnParameterSource = """
         using Koh.GameBoy;
 
         public class Program
         {
-            private static int Len(int[] a) => a.Length;
+            private static readonly byte[] RomTable = { 9, 8, 7, 6, 5, 4, 3 };
+            private static byte[] WramBuf = new byte[11];
+
+            private static int Len(byte[] a) => a.Length;
+
+            private static int LenInt(int[] a) => a.Length;
 
             public static void Main()
             {
                 int[] arr = new int[3];
-                Hardware.BGP = (byte)Len(arr);
+                Hardware.BGP = (byte)LenInt(arr);       // heap newarr -> 3
+                Hardware.SCY = (byte)Len(RomTable);     // ROM literal -> 7
+                Hardware.WY = (byte)Len(WramBuf);       // WRAM fixed-size -> 11
+                Hardware.SCX = 0xEE;
             }
         }
         """;
 
     [Test]
-    public async Task ArrayLength_OnUntraceableArray_ReportsDiagnostic_DoesNotThrow()
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task ArrayLength_OnUntraceableArray_ReadsRuntimeLengthPrefix(
+        OptimizationLevel level
+    )
     {
         var diagnostics = new DiagnosticBag();
-        Frontend(ArrayLengthOnParameterSource, OptimizationLevel.Debug, diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error)).IsTrue();
+        var module = Frontend(ArrayLengthOnParameterSource, level, diagnostics);
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse()
+            .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        var gb = Load(Compile(ArrayLengthOnParameterSource, level), out int s, out int l);
+        Run(gb, s, l);
+        await Assert.That(gb.DebugReadByte(0xFF43)).IsEqualTo((byte)0xEE);
+        await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)3); // heap newarr
+        await Assert.That(gb.DebugReadByte(0xFF42)).IsEqualTo((byte)7); // ROM literal
+        await Assert.That(gb.DebugReadByte(0xFF4A)).IsEqualTo((byte)11); // WRAM fixed-size
     }
 }

@@ -296,6 +296,39 @@ internal static class CilModuleLowerer
         )
             entryFn.IsEntry = true;
 
+        // Length-carrying arrays (enabler E4): every WRAM array alias's u16 element count must be in
+        // memory before any code can read it back through an untraceable `ldlen`. WRAM has no
+        // initializers (the backend just zeroes it at boot), so the counts are STORED by code —
+        // prepended to the entry function's entry block here, AFTER all lowering, because a
+        // cross-assembly array field (e.g. a Koh.GameBoy shadow buffer) is only classified on
+        // demand, possibly after the entry's own body already lowered; collecting first and
+        // inserting last means no discovery-order hazard. Inserted at index 0: before the entry's
+        // own allocas/heap-seed/cctor calls, so even a '.cctor' reading a length sees it.
+        if (
+            entryMethod is not null
+            && ctx.ArrayCountInits.Count > 0
+            && ctx.FunctionsByMethod.TryGetValue(entryMethod, out var entryForCounts)
+            && entryForCounts.Blocks.Count > 0
+        )
+        {
+            var entryBlock = entryForCounts.Blocks[0];
+            var insert = new List<IrInstruction>();
+            foreach (var (global, offset, count) in ctx.ArrayCountInits)
+            {
+                var gep = new GetElementPtrInstruction(
+                    IrBuilder.GlobalRef(global),
+                    IrBuilder.ConstInt(IrType.I16, offset),
+                    IrType.I8
+                );
+                var cast = new ConvInstruction(IrConvOp.Bitcast, gep, IrType.Pointer(IrType.I16));
+                var store = new StoreInstruction(IrBuilder.ConstInt(IrType.I16, count), cast);
+                insert.Add(gep);
+                insert.Add(cast);
+                insert.Add(store);
+            }
+            entryBlock.Instructions.InsertRange(0, insert);
+        }
+
         // Prune every function unreachable from the entry/an interrupt handler through the call graph —
         // both framework functions lowered on demand (see the referenced-assembly task, docs/
         // superpowers/specs/2026-07-14-cil-frontend-design.md, task 2) AND the game module's own dead

@@ -192,7 +192,7 @@ public class CilStringLiteralTests
         var destSymbol = link.Symbols.Single(sym => sym.Name.EndsWith(".Dest"));
         var bytes = new byte[ScoreText.Length];
         for (var i = 0; i < bytes.Length; i++)
-            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + i));
+            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + 2 + i)); // +2: E4 length prefix — Dest is a WRAM array alias, its payload starts past the u16 count
         return (module, bytes);
     }
 
@@ -290,7 +290,7 @@ public class CilStringLiteralTests
         var destSymbol = link.Symbols.Single(sym => sym.Name.EndsWith(".Dest"));
         var bytes = new byte[ScoreText.Length];
         for (var i = 0; i < bytes.Length; i++)
-            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + i));
+            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + 2 + i)); // +2: E4 length prefix — Dest is a WRAM array alias, its payload starts past the u16 count
         await Assert.That(bytes).IsEquivalentTo(ScoreText.Select(c => (byte)c).ToArray());
         await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)'E');
     }
@@ -414,7 +414,7 @@ public class CilStringLiteralTests
         var destSymbol = link.Symbols.Single(sym => sym.Name.EndsWith(".Dest"));
         var bytes = new byte[ScoreText.Length];
         for (var i = 0; i < bytes.Length; i++)
-            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + i));
+            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + 2 + i)); // +2: E4 length prefix — Dest is a WRAM array alias, its payload starts past the u16 count
         await Assert.That(bytes).IsEquivalentTo(ScoreText.Select(c => (byte)c).ToArray());
         await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)'S');
     }
@@ -487,7 +487,7 @@ public class CilStringLiteralTests
         var destSymbol = link.Symbols.Single(sym => sym.Name.EndsWith(".Dest"));
         var bytes = new byte[ScoreText.Length];
         for (var i = 0; i < bytes.Length; i++)
-            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + i));
+            bytes[i] = gb.DebugReadByte((ushort)(destSymbol.AbsoluteAddress + 2 + i)); // +2: E4 length prefix — Dest is a WRAM array alias, its payload starts past the u16 count
         await Assert.That(bytes).IsEquivalentTo(expectedAscii);
     }
 }

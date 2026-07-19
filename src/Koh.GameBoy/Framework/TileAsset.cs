@@ -23,8 +23,13 @@ public struct TileAsset
     /// <summary>The VRAM slot the table was loaded at (set by <see cref="Load"/>).</summary>
     public byte BaseTile => _baseTile;
 
-    /// <summary>Bind a handle to its ROM table. Call where the array is declared:
-    /// <c>Tiles = TileAsset.Define(TileArt, 12);</c></summary>
+    /// <summary>Bind a handle to its ROM table — the ideal form, no count anywhere:
+    /// <c>Tiles = TileAsset.Define(TileArt);</c>. The tile count is the array's real length
+    /// (length-carrying arrays, enabler E4) divided by 16 bytes per 2bpp tile.</summary>
+    public static TileAsset Define(byte[] data) => Define(data, (byte)(data.Length / 16));
+
+    /// <summary>Explicit-count overload — for a table deliberately loaded partially, or art arrays
+    /// carrying trailing non-tile data.</summary>
     public static TileAsset Define(byte[] data, byte tileCount)
     {
         TileAsset asset = default;

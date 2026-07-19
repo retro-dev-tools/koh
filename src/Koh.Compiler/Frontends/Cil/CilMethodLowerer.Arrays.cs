@@ -6,16 +6,16 @@ namespace Koh.Compiler.Frontends.Cil;
 
 /// <summary>
 /// SZ-array support: <c>newarr</c>, <c>ldelem.*</c>/<c>stelem.*</c> for the fixed-width primitive
-/// element types the LINQ task's fixtures need. An array is a raw heap-allocated element block
-/// (bump-pointer, same <c>__heap</c> convention as <see cref="CilMethodLowerer"/>'s object allocation —
-/// see <c>LowerNewobj</c>), never a real CLR array object (no length header, no covariance/type
-/// checks) — its element type and count are frontend-only provenance carried alongside the base
-/// pointer, exactly like a resolved delegate's target method (see
-/// <c>CilMethodLowerer.Delegates.cs</c>'s remarks on <c>_pendingDelegateProvenance</c>). Because the
-/// count is whatever value the CIL program actually pushed before <c>newarr</c> (typically, but not
-/// necessarily, a compile-time constant), it is tracked as a real <see cref="IrValue"/> — the loop
-/// bound in <see cref="CilMethodLowerer.Linq"/>'s pipeline lowering reads it at runtime, not by
-/// assuming a constant length.
+/// element types the LINQ task's fixtures need. An array is a raw element block (bump-pointer heap,
+/// ROM literal, or static alias) prefixed by a u16 ELEMENT COUNT at payload−2 (enabler E4,
+/// length-carrying arrays — the same mechanism strings already used, applied with the reference
+/// pointing at the PAYLOAD so element geps and <c>byte*</c> interop never see the prefix) — still
+/// never a real CLR array object (no covariance/type checks). Element type and count additionally
+/// travel as frontend-only provenance alongside the base pointer, exactly like a resolved
+/// delegate's target method (see <c>CilMethodLowerer.Delegates.cs</c>'s remarks on
+/// <c>_pendingDelegateProvenance</c>) — the fast path that keeps a traceable <c>ldlen</c> a
+/// compile-time constant (LINQ's pipeline lowering relies on it); the in-memory prefix is the
+/// fallback that makes <c>array.Length</c> work across call boundaries.
 /// </summary>
 internal sealed partial class CilMethodLowerer
 {
@@ -110,7 +110,7 @@ internal sealed partial class CilMethodLowerer
             if (bytes is null || bytes.Length != count * elemSize)
                 continue;
 
-            var romGlobal = _ctx.EnsureRvaBlobGlobal(dataField!);
+            var romGlobal = _ctx.EnsureCountedArrayGlobal(dataField!, (int)count);
             _newarrLiteralGlobal[instr] = (romGlobal, elemType, (int)count);
             _suppressed.Add(dup);
             _suppressed.Add(ldtoken);
@@ -129,7 +129,13 @@ internal sealed partial class CilMethodLowerer
     )
     {
         Pop(stack);
-        var ptr = IrBuilder.GlobalRef(literal.Global);
+        // The global is counted ([u16 count][payload] — see EnsureCountedArrayGlobal); the array
+        // value is the PAYLOAD address, matching every other array producer under enabler E4.
+        var ptr = _b.Gep(
+            IrBuilder.GlobalRef(literal.Global),
+            IrBuilder.ConstInt(IrType.I16, 2),
+            IrType.I8
+        );
         _pendingArrayInfo[ptr] = (
             literal.ElemType,
             false,
@@ -174,13 +180,18 @@ internal sealed partial class CilMethodLowerer
                     + "was provisioned for this module."
             );
         var heapRef = IrBuilder.GlobalRef(heap);
-        var raw = _b.Sub(_b.Load(heapRef), sizeBytes);
+        // Enabler E4: allocate 2 extra bytes, store the u16 element count at the block's base, and
+        // hand out the PAYLOAD (base+2) as the array value — element geps and pointer interop see
+        // only the payload; ldlen's fallback reads payload−2.
+        var raw = _b.Sub(_b.Load(heapRef), _b.Add(sizeBytes, IrBuilder.ConstInt(IrType.I16, 2)));
         _b.Store(raw, heapRef);
         var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
-        EmitZeroFillDynamic(basePtr, sizeBytes);
+        _b.Store(count16, _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, 0), IrType.I16));
+        var payload = _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, 2), IrType.I8);
+        EmitZeroFillDynamic(payload, sizeBytes);
 
-        _pendingArrayInfo[basePtr] = (elemType, elemSigned, count16);
-        stack.Add(basePtr);
+        _pendingArrayInfo[payload] = (elemType, elemSigned, count16);
+        stack.Add(payload);
     }
 
     /// <summary>Dynamic-size sibling of <see cref="EmitZeroFill"/> (that one takes a compile-time
@@ -271,29 +282,27 @@ internal sealed partial class CilMethodLowerer
         stack.Add(WidenToStack(_b.Load(ElementPointer(arrayRef, index, irType)), signed));
     }
 
-    /// <summary><c>ldlen</c>: this frontend's arrays carry no runtime length header (see class
-    /// remarks) — the element count only exists as the compile-time <see cref="_pendingArrayInfo"/>/
-    /// <see cref="_localArrayInfo"/> side channel a <c>newarr</c> seeds and <c>LoadLocal</c>/
-    /// <c>StoreLocal</c>/<c>Dup</c> carry forward, exactly the provenance <see cref="ResolvePipeline"/>
-    /// (<c>CilMethodLowerer.Linq.cs</c>) already relies on for the same reason. Pushes the tracked
-    /// count (already <see cref="IrType.I16"/> — this target's native-int width, matching real CLR
-    /// <c>ldlen</c>'s "native unsigned int" result) straight back; Roslyn's usual
-    /// <c>ldlen ; conv.i4</c> shape for <c>array.Length</c> then passes it through unchanged (conv.i4
-    /// only truncates a wider-than-32-bit value — see <c>Code.Conv_I4</c>'s case). An array that
-    /// can't be traced to a <c>newarr</c> in THIS method (received as a parameter, returned from a
-    /// call, or read back out of a field/array element) has no tracked count at all — a diagnostic,
-    /// not a wrong answer.</summary>
+    /// <summary><c>ldlen</c>. Fast path: the compile-time <see cref="_pendingArrayInfo"/>/
+    /// <see cref="_localArrayInfo"/> provenance a <c>newarr</c>/static-alias read seeds and
+    /// <c>LoadLocal</c>/<c>StoreLocal</c>/<c>Dup</c> carry forward — a CONSTANT for a fixed-size
+    /// array, which keeps LINQ pipeline lowering and its pinned cycle budgets fully folded.
+    /// Fallback (enabler E4, length-carrying arrays): every array producer now writes the u16
+    /// element count at payload−2 (heap <c>newarr</c>, ROM literals, static aliases — including
+    /// <c>[KohAligned]</c> fields, whose count sits in the alignment padding), so an untraceable
+    /// array — a parameter, a call result, a field read — loads its length from memory instead of
+    /// the old diagnostic. Pushes I16 (this target's native-int width) either way; Roslyn's usual
+    /// <c>ldlen ; conv.i4</c> passes it through unchanged.</summary>
     private void LowerLdlen(List<IrValue> stack)
     {
         var arrayRef = Pop(stack);
-        if (!_pendingArrayInfo.TryGetValue(arrayRef, out var info))
-            throw new CilNotSupportedException(
-                $"'ldlen' in '{_method.FullName}' could not be traced to a 'newarr'-allocated array in "
-                    + "this method (this frontend's arrays carry no runtime length header — an array "
-                    + "received as a parameter, returned from a call, or read from a field/element is "
-                    + "out of scope for 'array.Length')."
-            );
-        stack.Add(info.Count);
+        if (_pendingArrayInfo.TryGetValue(arrayRef, out var info))
+        {
+            stack.Add(info.Count);
+            return;
+        }
+        var prefixPtr = _b.Gep(arrayRef, IrBuilder.ConstInt(IrType.I16, -2), IrType.I8);
+        var countPtr = _b.Conv(IrConvOp.Bitcast, prefixPtr, IrType.Pointer(IrType.I16));
+        stack.Add(_b.Load(countPtr));
     }
 
     private void LowerStelemAny(TypeReference typeRef, List<IrValue> stack)

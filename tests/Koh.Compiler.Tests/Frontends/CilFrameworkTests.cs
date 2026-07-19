@@ -350,7 +350,9 @@ public class CilFrameworkTests
             {
                 Game.Boot(); // LCD off -> TileSet.Load takes the direct-copy path
 
-                Assets.Tiles = TileAsset.Define(Assets.Art, 2); // struct-returning factory (E1)
+                Assets.Tiles = TileAsset.Define(Assets.Art); // count-free factory (E1 + E4):
+                                                             // 32 bytes / 16 = 2 tiles, derived
+                                                             // from the array's REAL length
                 Assets.Tiles.Load(4); // land at VRAM slot 4, clear of anything Init touched
 
                 byte ok = 1;

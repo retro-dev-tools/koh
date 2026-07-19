@@ -60,12 +60,14 @@ internal sealed class CilLoweringContext
     // CSharpFrontend's own static-array placement; see CilStaticFieldSupport's remarks).
     private readonly HashSet<FieldDefinition> _staticFieldIsAlias = new();
 
-    // Element type/signedness/count for every aliased ARRAY field (not populated for a folded SCALAR
-    // constant) — mirrors CilMethodLowerer.Arrays.cs's _pendingArrayInfo shape, so Ldsfld can tag its
-    // pushed value the same way a 'newarr' or a static-array identifier does.
+    // Element type/signedness/count/payload-offset for every aliased ARRAY field (not populated for
+    // a folded SCALAR constant) — mirrors CilMethodLowerer.Arrays.cs's _pendingArrayInfo shape, so
+    // Ldsfld can tag its pushed value the same way a 'newarr' or a static-array identifier does.
+    // PayloadOffset is where the elements start inside the global (past the u16 length prefix — see
+    // RegisterFoldedStaticArray's remarks).
     private readonly Dictionary<
         FieldDefinition,
-        (IrType ElemType, bool Signed, int Count)
+        (IrType ElemType, bool Signed, int Count, int PayloadOffset)
     > _staticArrayInfo = new();
 
     // A static field of USER STRUCT type (e.g. the Framework's 'static TileAsset Tiles' /
@@ -106,23 +108,33 @@ internal sealed class CilLoweringContext
         _staticFields[field] = romGlobal;
 
     /// <summary>Alias a static ARRAY field straight onto <paramref name="arrayGlobal"/> — the field has
-    /// no separate holder; the global's own address IS the field's value (Ldsfld/Ldsflda push
-    /// <c>GlobalRef</c> directly). Used both for a readonly array literal (ROM, content-initialized)
-    /// and a fixed-size array with no literal content (ROM if readonly, else WRAM, zero-initialized by
-    /// the backend's unconditional boot-only WRAM clear — see CSharpFrontend's own static-array
-    /// remarks).</summary>
+    /// no separate holder; the field's value is the global's PAYLOAD address (base +
+    /// <paramref name="payloadOffset"/>): every array now carries its u16 element count at
+    /// payload−2 (enabler E4, length-carrying arrays — see <c>LowerLdlen</c>'s fallback), with the
+    /// payload offset normally 2 and <c>max(2, alignment)</c> for a <c>[KohAligned]</c> field so the
+    /// PAYLOAD (what OAM DMA and pointer interop see) keeps the declared alignment. Used both for a
+    /// readonly array literal (ROM, content-initialized with the count baked in) and a fixed-size
+    /// array with no literal content (ROM if readonly, else WRAM — zeroed by the backend's boot
+    /// clear, with the count stored by the entry prologue via <see cref="ArrayCountInits"/>).</summary>
     public void RegisterFoldedStaticArray(
         FieldDefinition field,
         IrGlobal arrayGlobal,
         IrType elemType,
         bool elemSigned,
-        int count
+        int count,
+        int payloadOffset
     )
     {
         _staticFields[field] = arrayGlobal;
         _staticFieldIsAlias.Add(field);
-        _staticArrayInfo[field] = (elemType, elemSigned, count);
+        _staticArrayInfo[field] = (elemType, elemSigned, count, payloadOffset);
     }
+
+    /// <summary>WRAM length-prefixed array globals whose element count must be written at boot
+    /// (WRAM has no initializers — the backend zeroes it): (global, byte offset of the u16 count,
+    /// count). The entry function's prologue emits one store per entry
+    /// (<c>CilMethodLowerer.Run</c>'s <c>isEntry</c> block).</summary>
+    public List<(IrGlobal Global, int CountOffset, int Count)> ArrayCountInits { get; } = new();
 
     public bool IsStaticFieldAlias(FieldDefinition field) => _staticFieldIsAlias.Contains(field);
 
@@ -133,7 +145,7 @@ internal sealed class CilLoweringContext
 
     public bool TryGetStaticArrayInfo(
         FieldDefinition field,
-        out (IrType ElemType, bool Signed, int Count) info
+        out (IrType ElemType, bool Signed, int Count, int PayloadOffset) info
     ) => _staticArrayInfo.TryGetValue(field, out info);
 
     /// <summary>Declaring types already run through <see cref="CilStaticFieldSupport.CollectType"/> by
@@ -204,6 +216,38 @@ internal sealed class CilLoweringContext
     // in the program share one ROM global for free, exactly like a hand-written 'static readonly'
     // array field already would.
     private readonly Dictionary<FieldDefinition, IrGlobal> _rvaBlobGlobals = new();
+
+    // A LOCAL array literal's counted ROM global: [u16 element count][payload bytes], the value
+    // pushed being the PAYLOAD address (base+2) — the array-shaped sibling of EnsureRvaBlobGlobal
+    // below (which stays uncounted for the `"..."u8` span path). Keyed by (blob field, element
+    // count) rather than blob field alone: Roslyn dedupes blobs by CONTENT, so one blob can back
+    // arrays of DIFFERENT element widths (byte[4] vs ushort[2] with identical bytes) whose element
+    // counts differ — the count baked into the global must match each shape.
+    private readonly Dictionary<(FieldDefinition, int), IrGlobal> _countedArrayGlobals = new();
+
+    /// <summary>The counted ROM global for a local array literal backed by
+    /// <paramref name="blobField"/> with <paramref name="elemCount"/> elements (see
+    /// <c>_countedArrayGlobals</c>' remarks). Callers push base+2 (the payload).</summary>
+    public IrGlobal EnsureCountedArrayGlobal(FieldDefinition blobField, int elemCount)
+    {
+        var key = (blobField, elemCount);
+        if (_countedArrayGlobals.TryGetValue(key, out var g))
+            return g;
+        var payload = blobField.InitialValue;
+        var bytes = new byte[2 + payload.Length];
+        bytes[0] = (byte)elemCount;
+        bytes[1] = (byte)(elemCount >> 8);
+        payload.CopyTo(bytes, 2);
+        g = new IrGlobal(
+            $"__arr.{blobField.FullName}.{elemCount}",
+            IrType.Array(IrType.I8, bytes.Length),
+            AddressSpace.Rom,
+            initializer: bytes
+        );
+        Module.Globals.Add(g);
+        _countedArrayGlobals[key] = g;
+        return g;
+    }
 
     /// <summary>The ROM global backing <paramref name="blobField"/>'s raw bytes (a compiler-generated
     /// RVA-initialized field — <see cref="FieldDefinition.InitialValue"/> is already exactly the bytes
