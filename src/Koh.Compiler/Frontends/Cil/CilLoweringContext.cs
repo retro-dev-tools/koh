@@ -427,15 +427,23 @@ internal sealed class CilLoweringContext
             return existing;
         try
         {
-            // Struct-by-value RETURN is a diagnostic, not a lowering: parity with CSharpFrontend, whose
-            // own return-type resolver has no struct path at all (see CilMethodLowerer.Structs.cs's
-            // class remarks) — the backend's calling convention has no proven aggregate-by-value return
-            // shape, unlike a byval struct PARAMETER (an ordinary address plus a call-site copy).
-            if (CilStructSupport.ResolveStruct(method.ReturnType) is not null)
-                throw new CilNotSupportedException(
-                    $"'{method.FullName}' returns a struct by value, which the CIL frontend does not "
-                        + "support (return it via an out/ref parameter instead)."
-                );
+            // Struct-by-value RETURN lowers through a PER-FUNCTION STATIC RETURN SLOT (enabler E1 of
+            // docs/superpowers/specs/2026-07-19-ideal-game-api-design.md): the callee becomes void
+            // and its Ret site copies the result bytes into its own WRAM slot; every call site then
+            // immediately copies the slot into a fresh caller-frame buffer and pushes that buffer's
+            // address (the frontend's universal struct-value-is-address shape). Chosen over the
+            // classic hidden-sret POINTER parameter deliberately: a recursive callee's epilogue
+            // restores the caller's static frame from the software stack, which would clobber a
+            // result the callee had just written through a pointer INTO that frame (observed as a
+            // real Fib-of-structs miscompile) — the backend's own rule is "any recursive return goes
+            // via memory", and a per-function slot is that rule, without ReturnScratch's shared-
+            // scratch coupling (slots are per function, so distinct struct-returning functions can
+            // never collide; a handler and mainline sharing ONE function is the same static-frame
+            // hazard the backend already polices). The call-site copy is immediate — before any
+            // other call can run — so 'G(F(), F())' argument evaluation can't alias the slot.
+            CilClassLayout? sretLayout = null;
+            if (CilStructSupport.ResolveStruct(method.ReturnType) is { } retStruct)
+                sretLayout = GetLayout(retStruct);
             var parameters = new List<IrParameter>();
             if (method.HasThis)
             {
@@ -454,7 +462,9 @@ internal sealed class CilLoweringContext
                 var shape = CilTypeMapper.MapParam(p.ParameterType);
                 parameters.Add(new IrParameter(p.Name ?? $"arg{i}", shape.IrType));
             }
-            var (returnType, _) = CilTypeMapper.Map(method.ReturnType);
+            var returnType = sretLayout is not null
+                ? IrType.Void
+                : CilTypeMapper.Map(method.ReturnType).Item1;
             var fn = new IrFunction(
                 UniqueFunctionName($"{method.DeclaringType.Name}.{method.Name}"),
                 returnType,
@@ -468,6 +478,8 @@ internal sealed class CilLoweringContext
             };
             Module.Functions.Add(fn);
             FunctionsByMethod[method] = fn;
+            if (sretLayout is not null)
+                RegisterSretFunction(fn, sretLayout);
             return fn;
         }
         catch (CilNotSupportedException ex)
@@ -475,6 +487,38 @@ internal sealed class CilLoweringContext
             Diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, Module.Name);
             return null;
         }
+    }
+
+    // Functions whose C# return type is a struct, lowered to a void function plus a per-function
+    // static WRAM return slot — see EnsureSignature's remarks. Keyed by IrFunction so every call
+    // path (static, instance, delegate, generic) can ask one question at emission time.
+    private readonly Dictionary<IrFunction, (CilClassLayout Layout, IrGlobal Slot)> _sretSlots =
+        new();
+
+    private void RegisterSretFunction(IrFunction fn, CilClassLayout layout)
+    {
+        var slot = new IrGlobal(
+            $"__sret.{fn.Name}",
+            IrType.Array(IrType.I8, Math.Max(layout.Size, 1)),
+            AddressSpace.Wram
+        );
+        Module.Globals.Add(slot);
+        _sretSlots[fn] = (layout, slot);
+    }
+
+    /// <summary>The struct-return layout and static return slot of <paramref name="fn"/>, if it
+    /// uses the static-slot struct-return convention.</summary>
+    public bool TryGetSretSlot(IrFunction fn, out CilClassLayout layout, out IrGlobal slot)
+    {
+        if (_sretSlots.TryGetValue(fn, out var entry))
+        {
+            layout = entry.Layout;
+            slot = entry.Slot;
+            return true;
+        }
+        layout = null!;
+        slot = null!;
+        return false;
     }
 
     // Every IR function name handed out so far. C# METHOD OVERLOADS share a simple name
@@ -610,10 +654,11 @@ internal sealed class CilLoweringContext
     /// still name the OPEN type parameter (<c>!!0</c>) directly off Cecil metadata. Scope: a static
     /// method only (an instance generic method would need virtual/interface dispatch devirtualization
     /// layered on top of monomorphization — out of scope, matching <c>CSharpFrontend</c>, which has no
-    /// generic-class/generic-instance-method support either) and scalar/pointer parameters/return only
-    /// (a struct-typed one is a diagnostic here rather than a silent wrong-copy — byval struct
+    /// generic-class/generic-instance-method support either) and scalar/pointer PARAMETERS only
+    /// (a struct-typed parameter is a diagnostic here rather than a silent wrong-copy — byval struct
     /// semantics need PrepareArg's fresh-copy path, which <c>LowerGenericCall</c>'s own arg-prep does
-    /// not thread through, unlike the ordinary call path's <c>PrepareArg</c>).</summary>
+    /// not thread through, unlike the ordinary call path's <c>PrepareArg</c>). A struct RETURN is
+    /// fine: it lowers to the same hidden-sret convention as <see cref="EnsureSignature"/>.</summary>
     private IrFunction BuildGenericSignature(
         MethodDefinition template,
         IReadOnlyList<TypeReference> concreteArgs,
@@ -626,11 +671,11 @@ internal sealed class CilLoweringContext
                     + "static generic methods only."
             );
         var substReturn = CilGenericSubst.Substitute(template.ReturnType, concreteArgs);
-        if (CilStructSupport.ResolveStruct(substReturn) is not null)
-            throw new CilNotSupportedException(
-                $"'{template.FullName}{suffix}' returns a struct by value, which the CIL frontend does "
-                    + "not support (return it via an out/ref parameter instead)."
-            );
+        // Same static-slot struct-return convention as EnsureSignature (see its remarks) for a
+        // monomorphized instantiation whose substituted return type is a struct.
+        CilClassLayout? sretLayout = null;
+        if (CilStructSupport.ResolveStruct(substReturn) is { } retStruct)
+            sretLayout = GetLayout(retStruct);
         var parameters = new List<IrParameter>();
         for (var i = 0; i < template.Parameters.Count; i++)
         {
@@ -647,13 +692,17 @@ internal sealed class CilLoweringContext
             var shape = CilTypeMapper.MapParam(substituted);
             parameters.Add(new IrParameter(p.Name ?? $"arg{i}", shape.IrType));
         }
-        var (returnType, _) = CilTypeMapper.Map(substReturn);
+        var returnType = sretLayout is not null
+            ? IrType.Void
+            : CilTypeMapper.Map(substReturn).Item1;
         var fn = new IrFunction(
             UniqueFunctionName($"{template.DeclaringType.Name}.{template.Name}{suffix}"),
             returnType,
             parameters
         );
         Module.Functions.Add(fn);
+        if (sretLayout is not null)
+            RegisterSretFunction(fn, sretLayout);
         return fn;
     }
 

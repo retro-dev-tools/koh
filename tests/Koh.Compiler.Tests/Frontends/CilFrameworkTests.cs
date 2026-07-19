@@ -350,7 +350,7 @@ public class CilFrameworkTests
             {
                 Game.Boot(); // LCD off -> TileSet.Load takes the direct-copy path
 
-                Assets.Tiles.Define(Assets.Art, 2);
+                Assets.Tiles = TileAsset.Define(Assets.Art, 2); // struct-returning factory (E1)
                 Assets.Tiles.Load(4); // land at VRAM slot 4, clear of anything Init touched
 
                 byte ok = 1;
@@ -365,7 +365,7 @@ public class CilFrameworkTests
                     if (vram[i] != Assets.Art[i]) ok = 0;
 
                 // MapAsset: draw the 2x2 rect at (3,5) through Bg's shadow, flush via EndFrame.
-                Assets.Layout.Define(Assets.Map, 2, 2);
+                Assets.Layout = MapAsset.Define(Assets.Map, 2, 2);
                 if (Assets.Layout.Width != 2) ok = 0;
                 if (Assets.Layout.Height != 2) ok = 0;
                 Assets.Layout.Draw(3, 5);

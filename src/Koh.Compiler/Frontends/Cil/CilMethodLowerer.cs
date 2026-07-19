@@ -544,6 +544,12 @@ internal sealed partial class CilMethodLowerer
 
     private IrBasicBlock _entryBlock = null!;
 
+    // Set in Run() when THIS method returns a struct by value (static-slot convention — see
+    // CilLoweringContext.EnsureSignature): the function's own WRAM return slot, and the layout
+    // sizing the Ret-site copy into it.
+    private IrGlobal? _sretSlot;
+    private CilClassLayout? _sretLayout;
+
     public CilMethodLowerer(
         MethodDefinition method,
         IrFunction function,
@@ -597,6 +603,15 @@ internal sealed partial class CilMethodLowerer
         _entryBlock = _blockOf[instructions[0]];
 
         _b.PositionAtEnd(_entryBlock);
+
+        // A struct-returning method's own static return slot (see CilLoweringContext.EnsureSignature
+        // — the static-slot struct-return convention): the Ret lowering copies the returned struct's
+        // bytes into it instead of emitting a value return.
+        if (_ctx.TryGetSretSlot(_function, out var ownSretLayout, out var ownSretSlot))
+        {
+            _sretLayout = ownSretLayout;
+            _sretSlot = ownSretSlot;
+        }
 
         var paramIndex = 0;
         if (_method.HasThis)
@@ -1705,7 +1720,19 @@ internal sealed partial class CilMethodLowerer
             }
 
             case Code.Ret:
-                if (_function.ReturnType.Kind == IrTypeKind.Void)
+                // A struct-returning method (static-slot convention): the IL still pushes a return
+                // value — the struct's address — but the IR function is void; copy the bytes into
+                // the function's own return slot and return. Checked BEFORE the void test, which is
+                // otherwise indistinguishable from a genuinely void method. The slot is a module
+                // global, NOT part of this function's frame, so a recursive callee's epilogue
+                // frame-restore cannot clobber it.
+                if (_sretLayout is not null)
+                {
+                    var sretValue = Pop(stack);
+                    EmitCopy(IrBuilder.GlobalRef(_sretSlot!), sretValue, _sretLayout.Size);
+                    _b.Ret();
+                }
+                else if (_function.ReturnType.Kind == IrTypeKind.Void)
                     _b.Ret();
                 else
                 {
@@ -2058,6 +2085,10 @@ internal sealed partial class CilMethodLowerer
         // CilMethodLowerer.Structs.cs's PrepareArg.
         for (var i = 0; i < args.Length; i++)
             args[i] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i].Type);
+
+        if (TryEmitSretCall(callee, args, stack))
+            return;
+
         var call = _b.Call(callee, args);
         if (callee.ReturnType.Kind != IrTypeKind.Void)
         {
@@ -2075,6 +2106,26 @@ internal sealed partial class CilMethodLowerer
                 _pendingConcreteType[result] = concreteType;
             stack.Add(result);
         }
+    }
+
+    /// <summary>If <paramref name="callee"/> returns a struct by value (static-slot convention —
+    /// see <c>CilLoweringContext.EnsureSignature</c>), emit the call, then IMMEDIATELY copy the
+    /// callee's return slot into a fresh caller-frame buffer and push the buffer's address as the
+    /// struct value. The immediate copy is load-bearing: it runs before any subsequent call could
+    /// overwrite the slot (e.g. <c>G(F(), F())</c>'s second argument), and the buffer — not the
+    /// slot — is what survives on the simulated stack. Same alloca+gep shape as
+    /// <c>PrepareArg</c>'s byval copy, so the backend sees nothing new. Returns false — emitting
+    /// nothing — for an ordinary callee.</summary>
+    private bool TryEmitSretCall(IrFunction callee, IrValue[] args, List<IrValue> stack)
+    {
+        if (!_ctx.TryGetSretSlot(callee, out var layout, out var slot))
+            return false;
+        _b.Call(callee, args);
+        var buffer = _b.Alloca(IrType.Array(IrType.I8, Math.Max(layout.Size, 1)));
+        var bufferPtr = _b.Gep(buffer, IrBuilder.ConstInt(IrType.I16, 0), IrType.I8);
+        EmitCopy(bufferPtr, IrBuilder.GlobalRef(slot), layout.Size);
+        stack.Add(bufferPtr);
+        return true;
     }
 
     private static bool IsSignedReturn(MethodDefinition def) =>

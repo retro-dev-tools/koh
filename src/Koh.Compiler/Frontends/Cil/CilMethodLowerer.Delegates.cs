@@ -358,6 +358,14 @@ internal sealed partial class CilMethodLowerer
         allArgs[0] = CoerceStore(env, callee.Parameters[0].Type);
         for (var i = 0; i < args.Count; i++)
             allArgs[i + 1] = CoerceStore(args[i], callee.Parameters[i + 1].Type);
+        // A struct-returning delegate target uses the same static-slot convention as any other call
+        // (see TryEmitSretCall) — route through a scratch stack to reuse its buffer plumbing.
+        if (_ctx.TryGetSretSlot(callee, out _, out _))
+        {
+            var sretStack = new List<IrValue>(1);
+            TryEmitSretCall(callee, allArgs, sretStack);
+            return sretStack[0];
+        }
         var call = _b.Call(callee, allArgs);
         return callee.ReturnType.Kind != IrTypeKind.Void
             ? WidenToStack(call, IsSignedReturn(target))
@@ -509,6 +517,10 @@ internal sealed partial class CilMethodLowerer
         allArgs[0] = CoerceStore(thisValue, callee.Parameters[0].Type);
         for (var i = 0; i < argCount; i++)
             allArgs[i + 1] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i + 1].Type);
+
+        if (TryEmitSretCall(callee, allArgs, stack))
+            return;
+
         var call = _b.Call(callee, allArgs);
         if (callee.ReturnType.Kind != IrTypeKind.Void)
         {

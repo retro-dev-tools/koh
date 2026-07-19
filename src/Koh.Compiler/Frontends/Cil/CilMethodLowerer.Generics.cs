@@ -187,6 +187,10 @@ internal sealed partial class CilMethodLowerer
 
         for (var i = 0; i < args.Length; i++)
             args[i] = CoerceStore(args[i], fn.Parameters[i].Type);
+
+        if (TryEmitSretCall(fn, args, stack))
+            return;
+
         var call = _b.Call(fn, args);
         if (fn.ReturnType.Kind != IrTypeKind.Void)
         {

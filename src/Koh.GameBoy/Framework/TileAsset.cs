@@ -7,12 +7,9 @@ namespace Koh.GameBoy.Framework;
 /// tile count is stated ONCE, at the declaration site, and the VRAM base slot lives with the data —
 /// call sites say <c>asset.Load(0)</c> and <c>asset.Tile(3)</c>, never a count or a slot sum.
 ///
-/// Stage-0 shape (see <c>docs/superpowers/specs/2026-07-19-ideal-game-api-design.md</c>): the ideal
-/// API is <c>static TileAsset Define(byte[] data)</c> — a struct-returning factory with no count.
-/// The factory needs compiler enabler E1 (struct return by value) and the count-free overload needs
-/// E4 (length-carrying arrays), so until those land the binding is a mutating instance method with
-/// an explicit count: <c>Tiles.Define(TileArt, 12);</c>. The E1/E4 overloads are additive — this
-/// method stays.
+/// The factory returns the struct by value (compiler enabler E1, the static-slot struct-return
+/// convention); the count-free <c>Define(byte[] data)</c> overload arrives with enabler E4
+/// (length-carrying arrays) — see <c>docs/superpowers/specs/2026-07-19-ideal-game-api-design.md</c>.
 /// </summary>
 public struct TileAsset
 {
@@ -26,11 +23,14 @@ public struct TileAsset
     /// <summary>The VRAM slot the table was loaded at (set by <see cref="Load"/>).</summary>
     public byte BaseTile => _baseTile;
 
-    /// <summary>Bind the handle to its ROM table. Call where the array is declared.</summary>
-    public void Define(byte[] data, byte tileCount)
+    /// <summary>Bind a handle to its ROM table. Call where the array is declared:
+    /// <c>Tiles = TileAsset.Define(TileArt, 12);</c></summary>
+    public static TileAsset Define(byte[] data, byte tileCount)
     {
-        _data = data;
-        _tileCount = tileCount;
+        TileAsset asset = default;
+        asset._data = data;
+        asset._tileCount = tileCount;
+        return asset;
     }
 
     /// <summary>Copy the table into VRAM starting at <paramref name="baseTile"/> (via
@@ -47,7 +47,7 @@ public struct TileAsset
 
 /// <summary>
 /// A handle over a ROM tile-index rectangle (w×h cells), drawn through <see cref="Bg"/>'s deferred
-/// shadow. Same stage-0 binding story as <see cref="TileAsset"/>.
+/// shadow. Same factory binding story as <see cref="TileAsset"/>.
 /// </summary>
 public struct MapAsset
 {
@@ -58,11 +58,13 @@ public struct MapAsset
     public byte Width => _width;
     public byte Height => _height;
 
-    public void Define(byte[] cells, byte width, byte height)
+    public static MapAsset Define(byte[] cells, byte width, byte height)
     {
-        _cells = cells;
-        _width = width;
-        _height = height;
+        MapAsset asset = default;
+        asset._cells = cells;
+        asset._width = width;
+        asset._height = height;
+        return asset;
     }
 
     /// <summary>Blit the rect with its top-left at (<paramref name="col"/>, <paramref name="row"/>).</summary>
