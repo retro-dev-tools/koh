@@ -380,6 +380,11 @@ internal sealed partial class CilMethodLowerer
     private IrValue LoadStaticField(FieldDefinition field)
     {
         var g = _ctx.EnsureStaticGlobal(field);
+        // A user-struct field's blob address IS its value — the frontend's universal struct
+        // representation (a struct value is the address of its bytes), so consumers (stloc into a
+        // struct local, PrepareArg's byval copy, ldfld off it) need nothing special.
+        if (_ctx.TryGetStaticStructLayout(field, out _))
+            return IrBuilder.GlobalRef(g);
         if (_ctx.IsStaticFieldAlias(field))
         {
             var ptr = IrBuilder.GlobalRef(g);
@@ -411,6 +416,13 @@ internal sealed partial class CilMethodLowerer
     private void StoreStaticField(FieldDefinition field, IrValue value)
     {
         var holder = _ctx.EnsureStaticGlobal(field);
+        // Whole-struct assignment ('Assets.Tiles = ...'): the popped value is the source struct's
+        // address; byte-copy it into the field's blob, same as any other struct write site.
+        if (_ctx.TryGetStaticStructLayout(field, out var structLayout))
+        {
+            EmitCopy(IrBuilder.GlobalRef(holder), value, structLayout.Size);
+            return;
+        }
         if (_ctx.IsStaticFieldAlias(field))
             throw new CilNotSupportedException(
                 $"'{field.FullName}' is a fixed-identity static field (its storage was folded from "

@@ -68,6 +68,16 @@ internal sealed class CilLoweringContext
         (IrType ElemType, bool Signed, int Count)
     > _staticArrayInfo = new();
 
+    // A static field of USER STRUCT type (e.g. the Framework's 'static TileAsset Tiles' /
+    // 'static Timer _timer' — the ideal-game-API program's verify-first item, confirmed real by
+    // CilFrameworkTests): its global is a WRAM byte blob of the struct's layout size, and — matching
+    // the frontend's universal "a struct value IS the address of its bytes" representation
+    // (CilMethodLowerer.Structs.cs) — Ldsfld pushes the global's ADDRESS (never a scalar Load),
+    // Ldsflda pushes the same address, and Stsfld byte-copies the source struct into the blob.
+    // Zero-init comes free: WRAM statics are cleared at boot, giving 'default' struct state exactly
+    // like C# expects.
+    private readonly Dictionary<FieldDefinition, CilClassLayout> _staticStructLayouts = new();
+
     // Per static-constructor MethodDefinition, the instructions CilStaticFieldSupport.Collect proved
     // redundant (fully accounted for by a field's ROM/alias classification) — CilMethodLowerer seeds
     // Simulate's _suppressed set from this at the top of Run(), exactly like DetectDelegateCacheIdioms'
@@ -116,6 +126,11 @@ internal sealed class CilLoweringContext
 
     public bool IsStaticFieldAlias(FieldDefinition field) => _staticFieldIsAlias.Contains(field);
 
+    /// <summary>The struct layout of a user-struct static field settled by
+    /// <see cref="EnsureStaticGlobal"/> (see <c>_staticStructLayouts</c>' remarks), if it is one.</summary>
+    public bool TryGetStaticStructLayout(FieldDefinition field, out CilClassLayout layout) =>
+        _staticStructLayouts.TryGetValue(field, out layout!);
+
     public bool TryGetStaticArrayInfo(
         FieldDefinition field,
         out (IrType ElemType, bool Signed, int Count) info
@@ -152,6 +167,22 @@ internal sealed class CilLoweringContext
             CilStaticFieldSupport.CollectType(field.DeclaringType, this);
         if (_staticFields.TryGetValue(field, out g))
             return g;
+        // A user-struct field gets a WRAM byte blob sized by its layout (see _staticStructLayouts'
+        // remarks) — checked before CilTypeMapper.Map, which has no struct branch and would throw.
+        if (CilStructSupport.ResolveStruct(field.FieldType) is { } structDef)
+        {
+            var layout = GetLayout(structDef);
+            g = new IrGlobal(
+                $"{field.DeclaringType.FullName}.{field.Name}",
+                IrType.Array(IrType.I8, Math.Max(layout.Size, 1)),
+                AddressSpace.Wram,
+                alignment: CilStaticFieldSupport.ReadAlignment(field)
+            );
+            Module.Globals.Add(g);
+            _staticFields[field] = g;
+            _staticStructLayouts[field] = layout;
+            return g;
+        }
         var (irType, _) = CilTypeMapper.Map(field.FieldType);
         g = new IrGlobal(
             $"{field.DeclaringType.FullName}.{field.Name}",
@@ -425,7 +456,7 @@ internal sealed class CilLoweringContext
             }
             var (returnType, _) = CilTypeMapper.Map(method.ReturnType);
             var fn = new IrFunction(
-                $"{method.DeclaringType.Name}.{method.Name}",
+                UniqueFunctionName($"{method.DeclaringType.Name}.{method.Name}"),
                 returnType,
                 parameters
             )
@@ -443,6 +474,28 @@ internal sealed class CilLoweringContext
         {
             Diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, Module.Name);
             return null;
+        }
+    }
+
+    // Every IR function name handed out so far. C# METHOD OVERLOADS share a simple name
+    // ('Rng.Next()' and 'Rng.Next(byte)' are distinct MethodDefinitions but both map to "Rng.Next"),
+    // and the linker treats function names as exported symbols — two same-named functions are a
+    // duplicate-symbol link error (found the first time a program called two overloads of one
+    // Framework method; latent for any two Text.Draw overloads too). Names are per-MethodDefinition
+    // identity everywhere (FunctionsByMethod), so the NAME is display/symbol-only: uniquify on
+    // collision, keeping the first occurrence's pretty name so existing single-overload programs
+    // (and tests that look functions up by name) are unaffected.
+    private readonly HashSet<string> _functionNames = new(StringComparer.Ordinal);
+
+    private string UniqueFunctionName(string baseName)
+    {
+        if (_functionNames.Add(baseName))
+            return baseName;
+        for (int i = 2; ; i++)
+        {
+            var candidate = $"{baseName}#{i}";
+            if (_functionNames.Add(candidate))
+                return candidate;
         }
     }
 
@@ -596,7 +649,7 @@ internal sealed class CilLoweringContext
         }
         var (returnType, _) = CilTypeMapper.Map(substReturn);
         var fn = new IrFunction(
-            $"{template.DeclaringType.Name}.{template.Name}{suffix}",
+            UniqueFunctionName($"{template.DeclaringType.Name}.{template.Name}{suffix}"),
             returnType,
             parameters
         );
