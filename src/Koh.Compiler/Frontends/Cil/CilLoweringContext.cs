@@ -299,6 +299,11 @@ internal sealed class CilLoweringContext
     internal const int HeapTop = 0xDE00;
     internal const string HeapPointerName = "__heap";
 
+    /// <summary>The closed-world virtual-dispatch index (tag assignment + dispatch-target sets) —
+    /// see <see cref="CilVirtualDispatch"/>. Built once, before any layout or body lowering, so tag
+    /// reservations are settled before the first <see cref="GetLayout"/> call.</summary>
+    public CilVirtualDispatch VirtualDispatch { get; }
+
     public CilLoweringContext(
         IrModule module,
         DiagnosticBag diagnostics,
@@ -312,6 +317,7 @@ internal sealed class CilLoweringContext
         Intrinsics = intrinsics;
         Runtime = runtime;
         GameModule = gameModule;
+        VirtualDispatch = CilVirtualDispatch.Build(gameModule);
     }
 
     /// <summary>Resolve and lower (on demand, exactly like <see cref="EnsureLowered"/> — the same
@@ -369,7 +375,23 @@ internal sealed class CilLoweringContext
     {
         if (_classLayouts.TryGetValue(type, out var layout))
             return layout;
-        layout = CilClassLayout.Compute(type, GetLayout);
+        // A class with a real base gets prefix layout (base fields first, at their base-layout
+        // offsets); a tagged dispatch hierarchy's root additionally reserves offset 0 for the
+        // runtime type tag (see CilVirtualDispatch). Value types have neither.
+        CilClassLayout? baseLayout = null;
+        var reserveTag = false;
+        if (!type.IsValueType)
+        {
+            var baseDef =
+                type.BaseType is { } baseRef && baseRef.FullName != "System.Object"
+                    ? CilModuleLowerer.ResolveSafe(baseRef)
+                    : null;
+            if (baseDef is not null)
+                baseLayout = GetLayout(baseDef);
+            else
+                reserveTag = VirtualDispatch.NeedsTagByte(type);
+        }
+        layout = CilClassLayout.Compute(type, GetLayout, baseLayout, reserveTag);
         _classLayouts[type] = layout;
         return layout;
     }

@@ -238,6 +238,12 @@ internal sealed partial class CilMethodLowerer
         var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
         EmitZeroFill(basePtr, layout.Size);
 
+        // A concrete class in a tagged dispatch hierarchy carries its runtime type tag at offset 0
+        // (reserved by the hierarchy root's layout — see CilVirtualDispatch) — stored here, right
+        // after the zero-fill, so it is settled before the ctor body can observe the instance.
+        if (_ctx.VirtualDispatch.TryGetTag(declaringType, out var typeTag))
+            _b.Store(IrBuilder.ConstInt(IrType.I8, typeTag), basePtr);
+
         var callee =
             _ctx.EnsureLowered(ctorDef)
             ?? throw new CilNotSupportedException(
@@ -497,13 +503,18 @@ internal sealed partial class CilMethodLowerer
             {
                 def = resolved;
             }
+            else if (TryEmitTagDispatch(calleeRef, def, thisValue, args, stack))
+            {
+                return;
+            }
             else
             {
                 throw new CilNotSupportedException(
                     $"virtual call '{calleeRef.FullName}' in '{_method.FullName}' cannot be resolved to "
                         + "a single target (devirtualization needs a sealed declaring type, a final "
-                        + "method, or a receiver traceable to a known concrete type with a matching "
-                        + "override; an indirect-call backend is out of scope)."
+                        + "method, a receiver traceable to a known concrete type with a matching "
+                        + "override, or a closed tagged hierarchy for tag dispatch; an indirect-call "
+                        + "backend is out of scope)."
                 );
             }
         }
@@ -529,5 +540,179 @@ internal sealed partial class CilMethodLowerer
                 _pendingConcreteType[result] = resultConcreteType;
             stack.Add(result);
         }
+    }
+
+    // ---- Closed-world tag dispatch (compiler enabler E2 — see CilVirtualDispatch) ---------------
+
+    /// <summary>Lower a genuinely virtual call through a TAGGED closed hierarchy: load the runtime
+    /// type tag (offset 0 of the instance — stored by <c>LowerNewobj</c>), <c>switch</c> over it,
+    /// and make one DIRECT call per distinct implementation, merging any result through an alloca
+    /// slot (no phis — the frontend's invariant; <c>Mem2RegPass</c> rebuilds SSA). All targets
+    /// resolving to ONE implementation skip the switch entirely. Returns false — emitting nothing —
+    /// when the receiver's hierarchy isn't tagged or an implementation can't be resolved, so the
+    /// caller falls through to the existing diagnostic.</summary>
+    private bool TryEmitTagDispatch(
+        MethodReference calleeRef,
+        MethodDefinition target,
+        IrValue thisValue,
+        IrValue[] args,
+        List<IrValue> stack
+    )
+    {
+        if (calleeRef is GenericInstanceMethod)
+            return false; // generic virtual dispatch — out of scope
+        var staticReceiver =
+            CilModuleLowerer.ResolveSafe(calleeRef.DeclaringType) ?? target.DeclaringType;
+
+        // No instantiable receiver exists anywhere in the closed world (e.g. shared framework code
+        // dispatching on an abstract base — Game.CommitScene's scene.Exit() — in a game that never
+        // derives it): the call site is dynamically dead (the receiver is necessarily null), so
+        // emit no call and push a placeholder result. This keeps framework code compiling in every
+        // game regardless of which framework features the game actually uses.
+        if (_ctx.VirtualDispatch.HasNoConcreteImplementations(staticReceiver))
+        {
+            if (target.ReturnType.FullName == "System.Void")
+                return true;
+            if (CilStructSupport.ResolveStruct(target.ReturnType) is { } deadStruct)
+            {
+                var deadLayout = _ctx.GetLayout(deadStruct);
+                var deadBuffer = _b.Alloca(IrType.Array(IrType.I8, Math.Max(deadLayout.Size, 1)));
+                stack.Add(_b.Gep(deadBuffer, IrBuilder.ConstInt(IrType.I16, 0), IrType.I8));
+                return true;
+            }
+            stack.Add(IrBuilder.ConstInt(CilTypeMapper.Map(target.ReturnType).Item1, 0));
+            return true;
+        }
+
+        if (
+            !_ctx.VirtualDispatch.TryGetDispatchTargets(staticReceiver, out var dispatchTargets)
+            || dispatchTargets.Count == 0
+        )
+            return false;
+
+        var resolved = new List<(byte Tag, MethodDefinition Impl)>(dispatchTargets.Count);
+        foreach (var (tag, concrete) in dispatchTargets)
+        {
+            var impl = ResolveImplementation(concrete, target);
+            if (impl is null || !impl.HasBody)
+                return false;
+            resolved.Add((tag, impl));
+        }
+
+        // Result plumbing: a struct return merges the per-arm result-buffer ADDRESS (the frontend's
+        // struct-value representation) through a pointer slot; a scalar merges through a slot of the
+        // declared IR return type; void needs nothing.
+        var isVoid = target.ReturnType.FullName == "System.Void";
+        var isStructReturn = CilStructSupport.ResolveStruct(target.ReturnType) is not null;
+        IrType? slotType =
+            isVoid ? null
+            : isStructReturn ? IrType.Pointer(IrType.I8)
+            : CilTypeMapper.Map(target.ReturnType).Item1;
+        var resultSlot = slotType is not null ? _b.Alloca(slotType) : null;
+
+        var receiver = CoerceStore(thisValue, IrType.Pointer(IrType.I8));
+
+        var groups = resolved.GroupBy(t => t.Impl).ToList();
+        if (groups.Count == 1)
+        {
+            EmitDispatchArmCall(groups[0].Key, receiver, args, resultSlot, slotType);
+        }
+        else
+        {
+            var tag = _b.Load(receiver); // I8 at offset 0 — reserved by the root's layout
+            var contBlock = _function.AppendBlock("vdisp.cont");
+            var armBlocks = new List<IrBasicBlock>(groups.Count);
+            for (var i = 0; i < groups.Count; i++)
+                armBlocks.Add(_function.AppendBlock($"vdisp.arm{i}"));
+            // Group 0's arm doubles as the switch default, so its tags need no explicit cases —
+            // every valid tag is covered (LowerNewobj stores only tags this index assigned).
+            var cases = new List<(IrConstInt, IrBasicBlock)>();
+            for (var i = 1; i < groups.Count; i++)
+                foreach (var (tag2, _) in groups[i])
+                    cases.Add(((IrConstInt)IrBuilder.ConstInt(IrType.I8, tag2), armBlocks[i]));
+            _b.Switch(tag, armBlocks[0], cases);
+            for (var i = 0; i < groups.Count; i++)
+            {
+                _b.PositionAtEnd(armBlocks[i]);
+                EmitDispatchArmCall(groups[i].Key, receiver, args, resultSlot, slotType);
+                _b.Br(contBlock);
+            }
+            _b.PositionAtEnd(contBlock);
+        }
+
+        if (resultSlot is not null)
+        {
+            var merged = _b.Load(resultSlot);
+            if (isStructReturn)
+            {
+                stack.Add(merged);
+            }
+            else
+            {
+                var result = WidenToStack(merged, CilTypeMapper.Map(target.ReturnType).Signed);
+                if (FloatKindOfType(target.ReturnType) is { } floatKind)
+                    TagFloat(result, floatKind);
+                stack.Add(result);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>One dispatch arm: a direct call to <paramref name="impl"/> with the shared receiver
+    /// and (already-popped) argument values, storing any result into <paramref name="resultSlot"/>.
+    /// Byval-struct argument copies (<c>PrepareArg</c>) are emitted per arm — only the taken arm
+    /// executes them at runtime.</summary>
+    private void EmitDispatchArmCall(
+        MethodDefinition impl,
+        IrValue receiver,
+        IrValue[] args,
+        IrValue? resultSlot,
+        IrType? slotType
+    )
+    {
+        var callee =
+            _ctx.EnsureLowered(impl)
+            ?? throw new CilNotSupportedException(
+                $"cannot lower dispatch target '{impl.FullName}'."
+            );
+        var allArgs = new IrValue[args.Length + 1];
+        allArgs[0] = CoerceStore(receiver, callee.Parameters[0].Type);
+        for (var i = 0; i < args.Length; i++)
+            allArgs[i + 1] = PrepareArg(args[i], impl.Parameters, i, callee.Parameters[i + 1].Type);
+
+        if (_ctx.TryGetSretSlot(callee, out _, out _))
+        {
+            var sretStack = new List<IrValue>(1);
+            TryEmitSretCall(callee, allArgs, sretStack);
+            if (resultSlot is not null)
+                _b.Store(sretStack[0], resultSlot);
+            return;
+        }
+        var call = _b.Call(callee, allArgs);
+        if (resultSlot is not null)
+            _b.Store(CoerceStore(call, slotType!), resultSlot);
+    }
+
+    /// <summary>The implementation a call to <paramref name="target"/> actually lands on for a
+    /// receiver whose runtime type is <paramref name="concrete"/>: walk the base chain from the
+    /// concrete type upward (most-derived override wins), stopping at the declaring type itself
+    /// (whose own body — when it has one — is the inherited base implementation).</summary>
+    private static MethodDefinition? ResolveImplementation(
+        TypeDefinition concrete,
+        MethodDefinition target
+    )
+    {
+        for (TypeDefinition? t = concrete; t is not null; )
+        {
+            if (t == target.DeclaringType)
+                return target.HasBody ? target : null;
+            if (ResolveOverride(t, target) is { } found)
+                return found;
+            t =
+                t.BaseType is { } baseRef && baseRef.FullName != "System.Object"
+                    ? CilModuleLowerer.ResolveSafe(baseRef)
+                    : null;
+        }
+        return target.HasBody ? target : null;
     }
 }
