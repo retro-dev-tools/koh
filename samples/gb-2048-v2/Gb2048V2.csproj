@@ -1,0 +1,14 @@
+<Project Sdk="Koh.Sdk">
+
+  <!-- The NORTH-STAR sample: 2048 written as the ideal Koh C# game — scene classes, struct returns,
+       count-free asset handles — with no regard for what the compiler supports today. It does NOT
+       build yet, by design: it is the acceptance test for the framework + compiler-enabler program in
+       docs/superpowers/specs/2026-07-19-ideal-game-api-design.md, and joins the build only when it
+       compiles UNMODIFIED. See README.md for what it demands and where each demand is tracked. -->
+
+  <PropertyGroup>
+    <RootNamespace>Koh.Samples.Gb2048V2</RootNamespace>
+    <KohRomName>2048v2.gb</KohRomName>
+  </PropertyGroup>
+
+</Project>
