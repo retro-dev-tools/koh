@@ -1,0 +1,18 @@
+<Project Sdk="Koh.Sdk">
+
+  <!-- The SECOND north-star sample (see docs/superpowers/specs/2026-07-19-ideal-game-api-design.md's
+       methodology): a miniature JRPG written as ideal C# with no regard for current compiler support,
+       deliberately exercising constructs beyond what gb-2048-v2 needed — interfaces, rectangular
+       byte[,] maps, stored delegate callbacks, string[] dialogue tables, a class hierarchy with
+       virtual string properties. Each diagnostic it produces is the next work item. It joins the
+       build when it compiles unmodified. -->
+
+  <PropertyGroup>
+    <RootNamespace>Koh.Samples.GbJrpg</RootNamespace>
+    <KohRomName>jrpg.gb</KohRomName>
+    <!-- A Game Boy Color EXCLUSIVE: the header is 0xC0 (a DMG refuses to boot it), and the game
+         authors its five art-sheet palettes unconditionally — no monochrome fallback path. -->
+    <KohCgbOnly>true</KohCgbOnly>
+  </PropertyGroup>
+
+</Project>

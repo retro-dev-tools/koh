@@ -8,6 +8,7 @@
     <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
     <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
     <KohCgbCompatible Condition="'$(KohCgbCompatible)' == ''">false</KohCgbCompatible>
+    <KohCgbOnly Condition="'$(KohCgbOnly)' == ''">false</KohCgbOnly>
     <KohEmitDebugInfo Condition="'$(KohEmitDebugInfo)' == ''">true</KohEmitDebugInfo>
     <KohKdbgPath>$([System.IO.Path]::ChangeExtension('$(KohRomPath)', '.kdbg'))</KohKdbgPath>
     <!-- Only counts as a tracked incremental Output/FileWrite when actually emitted, so disabling
@@ -94,6 +95,7 @@
     <ItemGroup>
       <_KohRomProps Include="ProgramName=$(AssemblyName)" />
       <_KohRomProps Include="CgbCompatible=$(KohCgbCompatible)" />
+      <_KohRomProps Include="CgbOnly=$(KohCgbOnly)" />
       <_KohRomProps Include="OutputPath=$(KohRomPath)" />
       <_KohRomProps Include="KohFrontend=$(KohFrontend)" />
       <_KohRomProps Include="EmitDebugInfo=$(KohEmitDebugInfo)" />
@@ -122,6 +124,7 @@
                    AssemblyPath="$(TargetPath)"
                    ReferencePaths="@(ReferencePath)"
                    ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)"
+                   CgbOnly="$(KohCgbOnly)"
                    EmitDebugInfo="$(KohEmitDebugInfo)" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPath)" />

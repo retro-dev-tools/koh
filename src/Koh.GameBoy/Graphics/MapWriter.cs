@@ -276,10 +276,9 @@ internal static unsafe class MapWriter
     {
         if (!Video.IsCgb)
             return;
-        Ppu.WaitForVramAccess();
-        Cgb.SelectVramBank(1);
         byte* mapBase = map == 0 ? Gb.TileMap : Gb.TileMap1;
-        *(mapBase + Index(col, row)) = attr;
+        Cgb.SelectVramBank(1);
+        WriteAttrVerified(mapBase + Index(col, row), attr);
         Cgb.SelectVramBank(0);
     }
 
@@ -294,11 +293,25 @@ internal static unsafe class MapWriter
         Cgb.SelectVramBank(1);
         for (byte r = 0; r < h; r++)
         for (byte c = 0; c < w; c++)
+            WriteAttrVerified(mapBase + Index((byte)(col + c), (byte)(row + r)), attr);
+        Cgb.SelectVramBank(0);
+    }
+
+    /// <summary>One live attribute write that actually LANDS. "WaitForVramAccess then store" races
+    /// mode 3: the wait can return at the tail of an accessible window and the store arrive after
+    /// rendering resumed — the PPU (real hardware and the emulator alike) silently DROPS such a
+    /// write, which showed up as deterministic attribute holes (a whole column of wall cells stuck
+    /// on the wrong palette in the JRPG sample). Write-then-verify converges instead: a dropped
+    /// store reads back 0xFF (mode-3 VRAM reads) or the old byte, and the loop re-gates and
+    /// rewrites in the next window. With the LCD off both the gate and the race are no-ops and the
+    /// first store sticks.</summary>
+    private static void WriteAttrVerified(byte* cell, byte attr)
+    {
+        do
         {
             Ppu.WaitForVramAccess();
-            *(mapBase + Index((byte)(col + c), (byte)(row + r))) = attr;
-        }
-        Cgb.SelectVramBank(0);
+            *cell = attr;
+        } while (*cell != attr);
     }
 
     private static ushort Index(byte col, byte row) => (ushort)((ushort)row * 32 + col);
