@@ -404,11 +404,26 @@ internal static class CilModuleLowerer
             // correctness issue.
             if (!method.HasBody)
                 continue;
+            // E3 (stored delegates): a returned delegate is a materialization site — 3 arena bytes.
+            if (
+                method.ReturnType is { } methodReturn
+                && ResolveSafe(methodReturn) is { } returnDef
+                && IsDelegateType(returnDef)
+            )
+                return true;
             foreach (var instr in method.Body.Instructions)
             {
                 // A 'newarr' (see CilMethodLowerer.Arrays.cs) always needs the heap — there is no
                 // delegate-construction-style interception for it the way Newobj has.
                 if (instr.OpCode.Code == Code.Newarr)
+                    return true;
+                // E3: a delegate stored into a field crosses a boundary and materializes a blob.
+                if (
+                    instr.OpCode.Code is Code.Stfld or Code.Stsfld
+                    && instr.Operand is FieldReference storedField
+                    && ResolveSafe(storedField.FieldType) is { } storedFieldType
+                    && IsDelegateType(storedFieldType)
+                )
                     return true;
                 if (instr.OpCode.Code == Code.Call || instr.OpCode.Code == Code.Callvirt)
                 {
@@ -428,6 +443,16 @@ internal static class CilModuleLowerer
                         && entry.Kind is "alloc" or "heapreset"
                     )
                         return true;
+                    // E3: passing a delegate as an argument materializes at the call site. The
+                    // callee's own PARAMETER types are checked (not the caller's stack) — a pure-
+                    // metadata over-approximation matching this scan's stance.
+                    if (
+                        !IsBclMethod(calleeDef)
+                        && calleeDef.Parameters.Any(p =>
+                            ResolveSafe(p.ParameterType) is { } pDef && IsDelegateType(pDef)
+                        )
+                    )
+                        return true;
                     if (!visited.Contains(calleeDef))
                         worklist.Enqueue(calleeDef);
                     continue;
@@ -436,6 +461,8 @@ internal static class CilModuleLowerer
                     continue;
                 var ctorRef = (MethodReference)instr.Operand;
                 var declaringType = ResolveSafe(ctorRef.DeclaringType);
+                // A non-delegate 'newobj' allocates the instance itself — which also covers every
+                // E3 delegate-through-CTOR-parameter site (DialogueScene(lines, onClosed)) for free.
                 if (declaringType is not null && !IsDelegateType(declaringType))
                     return true;
             }
@@ -1604,6 +1631,10 @@ internal sealed partial class CilMethodLowerer
                 var fieldRef = (FieldReference)instr.Operand;
                 var value = Pop(stack);
                 var objRef = Pop(stack);
+                // A delegate stored into a field crosses a provenance-erasing boundary —
+                // materialize its blob first (enabler E3; see MaterializeDelegateIfNeeded).
+                if (IsDelegateTypeRef(fieldRef.FieldType))
+                    value = MaterializeDelegateIfNeeded(value, fieldRef.FieldType);
                 var (ptr, fieldType, _, nested) = FieldPointer(fieldRef, objRef);
                 if (nested is not null)
                     EmitCopy(ptr, value, nested.Size);
@@ -1711,6 +1742,15 @@ internal sealed partial class CilMethodLowerer
             case Code.Ldelem_U4:
                 LoadElem(stack, IrType.I32, signed: false);
                 break;
+            // Reference elements (string[]/class[]): an element is a pointer — 2 bytes on this
+            // target — loaded/stored like any pointer cell (a string element's value is its ROM
+            // blob's base pointer; a class element's is its arena pointer).
+            case Code.Ldelem_Ref:
+                LoadElem(stack, IrType.Pointer(IrType.I8), signed: false);
+                break;
+            case Code.Stelem_Ref:
+                StoreElem(stack, IrType.Pointer(IrType.I8));
+                break;
             // The generic (type-operand) variants — Roslyn emits these for a struct element (a
             // primitive element always uses one of the typed opcodes above).
             case Code.Ldelema:
@@ -1787,6 +1827,9 @@ internal sealed partial class CilMethodLowerer
                         _method,
                         _pendingConcreteType.TryGetValue(retValue, out var retType) ? retType : null
                     );
+                    // E3 boundary: a returned delegate leaves this method's provenance scope.
+                    if (IsDelegateTypeRef(_method.ReturnType))
+                        retValue = MaterializeDelegateIfNeeded(retValue, _method.ReturnType);
                     _b.Ret(CoerceStore(retValue, _function.ReturnType));
                 }
                 break;

@@ -190,6 +190,14 @@ internal sealed partial class CilMethodLowerer
     /// </summary>
     private void LowerNewobj(MethodReference ctorRef, List<IrValue> stack)
     {
+        // Rank-2 array construction — intercepted BEFORE type resolution: an ArrayType's methods
+        // have no MethodDefinition to resolve (see CilMethodLowerer.Arrays.cs's md-array section).
+        if (ctorRef.DeclaringType is ArrayType mdArrayType)
+        {
+            LowerMdArrayCtor(mdArrayType, stack);
+            return;
+        }
+
         var declaringType =
             CilModuleLowerer.ResolveSafe(ctorRef.DeclaringType)
             ?? throw new CilNotSupportedException(
@@ -320,9 +328,12 @@ internal sealed partial class CilMethodLowerer
     /// <summary>A delegate <c>Invoke</c> whose receiver traces (through <see
     /// cref="_pendingDelegateProvenance"/>) to exactly one statically-known target method becomes a
     /// direct call passing the env pointer as the target's <c>this</c> — the IR inliner then flattens
-    /// it. An untraceable receiver (a delegate parameter with more than one possible caller-supplied
-    /// target, or one built from a shape this frontend doesn't recognize) is a diagnostic, never a
-    /// throw into user code — matches the design spike's explicit "no indirect-call backend" scope.</summary>
+    /// it (the zero-cost fast path every LINQ lambda rides, untouched). An UNTRACEABLE receiver —
+    /// a delegate that crossed a boundary (field, argument, return) and was therefore materialized
+    /// into a <c>[u8 targetId][u16 env]</c> blob (see <see cref="MaterializeDelegateIfNeeded"/>) —
+    /// dispatches over the closed-world <see cref="CilDelegateRegistry"/> instead (enabler E3): load
+    /// the id, switch, one DIRECT call per registered target of this delegate type. Still never an
+    /// indirect call. A delegate type with no registered creation site at all stays a diagnostic.</summary>
     private void LowerDelegateInvoke(MethodReference calleeRef, List<IrValue> stack)
     {
         var argCount = calleeRef.Parameters.Count;
@@ -331,17 +342,133 @@ internal sealed partial class CilMethodLowerer
             args[i] = Pop(stack);
         var receiver = Pop(stack);
 
-        if (!_pendingDelegateProvenance.TryGetValue(receiver, out var target))
+        if (_pendingDelegateProvenance.TryGetValue(receiver, out var target))
+        {
+            var result = InvokeDelegate(target, receiver, args);
+            if (result is not null)
+                stack.Add(result);
+            return;
+        }
+
+        LowerBlobDelegateInvoke(calleeRef, receiver, args, stack);
+    }
+
+    /// <summary>The blob half of E3 (see <see cref="LowerDelegateInvoke"/>): the receiver is a
+    /// materialized 3-byte delegate blob; dispatch over every registered target of its delegate
+    /// type — same alloca-slot result merging (no phis) as <c>TryEmitTagDispatch</c>, and
+    /// <see cref="InvokeDelegate"/> reused verbatim per arm.</summary>
+    private void LowerBlobDelegateInvoke(
+        MethodReference calleeRef,
+        IrValue receiver,
+        IrValue[] args,
+        List<IrValue> stack
+    )
+    {
+        var delegateTypeName = calleeRef.DeclaringType.FullName;
+        if (
+            !_ctx.DelegateRegistry.TryGetTargets(delegateTypeName, out var targets)
+            || targets.Count == 0
+        )
             throw new CilNotSupportedException(
-                $"delegate invocation in '{_method.FullName}' could not be resolved to a single "
-                    + "target method (the CIL frontend only supports a delegate whose target is "
-                    + "statically known at the invocation site; an indirect-call backend is out of scope)."
+                $"delegate invocation in '{_method.FullName}' could not be resolved: no creation "
+                    + $"site for '{delegateTypeName}' exists anywhere in the closed world, and the "
+                    + "receiver's own target is not statically known at the invocation site."
             );
 
-        var result = InvokeDelegate(target, receiver, args);
-        if (result is not null)
-            stack.Add(result);
+        var blob = CoerceStore(receiver, IrType.Pointer(IrType.I8));
+        var envPtr = _b.Conv(
+            IrConvOp.Bitcast,
+            _b.Gep(blob, IrBuilder.ConstInt(IrType.I16, 1), IrType.I8),
+            IrType.Pointer(IrType.I16)
+        );
+        var env = _b.Load(envPtr);
+
+        var isVoid = calleeRef.ReturnType.FullName == "System.Void";
+        var isStructReturn = CilStructSupport.ResolveStruct(calleeRef.ReturnType) is not null;
+        IrType? slotType =
+            isVoid ? null
+            : isStructReturn ? IrType.Pointer(IrType.I8)
+            : IrType.I32; // InvokeDelegate returns stack-widened scalars
+        var resultSlot = slotType is not null ? _b.Alloca(slotType) : null;
+
+        void EmitArm(MethodDefinition armTarget)
+        {
+            var result = InvokeDelegate(armTarget, env, args);
+            if (resultSlot is not null && result is not null)
+                _b.Store(CoerceStore(result, slotType!), resultSlot);
+        }
+
+        if (targets.Count == 1)
+        {
+            EmitArm(targets[0].Target);
+        }
+        else
+        {
+            var id = _b.Load(blob);
+            var contBlock = _function.AppendBlock("dinv.cont");
+            var armBlocks = new List<IrBasicBlock>(targets.Count);
+            for (var i = 0; i < targets.Count; i++)
+                armBlocks.Add(_function.AppendBlock($"dinv.arm{i}"));
+            // Arm 0 doubles as the switch default; every valid id is covered by construction
+            // (MaterializeDelegateIfNeeded only stores registry-assigned ids).
+            var cases = new List<(IrConstInt, IrBasicBlock)>();
+            for (var i = 1; i < targets.Count; i++)
+                cases.Add(((IrConstInt)IrBuilder.ConstInt(IrType.I8, targets[i].Id), armBlocks[i]));
+            _b.Switch(id, armBlocks[0], cases);
+            for (var i = 0; i < targets.Count; i++)
+            {
+                _b.PositionAtEnd(armBlocks[i]);
+                EmitArm(targets[i].Target);
+                _b.Br(contBlock);
+            }
+            _b.PositionAtEnd(contBlock);
+        }
+
+        if (resultSlot is not null)
+            stack.Add(_b.Load(resultSlot));
     }
+
+    /// <summary>Enabler E3's boundary hook: a delegate value about to cross a provenance-erasing
+    /// boundary (stored to a field, passed as an argument, returned) is materialized into a 3-byte
+    /// arena blob <c>[u8 targetId][u16 env]</c> so an untraceable Invoke can dispatch on it (see
+    /// <see cref="LowerBlobDelegateInvoke"/>). A value WITHOUT provenance passes through unchanged —
+    /// it is already a blob from an earlier crossing, or null (invoking null is the same wild deref
+    /// it is on the CLR). Allocation is per crossing (3 arena bytes) — delegates cross boundaries at
+    /// scene-setup rates, not per frame.</summary>
+    private IrValue MaterializeDelegateIfNeeded(IrValue value, TypeReference delegateTypeRef)
+    {
+        if (!_pendingDelegateProvenance.TryGetValue(value, out var target))
+            return value;
+        if (!_ctx.DelegateRegistry.TryGetId(delegateTypeRef.FullName, target, out var targetId))
+            throw new CilNotSupportedException(
+                $"delegate target '{target.FullName}' has no registered id for "
+                    + $"'{delegateTypeRef.FullName}' (creation shape not recognized by the "
+                    + "closed-world pre-pass)."
+            );
+        var heap =
+            _ctx.HeapGlobal
+            ?? throw new CilNotSupportedException(
+                $"storing a delegate in '{_method.FullName}' needs the heap, but none was "
+                    + "provisioned for this module."
+            );
+        var heapRef = IrBuilder.GlobalRef(heap);
+        var raw = _b.Sub(_b.Load(heapRef), IrBuilder.ConstInt(IrType.I16, 3));
+        _b.Store(raw, heapRef);
+        var blob = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
+        _b.Store(IrBuilder.ConstInt(IrType.I8, targetId), blob);
+        var envPtr = _b.Conv(
+            IrConvOp.Bitcast,
+            _b.Gep(blob, IrBuilder.ConstInt(IrType.I16, 1), IrType.I8),
+            IrType.Pointer(IrType.I16)
+        );
+        _b.Store(CoerceStore(value, IrType.I16), envPtr);
+        return blob;
+    }
+
+    /// <summary>True when <paramref name="typeRef"/> resolves to a delegate type — the static-type
+    /// test every E3 boundary hook uses.</summary>
+    private static bool IsDelegateTypeRef(TypeReference typeRef) =>
+        CilModuleLowerer.ResolveSafe(typeRef) is { } def && CilModuleLowerer.IsDelegateType(def);
 
     /// <summary>Call a resolved delegate target directly, env pointer as <c>this</c> — the single
     /// mechanism behind both a real <c>Invoke</c> call site (see <see cref="LowerDelegateInvoke"/>)
@@ -472,6 +599,8 @@ internal sealed partial class CilMethodLowerer
             args[i] = Pop(stack);
         var thisValue = Pop(stack);
 
+        if (TryLowerMdArrayCall(calleeRef, thisValue, args, stack))
+            return;
         if (TryLowerSpanCall(calleeRef, thisValue, args, stack))
             return;
         if (TryLowerStringCall(calleeRef, thisValue, args, stack))

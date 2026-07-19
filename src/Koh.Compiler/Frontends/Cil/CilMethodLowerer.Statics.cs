@@ -100,6 +100,8 @@ internal static class CilStaticFieldSupport
 
             if (TryMatchArrayLiteral(instr, field, ctx, elided))
                 continue;
+            if (TryMatchMdArrayLiteral(instr, field, ctx, elided))
+                continue;
             if (TryMatchFixedSizeArray(instr, field, ctx, elided))
                 continue;
             TryMatchScalarConstant(instr, field, ctx, elided);
@@ -319,6 +321,95 @@ internal static class CilStaticFieldSupport
         return true;
     }
 
+    /// <summary><c>ldc.i4 d0 ; ldc.i4 d1 ; newobj T[0...,0...]::.ctor ; dup ; ldtoken &lt;blob&gt; ;
+    /// call RuntimeHelpers::InitializeArray ; stsfld F</c> — Roslyn's literal idiom for a readonly
+    /// RANK-2 rectangular array (<c>static readonly byte[,] Map = {...}</c>, the JRPG north star's
+    /// overworld). Aliased onto a ROM global shaped [u16 d0][u16 d1][row-major payload] with the
+    /// field's value at payload (base+4) — see <c>CilMethodLowerer.Arrays.cs</c>'s md-array section
+    /// for the accessor lowering that reads d1 back from payload−2.</summary>
+    private static bool TryMatchMdArrayLiteral(
+        Instruction stsfld,
+        FieldDefinition field,
+        CilLoweringContext ctx,
+        HashSet<Instruction> elided
+    )
+    {
+        if (!field.IsInitOnly)
+            return false;
+        var call = Prev(stsfld);
+        if (
+            call?.OpCode.Code != Code.Call
+            || call.Operand is not MethodReference callee
+            || callee.Name != "InitializeArray"
+            || callee.DeclaringType.FullName != "System.Runtime.CompilerServices.RuntimeHelpers"
+        )
+            return false;
+        var ldtoken = Prev(call);
+        if (ldtoken?.OpCode.Code != Code.Ldtoken)
+            return false;
+        var dup = Prev(ldtoken);
+        if (dup?.OpCode.Code != Code.Dup)
+            return false;
+        var newobj = Prev(dup);
+        if (
+            newobj?.OpCode.Code != Code.Newobj
+            || (newobj.Operand as MethodReference)?.DeclaringType is not ArrayType { Rank: 2 } arr
+        )
+            return false;
+        var d1Instr = Prev(newobj);
+        if (!TryReadConstLong(d1Instr, out var d1) || d1 <= 0 || d1 > ushort.MaxValue)
+            return false;
+        var d0Instr = Prev(d1Instr);
+        if (!TryReadConstLong(d0Instr, out var d0) || d0 <= 0 || d0 > ushort.MaxValue)
+            return false;
+
+        IrType elemType;
+        try
+        {
+            (elemType, _) = CilTypeMapper.Map(arr.ElementType);
+        }
+        catch (CilNotSupportedException)
+        {
+            return false;
+        }
+        var dataField = (ldtoken.Operand as FieldReference)?.Resolve();
+        var bytes = dataField?.InitialValue;
+        var elemSize = Math.Max(elemType.SizeInBytes, 1);
+        if (bytes is null || bytes.Length != d0 * d1 * elemSize)
+            return false;
+
+        var prefixed = new byte[4 + bytes.Length];
+        prefixed[0] = (byte)d0;
+        prefixed[1] = (byte)((int)d0 >> 8);
+        prefixed[2] = (byte)d1;
+        prefixed[3] = (byte)((int)d1 >> 8);
+        bytes.CopyTo(prefixed, 4);
+        var romGlobal = new IrGlobal(
+            $"{field.DeclaringType.FullName}.{field.Name}",
+            IrType.Array(IrType.I8, prefixed.Length),
+            AddressSpace.Rom,
+            initializer: prefixed
+        );
+        ctx.Module.Globals.Add(romGlobal);
+        ctx.RegisterFoldedStaticArray(
+            field,
+            romGlobal,
+            elemType,
+            elemSigned: false,
+            (int)(d0 * d1),
+            payloadOffset: 4
+        );
+
+        elided.Add(d0Instr!);
+        elided.Add(d1Instr!);
+        elided.Add(newobj);
+        elided.Add(dup);
+        elided.Add(ldtoken);
+        elided.Add(call);
+        elided.Add(stsfld);
+        return true;
+    }
+
     /// <summary><c>ldc.i4 N ; newarr T ; stsfld F</c> — a fixed-size array with no literal content
     /// (<c>new T[n]</c>). Aliases F onto a dedicated zero-initialized Array-typed global (ROM if F is
     /// readonly, else WRAM — the backend's unconditional boot-only WRAM clear zeroes it, matching
@@ -470,6 +561,9 @@ internal sealed partial class CilMethodLowerer
     /// <see cref="CilLoweringContext.IsStaticFieldAlias"/> is consulted.</summary>
     private void StoreStaticField(FieldDefinition field, IrValue value)
     {
+        // E3 boundary: same materialization as an instance-field store.
+        if (IsDelegateTypeRef(field.FieldType))
+            value = MaterializeDelegateIfNeeded(value, field.FieldType);
         var holder = _ctx.EnsureStaticGlobal(field);
         // Whole-struct assignment ('Assets.Tiles = ...'): the popped value is the source struct's
         // address; byte-copy it into the field's blob, same as any other struct write site.

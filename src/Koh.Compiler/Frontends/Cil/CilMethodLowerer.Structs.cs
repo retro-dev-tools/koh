@@ -296,6 +296,10 @@ internal sealed partial class CilMethodLowerer
             EmitCopy(tempPtr, arg, layout.Size);
             return tempPtr;
         }
+        // A delegate crossing into a callee loses its compile-time provenance — materialize the
+        // blob at the boundary (enabler E3; see MaterializeDelegateIfNeeded).
+        if (IsDelegateTypeRef(paramType))
+            arg = MaterializeDelegateIfNeeded(arg, paramType);
         return CoerceStore(arg, calleeIrType);
     }
 }

@@ -322,4 +322,112 @@ internal sealed partial class CilMethodLowerer
         var (irType, _) = CilTypeMapper.Map(typeRef);
         _b.Store(CoerceStore(value, irType), ElementPointer(arrayRef, index, irType));
     }
+
+    // ---- Rectangular (multi-dimensional) arrays -------------------------------------------------
+    //
+    // CIL has no opcodes for a rank-2 array — Roslyn emits 'newobj T[0...,0...]::.ctor(i32,i32)'
+    // and instance 'Get(i,j)'/'Set(i,j,v)'/'Address(i,j)' calls ON THE ARRAY TYPE, whose method
+    // references resolve to no MethodDefinition at all (there is no BCL body to find). Both shapes
+    // are intercepted structurally. The runtime layout mirrors enabler E4's counted 1-D arrays:
+    // a header [u16 d0][u16 d1] with the array reference pointing at the PAYLOAD (base+4), so an
+    // accessor on an UNTRACEABLE rank-2 array (a parameter, a static field) reads its row stride
+    // d1 from payload−2 at runtime — the natural C# shape 'static readonly byte[,] Map = {...}'
+    // (the JRPG north star's overworld) works across any call boundary. Rank ≥3 is a diagnostic.
+
+    private const int MdRank2HeaderSize = 4;
+
+    /// <summary>The rank-2 element address: payload + ((i0 * d1) + i1) * sizeof(elem), with d1
+    /// loaded from the header (payload−2).</summary>
+    private IrValue MdElementPointer(IrValue payload, IrValue i0, IrValue i1, IrType elemType)
+    {
+        var d1Ptr = _b.Conv(
+            IrConvOp.Bitcast,
+            _b.Gep(payload, IrBuilder.ConstInt(IrType.I16, -2), IrType.I8),
+            IrType.Pointer(IrType.I16)
+        );
+        var d1 = _b.Load(d1Ptr);
+        var index = _b.Add(_b.Mul(CoerceStore(i0, IrType.I16), d1), CoerceStore(i1, IrType.I16));
+        return _b.Gep(payload, index, elemType);
+    }
+
+    /// <summary>Intercepts the rank-2 array instance accessors (see the section remarks). Returns
+    /// false for anything that isn't an ArrayType-declared call.</summary>
+    private bool TryLowerMdArrayCall(
+        MethodReference calleeRef,
+        IrValue thisValue,
+        IrValue[] args,
+        List<IrValue> stack
+    )
+    {
+        if (calleeRef.DeclaringType is not ArrayType arrType || arrType.Rank < 2)
+            return false;
+        if (arrType.Rank != 2)
+            throw new CilNotSupportedException(
+                $"'{calleeRef.FullName}' in '{_method.FullName}': rank-{arrType.Rank} arrays are "
+                    + "not supported (rank 2 only)."
+            );
+        var (elemType, elemSigned) = CilTypeMapper.Map(arrType.ElementType);
+        switch (calleeRef.Name)
+        {
+            case "Get" when args.Length == 2:
+                stack.Add(
+                    WidenToStack(
+                        _b.Load(MdElementPointer(thisValue, args[0], args[1], elemType)),
+                        elemSigned
+                    )
+                );
+                return true;
+            case "Set" when args.Length == 3:
+                _b.Store(
+                    CoerceStore(args[2], elemType),
+                    MdElementPointer(thisValue, args[0], args[1], elemType)
+                );
+                return true;
+            case "Address" when args.Length == 2:
+                stack.Add(MdElementPointer(thisValue, args[0], args[1], elemType));
+                return true;
+            default:
+                throw new CilNotSupportedException(
+                    $"unsupported rank-2 array member '{calleeRef.Name}' in '{_method.FullName}' "
+                        + "(Get/Set/Address only; use GetLength-free code — dimensions are the "
+                        + "program's own constants)."
+                );
+        }
+    }
+
+    /// <summary>'newobj T[0...,0...]::.ctor(d0, d1)': heap-allocate header+payload, store the dims,
+    /// zero the payload, push the payload pointer.</summary>
+    private void LowerMdArrayCtor(ArrayType arrType, List<IrValue> stack)
+    {
+        if (arrType.Rank != 2)
+            throw new CilNotSupportedException(
+                $"rank-{arrType.Rank} array construction in '{_method.FullName}' is not supported "
+                    + "(rank 2 only)."
+            );
+        var (elemType, elemSigned) = CilTypeMapper.Map(arrType.ElementType);
+        var elemSize = Math.Max(elemType.SizeInBytes, 1);
+        var d1 = CoerceStore(Pop(stack), IrType.I16);
+        var d0 = CoerceStore(Pop(stack), IrType.I16);
+        var payloadBytes = _b.Mul(_b.Mul(d0, d1), IrBuilder.ConstInt(IrType.I16, elemSize));
+
+        var heap =
+            _ctx.HeapGlobal
+            ?? throw new CilNotSupportedException(
+                $"'new {arrType.FullName}' in '{_method.FullName}' needs the heap, but none was "
+                    + "provisioned for this module."
+            );
+        var heapRef = IrBuilder.GlobalRef(heap);
+        var raw = _b.Sub(
+            _b.Load(heapRef),
+            _b.Add(payloadBytes, IrBuilder.ConstInt(IrType.I16, MdRank2HeaderSize))
+        );
+        _b.Store(raw, heapRef);
+        var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
+        _b.Store(d0, _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, 0), IrType.I16));
+        _b.Store(d1, _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, 1), IrType.I16));
+        var payload = _b.Gep(basePtr, IrBuilder.ConstInt(IrType.I16, MdRank2HeaderSize), IrType.I8);
+        EmitZeroFillDynamic(payload, payloadBytes);
+        _pendingArrayInfo[payload] = (elemType, elemSigned, _b.Mul(d0, d1));
+        stack.Add(payload);
+    }
 }

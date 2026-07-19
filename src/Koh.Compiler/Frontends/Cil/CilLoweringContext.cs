@@ -348,6 +348,11 @@ internal sealed class CilLoweringContext
     /// reservations are settled before the first <see cref="GetLayout"/> call.</summary>
     public CilVirtualDispatch VirtualDispatch { get; }
 
+    /// <summary>The closed-world delegate-target registry (enabler E3, stored delegates) — see
+    /// <see cref="CilDelegateRegistry"/>. Built once, up front, so an untraceable Invoke lowered
+    /// early dispatches over targets whose creation sites lower later.</summary>
+    public CilDelegateRegistry DelegateRegistry { get; }
+
     public CilLoweringContext(
         IrModule module,
         DiagnosticBag diagnostics,
@@ -362,6 +367,7 @@ internal sealed class CilLoweringContext
         Runtime = runtime;
         GameModule = gameModule;
         VirtualDispatch = CilVirtualDispatch.Build(gameModule);
+        DelegateRegistry = CilDelegateRegistry.Build(gameModule);
     }
 
     /// <summary>Resolve and lower (on demand, exactly like <see cref="EnsureLowered"/> — the same

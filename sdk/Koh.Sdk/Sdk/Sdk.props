@@ -34,6 +34,9 @@
     <!-- Bring the runtime surface into scope everywhere, so game files need no `using` (and split
          cleanly across files without repeating it). -->
     <Using Include="Koh.GameBoy" />
+    <!-- The tile-sheet pipeline's default glob: PNGs under art/ become the generated Art class
+         (2bpp tiles + CGB palettes) — see Sdk.targets' KohGenerateTileSheets. -->
+    <KohTileSheet Include="art/**/*.png" />
   </ItemGroup>
 
 </Project>

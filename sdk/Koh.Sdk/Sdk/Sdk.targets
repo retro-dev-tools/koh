@@ -51,6 +51,34 @@
   </ItemGroup>
 
   <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
+  <UsingTask TaskName="Koh.Build.Tasks.GenerateKohTileSheets" AssemblyFile="$(KohBuildTasksAssembly)" />
+
+  <!-- The tile-sheet pipeline: every @(KohTileSheet) PNG (default: art/**/*.png, see Sdk.props)
+       becomes 2bpp tile data + a CGB palette in ONE generated file, compiled into the game as
+       `static class Art` — art is authored as images, never as hand-written byte arrays. Split into
+       a generate target (timestamp-incremental) and an include target (always runs, so the Compile
+       item exists even when generation was skipped as up to date). DependsOnTargets=
+       ResolveProjectReferences guarantees the task assembly (built as part of this project's own
+       build graph, see the ProjectReference above) exists before the task loads. -->
+  <PropertyGroup>
+    <KohTileSheetsFile>$(IntermediateOutputPath)KohTileSheets.g.cs</KohTileSheetsFile>
+  </PropertyGroup>
+
+  <Target Name="KohGenerateTileSheets" DependsOnTargets="ResolveProjectReferences"
+          Condition="'@(KohTileSheet)' != ''"
+          Inputs="@(KohTileSheet);$(KohBuildTasksAssembly)" Outputs="$(KohTileSheetsFile)">
+    <GenerateKohTileSheets Sheets="@(KohTileSheet)"
+                           OutputFile="$(KohTileSheetsFile)"
+                           Namespace="$(RootNamespace)" />
+  </Target>
+
+  <Target Name="KohIncludeTileSheets" BeforeTargets="CoreCompile"
+          DependsOnTargets="KohGenerateTileSheets" Condition="'@(KohTileSheet)' != ''">
+    <ItemGroup>
+      <Compile Include="$(KohTileSheetsFile)" />
+      <FileWrites Include="$(KohTileSheetsFile)" />
+    </ItemGroup>
+  </Target>
 
   <!-- CompileKohRom's Inputs (below) are file-timestamp based, so an MSBuild *property* the task
        consumes (ProgramName/CgbCompatible - see CompileKohRom.cs's task parameters) doesn't naturally
