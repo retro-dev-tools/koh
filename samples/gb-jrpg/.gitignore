@@ -5,3 +5,7 @@ obj/
 *.gb
 *.gbc
 *.kdbg
+
+# Game assets and acceptance screenshots are SOURCE here — un-ignore them from the root *.png rule.
+!art/*.png
+!screenshots/*.png
