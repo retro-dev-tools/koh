@@ -25,9 +25,9 @@ class TitleScene : Scene
         Video.Stop();
         Bg.Clear(Assets.WindowFill);
         Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
-        Ui.DrawWindow(2, 3, 16, 12);
+        Ui.DrawWindow(1, 3, 18, 12);
         Text.Draw(5, 5, "TINY  QUEST");
-        Text.Draw(4, 7, "A MILLMERE TALE");
+        Text.Draw(3, 7, "A MILLMERE TALE");
         Scenery.DrawFigureAt(Assets.SlimeTile, 9, 9, Assets.MonsterPal);
         Text.Draw(5, 12, "PRESS START");
         Video.Start();
