@@ -191,6 +191,17 @@ public class GbJrpgTests
     private static byte MapTile(GameBoySystem gb, int col, int row) =>
         gb.DebugReadByte((ushort)(0x9800 + row * 32 + col));
 
+    // Hero OAM: 4 hardware OBJs (shadow slots 0-3, Pan Docs entry order Y/X/Tile/Attr) instead of
+    // BG tiles — Sprites.Flush DMAs the whole shadow in one shot inside Video.EndFrame, so a move
+    // is an O(1) OAM write, not the ~8-tile vblank drip that used to ghost across frames.
+    private const int OamY = 0,
+        OamX = 1,
+        OamTile = 2,
+        OamAttr = 3;
+
+    private static byte OamByte(GameBoySystem gb, int slot, int field) =>
+        gb.DebugReadByte((ushort)(0xFE00 + slot * 4 + field));
+
     private static bool TextAt(GameBoySystem gb, int col, int row, string text)
     {
         for (var i = 0; i < text.Length; i++)
@@ -280,23 +291,50 @@ public class GbJrpgTests
                 && MapTile(gb, 16, 6) == 6 // cells across the WHOLE map, not just early rows
                 && MapTile(gb, 10, 4) == 14
                 && MapTile(gb, 12, 16) == 8
-                && MapTile(gb, 2, 4) == 12
+                && OamByte(gb, 0, OamTile) == 12 // hero OBJs are a same-frame write, not a drip
                 && TextAt(gb, 1, 0, "HP"),
             900,
             "overworld fully drawn"
         );
 
-        // Overworld: HUD, terrain, hero, villager all on the hardware tilemap. World cells are
-        // 16x16 (2x2 tiles), cell (cx,cy) -> tile (cx*2, cy*2+2); a figure's assert samples its
-        // TOP-LEFT tile id.
+        // Overworld: HUD, terrain, villager all on the hardware tilemap; the hero is 4 hardware
+        // OBJs (shadow OAM slots 0-3), not tilemap tiles. World cells are 16x16 (2x2 tiles); a BG
+        // figure's assert samples its TOP-LEFT tile id, while the hero's four OBJ slots are
+        // TL/TR/BL/BR in that order. Cell (1,1) -> screen px (16,32) -> OAM (X+8,Y+16).
         AssertText(gb, 1, 0, "HP");
         AssertText(gb, 8, 0, "LV");
         await Assert.That(MapTile(gb, 12, 2)).IsEqualTo((byte)8); // tree, cell (6,0)
         await Assert.That(MapTile(gb, 16, 6)).IsEqualTo((byte)6); // water, cell (8,2)
-        await Assert.That(MapTile(gb, 2, 4)).IsEqualTo((byte)12); // hero TL, cell (1,1)
-        await Assert.That(MapTile(gb, 3, 4)).IsEqualTo((byte)13); // hero TR
-        await Assert.That(MapTile(gb, 2, 5)).IsEqualTo((byte)16); // hero BL
         await Assert.That(MapTile(gb, 10, 4)).IsEqualTo((byte)14); // villager TL, cell (5,1)
+
+        await Assert.That(OamByte(gb, 0, OamY)).IsEqualTo((byte)48); // hero TL, cell (1,1)
+        await Assert.That(OamByte(gb, 0, OamX)).IsEqualTo((byte)24);
+        await Assert.That(OamByte(gb, 0, OamTile)).IsEqualTo((byte)12);
+        await Assert.That(OamByte(gb, 1, OamY)).IsEqualTo((byte)48); // hero TR
+        await Assert.That(OamByte(gb, 1, OamX)).IsEqualTo((byte)32);
+        await Assert.That(OamByte(gb, 1, OamTile)).IsEqualTo((byte)13);
+        await Assert.That(OamByte(gb, 2, OamY)).IsEqualTo((byte)56); // hero BL
+        await Assert.That(OamByte(gb, 2, OamX)).IsEqualTo((byte)24);
+        await Assert.That(OamByte(gb, 2, OamTile)).IsEqualTo((byte)16);
+        await Assert.That(OamByte(gb, 3, OamY)).IsEqualTo((byte)56); // hero BR
+        await Assert.That(OamByte(gb, 3, OamX)).IsEqualTo((byte)32);
+        await Assert.That(OamByte(gb, 3, OamTile)).IsEqualTo((byte)17);
+
+        // No-ghost regression: unlike the old BG figure (~8 queued tile rewrites draining over
+        // several vblanks), a sprite move is one shadow-OAM write flushed whole by the next
+        // Video.EndFrame — so 2 frames after the input registers (1 frame for Input.Update to
+        // latch the press, 1 more for Update to move the sprite and EndFrame to flush it) the OAM
+        // X has already advanced by exactly one cell, and the vacated cell was never touched at
+        // all (no restore-then-redraw two-step), so it holds only terrain (<= 3, grass variants),
+        // never a hero tile (12/13/16/17).
+        byte xBefore = OamByte(gb, 0, OamX);
+        Press(gb, JoypadButton.Right, settle: 2); // 2 frames: 1 to latch the input, 1 to move+flush
+        await Assert.That((byte)(OamByte(gb, 0, OamX) - xBefore)).IsEqualTo((byte)16);
+        await Assert.That(MapTile(gb, 2, 4)).IsLessThanOrEqualTo((byte)3);
+        await Assert.That(MapTile(gb, 3, 4)).IsLessThanOrEqualTo((byte)3);
+        await Assert.That(MapTile(gb, 2, 5)).IsLessThanOrEqualTo((byte)3);
+        await Assert.That(MapTile(gb, 3, 5)).IsLessThanOrEqualTo((byte)3);
+        EnsureOverworld(gb); // play out any encounter this move triggered before continuing
 
         // CGB palette RAM holds the PNG-authored colors (water palette = slot 2, color 1).
         var water = Sheets.Value.Single(s => s.Name == "Water");
@@ -306,11 +344,13 @@ public class GbJrpgTests
         var high = gb.Ppu.BgPalette.ReadData();
         await Assert.That((ushort)(low | (high << 8))).IsEqualTo(water.Rgb555Palette[1]);
 
-        // Walk right from cell (1,1) to (4,1) — beside the villager at (5,1) — playing through
-        // any encounter along the way.
-        for (var i = 0; i < 3; i++)
+        // Walk right from cell (2,1) (the no-ghost step above already covered (1,1) -> (2,1)) to
+        // (4,1) — beside the villager at (5,1) — playing through any encounter along the way.
+        for (var i = 0; i < 2; i++)
             Step(gb, JoypadButton.Right);
-        await Assert.That(MapTile(gb, 8, 4)).IsEqualTo((byte)12); // hero TL arrived at cell (4,1)
+        await Assert.That(OamByte(gb, 0, OamY)).IsEqualTo((byte)48); // hero TL arrived at cell (4,1)
+        await Assert.That(OamByte(gb, 0, OamX)).IsEqualTo((byte)72);
+        await Assert.That(OamByte(gb, 0, OamTile)).IsEqualTo((byte)12);
 
         // Talk: the dialogue box opens with the first line...
         Press(gb, JoypadButton.A);
@@ -325,7 +365,10 @@ public class GbJrpgTests
         Press(gb, JoypadButton.A);
         WaitFor(
             gb,
-            () => TextAt(gb, 1, 0, "HP") && MapTile(gb, 8, 4) == 12,
+            () =>
+                TextAt(gb, 1, 0, "HP")
+                && OamByte(gb, 0, OamTile) == 12
+                && OamByte(gb, 0, OamX) == 72,
             900,
             "close callback returned to the overworld"
         );
@@ -351,7 +394,7 @@ public class GbJrpgTests
             300,
             "title screen drawn"
         );
-        RunFrames(gb, 150); // let the CGB attribute shadow fully drain before shooting
+        RunFrames(gb, 30); // let the CGB attribute shadow fully drain before shooting
         Capture(gb, Path.Combine(outDir, "title.png"));
         Press(gb, JoypadButton.Start);
 
@@ -359,14 +402,15 @@ public class GbJrpgTests
             gb,
             () =>
                 MapTile(gb, 10, 4) == 14
-                && MapTile(gb, 10, 5) == 18 // figure BOTTOM rows too — the shadow drains in
-                && MapTile(gb, 2, 4) == 12 // address order, and attributes drain behind tiles
-                && MapTile(gb, 2, 5) == 16
+                && MapTile(gb, 10, 5) == 18 // villager figure BOTTOM row too — the shadow drains
+                // in address order, and attributes drain behind tiles; the hero is an OBJ now, so
+                // its OAM write is same-frame, not part of this drip.
+                && OamByte(gb, 0, OamTile) == 12
                 && TextAt(gb, 1, 0, "HP"),
             900,
             "overworld drawn"
         );
-        RunFrames(gb, 150); // let the CGB attribute shadow fully drain before shooting
+        RunFrames(gb, 30); // let the CGB attribute shadow fully drain before shooting
         Capture(gb, Path.Combine(outDir, "overworld.png"));
 
         // Walk to the villager, shoot the dialogue.

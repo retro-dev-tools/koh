@@ -45,6 +45,8 @@ static class Assets
     public const byte TreePal = 5;
     public const byte UiPal = 6; // windows, HUD, battle backdrop — also the font's home
 
+    public const byte CharsObjPal = 0; // CGB OBJECT palette slot for the hero sprite
+
     public static byte FontBase;
 
     /// <summary>A truly blank tile: the font's space glyph (tile 0 is grass ART, not blank).</summary>
@@ -122,5 +124,19 @@ static class Assets
             0xE4
         );
         Palettes.SetBg(UiPal, Art.UiColor0, Art.UiColor1, Art.UiColor2, Art.UiColor3, 0xE4);
+
+        // The hero's 16x16 figure is drawn as hardware OBJs, not BG tiles (BG tile rewrites drip
+        // through MapWriter's vblank flush and ghost across several frames on a move; sprites are
+        // an O(1) OAM write). OBJ color 0 is transparent — the sheet's grass-green background
+        // disappears around the figure — colors 1-3 match the BG chars palette so the hero looks
+        // identical whether it's ever drawn via Scenery.DrawFigure (battle layouts) or Sprites.
+        Palettes.SetObj(
+            CharsObjPal,
+            Art.CharsColor0,
+            Art.CharsColor1,
+            Art.CharsColor2,
+            Art.CharsColor3,
+            0xE4
+        );
     }
 }

@@ -27,6 +27,72 @@ static class Scenery
     }
 }
 
+/// <summary>The hero's 16x16 figure as four 8x8 hardware OBJs (OAM slots 0-3), NOT 8x16 mode: an
+/// 8x16 OBJ pairs consecutive tile ids, but the chars sheet is 4-across, so the hero's four
+/// quadrants are tiles 12/13 (row 0) and 16/17 (row 1) — not consecutive. Sprite writes are
+/// shadow-only (<see cref="Sprites"/>) — flushed to real OAM by one DMA inside
+/// <see cref="Video.EndFrame"/> — so a move is an O(1) write instead of the ~8 tile rewrites a BG
+/// figure needs, which is what ghosted across frames through MapWriter's drip.
+///
+/// <b>Desktop reference build gap:</b> <see cref="Sprites.Flush"/>'s OAM-DMA page derivation is a
+/// documented ROM-only path (Sprites.cs:83-100) — on the plain desktop CLR build the same
+/// expression truncates an unrelated heap pointer, so the hero will not render there. ROM/emulator
+/// builds are the verified path for this sample.</summary>
+static class HeroSprite
+{
+    private const byte SlotTl = 0,
+        SlotTr = 1,
+        SlotBl = 2,
+        SlotBr = 3;
+
+    /// <summary>Place all four OBJs at a WORLD CELL (screen pixel top-left = cellX*16, cellY*16+16 —
+    /// the map starts at tile row 2) and set their tile/palette. Call once, before the cell first
+    /// becomes visible.</summary>
+    public static void Show(int cellX, int cellY)
+    {
+        int px = cellX * 16,
+            py = cellY * 16 + 16;
+        byte attr = ObjAttr.CgbPalette(Assets.CharsObjPal);
+
+        Sprites.Get(SlotTl, out var tl);
+        tl.Set(px, py, Assets.HeroTile);
+        tl.SetAttr(attr);
+
+        Sprites.Get(SlotTr, out var tr);
+        tr.Set(px + 8, py, (byte)(Assets.HeroTile + 1));
+        tr.SetAttr(attr);
+
+        Sprites.Get(SlotBl, out var bl);
+        bl.Set(px, py + 8, (byte)(Assets.HeroTile + 4));
+        bl.SetAttr(attr);
+
+        Sprites.Get(SlotBr, out var br);
+        br.Set(px + 8, py + 8, (byte)(Assets.HeroTile + 5));
+        br.SetAttr(attr);
+    }
+
+    /// <summary>Reposition the four OBJs to a new WORLD CELL (tile/attribute untouched) — the whole
+    /// point of the sprite conversion: a move is four shadow-OAM byte writes, not a tilemap
+    /// rewrite.</summary>
+    public static void Move(int cellX, int cellY)
+    {
+        int px = cellX * 16,
+            py = cellY * 16 + 16;
+
+        Sprites.Get(SlotTl, out var tl);
+        tl.Move(px, py);
+
+        Sprites.Get(SlotTr, out var tr);
+        tr.Move(px + 8, py);
+
+        Sprites.Get(SlotBl, out var bl);
+        bl.Move(px, py + 8);
+
+        Sprites.Get(SlotBr, out var br);
+        br.Move(px + 8, py + 8);
+    }
+}
+
 /// <summary>The classic JRPG window: a double-line frame from the ui sheet around a flat fill,
 /// all on the UI palette. Interior is (w-2)x(h-2) starting at (col+1, row+1).</summary>
 static class Ui
@@ -64,7 +130,8 @@ class OverworldScene : Scene
             DrawCell(x, y);
         Scenery.DrawFigure(Assets.NpcTile, Npc.X, Npc.Y, Assets.CharsPal);
         DrawHud();
-        Scenery.DrawFigure(Assets.HeroTile, Hero.X, Hero.Y, Assets.CharsPal);
+        Video.ShowSprites(SpriteSize.Size8x8);
+        HeroSprite.Show(Hero.X, Hero.Y);
         Video.Start();
     }
 
@@ -95,10 +162,9 @@ class OverworldScene : Scene
         if ((nx == Npc.X && ny == Npc.Y) || !World.IsWalkable(nx, ny))
             return;
 
-        DrawCell((byte)Hero.X, (byte)Hero.Y); // restore the vacated cell's terrain block
         Hero.X = nx;
         Hero.Y = ny;
-        Scenery.DrawFigure(Assets.HeroTile, nx, ny, Assets.CharsPal);
+        HeroSprite.Move(nx, ny);
 
         if (World.RollEncounter())
         {
@@ -237,6 +303,7 @@ class BattleScene : Scene
     public override void Enter()
     {
         Video.Stop();
+        Video.HideSprites(); // full re-author: a floating hero OBJ would be wrong here
         Bg.Clear(Assets.WindowFill); // parchment battle backdrop — the monsters' own background
         Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
         Bg.Fill(0, 1, 20, 1, Assets.UiBottom); // close the stats bar like the overworld HUD
@@ -332,6 +399,7 @@ class VictoryScene : Scene
     public override void Enter()
     {
         Video.Stop();
+        Video.HideSprites(); // full re-author: a floating hero OBJ would be wrong here
         Bg.Clear(Assets.WindowFill);
         Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
         Ui.DrawWindow(3, 5, 14, 8);
@@ -363,6 +431,7 @@ class GameOverScene : Scene
     public override void Enter()
     {
         Video.Stop();
+        Video.HideSprites(); // full re-author: a floating hero OBJ would be wrong here
         Bg.Clear(Assets.WindowFill);
         Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
         Ui.DrawWindow(3, 5, 14, 8);

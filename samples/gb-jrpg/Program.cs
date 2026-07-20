@@ -23,6 +23,7 @@ class TitleScene : Scene
     public override void Enter()
     {
         Video.Stop();
+        Video.HideSprites(); // defensive: no OBJ layer is authored on the title card
         Bg.Clear(Assets.WindowFill);
         Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
         Ui.DrawWindow(1, 3, 18, 12);
