@@ -13,122 +13,110 @@ description: >
 
 # Pixel Art Sprites
 
-You are drawing blind between renders: you place pixels as text, then see the result only
-when you render. Untrained instinct produces "programmer art" — recognizable but amateur.
-This skill closes that gap with three things: a strict BUILD ORDER (most amateur mistakes
-are sequencing mistakes), the community's craft rules (what pros do differently, and why),
-and mandatory LOOK CHECKPOINTS where you render and honestly judge before continuing.
+You are drawing blind between renders, and freehand per-pixel placement produces wobbly,
+assembled-from-blocks "programmer art" no matter how careful you are. This skill's method,
+proven against exactly that failure: CONSTRUCT the sprite from smooth geometry at high
+resolution and let the tooling downsample it into clean pixels — curves, volume, and outline
+come from math — then hand-polish only the last few pixels where taste is cheap and safe.
 
-Tooling: `scripts/sprite_kit.py` (stdlib-only) handles PNG I/O, upscaling, in-game-scale
-mockups, contact sheets, and craft linting (orphan pixels, banding, coverage, palette,
-symmetry stats). Import it or use its CLI; do not rewrite this boilerplate.
+Three resources, in the order you'll use them:
 
-The full sourced canon (Saint11, Lospec, Jansson, Derek Yu, Dragonflycave) lives in
-`references/canon.md` — read it when you need depth on any rule below, when a client
-rejects your work and you need to diagnose why, or before designing a whole sprite SET.
+1. `references/archetypes.md` — the TASTE library: geometric recipes (proportions as
+   bounding-box fractions) for 16 common creatures, stock poses that read at tiny scale,
+   and composition laws (mass connectivity, 60/30/10 color areas, head ratios). ALWAYS
+   check it before drawing a creature; if your subject is there, build the recipe — do not
+   invent anatomy from scratch. The iconic genre archetype beats original anatomy at this
+   scale, every time it has been tested.
+2. `scripts/shape_kit.py` — the CONSTRUCTION engine: parts as primitives (`ellipse`,
+   `capsule` for tapered limbs/necks/tails, `polygon`, `fan` for wing/tail membranes,
+   `mirror_x`), composed in a `Figure` with z-order, supersampled 8x, downsampled by
+   area-majority, automatic 1px ink outline (silhouette + part seams), light-vector
+   `shade()` bands. Build EVERYTHING through it; never place raw silhouette pixels by hand.
+3. `scripts/sprite_kit.py` — I/O and LINT: PNG read/write, upscale, display-scale mockups,
+   contact sheets, validators (palette, orphans, coverage, background, banding heuristics),
+   stats. Never hand-roll PNG code.
 
-## The build order (never skip a stage, never reorder)
+The full sourced craft canon (Saint11, Lospec, Jansson, Derek Yu, Dragonflycave) is in
+`references/canon.md` — read it for the polish pass, for diagnosing a rejection, and before
+designing a sprite SET.
 
-Amateur failure has one root cause: detail before structure. Every stage below ends with a
-checkpoint — render, look, and only proceed when the check passes. "Look" means actually
-viewing the rendered image at BOTH a large inspection scale (6-10x) and the final display
-scale (1x-3x mockup on the real background color). Work dies at display scale, so judge
-there.
+## The build order
 
-### 0. Intent — one sentence before any pixels
+Every stage ends with a checkpoint: render, LOOK at both an inspection scale (6-10x) and
+the final display scale (1x-3x mockup on the real background), and proceed only when the
+check passes. Work dies at display scale, so judge there.
 
-Write down: the subject, the pose/gesture, and THE ONE identifying feature you will
-exaggerate past realism (an oversized head, a signature horn, a wing shape). At small
-sizes the eye locks onto exactly one hook; three medium-strength features average out to
-a generic blob. If you cannot name the one feature, you are not ready to draw.
+### 0. Intent and recipe
 
-Anchor proportions to a same-resolution reference if one exists (decode and upscale it).
-Do not invent head-to-body ratios from imagination — small-scale proportion errors
-compound. Big heads read better at tiny sizes; that is why GB-era creatures are chibi.
+One sentence: subject, pose, and THE ONE feature you will exaggerate (the eye locks onto
+exactly one hook at small sizes; three medium features average to a generic blob). Then
+open `references/archetypes.md`: if the creature is covered, use its recipe's proportions
+and build order directly — the recipe numbers are meant to be fed straight into shape_kit
+calls. If it isn't covered, pick the closest covered creature and the "reading pose" that
+fits, and adapt. Anchor to a same-resolution reference sprite if one exists (decode and
+upscale it).
 
-### 1. Silhouette — the shape IS the sprite
+### 1. Construct the silhouette geometrically
 
-Draw the entire figure as ONE flat dark mass (no interior detail, no second color).
-Render the mockup at display scale. Squint test: the black shape alone must identify the
-subject — not a moth, box, dagger, or blob, but unmistakably THE thing. Use negative
-space deliberately: the notch of a neck, the gap under a wing, the space between legs
-define the read as much as filled pixels. A silhouette that fills its whole bounding box
-blobs together; target roughly 25-60% coverage with real negative space.
+Build the figure's parts in shape_kit in the recipe's order (large masses first), render
+with the automatic outline, and judge the SILHOUETTE: fill the figure solid mentally (or
+render it single-color) and squint at the mockup. It must read as ONLY the subject — not a
+moth, dagger, box, or blob. Composition laws from the archetypes file apply: one dominant
+connected mass, appendages joined by at least 2px, 25-60% coverage, deliberate negative
+space (the notch of a neck, the gap under a wing define the read as much as filled pixels).
 
-If the silhouette fails, fix the OUTLINE — never proceed hoping interior detail will
-rescue it. It will not.
+Geometry gives you smooth, confident curves for free — if an edge looks wobbly at this
+stage, fix the part shapes or proportions, never individual pixels. Do not proceed until
+the silhouette passes; interior detail cannot rescue a failed outline.
 
-Silhouette edge discipline: steps along a curve grow or shrink monotonically (1,1,2,3 —
-not 1,3,1,2). A straight 45° run of single-pixel steps is already perfect; an edge that
-zig-zags irregularly reads as hand jitter.
+### 2. Light and mass
 
-### 2. Big masses — light, then shadow, as few clusters as possible
+Commit to ONE light direction (top-left is the genre default; a sprite SET shares one
+direction everywhere) and apply `shade()` to the large parts: a lit band toward the light,
+a shadow band away, hard-edged. Flat-facing planes stay flat. The cardinal sin is pillow
+shading — darkening toward the outline from every side; the shadow side must terminate
+abruptly against a real shadow shape, which is exactly what the light-vector bands give
+you. Palette mapping follows the recipe's 60/30/10 rule: dominant color ~60% of the
+figure, secondary ~30%, accent ~10% max.
 
-Commit to ONE light direction (top-left is the genre default; whole sprite SETS must
-share one direction) and never violate it in any later stage. Split the silhouette into
-its 2-4 largest color masses: lit mass, shadow mass, maybe one material break. Think in
-CLUSTERS — contiguous same-color patches — not pixels. Two large well-placed shadow
-clusters beat eight scattered dark pixels: the eye groups by shape.
+### 3. Hand polish — the last 10%, on the grid
 
-The cardinal sin here is pillow shading: darkening toward the outline from EVERY side
-with no committed light source, so the form looks inflated. The shadow side terminates
-abruptly against a hard-edged shadow shape; it does not fade radially. Flat-facing
-planes get flat color; only rounded forms get a ramp.
+Take the rendered grid and edit PIXELS now, and only now: the face (the accent cluster
+goes on the eye unless the recipe says otherwise), fangs/claws as 1-3px marks, carve
+interior structure with thin darkest-color lines inside flat fills (wing bones, belly
+seams), break symmetry deliberately (vary one ear, cock the tail — mirrored halves read
+as a sticker; chaos reads as noise; ONE break is right), selective outline (lighten the
+outline one step where the lit side faces the background — never so far the silhouette
+dissolves). Keep every edit to a handful of pixels; if you find yourself redrawing a
+region, go back to the geometry.
 
-Checkpoint: render both scales. The form should already read as lit and volumetric with
-only 2-4 clusters. If it doesn't, the masses are wrong — do not paper over with detail.
+Dithering: only at a value boundary to fake an intermediate step (THE 4-color trick),
+ordered/checker, never random speckle, never blanket texture. Anti-aliasing: default NONE
+below 16px (redesign the edge angle instead); at 32px+ only staircases with steps ≥2px,
+in the step's own axis. Never AA a clean 45° or straight edge — blur is the one
+unforgivable sin.
 
-### 3. Detail — carve, don't sprinkle
+### 4. Lint
 
-Add the smallest clusters last: the exaggerated feature first and boldest, then eyes/
-face, then material hints. Techniques that work at this scale:
-
-- Carve interior structure with thin lines of the darkest color INSIDE flat fills (a
-  wing bone, a belly-plate seam, a fold) instead of spending a palette slot on it.
-- Selective outline (sel-out): keep the darkest outline where the figure meets the
-  background on the shadow side; on the lit side, lighten the outline to a color one
-  step darker than the fill it borders (or drop it). The outline obeys the same light
-  direction as the shading. Never lighten so far that the silhouette dissolves.
-- Break symmetry deliberately. Perfectly mirrored limbs/ears/eyes read as a sticker,
-  not a creature — vary a pose, cock one ear, shift the tail. (Verbatim community rule:
-  "Do NOT use the same body part twice.")
-- Saturation/brightness is a budget: the most eye-catching color goes on the ONE accent
-  (an eye glow, a gem), never large fills.
-
-### 4. Lint and polish
-
-Run the linter: `validate_all` from sprite_kit (orphans, palette, coverage, banding,
-background). Then apply the craft rules that separate clean from noisy:
-
-- Orphan pixels (isolated 1px marks) are deleted or grown into real clusters — no
-  exceptions. Diagonal-only connections read as disconnected; prefer edge adjacency.
-- Banding: parallel same-width color stripes that ignore the form. Fix by compressing
-  bands near a terminator, reorienting the gradient off the silhouette axis, or
-  dithering the one boundary. The linter flags obvious cases; scan ramps yourself too.
-- Anti-aliasing at these sizes: default to NONE below ~16px — redesign the edge angle
-  instead. At 32px+, AA only staircases whose steps are ≥2px, in the step's own axis,
-  bridge color a true value midpoint. Never AA a clean 45° or a straight edge; over-AA
-  reads as blur, and blur is the one thing pixel art must never be.
-- Dithering: only at a value boundary to fake an intermediate step (THE 4-color trick),
-  ordered/checker pattern, never random speckle, never as blanket texture. Confirm it
-  reads as a blend at display scale, not as noise.
+Run `validate_all` + `stats`: palette exactness, no orphan pixels (isolated 1px marks —
+delete or grow into real clusters, no exceptions), diagonal-only joins fixed to edge
+joins, coverage in range, banding warnings read and either fixed (compress bands near a
+terminator, reorient off the silhouette axis, dither the boundary) or consciously waived
+(clean intentional 45° edges and straight limb edges are fine — the linter is a reading
+aid, not a gate).
 
 ### 5. Final look — the honest one
 
-Render: 1x truth, display-scale mockup on the real background, and (for a set) a contact
-sheet next to the other sprites. Then run the 15-point checklist at the end of
-`references/canon.md`. The three highest-yield checks: squint the silhouette again (it
-degrades as detail accumulates), verify one light direction still governs everything
-(shading, sel-out, cast shadow), and hunt orphans introduced during detailing.
-
-If you are on a team with an art director or client: present the display-scale mockup,
-not the flattering 10x view. If they reject, diagnose against the failure table in
-`references/canon.md` §5 before redrawing — name the specific fault (pillow shading,
-banding, symmetric stiffness, spread emphasis...), don't just "try again".
+Render 1x truth + display-scale mockup on the real background (+ contact sheet beside the
+rest of the set). Run the 15-point checklist at the end of `references/canon.md`. The
+three highest-yield checks: squint the silhouette again (it degrades as detail
+accumulates), verify the one light direction still governs shading + sel-out + cast
+shadow, hunt orphans introduced during polish. Present the display-scale mockup to
+reviewers, never the flattering 10x. On rejection, diagnose against canon.md §5's failure
+table and the creature's "classic mistakes" list in archetypes.md — name the fault before
+redrawing.
 
 ## Tight palettes (Game Boy 4-color discipline)
-
-With 4 colors, every color does double duty by design:
 
 | Slot | Duties |
 |---|---|
@@ -137,32 +125,37 @@ With 4 colors, every color does double duty by design:
 | Light mid | The lit mass |
 | Lightest | Background AND highlight (keep highlight clusters clearly interior) |
 
-Spend the two mids on the biggest form read (lit vs shadow), never on a 2px detail. Fake
-a 5th value with boundary dither. A confident flat 2-3 color block beats a muddy attempt
-to shade a 4px feature. When the palette's fixed colors are given (hardware palettes),
-you cannot hue-shift — fake temperature with dither density instead.
+Spend the two mids on the biggest form read (lit vs shadow), never on a 2px detail. Fake a
+5th value with boundary dither. A confident flat 2-3 color block beats a muddy attempt to
+shade a 4px feature. Fixed hardware colors can't hue-shift — fake temperature with dither
+density instead.
 
 ## Sprite sets (bestiaries, tile sheets)
 
-Consistency across the set outranks per-sprite polish: one shared light direction, one
-outline weight, one grounding convention (grounded figures share a contact-shadow style;
-floaters share breathing room), balanced color identities (don't let three of four
-monsters be the same hue — give each a distinct dominant + the shared accent). Review on
-a contact sheet, never one at a time.
+Consistency outranks per-sprite polish: one shared light direction, one outline weight,
+one grounding convention (grounded figures share a contact-shadow style; floaters share
+breathing room), balanced color identities across the set (each member gets a distinct
+dominant; don't let three of four monsters share a hue). Review on a contact sheet, never
+one at a time.
 
-## sprite_kit quick reference
+## Quick reference
 
 ```python
 import sys; sys.path.insert(0, "<skill>/scripts")
-from sprite_kit import *
-pal = {'.': (240,232,200), 'K': (40,32,48), 'V': (150,90,150), 'G': (90,160,100)}
-grid = ["."*32 for _ in range(32)]          # rows of chars, one per pixel
-px = render(grid, pal)
-write_png("out/sprite.png", px)
-write_png("out/preview.png", upscale(px, 8))
-write_png("out/mockup.png", mockup(px, scale=3))          # display-scale on bg field
-problems = validate_all(grid, pal, 32, 32, set(pal.values()))
-print(problems, stats(grid, '.'))
+from shape_kit import Figure, ellipse, capsule, fan, polygon, mirror_x, preview
+from sprite_kit import validate_all, stats, render, write_png, upscale, mockup
+
+fig = Figure(s=8)                                   # 8x supersample
+fig.add("body", ellipse(16, 18, 8, 6), "B", z=1)    # coords in target-pixel units
+fig.shade("body", light_deg=225, highlight_fill="H", shadow_fill="D")
+fig.add("wingL", fan(pivot=(10, 14), tips=[(1, 4), (6, 2)], inner_r=3), "W", z=0)
+fig.add("leg", capsule(13, 22, 12, 27, 1.6, 1.0), "B", z=1)
+pal = {'.': (240,232,200), 'B': (150,90,150), 'H': (170,120,170),
+       'D': (110,60,110), 'W': (90,160,100), 'K': (40,32,48)}
+grid = fig.render((32, 32), pal, bg_char='.', outline_char='K')
+# ... stage-3 hand polish edits grid rows directly ...
+preview(grid, pal, "out/bat")                       # sprite + preview + display mockup
+print(validate_all(grid, pal, 32, 32, set(pal.values())), stats(grid, '.'))
 ```
 
-CLI: `python3 sprite_kit.py {render,validate,sheet,preview,selftest} ...`
+CLI: `python3 shape_kit.py {demo,selftest}` · `python3 sprite_kit.py {render,validate,sheet,preview,selftest}`
