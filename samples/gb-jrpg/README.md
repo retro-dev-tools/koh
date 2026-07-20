@@ -1,7 +1,9 @@
 # gb-jrpg — the second north-star sample
 
-A miniature **Game Boy Color-exclusive** JRPG written as ideal C# — overworld walking with
-collision, an NPC with paged dialogue, random encounters into a menu-driven turn-based battle,
+A miniature **Game Boy Color-exclusive** JRPG written as ideal C# — boots to a **title screen**
+(press Start), then explores the hand-designed **Millmere** overworld (a single-screen map with
+a pond, organic shoreline, tree copses, a ruined mill wall, and a dead-end nook), talks to its
+villager through paged dialogue, rolls random encounters into a menu-driven turn-based battle,
 levels, victory and defeat — authored with no regard for what the compiler supported at the time,
 per the ideal-code methodology of
 [`docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`](../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md).
@@ -10,11 +12,15 @@ fallback), and `tests/Koh.Compiler.Tests/Samples/GbJrpgTests.cs` boots it on the
 mode and plays it through (walk → fight whatever the encounter roll throws at it → talk → dialogue
 callback), capturing the acceptance screenshots below into [`screenshots/`](screenshots/).
 
-| Overworld | Dialogue | Battle |
-|---|---|---|
-| ![overworld](screenshots/overworld.png) | ![dialogue](screenshots/dialogue.png) | ![battle](screenshots/battle.png) |
+| Title | Overworld | Dialogue | Battle |
+|---|---|---|---|
+| ![title](screenshots/title.png) | ![overworld](screenshots/overworld.png) | ![dialogue](screenshots/dialogue.png) | ![battle](screenshots/battle.png) |
 
 Characters and monsters are 16×16 figures (2×2 tile blocks); the world walks on a 16×16 cell grid.
+
+## The team polish pass
+
+Art and design were produced by a team of specialized agents (level designer, terrain/character/monster/UI pixel artists) with visual review before acceptance. The seven PNG sheets under [`art/`](art/) now include terrain texture variants (4 grass, 2 wall, 2 water), a 2×2 tree block, and a classic double-line window-frame sheet driving all dialogue and menu windows. The enemy roster grew to four (Slime, Bat, Ghost, Drake) sharing one 4-color battle palette. The UI and battle scenes render on a parchment backdrop with framed windows, delivering a polished, cohesive aesthetic within the Game Boy's constraints.
 
 ## The gap catalog this game forced (each was a hard diagnostic when written)
 
@@ -32,4 +38,4 @@ each). At build time the Koh SDK's `KohGenerateTileSheets` target converts them 
 generates `static class Art` — tile tables, counts, and each sheet's **actual colors as RGB555
 constants**, so the CGB palettes are authored in the PNGs too. `Assets.cs` just loads sheets and
 feeds `Art.*Color*` into `Palettes.SetBg`; per-terrain tile attributes (`Bg.SetAttr`) pick the
-palette on CGB, and the DMG-shades fallback keeps the same ROM playable on a monochrome Game Boy.
+palette on CGB. The ROM is CGB-exclusive (header `0xC0`), so the dmgShades argument is vestigial.
