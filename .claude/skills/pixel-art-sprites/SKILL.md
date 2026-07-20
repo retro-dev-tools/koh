@@ -33,9 +33,10 @@ Three resources, in the order you'll use them:
    The model is SILHOUETTE + PAINT: everything you `add()` unions into ONE mass with ONE
    automatic 1px outline (no interior seams unless you opt in with `seam=True`);
    everything you `paint()` is a flat color region clipped inside that mass, never
-   outlined, never eroded. Tiny features (eyes, claw tips) are guaranteed to survive
-   downsampling by contract, and fragile diagonal-only joints are auto-fixed at render.
-   Build EVERYTHING through it; never place raw silhouette pixels by hand.
+   outlined, never eroded. Content-aware k-centroid downsampling (the default) preserves
+   thin strokes plain majority voting erases; tiny features (eyes, claw tips) are
+   guaranteed to survive by contract; fragile diagonal-only joints are auto-fixed at
+   render. Build EVERYTHING through it; never place raw silhouette pixels by hand.
 3. `scripts/sprite_kit.py` — I/O and LINT: PNG read/write, upscale, display-scale mockups,
    contact sheets, validators (palette, orphans, coverage, background, banding heuristics),
    stats. Never hand-roll PNG code.
@@ -160,18 +161,18 @@ import sys; sys.path.insert(0, "<skill>/scripts")
 from shape_kit import Figure, ellipse, capsule, fan, polygon, mirror_x, preview
 from sprite_kit import validate_all, stats, render, write_png, upscale, mockup
 
-fig = Figure(s=8)                                   # 8x supersample
-body = ellipse(16, 18, 8, 6)                        # coords in target-pixel units
-wing = fan(pivot=(10, 14), tips=[(1, 4), (6, 2)], inner_r=3)
-fig.add("body", body, "B")                          # add() = SILHOUETTE (one mass, one outline)
-fig.add("wingL", wing, "W")
-fig.add("leg", capsule(13, 22, 12, 27, 1.6, 1.0), "B")
-fig.paint("wing_flat", wing, "W")                   # paint() = flats, never outlined
-fig.paint("eye", ellipse(19, 15, 0.9, 0.9), "K")    # tiny parts survive by contract
-fig.shade("body", light_deg=225, highlight_fill="H", shadow_fill="D")
-pal = {'.': (240,232,200), 'B': (150,90,150), 'H': (170,120,170),
+fig = Figure(s=8)                                     # 8x supersample; coords in target-pixel units
+fig.add("body", ellipse(16, 18, 8, 6), "B", z=1)      # add() = SILHOUETTE: one mass, one outline
+fig.add("wingL", fan(pivot=(10, 14), tips=[(1, 4), (6, 2)], inner_r=3), "W", z=0, seam=True)
+                                                      # seam=True: deliberate interior line vs body
+fig.add("leg", capsule(13, 22, 12, 27, 1.6, 1.0), "B", z=1)
+fig.paint("belly", ellipse(16, 21, 5, 2), "P", z=1.2) # paint() = flats clipped inside, never outlined
+fig.shade("body", light_deg=225, highlight_fill="H", shadow_fill="D")  # shading = paint bands
+fig.add("eye", ellipse(19, 15, 0.9, 0.9), "K", z=3)   # tiny parts survive by contract
+pal = {'.': (240,232,200), 'B': (150,90,150), 'H': (170,120,170), 'P': (165,105,165),
        'D': (110,60,110), 'W': (90,160,100), 'K': (40,32,48)}
-grid = fig.render((32, 32), pal, bg_char='.', outline_char='K')  # fix_joints on by default
+grid = fig.render((32, 32), pal, bg_char='.', outline_char='K')
+# defaults: downsample='kcentroid' (thin-feature-preserving), fix_joints=True
 # ... stage-3 hand polish edits grid rows directly ...
 preview(grid, pal, "out/bat")                       # sprite + preview + display mockup
 print(validate_all(grid, pal, 32, 32, set(pal.values())), stats(grid, '.'))

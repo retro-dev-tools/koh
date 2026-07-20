@@ -9,12 +9,17 @@ boxy anatomy — there's no feedback loop cheap enough to catch a curve that's 1
 rendered, and by then the whole limb needs redrawing. Smooth geometry sidesteps this: draw an
 ellipse/capsule/polygon at 8x the target resolution (so a curve is a few dozen samples wide
 instead of a handful), then downsample by area coverage. The antialiasing-free "majority wins"
-downsample is what turns smooth high-res curves into a single, deliberate-looking pixel step at
-target scale, instead of a jagged staircase. An erosion pass then yields a consistent 1px ink
-outline (silhouette-preserving: it recolors existing figure pixels, it never adds new ones), and
-a light-vector pass yields consistent, one-light-direction shading. This is the "part-ID +
-erosion" technique used ad hoc to produce this skill's best hand-made sprite; this module is
-that technique made systematic and reusable.
+downsample (still available as `downsample="majority"`) is what turns smooth high-res curves into
+a single, deliberate-looking pixel step at target scale, instead of a jagged staircase — but
+plain majority erodes a feature that never dominates the blocks it passes through (a 1px-wide
+stroke, an ear tip), so `Figure.render`'s DEFAULT is now `downsample="kcentroid"`: the pixel-art
+community's standard content-aware fix (Astropulse's k-centroid downscaler), adapted here to this
+module's indexed part-id grids — see `Figure.render`'s docstring and `Figure._downsample_kcentroid`
+for the algorithm and the rationale for picking the indexed variant over k-means-on-RGB. An
+erosion pass then yields a consistent 1px ink outline (silhouette-preserving: it recolors existing
+figure pixels, it never adds new ones), and a light-vector pass yields consistent, one-light-
+direction shading. This is the "part-ID + erosion" technique used ad hoc to produce this skill's
+best hand-made sprite; this module is that technique made systematic and reusable.
 
 The module's story, end to end: SILHOUETTE (every add()ed part unions into one mass, one 1px
 outline around it, no automatic interior seams) + PAINT (color regions clipped to that mass,
@@ -467,6 +472,93 @@ class Figure:
                 target_id[ty][tx] = best_id
         return target_id
 
+    def _connected_components_in_block(self, id_grid_hires, base_x, base_y, target_pid):
+        """4-connected components, RESTRICTED to one SxS high-res block (base_x/base_y is the
+        block's top-left corner), of the cells whose id equals `target_pid`. Backs the
+        "kcentroid" downsample rule's connected-sub-blob test: a minority id's pixels only count
+        as one coherent feature (not scattered noise) if they're 4-connected to each other
+        within the block. Returns a list of components, each a list of absolute (x, y) hi-res
+        coordinates."""
+        s = self.s
+        visited = set()
+        comps = []
+        for dyy in range(s):
+            row = id_grid_hires[base_y + dyy]
+            for dxx in range(s):
+                x, y = base_x + dxx, base_y + dyy
+                if row[dxx] != target_pid or (x, y) in visited:
+                    continue
+                comp = []
+                stack = [(x, y)]
+                visited.add((x, y))
+                while stack:
+                    cx, cy = stack.pop()
+                    comp.append((cx, cy))
+                    for ddx, ddy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        nx, ny = cx + ddx, cy + ddy
+                        if (base_x <= nx < base_x + s and base_y <= ny < base_y + s
+                                and id_grid_hires[ny][nx] == target_pid and (nx, ny) not in visited):
+                            visited.add((nx, ny))
+                            stack.append((nx, ny))
+                comps.append(comp)
+        return comps
+
+    def _downsample_kcentroid(self, id_grid_hires, width, height, min_pixel_frac):
+        """Content-aware downsample (see Figure.render's docstring for the full rationale): same
+        majority baseline as _downsample_majority, but a target pixel's winner can be overridden
+        by a MINORITY id already present in the same block when that id's own pixels read as a
+        real, centered feature rather than noise the majority happened to outweigh — either (a)
+        they form a connected sub-blob (_connected_components_in_block) that touches the block's
+        center region, or (b) they cover >= 35% of the block outright, regardless of connectivity
+        or the incumbent winner's share. This is what lets a 1-target-pixel-wide diagonal stroke
+        survive a block where it's a minority against background (majority would drop it below
+        min_pixel_frac) or against a competing part. Center region is the block's middle half
+        along each axis (offsets [s/4, s - s/4)); for s < 4 this collapses to the whole block."""
+        s = self.s
+        block_area = s * s
+        lo = s // 4
+        hi = s - lo
+        if hi <= lo:
+            lo, hi = 0, s
+        target_id = [[-1] * width for _ in range(height)]
+        for ty in range(height):
+            base_y = ty * s
+            for tx in range(width):
+                base_x = tx * s
+                counts = {}
+                for dyy in range(s):
+                    row = id_grid_hires[base_y + dyy]
+                    for dxx in range(s):
+                        pid = row[base_x + dxx]
+                        if pid != -1:
+                            counts[pid] = counts.get(pid, 0) + 1
+                fg = sum(counts.values())
+                if fg == 0:
+                    continue
+                if fg / block_area >= min_pixel_frac:
+                    winner = max(counts, key=lambda pid: (counts[pid], self.parts[pid].z))
+                else:
+                    winner = -1
+
+                best_override, best_key = None, None
+                for pid, cnt in counts.items():
+                    if pid == winner:
+                        continue
+                    qualifies = (cnt / block_area) >= 0.35
+                    if not qualifies:
+                        for comp in self._connected_components_in_block(id_grid_hires, base_x, base_y, pid):
+                            if any(base_x + lo <= x < base_x + hi and base_y + lo <= y < base_y + hi
+                                   for (x, y) in comp):
+                                qualifies = True
+                                break
+                    if qualifies:
+                        key = (cnt, self.parts[pid].z)
+                        if best_key is None or key > best_key:
+                            best_key, best_override = key, pid
+
+                target_id[ty][tx] = best_override if best_override is not None else winner
+        return target_id
+
     def _block_coverage_best(self, tx, ty, indices):
         """High-res coverage of each candidate part's mask inside target pixel (tx, ty)'s SxS
         block, even far below min_pixel_frac. Used by _fix_joints to pick which of a diagonal
@@ -523,6 +615,7 @@ class Figure:
         outline_char=None,
         min_pixel_frac=0.5,
         fix_joints=True,
+        downsample="kcentroid",
     ):
         """Composite, downsample, and outline the figure into an ASCII grid (list of strings,
         one row each) compatible with sprite_kit's render()/validate_all()/etc.
@@ -533,9 +626,32 @@ class Figure:
              true z order, where a "paint" pixel is only kept if the structural grid already
              has something there — the clip that keeps paint from ever growing, shrinking, or
              seaming the silhouette.
-          2. Downsample both grids by area-majority (see _downsample_majority); a structural
-             block below min_pixel_frac forces that target pixel to background in BOTH grids
-             (color can never show where the silhouette doesn't).
+          2. Downsample both grids per `downsample` (applied identically to both grids, so a
+             block's structural and color decisions never disagree about which part "won" it —
+             the same coherence guarantee _fix_joints and the background-forcing pass below
+             already rely on):
+               - "majority" (_downsample_majority): each target pixel's SxS block takes the id
+                 with the most covered high-res cells (ties toward higher z); a block whose total
+                 coverage is < min_pixel_frac is background. This is shape_kit's original rule,
+                 byte-identical to pre-kcentroid behavior.
+               - "kcentroid" (default; _downsample_kcentroid): content-aware majority, the
+                 pixel-art community's standard fix (Astropulse's k-centroid downscaler) for the
+                 way plain area-majority erodes a feature that never dominates the blocks it
+                 passes through — a 1-target-pixel-wide diagonal stroke, an ear tip — even though
+                 that feature's own pixels are a real, connected, centered shape in each block.
+                 Starting from the same majority pick as above, kcentroid additionally promotes
+                 any OTHER id present in the block over that pick if the id's own pixels either
+                 (a) form a connected sub-blob that touches the block's center region, or (b)
+                 cover >= 35% of the block outright. Chosen over Astropulse's original
+                 k-means-on-RGB variant because this module already downsamples a part-ID grid,
+                 not raw pixel colors — everything downstream (tiny-part survival, fix_joints,
+                 the outline pass) reasons in part-IDs, so reusing that representation keeps
+                 kcentroid a small, auditable addition next to _downsample_majority instead of a
+                 second, parallel color-space pipeline that would need its own way back to a
+                 part ID (nearest-fill-color lookup) just to hand off to the rest of the
+                 pipeline. Fully deterministic: every id is a small int and a block's pixel scan
+                 order never varies between calls, so there's no hash-randomization or iteration-
+                 order sensitivity to worry about.
           3. Tiny-part survival: any part (add or paint) whose high-res mask covers >= 0.4 of
              its own mask-centroid's target-pixel block is guaranteed to show there — an "add"
              part can win a target pixel outright even from background; a "paint" part only
@@ -586,8 +702,14 @@ class Figure:
                     continue
                 hires_color[y][x] = idx
 
-        structural_target_id = self._downsample_majority(hires_structural, width, height, min_pixel_frac)
-        color_target_id = self._downsample_majority(hires_color, width, height, min_pixel_frac)
+        if downsample == "majority":
+            downsampler = self._downsample_majority
+        elif downsample == "kcentroid":
+            downsampler = self._downsample_kcentroid
+        else:
+            raise ValueError(f"shape_kit: unknown downsample mode {downsample!r} (expected 'majority' or 'kcentroid')")
+        structural_target_id = downsampler(hires_structural, width, height, min_pixel_frac)
+        color_target_id = downsampler(hires_color, width, height, min_pixel_frac)
 
         # A block below min_pixel_frac in the STRUCTURAL grid is background, full stop — this
         # keeps the two grids from ever disagreeing about what's foreground.
@@ -784,10 +906,14 @@ def run_selftest():
     _check(all(a <= b for a, b in zip(heights, heights[1:])), "capsule: cross-section height is non-decreasing along the taper", results)
     _check(heights[0] < heights[-1], "capsule: taper actually widens end-to-end", results)
 
-    # downsample majority correctness on a synthetic half-covered block
+    # downsample majority correctness on a synthetic half-covered block. These threshold checks
+    # are specifically about the "majority" rule's own exact semantics (Figure.render's default
+    # downsample mode is now "kcentroid", which deliberately rescues some below-threshold blocks
+    # -- see the kcentroid checks further down -- so pin downsample="majority" explicitly here to
+    # keep testing exactly what these checks say they test, unaffected by the new default).
     fig_half = Figure(s=4)
     fig_half.add("a", {(x, y) for x in range(4) for y in range(2)}, "A", z=1)  # 8/16 = 0.5
-    grid_half = fig_half.render((1, 1), bg_char=".", min_pixel_frac=0.5)
+    grid_half = fig_half.render((1, 1), bg_char=".", min_pixel_frac=0.5, downsample="majority")
     _check(grid_half == ["A"], "downsample: exactly-50% covered block is filled at the default 0.5 threshold", results)
 
     fig_low = Figure(s=4)
@@ -796,15 +922,17 @@ def run_selftest():
     # (a part in the [0.4, 0.5) band is now *supposed* to survive -- see the tiny-part-survival
     # checks below).
     fig_low.add("a", {(x, y) for x in range(4) for y in range(2)} - {(0, 0), (1, 0)}, "A", z=1)
-    grid_low = fig_low.render((1, 1), bg_char=".", min_pixel_frac=0.5)
+    grid_low = fig_low.render((1, 1), bg_char=".", min_pixel_frac=0.5, downsample="majority")
     _check(grid_low == ["."], "downsample: below-40% covered block falls back to background (no majority, no survival)", results)
 
-    # outline is exactly 1px and never grows the silhouette
+    # outline is exactly 1px and never grows the silhouette (pinned to majority: this checks
+    # exact pixel geometry of a solid square, independent of downsample mode, but pinning keeps
+    # it immune to any future kcentroid tuning)
     fig_sq = Figure(s=2)
     square = {(x, y) for x in range(4, 16) for y in range(4, 16)}  # a 6x6 target-pixel square
     fig_sq.add("sq", square, "Q", z=1)
-    grid_plain = fig_sq.render((10, 10), bg_char=".")
-    grid_outlined = fig_sq.render((10, 10), bg_char=".", outline_char="K")
+    grid_plain = fig_sq.render((10, 10), bg_char=".", downsample="majority")
+    grid_outlined = fig_sq.render((10, 10), bg_char=".", outline_char="K", downsample="majority")
 
     def fg_cells(grid, bg="."):
         return {(x, y) for y, row in enumerate(grid) for x, ch in enumerate(row) if ch != bg}
@@ -831,7 +959,7 @@ def run_selftest():
     fig_union = Figure(s=2)
     fig_union.add("a", {(x, y) for x in range(0, 12) for y in range(0, 12)}, "A", z=0)
     fig_union.add("b", {(x, y) for x in range(6, 18) for y in range(6, 18)}, "B", z=1)
-    grid_union = fig_union.render((9, 9), bg_char=".", outline_char="K")
+    grid_union = fig_union.render((9, 9), bg_char=".", outline_char="K", downsample="majority")
     # These 5 target pixels sit on b's side of the a/b overlap border but are otherwise fully
     # surrounded by figure (never adjacent to background), so they isolate seam behavior
     # specifically, rather than any legitimate silhouette-vs-background outline elsewhere.
@@ -843,16 +971,16 @@ def run_selftest():
     fig_seam_opt = Figure(s=2)
     fig_seam_opt.add("a", {(x, y) for x in range(0, 12) for y in range(0, 12)}, "A", z=0)
     fig_seam_opt.add("b", {(x, y) for x in range(6, 18) for y in range(6, 18)}, "B", z=1, seam=True)
-    grid_seam_opt = fig_seam_opt.render((9, 9), bg_char=".", outline_char="K")
+    grid_seam_opt = fig_seam_opt.render((9, 9), bg_char=".", outline_char="K", downsample="majority")
     seam_opt_marks_them_all = all(grid_seam_opt[y][x] == "K" for (x, y) in seam_coords)
     _check(seam_opt_marks_them_all, "silhouette: opt-in seam=True draws an interior line at the border against another add()ed part", results)
 
     # paint() never moves the outline, only recolors what's already inside the silhouette
     fig_paint = Figure(s=8)
     fig_paint.add("body", ellipse(10, 10, 8, 6, s=8), "B", z=1)
-    grid_no_paint = fig_paint.render((20, 20), bg_char=".", outline_char="K")
+    grid_no_paint = fig_paint.render((20, 20), bg_char=".", outline_char="K", downsample="majority")
     fig_paint.paint("patch", ellipse(10, 10, 3, 2, s=8), "P", z=2)
-    grid_with_paint = fig_paint.render((20, 20), bg_char=".", outline_char="K")
+    grid_with_paint = fig_paint.render((20, 20), bg_char=".", outline_char="K", downsample="majority")
 
     def outline_coords(grid):
         return {(x, y) for y, row in enumerate(grid) for x, ch in enumerate(row) if ch == "K"}
@@ -864,12 +992,12 @@ def run_selftest():
     # centroid's target-pixel block still survives; below 0.4 it does not (a real threshold).
     fig_tiny = Figure(s=3)
     fig_tiny.add("speck", {(0, 0), (1, 0), (0, 1), (1, 1)}, "E", z=1)  # 4/9 = 0.444
-    grid_tiny = fig_tiny.render((2, 2), bg_char=".")
+    grid_tiny = fig_tiny.render((2, 2), bg_char=".", downsample="majority")
     _check(grid_tiny[0][0] == "E", "tiny-part survival: a part covering 44% of its block survives (below the 50% majority threshold, above the 40% survival guarantee)", results)
 
     fig_below = Figure(s=3)
     fig_below.add("speck", {(0, 0), (1, 0), (0, 1)}, "E", z=1)  # 3/9 = 0.333
-    grid_below = fig_below.render((2, 2), bg_char=".")
+    grid_below = fig_below.render((2, 2), bg_char=".", downsample="majority")
     _check(grid_below[0][0] == ".", "tiny-part survival: a part covering only 33% of its block is NOT force-kept (the 40% guarantee has a real floor)", results)
 
     # fix_joints: a constructed diagonal-only touch gets promoted to a real orthogonal join
@@ -878,8 +1006,8 @@ def run_selftest():
     main_mask.add((5, 6))  # a faint extra hi-res pixel biasing the (2,3) promote-candidate
     fig_joint.add("main", main_mask, "M", z=1)
     fig_joint.add("tip", {(x, y) for x in range(6, 8) for y in range(6, 8)}, "T", z=1)  # target (3,3)
-    grid_broken = fig_joint.render((4, 4), bg_char=".", fix_joints=False)
-    grid_fixed = fig_joint.render((4, 4), bg_char=".", fix_joints=True)
+    grid_broken = fig_joint.render((4, 4), bg_char=".", fix_joints=False, downsample="majority")
+    grid_fixed = fig_joint.render((4, 4), bg_char=".", fix_joints=True, downsample="majority")
 
     broken_problems = check_joints(grid_broken, ".")
     fixed_problems = check_joints(grid_fixed, ".")
@@ -891,7 +1019,7 @@ def run_selftest():
     fig_shade = Figure(s=8)
     fig_shade.add("body", ellipse(10, 10, 8, 6, s=8), "B", z=1)
     fig_shade.shade("body", light_deg=225, highlight_fill="H", shadow_fill="D")
-    grid_shade = fig_shade.render((20, 20), bg_char=".", outline_char="K")
+    grid_shade = fig_shade.render((20, 20), bg_char=".", outline_char="K", downsample="majority")
     has_highlight = any("H" in row for row in grid_shade)
     has_shadow = any("D" in row for row in grid_shade)
     _check(has_highlight and has_shadow, "shade: produces both a highlight and a shadow band", results)
@@ -913,6 +1041,66 @@ def run_selftest():
                 only_bg_boundaries = False
                 break
     _check(only_bg_boundaries, "shade: highlight/shadow bands draw no seam outline against their own base part", results)
+
+    # kcentroid: a 1-target-pixel-wide diagonal stroke is the textbook case plain area-majority
+    # erodes (a shallow diagonal's own width never dominates every block it crosses by count, so
+    # majority downsampling drops a would-be-orthogonal pixel to background at the step, leaving
+    # only a diagonal-only touch behind) -- and the textbook case k-centroid downscaling exists to
+    # fix (see Figure.render's "kcentroid" docs). A capsule this thin, at a shallow (non-45-degree)
+    # angle so it actually steps instead of forming a uniform 45-degree staircase, renders as one
+    # fully orthogonally-connected run under kcentroid but leaves a diagonal-only joint at the same
+    # step under plain majority.
+    fig_diag = Figure(s=8)
+    fig_diag.add("stroke", capsule(2, 4, 26, 10, 0.5, 0.5, s=8), "S", z=1)
+    grid_diag_majority = fig_diag.render((32, 32), bg_char=".", downsample="majority")
+    grid_diag_kcentroid = fig_diag.render((32, 32), bg_char=".", downsample="kcentroid")
+
+    def fg_components(grid, bg="."):
+        h = len(grid)
+        w = len(grid[0]) if h else 0
+        visited = [[False] * w for _ in range(h)]
+        comps = []
+        for y in range(h):
+            for x in range(w):
+                if grid[y][x] == bg or visited[y][x]:
+                    continue
+                comp = []
+                stack = [(x, y)]
+                visited[y][x] = True
+                while stack:
+                    cx, cy = stack.pop()
+                    comp.append((cx, cy))
+                    for ddx, ddy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        nx, ny = cx + ddx, cy + ddy
+                        if 0 <= nx < w and 0 <= ny < h and grid[ny][nx] != bg and not visited[ny][nx]:
+                            visited[ny][nx] = True
+                            stack.append((nx, ny))
+                comps.append(comp)
+        return comps
+
+    majority_broken = (
+        len(fg_components(grid_diag_majority)) > 1
+        or len(check_joints(grid_diag_majority, ".")) > 0
+        or len(sprite_kit.check_orphans(grid_diag_majority, ".")) > 0
+    )
+    _check(majority_broken, "kcentroid motivation: plain majority erodes a 1px-wide diagonal stroke into gaps/dropouts", results)
+
+    kcentroid_continuous = (
+        len(fg_components(grid_diag_kcentroid)) == 1
+        and len(check_joints(grid_diag_kcentroid, ".")) == 0
+        and len(sprite_kit.check_orphans(grid_diag_kcentroid, ".")) == 0
+    )
+    _check(kcentroid_continuous, "kcentroid: the same 1px-wide diagonal stroke renders as one continuous, joint-free run", results)
+
+    # "kcentroid" is Figure.render's default downsample mode (requirement: majority stays
+    # byte-identical to legacy behavior, but the DEFAULT changes to kcentroid).
+    grid_diag_default = fig_diag.render((32, 32), bg_char=".")
+    _check(grid_diag_default == grid_diag_kcentroid, "downsample: 'kcentroid' is Figure.render's default (omitting the arg matches an explicit kcentroid call)", results)
+
+    # determinism: rendering the same figure twice under kcentroid is byte-identical (no
+    # iteration-order/hash-randomization dependence -- every id is a small int)
+    grid_diag_kcentroid_again = fig_diag.render((32, 32), bg_char=".", downsample="kcentroid")
+    _check(grid_diag_kcentroid == grid_diag_kcentroid_again, "kcentroid: rendering the same figure twice produces identical grids (deterministic)", results)
 
     ok = all(results)
     print(f"\n{sum(results)}/{len(results)} checks passed — {'PASS' if ok else 'FAIL'}")
