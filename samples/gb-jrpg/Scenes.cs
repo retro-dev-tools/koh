@@ -27,6 +27,27 @@ static class Scenery
     }
 }
 
+/// <summary>The classic JRPG window: a double-line frame from the ui sheet around a flat fill,
+/// all on the UI palette. Interior is (w-2)x(h-2) starting at (col+1, row+1).</summary>
+static class Ui
+{
+    public static void DrawWindow(byte col, byte row, byte w, byte h)
+    {
+        byte right = (byte)(col + w - 1),
+            bottom = (byte)(row + h - 1);
+        Bg.SetTile(col, row, Assets.UiTopLeft);
+        Bg.SetTile(right, row, Assets.UiTopRight);
+        Bg.SetTile(col, bottom, Assets.UiBottomLeft);
+        Bg.SetTile(right, bottom, Assets.UiBottomRight);
+        Bg.Fill((byte)(col + 1), row, (byte)(w - 2), 1, Assets.UiTop);
+        Bg.Fill((byte)(col + 1), bottom, (byte)(w - 2), 1, Assets.UiBottom);
+        Bg.Fill(col, (byte)(row + 1), 1, (byte)(h - 2), Assets.UiLeft);
+        Bg.Fill(right, (byte)(row + 1), 1, (byte)(h - 2), Assets.UiRight);
+        Bg.Fill((byte)(col + 1), (byte)(row + 1), (byte)(w - 2), (byte)(h - 2), Assets.WindowFill);
+        Bg.FillAttr(col, row, w, h, Assets.UiPal);
+    }
+}
+
 class OverworldScene : Scene
 {
     public static Hero Hero = new Hero();
@@ -80,9 +101,19 @@ class OverworldScene : Scene
         Scenery.DrawFigure(Assets.HeroTile, nx, ny, Assets.CharsPal);
 
         if (World.RollEncounter())
-            Game.ChangeScene(
-                new BattleScene(Hero, Rng.Chance(128) ? new Slime() : (Enemy)new Bat())
-            );
+        {
+            byte roll = Rng.Next(16);
+            Enemy foe;
+            if (roll < 6)
+                foe = new Slime();
+            else if (roll < 11)
+                foe = new Bat();
+            else if (roll < 15)
+                foe = new Ghost();
+            else
+                foe = new Drake();
+            Game.ChangeScene(new BattleScene(Hero, foe));
+        }
     }
 
     private bool IsFacingNpc()
@@ -98,19 +129,56 @@ class OverworldScene : Scene
 
     private static void DrawCell(byte x, byte y)
     {
-        byte tile = World.TileAt(x, y);
+        byte cell = World.TileAt(x, y);
         byte col = (byte)(x * 2),
             row = (byte)(y * 2 + 2);
-        Bg.Fill(col, row, 2, 2, tile);
-        Bg.FillAttr(col, row, 2, 2, Assets.PaletteFor(tile));
+
+        if (cell == World.TreeCell)
+        {
+            // The tree is a real 16x16 block from a 2-tile-across sheet: TL, +1 / +2, +3.
+            Bg.SetTile(col, row, Assets.Tree);
+            Bg.SetTile((byte)(col + 1), row, (byte)(Assets.Tree + 1));
+            Bg.SetTile(col, (byte)(row + 1), (byte)(Assets.Tree + 2));
+            Bg.SetTile((byte)(col + 1), (byte)(row + 1), (byte)(Assets.Tree + 3));
+            Bg.FillAttr(col, row, 2, 2, Assets.TreePal);
+            return;
+        }
+
+        if (cell == World.WallCell || cell == World.WaterCell)
+        {
+            // Checker the sheet's two variants so adjacent blocks read as continuous masonry
+            // (or rippling water) instead of a stamped repeat.
+            byte baseTile = cell == World.WallCell ? Assets.Wall : Assets.Water;
+            Bg.SetTile(col, row, baseTile);
+            Bg.SetTile((byte)(col + 1), row, (byte)(baseTile + 1));
+            Bg.SetTile(col, (byte)(row + 1), (byte)(baseTile + 1));
+            Bg.SetTile((byte)(col + 1), (byte)(row + 1), baseTile);
+            Bg.FillAttr(col, row, 2, 2, cell == World.WallCell ? Assets.WallPal : Assets.WaterPal);
+            return;
+        }
+
+        // Grass: scatter the 4 texture variants per 8x8 subtile — mostly plain, an occasional
+        // tuft — hashed off the tile position so the field is organic but deterministic.
+        for (byte dy = 0; dy < 2; dy++)
+        for (byte dxx = 0; dxx < 2; dxx++)
+        {
+            byte h = (byte)(((col + dxx) * 7 + (row + dy) * 13) & 7);
+            byte tile = h < 5 ? Assets.Grass : (byte)(Assets.Grass + h - 4);
+            Bg.SetTile((byte)(col + dxx), (byte)(row + dy), tile);
+        }
+        Bg.FillAttr(col, row, 2, 2, Assets.GrassPal);
     }
 
     private static void DrawHud()
     {
-        Text.Draw(0, 0, "HP");
-        Text.DrawNumber(2, 0, (ushort)Hero.Hp, 3);
-        Text.Draw(6, 0, "LV");
-        Text.DrawNumber(8, 0, (ushort)Hero.Level, 2);
+        // A parchment status bar over the two rows above the map, closed by a border line.
+        Bg.Fill(0, 0, 20, 1, Assets.WindowFill);
+        Bg.Fill(0, 1, 20, 1, Assets.UiBottom);
+        Bg.FillAttr(0, 0, 20, 2, Assets.UiPal);
+        Text.Draw(1, 0, "HP");
+        Text.DrawNumber(3, 0, (ushort)Hero.Hp, 3);
+        Text.Draw(8, 0, "LV");
+        Text.DrawNumber(10, 0, (ushort)Hero.Level, 2);
     }
 }
 
@@ -128,12 +196,11 @@ class DialogueScene : Scene
 
     public override void Enter()
     {
-        // A dialogue is an OVERLAY on the current screen — no re-author; the box rows are cleared
-        // to blank and the next scene's own Enter repaints everything when it closes.
-        Bg.Fill(0, 13, 20, 5, Assets.Blank);
-        Bg.FillAttr(0, 13, 20, 5, Assets.GrassPal);
+        // A dialogue is an OVERLAY on the current screen — a framed window over the bottom rows;
+        // the next scene's own Enter repaints everything when it closes.
+        Ui.DrawWindow(0, 13, 20, 5);
         Text.Draw(1, 14, _lines[0]);
-        Text.Draw(17, 16, "A>");
+        Bg.SetTile(18, 16, Assets.MoreArrow);
     }
 
     public override void Update()
@@ -143,7 +210,7 @@ class DialogueScene : Scene
         _page++;
         if (_page < _lines.Length)
         {
-            Bg.Fill(1, 14, 18, 1, Assets.Blank);
+            Bg.Fill(1, 14, 18, 1, Assets.WindowFill);
             Text.Draw(1, 14, _lines[_page]);
         }
         else
@@ -170,13 +237,15 @@ class BattleScene : Scene
     public override void Enter()
     {
         Video.Stop();
-        Bg.Clear(Assets.Blank);
-        Bg.FillAttr(0, 0, 32, 18, Assets.GrassPal); // reset stale overworld attributes
-        Text.Draw(3, 3, _enemy.Name);
-        Scenery.DrawFigureAt(_enemy.Tile, 9, 5, Assets.MonsterPal); // the 16x16 monster, colored
-        Text.Draw(2, 10, "ATTACK");
-        Text.Draw(2, 11, "HEAL");
-        Text.Draw(2, 12, "RUN");
+        Bg.Clear(Assets.WindowFill); // parchment battle backdrop — the monsters' own background
+        Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
+        Bg.Fill(0, 1, 20, 1, Assets.UiBottom); // close the stats bar like the overworld HUD
+        Scenery.DrawFigureAt(_enemy.Tile, 9, 4, Assets.MonsterPal);
+        Text.Draw(8, 7, _enemy.Name);
+        Ui.DrawWindow(1, 9, 10, 5);
+        Text.Draw(4, 10, "ATTACK");
+        Text.Draw(4, 11, "HEAL");
+        Text.Draw(4, 12, "RUN");
         DrawStats();
         DrawCursor();
         Video.Start();
@@ -253,8 +322,8 @@ class BattleScene : Scene
     private void DrawCursor()
     {
         for (byte row = 10; row <= 12; row++)
-            Bg.SetTile(1, row, Assets.Blank);
-        Text.Draw(1, (byte)(10 + _cursor), ">");
+            Bg.SetTile(3, row, Assets.WindowFill);
+        Text.Draw(3, (byte)(10 + _cursor), ">");
     }
 }
 
@@ -263,11 +332,12 @@ class VictoryScene : Scene
     public override void Enter()
     {
         Video.Stop();
-        Bg.Clear(Assets.Blank);
-        Bg.FillAttr(0, 0, 32, 18, Assets.GrassPal);
-        Text.Draw(5, 8, "YOU ARE A");
-        Text.Draw(6, 9, "HERO NOW");
-        Text.Draw(3, 12, "START = AGAIN");
+        Bg.Clear(Assets.WindowFill);
+        Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
+        Ui.DrawWindow(3, 5, 14, 8);
+        Text.Draw(5, 7, "YOU ARE A");
+        Text.Draw(6, 8, "HERO NOW");
+        Text.Draw(4, 11, "START=AGAIN");
         Video.Start();
     }
 
@@ -293,12 +363,13 @@ class GameOverScene : Scene
     public override void Enter()
     {
         Video.Stop();
-        Bg.Clear(Assets.Blank);
-        Bg.FillAttr(0, 0, 32, 18, Assets.GrassPal);
-        Text.Draw(5, 8, "GAME OVER");
-        Text.Draw(4, 10, "LEVEL");
-        Text.DrawNumber(10, 10, (ushort)_level, 2);
-        Text.Draw(3, 12, "START = AGAIN");
+        Bg.Clear(Assets.WindowFill);
+        Bg.FillAttr(0, 0, 32, 18, Assets.UiPal);
+        Ui.DrawWindow(3, 5, 14, 8);
+        Text.Draw(5, 7, "GAME OVER");
+        Text.Draw(5, 9, "LEVEL");
+        Text.DrawNumber(11, 9, (ushort)_level, 2);
+        Text.Draw(4, 11, "START=AGAIN");
         Video.Start();
     }
 

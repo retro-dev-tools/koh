@@ -64,6 +64,30 @@ sealed class Bat : Enemy
     public override int RollDamage() => Rng.Chance(64) ? 0 : (byte)(Attack + Rng.Next(5));
 }
 
+sealed class Ghost : Enemy
+{
+    public override string Name => "GHOST";
+    public override byte Tile => Assets.GhostTile;
+    public override int MaxHp => 10;
+    public override int Attack => 3;
+    public override int ExpReward => 9;
+
+    // Unnerving: usually a chilling graze, occasionally a real haunting.
+    public override int RollDamage() => Rng.Chance(96) ? 1 : (byte)(Attack + Rng.Next(4));
+}
+
+sealed class Drake : Enemy
+{
+    public override string Name => "DRAKE";
+    public override byte Tile => Assets.DrakeTile;
+    public override int MaxHp => 16;
+    public override int Attack => 6;
+    public override int ExpReward => 15;
+
+    // The rare tough encounter: hits hard and never whiffs.
+    public override int RollDamage() => (byte)(Attack + Rng.Next(6));
+}
+
 /// <summary>Anything the hero can face and press A on.</summary>
 interface IInteractable
 {
@@ -76,9 +100,9 @@ sealed class Villager : IInteractable
 {
     private static readonly string[] Lines =
     {
-        "WELCOME TRAVELER!",
-        "MONSTERS ROAM THE",
-        "GRASS. LEVEL UP!",
+        "THIS IS MILLMERE.",
+        "SLIMES BY THE POND",
+        "THE OLD MILL FELL.",
     };
 
     public int X => 5;

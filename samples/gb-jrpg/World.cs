@@ -10,17 +10,26 @@ static class World
     public const int Width = 10;
     public const int Height = 8;
 
-    // Cell values are terrain tile ids: 1 = wall, 2 = water, 0 = grass.
+    // Terrain CELL values (what the map means, decoupled from VRAM tile ids — the renderer's
+    // DrawCell maps a cell to art, scattering texture variants).
+    public const byte GrassCell = 0;
+    public const byte WallCell = 1;
+    public const byte WaterCell = 2;
+    public const byte TreeCell = 3;
+
+    // Millmere — the pond clearing where the old mill wall crumbled, at the edge of the west
+    // wood: a lake with an organic SE shore, a ruined wall fragment mid-field, tree copses, and
+    // a dead-end nook behind the west wood. 57/80 cells walkable, all reachable from the start.
     private static readonly byte[,] Map =
     {
-        { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
-        { 1, 0, 0, 0, 0, 0, 0, 0, 2, 1 },
-        { 1, 0, 1, 0, 0, 0, 0, 0, 2, 1 },
-        { 1, 0, 0, 0, 0, 2, 2, 0, 0, 1 },
-        { 1, 0, 0, 0, 0, 2, 2, 0, 0, 1 },
-        { 1, 0, 1, 1, 0, 0, 0, 0, 0, 1 },
-        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
-        { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+        { 0, 0, 0, 0, 0, 0, 3, 3, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 3, 0, 0, 0, 0, 0, 0, 0, 2, 2 },
+        { 3, 3, 0, 0, 1, 1, 0, 2, 2, 2 },
+        { 0, 0, 3, 0, 1, 0, 0, 2, 2, 2 },
+        { 0, 0, 3, 0, 0, 0, 0, 0, 2, 2 },
+        { 0, 0, 3, 0, 0, 0, 0, 0, 0, 2 },
+        { 0, 0, 0, 0, 0, 0, 3, 0, 0, 0 },
     };
 
     public static byte TileAt(int x, int y) => Map[y, x];
@@ -29,7 +38,7 @@ static class World
     {
         if (x < 0 || x >= Width || y < 0 || y >= Height)
             return false;
-        return Map[y, x] == Assets.Grass;
+        return Map[y, x] == GrassCell;
     }
 
     /// <summary>One random-encounter roll per completed step: ~1 in 16.</summary>
