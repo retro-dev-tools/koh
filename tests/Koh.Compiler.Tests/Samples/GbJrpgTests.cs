@@ -98,9 +98,17 @@ public class GbJrpgTests
         "koh-gbjrpg-tests"
     );
 
+    // The Koh SDK brings Koh.GameBoy into scope everywhere via a global <Using> (see Sdk.props) so
+    // game files need no `using` of their own; compiling the sample files directly with Roslyn (no
+    // SDK) needs the same global using injected explicitly.
+    private const string GlobalUsings = "global using Koh.GameBoy;\n";
+
     private static IrModule Frontend(OptimizationLevel level, DiagnosticBag diagnostics)
     {
-        var trees = Sources.Value.Select(s => CSharpSyntaxTree.ParseText(s)).ToArray();
+        var trees = Sources
+            .Value.Append(GlobalUsings)
+            .Select(s => CSharpSyntaxTree.ParseText(s))
+            .ToArray();
         var compilation = CSharpCompilation.Create(
             "GbJrpgAsm_" + Guid.NewGuid().ToString("N"),
             trees,
@@ -176,9 +184,9 @@ public class GbJrpgTests
             gb.RunFrame();
     }
 
-    // Assets.Load: 3 terrain tiles + two 8-tile figure sheets (ids 0..18), font at 19.
-    // Glyph tile = 19 + (char - ' ').
-    private static byte GlyphTile(char c) => (byte)(19 + (c - ' '));
+    // Assets.Load: 7 sheets (grass/wall/water/tree/chars/monsters/ui, ids 0..45), font at 46.
+    // Glyph tile = 46 + (char - ' ').
+    private static byte GlyphTile(char c) => (byte)(46 + (c - ' '));
 
     private static byte MapTile(GameBoySystem gb, int col, int row) =>
         gb.DebugReadByte((ushort)(0x9800 + row * 32 + col));
@@ -205,9 +213,11 @@ public class GbJrpgTests
         }
     }
 
-    private static bool InBattle(GameBoySystem gb) => TextAt(gb, 2, 10, "ATTACK");
+    private static bool InBattle(GameBoySystem gb) => TextAt(gb, 4, 10, "ATTACK");
 
-    private static bool OnOverworld(GameBoySystem gb) => TextAt(gb, 0, 0, "HP");
+    private static bool OnOverworld(GameBoySystem gb) => TextAt(gb, 1, 0, "HP");
+
+    private static bool OnTitle(GameBoySystem gb) => MapTile(gb, 5, 5) == GlyphTile('T');
 
     private static void Press(GameBoySystem gb, JoypadButton button, int settle = 8)
     {
@@ -258,15 +268,20 @@ public class GbJrpgTests
     public async Task Sample_CgbPlaythrough_WalksTalksAndCallsBack()
     {
         var gb = Boot(HardwareMode.Cgb);
+
+        // Title card first: wait for its glyphs, then press Start to hand off to the overworld.
+        WaitFor(gb, () => OnTitle(gb), 300, "title screen drawn");
+        Press(gb, JoypadButton.Start);
+
         WaitFor(
             gb,
             () =>
-                MapTile(gb, 0, 2) == 1 // the dirty range drains in address order, so sample
-                && MapTile(gb, 16, 4) == 2 // cells across the WHOLE map, not just early rows
-                && MapTile(gb, 10, 4) == 5
-                && MapTile(gb, 0, 16) == 1
-                && MapTile(gb, 2, 4) == 3
-                && TextAt(gb, 0, 0, "HP"),
+                MapTile(gb, 12, 2) == 8 // the dirty range drains in address order, so sample
+                && MapTile(gb, 16, 6) == 6 // cells across the WHOLE map, not just early rows
+                && MapTile(gb, 10, 4) == 14
+                && MapTile(gb, 12, 16) == 8
+                && MapTile(gb, 2, 4) == 12
+                && TextAt(gb, 1, 0, "HP"),
             900,
             "overworld fully drawn"
         );
@@ -274,14 +289,14 @@ public class GbJrpgTests
         // Overworld: HUD, terrain, hero, villager all on the hardware tilemap. World cells are
         // 16x16 (2x2 tiles), cell (cx,cy) -> tile (cx*2, cy*2+2); a figure's assert samples its
         // TOP-LEFT tile id.
-        AssertText(gb, 0, 0, "HP");
-        AssertText(gb, 6, 0, "LV");
-        await Assert.That(MapTile(gb, 0, 2)).IsEqualTo((byte)1); // wall ring, cell (0,0)
-        await Assert.That(MapTile(gb, 16, 4)).IsEqualTo((byte)2); // water, cell (8,1)
-        await Assert.That(MapTile(gb, 2, 4)).IsEqualTo((byte)3); // hero TL, cell (1,1)
-        await Assert.That(MapTile(gb, 3, 4)).IsEqualTo((byte)4); // hero TR
-        await Assert.That(MapTile(gb, 2, 5)).IsEqualTo((byte)7); // hero BL
-        await Assert.That(MapTile(gb, 10, 4)).IsEqualTo((byte)5); // villager TL, cell (5,1)
+        AssertText(gb, 1, 0, "HP");
+        AssertText(gb, 8, 0, "LV");
+        await Assert.That(MapTile(gb, 12, 2)).IsEqualTo((byte)8); // tree, cell (6,0)
+        await Assert.That(MapTile(gb, 16, 6)).IsEqualTo((byte)6); // water, cell (8,2)
+        await Assert.That(MapTile(gb, 2, 4)).IsEqualTo((byte)12); // hero TL, cell (1,1)
+        await Assert.That(MapTile(gb, 3, 4)).IsEqualTo((byte)13); // hero TR
+        await Assert.That(MapTile(gb, 2, 5)).IsEqualTo((byte)16); // hero BL
+        await Assert.That(MapTile(gb, 10, 4)).IsEqualTo((byte)14); // villager TL, cell (5,1)
 
         // CGB palette RAM holds the PNG-authored colors (water palette = slot 2, color 1).
         var water = Sheets.Value.Single(s => s.Name == "Water");
@@ -295,22 +310,22 @@ public class GbJrpgTests
         // any encounter along the way.
         for (var i = 0; i < 3; i++)
             Step(gb, JoypadButton.Right);
-        await Assert.That(MapTile(gb, 8, 4)).IsEqualTo((byte)3); // hero TL arrived at cell (4,1)
+        await Assert.That(MapTile(gb, 8, 4)).IsEqualTo((byte)12); // hero TL arrived at cell (4,1)
 
         // Talk: the dialogue box opens with the first line...
         Press(gb, JoypadButton.A);
-        WaitFor(gb, () => TextAt(gb, 1, 14, "WELCOME TRAVELER!"), 300, "dialogue line 1");
+        WaitFor(gb, () => TextAt(gb, 1, 14, "THIS IS MILLMERE."), 300, "dialogue line 1");
 
         // ...pages twice more, and the stored close-callback (enabler E3) fires, landing back on
         // the overworld with the hero where they stood.
         Press(gb, JoypadButton.A);
-        WaitFor(gb, () => TextAt(gb, 1, 14, "MONSTERS ROAM THE"), 300, "dialogue line 2");
+        WaitFor(gb, () => TextAt(gb, 1, 14, "SLIMES BY THE POND"), 300, "dialogue line 2");
         Press(gb, JoypadButton.A);
-        WaitFor(gb, () => TextAt(gb, 1, 14, "GRASS. LEVEL UP!"), 300, "dialogue line 3");
+        WaitFor(gb, () => TextAt(gb, 1, 14, "THE OLD MILL FELL."), 300, "dialogue line 3");
         Press(gb, JoypadButton.A);
         WaitFor(
             gb,
-            () => TextAt(gb, 0, 0, "HP") && MapTile(gb, 8, 4) == 3,
+            () => TextAt(gb, 1, 0, "HP") && MapTile(gb, 8, 4) == 12,
             900,
             "close callback returned to the overworld"
         );
@@ -325,14 +340,29 @@ public class GbJrpgTests
         Directory.CreateDirectory(outDir);
 
         var gb = Boot(HardwareMode.Cgb);
+
+        // Title card: the framed window, mascot, and "PRESS START" — shoot it before advancing.
         WaitFor(
             gb,
             () =>
-                MapTile(gb, 10, 4) == 5
-                && MapTile(gb, 10, 5) == 9 // figure BOTTOM rows too — the shadow drains in
-                && MapTile(gb, 2, 4) == 3 // address order, and attributes drain behind tiles
-                && MapTile(gb, 2, 5) == 7
-                && TextAt(gb, 0, 0, "HP"),
+                MapTile(gb, 5, 5) == GlyphTile('T') // "TINY  QUEST"
+                && MapTile(gb, 5, 12) == GlyphTile('P') // "PRESS START"
+                && MapTile(gb, 9, 9) == 20, // slime mascot TL (SlimeTile)
+            300,
+            "title screen drawn"
+        );
+        RunFrames(gb, 150); // let the CGB attribute shadow fully drain before shooting
+        Capture(gb, Path.Combine(outDir, "title.png"));
+        Press(gb, JoypadButton.Start);
+
+        WaitFor(
+            gb,
+            () =>
+                MapTile(gb, 10, 4) == 14
+                && MapTile(gb, 10, 5) == 18 // figure BOTTOM rows too — the shadow drains in
+                && MapTile(gb, 2, 4) == 12 // address order, and attributes drain behind tiles
+                && MapTile(gb, 2, 5) == 16
+                && TextAt(gb, 1, 0, "HP"),
             900,
             "overworld drawn"
         );
@@ -343,13 +373,13 @@ public class GbJrpgTests
         for (var i = 0; i < 3; i++)
             Step(gb, JoypadButton.Right);
         Press(gb, JoypadButton.A);
-        WaitFor(gb, () => TextAt(gb, 1, 14, "WELCOME TRAVELER!"), 300, "dialogue open");
+        WaitFor(gb, () => TextAt(gb, 1, 14, "THIS IS MILLMERE."), 300, "dialogue open");
         RunFrames(gb, 60);
         Capture(gb, Path.Combine(outDir, "dialogue.png"));
         Press(gb, JoypadButton.A);
         Press(gb, JoypadButton.A);
         Press(gb, JoypadButton.A);
-        WaitFor(gb, () => TextAt(gb, 0, 0, "HP"), 900, "back on the overworld");
+        WaitFor(gb, () => TextAt(gb, 1, 0, "HP"), 900, "back on the overworld");
 
         // Pace until an encounter fires, and shoot the battle screen.
         for (var wander = 0; wander < 200 && !InBattle(gb); wander++)
@@ -358,10 +388,12 @@ public class GbJrpgTests
             RunFrames(gb, 15);
         }
         WaitFor(gb, () => InBattle(gb), 300, "an encounter");
-        WaitFor(gb, () => MapTile(gb, 9, 5) is 11 or 13, 300, "monster drawn");
+        // Monster BL tile — one of SlimeTile/BatTile/GhostTile/DrakeTile + 4, whichever spawned.
+        WaitFor(gb, () => MapTile(gb, 9, 5) is 24 or 26 or 32 or 34, 300, "monster drawn");
         RunFrames(gb, 90); // monster bottom row + attributes settle
         Capture(gb, Path.Combine(outDir, "battle.png"));
 
+        await Assert.That(File.Exists(Path.Combine(outDir, "title.png"))).IsTrue();
         await Assert.That(File.Exists(Path.Combine(outDir, "overworld.png"))).IsTrue();
         await Assert.That(File.Exists(Path.Combine(outDir, "dialogue.png"))).IsTrue();
         await Assert.That(File.Exists(Path.Combine(outDir, "battle.png"))).IsTrue();
