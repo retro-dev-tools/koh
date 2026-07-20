@@ -26,28 +26,35 @@ stadium/tapered-oval limb or body. "Teardrop" = an ellipse pulled to a point at 
   scallops per wing and a tiny body pinched in the dead center, so the whole thing reads as
   ONE spread black glyph, not a body with two attached wings.
 - **Recipe (build order):**
-  1. **Wingspan first, as one connected bar.** Two fans pivoting from shoulders at
-     `(0.42W, 0.42H)` and `(0.58W, 0.42H)`; each fan sweeps from an upper knuckle near the
-     top corners `(0.06W, 0.20H)` / `(0.94W, 0.20H)` down to the side edges at `(0.0W, 0.55H)`
-     / `(1.0W, 0.55H)`. Wingspan = full width, edge to edge.
+  1. **Wingspan first, as one connected bar, RAISED.** Two fans pivoting from shoulders at
+     `(0.42W, 0.42H)` and `(0.58W, 0.42H)`; each **leading (upper) edge sits at or ABOVE the
+     shoulder line** — sweeping UP to an upper knuckle near the top corners `(0.06W, 0.20H)` /
+     `(0.94W, 0.20H)`, then out to the side edges at `(0.0W, 0.55H)` / `(1.0W, 0.55H)`. A wing
+     leading edge that sags below the body midline (`0.5H`) is forbidden — this is raised or
+     level flight posture, never drooping. Wingspan = full width, edge to edge.
   2. **Scallop the trailing (lower) edge:** 3 arcs per wing biting UP into the membrane,
      each ~0.14W wide, valleys reaching `0.45H`. The scallops are the signature; make them
      deep, not shy nicks.
   3. **Body:** one small teardrop, `0.14W` wide, from `(0.5W, 0.40H)` to `(0.5W, 0.62H)`,
-     tip down. It is mostly a notch between the wings, not a mass in its own right.
+     tip down. It is mostly a notch between the wings — **body + head together ≤ 25% of figure
+     area**; the wings own the rest.
   4. **Head:** circle `0.16W` at `(0.5W, 0.34H)`, overlapping the body top and the wing seam.
   5. **Ears:** two triangles from the head crown, `0.05W` base, tips at `~0.24H`, tilted
-     slightly outward — the only place a bit of asymmetry helps (cock one 1px taller).
+     slightly outward — the only place a bit of asymmetry helps (cock one 1px taller). The
+     silhouette's **top edge must read ear-dip-wing-tip**: ears poke up, a dip to the head/
+     shoulder, then the wings rise back to the corners.
 - **The ONE feature:** the **scalloped wing membrane spanning the full width**. Exaggerate
   span and scallop depth before anything else.
-- **Palette mapping:** wings + body one solid `dark` (the glyph reads flat); `mid` only as a
-  thin membrane sheen along each wing's leading edge; `accent` = two eye dots.
+- **Palette mapping:** wings + body one solid `dark` (the glyph reads flat). Keep each
+  **membrane interior one flat color with at most 2 ink finger-lines** (`dark` struts on a
+  `mid` fill); no other interior seams. `accent` = two eye dots.
 - **Classic mistakes:**
+  - Wings drooping below the body midline → reads as a moth or a cape. Leading edges stay at
+    or above the shoulder line.
   - Wings drawn as separate objects that don't touch the body → floating flaps. Keep an
     unbroken filled bridge from wingtip through body.
-  - Feathered/rounded wingtips → reads as a moth or bird. Bat wings end in ANGULAR points and
-    finger-struts, never soft curves.
-  - Body too large → the pinch disappears and it reads as a cape. Keep body ≤0.15W.
+  - Feathered/rounded wingtips, or cluttered membrane interiors → reads as a moth or bird. Bat
+    wings end in ANGULAR points; interiors stay flat with ≤2 ink lines each.
 
 ## wolf — howling (profile)
 
@@ -57,22 +64,28 @@ stadium/tapered-oval limb or body. "Teardrop" = an ellipse pulled to a point at 
   1. **Body core:** a tapered capsule, chest at `(0.30W, 0.55H)` down to haunch, long axis
      tilted so the front is lifted; length `0.45W`, thickness `0.22H`.
   2. **Neck + head as one raised line:** neck capsule from chest `(0.34W, 0.45H)` up to
-     `(0.30W, 0.18H)`; muzzle a tapered wedge from there pointing up-and-back to
-     `(0.20W, 0.10H)`. Nose is the highest point of the whole sprite.
+     `(0.30W, 0.18H)`; muzzle a **slender** tapered wedge from there pointing up-and-back to
+     `(0.20W, 0.10H)` at a **30–45° muzzle-to-skull angle above horizontal**. Keep it thin:
+     **muzzle depth (top-to-jaw) ≤ 0.18H at the tip, tapering from ≤ 0.30H at the skull** — a
+     thick wedge reads as a boar. Nose is the highest point of the whole sprite.
   3. **Legs:** front pair as ONE thick foreground capsule `(0.34W→0.36W, 0.60H→0.92H)`, a
      thinner back-leg hint `1px` behind it; hind pair likewise at `~0.62W`. Two visible
      legs, not four scattered sticks.
-  4. **Tail:** low, sweeping down-then-out from `(0.72W, 0.55H)` to `(0.88W, 0.72H)`, a
-     tapered brush.
+  4. **Tail (MANDATORY — never drop it):** bushy and low, sweeping down-then-out from
+     `(0.72W, 0.55H)` to `(0.88W, 0.72H)`, a tapered brush **≥ 0.15W long**. The tail is
+     load-bearing for the read; if space gets tight, **shrink the body before cutting the
+     tail** — a tailless wolf reads as a goat or deer.
   5. **Ears:** two back-swept triangles on the skull, laid nearly flat along the neck line.
 - **The ONE feature:** the **upward muzzle line** — the unbroken chest-to-nose diagonal. If
   that read is clear, the pose says "howl" before any detail.
 - **Palette mapping:** body `mid`; belly/underjaw `dark` shadow band; `dark` for legs-behind
   and the open mouth notch; `accent` = one eye + a nick of moonlit highlight on the muzzle top.
 - **Classic mistakes:**
+  - Thick blunt muzzle → reads as a boar or rhino. Keep the wedge slender (≤0.18H at the tip).
+  - Missing tail → reads as a goat or deer. The bushy low tail is mandatory; shrink the body
+    before you cut it.
   - Head turned toward the viewer → kills the howl; keep it strict profile, nose up.
   - Four evenly-spaced legs → picket-fence stiffness. Overlap front/back into two leg masses.
-  - Snout too short/blunt → reads as a bear or dog. Wolf muzzle is long and wedge-tapered.
 
 ## wolf — standing (profile)
 
@@ -473,6 +486,18 @@ inside. If the feature is a horn, don't face the creature so the horn foreshorte
   or diagonal-only connection reads as severed → floating limb). Before shading, fill the
   sprite solid and confirm no part is an island. Wings, legs, tails, ears all attach with a
   real bridge of pixels.
+- **One-mass silhouette, then paint.** Build the ENTIRE silhouette as a single unioned mass
+  with ONE continuous 1px outline; interior color regions are flat "paint" laid inside that
+  outline, never their own outlined sub-shapes and never adding interior seams. Why: at 16×16
+  a per-part outline around every wing/leg/ear eats the interior fill — a 1px border around a
+  4px part IS the part — so the sprite turns to sludge; field tests consistently won with
+  everything unioned first, outlined once, then flat-colored. (The construction tool now
+  enforces the single union + single outline; this law explains why, so you don't fight it.)
+- **Placement is still yours, even when survival is guaranteed.** The tool now contracts that
+  a part which must survive at tiny scale (the eye, a claw tip) will not be dissolved. That
+  guarantee is about existence, NOT position: it is still the artist's job to put the eye
+  EXACTLY where the recipe's fraction says — `(0.40W, 0.52H)`, not "somewhere on the head".
+  A surviving pixel in the wrong place reads as a blemish; the recipe coordinates are the read.
 - **60 / 30 / 10 color-area rule (for a 4-color sprite).** Roughly **60%** of the covered
   (non-background) area is the dominant body value (`mid`), **~30%** the secondary/shadow
   value (`dark` masses + outline), and **~10%** the third value — with the **single brightest
