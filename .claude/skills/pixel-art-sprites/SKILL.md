@@ -13,13 +13,22 @@ description: >
 
 # Pixel Art Sprites
 
-You are drawing blind between renders, and freehand per-pixel placement produces wobbly,
-assembled-from-blocks "programmer art" no matter how careful you are. This skill's method,
-proven against exactly that failure: CONSTRUCT the sprite from smooth geometry at high
-resolution and let the tooling downsample it into clean pixels — curves, volume, and outline
-come from math — then hand-polish only the last few pixels where taste is cheap and safe.
+Two hard-won facts govern this skill (measured across 15+ whole-creature attempts, three
+methodology generations, and multiple model tiers): (1) agents drawing a whole creature —
+freehand OR geometric — plateau at "recognizable but amateur", but SMALL components
+converge to genuine quality under iteration; (2) agents JUDGE renders far better than
+they generate them. The method is therefore COMPOSE-AND-SELECT:
 
-Three resources, in the order you'll use them:
+- COMPOSE sprites from a library of small, individually-perfected parts
+  (`scripts/parts_kit.py` + `assets/parts/`) instead of drawing creatures from scratch.
+- SELECT among deterministic variant POPULATIONS rendered on contact sheets
+  (`scripts/evolve.py`) instead of iterating one candidate whose flaws anchor you —
+  selection pressure substitutes for the continuous visual feedback you don't have.
+- Author NEW parts (only when the library lacks them) with geometric construction
+  (`scripts/shape_kit.py`) — a part is small enough that the construct-render-critique
+  loop actually converges there.
+
+Resources, in the order you'll use them:
 
 1. `references/archetypes.md` — the TASTE library: geometric recipes (proportions as
    bounding-box fractions) for 16 common creatures, stock poses that read at tiny scale,
@@ -46,6 +55,16 @@ The full sourced craft canon (Saint11, Lospec, Jansson, Derek Yu, Dragonflycave)
 designing a sprite SET.
 
 ## The build order
+
+PRIMARY PATH — compose and select: check `assets/parts/` and
+`references/worked-examples/` for parts and builds matching your subject. Write a SPEC
+(slots binding library parts to anchored placements + per-slot jitter), run
+`evolve.py gen <spec.json>` for a deterministic population, LOOK at the contact sheet,
+pick winners by index, breed 1-3 generations (`--gen N --parents i,j`), then do bounded
+hand polish on the winner and lint. Only when the library lacks a part you need do you
+drop into the geometric stages below — to AUTHOR THAT PART on its own small canvas with
+the same rigor, save it via `parts_kit.save_part`, and return to the compose path. Every
+refined part permanently raises the library's floor.
 
 Every stage ends with a checkpoint: render, LOOK at both an inspection scale (6-10x) and
 the final display scale (1x-3x mockup on the real background), and proceed only when the
