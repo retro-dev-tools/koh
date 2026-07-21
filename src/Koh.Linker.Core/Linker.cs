@@ -3,7 +3,10 @@ using Koh.Core.Diagnostics;
 
 namespace Koh.Linker.Core;
 
-public sealed record LinkOptions(bool CgbCompatible = false);
+/// <summary><paramref name="CgbOnly"/> marks the ROM header CGB-exclusive (0xC0 at $0143 — a DMG
+/// refuses to run it); <paramref name="CgbCompatible"/> marks it CGB-enhanced-but-DMG-compatible
+/// (0x80). Only takes effect through <c>RomWriter.BuildRom</c>; CgbOnly wins when both are set.</summary>
+public sealed record LinkOptions(bool CgbCompatible = false, bool CgbOnly = false);
 
 /// <summary>
 /// Result of the link operation.
@@ -78,7 +81,11 @@ public sealed class Linker
         // 5. Build ROM
         byte[]? rom = null;
         if (!HasErrors())
-            rom = RomWriter.BuildRom(sections, cgbCompatible: options?.CgbCompatible == true);
+            rom = RomWriter.BuildRom(
+                sections,
+                cgbCompatible: options?.CgbCompatible == true,
+                cgbOnly: options?.CgbOnly == true
+            );
 
         // 6. Resolve each input section's per-byte line map into the
         //    bank + 16-bit windowed-address form the .kdbg expects. Done

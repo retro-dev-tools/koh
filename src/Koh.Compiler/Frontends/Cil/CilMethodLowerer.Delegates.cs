@@ -190,6 +190,14 @@ internal sealed partial class CilMethodLowerer
     /// </summary>
     private void LowerNewobj(MethodReference ctorRef, List<IrValue> stack)
     {
+        // Rank-2 array construction — intercepted BEFORE type resolution: an ArrayType's methods
+        // have no MethodDefinition to resolve (see CilMethodLowerer.Arrays.cs's md-array section).
+        if (ctorRef.DeclaringType is ArrayType mdArrayType)
+        {
+            LowerMdArrayCtor(mdArrayType, stack);
+            return;
+        }
+
         var declaringType =
             CilModuleLowerer.ResolveSafe(ctorRef.DeclaringType)
             ?? throw new CilNotSupportedException(
@@ -237,6 +245,12 @@ internal sealed partial class CilMethodLowerer
         _b.Store(raw, heapRef);
         var basePtr = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
         EmitZeroFill(basePtr, layout.Size);
+
+        // A concrete class in a tagged dispatch hierarchy carries its runtime type tag at offset 0
+        // (reserved by the hierarchy root's layout — see CilVirtualDispatch) — stored here, right
+        // after the zero-fill, so it is settled before the ctor body can observe the instance.
+        if (_ctx.VirtualDispatch.TryGetTag(declaringType, out var typeTag))
+            _b.Store(IrBuilder.ConstInt(IrType.I8, typeTag), basePtr);
 
         var callee =
             _ctx.EnsureLowered(ctorDef)
@@ -314,9 +328,12 @@ internal sealed partial class CilMethodLowerer
     /// <summary>A delegate <c>Invoke</c> whose receiver traces (through <see
     /// cref="_pendingDelegateProvenance"/>) to exactly one statically-known target method becomes a
     /// direct call passing the env pointer as the target's <c>this</c> — the IR inliner then flattens
-    /// it. An untraceable receiver (a delegate parameter with more than one possible caller-supplied
-    /// target, or one built from a shape this frontend doesn't recognize) is a diagnostic, never a
-    /// throw into user code — matches the design spike's explicit "no indirect-call backend" scope.</summary>
+    /// it (the zero-cost fast path every LINQ lambda rides, untouched). An UNTRACEABLE receiver —
+    /// a delegate that crossed a boundary (field, argument, return) and was therefore materialized
+    /// into a <c>[u8 targetId][u16 env]</c> blob (see <see cref="MaterializeDelegateIfNeeded"/>) —
+    /// dispatches over the closed-world <see cref="CilDelegateRegistry"/> instead (enabler E3): load
+    /// the id, switch, one DIRECT call per registered target of this delegate type. Still never an
+    /// indirect call. A delegate type with no registered creation site at all stays a diagnostic.</summary>
     private void LowerDelegateInvoke(MethodReference calleeRef, List<IrValue> stack)
     {
         var argCount = calleeRef.Parameters.Count;
@@ -325,17 +342,133 @@ internal sealed partial class CilMethodLowerer
             args[i] = Pop(stack);
         var receiver = Pop(stack);
 
-        if (!_pendingDelegateProvenance.TryGetValue(receiver, out var target))
+        if (_pendingDelegateProvenance.TryGetValue(receiver, out var target))
+        {
+            var result = InvokeDelegate(target, receiver, args);
+            if (result is not null)
+                stack.Add(result);
+            return;
+        }
+
+        LowerBlobDelegateInvoke(calleeRef, receiver, args, stack);
+    }
+
+    /// <summary>The blob half of E3 (see <see cref="LowerDelegateInvoke"/>): the receiver is a
+    /// materialized 3-byte delegate blob; dispatch over every registered target of its delegate
+    /// type — same alloca-slot result merging (no phis) as <c>TryEmitTagDispatch</c>, and
+    /// <see cref="InvokeDelegate"/> reused verbatim per arm.</summary>
+    private void LowerBlobDelegateInvoke(
+        MethodReference calleeRef,
+        IrValue receiver,
+        IrValue[] args,
+        List<IrValue> stack
+    )
+    {
+        var delegateTypeName = calleeRef.DeclaringType.FullName;
+        if (
+            !_ctx.DelegateRegistry.TryGetTargets(delegateTypeName, out var targets)
+            || targets.Count == 0
+        )
             throw new CilNotSupportedException(
-                $"delegate invocation in '{_method.FullName}' could not be resolved to a single "
-                    + "target method (the CIL frontend only supports a delegate whose target is "
-                    + "statically known at the invocation site; an indirect-call backend is out of scope)."
+                $"delegate invocation in '{_method.FullName}' could not be resolved: no creation "
+                    + $"site for '{delegateTypeName}' exists anywhere in the closed world, and the "
+                    + "receiver's own target is not statically known at the invocation site."
             );
 
-        var result = InvokeDelegate(target, receiver, args);
-        if (result is not null)
-            stack.Add(result);
+        var blob = CoerceStore(receiver, IrType.Pointer(IrType.I8));
+        var envPtr = _b.Conv(
+            IrConvOp.Bitcast,
+            _b.Gep(blob, IrBuilder.ConstInt(IrType.I16, 1), IrType.I8),
+            IrType.Pointer(IrType.I16)
+        );
+        var env = _b.Load(envPtr);
+
+        var isVoid = calleeRef.ReturnType.FullName == "System.Void";
+        var isStructReturn = CilStructSupport.ResolveStruct(calleeRef.ReturnType) is not null;
+        IrType? slotType =
+            isVoid ? null
+            : isStructReturn ? IrType.Pointer(IrType.I8)
+            : IrType.I32; // InvokeDelegate returns stack-widened scalars
+        var resultSlot = slotType is not null ? _b.Alloca(slotType) : null;
+
+        void EmitArm(MethodDefinition armTarget)
+        {
+            var result = InvokeDelegate(armTarget, env, args);
+            if (resultSlot is not null && result is not null)
+                _b.Store(CoerceStore(result, slotType!), resultSlot);
+        }
+
+        if (targets.Count == 1)
+        {
+            EmitArm(targets[0].Target);
+        }
+        else
+        {
+            var id = _b.Load(blob);
+            var contBlock = _function.AppendBlock("dinv.cont");
+            var armBlocks = new List<IrBasicBlock>(targets.Count);
+            for (var i = 0; i < targets.Count; i++)
+                armBlocks.Add(_function.AppendBlock($"dinv.arm{i}"));
+            // Arm 0 doubles as the switch default; every valid id is covered by construction
+            // (MaterializeDelegateIfNeeded only stores registry-assigned ids).
+            var cases = new List<(IrConstInt, IrBasicBlock)>();
+            for (var i = 1; i < targets.Count; i++)
+                cases.Add(((IrConstInt)IrBuilder.ConstInt(IrType.I8, targets[i].Id), armBlocks[i]));
+            _b.Switch(id, armBlocks[0], cases);
+            for (var i = 0; i < targets.Count; i++)
+            {
+                _b.PositionAtEnd(armBlocks[i]);
+                EmitArm(targets[i].Target);
+                _b.Br(contBlock);
+            }
+            _b.PositionAtEnd(contBlock);
+        }
+
+        if (resultSlot is not null)
+            stack.Add(_b.Load(resultSlot));
     }
+
+    /// <summary>Enabler E3's boundary hook: a delegate value about to cross a provenance-erasing
+    /// boundary (stored to a field, passed as an argument, returned) is materialized into a 3-byte
+    /// arena blob <c>[u8 targetId][u16 env]</c> so an untraceable Invoke can dispatch on it (see
+    /// <see cref="LowerBlobDelegateInvoke"/>). A value WITHOUT provenance passes through unchanged —
+    /// it is already a blob from an earlier crossing, or null (invoking null is the same wild deref
+    /// it is on the CLR). Allocation is per crossing (3 arena bytes) — delegates cross boundaries at
+    /// scene-setup rates, not per frame.</summary>
+    private IrValue MaterializeDelegateIfNeeded(IrValue value, TypeReference delegateTypeRef)
+    {
+        if (!_pendingDelegateProvenance.TryGetValue(value, out var target))
+            return value;
+        if (!_ctx.DelegateRegistry.TryGetId(delegateTypeRef.FullName, target, out var targetId))
+            throw new CilNotSupportedException(
+                $"delegate target '{target.FullName}' has no registered id for "
+                    + $"'{delegateTypeRef.FullName}' (creation shape not recognized by the "
+                    + "closed-world pre-pass)."
+            );
+        var heap =
+            _ctx.HeapGlobal
+            ?? throw new CilNotSupportedException(
+                $"storing a delegate in '{_method.FullName}' needs the heap, but none was "
+                    + "provisioned for this module."
+            );
+        var heapRef = IrBuilder.GlobalRef(heap);
+        var raw = _b.Sub(_b.Load(heapRef), IrBuilder.ConstInt(IrType.I16, 3));
+        _b.Store(raw, heapRef);
+        var blob = _b.Conv(IrConvOp.Bitcast, raw, IrType.Pointer(IrType.I8));
+        _b.Store(IrBuilder.ConstInt(IrType.I8, targetId), blob);
+        var envPtr = _b.Conv(
+            IrConvOp.Bitcast,
+            _b.Gep(blob, IrBuilder.ConstInt(IrType.I16, 1), IrType.I8),
+            IrType.Pointer(IrType.I16)
+        );
+        _b.Store(CoerceStore(value, IrType.I16), envPtr);
+        return blob;
+    }
+
+    /// <summary>True when <paramref name="typeRef"/> resolves to a delegate type — the static-type
+    /// test every E3 boundary hook uses.</summary>
+    private static bool IsDelegateTypeRef(TypeReference typeRef) =>
+        CilModuleLowerer.ResolveSafe(typeRef) is { } def && CilModuleLowerer.IsDelegateType(def);
 
     /// <summary>Call a resolved delegate target directly, env pointer as <c>this</c> — the single
     /// mechanism behind both a real <c>Invoke</c> call site (see <see cref="LowerDelegateInvoke"/>)
@@ -358,6 +491,14 @@ internal sealed partial class CilMethodLowerer
         allArgs[0] = CoerceStore(env, callee.Parameters[0].Type);
         for (var i = 0; i < args.Count; i++)
             allArgs[i + 1] = CoerceStore(args[i], callee.Parameters[i + 1].Type);
+        // A struct-returning delegate target uses the same static-slot convention as any other call
+        // (see TryEmitSretCall) — route through a scratch stack to reuse its buffer plumbing.
+        if (_ctx.TryGetSretSlot(callee, out _, out _))
+        {
+            var sretStack = new List<IrValue>(1);
+            TryEmitSretCall(callee, allArgs, sretStack);
+            return sretStack[0];
+        }
         var call = _b.Call(callee, allArgs);
         return callee.ReturnType.Kind != IrTypeKind.Void
             ? WidenToStack(call, IsSignedReturn(target))
@@ -458,6 +599,8 @@ internal sealed partial class CilMethodLowerer
             args[i] = Pop(stack);
         var thisValue = Pop(stack);
 
+        if (TryLowerMdArrayCall(calleeRef, thisValue, args, stack))
+            return;
         if (TryLowerSpanCall(calleeRef, thisValue, args, stack))
             return;
         if (TryLowerStringCall(calleeRef, thisValue, args, stack))
@@ -489,13 +632,18 @@ internal sealed partial class CilMethodLowerer
             {
                 def = resolved;
             }
+            else if (TryEmitTagDispatch(calleeRef, def, thisValue, args, stack))
+            {
+                return;
+            }
             else
             {
                 throw new CilNotSupportedException(
                     $"virtual call '{calleeRef.FullName}' in '{_method.FullName}' cannot be resolved to "
                         + "a single target (devirtualization needs a sealed declaring type, a final "
-                        + "method, or a receiver traceable to a known concrete type with a matching "
-                        + "override; an indirect-call backend is out of scope)."
+                        + "method, a receiver traceable to a known concrete type with a matching "
+                        + "override, or a closed tagged hierarchy for tag dispatch; an indirect-call "
+                        + "backend is out of scope)."
                 );
             }
         }
@@ -509,6 +657,10 @@ internal sealed partial class CilMethodLowerer
         allArgs[0] = CoerceStore(thisValue, callee.Parameters[0].Type);
         for (var i = 0; i < argCount; i++)
             allArgs[i + 1] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i + 1].Type);
+
+        if (TryEmitSretCall(callee, allArgs, stack))
+            return;
+
         var call = _b.Call(callee, allArgs);
         if (callee.ReturnType.Kind != IrTypeKind.Void)
         {
@@ -517,5 +669,179 @@ internal sealed partial class CilMethodLowerer
                 _pendingConcreteType[result] = resultConcreteType;
             stack.Add(result);
         }
+    }
+
+    // ---- Closed-world tag dispatch (compiler enabler E2 — see CilVirtualDispatch) ---------------
+
+    /// <summary>Lower a genuinely virtual call through a TAGGED closed hierarchy: load the runtime
+    /// type tag (offset 0 of the instance — stored by <c>LowerNewobj</c>), <c>switch</c> over it,
+    /// and make one DIRECT call per distinct implementation, merging any result through an alloca
+    /// slot (no phis — the frontend's invariant; <c>Mem2RegPass</c> rebuilds SSA). All targets
+    /// resolving to ONE implementation skip the switch entirely. Returns false — emitting nothing —
+    /// when the receiver's hierarchy isn't tagged or an implementation can't be resolved, so the
+    /// caller falls through to the existing diagnostic.</summary>
+    private bool TryEmitTagDispatch(
+        MethodReference calleeRef,
+        MethodDefinition target,
+        IrValue thisValue,
+        IrValue[] args,
+        List<IrValue> stack
+    )
+    {
+        if (calleeRef is GenericInstanceMethod)
+            return false; // generic virtual dispatch — out of scope
+        var staticReceiver =
+            CilModuleLowerer.ResolveSafe(calleeRef.DeclaringType) ?? target.DeclaringType;
+
+        // No instantiable receiver exists anywhere in the closed world (e.g. shared framework code
+        // dispatching on an abstract base — Game.CommitScene's scene.Exit() — in a game that never
+        // derives it): the call site is dynamically dead (the receiver is necessarily null), so
+        // emit no call and push a placeholder result. This keeps framework code compiling in every
+        // game regardless of which framework features the game actually uses.
+        if (_ctx.VirtualDispatch.HasNoConcreteImplementations(staticReceiver))
+        {
+            if (target.ReturnType.FullName == "System.Void")
+                return true;
+            if (CilStructSupport.ResolveStruct(target.ReturnType) is { } deadStruct)
+            {
+                var deadLayout = _ctx.GetLayout(deadStruct);
+                var deadBuffer = _b.Alloca(IrType.Array(IrType.I8, Math.Max(deadLayout.Size, 1)));
+                stack.Add(_b.Gep(deadBuffer, IrBuilder.ConstInt(IrType.I16, 0), IrType.I8));
+                return true;
+            }
+            stack.Add(IrBuilder.ConstInt(CilTypeMapper.Map(target.ReturnType).Item1, 0));
+            return true;
+        }
+
+        if (
+            !_ctx.VirtualDispatch.TryGetDispatchTargets(staticReceiver, out var dispatchTargets)
+            || dispatchTargets.Count == 0
+        )
+            return false;
+
+        var resolved = new List<(byte Tag, MethodDefinition Impl)>(dispatchTargets.Count);
+        foreach (var (tag, concrete) in dispatchTargets)
+        {
+            var impl = ResolveImplementation(concrete, target);
+            if (impl is null || !impl.HasBody)
+                return false;
+            resolved.Add((tag, impl));
+        }
+
+        // Result plumbing: a struct return merges the per-arm result-buffer ADDRESS (the frontend's
+        // struct-value representation) through a pointer slot; a scalar merges through a slot of the
+        // declared IR return type; void needs nothing.
+        var isVoid = target.ReturnType.FullName == "System.Void";
+        var isStructReturn = CilStructSupport.ResolveStruct(target.ReturnType) is not null;
+        IrType? slotType =
+            isVoid ? null
+            : isStructReturn ? IrType.Pointer(IrType.I8)
+            : CilTypeMapper.Map(target.ReturnType).Item1;
+        var resultSlot = slotType is not null ? _b.Alloca(slotType) : null;
+
+        var receiver = CoerceStore(thisValue, IrType.Pointer(IrType.I8));
+
+        var groups = resolved.GroupBy(t => t.Impl).ToList();
+        if (groups.Count == 1)
+        {
+            EmitDispatchArmCall(groups[0].Key, receiver, args, resultSlot, slotType);
+        }
+        else
+        {
+            var tag = _b.Load(receiver); // I8 at offset 0 — reserved by the root's layout
+            var contBlock = _function.AppendBlock("vdisp.cont");
+            var armBlocks = new List<IrBasicBlock>(groups.Count);
+            for (var i = 0; i < groups.Count; i++)
+                armBlocks.Add(_function.AppendBlock($"vdisp.arm{i}"));
+            // Group 0's arm doubles as the switch default, so its tags need no explicit cases —
+            // every valid tag is covered (LowerNewobj stores only tags this index assigned).
+            var cases = new List<(IrConstInt, IrBasicBlock)>();
+            for (var i = 1; i < groups.Count; i++)
+                foreach (var (tag2, _) in groups[i])
+                    cases.Add(((IrConstInt)IrBuilder.ConstInt(IrType.I8, tag2), armBlocks[i]));
+            _b.Switch(tag, armBlocks[0], cases);
+            for (var i = 0; i < groups.Count; i++)
+            {
+                _b.PositionAtEnd(armBlocks[i]);
+                EmitDispatchArmCall(groups[i].Key, receiver, args, resultSlot, slotType);
+                _b.Br(contBlock);
+            }
+            _b.PositionAtEnd(contBlock);
+        }
+
+        if (resultSlot is not null)
+        {
+            var merged = _b.Load(resultSlot);
+            if (isStructReturn)
+            {
+                stack.Add(merged);
+            }
+            else
+            {
+                var result = WidenToStack(merged, CilTypeMapper.Map(target.ReturnType).Signed);
+                if (FloatKindOfType(target.ReturnType) is { } floatKind)
+                    TagFloat(result, floatKind);
+                stack.Add(result);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>One dispatch arm: a direct call to <paramref name="impl"/> with the shared receiver
+    /// and (already-popped) argument values, storing any result into <paramref name="resultSlot"/>.
+    /// Byval-struct argument copies (<c>PrepareArg</c>) are emitted per arm — only the taken arm
+    /// executes them at runtime.</summary>
+    private void EmitDispatchArmCall(
+        MethodDefinition impl,
+        IrValue receiver,
+        IrValue[] args,
+        IrValue? resultSlot,
+        IrType? slotType
+    )
+    {
+        var callee =
+            _ctx.EnsureLowered(impl)
+            ?? throw new CilNotSupportedException(
+                $"cannot lower dispatch target '{impl.FullName}'."
+            );
+        var allArgs = new IrValue[args.Length + 1];
+        allArgs[0] = CoerceStore(receiver, callee.Parameters[0].Type);
+        for (var i = 0; i < args.Length; i++)
+            allArgs[i + 1] = PrepareArg(args[i], impl.Parameters, i, callee.Parameters[i + 1].Type);
+
+        if (_ctx.TryGetSretSlot(callee, out _, out _))
+        {
+            var sretStack = new List<IrValue>(1);
+            TryEmitSretCall(callee, allArgs, sretStack);
+            if (resultSlot is not null)
+                _b.Store(sretStack[0], resultSlot);
+            return;
+        }
+        var call = _b.Call(callee, allArgs);
+        if (resultSlot is not null)
+            _b.Store(CoerceStore(call, slotType!), resultSlot);
+    }
+
+    /// <summary>The implementation a call to <paramref name="target"/> actually lands on for a
+    /// receiver whose runtime type is <paramref name="concrete"/>: walk the base chain from the
+    /// concrete type upward (most-derived override wins), stopping at the declaring type itself
+    /// (whose own body — when it has one — is the inherited base implementation).</summary>
+    private static MethodDefinition? ResolveImplementation(
+        TypeDefinition concrete,
+        MethodDefinition target
+    )
+    {
+        for (TypeDefinition? t = concrete; t is not null; )
+        {
+            if (t == target.DeclaringType)
+                return target.HasBody ? target : null;
+            if (ResolveOverride(t, target) is { } found)
+                return found;
+            t =
+                t.BaseType is { } baseRef && baseRef.FullName != "System.Object"
+                    ? CilModuleLowerer.ResolveSafe(baseRef)
+                    : null;
+        }
+        return target.HasBody ? target : null;
     }
 }

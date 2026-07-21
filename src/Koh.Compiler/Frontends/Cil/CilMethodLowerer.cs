@@ -296,6 +296,39 @@ internal static class CilModuleLowerer
         )
             entryFn.IsEntry = true;
 
+        // Length-carrying arrays (enabler E4): every WRAM array alias's u16 element count must be in
+        // memory before any code can read it back through an untraceable `ldlen`. WRAM has no
+        // initializers (the backend just zeroes it at boot), so the counts are STORED by code —
+        // prepended to the entry function's entry block here, AFTER all lowering, because a
+        // cross-assembly array field (e.g. a Koh.GameBoy shadow buffer) is only classified on
+        // demand, possibly after the entry's own body already lowered; collecting first and
+        // inserting last means no discovery-order hazard. Inserted at index 0: before the entry's
+        // own allocas/heap-seed/cctor calls, so even a '.cctor' reading a length sees it.
+        if (
+            entryMethod is not null
+            && ctx.ArrayCountInits.Count > 0
+            && ctx.FunctionsByMethod.TryGetValue(entryMethod, out var entryForCounts)
+            && entryForCounts.Blocks.Count > 0
+        )
+        {
+            var entryBlock = entryForCounts.Blocks[0];
+            var insert = new List<IrInstruction>();
+            foreach (var (global, offset, count) in ctx.ArrayCountInits)
+            {
+                var gep = new GetElementPtrInstruction(
+                    IrBuilder.GlobalRef(global),
+                    IrBuilder.ConstInt(IrType.I16, offset),
+                    IrType.I8
+                );
+                var cast = new ConvInstruction(IrConvOp.Bitcast, gep, IrType.Pointer(IrType.I16));
+                var store = new StoreInstruction(IrBuilder.ConstInt(IrType.I16, count), cast);
+                insert.Add(gep);
+                insert.Add(cast);
+                insert.Add(store);
+            }
+            entryBlock.Instructions.InsertRange(0, insert);
+        }
+
         // Prune every function unreachable from the entry/an interrupt handler through the call graph —
         // both framework functions lowered on demand (see the referenced-assembly task, docs/
         // superpowers/specs/2026-07-14-cil-frontend-design.md, task 2) AND the game module's own dead
@@ -371,11 +404,26 @@ internal static class CilModuleLowerer
             // correctness issue.
             if (!method.HasBody)
                 continue;
+            // E3 (stored delegates): a returned delegate is a materialization site — 3 arena bytes.
+            if (
+                method.ReturnType is { } methodReturn
+                && ResolveSafe(methodReturn) is { } returnDef
+                && IsDelegateType(returnDef)
+            )
+                return true;
             foreach (var instr in method.Body.Instructions)
             {
                 // A 'newarr' (see CilMethodLowerer.Arrays.cs) always needs the heap — there is no
                 // delegate-construction-style interception for it the way Newobj has.
                 if (instr.OpCode.Code == Code.Newarr)
+                    return true;
+                // E3: a delegate stored into a field crosses a boundary and materializes a blob.
+                if (
+                    instr.OpCode.Code is Code.Stfld or Code.Stsfld
+                    && instr.Operand is FieldReference storedField
+                    && ResolveSafe(storedField.FieldType) is { } storedFieldType
+                    && IsDelegateType(storedFieldType)
+                )
                     return true;
                 if (instr.OpCode.Code == Code.Call || instr.OpCode.Code == Code.Callvirt)
                 {
@@ -395,6 +443,16 @@ internal static class CilModuleLowerer
                         && entry.Kind is "alloc" or "heapreset"
                     )
                         return true;
+                    // E3: passing a delegate as an argument materializes at the call site. The
+                    // callee's own PARAMETER types are checked (not the caller's stack) — a pure-
+                    // metadata over-approximation matching this scan's stance.
+                    if (
+                        !IsBclMethod(calleeDef)
+                        && calleeDef.Parameters.Any(p =>
+                            ResolveSafe(p.ParameterType) is { } pDef && IsDelegateType(pDef)
+                        )
+                    )
+                        return true;
                     if (!visited.Contains(calleeDef))
                         worklist.Enqueue(calleeDef);
                     continue;
@@ -403,6 +461,8 @@ internal static class CilModuleLowerer
                     continue;
                 var ctorRef = (MethodReference)instr.Operand;
                 var declaringType = ResolveSafe(ctorRef.DeclaringType);
+                // A non-delegate 'newobj' allocates the instance itself — which also covers every
+                // E3 delegate-through-CTOR-parameter site (DialogueScene(lines, onClosed)) for free.
                 if (declaringType is not null && !IsDelegateType(declaringType))
                     return true;
             }
@@ -544,6 +604,12 @@ internal sealed partial class CilMethodLowerer
 
     private IrBasicBlock _entryBlock = null!;
 
+    // Set in Run() when THIS method returns a struct by value (static-slot convention — see
+    // CilLoweringContext.EnsureSignature): the function's own WRAM return slot, and the layout
+    // sizing the Ret-site copy into it.
+    private IrGlobal? _sretSlot;
+    private CilClassLayout? _sretLayout;
+
     public CilMethodLowerer(
         MethodDefinition method,
         IrFunction function,
@@ -597,6 +663,15 @@ internal sealed partial class CilMethodLowerer
         _entryBlock = _blockOf[instructions[0]];
 
         _b.PositionAtEnd(_entryBlock);
+
+        // A struct-returning method's own static return slot (see CilLoweringContext.EnsureSignature
+        // — the static-slot struct-return convention): the Ret lowering copies the returned struct's
+        // bytes into it instead of emitting a value return.
+        if (_ctx.TryGetSretSlot(_function, out var ownSretLayout, out var ownSretSlot))
+        {
+            _sretLayout = ownSretLayout;
+            _sretSlot = ownSretSlot;
+        }
 
         var paramIndex = 0;
         if (_method.HasThis)
@@ -1556,6 +1631,10 @@ internal sealed partial class CilMethodLowerer
                 var fieldRef = (FieldReference)instr.Operand;
                 var value = Pop(stack);
                 var objRef = Pop(stack);
+                // A delegate stored into a field crosses a provenance-erasing boundary —
+                // materialize its blob first (enabler E3; see MaterializeDelegateIfNeeded).
+                if (IsDelegateTypeRef(fieldRef.FieldType))
+                    value = MaterializeDelegateIfNeeded(value, fieldRef.FieldType);
                 var (ptr, fieldType, _, nested) = FieldPointer(fieldRef, objRef);
                 if (nested is not null)
                     EmitCopy(ptr, value, nested.Size);
@@ -1663,6 +1742,15 @@ internal sealed partial class CilMethodLowerer
             case Code.Ldelem_U4:
                 LoadElem(stack, IrType.I32, signed: false);
                 break;
+            // Reference elements (string[]/class[]): an element is a pointer — 2 bytes on this
+            // target — loaded/stored like any pointer cell (a string element's value is its ROM
+            // blob's base pointer; a class element's is its arena pointer).
+            case Code.Ldelem_Ref:
+                LoadElem(stack, IrType.Pointer(IrType.I8), signed: false);
+                break;
+            case Code.Stelem_Ref:
+                StoreElem(stack, IrType.Pointer(IrType.I8));
+                break;
             // The generic (type-operand) variants — Roslyn emits these for a struct element (a
             // primitive element always uses one of the typed opcodes above).
             case Code.Ldelema:
@@ -1705,7 +1793,19 @@ internal sealed partial class CilMethodLowerer
             }
 
             case Code.Ret:
-                if (_function.ReturnType.Kind == IrTypeKind.Void)
+                // A struct-returning method (static-slot convention): the IL still pushes a return
+                // value — the struct's address — but the IR function is void; copy the bytes into
+                // the function's own return slot and return. Checked BEFORE the void test, which is
+                // otherwise indistinguishable from a genuinely void method. The slot is a module
+                // global, NOT part of this function's frame, so a recursive callee's epilogue
+                // frame-restore cannot clobber it.
+                if (_sretLayout is not null)
+                {
+                    var sretValue = Pop(stack);
+                    EmitCopy(IrBuilder.GlobalRef(_sretSlot!), sretValue, _sretLayout.Size);
+                    _b.Ret();
+                }
+                else if (_function.ReturnType.Kind == IrTypeKind.Void)
                     _b.Ret();
                 else
                 {
@@ -1727,6 +1827,9 @@ internal sealed partial class CilMethodLowerer
                         _method,
                         _pendingConcreteType.TryGetValue(retValue, out var retType) ? retType : null
                     );
+                    // E3 boundary: a returned delegate leaves this method's provenance scope.
+                    if (IsDelegateTypeRef(_method.ReturnType))
+                        retValue = MaterializeDelegateIfNeeded(retValue, _method.ReturnType);
                     _b.Ret(CoerceStore(retValue, _function.ReturnType));
                 }
                 break;
@@ -2058,6 +2161,10 @@ internal sealed partial class CilMethodLowerer
         // CilMethodLowerer.Structs.cs's PrepareArg.
         for (var i = 0; i < args.Length; i++)
             args[i] = PrepareArg(args[i], def.Parameters, i, callee.Parameters[i].Type);
+
+        if (TryEmitSretCall(callee, args, stack))
+            return;
+
         var call = _b.Call(callee, args);
         if (callee.ReturnType.Kind != IrTypeKind.Void)
         {
@@ -2075,6 +2182,26 @@ internal sealed partial class CilMethodLowerer
                 _pendingConcreteType[result] = concreteType;
             stack.Add(result);
         }
+    }
+
+    /// <summary>If <paramref name="callee"/> returns a struct by value (static-slot convention —
+    /// see <c>CilLoweringContext.EnsureSignature</c>), emit the call, then IMMEDIATELY copy the
+    /// callee's return slot into a fresh caller-frame buffer and push the buffer's address as the
+    /// struct value. The immediate copy is load-bearing: it runs before any subsequent call could
+    /// overwrite the slot (e.g. <c>G(F(), F())</c>'s second argument), and the buffer — not the
+    /// slot — is what survives on the simulated stack. Same alloca+gep shape as
+    /// <c>PrepareArg</c>'s byval copy, so the backend sees nothing new. Returns false — emitting
+    /// nothing — for an ordinary callee.</summary>
+    private bool TryEmitSretCall(IrFunction callee, IrValue[] args, List<IrValue> stack)
+    {
+        if (!_ctx.TryGetSretSlot(callee, out var layout, out var slot))
+            return false;
+        _b.Call(callee, args);
+        var buffer = _b.Alloca(IrType.Array(IrType.I8, Math.Max(layout.Size, 1)));
+        var bufferPtr = _b.Gep(buffer, IrBuilder.ConstInt(IrType.I16, 0), IrType.I8);
+        EmitCopy(bufferPtr, IrBuilder.GlobalRef(slot), layout.Size);
+        stack.Add(bufferPtr);
+        return true;
     }
 
     private static bool IsSignedReturn(MethodDefinition def) =>

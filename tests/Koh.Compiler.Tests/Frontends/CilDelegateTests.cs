@@ -246,12 +246,15 @@ public class CilDelegateTests
         await Assert.That(release).IsEqualTo(debug);
     }
 
-    // ---- Escape hatch: a delegate whose target isn't statically known is a diagnostic ----------
+    // ---- A delegate through a parameter — the former escape-hatch diagnostic, now enabler E3 ----
 
-    // `Apply` receives an already-constructed delegate as a plain parameter — by the time its body
-    // invokes it, the CIL frontend has no `newobj`/cache-idiom trail to trace back to a single target
-    // method (that would need cross-call monomorphization, explicitly out of this task's scope per the
-    // design spike) — so this must report a diagnostic, never throw into user code.
+    // `Apply` receives an already-constructed delegate as a plain parameter — no `newobj`/cache-
+    // idiom trail to a single target at the invoke. Before enabler E3 (the ideal-game-API
+    // program's stored-delegates milestone, motivated by the JRPG north star's dialogue callback)
+    // this was a diagnostic; it now lowers via boundary materialization + closed-world
+    // CilDelegateRegistry dispatch (see CilStoredDelegateTests for the full matrix). This fixture
+    // keeps the original shape and pins the E3 behavior: no diagnostic, and the right answer on
+    // the emulator. A delegate TYPE with no creation site anywhere remains a diagnostic.
     private const string UnresolvableDelegateSource = """
         using Koh.GameBoy;
         using System;
@@ -270,7 +273,7 @@ public class CilDelegateTests
     [Test]
     [Arguments(OptimizationLevel.Debug)]
     [Arguments(OptimizationLevel.Release)]
-    public async Task DelegateThroughParameter_IsDiagnosedNotThrown(OptimizationLevel level)
+    public async Task DelegateThroughParameter_LowersViaBlobDispatch(OptimizationLevel level)
     {
         var diagnostics = new DiagnosticBag();
         var assemblyPath = CompileToAssembly(UnresolvableDelegateSource, level);
@@ -278,10 +281,14 @@ public class CilDelegateTests
             assemblyPath,
             [typeof(Koh.GameBoy.Hardware).Assembly.Location]
         );
-        // Must not throw — an unresolvable delegate target is reported as a diagnostic.
         var module = new CilFrontend().Lower(input, diagnostics);
-        await Assert.That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error)).IsTrue();
-        await Assert.That(diagnostics.Any(d => d.Message.Contains("delegate invocation"))).IsTrue();
+        await Assert
+            .That(diagnostics.Any(d => d.Severity == KohDiagnosticSeverity.Error))
+            .IsFalse()
+            .Because(string.Join(" | ", diagnostics.Select(d => d.Message)));
+        await Assert.That(IrVerifier.Verify(module)).IsEmpty();
+
+        await Assert.That(RunAndReadBgp(UnresolvableDelegateSource, level)).IsEqualTo((byte)6); // Apply(v => v + 1, 5)
     }
 
     // ---- callvirt devirtualization on a known concrete (sealed) type ---------------------------

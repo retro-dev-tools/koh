@@ -27,9 +27,15 @@ public static class IrOptimizer
     // trunc(zext/sext(x)) identity pairs NarrowPass's demotion leaves behind each fixed-point round
     // (CIL's implicit re-widen on every narrow-local read) — DeadCodeEliminationPass then removes the
     // orphaned zext/sext.
+    // RedundantCompareEliminationPass runs right after ConstantFoldingPass (before Mem2Reg) so the
+    // `icmp eq/ne (icmp …), 0/1` negation chains the frontend emits for every `!=`/`brtrue`/`brfalse`
+    // are collapsed to one comparison before phi construction — a hot loop's guard is then tight rather
+    // than a multi-instruction materialise-Boolean-then-retest sequence (see the pass's own remarks for
+    // why that latency, not just size, is load-bearing for vblank-bounded copy loops).
     internal static readonly IIrFunctionPass[] Passes =
     [
         new ConstantFoldingPass(),
+        new RedundantCompareEliminationPass(),
         new Mem2RegPass(),
         new TrivialPhiEliminationPass(),
         new NarrowPass(),

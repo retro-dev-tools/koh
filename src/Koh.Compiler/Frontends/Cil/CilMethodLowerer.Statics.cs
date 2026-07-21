@@ -100,6 +100,8 @@ internal static class CilStaticFieldSupport
 
             if (TryMatchArrayLiteral(instr, field, ctx, elided))
                 continue;
+            if (TryMatchMdArrayLiteral(instr, field, ctx, elided))
+                continue;
             if (TryMatchFixedSizeArray(instr, field, ctx, elided))
                 continue;
             TryMatchScalarConstant(instr, field, ctx, elided);
@@ -288,17 +290,119 @@ internal static class CilStaticFieldSupport
         if (bytes is null || bytes.Length != count * elemSize)
             return false;
 
+        // Length-carrying arrays (enabler E4): bake the u16 element count in front of the payload;
+        // the field's value is the PAYLOAD address (base+2) — see RegisterFoldedStaticArray.
+        var prefixed = new byte[2 + bytes.Length];
+        prefixed[0] = (byte)count;
+        prefixed[1] = (byte)((int)count >> 8);
+        bytes.CopyTo(prefixed, 2);
         var romGlobal = new IrGlobal(
             $"{field.DeclaringType.FullName}.{field.Name}",
-            IrType.Array(elemType, (int)count),
+            IrType.Array(IrType.I8, prefixed.Length),
             AddressSpace.Rom,
-            initializer: bytes
+            initializer: prefixed
         );
         ctx.Module.Globals.Add(romGlobal);
-        ctx.RegisterFoldedStaticArray(field, romGlobal, elemType, elemSigned: false, (int)count);
+        ctx.RegisterFoldedStaticArray(
+            field,
+            romGlobal,
+            elemType,
+            elemSigned: false,
+            (int)count,
+            payloadOffset: 2
+        );
 
         elided.Add(countInstr!);
         elided.Add(newarr);
+        elided.Add(dup);
+        elided.Add(ldtoken);
+        elided.Add(call);
+        elided.Add(stsfld);
+        return true;
+    }
+
+    /// <summary><c>ldc.i4 d0 ; ldc.i4 d1 ; newobj T[0...,0...]::.ctor ; dup ; ldtoken &lt;blob&gt; ;
+    /// call RuntimeHelpers::InitializeArray ; stsfld F</c> — Roslyn's literal idiom for a readonly
+    /// RANK-2 rectangular array (<c>static readonly byte[,] Map = {...}</c>, the JRPG north star's
+    /// overworld). Aliased onto a ROM global shaped [u16 d0][u16 d1][row-major payload] with the
+    /// field's value at payload (base+4) — see <c>CilMethodLowerer.Arrays.cs</c>'s md-array section
+    /// for the accessor lowering that reads d1 back from payload−2.</summary>
+    private static bool TryMatchMdArrayLiteral(
+        Instruction stsfld,
+        FieldDefinition field,
+        CilLoweringContext ctx,
+        HashSet<Instruction> elided
+    )
+    {
+        if (!field.IsInitOnly)
+            return false;
+        var call = Prev(stsfld);
+        if (
+            call?.OpCode.Code != Code.Call
+            || call.Operand is not MethodReference callee
+            || callee.Name != "InitializeArray"
+            || callee.DeclaringType.FullName != "System.Runtime.CompilerServices.RuntimeHelpers"
+        )
+            return false;
+        var ldtoken = Prev(call);
+        if (ldtoken?.OpCode.Code != Code.Ldtoken)
+            return false;
+        var dup = Prev(ldtoken);
+        if (dup?.OpCode.Code != Code.Dup)
+            return false;
+        var newobj = Prev(dup);
+        if (
+            newobj?.OpCode.Code != Code.Newobj
+            || (newobj.Operand as MethodReference)?.DeclaringType is not ArrayType { Rank: 2 } arr
+        )
+            return false;
+        var d1Instr = Prev(newobj);
+        if (!TryReadConstLong(d1Instr, out var d1) || d1 <= 0 || d1 > ushort.MaxValue)
+            return false;
+        var d0Instr = Prev(d1Instr);
+        if (!TryReadConstLong(d0Instr, out var d0) || d0 <= 0 || d0 > ushort.MaxValue)
+            return false;
+
+        IrType elemType;
+        try
+        {
+            (elemType, _) = CilTypeMapper.Map(arr.ElementType);
+        }
+        catch (CilNotSupportedException)
+        {
+            return false;
+        }
+        var dataField = (ldtoken.Operand as FieldReference)?.Resolve();
+        var bytes = dataField?.InitialValue;
+        var elemSize = Math.Max(elemType.SizeInBytes, 1);
+        if (bytes is null || bytes.Length != d0 * d1 * elemSize)
+            return false;
+
+        var prefixed = new byte[4 + bytes.Length];
+        prefixed[0] = (byte)d0;
+        prefixed[1] = (byte)((int)d0 >> 8);
+        prefixed[2] = (byte)d1;
+        prefixed[3] = (byte)((int)d1 >> 8);
+        bytes.CopyTo(prefixed, 4);
+        var romGlobal = new IrGlobal(
+            $"{field.DeclaringType.FullName}.{field.Name}",
+            IrType.Array(IrType.I8, prefixed.Length),
+            AddressSpace.Rom,
+            initializer: prefixed
+        );
+        ctx.Module.Globals.Add(romGlobal);
+        ctx.RegisterFoldedStaticArray(
+            field,
+            romGlobal,
+            elemType,
+            elemSigned: false,
+            (int)(d0 * d1),
+            payloadOffset: 4
+        );
+
+        elided.Add(d0Instr!);
+        elided.Add(d1Instr!);
+        elided.Add(newobj);
         elided.Add(dup);
         elided.Add(ldtoken);
         elided.Add(call);
@@ -335,15 +439,40 @@ internal static class CilStaticFieldSupport
             return false;
         }
 
+        // Length-carrying arrays (enabler E4): the u16 element count sits at payload−2. The payload
+        // offset is normally 2, but a [KohAligned(A)] field pads it to A so the PAYLOAD — what OAM
+        // DMA page math and pointer interop actually see — keeps the declared alignment (the global's
+        // own base is aligned to A, so base+A is too; the count occupies the last 2 pad bytes).
         var space = field.IsInitOnly ? AddressSpace.Rom : AddressSpace.Wram;
+        var alignment = ReadAlignment(field);
+        var payloadOffset = Math.Max(2, alignment ?? 1);
+        var elemSize = Math.Max(elemType.SizeInBytes, 1);
+        var totalSize = payloadOffset + (int)count * elemSize;
+        byte[]? initializer = null;
+        if (space == AddressSpace.Rom)
+        {
+            initializer = new byte[totalSize]; // zeros, plus the count baked at payload−2
+            initializer[payloadOffset - 2] = (byte)count;
+            initializer[payloadOffset - 1] = (byte)((int)count >> 8);
+        }
         var arrayGlobal = new IrGlobal(
             $"{field.DeclaringType.FullName}.{field.Name}",
-            IrType.Array(elemType, (int)count),
+            IrType.Array(IrType.I8, totalSize),
             space,
-            alignment: ReadAlignment(field)
+            alignment: alignment,
+            initializer: initializer
         );
         ctx.Module.Globals.Add(arrayGlobal);
-        ctx.RegisterFoldedStaticArray(field, arrayGlobal, elemType, elemSigned: false, (int)count);
+        ctx.RegisterFoldedStaticArray(
+            field,
+            arrayGlobal,
+            elemType,
+            elemSigned: false,
+            (int)count,
+            payloadOffset
+        );
+        if (space == AddressSpace.Wram)
+            ctx.ArrayCountInits.Add((arrayGlobal, payloadOffset - 2, (int)count));
 
         elided.Add(countInstr!);
         elided.Add(newarr);
@@ -380,9 +509,14 @@ internal sealed partial class CilMethodLowerer
     private IrValue LoadStaticField(FieldDefinition field)
     {
         var g = _ctx.EnsureStaticGlobal(field);
+        // A user-struct field's blob address IS its value — the frontend's universal struct
+        // representation (a struct value is the address of its bytes), so consumers (stloc into a
+        // struct local, PrepareArg's byval copy, ldfld off it) need nothing special.
+        if (_ctx.TryGetStaticStructLayout(field, out _))
+            return IrBuilder.GlobalRef(g);
         if (_ctx.IsStaticFieldAlias(field))
         {
-            var ptr = IrBuilder.GlobalRef(g);
+            var ptr = AliasedFieldValue(field, g);
             if (_ctx.TryGetStaticArrayInfo(field, out var info))
                 _pendingArrayInfo[ptr] = (
                     info.ElemType,
@@ -395,10 +529,27 @@ internal sealed partial class CilMethodLowerer
         return WidenToStack(_b.Load(IrBuilder.GlobalRef(g)), signed);
     }
 
+    /// <summary>An aliased field's pushed value: the global's PAYLOAD address — past the u16 length
+    /// prefix for an array alias (enabler E4; see <c>RegisterFoldedStaticArray</c>), the base itself
+    /// for a folded scalar.</summary>
+    private IrValue AliasedFieldValue(FieldDefinition field, IrGlobal g)
+    {
+        var ptr = (IrValue)IrBuilder.GlobalRef(g);
+        if (_ctx.TryGetStaticArrayInfo(field, out var info) && info.PayloadOffset != 0)
+            ptr = _b.Gep(ptr, IrBuilder.ConstInt(IrType.I16, info.PayloadOffset), IrType.I8);
+        return ptr;
+    }
+
     /// <summary><c>ldsflda</c>: the field's global address either way (an aliased field's global IS its
-    /// value, so this is the same pointer <see cref="LoadStaticField"/> would push for it).</summary>
-    private IrValue StaticFieldAddress(FieldDefinition field) =>
-        IrBuilder.GlobalRef(_ctx.EnsureStaticGlobal(field));
+    /// value, so this is the same pointer <see cref="LoadStaticField"/> would push for it — including
+    /// the payload offset for a length-prefixed array alias).</summary>
+    private IrValue StaticFieldAddress(FieldDefinition field)
+    {
+        var g = _ctx.EnsureStaticGlobal(field);
+        return _ctx.IsStaticFieldAlias(field)
+            ? AliasedFieldValue(field, g)
+            : IrBuilder.GlobalRef(g);
+    }
 
     /// <summary><c>stsfld</c>: a diagnostic for an aliased field — its identity is fixed at compile
     /// time (a ROM constant, or a fixed-size array whose ONE assignment was already accounted for by
@@ -410,7 +561,17 @@ internal sealed partial class CilMethodLowerer
     /// <see cref="CilLoweringContext.IsStaticFieldAlias"/> is consulted.</summary>
     private void StoreStaticField(FieldDefinition field, IrValue value)
     {
+        // E3 boundary: same materialization as an instance-field store.
+        if (IsDelegateTypeRef(field.FieldType))
+            value = MaterializeDelegateIfNeeded(value, field.FieldType);
         var holder = _ctx.EnsureStaticGlobal(field);
+        // Whole-struct assignment ('Assets.Tiles = ...'): the popped value is the source struct's
+        // address; byte-copy it into the field's blob, same as any other struct write site.
+        if (_ctx.TryGetStaticStructLayout(field, out var structLayout))
+        {
+            EmitCopy(IrBuilder.GlobalRef(holder), value, structLayout.Size);
+            return;
+        }
         if (_ctx.IsStaticFieldAlias(field))
             throw new CilNotSupportedException(
                 $"'{field.FullName}' is a fixed-identity static field (its storage was folded from "
