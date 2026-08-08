@@ -3,7 +3,18 @@ using Koh.Core.Diagnostics;
 
 namespace Koh.Linker.Core;
 
-public sealed record LinkOptions(bool CgbCompatible = false);
+/// <param name="CgbCompatible">Set the CGB flag at $0143 in the cartridge header.</param>
+/// <param name="PadToPowerOfTwo">
+/// Cartridge mode (the default): pad to a power-of-two size and write the header/global
+/// checksums. False emits a raw image at exactly the size its sections need, with no
+/// checksums — for boot ROMs and other non-cartridge images.
+/// </param>
+/// <param name="MinSize">Floor for the image size. 32KB is the smallest cartridge.</param>
+public sealed record LinkOptions(
+    bool CgbCompatible = false,
+    bool PadToPowerOfTwo = true,
+    int MinSize = 0x8000
+);
 
 /// <summary>
 /// Result of the link operation.
@@ -78,7 +89,23 @@ public sealed class Linker
         // 5. Build ROM
         byte[]? rom = null;
         if (!HasErrors())
-            rom = RomWriter.BuildRom(sections, cgbCompatible: options?.CgbCompatible == true);
+        {
+            try
+            {
+                rom = RomWriter.BuildRom(
+                    sections,
+                    minSize: options?.MinSize ?? 0x8000,
+                    cgbCompatible: options?.CgbCompatible == true,
+                    padToPowerOfTwo: options?.PadToPowerOfTwo ?? true
+                );
+            }
+            catch (RawImageOverflowException ex)
+            {
+                // A boot ROM that does not fit is a user-facing link error, not a crash.
+                // Spanless: the overflow is a property of the whole image, not one line.
+                _diagnostics.Report(default, ex.Message);
+            }
+        }
 
         // 6. Resolve each input section's per-byte line map into the
         //    bank + 16-bit windowed-address form the .kdbg expects. Done

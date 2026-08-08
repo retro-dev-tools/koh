@@ -9,13 +9,28 @@ namespace Koh.Linker.Core;
 public static class RomWriter
 {
     /// <summary>
-    /// Build a ROM image from placed sections. The ROM is padded to the
-    /// nearest power-of-two size (minimum 32KB).
+    /// Build a ROM image from placed sections. By default the image is padded to the
+    /// nearest power-of-two size (minimum 32KB) and given cartridge header/global
+    /// checksums, as a cartridge must have.
+    ///
+    /// Pass <paramref name="padToPowerOfTwo"/> = false for a RAW image — a boot ROM is
+    /// 256 or 2304 bytes, neither of which may be rounded, and neither of which has a
+    /// cartridge header to checksum. Raw mode therefore skips the checksum fixups
+    /// outright. Do not rely on their <c>rom.Length &lt; 0x0150</c> guard for this: it
+    /// covers the 256-byte DMG boot ROM by accident, but $014D-$014F sit well inside a
+    /// 2304-byte CGB boot ROM, where a "fixup" would overwrite real boot code.
+    ///
+    /// In raw mode <paramref name="minSize"/> is EXACT, not a floor: the size is fixed by
+    /// hardware, so content that overflows it is an error rather than a bigger image.
     /// </summary>
+    /// <exception cref="RawImageOverflowException">
+    /// Raw mode, and the placed sections do not fit in <paramref name="minSize"/>.
+    /// </exception>
     public static byte[] BuildRom(
         IReadOnlyList<LinkerSection> sections,
         int minSize = 0x8000,
-        bool cgbCompatible = false
+        bool cgbCompatible = false,
+        bool padToPowerOfTwo = true
     )
     {
         // Determine ROM size from placed sections.
@@ -32,8 +47,13 @@ public static class RomWriter
             }
         }
 
-        // Round up to power of two
-        int romSize = NextPowerOfTwo(maxAddr);
+        // A cartridge must be a power-of-two size. A raw image is exactly minSize —
+        // hardware fixes a boot ROM's size, so overflowing it is a error, not a hint to
+        // emit something bigger.
+        if (!padToPowerOfTwo && maxAddr > minSize)
+            throw new RawImageOverflowException(maxAddr, minSize);
+
+        int romSize = padToPowerOfTwo ? NextPowerOfTwo(maxAddr) : minSize;
         var rom = new byte[romSize];
 
         // Copy section data into ROM at physical offsets.
@@ -46,6 +66,12 @@ public static class RomWriter
                 Array.Copy(s.Data, 0, rom, PhysicalOffset(s), s.Data.Length);
             }
         }
+
+        // A raw image is not a cartridge: no CGB flag, no header checksum, no global
+        // checksum. Returning here rather than relying on the fixups' own length guard
+        // is what keeps a 2304-byte CGB boot ROM's $014D-$014F intact.
+        if (!padToPowerOfTwo)
+            return rom;
 
         if (cgbCompatible && rom.Length > 0x143)
             rom[0x143] = 0x80;
