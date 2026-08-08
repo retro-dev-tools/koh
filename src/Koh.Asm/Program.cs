@@ -13,24 +13,36 @@ static class KohAsm
     public static int Run(string[] args)
     {
         if (args.Contains("--version"))
+        {
             return ShowVersion();
+        }
 
         if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
+        {
             return ShowUsage(exitCode: args.Length == 0 ? 1 : 0);
+        }
 
         var (inputPath, outputPath, format, error) = ParseArgs(args);
-        if (error != null)
-            return Fail(error);
-        if (!File.Exists(inputPath!))
-            return Fail($"file not found: {inputPath}");
 
-        var input = inputPath!;
+        if (error != null)
+        {
+            return Fail(error);
+        }
+
+        if (!File.Exists(inputPath))
+        {
+            return Fail($"file not found: {inputPath}");
+        }
+
+        var input = inputPath;
         var defaultExt = format == OutputFormat.Rgbds ? ".o" : ".kobj";
         outputPath ??= Path.ChangeExtension(input, defaultExt);
 
         var source = ReadSource(input);
         if (source == null)
+        {
             return 1; // error already reported
+        }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -51,7 +63,9 @@ static class KohAsm
         {
             var diagFile = diag.FilePath;
             if (string.IsNullOrEmpty(diagFile))
+            {
                 diagFile = source.FilePath;
+            }
 
             var diagSource = GetOrLoadSourceText(diagFile, source, sourceTextCache);
             var (line, col) = GetLocation(diag, diagSource);
@@ -63,9 +77,13 @@ static class KohAsm
             };
             Console.Error.WriteLine($"{diagFile}:{line}:{col}: {severity}: {diag.Message}");
             if (diag.Severity == DiagnosticSeverity.Error)
+            {
                 errors++;
+            }
             else if (diag.Severity == DiagnosticSeverity.Warning)
+            {
                 warnings++;
+            }
         }
 
         if (errors > 0)
@@ -76,7 +94,10 @@ static class KohAsm
 
         var result = WriteOutput(emitModel, outputPath, input, format);
         if (result == 0)
+        {
             PrintSummary(input, elapsed, errors, warnings, outputPath);
+        }
+
         return result;
     }
 
@@ -106,7 +127,9 @@ static class KohAsm
             var outName = outputPath != null ? Path.GetFileName(outputPath) : "?";
             Console.WriteLine($"  {inputName} -> {outName}  [{timeStr}]");
             if (warnings > 0)
+            {
                 Console.Error.WriteLine($"  {warnings} warning(s)");
+            }
         }
     }
 
@@ -115,10 +138,6 @@ static class KohAsm
         Kobj,
         Rgbds,
     }
-
-    // -------------------------------------------------------------------------
-    // Pipeline stages
-    // -------------------------------------------------------------------------
 
     static SourceText? ReadSource(string path)
     {
@@ -137,14 +156,10 @@ static class KohAsm
     static EmitModel Assemble(SourceText source, OutputFormat format)
     {
         var tree = SyntaxTree.Parse(source);
-        var options = new Koh.Core.Binding.BinderOptions
-        {
-            AllowUndefinedSymbols = format == OutputFormat.Rgbds,
-        };
+        var options = new BinderOptions { AllowUndefinedSymbols = format == OutputFormat.Rgbds };
+
         return Compilation.Create(options, tree).Emit();
     }
-
-    // Diagnostics are now reported inline in Run()
 
     static int WriteOutput(
         EmitModel model,
@@ -156,13 +171,17 @@ static class KohAsm
         var tempPath = outputPath + "." + Path.GetRandomFileName();
         try
         {
-            using (var stream = File.Create(tempPath))
+            using var stream = File.Create(tempPath);
+
+            if (format == OutputFormat.Rgbds)
             {
-                if (format == OutputFormat.Rgbds)
-                    RgbdsObjectWriter.Write(stream, model);
-                else
-                    KobjWriter.Write(stream, model);
+                RgbdsObjectWriter.Write(stream, model);
             }
+            else
+            {
+                KobjWriter.Write(stream, model);
+            }
+
             File.Move(tempPath, outputPath, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -174,11 +193,13 @@ static class KohAsm
             // Clean up temp file regardless of exception type.
             // No-op on success path — File.Move already renamed it away.
             if (File.Exists(tempPath))
+            {
                 try
                 {
                     File.Delete(tempPath);
                 }
                 catch { }
+            }
         }
 
         // Success message printed by PrintSummary in Run()
@@ -193,21 +214,29 @@ static class KohAsm
         string[] args
     )
     {
-        string? input = null,
-            output = null;
+        string? input = null;
+        string? output = null;
+
         var format = OutputFormat.Kobj;
+
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] is "-o" or "--output")
             {
                 if (i + 1 >= args.Length)
+                {
                     return (null, null, format, $"option '{args[i]}' requires an argument");
+                }
+
                 output = args[++i];
             }
             else if (args[i] is "--format" or "-f")
             {
                 if (i + 1 >= args.Length)
+                {
                     return (null, null, format, $"option '{args[i]}' requires an argument");
+                }
+
                 var val = args[++i].ToLowerInvariant();
                 OutputFormat? parsed = val switch
                 {
@@ -216,18 +245,24 @@ static class KohAsm
                     _ => null,
                 };
                 if (parsed is null)
+                {
                     return (
                         null,
                         null,
                         format,
                         $"unknown format '{val}' (expected: kobj, rgbds, o)"
                     );
+                }
+
                 format = parsed.Value;
             }
             else if (!args[i].StartsWith('-'))
             {
                 if (input != null)
+                {
                     return (null, null, format, $"unexpected argument '{args[i]}'");
+                }
+
                 input = args[i];
             }
             else
@@ -247,7 +282,10 @@ static class KohAsm
     )
     {
         if (cache.TryGetValue(filePath, out var cached))
+        {
             return cached;
+        }
+
         try
         {
             var text = SourceText.From(File.ReadAllText(filePath), filePath);
@@ -263,7 +301,10 @@ static class KohAsm
     static (int line, int col) GetLocation(Diagnostic diag, SourceText source)
     {
         if (diag.Span == default)
+        {
             return (1, 1);
+        }
+
         var lineIdx = source.GetLineIndex(diag.Span.Start);
         return (lineIdx + 1, diag.Span.Start - source.Lines[lineIdx].Start + 1);
     }

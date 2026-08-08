@@ -34,8 +34,10 @@ public sealed class GameBoySystem
 
     private bool _running;
 
-    public GameBoySystem(HardwareMode mode, Cartridge.Cartridge cart)
+    public GameBoySystem(Cartridge.Cartridge cart)
     {
+        var mode = cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg;
+
         Mode = mode;
         Cartridge = cart;
         Timer = new Timer.Timer();

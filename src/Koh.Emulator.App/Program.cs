@@ -1,5 +1,4 @@
 using Koh.Emulator.App;
-using Koh.Emulator.Core;
 using KohUI;
 using KohUI.Backends.Gl;
 
@@ -110,7 +109,9 @@ var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
 );
 
 backend.Run();
+
 await runner.DisposeAsync();
+
 return 0;
 
 static string FindDefaultRom()
