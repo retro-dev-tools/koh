@@ -83,8 +83,6 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     {
         _mmu = mmu;
         _tickMCycle = tickMCycle;
-        Registers.Pc = 0x0100;
-        Registers.Sp = 0xFFFE;
     }
 
     /// <summary>
@@ -325,8 +323,6 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
     public void Reset()
     {
         Registers = default;
-        Registers.Pc = 0x0100;
-        Registers.Sp = 0xFFFE;
         _mmu.Io.Interrupts = default;
         Halted = false;
         Stopped = false;

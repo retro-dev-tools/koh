@@ -19,9 +19,8 @@ namespace Koh.Emulator.App;
 /// CLI path instead of a throwaway test, per
 /// <c>docs/superpowers/specs/2026-07-16-koh-debug-tooling-design.md</c> section 1.
 ///
-/// Deliberately does NOT call <see cref="GameBoySystem.ArmBootAnimation"/> — like tests, the DAP
-/// debugger, and every other headless caller, this expects PC=$0100 to execute starting on the very
-/// first frame with no boot logo/chime.
+/// Like every other caller, this runs <see cref="GameBoySystem"/> as a pure executor: no boot
+/// ROM, no fabricated hand-off state, just cartridge + CPU starting from reset.
 /// </summary>
 public static class HeadlessRunner
 {

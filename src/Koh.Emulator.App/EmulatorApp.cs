@@ -565,12 +565,6 @@ public static class EmulatorApp
             var cart = CartridgeFactory.Load(bytes);
 
             var system = new GameBoySystem(cart);
-            // The interactive App is the one caller that opts into the visible
-            // HLE boot sequence (logo scroll + chime) GameBoySystem can play
-            // before the cartridge starts — off by default everywhere else
-            // (tests, the debugger, headless tooling) since they expect
-            // PC=$0100 to execute starting on the very first frame.
-            system.ArmBootAnimation();
             return new LoadRomSucceeded(system, path);
         }
         catch (Exception ex)
