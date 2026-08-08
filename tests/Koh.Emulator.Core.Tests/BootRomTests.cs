@@ -1,6 +1,7 @@
 using Koh.Emulator.Core.Boot;
 using Koh.Emulator.Core.Bus;
 using Koh.Emulator.Core.Cartridge;
+using Koh.Emulator.Core.State;
 
 namespace Koh.Emulator.Core.Tests;
 
@@ -217,5 +218,60 @@ public class BootRomTests
         var gb = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
         await Assert.That(gb.BootRomMapped).IsFalse();
         await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0xC7);
+    }
+
+    [Test]
+    public async Task Save_State_Round_Trips_The_Unmap_Latch()
+    {
+        var save = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        save.LoadBootRom(MakeStub(0x100, 0xB0));
+        save.Mmu.WriteByte(0xFF50, 0x01); // latch off
+
+        using var buffer = new MemoryStream();
+        using (var w = new StateWriter(buffer))
+            save.WriteState(w);
+
+        var load = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        load.LoadBootRom(MakeStub(0x100, 0xB0));
+        buffer.Position = 0;
+        using (var r = new StateReader(buffer))
+            load.ReadState(r);
+
+        await Assert.That(load.BootRomMapped).IsFalse();
+        await Assert.That(load.DebugReadByte(0x0000)).IsEqualTo((byte)0xC7);
+    }
+
+    [Test]
+    public async Task Save_State_From_A_Different_Boot_Rom_Is_Refused()
+    {
+        // A state captured mid-boot is meaningless against different boot code.
+        var save = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        save.LoadBootRom(MakeStub(0x100, 0xB0));
+
+        using var buffer = new MemoryStream();
+        using (var w = new StateWriter(buffer))
+            save.WriteState(w);
+
+        var load = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        load.LoadBootRom(MakeStub(0x100, 0xC1)); // different blob
+        buffer.Position = 0;
+        using var r = new StateReader(buffer);
+        var ex = Assert.Throws<InvalidDataException>(() => load.ReadState(r));
+        await Assert.That(ex!.Message).Contains("boot ROM");
+    }
+
+    [Test]
+    public async Task Save_State_With_No_Boot_Rom_On_Either_Side_Is_Accepted()
+    {
+        var save = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        using var buffer = new MemoryStream();
+        using (var w = new StateWriter(buffer))
+            save.WriteState(w);
+
+        var load = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        buffer.Position = 0;
+        using var r = new StateReader(buffer);
+        load.ReadState(r);
+        await Assert.That(load.BootRomMapped).IsFalse();
     }
 }
