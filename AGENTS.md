@@ -8,7 +8,8 @@ Koh is a .NET 10 Game Boy development toolchain. Main C# projects live in `src/`
 
 - `dotnet build` builds the default solution.
 - `dotnet restore Koh.Ci.slnf` and `dotnet build Koh.Ci.slnf --configuration Release` mirror CI's main build.
-- `dotnet msbuild build.proj -t:Test` runs the standard test suite.
+- `dotnet msbuild build.proj -t:Test` runs the fast suite (`Koh.Fast.slnf`) — everything except `Koh.Compiler.Tests`. This is the default development loop.
+- `dotnet msbuild build.proj -t:TestAll` adds `Koh.Compiler.Tests`, whose 522 cases each Roslyn-compile a fixture to a real assembly and run an emulator over it. It is memory-hungry enough to take a desktop down; its parallelism is capped at 4 (`tests/Koh.Compiler.Tests/ParallelLimit.cs`). CI runs this one.
 - The external-ROM compatibility suite (`tests/Koh.Compat.Tests`) is **disabled**: out of every solution file, out of CI, no `build.proj` target. See `tests/Koh.Compat.Tests/README.md`.
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.

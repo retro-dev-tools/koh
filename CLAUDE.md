@@ -18,7 +18,8 @@ backends.
 ```bash
 dotnet build Koh.Ci.slnf                                   # CI build (0 warnings; TreatWarningsAsErrors)
 dotnet test --project tests/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj   # one project (fast)
-dotnet msbuild build.proj -t:Test                          # full suite
+dotnet msbuild build.proj -t:Test                          # fast suite (no Koh.Compiler.Tests)
+dotnet msbuild build.proj -t:TestAll                       # + Koh.Compiler.Tests — memory-hungry
 ```
 
 Tests use **TUnit** (`[Test] async Task`, `Assert.That(x).IsEqualTo(y)` / `.IsEmpty()` /

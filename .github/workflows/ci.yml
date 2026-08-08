@@ -28,6 +28,9 @@ jobs:
         run: dotnet build Koh.Ci.slnf --no-restore --configuration Release
 
       - name: Run tests
+        # The full suite, including Koh.Compiler.Tests. Local development uses
+        # `build.proj -t:Test` (Koh.Fast.slnf), which drops that project because its
+        # Roslyn-plus-emulator cases exhaust memory on a desktop.
         run: dotnet test --solution Koh.NoCompat.slnf --no-build --configuration Release
 
   # NativeAOT publishes of the emulator on each host runner. The AOT
