@@ -221,6 +221,13 @@ exists in `Sm83Backend.NintendoLogo` for the cartridge-header side.
 | CGB, CGB cartridge   | `1180` | `0000` | `FF56` | `000D` | `FFFE` |
 | CGB, DMG cartridge   | `1180` | `0100` | `FF56` | `000D` | `FFFE` |
 
+**How control reaches `$0100`:** on DMG the boot ROM's last two instructions sit at
+exactly `$00FC–$00FF` — writing `$FF50` drops the overlay and `PC` then runs off the end
+of the boot ROM straight into the cartridge entry. That is why the image is exactly 256
+bytes, and a size check is a correctness test, not style. The CGB boot ROM **cannot** use
+this trick: its image ends at `$08FF`, so falling off the end lands at `$0900`, not
+`$0100`. It must `jp $0100` explicitly after unmapping.
+
 **I/O state at handoff:** `LCDC=$91` (LCD on, BG on), `BGP=$FC`, `OBP0`/`OBP1=$FF`,
 `NR52=$F1` (DMG), VRAM cleared apart from the logo tiles and tilemap entries the boot
 ROM wrote. CGB additionally initialises the background palettes and, for a DMG
