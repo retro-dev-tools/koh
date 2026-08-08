@@ -52,7 +52,7 @@ public class Acid2Tests
 
         var rom = File.ReadAllBytes(romPath);
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Dmg);
 
         // Acid2 completes its rendering well before 60 frames. Give it 120 for headroom.
         for (int i = 0; i < 120; i++)
@@ -85,7 +85,7 @@ public class Acid2Tests
 
         var rom = File.ReadAllBytes(romPath);
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Cgb, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Cgb);
 
         for (int i = 0; i < 120; i++)
             gb.RunFrame();

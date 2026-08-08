@@ -70,7 +70,7 @@ public class MooneyeTests
 
         var rom = await File.ReadAllBytesAsync(romPath);
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Dmg);
 
         // Mooneye ROMs use "LD B,B" ($40) as a soft breakpoint to signal the end
         // of a test. We emulate by running frames until registers carry the

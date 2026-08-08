@@ -14,7 +14,7 @@ public class SaveStateTests
         rom[0x101] = 0xFE;
         patchRom?.Invoke(rom);
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Dmg);
         return (gb, rom);
     }
 

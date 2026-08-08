@@ -27,23 +27,15 @@ public sealed class LaunchHandler
         var kdbgPath = args.DebugInfo ?? System.IO.Path.ChangeExtension(args.Program, ".kdbg");
         var kdbg = _loadFile(kdbgPath);
 
-        HardwareMode mode = args.HardwareMode switch
+        HardwareMode? mode = args.HardwareMode switch
         {
             "dmg" => HardwareMode.Dmg,
             "cgb" => HardwareMode.Cgb,
-            _ => DetectFromHeader(rom.Span),
+            _ => null,
         };
 
         _session.Launch(rom, kdbg, mode);
 
         return new Response { Success = true };
-    }
-
-    private static HardwareMode DetectFromHeader(ReadOnlySpan<byte> rom)
-    {
-        if (rom.Length < 0x150)
-            return HardwareMode.Dmg;
-        byte cgbByte = rom[0x143];
-        return (cgbByte & 0x80) != 0 ? HardwareMode.Cgb : HardwareMode.Dmg;
     }
 }

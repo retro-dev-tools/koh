@@ -10,7 +10,7 @@ public class DebugReadWriteTests
         rom[0x0100] = 0x42;
         rom[0x147] = 0x00;
         var cart = CartridgeFactory.Load(rom);
-        return new GameBoySystem(HardwareMode.Dmg, cart);
+        return new GameBoySystem(cart, HardwareMode.Dmg);
     }
 
     [Test]

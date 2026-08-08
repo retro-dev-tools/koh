@@ -42,10 +42,7 @@ public static class HeadlessRunner
 
         var rom = File.ReadAllBytes(romPath);
         var cart = CartridgeFactory.Load(rom);
-        // Same hardware-mode selection as EmulatorApp.LoadRomFromDisk: a cartridge whose header sets
-        // the CGB flag boots in CGB mode regardless of file extension.
-        var mode = cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg;
-        var gb = new GameBoySystem(mode, cart);
+        var gb = new GameBoySystem(cart);
 
         Mode3WriteGuard? guard = null;
         if (mode3ReportRequested)

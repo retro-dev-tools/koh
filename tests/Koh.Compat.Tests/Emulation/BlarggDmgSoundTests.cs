@@ -39,7 +39,7 @@ public class BlarggDmgSoundTests
 
         var rom = await File.ReadAllBytesAsync(romPath);
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Dmg);
 
         // Blargg dmg_sound reports results via the MBC RAM byte at $A000:
         //   $80 = running (set by init_text_out after enabling RAM);

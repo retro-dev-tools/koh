@@ -11,7 +11,7 @@ public class PpuModeTimingTests
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
         var cart = CartridgeFactory.Load(rom);
-        return new GameBoySystem(HardwareMode.Dmg, cart);
+        return new GameBoySystem(cart, HardwareMode.Dmg);
     }
 
     private static void Tick(GameBoySystem gb, int dots)

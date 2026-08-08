@@ -24,7 +24,7 @@ public class BootHandoffTests
         var rom = new byte[0x8000]; // all-zero header logo + $0100.. is NOP forever
         rom[0x147] = 0x00; // RomOnly
         var cart = CartridgeFactory.Load(rom);
-        return new GameBoySystem(mode, cart);
+        return new GameBoySystem(cart, mode);
     }
 
     [Test]
@@ -194,7 +194,7 @@ public class BootHandoffTests
         // visible (non-blank) pattern.
         for (int i = 0; i < 48; i++)
             rom[0x104 + i] = (byte)(0xAA ^ i);
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.ArmBootAnimation();
 
         byte firstScy = gb.Ppu.SCY;

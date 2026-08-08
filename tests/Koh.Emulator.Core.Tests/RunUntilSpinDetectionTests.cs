@@ -44,7 +44,7 @@ public class RunUntilSpinDetectionTests
         rom[pc++] = 0xFE; // JR $ (-> 0x110)
 
         var cart = CartridgeFactory.Load(rom);
-        return new GameBoySystem(HardwareMode.Dmg, cart);
+        return new GameBoySystem(cart, HardwareMode.Dmg);
     }
 
     private static GameBoySystem MakeAllNopSystem()
@@ -52,7 +52,7 @@ public class RunUntilSpinDetectionTests
         var rom = new byte[0x8000];
         rom[0x147] = 0x00; // RomOnly
         var cart = CartridgeFactory.Load(rom);
-        return new GameBoySystem(HardwareMode.Dmg, cart);
+        return new GameBoySystem(cart, HardwareMode.Dmg);
     }
 
     [Test]

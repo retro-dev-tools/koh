@@ -13,7 +13,7 @@ public class ConditionalBreakpointTests
         rom[0x147] = 0x00;
         rom[0x100] = 0x18;
         rom[0x101] = 0xFE; // JR -2
-        return new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        return new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
     }
 
     [Test]

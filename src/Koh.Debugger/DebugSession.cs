@@ -25,11 +25,11 @@ public sealed class DebugSession
     public void Launch(
         ReadOnlyMemory<byte> romBytes,
         ReadOnlyMemory<byte> kdbgBytes,
-        HardwareMode mode
+        HardwareMode? mode = null
     )
     {
         var cart = CartridgeFactory.Load(romBytes.Span);
-        var system = new GameBoySystem(mode, cart);
+        var system = new GameBoySystem(cart, mode);
         DebugInfo.Load(kdbgBytes);
         AdoptSystem(system);
     }

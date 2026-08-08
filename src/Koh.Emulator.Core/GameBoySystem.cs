@@ -34,17 +34,27 @@ public sealed class GameBoySystem
 
     private bool _running;
 
-    public GameBoySystem(Cartridge.Cartridge cart)
+    /// <summary>
+    /// Constructs the system for <paramref name="cart"/>. <paramref name="mode"/> defaults to
+    /// auto-detecting from the cartridge header (<see cref="Cartridge.CartridgeHeader.CgbFlag"/>) —
+    /// the same behavior real hardware exhibits when a CGB-capable cartridge is inserted. Pass an
+    /// explicit value to force a mode instead (e.g. running a CGB-compatible $80 cartridge in DMG
+    /// mode to check its DMG-compatibility path) — mirroring how accurate emulators (SameBoy, mGBA,
+    /// BGB) let auto-detection be overridden. Not validated against the header: real DMG hardware has
+    /// no concept of the CGB flag to reject in the first place, so an "unsupported" combination (e.g.
+    /// forcing DMG on a CGB-only cartridge) is left to behave however the cartridge's own code does.
+    /// </summary>
+    public GameBoySystem(Cartridge.Cartridge cart, HardwareMode? mode = null)
     {
-        var mode = cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg;
+        var resolvedMode = mode ?? (cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg);
 
-        Mode = mode;
+        Mode = resolvedMode;
         Cartridge = cart;
         Timer = new Timer.Timer();
-        Io = new IoRegisters(Timer) { HardwareMode = mode };
+        Io = new IoRegisters(Timer) { HardwareMode = resolvedMode };
         Mmu = new Mmu(cart, Io);
-        Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
-        Apu = new Apu.Apu(mode);
+        Ppu = new Ppu.Ppu(resolvedMode, Mmu.VramArray, Mmu.OamArray);
+        Apu = new Apu.Apu(resolvedMode);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
         Mmu.AttachPpu(Ppu);
@@ -74,7 +84,7 @@ public sealed class GameBoySystem
         // Pokémon Gold/Silver, etc.) see A=0 at $0100, take their DMG code
         // path, and never populate VRAM bank 1 attributes.
         ref var r = ref Cpu.Registers;
-        if (mode == HardwareMode.Cgb)
+        if (resolvedMode == HardwareMode.Cgb)
         {
             r.A = 0x11;
             r.F = 0x80;
@@ -119,7 +129,7 @@ public sealed class GameBoySystem
         // hardware). OAM and HRAM are likewise untouched by any boot ROM and
         // stay poisoned.
         Array.Clear(Mmu.VramArray);
-        if (mode == HardwareMode.Cgb)
+        if (resolvedMode == HardwareMode.Cgb)
         {
             // Native/CGB-compatible carts: the CGB boot ROM clears VRAM a
             // SECOND time via HDMA right after fading BG palettes to white,

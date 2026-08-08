@@ -173,7 +173,7 @@ public class Cube3dTests
     /// framebuffer at the end (mirrors samples/gb-3d/verify/Cube3dVerify's capture, simplified).</summary>
     private static byte[] Boot(byte[] rom, int frames, HardwareMode mode = HardwareMode.Dmg)
     {
-        var gb = new GameBoySystem(mode, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);
         gb.Registers.Pc = 0x100; // boot: NOP; JP entry
         gb.Registers.Sp = 0xFFFE;
         for (var i = 0; i < frames; i++)

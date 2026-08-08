@@ -22,10 +22,10 @@ public sealed class RomHarness
 
     private readonly TextWriter _log;
 
-    public RomHarness(string romPath, HardwareMode mode = HardwareMode.Cgb, TextWriter? log = null)
+    public RomHarness(string romPath, HardwareMode? mode = null, TextWriter? log = null)
     {
         var cart = CartridgeFactory.Load(File.ReadAllBytes(romPath));
-        System = new GameBoySystem(mode, cart);
+        System = new GameBoySystem(cart, mode);
         _log = log ?? Console.Out;
     }
 

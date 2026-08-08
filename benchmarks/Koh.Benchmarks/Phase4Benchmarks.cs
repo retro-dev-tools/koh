@@ -21,7 +21,7 @@ public class Phase4Benchmarks
     {
         byte[] rom = LocateBlarggRom() ?? BuildNopLoopRom();
         var cart = CartridgeFactory.Load(rom);
-        _gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        _gb = new GameBoySystem(cart, HardwareMode.Dmg);
         // Power the APU on and trigger Ch1 + Ch2 so the full mixer pipeline
         // (incl. envelope / duty / frequency counters) is exercised.
         _gb.Mmu.WriteByte(0xFF26, 0x80);

@@ -22,7 +22,7 @@ public class Sm83ControlFlowTests
         var rom = link.RomData ?? throw new InvalidOperationException("link produced no ROM");
         start = Sm83Backend.CodeBase;
         length = model.Sections[0].Data.Length;
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start;
         return gb;

@@ -55,7 +55,7 @@ public class BlarggTests
         // off CgbOnly specifically rather than CgbFlag — using CgbFlag here
         // would also flip every already-passing DMG-compatible ROM to CGB.
         var mode = cart.Header.CgbOnly ? HardwareMode.Cgb : HardwareMode.Dmg;
-        var gb = new GameBoySystem(mode, cart);
+        var gb = new GameBoySystem(cart, mode);
 
         for (int frame = 0; frame < maxFrames; frame++)
         {

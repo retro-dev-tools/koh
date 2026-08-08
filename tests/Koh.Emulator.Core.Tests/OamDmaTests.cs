@@ -9,7 +9,7 @@ public class OamDmaTests
         var rom = new byte[0x8000];
         rom[0x147] = 0x00;
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Dmg);
         for (int i = 0; i < 0xA0; i++)
             gb.Mmu.WriteByte((ushort)(0xC000 + i), (byte)(i + 1));
         return gb;

@@ -10,7 +10,7 @@ public class CgbBankingTests
         rom[0x143] = 0x80;
         rom[0x147] = 0x00;
         var cart = CartridgeFactory.Load(rom);
-        return new GameBoySystem(HardwareMode.Cgb, cart);
+        return new GameBoySystem(cart, HardwareMode.Cgb);
     }
 
     [Test]

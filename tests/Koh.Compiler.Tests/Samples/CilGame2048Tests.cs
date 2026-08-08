@@ -176,7 +176,7 @@ public class CilGame2048Tests
         var entrySymbol = model.Symbols.Single(s => s.Name == "TestEntry.Main");
         int entryPc = codeStart + (int)entrySymbol.Value;
 
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)entryPc;
         for (int steps = 0; steps < 1_000_000; steps++)
@@ -237,7 +237,7 @@ public class CilGame2048Tests
         var model = Compile([BoardSource, TilesSource, GameSource]);
         var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
 
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
         for (int i = 0; i < 12_000_000; i++)
@@ -261,7 +261,7 @@ public class CilGame2048Tests
         var model = Compile([BoardSource, TilesSource, GameSource], optimize: true);
         var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
 
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
         for (int i = 0; i < 12_000_000; i++)
@@ -291,7 +291,7 @@ public class CilGame2048Tests
         var model = Compile([BoardSource, TilesSource, GameSource]);
         var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
 
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
         for (int i = 0; i < 12_000_000; i++)
@@ -459,7 +459,7 @@ public class CilGame2048Tests
         var model = Compile([BoardSource, TilesSource, GameSource], optimize: true);
         var rom = new LinkerType().Link([new LinkerInput("2048", model)]).RomData!;
 
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Pc = 0x100;
         gb.Registers.Sp = 0xFFFE;
         for (int i = 0; i < 12_000_000; i++)
