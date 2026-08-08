@@ -1,4 +1,5 @@
 using Koh.Emulator.Core.Boot;
+using Koh.Emulator.Core.Bus;
 
 namespace Koh.Emulator.Core.Tests;
 
@@ -72,5 +73,49 @@ public class BootRomTests
         // real blob must never fingerprint to 0 -- including an all-zero blob.
         await Assert.That(BootRom.FromBytes(new byte[0x100]).Fingerprint).IsNotEqualTo(0UL);
         await Assert.That(BootRom.FromBytes(new byte[0x900]).Fingerprint).IsNotEqualTo(0UL);
+    }
+
+    private static IoRegisters MakeIo() =>
+        new(new Timer.Timer()) { HardwareMode = HardwareMode.Dmg };
+
+    [Test]
+    public async Task Ff50_Starts_Unlatched()
+    {
+        await Assert.That(MakeIo().BootRomUnmapped).IsFalse();
+    }
+
+    [Test]
+    public async Task Ff50_Nonzero_Write_Latches_The_Unmap()
+    {
+        var io = MakeIo();
+        io.Write(0xFF50, 0x01);
+        await Assert.That(io.BootRomUnmapped).IsTrue();
+    }
+
+    [Test]
+    public async Task Ff50_Zero_Write_Does_Not_Latch()
+    {
+        var io = MakeIo();
+        io.Write(0xFF50, 0x00);
+        await Assert.That(io.BootRomUnmapped).IsFalse();
+    }
+
+    [Test]
+    public async Task Ff50_Latch_Is_One_Way_And_A_Zero_Write_Cannot_Clear_It()
+    {
+        // On hardware there is no path back to a mapped boot ROM.
+        var io = MakeIo();
+        io.Write(0xFF50, 0x01);
+        io.Write(0xFF50, 0x00);
+        await Assert.That(io.BootRomUnmapped).IsTrue();
+    }
+
+    [Test]
+    public async Task Ff50_Still_Reads_As_Ff()
+    {
+        // $FF50 is write-only; the latch must not make it readable.
+        var io = MakeIo();
+        io.Write(0xFF50, 0x01);
+        await Assert.That(io.Read(0xFF50)).IsEqualTo((byte)0xFF);
     }
 }
