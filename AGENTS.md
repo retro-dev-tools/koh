@@ -8,8 +8,8 @@ Koh is a .NET 10 Game Boy development toolchain. Main C# projects live in `src/`
 
 - `dotnet build` builds the default solution.
 - `dotnet restore Koh.Ci.slnf` and `dotnet build Koh.Ci.slnf --configuration Release` mirror CI's main build.
-- `dotnet msbuild build.proj -t:Test` runs the standard test suite excluding compatibility tests.
-- `dotnet msbuild build.proj -t:CompatTests` runs RGBDS compatibility tests after ROM fixtures are available.
+- `dotnet msbuild build.proj -t:Test` runs the standard test suite.
+- The external-ROM compatibility suite (`tests/Koh.Compat.Tests`) is **disabled**: out of every solution file, out of CI, no `build.proj` target. See `tests/Koh.Compat.Tests/README.md`.
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.
 - `./scripts/run-emulator.ps1` or `./scripts/run-emulator.sh` publishes and launches the emulator locally.
@@ -20,7 +20,7 @@ C# uses `net10.0`, C# 14, nullable references, implicit usings, and `TreatWarnin
 
 ## Testing Guidelines
 
-Add unit or integration coverage in the matching `tests/Koh.*.Tests` project. Name test classes after the component under test and use method names that state the behavior. For parser, assembler, linker, LSP, debugger, and emulator changes, include fixture-based regressions when behavior changes. Run the focused project test first, then `dotnet msbuild build.proj -t:Test`. Use compat tests when RGBDS compatibility or ROM behavior is affected.
+Add unit or integration coverage in the matching `tests/Koh.*.Tests` project. Name test classes after the component under test and use method names that state the behavior. For parser, assembler, linker, LSP, debugger, and emulator changes, include fixture-based regressions when behavior changes. Run the focused project test first, then `dotnet msbuild build.proj -t:Test`.
 
 ## Commit & Pull Request Guidelines
 

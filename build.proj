@@ -4,7 +4,6 @@
 
   Quick reference:
     dotnet msbuild build.proj -t:Test
-    dotnet msbuild build.proj -t:CompatTests
     dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
@@ -23,9 +22,11 @@
     <Exec Command="dotnet test --solution Koh.NoCompat.slnf" />
   </Target>
 
-  <Target Name="CompatTests">
-    <Exec Command="dotnet test tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj" />
-  </Target>
+  <!--
+    The CompatTests target is gone: tests/Koh.Compat.Tests is disabled entirely for
+    now. It is out of the solution and out of CI, and its sources stay on disk.
+    See tests/Koh.Compat.Tests/README.md for what re-enabling involves.
+  -->
 
   <Target Name="Benchmark">
     <Exec Command="dotnet run --project benchmarks/Koh.Benchmarks/ --configuration Release" />
