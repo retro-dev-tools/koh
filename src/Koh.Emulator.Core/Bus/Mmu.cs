@@ -1,3 +1,4 @@
+using Koh.Emulator.Core.Boot;
 using Koh.Emulator.Core.Cartridge;
 using Koh.Emulator.Core.Cgb;
 using Koh.Emulator.Core.Debug;
@@ -31,6 +32,7 @@ public sealed class Mmu
 
     private OamDma? _oamDma;
     private Ppu.Ppu? _ppu;
+    private BootRom? _bootRom;
 
     public MemoryHook? Hook { get; set; }
 
@@ -56,6 +58,33 @@ public sealed class Mmu
     public void AttachOamDma(OamDma oamDma) => _oamDma = oamDma;
 
     public void AttachPpu(Ppu.Ppu ppu) => _ppu = ppu;
+
+    /// <summary>
+    /// Insert a boot ROM. It shadows the low ROM region on reads until a non-zero write
+    /// to $FF50 latches it off. Not a constructor parameter on purpose: most consumers
+    /// of this class drive the CPU directly and must NOT have a boot ROM execute, so
+    /// requiring one here would be wrong for the majority of callers.
+    /// </summary>
+    public void MapBootRom(BootRom rom) => _bootRom = rom;
+
+    /// <summary>The boot ROM currently inserted, mapped or not. Null if none.</summary>
+    public BootRom? LoadedBootRom => _bootRom;
+
+    /// <summary>True while boot ROM reads are shadowing the cartridge.</summary>
+    public bool BootRomMapped => _bootRom is not null && !Io.BootRomUnmapped;
+
+    /// <summary>
+    /// Whether <paramref name="address"/> falls in the inserted boot ROM's overlay.
+    /// The CGB shape deliberately leaves a hole at $0100-$01FF: that is the cartridge
+    /// header, and it must stay visible to the boot ROM reading the logo out of it.
+    /// </summary>
+    private bool InBootRomOverlay(ushort address) =>
+        _bootRom?.Family switch
+        {
+            BootRomFamily.Dmg => address < 0x100,
+            BootRomFamily.Cgb => address < 0x100 || (address >= 0x200 && address < 0x900),
+            _ => false,
+        };
 
     /// <summary>True when the PPU has VRAM locked (mode 3 with LCD on).</summary>
     private bool VramLocked =>
@@ -139,6 +168,11 @@ public sealed class Mmu
         switch (address >> 12)
         {
             case 0x0:
+                // Both overlay ranges (DMG $0000-$00FF, CGB additionally $0200-$08FF)
+                // sit inside this case, so no other routing case has to change.
+                if (BootRomMapped && InBootRomOverlay(address))
+                    return _bootRom!.Bytes[address];
+                return _cart.ReadRom(address);
             case 0x1:
             case 0x2:
             case 0x3:

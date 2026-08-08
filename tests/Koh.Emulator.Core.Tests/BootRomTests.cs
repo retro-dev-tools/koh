@@ -1,5 +1,6 @@
 using Koh.Emulator.Core.Boot;
 using Koh.Emulator.Core.Bus;
+using Koh.Emulator.Core.Cartridge;
 
 namespace Koh.Emulator.Core.Tests;
 
@@ -117,5 +118,104 @@ public class BootRomTests
         var io = MakeIo();
         io.Write(0xFF50, 0x01);
         await Assert.That(io.Read(0xFF50)).IsEqualTo((byte)0xFF);
+    }
+
+    /// <summary>A cartridge whose low bytes are distinguishable from a boot ROM's.</summary>
+    private static Cartridge.Cartridge MakeCart()
+    {
+        var rom = new byte[0x8000];
+        // Past $0900 too, so a test can tell "overlay ended" from "nothing there".
+        for (int i = 0; i < 0x1000; i++)
+            rom[i] = 0xC7; // cartridge marker byte
+        // After the fill, not before: the marker would otherwise land in $0147 and be
+        // read as an unsupported mapper.
+        rom[0x147] = 0x00; // RomOnly
+        return CartridgeFactory.Load(rom);
+    }
+
+    private static BootRom MakeStub(int size, byte fill)
+    {
+        var bytes = new byte[size];
+        Array.Fill(bytes, fill);
+        return BootRom.FromBytes(bytes);
+    }
+
+    [Test]
+    public async Task Dmg_Overlay_Covers_0000_To_00FF_Only()
+    {
+        var gb = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        gb.LoadBootRom(MakeStub(0x100, 0xB0));
+
+        await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0xB0);
+        await Assert.That(gb.DebugReadByte(0x00FF)).IsEqualTo((byte)0xB0);
+        // $0100 onward is the cartridge even while mapped.
+        await Assert.That(gb.DebugReadByte(0x0100)).IsEqualTo((byte)0xC7);
+        await Assert.That(gb.DebugReadByte(0x0200)).IsEqualTo((byte)0xC7);
+    }
+
+    [Test]
+    public async Task Cgb_Overlay_Leaves_The_Cartridge_Header_Hole_Visible()
+    {
+        // $0100-$01FF must fall through to the cartridge: it is the header the boot ROM
+        // is reading the logo, title, and cartridge type out of.
+        var gb = new GameBoySystem(MakeCart(), HardwareMode.Cgb);
+        gb.LoadBootRom(MakeStub(0x900, 0xB0));
+
+        await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0xB0);
+        await Assert.That(gb.DebugReadByte(0x00FF)).IsEqualTo((byte)0xB0);
+        await Assert.That(gb.DebugReadByte(0x0100)).IsEqualTo((byte)0xC7);
+        await Assert.That(gb.DebugReadByte(0x01FF)).IsEqualTo((byte)0xC7);
+        await Assert.That(gb.DebugReadByte(0x0200)).IsEqualTo((byte)0xB0);
+        await Assert.That(gb.DebugReadByte(0x08FF)).IsEqualTo((byte)0xB0);
+        await Assert.That(gb.DebugReadByte(0x0900)).IsEqualTo((byte)0xC7);
+    }
+
+    [Test]
+    public async Task Unmapping_Reveals_The_Cartridge_Underneath()
+    {
+        var gb = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        gb.LoadBootRom(MakeStub(0x100, 0xB0));
+        await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0xB0);
+
+        gb.Mmu.WriteByte(0xFF50, 0x01);
+
+        await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0xC7);
+        await Assert.That(gb.Mmu.BootRomMapped).IsFalse();
+    }
+
+    [Test]
+    public async Task Writes_Below_0900_Always_Reach_The_Cartridge_Not_The_Overlay()
+    {
+        // Boot ROM reads are intercepted; writes are not. A write to $0000 is an MBC
+        // register write on hardware whether or not a boot ROM is mapped.
+        var gb = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        gb.LoadBootRom(MakeStub(0x100, 0xB0));
+        gb.Mmu.WriteByte(0x0000, 0x0A);
+        await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0xB0);
+    }
+
+    [Test]
+    public async Task Cgb_Machine_Rejects_A_Dmg_Boot_Rom()
+    {
+        var gb = new GameBoySystem(MakeCart(), HardwareMode.Cgb);
+        var ex = Assert.Throws<ArgumentException>(() => gb.LoadBootRom(MakeStub(0x100, 0xB0)));
+        await Assert.That(ex!.Message).Contains("Cgb");
+    }
+
+    [Test]
+    public async Task Dmg_Machine_Rejects_A_Cgb_Boot_Rom()
+    {
+        var gb = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        var ex = Assert.Throws<ArgumentException>(() => gb.LoadBootRom(MakeStub(0x900, 0xB0)));
+        await Assert.That(ex!.Message).Contains("Dmg");
+    }
+
+    [Test]
+    public async Task No_Boot_Rom_Means_The_Cartridge_Is_Visible_From_0000()
+    {
+        // The PowerOnStateTests contract: without a boot ROM nothing is overlaid.
+        var gb = new GameBoySystem(MakeCart(), HardwareMode.Dmg);
+        await Assert.That(gb.BootRomMapped).IsFalse();
+        await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0xC7);
     }
 }

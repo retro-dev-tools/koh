@@ -78,6 +78,46 @@ public sealed class GameBoySystem
         Cpu = new Sm83(Mmu, TickForMCycle);
     }
 
+    /// <summary>
+    /// Insert a boot ROM, to execute from $0000 before the cartridge sees control.
+    /// Deliberately not a constructor parameter: this type has 67 construction sites,
+    /// most of them tests that set Pc/Sp directly and must not have a boot ROM run
+    /// first. "Won't run without a boot ROM" is an application-layer policy, not an
+    /// invariant of the machine — which is also how SameBoy, mGBA, and ares layer it.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// The blob's family does not match this machine's mode. A CGB machine running a
+    /// 256-byte boot ROM is not a device that exists, and accepting it silently
+    /// produces behavior that is very hard to explain later.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">Execution has already begun.</exception>
+    public void LoadBootRom(Boot.BootRom rom)
+    {
+        var expected = Mode == HardwareMode.Cgb ? Boot.BootRomFamily.Cgb : Boot.BootRomFamily.Dmg;
+        if (rom.Family != expected)
+        {
+            int expectedSize =
+                expected == Boot.BootRomFamily.Cgb ? Boot.BootRom.CgbSize : Boot.BootRom.DmgSize;
+            throw new ArgumentException(
+                $"A {Mode} machine needs a {expected}-family boot ROM ({expectedSize} bytes), "
+                    + $"but the supplied boot ROM is {rom.Family}-family "
+                    + $"({rom.Bytes.Length} bytes).",
+                nameof(rom)
+            );
+        }
+
+        if (Clock.SystemTicks != 0)
+            throw new InvalidOperationException(
+                "LoadBootRom must be called before execution begins — a boot ROM inserted "
+                    + "mid-run would shadow code the CPU has already executed."
+            );
+
+        Mmu.MapBootRom(rom);
+    }
+
+    /// <summary>True while boot ROM reads are shadowing the cartridge at $0000.</summary>
+    public bool BootRomMapped => Mmu.BootRomMapped;
+
     public ref CpuRegisters Registers => ref Cpu.Registers;
     public Framebuffer Framebuffer => Ppu.Framebuffer;
     public bool IsRunning => _running;
