@@ -67,6 +67,14 @@ public class KohBootRomTests
         0x3E,
     ];
 
+    /// <summary>A valid cartridge with one byte flipped after the header is built.</summary>
+    private static Emulator.Core.Cartridge.Cartridge MakeCorruptCart(int offset, bool cgbFlag)
+    {
+        var rom = MakeValidCart(cgbFlag).Rom.ToArray();
+        rom[offset] ^= 0xFF;
+        return CartridgeFactory.Load(rom);
+    }
+
     /// <summary>A minimal valid cartridge: correct logo, correct header checksum.</summary>
     private static Emulator.Core.Cartridge.Cartridge MakeValidCart(bool cgbFlag = false)
     {
@@ -172,12 +180,93 @@ public class KohBootRomTests
         var gb = RunToHandoff();
         await Assert.That(gb.DebugReadByte(0xFF40) & 0x80).IsEqualTo(0x80); // LCDC bit 7
         await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)0xFC); // BGP
-        // VRAM was $FF-poisoned at power-on; the boot ROM cleared it.
-        await Assert.That(gb.DebugReadByte(0x9FFF)).IsEqualTo((byte)0x00);
-        await Assert.That(gb.DebugReadByte(0x8000)).IsEqualTo((byte)0x00);
+        await AssertVramClearedOutsideLogo(gb.Mmu.VramArray.AsSpan(0, 0x2000).ToArray());
+    }
+
+    /// <summary>
+    /// VRAM was $FF-poisoned at power-on; the boot ROM cleared it and wrote only logo tiles
+    /// 1-24 ($8010-$818F) and tilemap rows 8-9 ($9900-$993F).
+    /// </summary>
+    private static async Task AssertVramClearedOutsideLogo(byte[] vram)
+    {
+        await Assert.That(vram.AsSpan(0, 0x10).IndexOfAnyExcept((byte)0)).IsEqualTo(-1);
         await Assert
-            .That(gb.Mmu.VramArray.AsSpan(0, 0x2000).IndexOfAnyExcept((byte)0))
+            .That(vram.AsSpan(0x190, 0x1900 - 0x190).IndexOfAnyExcept((byte)0))
             .IsEqualTo(-1);
+        await Assert.That(vram.AsSpan(0x1940).IndexOfAnyExcept((byte)0)).IsEqualTo(-1);
+    }
+
+    private static async Task AssertNeverHandsOff(
+        Emulator.Core.Cartridge.Cartridge cart,
+        HardwareMode mode
+    )
+    {
+        var gb = new GameBoySystem(cart, mode);
+        gb.LoadBootRom(
+            BootRom.FromBytes(mode == HardwareMode.Cgb ? KohBootRoms.Cgb : KohBootRoms.Dmg)
+        );
+        for (int frame = 0; frame < 600; frame++)
+            gb.RunFrame();
+        // Still mapped after ~10s: the boot ROM locked up, as hardware does.
+        await Assert.That(gb.BootRomMapped).IsTrue();
+        await Assert.That(gb.DebugReadByte(0xFF40) & 0x80).IsEqualTo(0x80); // lock-up is visible
+    }
+
+    [Test]
+    [Arguments(HardwareMode.Dmg)]
+    [Arguments(HardwareMode.Cgb)]
+    public async Task A_Bad_Logo_Locks_Up_Instead_Of_Booting(HardwareMode mode)
+    {
+        // A test ROM that would hang on a Game Boy must hang here too.
+        await AssertNeverHandsOff(MakeCorruptCart(0x0104, mode == HardwareMode.Cgb), mode);
+    }
+
+    [Test]
+    [Arguments(HardwareMode.Dmg)]
+    [Arguments(HardwareMode.Cgb)]
+    public async Task A_Bad_Header_Checksum_Locks_Up_Instead_Of_Booting(HardwareMode mode)
+    {
+        await AssertNeverHandsOff(MakeCorruptCart(0x014D, mode == HardwareMode.Cgb), mode);
+    }
+
+    [Test]
+    [Arguments(HardwareMode.Dmg)]
+    [Arguments(HardwareMode.Cgb)]
+    public async Task The_Logo_Reaches_Vram_Because_Code_Put_It_There(HardwareMode mode)
+    {
+        var gb = RunToHandoff(mode, cgbCart: mode == HardwareMode.Cgb);
+        var vram = gb.Mmu.VramArray;
+        await Assert.That(vram.AsSpan(0x10, 0x180).IndexOfAnyExcept((byte)0)).IsNotEqualTo(-1);
+        await Assert.That(vram[0x1904]).IsEqualTo((byte)1); // $9904: first logo tile
+        await Assert.That(vram[0x192F]).IsEqualTo((byte)24); // $992F: last logo tile
+        await Assert.That(gb.DebugReadByte(0xFF42)).IsEqualTo((byte)0); // SCY landed
+    }
+
+    [Test]
+    [Arguments(HardwareMode.Dmg)]
+    [Arguments(HardwareMode.Cgb)]
+    public async Task The_Scroll_Takes_Roughly_The_Hardware_Duration(HardwareMode mode)
+    {
+        // ~2.5s at ~60fps. Wide bounds: "there is an animation" and "not absurdly long".
+        var gb = new GameBoySystem(MakeValidCart(mode == HardwareMode.Cgb), mode);
+        gb.LoadBootRom(
+            BootRom.FromBytes(mode == HardwareMode.Cgb ? KohBootRoms.Cgb : KohBootRoms.Dmg)
+        );
+        int frames = 0;
+        while (gb.BootRomMapped && frames < 400)
+        {
+            gb.RunFrame();
+            frames++;
+        }
+        await Assert.That(frames).IsGreaterThan(100);
+        await Assert.That(frames).IsLessThan(250);
+    }
+
+    [Test]
+    public async Task The_Chime_Leaves_The_Apu_Enabled_At_Handoff()
+    {
+        var gb = RunToHandoff();
+        await Assert.That(gb.DebugReadByte(0xFF26) & 0x80).IsEqualTo(0x80); // NR52 on
     }
 
     [Test]
@@ -227,8 +316,9 @@ public class KohBootRomTests
     {
         var gb = RunToHandoff(HardwareMode.Cgb, cgbCart: true);
         await Assert.That(gb.Ppu.BgPalette.GetColor(7, 0)).IsEqualTo((ushort)0x7FFF);
-        await Assert.That(gb.Ppu.ObjPalette.GetColor(7, 1)).IsEqualTo((ushort)0x56B5);
-        await Assert.That(gb.Mmu.VramArray.AsSpan().IndexOfAnyExcept((byte)0)).IsEqualTo(-1);
+        await Assert.That(gb.Ppu.ObjPalette.GetColor(7, 1)).IsEqualTo((ushort)0x294A);
+        await Assert.That(gb.Mmu.VramArray.AsSpan(0x2000).IndexOfAnyExcept((byte)0)).IsEqualTo(-1);
+        await AssertVramClearedOutsideLogo(gb.Mmu.VramArray.AsSpan(0, 0x2000).ToArray());
         await Assert.That(gb.DebugReadByte(0xFF40)).IsEqualTo((byte)0x91);
     }
 

@@ -12,7 +12,7 @@ public class StepHandlersTests
         params byte[] program
     )
     {
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
         Array.Copy(program, 0, rom, 0x0100, program.Length);
 
@@ -48,15 +48,14 @@ public class StepHandlersTests
     public async Task Next_Steps_Over_Call()
     {
         // $0100: CALL $0200
-        // $0103: LD A,$42
+        // $0103: NOP ($0104 onward is the header logo)
         // $0200: RET
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
         rom[0x100] = 0xCD;
         rom[0x101] = 0x00;
         rom[0x102] = 0x02; // CALL $0200
-        rom[0x103] = 0x3E;
-        rom[0x104] = 0x42; // LD A,$42
+        rom[0x103] = 0x00; // NOP
         rom[0x200] = 0xC9; // RET
 
         var dispatcher = new DapDispatcher();
@@ -76,7 +75,7 @@ public class StepHandlersTests
         // $0100: CALL $0200
         // $0103: NOP
         // $0200: NOP ; NOP ; RET
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
         rom[0x100] = 0xCD;
         rom[0x101] = 0x00;
@@ -131,7 +130,7 @@ public class StepHandlersTests
         using var kdbgStream = new MemoryStream();
         KdbgFileWriter.Write(kdbgStream, builder);
 
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
         rom[0x100] = 0x00;
 

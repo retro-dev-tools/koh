@@ -2,9 +2,9 @@
 ; unmaps itself. $0100-$01FF is the cartridge header, a hole in the overlay.
 ;
 ; An INDEPENDENT implementation: it owes the hand-off state, not Nintendo's instruction
-; sequence. Same minimal scope as dmg_boot.asm: no logo, chime, or header validation yet.
+; sequence. The logo, checks, scroll and chime are shared with dmg_boot.asm.
 ;
-; Hand-off: like DMG, the unmap write sits at $00FC-$00FF so PC falls into $0100. A
+; Hand-off: like DMG, the unmap write sits at $00FC so PC falls into $0100. A
 ; `jp $0100` after the write would be fetched from the cartridge, not from this image.
 
 INCLUDE "hardware.inc"
@@ -32,11 +32,13 @@ CgbStart:
     ldh [rVBK], a
     call ClearVram
 
-    ; Audio on, both channels to both outputs, full volume.
+    ; Audio on, both channels to both outputs, full volume; chime voice on channel 1.
     ld a, $80
     ldh [rNR52], a
+    ldh [rNR11], a
     ld a, $F3
     ldh [rNR51], a
+    ldh [rNR12], a
     ld a, $77
     ldh [rNR50], a
 
@@ -75,8 +77,7 @@ CgbStart:
     dec c
     jr nz, .objPalette
 
-    ld a, $91
-    ldh [rLCDC], a
+INCLUDE "boot_logo.inc"
 
     ; B=$00 for a CGB cartridge ($0143 bit 7), B=$01 for a DMG one.
     ld b, $00
@@ -105,6 +106,8 @@ ClearVram:
     jr nz, .loop
     ret
 
-; White, light grey, dark grey, black as little-endian BGR555.
+; White, dark grey, light grey, black as little-endian BGR555: logo pixels use colour 1.
 GreyRamp:
-    db $FF, $7F, $B5, $56, $4A, $29, $00, $00
+    db $FF, $7F, $4A, $29, $B5, $56, $00, $00
+
+INCLUDE "boot_logo_routines.inc"

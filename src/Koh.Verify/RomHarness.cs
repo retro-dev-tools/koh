@@ -31,6 +31,9 @@ public sealed class RomHarness
         System.LoadBootRom(
             BootRom.FromBytes(System.Mode == HardwareMode.Cgb ? KohBootRoms.Cgb : KohBootRoms.Dmg)
         );
+        // Frame counts start at the cartridge entry. A boot ROM that locks up stops at the cap.
+        for (int i = 0; i < 600 && System.BootRomMapped; i++)
+            System.RunFrame();
         _log = log ?? Console.Out;
     }
 

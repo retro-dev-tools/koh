@@ -5,9 +5,8 @@
 ; instruction sequence. One consequence: DIV at hand-off is a function of this code's own
 ; cycle count and will not match a stock dump's.
 ;
-; MINIMAL VERSION. The logo scroll, the chime, and the logo/header-checksum validation
-; land in the next commit. This one exists to prove the build pipeline — assemble, embed,
-; load, execute, hand off — against 30 lines rather than 200.
+; The logo, checks, scroll and chime are shared with cgb_boot.asm (boot_logo.inc). The
+; 256-byte limit is the binding constraint: the linker fails the build on overflow.
 ;
 ; The hand-off trick, which fixes the image size at exactly 256 bytes: the last two
 ; instructions sit at $00FC-$00FF. Writing rBANK drops the overlay, and PC then runs off
@@ -29,34 +28,36 @@ Start:
     bit 7, h                  ; still at or above $8000?
     jr nz, .clearVram
 
-    ; Audio on, both channels to both outputs, full volume.
+    ; Audio on, both channels to both outputs, full volume; chime voice on channel 1.
     ld a, $80
     ldh [rNR52], a
+    ldh [rNR11], a
     ld a, $F3
     ldh [rNR51], a
+    ldh [rNR12], a
     ld a, $77
     ldh [rNR50], a
 
-    ; Palettes, then LCD on with BG enabled and tile data at $8000.
     ld a, $FC
     ldh [rBGP], a
     ld a, $FF
     ldh [rOBP0], a
     ldh [rOBP1], a
-    ld a, $91
-    ldh [rLCDC], a
+
+INCLUDE "boot_logo.inc"
 
     ; Hand-off register state. F cannot be loaded directly, so build it through the
-    ; stack: pushing BC=$00B0 and popping AF leaves A=$00 and F=$B0 (Z, H and C set).
+    ; stack: pushing BC=$00B0 and popping AF leaves F=$B0 (Z, H and C set).
     ; A itself is set to $01 at Handoff below, which does not disturb F.
     ld bc, $00B0
     push bc
     pop af
-    ld bc, $0013
+    ld c, $13
     ld de, $00D8
     ld hl, $014D
+    jr Handoff
 
-    jp Handoff
+INCLUDE "boot_logo_routines.inc"
 
 ; The last four bytes of the image. Must be at $00FC so that PC, having unmapped the
 ; overlay, falls into $0100.

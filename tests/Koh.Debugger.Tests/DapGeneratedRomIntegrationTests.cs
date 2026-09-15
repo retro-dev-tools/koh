@@ -29,7 +29,7 @@ public class DapGeneratedRomIntegrationTests
         DebugInfoPopulator.Populate(builder, result);
         using var stream = new MemoryStream();
         KdbgFileWriter.Write(stream, builder);
-        return (result.RomData!, stream.ToArray());
+        return (TestRom.WithValidHeader(result.RomData!), stream.ToArray());
     }
 
     private static byte[] Encode(int seq, string command, object arguments) =>
