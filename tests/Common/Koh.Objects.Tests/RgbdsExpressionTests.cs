@@ -109,9 +109,9 @@ public class RgbdsExpressionTests
             .IsEqualTo(Lines("0:0:0:sym:ext", "1:0:0:sym:ext", "2:0:0:sym:ext"));
     }
 
-    // Current output: a bare-symbol instruction operand gets an empty RPN (known bug, tracked separately).
+    // A bare-symbol operand reaches the patch as a raw identifier token, not a NameExpression.
     [Test]
-    public async Task InstructionOperands_CurrentOutput()
+    public async Task InstructionOperands()
     {
         var patches = WriteAndDecode(
             """
@@ -125,7 +125,15 @@ public class RgbdsExpressionTests
         );
         await Assert
             .That(patches)
-            .IsEqualTo(Lines("1:1:0:", "4:1:0:sym:ext lit:3 add", "7:3:8:", "9:0:0:", "11:1:0:"));
+            .IsEqualTo(
+                Lines(
+                    "1:1:0:sym:ext",
+                    "4:1:0:sym:ext lit:3 add",
+                    "7:3:8:sym:ext",
+                    "9:0:0:sym:ext",
+                    "11:1:0:sym:ext"
+                )
+            );
     }
 
     private static string Lines(params string[] lines) => string.Join('\n', lines);

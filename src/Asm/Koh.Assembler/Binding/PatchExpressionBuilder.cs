@@ -19,6 +19,25 @@ internal static class PatchExpressionBuilder
 
     private static void Flatten(GreenNodeBase node, List<PatchExpressionToken> tokens)
     {
+        // Raw tokens, e.g. a LabelOperand's identifier, as ExpressionEvaluator accepts them.
+        if (node is GreenToken token)
+        {
+            switch (token.Kind)
+            {
+                case SyntaxKind.IdentifierToken or SyntaxKind.LocalLabelToken:
+                    tokens.Add(new(PatchExpressionOp.Symbol, Name: token.Text));
+                    break;
+                case SyntaxKind.NumberLiteral:
+                    var value = ExpressionEvaluator.ParseNumber(token.Text);
+                    tokens.Add(new(PatchExpressionOp.Literal, (int)(value ?? 0)));
+                    break;
+                case SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken:
+                    tokens.Add(new(PatchExpressionOp.CurrentAddress));
+                    break;
+            }
+            return;
+        }
+
         if (node is not GreenNode greenNode)
             return;
 
