@@ -14,6 +14,9 @@
     <Project Path="src/Koh.Debugger/Koh.Debugger.csproj" />
     <Project Path="src/Koh.Emulator.App/Koh.Emulator.App.csproj" />
     <Project Path="src/Koh.Verify/Koh.Verify.csproj" />
+    <Project Path="src/KohUI/KohUI.csproj" />
+    <Project Path="src/KohUI.Backends.Gl/KohUI.Backends.Gl.csproj" />
+    <Project Path="src/KohUI.Backends.Dom/KohUI.Backends.Dom.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Koh.Superopt/Koh.Superopt.csproj" />
@@ -29,14 +32,22 @@
     <Project Path="tests/Koh.Boot.Tests/Koh.Boot.Tests.csproj" />
     <Project Path="tests/Koh.Emulator.Core.Tests/Koh.Emulator.Core.Tests.csproj" />
     <Project Path="tests/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj" />
+    <Project Path="tests/KohUI.Tests/KohUI.Tests.csproj" />
+    <Project Path="tests/KohUI.Tests.E2E/KohUI.Tests.E2E.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/gb-2048/verify/Gb2048Verify.csproj" />
     <Project Path="samples/gb-2048-cs/Gb2048CSharp.csproj" />
+    <Project Path="samples/gb-2048-v2/Gb2048V2.csproj" />
+    <Project Path="samples/gb-jrpg/Gbjrpg.csproj" />
+    <Project Path="samples/gb-gfx-demo/GbGfxDemo.csproj" />
     <Project Path="samples/gb-3d/double-buffered/CubeDoubleBuffered.csproj" />
     <Project Path="samples/gb-3d/full-frame/CubeFullFrame.csproj" />
     <Project Path="samples/gb-3d/racing-beam/CubeRacingBeam.csproj" />
+    <Project Path="samples/gb-3d/verify/Cube3dVerify.csproj" />
+    <Project Path="samples/KohUI.Demo/KohUI.Demo.csproj" />
   </Folder>
 </Solution>
