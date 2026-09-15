@@ -1,3 +1,5 @@
+using Koh.Core.Syntax.InternalSyntax;
+
 namespace Koh.Core.Binding;
 
 public enum SectionType
@@ -35,6 +37,9 @@ public sealed class SectionBuffer
 
     private readonly List<byte> _bytes = [];
     private readonly List<PatchEntry> _patches = [];
+
+    // Source syntax per patch (same index as _patches), for in-assembler resolution.
+    private readonly List<GreenNodeBase?> _patchSyntax = [];
 
     // Mutable line-map entries. Kept mutable during emit so adjacent
     // bytes from the same source line extend the prior entry in place;
@@ -156,7 +161,14 @@ public sealed class SectionBuffer
         {
             _bytes.RemoveRange(offset, _bytes.Count - offset);
             // Remove patches that reference truncated offsets
-            _patches.RemoveAll(p => p.Offset >= offset);
+            for (int i = _patches.Count - 1; i >= 0; i--)
+            {
+                if (_patches[i].Offset >= offset)
+                {
+                    _patches.RemoveAt(i);
+                    _patchSyntax.RemoveAt(i);
+                }
+            }
             // Drop line-map entries that lie past the truncation point, and
             // clip one that straddles it so the surviving portion still maps.
             for (int i = _lineMap.Count - 1; i >= 0; i--)
@@ -175,7 +187,13 @@ public sealed class SectionBuffer
         }
     }
 
-    public void RecordPatch(PatchEntry patch) => _patches.Add(patch);
+    internal void RecordPatch(PatchEntry patch, GreenNodeBase? syntax)
+    {
+        _patches.Add(patch);
+        _patchSyntax.Add(syntax);
+    }
+
+    internal GreenNodeBase? PatchSyntax(int index) => _patchSyntax[index];
 
     public void ApplyPatch(int offset, byte value) => _bytes[offset] = value;
 
@@ -196,7 +214,10 @@ public sealed class SectionBuffer
     internal void RemoveResolvedPatches(List<int> resolvedIndices)
     {
         for (int i = resolvedIndices.Count - 1; i >= 0; i--)
+        {
             _patches.RemoveAt(resolvedIndices[i]);
+            _patchSyntax.RemoveAt(resolvedIndices[i]);
+        }
     }
 
     private void RecordEmission(int byteCount)

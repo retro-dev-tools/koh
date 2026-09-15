@@ -1326,14 +1326,15 @@ public sealed class Binder
                             {
                                 SectionName = section.Name,
                                 Offset = offset,
-                                Expression = expr.Green,
+                                Expression = PatchExpression.From(expr.Green),
                                 Kind = PatchKind.Absolute8,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                 SymbolName = sn8,
                                 SymbolOffset = so8,
                                 SymbolShift = sh8,
-                            }
+                            },
+                            expr.Green
                         );
                     }
                 }
@@ -1372,14 +1373,15 @@ public sealed class Binder
                             {
                                 SectionName = section.Name,
                                 Offset = offset,
-                                Expression = expr.Green,
+                                Expression = PatchExpression.From(expr.Green),
                                 Kind = PatchKind.Absolute16,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                 SymbolName = sn16,
                                 SymbolOffset = so16,
                                 SymbolShift = sh16,
-                            }
+                            },
+                            expr.Green
                         );
                     }
                 }
@@ -1403,14 +1405,15 @@ public sealed class Binder
                             {
                                 SectionName = section.Name,
                                 Offset = offset,
-                                Expression = expr.Green,
+                                Expression = PatchExpression.From(expr.Green),
                                 Kind = PatchKind.Absolute32,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                 SymbolName = sn32,
                                 SymbolOffset = so32,
                                 SymbolShift = sh32,
-                            }
+                            },
+                            expr.Green
                         );
                     }
                 }
