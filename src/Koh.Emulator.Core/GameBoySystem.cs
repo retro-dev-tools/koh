@@ -196,6 +196,8 @@ public sealed class GameBoySystem
 
     public void WriteState(StateWriter w)
     {
+        // Boot ROM identity first, so a mismatch is refused before anything is overwritten.
+        w.WriteU64(Mmu.LoadedBootRom?.Fingerprint ?? 0);
         Clock.WriteState(w);
         Cpu.WriteState(w);
         Timer.WriteState(w);
@@ -212,6 +214,15 @@ public sealed class GameBoySystem
 
     public void ReadState(StateReader r)
     {
+        ulong saved = r.ReadU64();
+        ulong current = Mmu.LoadedBootRom?.Fingerprint ?? 0;
+        if (saved != current)
+            throw new InvalidDataException(
+                "This save state was captured with a different boot ROM "
+                    + $"(state fingerprint ${saved:X16}, currently loaded ${current:X16}). "
+                    + "Load the same boot ROM, or start a fresh run."
+            );
+
         Clock.ReadState(r);
         Cpu.ReadState(r);
         Timer.ReadState(r);

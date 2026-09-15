@@ -344,11 +344,6 @@ public sealed class Mmu
         w.WriteBytes(_oam);
         w.WriteBytes(_hram);
         Banking.WriteState(w);
-        // The $FF50 latch itself rides along in IoRegisters' _io block. What that block
-        // cannot carry is WHICH boot ROM produced this state: a state captured mid-boot
-        // is meaningless against different boot code, so record the blob's identity and
-        // refuse a mismatch on load. 0 means no boot ROM was inserted.
-        w.WriteU64(_bootRom?.Fingerprint ?? 0);
     }
 
     public void ReadState(StateReader r)
@@ -358,15 +353,5 @@ public sealed class Mmu
         r.ReadBytes(_oam.AsSpan());
         r.ReadBytes(_hram.AsSpan());
         Banking.ReadState(r);
-
-        ulong saved = r.ReadU64();
-        ulong current = _bootRom?.Fingerprint ?? 0;
-        if (saved != current)
-            throw new InvalidDataException(
-                "This save state was captured with a different boot ROM "
-                    + $"(state fingerprint ${saved:X16}, currently loaded ${current:X16}). "
-                    + "Resuming would put the machine in a state its boot code never "
-                    + "produced. Load the same boot ROM, or start a fresh run."
-            );
     }
 }

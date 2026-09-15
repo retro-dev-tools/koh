@@ -256,8 +256,11 @@ public class BootRomTests
         load.LoadBootRom(MakeStub(0x100, 0xC1)); // different blob
         buffer.Position = 0;
         using var r = new StateReader(buffer);
+        load.Registers.Pc = 0x1234;
         var ex = Assert.Throws<InvalidDataException>(() => load.ReadState(r));
         await Assert.That(ex!.Message).Contains("boot ROM");
+        // Refused before any component was overwritten.
+        await Assert.That(load.Registers.Pc).IsEqualTo((ushort)0x1234);
     }
 
     [Test]
