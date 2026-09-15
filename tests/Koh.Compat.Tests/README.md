@@ -1,7 +1,7 @@
 # Koh.Compat.Tests — disabled
 
-This project is **disabled**: it is not in `Koh.slnx`, not in `Koh.Ci.slnf`, not in
-`Koh.NoCompat.slnf`, has no `build.proj` target, and no CI job. Its sources are
+This project is **disabled**: it is not in `Koh.slnx` or `Koh.Ci.slnf`, has no
+`build.proj` target, and no CI job. Its sources are
 untouched on disk.
 
 ## What it is

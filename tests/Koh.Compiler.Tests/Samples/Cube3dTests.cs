@@ -26,13 +26,7 @@ namespace Koh.Compiler.Tests.Samples;
 /// </summary>
 public class Cube3dTests
 {
-    private static string Root()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
-            dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException("repository root not found");
-    }
+    private static string Root() => TestSupport.TestRepo.Root;
 
     /// <summary>The real demo source, read as SEPARATE files the way the Koh SDK compiles it (each its
     /// own <c>&lt;Compile&gt;</c> item / Roslyn syntax tree, per-file <c>using</c> directives legal at

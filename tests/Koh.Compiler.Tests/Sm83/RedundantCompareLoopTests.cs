@@ -30,13 +30,7 @@ namespace Koh.Compiler.Tests.Sm83;
 /// </summary>
 public class RedundantCompareLoopTests
 {
-    private static string Root()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
-            dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException("repository root not found");
-    }
+    private static string Root() => TestSupport.TestRepo.Root;
 
     private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>
     {

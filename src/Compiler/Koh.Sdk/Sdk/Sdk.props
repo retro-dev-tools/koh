@@ -17,8 +17,8 @@
   <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
   <PropertyGroup>
-    <!-- Repo root, three levels above sdk/Koh.Sdk/Sdk/. -->
-    <KohRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)../../../'))</KohRoot>
+    <!-- Repo root, four levels above src/Compiler/Koh.Sdk/Sdk/. -->
+    <KohRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)../../../../'))</KohRoot>
     <!-- The game pokes raw Game Boy addresses through pointers; allow unsafe by default. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Which Koh.Compiler frontend lowers the game. "cil" (the already-built assembly, over

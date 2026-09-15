@@ -34,7 +34,7 @@
   </Target>
 
   <Target Name="TestAll">
-    <Exec Command="dotnet test --solution Koh.NoCompat.slnf" />
+    <Exec Command="dotnet test --solution Koh.Ci.slnf" />
   </Target>
 
   <!--
