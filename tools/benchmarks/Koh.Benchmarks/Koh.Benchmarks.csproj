@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Asm/Koh.Core/Koh.Core.csproj" />
+    <ProjectReference Include="../../../src/Common/Koh.Emit/Koh.Emit.csproj" />
+    <ProjectReference Include="../../../src/Emulator/Koh.Emulator/Koh.Emulator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+</Project>

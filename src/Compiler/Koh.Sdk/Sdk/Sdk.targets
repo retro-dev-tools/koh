@@ -15,12 +15,12 @@
          KohEmitDebugInfo doesn't make the target perpetually "out of date" chasing a file that's
          never written. -->
     <KohKdbgOutput Condition="'$(KohEmitDebugInfo)' == 'true'">$(KohKdbgPath)</KohKdbgOutput>
-    <KohBuildTasksProject>$(KohRoot)src/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
-    <KohBuildTasksAssembly>$(KohRoot)src/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
-    <KohEmulatorProject>$(KohRoot)src/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
+    <KohBuildTasksProject>$(KohRoot)src/Compiler/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
+    <KohBuildTasksAssembly>$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
+    <KohEmulatorProject>$(KohRoot)src/Emulator/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
     <!-- Assumes the default (no-RID) build output; a RID-scoped `dotnet run -r <rid>` places the emulator
          DLL under a rid subfolder this path does not include. -->
-    <KohEmulatorAssembly>$(KohRoot)src/Koh.Emulator.App/bin/$(Configuration)/net10.0/Koh.Emulator.App.dll</KohEmulatorAssembly>
+    <KohEmulatorAssembly>$(KohRoot)src/Emulator/Koh.Emulator.App/bin/$(Configuration)/net10.0/Koh.Emulator.App.dll</KohEmulatorAssembly>
   </PropertyGroup>
 
   <!-- `dotnet run` opens the compiled ROM in the Koh emulator (a GL window): the build emits the ROM

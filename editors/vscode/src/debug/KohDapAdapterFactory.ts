@@ -32,7 +32,7 @@ export type Spawner = (
  *      process alive for the session.
  *
  * The emulator itself hosts the debug adapter (see
- * src/Koh.Emulator.App/DapServerHost.cs); this extension only owns
+ * src/Emulator/Koh.Emulator.App/DapServerHost.cs); this extension only owns
  * launch and teardown.
  *
  * Teardown: the factory tracks every spawned emulator by session id

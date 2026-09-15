@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Asm\Koh.Core\Koh.Core.csproj" />
+    <ProjectReference Include="..\..\Common\Koh.Emit\Koh.Emit.csproj" />
+    <ProjectReference Include="..\..\Link\Koh.Linker\Koh.Linker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure metadata/IL reader for the CIL frontend (Frontends/Cil): a resolved object model over
+         assemblies, AOT-safe (no codegen/emit surface used). This is the compiler's only frontend now
+         (CSharpFrontend, the Roslyn-source-driven frontend, was deleted once the CIL frontend reached
+         parity) - Koh.Compiler itself needs no Roslyn reference; the test project still uses Roslyn to
+         compile fixtures to assemblies for CilFrontend to lower. -->
+    <PackageReference Include="Mono.Cecil" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Compiler.Tests" />
+  </ItemGroup>
+
+</Project>

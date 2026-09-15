@@ -51,7 +51,7 @@ tiles are a transport for a runtime-generated bitmap, not a tileset or authored 
 
 ## Performance
 
-Every present path moves pixel data through `Mem.Copy`/`Mem.Fill` (`src/Koh.Compiler/Frontends/CSharp/
+Every present path moves pixel data through `Mem.Copy`/`Mem.Fill` (`src/Compiler/Koh.Compiler/Frontends/CSharp/
 MemRuntime.cs`), the Koh C# runtime's bulk-memory primitives, rather than hand-rolled per-byte loops.
 Frame-by-frame framebuffer diffing against the built ROMs (the technique in `verify/Program.cs`'s
 comments) measured these steady-state render+present cadences (frames per cycle; a smaller number is a

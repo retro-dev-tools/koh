@@ -1,6 +1,6 @@
 <Project Sdk="Koh.Sdk">
 
-  <!-- The graphics-library showcase: one ROM exercising every module under src/Koh.GameBoy/Graphics/
+  <!-- The graphics-library showcase: one ROM exercising every module under src/Compiler/Koh.GameBoy/Graphics/
        (docs/superpowers/specs/2026-07-15-graphics-library-design.md §5, item 3). An ordinary C# project
        the plain compiler builds into a managed reference binary, while `dotnet build` also emits
        gfx-demo.gb and `dotnet run` opens it in the Koh emulator (both driven by the Koh SDK). -->

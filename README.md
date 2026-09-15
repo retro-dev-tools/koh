@@ -151,13 +151,13 @@ src/
   Koh.Core/           # Compiler core
   Koh.Emit/           # Binary and object emission
   Koh.Asm/            # Assembler CLI
-  Koh.Linker.Core/    # Linker core
+  Koh.Linker/    # Linker core
   Koh.Link/           # Linker CLI
   Koh.Lsp/            # Language server
 editors/
   vscode/             # VS Code extension
 tests/                # Unit, integration, and compatibility tests
-benchmarks/           # Performance benchmarks
+tools/benchmarks/           # Performance benchmarks
 ```
 
 ## Project Direction

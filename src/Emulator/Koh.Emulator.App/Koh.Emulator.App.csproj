@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Koh.Emulator.App</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <!-- Silk.NET.Core's path resolver uses Assembly.CodeBase /
+         DependencyContext which the AOT single-file analyzer flags. We
+         publish folder-style (exe + glfw3.dll), so the warnings are
+         false positives here. -->
+    <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
+    <StripSymbols>true</StripSymbols>
+    <NativeDebugSymbols>false</NativeDebugSymbols>
+    <DebuggerSupport>false</DebuggerSupport>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Koh.Boot\Koh.Boot.csproj" />
+    <ProjectReference Include="..\Koh.Emulator\Koh.Emulator.csproj" />
+    <ProjectReference Include="..\Koh.Debugger\Koh.Debugger.csproj" />
+    <ProjectReference Include="..\..\UI\KohUI\KohUI.csproj" />
+    <ProjectReference Include="..\..\UI\KohUI.Backends.Gl\KohUI.Backends.Gl.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.OpenAL" />
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
+    <PackageReference Include="SixLabors.ImageSharp" />
+  </ItemGroup>
+
+</Project>

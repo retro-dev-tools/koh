@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UseTestingPlatformRunner>true</UseTestingPlatformRunner>
+    <TestingPlatformCommandLineArguments>--ignore-exit-code 8</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Emulator\Koh.Debugger\Koh.Debugger.csproj" />
+    <ProjectReference Include="..\..\..\src\Asm\Koh.Core\Koh.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\Common\Koh.Emit\Koh.Emit.csproj" />
+    <ProjectReference Include="..\..\..\src\Emulator\Koh.Emulator\Koh.Emulator.csproj" />
+    <ProjectReference Include="..\..\..\src\Link\Koh.Linker\Koh.Linker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+</Project>

@@ -17,7 +17,7 @@ backends.
 
 ```bash
 dotnet build Koh.Ci.slnf                                   # CI build (0 warnings; TreatWarningsAsErrors)
-dotnet test --project tests/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj   # one project (fast)
+dotnet test --project tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj   # one project (fast)
 dotnet msbuild build.proj -t:Test                          # fast suite (no Koh.Compiler.Tests)
 dotnet msbuild build.proj -t:TestAll                       # + Koh.Compiler.Tests — memory-hungry
 ```
@@ -28,31 +28,31 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
 
 ## Layout
 
-- `src/Koh.Core` — shared: diagnostics, text spans, binding (`EmitModel`, `LineMapEntry`),
+- `src/Asm/Koh.Core` — shared: diagnostics, text spans, binding (`EmitModel`, `LineMapEntry`),
   and `Encoding/Sm83InstructionTable` (the canonical SM83 opcode table).
-- `src/Koh.Emit`, `src/Koh.Linker.Core` (+ `Koh.Asm`/`Koh.Link` CLIs) — object emission and
+- `src/Common/Koh.Emit`, `src/Link/Koh.Linker` (+ `Koh.Asm`/`Koh.Link` CLIs) — object emission and
   linking; `RomWriter` fills the cartridge header/global checksums.
-- `src/Koh.Emulator.Core` (+ `Koh.Emulator.App`), `src/Koh.Debugger`, `src/Koh.Lsp`, `KohUI*`.
-- `src/Koh.Compiler` — the compiler platform (details below).
-- `src/Koh.GameBoy` — the managed reference runtime a Koh C# game builds/runs against under the plain
+- `src/Emulator/Koh.Emulator` (+ `Koh.Emulator.App`), `src/Emulator/Koh.Debugger`, `src/Asm/Koh.Lsp`, `KohUI*`.
+- `src/Compiler/Koh.Compiler` — the compiler platform (details below).
+- `src/Compiler/Koh.GameBoy` — the managed reference runtime a Koh C# game builds/runs against under the plain
   .NET SDK: `Hardware`/`Gb` primitives (`[KohIntrinsic]`-tagged: a managed desktop implementation plus
   the metadata the CIL frontend reads for the ROM address) plus a `Hal/` framework (`Lcd`, `Joypad`,
   `Tilemap`/`TileData`, `Ppu`, `Cgb`, `Direction`) and `Mem.cs`/`SoftFloat.cs` that are ordinary compiled
   C# — a ROM gets them not by being fed extra source, but because the CIL frontend lowers
   `Koh.GameBoy.dll` (a normal build reference, listed in `@(ReferencePath)`) on demand, transitively,
-  the first time a game actually calls into it. `src/Koh.Build.Tasks` — the in-process MSBuild task
+  the first time a game actually calls into it. `src/Compiler/Koh.Build.Tasks` — the in-process MSBuild task
   (`CompileKohRom`) that drives the compiler+linker; `src/Compiler/Koh.Sdk` — the MSBuild SDK that ties them
   together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
-- `src/Koh.GameBoy/Graphics` (Bg/Sprites/Palettes/Text/Win, vblank-safe VRAM writes) and `Framework`
+- `src/Compiler/Koh.GameBoy/Graphics` (Bg/Sprites/Palettes/Text/Win, vblank-safe VRAM writes) and `Framework`
   (`Game.Run`, `Scene`, `Input`, `Rng`, `Clock`, `TileAsset`) sit on top of `Hal/`; the ideal-code spec
   is `docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`.
-- `src/Koh.Boot` — Koh's DMG/CGB boot ROMs (asm, assembled at build). `src/Koh.Verify` — `RomHarness`
+- `src/Emulator/Koh.Boot` — Koh's DMG/CGB boot ROMs (asm, assembled at build). `src/Emulator/Koh.Verify` — `RomHarness`
   for scripted headless runs + PNG/GIF capture (used by `samples/*/verify`).
 - `tests/Koh.*.Tests` mirror `src/`. `samples/`: `gb-2048` (asm), `gb-2048-cs`; `gb-2048-v2` and
-  `gb-jrpg` are the north-star games (acceptance: `tests/Koh.Compiler.Tests/Samples/Gb2048V2Tests.cs`,
+  `gb-jrpg` are the north-star games (acceptance: `tests/Compiler/Koh.Compiler.Tests/Samples/Gb2048V2Tests.cs`,
   `GbJrpgTests.cs`); `gb-3d`, `gb-gfx-demo` are graphics demos. `docs/superpowers/specs/` holds design specs.
 
-## The compiler platform (`src/Koh.Compiler`)
+## The compiler platform (`src/Compiler/Koh.Compiler`)
 
 Two-waist hourglass: a generic typed-SSA IR waist, and the existing `EmitModel`/`.kobj`
 waist. Pipeline: `IFrontend.Lower(CompilerInput) -> IrModule` then `IBackend.Compile(module) -> EmitModel`,
@@ -152,7 +152,7 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   a diagnostic and is skipped, not a whole-compile abort) and reports diagnostics. Prefer reporting a
   diagnostic over throwing where the input is user code.
 - **Verify end-to-end on the emulator**, not just via unit types: link the `EmitModel` to a
-  ROM (`Koh.Linker.Core.Linker`), load it in `GameBoySystem`, set `PC`/`SP`, step, read
+  ROM (`Koh.Linker.Linker`), load it in `GameBoySystem`, set `PC`/`SP`, step, read
   registers/memory. A CIL-frontend test compiles real C# with Roslyn to a real assembly on disk first
   (`CompilerInput.FromAssembly`) — see `CilLoweringTests`/`CilEndToEndTests`/`CilGame2048Tests` for the
   harness pattern; the test project keeps `Microsoft.CodeAnalysis.CSharp` for exactly this (compiling
@@ -184,7 +184,7 @@ or when diagnosing an out-of-subset diagnostic.
   option.
 - Don't commit built ROMs (`*.gb`/`*.gbc`), `bin/`, `obj/` — samples ship a `.gitignore`.
 - The model identifier you run as must not appear in commits, PR bodies, or code.
-- A cartridge now boots through Koh's own boot ROM (`src/Koh.Boot`, assembled by koh-asm/koh-link at build time). A hand-built test ROM needs the Nintendo logo + header checksum (`TestRom.Create()`) or it freezes at `jr nz,@`; a harness that jumps straight to PC=$0100 must `Array.Clear(gb.Mmu.VramArray)`, because VRAM powers on as $FF.
-- `Koh.Boot.csproj` finds the koh-asm/koh-link binaries via `<MSBuild Targets="GetTargetPath">`; don't hard-code `bin/...` or add `GlobalPropertiesToRemove` (that builds Koh.Core twice and races on its `deps.json` under `dotnet publish`). Check with `dotnet publish src/Koh.Emulator.App -c Release -r linux-x64`.
+- A cartridge now boots through Koh's own boot ROM (`src/Emulator/Koh.Boot`, assembled by koh-asm/koh-link at build time). A hand-built test ROM needs the Nintendo logo + header checksum (`TestRom.Create()`) or it freezes at `jr nz,@`; a harness that jumps straight to PC=$0100 must `Array.Clear(gb.Mmu.VramArray)`, because VRAM powers on as $FF.
+- `Koh.Boot.csproj` finds the koh-asm/koh-link binaries via `<MSBuild Targets="GetTargetPath">`; don't hard-code `bin/...` or add `GlobalPropertiesToRemove` (that builds Koh.Core twice and races on its `deps.json` under `dotnet publish`). Check with `dotnet publish src/Emulator/Koh.Emulator.App -c Release -r linux-x64`.
 - Close a file stream before `File.Move`-ing it: Windows refuses to rename an open file, and only Windows CI catches it.
 - Deleting or renaming a CI job: also update master's required status checks (`gh api repos/retro-dev-tools/koh/branches/master/protection/required_status_checks`), or every PR is blocked.

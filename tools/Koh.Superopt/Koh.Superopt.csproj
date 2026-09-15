@@ -7,8 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Koh.Compiler\Koh.Compiler.csproj" />
-    <ProjectReference Include="..\..\src\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
+    <ProjectReference Include="..\..\src\Compiler\Koh.Compiler\Koh.Compiler.csproj" />
+    <ProjectReference Include="..\..\src\Emulator\Koh.Emulator\Koh.Emulator.csproj" />
   </ItemGroup>
 
 </Project>

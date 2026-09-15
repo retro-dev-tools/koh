@@ -10,11 +10,11 @@ Koh C# frontend  →  typed SSA IR  →  hand-written SM83 backend  →  Koh lin
 ```
 
 The twist is that the *exact same* source also compiles under the plain .NET SDK and runs on your
-desktop against the [`Koh.GameBoy`](../../src/Koh.GameBoy) framework — its `Hardware.*` / `Gb.*` and
+desktop against the [`Koh.GameBoy`](../../src/Compiler/Koh.GameBoy) framework — its `Hardware.*` / `Gb.*` and
 the HAL below backed by real buffers instead of hardware. One source, two targets, and no preprocessor
 tricks: it is just normal C#.
 
-The reusable Game Boy surface lives in the **framework** ([`Koh.GameBoy/Hal`](../../src/Koh.GameBoy/Hal)) —
+The reusable Game Boy surface lives in the **framework** ([`Koh.GameBoy/Hal`](../../src/Compiler/Koh.GameBoy/Hal)) —
 `Lcd`, `Joypad`, `Tilemap` / `TileData` (typed views over VRAM), `Ppu`, and `Direction` — so this
 project holds only what is specific to 2048:
 
@@ -41,7 +41,7 @@ dotnet exec samples/gb-2048-cs/bin/Debug/net10.0/Gb2048CSharp.dll
 
 The project references neither the Koh compiler nor the linker — only the `Koh.GameBoy` runtime. The
 `Koh.Sdk` (`src/Compiler/Koh.Sdk`) owns the build-time toolchain and, after the ordinary C# build, invokes an
-in-process MSBuild task ([`CompileKohRom`](../../src/Koh.Build.Tasks)) that emits the `.gb`.
+in-process MSBuild task ([`CompileKohRom`](../../src/Compiler/Koh.Build.Tasks)) that emits the `.gb`.
 
 ## Controls
 
@@ -91,6 +91,6 @@ A richer tileset (digits per value) is the natural next step once static ROM tab
 ## Tests
 
 The game (plus the framework HAL) is compiled through the real pipeline and run in the emulator by
-[`Game2048Tests`](../../tests/Koh.Compiler.Tests/Samples/Game2048Tests.cs): it asserts the sample
+[`Game2048Tests`](../../tests/Compiler/Koh.Compiler.Tests/Samples/Game2048Tests.cs): it asserts the sample
 builds to a bootable ROM with verifiable IR, and drives the public `Board` / `Tiles` API — slides
 in all four directions, spawning, `CanMove`, `HasWon`, and rendering — against known 2048 outcomes.

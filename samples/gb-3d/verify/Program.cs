@@ -1,5 +1,5 @@
-using Koh.Emulator.Core;
-using Koh.Emulator.Core.Debug;
+using Koh.Emulator;
+using Koh.Emulator.Debug;
 using Koh.Verify;
 
 var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../"));
@@ -79,8 +79,8 @@ foreach (var (modeName, mode) in new[] { ("dmg", HardwareMode.Dmg), ("cgb", Hard
         CubeFrameChecks.Check(
             first,
             second,
-            Koh.Emulator.Core.Ppu.Framebuffer.Width,
-            Koh.Emulator.Core.Ppu.Framebuffer.Height
+            Koh.Emulator.Ppu.Framebuffer.Width,
+            Koh.Emulator.Ppu.Framebuffer.Height
         )
     );
     if (guard.Violations.Count != 0)

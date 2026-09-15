@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Koh.Boot\Koh.Boot.csproj" />
+    <ProjectReference Include="..\Koh.Emulator\Koh.Emulator.csproj" />
+    <ProjectReference Include="..\..\Link\Koh.Linker\Koh.Linker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Emulator.App" />
+    <InternalsVisibleTo Include="Koh.Debugger.Tests" />
+  </ItemGroup>
+
+</Project>

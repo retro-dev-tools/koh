@@ -55,12 +55,12 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Publish Koh.Emulator.App (NativeAOT)
-        run: dotnet publish src/Koh.Emulator.App -c Release -r ${{ matrix.rid }}
+        run: dotnet publish src/Emulator/Koh.Emulator.App -c Release -r ${{ matrix.rid }}
 
       - name: Report publish size
         shell: bash
         run: |
-          pub=src/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
+          pub=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
           echo "── publish contents ──"
           ls -lh "$pub"
           echo "── total ──"
@@ -109,7 +109,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Build benchmarks
-        run: dotnet build benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj --configuration Release
+        run: dotnet build tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj --configuration Release
 
       - name: Verify benchmarks discover
         # Smoke-verifies the benchmark project builds and BDN finds the Phase 2
@@ -117,8 +117,8 @@ jobs:
         # CI is noisy on shared runners); this gates "the benchmark harness
         # compiles" only.
         run: |
-          dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
-          dotnet run --project benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase3*'
+          dotnet run --project tools/benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
+          dotnet run --project tools/benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase3*'
 
   build-sample-2048:
     runs-on: ubuntu-latest
