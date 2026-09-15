@@ -1,4 +1,4 @@
-namespace Koh.Core.Encoding;
+namespace Koh.Opcodes;
 
 /// <summary>
 /// Complete SM83 instruction encoding table. Single source of truth for validation,
@@ -6,8 +6,13 @@ namespace Koh.Core.Encoding;
 /// </summary>
 public static class Sm83InstructionTable
 {
-    private static readonly ILookup<string, InstructionDescriptor> Table = BuildTable()
-        .ToLookup(d => d.Mnemonic, StringComparer.OrdinalIgnoreCase);
+    /// <summary>Every entry in table order; aliases follow their canonical form.</summary>
+    public static IReadOnlyList<InstructionDescriptor> All { get; } = BuildTable().ToList();
+
+    private static readonly ILookup<string, InstructionDescriptor> Table = All.ToLookup(
+        d => d.Mnemonic,
+        StringComparer.OrdinalIgnoreCase
+    );
 
     public static IEnumerable<InstructionDescriptor> Lookup(string mnemonic) => Table[mnemonic];
 

@@ -1,4 +1,4 @@
-using Koh.Core.Encoding;
+using Koh.Opcodes;
 
 namespace Koh.Compiler.Tests.Backends;
 

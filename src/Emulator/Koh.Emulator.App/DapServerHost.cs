@@ -7,6 +7,7 @@ using Koh.Debugger.Dap.Handlers;
 using Koh.Debugger.Dap.Messages;
 using Koh.Emulator;
 using Koh.Linker;
+using Koh.Opcodes;
 
 namespace Koh.Emulator.App;
 
@@ -431,7 +432,7 @@ internal sealed class DapServerHost : IDisposable
         }
 
         ushort pc = sys.Cpu.Registers.Pc;
-        var (mnemonic, length) = Disassembler.DecodeOne(a => sys.DebugReadByte(a), pc);
+        var (mnemonic, length) = Sm83Disassembler.DecodeOne(a => sys.DebugReadByte(a), pc);
         bool isControlFlow =
             mnemonic.StartsWith("CALL", StringComparison.Ordinal)
             || mnemonic.StartsWith("RST", StringComparison.Ordinal);

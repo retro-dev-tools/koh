@@ -1,4 +1,4 @@
-namespace Koh.Core.Encoding;
+namespace Koh.Opcodes;
 
 /// <summary>
 /// A single SM83 instruction encoding: mnemonic + operand pattern → opcode bytes + emit rules.

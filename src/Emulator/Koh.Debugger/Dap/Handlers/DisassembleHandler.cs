@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Koh.Debugger.Dap.Messages;
+using Koh.Opcodes;
 
 namespace Koh.Debugger.Dap.Handlers;
 
@@ -46,7 +47,7 @@ public sealed class DisassembleHandler
         for (int i = 0; i < count; i++)
         {
             ushort ipc = pc;
-            var (mnemonic, length) = Disassembler.DecodeOne(a => gb.Mmu.DebugRead(a), pc);
+            var (mnemonic, length) = Sm83Disassembler.DecodeOne(a => gb.Mmu.DebugRead(a), pc);
             var bytes = new byte[length];
             for (int b = 0; b < length; b++)
                 bytes[b] = gb.Mmu.DebugRead((ushort)(pc + b));

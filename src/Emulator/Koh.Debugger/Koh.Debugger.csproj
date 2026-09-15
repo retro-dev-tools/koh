@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Common\Koh.Opcodes\Koh.Opcodes.csproj" />
     <ProjectReference Include="..\Koh.Boot\Koh.Boot.csproj" />
     <ProjectReference Include="..\Koh.Emulator\Koh.Emulator.csproj" />
     <ProjectReference Include="..\..\Link\Koh.Linker\Koh.Linker.csproj" />
