@@ -34,15 +34,7 @@ public class CilGame2048Tests
     private static readonly string TilesSource = ReadSampleFile("Tiles.cs");
     private static readonly string GameSource = ReadSampleFile("Game.cs");
 
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
-            dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("could not locate the repository root (Koh.slnx).");
-        return dir.FullName;
-    }
+    private static string RepoRoot() => TestSupport.TestRepo.Root;
 
     private static string ReadSampleFile(string name) =>
         File.ReadAllText(Path.Combine(RepoRoot(), "samples", "gb-2048-cs", name));

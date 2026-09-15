@@ -31,13 +31,7 @@ public class FlushRunLoopResidencyTests
     // ---- Harness: real C# compiled by Roslyn to a real assembly, lowered by CilFrontend, referencing
     // the real Koh.GameBoy.dll (mirrors GbGfxDemoTests/CilBgWinTests's own harness). ------------------
 
-    private static string Root()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
-            dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException("repository root not found");
-    }
+    private static string Root() => TestSupport.TestRepo.Root;
 
     private static readonly string DemoSource = File.ReadAllText(
         Path.Combine(Root(), "samples", "gb-gfx-demo", "Game.cs")

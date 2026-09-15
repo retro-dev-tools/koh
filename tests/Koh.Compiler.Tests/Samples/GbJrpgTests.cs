@@ -36,15 +36,7 @@ namespace Koh.Compiler.Tests.Samples;
 /// </summary>
 public class GbJrpgTests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Koh.slnx")))
-            dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("could not locate the repository root (Koh.slnx).");
-        return dir.FullName;
-    }
+    private static string RepoRoot() => TestSupport.TestRepo.Root;
 
     private static readonly Lazy<string> SampleDir = new(() =>
         Path.Combine(RepoRoot(), "samples", "gb-jrpg")
