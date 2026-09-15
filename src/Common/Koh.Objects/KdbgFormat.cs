@@ -1,4 +1,4 @@
-namespace Koh.Linker;
+namespace Koh.Objects;
 
 public static class KdbgFormat
 {

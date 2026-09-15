@@ -1,4 +1,4 @@
-namespace Koh.Emit;
+namespace Koh.Objects;
 
 /// <summary>
 /// Constants for the Koh Object (.kobj) binary format.

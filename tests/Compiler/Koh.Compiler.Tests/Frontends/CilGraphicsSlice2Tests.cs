@@ -8,6 +8,7 @@ using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Binding;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
+using Koh.Objects;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using KohDiagnosticSeverity = Koh.Common.DiagnosticSeverity;

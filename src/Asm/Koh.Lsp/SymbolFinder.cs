@@ -1,6 +1,7 @@
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
-using CoreSymbolKind = Koh.Core.Symbols.SymbolKind;
+using Koh.Objects;
+using CoreSymbolKind = Koh.Objects.SymbolKind;
 
 namespace Koh.Lsp;
 

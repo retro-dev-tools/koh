@@ -2,6 +2,7 @@ using Koh.Common;
 using Koh.Core.Binding;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
+using Koh.Objects;
 
 namespace Koh.Core;
 

@@ -3,13 +3,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Common\Koh.Common\Koh.Common.csproj" />
     <ProjectReference Include="..\..\Common\Koh.Opcodes\Koh.Opcodes.csproj" />
+    <ProjectReference Include="..\..\Common\Koh.Objects\Koh.Objects.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Koh.Emit" />
     <InternalsVisibleTo Include="Koh.Compiler" />
     <InternalsVisibleTo Include="Koh.Core.Tests" />
-    <InternalsVisibleTo Include="Koh.Emit.Tests" />
+    <InternalsVisibleTo Include="Koh.Objects.Tests" />
     <InternalsVisibleTo Include="Koh.Linker.Tests" />
   </ItemGroup>
 

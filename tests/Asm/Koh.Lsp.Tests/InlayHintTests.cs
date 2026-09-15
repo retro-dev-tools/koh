@@ -78,8 +78,8 @@ public class InlayHintTests
                 continue;
             if (
                 symbol.Kind
-                is not Core.Symbols.SymbolKind.Label
-                    and not Core.Symbols.SymbolKind.Constant
+                is not Koh.Objects.SymbolKind.Label
+                    and not Koh.Objects.SymbolKind.Constant
             )
                 continue;
             if (!seen.Add(token.Span.Start))
@@ -87,7 +87,7 @@ public class InlayHintTests
 
             var pos = PositionUtilities.ToLspPosition(source, token.Span.Start + token.Span.Length);
             string valueText;
-            if (symbol.Kind == Core.Symbols.SymbolKind.Label)
+            if (symbol.Kind == Koh.Objects.SymbolKind.Label)
                 valueText = $"${symbol.Value:X4}";
             else
                 valueText = $"${symbol.Value:X4} ({symbol.Value})";

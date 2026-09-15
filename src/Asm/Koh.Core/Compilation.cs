@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using Koh.Common;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
+using Koh.Objects;
 
 namespace Koh.Core;
 
@@ -120,7 +121,7 @@ public sealed class Compilation
     {
         if (_emitModel != null)
             return _emitModel;
-        _emitModel = EmitModel.FromBindingResult(GetBindingResult());
+        _emitModel = EmitModelBuilder.FromBindingResult(GetBindingResult());
         return _emitModel;
     }
 

@@ -411,7 +411,7 @@ public class SymbolFinderTests
 
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Symbol.Name).IsEqualTo("MY_CONST");
-        await Assert.That(result.Symbol.Kind).IsEqualTo(Core.Symbols.SymbolKind.Constant);
+        await Assert.That(result.Symbol.Kind).IsEqualTo(Koh.Objects.SymbolKind.Constant);
     }
 
     [Test]
@@ -424,6 +424,6 @@ public class SymbolFinderTests
         var result = _finder.ResolveAt(ws, "file:///test.asm", offset);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!.Symbol.Kind).IsEqualTo(Core.Symbols.SymbolKind.Macro);
+        await Assert.That(result!.Symbol.Kind).IsEqualTo(Koh.Objects.SymbolKind.Macro);
     }
 }

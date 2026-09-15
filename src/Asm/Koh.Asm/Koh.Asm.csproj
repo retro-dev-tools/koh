@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Koh.Core\Koh.Core.csproj" />
-    <ProjectReference Include="..\..\Common\Koh.Emit\Koh.Emit.csproj" />
+    <ProjectReference Include="..\..\Common\Koh.Objects\Koh.Objects.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

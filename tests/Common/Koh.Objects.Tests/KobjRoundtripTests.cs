@@ -3,9 +3,9 @@ using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
-using Koh.Emit;
+using Koh.Objects;
 
-namespace Koh.Emit.Tests;
+namespace Koh.Objects.Tests;
 
 public class KobjRoundtripTests
 {

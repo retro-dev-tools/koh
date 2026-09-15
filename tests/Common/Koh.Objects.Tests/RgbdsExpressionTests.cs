@@ -3,9 +3,9 @@ using System.Text;
 using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
-using Koh.Emit;
+using Koh.Objects;
 
-namespace Koh.Emit.Tests;
+namespace Koh.Objects.Tests;
 
 /// <summary>
 /// Pins the RPN expressions <see cref="RgbdsObjectWriter"/> emits for unresolved patches, decoded to

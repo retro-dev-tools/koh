@@ -10,6 +10,7 @@ using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Emulator.Debug;
 using Koh.Emulator.Ppu;
+using Koh.Objects;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using KohDiagnosticSeverity = Koh.Common.DiagnosticSeverity;

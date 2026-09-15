@@ -87,14 +87,11 @@ public sealed class VariablesHandler
             .ToArray();
     }
 
-    private static Variable[] SourceContextScope(
-        DebugSession session,
-        Emulator.GameBoySystem gb
-    )
+    private static Variable[] SourceContextScope(DebugSession session, Emulator.GameBoySystem gb)
     {
         ushort pc = gb.Registers.Pc;
         byte bank = pc >= 0x4000 ? gb.Cartridge.CurrentRomBank : (byte)0;
-        var addr = new Koh.Linker.BankedAddress(bank, pc);
+        var addr = new Koh.Objects.BankedAddress(bank, pc);
 
         var list = new List<Variable>
         {

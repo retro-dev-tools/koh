@@ -6,6 +6,7 @@ using Koh.Emulator.Debug;
 using Koh.Emulator.Joypad;
 using Koh.Emulator.Ppu;
 using Koh.Linker;
+using Koh.Objects;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 

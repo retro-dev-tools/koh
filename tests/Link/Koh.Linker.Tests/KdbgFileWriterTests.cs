@@ -1,5 +1,6 @@
 using System.IO;
 using Koh.Linker;
+using Koh.Objects;
 
 namespace Koh.Linker.Tests;
 

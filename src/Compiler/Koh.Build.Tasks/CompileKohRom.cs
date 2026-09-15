@@ -3,6 +3,7 @@ using Koh.Compiler;
 using Koh.Compiler.Frontends;
 using Koh.Core.Binding;
 using Koh.Linker;
+using Koh.Objects;
 using Microsoft.Build.Framework;
 using LinkerType = Koh.Linker.Linker;
 

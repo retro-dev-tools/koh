@@ -3,6 +3,7 @@ using Koh.Compiler.Backends;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Binding;
+using Koh.Objects;
 
 namespace Koh.Compiler;
 

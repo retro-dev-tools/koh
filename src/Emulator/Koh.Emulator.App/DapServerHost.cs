@@ -7,6 +7,7 @@ using Koh.Debugger.Dap.Handlers;
 using Koh.Debugger.Dap.Messages;
 using Koh.Emulator;
 using Koh.Linker;
+using Koh.Objects;
 using Koh.Opcodes;
 
 namespace Koh.Emulator.App;

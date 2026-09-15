@@ -1,4 +1,4 @@
-namespace Koh.Linker;
+namespace Koh.Objects;
 
 public readonly record struct BankedAddress(byte Bank, ushort Address)
 {

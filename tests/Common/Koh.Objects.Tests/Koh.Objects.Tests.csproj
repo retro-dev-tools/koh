@@ -1,11 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Asm\Koh.Core\Koh.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\Common\Koh.Objects\Koh.Objects.csproj" />
+    <ProjectReference Include="..\..\..\src\Asm\Koh.Core\Koh.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Koh.Emit.Tests" />
+    <PackageReference Include="TUnit" />
   </ItemGroup>
 
   <PropertyGroup>

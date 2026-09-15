@@ -1,9 +1,6 @@
 using Koh.Common;
-using Koh.Core.Binding;
-using Koh.Core.Symbols;
-using Koh.Core.Syntax;
 
-namespace Koh.Emit;
+namespace Koh.Objects;
 
 /// <summary>
 /// Reads a .kobj binary stream back into an EmitModel.

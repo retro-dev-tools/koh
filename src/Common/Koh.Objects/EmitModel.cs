@@ -1,7 +1,6 @@
 using Koh.Common;
-using Koh.Core.Symbols;
 
-namespace Koh.Core.Binding;
+namespace Koh.Objects;
 
 /// <summary>
 /// Frozen output of the binding phase. Contains assembled sections, resolved symbols,
@@ -14,7 +13,7 @@ public sealed class EmitModel
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
     public bool Success { get; }
 
-    internal EmitModel(
+    public EmitModel(
         IReadOnlyList<SectionData> sections,
         IReadOnlyList<SymbolData> symbols,
         IReadOnlyList<Diagnostic> diagnostics
@@ -36,10 +35,10 @@ public sealed class EmitModel
     /// <summary>
     /// Deserialization constructor. Diagnostics are not stored in .kobj — pass an explicit
     /// <paramref name="success"/> flag derived from the original compilation result.
-    /// The only valid caller is <see cref="Koh.Emit.KobjReader"/>; all other paths should
+    /// The only valid caller is <see cref="KobjReader"/>; all other paths should
     /// use the diagnostics-based overload.
     /// </summary>
-    internal EmitModel(
+    public EmitModel(
         IReadOnlyList<SectionData> sections,
         IReadOnlyList<SymbolData> symbols,
         bool success
@@ -49,60 +48,6 @@ public sealed class EmitModel
         Symbols = symbols;
         Diagnostics = [];
         Success = success;
-    }
-
-    /// <summary>
-    /// Build a frozen EmitModel from the live binding state.
-    /// </summary>
-    internal static EmitModel FromBindingResult(BindingResult result)
-    {
-        var sections = new List<SectionData>();
-        if (result.Sections != null)
-        {
-            // Sort sections by alignment bits descending (tighter alignment first), then by
-            // insertion order for sections with the same alignment. This matches the linker's
-            // placement strategy and produces deterministic output for multi-section assemblies.
-            var orderedSections = result
-                .Sections.OrderByDescending(kv => kv.Value.AlignBits)
-                .ThenByDescending(kv => kv.Value.FixedAddress.HasValue ? 1 : 0);
-            foreach (var (name, buf) in orderedSections)
-            {
-                sections.Add(
-                    new SectionData(
-                        name,
-                        buf.Type,
-                        buf.FixedAddress,
-                        buf.Bank,
-                        buf.Bytes.ToArray(),
-                        buf.Patches.ToList(),
-                        buf.LineMap.ToList()
-                    )
-                );
-            }
-        }
-
-        var symbols = new List<SymbolData>();
-        if (result.Symbols != null)
-        {
-            foreach (var sym in result.Symbols.AllSymbols)
-            {
-                if (sym.State == SymbolState.Defined)
-                {
-                    symbols.Add(
-                        new SymbolData(sym.Name, sym.Kind, sym.Visibility, sym.Section, sym.Value)
-                    );
-                }
-                else if (sym.State == SymbolState.Undefined && sym.DefinitionSite == null)
-                {
-                    // Truly undefined (no definition in this file) — mark as import
-                    symbols.Add(
-                        new SymbolData(sym.Name, sym.Kind, SymbolVisibility.Imported, null, 0)
-                    );
-                }
-            }
-        }
-
-        return new EmitModel(sections, symbols, result.Diagnostics);
     }
 }
 
@@ -157,7 +102,7 @@ public sealed class SymbolData
     public string? Section { get; }
     public long Value { get; }
 
-    internal SymbolData(
+    public SymbolData(
         string name,
         SymbolKind kind,
         SymbolVisibility visibility,

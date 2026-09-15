@@ -34,7 +34,7 @@ public class SignatureHelpTests
             return null;
 
         var symbol = model.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
-        if (symbol == null || symbol.Kind != Core.Symbols.SymbolKind.Macro)
+        if (symbol == null || symbol.Kind != Koh.Objects.SymbolKind.Macro)
             return null;
 
         // Find arity from definition

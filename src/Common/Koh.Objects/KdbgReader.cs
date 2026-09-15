@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text;
 
-namespace Koh.Linker;
+namespace Koh.Objects;
 
 public sealed record KdbgParsed(
     IReadOnlyList<KdbgParsedSymbol> Symbols,

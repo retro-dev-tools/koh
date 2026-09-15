@@ -1,5 +1,6 @@
 using Koh.Common;
 using Koh.Core.Syntax;
+using Koh.Objects;
 
 namespace Koh.Core.Symbols;
 

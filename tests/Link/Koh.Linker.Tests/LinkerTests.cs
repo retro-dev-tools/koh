@@ -3,6 +3,7 @@ using Koh.Core.Binding;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Linker;
+using Koh.Objects;
 
 namespace Koh.Linker.Tests;
 

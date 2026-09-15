@@ -4,6 +4,7 @@ using Koh.Core.Binding;
 using Koh.Core.Syntax;
 using Koh.Lsp.Config;
 using Koh.Lsp.Projects;
+using Koh.Objects;
 
 namespace Koh.Lsp;
 

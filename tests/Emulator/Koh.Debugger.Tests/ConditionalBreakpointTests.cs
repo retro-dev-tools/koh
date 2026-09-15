@@ -2,6 +2,7 @@ using Koh.Debugger.Session;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Linker;
+using Koh.Objects;
 
 namespace Koh.Debugger.Tests;
 

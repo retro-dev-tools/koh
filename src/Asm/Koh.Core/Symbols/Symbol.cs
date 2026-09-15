@@ -1,22 +1,7 @@
 using Koh.Core.Syntax;
+using Koh.Objects;
 
 namespace Koh.Core.Symbols;
-
-public enum SymbolKind
-{
-    Label,
-    Constant,
-    StringConstant,
-    Macro,
-    CharMap,
-}
-
-public enum SymbolVisibility
-{
-    Local,
-    Exported,
-    Imported,
-}
 
 public enum SymbolState
 {

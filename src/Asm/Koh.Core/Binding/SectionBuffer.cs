@@ -1,18 +1,7 @@
 using Koh.Core.Syntax.InternalSyntax;
+using Koh.Objects;
 
 namespace Koh.Core.Binding;
-
-public enum SectionType
-{
-    Rom0,
-    RomX,
-    Vram,
-    Sram,
-    Wram0,
-    WramX,
-    Oam,
-    Hram,
-}
 
 public sealed class SectionBuffer
 {

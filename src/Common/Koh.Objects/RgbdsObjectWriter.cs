@@ -1,7 +1,4 @@
-using Koh.Core.Binding;
-using Koh.Core.Symbols;
-
-namespace Koh.Emit;
+namespace Koh.Objects;
 
 /// <summary>
 /// Writes an EmitModel to RGBDS RGB9 object file format (.o).

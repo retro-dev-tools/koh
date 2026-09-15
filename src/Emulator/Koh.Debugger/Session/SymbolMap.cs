@@ -1,4 +1,5 @@
 using Koh.Linker;
+using Koh.Objects;
 
 namespace Koh.Debugger.Session;
 

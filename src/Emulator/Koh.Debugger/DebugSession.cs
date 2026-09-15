@@ -62,7 +62,7 @@ public sealed class DebugSession
         System.BreakpointChecker = pc =>
         {
             byte bank = pc >= 0x4000 ? System.Cartridge.CurrentRomBank : (byte)0;
-            var addr = new Koh.Linker.BankedAddress(bank, pc);
+            var addr = new Koh.Objects.BankedAddress(bank, pc);
             return Breakpoints.ShouldBreak(
                 addr,
                 cond => System is { } gb && ExpressionEvaluator.Evaluate(cond, gb)

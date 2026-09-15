@@ -1,4 +1,4 @@
-namespace Koh.Core.Binding;
+namespace Koh.Objects;
 
 /// <summary>
 /// One contiguous run of bytes in a section that all originate from
