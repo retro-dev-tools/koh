@@ -37,12 +37,6 @@
     <Exec Command="dotnet test --solution Koh.Ci.slnf" />
   </Target>
 
-  <!--
-    The CompatTests target is gone: tests/Koh.Compat.Tests is disabled entirely for
-    now. It is out of the solution and out of CI, and its sources stay on disk.
-    See tests/Koh.Compat.Tests/README.md for what re-enabling involves.
-  -->
-
   <Target Name="Benchmark">
     <Exec Command="dotnet run --project tools/benchmarks/Koh.Benchmarks/ --configuration Release" />
   </Target>

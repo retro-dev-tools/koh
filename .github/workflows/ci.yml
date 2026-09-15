@@ -21,7 +21,7 @@ jobs:
 
       - name: Restore solution
         # Koh.Ci.slnf: everything CI builds, including the Koh.Sdk sample games and
-        # verify apps; excludes the disabled compat tests and the Playwright E2E suite.
+        # verify apps; excludes the Playwright E2E suite.
         run: dotnet restore Koh.Ci.slnf
 
       - name: Build solution
