@@ -23,8 +23,8 @@ invariants, and writes PNG snapshots of each state to
 
 ```sh
 # Build the ROM first, then:
-dotnet run --project samples/gb-2048/verify -- \
-    samples/gb-2048/build/2048.gbc samples/gb-2048/build/verify-shots
+dotnet run --project samples/asm/gb-2048/verify -- \
+    samples/asm/gb-2048/build/2048.gbc samples/asm/gb-2048/build/verify-shots
 ```
 
 Exits non-zero on the first assertion failure. PNG output uses an

@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\Emulator\Koh.Verify\Koh.Verify.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Emulator\Koh.Verify\Koh.Verify.csproj" />
   </ItemGroup>
 
 </Project>

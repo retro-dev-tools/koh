@@ -95,7 +95,7 @@ public struct Sprite
 /// consciously-accepted gap, not a silently shipped one: making desktop sprites render would need the
 /// shadow's storage to live inside <see cref="Gb.MemoryArray"/> itself (the <c>Mem.Alloc</c>-backed,
 /// hand-aligned pattern the design doc explicitly asks this library NOT to perpetuate — see
-/// <c>samples/gb-3d/double-buffered/Surface.cs</c>'s <c>pixels</c> field) or a change to
+/// <c>samples/csharp/gb-3d/double-buffered/Surface.cs</c>'s <c>pixels</c> field) or a change to
 /// <see cref="KohAlignedAttribute"/>'s desktop storage model — a wave-1-level call, out of this slice's
 /// narrow scope.
 /// </summary>

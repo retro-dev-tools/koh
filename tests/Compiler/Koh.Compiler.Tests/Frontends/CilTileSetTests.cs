@@ -382,7 +382,7 @@ public class CilTileSetTests
 
     // ---- Fixture 5: Load, LCD on — vblank-chunked drip, never writes VRAM during mode 3 -------------
     //
-    // A Mode3WriteGuard-style hook (mirrors samples/gb-3d/verify/Mode3WriteGuard.cs) attached to the
+    // A Mode3WriteGuard-style hook (mirrors samples/csharp/gb-3d/verify/Mode3WriteGuard.cs) attached to the
     // Mmu records every write into $8000-$9FFF while LCDC bit 7 is set and the PPU is in mode 3
     // (Drawing). A timing-safe chunked load never trips it. LCD is left ON (Video.Start()) so the
     // fixture's own Load call must run the vblank-chunked path, not the LCD-off straight copy.

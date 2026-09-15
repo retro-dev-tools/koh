@@ -9,7 +9,7 @@
   <ItemGroup>
     <!-- Build-order dep: the test spawns the demo's published output as
          a subprocess. We don't link against it. -->
-    <ProjectReference Include="..\..\..\samples\KohUI.Demo\KohUI.Demo.csproj"
+    <ProjectReference Include="..\..\..\samples\ui\KohUI.Demo\KohUI.Demo.csproj"
                       Private="false"
                       ReferenceOutputAssembly="false"
                       SkipGetTargetFrameworkProperties="true" />

@@ -20,7 +20,7 @@ namespace Koh.Compiler.Tests.Samples;
 /// End-to-end proof that a <c>.kdbg</c> built the way <c>CompileKohRom</c> now builds one (the Koh
 /// SDK task the graphics-library debug-tooling design's priority 1 targets) round-trips through the
 /// same <c>Koh.Debugger.Session</c> stack the DAP debugger uses. Compiles the real, unmodified
-/// <c>samples/gb-2048-cs</c> sources through the actual <c>cil</c> frontend -&gt; SM83 backend -&gt;
+/// <c>samples/csharp/gb-2048-cs</c> sources through the actual <c>cil</c> frontend -&gt; SM83 backend -&gt;
 /// linker pipeline (the same pipeline <see cref="CilGame2048Tests"/> exercises, and that
 /// <c>CompileKohRom</c> drives in-process), builds a <c>.kdbg</c> from the resulting
 /// <see cref="LinkResult"/> exactly like <c>Koh.Link/Program.cs</c> and <c>CompileKohRom</c> both do
@@ -30,7 +30,7 @@ namespace Koh.Compiler.Tests.Samples;
 /// file/line, populated because the CIL frontend now reads the game assembly's portable PDB and
 /// stamps <c>IrInstruction.Source</c> via sequence points — see <see cref="CilFrontend"/> and
 /// <see cref="CilMethodLowerer"/>). Self-contained (compiles its own throwaway assembly rather than
-/// reading the sample's own build output), so it does not depend on `dotnet build samples/gb-2048-cs`
+/// reading the sample's own build output), so it does not depend on `dotnet build samples/csharp/gb-2048-cs`
 /// having already run.
 /// </summary>
 public class Gb2048KdbgTests
@@ -38,7 +38,7 @@ public class Gb2048KdbgTests
     private static string RepoRoot() => TestSupport.TestRepo.Root;
 
     private static string SamplePath(string name) =>
-        Path.Combine(RepoRoot(), "samples", "gb-2048-cs", name);
+        Path.Combine(RepoRoot(), "samples", "csharp", "gb-2048-cs", name);
 
     private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>
     {
@@ -144,7 +144,7 @@ public class Gb2048KdbgTests
         // (Mem2RegPass, default-on) -> backend. Compiling the CIL frontend's raw, un-mem2reg'd output
         // directly (skipping CompilerDriver) produces far larger code than the real SDK build does -
         // enough to overflow this ROM into multi-bank codegen, which is not what a real
-        // `dotnet build samples/gb-2048-cs` produces (a single 32KB bank) and not what this test means
+        // `dotnet build samples/csharp/gb-2048-cs` produces (a single 32KB bank) and not what this test means
         // to exercise.
         var diagnostics = new DiagnosticBag();
         EmitModel model = CompilerDriver.Compile(

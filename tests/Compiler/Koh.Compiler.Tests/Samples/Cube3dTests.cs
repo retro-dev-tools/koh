@@ -14,7 +14,7 @@ using LinkerType = Koh.Linker.Linker;
 namespace Koh.Compiler.Tests.Samples;
 
 /// <summary>
-/// Compiles the real <c>samples/gb-3d</c> demos - the shared renderer/entry point and each demo's own
+/// Compiles the real <c>samples/csharp/gb-3d</c> demos - the shared renderer/entry point and each demo's own
 /// <c>Surface.cs</c>, compiled by Roslyn to a real assembly referencing <c>Koh.GameBoy.dll</c> (whose Hal
 /// framework - Cgb, Ppu, Lcd, ... - the demos call unqualified, exactly as the Koh SDK's <c>cil</c> build
 /// path does; see <c>CilGame2048Tests</c>) - through the real pipeline (<see cref="CilFrontend"/> -&gt; IR
@@ -41,8 +41,8 @@ public class Cube3dTests
     private static IReadOnlyList<string> ReadDemo(string variant)
     {
         var root = Root();
-        var shared = Path.Combine(root, "samples", "gb-3d", "shared");
-        var demo = Path.Combine(root, "samples", "gb-3d", variant);
+        var shared = Path.Combine(root, "samples", "csharp", "gb-3d", "shared");
+        var demo = Path.Combine(root, "samples", "csharp", "gb-3d", variant);
 
         var demoFileNames = Directory
             .GetFiles(demo, "*.cs")
@@ -164,7 +164,7 @@ public class Cube3dTests
     }
 
     /// <summary>Boot a compiled ROM and run it for a bounded number of hardware frames, returning the RGB
-    /// framebuffer at the end (mirrors samples/gb-3d/verify/Cube3dVerify's capture, simplified).</summary>
+    /// framebuffer at the end (mirrors samples/csharp/gb-3d/verify/Cube3dVerify's capture, simplified).</summary>
     private static byte[] Boot(byte[] rom, int frames, HardwareMode mode = HardwareMode.Dmg)
     {
         var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);
@@ -253,14 +253,14 @@ public class Cube3dTests
     )
     {
         // The software rasterizer is slow relative to hardware vblank. Frame-by-frame framebuffer
-        // diffing against the real built ROMs (samples/gb-3d/verify/Program.cs's technique) measured:
+        // diffing against the real built ROMs (samples/csharp/gb-3d/verify/Program.cs's technique) measured:
         // double-buffered/CGB's first content lands at ~frame 63 (Surface.Present() moves the whole
         // page with one general-purpose DMA inside a single vblank and flips via LCDC.4), with a
         // steady-state render+present cadence of 19-47 frames — 200 frames clears boot plus more than
         // two full cycles. full-frame/DMG's first content lands at ~frame 17, with a cadence of 59-114
         // frames (one Lcd-off Mem.Copy(3840) present plus render) — 250 frames clears boot plus more
         // than one full cycle. Both ROMs' DMG (double-buffered) or CGB (full-frame) counterpart, and
-        // racing-beam in both modes, are covered by samples/gb-3d/verify, not re-run here.
+        // racing-beam in both modes, are covered by samples/csharp/gb-3d/verify, not re-run here.
         var rgb = Boot(Compile(ReadDemo(variant)), frames, mode);
         var (distinctShades, litPixels) = Analyze(rgb);
 

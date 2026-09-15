@@ -1,7 +1,7 @@
 # 2048 — in Koh C#
 
 A complete, bootable Game Boy build of **2048**, written in C# as an ordinary .NET project. It is the
-counterpart to the hand-written-assembly [`gb-2048`](../gb-2048) sample: same game, but written as
+counterpart to the hand-written-assembly [`gb-2048`](../../asm/gb-2048) sample: same game, but written as
 plain C# and split by responsibility across a handful of files. The project uses the **Koh SDK**, so
 building it produces a Game Boy ROM the same way any frontend/backend pair does:
 
@@ -10,11 +10,11 @@ Koh C# frontend  →  typed SSA IR  →  hand-written SM83 backend  →  Koh lin
 ```
 
 The twist is that the *exact same* source also compiles under the plain .NET SDK and runs on your
-desktop against the [`Koh.GameBoy`](../../src/Compiler/Koh.GameBoy) framework — its `Hardware.*` / `Gb.*` and
+desktop against the [`Koh.GameBoy`](../../../src/Compiler/Koh.GameBoy) framework — its `Hardware.*` / `Gb.*` and
 the HAL below backed by real buffers instead of hardware. One source, two targets, and no preprocessor
 tricks: it is just normal C#.
 
-The reusable Game Boy surface lives in the **framework** ([`Koh.GameBoy/Hal`](../../src/Compiler/Koh.GameBoy/Hal)) —
+The reusable Game Boy surface lives in the **framework** ([`Koh.GameBoy/Hal`](../../../src/Compiler/Koh.GameBoy/Hal)) —
 `Lcd`, `Joypad`, `Tilemap` / `TileData` (typed views over VRAM), `Ppu`, and `Direction` — so this
 project holds only what is specific to 2048:
 
@@ -28,20 +28,20 @@ project holds only what is specific to 2048:
 
 ```sh
 # Compile to a ROM (the Koh SDK runs the compiler/linker after the normal build).
-# Produces samples/gb-2048-cs/2048.gb
-dotnet build samples/gb-2048-cs
+# Produces samples/csharp/gb-2048-cs/2048.gb
+dotnet build samples/csharp/gb-2048-cs
 
 # Build the ROM and play it in the Koh emulator (a window opens).
-dotnet run --project samples/gb-2048-cs
+dotnet run --project samples/csharp/gb-2048-cs
 
 # The managed reference build still ships as the project's own binary — run it directly for the
 # terminal renderer (arrow keys to move). The path tracks your build config; Debug is the default.
-dotnet exec samples/gb-2048-cs/bin/Debug/net10.0/Gb2048CSharp.dll
+dotnet exec samples/csharp/gb-2048-cs/bin/Debug/net10.0/Gb2048CSharp.dll
 ```
 
 The project references neither the Koh compiler nor the linker — only the `Koh.GameBoy` runtime. The
 `Koh.Sdk` (`src/Compiler/Koh.Sdk`) owns the build-time toolchain and, after the ordinary C# build, invokes an
-in-process MSBuild task ([`CompileKohRom`](../../src/Compiler/Koh.Build.Tasks)) that emits the `.gb`.
+in-process MSBuild task ([`CompileKohRom`](../../../src/Compiler/Koh.Build.Tasks)) that emits the `.gb`.
 
 ## Controls
 
@@ -91,6 +91,6 @@ A richer tileset (digits per value) is the natural next step once static ROM tab
 ## Tests
 
 The game (plus the framework HAL) is compiled through the real pipeline and run in the emulator by
-[`Game2048Tests`](../../tests/Compiler/Koh.Compiler.Tests/Samples/Game2048Tests.cs): it asserts the sample
+[`Game2048Tests`](../../../tests/Compiler/Koh.Compiler.Tests/Samples/Game2048Tests.cs): it asserts the sample
 builds to a bootable ROM with verifiable IR, and drives the public `Board` / `Tiles` API — slides
 in all four directions, spawning, `CanMove`, `HasWon`, and rendering — against known 2048 outcomes.

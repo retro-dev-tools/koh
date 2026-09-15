@@ -1,7 +1,7 @@
 // Art declaration, the ideal way: a ROM byte table bound ONCE to a TileAsset handle at the
 // declaration site — no tile count repeated at any call site (compiler enabler E4 makes
 // `TileArt.Length` real through the Define parameter), no VRAM slot arithmetic in game code.
-// The 12-tile board art is the proven set from samples/gb-2048-cs (tile index = cell exponent).
+// The 12-tile board art is the proven set from samples/csharp/gb-2048-cs (tile index = cell exponent).
 using Koh.GameBoy.Framework;
 using Koh.GameBoy.Graphics;
 

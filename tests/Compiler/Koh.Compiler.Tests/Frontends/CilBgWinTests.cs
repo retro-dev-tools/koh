@@ -371,7 +371,7 @@ public class CilBgWinTests
     }
 
     // ---- Fixture 5: an LCD-on full-board redraw (MapWriter's own worst-case benchmark shape: 16x
-    // Bg.Fill 2x2 rects = 64 cells, mirroring samples/gb-2048-cs's Tiles.RenderBoard) never lands a write
+    // Bg.Fill 2x2 rects = 64 cells, mirroring samples/csharp/gb-2048-cs's Tiles.RenderBoard) never lands a write
     // during PPU mode 3 -- guaranteed now by the WRAM-shadow + vblank-flush redesign (MapWriter's class
     // remarks): every Bg.Fill call while the LCD is on only marks cells dirty in the WRAM shadow, and the
     // one place that ever touches real VRAM is MapWriter.Flush(), called from Video.EndFrame() strictly

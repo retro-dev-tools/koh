@@ -3,7 +3,7 @@
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
   <PropertyGroup>
-    <!-- The ROM lands next to the project by default (e.g. samples/gb-2048-cs/2048.gb); override
+    <!-- The ROM lands next to the project by default (e.g. samples/csharp/gb-2048-cs/2048.gb); override
          KohRomName / KohRomPath per project. -->
     <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
     <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>

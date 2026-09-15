@@ -2,8 +2,8 @@ using Koh.Emulator;
 using Koh.Emulator.Debug;
 using Koh.Verify;
 
-var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../"));
-var output = Path.Combine(root, "samples", "gb-3d", "verify", "out");
+var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../../"));
+var output = Path.Combine(root, "samples", "csharp", "gb-3d", "verify", "out");
 Directory.CreateDirectory(output);
 
 // Frame counts to boot to, per ROM x hardware mode. The first is the steady-state snapshot everything
@@ -33,7 +33,7 @@ var roms = new (string Name, string Rom, int DmgFirst, int DmgSecond, int CgbFir
 {
     (
         "double-buffered",
-        Path.Combine(root, "samples", "gb-3d", "double-buffered", "cube-double-buffered.gb"),
+        Path.Combine(root, "samples", "csharp", "gb-3d", "double-buffered", "cube-double-buffered.gb"),
         1100,
         1100 + 900,
         300,
@@ -41,7 +41,7 @@ var roms = new (string Name, string Rom, int DmgFirst, int DmgSecond, int CgbFir
     ),
     (
         "full-frame",
-        Path.Combine(root, "samples", "gb-3d", "full-frame", "cube-full-frame.gb"),
+        Path.Combine(root, "samples", "csharp", "gb-3d", "full-frame", "cube-full-frame.gb"),
         450,
         450 + 300,
         300,
@@ -49,7 +49,7 @@ var roms = new (string Name, string Rom, int DmgFirst, int DmgSecond, int CgbFir
     ),
     (
         "racing-beam",
-        Path.Combine(root, "samples", "gb-3d", "racing-beam", "cube-racing-beam.gb"),
+        Path.Combine(root, "samples", "csharp", "gb-3d", "racing-beam", "cube-racing-beam.gb"),
         400,
         400 + 300,
         300,

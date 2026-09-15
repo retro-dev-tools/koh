@@ -20,7 +20,7 @@ namespace Koh.Compiler.Tests.Samples;
 /// <summary>
 /// THE acceptance test of the ideal-game-API program
 /// (<c>docs/superpowers/specs/2026-07-19-ideal-game-api-design.md</c>, milestone M5): the
-/// north-star sample <c>samples/gb-2048-v2</c> — written FIRST, as ideal C# (scene classes with
+/// north-star sample <c>samples/csharp/gb-2048-v2</c> — written FIRST, as ideal C# (scene classes with
 /// overridden Update, <c>Game.Run</c>, struct-by-value <c>Line</c> returns, count-free
 /// <c>TileAsset.Define</c>, <c>Input.Repeated</c> sliding), before any of it could compile — now
 /// compiles UNMODIFIED through Roslyn → CIL frontend → verifier → SM83 → linker, boots on the
@@ -37,7 +37,7 @@ public class Gb2048V2Tests
 
     private static readonly Lazy<IReadOnlyList<string>> SampleSources = new(() =>
     {
-        var dir = Path.Combine(RepoRoot(), "samples", "gb-2048-v2");
+        var dir = Path.Combine(RepoRoot(), "samples", "csharp", "gb-2048-v2");
         return Directory
             .GetFiles(dir, "*.cs")
             .OrderBy(f => f, StringComparer.Ordinal)

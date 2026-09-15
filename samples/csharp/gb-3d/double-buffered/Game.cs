@@ -10,7 +10,7 @@ static class Game
 {
     // Rotation phase step per render+present cycle — see shared/Game.cs's remarks for the full
     // derivation (gcd(step, 256) = 1, tuned for the CGB cadences). Kept identical here; this variant's
-    // own cadence figures (documented in samples/gb-3d/verify/Program.cs) are unaffected by the port.
+    // own cadence figures (documented in samples/csharp/gb-3d/verify/Program.cs) are unaffected by the port.
     const byte PhaseStep = 1;
 
     static void Main()

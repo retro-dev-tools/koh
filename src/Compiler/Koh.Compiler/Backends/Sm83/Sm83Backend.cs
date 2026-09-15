@@ -1971,7 +1971,7 @@ public sealed partial class Sm83Backend : IBackend
     /// significant bits lands on the exact same final quotient/remainder as running all N*8 iterations
     /// unshortened. sdivmod_wide already takes the absolute value of both operands before calling here,
     /// so this also transparently speeds up every SDiv/SRem whose operands' true magnitude is small --
-    /// exactly the fixed-point math in samples/gb-3d that motivated this fix. A dividend that already
+    /// exactly the fixed-point math in samples/csharp/gb-3d that motivated this fix. A dividend that already
     /// needs every byte and bit takes the unshortened N*8-iteration path unchanged.</summary>
     private static void EmitUDivWide(Emitter e)
     {
@@ -2044,7 +2044,7 @@ public sealed partial class Sm83Backend : IBackend
         // zero-extending udivmod16's 16-bit results back into the 4-byte RtOpA/RtAcc slots is exact, not
         // an approximation. This is a plain runtime check on the actual operand values (not a static
         // range proof), so it is sound for every possible input, not just the fixed-point magnitudes
-        // samples/gb-3d happens to use -- unlike a multiply, whose product can need the full 32 bits even
+        // samples/csharp/gb-3d happens to use -- unlike a multiply, whose product can need the full 32 bits even
         // when both factors individually fit in 16, a divide's result is always bounded by its dividend.
         LdAAbs(e, RtOpA + 2);
         e.U8(0x47); // ld b,a
@@ -2238,7 +2238,7 @@ public sealed partial class Sm83Backend : IBackend
     /// instead of the generic rt.negmem, and the unsigned divide itself calls <c>udivmod_wide4</c>. Every
     /// one of these steps runs at most once per call (not once per bit-loop iteration), but SDiv is
     /// pervasive in the CIL-int-promoted arithmetic this whole family of routines targets (every signed
-    /// division in samples/gb-3d's fixed-point math goes through here), so their combined fixed overhead
+    /// division in samples/csharp/gb-3d's fixed-point math goes through here), so their combined fixed overhead
     /// is still worth trimming.</summary>
     private static void EmitSDivWide4(Emitter e)
     {

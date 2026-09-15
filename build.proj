@@ -62,11 +62,11 @@
   </Target>
 
   <Target Name="BuildSample2048">
-    <MakeDir Directories="samples/gb-2048/build" />
-    <Exec Command="dotnet run --project src/Asm/Koh.Asm -- samples/gb-2048/src/main.asm -o samples/gb-2048/build/2048.kobj" />
-    <Exec Command="dotnet run --project src/Link/Koh.Link -- samples/gb-2048/build/2048.kobj -o samples/gb-2048/build/2048.gbc -n samples/gb-2048/build/2048.sym" />
-    <Error Condition="!Exists('samples/gb-2048/build/2048.gbc')" Text="2048.gbc was not produced" />
-    <Message Importance="high" Text="Built samples/gb-2048/build/2048.gbc" />
+    <MakeDir Directories="samples/asm/gb-2048/build" />
+    <Exec Command="dotnet run --project src/Asm/Koh.Asm -- samples/asm/gb-2048/src/main.asm -o samples/asm/gb-2048/build/2048.kobj" />
+    <Exec Command="dotnet run --project src/Link/Koh.Link -- samples/asm/gb-2048/build/2048.kobj -o samples/asm/gb-2048/build/2048.gbc -n samples/asm/gb-2048/build/2048.sym" />
+    <Error Condition="!Exists('samples/asm/gb-2048/build/2048.gbc')" Text="2048.gbc was not produced" />
+    <Message Importance="high" Text="Built samples/asm/gb-2048/build/2048.gbc" />
   </Target>
 
 </Project>

@@ -24,7 +24,7 @@ namespace Koh.Compiler.Tests.Frontends;
 /// Graphics library WAVE 4 / the last v1 module: <c>Koh.GameBoy.Graphics.Canvas</c>
 /// (<c>docs/superpowers/specs/2026-07-15-graphics-library-design.md</c>, §8 resolved decision 1,
 /// build plan slice 9) — the tile-backed pixel surface consolidating the three
-/// <c>samples/gb-3d/*/Surface.cs</c> + <c>shared/SpanFill.cs</c> files. Proves
+/// <c>samples/csharp/gb-3d/*/Surface.cs</c> + <c>shared/SpanFill.cs</c> files. Proves
 /// <c>Init</c>/<c>Clear</c>/<c>SetPixel</c>/<c>FillRect</c>/<c>FillSpan</c>/<c>DrawLine</c>/
 /// <c>FillTriangle</c>/<c>Present</c> against a REAL compiled assembly -&gt; CilFrontend -&gt;
 /// IrVerifier -&gt; Sm83Backend -&gt; Linker -&gt; GameBoySystem pipeline, on both DMG and CGB, and a

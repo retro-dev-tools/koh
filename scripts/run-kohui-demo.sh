@@ -48,7 +48,7 @@ open_url() {
     fi
 }
 
-CMD=(dotnet run --project samples/KohUI.Demo)
+CMD=(dotnet run --project samples/ui/KohUI.Demo)
 if   [[ $PREVIEW -eq 1 ]];     then CMD+=(-- --preview)
 elif [[ $NATIVE_ONLY -eq 1 ]]; then CMD+=(-- --native)
 fi

@@ -119,7 +119,7 @@ public class RedundantCompareLoopTests
     // guard each lowered — before this fix — to a redundant `icmp` chain (`eq ; eq ; ne` and `ugt ; eq`);
     // this asserts the pass collapses both on the genuine production code, not just a synthetic shape.
     private static readonly string DemoSource = File.ReadAllText(
-        Path.Combine(Root(), "samples", "gb-gfx-demo", "Game.cs")
+        Path.Combine(Root(), "samples", "csharp", "gb-gfx-demo", "Game.cs")
     );
 
     [Test]
