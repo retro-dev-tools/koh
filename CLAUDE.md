@@ -41,7 +41,7 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
   C# — a ROM gets them not by being fed extra source, but because the CIL frontend lowers
   `Koh.GameBoy.dll` (a normal build reference, listed in `@(ReferencePath)`) on demand, transitively,
   the first time a game actually calls into it. `src/Koh.Build.Tasks` — the in-process MSBuild task
-  (`CompileKohRom`) that drives the compiler+linker; `sdk/Koh.Sdk` — the MSBuild SDK that ties them
+  (`CompileKohRom`) that drives the compiler+linker; `src/Compiler/Koh.Sdk` — the MSBuild SDK that ties them
   together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
 - `src/Koh.GameBoy/Graphics` (Bg/Sprites/Palettes/Text/Win, vblank-safe VRAM writes) and `Framework`
   (`Game.Run`, `Scene`, `Input`, `Rng`, `Clock`, `TileAsset`) sit on top of `Hal/`; the ideal-code spec

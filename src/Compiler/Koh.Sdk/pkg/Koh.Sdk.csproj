@@ -2,8 +2,8 @@
 
   <!-- Packs the Koh.Sdk MSBuild SDK (the shim under Sdk/) into a NuGet package. This is NOT part of the
        normal build graph; run `dotnet pack` on this project by hand and commit the resulting nupkg to
-       sdk/feed, so a clean `dotnet build` of a game project can resolve `<Project Sdk="Koh.Sdk">` offline
-       (global.json pins the version; NuGet.config adds sdk/feed as a source).
+       src/Compiler/Koh.Sdk/feed, so a clean `dotnet build` of a game project can resolve
+       `<Project Sdk="Koh.Sdk">` offline (global.json pins the version; NuGet.config adds the feed as a source).
 
        The shim never needs editing, so this rarely repacks. IMPORTANT: NuGet caches an extracted package
        by version, so if the shim ever *does* change you MUST bump <Version> here AND the global.json
@@ -16,10 +16,10 @@
     <EnableDefaultItems>false</EnableDefaultItems>
     <PackageType>MSBuildSdk</PackageType>
     <PackageId>Koh.Sdk</PackageId>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Koh</Authors>
     <Description>Koh Game Boy SDK (repo-internal): compiles a C# game project into a Game Boy ROM and runs it in the Koh emulator.</Description>
-    <PackageOutputPath>$(MSBuildThisFileDirectory)../../feed</PackageOutputPath>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../feed</PackageOutputPath>
     <!-- NU5128: no lib/ref assemblies (this is a content-only MSBuild SDK package). -->
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>

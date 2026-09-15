@@ -40,7 +40,7 @@ dotnet exec samples/gb-2048-cs/bin/Debug/net10.0/Gb2048CSharp.dll
 ```
 
 The project references neither the Koh compiler nor the linker — only the `Koh.GameBoy` runtime. The
-`Koh.Sdk` (`sdk/Koh.Sdk`) owns the build-time toolchain and, after the ordinary C# build, invokes an
+`Koh.Sdk` (`src/Compiler/Koh.Sdk`) owns the build-time toolchain and, after the ordinary C# build, invokes an
 in-process MSBuild task ([`CompileKohRom`](../../src/Koh.Build.Tasks)) that emits the `.gb`.
 
 ## Controls

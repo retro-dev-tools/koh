@@ -10,10 +10,10 @@
        and the nested Microsoft.NET.Sdk import inside the real Sdk.props both being skipped). -->
 
   <PropertyGroup>
-    <!-- Repo root: the nearest ancestor of the game project that holds the solution filter. -->
-    <KohRoot Condition="'$(KohRoot)' == ''">$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'Koh.Ci.slnf'))</KohRoot>
+    <!-- Repo root: the nearest ancestor of the game project that holds Koh.slnx. -->
+    <KohRoot Condition="'$(KohRoot)' == ''">$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'Koh.slnx'))</KohRoot>
   </PropertyGroup>
 
-  <Import Project="$(KohRoot)/sdk/Koh.Sdk/Sdk/Sdk.props" Condition="'$(KohRoot)' != ''" />
+  <Import Project="$(KohRoot)/src/Compiler/Koh.Sdk/Sdk/Sdk.props" Condition="'$(KohRoot)' != ''" />
 
 </Project>
