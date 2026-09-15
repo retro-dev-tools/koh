@@ -154,9 +154,8 @@ internal sealed class CilVirtualDispatch
     {
         if (_rootOfAll.TryGetValue(staticReceiverType, out var root))
             return !_concreteOfAll[root].Any(c => IsAssignableTo(c, staticReceiverType));
-        // Not a member of any multi-class hierarchy: a single standalone abstract class has no
-        // possible instances either.
-        return staticReceiverType.IsAbstract;
+        // Interface, or a chain leaving the closed world: instances may exist.
+        return false;
     }
 
     /// <summary>All (tag, concrete class) pairs a virtual call through a receiver statically typed

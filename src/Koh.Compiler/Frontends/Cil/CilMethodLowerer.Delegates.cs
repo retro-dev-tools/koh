@@ -383,12 +383,14 @@ internal sealed partial class CilMethodLowerer
         );
         var env = _b.Load(envPtr);
 
-        var isVoid = calleeRef.ReturnType.FullName == "System.Void";
-        var isStructReturn = CilStructSupport.ResolveStruct(calleeRef.ReturnType) is not null;
+        // Invoke's own return type may be an open '!0'; every arm shares the target's concrete one.
+        var returnType = targets[0].Target.ReturnType;
+        var isVoid = returnType.FullName == "System.Void";
+        var isStructReturn = CilStructSupport.ResolveStruct(returnType) is not null;
         IrType? slotType =
             isVoid ? null
             : isStructReturn ? IrType.Pointer(IrType.I8)
-            : IrType.I32; // InvokeDelegate returns stack-widened scalars
+            : CilTypeMapper.Map(returnType).Item1;
         var resultSlot = slotType is not null ? _b.Alloca(slotType) : null;
 
         void EmitArm(MethodDefinition armTarget)
@@ -424,8 +426,18 @@ internal sealed partial class CilMethodLowerer
             _b.PositionAtEnd(contBlock);
         }
 
-        if (resultSlot is not null)
-            stack.Add(_b.Load(resultSlot));
+        if (resultSlot is null)
+            return;
+        var merged = _b.Load(resultSlot);
+        if (isStructReturn)
+        {
+            stack.Add(merged);
+            return;
+        }
+        var widened = WidenToStack(merged, CilTypeMapper.Map(returnType).Signed);
+        if (FloatKindOfType(returnType) is { } floatKind)
+            TagFloat(widened, floatKind);
+        stack.Add(widened);
     }
 
     /// <summary>Enabler E3's boundary hook: a delegate value about to cross a provenance-erasing
@@ -709,7 +721,11 @@ internal sealed partial class CilMethodLowerer
                 stack.Add(_b.Gep(deadBuffer, IrBuilder.ConstInt(IrType.I16, 0), IrType.I8));
                 return true;
             }
-            stack.Add(IrBuilder.ConstInt(CilTypeMapper.Map(target.ReturnType).Item1, 0));
+            var (deadType, deadSigned) = CilTypeMapper.Map(target.ReturnType);
+            var dead = WidenToStack(IrBuilder.ConstInt(deadType, 0), deadSigned);
+            if (FloatKindOfType(target.ReturnType) is { } deadFloat)
+                TagFloat(dead, deadFloat);
+            stack.Add(dead);
             return true;
         }
 

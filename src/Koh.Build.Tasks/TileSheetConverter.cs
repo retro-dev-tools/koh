@@ -133,6 +133,8 @@ public static class TileSheetConverter
             if (part.Length > 1)
                 sb.Append(part[1..]);
         }
+        if (sb.Length == 0 || char.IsDigit(sb[0]))
+            sb.Insert(0, '_');
         return sb.ToString();
     }
 }

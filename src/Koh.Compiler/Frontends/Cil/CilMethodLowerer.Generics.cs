@@ -186,7 +186,16 @@ internal sealed partial class CilMethodLowerer
             );
 
         for (var i = 0; i < args.Length; i++)
+        {
+            // E3 boundary, same as PrepareArg.
+            var paramType = CilGenericSubst.Substitute(
+                template.Parameters[i].ParameterType,
+                concreteArgs
+            );
+            if (IsDelegateTypeRef(paramType))
+                args[i] = MaterializeDelegateIfNeeded(args[i], paramType);
             args[i] = CoerceStore(args[i], fn.Parameters[i].Type);
+        }
 
         if (TryEmitSretCall(fn, args, stack))
             return;

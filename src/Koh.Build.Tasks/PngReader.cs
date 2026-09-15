@@ -37,6 +37,8 @@ internal static class PngReader
         while (offset + 8 <= bytes.Length)
         {
             var length = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(offset, 4));
+            if (length < 0 || length > bytes.Length - offset - 12)
+                throw new InvalidDataException($"'{path}': truncated or corrupt PNG chunk.");
             var type = System.Text.Encoding.ASCII.GetString(bytes, offset + 4, 4);
             var data = bytes.AsSpan(offset + 8, length);
             switch (type)

@@ -319,9 +319,18 @@ internal static class CilModuleLowerer
                     IrBuilder.GlobalRef(global),
                     IrBuilder.ConstInt(IrType.I16, offset),
                     IrType.I8
-                );
-                var cast = new ConvInstruction(IrConvOp.Bitcast, gep, IrType.Pointer(IrType.I16));
-                var store = new StoreInstruction(IrBuilder.ConstInt(IrType.I16, count), cast);
+                )
+                {
+                    Parent = entryBlock,
+                };
+                var cast = new ConvInstruction(IrConvOp.Bitcast, gep, IrType.Pointer(IrType.I16))
+                {
+                    Parent = entryBlock,
+                };
+                var store = new StoreInstruction(IrBuilder.ConstInt(IrType.I16, count), cast)
+                {
+                    Parent = entryBlock,
+                };
                 insert.Add(gep);
                 insert.Add(cast);
                 insert.Add(store);
@@ -1075,6 +1084,9 @@ internal sealed partial class CilMethodLowerer
     {
         if (TryStoreStructArg(p, value))
             return;
+        // E3 boundary: a parameter load carries no provenance.
+        if (IsDelegateTypeRef(p.ParameterType))
+            value = MaterializeDelegateIfNeeded(value, p.ParameterType);
         var (alloca, type, _) = _params[p];
         _b.Store(CoerceStore(value, type), alloca);
     }
@@ -1749,6 +1761,12 @@ internal sealed partial class CilMethodLowerer
                 LoadElem(stack, IrType.Pointer(IrType.I8), signed: false);
                 break;
             case Code.Stelem_Ref:
+                // Element type unknown here, so a delegate can't be materialized.
+                if (_pendingDelegateProvenance.ContainsKey(stack[^1]))
+                    throw new CilNotSupportedException(
+                        $"storing a delegate into an array element in '{_method.FullName}' is not "
+                            + "supported (store it in a field instead)."
+                    );
                 StoreElem(stack, IrType.Pointer(IrType.I8));
                 break;
             // The generic (type-operand) variants — Roslyn emits these for a struct element (a

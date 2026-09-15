@@ -218,6 +218,39 @@ public class CilVirtualDispatchTests
     public async Task InheritedFields_UsePrefixLayout_NoOverlap(OptimizationLevel level) =>
         await AssertPasses(LayoutSource, level);
 
+    private const string InterfaceSource = """
+        using Koh.GameBoy;
+
+        interface IUnit
+        {
+            byte Value();
+        }
+
+        sealed class Unit : IUnit
+        {
+            public byte Value() => 7;
+        }
+
+        public class Program
+        {
+            static IUnit Current;
+
+            public static void Main()
+            {
+                Current = new Unit();
+                Hardware.SCY = Current.Value();
+                Hardware.SCX = 0xEE;
+            }
+        }
+        """;
+
+    // Untraceable interface call: a diagnostic, never a silently dropped call.
+    [Test]
+    public async Task UntraceableInterfaceCall_IsDiagnostic() =>
+        await Assert
+            .That(() => Compile(InterfaceSource, OptimizationLevel.Release))
+            .Throws<InvalidOperationException>();
+
     // ============================================================================================
     // Fixture 2: tag dispatch through a base-typed STATIC field (reloading from a static loses
     // concrete-type tracking, forcing the genuine dispatch path): three subclasses, an override
