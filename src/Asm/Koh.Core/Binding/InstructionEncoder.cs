@@ -142,14 +142,15 @@ internal sealed class InstructionEncoder
                                 {
                                     SectionName = section.Name,
                                     Offset = offset,
-                                    Expression = operandGreen,
+                                    Expression = PatchExpression.From(operandGreen),
                                     Kind = PatchKind.Absolute8,
                                     FilePath = _diagnostics.CurrentFilePath,
                                     GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                     SymbolName = sn,
                                     SymbolOffset = so,
                                     SymbolShift = sh,
-                                }
+                                },
+                                operandGreen
                             );
                         }
                     }
@@ -169,14 +170,15 @@ internal sealed class InstructionEncoder
                                 {
                                     SectionName = section.Name,
                                     Offset = offset,
-                                    Expression = operandGreen,
+                                    Expression = PatchExpression.From(operandGreen),
                                     Kind = PatchKind.Absolute16,
                                     FilePath = _diagnostics.CurrentFilePath,
                                     GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                     SymbolName = sn,
                                     SymbolOffset = so,
                                     SymbolShift = sh,
-                                }
+                                },
+                                operandGreen
                             );
                         }
                     }
@@ -211,7 +213,7 @@ internal sealed class InstructionEncoder
                                 {
                                     SectionName = section.Name,
                                     Offset = offset,
-                                    Expression = operandGreen,
+                                    Expression = PatchExpression.From(operandGreen),
                                     Kind = PatchKind.Relative8,
                                     // Store section-relative offset of the byte after this instruction.
                                     // PatchResolver adds section.BaseAddress to recover absolute PC.
@@ -221,7 +223,8 @@ internal sealed class InstructionEncoder
                                     SymbolName = sn,
                                     SymbolOffset = so,
                                     SymbolShift = sh,
-                                }
+                                },
+                                operandGreen
                             );
                         }
                     }

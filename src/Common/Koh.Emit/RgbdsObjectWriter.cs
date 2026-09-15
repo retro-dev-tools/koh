@@ -1,7 +1,5 @@
 using Koh.Core.Binding;
 using Koh.Core.Symbols;
-using Koh.Core.Syntax;
-using Koh.Core.Syntax.InternalSyntax;
 
 namespace Koh.Emit;
 
@@ -125,136 +123,76 @@ public sealed class RgbdsObjectWriter
         // RPN expression
         var rpn = new List<byte>();
         if (patch.Expression != null)
-            FlattenToRpn(patch.Expression, rpn);
+            AppendRpn(patch.Expression, rpn);
         WriteInt32(bw, rpn.Count);
         bw.Write(rpn.ToArray());
     }
 
-    private void FlattenToRpn(GreenNodeBase node, List<byte> rpn)
+    private void AppendRpn(PatchExpression expression, List<byte> rpn)
     {
-        if (node is GreenNode greenNode)
+        foreach (var token in expression.Tokens)
         {
-            switch (greenNode.Kind)
+            switch (token.Op)
             {
-                case SyntaxKind.LiteralExpression:
-                {
-                    var child = greenNode.GetChild(0);
-                    if (child is GreenToken token)
+                case PatchExpressionOp.Literal:
+                    rpn.Add(RgbdsObjectFormat.RpnLiteral);
+                    WriteRpnInt32(rpn, token.Value);
+                    break;
+
+                case PatchExpressionOp.CurrentAddress:
+                    // $ = current PC — encoded as RPN_SYM with ID 0xFFFFFFFF
+                    rpn.Add(RgbdsObjectFormat.RpnSymbol);
+                    WriteRpnInt32(rpn, unchecked((int)0xFFFFFFFF));
+                    break;
+
+                case PatchExpressionOp.Symbol:
+                    if (_symbolIndex.TryGetValue(token.Name!, out var idx))
                     {
-                        if (token.Kind == SyntaxKind.NumberLiteral)
-                        {
-                            var val = ExpressionEvaluator.ParseNumber(token.Text);
-                            rpn.Add(RgbdsObjectFormat.RpnLiteral);
-                            WriteRpnInt32(rpn, (int)(val ?? 0));
-                        }
-                        else if (token.Kind == SyntaxKind.CurrentAddressToken)
-                        {
-                            // $ = current PC — encoded as RPN_SYM with ID 0xFFFFFFFF
-                            rpn.Add(RgbdsObjectFormat.RpnSymbol);
-                            WriteRpnInt32(rpn, unchecked((int)0xFFFFFFFF));
-                        }
+                        rpn.Add(RgbdsObjectFormat.RpnSymbol);
+                        WriteRpnInt32(rpn, idx);
+                    }
+                    else
+                    {
+                        // Symbol not in index — should not happen if EmitModel
+                        // includes imports. Emit literal 0 as last resort.
+                        rpn.Add(RgbdsObjectFormat.RpnLiteral);
+                        WriteRpnInt32(rpn, 0);
                     }
                     break;
-                }
-
-                case SyntaxKind.NameExpression:
-                {
-                    var child = greenNode.GetChild(0);
-                    if (child is GreenToken token)
-                    {
-                        if (_symbolIndex.TryGetValue(token.Text, out var idx))
-                        {
-                            rpn.Add(RgbdsObjectFormat.RpnSymbol);
-                            WriteRpnInt32(rpn, idx);
-                        }
-                        else
-                        {
-                            // Symbol not in index — should not happen if EmitModel
-                            // includes imports. Emit literal 0 as last resort.
-                            rpn.Add(RgbdsObjectFormat.RpnLiteral);
-                            WriteRpnInt32(rpn, 0);
-                        }
-                    }
-                    break;
-                }
-
-                case SyntaxKind.BinaryExpression:
-                {
-                    var left = greenNode.GetChild(0);
-                    var op = greenNode.GetChild(1) as GreenToken;
-                    var right = greenNode.GetChild(2);
-                    if (left != null)
-                        FlattenToRpn(left, rpn);
-                    if (right != null)
-                        FlattenToRpn(right, rpn);
-                    if (op != null)
-                        rpn.Add(MapBinaryOp(op.Kind));
-                    break;
-                }
-
-                case SyntaxKind.UnaryExpression:
-                {
-                    var op = greenNode.GetChild(0) as GreenToken;
-                    var operand = greenNode.GetChild(1);
-                    if (operand != null)
-                        FlattenToRpn(operand, rpn);
-                    // Unary + is identity — no RPN opcode needed
-                    if (op != null && op.Kind != SyntaxKind.PlusToken)
-                        rpn.Add(MapUnaryOp(op.Kind));
-                    break;
-                }
-
-                case SyntaxKind.ParenthesizedExpression:
-                {
-                    var inner = greenNode.GetChild(1);
-                    if (inner != null)
-                        FlattenToRpn(inner, rpn);
-                    break;
-                }
 
                 default:
-                    for (int i = 0; i < greenNode.ChildCount; i++)
-                    {
-                        var child = greenNode.GetChild(i);
-                        if (child != null)
-                            FlattenToRpn(child, rpn);
-                    }
+                    rpn.Add(MapOperator(token.Op));
                     break;
             }
         }
     }
 
-    private static byte MapBinaryOp(SyntaxKind kind) =>
-        kind switch
+    private static byte MapOperator(PatchExpressionOp op) =>
+        op switch
         {
-            SyntaxKind.PlusToken => RgbdsObjectFormat.RpnAdd,
-            SyntaxKind.MinusToken => RgbdsObjectFormat.RpnSub,
-            SyntaxKind.StarToken => RgbdsObjectFormat.RpnMul,
-            SyntaxKind.SlashToken => RgbdsObjectFormat.RpnDiv,
-            SyntaxKind.PercentToken => RgbdsObjectFormat.RpnMod,
-            SyntaxKind.AmpersandToken => RgbdsObjectFormat.RpnAnd,
-            SyntaxKind.PipeToken => RgbdsObjectFormat.RpnOr,
-            SyntaxKind.CaretToken => RgbdsObjectFormat.RpnXor,
-            SyntaxKind.LessThanLessThanToken => RgbdsObjectFormat.RpnShl,
-            SyntaxKind.GreaterThanGreaterThanToken => RgbdsObjectFormat.RpnShr,
-            SyntaxKind.EqualsEqualsToken => RgbdsObjectFormat.RpnEq,
-            SyntaxKind.BangEqualsToken => RgbdsObjectFormat.RpnNe,
-            SyntaxKind.LessThanToken => RgbdsObjectFormat.RpnLt,
-            SyntaxKind.GreaterThanToken => RgbdsObjectFormat.RpnGt,
-            SyntaxKind.LessThanEqualsToken => RgbdsObjectFormat.RpnLe,
-            SyntaxKind.GreaterThanEqualsToken => RgbdsObjectFormat.RpnGe,
-            SyntaxKind.AmpersandAmpersandToken => RgbdsObjectFormat.RpnLogAnd,
-            SyntaxKind.PipePipeToken => RgbdsObjectFormat.RpnLogOr,
+            PatchExpressionOp.Add => RgbdsObjectFormat.RpnAdd,
+            PatchExpressionOp.Sub => RgbdsObjectFormat.RpnSub,
+            PatchExpressionOp.Mul => RgbdsObjectFormat.RpnMul,
+            PatchExpressionOp.Div => RgbdsObjectFormat.RpnDiv,
+            PatchExpressionOp.Mod => RgbdsObjectFormat.RpnMod,
+            PatchExpressionOp.And => RgbdsObjectFormat.RpnAnd,
+            PatchExpressionOp.Or => RgbdsObjectFormat.RpnOr,
+            PatchExpressionOp.Xor => RgbdsObjectFormat.RpnXor,
+            PatchExpressionOp.Shl => RgbdsObjectFormat.RpnShl,
+            PatchExpressionOp.Shr => RgbdsObjectFormat.RpnShr,
+            PatchExpressionOp.Eq => RgbdsObjectFormat.RpnEq,
+            PatchExpressionOp.Ne => RgbdsObjectFormat.RpnNe,
+            PatchExpressionOp.Lt => RgbdsObjectFormat.RpnLt,
+            PatchExpressionOp.Gt => RgbdsObjectFormat.RpnGt,
+            PatchExpressionOp.Le => RgbdsObjectFormat.RpnLe,
+            PatchExpressionOp.Ge => RgbdsObjectFormat.RpnGe,
+            PatchExpressionOp.LogAnd => RgbdsObjectFormat.RpnLogAnd,
+            PatchExpressionOp.LogOr => RgbdsObjectFormat.RpnLogOr,
+            PatchExpressionOp.Neg => RgbdsObjectFormat.RpnNeg,
+            PatchExpressionOp.Not => RgbdsObjectFormat.RpnNot,
+            PatchExpressionOp.LogNot => RgbdsObjectFormat.RpnLogNot,
+            PatchExpressionOp.UnknownUnary => RgbdsObjectFormat.RpnNeg,
             _ => RgbdsObjectFormat.RpnAdd,
-        };
-
-    private static byte MapUnaryOp(SyntaxKind kind) =>
-        kind switch
-        {
-            SyntaxKind.MinusToken => RgbdsObjectFormat.RpnNeg,
-            SyntaxKind.TildeToken => RgbdsObjectFormat.RpnNot,
-            SyntaxKind.BangToken => RgbdsObjectFormat.RpnLogNot,
-            _ => RgbdsObjectFormat.RpnNeg,
         };
 
     private static byte MapSectionType(SectionType type) =>
