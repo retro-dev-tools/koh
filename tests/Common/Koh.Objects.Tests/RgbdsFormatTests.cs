@@ -1,9 +1,9 @@
 using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
-using Koh.Emit;
+using Koh.Objects;
 
-namespace Koh.Emit.Tests;
+namespace Koh.Objects.Tests;
 
 public class RgbdsFormatTests
 {
@@ -186,7 +186,7 @@ public class RgbdsFormatTests
         await Assert.That(importSym).IsNotNull();
         await Assert
             .That(importSym!.Visibility)
-            .IsEqualTo(Koh.Core.Symbols.SymbolVisibility.Imported);
+            .IsEqualTo(Koh.Objects.SymbolVisibility.Imported);
 
         // Write to RGBDS format — should not throw
         var bytes = WriteToBytes(model);
@@ -249,7 +249,7 @@ public class RgbdsFormatTests
         var sym = model.Symbols.FirstOrDefault(s => s.Name == "my_label");
         await Assert.That(sym).IsNotNull();
         // Should be Local or Exported, NOT Imported — it's defined in this file
-        await Assert.That(sym!.Visibility).IsNotEqualTo(Koh.Core.Symbols.SymbolVisibility.Imported);
+        await Assert.That(sym!.Visibility).IsNotEqualTo(Koh.Objects.SymbolVisibility.Imported);
     }
 
     [Test]

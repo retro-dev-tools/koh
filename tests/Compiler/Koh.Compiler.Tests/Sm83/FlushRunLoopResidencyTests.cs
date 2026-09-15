@@ -103,7 +103,7 @@ public class FlushRunLoopResidencyTests
     }
 
     /// <summary>Frontend -&gt; optimized IR, mirroring <c>CompilerDriver.Compile</c>'s own ordering, but
-    /// returning the module itself (not just the backend's <see cref="Koh.Core.Binding.EmitModel"/>) so the
+    /// returning the module itself (not just the backend's <see cref="Koh.Objects.EmitModel"/>) so the
     /// test can find <c>MapWriter.FlushRun</c>'s <see cref="IrFunction"/> directly.</summary>
     private static IrModule OptimizedModule(string source)
     {

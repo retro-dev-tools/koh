@@ -1,9 +1,9 @@
 <Solution>
   <Folder Name="/Common/">
     <Project Path="src/Common/Koh.Common/Koh.Common.csproj" />
-    <Project Path="src/Common/Koh.Emit/Koh.Emit.csproj" />
+    <Project Path="src/Common/Koh.Objects/Koh.Objects.csproj" />
     <Project Path="src/Common/Koh.Opcodes/Koh.Opcodes.csproj" />
-    <Project Path="tests/Common/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />
+    <Project Path="tests/Common/Koh.Objects.Tests/Koh.Objects.Tests.csproj" />
     <Project Path="tests/Common/Koh.Opcodes.Tests/Koh.Opcodes.Tests.csproj" />
   </Folder>
   <Folder Name="/Asm/">

@@ -2,10 +2,10 @@ using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Backends.Sm83.Mir;
 using Koh.Compiler.Ir;
-using Koh.Core.Binding;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Linker;
+using Koh.Objects;
 using LinkerType = Koh.Linker.Linker;
 
 namespace Koh.Compiler.Tests.Backends;

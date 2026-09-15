@@ -3,7 +3,7 @@ using Koh.Common;
 using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
-using Koh.Emit;
+using Koh.Objects;
 
 return KohAsm.Run(args);
 

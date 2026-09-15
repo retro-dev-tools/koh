@@ -1,7 +1,4 @@
-using Koh.Core.Binding;
-using Koh.Core.Symbols;
-
-namespace Koh.Emit;
+namespace Koh.Objects;
 
 /// <summary>
 /// Writes an EmitModel to a .kobj binary stream.

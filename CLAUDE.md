@@ -29,11 +29,13 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
 ## Layout
 
 - `src/Common/Koh.Common` — `Diagnostic`/`DiagnosticBag`, `TextSpan`, `SourceText`: the syntax-free base every tool shares.
-- `src/Asm/Koh.Core` — the assembler front end (syntax, binding) plus `EmitModel`/`LineMapEntry` (until they move to a shared object model).
+- `src/Asm/Koh.Core` — the assembler front end (syntax, binding); `EmitModelBuilder`/`PatchExpressionBuilder` turn its binding state into the shared object model.
 - `src/Common/Koh.Opcodes` — `Sm83InstructionTable` (the canonical SM83 opcode table) and
   `Sm83Disassembler`, which decodes from that table (the debugger's disassembly view uses it).
-- `src/Common/Koh.Emit`, `src/Link/Koh.Linker` (+ `Koh.Asm`/`Koh.Link` CLIs) — object emission and
-  linking; `RomWriter` fills the cartridge header/global checksums.
+- `src/Common/Koh.Objects` — the shared object model (`EmitModel`, `SectionData`, `SymbolData`, `PatchEntry` with a
+  syntax-free `PatchExpression`), the `.kobj`/RGBDS object readers and writers, and the `.kdbg` reader.
+- `src/Link/Koh.Linker` (+ `Koh.Asm`/`Koh.Link` CLIs) — linking and `.kdbg` writing; `RomWriter` fills the cartridge
+  header/global checksums.
 - `src/Emulator/Koh.Emulator` (+ `Koh.Emulator.App`), `src/Emulator/Koh.Debugger`, `src/Asm/Koh.Lsp`, `KohUI*`.
 - `src/Compiler/Koh.Compiler` — the compiler platform (details below).
 - `src/Compiler/Koh.GameBoy` — the managed reference runtime a Koh C# game builds/runs against under the plain

@@ -3,6 +3,7 @@ using Koh.Core.Encoding;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;
+using Koh.Objects;
 using Koh.Opcodes;
 
 namespace Koh.Core.Binding;
@@ -142,7 +143,7 @@ internal sealed class InstructionEncoder
                                 {
                                     SectionName = section.Name,
                                     Offset = offset,
-                                    Expression = PatchExpression.From(operandGreen),
+                                    Expression = PatchExpressionBuilder.From(operandGreen),
                                     Kind = PatchKind.Absolute8,
                                     FilePath = _diagnostics.CurrentFilePath,
                                     GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
@@ -170,7 +171,7 @@ internal sealed class InstructionEncoder
                                 {
                                     SectionName = section.Name,
                                     Offset = offset,
-                                    Expression = PatchExpression.From(operandGreen),
+                                    Expression = PatchExpressionBuilder.From(operandGreen),
                                     Kind = PatchKind.Absolute16,
                                     FilePath = _diagnostics.CurrentFilePath,
                                     GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
@@ -213,7 +214,7 @@ internal sealed class InstructionEncoder
                                 {
                                     SectionName = section.Name,
                                     Offset = offset,
-                                    Expression = PatchExpression.From(operandGreen),
+                                    Expression = PatchExpressionBuilder.From(operandGreen),
                                     Kind = PatchKind.Relative8,
                                     // Store section-relative offset of the byte after this instruction.
                                     // PatchResolver adds section.BaseAddress to recover absolute PC.

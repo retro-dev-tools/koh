@@ -1,4 +1,4 @@
-namespace Koh.Emit;
+namespace Koh.Objects;
 
 /// <summary>
 /// Constants for the RGBDS RGB9 object file format (revision 13).

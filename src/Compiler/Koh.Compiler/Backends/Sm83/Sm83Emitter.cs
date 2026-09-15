@@ -1,5 +1,5 @@
 using Koh.Compiler.Ir;
-using Koh.Core.Binding;
+using Koh.Objects;
 
 namespace Koh.Compiler.Backends.Sm83;
 

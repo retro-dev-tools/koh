@@ -1,6 +1,6 @@
 using Koh.Common;
 
-namespace Koh.Core.Binding;
+namespace Koh.Objects;
 
 public enum PatchKind
 {

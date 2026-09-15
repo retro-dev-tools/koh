@@ -2,6 +2,7 @@ using Koh.Common;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;
+using Koh.Objects;
 
 namespace Koh.Core.Binding;
 
@@ -147,7 +148,8 @@ public sealed class Binder
         );
     }
 
-    public EmitModel BindToEmitModel(SyntaxTree tree) => EmitModel.FromBindingResult(Bind(tree));
+    public EmitModel BindToEmitModel(SyntaxTree tree) =>
+        EmitModelBuilder.FromBindingResult(Bind(tree));
 
     /// <summary>
     /// Create an ExpressionEvaluator with all resolvers wired up.
@@ -1326,7 +1328,7 @@ public sealed class Binder
                             {
                                 SectionName = section.Name,
                                 Offset = offset,
-                                Expression = PatchExpression.From(expr.Green),
+                                Expression = PatchExpressionBuilder.From(expr.Green),
                                 Kind = PatchKind.Absolute8,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
@@ -1373,7 +1375,7 @@ public sealed class Binder
                             {
                                 SectionName = section.Name,
                                 Offset = offset,
-                                Expression = PatchExpression.From(expr.Green),
+                                Expression = PatchExpressionBuilder.From(expr.Green),
                                 Kind = PatchKind.Absolute16,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
@@ -1405,7 +1407,7 @@ public sealed class Binder
                             {
                                 SectionName = section.Name,
                                 Offset = offset,
-                                Expression = PatchExpression.From(expr.Green),
+                                Expression = PatchExpressionBuilder.From(expr.Green),
                                 Kind = PatchKind.Absolute32,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,

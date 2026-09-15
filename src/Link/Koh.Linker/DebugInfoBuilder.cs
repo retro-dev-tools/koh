@@ -1,15 +1,7 @@
 using System.Collections.Generic;
+using Koh.Objects;
 
 namespace Koh.Linker;
-
-public enum KdbgSymbolKind : byte
-{
-    Label = 0,
-    EquConstant = 1,
-    RamLabel = 2,
-    Macro = 3,
-    Export = 4,
-}
 
 public enum KdbgScopeKind : byte
 {

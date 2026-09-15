@@ -909,7 +909,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
             {
                 Label = sym.Name,
                 Kind =
-                    sym.Kind == Core.Symbols.SymbolKind.Constant
+                    sym.Kind == Koh.Objects.SymbolKind.Constant
                         ? CompletionItemKind.Constant
                         : CompletionItemKind.Function,
                 Detail = $"{sym.Kind}: ${sym.Value:X4}",
@@ -1024,8 +1024,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
             if (symbol is null)
                 continue;
             if (
-                symbol.Kind
-                is not (Core.Symbols.SymbolKind.Label or Core.Symbols.SymbolKind.Constant)
+                symbol.Kind is not (Koh.Objects.SymbolKind.Label or Koh.Objects.SymbolKind.Constant)
             )
                 continue;
             if (!seen.Add(token.Span.Start))
@@ -1033,7 +1032,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
 
             var pos = PositionUtilities.ToLspPosition(source, token.Span.Start + token.Span.Length);
             var valueText =
-                symbol.Kind == Core.Symbols.SymbolKind.Label
+                symbol.Kind == Koh.Objects.SymbolKind.Label
                     ? $"${symbol.Value:X4}"
                     : $"${symbol.Value:X4} ({symbol.Value})";
 
@@ -1081,7 +1080,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
 
         var semanticModel = _workspace.GetSemanticModel(path);
         var symbol = semanticModel?.ResolveSymbol(macroNameToken.Text, macroNameToken.Span.Start);
-        if (symbol?.Kind != Core.Symbols.SymbolKind.Macro)
+        if (symbol?.Kind != Koh.Objects.SymbolKind.Macro)
             return null;
 
         var arity = semanticModel!.GetMacroArity(symbol) ?? 0;

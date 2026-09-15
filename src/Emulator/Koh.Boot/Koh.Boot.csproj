@@ -5,7 +5,7 @@
     it does not link against them. ReferenceOutputAssembly=false keeps them out of this
     assembly's reference set while still forcing MSBuild to build them first.
 
-    No cycle: Koh.Core -> Koh.Emit -> Koh.Asm/Koh.Link -> Koh.Boot -> Koh.Emulator.App.
+    No cycle: Koh.Common -> Koh.Objects -> Koh.Core -> Koh.Asm/Koh.Link -> Koh.Boot -> Koh.Emulator.App.
     Koh.Boot deliberately does NOT reference Koh.Emulator; the emulator takes bytes
     and does not know where they came from.
   -->

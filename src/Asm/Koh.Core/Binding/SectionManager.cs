@@ -1,3 +1,5 @@
+using Koh.Objects;
+
 namespace Koh.Core.Binding;
 
 public sealed class SectionManager

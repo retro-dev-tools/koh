@@ -1,8 +1,7 @@
 using System.Reflection;
 using Koh.Common;
-using Koh.Core.Binding;
-using Koh.Emit;
 using Koh.Linker;
+using Koh.Objects;
 
 return KohLink.Run(args);
 

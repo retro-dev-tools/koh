@@ -1,5 +1,5 @@
 using Koh.Common;
-using Koh.Core.Symbols;
+using Koh.Objects;
 
 namespace Koh.Linker;
 
