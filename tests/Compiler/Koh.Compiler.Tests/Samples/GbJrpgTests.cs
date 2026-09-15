@@ -20,7 +20,7 @@ using LinkerType = Koh.Linker.Linker;
 namespace Koh.Compiler.Tests.Samples;
 
 /// <summary>
-/// Acceptance test of the SECOND north star (M6): <c>samples/gb-jrpg</c> — a Game Boy COLOR
+/// Acceptance test of the SECOND north star (M6): <c>samples/csharp/gb-jrpg</c> — a Game Boy COLOR
 /// mini-JRPG written as ideal C# before its constructs could compile. The gaps it forced, now
 /// fixed: rank-2 rectangular arrays (<c>byte[,]</c> overworld), reference-element arrays
 /// (<c>string[]</c> dialogue), and stored delegates (the dialogue close-callback, enabler E3).
@@ -39,7 +39,7 @@ public class GbJrpgTests
     private static string RepoRoot() => TestSupport.TestRepo.Root;
 
     private static readonly Lazy<string> SampleDir = new(() =>
-        Path.Combine(RepoRoot(), "samples", "gb-jrpg")
+        Path.Combine(RepoRoot(), "samples", "csharp", "gb-jrpg")
     );
 
     private static readonly Lazy<IReadOnlyList<TileSheetConverter.Sheet>> Sheets = new(() =>

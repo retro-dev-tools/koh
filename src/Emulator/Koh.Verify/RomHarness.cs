@@ -5,7 +5,7 @@
 // to PPM/PNG, read raw memory, and accumulate pass/fail assertions.
 //
 // Designed to be driven from a small console app per ROM. The sample
-// in samples/gb-2048 uses this to verify its state transitions.
+// in samples/asm/gb-2048 uses this to verify its state transitions.
 using System.IO;
 using System.Text;
 using Koh.Boot;

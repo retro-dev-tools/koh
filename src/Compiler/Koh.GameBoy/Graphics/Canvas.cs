@@ -5,8 +5,8 @@ namespace Koh.GameBoy.Graphics;
 /// <summary>
 /// A tile-backed pixel surface — graphics-library design doc §3 "Canvas.cs", the one remaining v1
 /// module (§8 resolved decision 1: "Canvas IS in v1"). Consolidates the three near-identical
-/// <c>samples/gb-3d/{double-buffered,full-frame,racing-beam}/Surface.cs</c> files plus
-/// <c>samples/gb-3d/shared/SpanFill.cs</c> into one type: a game/demo gets a rectangular grid of BG
+/// <c>samples/csharp/gb-3d/{double-buffered,full-frame,racing-beam}/Surface.cs</c> files plus
+/// <c>samples/csharp/gb-3d/shared/SpanFill.cs</c> into one type: a game/demo gets a rectangular grid of BG
 /// tiles it treats as a raw 2bpp bitmap (<see cref="SetPixel"/>/<see cref="DrawLine"/>/
 /// <see cref="FillTriangle"/>/...), then <see cref="Present"/> gets those bytes into VRAM the
 /// hardware-appropriate way. One canvas per program, static — VRAM only holds one such surface, and
@@ -76,7 +76,7 @@ public static unsafe class Canvas
 
     /// <summary>Safe per-vblank CGB GDMA chunk while the LCD stays ON: 120 blocks (1920 bytes) at 32
     /// dots/block = 3840 dots against the ~4104-dot usable vblank budget — lifted verbatim from
-    /// <c>samples/gb-3d/double-buffered/Surface.cs</c>'s <c>Present()</c>/<see cref="TileSet"/>'s own
+    /// <c>samples/csharp/gb-3d/double-buffered/Surface.cs</c>'s <c>Present()</c>/<see cref="TileSet"/>'s own
     /// identical constant (same hardware, same derivation; see either's remarks for the full budget
     /// arithmetic). Deliberately not the full 2048-byte hardware ceiling — that would leave only an
     /// 8-dot margin, not the proven number.</summary>
@@ -92,15 +92,15 @@ public static unsafe class Canvas
     /// is the same call-depth shape as <c>TileSet.Load</c> -&gt; <c>LoadCore</c> -&gt; <c>DripCpu</c> -&gt;
     /// <c>Mem.Copy</c>. That theory was never actually exercised at realistic scale by either module's own
     /// unit tests (both only drove a handful of chunks) and turned out to be WRONG at scale: retrofitting
-    /// <c>samples/gb-3d/double-buffered</c> onto this module (graphics-library design doc §5, item 2) and
+    /// <c>samples/csharp/gb-3d/double-buffered</c> onto this module (graphics-library design doc §5, item 2) and
     /// running the real 1920-byte, ~480-chunk-per-page DMG present against
-    /// <c>samples/gb-3d/verify</c>'s <c>Mode3WriteGuard</c> caught n=4 landing 295 real VRAM writes during
+    /// <c>samples/csharp/gb-3d/verify</c>'s <c>Mode3WriteGuard</c> caught n=4 landing 295 real VRAM writes during
     /// PPU mode 3 over a 2000-frame run — this module's own extra per-iteration static-field reads
     /// (<see cref="_pixels"/>/<see cref="_bufferBytes"/>, absent from <c>Surface.cs</c>'s original
     /// all-local-variable loop that n=7 was tuned against) push the per-chunk dot cost past budget even
     /// at TileSet's more conservative n=4. Bisected directly against that same guard at full 1920-byte
     /// scale: n=4 fails (295 violations), n=3 is clean (zero violations across the full
-    /// <c>samples/gb-3d/verify</c> double-buffered/dmg run, both the 1100- and 2000-frame snapshots) —
+    /// <c>samples/csharp/gb-3d/verify</c> double-buffered/dmg run, both the 1100- and 2000-frame snapshots) —
     /// n=3 is this module's own proven-safe figure, not a re-guess.</summary>
     private const byte VblankCpuChunkBytes = 3;
 

@@ -47,15 +47,15 @@
     <Project Path="tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/Samples/">
-    <Project Path="samples/KohUI.Demo/KohUI.Demo.csproj" />
-    <Project Path="samples/gb-2048-cs/Gb2048CSharp.csproj" />
-    <Project Path="samples/gb-2048-v2/Gb2048V2.csproj" />
-    <Project Path="samples/gb-2048/verify/Gb2048Verify.csproj" />
-    <Project Path="samples/gb-3d/double-buffered/CubeDoubleBuffered.csproj" />
-    <Project Path="samples/gb-3d/full-frame/CubeFullFrame.csproj" />
-    <Project Path="samples/gb-3d/racing-beam/CubeRacingBeam.csproj" />
-    <Project Path="samples/gb-3d/verify/Cube3dVerify.csproj" />
-    <Project Path="samples/gb-gfx-demo/GbGfxDemo.csproj" />
-    <Project Path="samples/gb-jrpg/Gbjrpg.csproj" />
+    <Project Path="samples/ui/KohUI.Demo/KohUI.Demo.csproj" />
+    <Project Path="samples/csharp/gb-2048-cs/Gb2048CSharp.csproj" />
+    <Project Path="samples/csharp/gb-2048-v2/Gb2048V2.csproj" />
+    <Project Path="samples/asm/gb-2048/verify/Gb2048Verify.csproj" />
+    <Project Path="samples/csharp/gb-3d/double-buffered/CubeDoubleBuffered.csproj" />
+    <Project Path="samples/csharp/gb-3d/full-frame/CubeFullFrame.csproj" />
+    <Project Path="samples/csharp/gb-3d/racing-beam/CubeRacingBeam.csproj" />
+    <Project Path="samples/csharp/gb-3d/verify/Cube3dVerify.csproj" />
+    <Project Path="samples/csharp/gb-gfx-demo/GbGfxDemo.csproj" />
+    <Project Path="samples/csharp/gb-jrpg/Gbjrpg.csproj" />
   </Folder>
 </Solution>

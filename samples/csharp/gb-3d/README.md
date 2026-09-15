@@ -22,9 +22,9 @@ the same on both machines.
 ## Build
 
 ```powershell
-dotnet build samples/gb-3d/double-buffered/CubeDoubleBuffered.csproj
-dotnet build samples/gb-3d/full-frame/CubeFullFrame.csproj
-dotnet build samples/gb-3d/racing-beam/CubeRacingBeam.csproj
+dotnet build samples/csharp/gb-3d/double-buffered/CubeDoubleBuffered.csproj
+dotnet build samples/csharp/gb-3d/full-frame/CubeFullFrame.csproj
+dotnet build samples/csharp/gb-3d/racing-beam/CubeRacingBeam.csproj
 ```
 
 Each project emits its `.gb` beside the project file. `dotnet run --project <project>` builds and opens
@@ -33,7 +33,7 @@ the ROM in Koh.Emulator.
 ## Headless verification
 
 ```powershell
-dotnet run --project samples/gb-3d/verify/Cube3dVerify.csproj
+dotnet run --project samples/csharp/gb-3d/verify/Cube3dVerify.csproj
 ```
 
 The verifier boots all three ROMs in both DMG and CGB modes, runs a per-ROM-per-mode frame budget tuned

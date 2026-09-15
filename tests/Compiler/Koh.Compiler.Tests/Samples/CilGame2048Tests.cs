@@ -18,7 +18,7 @@ namespace Koh.Compiler.Tests.Samples;
 
 /// <summary>
 /// The CIL-frontend counterpart of <see cref="Game2048Tests"/>: instead of feeding the sample's C#
-/// source straight to <c>CSharpFrontend</c>, this compiles the real <c>samples/gb-2048-cs</c> files
+/// source straight to <c>CSharpFrontend</c>, this compiles the real <c>samples/csharp/gb-2048-cs</c> files
 /// (unmodified) to a genuine assembly with Roslyn — referencing the already-built
 /// <c>Koh.GameBoy.dll</c> exactly as the SDK's <c>cil</c> path does (see <c>Sdk.targets</c>'s
 /// <c>CompileKohRom</c>: <c>AssemblyPath</c> + <c>ReferencePaths</c>, no source list) — then runs that
@@ -37,7 +37,7 @@ public class CilGame2048Tests
     private static string RepoRoot() => TestSupport.TestRepo.Root;
 
     private static string ReadSampleFile(string name) =>
-        File.ReadAllText(Path.Combine(RepoRoot(), "samples", "gb-2048-cs", name));
+        File.ReadAllText(Path.Combine(RepoRoot(), "samples", "csharp", "gb-2048-cs", name));
 
     // ---- Roslyn: compile the real sample files (+ an optional test entry point) to a real
     // assembly on disk, referencing Koh.GameBoy.dll exactly as the SDK's cil path does. ------------

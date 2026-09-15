@@ -30,12 +30,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\UI\KohUI\KohUI.csproj" />
-    <ProjectReference Include="..\..\src\UI\KohUI.Backends.Gl\KohUI.Backends.Gl.csproj" />
+    <ProjectReference Include="..\..\..\src\UI\KohUI\KohUI.csproj" />
+    <ProjectReference Include="..\..\..\src\UI\KohUI.Backends.Gl\KohUI.Backends.Gl.csproj" />
     <!-- DomBackend is only linked when KohUIDevPreview is on so Release
          publishes don't drag Kestrel + static-web-assets into the AOT
          binary. -->
-    <ProjectReference Include="..\..\src\UI\KohUI.Backends.Dom\KohUI.Backends.Dom.csproj"
+    <ProjectReference Include="..\..\..\src\UI\KohUI.Backends.Dom\KohUI.Backends.Dom.csproj"
                       Condition="'$(KohUIDevPreview)' == 'true'" />
   </ItemGroup>
 

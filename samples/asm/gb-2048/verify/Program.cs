@@ -7,11 +7,11 @@
 // Per-state PNGs go to <out>/shot_*.png and the contact sheet + gif go to
 // <out>/shot_contact.png and <out>/shot_anim.gif.
 //
-// Run: dotnet run --project samples/gb-2048/verify -- [<rom>] [<out>]
+// Run: dotnet run --project samples/asm/gb-2048/verify -- [<rom>] [<out>]
 using Koh.Emulator.Joypad;
 using Koh.Verify;
 
-string rom = args.Length > 0 ? args[0] : Path.Combine("samples", "gb-2048", "build", "2048.gbc");
+string rom = args.Length > 0 ? args[0] : Path.Combine("samples", "asm", "gb-2048", "build", "2048.gbc");
 string outDir =
     args.Length > 1 ? args[1] : Path.Combine(Path.GetDirectoryName(rom)!, "verify-shots");
 Directory.CreateDirectory(outDir);

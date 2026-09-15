@@ -48,7 +48,7 @@ public static unsafe class TileSet
     /// dots/block (2 bytes per M-cycle, CPU halted, per <see cref="Cgb.CopyToVram"/>'s remarks) =
     /// 3840 dots, against the ~4104-dot usable vblank budget (10 lines x 456 dots, minus the one line
     /// <see cref="Ppu.WaitVBlank"/>'s edge detection eats) — a 264-dot margin. Lifted verbatim from
-    /// <c>samples/gb-3d/double-buffered/Surface.cs</c>'s <c>Present()</c>, which measured and verified
+    /// <c>samples/csharp/gb-3d/double-buffered/Surface.cs</c>'s <c>Present()</c>, which measured and verified
     /// this exact figure against its Mode3WriteGuard harness (deliberately NOT the full 2048-byte
     /// hardware ceiling above: 128 blocks x 32 dots = 4096 dots would leave only an 8-dot margin against
     /// the same budget — razor-thin, not the proven number).</summary>

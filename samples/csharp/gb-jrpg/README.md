@@ -6,7 +6,7 @@ a pond, organic shoreline, tree copses, a ruined mill wall, and a dead-end nook)
 villager through paged dialogue, rolls random encounters into a menu-driven turn-based battle,
 levels, victory and defeat — authored with no regard for what the compiler supported at the time,
 per the ideal-code methodology of
-[`docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`](../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md).
+[`docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`](../../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md).
 It compiles unmodified; `dotnet build` emits `jrpg.gb` (header `0xC0` — CGB only, no monochrome
 fallback), and `tests/Compiler/Koh.Compiler.Tests/Samples/GbJrpgTests.cs` boots it on the emulator in CGB
 mode and plays it through (walk → fight whatever the encounter roll throws at it → talk → dialogue

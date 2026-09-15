@@ -38,7 +38,7 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 
 Push-Location $repoRoot
 try {
-    $dotnetArgs = @('run', '--project', 'samples/KohUI.Demo')
+    $dotnetArgs = @('run', '--project', 'samples/ui/KohUI.Demo')
     if ($Preview)    { $dotnetArgs += '--';  $dotnetArgs += '--preview' }
     elseif ($NativeOnly) { $dotnetArgs += '--';  $dotnetArgs += '--native' }
 

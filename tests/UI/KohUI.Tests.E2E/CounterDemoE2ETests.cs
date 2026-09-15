@@ -105,7 +105,7 @@ public class CounterDemoE2ETests
     private static async Task<DemoHandle> StartDemoAsync()
     {
         var repoRoot = FindRepoRoot();
-        var demoDir = Path.Combine(repoRoot, "samples", "KohUI.Demo");
+        var demoDir = Path.Combine(repoRoot, "samples", "ui", "KohUI.Demo");
 
         var psi = new ProcessStartInfo
         {

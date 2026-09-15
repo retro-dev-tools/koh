@@ -332,7 +332,7 @@ public class MemRuntimeTests
     /// slope between two large counts: (dots(1920) - dots(256)) / (1920 - 256). Both counts exceed the
     /// 256-byte block threshold, and subtracting cancels the shared Mem.Alloc/call/prologue overhead
     /// that <see cref="Copy_CostPerByte_IsWithinLooseCeiling"/>'s small count can't strip out. This is
-    /// the number items 1-4 of the samples/gb-3d rework size their per-vblank chunk budgets against.</summary>
+    /// the number items 1-4 of the samples/csharp/gb-3d rework size their per-vblank chunk budgets against.</summary>
     [Test]
     public async Task Copy_MarginalCostPerByte_IsWithinLooseCeiling()
     {

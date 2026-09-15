@@ -35,7 +35,7 @@ public class FlushRunLoopResidencyTests
     private static string Root() => TestSupport.TestRepo.Root;
 
     private static readonly string DemoSource = File.ReadAllText(
-        Path.Combine(Root(), "samples", "gb-gfx-demo", "Game.cs")
+        Path.Combine(Root(), "samples", "csharp", "gb-gfx-demo", "Game.cs")
     );
 
     private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>

@@ -13,7 +13,7 @@ using LinkerType = Koh.Linker.Linker;
 namespace Koh.Compiler.Tests.Samples;
 
 /// <summary>
-/// Compiles the real <c>samples/gb-gfx-demo</c> showcase — one ROM exercising every module under
+/// Compiles the real <c>samples/csharp/gb-gfx-demo</c> showcase — one ROM exercising every module under
 /// <c>Koh.GameBoy.Graphics</c> (graphics-library design doc §5, item 3) — through the real pipeline
 /// (Roslyn -&gt; <see cref="CilFrontend"/> -&gt; IR -&gt; <see cref="Sm83Backend"/> -&gt; linker -&gt;
 /// <see cref="GameBoySystem"/>), mirroring <c>Cube3dTests</c>'s technique for a real, unmodified,
@@ -42,7 +42,7 @@ public class GbGfxDemoTests
     private static string Root() => TestSupport.TestRepo.Root;
 
     private static readonly string DemoSource = File.ReadAllText(
-        Path.Combine(Root(), "samples", "gb-gfx-demo", "Game.cs")
+        Path.Combine(Root(), "samples", "csharp", "gb-gfx-demo", "Game.cs")
     );
 
     // ---- Roslyn: compile the real sample to a real assembly, referencing Koh.GameBoy.dll ---------

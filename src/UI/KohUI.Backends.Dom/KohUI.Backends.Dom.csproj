@@ -6,7 +6,7 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <IsPackable>false</IsPackable>
     <!-- We host a library (no Program.cs); the concrete Kestrel entry lives
-         in the consuming app (samples/KohUI.Demo). -->
+         in the consuming app (samples/ui/KohUI.Demo). -->
     <OutputType>Library</OutputType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>

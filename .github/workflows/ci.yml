@@ -133,4 +133,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: 2048.gbc
-          path: samples/gb-2048/build/2048.gbc
+          path: samples/asm/gb-2048/build/2048.gbc

@@ -139,8 +139,8 @@ EntryPoint:
 
 | Sample | Description |
 |--------|-------------|
-| [`samples/KohUI.Demo`](samples/KohUI.Demo/) | Counter app showing off KohUI (the .NET UI framework strand of Koh) |
-| [`samples/gb-2048`](samples/gb-2048/) | 2048 game ROM for Game Boy Color demonstrating multi-bank assembly, GBC hardware features, and SRAM saves |
+| [`samples/ui/KohUI.Demo`](samples/ui/KohUI.Demo/) | Counter app showing off KohUI (the .NET UI framework strand of Koh) |
+| [`samples/asm/gb-2048`](samples/asm/gb-2048/) | 2048 game ROM for Game Boy Color demonstrating multi-bank assembly, GBC hardware features, and SRAM saves |
 
 Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 

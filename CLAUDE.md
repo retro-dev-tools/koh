@@ -171,11 +171,11 @@ or when diagnosing an out-of-subset diagnostic.
 
 ## Gotchas
 
-- Building the C# sample ROM: `dotnet build samples/gb-2048-cs` (the Koh SDK emits `2048.gb` after the
-  managed build). `dotnet run --project samples/gb-2048-cs` builds the ROM and opens it in the Koh
+- Building the C# sample ROM: `dotnet build samples/csharp/gb-2048-cs` (the Koh SDK emits `2048.gb` after the
+  managed build). `dotnet run --project samples/csharp/gb-2048-cs` builds the ROM and opens it in the Koh
   emulator — the SDK (`Sdk.targets`) overrides `RunCommand` to launch `Koh.Emulator.App` on the game's
   ROM, so this is the default for every Koh game; the managed reference build is still the project's own
-  binary — `dotnet exec samples/gb-2048-cs/bin/<config>/net10.0/Gb2048CSharp.dll` for the terminal
+  binary — `dotnet exec samples/csharp/gb-2048-cs/bin/<config>/net10.0/Gb2048CSharp.dll` for the terminal
   renderer. Under the hood this is the `cil` frontend (`Koh.Sdk`'s `KohFrontend` MSBuild property,
   `CompileKohRom` task): the plain .NET SDK compiles the game to a real managed assembly first, then
   `CompileKohRom` hands `TargetPath` + `@(ReferencePath)` (which includes `Koh.GameBoy.dll`, so the Hal
