@@ -5,7 +5,6 @@ using Koh.Compiler;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
-using Koh.Core.Binding;
 using Koh.Debugger.Session;
 using Koh.Linker;
 using Koh.Objects;

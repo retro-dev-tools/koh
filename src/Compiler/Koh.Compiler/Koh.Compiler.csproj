@@ -1,9 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Asm\Koh.Core\Koh.Core.csproj" />
     <ProjectReference Include="..\..\Common\Koh.Objects\Koh.Objects.csproj" />
-    <ProjectReference Include="..\..\Link\Koh.Linker\Koh.Linker.csproj" />
   </ItemGroup>
 
   <ItemGroup>

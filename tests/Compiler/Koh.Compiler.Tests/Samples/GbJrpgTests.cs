@@ -6,7 +6,6 @@ using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Ir.Optimization;
-using Koh.Core.Binding;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Emulator.Joypad;

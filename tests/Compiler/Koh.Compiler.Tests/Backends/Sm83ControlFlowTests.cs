@@ -2,7 +2,6 @@ using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Targets;
-using Koh.Core.Binding;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Linker;

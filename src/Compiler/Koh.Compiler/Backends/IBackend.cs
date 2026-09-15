@@ -1,7 +1,6 @@
 using Koh.Common;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Targets;
-using Koh.Core.Binding;
 using Koh.Objects;
 
 namespace Koh.Compiler.Backends;

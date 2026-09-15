@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
 using Koh.Debugger.Dap.Messages;
-using Koh.Linker;
 using Koh.Objects;
 
 namespace Koh.Debugger.Dap.Handlers;

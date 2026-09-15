@@ -5,7 +5,6 @@
     <ProjectReference Include="..\..\Common\Koh.Objects\Koh.Objects.csproj" />
     <ProjectReference Include="..\Koh.Boot\Koh.Boot.csproj" />
     <ProjectReference Include="..\Koh.Emulator\Koh.Emulator.csproj" />
-    <ProjectReference Include="..\..\Link\Koh.Linker\Koh.Linker.csproj" />
   </ItemGroup>
 
   <ItemGroup>
