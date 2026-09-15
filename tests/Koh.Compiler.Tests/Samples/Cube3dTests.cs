@@ -174,6 +174,7 @@ public class Cube3dTests
     private static byte[] Boot(byte[] rom, int frames, HardwareMode mode = HardwareMode.Dmg)
     {
         var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);
+        Array.Clear(gb.Mmu.VramArray); // no boot ROM runs: stand in for its VRAM clear (both banks)
         gb.Registers.Pc = 0x100; // boot: NOP; JP entry
         gb.Registers.Sp = 0xFFFE;
         for (var i = 0; i < frames; i++)

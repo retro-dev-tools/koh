@@ -130,6 +130,7 @@ public class CilBgWinTests
         var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
         start = 0x100;
         var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);
+        Array.Clear(gb.Mmu.VramArray); // no boot ROM runs: stand in for its VRAM clear (both banks)
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start;
         return gb;
