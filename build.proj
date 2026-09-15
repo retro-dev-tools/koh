@@ -3,8 +3,8 @@
   No external tooling required — MSBuild ships with the .NET SDK.
 
   Quick reference:
-    dotnet msbuild build.proj -t:Test
-    dotnet msbuild build.proj -t:CompatTests
+    dotnet msbuild build.proj -t:Test      (fast suite — no Koh.Compiler.Tests)
+    dotnet msbuild build.proj -t:TestAll   (everything; needs RAM, see below)
     dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
@@ -17,15 +17,31 @@
     <EmulatorPublishDir>$(MSBuildThisFileDirectory)src\Koh.Emulator.App\bin\Release\net10.0\$(EmulatorRuntimeIdentifier)\publish</EmulatorPublishDir>
   </PropertyGroup>
 
+  <!--
+    Test is the DEFAULT development loop and deliberately excludes Koh.Compiler.Tests.
+    That project's 522 cases each Roslyn-compile a source fixture to a real assembly on
+    disk and then run an emulator over the result; run in parallel they exhaust memory on
+    a normal desktop and take the machine down with them. Everything else in the repo is
+    ordinary unit testing — Koh.Core.Tests has twice as many cases and finishes in
+    seconds.
+
+    Use TestAll before pushing, or when touching the compiler. It is what CI runs.
+  -->
   <Target Name="Test">
     <!-- The solution flag is required: a bare positional arg is ambiguous to the .NET 10 SDK's
          `dotnet test` when the repo root has multiple sln/slnf files (see ci.yml, fixed the same way). -->
+    <Exec Command="dotnet test --solution Koh.Fast.slnf" />
+  </Target>
+
+  <Target Name="TestAll">
     <Exec Command="dotnet test --solution Koh.NoCompat.slnf" />
   </Target>
 
-  <Target Name="CompatTests">
-    <Exec Command="dotnet test tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj" />
-  </Target>
+  <!--
+    The CompatTests target is gone: tests/Koh.Compat.Tests is disabled entirely for
+    now. It is out of the solution and out of CI, and its sources stay on disk.
+    See tests/Koh.Compat.Tests/README.md for what re-enabling involves.
+  -->
 
   <Target Name="Benchmark">
     <Exec Command="dotnet run --project benchmarks/Koh.Benchmarks/ --configuration Release" />

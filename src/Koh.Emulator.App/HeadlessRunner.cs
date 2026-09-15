@@ -19,9 +19,7 @@ namespace Koh.Emulator.App;
 /// CLI path instead of a throwaway test, per
 /// <c>docs/superpowers/specs/2026-07-16-koh-debug-tooling-design.md</c> section 1.
 ///
-/// Deliberately does NOT call <see cref="GameBoySystem.ArmBootAnimation"/> — like tests, the DAP
-/// debugger, and every other headless caller, this expects PC=$0100 to execute starting on the very
-/// first frame with no boot logo/chime.
+/// The boot ROM runs first, as on hardware; frame counts include it.
 /// </summary>
 public static class HeadlessRunner
 {
@@ -31,7 +29,8 @@ public static class HeadlessRunner
         int frames,
         string? inputScriptPath,
         bool mode3ReportRequested,
-        string? mode3ReportPath
+        string? mode3ReportPath,
+        BootRomResolver bootRoms
     )
     {
         if (!File.Exists(romPath))
@@ -42,10 +41,16 @@ public static class HeadlessRunner
 
         var rom = File.ReadAllBytes(romPath);
         var cart = CartridgeFactory.Load(rom);
-        // Same hardware-mode selection as EmulatorApp.LoadRomFromDisk: a cartridge whose header sets
-        // the CGB flag boots in CGB mode regardless of file extension.
-        var mode = cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg;
-        var gb = new GameBoySystem(mode, cart);
+        var gb = new GameBoySystem(cart);
+        try
+        {
+            gb.LoadBootRom(bootRoms.Resolve(gb.Mode));
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
 
         Mode3WriteGuard? guard = null;
         if (mode3ReportRequested)

@@ -20,7 +20,7 @@ public class Phase3Benchmarks
     {
         byte[] rom = LocateBlarggRom() ?? BuildNopLoopRom();
         var cart = CartridgeFactory.Load(rom);
-        _gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        _gb = new GameBoySystem(cart, HardwareMode.Dmg);
     }
 
     private static byte[]? LocateBlarggRom()

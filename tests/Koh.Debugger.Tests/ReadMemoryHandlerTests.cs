@@ -15,7 +15,7 @@ public class ReadMemoryHandlerTests
         var responses = new List<byte[]>();
         dispatcher.ResponseReady += data => responses.Add(data.ToArray());
 
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
         rom[0x0100] = 0xAA;
         rom[0x0101] = 0xBB;

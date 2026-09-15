@@ -133,8 +133,7 @@ public static class EmulatorApp
         // only run when the UI is actually consuming them. Without
         // this, the 192 KB VRAM buffer allocation and the BGR555
         // decode happen every frame regardless of panel visibility.
-        if (m.Loop is not null)
-            m.Loop.PublishDebugSnapshots = next;
+        m.Loop?.PublishDebugSnapshots = next;
         return m with { ShowDebug = next };
     }
 
@@ -258,9 +257,9 @@ public static class EmulatorApp
     {
         byte[] pixels = m.Loop?.CurrentFramebuffer ?? s_placeholder;
 
-        var menu = new MenuBar<EmulatorMsg>(
-            ImmutableArray.Create(new MenuItem<EmulatorMsg>("&File", OnClick: OpenRomClick))
-        );
+        var menu = new MenuBar<EmulatorMsg>([
+            new MenuItem<EmulatorMsg>("&File", OnClick: OpenRomClick),
+        ]);
 
         var display = new Image<EmulatorMsg>(
             pixels,
@@ -279,16 +278,16 @@ public static class EmulatorApp
         {
             var debugPanes = new ForEach<EmulatorMsg>(
                 StackDirection.Vertical,
-                ImmutableArray.Create<IView<EmulatorMsg>>(
+                [
                     BuildCpuPanel(m.Loop?.CurrentCpu),
                     BuildPalettePanel(m.Loop?.CurrentPalettes),
                     BuildVramPanel(m.Loop?.CurrentVram),
-                    BuildMemoryPanel(m.Loop?.CurrentMemory)
-                )
+                    BuildMemoryPanel(m.Loop?.CurrentMemory),
+                ]
             );
             displayArea = new ForEach<EmulatorMsg>(
                 StackDirection.Horizontal,
-                ImmutableArray.Create<IView<EmulatorMsg>>(display, debugPanes)
+                [display, debugPanes]
             );
         }
         else
@@ -299,7 +298,7 @@ public static class EmulatorApp
         bool paused = m.Loop?.IsPaused ?? true;
         var controls = new ForEach<EmulatorMsg>(
             StackDirection.Horizontal,
-            ImmutableArray.Create<IView<EmulatorMsg>>(
+            [
                 new Button<EmulatorMsg>(
                     paused ? "Resume" : "Pause",
                     OnClick: () => new TogglePause()
@@ -308,17 +307,18 @@ public static class EmulatorApp
                 new Button<EmulatorMsg>(
                     m.ShowDebug ? "Hide Debug" : "Show Debug",
                     OnClick: () => new ToggleDebug()
-                )
-            )
+                ),
+            ]
         );
 
-        var status = new StatusBar<EmulatorMsg>(
-            ImmutableArray.Create(m.Status, m.Loop is null ? "No ROM" : $"Frame {m.FrameCount}")
-        );
+        var status = new StatusBar<EmulatorMsg>([
+            m.Status,
+            m.Loop is null ? "No ROM" : $"Frame {m.FrameCount}",
+        ]);
 
         var body = new ForEach<EmulatorMsg>(
             StackDirection.Vertical,
-            ImmutableArray.Create<IView<EmulatorMsg>>(menu, displayArea, controls, status)
+            [menu, displayArea, controls, status]
         );
 
         // Width: LCD + 16 px chrome, plus ~440 px for the debug side
@@ -439,7 +439,7 @@ public static class EmulatorApp
     /// texture keyed on node path, so re-publish each frame is a
     /// TexSubImage2D, not a realloc.
     /// </summary>
-    private static IView<EmulatorMsg> BuildVramPanel(VramSnapshot? vram)
+    private static Panel<EmulatorMsg, IView<EmulatorMsg>> BuildVramPanel(VramSnapshot? vram)
     {
         IView<EmulatorMsg> body = vram is null
             ? new Label<EmulatorMsg>("(no ROM)")
@@ -510,10 +510,7 @@ public static class EmulatorApp
         );
         return new Panel<EmulatorMsg, ForEach<EmulatorMsg>>(
             PanelBevel.Sunken,
-            new ForEach<EmulatorMsg>(
-                StackDirection.Vertical,
-                ImmutableArray.Create<IView<EmulatorMsg>>(header, scroller)
-            )
+            new ForEach<EmulatorMsg>(StackDirection.Vertical, [header, scroller])
         );
     }
 
@@ -560,23 +557,18 @@ public static class EmulatorApp
         return buf;
     }
 
+    /// <summary>Boot ROM selection from the command line; Koh's own by default.</summary>
+    public static BootRomResolver BootRoms { get; set; } = new(null, null, null);
+
     public static EmulatorMsg LoadRomFromDisk(string path)
     {
         try
         {
             var bytes = File.ReadAllBytes(path);
             var cart = CartridgeFactory.Load(bytes);
-            // Pick the hardware the way a real Game Boy Color would: a cartridge
-            // whose header sets the CGB flag ($0143 bit 7) boots in CGB mode
-            // regardless of file extension. mGBA selects the same way.
-            var mode = cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg;
-            var system = new GameBoySystem(mode, cart);
-            // The interactive App is the one caller that opts into the visible
-            // HLE boot sequence (logo scroll + chime) GameBoySystem can play
-            // before the cartridge starts — off by default everywhere else
-            // (tests, the debugger, headless tooling) since they expect
-            // PC=$0100 to execute starting on the very first frame.
-            system.ArmBootAnimation();
+
+            var system = new GameBoySystem(cart);
+            system.LoadBootRom(BootRoms.Resolve(system.Mode));
             return new LoadRomSucceeded(system, path);
         }
         catch (Exception ex)

@@ -34,15 +34,27 @@ public sealed class GameBoySystem
 
     private bool _running;
 
-    public GameBoySystem(HardwareMode mode, Cartridge.Cartridge cart)
+    /// <summary>
+    /// Constructs the system for <paramref name="cart"/>. <paramref name="mode"/> defaults to
+    /// auto-detecting from the cartridge header (<see cref="Cartridge.CartridgeHeader.CgbFlag"/>) —
+    /// the same behavior real hardware exhibits when a CGB-capable cartridge is inserted. Pass an
+    /// explicit value to force a mode instead (e.g. running a CGB-compatible $80 cartridge in DMG
+    /// mode to check its DMG-compatibility path) — mirroring how accurate emulators (SameBoy, mGBA,
+    /// BGB) let auto-detection be overridden. Not validated against the header: real DMG hardware has
+    /// no concept of the CGB flag to reject in the first place, so an "unsupported" combination (e.g.
+    /// forcing DMG on a CGB-only cartridge) is left to behave however the cartridge's own code does.
+    /// </summary>
+    public GameBoySystem(Cartridge.Cartridge cart, HardwareMode? mode = null)
     {
-        Mode = mode;
+        var resolvedMode = mode ?? (cart.Header.CgbFlag ? HardwareMode.Cgb : HardwareMode.Dmg);
+
+        Mode = resolvedMode;
         Cartridge = cart;
         Timer = new Timer.Timer();
-        Io = new IoRegisters(Timer) { HardwareMode = mode };
+        Io = new IoRegisters(Timer) { HardwareMode = resolvedMode };
         Mmu = new Mmu(cart, Io);
-        Ppu = new Ppu.Ppu(mode, Mmu.VramArray, Mmu.OamArray);
-        Apu = new Apu.Apu(mode);
+        Ppu = new Ppu.Ppu(resolvedMode, Mmu.VramArray, Mmu.OamArray);
+        Apu = new Apu.Apu(resolvedMode);
         OamDma = new OamDma(Mmu);
         Mmu.AttachOamDma(OamDma);
         Mmu.AttachPpu(Ppu);
@@ -64,216 +76,51 @@ public sealed class GameBoySystem
         // Sm83 drives peripheral ticks per memory access: each ReadByte /
         // WriteByte / ReadImmediate / InternalCycle advances one M-cycle.
         Cpu = new Sm83(Mmu, TickForMCycle);
-
-        // Post-boot-ROM CPU state. We skip the boot ROM, so the game must
-        // see the canonical register values the boot ROM would have set —
-        // in particular A = $11 on CGB is how every CGB-aware game detects
-        // color hardware. Without this, CGB-enhanced games (Azure Dreams,
-        // Pokémon Gold/Silver, etc.) see A=0 at $0100, take their DMG code
-        // path, and never populate VRAM bank 1 attributes.
-        ref var r = ref Cpu.Registers;
-        if (mode == HardwareMode.Cgb)
-        {
-            r.A = 0x11;
-            r.F = 0x80;
-            r.B = 0x00;
-            r.C = 0x00;
-            r.D = 0xFF;
-            r.E = 0x56;
-            r.H = 0x00;
-            r.L = 0x0D;
-        }
-        else
-        {
-            r.A = 0x01;
-            r.F = 0xB0;
-            r.B = 0x00;
-            r.C = 0x13;
-            r.D = 0x00;
-            r.E = 0xD8;
-            r.H = 0x01;
-            r.L = 0x4D;
-        }
-
-        // Post-boot-ROM VRAM/palette state. We skip the boot ROM, but the
-        // real one always clears all of VRAM to $00 before it draws anything
-        // (both DMG and CGB boot ROMs open with the same "clear $8000-$9FFF"
-        // loop — SameBoy's clean-room dmg_boot.asm/cgb_boot.asm — and the CGB
-        // one clears VRAM a second time via HDMA right before hand-off, after
-        // fading every BG color palette to white). Mmu poisons VRAM to $FF
-        // like the rest of RAM (fc5a251) to catch reads of never-written
-        // data; that poison is correct for raw power-on state but wrong for
-        // the boot-ROM *hand-off* state modeled here; the two are different
-        // layers; this constructor overlays the corrected hand-off state on
-        // top. Without this, an all-$FF tilemap byte selects tile $FF, whose
-        // (also poisoned) pixel data is solid color id 3 — BGP=$FC maps that
-        // to black — while real hardware/mGBA shows white (tile $00 is
-        // all-zero pixel data = color id 0 = white under BGP=$FC).
-        //
-        // We deliberately do NOT model the CGB boot ROM's extra "clear WRAM
-        // bank 2" step — that would reintroduce exactly the leniency the
-        // $FF WRAM poison exists to catch (a compiled ROM that reads
-        // uninitialized WRAM and happens to see 0 here but garbage on real
-        // hardware). OAM and HRAM are likewise untouched by any boot ROM and
-        // stay poisoned.
-        Array.Clear(Mmu.VramArray);
-        if (mode == HardwareMode.Cgb)
-        {
-            // Native/CGB-compatible carts: the CGB boot ROM clears VRAM a
-            // SECOND time via HDMA right after fading BG palettes to white,
-            // right before hand-off (SameBoy cgb_boot.asm, Preboot: routine),
-            // so no logo tile/tilemap remnant survives — unlike DMG below.
-            Ppu.BgPalette.FillWhite();
-        }
-        else
-        {
-            // The monochrome boot ROM decompresses the cartridge header logo
-            // (BootLogo, from the publicly documented bitmap format — not
-            // boot ROM code) into tile indices 1-24 at $8010+, and references
-            // them from a 12x2 tilemap patch centered on screen columns
-            // 4-15, tilemap rows 8-9 — the only two rows it ever touches, so
-            // it's never cleared again before hand-off (SameBoy dmg_boot.asm:
-            // it jumps straight to reading registers and booting after the
-            // "ba-ding!" sound). We deliberately skip the "(R)" trademark
-            // glyph (tile $19 in the corner of row 8) since drawing it would
-            // mean embedding a Nintendo-specific symbol shape rather than
-            // cartridge-supplied data; that one tilemap cell is left at its
-            // cleared $00 (blank) instead.
-            DrawBootLogoIntoVram();
-        }
     }
 
-    /// <summary>Decompress the cartridge-header logo into tiles 1-24 at $8010+ and reference
-    /// them from the 12x2 tilemap patch at rows 8-9, cols 4-15 — the picture the monochrome
-    /// boot ROM composes before the scroll.</summary>
-    private void DrawBootLogoIntoVram()
+    /// <summary>
+    /// Insert a boot ROM, to execute from $0000 before the cartridge sees control.
+    /// Deliberately not a constructor parameter: this type has 67 construction sites,
+    /// most of them tests that set Pc/Sp directly and must not have a boot ROM run
+    /// first. "Won't run without a boot ROM" is an application-layer policy, not an
+    /// invariant of the machine — which is also how SameBoy, mGBA, and ares layer it.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// The blob's family does not match this machine's mode. A CGB machine running a
+    /// 256-byte boot ROM is not a device that exists, and accepting it silently
+    /// produces behavior that is very hard to explain later.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">Execution has already begun.</exception>
+    public void LoadBootRom(Boot.BootRom rom)
     {
-        var logoTiles = Boot.BootLogo.Decompress(Cartridge.Rom.AsSpan(0x104, 48));
-        logoTiles.CopyTo(Mmu.VramArray.AsSpan(0x10));
-        const int tilemapBase = 0x1800; // $9800 - $8000
-        const int firstCol = 4;
-        for (int trow = 0; trow < Boot.BootLogo.TileRows; trow++)
-        for (int tcol = 0; tcol < Boot.BootLogo.TileColumns; tcol++)
+        var expected = Mode == HardwareMode.Cgb ? Boot.BootRomFamily.Cgb : Boot.BootRomFamily.Dmg;
+        if (rom.Family != expected)
         {
-            int screenRow = 8 + trow;
-            int screenCol = firstCol + tcol;
-            Mmu.VramArray[tilemapBase + screenRow * 32 + screenCol] = (byte)(
-                1 + trow * Boot.BootLogo.TileColumns + tcol
+            int expectedSize =
+                expected == Boot.BootRomFamily.Cgb ? Boot.BootRom.CgbSize : Boot.BootRom.DmgSize;
+            throw new ArgumentException(
+                $"A {Mode} machine needs a {expected}-family boot ROM ({expectedSize} bytes), "
+                    + $"but the supplied boot ROM is {rom.Family}-family "
+                    + $"({rom.Bytes.Length} bytes).",
+                nameof(rom)
             );
         }
+
+        if (Clock.SystemTicks != 0)
+            throw new InvalidOperationException(
+                "LoadBootRom must be called before execution begins — a boot ROM inserted "
+                    + "mid-run would shadow code the CPU has already executed."
+            );
+
+        Mmu.MapBootRom(rom);
     }
+
+    /// <summary>True while boot ROM reads are shadowing the cartridge at $0000.</summary>
+    public bool BootRomMapped => Mmu.BootRomMapped;
 
     public ref CpuRegisters Registers => ref Cpu.Registers;
     public Framebuffer Framebuffer => Ppu.Framebuffer;
     public bool IsRunning => _running;
-
-    private int _bootAnimTotalFrames;
-    private int _bootAnimFramesRemaining;
-
-    /// <summary>True while an armed <see cref="ArmBootAnimation"/> sequence is still playing.</summary>
-    public bool BootAnimationActive => _bootAnimFramesRemaining > 0;
-
-    /// <summary>
-    /// Arms the visible HLE boot sequence: the next several <see cref="RunFrame"/>
-    /// calls tick peripherals only (no CPU instructions execute yet) while animating
-    /// the hand-off state the constructor already put in VRAM, mirroring what the real
-    /// (skipped) boot ROM shows on screen before it unmaps itself. Off by default —
-    /// callers that never call this see PC=$0100 execute on the very first
-    /// <see cref="RunFrame"/>/<see cref="StepInstruction"/>, unchanged from before this
-    /// feature existed. Intended for the interactive App only; must be called before the
-    /// first <see cref="RunFrame"/>.
-    ///
-    /// <para>
-    /// DMG: scrolls the logo already drawn in VRAM up from below the window to its
-    /// resting position (SCY 64 -&gt; 0 over the first ~64 frames, echoing the real boot
-    /// ROM's per-frame SCY decrement — SameBoy dmg_boot.asm's <c>.animate</c> loop), then
-    /// plays the two-tone "ba-ding!" through APU channel 1 (cheap: a handful of register
-    /// pokes at the same NR12/NR13/NR14 addresses the real boot ROM's PlaySound routine
-    /// uses) before handing off. This is an approximation of the real timing/exact SCY
-    /// steps, not a cycle-accurate reproduction.
-    /// </para>
-    /// <para>
-    /// CGB: the color boot ROM shows the same header logo (statically — no scroll)
-    /// before wiping VRAM and fading palettes to white for hand-off. The animation
-    /// draws the logo with a temporary black-on-white palette 0, holds it, plays the
-    /// ding, then restores the blank hand-off state (VRAM cleared, palettes white)
-    /// the constructor established — armed and skipped boots land identically.
-    /// </para>
-    /// </summary>
-    public void ArmBootAnimation()
-    {
-        if (Mode == HardwareMode.Dmg)
-        {
-            Ppu.SCY = 64;
-            _bootAnimTotalFrames = 90;
-        }
-        else
-        {
-            DrawBootLogoIntoVram();
-            // Logo pixels use color ids 1-3; hand-off palettes are all white,
-            // so give palette 0 a visible black-on-white ramp for the hold.
-            for (int slot = 1; slot < 4; slot++)
-                Ppu.BgPalette.SetColor(0, slot, 0x0000);
-            _bootAnimTotalFrames = 60;
-        }
-        _bootAnimFramesRemaining = _bootAnimTotalFrames;
-    }
-
-    private StepResult RunBootAnimationFrame()
-    {
-        int elapsed = _bootAnimTotalFrames - _bootAnimFramesRemaining;
-        if (Mode == HardwareMode.Dmg)
-            Ppu.SCY = (byte)Math.Max(0, 64 - elapsed);
-
-        if (elapsed == 0)
-        {
-            // Power the APU on the same way the real boot ROM's init does,
-            // so the chime below is audible: NR52 on, square-1 envelope,
-            // both stereo panning registers open.
-            Io.Write(0xFF26, 0x80); // NR52: power on
-            Io.Write(0xFF12, 0xF3); // NR12: square-1 volume/envelope
-            Io.Write(0xFF25, 0xF3); // NR51: panning
-            Io.Write(0xFF24, 0x77); // NR50: master volume
-        }
-        // Two-tone "ba-ding!": same NR13/NR14 addresses as the real boot
-        // ROM's PlaySound routine, fired once each at approximate spacing.
-        // Timed from the end of the animation so it plays on both the DMG's
-        // 90-frame scroll and the CGB's shorter hold.
-        if (elapsed == _bootAnimTotalFrames - 26)
-        {
-            Io.Write(0xFF13, 0x83);
-            Io.Write(0xFF14, 0x87); // bit 7 = trigger
-        }
-        else if (elapsed == _bootAnimTotalFrames - 21)
-        {
-            Io.Write(0xFF13, 0xC1);
-            Io.Write(0xFF14, 0x87);
-        }
-
-        while (Clock.FrameSystemTicks < (ulong)SystemClock.SystemTicksPerFrame)
-            TickOneMCycle(); // peripherals only — CPU hasn't started yet
-
-        _bootAnimFramesRemaining--;
-        if (_bootAnimFramesRemaining == 0)
-        {
-            if (Mode == HardwareMode.Dmg)
-            {
-                Ppu.SCY = 0; // real post-boot SCY
-            }
-            else
-            {
-                // Restore the CGB hand-off state the constructor established:
-                // the real color boot ROM wipes the logo (second VRAM clear via
-                // HDMA) and fades palettes to white right before hand-off, so
-                // an armed boot must land exactly where a skipped one does.
-                Array.Clear(Mmu.VramArray);
-                Ppu.BgPalette.FillWhite();
-            }
-        }
-
-        _running = false;
-        return new StepResult(StopReason.FrameComplete, Cpu.TotalTCycles, Cpu.Registers.Pc);
-    }
 
     /// <summary>
     /// Advance peripherals by 1 CPU M-cycle (4 T-cycles). Called by the CPU
@@ -349,6 +196,8 @@ public sealed class GameBoySystem
 
     public void WriteState(StateWriter w)
     {
+        // Boot ROM identity first, so a mismatch is refused before anything is overwritten.
+        w.WriteU64(Mmu.LoadedBootRom?.Fingerprint ?? 0);
         Clock.WriteState(w);
         Cpu.WriteState(w);
         Timer.WriteState(w);
@@ -365,6 +214,15 @@ public sealed class GameBoySystem
 
     public void ReadState(StateReader r)
     {
+        ulong saved = r.ReadU64();
+        ulong current = Mmu.LoadedBootRom?.Fingerprint ?? 0;
+        if (saved != current)
+            throw new InvalidDataException(
+                "This save state was captured with a different boot ROM "
+                    + $"(state fingerprint ${saved:X16}, currently loaded ${current:X16}). "
+                    + "Load the same boot ROM, or start a fresh run."
+            );
+
         Clock.ReadState(r);
         Cpu.ReadState(r);
         Timer.ReadState(r);
@@ -384,9 +242,6 @@ public sealed class GameBoySystem
         _running = true;
         RunGuard.Clear();
         Clock.ResetFrameCounter();
-
-        if (_bootAnimFramesRemaining > 0)
-            return RunBootAnimationFrame();
 
         while (Clock.FrameSystemTicks < (ulong)SystemClock.SystemTicksPerFrame)
         {

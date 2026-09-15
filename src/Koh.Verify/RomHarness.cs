@@ -8,7 +8,9 @@
 // in samples/gb-2048 uses this to verify its state transitions.
 using System.IO;
 using System.Text;
+using Koh.Boot;
 using Koh.Emulator.Core;
+using Koh.Emulator.Core.Boot;
 using Koh.Emulator.Core.Cartridge;
 using Koh.Emulator.Core.Joypad;
 
@@ -22,10 +24,16 @@ public sealed class RomHarness
 
     private readonly TextWriter _log;
 
-    public RomHarness(string romPath, HardwareMode mode = HardwareMode.Cgb, TextWriter? log = null)
+    public RomHarness(string romPath, HardwareMode? mode = null, TextWriter? log = null)
     {
         var cart = CartridgeFactory.Load(File.ReadAllBytes(romPath));
-        System = new GameBoySystem(mode, cart);
+        System = new GameBoySystem(cart, mode);
+        System.LoadBootRom(
+            BootRom.FromBytes(System.Mode == HardwareMode.Cgb ? KohBootRoms.Cgb : KohBootRoms.Dmg)
+        );
+        // Frame counts start at the cartridge entry. A boot ROM that locks up stops at the cap.
+        for (int i = 0; i < 600 && System.BootRomMapped; i++)
+            System.RunFrame();
         _log = log ?? Console.Out;
     }
 

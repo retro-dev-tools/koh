@@ -20,41 +20,18 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore solution
-        # Koh.Ci.slnf is the full solution minus the compat tests (which
-        # need downloaded ROMs and run as a dedicated job below).
+        # Koh.Ci.slnf is the full solution minus the compat tests, which are
+        # disabled entirely for now (see tests/Koh.Compat.Tests/README.md).
         run: dotnet restore Koh.Ci.slnf
 
       - name: Build solution
         run: dotnet build Koh.Ci.slnf --no-restore --configuration Release
 
-      - name: Download test ROMs (Unix)
-        if: runner.os != 'Windows'
-        run: bash scripts/download-test-roms.sh
-
-      - name: Download test ROMs (Windows)
-        if: runner.os == 'Windows'
-        run: powershell -ExecutionPolicy Bypass -File scripts/download-test-roms.ps1
-
       - name: Run tests
+        # The full suite, including Koh.Compiler.Tests. Local development uses
+        # `build.proj -t:Test` (Koh.Fast.slnf), which drops that project because its
+        # Roslyn-plus-emulator cases exhaust memory on a desktop.
         run: dotnet test --solution Koh.NoCompat.slnf --no-build --configuration Release
-
-  compat-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Download test ROMs
-        run: bash scripts/download-test-roms.sh
-
-      - name: Build compat tests
-        run: dotnet build tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --configuration Release
-
-      - name: Run compat tests
-        run: dotnet test --project tests/Koh.Compat.Tests/Koh.Compat.Tests.csproj --no-build --configuration Release
 
   # NativeAOT publishes of the emulator on each host runner. The AOT
   # compiler can't cross-OS, so each target's binary is produced on

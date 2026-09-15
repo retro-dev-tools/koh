@@ -40,7 +40,7 @@ public class Sm83BackendTests
         int start = Sm83Backend.CodeBase;
         int length = model.Sections[0].Data.Length;
 
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start;
 

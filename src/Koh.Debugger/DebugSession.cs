@@ -1,5 +1,7 @@
+using Koh.Boot;
 using Koh.Debugger.Session;
 using Koh.Emulator.Core;
+using Koh.Emulator.Core.Boot;
 using Koh.Emulator.Core.Cartridge;
 
 namespace Koh.Debugger;
@@ -25,11 +27,18 @@ public sealed class DebugSession
     public void Launch(
         ReadOnlyMemory<byte> romBytes,
         ReadOnlyMemory<byte> kdbgBytes,
-        HardwareMode mode
+        HardwareMode? mode = null
     )
     {
         var cart = CartridgeFactory.Load(romBytes.Span);
-        var system = new GameBoySystem(mode, cart);
+        var system = new GameBoySystem(cart, mode);
+        system.LoadBootRom(
+            BootRom.FromBytes(system.Mode == HardwareMode.Cgb ? KohBootRoms.Cgb : KohBootRoms.Dmg)
+        );
+        // Run the boot ROM before hooks attach, so the session starts at the cartridge entry.
+        // A boot ROM that locks up (bad header) stops in place after the cap.
+        for (int i = 0; i < 10_000_000 && system.BootRomMapped; i++)
+            system.StepInstruction();
         DebugInfo.Load(kdbgBytes);
         AdoptSystem(system);
     }

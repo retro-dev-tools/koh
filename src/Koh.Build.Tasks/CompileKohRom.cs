@@ -4,7 +4,6 @@ using Koh.Core.Binding;
 using Koh.Core.Diagnostics;
 using Koh.Linker.Core;
 using Microsoft.Build.Framework;
-using Microsoft.Build.Utilities;
 using LinkerType = Koh.Linker.Core.Linker;
 
 namespace Koh.Build.Tasks;
@@ -85,7 +84,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
 
         // The CIL frontend lowers a compiled assembly, not in-memory source text, so a diagnostic's
         // Span has no meaningful line/column here - report against the assembly path itself.
-        bool hadError = false;
+        var hadError = false;
         foreach (var d in diagnostics)
         {
             if (d.Severity == DiagnosticSeverity.Error)
@@ -105,6 +104,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
             [new LinkerInput(ProgramName, model)],
             new LinkOptions(CgbCompatible, CgbOnly)
         );
+
         var rom = link.RomData;
         if (rom is null)
         {
@@ -117,17 +117,24 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         // one, otherwise write into the current directory.
         var outputDir = Path.GetDirectoryName(OutputPath);
         if (!string.IsNullOrEmpty(outputDir))
+        {
             Directory.CreateDirectory(outputDir);
+        }
+
         File.WriteAllBytes(OutputPath, rom);
+
         Log.LogMessage(MessageImportance.High, $"Koh: built {OutputPath} ({rom.Length} bytes).");
 
         if (EmitDebugInfo)
         {
             var kdbgPath = Path.ChangeExtension(OutputPath, ".kdbg");
             var builder = new DebugInfoBuilder();
+
             DebugInfoPopulator.Populate(builder, link);
+
             using var kdbgStream = File.Create(kdbgPath);
             KdbgFileWriter.Write(kdbgStream, builder);
+
             Log.LogMessage(MessageImportance.Normal, $"Koh: wrote {kdbgPath}.");
         }
 

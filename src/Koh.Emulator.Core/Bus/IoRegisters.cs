@@ -419,6 +419,19 @@ public sealed class IoRegisters
                     _ppu.OPRI = (byte)(value & 1);
                 break;
 
+            // BANK ($FF50): the boot ROM unmap latch. Any non-zero write drops the boot
+            // ROM overlay; a zero write does nothing. One-way — on hardware there is no
+            // path back to a mapped boot ROM, so this is never cleared.
+            //
+            // The flag lives in _io[0x50] rather than a separate field so that
+            // WriteState/ReadState (which serialise _io wholesale) carry it for free.
+            // Safe because IsUnmappedIoPort forces reads of $FF50 to $FF regardless of
+            // what the backing byte holds.
+            case 0xFF50:
+                if (value != 0)
+                    _io[0x50] = 1;
+                break;
+
             default:
                 _io[idx] = value;
                 break;
@@ -438,6 +451,13 @@ public sealed class IoRegisters
         _interrupts.IF = r.ReadByte();
         _interrupts.IE = r.ReadByte();
     }
+
+    /// <summary>
+    /// True once the boot ROM overlay has been latched off by a non-zero write to
+    /// $FF50. Consulted by <see cref="Mmu"/>. Never returns to false — hardware has no
+    /// path back to a mapped boot ROM.
+    /// </summary>
+    public bool BootRomUnmapped => _io[0x50] != 0;
 
     public byte ReadIe() => _interrupts.IE;
 

@@ -8,7 +8,7 @@ public class EvaluateHandlerTests
 {
     private static (DapDispatcher, DebugSession, List<byte[]>) Build()
     {
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
         rom[0x100] = 0x3E;
         rom[0x101] = 0x42; // LD A,$42

@@ -33,7 +33,7 @@ public sealed class Sm83Oracle
     {
         var rom = new byte[0x8000]; // 32 KiB, zeroed header ⇒ parses as a ROM-only cartridge
         code.CopyTo(rom.AsSpan(CodeBase));
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
 
         ref var r = ref gb.Registers;
         (r.A, r.F, r.B, r.C, r.D, r.E, r.H, r.L, r.Sp) = (

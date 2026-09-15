@@ -129,7 +129,8 @@ public class CilBgWinTests
         var link = new LinkerType().Link([new Koh.Linker.Core.LinkerInput("cil", model)]);
         var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
         start = 0x100;
-        var gb = new GameBoySystem(mode, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);
+        Array.Clear(gb.Mmu.VramArray); // no boot ROM runs: stand in for its VRAM clear (both banks)
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start;
         return gb;

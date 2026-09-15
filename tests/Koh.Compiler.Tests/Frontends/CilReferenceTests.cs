@@ -139,7 +139,8 @@ public class CilReferenceTests
         var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
         start = 0x100;
         length = Sm83Backend.CodeBase + model.Sections[0].Data.Length - 0x100;
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
+        Array.Clear(gb.Mmu.VramArray); // no boot ROM runs: stand in for its VRAM clear
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start;
         return gb;

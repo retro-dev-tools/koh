@@ -20,7 +20,7 @@ public class Phase2Benchmarks
         rom[0x102] = 0x00;
         rom[0x103] = 0x01;
         var cart = CartridgeFactory.Load(rom);
-        _gb = new GameBoySystem(HardwareMode.Cgb, cart);
+        _gb = new GameBoySystem(cart, HardwareMode.Cgb);
 
         // Populate VRAM + OAM + enable LCD/sprites/window.
         for (int i = 0; i < 0x2000; i++)

@@ -120,7 +120,7 @@ public class DapDispatcherTests
         byte[] kdbgBytes = kdbgStream.ToArray();
 
         // Build a tiny ROM (RomOnly) that loads cleanly.
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
 
         HandlerRegistration.RegisterAll(
@@ -173,7 +173,7 @@ public class DapDispatcherTests
         KdbgFileWriter.Write(kdbgStream, builder);
         byte[] kdbgBytes = kdbgStream.ToArray();
 
-        var rom = new byte[0x8000];
+        var rom = TestRom.Create();
         rom[0x147] = 0x00;
 
         HandlerRegistration.RegisterAll(

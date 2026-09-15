@@ -11,6 +11,7 @@
       "src\\Koh.Link\\Koh.Link.csproj",
       "src\\Koh.Linker.Core\\Koh.Linker.Core.csproj",
       "src\\Koh.Lsp\\Koh.Lsp.csproj",
+      "src\\Koh.Boot\\Koh.Boot.csproj",
       "src\\Koh.Emulator.Core\\Koh.Emulator.Core.csproj",
       "src\\Koh.Debugger\\Koh.Debugger.csproj",
       "src\\Koh.Emulator.App\\Koh.Emulator.App.csproj",
@@ -21,11 +22,11 @@
       "tests\\Koh.Core.Tests\\Koh.Core.Tests.csproj",
       "tests\\Koh.Emit.Tests\\Koh.Emit.Tests.csproj",
       "tests\\Koh.Linker.Tests\\Koh.Linker.Tests.csproj",
-      "tests\\Koh.Compat.Tests\\Koh.Compat.Tests.csproj",
       "tests\\Koh.Lsp.Tests\\Koh.Lsp.Tests.csproj",
       "tests\\Koh.Emulator.Core.Tests\\Koh.Emulator.Core.Tests.csproj",
       "tests\\Koh.Debugger.Tests\\Koh.Debugger.Tests.csproj",
-      "benchmarks\\Koh.Benchmarks\\Koh.Benchmarks.csproj"
+      "benchmarks\\Koh.Benchmarks\\Koh.Benchmarks.csproj",
+      "tests\\Koh.Boot.Tests\\Koh.Boot.Tests.csproj"
     ]
   }
 }

@@ -1,5 +1,4 @@
 using Koh.Emulator.App;
-using Koh.Emulator.Core;
 using KohUI;
 using KohUI.Backends.Gl;
 
@@ -15,10 +14,19 @@ int frames = 120;
 string? inputScriptPath = null;
 bool mode3ReportRequested = false;
 string? mode3ReportPath = null;
+string? bootRomPath = null;
+string? bootRomDmgPath = null;
+string? bootRomCgbPath = null;
 var positional = new List<string>();
 foreach (var arg in args)
 {
-    if (arg.StartsWith("--dap=", StringComparison.Ordinal))
+    if (arg.StartsWith("--boot-rom=", StringComparison.Ordinal))
+        bootRomPath = arg["--boot-rom=".Length..];
+    else if (arg.StartsWith("--boot-rom-dmg=", StringComparison.Ordinal))
+        bootRomDmgPath = arg["--boot-rom-dmg=".Length..];
+    else if (arg.StartsWith("--boot-rom-cgb=", StringComparison.Ordinal))
+        bootRomCgbPath = arg["--boot-rom-cgb=".Length..];
+    else if (arg.StartsWith("--dap=", StringComparison.Ordinal))
         dapPipe = arg["--dap=".Length..];
     else if (arg.StartsWith("--screenshot=", StringComparison.Ordinal))
         screenshotPath = arg["--screenshot=".Length..];
@@ -38,6 +46,7 @@ foreach (var arg in args)
 }
 
 string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
+EmulatorApp.BootRoms = new BootRomResolver(bootRomPath, bootRomDmgPath, bootRomCgbPath);
 
 // Headless mode: run to completion and exit before any window/audio/GL/DAP backend is
 // constructed — this sandboxed build environment has no audio device or display, so
@@ -51,7 +60,8 @@ if (screenshotPath is not null || mode3ReportRequested)
         frames,
         inputScriptPath,
         mode3ReportRequested,
-        mode3ReportPath
+        mode3ReportPath,
+        EmulatorApp.BootRoms
     );
 }
 
@@ -110,7 +120,9 @@ var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
 );
 
 backend.Run();
+
 await runner.DisposeAsync();
+
 return 0;
 
 static string FindDefaultRom()

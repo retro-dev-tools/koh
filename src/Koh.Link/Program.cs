@@ -16,9 +16,10 @@ static class KohLink
         if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
             return ShowUsage(exitCode: args.Length == 0 ? 1 : 0);
 
-        var (inputs, outputPath, symPath, kdbgPath, error) = ParseArgs(args);
+        var (parsed, error) = ParseArgs(args);
         if (error != null)
             return Fail(error);
+        var (inputs, outputPath, symPath, kdbgPath, raw, minSize) = parsed!;
         if (inputs.Count == 0)
             return Fail("no input files specified");
 
@@ -43,7 +44,10 @@ static class KohLink
 
         // Link
         var linker = new Koh.Linker.Core.Linker();
-        var result = linker.Link(linkerInputs);
+        var result = linker.Link(
+            linkerInputs,
+            new LinkOptions(PadToPowerOfTwo: !raw, MinSize: minSize)
+        );
 
         // Report diagnostics
         foreach (var diag in result.Diagnostics)
@@ -119,34 +123,67 @@ static class KohLink
         return 0;
     }
 
-    static (List<string> inputs, string output, string? sym, string? kdbg, string? error) ParseArgs(
-        string[] args
-    )
+    /// <summary>
+    /// Parsed command line. A record rather than a tuple: with --raw and --size there are
+    /// six fields, and a six-element tuple at every early return is unreadable.
+    /// </summary>
+    sealed record LinkArgs(
+        List<string> Inputs,
+        string Output,
+        string? Sym,
+        string? Kdbg,
+        bool Raw,
+        int MinSize
+    );
+
+    static (LinkArgs? parsed, string? error) ParseArgs(string[] args)
     {
         var inputs = new List<string>();
         string? output = null,
             sym = null,
             kdbg = null;
+        bool raw = false;
+        int minSize = 0x8000;
 
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] is "-o" or "--output")
             {
                 if (i + 1 >= args.Length)
-                    return ([], "", null, null, $"option '{args[i]}' requires an argument");
+                    return (null, $"option '{args[i]}' requires an argument");
                 output = args[++i];
             }
             else if (args[i] is "-n" or "--sym")
             {
                 if (i + 1 >= args.Length)
-                    return ([], "", null, null, $"option '{args[i]}' requires an argument");
+                    return (null, $"option '{args[i]}' requires an argument");
                 sym = args[++i];
             }
             else if (args[i] is "-d" or "--kdbg")
             {
                 if (i + 1 >= args.Length)
-                    return ([], "", null, null, $"option '{args[i]}' requires an argument");
+                    return (null, $"option '{args[i]}' requires an argument");
                 kdbg = args[++i];
+            }
+            else if (args[i] is "--raw")
+            {
+                raw = true;
+            }
+            else if (args[i].StartsWith("--size=", StringComparison.Ordinal))
+            {
+                // Hex without a prefix, matching how the rest of the toolchain spells
+                // addresses: --size=900 is 2304 bytes, the CGB boot ROM size.
+                var text = args[i]["--size=".Length..];
+                if (
+                    !int.TryParse(
+                        text,
+                        System.Globalization.NumberStyles.HexNumber,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out minSize
+                    )
+                    || minSize <= 0
+                )
+                    return (null, $"--size expects a positive hex value, got '{text}'");
             }
             else if (!args[i].StartsWith('-'))
             {
@@ -154,12 +191,15 @@ static class KohLink
             }
             else
             {
-                return ([], "", null, null, $"unknown option '{args[i]}' (try --help)");
+                return (null, $"unknown option '{args[i]}' (try --help)");
             }
         }
 
-        output ??= Path.ChangeExtension(inputs[0], ".gb");
-        return (inputs, output, sym, kdbg, null);
+        if (inputs.Count == 0)
+            return (new LinkArgs(inputs, "", sym, kdbg, raw, minSize), null);
+
+        output ??= Path.ChangeExtension(inputs[0], raw ? ".bin" : ".gb");
+        return (new LinkArgs(inputs, output, sym, kdbg, raw, minSize), null);
     }
 
     static int Fail(string message)
@@ -191,9 +231,13 @@ static class KohLink
             Usage: koh-link <input.kobj...> [-o output.gb] [-n symbols.sym] [-d debug.kdbg]
 
             Options:
-              -o, --output <path>  Output ROM file (default: first-input.gb)
+              -o, --output <path>  Output ROM file (default: first-input.gb, or .bin with --raw)
               -n, --sym <path>     Write symbol file for emulator debugging
               -d, --kdbg <path>    Write Koh debug info file (.kdbg)
+                  --raw            Emit a raw image: exact size, no power-of-two padding,
+                                   no cartridge header or checksums. For boot ROMs.
+                  --size=<hex>     Image size floor in hex (default 8000 = 32KB).
+                                   A DMG boot ROM is --size=100, a CGB one --size=900.
                   --version        Show version information
               -h, --help           Show this help
             """

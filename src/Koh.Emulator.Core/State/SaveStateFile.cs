@@ -5,7 +5,7 @@ namespace Koh.Emulator.Core.State;
 public static class SaveStateFile
 {
     private const uint Magic = 0x53455453; // "STES"
-    public const ushort Version = 1;
+    public const ushort Version = 2;
 
     public static void Save(Stream output, GameBoySystem gb, ReadOnlySpan<byte> originalRomBytes)
     {

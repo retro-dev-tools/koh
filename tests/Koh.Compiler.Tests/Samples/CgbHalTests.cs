@@ -140,7 +140,7 @@ public class CgbHalTests
 
         int start = Sm83Backend.CodeBase;
         int length = model.Sections[0].Data.Length;
-        var gb = new GameBoySystem(mode, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = (ushort)start; // the test Main is emitted first -> entry is at CodeBase
         for (int steps = 0; steps < 1_000_000; steps++)

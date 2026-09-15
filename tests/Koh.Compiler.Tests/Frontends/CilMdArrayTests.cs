@@ -105,7 +105,7 @@ public class CilMdArrayTests
                 "no ROM; linker diagnostics:\n  "
                     + string.Join("\n  ", link.Diagnostics.Select(d => d.Message))
             );
-        var gb = new GameBoySystem(HardwareMode.Dmg, CartridgeFactory.Load(rom));
+        var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
         gb.Registers.Sp = 0xFFFE;
         gb.Registers.Pc = 0x100;
         return (module, gb);

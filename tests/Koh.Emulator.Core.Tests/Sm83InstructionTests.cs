@@ -11,7 +11,10 @@ public class Sm83InstructionTests
         rom[0x147] = 0x00;
         Array.Copy(program, 0, rom, 0x0100, program.Length);
         var cart = CartridgeFactory.Load(rom);
-        return new GameBoySystem(HardwareMode.Dmg, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Dmg);
+        gb.Registers.Pc = 0x0100;
+        gb.Registers.Sp = 0xFFFE;
+        return gb;
     }
 
     private static void RunInstructions(GameBoySystem gb, int count)
@@ -101,7 +104,9 @@ public class Sm83InstructionTests
         rom[0x110] = 0x00; // NOP
         rom[0x111] = 0xC9; // RET
         var cart = CartridgeFactory.Load(rom);
-        var gb = new GameBoySystem(HardwareMode.Dmg, cart);
+        var gb = new GameBoySystem(cart, HardwareMode.Dmg);
+        gb.Registers.Pc = 0x0100;
+        gb.Registers.Sp = 0xFFFE;
 
         RunInstructions(gb, 1); // CALL
         ushort afterCall = gb.Registers.Pc;
