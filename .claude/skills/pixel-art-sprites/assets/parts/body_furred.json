@@ -1,0 +1,33 @@
+{
+ "name": "body_furred",
+ "grid": [
+  "DDDDHHDDDD",
+  ".DDDDDDD..",
+  "DDDMMDDDD.",
+  "DDDDDDDDD.",
+  "DDDDDDDDD.",
+  "DDDDMMMDD.",
+  "DDDMDDDDD.",
+  ".DDDMDDD..",
+  ".DDDDDDD..",
+  "..DDDDD..."
+ ],
+ "anchors": {
+  "neck": [
+   4,
+   0
+  ],
+  "hipL": [
+   3,
+   9
+  ],
+  "hipR": [
+   6,
+   9
+  ]
+ },
+ "tags": [
+  "body",
+  "furred"
+ ]
+}

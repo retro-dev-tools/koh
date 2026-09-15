@@ -15,7 +15,8 @@ public static class RomWriter
     public static byte[] BuildRom(
         IReadOnlyList<LinkerSection> sections,
         int minSize = 0x8000,
-        bool cgbCompatible = false
+        bool cgbCompatible = false,
+        bool cgbOnly = false
     )
     {
         // Determine ROM size from placed sections.
@@ -47,7 +48,10 @@ public static class RomWriter
             }
         }
 
-        if (cgbCompatible && rom.Length > 0x143)
+        // $0143: 0x80 = CGB-enhanced but DMG-compatible; 0xC0 = CGB ONLY (a DMG refuses to run it).
+        if (cgbOnly && rom.Length > 0x143)
+            rom[0x143] = 0xC0;
+        else if (cgbCompatible && rom.Length > 0x143)
             rom[0x143] = 0x80;
 
         // Header checksum must be fixed before global, because global covers byte $014D.

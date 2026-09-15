@@ -44,6 +44,10 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
 
     public bool CgbCompatible { get; set; }
 
+    /// <summary>Marks the ROM header CGB-EXCLUSIVE (0xC0 at $0143) — a DMG refuses to run it.
+    /// Wins over <see cref="CgbCompatible"/>.</summary>
+    public bool CgbOnly { get; set; }
+
     /// <summary>
     /// When true (the default), also write a <c>.kdbg</c> debug-info file next to <see cref="OutputPath"/>
     /// (same base name, <c>.kdbg</c> extension) — mirrors <c>Koh.Link/Program.cs</c>'s own
@@ -99,7 +103,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
 
         var link = new LinkerType().Link(
             [new LinkerInput(ProgramName, model)],
-            new LinkOptions(CgbCompatible)
+            new LinkOptions(CgbCompatible, CgbOnly)
         );
         var rom = link.RomData;
         if (rom is null)

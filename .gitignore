@@ -27,3 +27,4 @@ BenchmarkDotNet.Artifacts/
 tests/fixtures/screenshots/
 scriptrun.log
 *.png
+__pycache__/

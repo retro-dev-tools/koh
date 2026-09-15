@@ -241,7 +241,8 @@ public class CilStaticsTests
         }
         """;
 
-    private static readonly byte[] ExpectedTableBytes = [10, 20, 30, 40, 50];
+    // E4 (length-carrying arrays): the ROM global is [u16 element count][payload].
+    private static readonly byte[] ExpectedTableBytes = [5, 0, 10, 20, 30, 40, 50];
 
     private static (byte Lcdc, byte Bgp) RunTable(OptimizationLevel level)
     {
