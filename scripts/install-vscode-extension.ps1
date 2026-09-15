@@ -49,16 +49,16 @@ Push-Location $repoRoot
 try {
     Write-Host "─── Publishing toolchain into $devBin ───" -ForegroundColor Cyan
 
-    dotnet publish src/Koh.Lsp -c Release -r win-x64 --self-contained -o $devBin
+    dotnet publish src/Asm/Koh.Lsp -c Release -r win-x64 --self-contained -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-lsp publish failed ($LASTEXITCODE)" }
 
-    dotnet publish src/Koh.Asm -c Release -r win-x64 -o $devBin
+    dotnet publish src/Asm/Koh.Asm -c Release -r win-x64 -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-asm publish failed ($LASTEXITCODE)" }
 
-    dotnet publish src/Koh.Link -c Release -r win-x64 -o $devBin
+    dotnet publish src/Link/Koh.Link -c Release -r win-x64 -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-link publish failed ($LASTEXITCODE)" }
 
-    dotnet publish src/Koh.Emulator.App -c Release -r win-x64 -o $devBin
+    dotnet publish src/Emulator/Koh.Emulator.App -c Release -r win-x64 -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "emulator publish failed ($LASTEXITCODE)" }
 
     # Metadata file + current pointer — same layout the Inno Setup

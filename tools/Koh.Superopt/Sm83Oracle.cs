@@ -1,5 +1,5 @@
-using Koh.Emulator.Core;
-using Koh.Emulator.Core.Cartridge;
+using Koh.Emulator;
+using Koh.Emulator.Cartridge;
 
 namespace Koh.Superopt;
 

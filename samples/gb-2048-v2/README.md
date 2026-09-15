@@ -5,7 +5,7 @@ compiler or runtime supported at the time, and the framework API + compiler enab
 make exactly this code compile — the program of work in
 [`docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`](../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md).
 It now compiles **unmodified**: `dotnet build` emits `2048v2.gb`, `dotnet run` opens it in the Koh
-emulator, and `tests/Koh.Compiler.Tests/Samples/Gb2048V2Tests.cs` boots it on the emulator and
+emulator, and `tests/Compiler/Koh.Compiler.Tests/Samples/Gb2048V2Tests.cs` boots it on the emulator and
 plays a scripted game (title → Start → d-pad slides → spawns) as the program's acceptance test.
 
 ## What this code demanded (each was a compiler/framework gap when it was written)

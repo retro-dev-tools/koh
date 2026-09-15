@@ -8,7 +8,7 @@
 // <out>/shot_contact.png and <out>/shot_anim.gif.
 //
 // Run: dotnet run --project samples/gb-2048/verify -- [<rom>] [<out>]
-using Koh.Emulator.Core.Joypad;
+using Koh.Emulator.Joypad;
 using Koh.Verify;
 
 string rom = args.Length > 0 ? args[0] : Path.Combine("samples", "gb-2048", "build", "2048.gbc");
@@ -96,7 +96,7 @@ var dirs = new[] { JoypadButton.Left, JoypadButton.Down, JoypadButton.Right, Joy
 
 // Per-frame trace of regular move 1 (to compare against win trace).
 {
-    var jp = default(Koh.Emulator.Core.Joypad.JoypadState);
+    var jp = default(Koh.Emulator.Joypad.JoypadState);
     jp.Press(dirs[0]);
     h.System.Joypad = jp;
     for (int f = 1; f <= 12; f++)
@@ -250,7 +250,7 @@ h.Write(0xC00D, 10);
 
 // Press LEFT manually and trace per frame so we can see when HUD updates.
 {
-    var jp = default(Koh.Emulator.Core.Joypad.JoypadState);
+    var jp = default(Koh.Emulator.Joypad.JoypadState);
     jp.Press(JoypadButton.Left);
     h.System.Joypad = jp;
     for (int f = 1; f <= 14; f++)

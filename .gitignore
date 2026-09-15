@@ -6,9 +6,9 @@ obj/
 TestResults/
 
 # Benchmarks
-benchmarks/results/
-benchmarks/.publish/
-benchmarks/Koh.Benchmarks/BenchmarkDotNet.Artifacts/
+tools/benchmarks/results/
+tools/benchmarks/.publish/
+tools/benchmarks/Koh.Benchmarks/BenchmarkDotNet.Artifacts/
 
 # VS Code extension
 editors/vscode/node_modules/

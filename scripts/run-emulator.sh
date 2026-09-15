@@ -22,12 +22,12 @@ if [[ "$rid" == win-x64 ]]; then
     [[ -x "$vs_installer/vswhere.exe" ]] && PATH="$vs_installer:$PATH"
 fi
 
-publish_dir="$repo_root/src/Koh.Emulator.App/bin/Release/net10.0/$rid/publish"
+publish_dir="$repo_root/src/Emulator/Koh.Emulator.App/bin/Release/net10.0/$rid/publish"
 exe_name="Koh.Emulator.App"
 [[ "$rid" == win-* ]] && exe_name="Koh.Emulator.App.exe"
 exe="$publish_dir/$exe_name"
 
 cd "$repo_root"
-dotnet publish src/Koh.Emulator.App -c Release -r "$rid"
+dotnet publish src/Emulator/Koh.Emulator.App -c Release -r "$rid"
 [[ -x "$exe" ]] || { echo "publish output missing: $exe" >&2; exit 1; }
 "$exe" "$@"

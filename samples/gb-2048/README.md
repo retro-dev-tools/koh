@@ -30,7 +30,7 @@ dotnet run --project samples/gb-2048/verify -- \
 Exits non-zero on the first assertion failure. PNG output uses an
 in-process encoder so no Python / ImageMagick is required.
 
-The harness lives in `src/Koh.Verify/RomHarness.cs` and can be reused
+The harness lives in `src/Emulator/Koh.Verify/RomHarness.cs` and can be reused
 by any other Koh-built ROM that wants headless verification + snapshot
 capture.
 

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UseTestingPlatformRunner>true</UseTestingPlatformRunner>
+    <TestingPlatformCommandLineArguments>--ignore-exit-code 8</TestingPlatformCommandLineArguments>
+    <!-- CilSpritePaletteHardwareTests pokes Gb.Wram/Gb.Oam (byte*) directly in-process to prove the
+         desktop reference build's Hardware.DMA setter performs a real OAM DMA copy. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Compiler\Koh.Build.Tasks\Koh.Build.Tasks.csproj" />
+    <ProjectReference Include="..\..\..\src\Compiler\Koh.Compiler\Koh.Compiler.csproj" />
+    <ProjectReference Include="..\..\..\src\Link\Koh.Linker\Koh.Linker.csproj" />
+    <ProjectReference Include="..\..\..\src\Emulator\Koh.Emulator\Koh.Emulator.csproj" />
+    <ProjectReference Include="..\..\..\src\Compiler\Koh.GameBoy\Koh.GameBoy.csproj" />
+    <ProjectReference Include="..\..\..\src\Emulator\Koh.Debugger\Koh.Debugger.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <!-- The compiler itself no longer references Roslyn (CSharpFrontend was deleted; CilFrontend reads
+         compiled assemblies via Mono.Cecil). Tests still need it to compile C# source fixtures to real
+         assemblies on disk for CilFrontend to lower (see e.g. CilLoweringTests.CompileToAssembly). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" ExcludeAssets="analyzers" />
+  </ItemGroup>
+
+</Project>
