@@ -1,3 +1,4 @@
+using Koh.Common;
 using Koh.Core.Syntax;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 
@@ -74,7 +75,7 @@ internal static class SemanticTokenEncoder
 
     private static void EncodeNode(
         SyntaxNode node,
-        Core.Text.SourceText source,
+        SourceText source,
         List<int> data,
         ref int prevLine,
         ref int prevChar
@@ -123,7 +124,7 @@ internal static class SemanticTokenEncoder
 
     private static void EncodeTrivia(
         SyntaxTrivia trivia,
-        Core.Text.SourceText source,
+        SourceText source,
         List<int> data,
         ref int prevLine,
         ref int prevChar

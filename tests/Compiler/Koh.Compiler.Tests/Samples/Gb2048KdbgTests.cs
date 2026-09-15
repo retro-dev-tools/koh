@@ -1,17 +1,17 @@
 using System.Collections.Immutable;
 using System.Text;
+using Koh.Common;
 using Koh.Compiler;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Debugger.Session;
 using Koh.Linker;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
-using KohDiagnosticSeverity = Koh.Core.Diagnostics.DiagnosticSeverity;
+using KohDiagnosticSeverity = Koh.Common.DiagnosticSeverity;
 using LinkerType = Koh.Linker.Linker;
 
 namespace Koh.Compiler.Tests.Samples;

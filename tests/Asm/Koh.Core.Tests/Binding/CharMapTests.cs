@@ -507,11 +507,7 @@ public class CharMapTests
         // DB truncates to 8 bits — produces warning
         await Assert.That(model.Success).IsTrue();
         await Assert
-            .That(
-                model.Diagnostics.Any(d =>
-                    d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Warning
-                )
-            )
+            .That(model.Diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Warning))
             .IsTrue();
         await Assert.That(model.Sections[0].Data[0]).IsEqualTo((byte)0x67);
     }

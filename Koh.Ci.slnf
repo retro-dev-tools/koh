@@ -7,6 +7,7 @@
       "src\\Compiler\\Koh.Compiler\\Koh.Compiler.csproj",
       "src\\Asm\\Koh.Core\\Koh.Core.csproj",
       "src\\Compiler\\Koh.GameBoy\\Koh.GameBoy.csproj",
+      "src\\Common\\Koh.Common\\Koh.Common.csproj",
       "src\\Common\\Koh.Emit\\Koh.Emit.csproj",
       "src\\Common\\Koh.Opcodes\\Koh.Opcodes.csproj",
       "src\\Link\\Koh.Link\\Koh.Link.csproj",

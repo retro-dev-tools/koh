@@ -1,7 +1,6 @@
 using System.Collections;
-using Koh.Core.Syntax;
 
-namespace Koh.Core.Diagnostics;
+namespace Koh.Common;
 
 public sealed class DiagnosticBag : IEnumerable<Diagnostic>
 {
@@ -45,11 +44,6 @@ public sealed class DiagnosticBag : IEnumerable<Diagnostic>
         if (_isNull)
             return;
         _diagnostics.Add(new Diagnostic(span, message, severity, filePath ?? CurrentFilePath));
-    }
-
-    public void ReportUnexpectedToken(TextSpan span, SyntaxKind actual, SyntaxKind expected)
-    {
-        Report(span, $"Unexpected token '{actual}', expected '{expected}'");
     }
 
     public void ReportBadCharacter(int position, char character)

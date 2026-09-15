@@ -1,11 +1,11 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Backends.Sm83.Mir;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Ir.Optimization;
-using Koh.Core.Diagnostics;
 using Koh.Debugger;
 using Koh.Linker;
 using Koh.Opcodes;
@@ -109,7 +109,7 @@ public class FlushRunLoopResidencyTests
     {
         var diagnostics = new DiagnosticBag();
         var module = new CilFrontend().Lower(InputFor(source), diagnostics);
-        if (diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))
+        if (diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Error))
             throw new InvalidOperationException(
                 string.Join("; ", diagnostics.Select(d => d.Message))
             );
@@ -187,7 +187,7 @@ public class FlushRunLoopResidencyTests
         var diagnostics = new DiagnosticBag();
         var model = new Sm83Backend().Compile(module, diagnostics);
         await Assert
-            .That(diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))
+            .That(diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Error))
             .IsFalse();
 
         var link = new LinkerType().Link([new LinkerInput("flushrun", model)]);

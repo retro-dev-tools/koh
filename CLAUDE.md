@@ -28,7 +28,8 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
 
 ## Layout
 
-- `src/Asm/Koh.Core` — shared: diagnostics, text spans, binding (`EmitModel`, `LineMapEntry`).
+- `src/Common/Koh.Common` — `Diagnostic`/`DiagnosticBag`, `TextSpan`, `SourceText`: the syntax-free base every tool shares.
+- `src/Asm/Koh.Core` — the assembler front end (syntax, binding) plus `EmitModel`/`LineMapEntry` (until they move to a shared object model).
 - `src/Common/Koh.Opcodes` — `Sm83InstructionTable` (the canonical SM83 opcode table) and
   `Sm83Disassembler`, which decodes from that table (the debugger's disassembly view uses it).
 - `src/Common/Koh.Emit`, `src/Link/Koh.Linker` (+ `Koh.Asm`/`Koh.Link` CLIs) — object emission and

@@ -1,3 +1,5 @@
+using Koh.Common;
+
 namespace Koh.Core.Syntax;
 
 /// <summary>

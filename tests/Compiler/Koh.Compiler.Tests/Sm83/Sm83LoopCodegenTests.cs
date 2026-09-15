@@ -1,10 +1,10 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Ir.Optimization;
-using Koh.Core.Diagnostics;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Linker;
@@ -85,7 +85,7 @@ public class Sm83LoopCodegenTests
         var input = CompilerInput.FromAssembly(assemblyPath, []);
         var diagnostics = new DiagnosticBag();
         var module = new CilFrontend().Lower(input, diagnostics);
-        if (diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))
+        if (diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Error))
             throw new InvalidOperationException(
                 string.Join("; ", diagnostics.Select(d => d.Message))
             );

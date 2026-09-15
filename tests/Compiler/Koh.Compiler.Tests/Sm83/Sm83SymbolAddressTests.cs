@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using LinkerType = Koh.Linker.Linker;

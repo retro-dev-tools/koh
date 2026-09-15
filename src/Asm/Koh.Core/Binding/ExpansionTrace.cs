@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Core.Syntax;
 
 namespace Koh.Core.Binding;

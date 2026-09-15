@@ -1,4 +1,4 @@
-namespace Koh.Core.Text;
+namespace Koh.Common;
 
 public readonly record struct TextLine(int Start, int Length, int LengthIncludingLineBreak)
 {

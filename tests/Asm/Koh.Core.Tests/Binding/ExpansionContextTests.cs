@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
 
@@ -48,7 +49,7 @@ public class ExpansionContextTests
     public async Task ForInclude_SetsFilePathAndIncrementsStructuralDepth()
     {
         var ctx = new ExpansionContext { FilePath = "main.asm" };
-        var source = Koh.Core.Text.SourceText.From("nop", "included.asm");
+        var source = Koh.Common.SourceText.From("nop", "included.asm");
         var child = ctx.ForInclude("included.asm", source, new TextSpan(5, 20));
         await Assert.That(child.FilePath).IsEqualTo("included.asm");
         await Assert.That(child.SourceText).IsEqualTo(source);
@@ -61,7 +62,7 @@ public class ExpansionContextTests
     public async Task ForTextReplay_IncrementsReplayDepth()
     {
         var ctx = new ExpansionContext { FilePath = "test.asm" };
-        var source = Koh.Core.Text.SourceText.From("nop");
+        var source = Koh.Common.SourceText.From("nop");
         var child = ctx.ForTextReplay(
             source,
             new TextSpan(0, 5),

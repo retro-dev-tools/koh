@@ -1,5 +1,5 @@
+using Koh.Common;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Core.Syntax;
 
 namespace Koh.Core.Tests.Binding;

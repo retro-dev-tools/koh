@@ -1,5 +1,5 @@
+using Koh.Common;
 using Koh.Compiler.Ir;
-using Koh.Core.Diagnostics;
 
 namespace Koh.Compiler.Frontends;
 

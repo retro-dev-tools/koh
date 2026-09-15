@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
-using Koh.Core.Diagnostics;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Linker;
@@ -99,7 +99,7 @@ public class CgbHalTests
         new Sm83Backend().Compile(module, diagnostics);
 
         var errors = diagnostics
-            .Where(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error)
+            .Where(d => d.Severity == Koh.Common.DiagnosticSeverity.Error)
             .Select(d => d.Message)
             .ToArray();
         await Assert.That(errors).IsEmpty();

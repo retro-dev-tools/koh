@@ -1,6 +1,6 @@
+using Koh.Common;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Targets;
-using Koh.Core.Diagnostics;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 

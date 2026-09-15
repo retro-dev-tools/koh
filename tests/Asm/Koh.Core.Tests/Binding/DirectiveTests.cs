@@ -1,8 +1,7 @@
+using Koh.Common;
 using Koh.Core;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 
 namespace Koh.Core.Tests.Binding;
 
@@ -847,11 +846,7 @@ public class DirectiveTests
         // Succeeds despite empty directives — warnings only, not errors
         await Assert.That(model.Success).IsTrue();
         await Assert
-            .That(
-                model.Diagnostics.Any(d =>
-                    d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Warning
-                )
-            )
+            .That(model.Diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Warning))
             .IsTrue();
     }
 
@@ -867,11 +862,7 @@ public class DirectiveTests
         );
         await Assert.That(model.Success).IsTrue();
         await Assert
-            .That(
-                model.Diagnostics.Any(d =>
-                    d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Warning
-                )
-            )
+            .That(model.Diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Warning))
             .IsTrue();
     }
 
@@ -1011,7 +1002,7 @@ public class DirectiveTests
         // INCBIN of a nonexistent file should report a "not found" diagnostic
         var vfs = new Koh.Core.VirtualFileResolver();
         var tree = Koh.Core.Syntax.SyntaxTree.Parse(
-            Koh.Core.Text.SourceText.From(
+            Koh.Common.SourceText.From(
                 "SECTION \"test\", ROM0\nincbin \"incbin-mg-noexist.bin\"",
                 "main.asm"
             )
@@ -1027,7 +1018,7 @@ public class DirectiveTests
         // RGBDS: abort-on-missing-incbin-slice.asm — incbin file, 0, 2
         var vfs = new Koh.Core.VirtualFileResolver();
         var tree = Koh.Core.Syntax.SyntaxTree.Parse(
-            Koh.Core.Text.SourceText.From(
+            Koh.Common.SourceText.From(
                 "SECTION \"test\", ROM0\nincbin \"incbin-mg-noexist.bin\", 0, 2",
                 "main.asm"
             )
@@ -1043,7 +1034,7 @@ public class DirectiveTests
         // RGBDS: abort-on-missing-incbin-start.asm — incbin file, 2
         var vfs = new Koh.Core.VirtualFileResolver();
         var tree = Koh.Core.Syntax.SyntaxTree.Parse(
-            Koh.Core.Text.SourceText.From(
+            Koh.Common.SourceText.From(
                 "SECTION \"test\", ROM0\nincbin \"incbin-mg-noexist.bin\", 2",
                 "main.asm"
             )

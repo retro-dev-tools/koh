@@ -1,4 +1,4 @@
-using Koh.Core.Diagnostics;
+using Koh.Common;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;
@@ -928,7 +928,7 @@ public sealed class Binder
             _diagnostics.Report(
                 node.FullSpan,
                 "Unterminated LOAD block: SECTION implicitly ends LOAD",
-                Diagnostics.DiagnosticSeverity.Warning
+                DiagnosticSeverity.Warning
             );
             _sections.EndLoad();
         }
@@ -1283,7 +1283,7 @@ public sealed class Binder
             _diagnostics.Report(
                 node.FullSpan,
                 $"Empty {keyword.Text.ToUpperInvariant()} directive",
-                Diagnostics.DiagnosticSeverity.Warning
+                DiagnosticSeverity.Warning
             );
             return;
         }
@@ -2087,7 +2087,7 @@ public sealed class Binder
             _diagnostics.Report(
                 node.FullSpan,
                 "Unterminated LOAD block: new LOAD implicitly ends previous LOAD",
-                Diagnostics.DiagnosticSeverity.Warning
+                DiagnosticSeverity.Warning
             );
         }
 

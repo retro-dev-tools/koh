@@ -1,4 +1,4 @@
-using Koh.Core.Text;
+using Koh.Common;
 
 namespace Koh.Compiler.Frontends;
 

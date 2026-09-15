@@ -1,8 +1,7 @@
-using Koh.Core.Diagnostics;
+using Koh.Common;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;
-using Koh.Core.Text;
 
 namespace Koh.Core.Binding;
 
@@ -203,7 +202,7 @@ internal sealed class AssemblyExpander
                 _diagnostics.Report(
                     default,
                     $"EQU pre-scan did not converge after {maxPasses} passes; some forward references may be unresolved",
-                    Diagnostics.DiagnosticSeverity.Warning
+                    DiagnosticSeverity.Warning
                 );
             }
         }
@@ -1074,7 +1073,7 @@ internal sealed class AssemblyExpander
                                     _diagnostics.Report(
                                         node.FullSpan,
                                         $"CHARMAP value ${val.Value:X} truncated to ${val.Value & 0xFF:X2}",
-                                        Diagnostics.DiagnosticSeverity.Warning
+                                        DiagnosticSeverity.Warning
                                     );
                                 byteValues.Add((byte)(val.Value & 0xFF));
                             }
@@ -1629,7 +1628,7 @@ internal sealed class AssemblyExpander
                 source = TextReplayService.SubstituteUniqueId(source, ctx.LoopUniqueId);
             }
 
-            var includeText = Text.SourceText.From(source, resolved);
+            var includeText = SourceText.From(source, resolved);
             var includeTree = Syntax.SyntaxTree.Parse(includeText);
 
             var finalIncludeCtx = ctx.ForInclude(resolved, includeText, node.FullSpan);
@@ -1994,7 +1993,7 @@ internal sealed class AssemblyExpander
             _diagnostics.Report(
                 forNode.FullSpan,
                 "FOR has backwards step; no iterations will be performed",
-                Diagnostics.DiagnosticSeverity.Warning
+                DiagnosticSeverity.Warning
             );
         }
 

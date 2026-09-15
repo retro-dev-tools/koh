@@ -1,6 +1,5 @@
-using Koh.Core.Syntax;
 
-namespace Koh.Core.Diagnostics;
+namespace Koh.Common;
 
 public enum DiagnosticSeverity
 {

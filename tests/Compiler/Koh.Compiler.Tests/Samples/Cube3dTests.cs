@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
-using Koh.Core.Diagnostics;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Emulator.Ppu;
@@ -151,7 +151,7 @@ public class Cube3dTests
             InputFor(sources),
             diagnostics
         );
-        if (diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))
+        if (diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Error))
             throw new InvalidOperationException(
                 string.Join("; ", diagnostics.Select(d => d.Message))
             );
@@ -223,7 +223,7 @@ public class Cube3dTests
         var module = new CilFrontend().Lower(InputFor(ReadDemo(variant)), diagnostics);
         new Sm83Backend().Compile(module, diagnostics);
         await Assert
-            .That(diagnostics.Any(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error))
+            .That(diagnostics.Any(d => d.Severity == Koh.Common.DiagnosticSeverity.Error))
             .IsFalse();
     }
 

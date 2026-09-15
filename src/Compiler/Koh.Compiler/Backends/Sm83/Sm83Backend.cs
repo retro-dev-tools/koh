@@ -1,7 +1,7 @@
+using Koh.Common;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Targets;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Core.Symbols;
 
 namespace Koh.Compiler.Backends.Sm83;
@@ -76,7 +76,7 @@ public sealed partial class Sm83Backend : IBackend
         }
         catch (Sm83LimitException ex)
         {
-            diagnostics.Report(new Koh.Core.Syntax.TextSpan(0, 0), ex.Message);
+            diagnostics.Report(new Koh.Common.TextSpan(0, 0), ex.Message);
             return new EmitModel(
                 Array.Empty<SectionData>(),
                 Array.Empty<SymbolData>(),

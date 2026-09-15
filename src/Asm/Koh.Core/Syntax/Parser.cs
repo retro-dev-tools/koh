@@ -1,6 +1,5 @@
-using Koh.Core.Diagnostics;
+using Koh.Common;
 using Koh.Core.Syntax.InternalSyntax;
-using Koh.Core.Text;
 
 namespace Koh.Core.Syntax;
 

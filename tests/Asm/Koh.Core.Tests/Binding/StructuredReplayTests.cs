@@ -1,9 +1,8 @@
+using Koh.Common;
 using Koh.Core;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 
 namespace Koh.Core.Tests.Binding;
 

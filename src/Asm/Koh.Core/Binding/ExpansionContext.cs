@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
+using Koh.Common;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 
 namespace Koh.Core.Binding;
 
