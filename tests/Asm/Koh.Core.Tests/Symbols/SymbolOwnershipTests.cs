@@ -1,7 +1,6 @@
-using Koh.Core.Diagnostics;
+using Koh.Common;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 
 namespace Koh.Core.Tests.Symbols;
 

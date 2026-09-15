@@ -1,4 +1,4 @@
-namespace Koh.Core.Syntax;
+namespace Koh.Common;
 
 public readonly record struct TextSpan(int Start, int Length)
 {

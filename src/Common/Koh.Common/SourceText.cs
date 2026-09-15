@@ -1,6 +1,5 @@
-using Koh.Core.Syntax;
 
-namespace Koh.Core.Text;
+namespace Koh.Common;
 
 public sealed class SourceText
 {

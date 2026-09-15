@@ -331,9 +331,7 @@ public class ProjectIsolationTests
 
         // The compilation should succeed with no errors
         var diags = ctx!.Compilation.Emit().Diagnostics;
-        var errors = diags
-            .Where(d => d.Severity == Koh.Core.Diagnostics.DiagnosticSeverity.Error)
-            .ToList();
+        var errors = diags.Where(d => d.Severity == Koh.Common.DiagnosticSeverity.Error).ToList();
         await Assert.That(errors.Count).IsEqualTo(0);
     }
 

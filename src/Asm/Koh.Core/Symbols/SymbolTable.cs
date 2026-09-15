@@ -1,4 +1,4 @@
-using Koh.Core.Diagnostics;
+using Koh.Common;
 using Koh.Core.Syntax;
 
 namespace Koh.Core.Symbols;

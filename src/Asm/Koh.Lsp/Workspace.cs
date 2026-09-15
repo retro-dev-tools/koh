@@ -1,8 +1,7 @@
+using Koh.Common;
 using Koh.Core;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 using Koh.Lsp.Config;
 using Koh.Lsp.Projects;
 

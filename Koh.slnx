@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/Common/">
+    <Project Path="src/Common/Koh.Common/Koh.Common.csproj" />
     <Project Path="src/Common/Koh.Emit/Koh.Emit.csproj" />
     <Project Path="src/Common/Koh.Opcodes/Koh.Opcodes.csproj" />
     <Project Path="tests/Common/Koh.Emit.Tests/Koh.Emit.Tests.csproj" />

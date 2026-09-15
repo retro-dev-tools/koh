@@ -1,3 +1,4 @@
+using Koh.Common;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;
 

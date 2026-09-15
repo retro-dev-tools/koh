@@ -1,7 +1,7 @@
+using Koh.Common;
 using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 
 namespace Koh.Core.Tests.Binding;
 
@@ -365,7 +365,7 @@ public class RgbdsCompatTests
         vfs.AddTextFile("preinclude-1.inc", "def v1 = 22");
         vfs.AddTextFile("preinclude-2.inc", "def v2 = 24");
         var tree = Koh.Core.Syntax.SyntaxTree.Parse(
-            Koh.Core.Text.SourceText.From(
+            Koh.Common.SourceText.From(
                 """
                 INCLUDE "preinclude-1.inc"
                 INCLUDE "preinclude-2.inc"
@@ -460,7 +460,7 @@ public class RgbdsCompatTests
         var vfs = new Koh.Core.VirtualFileResolver();
         vfs.AddTextFile("inner.inc", "PRINTLN \"inner: \\@\"");
         var tree = Koh.Core.Syntax.SyntaxTree.Parse(
-            Koh.Core.Text.SourceText.From(
+            Koh.Common.SourceText.From(
                 """
                 MACRO mac
                 PRINTLN "outer: \@"
@@ -501,7 +501,7 @@ public class RgbdsCompatTests
         var vfs = new Koh.Core.VirtualFileResolver();
         vfs.AddTextFile("inner.inc", "PRINTLN \"inner: \\@\"");
         var tree = Koh.Core.Syntax.SyntaxTree.Parse(
-            Koh.Core.Text.SourceText.From(
+            Koh.Common.SourceText.From(
                 """
                 REPT 2
                 PRINTLN "outer: \@"

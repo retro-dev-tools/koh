@@ -1,5 +1,5 @@
 using System.Numerics;
-using Koh.Core.Diagnostics;
+using Koh.Common;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;

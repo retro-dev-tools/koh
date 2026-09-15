@@ -1,5 +1,4 @@
-using Koh.Core.Syntax;
 
-namespace Koh.Core.Text;
+namespace Koh.Common;
 
 public readonly record struct TextChange(TextSpan Span, string NewText);

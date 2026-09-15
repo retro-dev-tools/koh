@@ -1,7 +1,7 @@
+using Koh.Common;
 using Koh.Compiler;
 using Koh.Compiler.Frontends;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Linker;
 using Microsoft.Build.Framework;
 using LinkerType = Koh.Linker.Linker;

@@ -1,3 +1,4 @@
+using Koh.Common;
 using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Symbols;
@@ -258,10 +259,7 @@ public class KobjRoundtripTests
         // Assemble real source and round-trip through kobj — verifies
         // the line map the binder produces survives serialization.
         var tree = SyntaxTree.Parse(
-            Koh.Core.Text.SourceText.From(
-                "SECTION \"Main\", ROM0\n__main__:\nnop\nnop\n",
-                "test.asm"
-            )
+            Koh.Common.SourceText.From("SECTION \"Main\", ROM0\n__main__:\nnop\nnop\n", "test.asm")
         );
         var original = Compilation.Create(tree).Emit();
 

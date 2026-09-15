@@ -1,6 +1,6 @@
 using System.Reflection;
+using Koh.Common;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
 using Koh.Emit;
 using Koh.Linker;
 

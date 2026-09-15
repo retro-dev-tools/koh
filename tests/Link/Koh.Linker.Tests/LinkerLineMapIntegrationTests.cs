@@ -1,7 +1,7 @@
+using Koh.Common;
 using Koh.Core;
 using Koh.Core.Binding;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 using Koh.Linker;
 
 namespace Koh.Linker.Tests;

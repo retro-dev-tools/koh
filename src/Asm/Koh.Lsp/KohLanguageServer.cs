@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
+using Koh.Common;
 using Koh.Core.Syntax;
-using Koh.Core.Text;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Newtonsoft.Json.Linq;
 using StreamJsonRpc;

@@ -1,4 +1,4 @@
-using Koh.Core.Diagnostics;
+using Koh.Common;
 
 namespace Koh.Core.Binding;
 

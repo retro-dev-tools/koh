@@ -1,9 +1,8 @@
+using Koh.Common;
 using Koh.Compiler.Backends;
 using Koh.Compiler.Frontends;
 using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Binding;
-using Koh.Core.Diagnostics;
-using Koh.Core.Text;
 
 namespace Koh.Compiler;
 
