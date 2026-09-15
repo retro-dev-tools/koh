@@ -1,0 +1,184 @@
+using Koh.Emulator.Core;
+using Koh.Emulator.Core.Boot;
+using Koh.Emulator.Core.Cartridge;
+
+namespace Koh.Boot.Tests;
+
+/// <summary>
+/// The hand-off contract for Koh's own boot ROMs.
+///
+/// These assert observable state at $0100, not Nintendo's instruction sequence — Koh's
+/// boot ROMs are an independent implementation. DIV at hand-off is deliberately NOT
+/// asserted: it is a function of this boot ROM's own cycle count and will not match a
+/// stock dump's.
+/// </summary>
+public class KohBootRomTests
+{
+    /// <summary>The 48-byte logo every cartridge carries at $0104-$0133.</summary>
+    private static readonly byte[] NintendoLogo =
+    [
+        0xCE,
+        0xED,
+        0x66,
+        0x66,
+        0xCC,
+        0x0D,
+        0x00,
+        0x0B,
+        0x03,
+        0x73,
+        0x00,
+        0x83,
+        0x00,
+        0x0C,
+        0x00,
+        0x0D,
+        0x00,
+        0x08,
+        0x11,
+        0x1F,
+        0x88,
+        0x89,
+        0x00,
+        0x0E,
+        0xDC,
+        0xCC,
+        0x6E,
+        0xE6,
+        0xDD,
+        0xDD,
+        0xD9,
+        0x99,
+        0xBB,
+        0xBB,
+        0x67,
+        0x63,
+        0x6E,
+        0x0E,
+        0xEC,
+        0xCC,
+        0xDD,
+        0xDC,
+        0x99,
+        0x9F,
+        0xBB,
+        0xB9,
+        0x33,
+        0x3E,
+    ];
+
+    /// <summary>A minimal valid cartridge: correct logo, correct header checksum.</summary>
+    private static Emulator.Core.Cartridge.Cartridge MakeValidCart()
+    {
+        var rom = new byte[0x8000];
+        rom[0x100] = 0x00; // nop
+        rom[0x101] = 0xC3; // jp $0150
+        rom[0x102] = 0x50;
+        rom[0x103] = 0x01;
+        NintendoLogo.CopyTo(rom.AsSpan(0x104));
+        rom[0x147] = 0x00; // RomOnly
+
+        byte checksum = 0;
+        for (int i = 0x0134; i <= 0x014C; i++)
+            checksum = (byte)(checksum - rom[i] - 1);
+        rom[0x14D] = checksum;
+
+        rom[0x150] = 0x18; // jr -2: spin at the entry point
+        rom[0x151] = 0xFE;
+        return CartridgeFactory.Load(rom);
+    }
+
+    /// <summary>
+    /// Step until the instant the boot ROM unmaps itself, and stop there.
+    ///
+    /// Instruction-stepping rather than RunFrame: the unmap happens mid-frame, and
+    /// finishing the frame would let the cartridge run, so PC would read $0150 (where
+    /// this fixture spins) instead of the $0100 the hand-off actually produces. What is
+    /// under test is the state at hand-off, not one frame later.
+    /// </summary>
+    private static GameBoySystem RunToHandoff(int maxInstructions = 5_000_000)
+    {
+        var gb = new GameBoySystem(MakeValidCart(), HardwareMode.Dmg);
+        gb.LoadBootRom(BootRom.FromBytes(KohBootRoms.Dmg));
+
+        for (int i = 0; i < maxInstructions; i++)
+        {
+            gb.StepInstruction();
+            if (!gb.BootRomMapped)
+                return gb;
+        }
+
+        throw new TimeoutException(
+            $"Koh's DMG boot ROM did not unmap within {maxInstructions} instructions "
+                + $"(PC=${gb.Registers.Pc:X4}, SP=${gb.Registers.Sp:X4})."
+        );
+    }
+
+    [Test]
+    public async Task Dmg_Boot_Rom_Is_Exactly_256_Bytes()
+    {
+        // Not a style check. The final instruction must land at $00FE-$00FF so that PC,
+        // having unmapped the overlay, falls into $0100. A 255- or 257-byte image cannot
+        // hand off at all.
+        await Assert.That(KohBootRoms.Dmg.Length).IsEqualTo(0x100);
+    }
+
+    [Test]
+    public async Task Dmg_Boot_Rom_Ends_With_The_Ff50_Handoff()
+    {
+        // ld a,$01 ; ldh [$50],a — the last four bytes, in that order.
+        await Assert.That(KohBootRoms.Dmg[0xFC]).IsEqualTo((byte)0x3E);
+        await Assert.That(KohBootRoms.Dmg[0xFD]).IsEqualTo((byte)0x01);
+        await Assert.That(KohBootRoms.Dmg[0xFE]).IsEqualTo((byte)0xE0);
+        await Assert.That(KohBootRoms.Dmg[0xFF]).IsEqualTo((byte)0x50);
+    }
+
+    [Test]
+    public async Task Dmg_Handoff_Leaves_The_Canonical_Register_State()
+    {
+        var gb = RunToHandoff();
+        var r = gb.Registers;
+        await Assert.That(r.Pc).IsEqualTo((ushort)0x0100);
+        await Assert.That(r.Sp).IsEqualTo((ushort)0xFFFE);
+        await Assert.That(r.A).IsEqualTo((byte)0x01);
+        await Assert.That(r.F).IsEqualTo((byte)0xB0);
+        await Assert.That(r.B).IsEqualTo((byte)0x00);
+        await Assert.That(r.C).IsEqualTo((byte)0x13);
+        await Assert.That(r.D).IsEqualTo((byte)0x00);
+        await Assert.That(r.E).IsEqualTo((byte)0xD8);
+        await Assert.That(r.H).IsEqualTo((byte)0x01);
+        await Assert.That(r.L).IsEqualTo((byte)0x4D);
+    }
+
+    [Test]
+    public async Task Dmg_Handoff_Leaves_The_Overlay_Unmapped()
+    {
+        var gb = RunToHandoff();
+        await Assert.That(gb.BootRomMapped).IsFalse();
+        // $0000 now reads the cartridge, not the boot ROM.
+        await Assert.That(gb.DebugReadByte(0x0000)).IsEqualTo((byte)0x00);
+    }
+
+    [Test]
+    public async Task Dmg_Handoff_Leaves_The_Lcd_On_And_Vram_Cleared()
+    {
+        var gb = RunToHandoff();
+        await Assert.That(gb.DebugReadByte(0xFF40) & 0x80).IsEqualTo(0x80); // LCDC bit 7
+        await Assert.That(gb.DebugReadByte(0xFF47)).IsEqualTo((byte)0xFC); // BGP
+        // VRAM was $FF-poisoned at power-on; the boot ROM cleared it.
+        await Assert.That(gb.DebugReadByte(0x9FFF)).IsEqualTo((byte)0x00);
+        await Assert.That(gb.DebugReadByte(0x8000)).IsEqualTo((byte)0x00);
+        await Assert
+            .That(gb.Mmu.VramArray.AsSpan(0, 0x2000).IndexOfAnyExcept((byte)0))
+            .IsEqualTo(-1);
+    }
+
+    [Test]
+    public async Task Dmg_Boot_Rom_Is_A_Valid_BootRom_Blob()
+    {
+        // The size/family contract Koh.Emulator.Core enforces, checked against the real
+        // artifact rather than a stub.
+        var rom = BootRom.FromBytes(KohBootRoms.Dmg);
+        await Assert.That(rom.Family).IsEqualTo(BootRomFamily.Dmg);
+    }
+}

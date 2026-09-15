@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build-order-only references: Koh.Boot INVOKES these CLIs to assemble its .asm sources,
+    it does not link against them. ReferenceOutputAssembly=false keeps them out of this
+    assembly's reference set while still forcing MSBuild to build them first.
+
+    No cycle: Koh.Core -> Koh.Emit -> Koh.Asm/Koh.Link -> Koh.Boot -> Koh.Emulator.App.
+    Koh.Boot deliberately does NOT reference Koh.Emulator.Core; the emulator takes bytes
+    and does not know where they came from.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Koh.Asm\Koh.Asm.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Koh.Link\Koh.Link.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="*.asm" />
+    <None Include="*.inc" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- The CLIs set AssemblyName, so the binaries are koh-asm/koh-link, not Koh.Asm/Koh.Link. -->
+    <KohAsmDll>$(MSBuildThisFileDirectory)..\Koh.Asm\bin\$(Configuration)\net10.0\koh-asm.dll</KohAsmDll>
+    <KohLinkDll>$(MSBuildThisFileDirectory)..\Koh.Link\bin\$(Configuration)\net10.0\koh-link.dll</KohLinkDll>
+  </PropertyGroup>
+
+  <!--
+    Assemble Koh's own boot ROMs with Koh's own toolchain. The .bin outputs are build
+    artifacts and live in obj/ — they are never committed, like any other ROM this repo
+    produces.
+
+    Inputs/Outputs give this target incremental behaviour: editing a .asm or .inc
+    re-assembles, an unrelated build does not.
+  -->
+  <Target Name="AssembleBootRoms"
+          AfterTargets="ResolveProjectReferences"
+          Inputs="@(None);$(KohAsmDll);$(KohLinkDll)"
+          Outputs="$(IntermediateOutputPath)dmg_boot.bin">
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+
+    <Exec Command="dotnet exec &quot;$(KohAsmDll)&quot; dmg_boot.asm -o &quot;$(IntermediateOutputPath)dmg_boot.kobj&quot;"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+    <Exec Command="dotnet exec &quot;$(KohLinkDll)&quot; &quot;$(IntermediateOutputPath)dmg_boot.kobj&quot; -o &quot;$(IntermediateOutputPath)dmg_boot.bin&quot; --raw --size=100"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+  </Target>
+
+  <!--
+    Embedding is a separate target that always runs (no Inputs/Outputs): when
+    AssembleBootRoms is skipped as up-to-date, the EmbeddedResource item must still be
+    added or the build produces an assembly with no boot ROM in it.
+  -->
+  <Target Name="EmbedBootRoms" AfterTargets="AssembleBootRoms" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <EmbeddedResource Include="$(IntermediateOutputPath)dmg_boot.bin"
+                        LogicalName="Koh.Boot.dmg_boot.bin" />
+    </ItemGroup>
+  </Target>
+
+</Project>
