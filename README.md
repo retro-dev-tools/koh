@@ -75,7 +75,7 @@ Current priorities include:
 
 ```sh
 dotnet build
-````
+```
 
 ### Test
 
@@ -89,8 +89,9 @@ Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
 
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |
-| `Test`                | Run the full test suite (excludes compat)                   |
-| `CompatTests`         | Run RGBDS compatibility tests                               |
+| `Test`                | Run the fast suite (everything except `Koh.Compiler.Tests`) |
+| `TestAll`             | Run the full suite, as CI does                              |
+| `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
 | `PublishEmulatorApp`  | NativeAOT-publish the KohUI emulator (`-r <rid>`; default `win-x64`) |

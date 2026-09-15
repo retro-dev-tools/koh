@@ -1,5 +1,5 @@
 # Downloads test ROM fixtures with SHA-256 verification.
-# Used by CI and by local developers before running compatibility tests.
+# Used by the emulator app's fallback ROM and the Phase3/Phase4 benchmarks.
 
 param(
     [string]$OutputDir = "tests/fixtures/test-roms",
