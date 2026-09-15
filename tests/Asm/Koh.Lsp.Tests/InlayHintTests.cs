@@ -1,5 +1,5 @@
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core.Syntax;
 using Newtonsoft.Json.Linq;
 
 namespace Koh.Lsp.Tests;
@@ -33,7 +33,7 @@ public class InlayHintTests
     private static void CollectInlayHints(
         SyntaxNode node,
         SourceText source,
-        Koh.Core.SemanticModel model,
+        Koh.Assembler.SemanticModel model,
         int startOffset,
         int endOffset,
         List<JObject> hints,

@@ -1,7 +1,7 @@
+using Koh.Assembler;
+using Koh.Assembler.Binding;
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core;
-using Koh.Core.Binding;
-using Koh.Core.Syntax;
 using Koh.Linker;
 using Koh.Objects;
 

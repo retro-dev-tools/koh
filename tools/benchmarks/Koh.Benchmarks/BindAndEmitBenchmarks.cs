@@ -1,6 +1,6 @@
 using BenchmarkDotNet.Attributes;
-using Koh.Core.Binding;
-using Koh.Core.Syntax;
+using Koh.Assembler.Binding;
+using Koh.Assembler.Syntax;
 
 namespace Koh.Benchmarks;
 

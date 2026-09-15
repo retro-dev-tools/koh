@@ -1,5 +1,5 @@
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core.Syntax;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace Koh.Lsp;

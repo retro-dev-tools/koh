@@ -1,5 +1,5 @@
+using Koh.Assembler.Binding;
 using Koh.Common;
-using Koh.Core.Binding;
 using Koh.Linker;
 using Koh.Objects;
 

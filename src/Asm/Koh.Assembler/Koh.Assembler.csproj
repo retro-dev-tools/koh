@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Common\Koh.Common\Koh.Common.csproj" />
+    <ProjectReference Include="..\..\Common\Koh.Opcodes\Koh.Opcodes.csproj" />
+    <ProjectReference Include="..\..\Common\Koh.Objects\Koh.Objects.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Compiler" />
+    <InternalsVisibleTo Include="Koh.Assembler.Tests" />
+    <InternalsVisibleTo Include="Koh.Objects.Tests" />
+    <InternalsVisibleTo Include="Koh.Linker.Tests" />
+  </ItemGroup>
+
+</Project>

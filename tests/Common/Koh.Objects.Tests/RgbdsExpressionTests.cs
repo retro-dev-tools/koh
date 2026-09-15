@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Text;
-using Koh.Core;
-using Koh.Core.Binding;
-using Koh.Core.Syntax;
+using Koh.Assembler;
+using Koh.Assembler.Binding;
+using Koh.Assembler.Syntax;
 using Koh.Objects;
 
 namespace Koh.Objects.Tests;

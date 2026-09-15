@@ -148,7 +148,7 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 
 ```text
 src/
-  Koh.Core/           # Compiler core
+  Koh.Assembler/           # Compiler core
   Koh.Emit/           # Binary and object emission
   Koh.Asm/            # Assembler CLI
   Koh.Linker/    # Linker core

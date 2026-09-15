@@ -45,7 +45,7 @@ public class WorkspaceTests
         // Verify the tree was actually rebuilt with the new content
         var token = doc!.Value.Tree.Root.FindToken(0);
         await Assert.That(token).IsNotNull();
-        await Assert.That(token!.Kind).IsEqualTo(Koh.Core.Syntax.SyntaxKind.HaltKeyword);
+        await Assert.That(token!.Kind).IsEqualTo(Koh.Assembler.Syntax.SyntaxKind.HaltKeyword);
     }
 
     [Test]

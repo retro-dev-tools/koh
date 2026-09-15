@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core.Syntax;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Newtonsoft.Json.Linq;
 using StreamJsonRpc;
@@ -411,7 +411,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
 
         if (token.Kind == SyntaxKind.NumberLiteral)
         {
-            var val = Core.Binding.ExpressionEvaluator.ParseNumber(token.Text);
+            var val = Koh.Assembler.Binding.ExpressionEvaluator.ParseNumber(token.Text);
             if (val.HasValue)
                 return $"`${val.Value:X4}` = {val.Value} = `%{Convert.ToString(val.Value, 2)}`";
         }
@@ -978,7 +978,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
     private static void CollectInlayHints(
         SyntaxNode node,
         SourceText source,
-        Core.SemanticModel model,
+        Koh.Assembler.SemanticModel model,
         int startOffset,
         int endOffset,
         List<JObject> hints,

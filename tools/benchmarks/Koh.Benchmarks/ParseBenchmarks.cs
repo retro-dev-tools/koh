@@ -1,5 +1,5 @@
 using BenchmarkDotNet.Attributes;
-using Koh.Core.Syntax;
+using Koh.Assembler.Syntax;
 
 namespace Koh.Benchmarks;
 

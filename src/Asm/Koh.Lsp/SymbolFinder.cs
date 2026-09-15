@@ -1,5 +1,5 @@
-using Koh.Core.Symbols;
-using Koh.Core.Syntax;
+using Koh.Assembler.Symbols;
+using Koh.Assembler.Syntax;
 using Koh.Objects;
 using CoreSymbolKind = Koh.Objects.SymbolKind;
 
@@ -155,7 +155,7 @@ internal sealed class SymbolFinder
 
     private void WalkForOccurrences(
         SyntaxNode node,
-        Core.SemanticModel model,
+        Koh.Assembler.SemanticModel model,
         string uri,
         (string? OwnerId, string QualifiedName) targetId,
         bool includeDeclarations,
