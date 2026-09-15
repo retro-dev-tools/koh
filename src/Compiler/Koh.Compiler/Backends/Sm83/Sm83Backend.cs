@@ -22,7 +22,7 @@ namespace Koh.Compiler.Backends.Sm83;
 /// with critical-edge-split phi copies), <c>switch</c>, calls (static, non-recursive), aggregate
 /// (struct/array) copies, and both static-address and dynamic-pointer memory ops. Instruction
 /// bytes are emitted directly rather than selected through
-/// <see cref="Koh.Core.Encoding.Sm83InstructionTable"/> (that table is the encoding oracle the
+/// <see cref="Koh.Opcodes.Sm83InstructionTable"/> (that table is the encoding oracle the
 /// <c>Sm83EncodingTests</c> pin the emitted bytes against).
 ///
 /// Calling convention: parameters occupy WRAM from <see cref="WramBase"/> in declaration order;

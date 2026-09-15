@@ -1,4 +1,4 @@
-namespace Koh.Core.Encoding;
+namespace Koh.Opcodes;
 
 /// <summary>
 /// Describes how to embed an operand value into the emitted byte stream.

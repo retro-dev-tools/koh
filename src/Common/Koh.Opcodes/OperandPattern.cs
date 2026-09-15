@@ -1,4 +1,4 @@
-namespace Koh.Core.Encoding;
+namespace Koh.Opcodes;
 
 /// <summary>
 /// Describes the expected operand type for pattern matching against syntax tree operand nodes.

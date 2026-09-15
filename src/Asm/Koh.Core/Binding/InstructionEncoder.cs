@@ -3,6 +3,7 @@ using Koh.Core.Encoding;
 using Koh.Core.Symbols;
 using Koh.Core.Syntax;
 using Koh.Core.Syntax.InternalSyntax;
+using Koh.Opcodes;
 
 namespace Koh.Core.Binding;
 

@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Common\Koh.Opcodes\Koh.Opcodes.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Koh.Emit" />
     <InternalsVisibleTo Include="Koh.Compiler" />
     <InternalsVisibleTo Include="Koh.Core.Tests" />

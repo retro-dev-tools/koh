@@ -8,6 +8,7 @@ using Koh.Compiler.Ir.Optimization;
 using Koh.Core.Diagnostics;
 using Koh.Debugger;
 using Koh.Linker;
+using Koh.Opcodes;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using LinkerType = Koh.Linker.Linker;
@@ -218,7 +219,7 @@ public class FlushRunLoopResidencyTests
         int addr = startAddr;
         for (int guard = 0; guard < 400 && addr < endAddr; guard++)
         {
-            var (mnemonic, length) = Disassembler.DecodeOne(a => ReadByte(a), (ushort)addr);
+            var (mnemonic, length) = Sm83Disassembler.DecodeOne(a => ReadByte(a), (ushort)addr);
             decoded.Add((addr, mnemonic));
             addr += length;
         }
