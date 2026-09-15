@@ -1,6 +1,6 @@
-using Koh.Core;
-using Koh.Core.Binding;
-using Koh.Core.Syntax;
+using Koh.Assembler;
+using Koh.Assembler.Binding;
+using Koh.Assembler.Syntax;
 using Koh.Objects;
 
 namespace Koh.Objects.Tests;
@@ -177,16 +177,14 @@ public class RgbdsFormatTests
             dw external_func
             """
         );
-        var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
+        var options = new Koh.Assembler.Binding.BinderOptions { AllowUndefinedSymbols = true };
         var model = Compilation.Create(options, tree).Emit();
         await Assert.That(model.Success).IsTrue();
 
         // The symbol "external_func" should be in the model as Imported
         var importSym = model.Symbols.FirstOrDefault(s => s.Name == "external_func");
         await Assert.That(importSym).IsNotNull();
-        await Assert
-            .That(importSym!.Visibility)
-            .IsEqualTo(Koh.Objects.SymbolVisibility.Imported);
+        await Assert.That(importSym!.Visibility).IsEqualTo(Koh.Objects.SymbolVisibility.Imported);
 
         // Write to RGBDS format — should not throw
         var bytes = WriteToBytes(model);
@@ -206,7 +204,7 @@ public class RgbdsFormatTests
             dw external_func
             """
         );
-        var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
+        var options = new Koh.Assembler.Binding.BinderOptions { AllowUndefinedSymbols = true };
         var model = Compilation.Create(options, tree).Emit();
         await Assert.That(model.Success).IsTrue();
 
@@ -242,7 +240,7 @@ public class RgbdsFormatTests
             my_label: nop
             """
         );
-        var options = new Koh.Core.Binding.BinderOptions { AllowUndefinedSymbols = true };
+        var options = new Koh.Assembler.Binding.BinderOptions { AllowUndefinedSymbols = true };
         var model = Compilation.Create(options, tree).Emit();
         await Assert.That(model.Success).IsTrue();
 

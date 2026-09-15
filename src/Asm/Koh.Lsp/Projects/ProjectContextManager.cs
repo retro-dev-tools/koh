@@ -1,6 +1,6 @@
+using Koh.Assembler;
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core;
-using Koh.Core.Syntax;
 using Koh.Lsp.Config;
 using Koh.Lsp.Discovery;
 using Koh.Lsp.Source;

@@ -1,4 +1,4 @@
-using Koh.Core;
+using Koh.Assembler;
 using Koh.Lsp.Source;
 
 namespace Koh.Lsp.Tests.Source;

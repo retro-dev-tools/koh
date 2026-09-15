@@ -1,5 +1,5 @@
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core.Syntax;
 using Koh.Lsp;
 using LspPosition = Microsoft.VisualStudio.LanguageServer.Protocol.Position;
 

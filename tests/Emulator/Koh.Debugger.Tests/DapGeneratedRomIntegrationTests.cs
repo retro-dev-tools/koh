@@ -1,7 +1,7 @@
 using System.Text.Json;
+using Koh.Assembler;
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core;
-using Koh.Core.Syntax;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
 using Koh.Linker;

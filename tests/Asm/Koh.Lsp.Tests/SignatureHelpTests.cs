@@ -1,5 +1,5 @@
+using Koh.Assembler.Syntax;
 using Koh.Common;
-using Koh.Core.Syntax;
 using Newtonsoft.Json.Linq;
 
 namespace Koh.Lsp.Tests;

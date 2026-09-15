@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Koh is a .NET 10 Game Boy development toolchain. Main C# projects live in `src/`: compiler logic in `Koh.Core`, emission in `Koh.Emit`, CLIs in `Koh.Asm` and `Koh.Link`, linker logic in `Koh.Linker`, LSP support in `Koh.Lsp`, and debugger/emulator/UI code in `Koh.Debugger`, `Koh.Emulator.*`, and `KohUI*`. Tests are under `tests/` and usually mirror source names, for example `Koh.Core.Tests`. VS Code extension sources and grammar assets are in `editors/vscode/src` and `editors/vscode/syntaxes`. Benchmarks are in `tools/benchmarks/Koh.Benchmarks`.
+Koh is a .NET 10 Game Boy development toolchain. Main C# projects live in `src/`: compiler logic in `Koh.Assembler`, emission in `Koh.Emit`, CLIs in `Koh.Asm` and `Koh.Link`, linker logic in `Koh.Linker`, LSP support in `Koh.Lsp`, and debugger/emulator/UI code in `Koh.Debugger`, `Koh.Emulator.*`, and `KohUI*`. Tests are under `tests/` and usually mirror source names, for example `Koh.Assembler.Tests`. VS Code extension sources and grammar assets are in `editors/vscode/src` and `editors/vscode/syntaxes`. Benchmarks are in `tools/benchmarks/Koh.Benchmarks`.
 
 ## Build, Test, and Development Commands
 
