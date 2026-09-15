@@ -25,10 +25,13 @@ namespace Koh.Compiler.Frontends.Cil;
 /// side-table (unlike the array/delegate/concrete-type tables elsewhere in this frontend) is needed to
 /// know how many bytes to copy or where.
 ///
-/// Struct RETURN by value is a diagnostic (<see cref="CilLoweringContext.EnsureSignature"/>) — matching
-/// <c>CSharpFrontend</c>, which has no struct-return path at all (its return-type resolver only ever
-/// maps a scalar, pointer, or class name); parity is the ceiling here, not just the floor, since the
-/// backend's calling convention has no proven aggregate-by-value return shape. A struct parameter,
+/// Struct RETURN by value lowers via the static-slot convention (<see cref="CilLoweringContext.EnsureSignature"/>:
+/// the callee becomes void and its <c>Ret</c> site copies into a per-function WRAM return slot; the
+/// call site immediately copies the slot into a fresh caller-frame buffer and pushes its address —
+/// see <c>TryEmitSretCall</c>, including why a hidden result-POINTER parameter was rejected: a
+/// recursive callee's frame restore clobbers anything written into the caller's frame). This
+/// replaced the original diagnostic as enabler E1 of the ideal-game-API program
+/// (<c>docs/superpowers/specs/2026-07-19-ideal-game-api-design.md</c>). A struct parameter,
 /// unlike <c>CSharpFrontend</c> (which requires ref/in/out for every struct parameter — a Koh-C#-only
 /// restriction), supports genuine byval passing here: real compiled C# routinely passes small structs
 /// by value, and this frontend accepts standard C# semantics (see the design doc's whole premise) — a
@@ -293,6 +296,10 @@ internal sealed partial class CilMethodLowerer
             EmitCopy(tempPtr, arg, layout.Size);
             return tempPtr;
         }
+        // A delegate crossing into a callee loses its compile-time provenance — materialize the
+        // blob at the boundary (enabler E3; see MaterializeDelegateIfNeeded).
+        if (IsDelegateTypeRef(paramType))
+            arg = MaterializeDelegateIfNeeded(arg, paramType);
         return CoerceStore(arg, calleeIrType);
     }
 }

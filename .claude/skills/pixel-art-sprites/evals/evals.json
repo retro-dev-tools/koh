@@ -1,0 +1,37 @@
+{
+  "skill_name": "pixel-art-sprites",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "gbc-bat-32",
+      "prompt": "Draw a menacing feral cave bat as a 32x32 pixel-art sprite for a Game Boy Color JRPG bestiary. Hard constraints: exactly these 4 RGB colors and no others \u2014 background/lightest (240,232,200), green (90,160,100), violet (150,90,150), darkest/ink (40,32,48); the background around the figure must be (240,232,200); PNG must be 8-bit RGB, non-interlaced, filter 0. The sprite appears centered on a plain (240,232,200) battle screen. Deliverables in the output directory: bat.png (the 32x32 sprite), preview_8x.png (8x nearest-neighbor), mockup_3x.png (the sprite at 3x centered on a 144x144 field of the background color). It must read instantly as a bat at the 3x mockup scale.",
+      "expected_output": "A 32x32 bat sprite of professional small-sprite craft: instantly readable bat silhouette, structured membrane wings, consistent light source, no orphan pixels, palette-exact.",
+      "files": [],
+      "assertions": [
+        "bat.png exists and is exactly 32x32, 8-bit RGB (color type 2), non-interlaced",
+        "every pixel of bat.png is one of the 4 specified RGB colors (no strays)",
+        "background (240,232,200) is present and appears in at least 2 corners of bat.png",
+        "bat.png has no orphan pixels (isolated 1px foreground marks with no 8-neighbors)",
+        "figure coverage of bat.png is between 20% and 70% of the canvas",
+        "all three deliverables exist: bat.png, preview_8x.png, mockup_3x.png",
+        "mockup_3x.png is 144x144 and its center region equals the sprite upscaled 3x"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "dmg-wolf-16",
+      "prompt": "Draw a howling wolf as a 16x16 pixel-art sprite in the classic 4-shade Game Boy (DMG) green palette: lightest/background (155,188,15), light (139,172,15), dark (48,98,48), darkest (15,56,15). Only those 4 colors. The wolf is shown in profile, muzzle raised mid-howl. PNG 8-bit RGB, non-interlaced, filter 0. Deliverables in the output directory: wolf.png (16x16), preview_10x.png (10x nearest-neighbor), mockup_4x.png (the sprite at 4x centered on a 128x128 field of the background shade). At mockup scale it must read unmistakably as a howling wolf, not a dog, fox, or blob.",
+      "expected_output": "A 16x16 howling-wolf sprite: strong profile silhouette with raised muzzle, clean 4-shade shading with one light direction, no orphan pixels, palette-exact.",
+      "files": [],
+      "assertions": [
+        "wolf.png exists and is exactly 16x16, 8-bit RGB (color type 2), non-interlaced",
+        "every pixel of wolf.png is one of the 4 DMG palette colors (no strays)",
+        "background (155,188,15) is present and appears in at least 2 corners of wolf.png",
+        "wolf.png has no orphan pixels (isolated 1px foreground marks with no 8-neighbors)",
+        "figure coverage of wolf.png is between 20% and 70% of the canvas",
+        "all three deliverables exist: wolf.png, preview_10x.png, mockup_4x.png",
+        "mockup_4x.png is 128x128 and its center region equals the sprite upscaled 4x"
+      ]
+    }
+  ]
+}

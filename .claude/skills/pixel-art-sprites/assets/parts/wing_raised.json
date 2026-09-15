@@ -1,0 +1,32 @@
+{
+ "name": "wing_raised",
+ "grid": [
+  ".............",
+  ".............",
+  "..D..........",
+  ".DMD......D..",
+  ".DMMDD....DD.",
+  ".DMMAMD....DD",
+  "..DMMAD....DD",
+  "...DMMAD...DD",
+  "...DMMDMD..DD",
+  "...DMMMDD.DDA",
+  "...DMMMMMDDDA",
+  "....DDDMMMDDD",
+  ".......DDMDDD",
+  ".........DDDD",
+  "...........DD",
+  "..........DDD"
+ ],
+ "anchors": {
+  "shoulder": [
+   11,
+   13
+  ]
+ },
+ "tags": [
+  "wing",
+  "raised",
+  "membrane"
+ ]
+}

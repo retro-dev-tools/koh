@@ -78,15 +78,26 @@ internal sealed class CilClassLayout
     /// every other unsupported-construct path in this frontend. <paramref name="resolveNested"/> lays
     /// out a struct-typed field's own type (always <c>CilLoweringContext.GetLayout</c>, so nested
     /// layouts share the same cache — a struct cannot contain itself, so no cycle guard is needed, the
-    /// same non-issue as <c>CSharpFrontend.CollectStructs</c>).</summary>
+    /// same non-issue as <c>CSharpFrontend.CollectStructs</c>).
+    ///
+    /// INHERITANCE is prefix layout: a derived class's own fields start at
+    /// <paramref name="baseLayout"/>.<see cref="Size"/>, so every base-declared field keeps the
+    /// offset the BASE's own layout gave it and a base-typed pointer to a derived instance reads
+    /// base fields correctly. (Before the ideal-game-API program's E2 enabler, this walked only
+    /// <c>type.Fields</c> from offset 0 — a derived class's fields silently OVERLAPPED its base's.)
+    /// <paramref name="reserveTagByte"/> additionally reserves offset 0 of a tagged dispatch
+    /// hierarchy's ROOT for the runtime type tag (<see cref="CilVirtualDispatch"/>); derived
+    /// layouts inherit the reservation through the base prefix.</summary>
     public static CilClassLayout Compute(
         TypeDefinition type,
-        Func<TypeDefinition, CilClassLayout> resolveNested
+        Func<TypeDefinition, CilClassLayout> resolveNested,
+        CilClassLayout? baseLayout = null,
+        bool reserveTagByte = false
     )
     {
         var fields = new Dictionary<FieldDefinition, FieldInfo>();
-        int offset = 0,
-            maxAlign = 1;
+        int offset = baseLayout is not null ? baseLayout.Size : (reserveTagByte ? 1 : 0);
+        int maxAlign = 1;
         foreach (var field in type.Fields)
         {
             if (field.IsStatic)

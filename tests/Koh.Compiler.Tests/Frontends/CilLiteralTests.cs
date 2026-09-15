@@ -184,7 +184,8 @@ public class CilLiteralTests
         }
         """;
 
-    private static readonly byte[] ExpectedLocalArrayBytes = [11, 22, 33, 44, 55];
+    // E4 (length-carrying arrays): the counted ROM global is [u16 element count][payload].
+    private static readonly byte[] ExpectedLocalArrayBytes = [5, 0, 11, 22, 33, 44, 55];
 
     private static (byte Lcdc, byte Bgp) RunLocalArray(OptimizationLevel level)
     {
@@ -210,9 +211,9 @@ public class CilLiteralTests
 
         // Direct proof it "landed in ROM" (not rebuilt from a runtime heap allocation + a per-element
         // store loop at every call, the way an ordinary `newarr` would): the module carries a ROM
-        // global whose OWN initializer already holds the literal's bytes, straight from Cecil's RVA
-        // blob — no separate heap allocation for this array at all.
-        var romGlobal = module.Globals.Single(g => g.Name.Contains("__rvablob"));
+        // global whose OWN initializer already holds the literal's bytes (count-prefixed since E4),
+        // straight from Cecil's RVA blob — no separate heap allocation for this array at all.
+        var romGlobal = module.Globals.Single(g => g.Name.Contains("__arr."));
         await Assert.That(romGlobal.AddressSpace).IsEqualTo(AddressSpace.Rom);
         await Assert.That(romGlobal.Initializer).IsNotNull();
         await Assert.That(romGlobal.Initializer!).IsEquivalentTo(ExpectedLocalArrayBytes);

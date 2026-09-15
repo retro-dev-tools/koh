@@ -1,0 +1,30 @@
+{
+ "name": "head_horned",
+ "grid": [
+  "............",
+  "............",
+  ".D......D...",
+  ".DD.....D...",
+  "..DD...DD...",
+  "..DDD..DDD..",
+  "..DDDDDDDD..",
+  "..DDDDDDD..D",
+  ".DDAADDAAD.D",
+  "DDDAADDAADDM",
+  "MDDDDDDDDDMM",
+  "MDDDHHHHDDMD",
+  "DDDDDHHDDDD.",
+  "..DDDDDDD..."
+ ],
+ "anchors": {
+  "neck": [
+   5,
+   13
+  ]
+ },
+ "tags": [
+  "head",
+  "eared",
+  "menacing"
+ ]
+}

@@ -1,0 +1,19 @@
+{
+ "name": "foot_claw",
+ "grid": [
+  "DDDD",
+  ".DDD",
+  "DD..",
+  "DD.."
+ ],
+ "anchors": {
+  "hip": [
+   2,
+   0
+  ]
+ },
+ "tags": [
+  "foot",
+  "claw"
+ ]
+}

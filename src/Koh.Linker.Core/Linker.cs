@@ -3,15 +3,20 @@ using Koh.Core.Diagnostics;
 
 namespace Koh.Linker.Core;
 
-/// <param name="CgbCompatible">Set the CGB flag at $0143 in the cartridge header.</param>
+/// <param name="CgbCompatible">Mark the header CGB-enhanced but DMG-compatible ($80 at $0143).</param>
+/// <param name="CgbOnly">
+/// Mark the header CGB-exclusive ($C0 at $0143 — a DMG refuses to run it). Wins over
+/// <paramref name="CgbCompatible"/> when both are set.
+/// </param>
 /// <param name="PadToPowerOfTwo">
 /// Cartridge mode (the default): pad to a power-of-two size and write the header/global
 /// checksums. False emits a raw image at exactly the size its sections need, with no
-/// checksums — for boot ROMs and other non-cartridge images.
+/// checksums or CGB flag — for boot ROMs and other non-cartridge images.
 /// </param>
 /// <param name="MinSize">Floor for the image size. 32KB is the smallest cartridge.</param>
 public sealed record LinkOptions(
     bool CgbCompatible = false,
+    bool CgbOnly = false,
     bool PadToPowerOfTwo = true,
     int MinSize = 0x8000
 );
@@ -96,6 +101,7 @@ public sealed class Linker
                     sections,
                     minSize: options?.MinSize ?? 0x8000,
                     cgbCompatible: options?.CgbCompatible == true,
+                    cgbOnly: options?.CgbOnly == true,
                     padToPowerOfTwo: options?.PadToPowerOfTwo ?? true
                 );
             }

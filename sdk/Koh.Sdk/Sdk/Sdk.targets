@@ -8,6 +8,7 @@
     <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
     <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
     <KohCgbCompatible Condition="'$(KohCgbCompatible)' == ''">false</KohCgbCompatible>
+    <KohCgbOnly Condition="'$(KohCgbOnly)' == ''">false</KohCgbOnly>
     <KohEmitDebugInfo Condition="'$(KohEmitDebugInfo)' == ''">true</KohEmitDebugInfo>
     <KohKdbgPath>$([System.IO.Path]::ChangeExtension('$(KohRomPath)', '.kdbg'))</KohKdbgPath>
     <!-- Only counts as a tracked incremental Output/FileWrite when actually emitted, so disabling
@@ -51,6 +52,34 @@
   </ItemGroup>
 
   <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
+  <UsingTask TaskName="Koh.Build.Tasks.GenerateKohTileSheets" AssemblyFile="$(KohBuildTasksAssembly)" />
+
+  <!-- The tile-sheet pipeline: every @(KohTileSheet) PNG (default: art/**/*.png, see Sdk.props)
+       becomes 2bpp tile data + a CGB palette in ONE generated file, compiled into the game as
+       `static class Art` — art is authored as images, never as hand-written byte arrays. Split into
+       a generate target (timestamp-incremental) and an include target (always runs, so the Compile
+       item exists even when generation was skipped as up to date). DependsOnTargets=
+       ResolveProjectReferences guarantees the task assembly (built as part of this project's own
+       build graph, see the ProjectReference above) exists before the task loads. -->
+  <PropertyGroup>
+    <KohTileSheetsFile>$(IntermediateOutputPath)KohTileSheets.g.cs</KohTileSheetsFile>
+  </PropertyGroup>
+
+  <Target Name="KohGenerateTileSheets" DependsOnTargets="ResolveProjectReferences"
+          Condition="'@(KohTileSheet)' != ''"
+          Inputs="@(KohTileSheet);$(KohBuildTasksAssembly)" Outputs="$(KohTileSheetsFile)">
+    <GenerateKohTileSheets Sheets="@(KohTileSheet)"
+                           OutputFile="$(KohTileSheetsFile)"
+                           Namespace="$(RootNamespace)" />
+  </Target>
+
+  <Target Name="KohIncludeTileSheets" BeforeTargets="CoreCompile"
+          DependsOnTargets="KohGenerateTileSheets" Condition="'@(KohTileSheet)' != ''">
+    <ItemGroup>
+      <Compile Include="$(KohTileSheetsFile)" />
+      <FileWrites Include="$(KohTileSheetsFile)" />
+    </ItemGroup>
+  </Target>
 
   <!-- CompileKohRom's Inputs (below) are file-timestamp based, so an MSBuild *property* the task
        consumes (ProgramName/CgbCompatible - see CompileKohRom.cs's task parameters) doesn't naturally
@@ -66,6 +95,7 @@
     <ItemGroup>
       <_KohRomProps Include="ProgramName=$(AssemblyName)" />
       <_KohRomProps Include="CgbCompatible=$(KohCgbCompatible)" />
+      <_KohRomProps Include="CgbOnly=$(KohCgbOnly)" />
       <_KohRomProps Include="OutputPath=$(KohRomPath)" />
       <_KohRomProps Include="KohFrontend=$(KohFrontend)" />
       <_KohRomProps Include="EmitDebugInfo=$(KohEmitDebugInfo)" />
@@ -94,6 +124,7 @@
                    AssemblyPath="$(TargetPath)"
                    ReferencePaths="@(ReferencePath)"
                    ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)"
+                   CgbOnly="$(KohCgbOnly)"
                    EmitDebugInfo="$(KohEmitDebugInfo)" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPath)" />

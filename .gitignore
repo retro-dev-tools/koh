@@ -27,6 +27,7 @@ BenchmarkDotNet.Artifacts/
 tests/fixtures/screenshots/
 scriptrun.log
 *.png
+__pycache__/
 
 # Claude Code local state — .claude/skills is shared, so ignore per-path, not .claude/
 .claude/worktrees/

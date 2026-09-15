@@ -60,13 +60,25 @@ internal sealed class CilLoweringContext
     // CSharpFrontend's own static-array placement; see CilStaticFieldSupport's remarks).
     private readonly HashSet<FieldDefinition> _staticFieldIsAlias = new();
 
-    // Element type/signedness/count for every aliased ARRAY field (not populated for a folded SCALAR
-    // constant) — mirrors CilMethodLowerer.Arrays.cs's _pendingArrayInfo shape, so Ldsfld can tag its
-    // pushed value the same way a 'newarr' or a static-array identifier does.
+    // Element type/signedness/count/payload-offset for every aliased ARRAY field (not populated for
+    // a folded SCALAR constant) — mirrors CilMethodLowerer.Arrays.cs's _pendingArrayInfo shape, so
+    // Ldsfld can tag its pushed value the same way a 'newarr' or a static-array identifier does.
+    // PayloadOffset is where the elements start inside the global (past the u16 length prefix — see
+    // RegisterFoldedStaticArray's remarks).
     private readonly Dictionary<
         FieldDefinition,
-        (IrType ElemType, bool Signed, int Count)
+        (IrType ElemType, bool Signed, int Count, int PayloadOffset)
     > _staticArrayInfo = new();
+
+    // A static field of USER STRUCT type (e.g. the Framework's 'static TileAsset Tiles' /
+    // 'static Timer _timer' — the ideal-game-API program's verify-first item, confirmed real by
+    // CilFrameworkTests): its global is a WRAM byte blob of the struct's layout size, and — matching
+    // the frontend's universal "a struct value IS the address of its bytes" representation
+    // (CilMethodLowerer.Structs.cs) — Ldsfld pushes the global's ADDRESS (never a scalar Load),
+    // Ldsflda pushes the same address, and Stsfld byte-copies the source struct into the blob.
+    // Zero-init comes free: WRAM statics are cleared at boot, giving 'default' struct state exactly
+    // like C# expects.
+    private readonly Dictionary<FieldDefinition, CilClassLayout> _staticStructLayouts = new();
 
     // Per static-constructor MethodDefinition, the instructions CilStaticFieldSupport.Collect proved
     // redundant (fully accounted for by a field's ROM/alias classification) — CilMethodLowerer seeds
@@ -96,29 +108,44 @@ internal sealed class CilLoweringContext
         _staticFields[field] = romGlobal;
 
     /// <summary>Alias a static ARRAY field straight onto <paramref name="arrayGlobal"/> — the field has
-    /// no separate holder; the global's own address IS the field's value (Ldsfld/Ldsflda push
-    /// <c>GlobalRef</c> directly). Used both for a readonly array literal (ROM, content-initialized)
-    /// and a fixed-size array with no literal content (ROM if readonly, else WRAM, zero-initialized by
-    /// the backend's unconditional boot-only WRAM clear — see CSharpFrontend's own static-array
-    /// remarks).</summary>
+    /// no separate holder; the field's value is the global's PAYLOAD address (base +
+    /// <paramref name="payloadOffset"/>): every array now carries its u16 element count at
+    /// payload−2 (enabler E4, length-carrying arrays — see <c>LowerLdlen</c>'s fallback), with the
+    /// payload offset normally 2 and <c>max(2, alignment)</c> for a <c>[KohAligned]</c> field so the
+    /// PAYLOAD (what OAM DMA and pointer interop see) keeps the declared alignment. Used both for a
+    /// readonly array literal (ROM, content-initialized with the count baked in) and a fixed-size
+    /// array with no literal content (ROM if readonly, else WRAM — zeroed by the backend's boot
+    /// clear, with the count stored by the entry prologue via <see cref="ArrayCountInits"/>).</summary>
     public void RegisterFoldedStaticArray(
         FieldDefinition field,
         IrGlobal arrayGlobal,
         IrType elemType,
         bool elemSigned,
-        int count
+        int count,
+        int payloadOffset
     )
     {
         _staticFields[field] = arrayGlobal;
         _staticFieldIsAlias.Add(field);
-        _staticArrayInfo[field] = (elemType, elemSigned, count);
+        _staticArrayInfo[field] = (elemType, elemSigned, count, payloadOffset);
     }
+
+    /// <summary>WRAM length-prefixed array globals whose element count must be written at boot
+    /// (WRAM has no initializers — the backend zeroes it): (global, byte offset of the u16 count,
+    /// count). The entry function's prologue emits one store per entry
+    /// (<c>CilMethodLowerer.Run</c>'s <c>isEntry</c> block).</summary>
+    public List<(IrGlobal Global, int CountOffset, int Count)> ArrayCountInits { get; } = new();
 
     public bool IsStaticFieldAlias(FieldDefinition field) => _staticFieldIsAlias.Contains(field);
 
+    /// <summary>The struct layout of a user-struct static field settled by
+    /// <see cref="EnsureStaticGlobal"/> (see <c>_staticStructLayouts</c>' remarks), if it is one.</summary>
+    public bool TryGetStaticStructLayout(FieldDefinition field, out CilClassLayout layout) =>
+        _staticStructLayouts.TryGetValue(field, out layout!);
+
     public bool TryGetStaticArrayInfo(
         FieldDefinition field,
-        out (IrType ElemType, bool Signed, int Count) info
+        out (IrType ElemType, bool Signed, int Count, int PayloadOffset) info
     ) => _staticArrayInfo.TryGetValue(field, out info);
 
     /// <summary>Declaring types already run through <see cref="CilStaticFieldSupport.CollectType"/> by
@@ -152,6 +179,22 @@ internal sealed class CilLoweringContext
             CilStaticFieldSupport.CollectType(field.DeclaringType, this);
         if (_staticFields.TryGetValue(field, out g))
             return g;
+        // A user-struct field gets a WRAM byte blob sized by its layout (see _staticStructLayouts'
+        // remarks) — checked before CilTypeMapper.Map, which has no struct branch and would throw.
+        if (CilStructSupport.ResolveStruct(field.FieldType) is { } structDef)
+        {
+            var layout = GetLayout(structDef);
+            g = new IrGlobal(
+                $"{field.DeclaringType.FullName}.{field.Name}",
+                IrType.Array(IrType.I8, Math.Max(layout.Size, 1)),
+                AddressSpace.Wram,
+                alignment: CilStaticFieldSupport.ReadAlignment(field)
+            );
+            Module.Globals.Add(g);
+            _staticFields[field] = g;
+            _staticStructLayouts[field] = layout;
+            return g;
+        }
         var (irType, _) = CilTypeMapper.Map(field.FieldType);
         g = new IrGlobal(
             $"{field.DeclaringType.FullName}.{field.Name}",
@@ -173,6 +216,38 @@ internal sealed class CilLoweringContext
     // in the program share one ROM global for free, exactly like a hand-written 'static readonly'
     // array field already would.
     private readonly Dictionary<FieldDefinition, IrGlobal> _rvaBlobGlobals = new();
+
+    // A LOCAL array literal's counted ROM global: [u16 element count][payload bytes], the value
+    // pushed being the PAYLOAD address (base+2) — the array-shaped sibling of EnsureRvaBlobGlobal
+    // below (which stays uncounted for the `"..."u8` span path). Keyed by (blob field, element
+    // count) rather than blob field alone: Roslyn dedupes blobs by CONTENT, so one blob can back
+    // arrays of DIFFERENT element widths (byte[4] vs ushort[2] with identical bytes) whose element
+    // counts differ — the count baked into the global must match each shape.
+    private readonly Dictionary<(FieldDefinition, int), IrGlobal> _countedArrayGlobals = new();
+
+    /// <summary>The counted ROM global for a local array literal backed by
+    /// <paramref name="blobField"/> with <paramref name="elemCount"/> elements (see
+    /// <c>_countedArrayGlobals</c>' remarks). Callers push base+2 (the payload).</summary>
+    public IrGlobal EnsureCountedArrayGlobal(FieldDefinition blobField, int elemCount)
+    {
+        var key = (blobField, elemCount);
+        if (_countedArrayGlobals.TryGetValue(key, out var g))
+            return g;
+        var payload = blobField.InitialValue;
+        var bytes = new byte[2 + payload.Length];
+        bytes[0] = (byte)elemCount;
+        bytes[1] = (byte)(elemCount >> 8);
+        payload.CopyTo(bytes, 2);
+        g = new IrGlobal(
+            $"__arr.{blobField.FullName}.{elemCount}",
+            IrType.Array(IrType.I8, bytes.Length),
+            AddressSpace.Rom,
+            initializer: bytes
+        );
+        Module.Globals.Add(g);
+        _countedArrayGlobals[key] = g;
+        return g;
+    }
 
     /// <summary>The ROM global backing <paramref name="blobField"/>'s raw bytes (a compiler-generated
     /// RVA-initialized field — <see cref="FieldDefinition.InitialValue"/> is already exactly the bytes
@@ -268,6 +343,16 @@ internal sealed class CilLoweringContext
     internal const int HeapTop = 0xDE00;
     internal const string HeapPointerName = "__heap";
 
+    /// <summary>The closed-world virtual-dispatch index (tag assignment + dispatch-target sets) —
+    /// see <see cref="CilVirtualDispatch"/>. Built once, before any layout or body lowering, so tag
+    /// reservations are settled before the first <see cref="GetLayout"/> call.</summary>
+    public CilVirtualDispatch VirtualDispatch { get; }
+
+    /// <summary>The closed-world delegate-target registry (enabler E3, stored delegates) — see
+    /// <see cref="CilDelegateRegistry"/>. Built once, up front, so an untraceable Invoke lowered
+    /// early dispatches over targets whose creation sites lower later.</summary>
+    public CilDelegateRegistry DelegateRegistry { get; }
+
     public CilLoweringContext(
         IrModule module,
         DiagnosticBag diagnostics,
@@ -281,6 +366,8 @@ internal sealed class CilLoweringContext
         Intrinsics = intrinsics;
         Runtime = runtime;
         GameModule = gameModule;
+        VirtualDispatch = CilVirtualDispatch.Build(gameModule);
+        DelegateRegistry = CilDelegateRegistry.Build(gameModule);
     }
 
     /// <summary>Resolve and lower (on demand, exactly like <see cref="EnsureLowered"/> — the same
@@ -338,7 +425,23 @@ internal sealed class CilLoweringContext
     {
         if (_classLayouts.TryGetValue(type, out var layout))
             return layout;
-        layout = CilClassLayout.Compute(type, GetLayout);
+        // A class with a real base gets prefix layout (base fields first, at their base-layout
+        // offsets); a tagged dispatch hierarchy's root additionally reserves offset 0 for the
+        // runtime type tag (see CilVirtualDispatch). Value types have neither.
+        CilClassLayout? baseLayout = null;
+        var reserveTag = false;
+        if (!type.IsValueType)
+        {
+            var baseDef =
+                type.BaseType is { } baseRef && baseRef.FullName != "System.Object"
+                    ? CilModuleLowerer.ResolveSafe(baseRef)
+                    : null;
+            if (baseDef is not null)
+                baseLayout = GetLayout(baseDef);
+            else
+                reserveTag = VirtualDispatch.NeedsTagByte(type);
+        }
+        layout = CilClassLayout.Compute(type, GetLayout, baseLayout, reserveTag);
         _classLayouts[type] = layout;
         return layout;
     }
@@ -396,15 +499,23 @@ internal sealed class CilLoweringContext
             return existing;
         try
         {
-            // Struct-by-value RETURN is a diagnostic, not a lowering: parity with CSharpFrontend, whose
-            // own return-type resolver has no struct path at all (see CilMethodLowerer.Structs.cs's
-            // class remarks) — the backend's calling convention has no proven aggregate-by-value return
-            // shape, unlike a byval struct PARAMETER (an ordinary address plus a call-site copy).
-            if (CilStructSupport.ResolveStruct(method.ReturnType) is not null)
-                throw new CilNotSupportedException(
-                    $"'{method.FullName}' returns a struct by value, which the CIL frontend does not "
-                        + "support (return it via an out/ref parameter instead)."
-                );
+            // Struct-by-value RETURN lowers through a PER-FUNCTION STATIC RETURN SLOT (enabler E1 of
+            // docs/superpowers/specs/2026-07-19-ideal-game-api-design.md): the callee becomes void
+            // and its Ret site copies the result bytes into its own WRAM slot; every call site then
+            // immediately copies the slot into a fresh caller-frame buffer and pushes that buffer's
+            // address (the frontend's universal struct-value-is-address shape). Chosen over the
+            // classic hidden-sret POINTER parameter deliberately: a recursive callee's epilogue
+            // restores the caller's static frame from the software stack, which would clobber a
+            // result the callee had just written through a pointer INTO that frame (observed as a
+            // real Fib-of-structs miscompile) — the backend's own rule is "any recursive return goes
+            // via memory", and a per-function slot is that rule, without ReturnScratch's shared-
+            // scratch coupling (slots are per function, so distinct struct-returning functions can
+            // never collide; a handler and mainline sharing ONE function is the same static-frame
+            // hazard the backend already polices). The call-site copy is immediate — before any
+            // other call can run — so 'G(F(), F())' argument evaluation can't alias the slot.
+            CilClassLayout? sretLayout = null;
+            if (CilStructSupport.ResolveStruct(method.ReturnType) is { } retStruct)
+                sretLayout = GetLayout(retStruct);
             var parameters = new List<IrParameter>();
             if (method.HasThis)
             {
@@ -423,9 +534,11 @@ internal sealed class CilLoweringContext
                 var shape = CilTypeMapper.MapParam(p.ParameterType);
                 parameters.Add(new IrParameter(p.Name ?? $"arg{i}", shape.IrType));
             }
-            var (returnType, _) = CilTypeMapper.Map(method.ReturnType);
+            var returnType = sretLayout is not null
+                ? IrType.Void
+                : CilTypeMapper.Map(method.ReturnType).Item1;
             var fn = new IrFunction(
-                $"{method.DeclaringType.Name}.{method.Name}",
+                UniqueFunctionName($"{method.DeclaringType.Name}.{method.Name}"),
                 returnType,
                 parameters
             )
@@ -437,12 +550,68 @@ internal sealed class CilLoweringContext
             };
             Module.Functions.Add(fn);
             FunctionsByMethod[method] = fn;
+            if (sretLayout is not null)
+                RegisterSretFunction(fn, sretLayout);
             return fn;
         }
         catch (CilNotSupportedException ex)
         {
             Diagnostics.Report(default, ex.Message, DiagnosticSeverity.Error, Module.Name);
             return null;
+        }
+    }
+
+    // Functions whose C# return type is a struct, lowered to a void function plus a per-function
+    // static WRAM return slot — see EnsureSignature's remarks. Keyed by IrFunction so every call
+    // path (static, instance, delegate, generic) can ask one question at emission time.
+    private readonly Dictionary<IrFunction, (CilClassLayout Layout, IrGlobal Slot)> _sretSlots =
+        new();
+
+    private void RegisterSretFunction(IrFunction fn, CilClassLayout layout)
+    {
+        var slot = new IrGlobal(
+            $"__sret.{fn.Name}",
+            IrType.Array(IrType.I8, Math.Max(layout.Size, 1)),
+            AddressSpace.Wram
+        );
+        Module.Globals.Add(slot);
+        _sretSlots[fn] = (layout, slot);
+    }
+
+    /// <summary>The struct-return layout and static return slot of <paramref name="fn"/>, if it
+    /// uses the static-slot struct-return convention.</summary>
+    public bool TryGetSretSlot(IrFunction fn, out CilClassLayout layout, out IrGlobal slot)
+    {
+        if (_sretSlots.TryGetValue(fn, out var entry))
+        {
+            layout = entry.Layout;
+            slot = entry.Slot;
+            return true;
+        }
+        layout = null!;
+        slot = null!;
+        return false;
+    }
+
+    // Every IR function name handed out so far. C# METHOD OVERLOADS share a simple name
+    // ('Rng.Next()' and 'Rng.Next(byte)' are distinct MethodDefinitions but both map to "Rng.Next"),
+    // and the linker treats function names as exported symbols — two same-named functions are a
+    // duplicate-symbol link error (found the first time a program called two overloads of one
+    // Framework method; latent for any two Text.Draw overloads too). Names are per-MethodDefinition
+    // identity everywhere (FunctionsByMethod), so the NAME is display/symbol-only: uniquify on
+    // collision, keeping the first occurrence's pretty name so existing single-overload programs
+    // (and tests that look functions up by name) are unaffected.
+    private readonly HashSet<string> _functionNames = new(StringComparer.Ordinal);
+
+    private string UniqueFunctionName(string baseName)
+    {
+        if (_functionNames.Add(baseName))
+            return baseName;
+        for (int i = 2; ; i++)
+        {
+            var candidate = $"{baseName}#{i}";
+            if (_functionNames.Add(candidate))
+                return candidate;
         }
     }
 
@@ -557,10 +726,11 @@ internal sealed class CilLoweringContext
     /// still name the OPEN type parameter (<c>!!0</c>) directly off Cecil metadata. Scope: a static
     /// method only (an instance generic method would need virtual/interface dispatch devirtualization
     /// layered on top of monomorphization — out of scope, matching <c>CSharpFrontend</c>, which has no
-    /// generic-class/generic-instance-method support either) and scalar/pointer parameters/return only
-    /// (a struct-typed one is a diagnostic here rather than a silent wrong-copy — byval struct
+    /// generic-class/generic-instance-method support either) and scalar/pointer PARAMETERS only
+    /// (a struct-typed parameter is a diagnostic here rather than a silent wrong-copy — byval struct
     /// semantics need PrepareArg's fresh-copy path, which <c>LowerGenericCall</c>'s own arg-prep does
-    /// not thread through, unlike the ordinary call path's <c>PrepareArg</c>).</summary>
+    /// not thread through, unlike the ordinary call path's <c>PrepareArg</c>). A struct RETURN is
+    /// fine: it lowers to the same hidden-sret convention as <see cref="EnsureSignature"/>.</summary>
     private IrFunction BuildGenericSignature(
         MethodDefinition template,
         IReadOnlyList<TypeReference> concreteArgs,
@@ -573,11 +743,11 @@ internal sealed class CilLoweringContext
                     + "static generic methods only."
             );
         var substReturn = CilGenericSubst.Substitute(template.ReturnType, concreteArgs);
-        if (CilStructSupport.ResolveStruct(substReturn) is not null)
-            throw new CilNotSupportedException(
-                $"'{template.FullName}{suffix}' returns a struct by value, which the CIL frontend does "
-                    + "not support (return it via an out/ref parameter instead)."
-            );
+        // Same static-slot struct-return convention as EnsureSignature (see its remarks) for a
+        // monomorphized instantiation whose substituted return type is a struct.
+        CilClassLayout? sretLayout = null;
+        if (CilStructSupport.ResolveStruct(substReturn) is { } retStruct)
+            sretLayout = GetLayout(retStruct);
         var parameters = new List<IrParameter>();
         for (var i = 0; i < template.Parameters.Count; i++)
         {
@@ -594,13 +764,17 @@ internal sealed class CilLoweringContext
             var shape = CilTypeMapper.MapParam(substituted);
             parameters.Add(new IrParameter(p.Name ?? $"arg{i}", shape.IrType));
         }
-        var (returnType, _) = CilTypeMapper.Map(substReturn);
+        var returnType = sretLayout is not null
+            ? IrType.Void
+            : CilTypeMapper.Map(substReturn).Item1;
         var fn = new IrFunction(
-            $"{template.DeclaringType.Name}.{template.Name}{suffix}",
+            UniqueFunctionName($"{template.DeclaringType.Name}.{template.Name}{suffix}"),
             returnType,
             parameters
         );
         Module.Functions.Add(fn);
+        if (sretLayout is not null)
+            RegisterSretFunction(fn, sretLayout);
         return fn;
     }
 
