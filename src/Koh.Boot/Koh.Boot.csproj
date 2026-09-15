@@ -9,15 +9,9 @@
     Koh.Boot deliberately does NOT reference Koh.Emulator.Core; the emulator takes bytes
     and does not know where they came from.
   -->
-  <!--
-    Built as plain tools even under `dotnet publish`: _IsPublishing makes the SDK infer a RID for
-    these PublishAot exes, moving their output to bin/.../<rid>/, off KohAsmDll/KohLinkDll.
-  -->
   <ItemGroup>
-    <ProjectReference Include="..\Koh.Asm\Koh.Asm.csproj" ReferenceOutputAssembly="false"
-                      GlobalPropertiesToRemove="_IsPublishing;RuntimeIdentifier;SelfContained" />
-    <ProjectReference Include="..\Koh.Link\Koh.Link.csproj" ReferenceOutputAssembly="false"
-                      GlobalPropertiesToRemove="_IsPublishing;RuntimeIdentifier;SelfContained" />
+    <ProjectReference Include="..\Koh.Asm\Koh.Asm.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Koh.Link\Koh.Link.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,11 +19,15 @@
     <None Include="*.inc" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <!-- The CLIs set AssemblyName, so the binaries are koh-asm/koh-link, not Koh.Asm/Koh.Link. -->
-    <KohAsmDll>$(MSBuildThisFileDirectory)..\Koh.Asm\bin\$(Configuration)\net10.0\koh-asm.dll</KohAsmDll>
-    <KohLinkDll>$(MSBuildThisFileDirectory)..\Koh.Link\bin\$(Configuration)\net10.0\koh-link.dll</KohLinkDll>
-  </PropertyGroup>
+  <!-- Tool paths as built: RID-specific under `dotnet publish`. -->
+  <Target Name="ResolveKohTools">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\Koh.Asm\Koh.Asm.csproj" Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" PropertyName="KohAsmDll" />
+    </MSBuild>
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\Koh.Link\Koh.Link.csproj" Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" PropertyName="KohLinkDll" />
+    </MSBuild>
+  </Target>
 
   <!--
     Assemble Koh's own boot ROMs with Koh's own toolchain. The .bin outputs are build
@@ -41,6 +39,7 @@
   -->
   <Target Name="AssembleBootRoms"
           AfterTargets="ResolveProjectReferences"
+          DependsOnTargets="ResolveKohTools"
           Inputs="@(None);$(KohAsmDll);$(KohLinkDll)"
           Outputs="$(IntermediateOutputPath)dmg_boot.bin;$(IntermediateOutputPath)cgb_boot.bin">
     <MakeDir Directories="$(IntermediateOutputPath)" />
