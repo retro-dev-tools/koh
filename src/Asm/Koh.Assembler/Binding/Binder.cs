@@ -1,7 +1,7 @@
-using Koh.Common;
 using Koh.Assembler.Symbols;
 using Koh.Assembler.Syntax;
 using Koh.Assembler.Syntax.InternalSyntax;
+using Koh.Common;
 using Koh.Objects;
 
 namespace Koh.Assembler.Binding;
@@ -1330,6 +1330,7 @@ public sealed class Binder
                                 Offset = offset,
                                 Expression = PatchExpressionBuilder.From(expr.Green),
                                 Kind = PatchKind.Absolute8,
+                                PCOffset = offset,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                 SymbolName = sn8,
@@ -1377,6 +1378,7 @@ public sealed class Binder
                                 Offset = offset,
                                 Expression = PatchExpressionBuilder.From(expr.Green),
                                 Kind = PatchKind.Absolute16,
+                                PCOffset = offset,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                 SymbolName = sn16,
@@ -1409,6 +1411,7 @@ public sealed class Binder
                                 Offset = offset,
                                 Expression = PatchExpressionBuilder.From(expr.Green),
                                 Kind = PatchKind.Absolute32,
+                                PCOffset = offset,
                                 FilePath = _diagnostics.CurrentFilePath,
                                 GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                 SymbolName = sn32,
