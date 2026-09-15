@@ -557,6 +557,9 @@ public static class EmulatorApp
         return buf;
     }
 
+    /// <summary>Boot ROM selection from the command line; Koh's own by default.</summary>
+    public static BootRomResolver BootRoms { get; set; } = new(null, null, null);
+
     public static EmulatorMsg LoadRomFromDisk(string path)
     {
         try
@@ -565,6 +568,7 @@ public static class EmulatorApp
             var cart = CartridgeFactory.Load(bytes);
 
             var system = new GameBoySystem(cart);
+            system.LoadBootRom(BootRoms.Resolve(system.Mode));
             return new LoadRomSucceeded(system, path);
         }
         catch (Exception ex)

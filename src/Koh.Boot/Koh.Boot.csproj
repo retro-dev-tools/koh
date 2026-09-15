@@ -36,12 +36,17 @@
   <Target Name="AssembleBootRoms"
           AfterTargets="ResolveProjectReferences"
           Inputs="@(None);$(KohAsmDll);$(KohLinkDll)"
-          Outputs="$(IntermediateOutputPath)dmg_boot.bin">
+          Outputs="$(IntermediateOutputPath)dmg_boot.bin;$(IntermediateOutputPath)cgb_boot.bin">
     <MakeDir Directories="$(IntermediateOutputPath)" />
 
     <Exec Command="dotnet exec &quot;$(KohAsmDll)&quot; dmg_boot.asm -o &quot;$(IntermediateOutputPath)dmg_boot.kobj&quot;"
           WorkingDirectory="$(MSBuildThisFileDirectory)" />
     <Exec Command="dotnet exec &quot;$(KohLinkDll)&quot; &quot;$(IntermediateOutputPath)dmg_boot.kobj&quot; -o &quot;$(IntermediateOutputPath)dmg_boot.bin&quot; --raw --size=100"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+
+    <Exec Command="dotnet exec &quot;$(KohAsmDll)&quot; cgb_boot.asm -o &quot;$(IntermediateOutputPath)cgb_boot.kobj&quot;"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+    <Exec Command="dotnet exec &quot;$(KohLinkDll)&quot; &quot;$(IntermediateOutputPath)cgb_boot.kobj&quot; -o &quot;$(IntermediateOutputPath)cgb_boot.bin&quot; --raw --size=900"
           WorkingDirectory="$(MSBuildThisFileDirectory)" />
   </Target>
 
@@ -54,6 +59,8 @@
     <ItemGroup>
       <EmbeddedResource Include="$(IntermediateOutputPath)dmg_boot.bin"
                         LogicalName="Koh.Boot.dmg_boot.bin" />
+      <EmbeddedResource Include="$(IntermediateOutputPath)cgb_boot.bin"
+                        LogicalName="Koh.Boot.cgb_boot.bin" />
     </ItemGroup>
   </Target>
 

@@ -20,6 +20,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Koh.Boot\Koh.Boot.csproj" />
     <ProjectReference Include="..\Koh.Emulator.Core\Koh.Emulator.Core.csproj" />
     <ProjectReference Include="..\Koh.Debugger\Koh.Debugger.csproj" />
     <ProjectReference Include="..\..\src\KohUI\KohUI.csproj" />

@@ -19,8 +19,7 @@ namespace Koh.Emulator.App;
 /// CLI path instead of a throwaway test, per
 /// <c>docs/superpowers/specs/2026-07-16-koh-debug-tooling-design.md</c> section 1.
 ///
-/// Like every other caller, this runs <see cref="GameBoySystem"/> as a pure executor: no boot
-/// ROM, no fabricated hand-off state, just cartridge + CPU starting from reset.
+/// The boot ROM runs first, as on hardware; frame counts include it.
 /// </summary>
 public static class HeadlessRunner
 {
@@ -30,7 +29,8 @@ public static class HeadlessRunner
         int frames,
         string? inputScriptPath,
         bool mode3ReportRequested,
-        string? mode3ReportPath
+        string? mode3ReportPath,
+        BootRomResolver bootRoms
     )
     {
         if (!File.Exists(romPath))
@@ -42,6 +42,15 @@ public static class HeadlessRunner
         var rom = File.ReadAllBytes(romPath);
         var cart = CartridgeFactory.Load(rom);
         var gb = new GameBoySystem(cart);
+        try
+        {
+            gb.LoadBootRom(bootRoms.Resolve(gb.Mode));
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
 
         Mode3WriteGuard? guard = null;
         if (mode3ReportRequested)

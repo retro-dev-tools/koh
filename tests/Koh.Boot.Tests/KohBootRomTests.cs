@@ -68,7 +68,7 @@ public class KohBootRomTests
     ];
 
     /// <summary>A minimal valid cartridge: correct logo, correct header checksum.</summary>
-    private static Emulator.Core.Cartridge.Cartridge MakeValidCart()
+    private static Emulator.Core.Cartridge.Cartridge MakeValidCart(bool cgbFlag = false)
     {
         var rom = new byte[0x8000];
         rom[0x100] = 0x00; // nop
@@ -76,6 +76,7 @@ public class KohBootRomTests
         rom[0x102] = 0x50;
         rom[0x103] = 0x01;
         NintendoLogo.CopyTo(rom.AsSpan(0x104));
+        rom[0x143] = cgbFlag ? (byte)0x80 : (byte)0x00;
         rom[0x147] = 0x00; // RomOnly
 
         byte checksum = 0;
@@ -96,10 +97,16 @@ public class KohBootRomTests
     /// this fixture spins) instead of the $0100 the hand-off actually produces. What is
     /// under test is the state at hand-off, not one frame later.
     /// </summary>
-    private static GameBoySystem RunToHandoff(int maxInstructions = 5_000_000)
+    private static GameBoySystem RunToHandoff(
+        HardwareMode mode = HardwareMode.Dmg,
+        bool cgbCart = false,
+        int maxInstructions = 5_000_000
+    )
     {
-        var gb = new GameBoySystem(MakeValidCart(), HardwareMode.Dmg);
-        gb.LoadBootRom(BootRom.FromBytes(KohBootRoms.Dmg));
+        var gb = new GameBoySystem(MakeValidCart(cgbCart), mode);
+        gb.LoadBootRom(
+            BootRom.FromBytes(mode == HardwareMode.Cgb ? KohBootRoms.Cgb : KohBootRoms.Dmg)
+        );
 
         for (int i = 0; i < maxInstructions; i++)
         {
@@ -109,7 +116,7 @@ public class KohBootRomTests
         }
 
         throw new TimeoutException(
-            $"Koh's DMG boot ROM did not unmap within {maxInstructions} instructions "
+            $"Koh's {mode} boot ROM did not unmap within {maxInstructions} instructions "
                 + $"(PC=${gb.Registers.Pc:X4}, SP=${gb.Registers.Sp:X4})."
         );
     }
@@ -180,5 +187,58 @@ public class KohBootRomTests
         // artifact rather than a stub.
         var rom = BootRom.FromBytes(KohBootRoms.Dmg);
         await Assert.That(rom.Family).IsEqualTo(BootRomFamily.Dmg);
+    }
+
+    [Test]
+    public async Task Cgb_Boot_Rom_Is_A_Valid_Cgb_Blob()
+    {
+        var rom = BootRom.FromBytes(KohBootRoms.Cgb);
+        await Assert.That(rom.Family).IsEqualTo(BootRomFamily.Cgb);
+    }
+
+    [Test]
+    public async Task Cgb_Handoff_Leaves_The_Canonical_Register_State()
+    {
+        var gb = RunToHandoff(HardwareMode.Cgb, cgbCart: true);
+        var r = gb.Registers;
+        await Assert.That(r.Pc).IsEqualTo((ushort)0x0100);
+        await Assert.That(r.Sp).IsEqualTo((ushort)0xFFFE);
+        await Assert.That(r.A).IsEqualTo((byte)0x11);
+        await Assert.That(r.F).IsEqualTo((byte)0x80);
+        await Assert.That(r.B).IsEqualTo((byte)0x00);
+        await Assert.That(r.C).IsEqualTo((byte)0x00);
+        await Assert.That(r.D).IsEqualTo((byte)0xFF);
+        await Assert.That(r.E).IsEqualTo((byte)0x56);
+        await Assert.That(r.H).IsEqualTo((byte)0x00);
+        await Assert.That(r.L).IsEqualTo((byte)0x0D);
+    }
+
+    [Test]
+    public async Task Cgb_Running_A_Dmg_Cartridge_Sets_B_To_One()
+    {
+        // A=$11 with B=$01 is how a CGB game learns it was handed a DMG cartridge.
+        var gb = RunToHandoff(HardwareMode.Cgb, cgbCart: false);
+        await Assert.That(gb.Registers.A).IsEqualTo((byte)0x11);
+        await Assert.That(gb.Registers.B).IsEqualTo((byte)0x01);
+    }
+
+    [Test]
+    public async Task Cgb_Handoff_Leaves_Palettes_Set_And_Both_Vram_Banks_Cleared()
+    {
+        var gb = RunToHandoff(HardwareMode.Cgb, cgbCart: true);
+        await Assert.That(gb.Ppu.BgPalette.GetColor(7, 0)).IsEqualTo((ushort)0x7FFF);
+        await Assert.That(gb.Ppu.ObjPalette.GetColor(7, 1)).IsEqualTo((ushort)0x56B5);
+        await Assert.That(gb.Mmu.VramArray.AsSpan().IndexOfAnyExcept((byte)0)).IsEqualTo(-1);
+        await Assert.That(gb.DebugReadByte(0xFF40)).IsEqualTo((byte)0x91);
+    }
+
+    [Test]
+    public async Task Cgb_Machine_Rejects_Koh_Dmg_Boot_Rom()
+    {
+        var gb = new GameBoySystem(MakeValidCart(cgbFlag: true), HardwareMode.Cgb);
+        await Assert
+            .That(() => gb.LoadBootRom(BootRom.FromBytes(KohBootRoms.Dmg)))
+            .Throws<ArgumentException>();
+        await Assert.That(gb.BootRomMapped).IsFalse();
     }
 }

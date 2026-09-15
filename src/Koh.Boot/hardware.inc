@@ -18,4 +18,9 @@ rLY     EQU $FF44   ; current scanline
 rBGP    EQU $FF47   ; background palette
 rOBP0   EQU $FF48   ; object palette 0
 rOBP1   EQU $FF49   ; object palette 1
+rVBK    EQU $FF4F   ; CGB VRAM bank
 rBANK   EQU $FF50   ; boot ROM unmap latch
+rBCPS   EQU $FF68   ; CGB background palette index
+rBCPD   EQU $FF69   ; CGB background palette data
+rOCPS   EQU $FF6A   ; CGB object palette index
+rOCPD   EQU $FF6B   ; CGB object palette data

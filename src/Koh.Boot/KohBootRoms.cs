@@ -22,6 +22,14 @@ public static class KohBootRoms
     /// <summary>Koh's DMG-family boot ROM: 256 bytes, overlaying $0000-$00FF.</summary>
     public static ReadOnlySpan<byte> Dmg => DmgBytes;
 
+    private static readonly byte[] CgbBytes = Load("Koh.Boot.cgb_boot.bin");
+
+    /// <summary>
+    /// Koh's CGB-family boot ROM: 2304 bytes, overlaying $0000-$00FF and $0200-$08FF.
+    /// The gap is the cartridge header.
+    /// </summary>
+    public static ReadOnlySpan<byte> Cgb => CgbBytes;
+
     private static byte[] Load(string resourceName)
     {
         using var stream =
