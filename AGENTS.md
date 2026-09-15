@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Koh is a .NET 10 Game Boy development toolchain. Main C# projects live in `src/`: compiler logic in `Koh.Assembler`, emission in `Koh.Emit`, CLIs in `Koh.Asm` and `Koh.Link`, linker logic in `Koh.Linker`, LSP support in `Koh.Lsp`, and debugger/emulator/UI code in `Koh.Debugger`, `Koh.Emulator.*`, and `KohUI*`. Tests are under `tests/` and usually mirror source names, for example `Koh.Assembler.Tests`. VS Code extension sources and grammar assets are in `editors/vscode/src` and `editors/vscode/syntaxes`. Benchmarks are in `tools/benchmarks/Koh.Benchmarks`.
+Koh is a .NET 10 Game Boy development toolchain. C# projects live in `src/`, grouped by area: `Common/` (`Koh.Common` for diagnostics and source text, `Koh.Opcodes` for the SM83 opcode table, `Koh.Objects` for the shared object model and the `.kobj`/RGBDS/`.kdbg` formats), `Asm/` (`Koh.Assembler`, the `Koh.Asm` CLI, `Koh.Lsp`), `Link/` (`Koh.Linker`, the `Koh.Link` CLI), `Compiler/` (`Koh.Compiler`, `Koh.GameBoy`, `Koh.Build.Tasks`, `Koh.Sdk`), `Emulator/` (`Koh.Emulator`, `Koh.Debugger`, `Koh.Boot`, `Koh.Verify`, `Koh.Emulator.App`) and `UI/` (`KohUI*`). Tests under `tests/` mirror the same areas and project names, for example `tests/Asm/Koh.Assembler.Tests`. VS Code extension sources and grammar assets are in `editors/vscode/src` and `editors/vscode/syntaxes`. Tools and benchmarks are in `tools/`, samples in `samples/{asm,csharp,ui}`.
 
 ## Build, Test, and Development Commands
 
@@ -10,7 +10,6 @@ Koh is a .NET 10 Game Boy development toolchain. Main C# projects live in `src/`
 - `dotnet restore Koh.Ci.slnf` and `dotnet build Koh.Ci.slnf --configuration Release` mirror CI's main build.
 - `dotnet msbuild build.proj -t:Test` runs the fast suite (`Koh.Fast.slnf`) — everything except `Koh.Compiler.Tests`. This is the default development loop.
 - `dotnet msbuild build.proj -t:TestAll` adds `Koh.Compiler.Tests`, whose 522 cases each Roslyn-compile a fixture to a real assembly and run an emulator over it. It is memory-hungry enough to take a desktop down; its parallelism is capped at 4 (`tests/Compiler/Koh.Compiler.Tests/ParallelLimit.cs`). CI runs this one.
-- The external-ROM compatibility suite (`tests/Emulator/Koh.Compat.Tests`) is **disabled**: out of every solution file, out of CI, no `build.proj` target. See `tests/Emulator/Koh.Compat.Tests/README.md`.
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.
 - `./scripts/run-emulator.ps1` or `./scripts/run-emulator.sh` publishes and launches the emulator locally.

@@ -75,7 +75,7 @@ Current priorities include:
 
 ```sh
 dotnet build
-````
+```
 
 ### Test
 
@@ -89,8 +89,9 @@ Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
 
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |
-| `Test`                | Run the full test suite (excludes compat)                   |
-| `CompatTests`         | Run RGBDS compatibility tests                               |
+| `Test`                | Run the fast suite (everything except `Koh.Compiler.Tests`) |
+| `TestAll`             | Run the full suite, as CI does                              |
+| `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
 | `PublishEmulatorApp`  | NativeAOT-publish the KohUI emulator (`-r <rid>`; default `win-x64`) |
@@ -148,16 +149,18 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 
 ```text
 src/
-  Koh.Assembler/           # Compiler core
-  Koh.Emit/           # Binary and object emission
-  Koh.Asm/            # Assembler CLI
-  Koh.Linker/    # Linker core
-  Koh.Link/           # Linker CLI
-  Koh.Lsp/            # Language server
+  Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
+              Koh.Objects (object model; .kobj, RGBDS and .kdbg formats)
+  Asm/        Koh.Assembler, Koh.Asm (assembler CLI), Koh.Lsp (language server)
+  Link/       Koh.Linker, Koh.Link (linker CLI)
+  Compiler/   Koh.Compiler, Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
+  Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App
+  UI/         KohUI, KohUI.Backends.Gl, KohUI.Backends.Dom
+tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
+tools/        Koh.Superopt, benchmarks/
+samples/      asm/, csharp/, ui/
 editors/
-  vscode/             # VS Code extension
-tests/                # Unit, integration, and compatibility tests
-tools/benchmarks/           # Performance benchmarks
+  vscode/     VS Code extension
 ```
 
 ## Project Direction
