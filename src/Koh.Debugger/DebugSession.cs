@@ -30,6 +30,9 @@ public sealed class DebugSession
     {
         var cart = CartridgeFactory.Load(romBytes.Span);
         var system = new GameBoySystem(cart, mode);
+        // No boot ROM: start at the cartridge entry.
+        system.Registers.Pc = 0x0100;
+        system.Registers.Sp = 0xFFFE;
         DebugInfo.Load(kdbgBytes);
         AdoptSystem(system);
     }
