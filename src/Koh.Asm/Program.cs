@@ -171,15 +171,17 @@ static class KohAsm
         var tempPath = outputPath + "." + Path.GetRandomFileName();
         try
         {
-            using var stream = File.Create(tempPath);
-
-            if (format == OutputFormat.Rgbds)
+            // Closed before the move: Windows refuses to rename an open file.
+            using (var stream = File.Create(tempPath))
             {
-                RgbdsObjectWriter.Write(stream, model);
-            }
-            else
-            {
-                KobjWriter.Write(stream, model);
+                if (format == OutputFormat.Rgbds)
+                {
+                    RgbdsObjectWriter.Write(stream, model);
+                }
+                else
+                {
+                    KobjWriter.Write(stream, model);
+                }
             }
 
             File.Move(tempPath, outputPath, overwrite: true);
