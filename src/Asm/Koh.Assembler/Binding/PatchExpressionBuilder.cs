@@ -51,7 +51,7 @@ internal static class PatchExpressionBuilder
                         var value = ExpressionEvaluator.ParseNumber(literal.Text);
                         tokens.Add(new(PatchExpressionOp.Literal, (int)(value ?? 0)));
                     }
-                    else if (literal.Kind == SyntaxKind.CurrentAddressToken)
+                    else if (literal.Kind is SyntaxKind.CurrentAddressToken or SyntaxKind.AtToken)
                     {
                         tokens.Add(new(PatchExpressionOp.CurrentAddress));
                     }

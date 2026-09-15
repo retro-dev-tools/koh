@@ -83,12 +83,17 @@ public class RgbdsExpressionTests
             SECTION "Main", ROM0
             dw ext + $
             dw ext + $10 + %101 + 7
+            dw ext + @
             """
         );
         await Assert
             .That(patches)
             .IsEqualTo(
-                Lines("0:1:0:sym:ext sym:$ add", "2:1:0:sym:ext lit:16 add lit:5 add lit:7 add")
+                Lines(
+                    "0:1:0:sym:ext sym:$ add",
+                    "2:1:0:sym:ext lit:16 add lit:5 add lit:7 add",
+                    "4:1:0:sym:ext sym:$ add"
+                )
             );
     }
 
