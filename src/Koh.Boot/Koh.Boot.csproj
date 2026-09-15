@@ -9,9 +9,15 @@
     Koh.Boot deliberately does NOT reference Koh.Emulator.Core; the emulator takes bytes
     and does not know where they came from.
   -->
+  <!--
+    Built as plain tools even under `dotnet publish`: _IsPublishing makes the SDK infer a RID for
+    these PublishAot exes, moving their output to bin/.../<rid>/, off KohAsmDll/KohLinkDll.
+  -->
   <ItemGroup>
-    <ProjectReference Include="..\Koh.Asm\Koh.Asm.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\Koh.Link\Koh.Link.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Koh.Asm\Koh.Asm.csproj" ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="_IsPublishing;RuntimeIdentifier;SelfContained" />
+    <ProjectReference Include="..\Koh.Link\Koh.Link.csproj" ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="_IsPublishing;RuntimeIdentifier;SelfContained" />
   </ItemGroup>
 
   <ItemGroup>
