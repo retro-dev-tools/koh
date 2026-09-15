@@ -114,7 +114,7 @@ public sealed class RgbdsObjectWriter
         WriteInt32(bw, 0); // lineNo
         WriteInt32(bw, patch.Offset); // offset within section
         WriteInt32(bw, pcSectionId); // pcSectionID
-        WriteInt32(bw, patch.PCAfterInstruction); // pcOffset
+        WriteInt32(bw, patch.PCOffset); // pcOffset
         bw.Write(MapPatchKind(patch.Kind)); // type (byte)
 
         // RPN expression

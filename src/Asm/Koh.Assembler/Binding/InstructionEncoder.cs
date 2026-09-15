@@ -1,8 +1,8 @@
-using Koh.Common;
 using Koh.Assembler.Encoding;
 using Koh.Assembler.Symbols;
 using Koh.Assembler.Syntax;
 using Koh.Assembler.Syntax.InternalSyntax;
+using Koh.Common;
 using Koh.Objects;
 using Koh.Opcodes;
 
@@ -145,6 +145,7 @@ internal sealed class InstructionEncoder
                                     Offset = offset,
                                     Expression = PatchExpressionBuilder.From(operandGreen),
                                     Kind = PatchKind.Absolute8,
+                                    PCOffset = opcodeOffset,
                                     FilePath = _diagnostics.CurrentFilePath,
                                     GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                     SymbolName = sn,
@@ -173,6 +174,7 @@ internal sealed class InstructionEncoder
                                     Offset = offset,
                                     Expression = PatchExpressionBuilder.From(operandGreen),
                                     Kind = PatchKind.Absolute16,
+                                    PCOffset = opcodeOffset,
                                     FilePath = _diagnostics.CurrentFilePath,
                                     GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                     SymbolName = sn,
@@ -219,6 +221,7 @@ internal sealed class InstructionEncoder
                                     // Store section-relative offset of the byte after this instruction.
                                     // PatchResolver adds section.BaseAddress to recover absolute PC.
                                     PCAfterInstruction = section.CurrentOffset,
+                                    PCOffset = opcodeOffset,
                                     FilePath = _diagnostics.CurrentFilePath,
                                     GlobalAnchorName = _symbols.CurrentGlobalAnchorName,
                                     SymbolName = sn,

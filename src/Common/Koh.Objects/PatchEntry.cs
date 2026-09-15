@@ -23,6 +23,9 @@ public sealed class PatchEntry
     /// Stored as an offset from byte 0 of the containing section (not an absolute address).
     /// </summary>
     public int PCAfterInstruction { get; init; }
+
+    /// <summary>Section-relative value of <c>@</c> at this patch: instruction start, or the data item's own offset. Not in .kobj.</summary>
+    public int PCOffset { get; init; }
     public TextSpan DiagnosticSpan { get; init; }
     public string? FilePath { get; init; }
 

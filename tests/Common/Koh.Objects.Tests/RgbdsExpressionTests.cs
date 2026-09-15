@@ -49,28 +49,28 @@ public class RgbdsExpressionTests
             .IsEqualTo(
                 Lines(
                     "0:1:0:sym:ext",
-                    "2:1:0:sym:ext lit:1 add",
-                    "4:1:0:sym:ext lit:2 lit:3 mul sub",
-                    "6:1:0:sym:ext lit:4 add lit:2 div",
-                    "8:1:0:sym:ext lit:3 mod",
-                    "10:1:0:sym:ext lit:255 and",
-                    "12:1:0:sym:ext lit:1 or",
-                    "14:1:0:sym:ext lit:2 xor",
-                    "16:1:0:sym:ext lit:2 shl",
-                    "18:1:0:sym:ext lit:1 shr",
-                    "20:1:0:sym:ext lit:1 eq",
-                    "22:1:0:sym:ext lit:1 ne",
-                    "24:1:0:sym:ext lit:1 lt",
-                    "26:1:0:sym:ext lit:1 gt",
-                    "28:1:0:sym:ext lit:1 le",
-                    "30:1:0:sym:ext lit:1 ge",
-                    "32:1:0:sym:ext lit:1 logand",
-                    "34:1:0:sym:ext lit:1 logor",
-                    "36:0:0:sym:ext neg",
-                    "37:0:0:sym:ext not",
-                    "38:0:0:sym:ext lognot",
-                    "39:1:0:sym:ext",
-                    "41:1:0:sym:ext"
+                    "2:1:2:sym:ext lit:1 add",
+                    "4:1:4:sym:ext lit:2 lit:3 mul sub",
+                    "6:1:6:sym:ext lit:4 add lit:2 div",
+                    "8:1:8:sym:ext lit:3 mod",
+                    "10:1:10:sym:ext lit:255 and",
+                    "12:1:12:sym:ext lit:1 or",
+                    "14:1:14:sym:ext lit:2 xor",
+                    "16:1:16:sym:ext lit:2 shl",
+                    "18:1:18:sym:ext lit:1 shr",
+                    "20:1:20:sym:ext lit:1 eq",
+                    "22:1:22:sym:ext lit:1 ne",
+                    "24:1:24:sym:ext lit:1 lt",
+                    "26:1:26:sym:ext lit:1 gt",
+                    "28:1:28:sym:ext lit:1 le",
+                    "30:1:30:sym:ext lit:1 ge",
+                    "32:1:32:sym:ext lit:1 logand",
+                    "34:1:34:sym:ext lit:1 logor",
+                    "36:0:36:sym:ext neg",
+                    "37:0:37:sym:ext not",
+                    "38:0:38:sym:ext lognot",
+                    "39:1:39:sym:ext",
+                    "41:1:41:sym:ext"
                 )
             );
     }
@@ -84,6 +84,7 @@ public class RgbdsExpressionTests
             dw ext + $
             dw ext + $10 + %101 + 7
             dw ext + @
+            db 0, ext + @
             """
         );
         await Assert
@@ -91,8 +92,9 @@ public class RgbdsExpressionTests
             .IsEqualTo(
                 Lines(
                     "0:1:0:sym:ext sym:$ add",
-                    "2:1:0:sym:ext lit:16 add lit:5 add lit:7 add",
-                    "4:1:0:sym:ext sym:$ add"
+                    "2:1:2:sym:ext lit:16 add lit:5 add lit:7 add",
+                    "4:1:4:sym:ext sym:$ add",
+                    "7:0:7:sym:ext sym:$ add"
                 )
             );
     }
@@ -111,7 +113,7 @@ public class RgbdsExpressionTests
         );
         await Assert
             .That(patches)
-            .IsEqualTo(Lines("0:0:0:sym:ext", "1:0:0:sym:ext", "2:0:0:sym:ext"));
+            .IsEqualTo(Lines("0:0:0:sym:ext", "1:0:1:sym:ext", "2:0:2:sym:ext"));
     }
 
     // A bare-symbol operand reaches the patch as a raw identifier token, not a NameExpression.
@@ -126,6 +128,7 @@ public class RgbdsExpressionTests
             jr ext
             ld a, ext
             ld hl, ext
+            ld hl, ext + @
             """
         );
         await Assert
@@ -133,10 +136,11 @@ public class RgbdsExpressionTests
             .IsEqualTo(
                 Lines(
                     "1:1:0:sym:ext",
-                    "4:1:0:sym:ext lit:3 add",
-                    "7:3:8:sym:ext",
-                    "9:0:0:sym:ext",
-                    "11:1:0:sym:ext"
+                    "4:1:3:sym:ext lit:3 add",
+                    "7:3:6:sym:ext",
+                    "9:0:8:sym:ext",
+                    "11:1:10:sym:ext",
+                    "14:1:13:sym:ext sym:$ add"
                 )
             );
     }
