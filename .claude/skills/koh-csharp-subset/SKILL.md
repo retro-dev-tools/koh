@@ -16,14 +16,19 @@ Supported: `byte`/`sbyte`/`ushort`/`short`/`int`/`uint`/`long`/`ulong`/`Int128`/
 (full arithmetic including mul/div/rem/shift at every width — i8/i16 via register routines, i32/i64/
 i128 via generic width-N memory routines; i64/i128 have no register room so they return via
 `Sm83Backend.ReturnScratch`),
-`char`/string literals (strings only as `byte[]` initializers), `enum` (custom base), `const`,
+`char`/`string` (ASCII only — non-ASCII is a diagnostic; a string is a length-prefixed ROM blob pointer,
+so `.Length`/indexer/`foreach` work through parameters, fields and ctor args), `enum` (custom base), `const`,
 pointers (`T*` incl. arithmetic/`++`/compare/casts, `*(T*)addr` MMIO, and `stackalloc T[n]` frame
 buffers — ordinary C# unsafe code, so every containing method/type needs the real `unsafe` keyword,
 unlike the deleted frontend's own parser which never required it), the `Gb.*` memory regions
 (`Gb.Vram`/`Gb.TileMap`/… — `[KohIntrinsic("region", addr)]`-tagged properties on `Koh.GameBoy.Gb`,
 constant base pointers on a ROM), fixed arrays (local + static ROM/WRAM data), value-type `struct`s
 (nested, arrays-of, whole-copy, `ref`-passed); reference-type `class`es (heap-allocated via the `Mem`
-arena, instance fields + non-virtual instance methods with `this`; a class type also names fields —
+arena, instance fields + instance methods with `this`; inheritance (derived fields laid after the base)
+and `virtual`/`abstract`/`override` via closed-world dispatch — a traceable receiver devirtualizes, an
+untraceable one lowers to a type-tag `switch` of direct calls (`CilVirtualDispatch`), which is what
+`Scene`/`Game.Run` need; interfaces do NOT take part: an interface call is fine only when the receiver's
+concrete type is traceable, an untraceable interface call is a diagnostic; a class type also names fields —
 including of its own type, so linked structures work — parameters, and returns, all as heap pointers;
 an instance is usable as a value/`byte*` (`return this;`), and assignment copies the reference, not the
 bytes); dynamic allocation (`Mem.Alloc`/`Mem.Reset` are `[KohIntrinsic("alloc"/"heapreset")]`;
@@ -53,6 +58,12 @@ type's simple name — `Koh.Compiler` never references `Koh.GameBoy`); recursion
 recursive program moves the CALL stack into WRAM so it runs hundreds of levels deep, and
 `rt.pushframe` traps on a stack/heap collision rather than corrupting memory); and `float`/`double`
 arithmetic, routed through `[KohRuntime(key)]`-tagged `Koh.GameBoy.SoftFloat` routines rather than
-inline codegen. Out by design: 128-bit+ float, reflection, unbounded/dynamic allocation patterns the
+inline codegen; struct return by value (hidden sret pointer — static/instance/factory/generic/recursive
+returns, and pattern-based `foreach` over a struct enumerator); stored delegates (`Action`/`Func` through
+ctor args, fields, parameters, returns — materialized as a 3-byte arena blob and invoked via a
+closed-world `switch` over `CilDelegateRegistry`); length-carrying 1-D arrays (`.Length` survives
+parameters, fields and returns — `[u16 len]` header before the payload); rank-2 rectangular arrays
+(`T[,]`, `[u16 d0][u16 d1]` header, ROM-folded for `static readonly` literals); reference-element arrays
+(`string[]`, class arrays). Calls into the BCL (e.g. `List<T>`, `Console`) are a diagnostic. Out by design: 128-bit+ float, reflection, unbounded/dynamic allocation patterns the
 backend can't statically size. Out-of-subset constructs are reported as diagnostics, never silently
 miscompiled.

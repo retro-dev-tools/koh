@@ -43,8 +43,14 @@ suffix (established repo pattern; the `AGENTS.md` async-suffix rule is for produ
   the first time a game actually calls into it. `src/Koh.Build.Tasks` — the in-process MSBuild task
   (`CompileKohRom`) that drives the compiler+linker; `sdk/Koh.Sdk` — the MSBuild SDK that ties them
   together so a game project (e.g. `gb-2048-cs`) is a normal C# project that also emits a `.gb`.
-- `tests/Koh.*.Tests` mirror `src/`. `samples/` holds runnable examples (e.g. `gb-2048`,
-  `gb-2048-cs`). `docs/superpowers/specs/` holds design specs.
+- `src/Koh.GameBoy/Graphics` (Bg/Sprites/Palettes/Text/Win, vblank-safe VRAM writes) and `Framework`
+  (`Game.Run`, `Scene`, `Input`, `Rng`, `Clock`, `TileAsset`) sit on top of `Hal/`; the ideal-code spec
+  is `docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`.
+- `src/Koh.Boot` — Koh's DMG/CGB boot ROMs (asm, assembled at build). `src/Koh.Verify` — `RomHarness`
+  for scripted headless runs + PNG/GIF capture (used by `samples/*/verify`).
+- `tests/Koh.*.Tests` mirror `src/`. `samples/`: `gb-2048` (asm), `gb-2048-cs`; `gb-2048-v2` and
+  `gb-jrpg` are the north-star games (acceptance: `tests/Koh.Compiler.Tests/Samples/Gb2048V2Tests.cs`,
+  `GbJrpgTests.cs`); `gb-3d`, `gb-gfx-demo` are graphics demos. `docs/superpowers/specs/` holds design specs.
 
 ## The compiler platform (`src/Koh.Compiler`)
 
@@ -56,8 +62,7 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
 - `Ir/` — `IrType`, `IrValue`, `IrModule`, `IrInstruction`, `IrBuilder`, `IrPrinter`,
   `IrParser` (round-trips the printer), `IrVerifier`.
 - `Frontends/Cil/` — the ONLY frontend (the former `Frontends/CSharp/` Roslyn-syntax-directed
-  frontend was deleted once this one reached parity; see `docs/superpowers/specs/
-  2026-07-14-cil-frontend-design.md`). Lowers a **compiled assembly** (`CompilerInput.FromAssembly`,
+  frontend was deleted once this one reached parity). Lowers a **compiled assembly** (`CompilerInput.FromAssembly`,
   never source text) read with Mono.Cecil — a resolved object model over standard C# IL, not
   hand-parsed syntax, so the game's own source is ordinary, standard-semantics C# a plain `csc`/Roslyn
   build already accepts. `CilFrontend` -> `CilModuleLowerer` (declarations) -> `CilMethodLowerer` (IL
@@ -131,16 +136,10 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   - Code and data banking are **mutually exclusive** (banked code needs its bank mapped, banked data
     needs to switch away). A single banked function can't exceed 16KB, and the ROM0 thunk table must
     fit the ROM0 code window; overflowing either is a diagnostic.
-- **Mixed signed/unsigned** binary ops follow the IL's own usual-arithmetic-conversion shape (Roslyn
-  already promoted mixed operands per ECMA-334 by the time the frontend sees the IL — see the next
-  bullet); the frontend does not re-derive width/signedness from source syntax the way the deleted
-  C# frontend's `MethodLowerer.CommonType` did.
-- **Arithmetic promotion is now standard C# (ECMA-334), not the old Koh-C#-subset rule.** The deleted
-  `CSharpFrontend` never widened operands before a mixed-width op (`byte * 16` wrapped mod 256); the
-  CIL frontend lowers whatever IL Roslyn already emitted, and Roslyn performs ordinary C# int/usual-
-  arithmetic promotion before that IL exists. A game written against the old subset's narrow-arithmetic
-  assumption computes a DIFFERENT result under the CIL frontend for the same source — this is by
-  design (the whole point of the CIL frontend is standard C# semantics), not a bug to chase.
+- **Semantics are Roslyn's (ECMA-334).** The frontend lowers IL as emitted: int promotion, mixed
+  signed/unsigned conversions, overload/generic binding, `switch` lowering are decided before it runs
+  (`byte * 16` does not wrap). Code written for the old Koh-subset narrow arithmetic computes different
+  results — by design, not a bug.
 - **Name/member/intrinsic resolution has no string-keyed table to get wrong** — Mono.Cecil hands the
   frontend already-resolved `MethodReference`/`TypeReference`/`FieldReference` operands (the CLR did
   the binding when the game assembly was compiled), so there is no Koh-side symbol table to keep in
@@ -162,16 +161,10 @@ orchestrated by `CompilerDriver`; frontends/backends are registered by hand in
   default `Debug` — Debug IL's redundant stores/un-folded constants are real cost the CIL frontend
   lowers faithfully, unlike the old syntax-directed frontend which never saw IL at all and so never
   varied with build configuration.
-### "Koh C#" is now standard C# — a subset by what the backend can lower, not by parser rules
+### "Koh C#" is standard C# — a subset by what the backend can lower
 
-There is no Koh-specific syntax or Koh-specific typing rule left: a game is an ordinary C# project a
-plain `csc`/Roslyn build already accepts (`AllowUnsafeBlocks=true`, nothing else nonstandard), and the
-CIL frontend lowers WHATEVER IL that produces. Arithmetic promotion, operator overload resolution,
-overload/generic-method binding, `switch` pattern lowering — all of it is Roslyn's, decided before the
-CIL frontend ever runs. What makes a program compile to a ROM is purely whether the SM83 backend can
-lower the resulting IL shapes; an out-of-scope construct is a diagnostic, not a parse error.
-
-The full catalog of what the backend can and cannot lower lives in the `koh-csharp-subset` skill
+A game is an ordinary C# project (`AllowUnsafeBlocks=true`, nothing else nonstandard); an unlowerable
+IL shape is a diagnostic, not a parse error. The full catalog of what the backend can and cannot lower lives in the `koh-csharp-subset` skill
 (`.claude/skills/koh-csharp-subset/SKILL.md`) — read it before writing or porting a game's C# source,
 or when diagnosing an out-of-subset diagnostic.
 
@@ -191,3 +184,7 @@ or when diagnosing an out-of-subset diagnostic.
   option.
 - Don't commit built ROMs (`*.gb`/`*.gbc`), `bin/`, `obj/` — samples ship a `.gitignore`.
 - The model identifier you run as must not appear in commits, PR bodies, or code.
+- A cartridge now boots through Koh's own boot ROM (`src/Koh.Boot`, assembled by koh-asm/koh-link at build time). A hand-built test ROM needs the Nintendo logo + header checksum (`TestRom.Create()`) or it freezes at `jr nz,@`; a harness that jumps straight to PC=$0100 must `Array.Clear(gb.Mmu.VramArray)`, because VRAM powers on as $FF.
+- `Koh.Boot.csproj` finds the koh-asm/koh-link binaries via `<MSBuild Targets="GetTargetPath">`; don't hard-code `bin/...` or add `GlobalPropertiesToRemove` (that builds Koh.Core twice and races on its `deps.json` under `dotnet publish`). Check with `dotnet publish src/Koh.Emulator.App -c Release -r linux-x64`.
+- Close a file stream before `File.Move`-ing it: Windows refuses to rename an open file, and only Windows CI catches it.
+- Deleting or renaming a CI job: also update master's required status checks (`gh api repos/retro-dev-tools/koh/branches/master/protection/required_status_checks`), or every PR is blocked.
