@@ -48,7 +48,8 @@ struct Assembler {
     section: Option<usize>,
     load: Option<(usize, usize, String)>,
     stack: Vec<(Option<usize>, Option<(usize, usize, String)>, String)>,
-    unions: Vec<(usize, usize, usize)>,
+    unions: Vec<(usize, usize, usize, bool)>,
+    union_sizes: HashMap<usize, usize>,
     anchor: String,
     exports: HashSet<String>,
     includes: HashSet<String>,
@@ -62,7 +63,7 @@ struct Assembler {
     errors: Vec<Diagnostic>,
     symbol_sources: HashMap<String, Provenance>,
     expansion: Vec<SourceLocation>,
-    assertions: Vec<(Expr, SourceLine, Option<i32>)>,
+    assertions: Vec<(Expr, SourceLine, Option<i32>, Option<usize>, bool)>,
 }
 
 pub fn assemble(
@@ -70,21 +71,34 @@ pub fn assemble(
     file: &str,
     allow_imports: bool,
 ) -> Result<crate::model::Object, Vec<Diagnostic>> {
+    let (constants, mut strings) = crate::builtins::values().map_err(|message| {
+        vec![Diagnostic {
+            file: file.into(),
+            line: 1,
+            message,
+        }]
+    })?;
+    for (name, value) in &mut strings {
+        if name.starts_with("__ISO_") {
+            *value = format!("\"{value}\"");
+        }
+    }
     let mut asm = Assembler {
         current_file: file.into(),
         q: 16,
         pad: 0,
         options: Vec::new(),
         object: Object::default(),
-        constants: HashMap::new(),
+        constants,
         deferred: HashMap::new(),
         mutable: HashSet::new(),
-        strings: HashMap::new(),
+        strings,
         macros: HashMap::new(),
         section: None,
         load: None,
         stack: Vec::new(),
         unions: Vec::new(),
+        union_sizes: HashMap::new(),
         anchor: String::new(),
         exports: HashSet::new(),
         includes: HashSet::new(),
@@ -113,6 +127,7 @@ pub fn assemble(
             "BREAK outside loop",
         );
     }
+    asm.end_implicit_unions();
     if !asm.unions.is_empty() {
         asm.errors.push(Diagnostic {
             file: file.into(),
@@ -166,6 +181,7 @@ impl Assembler {
         })
     }
     fn qualify(&self, name: &str) -> String {
+        let name = name.strip_prefix('#').unwrap_or(name);
         if name.starts_with('.') {
             format!("{}{name}", self.anchor)
         } else {
@@ -173,12 +189,15 @@ impl Assembler {
         }
     }
     fn lookup(&self, name: &str) -> Option<i32> {
+        self.lookup_at(name, self.pc_section())
+    }
+    fn lookup_at(&self, name: &str, pc_section: Option<usize>) -> Option<i32> {
         if name == "_RS" {
             return Some(self.rs);
         }
         if let Some(name) = name.strip_prefix("BANK:") {
             let sec = if name == "@" {
-                self.pc_section()
+                pc_section
             } else {
                 self.object
                     .symbols
@@ -250,6 +269,17 @@ impl Assembler {
                     Expr::Symbol(name)
                 }
             }
+            Expr::Unary(op, a) if op == "#" => {
+                if let Expr::Symbol(name) = *a {
+                    if let Some(value) = self.strings.get(&name) {
+                        Expr::String(value.clone())
+                    } else {
+                        self.freeze_inner(Expr::Symbol(name), depth + 1)
+                    }
+                } else {
+                    Expr::Unary(op, a)
+                }
+            }
             Expr::Unary(op, a) => Expr::Unary(op, Box::new(self.freeze_inner(*a, depth + 1))),
             Expr::Binary(op, a, b) => Expr::Binary(
                 op,
@@ -296,6 +326,13 @@ impl Assembler {
     fn value(&self, text: &str) -> Result<i32, String> {
         let tree = self.tree(text)?;
         let tree = self.numeric_tree(tree)?;
+        if has_pc(&tree)
+            && self
+                .pc_section()
+                .is_none_or(|s| self.object.sections[s].address.is_none())
+        {
+            return Err("current address is not known until section placement".into());
+        }
         expr::eval(&tree, &|name| self.lookup(name), self.pc())
             .or_else(|e| self.invariant(&tree).ok_or(e))
     }
@@ -350,7 +387,11 @@ impl Assembler {
                     (first, rest)
                 };
                 let (kind, value) = source::word(rest);
-                if kind.eq_ignore_ascii_case("EQU") && !self.constants.contains_key(name) {
+                if kind.eq_ignore_ascii_case("EQU")
+                    && !self.constants.contains_key(name)
+                    && !name.contains(['{', '#'])
+                    && !value.contains('\'')
+                {
                     if let Ok(v) = self.value(value) {
                         self.constants.insert(name.into(), v);
                     }
@@ -365,17 +406,33 @@ impl Assembler {
         let mut result = String::new();
         let mut chars = text.chars().peekable();
         while let Some(c) = chars.next() {
-            if c == '\\' {
+            if c == '#' && chars.peek() == Some(&'"') {
+                result.push('#');
+                result.push(chars.next().unwrap());
+                let triple = chars.clone().take(2).collect::<String>() == "\"\"";
+                if triple {
+                    result.push(chars.next().unwrap());
+                    result.push(chars.next().unwrap());
+                }
+                let mut quotes = 0;
+                for c in chars.by_ref() {
+                    result.push(c);
+                    quotes = if c == '"' { quotes + 1 } else { 0 };
+                    if quotes == if triple { 3 } else { 1 } {
+                        break;
+                    }
+                }
+            } else if c == '\\' {
                 match chars.next() {
                     Some('@') => result.push_str(&format!("_{}", frame.unique)),
-                    Some('#') => result.push_str(&frame.args.join(",")),
-                    Some(n @ '1'..='9') => result.push_str(
+                    Some('#') if frame.in_macro => result.push_str(&frame.args.join(",")),
+                    Some(n @ '1'..='9') if frame.in_macro => result.push_str(
                         frame
                             .args
                             .get(n as usize - '1' as usize)
                             .ok_or("missing macro argument")?,
                     ),
-                    Some('<') => {
+                    Some('<') if frame.in_macro => {
                         let mut n = String::new();
                         for c in chars.by_ref() {
                             if c == '>' {
@@ -411,29 +468,71 @@ impl Assembler {
                     return Err("unclosed interpolation".into());
                 }
                 let (format, key) = name.split_once(':').unwrap_or(("", &name));
-                if let Some(s) = self.strings.get(key.trim()) {
-                    result.push_str(s);
-                } else {
-                    let v = self.value(key.trim())?;
-                    match format.chars().last() {
-                        Some('X') => result.push_str(&format!("{v:X}")),
-                        Some('x') => result.push_str(&format!("{v:x}")),
-                        Some('b') => result.push_str(&format!("{v:b}")),
-                        _ => result.push_str(&v.to_string()),
+                let key = key.trim();
+                let value = if let Some(s) = self.strings.get(key) {
+                    Expr::String(s.clone())
+                } else if key.to_ascii_uppercase().starts_with("SECTION(") && key.ends_with(')') {
+                    let name = key[8..key.len() - 1].trim();
+                    let section = if name == "@" {
+                        self.pc_section()
+                    } else {
+                        let name = self.qualify(name);
+                        self.object
+                            .symbols
+                            .iter()
+                            .find(|s| s.name == name)
+                            .and_then(|s| s.section)
                     }
-                }
+                    .ok_or("SECTION requires a defined label or current section")?;
+                    Expr::String(self.object.sections[section].name.clone())
+                } else {
+                    Expr::Number(self.value(key)?)
+                };
+                let format = if format.is_empty() {
+                    match &value {
+                        Expr::String(_) => "s",
+                        _ if key == "@" => "#X",
+                        _ => "d",
+                    }
+                } else {
+                    format
+                };
+                result.push_str(&expr::eval_string(
+                    &Expr::Call(
+                        "STRFMT".into(),
+                        vec![Expr::String(format!("%{format}")), value],
+                    ),
+                    &|n| self.lookup(n),
+                    self.pc(),
+                )?);
             } else {
                 result.push(c);
             }
         }
-        for _ in 0..64 {
-            let next = source::replace_words(&result, |name| self.strings.get(name).cloned());
-            if next == result {
-                return Ok(result);
-            }
-            result = next;
+        if result.contains('\n') && source::lines(&result, "").len() > 1 {
+            return Ok(result);
         }
-        Err("string expansion depth exceeded".into())
+        let (_, body) = source::label(&result);
+        let (head, tail) = source::word(body);
+        if head.eq_ignore_ascii_case("PURGE") {
+            return Ok(result);
+        }
+        let protected = if head.eq_ignore_ascii_case("DEF") || head.eq_ignore_ascii_case("REDEF") {
+            let (name, _) = source::word(tail);
+            result.len() - tail.len() + name.len()
+        } else {
+            let (kind, _) = source::word(tail);
+            if matches!(
+                kind.to_ascii_uppercase().as_str(),
+                "EQU" | "EQUS" | "SET" | "="
+            ) {
+                result.len() - tail.len()
+            } else {
+                0
+            }
+        };
+        Ok(result[..protected].to_owned()
+            + &source::replace_words(&result[protected..], |name| self.strings.get(name).cloned()))
     }
     fn run(
         &mut self,
@@ -449,6 +548,8 @@ impl Assembler {
             return false;
         }
         let mut cond: Vec<(bool, bool, bool)> = Vec::new();
+        let mut lines = lines.to_vec();
+        let mut replay_depths = vec![0; lines.len()];
         let mut i = 0;
         while i < lines.len() && self.errors.len() < 100 {
             self.steps += 1;
@@ -476,6 +577,23 @@ impl Assembler {
             } else {
                 line.text.clone()
             };
+            if enabled {
+                let mut replay = source::lines(&text, &line.file);
+                if replay.len() > 1 || text != line.text {
+                    let replay_depth = replay_depths[i - 1] + 1;
+                    if depth + replay_depth > 64 {
+                        self.error(line, "string expansion depth exceeded");
+                        continue;
+                    }
+                    for part in &mut replay {
+                        part.line = line.line;
+                    }
+                    replay_depths.splice(i - 1..i, std::iter::repeat_n(replay_depth, replay.len()));
+                    lines.splice(i - 1..i, replay);
+                    i -= 1;
+                    continue;
+                }
+            }
             let (label, body) = source::label(&text);
             let (head, tail) = source::word(body);
             let head_upper = head.to_ascii_uppercase();
@@ -688,6 +806,13 @@ impl Assembler {
                     Ok(args) => {
                         self.unique += 1;
                         let old = self.constants.insert("_NARG".into(), args.len() as i32);
+                        let old_anchor = self.anchor.clone();
+                        let synthetic_anchor = format!("__koh_macro_{}", self.unique);
+                        let scoped =
+                            self.anchor.is_empty() || self.anchor.starts_with("__koh_macro_");
+                        if scoped {
+                            self.anchor = synthetic_anchor.clone();
+                        }
                         self.expansion.push(location.clone());
                         let stop = self.run(
                             &mac.body,
@@ -700,6 +825,9 @@ impl Assembler {
                             in_loop,
                         );
                         self.expansion.pop();
+                        if scoped && self.anchor == synthetic_anchor {
+                            self.anchor = old_anchor;
+                        }
                         if let Some(old) = old {
                             self.constants.insert("_NARG".into(), old);
                         } else {
@@ -798,6 +926,9 @@ impl Assembler {
         if head.is_empty() {
             return Ok(());
         }
+        if tail.is_empty() && head.contains('.') && !head.starts_with('#') {
+            return self.define_label(head, false, line);
+        }
         let command = head.to_ascii_uppercase();
         let (name, rest) = if matches!(command.as_str(), "DEF" | "REDEF") {
             source::word(tail)
@@ -895,18 +1026,19 @@ impl Assembler {
                 if self.object.sections[s].kind < 2 {
                     return Err("UNION requires RAM section".into());
                 }
-                self.unions.push((s, self.offset(), self.offset()));
+                self.unions.push((s, self.offset(), self.offset(), false));
                 Ok(())
             }
             "NEXTU" | "ENDU" => {
-                let (s, start, max) = self.unions.pop().ok_or("union directive without UNION")?;
+                let (s, start, max, implicit) =
+                    self.unions.pop().ok_or("union directive without UNION")?;
                 if Some(s) != self.pc_section() {
                     return Err("UNION section changed".into());
                 }
                 let max = max.max(self.offset());
                 if command == "NEXTU" {
                     self.object.sections[s].data.truncate(start);
-                    self.unions.push((s, start, max));
+                    self.unions.push((s, start, max, implicit));
                 } else {
                     self.object.sections[s].data.resize(max, 0);
                 }
@@ -938,16 +1070,36 @@ impl Assembler {
             }
             "DS" => {
                 let values = source::args(tail)?;
-                let count = self.value(values.first().ok_or("DS requires count")?)?;
+                let count_text = values.first().ok_or("DS requires count")?;
+                let count = if count_text.to_ascii_uppercase().starts_with("ALIGN[") {
+                    let inner = count_text[6..]
+                        .strip_suffix(']')
+                        .ok_or("DS ALIGN requires ]")?;
+                    self.alignment_padding(&source::args(inner)?)?
+                } else {
+                    self.value(count_text)?
+                };
                 if !(0..=65536).contains(&count) {
                     return Err("DS count outside 0..65536".into());
                 }
-                let fill = if values.len() > 1 {
-                    self.value(&values[1])? as u8
+                if values.len() > 1 {
+                    for i in 0..count as usize {
+                        let tree =
+                            self.numeric_tree(self.tree(&values[1 + i % (values.len() - 1)])?)?;
+                        self.emit_number(tree, 1, false, line, None)?;
+                    }
+                    Ok(())
                 } else {
-                    0
-                };
-                self.emit(&vec![fill; count as usize], line)
+                    let fill = if self
+                        .section
+                        .is_some_and(|s| self.object.sections[s].kind < 2)
+                    {
+                        self.pad
+                    } else {
+                        0
+                    };
+                    self.emit(&vec![fill; count as usize], line)
+                }
             }
             "INCBIN" => {
                 let values = source::args(tail)?;
@@ -983,25 +1135,7 @@ impl Assembler {
             }
             "ALIGN" => {
                 let values = source::args(tail)?;
-                let bits = self.value(values.first().ok_or("ALIGN requires exponent")?)?;
-                if !(0..=16).contains(&bits) {
-                    return Err("ALIGN exponent outside 0..16".into());
-                }
-                let offset = if values.len() > 1 {
-                    self.value(&values[1])?
-                } else {
-                    0
-                };
-                let alignment = 1i32 << bits;
-                if offset < 0 || offset >= alignment {
-                    return Err("ALIGN offset outside alignment".into());
-                }
-                let s = self.pc_section().ok_or("ALIGN outside SECTION")?;
-                if self.object.sections[s].address.is_none() {
-                    self.object.sections[s].align = bits as u8;
-                    self.object.sections[s].align_offset = offset;
-                }
-                let pad = (offset - self.pc()).rem_euclid(alignment);
+                let pad = self.alignment_padding(&values)?;
                 self.emit(&vec![0; pad as usize], line)
             }
             "EXPORT" | "GLOBAL" => {
@@ -1028,12 +1162,23 @@ impl Assembler {
             }
             "ASSERT" | "STATIC_ASSERT" => {
                 let values = source::args(tail)?;
+                let warning = values
+                    .first()
+                    .is_some_and(|v| v.eq_ignore_ascii_case("WARN"));
+                let index = usize::from(
+                    warning
+                        || values
+                            .first()
+                            .is_some_and(|v| v.eq_ignore_ascii_case("FATAL")),
+                );
                 self.assertions.push((
-                    self.tree(values.first().ok_or("ASSERT requires expression")?)?,
+                    self.tree(values.get(index).ok_or("ASSERT requires expression")?)?,
                     line.clone(),
                     self.pc_section()
                         .and_then(|s| self.object.sections[s].address)
                         .map(|base| base + self.offset() as i32),
+                    self.pc_section(),
+                    warning,
                 ));
                 Ok(())
             }
@@ -1055,8 +1200,8 @@ impl Assembler {
                 }
                 Ok(())
             }
-            "NEWCHARMAP" | "SETCHARMAP" | "PUSHC" | "POPC" | "PRECHARMAP" | "POPCHARMAP"
-            | "CHARMAP" => self.charmap(&command, tail),
+            "NEWCHARMAP" | "SETCHARMAP" | "PUSHC" | "POPC" | "PRECHARMAP" | "PRECHMAP"
+            | "POPCHARMAP" | "CHARMAP" => self.charmap(&command, tail),
             "PUSHO" => {
                 self.options.push((self.q, self.pad));
                 Ok(())
@@ -1095,6 +1240,13 @@ impl Assembler {
                         }))
                     })
                     .collect();
+                for operand in &mut operands {
+                    if operand.contains('\'') {
+                        if let Ok(value) = self.value(operand) {
+                            *operand = value.to_string();
+                        }
+                    }
+                }
                 if matches!(command.as_str(), "RST" | "BIT" | "RES" | "SET") {
                     if let Some(first) = operands.first_mut() {
                         if let Ok(value) = self.value(first) {
@@ -1158,7 +1310,15 @@ impl Assembler {
         result
     }
 
+    fn end_implicit_unions(&mut self) {
+        while self.unions.last().is_some_and(|frame| frame.3) {
+            let (s, _, max, _) = self.unions.pop().unwrap();
+            let size = max.max(self.object.sections[s].data.len());
+            self.object.sections[s].data.resize(size, 0);
+        }
+    }
     fn open_section(&mut self, tail: &str, load: bool, line: &SourceLine) -> Result<(), String> {
+        self.end_implicit_unions();
         let tail = tail.trim();
         let (modifier, rest) = source::word(tail);
         let (union, fragment, tail) = if modifier.eq_ignore_ascii_case("UNION") {
@@ -1193,9 +1353,13 @@ impl Assembler {
         if union && kind < 2 {
             return Err("SECTION UNION requires RAM".into());
         }
-        if fragment {
-            return Err("SECTION FRAGMENT is not yet supported".into());
-        }
+        let combination = if union {
+            crate::model::SectionCombination::Union
+        } else if fragment {
+            crate::model::SectionCombination::Fragment
+        } else {
+            crate::model::SectionCombination::Normal
+        };
         let bracket = |s: &str| -> Result<Option<String>, String> {
             if let Some((_, rest)) = s.split_once('[') {
                 Ok(Some(rest.strip_suffix(']').ok_or("missing ]")?.into()))
@@ -1248,10 +1412,19 @@ impl Assembler {
         }
         let index = if let Some(index) = self.object.sections.iter().position(|s| s.name == name) {
             let s = &self.object.sections[index];
-            if s.kind != kind || s.address != address || s.bank != bank {
+            if s.kind != kind
+                || s.address != address
+                || s.bank != bank
+                || s.combination != combination
+            {
                 return Err("incompatible section redeclaration".into());
             }
             if union {
+                let old = self.object.sections[index].data.len();
+                self.union_sizes
+                    .entry(index)
+                    .and_modify(|max| *max = (*max).max(old))
+                    .or_insert(old);
                 self.object.sections[index].data.clear();
             }
             index
@@ -1264,6 +1437,7 @@ impl Assembler {
                 bank,
                 align,
                 align_offset,
+                combination,
                 source: Some(self.provenance(line)),
                 ..Section::default()
             });
@@ -1278,6 +1452,9 @@ impl Assembler {
         } else {
             self.load = None;
             self.section = Some(index);
+            if union {
+                self.unions.push((index, 0, 0, true));
+            }
         }
         Ok(())
     }
@@ -1342,6 +1519,28 @@ impl Assembler {
         });
         Ok(())
     }
+    fn alignment_padding(&mut self, values: &[String]) -> Result<i32, String> {
+        let bits = self.value(values.first().ok_or("ALIGN requires exponent")?)?;
+        if !(0..=16).contains(&bits) {
+            return Err("ALIGN exponent outside 0..16".into());
+        }
+        let requested = if values.len() > 1 {
+            self.value(&values[1])?
+        } else {
+            0
+        };
+        let boundary = 1i32 << bits;
+        if requested < 0 || requested >= boundary {
+            return Err("ALIGN offset outside alignment".into());
+        }
+        let section = self.pc_section().ok_or("ALIGN outside SECTION")?;
+        let sec = &mut self.object.sections[section];
+        let base = sec.address.unwrap_or(sec.align_offset);
+        if sec.address.is_none() {
+            sec.align = sec.align.max(bits as u8);
+        }
+        Ok((requested - base - sec.data.len() as i32).rem_euclid(boundary))
+    }
     fn encode_string(&self, text: &str) -> Result<Vec<i32>, String> {
         let map = self.maps.get(&self.map).ok_or("unknown charmap")?;
         let mut result = Vec::new();
@@ -1366,7 +1565,7 @@ impl Assembler {
     fn charmap(&mut self, command: &str, tail: &str) -> Result<(), String> {
         let args = source::args(tail)?;
         match command {
-            "PUSHC" | "PRECHARMAP" => self.map_stack.push(self.map.clone()),
+            "PUSHC" | "PRECHARMAP" | "PRECHMAP" => self.map_stack.push(self.map.clone()),
             "POPC" | "POPCHARMAP" => {
                 self.map = self.map_stack.pop().ok_or("charmap stack is empty")?
             }
@@ -1395,6 +1594,7 @@ impl Assembler {
                     .first()
                     .ok_or("SETCHARMAP requires name")?
                     .trim_matches('"');
+                let name = if name.is_empty() { "main" } else { name };
                 if !self.maps.contains_key(name) {
                     return Err("unknown charmap".into());
                 }
@@ -1422,6 +1622,10 @@ impl Assembler {
     }
 
     fn finish(&mut self) {
+        for (s, size) in &self.union_sizes {
+            let size = (*size).max(self.object.sections[*s].data.len());
+            self.object.sections[*s].data.resize(size, 0);
+        }
         for (name, tree) in self.deferred.clone() {
             let tree = self.freeze(tree);
             if let Some(value) = self.invariant(&tree) {
@@ -1467,14 +1671,17 @@ impl Assembler {
             }
         }
         let assertions = std::mem::take(&mut self.assertions);
-        for (tree, line, pc) in assertions {
+        for (tree, line, pc, section, warning) in assertions {
             let result = if has_pc(&tree) && pc.is_none() {
                 Err("ASSERT requires a placed current address".into())
             } else {
-                expr::eval(&tree, &|n| self.lookup(n), pc.unwrap_or(0))
+                expr::eval(&tree, &|n| self.lookup_at(n, section), pc.unwrap_or(0))
             };
             match result {
                 Ok(v) if v != 0 => (),
+                Ok(_) if warning => {
+                    eprintln!("{}:{}:1: warning: assertion failed", line.file, line.line)
+                }
                 Ok(_) => self.error(&line, "assertion failed"),
                 Err(e) => self.error(&line, e),
             }
@@ -1489,7 +1696,11 @@ impl Assembler {
                 {
                     Err("unplaced current address".into())
                 } else {
-                    expr::eval(&p.expression, &|n| self.lookup(n), pc)
+                    expr::eval(
+                        &p.expression,
+                        &|n| self.lookup_at(n, Some(p.pc_section)),
+                        pc,
+                    )
                 };
                 let relative_same = if p.kind == 3 {
                     self.relative_value(&p.expression, p.pc_section, p.pc_offset)
@@ -1497,6 +1708,9 @@ impl Assembler {
                     None
                 };
                 let value = relative_same.map(|v| v - p.pc_after).or_else(|| {
+                    if p.kind == 3 && self.object.sections[p.pc_section].address.is_none() {
+                        return None;
+                    }
                     value
                         .ok()
                         .or_else(|| self.invariant(&p.expression))
@@ -1542,7 +1756,7 @@ impl Assembler {
             }
         }
         for (name, value) in &self.constants {
-            if name != "_NARG" {
+            if name != "_NARG" && self.symbol_sources.contains_key(name) {
                 self.object.symbols.push(Symbol {
                     name: name.clone(),
                     kind: 1,
@@ -1598,6 +1812,9 @@ impl Assembler {
         }
     }
     fn invariant(&self, tree: &Expr) -> Option<i32> {
+        if tree.references_pc() {
+            return None;
+        }
         let (value, bases) = self.affine(tree)?;
         if bases.is_empty() { Some(value) } else { None }
     }
@@ -1629,6 +1846,7 @@ fn has_pc(tree: &Expr) -> bool {
         Expr::Pc => true,
         Expr::Unary(_, a) => has_pc(a),
         Expr::Binary(_, a, b) => has_pc(a) || has_pc(b),
+        Expr::Call(name, _) if name == "BANK" => false,
         Expr::Call(_, args) => args.iter().any(has_pc),
         _ => false,
     }

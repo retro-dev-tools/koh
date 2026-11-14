@@ -11,14 +11,15 @@ pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object,
         .map(|(i, s)| (s.name.clone(), SectionId(i)))
         .collect();
     for sym in draft.symbols {
+        let name = sym.name.strip_prefix('#').unwrap_or(&sym.name).to_string();
         if sym.kind > 1 {
             return Err("non-numeric symbol reached object lowering".into());
         }
-        if symbols.contains_key(&sym.name) {
+        if symbols.contains_key(&name) {
             return Err(format!("duplicate symbol '{}'", sym.name));
         }
         let id = SymbolId(object.symbols.len());
-        symbols.insert(sym.name.clone(), id);
+        symbols.insert(name.clone(), id);
         let definition = if let Some(section) = sym.section {
             SymbolDefinition::Label {
                 section: SectionId(section),
@@ -28,7 +29,7 @@ pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object,
             SymbolDefinition::Absolute(sym.value)
         };
         object.symbols.push(Symbol {
-            name: sym.name,
+            name,
             binding: if sym.visibility == 1 {
                 SymbolBinding::Exported
             } else {
@@ -94,6 +95,7 @@ pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object,
             Vec::new()
         };
         object.sections.push(Section {
+            combination: section.combination,
             name: section.name,
             kind: section.kind,
             address: section.address,
@@ -117,6 +119,7 @@ fn symbol(
     symbols: &mut HashMap<String, SymbolId>,
     allow_imports: bool,
 ) -> Result<SymbolId, String> {
+    let name = name.strip_prefix('#').unwrap_or(&name).to_string();
     if let Some(id) = symbols.get(&name) {
         return Ok(*id);
     }
@@ -150,6 +153,12 @@ fn expression(
         Expr::Symbol(name) => R::Symbol(symbol(name, object, symbols, allow_imports)?),
         Expr::Pc => R::CurrentAddress,
         Expr::Unary(op, a) => {
+            if op == "#" {
+                if let Expr::Symbol(name) = *a {
+                    return Ok(R::Symbol(symbol(name, object, symbols, allow_imports)?));
+                }
+                return Err("raw identifier requires a symbol".into());
+            }
             if op == "+" {
                 return recurse(*a, object, symbols);
             }
@@ -162,7 +171,10 @@ fn expression(
             R::Unary(op, Box::new(recurse(*a, object, symbols)?))
         }
         Expr::Binary(op, a, b) => {
-            if matches!(op.as_str(), "/" | "%") && crate::expr::eval(&b, &|_| None, 0) == Ok(0) {
+            if matches!(op.as_str(), "/" | "%")
+                && !b.references_pc()
+                && crate::expr::eval(&b, &|_| None, 0) == Ok(0)
+            {
                 return Err("division by zero in relocation expression".into());
             }
             let op = match op.as_str() {
@@ -236,6 +248,7 @@ fn expression(
             return Err(format!("unsupported relocation function or arity '{name}'"));
         }
         Expr::String(_) => return Err("unresolved string in numeric relocation".into()),
+        Expr::Character(_) => return Err("unmapped character reached object lowering".into()),
     })
 }
 

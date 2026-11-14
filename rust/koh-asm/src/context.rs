@@ -22,6 +22,25 @@ pub fn fold(
             name,
             args.into_iter().map(child).collect::<Result<Vec<_>, _>>()?,
         ),
+        Expr::Character(character) => {
+            let key = character.to_string();
+            if let Some((_, values)) = maps.iter().find(|(name, _)| name == &key) {
+                if values.len() == 1 {
+                    return Ok(Expr::Number(values[0]));
+                }
+                if values.is_empty() || values.len() > 4 {
+                    return Err("Character constant requires one to four mapped bytes".into());
+                }
+                let mut value = 0u32;
+                for byte in values {
+                    let byte = u8::try_from(*byte)
+                        .map_err(|_| "Multiple character constant values must be bytes")?;
+                    value = (value << 8) | u32::from(byte);
+                }
+                return Ok(Expr::Number(value as i32));
+            }
+            return Ok(Expr::Number(character as i32));
+        }
         other => return Ok(other),
     };
     let string = |index| expr::eval_string(&args[index], resolver, pc);
@@ -77,20 +96,19 @@ pub fn fold(
         "STRBYTE" => {
             count(2, 2)?;
             let text = string(0)?;
-            let index = index(number(1)?, text.len());
+            let index = string_index(number(1)?, text.len());
             Ok(Expr::Number(
-                index
-                    .and_then(|i| text.as_bytes().get(i))
-                    .copied()
-                    .unwrap_or(0) as i32,
+                text.as_bytes().get(index).copied().unwrap_or(0) as i32,
             ))
         }
         "STRCHAR" => {
             count(2, 2)?;
             let text = string(0)?;
             let pieces = entries(&text, maps);
-            let index = index(number(1)?, pieces.len()).ok_or("STRCHAR index out of range")?;
-            Ok(Expr::String(pieces[index].0.into()))
+            let index = string_index(number(1)?, pieces.len());
+            Ok(Expr::String(
+                pieces.get(index).map_or("", |(text, _)| text).into(),
+            ))
         }
         "REVCHAR" => {
             count(1, usize::MAX)?;
@@ -141,6 +159,14 @@ pub fn fold(
             }))
         }
         _ => Ok(Expr::Call(name, args)),
+    }
+}
+
+fn string_index(value: i32, length: usize) -> usize {
+    if value < 0 {
+        (length as i64 + i64::from(value)).max(0) as usize
+    } else {
+        value as usize
     }
 }
 
@@ -201,6 +227,12 @@ mod tests {
     }
     #[test]
     fn longest_map_and_unicode() {
+        assert_eq!(value("STRBYTE(\"ab\",-3)"), 97);
+        assert_eq!(value("STRBYTE(\"ab\",99)"), 0);
+        assert_eq!(value("STRBYTE(\"\",-1)"), 0);
+        assert_eq!(folded("STRCHAR(\"abc\",9)"), Expr::String(String::new()));
+        assert_eq!(folded("STRCHAR(\"abc\",-9)"), Expr::String("ab".into()));
+        assert_eq!(folded("STRCHAR(\"\",0)"), Expr::String(String::new()));
         assert_eq!(value("CHARLEN(\"abé🌍\")"), 3);
         assert_eq!(value("INCHARMAP(\"ab\")"), 1);
         assert_eq!(value("INCHARMAP(\"abc\")"), 0);
@@ -216,6 +248,31 @@ mod tests {
         assert_eq!(value("CHARVAL(\"ab\",-1)"), 2);
         assert_eq!(value("CHARCMP(\"a\",\"é\")"), -1);
         assert_eq!(value("STRLEN(REVCHAR(7))"), 1);
+    }
+    #[test]
+    fn character_constants_keep_mapping_context() {
+        assert_eq!(expr::parse("'a'").unwrap(), Expr::Character('a'));
+        assert_eq!(folded("'a'"), Expr::Number(1));
+        assert_eq!(folded("'é'"), Expr::Number(7));
+        assert_eq!(folded("'b'"), Expr::Number(98));
+        let fold_char = |values| {
+            fold(
+                Expr::Character('A'),
+                &[("A".into(), values)],
+                "test.asm",
+                &|_| None,
+                0,
+            )
+        };
+        assert_eq!(fold_char(vec![0x12, 0x34]).unwrap(), Expr::Number(0x1234));
+        assert_eq!(
+            fold_char(vec![255, 255, 255, 255]).unwrap(),
+            Expr::Number(-1)
+        );
+        assert_eq!(fold_char(vec![0x1234]).unwrap(), Expr::Number(0x1234));
+        for values in [vec![], vec![1, 2, 3, 4, 5], vec![1, 256], vec![-1, 1]] {
+            assert!(fold_char(values).is_err());
+        }
     }
     #[test]
     fn contextual_children_preserve_relocations() {
@@ -236,7 +293,6 @@ mod tests {
             "REVCHAR(99)",
             "CHARVAL(\"ab\")",
             "CHARVAL(\"ab\",2)",
-            "STRCHAR(\"a\",3)",
             "READFILE(\"missing\",-1)",
         ] {
             assert!(

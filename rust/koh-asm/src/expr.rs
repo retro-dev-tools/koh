@@ -1,12 +1,25 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expr {
     Number(i32),
+    Character(char),
     String(String),
     Symbol(String),
     Pc,
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
+}
+
+impl Expr {
+    pub fn references_pc(&self) -> bool {
+        match self {
+            Self::Pc => true,
+            Self::Unary(_, a) => a.references_pc(),
+            Self::Binary(_, a, b) => a.references_pc() || b.references_pc(),
+            Self::Call(_, args) => args.iter().any(Self::references_pc),
+            _ => false,
+        }
+    }
 }
 
 struct Parser<'a> {
@@ -187,7 +200,7 @@ impl Parser<'_> {
             if chars.next().is_some() {
                 return Err("Character constant requires one character".into());
             }
-            return Ok(Expr::Number(c as i32));
+            return Ok(Expr::Character(c));
         }
         if ch == '`' {
             self.pos += 1;
@@ -338,6 +351,7 @@ fn eval_inner(
     let number = |e: &Expr| eval_inner(e, symbols, pc);
     match expr {
         Expr::Number(n) => Ok(*n),
+        Expr::Character(c) => Ok(*c as i32),
         Expr::Pc => Ok(pc),
         Expr::String(_) => Err("Expected numeric expression".into()),
         Expr::Symbol(name) => symbols(name)
@@ -578,12 +592,12 @@ fn eval_call(
             arity(name, args, 2, 2)?;
             let a = s(0)?;
             let i = n(1)? as i64;
-            let i = if i < 0 { a.len() as i64 + i } else { i };
-            Ok(if i < 0 {
-                0
+            let i = if i < 0 {
+                (a.len() as i64 + i).max(0)
             } else {
-                a.as_bytes().get(i as usize).copied().unwrap_or(0) as i32
-            })
+                i
+            };
+            Ok(a.as_bytes().get(i as usize).copied().unwrap_or(0) as i32)
         }
         "INCHARMAP" => {
             arity(name, args, 1, 1)?;
@@ -870,7 +884,7 @@ fn format_string(
             result.push_str(&text);
             result.extend(std::iter::repeat_n(' ', padding));
         } else if zero && kind != 's' {
-            let prefix = if text.starts_with(['+', '-', ' ']) {
+            let prefix = if text.starts_with(['+', '-', ' ', '$', '&', '%']) {
                 text.remove(0).to_string()
             } else {
                 String::new()
@@ -1016,6 +1030,23 @@ mod tests {
     }
     #[test]
     fn formatting() {
+        for (format, number, expected) in [
+            ("%#06X", 255, "$000FF"),
+            ("%#06x", 255, "$000ff"),
+            ("%#06o", 15, "&00017"),
+            ("%#06b", 3, "%00011"),
+            ("%+06d", 255, "+00255"),
+        ] {
+            assert_eq!(
+                eval_string(
+                    &parse(&format!("STRFMT(\"{format}\",{number})")).unwrap(),
+                    &|_| None,
+                    0
+                )
+                .unwrap(),
+                expected
+            );
+        }
         assert_eq!(
             eval_string(&parse("#\"\"\"a\nb\"\"\"").unwrap(), &|_| None, 0).unwrap(),
             "a\nb"
@@ -1129,6 +1160,8 @@ mod tests {
         assert_eq!(value("ISCONST(missing+1)"), 0);
         assert_eq!(value("ISCONST(1+2)"), 1);
         assert_eq!(value("STRBYTE(\"a\",3)"), 0);
+        assert_eq!(value("STRBYTE(\"ab\",-3)"), 97);
+        assert_eq!(value("STRBYTE(\"ab\",-2147483648)"), 97);
         assert_eq!(value("STRFIND(\"a\",\"b\")"), -1);
     }
 }

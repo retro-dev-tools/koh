@@ -8,6 +8,7 @@ pub(crate) struct Object {
 
 #[derive(Default)]
 pub(crate) struct Section {
+    pub combination: crate::model::SectionCombination,
     pub name: String,
     pub kind: u8,
     pub address: Option<i32>,

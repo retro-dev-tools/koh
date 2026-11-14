@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SectionId(pub usize);
@@ -15,6 +15,7 @@ pub struct Object {
 pub struct Section {
     pub name: String,
     pub kind: u8,
+    pub combination: SectionCombination,
     pub address: Option<i32>,
     pub bank: Option<i32>,
     pub align: u8,
@@ -24,6 +25,14 @@ pub struct Section {
     pub patches: Vec<Patch>,
     pub lines: Vec<Line>,
     pub source: Option<Provenance>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SectionCombination {
+    #[default]
+    Normal,
+    Union,
+    Fragment,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,14 +217,24 @@ impl Provenance {
 
 impl Object {
     pub fn validate(&self) -> Result<(), String> {
-        let mut section_names = HashSet::new();
+        let mut section_names = HashMap::new();
         for section in &self.sections {
             name(&section.name)?;
-            if !section_names.insert(&section.name) {
-                return Err(format!("Duplicate section '{}'", section.name));
+            if let Some((kind, combination)) =
+                section_names.insert(&section.name, (section.kind, section.combination))
+            {
+                if section.combination == SectionCombination::Normal
+                    || combination != section.combination
+                    || kind != section.kind
+                {
+                    return Err(format!("Incompatible duplicate section '{}'", section.name));
+                }
             }
             if section.kind > 7 {
                 return Err("Invalid section kind".into());
+            }
+            if section.kind <= 1 && section.combination == SectionCombination::Union {
+                return Err("ROM sections cannot use UNION combination".into());
             }
             let (start, size, first_bank, last_bank) = memory_region(section.kind).unwrap();
             if section.size > size

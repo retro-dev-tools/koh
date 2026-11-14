@@ -60,6 +60,87 @@ fn invalid_graph_is_rejected_before_serialization() {
 }
 
 #[test]
+fn raw_identifier_escape_is_not_part_of_symbol_identity() {
+    let object = assemble(
+        "SECTION \"code\",ROM0\n#ld:: nop\ndw #ld\nDEF #DEF EQU 7\ndb #DEF",
+        "raw.asm",
+        false,
+    )
+    .unwrap();
+    assert!(
+        object
+            .symbols
+            .iter()
+            .any(|s| s.name == "ld" && s.binding == SymbolBinding::Exported)
+    );
+    assert!(
+        object
+            .symbols
+            .iter()
+            .any(|s| s.name == "DEF" && s.definition == SymbolDefinition::Absolute(7))
+    );
+    assert!(object.symbols.iter().all(|s| !s.name.starts_with('#')));
+    assert_eq!(object.sections[0].data[3], 7);
+    assert!(write_rgbds(&object).is_ok());
+}
+
+#[test]
+fn floating_pc_expressions_and_numeric_jr_targets_remain_relocations() {
+    let object = assemble(
+        "SECTION \"pad\",ROM0[0]\nds $100\nSECTION \"code\",ROM0\ndb HIGH(@)\njr $103",
+        "pc.asm",
+        false,
+    )
+    .unwrap();
+    assert_eq!(object.sections[1].patches.len(), 2);
+    assert!(matches!(
+        object.sections[1].patches[0].expression,
+        RelocationExpr::Unary(UnaryOp::High, _)
+    ));
+    assert!(matches!(
+        object.sections[1].patches[1].semantics,
+        PatchSemantics::PcRelative { bias: 2 }
+    ));
+}
+
+#[test]
+fn bank_current_uses_its_own_section() {
+    let object = assemble(
+        "SECTION \"one\",ROMX,BANK[1]\ndb BANK(@)\nSECTION \"two\",ROMX,BANK[2]\ndb BANK(@)",
+        "bank.asm",
+        false,
+    )
+    .unwrap();
+    assert_eq!(object.sections[0].data, [1]);
+    assert_eq!(object.sections[1].data, [2]);
+    let floating = assemble(
+        "SECTION \"one\",ROMX[$4000]\ndb BANK(@)\nSECTION \"two\",ROMX[$4000],BANK[2]\ndb BANK(@)",
+        "floating-bank.asm",
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        floating.sections[0].patches[0].expression,
+        RelocationExpr::BankCurrent
+    );
+}
+
+#[test]
+fn current_address_divisor_is_not_assumed_to_be_zero() {
+    let object = assemble(
+        "SECTION \"pad\",ROM0[0]\nds $100\nSECTION \"code\",ROM0\ndw $100/@",
+        "divide.asm",
+        false,
+    )
+    .unwrap();
+    assert!(matches!(
+        object.sections[1].patches[0].expression,
+        RelocationExpr::Binary(BinaryOp::Divide, _, _)
+    ));
+    assert!(write_rgbds(&object).is_ok());
+}
+
+#[test]
 fn signed_offset_semantics_survive_deferred_resolution() {
     let object = assemble("SECTION \"code\",ROM0\nadd sp, Delta", "signed.asm", true).unwrap();
     let patch = &object.sections[0].patches[0];

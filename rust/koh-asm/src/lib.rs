@@ -1,4 +1,5 @@
 mod assembler;
+mod builtins;
 mod context;
 mod draft;
 pub mod encode;

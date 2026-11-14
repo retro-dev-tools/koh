@@ -50,7 +50,7 @@ fn invalid_source_is_diagnostic() {
         "SECTION \"x\", ROM0\nwat",
         "IF 1",
         "MACRO x\nx\nENDM\nx",
-        "SECTION \"x\", ROM0\njr 1000",
+        "SECTION \"x\", ROM0[0]\njr 1000",
         "SECTION \"x\", ROM0\nfoo:\nfoo:",
     ] {
         assert!(assemble(source, "bad.asm", false).is_err(), "{source}");

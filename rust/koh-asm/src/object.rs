@@ -218,7 +218,11 @@ fn kobj_adapter(object: &Object) -> Result<Object, String> {
                 let base = format!("__koh_kobj_pc_{}", patch.pc.section.0);
                 let mut name = base.clone();
                 let mut suffix = 0usize;
-                while adapted.symbols.iter().any(|symbol| symbol.name == name) {
+                while adapted
+                    .symbols
+                    .iter()
+                    .any(|symbol| symbol.name.eq_ignore_ascii_case(&name))
+                {
                     suffix += 1;
                     name = format!("{base}_{suffix}");
                 }
@@ -250,8 +254,53 @@ fn kobj_adapter(object: &Object) -> Result<Object, String> {
     Ok(adapted)
 }
 
+fn kobj_names(object: &Object) -> Result<(), String> {
+    if let Some(symbol) = object.symbols.iter().find(|symbol| !symbol.name.is_ascii()) {
+        return Err(format!(
+            "Kobj v4 compatibility requires ASCII symbol names; '{}' requires RGBDS output",
+            symbol.name
+        ));
+    }
+    for (category, names) in [
+        (
+            "symbol",
+            object
+                .symbols
+                .iter()
+                .map(|symbol| symbol.name.as_str())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "section",
+            object
+                .sections
+                .iter()
+                .map(|section| section.name.as_str())
+                .collect::<Vec<_>>(),
+        ),
+    ] {
+        let mut seen = std::collections::HashMap::new();
+        for name in names {
+            for key in [
+                name.to_uppercase().to_lowercase(),
+                name.to_lowercase().to_uppercase(),
+            ] {
+                if let Some(existing) = seen.insert(key, name) {
+                    if existing != name {
+                        return Err(format!(
+                            "Kobj v4 compatibility rejects case-equivalent {category} names '{existing}' and '{name}'; use RGBDS output"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn write_kobj(object: &Object) -> Result<Vec<u8>, String> {
     object.validate()?;
+    kobj_names(object)?;
     if let Some(symbol) = object
         .symbols
         .iter()
@@ -266,6 +315,12 @@ pub fn write_kobj(object: &Object) -> Result<Vec<u8>, String> {
     let mut out = b"KOH\0\x04\x01".to_vec();
     short(&mut out, object.sections.len())?;
     for (id, section) in object.sections.iter().enumerate() {
+        if section.combination != SectionCombination::Normal {
+            return Err(format!(
+                "Kobj v4 cannot preserve {:?} section combination for '{}'; use RGBDS output",
+                section.combination, section.name
+            ));
+        }
         if section.align != 0 && section.address.is_none() {
             return Err("Kobj v4 cannot encode floating alignment; use RGBDS output".into());
         }
@@ -562,7 +617,14 @@ pub fn write_rgbds(object: &Object) -> Result<Vec<u8>, String> {
         count(&mut out, section_nodes[id])?;
         out.extend(section.source.as_ref().unwrap().line.to_le_bytes());
         count(&mut out, section.size as usize)?;
-        out.push(section_kind(section.kind));
+        out.push(
+            section_kind(section.kind)
+                | match section.combination {
+                    SectionCombination::Normal => 0,
+                    SectionCombination::Union => 0x80,
+                    SectionCombination::Fragment => 0x40,
+                },
+        );
         int(&mut out, section.address.unwrap_or(-1));
         int(&mut out, section.bank.unwrap_or(-1));
         out.push(section.align);
@@ -810,7 +872,7 @@ mod tests {
             let size = reader.int() as usize;
             let kind = reader.byte();
             reader.take(13);
-            if kind == 2 || kind == 3 {
+            if kind & 7 == 2 || kind & 7 == 3 {
                 reader.take(size);
                 let count = reader.int();
                 for _ in 0..count {
@@ -1200,6 +1262,280 @@ mod tests {
             rpn(&object, &expression, &mut bytes).unwrap();
             assert_eq!(bytes, expected);
         }
+    }
+
+    #[test]
+    fn section_combinations_are_preserved_or_explicitly_refused() {
+        for (combination, kind, flag) in [
+            (SectionCombination::Union, 4, 0x80),
+            (SectionCombination::Fragment, 0, 0x40),
+        ] {
+            let mut object = Object {
+                sections: vec![Section {
+                    name: "Shared".into(),
+                    kind,
+                    combination,
+                    size: 0,
+                    source: Some(source()),
+                    ..Section::default()
+                }],
+                symbols: vec![],
+            };
+            assert!(object.validate().is_ok());
+            assert!(
+                write_kobj(&object)
+                    .unwrap_err()
+                    .contains("section combination")
+            );
+            let mut reader = Reader {
+                bytes: write_rgbds(&object).unwrap(),
+                pos: 20,
+            };
+            reader.take(9);
+            reader.zstr();
+            assert_eq!(reader.zstr(), "Shared");
+            reader.take(12);
+            assert_eq!(reader.byte(), section_kind(kind) | flag);
+            object.sections.push(object.sections[0].clone());
+            assert!(object.validate().is_ok());
+            object.sections[1].combination = SectionCombination::Normal;
+            assert!(object.validate().is_err());
+        }
+        let mut object = fixture();
+        object.sections[0].combination = SectionCombination::Union;
+        assert!(object.validate().is_err());
+    }
+
+    #[test]
+    fn cross_object_union_and_fragment_link_like_rgbds_when_enabled() {
+        if std::env::var("KOH_RGBDS_TEST").as_deref() != Ok("1") {
+            return;
+        }
+        let version = std::process::Command::new("rgblink")
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert!(version.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&version.stdout).trim(),
+            "rgblink v1.0.1"
+        );
+        let directory =
+            std::env::temp_dir().join(format!("koh-object-combinations-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        for combination in [SectionCombination::Union, SectionCombination::Fragment] {
+            let union = combination == SectionCombination::Union;
+            let prefix = if union { "union" } else { "fragment" };
+            let mut consumer = fixture();
+            consumer.sections[0].name = "Consumer".into();
+            consumer.sections[0].address = Some(0x100);
+            consumer.sections[0].size = 6;
+            consumer.sections[0].data = vec![0; 6];
+            consumer.sections[0].lines.clear();
+            consumer.sections[0].patches.clear();
+            consumer.symbols.clear();
+            for name in ["LeftValue", "RightValue"] {
+                consumer.symbols.push(Symbol {
+                    name: name.into(),
+                    binding: SymbolBinding::Local,
+                    definition: SymbolDefinition::Import,
+                    source: None,
+                });
+            }
+            for (offset, expression) in [
+                (0, RelocationExpr::Symbol(SymbolId(0))),
+                (2, RelocationExpr::Symbol(SymbolId(1))),
+                (
+                    4,
+                    RelocationExpr::SectionSize(SectionRef::External("Shared".into())),
+                ),
+            ] {
+                consumer.sections[0].patches.push(Patch {
+                    offset,
+                    width: PatchWidth::Word,
+                    semantics: PatchSemantics::Absolute,
+                    pc: AddressContext {
+                        section: SectionId(0),
+                        offset: offset as u32,
+                    },
+                    expression,
+                    source: source(),
+                });
+            }
+            let providers: [Object; 2] = std::array::from_fn(|index| Object {
+                sections: vec![Section {
+                    name: "Shared".into(),
+                    kind: if union { 4 } else { 0 },
+                    combination,
+                    size: if index == 0 {
+                        2
+                    } else if union {
+                        5
+                    } else {
+                        3
+                    },
+                    data: if union {
+                        vec![]
+                    } else if index == 0 {
+                        vec![0xa1, 0xa2]
+                    } else {
+                        vec![0xb1, 0xb2, 0xb3]
+                    },
+                    source: Some(source()),
+                    ..Section::default()
+                }],
+                symbols: vec![Symbol {
+                    name: if index == 0 {
+                        "LeftValue"
+                    } else {
+                        "RightValue"
+                    }
+                    .into(),
+                    binding: SymbolBinding::Exported,
+                    definition: SymbolDefinition::Label {
+                        section: SectionId(0),
+                        offset: if index == 0 {
+                            1
+                        } else if union {
+                            3
+                        } else {
+                            2
+                        },
+                    },
+                    source: Some(source()),
+                }],
+            });
+            let references = if union {
+                [
+                    "SECTION \"Consumer\", ROM0[$100]\ndw LeftValue,RightValue,SIZEOF(\"Shared\")\n",
+                    "SECTION UNION \"Shared\", WRAM0\nds 1\nLeftValue::\nds 1\n",
+                    "SECTION UNION \"Shared\", WRAM0\nds 3\nRightValue::\nds 2\n",
+                ]
+            } else {
+                [
+                    "SECTION \"Consumer\", ROM0[$100]\ndw LeftValue,RightValue,SIZEOF(\"Shared\")\n",
+                    "SECTION FRAGMENT \"Shared\", ROM0\ndb $a1\nLeftValue::\ndb $a2\n",
+                    "SECTION FRAGMENT \"Shared\", ROM0\ndb $b1,$b2\nRightValue::\ndb $b3\n",
+                ]
+            };
+            let mut native_objects = Vec::new();
+            let mut reference_objects = Vec::new();
+            for (index, object) in std::iter::once(&consumer)
+                .chain(providers.iter())
+                .enumerate()
+            {
+                let native = directory.join(format!("{prefix}-native-{index}.o"));
+                std::fs::write(&native, write_rgbds(object).unwrap()).unwrap();
+                native_objects.push(native);
+                let asm = directory.join(format!("{prefix}-reference-{index}.asm"));
+                let reference = asm.with_extension("o");
+                std::fs::write(&asm, references[index]).unwrap();
+                let output = std::process::Command::new("rgbasm")
+                    .arg("-o")
+                    .arg(&reference)
+                    .arg(&asm)
+                    .output()
+                    .unwrap();
+                let log = directory.join(format!("{prefix}-assemble-{index}.log"));
+                std::fs::write(
+                    &log,
+                    format!(
+                        "EXIT={:?}\n{}{}",
+                        output.status.code(),
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
+                    ),
+                )
+                .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    std::fs::read_to_string(log).unwrap()
+                );
+                reference_objects.push(reference);
+            }
+            let mut roms = Vec::new();
+            for (name, objects) in [("native", native_objects), ("reference", reference_objects)] {
+                let rom = directory.join(format!("{prefix}-{name}.gb"));
+                let output = std::process::Command::new("rgblink")
+                    .args(["-p", "0", "-o"])
+                    .arg(&rom)
+                    .args(objects)
+                    .output()
+                    .unwrap();
+                let log = directory.join(format!("{prefix}-{name}.log"));
+                std::fs::write(
+                    &log,
+                    format!(
+                        "EXIT={:?}\n{}{}",
+                        output.status.code(),
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
+                    ),
+                )
+                .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    std::fs::read_to_string(log).unwrap()
+                );
+                roms.push(std::fs::read(rom).unwrap());
+            }
+            assert_eq!(roms[0], roms[1]);
+            assert_eq!(
+                &roms[0][0x100..0x106],
+                if union {
+                    &[1, 0xc0, 3, 0xc0, 5, 0]
+                } else {
+                    &[1, 0, 4, 0, 5, 0]
+                }
+            );
+        }
+        println!("Section combination artifacts: {}", directory.display());
+    }
+
+    #[test]
+    fn kobj_case_insensitive_backend_names_are_explicitly_restricted() {
+        let mut object = fixture();
+        object.symbols[0].name = "Foo".into();
+        let mut second = object.symbols[0].clone();
+        second.name = "foo".into();
+        object.symbols.push(second);
+        assert!(object.validate().is_ok());
+        assert!(write_rgbds(&object).is_ok());
+        assert!(
+            write_kobj(&object)
+                .unwrap_err()
+                .contains("case-equivalent symbol")
+        );
+        object = fixture();
+        object.sections[0].name = "code".into();
+        let mut section = object.sections[0].clone();
+        section.name = "Code".into();
+        object.sections.push(section);
+        assert!(object.validate().is_ok());
+        assert!(write_rgbds(&object).is_ok());
+        assert!(
+            write_kobj(&object)
+                .unwrap_err()
+                .contains("case-equivalent section")
+        );
+        object = fixture();
+        object.symbols[0].name = "λ".into();
+        assert!(write_rgbds(&object).is_ok());
+        assert!(write_kobj(&object).unwrap_err().contains("ASCII symbol"));
+        object = fixture();
+        object.sections[0].name = "Kelvin".into();
+        let mut section = object.sections[0].clone();
+        section.name = "Kelvin".into();
+        object.sections.push(section);
+        assert!(
+            write_kobj(&object)
+                .unwrap_err()
+                .contains("case-equivalent section")
+        );
+        object.sections.pop();
+        assert!(write_kobj(&object).is_ok());
     }
 
     #[test]
