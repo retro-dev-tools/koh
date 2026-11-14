@@ -1703,10 +1703,12 @@ impl Assembler {
         if offset + bytes.len() > limit {
             return Err("section exceeds memory region".into());
         }
+        let line_section = self.load.as_ref().map_or(section, |(load, _, _)| *load);
+        let line_offset = self.object.sections[line_section].data.len();
         self.object.sections[section].data.extend_from_slice(bytes);
-        self.object.sections[section].lines.push(Line {
+        self.object.sections[line_section].lines.push(Line {
             expansion: self.expansion.clone(),
-            offset,
+            offset: line_offset,
             count: bytes.len(),
             file: line.file.clone(),
             line: line.line,

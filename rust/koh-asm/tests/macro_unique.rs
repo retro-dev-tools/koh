@@ -178,3 +178,61 @@ fn constant_instruction_line_maps_keep_nested_macro_calls_through_elf() {
     assert_eq!(linked.lines[0].expansion.len(), 2);
     assert!(linked.lines[1].expansion.is_empty());
 }
+
+#[test]
+fn load_debug_lines_use_execution_addresses_and_keep_macro_expansions() {
+    let source = "MACRO inner\n nop\n jr @\nENDM\nMACRO outer\n inner\nENDM\nSECTION \"storage\",ROM0[$100]\nLOAD \"Fast\",HRAM[$ff80]\nouter\nENDL\nnop\n";
+    let model = assemble(source, "load-debug.asm", false).unwrap();
+    assert_eq!(model.sections[0].data, [0, 0x18, 0xfe, 0]);
+    assert_eq!(model.sections[0].lines.len(), 1);
+    assert_eq!(model.sections[0].lines[0].offset, 3);
+    assert_eq!(
+        model.sections[1]
+            .lines
+            .iter()
+            .map(|line| line.offset)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    let restored = koh_asm::object::read_elf(&koh_asm::object::write_elf(&model).unwrap()).unwrap();
+    let linked = koh_link::link(&[restored], &Default::default()).unwrap();
+    assert_eq!(
+        linked
+            .lines
+            .iter()
+            .map(|line| line.address)
+            .collect::<Vec<_>>(),
+        [0x103, 0xff80, 0xff81]
+    );
+    assert!(linked.lines[0].expansion.is_empty());
+    for line in &linked.lines[1..] {
+        assert_eq!(
+            line.expansion
+                .iter()
+                .map(|frame| frame.line)
+                .collect::<Vec<_>>(),
+            [10, 6]
+        );
+    }
+    assert_eq!(linked.lines[2].count, 2);
+    let debug = linked.kdbg().unwrap();
+    let u32_at =
+        |offset| u32::from_le_bytes(debug[offset..offset + 4].try_into().unwrap()) as usize;
+    let map = u32_at(24);
+    assert_eq!(u32_at(map), 3);
+    let addresses: Vec<_> = (0..3)
+        .map(|index| {
+            let offset = map + 4 + index * 16;
+            u16::from_le_bytes(debug[offset + 2..offset + 4].try_into().unwrap())
+        })
+        .collect();
+    assert_eq!(addresses, [0x103, 0xff80, 0xff81]);
+    assert_eq!(u32_at(map + 4 + 12), u32::MAX as usize);
+    for index in 1..3 {
+        let expansion = u32_at(map + 4 + index * 16 + 12);
+        assert_eq!(
+            u16::from_le_bytes(debug[expansion..expansion + 2].try_into().unwrap()),
+            2
+        );
+    }
+}
