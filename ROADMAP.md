@@ -10,11 +10,14 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## Current condition
 
-- Rust assembler PR #01 is merged. Rust linker/ELF migration is in draft [PR #54](https://github.com/retro-dev-tools/koh/pull/54).
+- Rust assembler PR #01 and Rust linker/ELF [PR #54](https://github.com/retro-dev-tools/koh/pull/54) are merged.
   `koh-objects` owns the canonical ELF32/SM83 model; the native assembler and linker share it.
-  The draft removes the C# linker and retired object formats, retains C# game development,
-  and is still completing integration and validation. See the [test audit](docs/rust-linker/test-disposition.md)
-  and [ABI](docs/rust-linker/elf32-sm83.md). Hosted/platform evidence remains pending.
+  The linker migration removes the C# linker and retired object formats and retains C# game development.
+  See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
+  and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
+- Rust CIL compiler PR #03 is in its initial audit stage. The C# compiler remains active.
+  Track the [commit sequence and acceptance ledger](docs/rust-compiler/progress.md);
+  a native compiler replacement has not yet been implemented or validated.
 
 - Shared diagnostics, opcodes, and object formats are separated from assembler, linker, compiler, emulator, and UI projects. Recent architecture commits deliberately removed compiler dependencies on assembler implementation details. Retain those boundaries; there is no demonstrated need for another restructure.
 - Tests cover individual components and compile and emulate sample games. CI builds on Linux and Windows, runs extension tests, publishes the emulator with NativeAOT on three host platforms, and builds the assembly 2048 ROM. These workflow definitions describe intended checks, not evidence that current CI passes.
