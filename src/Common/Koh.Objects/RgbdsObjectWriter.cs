@@ -157,6 +157,19 @@ public sealed class RgbdsObjectWriter
                     }
                     break;
 
+                case PatchExpressionOp.BankSymbol:
+                    if (_symbolIndex.TryGetValue(token.Name!, out var bankIdx))
+                    {
+                        rpn.Add(RgbdsObjectFormat.RpnBankSym);
+                        WriteRpnInt32(rpn, bankIdx);
+                    }
+                    else
+                    {
+                        rpn.Add(RgbdsObjectFormat.RpnLiteral);
+                        WriteRpnInt32(rpn, 0);
+                    }
+                    break;
+
                 default:
                     rpn.Add(MapOperator(token.Op));
                     break;
@@ -188,6 +201,8 @@ public sealed class RgbdsObjectWriter
             PatchExpressionOp.Neg => RgbdsObjectFormat.RpnNeg,
             PatchExpressionOp.Not => RgbdsObjectFormat.RpnNot,
             PatchExpressionOp.LogNot => RgbdsObjectFormat.RpnLogNot,
+            PatchExpressionOp.High => RgbdsObjectFormat.RpnHigh,
+            PatchExpressionOp.Low => RgbdsObjectFormat.RpnLow,
             PatchExpressionOp.UnknownUnary => RgbdsObjectFormat.RpnNeg,
             _ => RgbdsObjectFormat.RpnAdd,
         };

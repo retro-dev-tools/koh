@@ -33,6 +33,9 @@ public enum PatchExpressionOp : byte
 
     /// <summary>A unary operator the flattening does not recognise.</summary>
     UnknownUnary,
+    High,
+    Low,
+    BankSymbol,
 }
 
 /// <summary>One postfix token: a literal <see cref="Value"/>, a symbol <see cref="Name"/>, or an operator.</summary>

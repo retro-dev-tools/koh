@@ -40,6 +40,7 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 
 ## Completed milestones
 
+- RGBDS HIGH/LOW/BANK regression closure (2026-11-14): reviewed and completed the inherited expression changes. Unresolved HIGH/LOW now retain their operators; BANK(symbol) emits a bank lookup. Existing enum values remain stable. The expanded regression fails on baseline `71490f0` (36 passed, 1 failed) and passes with the fix (37/37). RGBDS 1.0.1 links Koh and rgbasm objects into byte-identical ROMs; the fixture yields `60 ff 02 61 3e ff 61 03` at `$100`. Reproduction commands and scope are in `tests/fixtures/rgbds-functions.md`. The default fast suite passes 1,673/1,673; the Release assembler build has zero warnings/errors. The pre-existing battle screenshot remains untouched. Full compiler suite and other BANK argument forms were not qualified in this increment.
 - `c965bf9`: documented both game-development entry points and contributor checks.
 - `c755769`, dependency repair: restore and CI release build pass with auditing enabled (0 warnings/errors); the fast suite passes 1,673/1,673. The transitive vulnerability report covers 41 projects with no reported vulnerable packages or audit problems. The assembly 2048 sample builds; its headless capture shows the title screen, and independent PNG checks validate dimensions, compression, and every chunk CRC. Rejected JPEG output preserves an existing file. The CI build also emits all seven C# sample ROMs.
 - `2451c6c`, screenshot isolation: the new guard fails against the old writer in an isolated worktree and passes after redirecting captures. All four source screenshot SHA-256 hashes are preserved, including the pre-existing modified battle image. All four generated 480x432 captures have valid PNG chunk CRCs. The full CI suite passes 2,485/2,485 with one test/module at a time (5m44s). The compiler test process still consumes several GB; serialization reduces concurrency but does not establish a low-memory workflow.
@@ -51,11 +52,12 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 
 | Order | Outcome | Effort / risk | Acceptance criteria |
 | --- | --- | --- | --- |
-| 1 | Close RGBDS expression regressions | Small / medium | Review the existing uncommitted HIGH/LOW/BANK work separately; compare focused object/link results with a versioned RGBDS oracle, then run the affected suites. |
-| 2 | Establish release readiness | Medium / ownership review required | Confirm license text and asset provenance with the rights holder; inventory shipped dependencies; smoke-test draft archives and the extension's install/update path on supported hosts. |
-| 3 | Prove the newcomer journey | Medium / low | From a fresh checkout, build both documented games, launch a ROM, set a breakpoint, and inspect state; record platform prerequisites and compatibility limits. |
-| 4 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
-| 5 | Bound compiler-test memory | Medium / medium | Measure retained fixture/compiler state and establish a bounded-memory full-suite invocation before changing parallelism defaults. |
+| 1 | Establish release readiness | Medium / ownership review required | Confirm license text and asset provenance with the rights holder; inventory shipped dependencies; smoke-test draft archives and the extension's install/update path on supported hosts. |
+| 2 | Prove the newcomer journey | Medium / low | From a fresh checkout, build both documented games, launch a ROM, set a breakpoint, and inspect state; record platform prerequisites and compatibility limits. |
+| 3 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
+| 4 | Bound compiler-test memory | Medium / medium | Measure retained fixture/compiler state and establish a bounded-memory full-suite invocation before changing parallelism defaults. |
+
+Next autonomous increment: verify the newcomer journey while release ownership and attribution questions await the rights holder. Treat the RGBDS fixture's BANK(symbol) coverage as bounded evidence, not full RGBDS compatibility.
 
 ## Boundaries
 
