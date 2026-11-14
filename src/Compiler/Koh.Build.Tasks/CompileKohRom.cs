@@ -54,6 +54,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
     /// gets the file the DAP debugger (<c>Koh.Debugger.Session.DebugInfoLoader</c>) already knows how to load.
     /// </summary>
     public bool EmitDebugInfo { get; set; } = true;
+    public string? LinkerPath { get; set; }
 
     public override bool Execute()
     {
@@ -100,9 +101,9 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         if (hadError)
             return false;
 
-        var link = new LinkerType().Link(
+        var link = new LinkerType(LinkerPath).Link(
             [new LinkerInput(ProgramName, model)],
-            new LinkOptions(CgbCompatible, CgbOnly)
+            new LinkOptions(CgbCompatible, CgbOnly, EmitDebugInfo: EmitDebugInfo)
         );
 
         var rom = link.RomData;

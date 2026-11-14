@@ -9,7 +9,8 @@ public sealed record LinkOptions(
     bool CgbCompatible = false,
     bool CgbOnly = false,
     bool PadToPowerOfTwo = true,
-    int MinSize = 0x8000
+    int MinSize = 0x8000,
+    bool EmitDebugInfo = true
 );
 
 public sealed record LinkerInput(string FilePath, EmitModel Model);
@@ -22,7 +23,7 @@ public sealed record NativeLinkedSymbol(
 );
 
 public sealed record NativeLinkedLine(
-    byte Bank,
+    int Bank,
     ushort Address,
     int ByteCount,
     string File,
@@ -40,7 +41,7 @@ public sealed class LinkResult
     public bool Success => RomData is not null && Diagnostics.Count == 0;
 }
 
-public sealed class NativeLinker
+public sealed class NativeLinker(string? executable = null)
 {
     public LinkResult Link(IReadOnlyList<LinkerInput> inputs, LinkOptions? options = null)
     {
@@ -69,12 +70,12 @@ public sealed class NativeLinker
                 output,
                 "-n",
                 sym,
-                "-d",
-                kdbg,
                 "--report-json",
                 report,
                 $"--size={options.MinSize:x}",
             ]);
+            if (options.EmitDebugInfo)
+                arguments.AddRange(["-d", kdbg]);
             if (!options.PadToPowerOfTwo)
                 arguments.Add("--raw");
             if (options.CgbOnly)
@@ -82,7 +83,7 @@ public sealed class NativeLinker
             else if (options.CgbCompatible)
                 arguments.Add("--cgb-compatible");
             Run(arguments);
-            var debugData = File.ReadAllBytes(kdbg);
+            var debugData = options.EmitDebugInfo ? File.ReadAllBytes(kdbg) : [];
             var symbolText = File.ReadAllText(sym);
             using var metadata = JsonDocument.Parse(File.ReadAllText(report));
             var symbols = metadata
@@ -109,7 +110,7 @@ public sealed class NativeLinker
                     .RootElement.GetProperty("lines")
                     .EnumerateArray()
                     .Select(line => new NativeLinkedLine(
-                        line.GetProperty("bank").GetByte(),
+                        line.GetProperty("bank").GetInt32(),
                         line.GetProperty("address").GetUInt16(),
                         line.GetProperty("count").GetInt32(),
                         line.GetProperty("file").GetString()!,
@@ -145,12 +146,12 @@ public sealed class NativeLinker
         }
     }
 
-    private static void Run(IEnumerable<string> arguments, string? input = null) =>
+    private void Run(IEnumerable<string> arguments, string? input = null) =>
         RunAsync(arguments, input).GetAwaiter().GetResult();
 
-    private static async Task RunAsync(IEnumerable<string> arguments, string? input)
+    private async Task RunAsync(IEnumerable<string> arguments, string? input)
     {
-        var start = new ProcessStartInfo(FindExecutable())
+        var start = new ProcessStartInfo(executable ?? FindExecutable())
         {
             UseShellExecute = false,
             RedirectStandardInput = true,

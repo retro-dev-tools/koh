@@ -8,6 +8,24 @@ namespace Koh.Objects.Tests;
 
 public class ElfIntegrationTests
 {
+    [Test]
+    public async Task DebugOptOutAllowsConstantsOutsideKdbgRange()
+    {
+        var model = Assemble("DEF Value EQU -1\nSECTION \"Code\", ROM0\ndb LOW(Value)\n");
+        var result = new NativeLinker().Link(
+            [new LinkerInput("constant.o", model)],
+            new LinkOptions(EmitDebugInfo: false)
+        );
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.RomData![0]).IsEqualTo((byte)255);
+        await Assert.That(result.DebugData.Length).IsEqualTo(0);
+        var debug = new NativeLinker().Link([new LinkerInput("constant.o", model)]);
+        await Assert.That(debug.Success).IsFalse();
+        await Assert
+            .That(debug.Diagnostics.Any(diagnostic => diagnostic.Message.Contains("KDBG")))
+            .IsTrue();
+    }
+
     private static EmitModel Assemble(
         string source,
         string path = "object.asm",
