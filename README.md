@@ -93,7 +93,7 @@ For assembly:
 dotnet msbuild build.proj -t:BuildSample2048
 ```
 
-The ROM is written to `samples/asm/gb-2048/build/2048.gbc`.
+The ROM is written to `samples/asm/gb-2048/build/2048.gbc`, with source debug information in `2048.kdbg`. See the [build and debug walkthrough](docs/build-and-debug.md) for emulator commands and a VS Code launch configuration.
 
 For C#:
 

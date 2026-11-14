@@ -4,6 +4,7 @@ using Koh.Assembler.Syntax;
 using Koh.Common;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
+using Koh.Emulator;
 using Koh.Linker;
 
 namespace Koh.Debugger.Tests;
@@ -76,27 +77,31 @@ public class DapGeneratedRomIntegrationTests
             Encode(
                 2,
                 "setBreakpoints",
-                new { source = new { path = sourcePath }, breakpoints = new[] { new { line = 3 } } }
+                new { source = new { path = sourcePath }, breakpoints = new[] { new { line = 4 } } }
             )
         );
         using (var bpDoc = JsonDocument.Parse(responses[^1]))
         {
             var bp = bpDoc.RootElement.GetProperty("body").GetProperty("breakpoints")[0];
             await Assert.That(bp.GetProperty("verified").GetBoolean()).IsTrue();
-            await Assert.That(bp.GetProperty("line").GetInt32()).IsEqualTo(3);
+            await Assert.That(bp.GetProperty("line").GetInt32()).IsEqualTo(4);
         }
 
-        dispatcher.HandleRequest(Encode(3, "stackTrace", new { threadId = 1 }));
+        dispatcher.HandleRequest(Encode(3, "continue", new { threadId = 1 }));
+        var stopped = session.System!.RunFrame();
+        await Assert.That(stopped.Reason).IsEqualTo(StopReason.Breakpoint);
+
+        dispatcher.HandleRequest(Encode(4, "stackTrace", new { threadId = 1 }));
         using (var stackDoc = JsonDocument.Parse(responses[^1]))
         {
             var frame = stackDoc.RootElement.GetProperty("body").GetProperty("stackFrames")[0];
-            await Assert.That(frame.GetProperty("line").GetInt32()).IsEqualTo(3);
+            await Assert.That(frame.GetProperty("line").GetInt32()).IsEqualTo(4);
             await Assert
                 .That(frame.GetProperty("source").GetProperty("path").GetString())
                 .IsEqualTo(sourcePath);
         }
 
-        dispatcher.HandleRequest(Encode(4, "scopes", new { frameId = 0 }));
+        dispatcher.HandleRequest(Encode(5, "scopes", new { frameId = 0 }));
         using (var scopesDoc = JsonDocument.Parse(responses[^1]))
         {
             var scopes = scopesDoc.RootElement.GetProperty("body").GetProperty("scopes");
@@ -107,25 +112,27 @@ public class DapGeneratedRomIntegrationTests
                 .IsEqualTo("Source Context");
         }
 
-        dispatcher.HandleRequest(Encode(5, "variables", new { variablesReference = 1 }));
+        dispatcher.HandleRequest(Encode(6, "variables", new { variablesReference = 1 }));
         using (var registersDoc = JsonDocument.Parse(responses[^1]))
         {
             var registers = registersDoc.RootElement.GetProperty("body").GetProperty("variables");
             var pc = registers
                 .EnumerateArray()
                 .First(v => v.GetProperty("name").GetString() == "PC");
-            await Assert.That(pc.GetProperty("value").GetString()).IsEqualTo("$0100");
+            await Assert.That(pc.GetProperty("value").GetString()).IsEqualTo("$0102");
+            var a = registers.EnumerateArray().First(v => v.GetProperty("name").GetString() == "A");
+            await Assert.That(a.GetProperty("value").GetString()).IsEqualTo("$42");
         }
 
-        dispatcher.HandleRequest(Encode(6, "variables", new { variablesReference = 4 }));
+        dispatcher.HandleRequest(Encode(7, "variables", new { variablesReference = 4 }));
         using (var sourceDoc = JsonDocument.Parse(responses[^1]))
         {
             var vars = sourceDoc.RootElement.GetProperty("body").GetProperty("variables");
             var pc = vars.EnumerateArray().First(v => v.GetProperty("name").GetString() == "PC");
-            await Assert.That(pc.GetProperty("value").GetString()).IsEqualTo("$00:$0100");
+            await Assert.That(pc.GetProperty("value").GetString()).IsEqualTo("$00:$0102");
         }
 
-        dispatcher.HandleRequest(Encode(7, "variables", new { variablesReference = 3 }));
+        dispatcher.HandleRequest(Encode(8, "variables", new { variablesReference = 3 }));
         using (var symbolsDoc = JsonDocument.Parse(responses[^1]))
         {
             var vars = symbolsDoc.RootElement.GetProperty("body").GetProperty("variables");
