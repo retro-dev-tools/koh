@@ -386,7 +386,7 @@ public sealed partial class Sm83Backend : IBackend
             else if (g.FixedAddress is null)
             {
                 globalSection = $"GLOBAL_{g.Name}";
-                sections.Add(GlobalSection(globalSection, addr, SizeOf(g.Type)));
+                AddGlobalSections(sections, globalSection, addr, SizeOf(g.Type));
                 offset = 0;
             }
             symbols.Add(
@@ -672,7 +672,7 @@ public sealed partial class Sm83Backend : IBackend
             else if (g.FixedAddress is null)
             {
                 globalSection = $"GLOBAL_{g.Name}";
-                sections.Add(GlobalSection(globalSection, addr, SizeOf(g.Type)));
+                AddGlobalSections(sections, globalSection, addr, SizeOf(g.Type));
                 offset = 0;
             }
             symbols.Add(
@@ -688,8 +688,28 @@ public sealed partial class Sm83Backend : IBackend
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
     }
 
-    private static SectionData GlobalSection(string name, int address, int size)
+    private static void AddGlobalSections(
+        List<SectionData> sections,
+        string name,
+        int address,
+        int size
+    )
     {
+        if (address is >= 0xc000 and < 0xd000 && size > 0xd000 - address)
+        {
+            int firstSize = 0xd000 - address;
+            sections.Add(new SectionData(name, SectionType.Wram0, address, 0, new byte[firstSize]));
+            sections.Add(
+                new SectionData(
+                    name + ".wramx",
+                    SectionType.WramX,
+                    0xd000,
+                    1,
+                    new byte[size - firstSize]
+                )
+            );
+            return;
+        }
         var (kind, bank) = address switch
         {
             >= 0x8000 and < 0xa000 => (SectionType.Vram, 0),
@@ -702,7 +722,7 @@ public sealed partial class Sm83Backend : IBackend
                 $"Global '{name}' has unsupported RAM address ${address:X4}"
             ),
         };
-        return new SectionData(name, kind, address, bank, new byte[size]);
+        sections.Add(new SectionData(name, kind, address, bank, new byte[size]));
     }
 
     // A composite routine that requires another routine be present even if it never CALLs it directly
