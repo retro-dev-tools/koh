@@ -99,9 +99,8 @@ public class RgbdsExpressionTests
             );
     }
 
-    // Current output: HIGH/LOW/BANK are dropped (known bug, tracked separately).
     [Test]
-    public async Task FunctionCalls_CurrentOutput()
+    public async Task FunctionCalls()
     {
         var patches = WriteAndDecode(
             """
@@ -109,11 +108,25 @@ public class RgbdsExpressionTests
             db HIGH(ext)
             db LOW(ext)
             db BANK(ext)
+            db HIGH(ext + 1)
+            ld a, LOW(ext)
+            db LOW(HIGH(ext + $100))
+            db BANK(ext) + 1
             """
         );
         await Assert
             .That(patches)
-            .IsEqualTo(Lines("0:0:0:sym:ext", "1:0:1:sym:ext", "2:0:2:sym:ext"));
+            .IsEqualTo(
+                Lines(
+                    "0:0:0:sym:ext high",
+                    "1:0:1:sym:ext low",
+                    "2:0:2:banksym:ext",
+                    "3:0:3:sym:ext lit:1 add high",
+                    "5:0:4:sym:ext low",
+                    "6:0:6:sym:ext lit:256 add high low",
+                    "7:0:7:banksym:ext lit:1 add"
+                )
+            );
     }
 
     // A bare-symbol operand reaches the patch as a raw identifier token, not a NameExpression.
@@ -233,6 +246,8 @@ public class RgbdsExpressionTests
                         uint id = rpn.ReadUInt32();
                         tokens.Add(id == uint.MaxValue ? "sym:$" : $"sym:{symbols[(int)id]}");
                     }
+                    else if (op == RgbdsObjectFormat.RpnBankSym)
+                        tokens.Add($"banksym:{symbols[rpn.ReadInt32()]}");
                     else
                         tokens.Add(RpnNames[op]);
                 }

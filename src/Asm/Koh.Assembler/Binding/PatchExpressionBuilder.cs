@@ -58,6 +58,28 @@ internal static class PatchExpressionBuilder
                 }
                 break;
 
+            case SyntaxKind.FunctionCallExpression
+                when greenNode.GetChild(0)
+                    is GreenToken { Kind: SyntaxKind.HighKeyword or SyntaxKind.LowKeyword } fn
+                    && greenNode.GetChild(2) is { } arg:
+                Flatten(arg, tokens);
+                tokens.Add(
+                    new(
+                        fn.Kind == SyntaxKind.HighKeyword
+                            ? PatchExpressionOp.High
+                            : PatchExpressionOp.Low
+                    )
+                );
+                break;
+
+            case SyntaxKind.FunctionCallExpression
+                when greenNode.GetChild(0) is GreenToken { Kind: SyntaxKind.BankKeyword }
+                    && greenNode.GetChild(2)
+                        is GreenNode { Kind: SyntaxKind.NameExpression } bankArg
+                    && bankArg.GetChild(0) is GreenToken bankName:
+                tokens.Add(new(PatchExpressionOp.BankSymbol, Name: bankName.Text));
+                break;
+
             case SyntaxKind.NameExpression:
                 if (greenNode.GetChild(0) is GreenToken name)
                     tokens.Add(new(PatchExpressionOp.Symbol, Name: name.Text));
