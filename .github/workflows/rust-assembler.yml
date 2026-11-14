@@ -33,8 +33,22 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
       - name: Publish native-backed language server
         run: dotnet publish src/Asm/Koh.Lsp -c Release --no-self-contained -o artifacts/language-server -m:1
+      - name: Verify native SDK integration
+        run: python scripts/verify-rust-sdk.py --output "${{ runner.temp }}/koh-sdk-verification"
+      - name: Upload SDK verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: koh-sdk-verification-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/koh-sdk-verification/*.log
+            ${{ runner.temp }}/koh-sdk-verification/commands.json
+          if-no-files-found: ignore
       - name: Upload language server
         uses: actions/upload-artifact@v4
         with:
@@ -78,7 +92,7 @@ jobs:
         env:
           KOH_RGBDS_TEST: '1'
         run: cargo +stable test --workspace --locked
-      - name: Compare C# and native artifacts
+      - name: Compare ELF and independent RGBDS pipelines
         run: python3 scripts/verify-rust-assembler.py --output "$RUNNER_TEMP/rust-assembler-verification"
       - name: Upload verification artifacts
         if: always()
