@@ -349,3 +349,16 @@ fn floating_alignment_constrains_base_without_unnecessary_padding() {
     assert_eq!(fit.data, [0x11, 0x22]);
     assert_eq!(f.linked("native-link", &[native]), expected);
 }
+
+#[test]
+fn jr_pc_wrap_matches_rgbds_at_top_of_address_space() {
+    let Some(f) = Fixture::new("jr-wrap") else {
+        return;
+    };
+    let source = "SECTION \"storage\",ROM0\nLOAD \"runtime\",HRAM[$fffd]\njr $0000\nENDL\n";
+    let (native, _) = f.object("native", source, true);
+    let (reference, _) = f.object("reference", source, false);
+    let actual = f.linked("native-link", &[native]);
+    assert_eq!(&actual[..2], &[0x18, 1]);
+    assert_eq!(actual, f.linked("reference-link", &[reference]));
+}

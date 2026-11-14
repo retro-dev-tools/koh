@@ -339,6 +339,91 @@ fn patches_reject_out_of_range_and_accept_boundaries() {
     assert_eq!(patch_value(0xff80, &p, 0).unwrap(), 128);
     assert!(patch_value(0xfeff, &p, 0).is_err());
 }
+
+#[test]
+fn pc_relative_wraps_cpu_address_before_range_check() {
+    let p = patch(
+        RelocationExpr::Literal(0),
+        PatchWidth::Byte,
+        PatchSemantics::PcRelative { bias: 2 },
+    );
+    assert_eq!(patch_value(0, &p, 0xfffd).unwrap(), 1);
+    assert_eq!(patch_value(0xffff, &p, 0).unwrap(), -3);
+    assert_eq!(patch_value(-1, &p, 0).unwrap(), -3);
+    assert_eq!(patch_value(0x7e, &p, 0xfffd).unwrap(), 127);
+    assert!(patch_value(0x7f, &p, 0xfffd).is_err());
+    assert_eq!(patch_value(0xff82, &p, 0).unwrap(), -128);
+    assert!(patch_value(0xff81, &p, 0).is_err());
+    assert!(
+        patch_value(65536, &p, 0xfffd)
+            .unwrap_err()
+            .contains("16-bit")
+    );
+    assert!(patch_value(-32769, &p, 0).unwrap_err().contains("16-bit"));
+}
+
+#[test]
+fn load_jr_wrap_matches_rgbds_101() {
+    let mut storage = section("A", 0, 2);
+    storage.data = vec![0x18, 0];
+    let mut relocation = patch(
+        RelocationExpr::Literal(0),
+        PatchWidth::Byte,
+        PatchSemantics::PcRelative { bias: 2 },
+    );
+    relocation.offset = 1;
+    relocation.pc.section = SectionId(1);
+    storage.patches.push(relocation);
+    let mut execution = section("X", 7, 2);
+    execution.address = Some(0xfffd);
+    let result = link(
+        &[Object {
+            sections: vec![storage, execution],
+            symbols: vec![],
+        }],
+        &raw(2),
+    )
+    .unwrap();
+    assert_eq!(result.rom, vec![0x18, 1]);
+    if std::env::var("KOH_RGBDS_TEST").as_deref() != Ok("1") {
+        return;
+    }
+    let directory = std::env::temp_dir().join(format!("koh-link-jr-oracle-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let asm = directory.join("wrap.asm");
+    let object = directory.join("wrap.o");
+    let rom = directory.join("wrap.bin");
+    std::fs::write(
+        &asm,
+        "SECTION \"A\",ROM0\nLOAD \"X\",HRAM[$fffd]\njr $0000\nENDL\n",
+    )
+    .unwrap();
+    let output = std::process::Command::new("rgbasm")
+        .arg("-o")
+        .arg(&object)
+        .arg(&asm)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = std::process::Command::new("rgblink")
+        .arg("-x")
+        .arg("-o")
+        .arg(&rom)
+        .arg(&object)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(result.rom, std::fs::read(rom).unwrap());
+    std::fs::remove_dir_all(directory).unwrap();
+}
 #[test]
 fn kdbg_chunks_lines_and_preserves_expansion_offsets() {
     let mut r = link(&[], &raw(1)).unwrap();

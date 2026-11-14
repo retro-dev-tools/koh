@@ -169,3 +169,32 @@ fn unsupported_relocation_functions_and_constant_faults_are_diagnostics() {
         );
     }
 }
+
+#[test]
+fn jr_wraps_cpu_pc_at_end_of_address_space() {
+    for (address, target, expected) in [
+        (0xfffd, "$0000", 1),
+        (0xfffc, "-1", 1),
+        (0xfffd, "$ff80", 0x81),
+    ] {
+        let source =
+            format!("SECTION \"rom\",ROM0\nLOAD \"run\",HRAM[${address:04x}]\njr {target}\nENDL\n");
+        let object = assemble(&source, "wrap.asm", false).unwrap();
+        assert_eq!(object.sections[0].data, [0x18, expected]);
+        assert!(object.sections[0].patches.is_empty());
+    }
+    for target in ["$10000", "-32769"] {
+        let source = format!("SECTION \"rom\",ROM0\nLOAD \"run\",HRAM[$fffd]\njr {target}\nENDL\n");
+        assert!(assemble(&source, "invalid-target.asm", false).is_err());
+    }
+}
+
+#[test]
+fn floating_jr_wrap_defers_until_target_is_placed() {
+    let source = "SECTION \"rom\",ROM0\nLOAD \"run\",HRAM\nStart:\njr Start-$fffd\nENDL\n";
+    let object = assemble(source, "floating-wrap.asm", false).unwrap();
+    assert_eq!(object.sections[0].patches.len(), 1);
+    let decoded = read_elf(&write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(&[decoded], &Default::default()).unwrap();
+    assert_eq!(&linked.rom[..2], &[0x18, 1]);
+}

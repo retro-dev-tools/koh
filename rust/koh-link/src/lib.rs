@@ -335,7 +335,16 @@ pub fn link(objects: &[Object], options: &LinkOptions) -> Result<LinkResult, Str
 fn patch_value(value: i32, p: &Patch, pc: u32) -> Result<i32, String> {
     let bits = p.width.bytes() * 8;
     let value = match p.semantics {
-        PatchSemantics::PcRelative { bias } => i64::from(value) - i64::from(pc) - i64::from(bias),
+        PatchSemantics::PcRelative { bias } => {
+            if !(-32768..=65535).contains(&value) {
+                return Err(format!("JR target {value} outside 16-bit address range"));
+            }
+            i64::from(
+                (value as u16)
+                    .wrapping_sub(pc as u16)
+                    .wrapping_sub(bias as u16) as i16,
+            )
+        }
         PatchSemantics::HighMemory => {
             if !(0..=255).contains(&value) && !(0xff00..=0xffff).contains(&value) {
                 return Err("High-memory address outside $FF00-$FFFF".into());

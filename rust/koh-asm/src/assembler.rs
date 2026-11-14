@@ -1860,12 +1860,18 @@ impl Assembler {
     }
 
     fn patch_value(&self, p: &Patch) -> Option<i32> {
-        if p.kind == 3 {
+        let base = self.object.sections[p.pc_section].address;
+        if p.kind == 3 && base.is_none() {
             if let Some(value) = self.relative_value(&p.expression, p.pc_section, p.pc_offset) {
-                return Some(value - p.pc_after);
+                let displacement = value.wrapping_sub(p.pc_after);
+                if !(-128..=127).contains(&displacement)
+                    && (-128..=127).contains(&(displacement as i16 as i32))
+                {
+                    return None;
+                }
+                return Some(displacement);
             }
         }
-        let base = self.object.sections[p.pc_section].address;
         if base.is_none() && (has_pc(&p.expression) || p.kind == 3) {
             return None;
         }
@@ -1877,7 +1883,10 @@ impl Assembler {
         .ok()
         .or_else(|| self.invariant(&p.expression))?;
         Some(if p.kind == 3 {
-            value - base.unwrap_or(0) - p.pc_after
+            if !(-32768..=65535).contains(&value) {
+                return Some(i32::MAX);
+            }
+            (value as u16).wrapping_sub((base.unwrap_or(0) + p.pc_after) as u16) as i16 as i32
         } else {
             value
         })
