@@ -211,6 +211,18 @@ impl<'a> Resolver<'a> {
         self.initializer(assembly, 1)
     }
 
+    pub fn field_initializer(&self, field: Definition) -> Result<Option<Definition>, String> {
+        let metadata = self.assembly(field.assembly)?.metadata();
+        row(&metadata.fields, field.token, 4)?;
+        let owner = metadata
+            .type_defs
+            .partition_point(|ty| ty.field_list <= field.token & 0xffffff);
+        if owner == 0 {
+            return Err("Field has no declaring type".into());
+        }
+        self.initializer(field.assembly, owner as u32)
+    }
+
     fn initializer(&self, assembly: usize, owner: u32) -> Result<Option<Definition>, String> {
         let methods = self
             .index(assembly)?

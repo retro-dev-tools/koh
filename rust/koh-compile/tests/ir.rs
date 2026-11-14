@@ -77,6 +77,108 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+fn static_address(token: u32, bytes: u8, ty: Type) -> Function {
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = Some(ty);
+    f.blocks.truncate(1);
+    f.blocks[0].parameters.clear();
+    f.blocks[0].instructions = vec![instruction(
+        0,
+        ty,
+        Op::StaticAddress {
+            field: Definition { assembly: 0, token },
+            bytes,
+        },
+    )];
+    f.blocks[0].terminator.kind = Control::Return(Some(0));
+    f
+}
+
+#[rstest]
+#[case(0x04000001, 1, Type::Native, true)]
+#[case(0x04000001, 2, Type::Native, true)]
+#[case(0x04000001, 4, Type::Native, true)]
+#[case(0x04000001, 8, Type::Native, true)]
+#[case(0x04000001, 0, Type::Native, false)]
+#[case(0x04000001, 3, Type::Native, false)]
+#[case(0x04000000, 1, Type::Native, false)]
+#[case(0x06000001, 1, Type::Native, false)]
+#[case(0x04000001, 1, Type::I32, false)]
+#[case(0x04000001, 1, Type::ByRef(Scalar::U8), true)]
+#[case(0x04000001, 1, Type::ByRef(Scalar::I32), false)]
+fn static_addresses_require_valid_identity_width_and_result(
+    #[case] token: u32,
+    #[case] bytes: u8,
+    #[case] ty: Type,
+    #[case] valid: bool,
+) {
+    assert_eq!(verify(&static_address(token, bytes, ty)).is_ok(), valid);
+}
+
+#[test]
+fn static_field_widths_must_agree_across_functions() {
+    let first = static_address(0x04000001, 1, Type::Native);
+    let mut second = static_address(0x04000001, 2, Type::Native);
+    second.identity.token += 1;
+    verify(&first).unwrap();
+    verify(&second).unwrap();
+    assert!(
+        verify_program(&[first.clone(), second])
+            .unwrap_err()
+            .contains("Conflicting static field widths")
+    );
+    let mut second = first.clone();
+    second.identity.token += 1;
+    verify_program(&[first, second]).unwrap();
+}
+
+#[rstest]
+#[case(Scalar::U8, true)]
+#[case(Scalar::I8, false)]
+#[case(Scalar::I32, false)]
+#[case(Scalar::U32, false)]
+fn managed_reference_calls_preserve_the_storage_type(
+    #[case] parameter: Scalar,
+    #[case] valid: bool,
+) {
+    let mut caller = static_address(0x04000001, 1, Type::ByRef(Scalar::U8));
+    caller.returns = None;
+    caller.blocks[0].terminator.kind = Control::Return(None);
+    let identity = Definition {
+        assembly: 0,
+        token: 0x06000002,
+    };
+    caller.blocks[0].instructions.push(Instruction {
+        result: None,
+        op: Op::Call {
+            target: identity,
+            signature: Signature {
+                parameters: vec![Type::ByRef(parameter)],
+                returns: None,
+            },
+            arguments: vec![0],
+        },
+        il_offset: 1,
+    });
+    let callee = Function {
+        identity,
+        parameters: vec![Type::ByRef(parameter)],
+        returns: None,
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::ByRef(parameter))],
+            instructions: vec![],
+            terminator: Terminator {
+                kind: Control::Return(None),
+                il_offset: 0,
+            },
+        }],
+    };
+    assert_eq!(verify_program(&[caller, callee]).is_ok(), valid);
+}
+
 #[rstest]
 #[case(Type::Native, Type::I32, 8, true)]
 #[case(Type::Native, Type::I32, 16, true)]
@@ -88,6 +190,11 @@ fn typed_join_is_valid() {
 #[case(Type::Native, Type::I32, 64, false)]
 #[case(Type::Native, Type::I64, 32, false)]
 #[case(Type::Native, Type::Native, 8, false)]
+#[case(Type::ByRef(Scalar::U8), Type::I32, 8, true)]
+#[case(Type::ByRef(Scalar::I8), Type::I32, 8, true)]
+#[case(Type::ByRef(Scalar::I32), Type::I32, 32, true)]
+#[case(Type::ByRef(Scalar::I32), Type::I32, 8, false)]
+#[case(Type::ByRef(Scalar::U8), Type::I32, 32, false)]
 fn memory_widths_are_verified(
     #[case] address: Type,
     #[case] value: Type,

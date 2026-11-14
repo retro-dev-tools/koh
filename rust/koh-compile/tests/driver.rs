@@ -123,6 +123,16 @@ fn native_driver_emits_one_linkable_deterministic_elf(
 }
 
 fn execute(host: &Host, directory: &Path, linked: &koh_link::LinkResult, stop: &str) -> String {
+    execute_mode(host, directory, linked, stop, "--native")
+}
+
+fn execute_mode(
+    host: &Host,
+    directory: &Path,
+    linked: &koh_link::LinkResult,
+    stop: &str,
+    mode: &str,
+) -> String {
     let path = directory.join("native game.gb");
     std::fs::write(&path, &linked.rom).unwrap();
     let exit = linked
@@ -133,7 +143,7 @@ fn execute(host: &Host, directory: &Path, linked: &koh_link::LinkResult, stop: &
         .value;
     let output = dotnet()
         .arg(&host.dll)
-        .args(["--native", &format!("{exit:x}")])
+        .args([mode, &format!("{exit:x}")])
         .arg(path)
         .output()
         .unwrap();
@@ -144,6 +154,99 @@ fn execute(host: &Host, directory: &Path, linked: &koh_link::LinkResult, stop: &
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn static_fields_and_byref_aliases_execute(host: &Host, #[case] configuration: &str) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh static fields ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Statics");
+    for project in ["Entry", "Runtime"] {
+        std::fs::create_dir(directory.path().join(project)).unwrap();
+        for file in std::fs::read_dir(fixture.join(project)).unwrap() {
+            let file = file.unwrap();
+            std::fs::copy(
+                file.path(),
+                directory.path().join(project).join(file.file_name()),
+            )
+            .unwrap();
+        }
+    }
+    let result = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Entry/Entry.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let main_path = directory
+        .path()
+        .join(format!("Entry/bin/{configuration}/net10.0/Entry.dll"));
+    let runtime_path = directory
+        .path()
+        .join(format!("Runtime/bin/{configuration}/net10.0/Runtime.dll"));
+    let main = std::fs::read(&main_path).unwrap();
+    let runtime = std::fs::read(&runtime_path).unwrap();
+    let resolver = Resolver::new(&[main.as_slice(), runtime.as_slice()]).unwrap();
+    let object = compile::object(&resolver, None).unwrap();
+    let section = object
+        .sections
+        .iter()
+        .find(|s| s.name == ".koh.statics")
+        .unwrap();
+    assert_eq!(section.kind, 4);
+    assert_eq!(section.size, 31);
+    assert!(section.data.is_empty());
+    let path = directory.path().join("statics.o");
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+        .arg(&main_path)
+        .arg("-r")
+        .arg(&runtime_path)
+        .arg("-o")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let object = koh_objects::read_elf(&std::fs::read(path).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-poison"
+        ),
+        "00 0000002A D000 OK"
+    );
+    let error = compile::object(&resolver, Some("Program::TooMany")).unwrap_err();
+    assert!(
+        error.contains("static storage") && error.contains("capacity"),
+        "{error}"
+    );
+    for (entry, diagnostic) in [
+        ("NeedsInitialization", "initializer"),
+        ("NeedsGenericStorage", "Generic"),
+    ] {
+        let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
+        assert!(
+            error.contains(diagnostic) && error.contains("IL_"),
+            "{error}"
+        );
+    }
 }
 
 #[rstest]

@@ -22,8 +22,31 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
         TypeSig::Primitive(ElementType::IntPtr | ElementType::UIntPtr) | TypeSig::Ptr(_) => {
             Ok(Type::Native)
         }
+        TypeSig::ByRef(inner) => Ok(Type::ByRef(scalar(inner)?)),
         _ => Err(format!("Type {ty:?} has no integer lowering yet")),
     }
+}
+
+fn scalar(ty: &clrmeta::TypeSig) -> Result<Scalar, String> {
+    use clrmeta::{ElementType, TypeSig};
+    let TypeSig::Primitive(ty) = ty else {
+        return Err("Managed references currently require primitive scalar storage".into());
+    };
+    Ok(match ty {
+        ElementType::Boolean => Scalar::Bool,
+        ElementType::Char => Scalar::Char,
+        ElementType::I1 => Scalar::I8,
+        ElementType::U1 => Scalar::U8,
+        ElementType::I2 => Scalar::I16,
+        ElementType::U2 => Scalar::U16,
+        ElementType::I4 => Scalar::I32,
+        ElementType::U4 => Scalar::U32,
+        ElementType::I8 => Scalar::I64,
+        ElementType::U8 => Scalar::U64,
+        ElementType::IntPtr => Scalar::NativeSigned,
+        ElementType::UIntPtr => Scalar::NativeUnsigned,
+        _ => return Err("Managed reference scalar type is unsupported".into()),
+    })
 }
 
 fn integer_signature(signature: &clrmeta::MethodSig) -> Result<Signature, String> {
@@ -225,6 +248,9 @@ impl Builder {
     fn binary(&mut self, op: Binary) -> Result<(), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
+        if matches!(left.1, Type::ByRef(_)) || matches!(right.1, Type::ByRef(_)) {
+            return Err("Managed reference arithmetic requires pointer conversion".into());
+        }
         if matches!(op, Binary::Add | Binary::Subtract)
             && matches!(
                 (left.1, right.1),
@@ -722,6 +748,93 @@ fn translate(
                 no: b.edge(no),
             });
         }
+        0x7e..=0x80 => {
+            let resolver = resolver.ok_or("Static fields require assembly resolution")?;
+            let Operand::Token(token) = i.operand else {
+                return Err("Missing static field token".into());
+            };
+            let target = resolver.resolve_field(method.identity.assembly, token)?;
+            if !target.type_arguments.is_empty() {
+                return Err("Generic static fields require instantiated storage".into());
+            }
+            let image = resolver.assembly(target.definition.assembly)?;
+            let field = &image.metadata().fields[(target.definition.token & 0xffffff) as usize - 1];
+            let owner = image
+                .metadata()
+                .type_defs
+                .partition_point(|ty| ty.field_list <= target.definition.token & 0xffffff)
+                as u32;
+            if image
+                .metadata()
+                .generic_params
+                .iter()
+                .any(|p| p.owner.table == Some(clrmeta::TableId::TypeDef) && p.owner.row == owner)
+            {
+                return Err("Generic static fields require instantiated storage".into());
+            }
+            if field.flags & 0x10 == 0 || field.flags & (0x40 | 0x100) != 0 {
+                return Err("Static field flags require literal/RVA/instance lowering".into());
+            }
+            if i.opcode != 0x7e && field.flags & 0x20 != 0 {
+                return Err(
+                    "Readonly static field writes/addresses require initializer lowering".into(),
+                );
+            }
+            if resolver.field_initializer(target.definition)?.is_some()
+                || resolver
+                    .module_initializer(target.definition.assembly)?
+                    .is_some()
+            {
+                return Err(
+                    "Static field initializer requires static-initialization lowering".into(),
+                );
+            }
+            let signature = image.field_signature(target.definition.token)?;
+            if matches!(signature, clrmeta::TypeSig::ByRef(_)) {
+                return Err("Static managed-reference storage is unsupported".into());
+            }
+            let ty = integer_type(&signature)?;
+            let (bits, signed) = narrow_type(&signature).unwrap_or((ty.bits(), true));
+            let address_type = if i.opcode == 0x7f {
+                Type::ByRef(scalar(&signature)?)
+            } else {
+                Type::Native
+            };
+            let address = b.value(
+                address_type,
+                Op::StaticAddress {
+                    field: target.definition,
+                    bytes: bits / 8,
+                },
+            )?;
+            if i.opcode == 0x80 {
+                let value = b.pop()?;
+                if value.1 != ty {
+                    return Err("Static field store type mismatch".into());
+                }
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::StoreMemory {
+                        address: address.0,
+                        value: value.0,
+                        bits,
+                    },
+                    il_offset: b.offset,
+                });
+            } else if i.opcode == 0x7f {
+                b.stack.push(address);
+            } else {
+                let value = b.value(
+                    ty,
+                    Op::LoadMemory {
+                        address: address.0,
+                        bits,
+                        signed,
+                    },
+                )?;
+                b.stack.push(value);
+            }
+        }
         0x46..=0x4d => {
             let (bits, signed, ty) = match i.opcode {
                 0x46 => (8, true, Type::I32),
@@ -734,8 +847,10 @@ fn translate(
                 _ => (16, false, Type::Native),
             };
             let address = b.pop()?;
-            if address.1 != Type::Native {
-                return Err("Indirect load requires native address".into());
+            if !address.1.addresses(bits) {
+                return Err(
+                    "Indirect load requires native address or matching primitive reference".into(),
+                );
             }
             let value = b.value(
                 ty,
@@ -757,7 +872,7 @@ fn translate(
             };
             let value = b.pop()?;
             let address = b.pop()?;
-            if address.1 != Type::Native || value.1 != ty {
+            if !address.1.addresses(bits) || value.1 != ty {
                 return Err("Indirect store operand type mismatch".into());
             }
             b.instructions.push(Instruction {

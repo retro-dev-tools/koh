@@ -345,3 +345,35 @@ Completed Linux workspace nextest: **420 run, 420 passed, 0 skipped**, exit 0,
 and 178 ROM scenarios (163 normal returns, 15 traps). Full command:
 `cargo nextest run --workspace --all-features --locked`, with `KOH_DOTNET`
 selecting SDK 10.0.115. Current-head hosted validation remains separate.
+
+## Zero-initialized static storage and typed primitive references
+
+The [static-storage increment](statics.md) adds symbolic field addresses,
+cross-assembly static integer loads/stores, packed zero-fill WRAM0 storage and
+startup clearing through a linker relocation. Primitive managed references retain
+their scalar target type in IR and across calls/returns; mismatched reference
+arguments and dereference widths diagnose. The first code-generation attempt
+failed observable execution because HL was clobbered before saving an address's
+high byte; preserving BC corrected that failure.
+
+Completed Linux workspace command `cargo nextest run --workspace --all-features --locked`
+reports **443 passed, 0 skipped**, exit 0, 224.302 seconds. There are 267 compiler
+cases and 180 ROM scenarios (165 normal returns, 15 traps). Log:
+`/tmp/koh-statics-nextest.log`. The two static Roslyn cases subsequently passed
+again with stronger poison readback and all-field initial-zero assertions, exit 0
+(`/tmp/koh-statics-poison-final.log`). This targeted strengthening followed the
+workspace run; it did not change production compiler code. Separate workspace
+doctests and stable formatting checks exited 0.
+
+Initializers are still required: constructor-dependent fields, readonly writes,
+generic storage, RVA/literal/instance shapes and aggregate/reference fields remain
+diagnostic. This commit does not silently replace constructors with zeroed storage.
+No whole legacy test method is retired. The initial 256-byte static capacity is
+documented alongside pending RAM/heap/banking work, not asserted as final product
+capacity.
+
+Preceding intrinsic head `0fe6192` passed all 14 hosted jobs; the completed macOS
+log reports `420 tests run: 420 passed, 0 skipped`.
+[Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43654007601),
+[CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43654007574).
+New static-storage hosted validation must be checked separately.

@@ -6,6 +6,13 @@ pub fn symbol(identity: Definition) -> String {
     format!("__koh_a{}_m{:08x}", identity.assembly, identity.token)
 }
 
+pub fn static_symbol(identity: Definition) -> String {
+    format!(
+        "__koh_static_a{}_f{:08x}",
+        identity.assembly, identity.token
+    )
+}
+
 struct Code {
     data: Vec<u8>,
     symbols: Vec<Symbol>,
@@ -595,6 +602,14 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::StaticAddress { field, .. } => {
+                    let target = code.import(static_symbol(field));
+                    code.jump(0x21, target);
+                    code.bytes(&[0x44, 0x4d, 0x79]);
+                    code.store_a(destination);
+                    code.bytes(&[0x78]);
+                    code.store_a(destination + 1);
+                }
                 Op::LoadMemory {
                     address,
                     bits,

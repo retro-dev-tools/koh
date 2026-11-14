@@ -6,14 +6,45 @@ pub enum Type {
     I32,
     I64,
     Native,
+    ByRef(Scalar),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scalar {
+    Bool,
+    Char,
+    I8,
+    U8,
+    I16,
+    U16,
+    I32,
+    U32,
+    I64,
+    U64,
+    NativeSigned,
+    NativeUnsigned,
+}
+
+impl Scalar {
+    pub fn bits(self) -> u8 {
+        match self {
+            Self::Bool | Self::I8 | Self::U8 => 8,
+            Self::Char | Self::I16 | Self::U16 | Self::NativeSigned | Self::NativeUnsigned => 16,
+            Self::I32 | Self::U32 => 32,
+            Self::I64 | Self::U64 => 64,
+        }
+    }
 }
 
 impl Type {
+    pub(crate) fn addresses(self, bits: u8) -> bool {
+        self == Self::Native || matches!(self, Self::ByRef(scalar) if scalar.bits() == bits)
+    }
     pub fn bits(self) -> u8 {
         match self {
             Self::I32 => 32,
             Self::I64 => 64,
-            Self::Native => 16,
+            Self::Native | Self::ByRef(_) => 16,
         }
     }
 }
@@ -52,6 +83,10 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    StaticAddress {
+        field: Definition,
+        bytes: u8,
+    },
     LoadMemory {
         address: u32,
         bits: u8,
@@ -111,7 +146,10 @@ impl Op {
             | Self::Not(value)
             | Self::Convert { value, .. }
             | Self::StoreLocal { value, .. } => [Some(value), None],
-            Self::Call { .. } | Self::Constant(_) | Self::LoadLocal(_) => [None, None],
+            Self::Call { .. }
+            | Self::Constant(_)
+            | Self::StaticAddress { .. }
+            | Self::LoadLocal(_) => [None, None],
         };
         let arguments = match self {
             Self::Call { arguments, .. } => arguments.as_slice(),
@@ -244,6 +282,7 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
         return Err("Invalid IR program function count".into());
     }
     let mut definitions = HashMap::new();
+    static_fields(functions)?;
     for function in functions {
         verify(function)?;
         if definitions.insert(function.identity, function).is_some() {
@@ -276,6 +315,28 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8)>, String> {
+    let mut fields = std::collections::BTreeMap::new();
+    for instruction in functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+    {
+        if let Op::StaticAddress { field, bytes } = instruction.op {
+            if fields
+                .insert((field.assembly, field.token), bytes)
+                .is_some_and(|old| old != bytes)
+            {
+                return Err(format!("Conflicting static field widths for {field:?}"));
+            }
+        }
+    }
+    Ok(fields
+        .into_iter()
+        .map(|((assembly, token), bytes)| (Definition { assembly, token }, bytes))
+        .collect())
 }
 
 fn verify_inner(function: &Function) -> Result<(), String> {
@@ -369,9 +430,30 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::StaticAddress { field, bytes } => {
+                        if field.token >> 24 != 4
+                            || field.token & 0xffffff == 0
+                            || !matches!(bytes, 1 | 2 | 4 | 8)
+                        {
+                            return Err("Invalid static field address/width".into());
+                        }
+                        match result {
+                            Some(Type::Native) => Some(Type::Native),
+                            Some(Type::ByRef(scalar)) if scalar.bits() == bytes * 8 => result,
+                            _ => {
+                                return Err(
+                                    "Static address result must match native/reference storage"
+                                        .into(),
+                                );
+                            }
+                        }
+                    }
                     Op::LoadMemory { address, bits, .. } => {
-                        if check(address, position)? != Type::Native {
-                            return Err("Memory address must be native integer".into());
+                        if !check(address, position)?.addresses(bits) {
+                            return Err(
+                                "Memory address must be native or a matching primitive reference"
+                                    .into(),
+                            );
                         }
                         let ty = result.ok_or("Memory load has no result")?;
                         if !matches!(bits, 8 | 16 | 32 | 64)
@@ -389,8 +471,11 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         value,
                         bits,
                     } => {
-                        if check(address, position)? != Type::Native {
-                            return Err("Memory address must be native integer".into());
+                        if !check(address, position)?.addresses(bits) {
+                            return Err(
+                                "Memory address must be native or a matching primitive reference"
+                                    .into(),
+                            );
                         }
                         if !matches!(
                             (bits, check(value, position)?),
@@ -417,6 +502,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     }
                     Op::Constant(bits) => {
                         let ty = result.ok_or("Constant has no result")?;
+                        if matches!(ty, Type::ByRef(_)) && bits != 0 {
+                            return Err("Nonzero managed reference constant".into());
+                        }
                         if ty.bits() < 64 && bits >= 1u64 << ty.bits() {
                             return Err("Constant exceeds result width".into());
                         }
@@ -425,6 +513,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     Op::Binary { op, left, right } => {
                         let left = check(left, position)?;
                         let right = check(right, position)?;
+                        if matches!(left, Type::ByRef(_)) || matches!(right, Type::ByRef(_)) {
+                            return Err(
+                                "Managed reference arithmetic requires explicit pointer conversion"
+                                    .into(),
+                            );
+                        }
                         let shift = matches!(
                             op,
                             Binary::ShiftLeft
@@ -442,10 +536,19 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(Type::I32)
                     }
-                    Op::Negate(value) | Op::Not(value) => Some(check(value, position)?),
+                    Op::Negate(value) | Op::Not(value) => {
+                        let ty = check(value, position)?;
+                        if matches!(ty, Type::ByRef(_)) {
+                            return Err("Managed reference unary arithmetic".into());
+                        }
+                        Some(ty)
+                    }
                     Op::Convert { value, bits, .. } => {
                         check(value, position)?;
                         let ty = result.ok_or("Conversion has no result")?;
+                        if matches!(ty, Type::ByRef(_)) {
+                            return Err("Conversion cannot fabricate a managed reference".into());
+                        }
                         if !matches!(bits, 8 | 16 | 32 | 64) || bits > ty.bits() {
                             return Err("Invalid conversion width".into());
                         }

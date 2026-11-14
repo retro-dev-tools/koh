@@ -4,6 +4,29 @@ Branch feat/rust-cil-compiler, isolated from main checkout modified screenshot.
 Baseline integrated linker 9cd1472. Existing PR #55 stays draft; never merge.
 C# compiler remains production. Full attachment migration goal stays active.
 
+Latest statics increment verified: symbolic field addresses/ELF relocations,
+packed zero-fill WRAM0/startup clear, primitive ByRef(Scalar) types with call/memory
+type checks. D/R real referenced fields, all integer widths/bool/char/native,
+returned refs and ref byte/int mutation execute against poisoned RAM. Shared storage
+31 bytes; dead fields omitted; >256 bytes errors. Constructor-dependent fields,
+readonly writes, generic/RVA/literal/instance/aggregate/reference storage still
+diagnose. Read statics.md. Constructor execution is next mandatory unit, not retired.
+Workspace 443/443, no skips, exit 0, 224.302s; 267 compiler cases, 180 ROM scenarios
+(165 normal,15 trap), /tmp/koh-statics-nextest.log. Stronger poison readback/all-field
+zero assertions passed focused 2/2 afterward, with no production-code change.
+Separate doctests/fmt pass. Source review complete; no delegated edits/builds.
+Prior 0fe6192 passed all 14 hosted jobs, macOS log 420/420. New head CI pending.
+Rough progress 32%; full original migration remains active with SDK/debug/runtime,
+language/test migration/sample/deletion/performance/container gates still open.
+
+Current uncommitted unit: root owns integer static storage, symbolic field-address
+IR/ELF relocation, BSS allocation/zero startup, field reference resolution, scalar
+managed ByRef IR types and ld[s]flda/ref ABI. Initializer execution remains the next
+required increment; reached ctor-dependent fields still diagnose. Static tests use
+nonzero WRAM poison, D/R transitive fields and ref byte/int mutation; bounds and
+IR type/width checks added. Full nextest running serially in target/. Review only,
+no delegated edits/builds. Verify full suite, doctests/fmt, commit and push same PR.
+
 Latest intrinsic increment verified locally: canonical attribute payload/signature
 validation, register/region call-site lowering with no desktop bodies/initializers,
 mixed native/i32 add/sub. Real Hardware/Gb fixtures execute MMIO, LCD-off VRAM,

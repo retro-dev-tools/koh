@@ -37,7 +37,7 @@ fn patch(section: usize, offset: usize, target: usize) -> Patch {
     }
 }
 
-fn startup(entry: &Function) -> Result<Object, String> {
+fn startup(entry: &Function, globals: u16) -> Result<Object, String> {
     if !entry.parameters.is_empty() || !matches!(entry.returns, None | Some(Type::I32)) {
         return Err("Invalid cartridge entry signature".into());
     }
@@ -54,6 +54,25 @@ fn startup(entry: &Function) -> Result<Object, String> {
     boot[0x101] = 0xc3;
     let mut boot_patches = vec![patch(0, 0x102, 0)];
     let mut data = vec![0xf3, 0x31, 0, 0xd0, 0xaf, 0xe0, 0x0f, 0xea, 0xff, 0xff];
+    let zero = data.len();
+    if globals != 0 {
+        data.extend_from_slice(&[
+            0x21,
+            0,
+            0,
+            0x01,
+            globals as u8,
+            (globals >> 8) as u8,
+            0x36,
+            0,
+            0x23,
+            0x0b,
+            0x78,
+            0xb1,
+            0x20,
+            0xf8,
+        ]);
+    }
     let returns = entry.returns.is_some();
     if returns {
         data.extend_from_slice(&[0xe8, 0xfc]);
@@ -93,6 +112,16 @@ fn startup(entry: &Function) -> Result<Object, String> {
         boot[vector] = 0xc3;
         boot_patches.push(patch(0, vector + 1, 6));
     }
+    if globals != 0 {
+        let id = symbols.len();
+        symbols.push(Symbol {
+            name: "__koh_statics".into(),
+            binding: SymbolBinding::Local,
+            definition: SymbolDefinition::Import,
+            source: None,
+        });
+        patches.push(patch(1, zero + 1, id));
+    }
     Ok(Object {
         sections: vec![
             Section {
@@ -124,7 +153,33 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
         .iter()
         .find(|f| f.identity == entry)
         .ok_or("Cartridge entry is absent")?;
-    let mut objects = vec![startup(root)?];
+    let fields = crate::ir::static_fields(functions)?;
+    let bytes: u16 = fields
+        .iter()
+        .map(|(_, bytes)| u16::from(*bytes))
+        .try_fold(0u16, |total, bytes| total.checked_add(bytes))
+        .ok_or("Static storage exceeds capacity")?;
+    if bytes > 0x100 {
+        return Err("Compiler static storage exceeds available WRAM0 capacity (256 bytes)".into());
+    }
+    let mut objects = vec![startup(root, bytes)?];
+    if bytes != 0 {
+        let mut symbols = vec![symbol("__koh_statics".into(), 0, 0)];
+        let mut offset = 0;
+        for (field, width) in fields {
+            symbols.push(symbol(sm83::static_symbol(field), 0, offset));
+            offset += usize::from(width);
+        }
+        objects.push(Object {
+            sections: vec![Section {
+                name: ".koh.statics".into(),
+                kind: 4,
+                size: u32::from(bytes),
+                ..Default::default()
+            }],
+            symbols,
+        });
+    }
     for function in functions {
         objects.push(sm83::emit(function)?);
     }
