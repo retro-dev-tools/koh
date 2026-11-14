@@ -183,6 +183,7 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 ## Repository Layout
 
 ```text
+rust/         koh-asm (native assembler and language service)
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
               Koh.Objects (object model; .kobj, RGBDS and .kdbg formats)

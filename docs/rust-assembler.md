@@ -44,7 +44,10 @@ Output is written through a temporary file in the destination directory.
 | `main.rs` | CLI, diagnostics, output publication |
 
 `koh_asm::assemble(source, file, allow_imports)` exposes assembly to Rust callers.
-Successful assembly returns the shared object model; failures return diagnostics.
+Successful assembly returns the canonical Rust object graph; failures return diagnostics.
+Use `assemble_report` or `assemble_with_overlays_report` to also receive structured
+warnings alongside the result. Warnings remain available on assembly failure;
+the CLI and native service forward them with warning severity.
 `object::write_kobj` and `object::write_rgbds` serialize that model. Unresolved
 references remain patches for the linker.
 
@@ -54,6 +57,10 @@ expressions, typed symbol/section references, patch width/range semantics and a
 PC context independent of the storage section. Both adapters validate the graph;
 KOBJ emission fails when its restricted relocation encoding would lose meaning.
 See [object architecture and format decision](rust-assembler-objects.md).
+
+Editor syntax metadata does not determine assembly success. The canonical engine
+controls diagnostics for active source and macro expansion; project analysis
+resolves imports against actual exported definitions from the other roots.
 
 The historical macro unique-suffix report was independently investigated; the
 reconstructed failure did not reproduce. See [evidence and reproducer](macro-unique-investigation.md).
@@ -96,7 +103,9 @@ covered by assembler integration tests.
 
 Koh retains per-byte current-address evaluation in `DS count, @` and permits
 macro-local labels without a global anchor. These are documented differences
-from RGBDS 1.0.1. `SECTION UNION` also retains Koh's implicit first union member;
+from RGBDS 1.0.1. Bare `WARN` retains Koh's explicit `WARN directive` message;
+RGBDS requires a message expression. `SECTION UNION` also retains Koh's implicit
+first union member;
 its combination metadata survives in RGBDS output.
 
 The v4 adapter rejects floating alignment, union/fragment combination metadata,
@@ -142,11 +151,12 @@ or complete C# compatibility. The CI definition describes intended checks;
 successful hosted runs and full differential results must be reported separately.
 
 Before removal, the historical C# assembler suite passed 1,082 tests. Native
-validation now includes 117 Rust tests with the RGBDS checks enabled and 204
-native-backed LSP tests. All 812 managed compiler tests passed after removal.
+validation now includes 125 Rust tests with the RGBDS checks enabled and 205
+native-backed LSP tests. The final managed fast suite passed 586 tests, with
+two native-window tests skipped. All 812 managed compiler tests passed after
+removal.
 The 2048 gameplay verifier also passed all 11 checks on a Rust-built, C#-linked
-64 KiB ROM. The independent
-relocation tests check linked bytes and actual failures for missing symbols,
+64 KiB ROM. The independent relocation tests check linked bytes and actual failures for missing symbols,
 signed overflow and invalid high-memory addresses. Hosted Windows/macOS results
 remain separate evidence.
 

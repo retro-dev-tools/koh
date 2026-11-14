@@ -81,4 +81,4 @@ wrong PC sections and range violations need explicit negative tests.
 
 The sample's historical `\\@` comment is a report to investigate. It is not
 evidence of a defect in the current assembler; reproduction results are recorded
-separately against the current source and pinned RGBDS.
+separately against the pinned historical C# source and RGBDS 1.0.1.
