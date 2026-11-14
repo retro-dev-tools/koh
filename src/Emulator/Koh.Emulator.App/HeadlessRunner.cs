@@ -4,10 +4,7 @@ using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Koh.Emulator.Debug;
 using Koh.Emulator.Joypad;
-using Koh.Emulator.Ppu;
 using Koh.Objects;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Koh.Emulator.App;
 
@@ -33,6 +30,19 @@ public static class HeadlessRunner
         BootRomResolver bootRoms
     )
     {
+        if (
+            screenshotPath is not null
+            && !string.Equals(
+                Path.GetExtension(screenshotPath),
+                ".png",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            Console.Error.WriteLine("Screenshots require a .png output path.");
+            return 1;
+        }
+
         if (!File.Exists(romPath))
         {
             Console.Error.WriteLine($"ROM not found: {romPath}");
@@ -78,13 +88,8 @@ public static class HeadlessRunner
 
         if (screenshotPath is not null)
         {
-            byte[] pixels = gb.Framebuffer.Front.ToArray();
-            using var img = Image.LoadPixelData<Rgba32>(
-                pixels,
-                Framebuffer.Width,
-                Framebuffer.Height
-            );
-            img.Save(screenshotPath);
+            using var output = File.Create(screenshotPath);
+            gb.Framebuffer.WritePng(output);
         }
 
         if (mode3ReportRequested)

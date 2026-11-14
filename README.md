@@ -68,7 +68,7 @@ Current priorities include:
 - RGBDS compatibility regressions backed by reference-tool results
 - a reproducible source-to-ROM and debugging workflow
 
-See the [maintainer assessment and roadmap](docs/roadmap.md) for current gaps and acceptance criteria, and [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks.
+See the [roadmap](ROADMAP.md) for current gaps and acceptance criteria, and [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks.
 
 ## Quick Start
 
@@ -103,7 +103,9 @@ dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj
 
 The SDK writes `samples/csharp/gb-2048-v2/2048v2.gb`. See the [sample guide](samples/csharp/gb-2048-v2/README.md) for its game code and compiler requirements. These source builds restore dependencies; the local Koh.Sdk feed does not make the whole build offline.
 
-If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulnerability. Report the package, version, and advisory URL; do not disable auditing to obtain a passing result. The [roadmap](docs/roadmap.md) records the current baseline blockers.
+Headless emulator captures use `--screenshot=frame.png --frames=300` with a ROM path. Screenshot output supports PNG only; other filename extensions are rejected. PNG encoding uses .NET directly and requires no image-library license key.
+
+If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulnerability. Report the package, version, and advisory URL; do not disable auditing to obtain a passing result. See the [roadmap](ROADMAP.md) for verification status.
 
 ### Test
 
@@ -195,7 +197,7 @@ editors/
 
 ## Project Direction
 
-Koh aims to make small Game Boy games practical to build, understand, and debug in assembly or C#. Reliable sample games, clear compatibility limits, and reproducible builds take priority over adding more tools or language features. See the [roadmap](docs/roadmap.md).
+Koh aims to make small Game Boy games practical to build, understand, and debug in assembly or C#. Reliable sample games, clear compatibility limits, and reproducible builds take priority over adding more tools or language features. See the [roadmap](ROADMAP.md).
 
 ## License
 

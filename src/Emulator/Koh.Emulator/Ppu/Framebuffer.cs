@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.IO.Compression;
+
 namespace Koh.Emulator.Ppu;
 
 /// <summary>
@@ -33,6 +36,58 @@ public sealed class Framebuffer
     public byte[] FrontArray => _aIsFront ? _a : _b;
 
     public void Flip() => _aIsFront = !_aIsFront;
+
+    internal void WritePng(Stream output)
+    {
+        output.Write([137, 80, 78, 71, 13, 10, 26, 10]);
+        Span<byte> header = stackalloc byte[13];
+        header.Clear();
+        BinaryPrimitives.WriteInt32BigEndian(header, Width);
+        BinaryPrimitives.WriteInt32BigEndian(header[4..], Height);
+        header[8] = 8;
+        header[9] = 6;
+        WritePngChunk(output, "IHDR"u8, header);
+
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.Optimal, leaveOpen: true))
+        {
+            for (var y = 0; y < Height; y++)
+            {
+                zlib.WriteByte(0);
+                zlib.Write(Front.Slice(y * Width * BytesPerPixel, Width * BytesPerPixel));
+            }
+        }
+        WritePngChunk(output, "IDAT"u8, compressed.GetBuffer().AsSpan(0, (int)compressed.Length));
+        WritePngChunk(output, "IEND"u8, []);
+    }
+
+    private static void WritePngChunk(
+        Stream output,
+        ReadOnlySpan<byte> type,
+        ReadOnlySpan<byte> data
+    )
+    {
+        Span<byte> value = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(value, data.Length);
+        output.Write(value);
+        output.Write(type);
+        output.Write(data);
+        var crc = uint.MaxValue;
+        foreach (var b in type)
+            crc = UpdateCrc(crc, b);
+        foreach (var b in data)
+            crc = UpdateCrc(crc, b);
+        BinaryPrimitives.WriteUInt32BigEndian(value, ~crc);
+        output.Write(value);
+    }
+
+    private static uint UpdateCrc(uint crc, byte value)
+    {
+        crc ^= value;
+        for (var bit = 0; bit < 8; bit++)
+            crc = (crc >> 1) ^ ((crc & 1) == 0 ? 0 : 0xEDB88320u);
+        return crc;
+    }
 
     private static void FillWithPlaceholderGray(byte[] buffer)
     {

@@ -29,3 +29,16 @@ Recent history follows Conventional Commits such as `feat(debug): ...`, `fix(ci)
 ## Security & Configuration Tips
 
 Do not commit downloaded ROMs, local toolchains, VSIX packages, benchmark outputs, or test-host caches. Keep machine-specific paths in local VS Code settings or `koh.yaml` examples, not in shared project files.
+
+## Maintainer Context
+
+- Keep the active priorities and completed milestones in root `ROADMAP.md`.
+- Preserve the dependency boundaries: compiler and linker share `Koh.Objects` and `Koh.Common`; neither depends on assembler implementation details.
+- Prioritize a reproducible assembly/C# source-to-ROM and debugging workflow over new subsystems.
+- Keep NuGet auditing and warnings-as-errors enabled. Update the owning dependency or supported SDK instead of suppressing an advisory.
+- `global.json` requires SDK 10.0.115 or a compatible newer .NET 10 SDK; older SDKs select a vulnerable NativeAOT compiler.
+- Preserve pre-existing edits. Stage only files belonging to the current increment; do not merge into the default branch or push without authorization.
+- Licensing and third-party attribution are release blockers; unrelated engineering can continue.
+- Run builds serially in each output directory. On constrained machines, use `dotnet build Koh.Ci.slnf -c Release -m:1`, then `dotnet test --solution Koh.Fast.slnf -c Release --no-build --max-parallel-test-modules 1`.
+- Read completed logs and record actual exit codes. Never infer test success from an empty log or pipe status.
+- Headless screenshots use the emulator framebuffer's PNG writer. Keep compression in the platform libraries and test pixel order, alpha, PNG structure, and checksums.
