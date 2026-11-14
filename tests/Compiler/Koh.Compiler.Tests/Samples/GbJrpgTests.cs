@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using Koh.Build.Tasks;
 using Koh.Common;
 using Koh.Compiler.Backends.Sm83;
@@ -370,9 +371,10 @@ public class GbJrpgTests
     [Test]
     public async Task Sample_CaptureAcceptanceScreenshots()
     {
+        var sourceScreenshotsDir = Path.Combine(SampleDir.Value, "screenshots");
         var sourceScreenshots = Directory
-            .GetFiles(Path.Combine(SampleDir.Value, "screenshots"), "*.png")
-            .ToDictionary(path => path, File.GetLastWriteTimeUtc);
+            .GetFiles(sourceScreenshotsDir)
+            .ToDictionary(path => path, path => SHA256.HashData(File.ReadAllBytes(path)));
         var outDir = Path.Combine(
             AppContext.BaseDirectory,
             "TestResults",
@@ -440,8 +442,17 @@ public class GbJrpgTests
         await Assert.That(File.Exists(Path.Combine(outDir, "overworld.png"))).IsTrue();
         await Assert.That(File.Exists(Path.Combine(outDir, "dialogue.png"))).IsTrue();
         await Assert.That(File.Exists(Path.Combine(outDir, "battle.png"))).IsTrue();
-        foreach (var (path, timestamp) in sourceScreenshots)
-            await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(timestamp);
+        await Assert
+            .That(
+                sourceScreenshots
+                    .Keys.ToHashSet()
+                    .SetEquals(Directory.GetFiles(sourceScreenshotsDir))
+            )
+            .IsTrue();
+        foreach (var (path, hash) in sourceScreenshots)
+            await Assert
+                .That(SHA256.HashData(File.ReadAllBytes(path)).SequenceEqual(hash))
+                .IsTrue();
     }
 
     private static void Capture(GameBoySystem gb, string path)

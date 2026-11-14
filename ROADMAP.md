@@ -45,6 +45,8 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 - `2451c6c`, screenshot isolation: the new guard fails against the old writer in an isolated worktree and passes after redirecting captures. All four source screenshot SHA-256 hashes are preserved, including the pre-existing modified battle image. All four generated 480x432 captures have valid PNG chunk CRCs. The full CI suite passes 2,485/2,485 with one test/module at a time (5m44s). The compiler test process still consumes several GB; serialization reduces concurrency but does not establish a low-memory workflow.
 - Portable emulator targets: publish defaults to the host RID; launch selects the correct executable name. Dispatch checks pass for Linux, macOS, Windows, and the host default, including paths containing spaces. The root target performs a real Linux x64 NativeAOT publish; its executable runs the assembly sample and produces a 160x144 PNG with valid CRCs and decompressed pixel data. The exact new CI smoke step passes locally on Linux. The normal `build.proj -t:Test` loop also passes 1,673/1,673. Windows/macOS execution and GUI launch remain unverified locally; CI is configured to exercise native headless captures on all three hosts.
 
+- [PR #48](https://github.com/retro-dev-tools/koh/pull/48) review follow-up: the capture guard compares the source filename set and SHA-256 hashes. Temporary mutation probes reject timestamp-preserving rewrites, added files, and removed files; the old timestamp guard accepted the rewrite. All five JRPG tests and all 1,673 fast-suite tests pass on the isolated PR checkout.
+
 ## Planned work
 
 | Order | Outcome | Effort / risk | Acceptance criteria |
