@@ -187,6 +187,71 @@ fn indirect_memory_widths_and_aliases_execute(host: &Host, #[case] configuration
 }
 
 #[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn gameboy_register_and_region_intrinsics_execute(host: &Host, #[case] configuration: &str) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh hardware ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Hardware");
+    for file in ["Hardware.csproj", "Program.cs"] {
+        std::fs::copy(fixture.join(file), directory.path().join(file)).unwrap();
+    }
+    let result = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Hardware.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let main = std::fs::read(output.join("Hardware.dll")).unwrap();
+    let runtime = std::fs::read(output.join("Koh.GameBoy.dll")).unwrap();
+    let resolver = Resolver::new(&[main.as_slice(), runtime.as_slice()]).unwrap();
+    let entry = compile::entry(&resolver, None).unwrap();
+    let functions = compile::reachable(&resolver, entry).unwrap();
+    assert_eq!(
+        functions.len(),
+        1,
+        "Intrinsic desktop bodies must not be included"
+    );
+    let path = directory.path().join("hardware.o");
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+        .arg(output.join("Hardware.dll"))
+        .arg("-r")
+        .arg(output.join("Koh.GameBoy.dll"))
+        .arg("-o")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let object = koh_objects::read_elf(&std::fs::read(path).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute(host, directory.path(), &linked, "__koh_exit"),
+        "00 0000002A D000 OK"
+    );
+}
+
+#[rstest]
 fn cli_references_and_native_stack_traps_execute(host: &Host) {
     let directory = tempfile::Builder::new()
         .prefix("koh cli project references ")
@@ -375,6 +440,11 @@ fn pending_hardware_contracts_never_become_desktop_code() {
         ("METHOD", "intrinsic"),
         ("PROPERTY", "intrinsic"),
         ("INTERRUPT", "Interrupt"),
+        ("ADDRESS", "address"),
+        ("SIGNATURE", "signature"),
+        ("NULL", "payload"),
+        ("DUPLICATE", "Multiple"),
+        ("REGION", "signature"),
     ] {
         let project = directory.path().join(variant);
         std::fs::create_dir(&project).unwrap();

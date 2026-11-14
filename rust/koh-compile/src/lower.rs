@@ -223,8 +223,35 @@ impl Builder {
     }
 
     fn binary(&mut self, op: Binary) -> Result<(), String> {
-        let right = self.pop()?;
-        let left = self.pop()?;
+        let mut right = self.pop()?;
+        let mut left = self.pop()?;
+        if matches!(op, Binary::Add | Binary::Subtract)
+            && matches!(
+                (left.1, right.1),
+                (Type::Native, Type::I32) | (Type::I32, Type::Native)
+            )
+        {
+            if left.1 == Type::I32 {
+                left = self.value(
+                    Type::Native,
+                    Op::Convert {
+                        value: left.0,
+                        bits: 16,
+                        signed: true,
+                    },
+                )?;
+            }
+            if right.1 == Type::I32 {
+                right = self.value(
+                    Type::Native,
+                    Op::Convert {
+                        value: right.0,
+                        bits: 16,
+                        signed: true,
+                    },
+                )?;
+            }
+        }
         let shift = matches!(
             op,
             Binary::ShiftLeft | Binary::ShiftRightSigned | Binary::ShiftRightUnsigned
@@ -532,6 +559,37 @@ fn translate(
                 arguments.push(value.0);
             }
             arguments.reverse();
+            if let Some(intrinsic) = crate::contracts::intrinsic(resolver, target.definition)? {
+                use crate::contracts::Intrinsic;
+                let address = match intrinsic {
+                    Intrinsic::Read(a) | Intrinsic::Write(a) | Intrinsic::Region(a) => a,
+                };
+                let pointer = b.value(Type::Native, Op::Constant(u64::from(address)))?;
+                match intrinsic {
+                    Intrinsic::Read(_) => {
+                        let value = b.value(
+                            Type::I32,
+                            Op::LoadMemory {
+                                address: pointer.0,
+                                bits: 8,
+                                signed: false,
+                            },
+                        )?;
+                        b.stack.push(value);
+                    }
+                    Intrinsic::Write(_) => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::StoreMemory {
+                            address: pointer.0,
+                            value: arguments[0],
+                            bits: 8,
+                        },
+                        il_offset: b.offset,
+                    }),
+                    Intrinsic::Region(_) => b.stack.push(pointer),
+                }
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             let returns = signature.returns;
             let op = Op::Call {
                 target: target.definition,

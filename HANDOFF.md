@@ -4,6 +4,27 @@ Branch feat/rust-cil-compiler, isolated from main checkout modified screenshot.
 Baseline integrated linker 9cd1472. Existing PR #55 stays draft; never merge.
 C# compiler remains production. Full attachment migration goal stays active.
 
+Latest intrinsic increment verified locally: canonical attribute payload/signature
+validation, register/region call-site lowering with no desktop bodies/initializers,
+mixed native/i32 add/sub. Real Hardware/Gb fixtures execute MMIO, LCD-off VRAM,
+custom aliases and positive/negative byte-pointer offsets in Debug/Release.
+Read hardware.md, including explicit target16 native-width extension and gaps.
+Workspace nextest 420/420, no skips, exit 0, 321.348s; 244 compiler cases and
+178 emulator scenarios (163 normal, 15 trap). Log /tmp/koh-intrinsic-nextest.log.
+Focused negative variants/payload tests pass in workspace. Source review complete;
+no delegated edits/builds. Prior memory head 5409d45 passed all 14 hosted jobs,
+macOS completed log 407/407. New head hosted results must be checked after push.
+Next static globals/initializers and remaining hardware control/IRQ/DMA/runtime;
+then full language/debug/SDK/sample/test migration/deletion/performance gates.
+Rough progress 30%; full original objective remains active and incomplete.
+
+Current uncommitted unit: root owns contracts.rs metadata payload/signature checks,
+call-site register/region intrinsic lowering and mixed native/i32 add/sub; Hardware
+fixture plus negative contract and scalar lowering cases. Uses existing GameBoy
+API and attribute addresses, no duplicate hardware table or desktop body execution.
+Focused tests are running serially in target/. Review read-only; no edits/builds.
+Verify full workspace nextest/doctests/fmt after review, then commit/push same PR.
+
 Latest memory increment complete locally: indirect 8/16/32/64/native integer
 memory, unmanaged/native signatures, unique-predecessor CFG chain simplification,
 block-local temporary slots and contiguous copy/constant emission. Read memory.md.

@@ -316,3 +316,32 @@ with SDK 10.0.115 selected by `KOH_DOTNET`: **407 run, 407 passed, 0 skipped**,
 exit 0, 291.998 seconds. There are 231 compiler cases and 176 ROM scenarios
 (161 normal returns, 15 traps). Completed log: `/tmp/koh-memory-nextest.log`.
 Separate workspace doctests exited 0, no cases (`/tmp/koh-memory-doc.log`).
+
+## Hardware register/region intrinsics
+
+The [hardware contract](hardware.md) now lowers canonical Koh.GameBoy register
+and region attributes at call sites, including property accessors and direct
+method aliases. Addresses come from validated metadata blobs. Byte MMIO accesses
+use existing typed memory IR; desktop bodies and their initializers remain outside
+reachability. Unknown kinds, malformed payloads, invalid signatures/addresses and
+duplicate declarations diagnose. Control/heap/DMA/interrupt support remains open.
+
+Debug/Release real Hardware/Gb fixtures pass via the native executable, canonical
+ELF, Rust linker and existing C# emulator. They check MMIO, LCD-off VRAM access,
+pointer offsets, custom aliases and an excluded throwing desktop body. Four scalar
+cases cover mixed native/int32 addition/subtraction. The initial focused run
+exposed a missing subtraction arm in the test-only reference interpreter; that
+arm now uses independent wrapping arithmetic, preserving the expected results.
+
+Preceding memory head `5409d45` passed all 14 hosted jobs. Its completed macOS
+log reports `407 tests run: 407 passed, 0 skipped`.
+[Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43652752199),
+[CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43652752215).
+These results do not cover the newer intrinsic increment. Full migration,
+sample/debug/SDK acceptance and retirement of legacy compiler tests remain open.
+
+Completed Linux workspace nextest: **420 run, 420 passed, 0 skipped**, exit 0,
+321.348 seconds (`/tmp/koh-intrinsic-nextest.log`). There are 244 compiler cases
+and 178 ROM scenarios (163 normal returns, 15 traps). Full command:
+`cargo nextest run --workspace --all-features --locked`, with `KOH_DOTNET`
+selecting SDK 10.0.115. Current-head hosted validation remains separate.

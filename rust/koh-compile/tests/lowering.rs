@@ -105,6 +105,10 @@ fn unreachable_unsupported_bytes_are_not_lowered() {
 #[case(&[0x15, 0x17, 0x63, 0x2a], Type::I32, 0xffff_ffff)]
 #[case(&[0x21, 0,0,0,0,1,0,0,0, 0x16,0x6a, 0xfe,2, 0x2a], Type::I32, 1)]
 #[case(&[0x15, 0x6a, 0x17, 0x6a, 0x58, 0x2a], Type::I64, 0)]
+#[case(&[0x17, 0xd3, 0x15, 0x58, 0x2a], Type::Native, 0)]
+#[case(&[0x15, 0x17, 0xd3, 0x58, 0x2a], Type::Native, 0)]
+#[case(&[0x16, 0xd3, 0x17, 0x59, 0x2a], Type::Native, 0xffff)]
+#[case(&[0x17, 0x18, 0xd3, 0x59, 0x2a], Type::Native, 0xffff)]
 fn integer_width_semantics(#[case] il: &[u8], #[case] ty: Type, #[case] expected: u64) {
     let mut m = method(il);
     m.returns = Some(ty);
@@ -153,6 +157,11 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
                     left,
                     right,
                 } => v(left).wrapping_add(v(right)),
+                Op::Binary {
+                    op: Binary::Subtract,
+                    left,
+                    right,
+                } => v(left).wrapping_sub(v(right)),
                 Op::Binary {
                     op: Binary::Xor,
                     left,

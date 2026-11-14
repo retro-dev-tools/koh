@@ -8,6 +8,45 @@ enum Kind {
     Interrupt,
 }
 
+pub(crate) enum Intrinsic {
+    Read(u16),
+    Write(u16),
+    Region(u16),
+}
+
+fn payload(bytes: &[u8]) -> Result<(&str, i32), String> {
+    let read = || -> Result<(&str, i32), clrmeta::error::Error> {
+        let mut reader = clrmeta::reader::Reader::new(bytes);
+        if reader.read_u16()? != 1 {
+            return Err(clrmeta::error::Error::ValidationError(
+                "expected custom-attribute prolog 0001".into(),
+            ));
+        }
+        let length = reader.read_compressed_uint()? as usize;
+        if (reader.position() == 4 && length < 128) || reader.position() == 6 {
+            return Err(clrmeta::error::Error::ValidationError(
+                "noncanonical intrinsic kind length".into(),
+            ));
+        }
+        if length > 128 {
+            return Err(clrmeta::error::Error::ValidationError(
+                "intrinsic kind exceeds 128 bytes".into(),
+            ));
+        }
+        let name = reader.read_bytes(length)?;
+        let address = reader.read_u32()? as i32;
+        if reader.read_u16()? != 0 || !reader.is_empty() {
+            return Err(clrmeta::error::Error::ValidationError(
+                "unexpected named arguments/trailing bytes".into(),
+            ));
+        }
+        let name =
+            std::str::from_utf8(name).map_err(|_| clrmeta::error::Error::InvalidString(2))?;
+        Ok((name, address))
+    };
+    read().map_err(|e| format!("Invalid Koh intrinsic attribute payload: {e}"))
+}
+
 fn row<T>(rows: &[T], index: u32) -> Result<&T, String> {
     index
         .checked_sub(1)
@@ -117,6 +156,16 @@ fn kind(
     {
         return Err("Invalid attribute constructor signature".into());
     }
+    let expected = match kind {
+        Kind::Intrinsic => vec![
+            TypeSig::Primitive(clrmeta::ElementType::String),
+            TypeSig::Primitive(clrmeta::ElementType::I4),
+        ],
+        Kind::Interrupt => vec![TypeSig::Primitive(clrmeta::ElementType::String)],
+    };
+    if signature.params != expected {
+        return Err("Invalid Koh attribute constructor parameters".into());
+    }
     let token = ((constructor
         .table
         .ok_or("Missing attribute constructor table")? as u32)
@@ -149,22 +198,39 @@ pub(crate) fn assembly(resolver: &Resolver<'_>, assembly: usize) -> Result<(), S
                     resolver.assembly(assembly)?.name()?
                 ));
             }
-            Some(Kind::Intrinsic) => match attribute.parent.table {
-                Some(TableId::MethodDef) => {
-                    row(&metadata.method_defs, attribute.parent.row)?;
-                }
-                Some(TableId::Property) => {
-                    row(&metadata.properties, attribute.parent.row)?;
-                }
-                _ => return Err("Koh intrinsic must target a method or property".into()),
-            },
+            Some(Kind::Intrinsic) => {
+                match attribute.parent.table {
+                    Some(TableId::MethodDef) => {
+                        row(&metadata.method_defs, attribute.parent.row)?;
+                    }
+                    Some(TableId::Property) => {
+                        row(&metadata.properties, attribute.parent.row)?;
+                    }
+                    _ => return Err("Koh intrinsic must target a method or property".into()),
+                };
+                payload(
+                    metadata
+                        .blobs
+                        .get(attribute.value)
+                        .map_err(|e| e.to_string())?,
+                )
+                .map_err(|error| {
+                    format!(
+                        "Assembly {assembly} attribute {:?} row {}: {error}",
+                        attribute.parent.table, attribute.parent.row
+                    )
+                })?;
+            }
             None => {}
         }
     }
     Ok(())
 }
 
-pub(crate) fn method(resolver: &Resolver<'_>, method: Definition) -> Result<(), String> {
+pub(crate) fn intrinsic(
+    resolver: &Resolver<'_>,
+    method: Definition,
+) -> Result<Option<Intrinsic>, String> {
     let metadata = resolver.assembly(method.assembly)?.metadata();
     let rid = method.token & 0x00ff_ffff;
     let properties: HashSet<_> = metadata
@@ -173,6 +239,7 @@ pub(crate) fn method(resolver: &Resolver<'_>, method: Definition) -> Result<(), 
         .filter(|s| s.method == rid && s.association.table == Some(TableId::Property))
         .map(|s| s.association.row)
         .collect();
+    let mut found = None;
     for attribute in &metadata.custom_attributes {
         let direct =
             attribute.parent.table == Some(TableId::MethodDef) && attribute.parent.row == rid;
@@ -181,8 +248,94 @@ pub(crate) fn method(resolver: &Resolver<'_>, method: Definition) -> Result<(), 
         if (direct || property)
             && kind(resolver, method.assembly, attribute)? == Some(Kind::Intrinsic)
         {
-            return Err("Koh hardware intrinsic requires intrinsic lowering; desktop body cannot be compiled".into());
+            if found.is_some() {
+                return Err("Multiple Koh intrinsic attributes on a method/accessor".into());
+            }
+            let blob = metadata
+                .blobs
+                .get(attribute.value)
+                .map_err(|e| e.to_string())?;
+            found = Some(payload(blob)?);
         }
     }
+    let Some((kind, address)) = found else {
+        return Ok(None);
+    };
+    let signature = resolver
+        .assembly(method.assembly)?
+        .method_signature(method.token)?;
+    let owner = metadata
+        .type_defs
+        .partition_point(|ty| ty.method_list <= rid) as u32;
+    if signature.calling_convention.has_this()
+        || signature.generic_param_count != 0
+        || metadata
+            .generic_params
+            .iter()
+            .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner)
+    {
+        return Err("Koh intrinsic requires a static non-generic method".into());
+    }
+    if !matches!(kind, "register" | "region") {
+        return Err(format!("Unsupported Koh intrinsic '{kind}'"));
+    }
+    let address =
+        u16::try_from(address).map_err(|_| "Koh intrinsic address must be in 0000..FFFF")?;
+    use clrmeta::ElementType;
+    let byte = TypeSig::Primitive(ElementType::U1);
+    let void = TypeSig::Primitive(ElementType::Void);
+    match kind {
+        "register" if signature.params.is_empty() && signature.return_type == byte => {
+            Ok(Some(Intrinsic::Read(address)))
+        }
+        "register" if signature.params == [byte] && signature.return_type == void => {
+            Ok(Some(Intrinsic::Write(address)))
+        }
+        "region"
+            if signature.params.is_empty()
+                && matches!(
+                    signature.return_type,
+                    TypeSig::Ptr(_)
+                        | TypeSig::Primitive(ElementType::IntPtr | ElementType::UIntPtr)
+                ) =>
+        {
+            Ok(Some(Intrinsic::Region(address)))
+        }
+        "register" | "region" => Err(format!("Invalid Koh {kind} intrinsic signature")),
+        _ => Err(format!("Unsupported Koh intrinsic '{kind}'")),
+    }
+}
+
+pub(crate) fn method(resolver: &Resolver<'_>, method: Definition) -> Result<(), String> {
+    if intrinsic(resolver, method)?.is_some() {
+        return Err("Koh hardware intrinsic cannot compile its desktop body as an entry".into());
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::payload;
+    use rstest::rstest;
+
+    const VALID: &[u8] = b"\x01\x00\x08register\x40\xff\x00\x00\x00\x00";
+
+    #[test]
+    fn intrinsic_payload_round_trip_and_truncation() {
+        assert_eq!(payload(VALID).unwrap(), ("register", 0xff40));
+        for end in 0..VALID.len() {
+            assert!(payload(&VALID[..end]).is_err(), "prefix {end}");
+        }
+    }
+
+    #[rstest]
+    #[case(b"\x02\x00\x08register\x40\xff\x00\x00\x00\x00")]
+    #[case(b"\x01\x00\xff")]
+    #[case(b"\x01\x00\x01\xfe\x40\xff\x00\x00\x00\x00")]
+    #[case(b"\x01\x00\x08register\x40\xff\x00\x00\x01\x00")]
+    #[case(b"\x01\x00\x08register\x40\xff\x00\x00\x00\x00\x00")]
+    #[case(b"\x01\x00\x80\x08register\x40\xff\x00\x00\x00\x00")]
+    fn invalid_intrinsic_payload_is_diagnostic(#[case] bytes: &[u8]) {
+        assert!(payload(bytes).unwrap_err().contains("intrinsic attribute"));
+    }
 }

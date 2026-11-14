@@ -2,9 +2,7 @@ namespace Koh.GameBoy;
 
 /// <summary>
 /// Marks a <c>Hardware</c>/<c>Gb</c> member as a compiler intrinsic: the property/method body is the
-/// desktop implementation, and the attribute is the ROM implementation. The Koh CIL frontend matches
-/// this attribute by simple type name (it never references <c>Koh.GameBoy</c>), so it stays a plain,
-/// dependency-free marker.
+/// desktop implementation, and the attribute is the ROM implementation.
 /// </summary>
 /// <param name="kind">
 /// <c>"register"</c> (a memory-mapped I/O byte, <paramref name="address"/> is its fixed address),
