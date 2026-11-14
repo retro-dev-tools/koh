@@ -202,6 +202,61 @@ impl<'a> Assembly<'a> {
         &self.metadata
     }
 
+    pub fn method_signature(&self, token: u32) -> Result<clrmeta::MethodSig, String> {
+        let method = self.method(token)?;
+        let name = self.method_name(token)?;
+        let blob = self
+            .metadata
+            .blobs
+            .get(method.signature)
+            .map_err(|e| format!("{name}: {e}"))?;
+        let signature =
+            crate::signature::method_definition(blob).map_err(|e| format!("{name}: {e}"))?;
+        if (method.flags & 0x10 != 0) == (signature.calling_convention.0 & 0x20 != 0) {
+            return Err(format!(
+                "{name}: static/instance signature disagrees with method flags"
+            ));
+        }
+        Ok(signature)
+    }
+
+    pub fn local_types(&self, token: u32) -> Result<Vec<clrmeta::TypeSig>, String> {
+        let name = self.method_name(token)?;
+        let body = self.method_body(token)?;
+        if body.local_signature == 0 {
+            return Ok(Vec::new());
+        }
+        let row =
+            &self.metadata.stand_alone_sigs[(body.local_signature & 0x00ff_ffff) as usize - 1];
+        let blob = self
+            .metadata
+            .blobs
+            .get(row.signature)
+            .map_err(|e| format!("{name} locals: {e}"))?;
+        crate::signature::locals(blob).map_err(|e| format!("{name} locals: {e}"))
+    }
+
+    pub fn field_signature(&self, token: u32) -> Result<clrmeta::TypeSig, String> {
+        if token >> 24 != 4 {
+            return Err(format!("Expected Field token, got 0x{token:08x}"));
+        }
+        let field = (token & 0x00ff_ffff)
+            .checked_sub(1)
+            .and_then(|index| self.metadata.fields.get(index as usize))
+            .ok_or_else(|| format!("Invalid Field token 0x{token:08x}"))?;
+        let name = self
+            .metadata
+            .strings
+            .get(field.name)
+            .map_err(|e| e.to_string())?;
+        let blob = self
+            .metadata
+            .blobs
+            .get(field.signature)
+            .map_err(|e| format!("{name}: {e}"))?;
+        crate::signature::field(blob).map_err(|e| format!("{name}: {e}"))
+    }
+
     pub fn method(&self, token: u32) -> Result<&clrmeta::MethodDefRow, String> {
         if token >> 24 != 6 {
             return Err(format!("Expected MethodDef token, got 0x{token:08x}"));

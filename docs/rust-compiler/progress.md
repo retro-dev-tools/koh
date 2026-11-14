@@ -1,7 +1,7 @@
 # Native CIL compiler migration (PR #55)
 
 Status: source audit and empirical baseline recorded; native raw metadata/body
-reader and CIL encoding decoder implemented. No
+reader, CIL encoding decoder and bounded signatures implemented. No
 executable native compiler is integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
 
@@ -134,3 +134,25 @@ Linux, Windows and macOS. [Rust workflow](https://github.com/retro-dev-tools/koh
 and [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43630616487).
 These results precede the decoder commit and must not be described as its hosted
 validation.
+
+## Signature increment
+
+The [bounded signature layer](signatures.md) reads methods, fields, locals,
+TypeSpecs and MethodSpecs into the metadata library's existing result types.
+It corrects signed compressed lower-bound handling, bounds recursion/counts,
+preserves modifiers/generic shapes, separates MethodDef from call-site conventions,
+and accepts modern .NET ref fields without claiming their execution is implemented.
+Real Roslyn fixture assertions cover generic identities, byref/pointer parameters,
+rectangular-array fields and function pointers in Debug/Release PE32/PE32+ images.
+
+The initial signature run failed 47 cases before implementation. The current
+workspace run reports **295 tests run: 295 passed, 0 skipped**, exit 0, including
+63 new signature cases (119 compiler infrastructure cases in total). Command:
+`cargo nextest run --workspace --all-features --locked`, with `KOH_DOTNET` selecting
+SDK 10.0.115. Completed log: `/tmp/koh-signature-nextest.log`.
+
+All 14 hosted checks passed for preceding decoder head `2340e29`, including the
+three native host jobs. [Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43631738227)
+and [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43631738198).
+Signature-head hosted validation remains separate. No legacy compiler method is
+retired and no native ROM generation is claimed by these parsing tests.

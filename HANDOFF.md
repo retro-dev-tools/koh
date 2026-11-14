@@ -5,6 +5,14 @@ Baseline: integrated linker migration `9cd1472`. Draft PR #55 already exists.
 Current production pipeline remains the C# compiler; no replacement claims.
 Source audits have landed in `4bf619d`: all 565 legacy methods accounted for.
 
+Bounded signature parsing and Assembly signature accessors are now implemented.
+The review caught modern ref-field support and MethodDef/call-site context gaps;
+both are fixed and covered. See `docs/rust-compiler/signatures.md`.
+Latest workspace nextest: 295/295 passed, including 63 signature-specific cases.
+Keep the full attachment assignment active; this increment is not the migration.
+Next: assembly identity/reference/member binding, then verified lowering and a
+real native C# to ELF to ROM execution. Do not replace the goal with reader tests.
+
 ## Concurrent audit ownership
 
 - Root: native compiler tests and implementation. `rust/koh-compile` now contains

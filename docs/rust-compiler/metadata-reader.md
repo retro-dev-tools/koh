@@ -24,9 +24,10 @@ tables stream without validating its range. The native boundary checks every
 stream before parsing tables, rejects duplicates/overlap/header overlap, checks
 table byte requirements using the library's row-size calculation, and limits
 total rows before allocation. Unsupported row layouts are rejected explicitly.
-Signature parsing is not yet exposed by this increment: its recursive parser
-and unbounded parameter allocation need a separately tested depth/count boundary.
-No general malformed-input safety claim extends to that unused API.
+Signatures use Koh's isolated [bounded parser](signatures.md), retaining clrmeta's
+type/result structs. The dependency's recursive signature parser is not called:
+its allocations/nesting are unbounded and its compressed signed-integer reader
+does not implement ECMA's width-dependent sign extension.
 
 ## Implemented boundary
 
@@ -34,6 +35,8 @@ No general malformed-input safety claim extends to that unused API.
 - 64 MiB image and 262,144 combined metadata-row limits, with diagnostics.
 - IL-only CLI header, one assembly/module, compressed metadata tables (`#~`).
 - Entry-point MethodDef token, declaring-type/method names and raw method tables.
+- Bounded method/field/local signatures, including definition-specific method
+  conventions and static/instance flag agreement.
 - Tiny/fat method bodies with bounded code ranges, maxstack, local signature,
   initlocals and extra-section presence preserved. Extra sections are not yet
   decoded; exposing their flag does not claim exception execution support.

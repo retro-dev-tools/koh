@@ -74,9 +74,60 @@ fn reads_roslyn_assembly(assemblies: &Assemblies, #[case] configuration: usize) 
     let add = assembly.method_body(0x06000001 + add as u32).unwrap();
     assert!(add.il.contains(&0x58));
     for method in 1..=assembly.metadata().method_defs.len() {
-        let body = assembly.method_body(0x06000000 | method as u32).unwrap();
+        let token = 0x06000000 | method as u32;
+        let body = assembly.method_body(token).unwrap();
         koh_compile::cil::decode(body.il).unwrap();
+        assembly.method_signature(token).unwrap();
+        assembly.local_types(token).unwrap();
     }
+    for field in 1..=assembly.metadata().fields.len() {
+        assembly.field_signature(0x04000000 | field as u32).unwrap();
+    }
+    let echo = names
+        .iter()
+        .position(|name| name == "Program::Echo")
+        .unwrap();
+    let echo = assembly.method_signature(0x06000001 + echo as u32).unwrap();
+    assert_eq!(echo.generic_param_count, 1);
+    assert_eq!(echo.params, vec![clrmeta::TypeSig::MVar(0)]);
+    assert_eq!(echo.return_type, clrmeta::TypeSig::MVar(0));
+    let update = names
+        .iter()
+        .position(|name| name == "Program::Update")
+        .unwrap();
+    assert_eq!(
+        assembly
+            .method_signature(0x06000001 + update as u32)
+            .unwrap()
+            .params,
+        vec![
+            clrmeta::TypeSig::ByRef(Box::new(clrmeta::TypeSig::Primitive(
+                clrmeta::ElementType::I4
+            ))),
+            clrmeta::TypeSig::ByRef(Box::new(clrmeta::TypeSig::Primitive(
+                clrmeta::ElementType::I8
+            ))),
+            clrmeta::TypeSig::Ptr(Box::new(clrmeta::TypeSig::Primitive(
+                clrmeta::ElementType::U1
+            ))),
+        ]
+    );
+    let fields: Vec<_> = (1..=assembly.metadata().fields.len())
+        .map(|index| assembly.field_signature(0x04000000 | index as u32).unwrap())
+        .collect();
+    assert!(fields.contains(&clrmeta::TypeSig::ByRef(Box::new(
+        clrmeta::TypeSig::Primitive(clrmeta::ElementType::I4)
+    ))));
+    assert!(
+        fields
+            .iter()
+            .any(|field| matches!(field, clrmeta::TypeSig::Array { rank: 2, .. }))
+    );
+    assert!(
+        fields
+            .iter()
+            .any(|field| matches!(field, clrmeta::TypeSig::FnPtr(_)))
+    );
     let exception = names
         .iter()
         .position(|name| name == "Program::WithException")
