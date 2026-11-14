@@ -120,3 +120,7 @@ Rust model uses serde's default external enum tagging and snake_case field names
 The compiler passes the same model JSON through `koh-link --emit-elf -o file.o`;
 this is a documented process API, not another persisted object format. Deserialized
 models must pass `Object::validate` before ELF writing or linking.
+
+Canonical ELF output is limited to 64 MiB, including alignment padding, metadata
+and tables. The writer checks a conservative layout budget before file allocation;
+NOBITS logical size does not count as payload bytes.

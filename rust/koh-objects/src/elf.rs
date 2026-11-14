@@ -1,21 +1,32 @@
 use crate::*;
 use object::write::elf::{FileHeader, SectionHeader, Sym, Writer};
 use object::{Endianness, Object as _, ObjectSection as _, ObjectSymbol as _, elf};
+const MAX_ELF_SIZE: usize = 64 * 1024 * 1024;
 const FLAGS: u32 = 0x4b4f4801;
 const NOTE: &[u8] = b"\x04\0\0\0\x08\0\0\0\x01\0\0\0Koh\0SM83\x01\0\0\0";
 
 #[derive(Default)]
-struct Bytes(Vec<u8>);
+struct Bytes(Vec<u8>, bool);
 impl Bytes {
     fn byte(&mut self, v: u8) {
-        self.0.push(v);
+        if self.0.len() < MAX_ELF_SIZE {
+            self.0.push(v);
+        } else {
+            self.1 = true;
+        }
     }
     fn word(&mut self, v: u32) {
-        self.0.extend(v.to_le_bytes());
+        for byte in v.to_le_bytes() {
+            self.byte(byte);
+        }
     }
     fn text(&mut self, v: &str) {
         self.word(v.len() as u32);
-        self.0.extend(v.as_bytes());
+        if v.len() <= MAX_ELF_SIZE - self.0.len() {
+            self.0.extend(v.as_bytes());
+        } else {
+            self.1 = true;
+        }
     }
     fn source(&mut self, v: &Provenance) {
         self.text(&v.file);
@@ -239,7 +250,7 @@ impl<'a> Cursor<'a> {
         Ok(stack.pop().unwrap().0)
     }
 }
-fn metadata(object: &Object, order: &[usize]) -> Vec<u8> {
+fn metadata(object: &Object, order: &[usize]) -> Result<Vec<u8>, String> {
     let mut b = Bytes::default();
     b.word(1);
     b.word(object.sections.len() as u32);
@@ -290,6 +301,9 @@ fn metadata(object: &Object, order: &[usize]) -> Vec<u8> {
                 e.expression(&p.expression);
             }
             b.word(e.0.len() as u32);
+            if e.1 || e.0.len() > MAX_ELF_SIZE - b.0.len() {
+                return Err("ELF exceeds 64 MiB output budget".into());
+            }
             b.0.extend(e.0);
         }
     }
@@ -298,7 +312,10 @@ fn metadata(object: &Object, order: &[usize]) -> Vec<u8> {
         b.byte(s.binding as u8);
         b.optional_source(&s.source)
     }
-    b.0
+    if b.1 {
+        return Err("ELF exceeds 64 MiB output budget".into());
+    }
+    Ok(b.0)
 }
 fn simple(e: &RelocationExpr) -> Option<(Option<usize>, i32)> {
     match e {
@@ -334,7 +351,30 @@ pub fn write_elf(object: &Object) -> Result<Vec<u8>, String> {
         matches!(object.symbols[*i].definition, SymbolDefinition::Import)
             || object.symbols[*i].binding == SymbolBinding::Exported
     });
-    let meta = metadata(object, &order);
+    let meta = metadata(object, &order)?;
+    let mut budget = 52u64;
+    for section in &object.sections {
+        let alignment = if section.align_offset == 0 {
+            1u64 << section.align
+        } else {
+            1
+        };
+        budget = (budget + alignment - 1) & !(alignment - 1);
+        budget += section.data.len() as u64;
+        if budget > MAX_ELF_SIZE as u64 {
+            return Err("ELF exceeds 64 MiB output budget".into());
+        }
+    }
+    budget += meta.len() as u64 + 1024;
+    for section in &object.sections {
+        budget += section.name.len() as u64 + 1 + section.patches.len() as u64 * 12 + 128;
+    }
+    for symbol in &object.symbols {
+        budget += symbol.name.len() as u64 + 32;
+    }
+    if budget > MAX_ELF_SIZE as u64 {
+        return Err("ELF exceeds 64 MiB output budget".into());
+    }
     let mut out = Vec::new();
     let mut header = Vec::new();
     {

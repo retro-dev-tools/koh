@@ -408,3 +408,20 @@ fn standard_alignment_mirrors_zero_offset_constraints() {
     );
     assert_eq!(read_elf(&bytes).unwrap().sections[1].align_offset, 1);
 }
+
+#[test]
+fn alignment_padding_is_bounded_before_file_allocation() {
+    let mut value = Object::default();
+    for index in 0..1025 {
+        value.sections.push(Section {
+            name: format!("s{index}"),
+            align: 16,
+            size: 1,
+            data: vec![0],
+            ..Default::default()
+        });
+    }
+    assert!(write_elf(&value).unwrap_err().contains("64 MiB"));
+    value.sections.truncate(2);
+    assert!(read_elf(&write_elf(&value).unwrap()).is_ok());
+}
