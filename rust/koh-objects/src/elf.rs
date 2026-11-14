@@ -250,7 +250,7 @@ impl<'a> Cursor<'a> {
         Ok(stack.pop().unwrap().0)
     }
 }
-fn metadata(object: &Object, order: &[usize]) -> Result<Vec<u8>, String> {
+fn metadata(object: &Object, symbol_indices: &[u32]) -> Result<Vec<u8>, String> {
     let mut b = Bytes::default();
     b.word(1);
     b.word(object.sections.len() as u32);
@@ -308,7 +308,7 @@ fn metadata(object: &Object, order: &[usize]) -> Result<Vec<u8>, String> {
         }
     }
     for (original, s) in object.symbols.iter().enumerate() {
-        b.word(order.iter().position(|x| *x == original).unwrap() as u32 + 1);
+        b.word(symbol_indices[original]);
         b.byte(s.binding as u8);
         b.optional_source(&s.source)
     }
@@ -351,7 +351,11 @@ pub fn write_elf(object: &Object) -> Result<Vec<u8>, String> {
         matches!(object.symbols[*i].definition, SymbolDefinition::Import)
             || object.symbols[*i].binding == SymbolBinding::Exported
     });
-    let meta = metadata(object, &order)?;
+    let mut symbol_indices = vec![0u32; order.len()];
+    for (index, original) in order.iter().enumerate() {
+        symbol_indices[*original] = index as u32 + 1;
+    }
+    let meta = metadata(object, &symbol_indices)?;
     let mut budget = 52u64;
     for section in &object.sections {
         let alignment = if section.align_offset == 0 {
@@ -453,9 +457,7 @@ pub fn write_elf(object: &Object) -> Result<Vec<u8>, String> {
             let offset = w.write_align_relocation();
             for p in &s.patches {
                 let (symbol, addend) = simple(&p.expression).unwrap_or((None, 0));
-                let r_sym = symbol
-                    .map(|x| order.iter().position(|i| *i == x).unwrap() as u32 + 1)
-                    .unwrap_or(0);
+                let r_sym = symbol.map(|x| symbol_indices[x]).unwrap_or(0);
                 w.write_relocation(
                     true,
                     &object::write::elf::Rel {
@@ -570,10 +572,13 @@ pub fn read_elf(data: &[u8]) -> Result<Object, String> {
     if ns > 65000 || ny > 0xfffffe {
         return Err("ELF32 table limit exceeded".into());
     }
+    if file.symbols().count() != ny {
+        return Err("ELF symbol count differs from metadata".into());
+    }
     let mut copied_data = 0usize;
     let mut object = Object::default();
     let mut pending = Vec::new();
-    let mut symbol_ids = Vec::new();
+    let mut symbol_ids = vec![usize::MAX; ny + 1];
     for i in 0..ns {
         let raw = file
             .section_by_index(object::SectionIndex(i + 1))
@@ -681,9 +686,12 @@ pub fn read_elf(data: &[u8]) -> Result<Object, String> {
             source,
         });
     }
-    for _ in 0..ny {
+    for original in 0..ny {
         let index = c.word()? as usize;
-        symbol_ids.push(index);
+        if index == 0 || index > ny || symbol_ids[index] != usize::MAX {
+            return Err("Invalid or duplicate ELF symbol index".into());
+        }
+        symbol_ids[index] = original;
         let binding = match c.byte()? {
             0 => SymbolBinding::Local,
             1 => SymbolBinding::Exported,
@@ -736,9 +744,9 @@ pub fn read_elf(data: &[u8]) -> Result<Object, String> {
         let expression = if symbol == 0 {
             RelocationExpr::Literal(addend)
         } else {
-            let index = symbol_ids
-                .iter()
-                .position(|x| *x == symbol as usize)
+            let index = *symbol_ids
+                .get(symbol as usize)
+                .filter(|index| **index != usize::MAX)
                 .ok_or("Unknown RELA symbol")?;
             let value = RelocationExpr::Symbol(SymbolId(index));
             if addend == 0 {

@@ -425,3 +425,61 @@ fn alignment_padding_is_bounded_before_file_allocation() {
     value.sections.truncate(2);
     assert!(read_elf(&write_elf(&value).unwrap()).is_ok());
 }
+
+#[test]
+fn dense_symbol_indices_preserve_interleaved_bindings_and_relocations() {
+    let mut value = object();
+    value.symbols.clear();
+    for index in 0..2000 {
+        value.symbols.push(Symbol {
+            name: format!("symbol{index}"),
+            binding: if index % 3 == 0 {
+                SymbolBinding::Exported
+            } else {
+                SymbolBinding::Local
+            },
+            definition: if index % 3 == 1 {
+                SymbolDefinition::Import
+            } else {
+                SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: 0,
+                }
+            },
+            source: None,
+        });
+    }
+    value.sections[0]
+        .patches
+        .push(patch(RelocationExpr::Symbol(SymbolId(0))));
+    let mut last = patch(RelocationExpr::Symbol(SymbolId(1999)));
+    last.offset = 2;
+    value.sections[0].patches.push(last);
+    let bytes = write_elf(&value).unwrap();
+    let restored = read_elf(&bytes).unwrap();
+    assert_eq!(format!("{restored:?}"), format!("{value:?}"));
+    assert_eq!(write_elf(&restored).unwrap(), bytes);
+    let parsed =
+        object::read::elf::ElfFile32::<object::Endianness>::parse(bytes.as_slice()).unwrap();
+    let metadata = parsed
+        .sections()
+        .filter(|section| section.name().ok() == Some(".koh.meta"))
+        .last()
+        .unwrap();
+    let (offset, size) = metadata.file_range().unwrap();
+    let records = (offset + size) as usize - value.symbols.len() * 6;
+    let first = bytes[records..records + 4].to_vec();
+    for index in [
+        first,
+        2001u32.to_le_bytes().to_vec(),
+        0u32.to_le_bytes().to_vec(),
+    ] {
+        let mut malformed = bytes.clone();
+        malformed[records + 6..records + 10].copy_from_slice(&index);
+        assert!(
+            read_elf(&malformed)
+                .unwrap_err()
+                .contains("Invalid or duplicate ELF symbol index")
+        );
+    }
+}

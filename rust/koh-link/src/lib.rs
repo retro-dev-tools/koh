@@ -229,6 +229,7 @@ pub fn link(objects: &[Object], options: &LinkOptions) -> Result<LinkResult, Str
         groups: &groups,
         located: &located,
         exports,
+        section_names: names,
     };
     let mut symbols = Vec::new();
     let mut lines = Vec::new();
@@ -376,6 +377,7 @@ struct Context<'a> {
     groups: &'a [Group],
     located: &'a [Placement],
     exports: HashMap<String, (usize, usize)>,
+    section_names: HashMap<String, usize>,
 }
 impl Context<'_> {
     fn symbol(&self, oi: usize, id: SymbolId) -> Result<(i32, Option<u32>), String> {
@@ -399,9 +401,9 @@ impl Context<'_> {
         match r {
             SectionRef::Local(id) => Ok(self.placements[oi][id.0].group),
             SectionRef::External(n) => self
-                .groups
-                .iter()
-                .position(|s| s.name == *n)
+                .section_names
+                .get(n)
+                .copied()
                 .ok_or_else(|| format!("Undefined section '{n}'")),
         }
     }

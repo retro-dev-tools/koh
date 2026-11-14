@@ -587,6 +587,7 @@ fn all_expression_queries_and_unary_operators_resolve() {
         groups: &groups,
         located: &located,
         exports: HashMap::new(),
+        section_names: HashMap::from([("banked".into(), 0)]),
     };
     let local = SectionRef::Local(SectionId(0));
     let external = SectionRef::External("banked".into());
