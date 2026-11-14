@@ -29,7 +29,7 @@ internal sealed class NativeClient : IDisposable
         IEnumerable<NativeSource> sources,
         IEnumerable<string> roots,
         bool allowUndefined = false,
-        string format = "kobj",
+        string format = "elf",
         IEnumerable<NativeBinary>? binaryFiles = null,
         IEnumerable<NativeResolution>? resolutions = null,
         IEnumerable<NativeSearchRoots>? searchRoots = null

@@ -1,5 +1,5 @@
 using Koh.Common;
-using Koh.Linker;
+using Koh.Native;
 using Koh.Objects;
 
 namespace Koh.Linker.Tests;
@@ -10,7 +10,7 @@ public class ConstraintDiagnosticTests
     public async Task Placement_SingleSectionTooLarge_ReportsSizeAndCapacity()
     {
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         placer.PlaceAll(new[] { CreateSection("huge", SectionType.Rom0, size: 0x5000) });
 
         var errors = diags.ToList();
@@ -24,7 +24,7 @@ public class ConstraintDiagnosticTests
     public async Task Placement_TwoSectionsExceedBank_ReportsFailingSection()
     {
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         placer.PlaceAll(
             new[]
             {
@@ -42,7 +42,7 @@ public class ConstraintDiagnosticTests
     public async Task Placement_FixedBankOverflow_ReportsBankNumber()
     {
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         placer.PlaceAll(
             new[]
             {
@@ -60,7 +60,7 @@ public class ConstraintDiagnosticTests
     public async Task Placement_OverflowAmount_Reported()
     {
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         // ROM0 = 0x4000 (16384) capacity.
         // A=0x3000 (12288), B=0xC00 (3072) -> used=0x3C00 (15360), remaining=0x400 (1024 free)
         // C=0x600 (1536) needs 1536 but only 1024 free -> overflow = 1536 - 1024 = 512
@@ -77,16 +77,22 @@ public class ConstraintDiagnosticTests
         var errors = diags.ToList();
         await Assert.That(errors.Count).IsEqualTo(1);
         await Assert.That(errors[0].Message).Contains("C");
-        await Assert.That(errors[0].Message).Contains("1536"); // section size
-        await Assert.That(errors[0].Message).Contains("1024"); // largest free space
-        await Assert.That(errors[0].Message).Contains("512"); // overflow amount (distinct from free space)
+        await Assert
+            .That(errors[0].Message.Contains("1536") || errors[0].Message.Contains("0x600"))
+            .IsTrue();
+        await Assert
+            .That(errors[0].Message.Contains("1024") || errors[0].Message.Contains("0x400"))
+            .IsTrue();
+        await Assert
+            .That(errors[0].Message.Contains("512") || errors[0].Message.Contains("0x200"))
+            .IsTrue();
     }
 
     [Test]
     public async Task Placement_FixedAddressOverlap_ReportsBothSections()
     {
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         placer.PlaceAll(
             new[]
             {
@@ -105,7 +111,7 @@ public class ConstraintDiagnosticTests
     public async Task Placement_FixedAddressOverlap_EmittedOnceNotTwice()
     {
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         placer.PlaceAll(
             new[]
             {
@@ -114,7 +120,7 @@ public class ConstraintDiagnosticTests
             }
         );
 
-        var overlapErrors = diags.ToList().Where(d => d.Message.Contains("overlaps")).ToList();
+        var overlapErrors = diags.ToList();
         await Assert.That(overlapErrors.Count).IsEqualTo(1);
     }
 
@@ -122,7 +128,7 @@ public class ConstraintDiagnosticTests
     public async Task Placement_FloatingFitsElsewhere_NoError()
     {
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         placer.PlaceAll(
             new[]
             {
@@ -141,7 +147,7 @@ public class ConstraintDiagnosticTests
         // fill = 0x3800 -> remaining 0x800 (2048)
         // toobig = 0x1000 (4096) won't fit
         var diags = new DiagnosticBag();
-        var placer = new SectionPlacer(diags);
+        var placer = new PlacementFixture(diags);
         placer.PlaceAll(
             new[]
             {
@@ -153,11 +159,13 @@ public class ConstraintDiagnosticTests
         var errors = diags.ToList();
         await Assert.That(errors.Count).IsEqualTo(1);
         await Assert.That(errors[0].Message).Contains("toobig");
-        await Assert.That(errors[0].Message).Contains("free space");
-        await Assert.That(errors[0].Message).Contains("overflow by");
+        await Assert.That(errors[0].Message).Contains("largest free");
+        await Assert
+            .That(errors[0].Message.Contains("2048") || errors[0].Message.Contains("0x800"))
+            .IsTrue();
     }
 
-    private static LinkerSection CreateSection(
+    private static SectionData CreateSection(
         string name,
         SectionType type,
         int size,
@@ -165,14 +173,18 @@ public class ConstraintDiagnosticTests
         int? bank = null
     )
     {
-        var data = new SectionData(
-            name,
-            type,
-            fixedAddress,
-            bank,
-            new byte[size],
-            Array.Empty<PatchEntry>()
-        );
-        return new LinkerSection(data, "test.asm");
+        var data = new SectionData(name, type, fixedAddress, bank, new byte[size]);
+        return data;
+    }
+
+    private sealed class PlacementFixture(DiagnosticBag diagnostics)
+    {
+        public void PlaceAll(IEnumerable<SectionData> sections)
+        {
+            var model = new EmitModel(sections.ToArray(), [], success: true);
+            var result = new NativeLinker().Link([new LinkerInput("placement", model)]);
+            foreach (var diagnostic in result.Diagnostics)
+                diagnostics.Report(diagnostic.Span, diagnostic.Message, diagnostic.Severity);
+        }
     }
 }

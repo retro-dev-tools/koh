@@ -10,9 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../../src/Asm/Koh.Native/Koh.Native.csproj" />
     <ProjectReference Include="..\..\..\src\Compiler\Koh.Build.Tasks\Koh.Build.Tasks.csproj" />
     <ProjectReference Include="..\..\..\src\Compiler\Koh.Compiler\Koh.Compiler.csproj" />
-    <ProjectReference Include="..\..\..\src\Link\Koh.Linker\Koh.Linker.csproj" />
     <ProjectReference Include="..\..\..\src\Emulator\Koh.Emulator\Koh.Emulator.csproj" />
     <ProjectReference Include="..\..\..\src\Compiler\Koh.GameBoy\Koh.GameBoy.csproj" />
     <ProjectReference Include="..\..\..\src\Emulator\Koh.Debugger\Koh.Debugger.csproj" />

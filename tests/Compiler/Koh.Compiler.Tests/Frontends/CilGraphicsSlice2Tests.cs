@@ -11,7 +11,7 @@ using Koh.Objects;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using KohDiagnosticSeverity = Koh.Common.DiagnosticSeverity;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Frontends;
 
@@ -122,7 +122,7 @@ public class CilGraphicsSlice2Tests
 
     private static GameBoySystem Load(EmitModel model, out int start)
     {
-        var link = new LinkerType().Link([new Koh.Linker.LinkerInput("cil", model)]);
+        var link = new LinkerType().Link([new Koh.Native.LinkerInput("cil", model)]);
         var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
         start = 0x100;
         var gb = new GameBoySystem(CartridgeFactory.Load(rom), HardwareMode.Dmg);
@@ -185,7 +185,7 @@ public class CilGraphicsSlice2Tests
         await Assert.That(IrVerifier.Verify(module)).IsEmpty();
 
         var model = Compile(AlignedSource, OptimizationLevel.Debug, optimize: false);
-        var link = new LinkerType().Link([new Koh.Linker.LinkerInput("game", model)]);
+        var link = new LinkerType().Link([new Koh.Native.LinkerInput("game", model)]);
         await Assert.That(link.Success).IsTrue();
 
         var pad = link.Symbols.Single(s => s.Name == "Program.Pad");

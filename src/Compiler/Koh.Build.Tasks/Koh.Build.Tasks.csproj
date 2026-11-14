@@ -17,7 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Koh.Compiler\Koh.Compiler.csproj" />
-    <ProjectReference Include="..\..\Link\Koh.Linker\Koh.Linker.csproj" />
+    <ProjectReference Include="..\..\Asm\Koh.Native\Koh.Native.csproj" />
   </ItemGroup>
 
 </Project>

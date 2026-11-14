@@ -9,8 +9,6 @@
       "src\\Common\\Koh.Common\\Koh.Common.csproj",
       "src\\Common\\Koh.Objects\\Koh.Objects.csproj",
       "src\\Common\\Koh.Opcodes\\Koh.Opcodes.csproj",
-      "src\\Link\\Koh.Link\\Koh.Link.csproj",
-      "src\\Link\\Koh.Linker\\Koh.Linker.csproj",
       "src\\Asm\\Koh.Lsp\\Koh.Lsp.csproj",
       "src\\Emulator\\Koh.Boot\\Koh.Boot.csproj",
       "src\\Emulator\\Koh.Emulator\\Koh.Emulator.csproj",

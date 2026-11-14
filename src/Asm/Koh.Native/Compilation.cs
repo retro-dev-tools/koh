@@ -87,7 +87,7 @@ public sealed class Compilation
             .ToArray();
     }
 
-    private NativeResponse Request(string op, string format = "kobj")
+    private NativeResponse Request(string op, string format = "elf")
     {
         lock (gate)
             return NativeClient.Shared.Request(
@@ -166,10 +166,10 @@ public sealed class Compilation
                 );
             return emitted = new EmitModel([], [], diagnostics);
         }
-        using var stream = new MemoryStream(
-            response.Data.Select(value => checked((byte)value)).ToArray()
+        return emitted = NativeObject.Read(
+            response.Object,
+            response.Data.Select(value => checked((byte)value)).ToArray(),
+            diagnostics
         );
-        var model = KobjReader.Read(stream);
-        return emitted = new EmitModel(model.Sections, model.Symbols, diagnostics);
     }
 }

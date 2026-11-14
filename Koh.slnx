@@ -12,8 +12,6 @@
     <Project Path="tests/Asm/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj" />
   </Folder>
   <Folder Name="/Link/">
-    <Project Path="src/Link/Koh.Link/Koh.Link.csproj" />
-    <Project Path="src/Link/Koh.Linker/Koh.Linker.csproj" />
     <Project Path="tests/Link/Koh.Linker.Tests/Koh.Linker.Tests.csproj" />
   </Folder>
   <Folder Name="/Compiler/">

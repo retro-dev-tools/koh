@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../Asm/Koh.Native/Koh.Native.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="../../Link/Koh.Link/Koh.Link.csproj" ReferenceOutputAssembly="false" />
     <None Include="*.asm" />
     <None Include="*.inc" />
   </ItemGroup>
@@ -9,17 +8,17 @@
     <MSBuild Projects="$(MSBuildThisFileDirectory)../../Asm/Koh.Native/Koh.Native.csproj" Targets="GetNativeHostAssemblerPath">
       <Output TaskParameter="TargetOutputs" PropertyName="KohAsmPath" />
     </MSBuild>
-    <MSBuild Projects="$(MSBuildThisFileDirectory)../../Link/Koh.Link/Koh.Link.csproj" Targets="GetTargetPath">
-      <Output TaskParameter="TargetOutputs" PropertyName="KohLinkDll" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)../../Asm/Koh.Native/Koh.Native.csproj" Targets="GetNativeHostLinkerPath">
+      <Output TaskParameter="TargetOutputs" PropertyName="KohLinkPath" />
     </MSBuild>
   </Target>
   <Target Name="AssembleBootRoms" AfterTargets="ResolveProjectReferences" DependsOnTargets="ResolveKohTools"
-          Inputs="@(None);$(KohAsmPath);$(KohLinkDll)" Outputs="$(IntermediateOutputPath)dmg_boot.bin;$(IntermediateOutputPath)cgb_boot.bin">
+          Inputs="@(None);$(KohAsmPath);$(KohLinkPath)" Outputs="$(IntermediateOutputPath)dmg_boot.bin;$(IntermediateOutputPath)cgb_boot.bin">
     <MakeDir Directories="$(IntermediateOutputPath)" />
-    <Exec Command="&quot;$(KohAsmPath)&quot; dmg_boot.asm -o &quot;$(IntermediateOutputPath)dmg_boot.kobj&quot;" WorkingDirectory="$(MSBuildThisFileDirectory)" />
-    <Exec Command="dotnet exec &quot;$(KohLinkDll)&quot; &quot;$(IntermediateOutputPath)dmg_boot.kobj&quot; -o &quot;$(IntermediateOutputPath)dmg_boot.bin&quot; --raw --size=100" WorkingDirectory="$(MSBuildThisFileDirectory)" />
-    <Exec Command="&quot;$(KohAsmPath)&quot; cgb_boot.asm -o &quot;$(IntermediateOutputPath)cgb_boot.kobj&quot;" WorkingDirectory="$(MSBuildThisFileDirectory)" />
-    <Exec Command="dotnet exec &quot;$(KohLinkDll)&quot; &quot;$(IntermediateOutputPath)cgb_boot.kobj&quot; -o &quot;$(IntermediateOutputPath)cgb_boot.bin&quot; --raw --size=900" WorkingDirectory="$(MSBuildThisFileDirectory)" />
+    <Exec Command="&quot;$(KohAsmPath)&quot; dmg_boot.asm -o &quot;$(IntermediateOutputPath)dmg_boot.o&quot;" WorkingDirectory="$(MSBuildThisFileDirectory)" />
+    <Exec Command="&quot;$(KohLinkPath)&quot; &quot;$(IntermediateOutputPath)dmg_boot.o&quot; -o &quot;$(IntermediateOutputPath)dmg_boot.bin&quot; --raw --size=100" WorkingDirectory="$(MSBuildThisFileDirectory)" />
+    <Exec Command="&quot;$(KohAsmPath)&quot; cgb_boot.asm -o &quot;$(IntermediateOutputPath)cgb_boot.o&quot;" WorkingDirectory="$(MSBuildThisFileDirectory)" />
+    <Exec Command="&quot;$(KohLinkPath)&quot; &quot;$(IntermediateOutputPath)cgb_boot.o&quot; -o &quot;$(IntermediateOutputPath)cgb_boot.bin&quot; --raw --size=900" WorkingDirectory="$(MSBuildThisFileDirectory)" />
   </Target>
   <Target Name="EmbedBootRoms" AfterTargets="AssembleBootRoms" BeforeTargets="CoreCompile">
     <ItemGroup>

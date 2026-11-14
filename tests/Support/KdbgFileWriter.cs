@@ -2,19 +2,12 @@ using System.IO;
 using System.Text;
 using Koh.Objects;
 
-namespace Koh.Linker;
-
-/// <summary>
-/// Writes the .kdbg binary format per design §9. Byte-packed, little-endian.
-/// Phase 1: no address-map coalescing, no expansion-pool deduplication.
-/// </summary>
+namespace Koh.TestSupport;
 public static class KdbgFileWriter
 {
     public static void Write(Stream output, DebugInfoBuilder builder)
     {
         using var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true);
-
-        // Build section payloads into memory to compute offsets.
         byte[] stringPool = BuildStringPool(builder);
         byte[] sourceTable = BuildSourceTable(builder);
         byte[] scopeTable = builder.HasScopeData ? BuildScopeTable(builder) : [];
@@ -53,17 +46,15 @@ public static class KdbgFileWriter
             flags |= KdbgFormat.FlagExpansionPresent;
         if (builder.HasScopeData)
             flags |= KdbgFormat.FlagScopeTablePresent;
-
-        // Header (32 bytes)
-        writer.Write(KdbgFormat.Magic); // 0..3
-        writer.Write(KdbgFormat.Version1); // 4..5
-        writer.Write(flags); // 6..7
-        writer.Write(stringPoolOffset); // 8..11
-        writer.Write(sourceTableOffset); // 12..15
-        writer.Write(scopeTableOffset); // 16..19
-        writer.Write(symbolTableOffset); // 20..23
-        writer.Write(addressMapOffset); // 24..27
-        writer.Write(expansionPoolOffset); // 28..31
+        writer.Write(KdbgFormat.Magic);
+        writer.Write(KdbgFormat.Version1);
+        writer.Write(flags);
+        writer.Write(stringPoolOffset);
+        writer.Write(sourceTableOffset);
+        writer.Write(scopeTableOffset);
+        writer.Write(symbolTableOffset);
+        writer.Write(addressMapOffset);
+        writer.Write(expansionPoolOffset);
 
         writer.Write(stringPool);
         writer.Write(sourceTable);
@@ -174,7 +165,7 @@ public static class KdbgFileWriter
         using var w = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
 
         long poolByteSizePos = ms.Position;
-        w.Write((uint)0); // reserve
+        w.Write((uint)0);
 
         var stackIdxToAbsoluteOffset = new uint[b.ExpansionStackIndexes.Count];
 

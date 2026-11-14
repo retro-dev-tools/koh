@@ -8,7 +8,7 @@ using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Samples;
 
@@ -137,7 +137,7 @@ public class GbGfxDemoTests
             throw new InvalidOperationException(
                 string.Join("; ", diagnostics.Select(d => d.Message))
             );
-        var link = new LinkerType().Link([new Koh.Linker.LinkerInput("gfxdemo", model)]);
+        var link = new LinkerType().Link([new Koh.Native.LinkerInput("gfxdemo", model)]);
         if (!link.Success || link.RomData is null)
             throw new InvalidOperationException(
                 string.Join("; ", link.Diagnostics.Select(d => d.Message))

@@ -1,10 +1,10 @@
 using Koh.Common;
 using Koh.Compiler;
 using Koh.Compiler.Frontends;
-using Koh.Linker;
+using Koh.Native;
 using Koh.Objects;
 using Microsoft.Build.Framework;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Build.Tasks;
 
@@ -106,7 +106,9 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         );
 
         var rom = link.RomData;
-        if (rom is null)
+        foreach (var diagnostic in link.Diagnostics)
+            Log.LogError(diagnostic.Message);
+        if (!link.Success || rom is null)
         {
             Log.LogError("Koh: the linker produced no ROM.");
             return false;
@@ -128,12 +130,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         if (EmitDebugInfo)
         {
             var kdbgPath = Path.ChangeExtension(OutputPath, ".kdbg");
-            var builder = new DebugInfoBuilder();
-
-            DebugInfoPopulator.Populate(builder, link);
-
-            using var kdbgStream = File.Create(kdbgPath);
-            KdbgFileWriter.Write(kdbgStream, builder);
+            File.WriteAllBytes(kdbgPath, link.DebugData);
 
             Log.LogMessage(MessageImportance.Normal, $"Koh: wrote {kdbgPath}.");
         }

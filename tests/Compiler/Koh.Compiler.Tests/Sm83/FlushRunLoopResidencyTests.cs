@@ -7,11 +7,11 @@ using Koh.Compiler.Frontends.Cil;
 using Koh.Compiler.Ir;
 using Koh.Compiler.Ir.Optimization;
 using Koh.Debugger;
-using Koh.Linker;
+using Koh.Native;
 using Koh.Opcodes;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Sm83;
 

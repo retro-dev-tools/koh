@@ -5,10 +5,10 @@ using Koh.Compiler.Frontends;
 using Koh.Compiler.Frontends.Cil;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
-using Koh.Linker;
+using Koh.Native;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Samples;
 

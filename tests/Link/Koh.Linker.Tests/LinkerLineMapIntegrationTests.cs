@@ -1,5 +1,4 @@
 using Koh.Common;
-using Koh.Linker;
 using Koh.Native;
 using Koh.Native.Syntax;
 using Koh.Objects;
@@ -33,19 +32,14 @@ public class LinkerLineMapIntegrationTests
     private static KdbgParsed LinkAndParseKdbg(string path, string source)
     {
         var input = AssembleToInput(path, source);
-        var linker = new Koh.Linker.Linker();
+        var linker = new NativeLinker();
         var result = linker.Link([input]);
         if (!result.Success)
             throw new InvalidOperationException(
                 $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
             );
 
-        var builder = new DebugInfoBuilder();
-        DebugInfoPopulator.Populate(builder, result);
-
-        using var ms = new MemoryStream();
-        KdbgFileWriter.Write(ms, builder);
-        return KdbgReader.Parse(ms.ToArray());
+        return KdbgReader.Parse(result.DebugData);
     }
 
     private static IReadOnlyList<(byte Bank, ushort Address)> LookupLine(

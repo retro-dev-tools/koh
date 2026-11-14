@@ -2,7 +2,7 @@ using System.Text.Json;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
 using Koh.Emulator.Cartridge;
-using Koh.Linker;
+using Koh.TestSupport;
 
 namespace Koh.Debugger.Tests;
 

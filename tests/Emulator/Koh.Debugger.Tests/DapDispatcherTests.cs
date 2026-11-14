@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
-using Koh.Linker;
+using Koh.TestSupport;
 
 namespace Koh.Debugger.Tests;
 

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Koh.Objects;
 
-namespace Koh.Linker;
+namespace Koh.TestSupport;
 
 public enum KdbgScopeKind : byte
 {
@@ -52,8 +52,6 @@ public sealed class DebugInfoBuilder
     );
 
     internal readonly record struct ExpansionFrameRecord(uint SourceFileId, uint Line);
-
-    /// <summary>Intern a string. Returns a 1-based ID; 0 is the "no string" sentinel.</summary>
     public uint InternString(string? value)
     {
         if (string.IsNullOrEmpty(value))
@@ -61,12 +59,10 @@ public sealed class DebugInfoBuilder
         if (_stringIndex.TryGetValue(value, out var existing))
             return existing;
         _strings.Add(value);
-        uint id = (uint)_strings.Count; // 1-based
+        uint id = (uint)_strings.Count;
         _stringIndex[value] = id;
         return id;
     }
-
-    /// <summary>Intern a source file path. Returns a 1-based ID; 0 = "no file".</summary>
     public uint InternSourceFile(string? path)
     {
         if (string.IsNullOrEmpty(path))
@@ -79,8 +75,6 @@ public sealed class DebugInfoBuilder
         _sourceFileIndex[path] = id;
         return id;
     }
-
-    /// <summary>Intern a scope. Returns a 1-based ID; 0 = global scope sentinel.</summary>
     public uint InternScope(KdbgScopeKind kind, uint parentScopeId, string? name)
     {
         _scopes.Add(new ScopeRecord(kind, parentScopeId, InternString(name)));
@@ -126,8 +120,6 @@ public sealed class DebugInfoBuilder
 
         if (expansionStack is { Count: > 0 })
         {
-            // Store the index into _expansionStackIndexes. At write time, this index
-            // is translated into a file-absolute byte offset into the expansion pool.
             expansionOffset = (uint)_expansionStackIndexes.Count;
             _expansionStackIndexes.Add((uint)_expansionPool.Count);
             foreach (var frame in expansionStack)
