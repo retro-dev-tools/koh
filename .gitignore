@@ -26,6 +26,7 @@ tests/fixtures/reference/
 BenchmarkDotNet.Artifacts/
 tests/fixtures/screenshots/
 scriptrun.log
+/target/
 *.png
 __pycache__/
 

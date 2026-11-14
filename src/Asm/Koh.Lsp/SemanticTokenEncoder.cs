@@ -1,5 +1,5 @@
-using Koh.Assembler.Syntax;
 using Koh.Common;
+using Koh.Native.Syntax;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace Koh.Lsp;
@@ -155,6 +155,8 @@ internal static class SemanticTokenEncoder
     internal static int ClassifyToken(SyntaxToken token)
     {
         var kind = token.Kind;
+        if (kind is SyntaxKind.LineCommentTrivia or SyntaxKind.BlockCommentTrivia)
+            return TypeComment;
 
         // Instruction keywords
         if (kind >= SyntaxKind.NopKeyword && kind <= SyntaxKind.LdhKeyword)

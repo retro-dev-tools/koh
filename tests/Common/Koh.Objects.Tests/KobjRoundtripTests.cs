@@ -1,8 +1,6 @@
-using Koh.Assembler;
-using Koh.Assembler.Binding;
-using Koh.Assembler.Symbols;
-using Koh.Assembler.Syntax;
 using Koh.Common;
+using Koh.Native;
+using Koh.Native.Syntax;
 using Koh.Objects;
 
 namespace Koh.Objects.Tests;

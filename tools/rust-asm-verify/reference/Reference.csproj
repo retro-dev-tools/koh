@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>koh-csharp-reference</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(KohReferenceRoot)/src/Asm/Koh.Assembler/Koh.Assembler.csproj" />
+    <ProjectReference Include="$(KohReferenceRoot)/src/Link/Koh.Linker/Koh.Linker.csproj" />
+    <ProjectReference Include="$(KohReferenceRoot)/src/Emulator/Koh.Emulator/Koh.Emulator.csproj" />
+  </ItemGroup>
+  <Target Name="RequirePinnedReference" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(KohReferenceRoot)' == ''" Text="Pass KohReferenceRoot pointing to the pinned historical checkout." />
+  </Target>
+</Project>

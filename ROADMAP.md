@@ -10,6 +10,13 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## Current condition
 
+- Native Rust assembler migration is under validation on `feat/rust-assembler`.
+  The format-independent object graph retains typed relocations, execution PC
+  context and expansion provenance; KOBJ v4 and RGBDS are loss-checked adapters.
+  The C# assembler and CLI are replaced; the language server uses a native bridge. See [implementation and validation](docs/rust-assembler.md)
+  and [format decisions](docs/rust-assembler-objects.md). Complete migration and
+  hosted cross-platform checks remain gates before replacing the default tool.
+
 - Shared diagnostics, opcodes, and object formats are separated from assembler, linker, compiler, emulator, and UI projects. Recent architecture commits deliberately removed compiler dependencies on assembler implementation details. Retain those boundaries; there is no demonstrated need for another restructure.
 - Tests cover individual components and compile and emulate sample games. CI builds on Linux and Windows, runs extension tests, publishes the emulator with NativeAOT on three host platforms, and builds the assembly 2048 ROM. These workflow definitions describe intended checks, not evidence that current CI passes.
 - Release automation creates platform archives, checksums, and draft releases. A draft-and-smoke-test gate already exists; improve and verify it rather than replacing it.

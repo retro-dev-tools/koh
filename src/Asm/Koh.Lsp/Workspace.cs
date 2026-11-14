@@ -1,9 +1,8 @@
-using Koh.Assembler;
-using Koh.Assembler.Binding;
-using Koh.Assembler.Syntax;
 using Koh.Common;
 using Koh.Lsp.Config;
 using Koh.Lsp.Projects;
+using Koh.Native;
+using Koh.Native.Syntax;
 using Koh.Objects;
 
 namespace Koh.Lsp;
@@ -272,8 +271,10 @@ internal sealed class Workspace
                 // The compilation has only the entrypoint tree. The binder resolves
                 // INCLUDE chains internally, so the entrypoint's semantic model
                 // contains all symbols from the include chain.
-                var entrypointTree = context.Compilation.SyntaxTrees[0];
-                return context.Compilation.GetSemanticModel(entrypointTree);
+                var documentTree = _documents.TryGetValue(uri, out var current)
+                    ? current.Tree
+                    : context.Compilation.SyntaxTrees[0];
+                return context.Compilation.GetSemanticModel(documentTree);
             }
 
             // Legacy standalone mode

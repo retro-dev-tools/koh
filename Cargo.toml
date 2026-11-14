@@ -1,0 +1,12 @@
+[workspace]
+members = ["rust/koh-asm"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[profile.release]
+lto = true
+strip = true

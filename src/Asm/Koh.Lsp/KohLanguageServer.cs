@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
-using Koh.Assembler.Syntax;
 using Koh.Common;
+using Koh.Native.Syntax;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Newtonsoft.Json.Linq;
 using StreamJsonRpc;
@@ -411,7 +411,13 @@ public sealed class KohLanguageServer(JsonRpc rpc)
 
         if (token.Kind == SyntaxKind.NumberLiteral)
         {
-            var val = Koh.Assembler.Binding.ExpressionEvaluator.ParseNumber(token.Text);
+            var numeric = Koh.Native.Compilation.Create(
+                SyntaxTree.Parse($"DEF __hover_value EQU {token.Text}")
+            );
+            long? val = numeric
+                .GetSemanticModel(numeric.SyntaxTrees[0])
+                .ResolveSymbol("__hover_value", 0)
+                ?.Value;
             if (val.HasValue)
                 return $"`${val.Value:X4}` = {val.Value} = `%{Convert.ToString(val.Value, 2)}`";
         }
@@ -978,7 +984,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
     private static void CollectInlayHints(
         SyntaxNode node,
         SourceText source,
-        Koh.Assembler.SemanticModel model,
+        Koh.Native.SemanticModel model,
         int startOffset,
         int endOffset,
         List<JObject> hints,
@@ -1021,7 +1027,7 @@ public sealed class KohLanguageServer(JsonRpc rpc)
                 continue;
 
             var symbol = model.ResolveSymbol(token.Text, token.Span.Start);
-            if (symbol is null)
+            if (symbol is null || symbol.Value is null)
                 continue;
             if (
                 symbol.Kind is not (Koh.Objects.SymbolKind.Label or Koh.Objects.SymbolKind.Constant)

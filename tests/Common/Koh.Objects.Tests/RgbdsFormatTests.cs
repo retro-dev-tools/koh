@@ -1,6 +1,5 @@
-using Koh.Assembler;
-using Koh.Assembler.Binding;
-using Koh.Assembler.Syntax;
+using Koh.Native;
+using Koh.Native.Syntax;
 using Koh.Objects;
 
 namespace Koh.Objects.Tests;
@@ -177,17 +176,9 @@ public class RgbdsFormatTests
             dw external_func
             """
         );
-        var options = new Koh.Assembler.Binding.BinderOptions { AllowUndefinedSymbols = true };
-        var model = Compilation.Create(options, tree).Emit();
-        await Assert.That(model.Success).IsTrue();
-
-        // The symbol "external_func" should be in the model as Imported
-        var importSym = model.Symbols.FirstOrDefault(s => s.Name == "external_func");
-        await Assert.That(importSym).IsNotNull();
-        await Assert.That(importSym!.Visibility).IsEqualTo(Koh.Objects.SymbolVisibility.Imported);
-
-        // Write to RGBDS format — should not throw
-        var bytes = WriteToBytes(model);
+        var options = new AssemblyOptions { AllowUndefinedSymbols = true };
+        var bytes = Compilation.Create(options, tree).EmitBytes("rgbds");
+        await Assert.That(SymbolType(bytes, "external_func")).IsEqualTo((byte)1);
         await Assert.That(bytes.Length).IsGreaterThan(20);
 
         // The symbol name should appear in the binary
@@ -204,29 +195,11 @@ public class RgbdsFormatTests
             dw external_func
             """
         );
-        var options = new Koh.Assembler.Binding.BinderOptions { AllowUndefinedSymbols = true };
-        var model = Compilation.Create(options, tree).Emit();
-        await Assert.That(model.Success).IsTrue();
-
-        // Verify the section has a patch
-        var section = model.Sections.First(s => s.Name == "Main");
-        await Assert.That(section.Patches.Count).IsGreaterThan(0);
-
-        // Write to RGBDS format
-        var bytes = WriteToBytes(model);
-
-        // The RPN should contain opcode 0x81 (RpnSymbol), NOT 0x80 (RpnLiteral)
-        // Search for 0x81 in the binary — it must appear in the patch RPN data
-        bool hasRpnSymbol = false;
-        for (int i = 0; i < bytes.Length; i++)
-        {
-            if (bytes[i] == 0x81)
-            {
-                hasRpnSymbol = true;
-                break;
-            }
-        }
-        await Assert.That(hasRpnSymbol).IsTrue();
+        var options = new AssemblyOptions { AllowUndefinedSymbols = true };
+        var bytes = Compilation.Create(options, tree).EmitBytes("rgbds");
+        var patches = RgbdsExpressionTests.DecodePatches(bytes);
+        await Assert.That(patches.Count).IsEqualTo(1);
+        await Assert.That(patches[0]).IsEqualTo("0:1:0:sym:external_func");
     }
 
     [Test]
@@ -240,7 +213,7 @@ public class RgbdsFormatTests
             my_label: nop
             """
         );
-        var options = new Koh.Assembler.Binding.BinderOptions { AllowUndefinedSymbols = true };
+        var options = new AssemblyOptions { AllowUndefinedSymbols = true };
         var model = Compilation.Create(options, tree).Emit();
         await Assert.That(model.Success).IsTrue();
 
@@ -283,5 +256,36 @@ public class RgbdsFormatTests
                 return i;
         }
         return -1;
+    }
+
+    private static byte SymbolType(byte[] bytes, string name)
+    {
+        using var reader = new BinaryReader(new MemoryStream(bytes));
+        string CString()
+        {
+            var value = new List<byte>();
+            for (byte next; (next = reader.ReadByte()) != 0; )
+                value.Add(next);
+            return System.Text.Encoding.UTF8.GetString(value.ToArray());
+        }
+        reader.ReadBytes(8);
+        var symbols = reader.ReadInt32();
+        reader.ReadInt32();
+        var nodes = reader.ReadInt32();
+        for (var node = 0; node < nodes; node++)
+        {
+            reader.ReadBytes(9);
+            CString();
+        }
+        for (var symbol = 0; symbol < symbols; symbol++)
+        {
+            var actual = CString();
+            var type = reader.ReadByte();
+            if (actual == name)
+                return type;
+            if (type != 1)
+                reader.ReadBytes(16);
+        }
+        throw new InvalidDataException($"Missing symbol '{name}'");
     }
 }

@@ -1,16 +1,11 @@
 using System.Reflection;
 using System.Text;
-using Koh.Assembler;
-using Koh.Assembler.Binding;
-using Koh.Assembler.Syntax;
+using Koh.Native;
+using Koh.Native.Syntax;
 using Koh.Objects;
 
 namespace Koh.Objects.Tests;
 
-/// <summary>
-/// Pins the RPN expressions <see cref="RgbdsObjectWriter"/> emits for unresolved patches, decoded to
-/// readable tokens (the whole file is not compared: it embeds build-time <c>__UTC_*</c> symbols).
-/// </summary>
 public class RgbdsExpressionTests
 {
     [Test]
@@ -129,7 +124,6 @@ public class RgbdsExpressionTests
             );
     }
 
-    // A bare-symbol operand reaches the patch as a raw identifier token, not a NameExpression.
     [Test]
     public async Task InstructionOperands()
     {
@@ -170,18 +164,13 @@ public class RgbdsExpressionTests
 
     private static string WriteAndDecode(string source)
     {
-        var options = new BinderOptions { AllowUndefinedSymbols = true };
-        var model = Compilation.Create(options, SyntaxTree.Parse(source)).Emit();
-        if (!model.Success)
-            throw new InvalidOperationException(string.Join("; ", model.Diagnostics));
-
-        using var ms = new MemoryStream();
-        RgbdsObjectWriter.Write(ms, model);
-        return string.Join('\n', DecodePatches(ms.ToArray()));
+        var options = new AssemblyOptions { AllowUndefinedSymbols = true };
+        var bytes = Compilation.Create(options, SyntaxTree.Parse(source)).EmitBytes("rgbds");
+        return string.Join('\n', DecodePatches(bytes));
     }
 
     /// <summary>Reads an RGB9 object front to back and renders each patch as offset:kind:pcOffset:rpn.</summary>
-    private static List<string> DecodePatches(byte[] bytes)
+    internal static List<string> DecodePatches(byte[] bytes)
     {
         using var br = new BinaryReader(new MemoryStream(bytes));
         string CString()

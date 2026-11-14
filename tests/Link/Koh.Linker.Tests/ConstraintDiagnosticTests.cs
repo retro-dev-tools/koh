@@ -1,4 +1,3 @@
-using Koh.Assembler.Binding;
 using Koh.Common;
 using Koh.Linker;
 using Koh.Objects;

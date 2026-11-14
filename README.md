@@ -1,6 +1,6 @@
 # Koh
 
-A Game Boy and Game Boy Color development toolchain for RGBDS-style assembly and C#, built on .NET 10.
+A Game Boy and Game Boy Color development toolchain for RGBDS-style assembly and C#, built with Rust and .NET 10.
 
 Koh combines an assembler, linker, language server, C# compiler, emulator, and debugger. Its goal is to take a game from source to a playable ROM with diagnostics and debugging in the same workflow.
 
@@ -17,7 +17,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 | Tool | Purpose |
 |------|---------|
 | `koh-asm` | Assembler for RGBDS-style Game Boy assembly |
-| `koh-link` | Linker for Koh and RGBDS object files |
+| `koh-link` | Linker for Koh object files; use `rgblink` for RGBDS objects |
 | `koh-lsp` | Language server for diagnostics, navigation, and refactoring |
 | VS Code extension | VS Code integration for Koh projects |
 | `Koh.Sdk` | MSBuild integration that compiles C# games to Game Boy ROMs |
@@ -75,6 +75,7 @@ See the [roadmap](ROADMAP.md) for current gaps and acceptance criteria, and [CON
 ### Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- [Rust 1.85 or newer](https://www.rust-lang.org/tools/install) with Cargo
 - [Node.js](https://nodejs.org) and npm only when developing the VS Code extension
 
 Run commands below from the repository root. SDK selection is controlled by `global.json`.
@@ -182,10 +183,11 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 ## Repository Layout
 
 ```text
+rust/         koh-asm (native assembler and language service)
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
               Koh.Objects (object model; .kobj, RGBDS and .kdbg formats)
-  Asm/        Koh.Assembler, Koh.Asm (assembler CLI), Koh.Lsp (language server)
+  Asm/        Koh.Native (native bridge), Koh.Lsp (language server)
   Link/       Koh.Linker, Koh.Link (linker CLI)
   Compiler/   Koh.Compiler, Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
   Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App
@@ -200,6 +202,13 @@ editors/
 ## Project Direction
 
 Koh aims to make small Game Boy games practical to build, understand, and debug in assembly or C#. Reliable sample games, clear compatibility limits, and reproducible builds take priority over adding more tools or language features. See the [roadmap](ROADMAP.md).
+
+## Native Rust assembler
+
+The native Rust assembler is built with `cargo build --release -p koh-asm` and
+tested with `cargo test --workspace`. It replaces the C# assembler and CLI; the
+C# language server uses the native service. See [Rust assembler status and validation](docs/rust-assembler.md)
+and [object-format decisions](docs/rust-assembler-objects.md).
 
 ## License
 

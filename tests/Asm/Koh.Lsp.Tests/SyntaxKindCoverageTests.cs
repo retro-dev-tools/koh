@@ -1,4 +1,4 @@
-using Koh.Assembler.Syntax;
+using Koh.Native.Syntax;
 
 namespace Koh.Lsp.Tests;
 

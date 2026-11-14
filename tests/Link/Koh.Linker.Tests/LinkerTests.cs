@@ -1,8 +1,6 @@
-using Koh.Assembler;
-using Koh.Assembler.Binding;
-using Koh.Assembler.Symbols;
-using Koh.Assembler.Syntax;
 using Koh.Linker;
+using Koh.Native;
+using Koh.Native.Syntax;
 using Koh.Objects;
 
 namespace Koh.Linker.Tests;
@@ -12,7 +10,10 @@ public class LinkerTests
     private static EmitModel Emit(string source)
     {
         var tree = SyntaxTree.Parse(source);
-        return Compilation.Create(tree).Emit();
+        var model = Compilation.Create(tree).Emit();
+        if (!model.Success)
+            throw new InvalidOperationException(string.Join("; ", model.Diagnostics));
+        return model;
     }
 
     private static LinkerInput Input(string source, string filePath = "test.asm") =>
@@ -290,9 +291,9 @@ public class LinkerTests
     [Test]
     public async Task Link_SectionTooLarge_Diagnostic()
     {
-        // HRAM is $FF80-$FFFE = 126 bytes. A 200-byte section should not fit.
-        var ds200 = "ds 200";
-        var result = LinkSingle($"SECTION \"Big\", HRAM\n{ds200}");
+        var section = new SectionData("Big", SectionType.Hram, null, null, new byte[200], []);
+        var model = new EmitModel([section], [], success: true);
+        var result = new Koh.Linker.Linker().Link([new LinkerInput("large.kobj", model)]);
         await Assert.That(result.Success).IsFalse();
         await Assert.That(result.RomData).IsNull();
         await Assert.That(result.Diagnostics.Any(d => d.Message.Contains("exceeds"))).IsTrue();

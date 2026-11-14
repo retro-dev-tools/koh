@@ -23,6 +23,7 @@ function Require-Tool($name) {
 }
 
 Require-Tool dotnet
+Require-Tool cargo
 Require-Tool npm
 Require-Tool code
 
@@ -51,9 +52,6 @@ try {
 
     dotnet publish src/Asm/Koh.Lsp -c Release -r win-x64 --self-contained -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-lsp publish failed ($LASTEXITCODE)" }
-
-    dotnet publish src/Asm/Koh.Asm -c Release -r win-x64 -o $devBin
-    if ($LASTEXITCODE -ne 0) { throw "koh-asm publish failed ($LASTEXITCODE)" }
 
     dotnet publish src/Link/Koh.Link -c Release -r win-x64 -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-link publish failed ($LASTEXITCODE)" }

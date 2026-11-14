@@ -7,11 +7,8 @@
     <Project Path="tests/Common/Koh.Opcodes.Tests/Koh.Opcodes.Tests.csproj" />
   </Folder>
   <Folder Name="/Asm/">
-    <Project Path="src/Asm/Koh.Asm/Koh.Asm.csproj" />
-    <Project Path="src/Asm/Koh.Assembler/Koh.Assembler.csproj" />
+    <Project Path="src/Asm/Koh.Native/Koh.Native.csproj" />
     <Project Path="src/Asm/Koh.Lsp/Koh.Lsp.csproj" />
-    <Project Path="tests/Asm/Koh.Asm.Tests/Koh.Asm.Tests.csproj" />
-    <Project Path="tests/Asm/Koh.Assembler.Tests/Koh.Assembler.Tests.csproj" />
     <Project Path="tests/Asm/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj" />
   </Folder>
   <Folder Name="/Link/">

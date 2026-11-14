@@ -1,11 +1,11 @@
 using System.Text.Json;
-using Koh.Assembler;
-using Koh.Assembler.Syntax;
 using Koh.Common;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
 using Koh.Emulator;
 using Koh.Linker;
+using Koh.Native;
+using Koh.Native.Syntax;
 
 namespace Koh.Debugger.Tests;
 

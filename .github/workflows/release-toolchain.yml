@@ -20,6 +20,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -42,15 +43,14 @@ jobs:
           # YamlDotNet use runtime reflection); ship self-contained so
           # users don't need .NET 10 on PATH.
           dotnet publish src/Asm/Koh.Lsp          -c Release -r ${{ matrix.rid }} --self-contained -o "$bin"
-          # koh-asm, koh-link, Koh.Emulator.App are all NativeAOT in
-          # their csprojs → single-file native binaries land in $bin.
-          dotnet publish src/Asm/Koh.Asm          -c Release -r ${{ matrix.rid }} -o "$bin"
           dotnet publish src/Link/Koh.Link         -c Release -r ${{ matrix.rid }} -o "$bin"
           dotnet publish src/Emulator/Koh.Emulator.App -c Release -r ${{ matrix.rid }} -o "$bin"
 
       - name: Pack raw archive
         shell: bash
         run: |
+          test -f staging/bin/licenses/rust-assembler-dependencies.md
+          test -d staging/bin/licenses/rust-assembler
           ver="${{ steps.ver.outputs.version }}"
           case "${{ matrix.archive }}" in
             zip)
