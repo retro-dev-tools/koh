@@ -66,6 +66,50 @@ pub fn lines(text: &str, file: &str) -> Vec<SourceLine> {
             line: start,
         });
     }
+    result.into_iter().flat_map(statements).collect()
+}
+
+fn statements(line: SourceLine) -> Vec<SourceLine> {
+    let mut result = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < line.text.len() {
+        if let Some((end, _, _)) = literal(&line.text, i) {
+            i = end;
+            continue;
+        }
+        if line.text[i..].starts_with("::") {
+            let prefix = &line.text[start..i];
+            let name = prefix.trim_start();
+            let exported_label = result.is_empty()
+                && start == 0
+                && !name.is_empty()
+                && name.chars().all(ident)
+                && !prefix.ends_with(char::is_whitespace);
+            if !exported_label {
+                if !prefix.trim().is_empty() {
+                    result.push(SourceLine {
+                        text: prefix.to_owned(),
+                        file: line.file.clone(),
+                        line: line.line,
+                    });
+                }
+                start = i + 2;
+            }
+            i += 2;
+        } else {
+            i += line.text[i..].chars().next().unwrap().len_utf8();
+        }
+    }
+    if start == 0 {
+        result.push(line);
+    } else if !line.text[start..].trim().is_empty() {
+        result.push(SourceLine {
+            text: line.text[start..].to_owned(),
+            file: line.file,
+            line: line.line,
+        });
+    }
     result
 }
 
@@ -119,7 +163,8 @@ fn literal(text: &str, start: usize) -> Option<(usize, bool, bool)> {
     Some((i, raw, false))
 }
 
-pub fn strip_comment(text: &str) -> &str {
+#[cfg(test)]
+fn strip_comment(text: &str) -> &str {
     let mut i = 0;
     while i < text.len() {
         if let Some((end, _, _)) = literal(text, i) {
@@ -135,7 +180,15 @@ pub fn strip_comment(text: &str) -> &str {
 
 pub fn word(text: &str) -> (&str, &str) {
     let text = text.trim();
-    let end = text.find(char::is_whitespace).unwrap_or(text.len());
+    let mut end = text.find(char::is_whitespace).unwrap_or(text.len());
+    if let Some(paren) = text[..end].find('(') {
+        if matches!(
+            text[..paren].to_ascii_uppercase().as_str(),
+            "IF" | "ELIF" | "ASSERT"
+        ) {
+            end = paren;
+        }
+    }
     (&text[..end], text[end..].trim())
 }
 
@@ -205,7 +258,7 @@ fn split_args(text: &str, macros: bool) -> Result<Vec<String>, String> {
     if angle || !stack.is_empty() {
         return Err("unterminated string or delimiter".into());
     }
-    if !macros || !current.trim().is_empty() || result.is_empty() {
+    if !current.trim().is_empty() || result.is_empty() {
         result.push(current.trim().to_owned());
     }
     if !macros && result.iter().any(String::is_empty) {
@@ -240,6 +293,9 @@ mod tests {
 
     #[test]
     fn macro_quoting_and_expression_comparisons() {
+        assert_eq!(args("1,2,").unwrap(), ["1", "2"]);
+        assert!(args("1,,2").is_err());
+        assert_eq!(args("").unwrap(), Vec::<String>::new());
         assert_eq!(
             macro_args("<$aa, $bb>, a<b, 1\\,2, ,z").unwrap(),
             ["$aa, $bb", "a<b", "1,2", "", "z"]
@@ -291,6 +347,26 @@ mod tests {
         assert_eq!(parsed[1].text.trim(), "db \"abcd;inside\"");
         assert_eq!(parsed[1].line, 3);
         assert_eq!(parsed[2].line, 5);
+    }
+
+    #[test]
+    fn statements_preserve_exports_literals_and_source_locations() {
+        let parsed = lines(
+            "Label:: db \"::\" :: nop :: ret ; :: ignored\n push hl :: pop hl",
+            "test.asm",
+        );
+        assert_eq!(
+            parsed.iter().map(|l| l.text.trim()).collect::<Vec<_>>(),
+            ["Label:: db \"::\"", "nop", "ret", "push hl", "pop hl"]
+        );
+        assert_eq!(
+            parsed.iter().map(|l| l.line).collect::<Vec<_>>(),
+            [1, 1, 1, 2, 2]
+        );
+        assert_eq!(word("IF(1)"), ("IF", "(1)"));
+        assert_eq!(word("ELIF(0)"), ("ELIF", "(0)"));
+        assert_eq!(word("ASSERT(1)"), ("ASSERT", "(1)"));
+        assert_eq!(word("call(1)"), ("call(1)", ""));
     }
 }
 

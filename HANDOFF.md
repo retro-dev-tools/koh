@@ -14,17 +14,33 @@ Independent implementation units:
 - encoding: `encode.rs`: complete documented SM83 instruction encoding.
 - lead: expansion, assembler driver, CLI, integration, differential checks and documentation.
 
-Interfaces:
-`expr::Expr`: `Number(i32)`, `Symbol(String)`, `Pc`, `Unary(String, Box<Expr>)`, `Binary(String, Box<Expr>, Box<Expr>)`, `Call(String, Vec<Expr>)`.
-`expr::parse(&str) -> Result<Expr,String>`.
-`expr::eval(&Expr, &dyn Fn(&str)->Option<i32>, pc:i32) -> Result<i32,String>`.
-`encode::encode(mnemonic:&str, operands:&[String]) -> Result<Encoded,String>`.
-`Encoded { bytes:Vec<u8>, patches:Vec<OperandPatch> }`; `OperandPatch { offset:usize, width:u8, relative:bool, expression:String }`.
-`model::Object { sections:Vec<Section>, symbols:Vec<Symbol> }` (Default).
-`Section { name:String, kind:u8, address:Option<i32>, bank:Option<i32>, align:u8, align_offset:i32, data:Vec<u8>, patches:Vec<Patch>, lines:Vec<Line> }` (Default).
-`Symbol { name:String, kind:u8, visibility:u8, section:Option<usize>, value:i32 }`.
-`Patch { offset:usize, kind:u8, pc_after:i32, pc_offset:i32, expression:Expr, file:String, line:u32, symbol:Option<String>, addend:i32, shift:i32 }`.
-`Line { offset:usize, count:usize, file:String, line:u32 }`.
-`object::write_kobj(&Object)->Result<Vec<u8>,String>` and `write_rgbds(&Object)->Result<Vec<u8>,String>`.
+## Revised object architecture
+
+The user required critical reassessment before continuing feature work. The
+initial KOBJ-shaped public model is replaced by `model.rs`: typed symbol/section
+IDs, complete relocation operators, explicit patch width/semantics, independent
+PC context, RAM size separate from bytes, and source/expansion provenance.
+`draft.rs` is private mutable construction state; `lower.rs` binds every name
+to validated graph entries. `assemble(source,file,allow_imports)` has no format
+parameter. `object::write_kobj`/`write_rgbds` are loss-checked adapters.
+
+See `docs/rust-assembler-objects.md` for the KOBJ4/KOBJ5/RGBDS decision. V4 remains
+for the current C# linker; speculative v5 is deferred until reader/evaluator
+support can ship together. In-memory expressions are never degraded to v4.
+
+The historical macro unique-suffix corruption did not reproduce against fresh
+C# sources matching bf0a5fc and RGBDS1.0.1 for reconstructed WAIT/sample/nested
+cases. Exact historical failing macro is unavailable. Durable script and report:
+`scripts/reproduce-macro-unique.py`, `docs/macro-unique-investigation.md`.
+
+Latest architecture run: `KOH_RGBDS_TEST=1 cargo test --workspace`, exit0, 67
+tests passed; actual log `/tmp/koh-rust-architecture-test.log`. Independent tests
+verify HIGH+1/LOW-word/full operators, LOAD PC sections, missing imports and
+signed/HRAM link failures. C# linker produces byte-identical64KiB2048 ROMs from
+C#/Rust KOBJ. The broad migration is still incomplete: extracted positive C#
+fixture corpus has unresolved compatibility gaps. The C# RGBDS sample output
+also fails rgblink with149 JR errors; native/reference validation remains to be
+completed. Do not describe the migration as production-ready or open a complete
+PR based only on the architecture checks.
 
 Verification: each unit owns module-local unit tests. Do not run Cargo builds concurrently in the shared target directory; use `CARGO_TARGET_DIR=/tmp/koh-rust-<unit>` for isolated unit checks. Lead runs final Cargo and C# integration checks. RGBDS reference pinned to 1.0.1. No commits or pushes by unit agents.

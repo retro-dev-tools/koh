@@ -12,10 +12,24 @@ pub enum Expr {
 struct Parser<'a> {
     source: &'a str,
     pos: usize,
+    frac_bits: u8,
+    depth: u16,
 }
 
 pub fn parse(source: &str) -> Result<Expr, String> {
-    let mut parser = Parser { source, pos: 0 };
+    parse_with_precision(source, 16)
+}
+
+pub fn parse_with_precision(source: &str, frac_bits: u8) -> Result<Expr, String> {
+    if frac_bits > 31 {
+        return Err("Precision must be 0..31".into());
+    }
+    let mut parser = Parser {
+        source,
+        pos: 0,
+        frac_bits,
+        depth: 0,
+    };
     let result = parser.expression(0)?;
     parser.space();
     if parser.pos != source.len() {
@@ -54,6 +68,15 @@ impl Parser<'_> {
         }
     }
     fn expression(&mut self, minimum: u8) -> Result<Expr, String> {
+        if self.depth >= 128 {
+            return Err("Expression nesting exceeds 128 levels".into());
+        }
+        self.depth += 1;
+        let result = self.expression_inner(minimum);
+        self.depth -= 1;
+        result
+    }
+    fn expression_inner(&mut self, minimum: u8) -> Result<Expr, String> {
         let mut left = self.atom()?;
         loop {
             self.space();
@@ -221,8 +244,10 @@ impl Parser<'_> {
                 (text.as_str(), 10)
             };
             if base == 10 && digits.contains('.') {
-                let (value, q) = digits.split_once('q').unwrap_or((digits, "16"));
-                let q: u32 = q.parse().map_err(|_| "Invalid precision")?;
+                let (value, q) = match digits.split_once('q') {
+                    Some((value, q)) => (value, q.parse::<u32>().map_err(|_| "Invalid precision")?),
+                    None => (digits, u32::from(self.frac_bits)),
+                };
                 if q > 31 {
                     return Err("Precision exceeds 31".into());
                 }
@@ -260,7 +285,18 @@ impl Parser<'_> {
                     }
                 }
             }
-            Ok(Expr::Call(name.to_ascii_uppercase(), args))
+            let name = name.to_ascii_uppercase();
+            let required = match name.as_str() {
+                "MUL" | "DIV" | "FMOD" | "POW" | "LOG" | "ATAN2" => Some(2),
+                "ROUND" | "CEIL" | "FLOOR" | "SIN" | "COS" | "TAN" | "ASIN" | "ACOS" | "ATAN" => {
+                    Some(1)
+                }
+                _ => None,
+            };
+            if self.frac_bits != 16 && required == Some(args.len()) {
+                args.push(Expr::Number(i32::from(self.frac_bits)));
+            }
+            Ok(Expr::Call(name, args))
         } else {
             Ok(Expr::Symbol(name))
         }
@@ -268,18 +304,54 @@ impl Parser<'_> {
 }
 
 pub fn eval(expr: &Expr, symbols: &dyn Fn(&str) -> Option<i32>, pc: i32) -> Result<i32, String> {
-    let number = |e: &Expr| eval(e, symbols, pc);
+    eval_inner(expr, symbols, pc).map_err(EvalError::message)
+}
+
+#[derive(Debug)]
+enum EvalError {
+    Unresolved(String),
+    Invalid(String),
+}
+impl EvalError {
+    fn message(self) -> String {
+        match self {
+            Self::Unresolved(message) | Self::Invalid(message) => message,
+        }
+    }
+}
+impl From<String> for EvalError {
+    fn from(message: String) -> Self {
+        Self::Invalid(message)
+    }
+}
+impl From<&str> for EvalError {
+    fn from(message: &str) -> Self {
+        Self::Invalid(message.into())
+    }
+}
+
+fn eval_inner(
+    expr: &Expr,
+    symbols: &dyn Fn(&str) -> Option<i32>,
+    pc: i32,
+) -> Result<i32, EvalError> {
+    let number = |e: &Expr| eval_inner(e, symbols, pc);
     match expr {
         Expr::Number(n) => Ok(*n),
         Expr::Pc => Ok(pc),
         Expr::String(_) => Err("Expected numeric expression".into()),
-        Expr::Symbol(name) => symbols(name).ok_or_else(|| format!("Unresolved symbol '{name}'")),
+        Expr::Symbol(name) => symbols(name)
+            .ok_or_else(|| EvalError::Unresolved(format!("Unresolved symbol '{name}'"))),
         Expr::Unary(op, e) => {
             if op == "#" {
                 if let Expr::Symbol(name) = e.as_ref() {
-                    return symbols(&format!("#{name}"))
-                        .ok_or_else(|| format!("Unresolved raw symbol '#{name}'"));
+                    return symbols(&format!("#{name}")).ok_or_else(|| {
+                        EvalError::Unresolved(format!("Unresolved raw symbol '#{name}'"))
+                    });
                 }
+            }
+            if !matches!(op.as_str(), "+" | "-" | "!" | "~") {
+                return Err(format!("Unknown unary operator {op}").into());
             }
             let n = number(e)?;
             match op.as_str() {
@@ -287,26 +359,51 @@ pub fn eval(expr: &Expr, symbols: &dyn Fn(&str) -> Option<i32>, pc: i32) -> Resu
                 "-" => Ok(n.wrapping_neg()),
                 "!" => Ok((n == 0) as i32),
                 "~" => Ok(!n),
-                _ => Err(format!("Unknown unary operator {op}")),
+                _ => Err(format!("Unknown unary operator {op}").into()),
             }
         }
         Expr::Binary(op, a, b) => {
             if matches!(op.as_str(), "===" | "!==") {
-                let equal = eval_string(a, symbols, pc)? == eval_string(b, symbols, pc)?;
+                let (a, b) = both(
+                    eval_string_inner(a, symbols, pc),
+                    eval_string_inner(b, symbols, pc),
+                )?;
+                let equal = a == b;
                 return Ok((equal == (op == "===")) as i32);
+            }
+            if !matches!(
+                op.as_str(),
+                "+" | "-"
+                    | "*"
+                    | "/"
+                    | "%"
+                    | "**"
+                    | "&"
+                    | "|"
+                    | "^"
+                    | "<<"
+                    | ">>"
+                    | ">>>"
+                    | "=="
+                    | "!="
+                    | "<"
+                    | ">"
+                    | "<="
+                    | ">="
+                    | "&&"
+                    | "||"
+            ) {
+                return Err(format!("Unknown binary operator {op}").into());
             }
             let left = number(a);
             let right = number(b);
-            if matches!(op.as_str(), "&&" | "&") && (left == Ok(0) || right == Ok(0)) {
-                return Ok(0);
+            if matches!(op.as_str(), "/" | "%") && matches!(&right, Ok(0)) {
+                return Err("Division by zero".into());
             }
-            if op == "||"
-                && (left.as_ref().is_ok_and(|n| *n != 0) || right.as_ref().is_ok_and(|n| *n != 0))
-            {
-                return Ok(1);
+            if op == "**" && matches!(&right,Ok(value) if *value<0) {
+                return Err("Negative exponent".into());
             }
-            let a = left?;
-            let b = right?;
+            let (a, b) = both(left, right)?;
             Ok(match op.as_str() {
                 "+" => a.wrapping_add(b),
                 "-" => a.wrapping_sub(b),
@@ -343,11 +440,24 @@ pub fn eval(expr: &Expr, symbols: &dyn Fn(&str) -> Option<i32>, pc: i32) -> Resu
                 ">=" => (a >= b) as i32,
                 "&&" => (a != 0 && b != 0) as i32,
                 "||" => (a != 0 || b != 0) as i32,
-                _ => return Err(format!("Unknown binary operator {op}")),
+                _ => return Err(format!("Unknown binary operator {op}").into()),
             })
         }
         Expr::Call(name, args) => eval_call(name, args, symbols, pc),
     }
+}
+
+fn both<A, B>(
+    left: Result<A, EvalError>,
+    right: Result<B, EvalError>,
+) -> Result<(A, B), EvalError> {
+    if let Err(error @ EvalError::Invalid(_)) = left {
+        return Err(error);
+    }
+    if let Err(error @ EvalError::Invalid(_)) = right {
+        return Err(error);
+    }
+    Ok((left?, right?))
 }
 
 fn shift(value: i32, amount: i32, op: &str) -> i32 {
@@ -381,9 +491,9 @@ fn eval_call(
     args: &[Expr],
     symbols: &dyn Fn(&str) -> Option<i32>,
     pc: i32,
-) -> Result<i32, String> {
-    let n = |i: usize| eval(&args[i], symbols, pc);
-    let s = |i: usize| eval_string(&args[i], symbols, pc);
+) -> Result<i32, EvalError> {
+    let n = |i: usize| eval_inner(&args[i], symbols, pc);
+    let s = |i: usize| eval_string_inner(&args[i], symbols, pc);
     match name {
         "DEF" => {
             arity(name, args, 1, 1)?;
@@ -395,7 +505,11 @@ fn eval_call(
         }
         "ISCONST" => {
             arity(name, args, 1, 1)?;
-            Ok(n(0).is_ok() as i32)
+            match n(0) {
+                Ok(_) => Ok(1),
+                Err(EvalError::Unresolved(_)) => Ok(0),
+                Err(error) => Err(error),
+            }
         }
         "BANK" | "STARTOF" | "SIZEOF" => {
             arity(name, args, 1, 1)?;
@@ -407,7 +521,7 @@ fn eval_call(
             let key = match &args[0] {
                 Expr::Symbol(s) | Expr::String(s) => s.as_str(),
                 Expr::Pc => "@",
-                _ => return Err(format!("{name} requires symbol or section")),
+                _ => return Err(format!("{name} requires symbol or section").into()),
             };
             if name == "SIZEOF" {
                 if key.starts_with('[') && key.ends_with(']') {
@@ -419,7 +533,8 @@ fn eval_call(
                     _ => {}
                 }
             }
-            symbols(&format!("{name}:{key}")).ok_or_else(|| format!("Unresolved {name}({key})"))
+            symbols(&format!("{name}:{key}"))
+                .ok_or_else(|| EvalError::Unresolved(format!("Unresolved {name}({key})")))
         }
         "HIGH" | "LOW" | "BITWIDTH" | "TZCOUNT" => {
             arity(name, args, 1, 1)?;
@@ -442,8 +557,7 @@ fn eval_call(
         }
         "STRCMP" | "STRFIND" | "STRRFIND" => {
             arity(name, args, 2, 2)?;
-            let a = s(0)?;
-            let b = s(1)?;
+            let (a, b) = both(s(0), s(1))?;
             Ok(match name {
                 "STRCMP" => match a.cmp(&b) {
                     std::cmp::Ordering::Less => -1,
@@ -480,13 +594,18 @@ fn eval_call(
             let binary = matches!(name, "MUL" | "DIV" | "FMOD" | "POW" | "LOG" | "ATAN2");
             let count = if binary { 2 } else { 1 };
             arity(name, args, count, count + 1)?;
-            let q = if args.len() > count { n(count)? } else { 16 };
+            let q = if args.len() > count { n(count) } else { Ok(16) }.and_then(|q| {
+                if (0..=31).contains(&q) {
+                    Ok(q)
+                } else {
+                    Err("Precision must be 0..31".into())
+                }
+            });
+            let ((a, b), q) = both(both(n(0), if binary { n(1) } else { Ok(0) }), q)?;
             if !(0..=31).contains(&q) {
                 return Err("Precision must be 0..31".into());
             }
             let scale = (1u64 << q) as f64;
-            let a = n(0)?;
-            let b = if binary { n(1)? } else { 0 };
             if name == "MUL" {
                 return Ok(((a as i64 * b as i64) >> q) as i32);
             }
@@ -523,7 +642,7 @@ fn eval_call(
             };
             Ok((result * scale).round() as i32)
         }
-        _ => Err(format!("Unknown numeric function '{name}'")),
+        _ => Err(format!("Unknown numeric function '{name}'").into()),
     }
 }
 
@@ -532,16 +651,33 @@ pub fn eval_string(
     symbols: &dyn Fn(&str) -> Option<i32>,
     pc: i32,
 ) -> Result<String, String> {
+    eval_string_inner(expr, symbols, pc).map_err(EvalError::message)
+}
+
+fn eval_string_inner(
+    expr: &Expr,
+    symbols: &dyn Fn(&str) -> Option<i32>,
+    pc: i32,
+) -> Result<String, EvalError> {
     match expr {
         Expr::String(value) => Ok(value.clone()),
-        Expr::Unary(op, value) if op == "#" => eval_string(value, symbols, pc),
+        Expr::Unary(op, value) if op == "#" => eval_string_inner(value, symbols, pc),
         Expr::Binary(op, a, b) if op == "++" => {
-            Ok(eval_string(a, symbols, pc)? + &eval_string(b, symbols, pc)?)
+            let (a, b) = both(
+                eval_string_inner(a, symbols, pc),
+                eval_string_inner(b, symbols, pc),
+            )?;
+            Ok(a + &b)
         }
         Expr::Call(name, args) => {
-            let s = |i: usize| eval_string(&args[i], symbols, pc);
+            let s = |i: usize| eval_string_inner(&args[i], symbols, pc);
             match name.as_str() {
-                "STRCAT" => args.iter().map(|a| eval_string(a, symbols, pc)).collect(),
+                "STRCAT" => args.iter().fold(Ok(String::new()), |result, arg| {
+                    both(result, eval_string_inner(arg, symbols, pc)).map(|(mut result, value)| {
+                        result.push_str(&value);
+                        result
+                    })
+                }),
                 "STRUPR" | "STRLWR" => {
                     arity(name, args, 1, 1)?;
                     let value = s(0)?;
@@ -567,12 +703,16 @@ pub fn eval_string(
                             index.min(length)
                         }
                     };
-                    let start = normalize(eval(&args[1], symbols, pc)?);
-                    let stop = if args.len() == 3 {
-                        normalize(eval(&args[2], symbols, pc)?)
-                    } else {
-                        length
-                    };
+                    let (start, stop) = both(
+                        eval_inner(&args[1], symbols, pc),
+                        if args.len() == 3 {
+                            eval_inner(&args[2], symbols, pc)
+                        } else {
+                            Ok(length as i32)
+                        },
+                    )?;
+                    let start = normalize(start);
+                    let stop = normalize(stop);
                     Ok(value
                         .chars()
                         .skip(start as usize)
@@ -582,17 +722,26 @@ pub fn eval_string(
                 "STRSUB" => {
                     arity(name, args, 2, 3)?;
                     let value = s(0)?;
-                    let start = eval(&args[1], symbols, pc)? as i64;
+                    let (start, count) = both(
+                        eval_inner(&args[1], symbols, pc),
+                        if args.len() == 3 {
+                            eval_inner(&args[2], symbols, pc).and_then(|count| {
+                                if count < 0 {
+                                    Err("Negative STRSUB length".into())
+                                } else {
+                                    Ok(count)
+                                }
+                            })
+                        } else {
+                            Ok(i32::MAX)
+                        },
+                    )?;
+                    let start = start as i64;
                     let length = value.chars().count() as i64;
                     let start = if start < 0 { length + start } else { start - 1 };
                     if start < 0 {
                         return Err("STRSUB index out of range".into());
                     }
-                    let count = if args.len() == 3 {
-                        eval(&args[2], symbols, pc)?
-                    } else {
-                        i32::MAX
-                    };
                     if count < 0 {
                         return Err("Negative STRSUB length".into());
                     }
@@ -607,7 +756,7 @@ pub fn eval_string(
                     format_string(&s(0)?, &args[1..], symbols, pc)
                 }
                 "READFILE" => Err("READFILE requires the assembler file resolver".into()),
-                _ => Err(format!("Unknown string function '{name}'")),
+                _ => Err(format!("Unknown string function '{name}'").into()),
             }
         }
         _ => Err("Expected string expression".into()),
@@ -619,7 +768,7 @@ fn format_string(
     args: &[Expr],
     symbols: &dyn Fn(&str) -> Option<i32>,
     pc: i32,
-) -> Result<String, String> {
+) -> Result<String, EvalError> {
     let mut chars = format.chars().peekable();
     let mut result = String::new();
     let mut index = 0;
@@ -680,9 +829,9 @@ fn format_string(
         let arg = args.get(index).ok_or("Not enough STRFMT arguments")?;
         index += 1;
         let mut text = if kind == 's' {
-            eval_string(arg, symbols, pc)?
+            eval_string_inner(arg, symbols, pc)?
         } else {
-            let n = eval(arg, symbols, pc)?;
+            let n = eval_inner(arg, symbols, pc)?;
             let mut text = match kind {
                 'd' | 'i' => n.to_string(),
                 'u' => (n as u32).to_string(),
@@ -691,7 +840,7 @@ fn format_string(
                 'o' => format!("{:o}", n as u32),
                 'b' => format!("{:b}", n as u32),
                 'f' => format!("{:.*}", precision.unwrap_or(6), n as f64 / 65536.0),
-                _ => return Err(format!("Unknown STRFMT specifier '{kind}'")),
+                _ => return Err(format!("Unknown STRFMT specifier '{kind}'").into()),
             };
             if alternate {
                 let prefix = match kind {
@@ -799,6 +948,43 @@ mod tests {
         assert_eq!(value("ROUND(-1.5)"), -2 << 16);
     }
     #[test]
+    fn configured_fixed_point_precision() {
+        let evaluate =
+            |text: &str, q| eval(&parse_with_precision(text, q).unwrap(), &|_| None, 0).unwrap();
+        assert_eq!(evaluate("1.5", 8), 384);
+        assert_eq!(evaluate("MUL(1.0,2.0)", 8), 512);
+        assert_eq!(evaluate("SIN(0.25)", 8), 256);
+        assert_eq!(evaluate("ROUND(-1.5)", 8), -512);
+        assert_eq!(evaluate("MUL(1.0,2.0)", 0), 2);
+        assert_eq!(evaluate("1.5q16", 8), 98304);
+        assert_eq!(evaluate("MUL(1.0q16,2.0q16,16)", 8), 131072);
+        for source in [
+            "MUL(1.0,2.0)",
+            "DIV(3.0,2.0)",
+            "FMOD(3.5,2.0)",
+            "POW(2.0,3.0)",
+            "LOG(8.0,2.0)",
+            "ATAN2(1.0,1.0)",
+            "ROUND(1.5)",
+            "CEIL(1.5)",
+            "FLOOR(1.5)",
+            "SIN(0.25)",
+            "COS(0.25)",
+            "TAN(0.125)",
+            "ASIN(0.5)",
+            "ACOS(0.5)",
+            "ATAN(1.0)",
+        ] {
+            let explicit = format!("{},8)", &source[..source.len() - 1]);
+            assert_eq!(evaluate(source, 8), evaluate(&explicit, 8), "{source}");
+        }
+        assert_eq!(
+            parse("SIN(0.25)").unwrap(),
+            parse_with_precision("SIN(0.25)", 16).unwrap()
+        );
+        assert!(parse_with_precision("1.0", 32).is_err());
+    }
+    #[test]
     fn strings() {
         assert_eq!(
             eval_string(&parse("STRSLICE(\"abcd\",1,-1)").unwrap(), &|_| None, 0).unwrap(),
@@ -876,6 +1062,18 @@ mod tests {
         }
     }
     #[test]
+    fn excessive_nesting_is_diagnostic() {
+        for source in [
+            format!("{}1{}", "(".repeat(500), ")".repeat(500)),
+            format!("{}1", "-".repeat(500)),
+            format!("{}1{}", "HIGH(".repeat(500), ")".repeat(500)),
+            format!("{}1", "1**".repeat(500)),
+        ] {
+            assert!(parse(&source).unwrap_err().contains("nesting"));
+        }
+        assert!(parse(&format!("{}1{}", "(".repeat(20), ")".repeat(20))).is_ok());
+    }
+    #[test]
     fn metadata() {
         assert_eq!(
             eval(
@@ -904,6 +1102,33 @@ mod tests {
             .unwrap(),
             3
         );
-        assert_eq!(value("unknown & 0"), 0);
+        assert!(eval(&parse("unknown & 0").unwrap(), &|_| None, 0).is_err());
+    }
+    #[test]
+    fn invalid_operands_never_become_constants() {
+        for source in [
+            "missing&0",
+            "missing&&0",
+            "missing||1",
+            "(1/0)&0",
+            "(1/0)||1",
+            "UNKNOWN(1)&0",
+            "ISCONST(1/0)",
+            "ISCONST(UNKNOWN(1))",
+            "ISCONST(LOW())",
+            "ISCONST(missing+(1/0))",
+            "ISCONST((1/0)+missing)",
+            "ISCONST(missing/0)",
+            "ISCONST(MUL(missing,1/0))",
+        ] {
+            assert!(
+                eval(&parse(source).unwrap(), &|_| None, 0).is_err(),
+                "{source}"
+            );
+        }
+        assert_eq!(value("ISCONST(missing+1)"), 0);
+        assert_eq!(value("ISCONST(1+2)"), 1);
+        assert_eq!(value("STRBYTE(\"a\",3)"), 0);
+        assert_eq!(value("STRFIND(\"a\",\"b\")"), -1);
     }
 }

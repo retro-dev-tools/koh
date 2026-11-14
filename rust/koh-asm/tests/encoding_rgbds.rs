@@ -159,6 +159,16 @@ fn exhaustive_instruction_output_matches_rgbds_1_0_1() {
     compare(&directory, "opcodes", &lines.join("\n"));
     compare(
         &directory,
+        "statements",
+        "Start:: db 1,2, :: dw $1234, :: nop :: ret\nIF(1)\n db 3,\nELIF(0)\n db 4\nENDC\nASSERT(1)\n db\n",
+    );
+    compare(
+        &directory,
+        "condition-inversions",
+        "ret !nz\nret !!z\nret !nc\nret !!!c\njp !nz,$1234\njp !!z,$1234\ncall !nc,$1234\ncall !!!c,$1234\njr !nz,End\njr !!z,End\njr !nc,End\njr !!!c,End\nEnd:\nret",
+    );
+    compare(
+        &directory,
         "relocations",
         "Start:\n jr Forward\n jr nz,Forward\n jr z,Forward\n jr nc,Forward\n jr c,Forward\n db 0\nForward:\n jp Start\n call Forward\n ld hl,Forward\n ld a,LOW(Forward)\n jr Start\n",
     );

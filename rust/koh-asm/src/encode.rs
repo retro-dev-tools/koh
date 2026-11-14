@@ -60,13 +60,15 @@ fn pair(s: &str) -> Option<u8> {
 }
 
 fn condition(s: &str) -> Option<u8> {
-    match s {
+    let n = s.bytes().take_while(|c| *c == b'!').count();
+    let condition = match &s[n..] {
         "nz" => Some(0),
         "z" => Some(1),
         "nc" => Some(2),
         "c" => Some(3),
         _ => None,
-    }
+    };
+    condition.map(|c| c ^ (n as u8 & 1))
 }
 
 fn expression(s: &str) -> Result<crate::expr::Expr, String> {
@@ -276,6 +278,9 @@ mod tests {
 
     #[test]
     fn expressions_aliases_and_deferred_operands() {
+        check("ret !nz", &[0xc8]);
+        check("ret !!z", &[0xc8]);
+        check("jp !!!c,$1234", &[0xd2, 0x34, 0x12]);
         check("rst 8*3", &[0xdf]);
         check("bit 1+2,a", &[0xcb, 0x5f]);
         check("LD A,(HL)", &[0x7e]);
