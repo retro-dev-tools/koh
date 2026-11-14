@@ -370,7 +370,15 @@ public class GbJrpgTests
     [Test]
     public async Task Sample_CaptureAcceptanceScreenshots()
     {
-        var outDir = Path.Combine(SampleDir.Value, "screenshots");
+        var sourceScreenshots = Directory
+            .GetFiles(Path.Combine(SampleDir.Value, "screenshots"), "*.png")
+            .ToDictionary(path => path, File.GetLastWriteTimeUtc);
+        var outDir = Path.Combine(
+            AppContext.BaseDirectory,
+            "TestResults",
+            "gb-jrpg",
+            Guid.NewGuid().ToString("N")
+        );
         Directory.CreateDirectory(outDir);
 
         var gb = Boot(HardwareMode.Cgb);
@@ -432,6 +440,8 @@ public class GbJrpgTests
         await Assert.That(File.Exists(Path.Combine(outDir, "overworld.png"))).IsTrue();
         await Assert.That(File.Exists(Path.Combine(outDir, "dialogue.png"))).IsTrue();
         await Assert.That(File.Exists(Path.Combine(outDir, "battle.png"))).IsTrue();
+        foreach (var (path, timestamp) in sourceScreenshots)
+            await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(timestamp);
     }
 
     private static void Capture(GameBoySystem gb, string path)

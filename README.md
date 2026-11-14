@@ -63,8 +63,8 @@ Koh is under active development. RGBDS syntax and object support are compatibili
 
 Current priorities include:
 
-- restoring a passing build with dependency auditing enabled
-- preventing tests from modifying tracked sample assets
+- maintaining passing builds with dependency auditing enabled
+- preserving sample assets while testing real ROM behavior
 - RGBDS compatibility regressions backed by reference-tool results
 - a reproducible source-to-ROM and debugging workflow
 

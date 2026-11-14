@@ -15,7 +15,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 - Release automation creates platform archives, checksums, and draft releases. A draft-and-smoke-test gate already exists; improve and verify it rather than replacing it.
 - Public documentation underrepresented the C# and emulator workflow. The README and contribution guide now expose those entry points, without claiming complete RGBDS or .NET compatibility.
 - The README and extension metadata declare MIT, but no tracked LICENSE or NOTICE file was found in the checkout or matching filename history. This needs an ownership and attribution review, not an invented copyright holder.
-- `GbJrpgTests` writes acceptance captures into `samples/csharp/gb-jrpg/screenshots`. That can alter tracked files during tests. Generated artifacts should have a separate output location; updating reference images should be deliberate.
+- `GbJrpgTests` writes acceptance captures under the test binary's `TestResults/gb-jrpg/<run-id>/`. Its regression guard checks that curated sample screenshots are not rewritten. Updating documentation images is a deliberate manual step.
 - The local Koh.Sdk package imports repository-relative source projects. Its presence in a local feed is useful for this checkout but does not establish a standalone SDK distribution story.
 
 ## Baseline verification
@@ -24,8 +24,8 @@ On .NET SDK 10.0.113, `dotnet msbuild build.proj -t:Test` exited 1 before tests 
 
 | Package | Reported version | Audit result |
 | --- | --- | --- |
-| MessagePack | 2.5.302 | NU1902, including GHSA-qhrr-8q5h-9q3h |
-| Microsoft.DotNet.ILCompiler | 10.0.13 | NU1903, GHSA-p3jp-9v83-76w9 |
+| MessagePack | 2.5.302 | NU1902, including [GHSA-qhrr-8q5h-9q3h](https://github.com/advisories/GHSA-qhrr-8q5h-9q3h) |
+| Microsoft.DotNet.ILCompiler | 10.0.13 | NU1903, [GHSA-p3jp-9v83-76w9](https://github.com/advisories/GHSA-p3jp-9v83-76w9) |
 | SixLabors.ImageSharp | 3.1.12 | NU1902 and NU1903, multiple advisories |
 
 These were restore diagnostics, not independently validated exploitability findings. They describe the initial baseline before the dependency repair below.
@@ -41,18 +41,19 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 ## Completed milestones
 
 - `c965bf9`: documented both game-development entry points and contributor checks.
-- Dependency repair: restore and CI release build pass with auditing enabled (0 warnings/errors); the fast suite passes 1,673/1,673. The transitive vulnerability report covers 41 projects with no reported vulnerable packages or audit problems. The assembly 2048 sample builds; its headless capture shows the title screen, and independent PNG checks validate dimensions, compression, and every chunk CRC. Rejected JPEG output preserves an existing file. Full compiler-suite and NativeAOT publish checks remain pending.
+- `c755769`, dependency repair: restore and CI release build pass with auditing enabled (0 warnings/errors); the fast suite passes 1,673/1,673. The transitive vulnerability report covers 41 projects with no reported vulnerable packages or audit problems. The assembly 2048 sample builds; its headless capture shows the title screen, and independent PNG checks validate dimensions, compression, and every chunk CRC. Rejected JPEG output preserves an existing file. The CI build also emits all seven C# sample ROMs. Linux NativeAOT publish remains pending.
+- Screenshot isolation: the new guard fails against the old writer in an isolated worktree and passes after redirecting captures. All four source screenshot SHA-256 hashes are preserved, including the pre-existing modified battle image. All four generated 480x432 captures have valid PNG chunk CRCs. The full CI suite passes 2,485/2,485 with one test/module at a time (5m44s). The compiler test process still consumes several GB; serialization reduces concurrency but does not establish a low-memory workflow.
 
 ## Planned work
 
 | Order | Outcome | Effort / risk | Acceptance criteria |
 | --- | --- | --- | --- |
-| 1 | Finish build verification | Small / medium | Restore, CI build, fast suite, and dependency audit now pass. After isolating screenshot output, run the full compiler suite and Linux NativeAOT publish without audit suppression. |
-| 2 | Make tests preserve the checkout | Small / low | Redirect JRPG captures to test artifacts; run the capture test and show tracked screenshot hashes remain unchanged. |
-| 3 | Close RGBDS expression regressions | Small / medium | Review the existing uncommitted HIGH/LOW/BANK work separately; compare focused object/link results with a versioned RGBDS oracle, then run the affected suites. |
-| 4 | Establish release readiness | Medium / ownership review required | Confirm license text and asset provenance with the rights holder; inventory shipped dependencies; smoke-test draft archives and the extension's install/update path on supported hosts. |
-| 5 | Prove the newcomer journey | Medium / low | From a fresh checkout, build both documented games, launch a ROM, set a breakpoint, and inspect state; record platform prerequisites and compatibility limits. |
-| 6 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
+| 1 | Fix portable emulator targets and finish native verification | Small / medium | The root publish/run targets currently default to Windows on Linux and always launch an `.exe`. Use the host RID and matching executable name; verify publish/launch dispatch, then Linux NativeAOT publish and headless capture. |
+| 2 | Close RGBDS expression regressions | Small / medium | Review the existing uncommitted HIGH/LOW/BANK work separately; compare focused object/link results with a versioned RGBDS oracle, then run the affected suites. |
+| 3 | Establish release readiness | Medium / ownership review required | Confirm license text and asset provenance with the rights holder; inventory shipped dependencies; smoke-test draft archives and the extension's install/update path on supported hosts. |
+| 4 | Prove the newcomer journey | Medium / low | From a fresh checkout, build both documented games, launch a ROM, set a breakpoint, and inspect state; record platform prerequisites and compatibility limits. |
+| 5 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
+| 6 | Bound compiler-test memory | Medium / medium | Measure retained fixture/compiler state and establish a bounded-memory full-suite invocation before changing parallelism defaults. |
 
 ## Boundaries
 

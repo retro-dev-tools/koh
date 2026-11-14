@@ -49,7 +49,7 @@ Check C# formatting with `dotnet csharpier check <changed-file-or-directory>`. A
 
 Place tests under the matching area in `tests/`. A behavior fix should include a focused regression that fails before the fix. For RGBDS compatibility, include the smallest assembly reproducer and the reference tool's version and output. For emulator fixes, distinguish automated emulator results from tests on physical hardware.
 
-Do not commit downloaded ROMs, toolchains, generated build output, VSIX files, or test caches. Check `git status` after tests: the JRPG screenshot test currently writes into the sample's tracked screenshot directory. Keep generated images out of unrelated changes and preserve pre-existing edits.
+Do not commit downloaded ROMs, toolchains, generated build output, VSIX files, or test caches. JRPG acceptance captures go under the test binary directory at `TestResults/gb-jrpg/<run-id>/`. The sample's tracked screenshots are curated documentation assets; copy reviewed captures there only when deliberately updating the documentation. Check `git status` after tests and preserve pre-existing edits.
 
 ## Reporting and reviewing changes
 

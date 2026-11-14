@@ -10,7 +10,9 @@ per the ideal-code methodology of
 It compiles unmodified; `dotnet build` emits `jrpg.gb` (header `0xC0` — CGB only, no monochrome
 fallback), and `tests/Compiler/Koh.Compiler.Tests/Samples/GbJrpgTests.cs` boots it on the emulator in CGB
 mode and plays it through (walk → fight whatever the encounter roll throws at it → talk → dialogue
-callback), capturing the acceptance screenshots below into [`screenshots/`](screenshots/).
+callback). Acceptance captures are written under the test binary directory at
+`TestResults/gb-jrpg/<run-id>/`. The images below in [`screenshots/`](screenshots/) are
+curated documentation assets; update them deliberately from a reviewed test capture.
 
 | Title | Overworld | Dialogue | Battle |
 |---|---|---|---|
