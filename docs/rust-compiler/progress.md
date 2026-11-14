@@ -1,6 +1,6 @@
 # Native CIL compiler migration (PR #55)
 
-Status: source audit recorded; native metadata reading is in development. No
+Status: source audit recorded; native raw metadata/body reader implemented. No
 executable native compiler is integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
 
@@ -89,3 +89,25 @@ All 565 test methods are enumerated in the [disposition status](test-disposition
 The source audits cover CIL/runtime semantics, backend/ABI and integration consumers.
 Their dispositions are proposals, not migrated tests. Empirical legacy baseline,
 final supported contract, native scenario coverage and sample execution remain open.
+
+## Native reader increment
+
+`rust/koh-compile` now reads bounded PE/CLI metadata and raw CIL method bodies.
+The [reader decision and limits](metadata-reader.md) explain library selection,
+malformed-input checks and pending reference/signature/PDB work. It does not yet
+emit ELF or replace the SDK compiler.
+
+Local Linux verification: `cargo nextest run --workspace --all-features --locked`
+reported **198 tests run: 198 passed, 0 skipped**, including 22 native reader cases.
+Real Roslyn fixtures cover Debug/Release and PE32/PE32+, temporary paths with
+spaces, method identities and bodies, invalid local signature references, and
+truncation/header mutation robustness. The original read tests failed before the
+reader existed; a review-added local-token regression failed before its fix.
+
+`cargo test --doc --workspace --all-features --locked` exited 0 (no doctest cases
+currently exist). `cargo fmt --all -- --check` exited 0 with the installed stable
+formatter. Completed logs: `/tmp/koh-compile-nextest.log`,
+`/tmp/koh-compile-doctests.log`, `/tmp/koh-compile-fmt-check.log`. Host Cargo/rustc:
+1.99.0; fixtures use .NET SDK 10.0.115. These local results are not hosted
+Windows/macOS or minimum-Rust-version evidence. CI now installs the SDK before
+nextest and runs documentation tests separately.

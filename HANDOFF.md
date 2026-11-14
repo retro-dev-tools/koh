@@ -1,25 +1,43 @@
-# Rust linker migration
+# PR #55 working handoff
 
-Base: master 9a2cfa8. Main checkout's modified JRPG screenshot is unrelated and preserved.
+Branch: `feat/rust-cil-compiler`, isolated from the main checkout's modified screenshot.
+Baseline: integrated linker migration `9cd1472`. Draft PR #55 already exists.
+Current production pipeline remains the C# compiler; no replacement claims.
+Source audits have landed in `4bf619d`: all 565 legacy methods accounted for.
 
-## Ownership
+## Concurrent audit ownership
 
-- Audit and migration units landed; Rust sources are frozen after shared numeric evaluation, ELF allocation bounds, alignment and JR wrap corrections.
-- Parent owns final evidence, current-head CI and the PR description. Implementation and review fixes are committed.
-- Independent C# / Rust / RGBDS comparison finished; temporary artifacts live at /tmp/koh-three-linkers. The historical source checkout is clean and is never a production dependency.
+- Root: native compiler tests and implementation. `rust/koh-compile` now contains
+  a bounded raw metadata/method-body reader using MIT clrmeta and object PE.
+- Frontend audit: only `docs/rust-compiler/frontend-audit.md`; inspect all frontend
+  tests, runtime contracts and CIL lowering. No production edits or builds.
+- Backend audit: only `docs/rust-compiler/backend-audit.md`; inspect backend/IR/SM83
+  tests and backend ABI. No production edits or builds.
+- Integration audit: only `docs/rust-compiler/integration-audit.md`; inspect samples,
+  SDK/debug integration and remaining compiler tests. No production edits or builds.
 
-## Shared interfaces
+Audit output must distinguish source inspection from execution, give test-level
+traceability, identify independently justified requirements versus implementation
+assertions, and propose dispositions without claiming unimplemented Rust coverage.
+No compiler-owned tests may be deferred to a different migration.
 
-- `koh-objects` owns the model, ELF codec and numeric evaluator. `read_elf(&[u8])` and `write_elf(&Object)` are the sole binary object interface.
-- `koh-link` owns placement, resolved evaluation, ROM/SYM/KDBG and the compiler's JSON-to-ELF command boundary. The C# bridge contains process invocation and a resolved compiler-model view, without a relocation engine.
-- No builds in shared target directory except parent. Agents use CARGO_TARGET_DIR=/tmp/koh-elf-target or /tmp/koh-link-target.
+All three audit documents are complete as source reviews. They propose dispositions;
+no legacy methods are retired or fully replaced yet. See test-disposition.md.
+
+## Current native evidence
+
+Local nextest workspace run: 198/198 passed, 0 skipped, including 22 reader cases.
+Separate doctests exited 0 with no cases. Formatting passed using
+`RUSTUP_TOOLCHAIN=stable cargo fmt --all -- --check` (host default rustup nightly
+lacks rustfmt; system compiler is 1.99.0). Reader regression covers Debug/Release,
+PE32/PE32+, method identities, malformed local tokens and image mutations. No ELF
+compiler, SDK switch or new ROM execution yet. Next: native signatures/reference
+binding, IL decoding and verified lowering, then independently executed SM83 code.
 
 ## Verification
 
-Run builds serially per output directory. Capture direct exit status and reread completed logs. Rust: cargo test --workspace --locked. .NET: focused tests, then constrained fast suite. Extension: npm test. Runtime and platform claims require actual evidence.
-
-## Completion
-
-Draft PR #54 is open against master at the user's explicit request. Keep it draft and unmerged. Logical implementation, cleanup and correction commits are separate. The C# linker and retired object formats are deleted; no fallback is retained.
-
-Full .NET run before final review fixes: 1372 passed, 2 existing native-window skips, 0 failed (/tmp/koh-link-all-tests.log). Fast suite after initial review fixes: 561 passed, 2 skips, 0 failed (/tmp/koh-link-final-fast-tests.log). Focused compiler static-array class: 16/16 passed. Final native/object boundary: 10/10 passed. Rust workspace with RGBDS and extension 44-test suite passed. SDK incremental/path/failure checks, both sample targets and publish/type inspection passed. Both assembly and C# games ran in independent mGBA. See docs/rust-linker/validation.md and the test-disposition matrix for scope and actual artifacts. Verify the current PR head's hosted checks before any integration decision; do not mark ready or merge on the user's behalf.
+Root runs builds serially. Use pinned .NET 10 SDK and completed log files with
+actual exit codes. Verify canonical ELF with `koh-objects`, execute ROMs with the
+existing C# emulator, and do not modify tracked sample assets. Audits alone do
+not establish supported features. Do not delete the old compiler until native
+replacement acceptance is demonstrated. Root reviews and commits each unit.
