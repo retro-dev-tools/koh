@@ -1,0 +1,10 @@
+[package]
+name = "koh-asm"
+version = "1.0.2"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "koh-asm"
+path = "src/main.rs"

@@ -1,19 +1,30 @@
-# SDL3 native backend
+# Rust assembler migration
 
-Implementation lives in `src/UI/KohUI.Backends.Sdl3`; SDL3 Renderer owns native presentation and SDL owns windows/events. KohUI layout/widgets and OpenAL remain. Emulator core, PNG capture and headless DAP remain independent of video initialization.
+Prior SDL3 session remains documented in `docs/sdl3.md` and the baseline history.
+That session's final whole-solution run was stopped by the user; its historical
+validation claims are not renewed by this assembler work. No SDL changes are
+part of this migration. Original checkout remains on feat/sdl3-renderer.
 
-The migration belongs to one branch/PR against master. Do not merge automatically. The pre-existing modified JRPG battle screenshot is excluded; its SHA-256 remains `fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.
+Base: origin/master bf0a5fc. Original checkout and screenshot edit are untouched.
 
-## Verification
+One Cargo crate at `rust/koh-asm`, library `koh_asm`, executable `koh-asm`.
+Independent implementation units:
+- objects: `model.rs`, `object.rs`: section/symbol/patch records and both serializers.
+- expressions: `expr.rs`: parsed expressions, constant evaluation, relocation representation.
+- encoding: `encode.rs`: complete documented SM83 instruction encoding.
+- lead: expansion, assembler driver, CLI, integration, differential checks and documentation.
 
-- Full Release solution: zero warnings/errors.
-- Linux x64 NativeAOT emulator and native UI demo publish successfully; SDL notices/native libraries are included.
-- Renderer/input regressions pass with software surfaces, dummy windows, X11 and Wayland; both SDL software and Vulkan renderer paths were exercised, including 2x Wayland output density. See `docs/sdl3.md`.
-- NativeAOT ROM/DAP execution, integer-scaled images, debugger panels and mouse interaction were exercised. Standalone headless PNG/DAP work without SDL/OpenAL libraries.
-- Extension suite: 44 passed; browser UI test: 1 passed. Full suite: 2494 passed before the final nested-text/font-copy fixes. Latest focused renderer matrix: 5 passed on each native test environment. Both final Linux NativeAOT publishes completed; the subsequent whole-solution rebuild was interrupted at the user's request. Do not resume tests without being asked.
+Interfaces:
+`expr::Expr`: `Number(i32)`, `Symbol(String)`, `Pc`, `Unary(String, Box<Expr>)`, `Binary(String, Box<Expr>, Box<Expr>)`, `Call(String, Vec<Expr>)`.
+`expr::parse(&str) -> Result<Expr,String>`.
+`expr::eval(&Expr, &dyn Fn(&str)->Option<i32>, pc:i32) -> Result<i32,String>`.
+`encode::encode(mnemonic:&str, operands:&[String]) -> Result<Encoded,String>`.
+`Encoded { bytes:Vec<u8>, patches:Vec<OperandPatch> }`; `OperandPatch { offset:usize, width:u8, relative:bool, expression:String }`.
+`model::Object { sections:Vec<Section>, symbols:Vec<Symbol> }` (Default).
+`Section { name:String, kind:u8, address:Option<i32>, bank:Option<i32>, align:u8, align_offset:i32, data:Vec<u8>, patches:Vec<Patch>, lines:Vec<Line> }` (Default).
+`Symbol { name:String, kind:u8, visibility:u8, section:Option<usize>, value:i32 }`.
+`Patch { offset:usize, kind:u8, pc_after:i32, pc_offset:i32, expression:Expr, file:String, line:u32, symbol:Option<String>, addend:i32, shift:i32 }`.
+`Line { offset:usize, count:usize, file:String, line:u32 }`.
+`object::write_kobj(&Object)->Result<Vec<u8>,String>` and `write_rgbds(&Object)->Result<Vec<u8>,String>`.
 
-## Environment
-
-Use SDK `/tmp/koh-dotnet-10.0.115`. A stopped unrelated Aspire process holds the default NuGet configuration lock; `NUGET_SCRATCH=/tmp/koh-sdl-nuget-scratch` avoids that lock for this session. Builds run serially; full tests use one module/test at a time with a 2 GiB GC heap cap.
-
-Remaining runtime gaps: physical GPU/display behavior, monitor DPI hot-moves, and native Windows/macOS desktop sessions. Wayland software drawing uses SDL-managed Vulkan presentation; X11/dummy/offscreen software does not require it. Existing repository licensing/release blockers remain separate from the added SDL notices.
+Verification: each unit owns module-local unit tests. Do not run Cargo builds concurrently in the shared target directory; use `CARGO_TARGET_DIR=/tmp/koh-rust-<unit>` for isolated unit checks. Lead runs final Cargo and C# integration checks. RGBDS reference pinned to 1.0.1. No commits or pushes by unit agents.
