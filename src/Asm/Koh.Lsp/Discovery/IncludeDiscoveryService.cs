@@ -7,11 +7,16 @@ internal sealed record FileDiscoveryInfo(string FilePath, IReadOnlyList<string> 
 
 internal sealed class IncludeDiscoveryService
 {
-    public FileDiscoveryInfo Discover(string filePath, string text, string workspaceFolderPath)
+    public FileDiscoveryInfo Discover(
+        string filePath,
+        string text,
+        string workspaceFolderPath,
+        Koh.Native.ISourceFileResolver? resolver = null
+    )
     {
         var path = Path.GetFullPath(filePath);
         var tree = SyntaxTree.Parse(SourceText.From(text, path));
-        var resolver = new Koh.Native.FileSystemResolver(workspaceFolderPath);
+        resolver ??= new Koh.Native.FileSystemResolver(workspaceFolderPath);
         return new FileDiscoveryInfo(
             path,
             tree.Includes.Select(include => resolver.ResolvePath(path, include)).ToArray()

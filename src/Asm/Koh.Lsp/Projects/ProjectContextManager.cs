@@ -117,7 +117,15 @@ internal sealed class ProjectContextManager
         var oldIncludes = _graph.GetIncludes(normalizedPath);
 
         // Re-discover includes for this file
-        var info = _includeDiscovery.Discover(normalizedPath, text, _folderPath);
+        var includeCwd = _primaryOwner.TryGetValue(normalizedPath, out var entrypoint)
+            ? Path.GetDirectoryName(entrypoint) ?? _folderPath
+            : _folderPath;
+        var info = _includeDiscovery.Discover(
+            normalizedPath,
+            text,
+            includeCwd,
+            new EntrypointResolver(_overlayResolver, includeCwd)
+        );
         _graph.UpsertFile(info);
 
         // Track newly discovered included files
@@ -416,7 +424,12 @@ internal sealed class ProjectContextManager
                 continue;
             }
 
-            var info = _includeDiscovery.Discover(current, text, includeCwd);
+            var info = _includeDiscovery.Discover(
+                current,
+                text,
+                includeCwd,
+                new EntrypointResolver(_overlayResolver, includeCwd)
+            );
             _graph.UpsertFile(info);
             _allFiles.Add(current);
 
@@ -483,6 +496,8 @@ internal sealed class ProjectContextManager
             var dir = Path.GetDirectoryName(currentFile) ?? basePath;
             return Path.GetFullPath(Path.Combine(dir, includedPath));
         }
+
+        public IReadOnlyList<string> GetResolutionRoots(string currentFile) => [basePath];
     }
 
     private void RebuildPrimaryOwnerMap()

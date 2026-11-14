@@ -61,6 +61,8 @@ pub struct Include {
     pub path: String,
     pub start: usize,
     pub length: usize,
+    #[serde(default)]
+    pub binary: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -811,7 +813,7 @@ impl Parsed {
                 self.token(node, *token);
             }
         }
-        if op == "INCLUDE" {
+        if op == "INCLUDE" || op == "INCBIN" {
             if let Some(token) = sig
                 .iter()
                 .find(|i| self.document.tokens[**i].kind == "StringLiteral")
@@ -822,6 +824,7 @@ impl Parsed {
                 {
                     if !path.is_empty() {
                         self.document.includes.push(Include {
+                            binary: op == "INCBIN",
                             path,
                             start: t.start,
                             length: t.length,
@@ -1016,18 +1019,6 @@ fn normalize(path: &str) -> String {
         .replace('\\', "/")
 }
 
-fn included(path: &str, relative: &str) -> String {
-    if relative.starts_with('/')
-        || relative.starts_with("file://")
-        || relative.as_bytes().get(1) == Some(&b':')
-    {
-        return normalize(relative);
-    }
-    let path = normalize(path);
-    let parent = path.rsplit_once('/').map_or("", |s| s.0);
-    normalize(&format!("{parent}/{relative}"))
-}
-
 #[derive(Clone)]
 struct Reference {
     owner: String,
@@ -1045,6 +1036,7 @@ struct Context {
 }
 
 struct Semantic<'a> {
+    resolver: &'a crate::resolver::ResolverPolicy,
     parsed: &'a mut Vec<Parsed>,
     by_path: HashMap<String, usize>,
     overlay_paths: HashMap<String, usize>,
@@ -1186,7 +1178,17 @@ impl Semantic<'_> {
                         .string_value(&self.parsed[index].clean_text(ids), owner, ctx)
                         .filter(|s| !s.is_empty())
                     {
-                        let target = included(&path, &relative);
+                        let target = self
+                            .resolver
+                            .candidates(&path, &relative, owner)
+                            .into_iter()
+                            .find(|candidate| {
+                                self.file_index(&candidate.to_string_lossy()).is_some()
+                                    || candidate.is_file()
+                            })
+                            .map(|candidate| candidate.to_string_lossy().into_owned());
+                        let Some(target) = target else { continue };
+                        self.resolver.inherit(&path, &target, owner);
                         if self.file_index(&target).is_none() && self.parsed.len() < 4096 {
                             if let Ok(text) = std::fs::read_to_string(
                                 target.strip_prefix("file://").unwrap_or(&target),
@@ -1211,6 +1213,7 @@ impl Semantic<'_> {
                             let first = &self.parsed[index].document.tokens[*first];
                             let last = &self.parsed[index].document.tokens[*last];
                             let include = Include {
+                                binary: false,
                                 path: relative,
                                 start: first.start,
                                 length: last.start + last.length - first.start,
@@ -1407,6 +1410,14 @@ pub fn parse(sources: &[Source]) -> Analysis {
 }
 
 pub fn analyze(sources: &[Source], roots: &[String]) -> Analysis {
+    analyze_with_resolver(sources, roots, &crate::resolver::ResolverPolicy::default())
+}
+
+pub(crate) fn analyze_with_resolver(
+    sources: &[Source],
+    roots: &[String],
+    resolver: &crate::resolver::ResolverPolicy,
+) -> Analysis {
     let mut diagnostics = Vec::new();
     let mut parsed: Vec<_> = sources
         .iter()
@@ -1429,6 +1440,7 @@ pub fn analyze(sources: &[Source], roots: &[String]) -> Analysis {
         roots.to_vec()
     };
     let mut semantic = Semantic {
+        resolver,
         parsed: &mut parsed,
         by_path: known,
         overlay_paths,

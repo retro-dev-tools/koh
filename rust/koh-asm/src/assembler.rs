@@ -41,6 +41,8 @@ struct Frame {
 }
 
 struct Assembler {
+    resolver: crate::resolver::ResolverPolicy,
+    root_file: String,
     overlays: HashMap<String, (String, String)>,
     binary_overlays: HashMap<String, (String, Vec<u8>)>,
     current_file: String,
@@ -111,6 +113,24 @@ pub fn assemble_with_overlays_report(
     sources: &[(String, String)],
     binary_sources: &[(String, Vec<u8>)],
 ) -> AssemblyReport {
+    assemble_with_resolver_report(
+        text,
+        file,
+        allow_imports,
+        sources,
+        binary_sources,
+        &crate::resolver::ResolverPolicy::default(),
+    )
+}
+
+pub(crate) fn assemble_with_resolver_report(
+    text: &str,
+    file: &str,
+    allow_imports: bool,
+    sources: &[(String, String)],
+    binary_sources: &[(String, Vec<u8>)],
+    resolver: &crate::resolver::ResolverPolicy,
+) -> AssemblyReport {
     let (constants, mut strings) = match crate::builtins::values() {
         Ok(values) => values,
         Err(message) => {
@@ -131,6 +151,8 @@ pub fn assemble_with_overlays_report(
     }
     let mutable = constants.keys().map(|name| (name.clone(), false)).collect();
     let mut asm = Assembler {
+        resolver: resolver.clone(),
+        root_file: file.into(),
         overlays: sources
             .iter()
             .map(|(path, data)| (overlay_key(path), (path.clone(), data.clone())))
@@ -170,7 +192,7 @@ pub fn assemble_with_overlays_report(
         expansion: Vec::new(),
         assertions: Vec::new(),
     };
-    let lines = source::lines(text, file);
+    let lines = asm.scan_source(text, file, None);
     asm.prescan(&lines);
     asm.includes
         .insert(source_path(file).to_string_lossy().into_owned());
@@ -215,35 +237,40 @@ pub fn assemble_with_overlays_report(
 }
 
 impl Assembler {
+    fn scan_source(&mut self, text: &str, file: &str, origin: Option<u32>) -> Vec<SourceLine> {
+        let scan = source::scan(text, file);
+        let diagnostic = |item: source::SourceDiagnostic| Diagnostic {
+            file: item.file,
+            line: origin.unwrap_or(item.line),
+            message: item.message,
+        };
+        self.errors.extend(scan.errors.into_iter().map(diagnostic));
+        self.warnings
+            .extend(scan.warnings.into_iter().map(diagnostic));
+        scan.lines
+    }
     fn resolve_file(
         &self,
         current: &str,
         name: &str,
         binary: bool,
     ) -> Result<(String, Vec<u8>), String> {
-        let relative = Path::new(name);
-        let candidates = if relative.is_absolute() {
-            vec![source_path(name)]
-        } else {
-            vec![
-                source_path(name),
-                source_path(current)
-                    .parent()
-                    .unwrap_or(Path::new("."))
-                    .join(relative),
-            ]
-        };
+        let candidates = self.resolver.candidates(current, name, &self.root_file);
         for path in candidates {
             let path = source_path(&path.to_string_lossy());
             let key = overlay_key(&path.to_string_lossy());
             if binary {
                 if let Some((origin, data)) = self.binary_overlays.get(&key) {
+                    self.resolver.inherit(current, origin, &self.root_file);
                     return Ok((origin.clone(), data.clone()));
                 }
             } else if let Some((origin, data)) = self.overlays.get(&key) {
+                self.resolver.inherit(current, origin, &self.root_file);
                 return Ok((origin.clone(), data.as_bytes().to_vec()));
             }
             if path.is_file() {
+                self.resolver
+                    .inherit(current, &path.to_string_lossy(), &self.root_file);
                 return std::fs::read(&path)
                     .map(|data| (path.to_string_lossy().into_owned(), data))
                     .map_err(|e| format!("cannot read {}: {e}", path.display()));
@@ -349,21 +376,29 @@ impl Assembler {
             &|n| self.lookup(n),
             self.pc(),
             &|name, limit| {
-                let candidates = [
-                    source_path(name),
-                    source_path(&self.current_file)
-                        .parent()
-                        .unwrap_or(Path::new("."))
-                        .join(name),
-                ];
-                candidates
-                    .into_iter()
-                    .find_map(|path| self.overlays.get(&overlay_key(&path.to_string_lossy())))
-                    .map(|(_, text)| {
-                        text.as_bytes()
+                use std::io::Read;
+                for path in
+                    self.resolver
+                        .readfile_candidates(&self.current_file, name, &self.root_file)
+                {
+                    if let Some((_, text)) =
+                        self.overlays.get(&overlay_key(&path.to_string_lossy()))
+                    {
+                        return Some(Ok(text.as_bytes()
                             [..text.len().min(usize::try_from(limit).unwrap_or(usize::MAX))]
-                            .to_vec()
-                    })
+                            .to_vec()));
+                    }
+                    if path.is_file() {
+                        let mut bytes = Vec::new();
+                        return Some(
+                            std::fs::File::open(&path)
+                                .and_then(|file| file.take(limit).read_to_end(&mut bytes))
+                                .map(|_| bytes)
+                                .map_err(|error| format!("READFILE '{}': {error}", path.display())),
+                        );
+                    }
+                }
+                Some(Err(format!("READFILE '{name}': file not found")))
             },
         )
     }
@@ -408,8 +443,9 @@ impl Assembler {
                 if let Expr::Symbol(name) = &args[0] {
                     let name = self.qualify(name);
                     Expr::Number(i32::from(
-                        self.constants.contains_key(&name)
-                            || self.deferred.contains_key(&name)
+                        self.mutable.contains_key(&name)
+                            || name == "_RS"
+                            || (name == "_NARG" && self.constants.contains_key(&name))
                             || self.strings.contains_key(&name)
                             || self.macros.contains_key(&name.to_ascii_uppercase())
                             || self.object.symbols.iter().any(|s| s.name == name),
@@ -755,7 +791,7 @@ impl Assembler {
                 line.text.clone()
             };
             if enabled {
-                let mut replay = source::lines(&text, &line.file);
+                let mut replay = self.scan_source(&text, &line.file, Some(line.line));
                 if replay.len() > 1 || text != line.text {
                     let replay_depth = replay_depths[i - 1] + 1;
                     if depth + replay_depth > 64 {
@@ -1048,7 +1084,7 @@ impl Assembler {
                     }
                     let text = String::from_utf8(data)
                         .map_err(|_| format!("INCLUDE {file}: source is not UTF-8"))?;
-                    let body = source::lines(&text, &file);
+                    let body = self.scan_source(&text, &file, None);
                     self.prescan(&body);
                     self.expansion.push(location.clone());
                     let stop = self.run(&body, frame, depth + 1, in_loop);
@@ -1447,29 +1483,9 @@ impl Assembler {
             "ENDM" | "ENDR" | "ELSE" | "ELIF" | "ENDC" => Err(format!("unexpected {command}")),
             _ => {
                 let operands = source::args(tail)?;
-                let mut operands: Vec<String> = operands
-                    .iter()
-                    .map(|v| {
-                        self.anonymous_refs(&source::replace_words(v, |name| {
-                            self.constants.get(name).map(|v| v.to_string())
-                        }))
-                    })
-                    .collect();
-                for operand in &mut operands {
-                    if operand.contains('\'') {
-                        if let Ok(value) = self.value(operand) {
-                            *operand = value.to_string();
-                        }
-                    }
-                }
-                if matches!(command.as_str(), "RST" | "BIT" | "RES" | "SET") {
-                    if let Some(first) = operands.first_mut() {
-                        if let Ok(value) = self.value(first) {
-                            *first = value.to_string();
-                        }
-                    }
-                }
-                let encoded = encode::encode(head, &operands)?;
+                let operands: Vec<String> =
+                    operands.iter().map(|v| self.anonymous_refs(v)).collect();
+                let encoded = encode::encode_with_context(head, &operands, &|s| self.value(s))?;
                 let section = self.section.ok_or("instruction outside SECTION")?;
                 let start = self.object.sections[section].data.len();
                 let pc = self.offset();

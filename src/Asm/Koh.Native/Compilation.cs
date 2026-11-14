@@ -19,6 +19,9 @@ public sealed class Compilation
     );
     private NativeResponse? analysis;
     private EmitModel? emitted;
+    private readonly List<NativeResolution> resolutions = [];
+    private readonly List<NativeSearchRoots> searchRoots = [];
+    private Dictionary<string, byte[]> binarySources = new(StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<SyntaxTree> SyntaxTrees { get; }
 
     private Compilation(ISourceFileResolver resolver, AssemblyOptions options, SyntaxTree[] trees)
@@ -47,6 +50,12 @@ public sealed class Compilation
 
     private NativeSource[] Sources()
     {
+        resolutions.Clear();
+        searchRoots.Clear();
+        binarySources = new Dictionary<string, byte[]>(
+            resolver.GetBinaryOverlays(),
+            StringComparer.OrdinalIgnoreCase
+        );
         foreach (var (path, text) in resolver.GetTextOverlays())
             if (!documents.ContainsKey(path))
                 documents[path] = SyntaxTree.Parse(SourceText.From(text, path));
@@ -54,9 +63,18 @@ public sealed class Compilation
         var seen = new HashSet<string>(documents.Keys, StringComparer.OrdinalIgnoreCase);
         while (pending.TryDequeue(out var tree))
         {
-            foreach (var include in tree.Includes)
+            var current = SyntaxTree.SourcePath(tree.Text);
+            searchRoots.Add(new NativeSearchRoots(current, resolver.GetResolutionRoots(current)));
+            foreach (var include in tree.Document.Includes)
             {
-                var path = resolver.ResolvePath(SyntaxTree.SourcePath(tree.Text), include);
+                var path = resolver.ResolvePath(current, include.Path);
+                resolutions.Add(new NativeResolution(current, include.Path, path));
+                if (include.Binary)
+                {
+                    if (resolver.FileExists(path))
+                        binarySources[path] = resolver.ReadAllBytes(path);
+                    continue;
+                }
                 if (!seen.Add(path) || !resolver.FileExists(path))
                     continue;
                 var included = SyntaxTree.Parse(SourceText.From(resolver.ReadAllText(path), path));
@@ -78,12 +96,12 @@ public sealed class Compilation
                 SyntaxTrees.Select(tree => SyntaxTree.SourcePath(tree.Text)),
                 options.AllowUndefinedSymbols,
                 format,
-                resolver
-                    .GetBinaryOverlays()
-                    .Select(pair => new NativeBinary(
-                        pair.Key,
-                        pair.Value.Select(value => (int)value).ToArray()
-                    ))
+                binarySources.Select(pair => new NativeBinary(
+                    pair.Key,
+                    pair.Value.Select(value => (int)value).ToArray()
+                )),
+                resolutions,
+                searchRoots
             );
     }
 

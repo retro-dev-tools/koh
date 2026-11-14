@@ -71,7 +71,7 @@ fn condition(s: &str) -> Option<u8> {
     condition.map(|c| c ^ (n as u8 & 1))
 }
 
-fn expression(s: &str) -> Result<crate::expr::Expr, String> {
+fn check_expression(s: &str) -> Result<(), String> {
     if reg(&normalized(s)).is_some()
         || pair(&normalized(s)).is_some()
         || matches!(normalized(s).as_str(), "af" | "f" | "nz" | "z" | "nc")
@@ -79,6 +79,11 @@ fn expression(s: &str) -> Result<crate::expr::Expr, String> {
     {
         return Err(format!("expected expression, got {s}"));
     }
+    Ok(())
+}
+
+fn expression(s: &str) -> Result<crate::expr::Expr, String> {
+    check_expression(s)?;
     crate::expr::parse(s)
 }
 
@@ -101,8 +106,9 @@ fn has_pc(e: &crate::expr::Expr) -> bool {
     }
 }
 
-fn immediate(op: u8, s: &str, kind: OperandKind) -> Result<Encoded, String> {
-    let parsed = expression(s)?;
+fn immediate(op: u8, s: &str, kind: OperandKind, defer: bool) -> Result<Encoded, String> {
+    check_expression(s)?;
+    let parsed = if defer { None } else { Some(expression(s)?) };
     let width = if kind == OperandKind::Unsigned16 {
         2
     } else {
@@ -113,7 +119,8 @@ fn immediate(op: u8, s: &str, kind: OperandKind) -> Result<Encoded, String> {
         patches: Vec::new(),
     };
     result.bytes.resize(1 + width as usize, 0);
-    if kind != OperandKind::Relative8 && !has_pc(&parsed) {
+    if let Some(parsed) = parsed.filter(|parsed| kind != OperandKind::Relative8 && !has_pc(parsed))
+    {
         if let Ok(value) = crate::expr::eval(&parsed, &|_| None, 0) {
             let valid = match kind {
                 OperandKind::Unsigned8 => (-128..=255).contains(&value),
@@ -349,7 +356,31 @@ fn bytes(bytes: &[u8]) -> Result<Encoded, String> {
 }
 
 pub fn encode(mnemonic: &str, operands: &[String]) -> Result<Encoded, String> {
+    encode_inner(mnemonic, operands, None)
+}
+
+pub(crate) fn encode_with_context(
+    mnemonic: &str,
+    operands: &[String],
+    evaluate: &dyn Fn(&str) -> Result<i32, String>,
+) -> Result<Encoded, String> {
+    encode_inner(mnemonic, operands, Some(evaluate))
+}
+
+fn encode_inner(
+    mnemonic: &str,
+    operands: &[String],
+    evaluate: Option<&dyn Fn(&str) -> Result<i32, String>>,
+) -> Result<Encoded, String> {
     use OperandKind::*;
+    let immediate = |op, s: &str, kind| immediate(op, s, kind, evaluate.is_some());
+    let constant = |s: &str| {
+        check_expression(s)?;
+        match evaluate {
+            Some(evaluate) => evaluate(s),
+            None => constant(s),
+        }
+    };
     let mnemonic = mnemonic.to_ascii_lowercase();
     let o: Vec<String> = operands.iter().map(|s| normalized(s)).collect();
     let args: Vec<&str> = o.iter().map(String::as_str).collect();

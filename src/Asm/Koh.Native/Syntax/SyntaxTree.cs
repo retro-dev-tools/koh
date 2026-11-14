@@ -8,7 +8,10 @@ public sealed class SyntaxTree
     public SyntaxNode Root { get; }
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
     public IReadOnlyList<string> Includes =>
-        Document.Includes.Select(include => include.Path).ToArray();
+        Document
+            .Includes.Where(include => !include.Binary)
+            .Select(include => include.Path)
+            .ToArray();
     internal NativeDocument Document { get; }
     internal Dictionary<int, SyntaxNode> Nodes { get; } = [];
     internal Dictionary<int, SyntaxToken> Tokens { get; } = [];

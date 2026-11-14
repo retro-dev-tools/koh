@@ -18,7 +18,7 @@ pub fn fold_with_reader(
     base_file: &str,
     resolver: &dyn Fn(&str) -> Option<i32>,
     pc: i32,
-    reader: &dyn Fn(&str, u64) -> Option<Vec<u8>>,
+    reader: &dyn Fn(&str, u64) -> Option<Result<Vec<u8>, String>>,
 ) -> Result<Expr, String> {
     let child = |tree| fold_with_reader(tree, maps, base_file, resolver, pc, reader);
     let (name, args) = match tree {
@@ -83,7 +83,7 @@ pub fn fold_with_reader(
                     .join(path)
             };
             let bytes = if let Some(bytes) = reader(&filename, limit) {
-                bytes
+                bytes?
             } else {
                 let mut bytes = Vec::new();
                 File::open(&path)

@@ -30,7 +30,9 @@ internal sealed class NativeClient : IDisposable
         IEnumerable<string> roots,
         bool allowUndefined = false,
         string format = "kobj",
-        IEnumerable<NativeBinary>? binaryFiles = null
+        IEnumerable<NativeBinary>? binaryFiles = null,
+        IEnumerable<NativeResolution>? resolutions = null,
+        IEnumerable<NativeSearchRoots>? searchRoots = null
     )
     {
         lock (gate)
@@ -49,6 +51,8 @@ internal sealed class NativeClient : IDisposable
                         allowUndefined,
                         format,
                         binaryFiles = binaryFiles ?? [],
+                        resolutions = resolutions ?? [],
+                        searchRoots = searchRoots ?? [],
                     },
                     Json
                 );

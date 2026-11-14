@@ -34,6 +34,7 @@ Output is written through a temporary file in the destination directory.
 | Module | Responsibility |
 | --- | --- |
 | `source.rs` | Lines, comments, arguments, labels, token substitution |
+| `resolver.rs` | Explicit file mappings and inherited include search policy |
 | `expr.rs` | Parsed expressions, constant arithmetic, string and math builtins |
 | `encode.rs` | SM83 instructions and operand patches |
 | `assembler.rs` | Expansion, includes, directives, symbols, sections, patch resolution |
@@ -97,9 +98,14 @@ entry. `BYTELEN` and `STRBYTE` operate on UTF-8 source bytes, following RGBDS
 1.0.1; this differs from the C# evaluator's mapped-byte behavior.
 `READFILE` resolves paths relative to the containing source file and rejects
 non-UTF-8 contents. Option stacks (`PUSHO`/`POPO`), `OPT Q.N`, and padding options
-are implemented. Full `STRFMT` precision syntax remains unsupported. Multiline
-raw strings, EQUS replay, formatted interpolation, and macro expansion are
-covered by assembler integration tests.
+are implemented. Full `STRFMT` precision syntax remains unsupported. Raw quoted
+strings, EQUS replay, formatted interpolation, and macro expansion are covered
+by assembler integration tests. Direct triple-quoted `DB` expressions are not
+implemented and produce an explicit expression diagnostic.
+
+Block comments separate tokens without terminating a statement at an internal
+newline. Nested openers warn, and unterminated comments fail assembly. Literal
+contents and physical source locations are preserved.
 
 Koh retains per-byte current-address evaluation in `DS count, @` and permits
 macro-local labels without a global anchor. These are documented differences
@@ -175,3 +181,5 @@ lines. `KOH_ASM` selects an executable explicitly; otherwise the bridge checks
 its application directory, local Cargo outputs, and PATH. Source and binary
 overlays remain separate. Native diagnostics and UTF-16 source spans feed the
 existing language-server features.
+Requests carry explicit resolver decisions and per-file search roots, preserving
+entrypoint-based resolution for nested `INCLUDE`, `INCBIN`, and bounded `READFILE`.

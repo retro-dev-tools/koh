@@ -6,6 +6,10 @@ internal sealed record NativeSource(string Path, string Text);
 
 internal sealed record NativeBinary(string Path, int[] Data);
 
+internal sealed record NativeResolution(string IncludingFile, string Requested, string Resolved);
+
+internal sealed record NativeSearchRoots(string File, IReadOnlyList<string> Roots);
+
 internal sealed class NativeResponse
 {
     public int Version { get; set; }
@@ -52,7 +56,7 @@ internal sealed class NativeChild
 
 internal sealed record NativeScope(int Start, int End, string Name);
 
-internal sealed record NativeInclude(string Path, int Start, int Length);
+internal sealed record NativeInclude(string Path, int Start, int Length, bool Binary = false);
 
 internal sealed record NativeLocation(string Path, int Start, int Length);
 

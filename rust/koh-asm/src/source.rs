@@ -5,9 +5,27 @@ pub struct SourceLine {
     pub line: u32,
 }
 
+pub struct SourceDiagnostic {
+    pub file: String,
+    pub line: u32,
+    pub message: String,
+}
+
+pub struct SourceScan {
+    pub lines: Vec<SourceLine>,
+    pub errors: Vec<SourceDiagnostic>,
+    pub warnings: Vec<SourceDiagnostic>,
+}
+
 pub fn lines(text: &str, file: &str) -> Vec<SourceLine> {
+    scan(text, file).lines
+}
+
+pub fn scan(text: &str, file: &str) -> SourceScan {
     let text = text.trim_start_matches('\u{feff}');
     let mut result = Vec::new();
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     let mut pending = String::new();
     let mut start = 1;
     let mut line = 1;
@@ -36,6 +54,45 @@ pub fn lines(text: &str, file: &str) -> Vec<SourceLine> {
                 }
             }
             i = end;
+        } else if text[i..].starts_with("/*") {
+            let opening_line = line;
+            let leading = pending.trim().is_empty();
+            pending.push_str("  ");
+            i += 2;
+            let mut closed = false;
+            while i < text.len() {
+                if text[i..].starts_with("*/") {
+                    pending.push_str("  ");
+                    i += 2;
+                    closed = true;
+                    break;
+                }
+                if text[i..].starts_with("/*") {
+                    warnings.push(SourceDiagnostic {
+                        file: file.into(),
+                        line,
+                        message: "Nested block comment".into(),
+                    });
+                }
+                let c = text[i..].chars().next().unwrap();
+                if c == '\n' {
+                    line += 1;
+                    if leading {
+                        pending.clear();
+                        start = line;
+                    }
+                } else if c != '\r' {
+                    pending.extend(std::iter::repeat_n(' ', c.len_utf8()));
+                }
+                i += c.len_utf8();
+            }
+            if !closed {
+                errors.push(SourceDiagnostic {
+                    file: file.into(),
+                    line: opening_line,
+                    message: "Unterminated block comment".into(),
+                });
+            }
         } else if let Some(end) = continuation(text, i) {
             line += text[i..end].bytes().filter(|b| *b == b'\n').count() as u32;
             pending.push(' ');
@@ -66,7 +123,11 @@ pub fn lines(text: &str, file: &str) -> Vec<SourceLine> {
             line: start,
         });
     }
-    result.into_iter().flat_map(statements).collect()
+    SourceScan {
+        lines: result.into_iter().flat_map(statements).collect(),
+        errors,
+        warnings,
+    }
 }
 
 fn statements(line: SourceLine) -> Vec<SourceLine> {
@@ -290,6 +351,23 @@ pub fn ident(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_delimiters_inside_all_literal_forms_are_preserved() {
+        let input = "db \"/* */\", '/', '*', #\"/* */\", \"\"\"/*\n*/\"\"\", #\"\"\"/*\n*/\"\"\" /* stripped */\nret";
+        let parsed = scan(input, "literal.asm");
+        assert!(parsed.errors.is_empty());
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(
+            parsed.lines[0].text,
+            format!(
+                "db \"/* */\", '/', '*', #\"/* */\", \"\"\"/*\n*/\"\"\", #\"\"\"/*\n*/\"\"\" {}",
+                " ".repeat("/* stripped */".len())
+            )
+        );
+        assert_eq!(parsed.lines[1].text, "ret");
+        assert_eq!(parsed.lines[1].line, 4);
+    }
 
     #[test]
     fn macro_quoting_and_expression_comparisons() {

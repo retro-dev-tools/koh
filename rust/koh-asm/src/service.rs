@@ -44,6 +44,24 @@ pub fn process(line: &str) -> Value {
             Ok(sources) => sources,
             Err(e) => return error("", format!("invalid source overlay: {e}")),
         };
+    let resolutions = match request.get("resolutions") {
+        None => Vec::new(),
+        Some(value) => match serde_json::from_value(value.clone()) {
+            Ok(value) => value,
+            Err(e) => return error("", format!("invalid file resolver mappings: {e}")),
+        },
+    };
+    let search_roots = match request.get("searchRoots") {
+        None => Vec::new(),
+        Some(value) => match serde_json::from_value(value.clone()) {
+            Ok(value) => value,
+            Err(e) => return error("", format!("invalid file resolver roots: {e}")),
+        },
+    };
+    let resolver = match crate::resolver::ResolverPolicy::new(resolutions, search_roots) {
+        Ok(policy) => policy,
+        Err(message) => return error("", message),
+    };
     if sources.is_empty() {
         return error("", "at least one source is required");
     }
@@ -65,7 +83,7 @@ pub fn process(line: &str) -> Value {
     let mut analysis = if op == "parse" {
         analysis::parse(&sources)
     } else {
-        analysis::analyze(&sources, &roots)
+        analysis::analyze_with_resolver(&sources, &roots, &resolver)
     };
     let mut data = Vec::new();
     if op != "parse" {
@@ -97,12 +115,13 @@ pub fn process(line: &str) -> Value {
             .retain(|diagnostic| !diagnostic.provisional);
         let mut canonical = Vec::new();
         for (path, text) in units {
-            let report = assembler::assemble_with_overlays_report(
+            let report = assembler::assemble_with_resolver_report(
                 &text,
                 &path,
                 allow || (op == "analyze" && roots.len() > 1),
                 &overlays,
                 &binary_overlays,
+                &resolver,
             );
             for warning in report.warnings {
                 append_diagnostic(&mut analysis, &sources, warning, "Warning");
@@ -295,6 +314,155 @@ pub fn serve(reader: impl BufRead, mut writer: impl Write) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn merged_roots_refresh_inherited_search_roots_for_shared_include_chains() {
+        let sources = vec![
+            (
+                "/a/main.asm".into(),
+                "SECTION \"a\",ROM0\ndb $a1\nINCLUDE \"/shared.inc\"".into(),
+            ),
+            (
+                "/b/main.asm".into(),
+                "SECTION \"b\",ROM0\ndb $b1\nINCLUDE \"/shared.inc\"".into(),
+            ),
+            ("/shared.inc".into(), "INCLUDE \"/nested.inc\"".into()),
+            ("/nested.inc".into(), "INCBIN \"leaf.bin\"".into()),
+        ];
+        let binary = vec![
+            ("/a/leaf.bin".into(), vec![1]),
+            ("/b/leaf.bin".into(), vec![2]),
+        ];
+        let policy = crate::resolver::ResolverPolicy::new(
+            Vec::new(),
+            vec![
+                crate::resolver::SearchRoots {
+                    file: "/a/main.asm".into(),
+                    roots: vec!["/a".into()],
+                },
+                crate::resolver::SearchRoots {
+                    file: "/b/main.asm".into(),
+                    roots: vec!["/b".into()],
+                },
+            ],
+        )
+        .unwrap();
+        let object = assembler::assemble_with_resolver_report(
+            "INCLUDE \"/a/main.asm\"\nINCLUDE \"/b/main.asm\"",
+            "<compilation>",
+            false,
+            &sources,
+            &binary,
+            &policy,
+        )
+        .result
+        .unwrap();
+        assert_eq!(object.sections[0].data, [0xa1, 1]);
+        assert_eq!(object.sections[1].data, [0xb1, 2]);
+        let response=process(&json!({"version":1,"op":"assemble","roots":["/a/main.asm","/b/main.asm"],"sources":sources.iter().map(|(path,text)|json!({"path":path,"text":text})).collect::<Vec<_>>(),"binaryFiles":[{"path":"/a/leaf.bin","data":[1]},{"path":"/b/leaf.bin","data":[2]}],"searchRoots":[{"file":"/a/main.asm","roots":["/a"]},{"file":"/b/main.asm","roots":["/b"]}]}).to_string());
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(
+            response["data"],
+            json!(crate::object::write_kobj(&object).unwrap())
+        );
+    }
+    #[test]
+    fn managed_resolver_edges_control_nested_text_binary_and_metadata() {
+        let request = json!({"version":1,"op":"assemble","roots":["/policy/src/main.asm"],"sources":[
+            {"path":"/policy/src/main.asm","text":"SECTION \"code\",ROM0\nINCLUDE \"sub/body.inc\""},
+            {"path":"/policy/src/sub/body.inc","text":"INCLUDE \"constants.inc\"\nINCBIN \"asset.bin\"\nld a,VALUE"},
+            {"path":"/policy/src/constants.inc","text":"DEF VALUE EQU 42"},
+            {"path":"/policy/src/sub/constants.inc","text":"DEF VALUE EQU 99"}],
+            "binaryFiles":[{"path":"/policy/src/asset.bin","data":[7,8]},{"path":"/policy/src/sub/asset.bin","data":[9,9]}],
+            "resolutions":[
+                {"includingFile":"/policy/src/main.asm","requested":"sub/body.inc","resolved":"/policy/src/sub/body.inc"},
+                {"includingFile":"/policy/src/sub/body.inc","requested":"constants.inc","resolved":"/policy/src/constants.inc"},
+                {"includingFile":"/policy/src/sub/body.inc","requested":"asset.bin","resolved":"/policy/src/asset.bin"}]
+        });
+        let response = process(&request.to_string());
+        assert_eq!(response["ok"], true, "{response}");
+        let bytes: Vec<u8> = serde_json::from_value(response["data"].clone()).unwrap();
+        assert!(bytes.windows(4).any(|bytes| bytes == [7, 8, 0x3e, 42]));
+        let constant = response["symbols"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|symbol| symbol["name"] == "VALUE")
+            .unwrap();
+        assert_eq!(constant["value"], 42);
+        assert_eq!(constant["definition"]["path"], "/policy/src/constants.inc");
+    }
+
+    #[test]
+    fn entrypoint_roots_apply_to_dynamic_nested_includes() {
+        for op in ["analyze", "assemble"] {
+            let request = json!({"version":1,"op":op,"roots":["/policy/src/main.asm"],"sources":[
+                {"path":"/policy/src/main.asm","text":"SECTION \"code\",ROM0\nDEF FILE EQUS \"\\\"sub/body.inc\\\"\"\nINCLUDE FILE"},
+                {"path":"/policy/src/sub/body.inc","text":"DEF CHILD EQUS \"\\\"constants.inc\\\"\"\nINCLUDE CHILD\ndb VALUE"},
+                {"path":"/policy/src/constants.inc","text":"DEF VALUE EQU 42"}],
+                "searchRoots":[{"file":"/policy/src/main.asm","roots":["/policy/src"]}]
+            });
+            let response = process(&request.to_string());
+            assert_eq!(response["ok"], true, "{response}");
+            assert!(
+                response["symbols"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|symbol| symbol["name"] == "VALUE" && symbol["value"] == 42)
+            );
+        }
+    }
+    #[test]
+    fn readfile_roots_preserve_limits_parent_defaults_and_absolute_paths() {
+        for (hint, name, expected) in [
+            (false, "note.txt", vec![90, 90]),
+            (true, "note.txt", vec![65, 66]),
+            (true, "/policy/src/sub/note.txt", vec![90, 90]),
+        ] {
+            let sources = vec![
+                (
+                    "/policy/src/main.asm".to_string(),
+                    "SECTION \"code\",ROM0\nINCLUDE \"sub/body.inc\"".to_string(),
+                ),
+                (
+                    "/policy/src/sub/body.inc".into(),
+                    format!("db READFILE({name:?},2)"),
+                ),
+                ("/policy/src/note.txt".into(), "ABtail".into()),
+                ("/policy/src/sub/note.txt".into(), "ZZtail".into()),
+            ];
+            let policy = crate::resolver::ResolverPolicy::new(
+                Vec::new(),
+                if hint {
+                    vec![crate::resolver::SearchRoots {
+                        file: "/policy/src/main.asm".into(),
+                        roots: vec!["/policy/src".into()],
+                    }]
+                } else {
+                    Vec::new()
+                },
+            )
+            .unwrap();
+            let canonical = assembler::assemble_with_resolver_report(
+                &sources[0].1,
+                &sources[0].0,
+                false,
+                &sources,
+                &[],
+                &policy,
+            )
+            .result
+            .unwrap();
+            assert_eq!(canonical.sections[0].data, expected);
+            let request = json!({"version":1,"op":"assemble","sources":sources.iter().map(|(path,text)|json!({"path":path,"text":text})).collect::<Vec<_>>(),"roots":["/policy/src/main.asm"],"searchRoots":if hint {json!([{"file":"/policy/src/main.asm","roots":["/policy/src"]}])}else{json!([])}});
+            let response = process(&request.to_string());
+            assert_eq!(response["ok"], true, "{response}");
+            assert_eq!(
+                response["data"],
+                json!(crate::object::write_kobj(&canonical).unwrap())
+            );
+        }
+    }
     #[test]
     fn koh_empty_warn_extension_is_a_structured_warning() {
         let request = json!({"version":1,"op":"assemble","sources":[{"path":"warn.asm","text":"WARN\nSECTION \"code\",ROM0\nnop"}]});

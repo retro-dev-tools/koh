@@ -6,12 +6,16 @@ public interface ISourceFileResolver
     string ReadAllText(string path);
     byte[] ReadAllBytes(string path);
     string ResolvePath(string currentFile, string includedPath);
+    IReadOnlyList<string> GetResolutionRoots(string currentFile) => [];
     IReadOnlyDictionary<string, string> GetTextOverlays() => new Dictionary<string, string>();
     IReadOnlyDictionary<string, byte[]> GetBinaryOverlays() => new Dictionary<string, byte[]>();
 }
 
 public sealed class FileSystemResolver(string? basePath = null) : ISourceFileResolver
 {
+    public IReadOnlyList<string> GetResolutionRoots(string currentFile) =>
+        [Path.GetFullPath(basePath ?? Environment.CurrentDirectory)];
+
     public bool FileExists(string path) => File.Exists(path);
 
     public string ReadAllText(string path) => File.ReadAllText(path);

@@ -8,6 +8,7 @@ pub mod expr;
 mod lower;
 pub mod model;
 pub mod object;
+mod resolver;
 pub mod service;
 mod source;
 

@@ -65,6 +65,9 @@ internal sealed class WorkspaceOverlayResolver : ISourceFileResolver
         return _inner.ResolvePath(currentFile, includedPath);
     }
 
+    public IReadOnlyList<string> GetResolutionRoots(string currentFile) =>
+        _inner.GetResolutionRoots(currentFile);
+
     public IReadOnlyDictionary<string, string> GetTextOverlays()
     {
         var result = new Dictionary<string, string>(
