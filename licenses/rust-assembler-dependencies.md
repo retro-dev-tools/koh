@@ -1,11 +1,11 @@
-# Rust assembler dependency notices
+# Rust toolchain dependency notices
 
-Redistributions containing `koh-asm` must retain this notice and the accompanying
+Redistributions containing `koh-asm` or `koh-link` must retain this notice and the accompanying
 `rust-assembler/` license texts. This inventory covers every external package in
 the repository's `Cargo.lock`, including host-side procedural macro dependencies.
 It does not assert that every listed package is linked into every target binary.
 
-MIT is selected wherever the package offers an MIT alternative. For
+MIT is selected wherever the package offers an MIT alternative; `foldhash` uses Zlib. For
 `unicode-ident`, the additional Unicode-3.0 terms also apply. The selected MIT
 terms require retaining the copyright and permission notices; the Unicode terms
 require their copyright and permission notice with copies or associated
@@ -14,6 +14,13 @@ disclaimers.
 
 | Package | Version | Declared license | Selected terms and full text |
 | --- | --- | --- | --- |
+| [cfg-if](https://docs.rs/crate/cfg-if/1.0.5/source/Cargo.toml) | 1.0.5 | MIT OR Apache-2.0 | [MIT](rust-assembler/cfg-if-license.txt) |
+| [crc32fast](https://docs.rs/crate/crc32fast/1.5.5/source/Cargo.toml) | 1.5.5 | MIT OR Apache-2.0 | [MIT](rust-assembler/crc32fast-license.txt) |
+| [equivalent](https://docs.rs/crate/equivalent/1.0.3/source/Cargo.toml) | 1.0.3 | Apache-2.0 OR MIT | [MIT](rust-assembler/equivalent-license.txt) |
+| [foldhash](https://docs.rs/crate/foldhash/0.2.0/source/Cargo.toml) | 0.2.0 | Zlib | [Zlib](rust-assembler/foldhash-license.txt) |
+| [hashbrown](https://docs.rs/crate/hashbrown/0.17.1/source/Cargo.toml) | 0.17.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/hashbrown-license.txt) |
+| [indexmap](https://docs.rs/crate/indexmap/2.14.2/source/Cargo.toml) | 2.14.2 | Apache-2.0 OR MIT | [MIT](rust-assembler/indexmap-license.txt) |
+| [object](https://docs.rs/crate/object/0.40.0/source/Cargo.toml) | 0.40.0 | Apache-2.0 OR MIT | [MIT](rust-assembler/object-license.txt) |
 | [itoa](https://docs.rs/crate/itoa/1.0.19/source/Cargo.toml) | 1.0.19 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) |
 | [memchr](https://docs.rs/crate/memchr/2.8.3/source/Cargo.toml) | 2.8.3 | Unlicense OR MIT | [MIT, including its copyright notice](rust-assembler/memchr-MIT.txt) |
 | [proc-macro2](https://docs.rs/crate/proc-macro2/1.0.107/source/Cargo.toml) | 1.0.107 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) |

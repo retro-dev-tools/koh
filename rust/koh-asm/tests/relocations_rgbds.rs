@@ -1,4 +1,4 @@
-use koh_asm::{assemble, model::*, object::write_rgbds};
+use koh_asm::{assemble, model::*, object::write_elf};
 use std::{
     fs,
     path::PathBuf,
@@ -52,9 +52,26 @@ impl Fixture {
         let asm = self.0.join(format!("{name}.asm"));
         let output = self.0.join(format!("{name}.o"));
         fs::write(&asm, source).unwrap();
+        let model = assemble(source, asm.to_str().unwrap(), true).unwrap();
+        fs::write(output.with_extension("elf.o"), write_elf(&model).unwrap()).unwrap();
         if native {
+            let reference = output.with_extension("reference.o");
+            let check = self.command(
+                &format!("{name}-size-object"),
+                "rgbasm",
+                &[
+                    "-o".into(),
+                    reference.to_string_lossy().into_owned(),
+                    asm.to_string_lossy().into_owned(),
+                ],
+            );
+            assert!(
+                check.status.success(),
+                "{}",
+                String::from_utf8_lossy(&check.stderr)
+            );
             let object = assemble(source, asm.to_str().unwrap(), true).unwrap();
-            fs::write(&output, write_rgbds(&object).unwrap()).unwrap();
+            fs::write(&output, write_elf(&object).unwrap()).unwrap();
             (output, Some(object))
         } else {
             let result = self.command(
@@ -77,6 +94,70 @@ impl Fixture {
 
     fn link(&self, name: &str, objects: &[PathBuf]) -> (Output, PathBuf) {
         let rom = self.0.join(format!("{name}.gb"));
+        if fs::read(&objects[0]).unwrap().starts_with(b"\x7fELF") {
+            #[cfg(unix)]
+            use std::os::unix::process::ExitStatusExt;
+            #[cfg(windows)]
+            use std::os::windows::process::ExitStatusExt;
+            let models: Vec<_> = objects
+                .iter()
+                .map(|p| {
+                    koh_asm::object::read_elf(
+                        &fs::read(if fs::read(p).unwrap().starts_with(b"\x7fELF") {
+                            p.clone()
+                        } else {
+                            p.with_extension("elf.o")
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap()
+                })
+                .collect();
+            let size_rom = self.0.join(format!("{name}-size.gb"));
+            let mut size_args = vec!["-o".into(), size_rom.to_string_lossy().into_owned()];
+            size_args.extend(
+                objects
+                    .iter()
+                    .map(|p| {
+                        if fs::read(p).unwrap().starts_with(b"\x7fELF") {
+                            p.with_extension("reference.o")
+                        } else {
+                            p.clone()
+                        }
+                    })
+                    .map(|p| p.to_string_lossy().into_owned()),
+            );
+            let reference = self.command(&format!("{name}-size"), "rgblink", &size_args);
+            let size = if reference.status.success() {
+                fs::metadata(&size_rom).unwrap().len() as usize
+            } else {
+                koh_link::MAX_ROM_SIZE
+            };
+            let result = koh_link::link(
+                &models,
+                &koh_link::LinkOptions {
+                    raw: true,
+                    size: Some(size),
+                    ..Default::default()
+                },
+            );
+            let (status, stderr) = match result {
+                Ok(result) => {
+                    fs::write(&rom, result.rom).unwrap();
+                    (0, Vec::new())
+                }
+                Err(error) => (1, error.into_bytes()),
+            };
+            return (
+                Output {
+                    status: std::process::ExitStatus::from_raw(status),
+                    stdout: Vec::new(),
+                    stderr,
+                },
+                rom,
+            );
+        }
+
         let mut args = vec!["-o".to_owned(), rom.to_string_lossy().into_owned()];
         args.extend(objects.iter().map(|p| p.to_string_lossy().into_owned()));
         (self.command(name, "rgblink", &args), rom)
@@ -178,7 +259,9 @@ fn signed_external_offset_is_asserted_at_link_time() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Signed relocation is out of range"),
+        stderr.contains("Signed relocation is out of range")
+            || stderr.contains("Signed relocation out of range")
+            || (stderr.contains("128") && stderr.contains("8-bit range")),
         "{stderr}"
     );
     println!("Expected signed failure: {stderr}");
@@ -211,7 +294,9 @@ fn external_high_memory_address_is_validated_at_link_time() {
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            stderr.contains("HRAM") || stderr.contains("high memory"),
+            stderr.contains("HRAM")
+                || stderr.to_ascii_lowercase().contains("high-memory")
+                || stderr.contains("high memory"),
             "{stderr}"
         );
         println!("Expected high-memory failure ({name}): {stderr}");

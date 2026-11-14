@@ -1705,6 +1705,7 @@ impl Assembler {
         }
         self.object.sections[section].data.extend_from_slice(bytes);
         self.object.sections[section].lines.push(Line {
+            expansion: self.expansion.clone(),
             offset,
             count: bytes.len(),
             file: line.file.clone(),

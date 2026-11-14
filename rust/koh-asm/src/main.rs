@@ -27,7 +27,7 @@ fn run(args: Vec<String>) -> Result<u8, String> {
         return Ok(0);
     }
     if args.is_empty() || args.iter().any(|s| s == "--help" || s == "-h") {
-        let usage = "Usage: koh-asm <input.asm> [-o output] [--format kobj|rgbds]\n\nOptions:\n  -o, --output <path>    Output file path (default: input.kobj or input.o)\n  -f, --format <format>  Output format: kobj (default), rgbds or o\n      --version         Show version information\n  -h, --help            Show this help";
+        let usage = "Usage: koh-asm <input.asm> [-o output]\n\nOptions:\n  -o, --output <path>    Output file path (default: input.o)\n      --version         Show version information\n  -h, --help            Show this help";
         if args.is_empty() {
             eprintln!("{usage}");
             return Ok(1);
@@ -37,7 +37,6 @@ fn run(args: Vec<String>) -> Result<u8, String> {
     }
     let mut input = None;
     let mut output = None;
-    let mut rgbds = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -46,20 +45,6 @@ fn run(args: Vec<String>) -> Result<u8, String> {
                     Some(PathBuf::from(it.next().ok_or_else(|| {
                         format!("option '{arg}' requires an argument")
                     })?))
-            }
-            "-f" | "--format" => {
-                let value = it
-                    .next()
-                    .ok_or_else(|| format!("option '{arg}' requires an argument"))?;
-                rgbds = match value.to_ascii_lowercase().as_str() {
-                    "kobj" => false,
-                    "rgbds" | "o" => true,
-                    _ => {
-                        return Err(format!(
-                            "unknown format '{value}' (expected: kobj, rgbds, o)"
-                        ));
-                    }
-                };
             }
             s if s.starts_with('-') => return Err(format!("unknown option '{s}' (try --help)")),
             s => {
@@ -70,7 +55,7 @@ fn run(args: Vec<String>) -> Result<u8, String> {
         }
     }
     let input = input.ok_or("no input file specified")?;
-    let output = output.unwrap_or_else(|| input.with_extension(if rgbds { "o" } else { "kobj" }));
+    let output = output.unwrap_or_else(|| input.with_extension("o"));
     let absolute = input
         .canonicalize()
         .map_err(|e| format!("cannot read '{}': {e}", input.display()))?;
@@ -80,7 +65,7 @@ fn run(args: Vec<String>) -> Result<u8, String> {
     let text = fs::read_to_string(&absolute)
         .map_err(|e| format!("cannot read '{}': {e}", input.display()))?;
     let start = std::time::Instant::now();
-    let report = koh_asm::assemble_report(&text, &absolute.to_string_lossy(), rgbds);
+    let report = koh_asm::assemble_report(&text, &absolute.to_string_lossy(), true);
     for warning in report.warnings {
         eprintln!(
             "{}:{}:1: warning: {}",
@@ -97,11 +82,7 @@ fn run(args: Vec<String>) -> Result<u8, String> {
             return Ok(1);
         }
     };
-    let data = if rgbds {
-        koh_asm::object::write_rgbds(&object)
-    } else {
-        koh_asm::object::write_kobj(&object)
-    }?;
+    let data = koh_asm::object::write_elf(&object)?;
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())

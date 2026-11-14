@@ -105,7 +105,7 @@ fn compare(directory: &Path, name: &str, body: &str) {
     let rust_rom = directory.join(format!("{name}-rust.gb"));
     fs::write(&asm, &source).unwrap();
     let object = koh_asm::assemble(&source, asm.to_str().unwrap(), true).unwrap();
-    fs::write(&rust_object, koh_asm::object::write_rgbds(&object).unwrap()).unwrap();
+    fs::write(&rust_object, koh_asm::object::write_elf(&object).unwrap()).unwrap();
     run(
         "rgbasm",
         &[
@@ -123,15 +123,17 @@ fn compare(directory: &Path, name: &str, body: &str) {
             reference_object.to_str().unwrap(),
         ],
     );
-    run(
-        "rgblink",
-        &[
-            "-x",
-            "-o",
-            rust_rom.to_str().unwrap(),
-            rust_object.to_str().unwrap(),
-        ],
-    );
+    let decoded = koh_asm::object::read_elf(&fs::read(&rust_object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[decoded],
+        &koh_link::LinkOptions {
+            raw: true,
+            size: Some(fs::metadata(&reference_rom).unwrap().len() as usize),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    fs::write(&rust_rom, linked.rom).unwrap();
     assert_eq!(
         fs::read(rust_rom).unwrap(),
         fs::read(reference_rom).unwrap(),

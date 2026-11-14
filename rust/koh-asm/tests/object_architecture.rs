@@ -1,7 +1,7 @@
 use koh_asm::{
     assemble,
     model::*,
-    object::{write_kobj, write_rgbds},
+    object::{read_elf, write_elf},
 };
 
 #[test]
@@ -14,8 +14,7 @@ fn complete_expressions_survive_assembly_independent_of_output_format() {
         RelocationExpr::Binary(BinaryOp::Add, _, _)
     ));
     assert_eq!(object.sections[0].patches[1].width, PatchWidth::Word);
-    assert!(write_kobj(&object).is_err());
-    assert!(write_rgbds(&object).is_ok());
+    assert!(read_elf(&write_elf(&object).unwrap()).is_ok());
 }
 
 #[test]
@@ -29,8 +28,7 @@ fn missing_references_are_explicit_imports_or_diagnostics() {
     let object = assemble(source, "import.asm", true).unwrap();
     assert_eq!(object.symbols.len(), 1);
     assert_eq!(object.symbols[0].definition, SymbolDefinition::Import);
-    assert!(write_kobj(&object).is_err());
-    assert!(write_rgbds(&object).is_ok());
+    assert!(read_elf(&write_elf(&object).unwrap()).is_ok());
 }
 
 #[test]
@@ -60,7 +58,7 @@ fn pc_tracks_execution_section_inside_load() {
     assert_eq!(patch.expression, RelocationExpr::CurrentAddress);
     assert_eq!(object.sections[1].size, 2);
     assert!(object.sections[1].data.is_empty());
-    assert!(write_rgbds(&object).is_ok());
+    assert!(read_elf(&write_elf(&object).unwrap()).is_ok());
 }
 
 #[test]
@@ -68,8 +66,7 @@ fn invalid_graph_is_rejected_before_serialization() {
     let mut object = assemble("SECTION \"code\",ROM0\ndw Missing", "invalid.asm", true).unwrap();
     object.sections[0].patches[0].expression = RelocationExpr::Symbol(SymbolId(999));
     assert!(object.validate().is_err());
-    assert!(write_rgbds(&object).is_err());
-    assert!(write_kobj(&object).is_err());
+    assert!(write_elf(&object).is_err());
 }
 
 #[test]
@@ -94,7 +91,7 @@ fn raw_identifier_escape_is_not_part_of_symbol_identity() {
     );
     assert!(object.symbols.iter().all(|s| !s.name.starts_with('#')));
     assert_eq!(object.sections[0].data[3], 7);
-    assert!(write_rgbds(&object).is_ok());
+    assert!(read_elf(&write_elf(&object).unwrap()).is_ok());
 }
 
 #[test]
@@ -150,7 +147,7 @@ fn current_address_divisor_is_not_assumed_to_be_zero() {
         object.sections[1].patches[0].expression,
         RelocationExpr::Binary(BinaryOp::Divide, _, _)
     ));
-    assert!(write_rgbds(&object).is_ok());
+    assert!(read_elf(&write_elf(&object).unwrap()).is_ok());
 }
 
 #[test]
@@ -159,8 +156,7 @@ fn signed_offset_semantics_survive_deferred_resolution() {
     let patch = &object.sections[0].patches[0];
     assert_eq!(patch.width, PatchWidth::Byte);
     assert_eq!(patch.semantics, PatchSemantics::Signed);
-    assert!(write_kobj(&object).is_err());
-    assert!(write_rgbds(&object).is_ok());
+    assert!(read_elf(&write_elf(&object).unwrap()).is_ok());
 }
 
 #[test]

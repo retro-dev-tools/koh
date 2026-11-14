@@ -27,11 +27,12 @@ pub fn process(line: &str) -> Value {
         Some(Value::Bool(value)) => *value,
         Some(_) => return error("", "allowUndefined must be a boolean"),
     };
-    let format = match request.get("format") {
-        None => "kobj",
-        Some(Value::String(value)) if matches!(value.as_str(), "kobj" | "rgbds" | "o") => value,
-        Some(_) => return error("", "format must be kobj, rgbds, or o"),
-    };
+    if request
+        .get("format")
+        .is_some_and(|v| v.as_str() != Some("elf"))
+    {
+        return error("", "format must be elf");
+    }
     let binary_files: Vec<BinarySource> = match request.get("binaryFiles") {
         None => Vec::new(),
         Some(files) => match serde_json::from_value(files.clone()) {
@@ -86,6 +87,7 @@ pub fn process(line: &str) -> Value {
         analysis::analyze_with_resolver(&sources, &roots, &resolver)
     };
     let mut data = Vec::new();
+    let mut canonical = Vec::new();
     if op != "parse" {
         let overlays: Vec<_> = sources
             .iter()
@@ -113,7 +115,6 @@ pub fn process(line: &str) -> Value {
         analysis
             .diagnostics
             .retain(|diagnostic| !diagnostic.provisional);
-        let mut canonical = Vec::new();
         for (path, text) in units {
             let report = assembler::assemble_with_resolver_report(
                 &text,
@@ -160,11 +161,7 @@ pub fn process(line: &str) -> Value {
                         }
                     }
                     if op == "assemble" {
-                        let result = match format {
-                            "kobj" => crate::object::write_kobj(&object),
-                            "rgbds" | "o" => crate::object::write_rgbds(&object),
-                            format => Err(format!("unsupported object format '{format}'")),
-                        };
+                        let result = crate::object::write_elf(&object);
                         match result {
                             Ok(bytes) => data = bytes,
                             Err(message) => analysis.diagnostics.push(analysis::Diagnostic {
@@ -238,6 +235,10 @@ pub fn process(line: &str) -> Value {
     response["version"] = json!(1);
     response["ok"] = json!(ok);
     response["data"] = json!(data);
+    response["object"] = canonical
+        .last()
+        .map(|(_, object)| json!(object))
+        .unwrap_or(Value::Null);
     response
 }
 
@@ -362,7 +363,7 @@ mod tests {
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(
             response["data"],
-            json!(crate::object::write_kobj(&object).unwrap())
+            json!(crate::object::write_elf(&object).unwrap())
         );
     }
     #[test]
@@ -459,7 +460,7 @@ mod tests {
             assert_eq!(response["ok"], true, "{response}");
             assert_eq!(
                 response["data"],
-                json!(crate::object::write_kobj(&canonical).unwrap())
+                json!(crate::object::write_elf(&canonical).unwrap())
             );
         }
     }
@@ -492,7 +493,7 @@ mod tests {
             let canonical = assembler::assemble(source, "main.asm", false).unwrap();
             assert_eq!(canonical.sections.len(), 1);
             assert_eq!(canonical.sections[0].data, expected);
-            let bytes = crate::object::write_kobj(&canonical).unwrap();
+            let bytes = crate::object::write_elf(&canonical).unwrap();
             for op in ["analyze", "assemble"] {
                 let response = process(
                     &json!({"version":1,"op":op,"sources":[{"path":"main.asm","text":source}]})
@@ -618,7 +619,7 @@ mod tests {
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(
             &response["data"].as_array().unwrap()[..4],
-            json!([75, 79, 72, 0]).as_array().unwrap()
+            json!([127, 69, 76, 70]).as_array().unwrap()
         );
     }
     #[test]

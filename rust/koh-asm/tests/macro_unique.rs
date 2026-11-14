@@ -154,3 +154,27 @@ fn include_provenance_preserves_the_logical_symlink_path() {
     assert_eq!((source.line, source.column), (2, 1));
     assert_eq!(source.expansion[0].file, main.to_str().unwrap());
 }
+
+#[test]
+fn constant_instruction_line_maps_keep_nested_macro_calls_through_elf() {
+    let source = "MACRO inner\n nop\nENDM\nMACRO outer\n inner\nENDM\nSECTION \"code\",ROM0[$100]\nouter\nnop\n";
+    let object = assemble(source, "nested-lines.asm", false).unwrap();
+    assert!(object.sections[0].patches.is_empty());
+    let restored =
+        koh_asm::object::read_elf(&koh_asm::object::write_elf(&object).unwrap()).unwrap();
+    let lines = &restored.sections[0].lines;
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].line, 2);
+    assert_eq!(
+        lines[0]
+            .expansion
+            .iter()
+            .map(|s| (s.file.as_str(), s.line, s.column))
+            .collect::<Vec<_>>(),
+        [("nested-lines.asm", 8, 1), ("nested-lines.asm", 5, 2)]
+    );
+    assert!(lines[1].expansion.is_empty());
+    let linked = koh_link::link(&[restored], &Default::default()).unwrap();
+    assert_eq!(linked.lines[0].expansion.len(), 2);
+    assert!(linked.lines[1].expansion.is_empty());
+}

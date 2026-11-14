@@ -89,7 +89,7 @@ fn koh_empty_warn_extension_remains_nonfatal() {
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("warn.asm:1:1: warning: WARN directive")
     );
-    assert!(fixture.path("warn.kobj").exists());
+    assert!(fixture.path("warn.o").exists());
 }
 
 #[test]
@@ -101,24 +101,20 @@ fn formats_defaults_and_output_aliases() {
     )
     .unwrap();
     assert_success(fixture.run(&["input.asm"]));
-    let kobj = fs::read(fixture.path("input.kobj")).unwrap();
-    assert!(!kobj.is_empty());
-    for format in ["rgbds", "o"] {
-        assert_success(fixture.run(&["input.asm", "--format", format]));
+    let elf = fs::read(fixture.path("input.o")).unwrap();
+    assert!(elf.starts_with(b"\x7fELF"));
+    let object = koh_asm::object::read_elf(&elf).unwrap();
+    assert_eq!(object.sections[0].data, [0, 0xc9]);
+    assert_success(fixture.run(&["input.asm", "-o", "custom.o"]));
+    assert_eq!(fs::read(fixture.path("custom.o")).unwrap(), elf);
+    for format in ["kobj", "rgbds", "o"] {
         assert!(
-            fs::read(fixture.path("input.o"))
-                .unwrap()
-                .starts_with(b"RGB9")
+            !fixture
+                .run(&["input.asm", "--format", format])
+                .status
+                .success()
         );
     }
-    assert_success(fixture.run(&["input.asm", "-f", "kobj", "-o", "custom.kobj"]));
-    assert_eq!(fs::read(fixture.path("custom.kobj")).unwrap(), kobj);
-    assert_success(fixture.run(&["input.asm", "--output", "custom.o", "-f", "rgbds"]));
-    assert!(
-        fs::read(fixture.path("custom.o"))
-            .unwrap()
-            .starts_with(b"RGB9")
-    );
     no_temporary_files(&fixture.0);
 }
 
@@ -130,14 +126,14 @@ fn failed_assembly_preserves_existing_output_and_reports_source_location() {
         "SECTION \"test\", ROM0\n ld a,256\n",
     )
     .unwrap();
-    fs::write(fixture.path("result.kobj"), b"existing artifact").unwrap();
-    let output = fixture.run(&["input.asm", "-o", "result.kobj"]);
+    fs::write(fixture.path("result.o"), b"existing artifact").unwrap();
+    let output = fixture.run(&["input.asm", "-o", "result.o"]);
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("input.asm:2:1: error:"), "{stderr}");
     assert!(stderr.contains("out of range"), "{stderr}");
     assert_eq!(
-        fs::read(fixture.path("result.kobj")).unwrap(),
+        fs::read(fixture.path("result.o")).unwrap(),
         b"existing artifact"
     );
     no_temporary_files(&fixture.0);
@@ -149,11 +145,11 @@ fn successful_assembly_replaces_output_and_refuses_source_overwrite() {
     let source = "SECTION \"test\", ROM0\n nop\n";
     fs::write(fixture.path("input.asm"), source).unwrap();
     fs::write(fixture.path("output.o"), b"existing artifact").unwrap();
-    assert_success(fixture.run(&["input.asm", "-f", "rgbds", "-o", "output.o"]));
+    assert_success(fixture.run(&["input.asm", "-o", "output.o"]));
     assert!(
         fs::read(fixture.path("output.o"))
             .unwrap()
-            .starts_with(b"RGB9")
+            .starts_with(b"\x7fELF")
     );
     let output = fixture.run(&["input.asm", "-o", "input.asm"]);
     assert!(!output.status.success());
