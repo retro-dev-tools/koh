@@ -4,6 +4,21 @@ Branch feat/rust-cil-compiler, isolated from main checkout modified screenshot.
 Baseline integrated linker 9cd1472. Existing PR #55 stays draft; never merge.
 C# compiler remains production. Full attachment migration goal stays active.
 
+Latest increment supersedes CLI-pending statements below: native koh-compile,
+startup, single canonical ELF composition and entry selection now exist.
+Read docs/rust-compiler/driver.md and progress.md. Linux nextest completed
+392/392 passed, no skips, 216 compiler cases, 172 emulator scenarios (158 normal,
+14 trap). Log /tmp/koh-driver-nextest.log, 283.774s. Original terminal exit record
+was lost in context transfer; completed summary was read after process termination.
+Separate doctests exit 0. DMG and CGB-only native CLI demonstrations both returned
+00 0000002A D000 OK, exit 0. No SDK/PDB/runtime completeness is claimed.
+Call-head a1c7685 macOS failed Roslyn fixture compilation before native compilation;
+direct Runtime reference fixes a locally reproduced DisableTransitiveProjectReferences
+failure. New hosted verification required. Driver review findings (nested entry
+identity and reference-only interrupt roots) were reproduced and fixed; 9 driver
+cases pass. No delegated writers/builds remain. Next memory/globals/initializers
+and real hardware intrinsic lowering, followed by remaining full goal requirements.
+
 ## Implemented
 
 All 565 legacy compiler methods have source dispositions, not complete migration.
@@ -55,6 +70,13 @@ single PR. Do not redefine success as integer/call slice. Rough progress 20%;
 acceptance, then delete it entirely. GameBoy API is preserved by default.
 
 ## Verification
+
+Current uncommitted unit: root owns cartridge.rs/compile.rs/main.rs native entry,
+single-ELF module composition/startup, contracts.rs guards, driver tests/fixtures,
+shared test Host support and C# test-only native-PC stop mode. No emulator core
+changes. Review is read-only, no edits/builds. Driver currently passes eight cases
+including native CLI, 16 extra ROM executions, output safety/determinism and
+canonical Koh.GameBoy contract rejection. Full verification follows review.
 
 Serial builds per output directory. KOH_DOTNET selects .NET SDK 10.0.115; read
 completed logs/direct exit codes. Use stable rustfmt. Reuse koh-objects ELF and

@@ -1,53 +1,14 @@
 use koh_compile::{ir::*, resolve::Definition, sm83};
 use koh_objects::*;
 use rstest::fixture;
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
-
-struct Host {
-    directory: tempfile::TempDir,
-    dll: PathBuf,
-}
-
-fn dotnet() -> Command {
-    Command::new(std::env::var_os("KOH_DOTNET").unwrap_or("dotnet".into()))
-}
+use std::path::Path;
+mod support;
+use support::{Host, dotnet};
 
 #[fixture]
 #[once]
 fn host() -> Host {
-    let directory = tempfile::Builder::new()
-        .prefix("koh sm83 execution ")
-        .tempdir()
-        .unwrap();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap();
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/EmulatorHost");
-    for name in ["EmulatorHost.csproj", "Program.cs"] {
-        std::fs::copy(fixture.join(name), directory.path().join(name)).unwrap();
-    }
-    let output = dotnet()
-        .arg("build")
-        .arg(directory.path().join("EmulatorHost.csproj"))
-        .args(["-c", "Release", "--nologo", "-v:q", "-m:1"])
-        .arg(format!("-p:KohRoot={}", root.display()))
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let dll = directory
-        .path()
-        .join("bin/Release/net10.0/EmulatorHost.dll");
-    Host { directory, dll }
+    support::build_host()
 }
 
 fn function(ty: Type, op: Op) -> Function {
@@ -704,6 +665,7 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
         .arg("build")
         .arg(directory.join("Entry/Entry.csproj"))
         .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg("-p:DisableTransitiveProjectReferences=true")
         .output()
         .unwrap();
     assert!(
@@ -820,6 +782,7 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
             "-v:q",
             "-m:1",
             "-p:DefineConstants=MODULE_INIT",
+            "-p:DisableTransitiveProjectReferences=true",
             "-o",
         ])
         .arg(&module_output)

@@ -189,6 +189,10 @@ impl<'a> Resolver<'a> {
             .ok_or_else(|| format!("Invalid assembly index {index}"))
     }
 
+    pub fn assembly_count(&self) -> usize {
+        self.assemblies.len()
+    }
+
     pub fn type_initializer(&self, method: Definition) -> Result<Option<Definition>, String> {
         let assembly = self.assembly(method.assembly)?;
         assembly.method(method.token)?;

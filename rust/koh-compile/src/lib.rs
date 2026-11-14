@@ -1,6 +1,8 @@
 pub mod assembly;
+mod cartridge;
 pub mod cil;
 pub mod compile;
+mod contracts;
 pub mod ir;
 pub mod lower;
 pub mod resolve;

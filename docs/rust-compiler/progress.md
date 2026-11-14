@@ -3,7 +3,7 @@
 Status: source audit and empirical baseline recorded; native raw metadata/body
 reader, CIL encoding decoder, bounded signatures, reference binding and initial
 typed integer lowering and initial ELF/SM83 emission implemented. No
-executable native compiler is integrated yet.
+native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
 ## Inspected baseline
@@ -252,3 +252,36 @@ passed (25 IR, 16 lowering, 14 backend cases; `/tmp/koh-calls-focused.log`).
 All 14 hosted checks passed for preceding backend head `6e01f88`; call-head hosted
 validation must be checked separately. No native CLI, SDK switch, game graphics,
 PDB/KDBG or final legacy-test retirement is claimed.
+
+## Native executable and cartridge startup
+
+The [native driver](driver.md) now provides `koh-compile`, explicit references,
+entry selection and canonical ELF output with startup and trap symbols. It uses
+the existing object writer and linker. Nine driver cases add 18 emulator ROM
+scenarios, including Debug/Release executable/library inputs, nested entry names,
+transitive calls and stack exhaustion. Output safety and deterministic reference
+ordering have direct assertions. SDK replacement remains pending.
+
+Separate native-process DMG and CGB-only demonstrations both returned
+`00 0000002A D000 OK`, exit 0, in the existing C# emulator. See driver.md for
+artifact sizes and limits. This is initial CLI acceptance, not game acceptance.
+
+The preceding call head `a1c7685` passed Linux locally but its hosted macOS native
+job failed during Roslyn fixture compilation with nine CS0103 errors, before
+native compilation. The fixture directly used Runtime while declaring only Bridge.
+Locally disabling transitive project references reproduced those errors. Adding
+the direct Runtime project reference produced a clean build under that same flag;
+call tests now set the flag explicitly. New-head hosted macOS validation remains
+required. Failed hosted job:
+https://github.com/retro-dev-tools/koh/actions/runs/43644986002/job/132600633936
+
+Hardware attributes currently fail closed rather than compiling desktop intrinsic
+bodies or omitting interrupt roots. Actual intrinsic/interrupt lowering remains
+required. No legacy compiler method is retired by this increment.
+
+Completed Linux workspace run: **392 tests run, 392 passed, 0 skipped** in
+283.774 seconds (`/tmp/koh-driver-nextest.log`). This includes 216 compiler cases
+and 172 ROM scenarios (158 normal returns, 14 traps). The original terminal exit
+record was lost during context transfer; the completed nextest summary was read
+directly after confirming the process had terminated. Separate workspace doctests
+exited 0 (no cases). No hosted result is claimed for this unpushed increment.

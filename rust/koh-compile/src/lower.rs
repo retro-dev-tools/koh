@@ -53,6 +53,7 @@ pub fn assembly_method(
 ) -> Result<Function, String> {
     let assembly = resolver.assembly(identity.assembly)?;
     let result = || -> Result<Function, String> {
+        crate::contracts::method(resolver, identity)?;
         if resolver.module_initializer(identity.assembly)?.is_some() {
             return Err("Module initializer requires static-initialization lowering".into());
         }

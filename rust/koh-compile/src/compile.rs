@@ -4,11 +4,130 @@ use crate::{
 };
 use std::collections::{HashSet, VecDeque};
 
+pub fn object(
+    resolver: &Resolver<'_>,
+    selected: Option<&str>,
+) -> Result<koh_objects::Object, String> {
+    let entry = entry(resolver, selected)?;
+    let functions = reachable(resolver, entry)?;
+    crate::cartridge::emit(&functions, entry)
+}
+
+pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definition, String> {
+    let assembly = resolver.assembly(0)?;
+    let metadata = assembly.metadata();
+    let token = if selected.is_none() && assembly.entry_point != 0 {
+        assembly.entry_point
+    } else {
+        let selection = selected
+            .map(|s| s.rsplit_once("::").ok_or("Entry must be Type::Method"))
+            .transpose()?;
+        let mut candidates = Vec::new();
+        let mut parents = vec![0; metadata.type_defs.len()];
+        for nested in &metadata.nested_classes {
+            parents[nested.nested_class as usize - 1] = nested.enclosing_class;
+        }
+        for (index, ty) in metadata.type_defs.iter().enumerate() {
+            if let Some((owner, _)) = selection {
+                let qualified = type_name(metadata, &parents, index)?;
+                if qualified != owner {
+                    continue;
+                }
+            }
+            let end = metadata
+                .type_defs
+                .get(index + 1)
+                .map(|t| t.method_list)
+                .unwrap_or(metadata.method_defs.len() as u32 + 1);
+            for row in ty.method_list..end {
+                let method = &metadata.method_defs[row as usize - 1];
+                let name = metadata
+                    .strings
+                    .get(method.name)
+                    .map_err(|e| e.to_string())?;
+                if method.flags & 0x10 != 0 && name == selection.map(|s| s.1).unwrap_or("Main") {
+                    candidates.push(0x06000000 | row);
+                    if candidates.len() > 1 {
+                        return Err(
+                            "Entry is ambiguous; select a unique Type::Method with --entry".into(),
+                        );
+                    }
+                }
+            }
+        }
+        *candidates
+            .first()
+            .ok_or("No static entry method found (assembly entry or Main)")?
+    };
+    let signature = assembly.method_signature(token)?;
+    let owner = metadata
+        .type_defs
+        .partition_point(|ty| ty.method_list <= token & 0x00ff_ffff) as u32;
+    if signature.calling_convention.has_this()
+        || signature.generic_param_count != 0
+        || metadata
+            .generic_params
+            .iter()
+            .any(|p| p.owner.table == Some(clrmeta::TableId::TypeDef) && p.owner.row == owner)
+    {
+        return Err("Entry must be static and non-generic".into());
+    }
+    if !signature.params.is_empty() {
+        return Err("Entry must have no parameters".into());
+    }
+    if !matches!(
+        signature.return_type,
+        clrmeta::TypeSig::Primitive(
+            clrmeta::ElementType::Void | clrmeta::ElementType::I4 | clrmeta::ElementType::U4
+        )
+    ) {
+        return Err("Entry must return void or int32".into());
+    }
+    Ok(Definition { assembly: 0, token })
+}
+
+fn type_name(
+    metadata: &clrmeta::Metadata,
+    parents: &[u32],
+    mut index: usize,
+) -> Result<String, String> {
+    let mut names = Vec::new();
+    let namespace = loop {
+        if names.len() >= 64 {
+            return Err("Entry type nesting exceeds limit".into());
+        }
+        let ty = &metadata.type_defs[index];
+        names.push(
+            metadata
+                .strings
+                .get(ty.type_name)
+                .map_err(|e| e.to_string())?,
+        );
+        if parents[index] == 0 {
+            break metadata
+                .strings
+                .get(ty.type_namespace)
+                .map_err(|e| e.to_string())?;
+        }
+        index = parents[index] as usize - 1;
+    };
+    names.reverse();
+    let name = names.join("+");
+    Ok(if namespace.is_empty() {
+        name
+    } else {
+        format!("{namespace}.{name}")
+    })
+}
+
 pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Function>, String> {
     let mut seen = HashSet::from([entry]);
     let mut queue = VecDeque::from([entry]);
     let mut functions = Vec::new();
     let mut instructions = 0usize;
+    for assembly in 0..resolver.assembly_count() {
+        crate::contracts::assembly(resolver, assembly)?;
+    }
     while let Some(identity) = queue.pop_front() {
         let function = crate::lower::assembly_method(resolver, identity)?;
         instructions += function
