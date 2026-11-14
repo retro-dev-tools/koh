@@ -72,6 +72,10 @@ requirements rather than inherited C# class fields.
 
 ## Evidence rules
 
+Source provenance preserves logical source path spelling, including symlinks and
+Windows short-path aliases. Filesystem identity is checked separately in tests;
+canonicalization must not rewrite the paths used by the editor and resolver.
+
 Exact KOBJ wire-layout tests protect the existing contract; decoded comparisons
 handle symbol ordering and different valid folding choices. Relocation tests
 link objects and inspect the resulting bytes. RGBDS acceptance alone does not

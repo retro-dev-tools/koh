@@ -100,7 +100,10 @@ fn macro_patch_provenance_tracks_include_for_and_call() {
     let patches = &object.sections[0].patches;
     assert_eq!(patches.len(), 2);
     let origin = &patches[0].source;
-    let included = included.canonicalize().unwrap();
+    assert_eq!(
+        std::fs::canonicalize(&origin.file).unwrap(),
+        included.canonicalize().unwrap()
+    );
     let included = included.to_str().unwrap();
     assert_eq!(
         (origin.file.as_str(), origin.line, origin.column),
@@ -116,4 +119,38 @@ fn macro_patch_provenance_tracks_include_for_and_call() {
     );
     assert_eq!(patches[1].source.file, file);
     assert!(patches[1].source.expansion.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn include_provenance_preserves_the_logical_symlink_path() {
+    struct Fixture(std::path::PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let directory =
+        std::env::temp_dir().join(format!("koh-symlink-provenance-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let fixture = Fixture(directory);
+    let real = fixture.0.join("real");
+    let alias = fixture.0.join("alias");
+    std::fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    std::fs::write(
+        real.join("body.inc"),
+        "SECTION \"code\",ROM0\ncall External",
+    )
+    .unwrap();
+    let main = alias.join("main.asm");
+    let object = assemble("INCLUDE \"body.inc\"", main.to_str().unwrap(), true).unwrap();
+    let source = &object.sections[0].patches[0].source;
+    assert_eq!(source.file, alias.join("body.inc").to_str().unwrap());
+    assert_eq!(
+        std::fs::canonicalize(&source.file).unwrap(),
+        real.join("body.inc").canonicalize().unwrap()
+    );
+    assert_eq!((source.line, source.column), (2, 1));
+    assert_eq!(source.expansion[0].file, main.to_str().unwrap());
 }
