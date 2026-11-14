@@ -1,6 +1,6 @@
 <!--
   Repo-level build targets. Invoke with `dotnet msbuild build.proj -t:<Target>`.
-  No external tooling required — MSBuild ships with the .NET SDK.
+  Requirements: .NET 10 SDK, Rust/Cargo
 
   Quick reference:
     dotnet msbuild build.proj -t:Test      (fast suite — no Koh.Compiler.Tests)

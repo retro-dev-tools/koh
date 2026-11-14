@@ -30,6 +30,17 @@ jobs:
         run: cargo +stable test --workspace --locked
       - name: Build native executable
         run: cargo +stable build --release --package koh-asm --locked
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish native-backed language server
+        run: dotnet publish src/Asm/Koh.Lsp -c Release --no-self-contained -o artifacts/language-server -m:1
+      - name: Upload language server
+        uses: actions/upload-artifact@v4
+        with:
+          name: koh-lsp-native-${{ runner.os }}
+          path: artifacts/language-server/
+          if-no-files-found: error
       - name: Upload native executable
         uses: actions/upload-artifact@v4
         with:
