@@ -78,8 +78,6 @@ internal static class NativeObject
 
     internal static string Serialize(EmitModel model)
     {
-        if (!model.Success)
-            throw new InvalidDataException("Cannot emit an object with compilation errors");
         var indices = model
             .Sections.Select((section, index) => (section.Name, index))
             .ToDictionary(pair => pair.Name, pair => pair.index, StringComparer.Ordinal);

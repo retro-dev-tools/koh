@@ -9,6 +9,28 @@ namespace Koh.Objects.Tests;
 public class ElfIntegrationTests
 {
     [Test]
+    public async Task FailedCompilationCannotBypassDiagnosticsWithAnElfImage()
+    {
+        var original = Assemble("SECTION \"Code\", ROM0\nnop\n");
+        var invalid = new EmitModel(
+            original.Sections,
+            original.Symbols,
+            [new Diagnostic(default, "source failure", DiagnosticSeverity.Error)]
+        )
+        {
+            ElfImage = original.ElfImage,
+        };
+        var result = new NativeLinker().Link([new LinkerInput("invalid.asm", invalid)]);
+        await Assert.That(result.Success).IsFalse();
+        await Assert.That(result.RomData).IsNull();
+        await Assert
+            .That(
+                result.Diagnostics.Any(diagnostic => diagnostic.Message.Contains("source failure"))
+            )
+            .IsTrue();
+    }
+
+    [Test]
     public async Task DebugOptOutAllowsConstantsOutsideKdbgRange()
     {
         var model = Assemble("DEF Value EQU -1\nSECTION \"Code\", ROM0\ndb LOW(Value)\n");

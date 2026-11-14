@@ -54,6 +54,10 @@ public sealed class NativeLinker(string? executable = null)
             for (int i = 0; i < inputs.Count; i++)
             {
                 var input = inputs[i];
+                if (!input.Model.Success)
+                    throw new InvalidDataException(
+                        $"{input.FilePath}: compilation failed: {string.Join("; ", input.Model.Diagnostics.Select(diagnostic => diagnostic.Message))}"
+                    );
                 var path = Path.Combine(scratch, $"{i}.o");
                 if (input.Model.ElfImage is { } elf)
                     File.WriteAllBytes(path, elf);
@@ -122,6 +126,8 @@ public sealed class NativeLinker(string? executable = null)
         catch (Exception error)
             when (error
                     is IOException
+                        or InvalidDataException
+                        or UnauthorizedAccessException
                         or InvalidOperationException
                         or System.ComponentModel.Win32Exception
                         or OverflowException
