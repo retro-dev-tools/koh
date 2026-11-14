@@ -18,7 +18,9 @@ or proprietary object wrapper is used.
 Section indices 1 through N correspond to model sections, in model order.
 Their ELF names are the original names, including duplicates for fragments/unions.
 ROM is SHT_PROGBITS with SHF_ALLOC|SHF_EXECINSTR; RAM is SHT_NOBITS with
-SHF_ALLOC|SHF_WRITE. `sh_size` is the model size; `sh_addr=0`, `sh_addralign=1`.
+SHF_ALLOC|SHF_WRITE. `sh_size` is the model size; `sh_addr=0`. For zero alignment offset,
+`sh_addralign=1<<align` and the file payload is aligned accordingly. Nonzero
+congruence offsets require `sh_addralign=1` and the extension constraint.
 Bank, fixed address and congruence alignment live in the extension because ELF's
 single linear address space cannot represent Game Boy bank placement.
 

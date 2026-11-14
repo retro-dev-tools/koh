@@ -372,3 +372,39 @@ fn overlapping_section_payloads_cannot_amplify_input_allocations() {
     bytes[table + 80 + 20..table + 80 + 24].copy_from_slice(&0x4000u32.to_le_bytes());
     assert!(read_elf(&bytes).unwrap_err().contains("allocation budget"));
 }
+
+#[test]
+fn standard_alignment_mirrors_zero_offset_constraints() {
+    for exponent in [0, 4, 8, 16] {
+        let original = Object {
+            sections: vec![Section {
+                name: "aligned".into(),
+                align: exponent,
+                size: 1,
+                data: vec![0],
+                ..Default::default()
+            }],
+            symbols: vec![],
+        };
+        let bytes = write_elf(&original).unwrap();
+        let parsed =
+            object::read::elf::ElfFile32::<object::Endianness>::parse(bytes.as_slice()).unwrap();
+        let section = parsed.section_by_index(object::SectionIndex(1)).unwrap();
+        assert_eq!(section.align(), 1u64 << exponent);
+        assert_eq!(section.file_range().unwrap().0 % (1u64 << exponent), 0);
+        let restored = read_elf(&bytes).unwrap();
+        assert_eq!(restored.sections[0].align, exponent);
+    }
+    let original = object();
+    let bytes = write_elf(&original).unwrap();
+    let parsed =
+        object::read::elf::ElfFile32::<object::Endianness>::parse(bytes.as_slice()).unwrap();
+    assert_eq!(
+        parsed
+            .section_by_index(object::SectionIndex(2))
+            .unwrap()
+            .align(),
+        1
+    );
+    assert_eq!(read_elf(&bytes).unwrap().sections[1].align_offset, 1);
+}

@@ -351,7 +351,12 @@ pub fn write_elf(object: &Object) -> Result<Vec<u8>, String> {
         let mut headers = Vec::new();
         for s in &object.sections {
             let name = w.add_section_name(s.name.as_bytes());
-            let offset = w.write_align(1);
+            let alignment = if s.align_offset == 0 {
+                1u64 << s.align
+            } else {
+                1
+            };
+            let offset = w.write_align(alignment);
             if s.kind <= 1 {
                 w.write(&s.data)
             }
@@ -369,7 +374,7 @@ pub fn write_elf(object: &Object) -> Result<Vec<u8>, String> {
                 },
                 sh_offset: offset,
                 sh_size: s.size as u64,
-                sh_addralign: 1,
+                sh_addralign: alignment,
                 ..Default::default()
             });
         }
