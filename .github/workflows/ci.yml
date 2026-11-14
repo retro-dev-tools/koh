@@ -55,7 +55,38 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Publish Koh.Emulator.App (NativeAOT)
-        run: dotnet publish src/Emulator/Koh.Emulator.App -c Release -r ${{ matrix.rid }}
+        run: dotnet msbuild build.proj -t:PublishEmulatorApp
+
+      - name: Smoke-test headless NativeAOT emulator
+        shell: bash
+        run: |
+          dotnet msbuild build.proj -t:BuildSample2048
+          pub=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
+          exe="$pub/Koh.Emulator.App"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then exe="$exe.exe"; fi
+          smoke_dir="$(mktemp -d)"
+          "$exe" samples/asm/gb-2048/build/2048.gbc --frames=300 --screenshot="$smoke_dir/frame.png"
+          python - "$smoke_dir/frame.png" <<'PY'
+          import struct
+          import sys
+          import zlib
+          from pathlib import Path
+          data = Path(sys.argv[1]).read_bytes()
+          assert data[:8] == b"\x89PNG\r\n\x1a\n"
+          assert struct.unpack_from(">II", data, 16) == (160, 144)
+          offset = 8
+          compressed = bytearray()
+          while offset < len(data):
+              size = struct.unpack_from(">I", data, offset)[0]
+              kind = data[offset + 4:offset + 8]
+              chunk = data[offset + 8:offset + 8 + size]
+              assert zlib.crc32(kind + chunk) == struct.unpack_from(">I", data, offset + 8 + size)[0]
+              if kind == b"IDAT":
+                  compressed.extend(chunk)
+              offset += size + 12
+          assert len(zlib.decompress(compressed)) == 144 * (1 + 160 * 4)
+          print("Headless NativeAOT capture: 160x144 PNG")
+          PY
 
       - name: Report publish size
         shell: bash
