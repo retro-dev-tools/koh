@@ -1,3 +1,5 @@
+#[cfg(test)]
+use koh_objects::evaluate_binary as binary;
 use koh_objects::*;
 use std::collections::{BTreeMap, HashMap};
 
@@ -423,79 +425,14 @@ impl Context<'_> {
             }
             RelocationExpr::Unary(op, v) => {
                 let v = self.eval(oi, v, pc, bank)?;
-                match op {
-                    UnaryOp::Negate => v.wrapping_neg(),
-                    UnaryOp::BitNot => !v,
-                    UnaryOp::LogicalNot => (v == 0) as i32,
-                    UnaryOp::High => (v >> 8) & 255,
-                    UnaryOp::Low => v & 255,
-                    UnaryOp::BitWidth => (32 - (v as u32).leading_zeros()) as i32,
-                    UnaryOp::TrailingZeros => v.trailing_zeros() as i32,
-                }
+                evaluate_unary(*op, v)
             }
-            RelocationExpr::Binary(op, a, b) => binary(
+            RelocationExpr::Binary(op, a, b) => evaluate_binary(
                 *op,
                 self.eval(oi, a, pc, bank)?,
                 self.eval(oi, b, pc, bank)?,
             )?,
         })
-    }
-}
-fn binary(op: BinaryOp, a: i32, b: i32) -> Result<i32, String> {
-    use BinaryOp::*;
-    Ok(match op {
-        Add => a.wrapping_add(b),
-        Subtract => a.wrapping_sub(b),
-        Multiply => a.wrapping_mul(b),
-        Divide | Modulo => {
-            if b == 0 {
-                return Err("Division by zero".into());
-            }
-            let a = i64::from(a);
-            let b = i64::from(b);
-            let mut q = a / b;
-            let mut r = a % b;
-            if r != 0 && (r < 0) != (b < 0) {
-                q -= 1;
-                r += b;
-            }
-            if op == Divide { q as i32 } else { r as i32 }
-        }
-        Power => {
-            if b < 0 {
-                return Err("Negative exponent".into());
-            }
-            a.wrapping_pow(b as u32)
-        }
-        BitOr => a | b,
-        BitAnd => a & b,
-        BitXor => a ^ b,
-        LogicalAnd => (a != 0 && b != 0) as i32,
-        LogicalOr => (a != 0 || b != 0) as i32,
-        Equal => (a == b) as i32,
-        NotEqual => (a != b) as i32,
-        Greater => (a > b) as i32,
-        Less => (a < b) as i32,
-        GreaterEqual => (a >= b) as i32,
-        LessEqual => (a <= b) as i32,
-        ShiftLeft | ShiftRight | UnsignedShiftRight => shift(op, a, b),
-    })
-}
-fn shift(op: BinaryOp, a: i32, b: i32) -> i32 {
-    let left = matches!(op, BinaryOp::ShiftLeft) ^ (b < 0);
-    let n = b.unsigned_abs();
-    if n >= 32 {
-        if !left && op != BinaryOp::UnsignedShiftRight && a < 0 {
-            -1
-        } else {
-            0
-        }
-    } else if left {
-        a.wrapping_shl(n)
-    } else if op == BinaryOp::UnsignedShiftRight {
-        ((a as u32) >> n) as i32
-    } else {
-        a >> n
     }
 }
 
