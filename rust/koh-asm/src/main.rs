@@ -80,7 +80,14 @@ fn run(args: Vec<String>) -> Result<u8, String> {
     let text = fs::read_to_string(&absolute)
         .map_err(|e| format!("cannot read '{}': {e}", input.display()))?;
     let start = std::time::Instant::now();
-    let object = match koh_asm::assemble(&text, &absolute.to_string_lossy(), rgbds) {
+    let report = koh_asm::assemble_report(&text, &absolute.to_string_lossy(), rgbds);
+    for warning in report.warnings {
+        eprintln!(
+            "{}:{}:1: warning: {}",
+            warning.file, warning.line, warning.message
+        );
+    }
+    let object = match report.result {
         Ok(model) => model,
         Err(errors) => {
             for error in &errors {

@@ -7,6 +7,39 @@ namespace Koh.Lsp.Tests;
 public class NativeBridgeTests
 {
     [Test]
+    public async Task NativeWarningsReachSemanticAndEmissionDiagnostics()
+    {
+        const string source =
+            "; 😀\nWARN \"custom\"\nASSERT WARN,0,\"detail\"\nSECTION \"main\",ROM0\nnop";
+        var tree = SyntaxTree.Parse(SourceText.From(source, "warnings.asm"));
+        var compilation = Compilation.Create(tree);
+        var model = compilation.Emit();
+        await Assert.That(model.Success).IsTrue();
+        foreach (
+            var diagnostics in new[]
+            {
+                compilation.GetSemanticModel(tree).GetDiagnostics(),
+                model.Diagnostics,
+            }
+        )
+        {
+            var warnings = diagnostics
+                .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Warning)
+                .ToArray();
+            await Assert.That(warnings.Length).IsEqualTo(2);
+            await Assert.That(warnings[0].Message).IsEqualTo("custom");
+            await Assert.That(warnings[0].FilePath).IsEqualTo("warnings.asm");
+            await Assert
+                .That(warnings[0].Span.Start)
+                .IsEqualTo(source.IndexOf("WARN", StringComparison.Ordinal));
+            await Assert.That(warnings[1].Message).IsEqualTo("Assertion failed: detail");
+            await Assert
+                .That(warnings[1].Span.Start)
+                .IsEqualTo(source.IndexOf("ASSERT", StringComparison.Ordinal));
+        }
+    }
+
+    [Test]
     public async Task NativeAssemblyProducesInstructionBytes()
     {
         var tree = SyntaxTree.Parse(

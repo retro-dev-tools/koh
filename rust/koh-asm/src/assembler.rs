@@ -23,6 +23,12 @@ impl std::fmt::Display for Diagnostic {
     }
 }
 
+#[derive(Debug)]
+pub struct AssemblyReport {
+    pub result: Result<crate::model::Object, Vec<Diagnostic>>,
+    pub warnings: Vec<Diagnostic>,
+}
+
 #[derive(Clone)]
 struct Macro {
     body: Vec<SourceLine>,
@@ -63,9 +69,17 @@ struct Assembler {
     anonymous: usize,
     steps: usize,
     errors: Vec<Diagnostic>,
+    warnings: Vec<Diagnostic>,
     symbol_sources: HashMap<String, Provenance>,
     expansion: Vec<SourceLocation>,
-    assertions: Vec<(Expr, SourceLine, Option<i32>, Option<usize>, bool)>,
+    assertions: Vec<(
+        Expr,
+        SourceLine,
+        Option<i32>,
+        Option<usize>,
+        bool,
+        Option<String>,
+    )>,
 }
 
 pub fn assemble(
@@ -83,13 +97,33 @@ pub fn assemble_with_overlays(
     sources: &[(String, String)],
     binary_sources: &[(String, Vec<u8>)],
 ) -> Result<crate::model::Object, Vec<Diagnostic>> {
-    let (constants, mut strings) = crate::builtins::values().map_err(|message| {
-        vec![Diagnostic {
-            file: file.into(),
-            line: 1,
-            message,
-        }]
-    })?;
+    assemble_with_overlays_report(text, file, allow_imports, sources, binary_sources).result
+}
+
+pub fn assemble_report(text: &str, file: &str, allow_imports: bool) -> AssemblyReport {
+    assemble_with_overlays_report(text, file, allow_imports, &[], &[])
+}
+
+pub fn assemble_with_overlays_report(
+    text: &str,
+    file: &str,
+    allow_imports: bool,
+    sources: &[(String, String)],
+    binary_sources: &[(String, Vec<u8>)],
+) -> AssemblyReport {
+    let (constants, mut strings) = match crate::builtins::values() {
+        Ok(values) => values,
+        Err(message) => {
+            return AssemblyReport {
+                result: Err(vec![Diagnostic {
+                    file: file.into(),
+                    line: 1,
+                    message,
+                }]),
+                warnings: Vec::new(),
+            };
+        }
+    };
     for (name, value) in &mut strings {
         if name.starts_with("__ISO_") {
             *value = format!("\"{value}\"");
@@ -131,6 +165,7 @@ pub fn assemble_with_overlays(
         anonymous: 0,
         steps: 0,
         errors: Vec::new(),
+        warnings: Vec::new(),
         symbol_sources: HashMap::new(),
         expansion: Vec::new(),
         assertions: Vec::new(),
@@ -158,7 +193,7 @@ pub fn assemble_with_overlays(
         });
     }
     asm.finish();
-    if asm.errors.is_empty() {
+    let result = if asm.errors.is_empty() {
         crate::lower::lower(asm.object, allow_imports).map_err(|error| {
             vec![Diagnostic {
                 file: error
@@ -172,6 +207,10 @@ pub fn assemble_with_overlays(
         })
     } else {
         Err(asm.errors)
+    };
+    AssemblyReport {
+        result,
+        warnings: asm.warnings,
     }
 }
 
@@ -1329,6 +1368,14 @@ impl Assembler {
                             .first()
                             .is_some_and(|v| v.eq_ignore_ascii_case("FATAL")),
                 );
+                if values.len() > index + 2 {
+                    return Err("ASSERT requires an expression and optional message".into());
+                }
+                let message = values
+                    .get(index + 1)
+                    .map(|value| self.string(value))
+                    .transpose()?
+                    .filter(|message| !message.is_empty());
                 self.assertions.push((
                     self.tree(values.get(index).ok_or("ASSERT requires expression")?)?,
                     line.clone(),
@@ -1337,12 +1384,18 @@ impl Assembler {
                         .map(|base| base + self.offset() as i32),
                     self.pc_section(),
                     warning,
+                    message,
                 ));
                 Ok(())
             }
             "FAIL" => Err(format!("FAIL: {tail}")),
             "WARN" => {
-                eprintln!("{}:{}:1: warning: {}", line.file, line.line, tail);
+                let message = self.string(tail)?;
+                self.warnings.push(Diagnostic {
+                    file: line.file.clone(),
+                    line: line.line,
+                    message,
+                });
                 Ok(())
             }
             "PRINT" | "PRINTLN" => {
@@ -1839,7 +1892,7 @@ impl Assembler {
             }
         }
         let mut assertions = Vec::new();
-        for (i, (tree, _, pc, section, _)) in self.assertions.iter().enumerate() {
+        for (i, (tree, _, pc, section, _, _)) in self.assertions.iter().enumerate() {
             if references_symbol(tree, name) {
                 if has_pc(tree) && pc.is_none() {
                     return Err(format!("cannot purge referenced symbol '{name}'"));
@@ -1920,7 +1973,7 @@ impl Assembler {
             }
         }
         let assertions = std::mem::take(&mut self.assertions);
-        for (tree, line, pc, section, warning) in assertions {
+        for (tree, line, pc, section, warning, message) in assertions {
             let result = if has_pc(&tree) && pc.is_none() {
                 Err("ASSERT requires a placed current address".into())
             } else {
@@ -1930,9 +1983,23 @@ impl Assembler {
             match result {
                 Ok(v) if v != 0 => (),
                 Ok(_) if warning => {
-                    eprintln!("{}:{}:1: warning: assertion failed", line.file, line.line)
+                    let message = message.map_or_else(
+                        || "Assertion failed".into(),
+                        |message| format!("Assertion failed: {message}"),
+                    );
+                    self.warnings.push(Diagnostic {
+                        file: line.file,
+                        line: line.line,
+                        message,
+                    });
                 }
-                Ok(_) => self.error(&line, "assertion failed"),
+                Ok(_) => self.error(
+                    &line,
+                    message.map_or_else(
+                        || "assertion failed".into(),
+                        |message| format!("assertion failed: {message}"),
+                    ),
+                ),
                 Err(e) => self.error(&line, e),
             }
         }

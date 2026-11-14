@@ -165,3 +165,40 @@ fn failed_output_rename_preserves_destination_and_removes_temporary_file() {
     assert_eq!(fs::read(fixture.path("destination/keep")).unwrap(), b"keep");
     no_temporary_files(&fixture.0);
 }
+
+#[test]
+fn structured_warnings_are_printed_once_without_error_labels() {
+    let fixture = Fixture::new();
+    fs::write(fixture.path("warnings.asm"),"WARN \"custom\"\nASSERT WARN,0,\"detail\"\nASSERT WARN,1,\"not emitted\"\nSECTION \"code\",ROM0\nnop\n").unwrap();
+    let output = fixture.run(&["warnings.asm"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("warnings.asm:1:1: warning: custom"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("warnings.asm:2:1: warning: Assertion failed: detail"),
+        "{stderr}"
+    );
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|line| line.contains(": warning:"))
+            .count(),
+        2,
+        "{stderr}"
+    );
+    assert!(!stderr.contains(": error:"), "{stderr}");
+    assert!(!stderr.contains("not emitted"), "{stderr}");
+    fs::write(
+        fixture.path("errors.asm"),
+        "WARN \"retained\"\nSECTION \"code\",ROM0\nld a,256",
+    )
+    .unwrap();
+    let failed = fixture.run(&["errors.asm"]);
+    assert!(!failed.status.success());
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(stderr.contains(": warning: retained"), "{stderr}");
+    assert!(stderr.contains(": error:"), "{stderr}");
+}

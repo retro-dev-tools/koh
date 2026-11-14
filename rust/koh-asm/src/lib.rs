@@ -12,4 +12,6 @@ pub mod service;
 mod source;
 
 pub use assembler::assemble_with_overlays;
-pub use assembler::{Diagnostic, assemble};
+pub use assembler::{
+    AssemblyReport, Diagnostic, assemble, assemble_report, assemble_with_overlays_report,
+};

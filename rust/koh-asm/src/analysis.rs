@@ -92,6 +92,8 @@ pub struct Diagnostic {
     pub length: usize,
     pub severity: String,
     pub message: String,
+    #[serde(skip)]
+    pub(crate) provisional: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -180,7 +182,24 @@ fn diagnostic(doc: &Document, token: usize, message: impl Into<String>) -> Diagn
         length: p.length.max(1),
         severity: "Error".into(),
         message: message.into(),
+        provisional: true,
     }
+}
+
+fn continuation(text: &str, start: usize) -> Option<usize> {
+    if text.as_bytes().get(start) != Some(&b'\\') {
+        return None;
+    }
+    let suffix = text[start + 1..].trim_start_matches([' ', '\t']);
+    let suffix = if suffix.starts_with(';') {
+        &suffix[suffix.find(['\n', '\r']).unwrap_or(suffix.len())..]
+    } else {
+        suffix
+    };
+    if !suffix.starts_with(['\n', '\r']) {
+        return None;
+    }
+    Some(text.len() - suffix.len() + if suffix.starts_with("\r\n") { 2 } else { 1 })
 }
 
 fn lex(source: &Source, diagnostics: &mut Vec<Diagnostic>) -> Vec<Token> {
@@ -216,20 +235,8 @@ fn lex(source: &Source, diagnostics: &mut Vec<Diagnostic>) -> Vec<Token> {
             }
             kind = "WhitespaceTrivia".into();
         } else if c == '\\' {
-            let after = &rest[1..];
-            let stripped = after.trim_start_matches([' ', '\t']);
-            let after_comment = if stripped.starts_with(';') {
-                &stripped[stripped.find(['\n', '\r']).unwrap_or(stripped.len())..]
-            } else {
-                stripped
-            };
-            if after_comment.starts_with(['\n', '\r']) {
-                byte = text.len() - after_comment.len()
-                    + if after_comment.starts_with("\r\n") {
-                        2
-                    } else {
-                        1
-                    };
+            if let Some(end) = continuation(text, byte) {
+                byte = end;
                 kind = "WhitespaceTrivia".into();
             } else {
                 byte += 1;
@@ -256,6 +263,12 @@ fn lex(source: &Source, diagnostics: &mut Vec<Diagnostic>) -> Vec<Token> {
             byte = opening + delimiter;
             closed = false;
             while byte < text.len() {
+                if !raw {
+                    if let Some(end) = continuation(text, byte) {
+                        byte = end;
+                        continue;
+                    }
+                }
                 if (triple && text[byte..].starts_with("\"\"\""))
                     || (!triple && text[byte..].starts_with(quote))
                 {
@@ -423,6 +436,7 @@ fn lex(source: &Source, diagnostics: &mut Vec<Diagnostic>) -> Vec<Token> {
                 } else {
                     format!("unexpected character {c}")
                 },
+                provisional: true,
             });
         }
         utf16 += length;
@@ -443,6 +457,7 @@ fn lex(source: &Source, diagnostics: &mut Vec<Diagnostic>) -> Vec<Token> {
             length: 1,
             severity: "Error".into(),
             message: "unclosed interpolation".into(),
+            provisional: true,
         });
     }
     tokens
@@ -919,16 +934,20 @@ impl Parsed {
     }
 
     fn clean_text(&self, ids: &[usize]) -> String {
-        ids.iter()
-            .map(|i| {
-                let token = &self.document.tokens[*i];
-                if trivia(&token.kind) {
-                    " "
-                } else {
-                    token.text.as_str()
+        let mut text = String::new();
+        for id in ids {
+            let token = &self.document.tokens[*id];
+            if trivia(&token.kind) {
+                text.push(' ');
+            } else if token.kind == "StringLiteral" && token.text.contains(['\r', '\n']) {
+                for line in crate::source::lines(&token.text, "") {
+                    text.push_str(&line.text);
                 }
-            })
-            .collect()
+            } else {
+                text.push_str(&token.text);
+            }
+        }
+        text
     }
 }
 
@@ -1664,5 +1683,37 @@ mod tests {
         let target = result.symbols.iter().find(|s| s.name == "Target").unwrap();
         assert_eq!(target.owner, root);
         assert_eq!(target.references.len(), 1);
+    }
+
+    #[test]
+    fn quoted_line_continuations_keep_raw_utf16_token_spans() {
+        let input = source(
+            "/continuation.asm",
+            "SECTION \"Main\",ROM0\nld a,\"A\\ ; continued 😀\r\n\"\nnop\n",
+        );
+        let result = parse(&[input.clone()]);
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+        let token = result.documents[0]
+            .tokens
+            .iter()
+            .find(|t| t.text.contains("continued"))
+            .unwrap();
+        assert_eq!(token.kind, "StringLiteral");
+        assert_eq!(token.text, "\"A\\ ; continued 😀\r\n\"");
+        assert_eq!(token.length, token.text.encode_utf16().count());
+        assert_eq!(
+            token.start,
+            input.text[..input.text.find("\"A").unwrap()]
+                .encode_utf16()
+                .count()
+        );
+        let invalid = parse(&[source("/bad.asm", "ld a,\n")]);
+        assert!(invalid.diagnostics.iter().all(|d| d.provisional));
+        assert!(
+            !serde_json::to_value(&invalid.diagnostics)
+                .unwrap()
+                .to_string()
+                .contains("provisional")
+        );
     }
 }
