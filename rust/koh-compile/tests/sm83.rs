@@ -1,0 +1,592 @@
+use koh_compile::{ir::*, resolve::Definition, sm83};
+use koh_objects::*;
+use rstest::fixture;
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+struct Host {
+    directory: tempfile::TempDir,
+    dll: PathBuf,
+}
+
+fn dotnet() -> Command {
+    Command::new(std::env::var_os("KOH_DOTNET").unwrap_or("dotnet".into()))
+}
+
+#[fixture]
+#[once]
+fn host() -> Host {
+    let directory = tempfile::Builder::new()
+        .prefix("koh sm83 execution ")
+        .tempdir()
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/EmulatorHost");
+    for name in ["EmulatorHost.csproj", "Program.cs"] {
+        std::fs::copy(fixture.join(name), directory.path().join(name)).unwrap();
+    }
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.path().join("EmulatorHost.csproj"))
+        .args(["-c", "Release", "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let dll = directory
+        .path()
+        .join("bin/Release/net10.0/EmulatorHost.dll");
+    Host { directory, dll }
+}
+
+fn function(ty: Type, op: Op) -> Function {
+    Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![ty, ty],
+        returns: Some(ty),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, ty), (1, ty)],
+            instructions: vec![Instruction {
+                result: Some((2, ty)),
+                op,
+                il_offset: 0,
+            }],
+            terminator: Terminator {
+                kind: Control::Return(Some(2)),
+                il_offset: 1,
+            },
+        }],
+    }
+}
+
+fn symbol(name: String, definition: SymbolDefinition) -> Symbol {
+    Symbol {
+        name,
+        binding: if definition == SymbolDefinition::Import {
+            SymbolBinding::Local
+        } else {
+            SymbolBinding::Exported
+        },
+        definition,
+        source: None,
+    }
+}
+
+fn patch(offset: u32, target: SymbolId) -> Patch {
+    Patch {
+        offset: offset as usize,
+        width: PatchWidth::Word,
+        semantics: PatchSemantics::Absolute,
+        pc: AddressContext {
+            section: SectionId(0),
+            offset,
+        },
+        expression: RelocationExpr::Symbol(target),
+        source: Provenance {
+            file: "<test-start>".into(),
+            line: 1,
+            column: 1,
+            expansion: vec![],
+        },
+    }
+}
+
+fn rom(f: &Function, arguments: &[u64], stack: u16) -> Vec<u8> {
+    let object = sm83::emit(f).unwrap();
+    let elf = write_elf(&object).unwrap();
+    let object = read_elf(&elf).unwrap();
+    let mut data = vec![0; 0x150];
+    data[0x100..0x103].copy_from_slice(&[0xc3, 0x50, 0x01]);
+    data.extend_from_slice(&[0xf3, 0x31, stack as u8, (stack >> 8) as u8]);
+    let ret_bytes = f.returns.map(|t| t.bits() / 8).unwrap_or(0);
+    let bytes = usize::from(ret_bytes)
+        + f.parameters
+            .iter()
+            .map(|t| usize::from(t.bits() / 8))
+            .sum::<usize>();
+    assert!(bytes < 128);
+    data.extend_from_slice(&[0xe8, (-(bytes as i16)) as u8]);
+    let mut offset = usize::from(ret_bytes);
+    for (&argument, ty) in arguments.iter().zip(&f.parameters) {
+        for byte in argument
+            .to_le_bytes()
+            .iter()
+            .take(usize::from(ty.bits() / 8))
+        {
+            data.extend_from_slice(&[0xf8, offset as u8, 0x36, *byte]);
+            offset += 1;
+        }
+    }
+    data.push(0xcd);
+    let call = data.len() as u32;
+    data.extend_from_slice(&[0, 0]);
+    for i in 0..ret_bytes {
+        data.extend_from_slice(&[0xf8, i, 0x7e, 0xea, 0x08 + i, 0xc0]);
+    }
+    data.extend_from_slice(&[0xe8, bytes as u8, 0x3e, 0xa5, 0xea, 0x00, 0xc0, 0x18, 0xfe]);
+    let stack_trap = data.len() as u32;
+    data.extend_from_slice(&[
+        0x3e, 1, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
+    ]);
+    let arithmetic_trap = data.len() as u32;
+    data.extend_from_slice(&[
+        0x3e, 2, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
+    ]);
+    data.resize(0x300, 0);
+    let entry = Object {
+        sections: vec![Section {
+            name: "test.start".into(),
+            kind: 0,
+            address: Some(0),
+            bank: Some(0),
+            size: data.len() as u32,
+            data,
+            ..Default::default()
+        }],
+        symbols: vec![
+            symbol(sm83::symbol(f.identity), SymbolDefinition::Import),
+            symbol(
+                "__koh_trap_stack".into(),
+                SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: stack_trap,
+                },
+            ),
+            symbol(
+                "__koh_trap_arithmetic".into(),
+                SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: arithmetic_trap,
+                },
+            ),
+        ],
+    };
+    let mut entry = entry;
+    entry.sections[0].patches.push(patch(call, SymbolId(0)));
+    koh_link::link(&[entry, object], &koh_link::LinkOptions::default())
+        .unwrap()
+        .rom
+}
+
+fn run(host: &Host, cases: &[(Function, Vec<u64>, Result<u64, u8>)]) {
+    run_at(host, cases, 0xd000);
+}
+
+fn run_at(host: &Host, cases: &[(Function, Vec<u64>, Result<u64, u8>)], stack: u16) {
+    let directory = tempfile::Builder::new()
+        .prefix("rom run ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let mut command = dotnet();
+    command.arg(&host.dll);
+    for (index, (f, args, _)) in cases.iter().enumerate() {
+        let path = directory.path().join(format!("case{index}.gb"));
+        std::fs::write(&path, rom(f, args, stack)).unwrap();
+        command.arg(path);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines.len(), cases.len(), "{stdout}");
+    for (index, (line, (_, _, expected))) in lines.iter().zip(cases).enumerate() {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        assert_eq!(
+            fields[4], "OK",
+            "stack guard modified reserved memory in case {index}"
+        );
+        if let Err(fault) = expected {
+            assert_eq!(fields[0], "EE", "case {index}: {line}");
+            assert_eq!(fields[1], format!("{fault:02X}"), "case {index}: {line}");
+            continue;
+        }
+        assert_eq!(fields[0], "A5", "case {index}: {line}");
+        let result = (0..8)
+            .map(|i| {
+                u64::from(u8::from_str_radix(&fields[2][i * 2..i * 2 + 2], 16).unwrap()) << (i * 8)
+            })
+            .fold(0, |a, b| a | b);
+        assert_eq!(Ok(result), *expected, "case {index}: {line}");
+        assert_eq!(
+            fields[3],
+            format!("{stack:04X}"),
+            "unbalanced SP in case {index}"
+        );
+    }
+}
+
+#[rstest::rstest]
+fn integer_arithmetic_executes_in_existing_emulator(host: &Host) {
+    let mut cases = Vec::new();
+    for (ty, mask, sign) in [
+        (Type::I32, 0xffff_ffff, 0x8000_0000),
+        (Type::I64, u64::MAX, 0x8000_0000_0000_0000),
+        (Type::Native, 0xffff, 0x8000),
+    ] {
+        for (op, left, right, expected) in [
+            (Binary::Add, mask, 1, 0),
+            (Binary::Subtract, 0, 1, mask),
+            (Binary::And, mask, 0x55, 0x55),
+            (Binary::Or, sign, 0x55, sign | 0x55),
+            (Binary::Xor, mask, 0x55, mask ^ 0x55),
+            (Binary::Multiply, mask, 3, mask - 2),
+            (Binary::DivideUnsigned, mask, 2, mask >> 1),
+            (Binary::DivideSigned, mask - 6, 3, mask - 1),
+            (Binary::RemainderUnsigned, mask, 2, 1),
+            (Binary::RemainderSigned, mask - 6, 3, mask),
+        ] {
+            cases.push((
+                function(
+                    ty,
+                    Op::Binary {
+                        op,
+                        left: 0,
+                        right: 1,
+                    },
+                ),
+                vec![left, right],
+                Ok(expected),
+            ));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case("Debug")]
+#[case("Release")]
+fn roslyn_methods_execute_as_sm83(host: &Host, #[case] configuration: &str) {
+    let game = host.directory.path().join(format!("game-{configuration}"));
+    std::fs::create_dir_all(&game).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Integers");
+    for name in ["Integers.csproj", "Arithmetic.cs"] {
+        std::fs::copy(fixture.join(name), game.join(name)).unwrap();
+    }
+    let output = dotnet()
+        .arg("build")
+        .arg(game.join("Integers.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bytes =
+        std::fs::read(game.join(format!("bin/{configuration}/net10.0/Integers.dll"))).unwrap();
+    let assembly = koh_compile::assembly::Assembly::parse(&bytes).unwrap();
+    let mut cases = Vec::new();
+    for (name, arguments, expected) in [
+        ("Sum", vec![], 55),
+        ("Choose", vec![u32::MAX as u64], 7),
+        ("Choose", vec![0], 9),
+        ("Wrap", vec![0x7fff_ffff], 0x8000_0000),
+        ("Wide", vec![3], 0x60_0000_0000),
+        ("Wide", vec![u64::MAX], 0x1f_ffff_ffff),
+        ("Truncate", vec![255], 0xffff_ffff),
+        ("Extend", vec![u32::MAX as u64], u64::MAX),
+        ("Small", vec![255], 0xffff_ffff),
+    ] {
+        let token = assembly
+            .metadata()
+            .method_defs
+            .iter()
+            .enumerate()
+            .find(|(_, row)| assembly.metadata().strings.get(row.name).unwrap() == name)
+            .map(|(i, _)| 0x06000001 + i as u32)
+            .unwrap();
+        let f = koh_compile::lower::assembly_method(&assembly, Definition { assembly: 0, token })
+            .unwrap();
+        cases.push((f, arguments, Ok(expected)));
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+fn widths_comparisons_shifts_and_conversions_execute(host: &Host) {
+    let mut cases = Vec::new();
+    for (ty, mask, sign) in [
+        (Type::I32, 0xffff_ffff, 0x8000_0000),
+        (Type::I64, u64::MAX, 0x8000_0000_0000_0000),
+        (Type::Native, 0xffff, 0x8000),
+    ] {
+        for (op, left, right, expected) in [
+            (Comparison::Equal, mask, mask, 1),
+            (Comparison::Equal, sign, 0, 0),
+            (Comparison::LessSigned, mask, 1, 1),
+            (Comparison::GreaterSigned, 1, mask, 1),
+            (Comparison::LessUnsigned, mask, 1, 0),
+            (Comparison::GreaterUnsigned, mask, 1, 1),
+            (Comparison::LessSigned, sign, mask, 1),
+            (Comparison::GreaterSigned, mask, sign, 1),
+        ] {
+            let mut f = function(
+                ty,
+                Op::Compare {
+                    op,
+                    left: 0,
+                    right: 1,
+                },
+            );
+            f.returns = Some(Type::I32);
+            f.blocks[0].instructions[0].result = Some((2, Type::I32));
+            cases.push((f, vec![left, right], Ok(expected)));
+        }
+        for (op, left, right, expected) in [
+            (Binary::ShiftLeft, 1, u64::from(ty.bits()), 1),
+            (Binary::ShiftLeft, 1, u64::from(ty.bits() + 1), 2),
+            (Binary::ShiftRightSigned, mask, 1, mask),
+            (Binary::ShiftRightUnsigned, mask, 1, mask >> 1),
+            (Binary::ShiftRightSigned, sign, 1, (sign >> 1) | sign),
+        ] {
+            let mut f = function(
+                ty,
+                Op::Binary {
+                    op,
+                    left: 0,
+                    right: 1,
+                },
+            );
+            f.parameters[1] = Type::I32;
+            f.blocks[0].parameters[1].1 = Type::I32;
+            cases.push((f, vec![left, right], Ok(expected)));
+        }
+        for (op, input, expected) in [
+            (Op::Negate(0), 1, mask),
+            (Op::Negate(0), sign, sign),
+            (Op::Not(0), 0, mask),
+        ] {
+            let mut f = function(ty, op);
+            f.parameters.truncate(1);
+            f.blocks[0].parameters.truncate(1);
+            cases.push((f, vec![input], Ok(expected)));
+        }
+    }
+    for (source, target, bits, signed, input, expected) in [
+        (Type::I32, Type::I64, 64, true, 0xffff_ffff, u64::MAX),
+        (Type::I32, Type::I64, 64, false, 0xffff_ffff, 0xffff_ffff),
+        (Type::I64, Type::I32, 8, true, 0x1234_ff, 0xffff_ffff),
+        (Type::I64, Type::I32, 8, false, u64::MAX, 0xff),
+        (Type::I64, Type::Native, 16, false, u64::MAX, 0xffff),
+        (Type::Native, Type::I64, 64, true, 0xffff, u64::MAX),
+    ] {
+        let mut f = function(
+            source,
+            Op::Convert {
+                value: 0,
+                bits,
+                signed,
+            },
+        );
+        f.parameters.truncate(1);
+        f.blocks[0].parameters.truncate(1);
+        f.returns = Some(target);
+        f.blocks[0].instructions[0].result = Some((2, target));
+        cases.push((f, vec![input], Ok(expected)));
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+fn division_boundaries_and_faults_execute(host: &Host) {
+    let mut cases = Vec::new();
+    for (ty, mask, sign) in [
+        (Type::I32, 0xffff_ffff, 0x8000_0000),
+        (Type::I64, u64::MAX, 0x8000_0000_0000_0000),
+        (Type::Native, 0xffff, 0x8000),
+    ] {
+        for (op, left, right, expected) in [
+            (Binary::Multiply, mask, mask, Ok(1)),
+            (Binary::DivideUnsigned, mask, sign + 3, Ok(1)),
+            (Binary::RemainderUnsigned, mask, sign + 3, Ok(sign - 4)),
+            (Binary::DivideSigned, mask - 6, mask - 2, Ok(2)),
+            (Binary::RemainderSigned, mask - 6, mask - 2, Ok(mask)),
+            (Binary::DivideSigned, 7, mask - 2, Ok(mask - 1)),
+            (Binary::RemainderSigned, 7, mask - 2, Ok(1)),
+            (Binary::DivideSigned, sign, 1, Ok(sign)),
+            (Binary::RemainderSigned, sign, mask, Ok(0)),
+            (Binary::DivideSigned, sign, mask, Err(2)),
+            (Binary::DivideUnsigned, 1, 0, Err(2)),
+            (Binary::RemainderUnsigned, 1, 0, Err(2)),
+        ] {
+            cases.push((
+                function(
+                    ty,
+                    Op::Binary {
+                        op,
+                        left: 0,
+                        right: 1,
+                    },
+                ),
+                vec![left, right],
+                expected,
+            ));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+fn stack_capacity_is_checked_before_frame_writes(host: &Host) {
+    let f = function(
+        Type::I32,
+        Op::Binary {
+            op: Binary::Add,
+            left: 0,
+            right: 1,
+        },
+    );
+    run_at(host, &[(f.clone(), vec![1, 2], Err(1))], 0xc120);
+    let mut huge = f;
+    huge.parameters = vec![Type::I64; 1000];
+    huge.blocks[0].parameters = (0..1000).map(|id| (id, Type::I64)).collect();
+    huge.blocks[0].instructions.clear();
+    huge.returns = Some(Type::I64);
+    huge.blocks[0].terminator.kind = Control::Return(Some(0));
+    assert!(sm83::emit(&huge).unwrap_err().contains("capacity"));
+}
+
+#[rstest::rstest]
+fn cyclic_block_arguments_transfer_simultaneously(host: &Host) {
+    let mut f = function(Type::I32, Op::Constant(0));
+    f.blocks[0].terminator.kind = Control::Jump(Edge {
+        block: 1,
+        arguments: vec![0, 1, 2],
+    });
+    f.blocks.push(Block {
+        parameters: vec![(3, Type::I32), (4, Type::I32), (5, Type::I32)],
+        instructions: vec![
+            Instruction {
+                result: Some((6, Type::I32)),
+                op: Op::Constant(1),
+                il_offset: 1,
+            },
+            Instruction {
+                result: Some((7, Type::I32)),
+                op: Op::Binary {
+                    op: Binary::Add,
+                    left: 5,
+                    right: 6,
+                },
+                il_offset: 2,
+            },
+            Instruction {
+                result: Some((8, Type::I32)),
+                op: Op::Constant(3),
+                il_offset: 3,
+            },
+            Instruction {
+                result: Some((9, Type::I32)),
+                op: Op::Compare {
+                    op: Comparison::LessSigned,
+                    left: 5,
+                    right: 8,
+                },
+                il_offset: 4,
+            },
+        ],
+        terminator: Terminator {
+            kind: Control::Branch {
+                condition: 9,
+                yes: Edge {
+                    block: 1,
+                    arguments: vec![4, 3, 7],
+                },
+                no: Edge {
+                    block: 2,
+                    arguments: vec![3],
+                },
+            },
+            il_offset: 5,
+        },
+    });
+    f.blocks.push(Block {
+        parameters: vec![(10, Type::I32)],
+        instructions: vec![],
+        terminator: Terminator {
+            kind: Control::Return(Some(10)),
+            il_offset: 6,
+        },
+    });
+    run(host, &[(f, vec![11, 22], Ok(22))]);
+}
+
+#[test]
+fn elf_retains_method_and_il_offset_symbols() {
+    let mut f = function(
+        Type::I32,
+        Op::Binary {
+            op: Binary::Add,
+            left: 0,
+            right: 1,
+        },
+    );
+    f.blocks[0].instructions[0].il_offset = 0x37;
+    f.blocks[0].terminator.il_offset = 0x52;
+    let object = read_elf(&write_elf(&sm83::emit(&f).unwrap()).unwrap()).unwrap();
+    assert!(
+        object
+            .symbols
+            .iter()
+            .any(|s| s.name == sm83::symbol(f.identity))
+    );
+    for marker in [".IL_0037.", ".IL_0052."] {
+        assert!(
+            object.symbols.iter().any(|s| s.name.contains(marker)),
+            "Missing {marker}"
+        );
+    }
+}
+
+#[test]
+fn maximum_ir_offset_does_not_panic_during_emission() {
+    let mut f = function(
+        Type::I32,
+        Op::Compare {
+            op: Comparison::Equal,
+            left: 0,
+            right: 1,
+        },
+    );
+    f.blocks[0].instructions[0].il_offset = u32::MAX;
+    let result = std::panic::catch_unwind(|| sm83::emit(&f));
+    assert!(result.is_ok());
+    result.unwrap().unwrap();
+}
+
+#[test]
+fn oversized_machine_code_is_diagnostic() {
+    let mut f = function(Type::I64, Op::Constant(0));
+    f.locals = vec![Type::I64];
+    f.blocks[0].instructions = (0..20_000)
+        .map(|offset| Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 0 },
+            il_offset: offset,
+        })
+        .collect();
+    f.blocks[0].terminator.kind = Control::Return(Some(0));
+    assert!(sm83::emit(&f).unwrap_err().contains("16 KiB"));
+}

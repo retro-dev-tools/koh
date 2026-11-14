@@ -1,49 +1,57 @@
 # PR #55 working handoff
 
-Branch: `feat/rust-cil-compiler`, isolated from the main checkout's modified screenshot.
-Baseline: integrated linker migration `9cd1472`. Draft PR #55 already exists.
-The C# compiler remains production. Keep the full attachment goal active.
+Branch: feat/rust-cil-compiler, isolated from main checkout modified screenshot.
+Baseline: integrated linker migration 9cd1472. Existing PR #55 remains draft.
+The C# compiler remains production. Full attachment migration goal stays active.
 
-## Implemented increments
+## Implemented
 
-All 565 legacy test methods have source-level dispositions, not completed coverage
-migration. None is retired or fully replaced yet. All three audit documents are
-complete; no compiler-owned coverage may be deferred to another migration.
+All 565 legacy test methods have source dispositions, not completed migration.
+None is fully retired/replaced yet. No compiler-owned coverage may be deferred.
+Native metadata/body, CIL encoding/signature readers and full-identity reference
+binding are committed, plus typed SSA verification/initial integer lowering.
+Contextual generics/inherited substitution and broader lowering remain incomplete.
 
-Native metadata/body, CIL encoding and signature readers plus full-identity
-reference/member binding are committed. Binding review's malformed zero-row scopes
-and nested generic-arity regressions were observed red then green. Generic inherited
-substitution and contextual constraints remain incomplete.
+The current backend implements every operation in the initial integer IR, emits
+koh-objects canonical ELF/SM83 and executes in the unchanged C# emulator. Read
+sm83-abi.md for dynamic SP frames, caller-owned return/argument buffers, guarded
+WRAM0 capacity, arithmetic traps, spilled values and simultaneous edge transfers.
+ELF retains method and IL markers; they are not C# source/PDB/KDBG mappings.
+No production native CLI/startup, managed calls, SDK switch or game sample exists.
 
-The next increment adds typed SSA IR/verifier and initial primitive-integer CIL
-lowering. See `docs/rust-compiler/ir.md` for invariants and temporary limits.
-Real Roslyn Debug/Release cases are interpreted against eight literal scenarios
-per configuration. These are IR tests, not machine execution. Review found four
-host-width bugs in the test helper; added regressions failed before their fixes.
-Root owns all implementation/tests. Audit and review agents are finished; no writers
-are delegated. No native executable, ELF emitter, SDK switch or new ROM exists yet.
+Root owns all implementation/tests. All read-only reviews are finished. Review
+found IL-offset diagnostic overflow and shared test paths/build dirs; fixed with
+max-offset red/green regression and isolated directories. Default cargo test
+threading passes. Emission caps bytes during generation, not after huge allocation.
 
-## Current evidence
+## Evidence
 
-Completed workspace nextest: 364/364 passed, 0 skipped, exit 0, including 188
-compiler cases (36 new IR/lowering cases). Log `/tmp/koh-ir-final-nextest.log`.
-Separate workspace doctests exit 0, no cases (`/tmp/koh-ir-doc.log`); stable fmt
-check exit 0 (`/tmp/koh-ir-fmt-check.log`). Earlier 360-case run predates four
-width regressions. Legacy compiler baseline: 814/814 passed with one test at a time.
-All 14 hosted checks passed for binding head `215ce9e`. Check the new IR head
-separately after push; prior results do not validate its hosted tree.
+Workspace nextest: 374/374 passed, 0 skipped, exit 0; 198 compiler cases, including
+10 backend cases. Log /tmp/koh-sm83-nextest.log. Seven backend tests execute 140
+ROM scenarios through ELF serialization/readback, Rust linker and C# emulator:
+130 expected normal returns, 10 traps, all guard sentinels intact. Includes 18
+real Roslyn Debug/Release scenarios. Other cases cover symbols and diagnostics.
+Focused default-threaded suite: /tmp/koh-sm83-reviewed.log (10/10).
+Separate workspace doctests exit 0, no cases (/tmp/koh-sm83-doc.log); stable
+rustfmt check exit 0 (/tmp/koh-sm83-fmt-check.log).
+Legacy baseline remains 814/814. All 14 hosted checks passed on preceding IR head
+579b910. Check new backend head separately; old CI is not final-tree validation.
 
 ## Next
 
-Choose/document the SM83 ABI and advance integer lowering to canonical ELF and
-actual C# emulator execution. Complete missing language/runtime, optimization,
-generic, Portable PDB/debug, SDK, samples and test-migration requirements within
-this single PR. Never redefine success as a reader or IR milestone. Keep the old
-compiler until replacement acceptance, then delete it entirely as required.
+Implement managed calls/reachability and a native entry path. Reserve the ABI
+stack region through linker-visible RAM sections before adding globals/heap;
+current pure-function tests have no global allocator. Add call capacity checks
+before argument/return writes and CALL. Keep dynamic activation identity.
+Complete missing language/runtime, optimization, generic, banking, IRQ, Portable
+PDB/debug, SDK, sample, test-audit/migration and legacy deletion requirements in
+this single PR. Do not redefine success as the integer slice. Rough progress is
+16%; 100% means every original completion criterion verified. Keep old compiler
+until replacement acceptance, then delete it entirely. Do not merge PR yourself.
 
-## Verification discipline
+## Verification
 
-Build serially per target directory. KOH_DOTNET selects pinned .NET SDK 10.0.115.
-Read completed logs and direct exit codes. Use stable rustfmt. Reuse koh-objects
-ELF and the Rust linker; execute with the existing C# emulator. Preserve tracked
-sample assets and the main checkout's unrelated screenshot. Commit logical units.
+Build serially per target directory. KOH_DOTNET selects SDK 10.0.115. Read completed
+logs/direct exit codes; use stable rustfmt. Reuse koh-objects ELF and Rust linker,
+execute with C# emulator. Preserve tracked sample assets and main screenshot.
+Commit/push logical increments and update this draft PR, never open another PR.

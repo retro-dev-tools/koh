@@ -1,0 +1,89 @@
+# Native SM83 ABI (initial integer implementation)
+
+Functions use dynamic hardware-stack activation frames. Per-function static frames
+would alias ancestor locals during recursion. A separate software stack would need
+additional interrupt-safe pointer publication; SP-relative frames avoid that shared
+state. The first allocator spills SSA values into deterministic frame slots.
+Register residency and lifetime-based slot reuse are optimizations, not semantics.
+
+On callee entry, SP addresses the two-byte machine return address. The caller-owned
+return buffer follows, then packed arguments in declaration order. Each value uses
+its evaluation width (int32: four bytes, int64: eight, native: two), little-endian.
+Void has no return bytes. The callee reserves its frame below SP, initializes its
+entry parameters from the argument block, and writes its result to the caller's
+return buffer before restoring SP and executing RET. All registers/flags are
+caller-clobbered. SP and caller storage survive the call.
+
+The frame contains locals, SSA values and temporary storage for simultaneous block
+argument transfers and arithmetic. Temporary PUSH AF/POP AF pairs preserve carry
+across SP-relative address calculations; their two bytes are included in capacity
+checks. No arithmetic helper shares fixed WRAM scratch. Byte carry chains cannot
+depend on flags surviving address generation unless explicitly preserved.
+
+The initial stack region is WRAM0 `$C100..$CFFF`, with startup SP `$D000`.
+Frame guards run before allocation/writes; a stack failure branches to
+`__koh_trap_stack`. A caller must reserve/check its complete argument/return block
+and the two-byte CALL return address before CALL. Integer divide-by-zero and signed
+division overflow branch to `__koh_trap_arithmetic`. Trap entry does not return.
+Signed remainder of minimum/-1 is zero. Hardware/native stack overflow is not
+allowed to become a successful ROM build or silent WRAM corruption.
+
+This is an initial ABI, not a claim that calls, recursion, interrupts, banking or
+the runtime are implemented yet. Interrupt support must reserve its worst-case
+stack budget before enabling IME and preserve interrupted registers/flags; IRQ
+recursion/nesting constraints need separate tests. Startup and linker-owned stack
+reservation must be integrated with globals/heap before final product acceptance.
+The current debugger's heuristic stack scan cannot distinguish spill bytes from
+return addresses; accurate frame inspection needs integration evidence.
+
+Emission uses `koh_objects::Object` and its ELF writer. Code and internal branch
+targets are symbols/relocations; ROM placement, bank capacities, header/checksums
+belong to `koh-link`. Initial functions are ROM0 code. Banked calls/data and
+Portable PDB mappings remain later requirements in this same PR.
+
+Plan: execute literal arithmetic/ABI cases in the C# emulator, then real Roslyn
+Debug/Release integer methods; keep unsupported emission diagnostic until each
+operation has a correct SM83 implementation. No test-only emulator replaces the
+existing production emulator core.
+
+## Executed integer slice
+
+The backend implements every operation currently in the initial integer IR:
+constants, local storage, add/subtract, bit operations, multiply, signed/unsigned
+division/remainder, shifts, comparisons, conversions, negation/not, edge transfers
+and return. Division is restoring long division with an overflow bit retained for
+the remainder; multiplication is width-bounded shift/add. Signed helpers normalize
+magnitudes and restore signs. No integer arithmetic is delegated to C#.
+
+Rust tests serialize emitted objects to ELF, read them back, link with `koh-link`,
+and invoke a minimal C# host around the unchanged emulator. The host initializes
+test-owned output/guard memory, steps with a fixed bound and reports memory/SP;
+all behavioral expectations and assertions are in Rust. No game DLL is executed.
+The fixture uses ordinary Roslyn output with Portable PDBs; matching PDB reading
+and source breakpoints are still incomplete.
+
+The initial suite executes 140 ROM scenarios: 30 arithmetic cases, 54
+comparison/shift/conversion/unary cases, 36 division-boundary/fault cases, one
+cyclic phi transfer, one guarded-stack failure and 18 real C# scenarios across
+Debug/Release. Ten executions intentionally trap; the other 130 must return the
+expected value with balanced SP. Guard sentinels must survive all runs.
+This is CPU/memory evidence, not game graphics, interrupts, recursion or hardware
+validation. These scenarios do not establish final language compatibility.
+
+ELF retains method symbols and local IL-offset markers. Relocation diagnostics
+use explicitly virtual CIL locations, not fabricated C# source locations. PDB-to-
+machine source spans and KDBG function/frame metadata remain required.
+The emitter caps the byte stream at 16 KiB while emitting, rejects oversized
+frames/call storage, and verifies IR before selecting instructions. It never
+returns a partially emitted object after a capacity failure.
+
+Review found diagnostic IL-offset overflow and test output/build-directory races;
+both are fixed. The max-offset regression failed before its fix. Default-threaded
+focused tests pass as well as serial execution. No legacy compiler test is retired
+by this initial backend slice; the full migration remains incomplete.
+
+Local command: `KOH_DOTNET=/path/to/dotnet cargo test -p koh-compile --test sm83`.
+Workspace acceptance continues to use `cargo nextest run --workspace --all-features --locked`
+and separate `cargo test --doc --workspace --all-features --locked`.
+
+Instruction encoding/flag reference: [gbdev opcode data](https://github.com/gbdev/gb-opcodes/blob/master/Opcodes.json).

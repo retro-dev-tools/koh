@@ -32,8 +32,8 @@ The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
 **Migration completed: zero legacy methods retired or fully replaced.** The new
-native assembly-reader tests are infrastructure coverage, not full substitutes for
-the old DLL-to-ROM cases. All legacy tests remain. Proposed Rust filenames in the
+native reader/IR tests and initial integer ROM cases are partial new coverage, not
+full substitutes for the old DLL-to-ROM suite. All legacy tests remain. Proposed Rust filenames in the
 audit are not implemented or discoverable merely because they are documented.
 
 ## Corrections required in acceptance
@@ -50,6 +50,7 @@ audit are not implemented or discoverable merely because they are documented.
 - Keep curated sample assets unchanged; distinguish generated PNG existence from
   pixel/scene acceptance and distinguish emulator runs from physical hardware.
 
-All findings so far come from source inspection. They are reasons for independent
-tests and ABI choices, not claims of newly reproduced runtime failures or Rust
-correctness.
+The audit findings above come from source inspection. Native execution evidence
+is recorded separately in [the SM83 ABI/slice](sm83-abi.md) and
+[progress](progress.md); it does not reproduce all identified legacy risks or
+establish completion of the final supported subset.

@@ -126,6 +126,8 @@ name = "koh-compile"
 version = "1.0.2"
 dependencies = [
  "clrmeta",
+ "koh-link",
+ "koh-objects",
  "object",
  "rstest",
  "tempfile",

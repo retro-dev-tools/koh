@@ -2,7 +2,7 @@
 
 Status: source audit and empirical baseline recorded; native raw metadata/body
 reader, CIL encoding decoder, bounded signatures, reference binding and initial
-typed integer lowering implemented. No
+typed integer lowering and initial ELF/SM83 emission implemented. No
 executable native compiler is integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
 
@@ -203,3 +203,32 @@ with `KOH_DOTNET` selecting SDK 10.0.115 reports **364 run, 364 passed, 0 skippe
 exit 0 (`/tmp/koh-ir-final-nextest.log`). This includes 188 compiler cases, 36 of
 which exercise the new IR/lowering increment. The earlier run of 360 cases
 preceded the four width regressions and is not final-tree evidence.
+
+## Initial SM83 integer backend
+
+The [initial SM83 ABI and executed slice](sm83-abi.md) use dynamic hardware-stack
+frames, caller-owned return/argument storage, deterministic spilled values and
+guarded capacity. Every operation in the current integer IR has machine emission,
+including software multiplication/division/remainder and parallel block transfers.
+This is not the final language/runtime compiler: managed calls, interrupts, objects,
+generic execution, banking, startup/SDK integration and PDB/KDBG remain incomplete.
+
+The focused Rust suite passes ten cases. Seven execute 140 independently checked
+ROM scenarios through serialized canonical ELF, the Rust linker and the unchanged
+C# emulator, including 18 real Roslyn Debug/Release scenarios. Ten intentionally
+trap; 130 must return expected memory results with balanced SP. Guard sentinels
+must remain intact. Three other cases cover ELF method/IL markers, maximum IR
+offset robustness and oversized machine-code diagnostics. Log:
+`/tmp/koh-sm83-reviewed.log` (exit 0, default test threading).
+
+Review found diagnostic-offset overflow and shared test paths/build directories;
+both are fixed. The offset test failed before its fix. Streaming emission now
+stops at ROM0 capacity. No legacy compiler method is retired by this increment.
+All 14 hosted checks passed for preceding IR head `579b910`; backend-head hosted
+validation remains separate.
+
+Completed Linux workspace command `cargo nextest run --workspace --all-features --locked`,
+with SDK 10.0.115 selected through `KOH_DOTNET`: **374 run, 374 passed, 0 skipped**,
+exit 0 (`/tmp/koh-sm83-nextest.log`). The suite includes 198 compiler cases; the
+ten new backend cases are all discoverable by nextest. These results do not prove
+SDK replacement or complete legacy test migration.
