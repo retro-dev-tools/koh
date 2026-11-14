@@ -98,3 +98,9 @@ Final local checks after hooks:148Rust/RGBDStests PASS;207LSP PASS;
 Direct triple-quotedDB expressions remain an explicit documented limitation,
 not part of the comment-scanner review fix. Push then resolve3threads and
 wait for hosted CI on that new head before claiming cross-platform success.
+
+Windows follow-up: dynamic physical includes inserted a raw path key while lookup
+normalized separators. Native path normalization is now consistent at insertion
+and lookup, without conflating Unix backslash filenames and directory separators.
+`/tmp/koh-review-native-path-tests.log`: EXIT0,149Rust/RGBDS tests.
+`/tmp/koh-review-native-path-lsp-tests.log`: EXIT0,207LSP tests.

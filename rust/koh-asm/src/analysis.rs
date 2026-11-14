@@ -1016,7 +1016,7 @@ fn parse_document(source: Source, diagnostics: &mut Vec<Diagnostic>) -> Parsed {
 fn normalize(path: &str) -> String {
     crate::assembler::source_path(path)
         .to_string_lossy()
-        .replace('\\', "/")
+        .into_owned()
 }
 
 #[derive(Clone)]
@@ -1201,7 +1201,7 @@ impl Semantic<'_> {
                                     },
                                     &mut self.diagnostics,
                                 ));
-                                self.by_path.insert(target.clone(), child);
+                                self.by_path.insert(normalize(&target), child);
                             }
                         }
                         let tokens: Vec<_> = ids
@@ -1695,6 +1695,42 @@ mod tests {
         let target = result.symbols.iter().find(|s| s.name == "Target").unwrap();
         assert_eq!(target.owner, root);
         assert_eq!(target.references.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn physical_include_keys_preserve_native_path_separators() {
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("koh-include-keys-{}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let fixture = Fixture(directory);
+        std::fs::create_dir(fixture.0.join("part")).unwrap();
+        std::fs::write(fixture.0.join("part\\body.inc"), "BackslashTarget: nop").unwrap();
+        std::fs::write(fixture.0.join("part/body.inc"), "NestedTarget: nop").unwrap();
+        let root = fixture.0.join("main.asm").to_string_lossy().into_owned();
+        let result = analyze(
+            &[source(
+                &root,
+                "SECTION \"code\",ROM0\nINCLUDE #\"part\\body.inc\"\nINCLUDE \"part/body.inc\"\njp BackslashTarget\njp NestedTarget",
+            )],
+            &[root.clone()],
+        );
+        assert_eq!(result.documents.len(), 3);
+        for name in ["BackslashTarget", "NestedTarget"] {
+            let symbol = result
+                .symbols
+                .iter()
+                .find(|symbol| symbol.name == name)
+                .unwrap();
+            assert_eq!(symbol.owner, root);
+            assert_eq!(symbol.references.len(), 1);
+        }
     }
 
     #[test]
