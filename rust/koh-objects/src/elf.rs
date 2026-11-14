@@ -229,6 +229,9 @@ impl<'a> Cursor<'a> {
                 return Err("Koh RPN expression exceeds depth limit".into());
             }
             stack.push((value, depth));
+            if stack.len() > 257 {
+                return Err("Koh RPN stack exceeds depth limit".into());
+            }
         }
         if stack.len() != 1 {
             return Err("Koh RPN must produce one value".into());
@@ -519,6 +522,10 @@ pub fn read_elf(data: &[u8]) -> Result<Object, String> {
     }
     let ns = c.count()?;
     let ny = c.count()?;
+    if ns > 65000 || ny > 0xfffffe {
+        return Err("ELF32 table limit exceeded".into());
+    }
+    let mut copied_data = 0usize;
     let mut object = Object::default();
     let mut pending = Vec::new();
     let mut symbol_ids = Vec::new();
@@ -527,6 +534,22 @@ pub fn read_elf(data: &[u8]) -> Result<Object, String> {
             .section_by_index(object::SectionIndex(i + 1))
             .map_err(|e| e.to_string())?;
         let kind = c.byte()?;
+        let capacity = memory_region(kind).ok_or("Invalid section kind")?.1;
+        if raw.size() > u64::from(capacity) {
+            return Err("ELF section exceeds memory region capacity".into());
+        }
+        let section_data = raw.data().map_err(|e| e.to_string())?;
+        if (kind <= 1 && section_data.len() as u64 != raw.size())
+            || (kind > 1 && !section_data.is_empty())
+        {
+            return Err("ELF section data does not match its memory region".into());
+        }
+        copied_data = copied_data
+            .checked_add(section_data.len())
+            .ok_or("ELF section data size overflow")?;
+        if copied_data > data.len() {
+            return Err("ELF section data exceeds input allocation budget".into());
+        }
         let combination = match c.byte()? {
             0 => SectionCombination::Normal,
             1 => SectionCombination::Union,
@@ -607,7 +630,7 @@ pub fn read_elf(data: &[u8]) -> Result<Object, String> {
             align,
             align_offset,
             size: raw.size().try_into().map_err(|_| "Section exceeds ELF32")?,
-            data: raw.data().map_err(|e| e.to_string())?.to_vec(),
+            data: section_data.to_vec(),
             patches,
             lines,
             source,
@@ -693,4 +716,22 @@ pub fn read_elf(data: &[u8]) -> Result<Object, String> {
         return Err("Noncanonical or inconsistent Koh ELF records".into());
     }
     Ok(object)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cursor;
+    #[test]
+    fn rpn_pending_operands_obey_expression_depth_limit() {
+        let mut valid = vec![3; 257];
+        valid.extend(vec![0x40; 256]);
+        assert!(Cursor(&valid).expression().is_ok());
+        let invalid = vec![3; 258];
+        assert!(
+            Cursor(&invalid)
+                .expression()
+                .unwrap_err()
+                .contains("stack exceeds")
+        );
+    }
 }

@@ -347,3 +347,28 @@ fn malformed_symbol_section_data_and_provenance_graphs_are_rejected() {
     value.sections[0].kind = 4;
     assert!(write_elf(&value).is_err());
 }
+
+#[test]
+fn overlapping_section_payloads_cannot_amplify_input_allocations() {
+    let original = Object {
+        sections: vec![
+            Section {
+                name: "large".into(),
+                size: 0x4000,
+                data: vec![0; 0x4000],
+                ..Default::default()
+            },
+            Section {
+                name: "alias".into(),
+                ..Default::default()
+            },
+        ],
+        symbols: vec![],
+    };
+    let mut bytes = write_elf(&original).unwrap();
+    let table = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+    let payload = bytes[table + 40 + 16..table + 40 + 20].to_vec();
+    bytes[table + 80 + 16..table + 80 + 20].copy_from_slice(&payload);
+    bytes[table + 80 + 20..table + 80 + 24].copy_from_slice(&0x4000u32.to_le_bytes());
+    assert!(read_elf(&bytes).unwrap_err().contains("allocation budget"));
+}
