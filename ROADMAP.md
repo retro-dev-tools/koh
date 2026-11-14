@@ -41,19 +41,19 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 ## Completed milestones
 
 - `c965bf9`: documented both game-development entry points and contributor checks.
-- `c755769`, dependency repair: restore and CI release build pass with auditing enabled (0 warnings/errors); the fast suite passes 1,673/1,673. The transitive vulnerability report covers 41 projects with no reported vulnerable packages or audit problems. The assembly 2048 sample builds; its headless capture shows the title screen, and independent PNG checks validate dimensions, compression, and every chunk CRC. Rejected JPEG output preserves an existing file. The CI build also emits all seven C# sample ROMs. Linux NativeAOT publish remains pending.
-- Screenshot isolation: the new guard fails against the old writer in an isolated worktree and passes after redirecting captures. All four source screenshot SHA-256 hashes are preserved, including the pre-existing modified battle image. All four generated 480x432 captures have valid PNG chunk CRCs. The full CI suite passes 2,485/2,485 with one test/module at a time (5m44s). The compiler test process still consumes several GB; serialization reduces concurrency but does not establish a low-memory workflow.
+- `c755769`, dependency repair: restore and CI release build pass with auditing enabled (0 warnings/errors); the fast suite passes 1,673/1,673. The transitive vulnerability report covers 41 projects with no reported vulnerable packages or audit problems. The assembly 2048 sample builds; its headless capture shows the title screen, and independent PNG checks validate dimensions, compression, and every chunk CRC. Rejected JPEG output preserves an existing file. The CI build also emits all seven C# sample ROMs.
+- `2451c6c`, screenshot isolation: the new guard fails against the old writer in an isolated worktree and passes after redirecting captures. All four source screenshot SHA-256 hashes are preserved, including the pre-existing modified battle image. All four generated 480x432 captures have valid PNG chunk CRCs. The full CI suite passes 2,485/2,485 with one test/module at a time (5m44s). The compiler test process still consumes several GB; serialization reduces concurrency but does not establish a low-memory workflow.
+- Portable emulator targets: publish defaults to the host RID; launch selects the correct executable name. Dispatch checks pass for Linux, macOS, Windows, and the host default, including paths containing spaces. The root target performs a real Linux x64 NativeAOT publish; its executable runs the assembly sample and produces a 160x144 PNG with valid CRCs and decompressed pixel data. The exact new CI smoke step passes locally on Linux. The normal `build.proj -t:Test` loop also passes 1,673/1,673. Windows/macOS execution and GUI launch remain unverified locally; CI is configured to exercise native headless captures on all three hosts.
 
 ## Planned work
 
 | Order | Outcome | Effort / risk | Acceptance criteria |
 | --- | --- | --- | --- |
-| 1 | Fix portable emulator targets and finish native verification | Small / medium | The root publish/run targets currently default to Windows on Linux and always launch an `.exe`. Use the host RID and matching executable name; verify publish/launch dispatch, then Linux NativeAOT publish and headless capture. |
-| 2 | Close RGBDS expression regressions | Small / medium | Review the existing uncommitted HIGH/LOW/BANK work separately; compare focused object/link results with a versioned RGBDS oracle, then run the affected suites. |
-| 3 | Establish release readiness | Medium / ownership review required | Confirm license text and asset provenance with the rights holder; inventory shipped dependencies; smoke-test draft archives and the extension's install/update path on supported hosts. |
-| 4 | Prove the newcomer journey | Medium / low | From a fresh checkout, build both documented games, launch a ROM, set a breakpoint, and inspect state; record platform prerequisites and compatibility limits. |
-| 5 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
-| 6 | Bound compiler-test memory | Medium / medium | Measure retained fixture/compiler state and establish a bounded-memory full-suite invocation before changing parallelism defaults. |
+| 1 | Close RGBDS expression regressions | Small / medium | Review the existing uncommitted HIGH/LOW/BANK work separately; compare focused object/link results with a versioned RGBDS oracle, then run the affected suites. |
+| 2 | Establish release readiness | Medium / ownership review required | Confirm license text and asset provenance with the rights holder; inventory shipped dependencies; smoke-test draft archives and the extension's install/update path on supported hosts. |
+| 3 | Prove the newcomer journey | Medium / low | From a fresh checkout, build both documented games, launch a ROM, set a breakpoint, and inspect state; record platform prerequisites and compatibility limits. |
+| 4 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
+| 5 | Bound compiler-test memory | Medium / medium | Measure retained fixture/compiler state and establish a bounded-memory full-suite invocation before changing parallelism defaults. |
 
 ## Boundaries
 

@@ -124,8 +124,8 @@ Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
 | `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
-| `PublishEmulatorApp`  | NativeAOT-publish the KohUI emulator (`-r <rid>`; default `win-x64`) |
-| `RunEmulator`         | Publish the emulator and launch the `.exe`                  |
+| `PublishEmulatorApp`  | NativeAOT-publish the KohUI emulator for the host (`-p:EmulatorRuntimeIdentifier=<rid>` to override) |
+| `RunEmulator`         | Publish the emulator and launch the host executable         |
 
 Quick-launch the emulator:
 

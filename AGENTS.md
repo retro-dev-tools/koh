@@ -45,3 +45,4 @@ Do not commit downloaded ROMs, local toolchains, VSIX packages, benchmark output
 - Headless screenshots use the emulator framebuffer's PNG writer. Keep compression in the platform libraries and test pixel order, alpha, PNG structure, and checksums.
 - Tests must not write tracked sample assets. JRPG captures belong under the test binary's `TestResults/gb-jrpg/<run-id>/`; curated sample screenshots are updated manually after review.
 - For a constrained full-suite run, build first, then use `dotnet test --solution Koh.Ci.slnf -c Release --no-build --max-parallel-test-modules 1 -- --maximum-parallel-tests 1`.
+- Root emulator publish/run targets default to the host runtime identifier. Override publishing with `-p:EmulatorRuntimeIdentifier=<rid>`; NativeAOT still requires a compatible native host/toolchain. CI exercises the root publish target on Linux, Windows, and macOS.

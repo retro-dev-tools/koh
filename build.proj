@@ -13,8 +13,10 @@
 <Project DefaultTargets="Test">
 
   <PropertyGroup>
-    <EmulatorRuntimeIdentifier Condition="'$(EmulatorRuntimeIdentifier)' == ''">win-x64</EmulatorRuntimeIdentifier>
-    <EmulatorPublishDir>$(MSBuildThisFileDirectory)src\Emulator\Koh.Emulator.App\bin\Release\net10.0\$(EmulatorRuntimeIdentifier)\publish</EmulatorPublishDir>
+    <EmulatorRuntimeIdentifier Condition="'$(EmulatorRuntimeIdentifier)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</EmulatorRuntimeIdentifier>
+    <EmulatorPublishDir>$(MSBuildThisFileDirectory)src/Emulator/Koh.Emulator.App/bin/Release/net10.0/$(EmulatorRuntimeIdentifier)/publish</EmulatorPublishDir>
+    <EmulatorExecutableName>Koh.Emulator.App</EmulatorExecutableName>
+    <EmulatorExecutableName Condition="$(EmulatorRuntimeIdentifier.StartsWith('win-'))">Koh.Emulator.App.exe</EmulatorExecutableName>
   </PropertyGroup>
 
   <!--
@@ -52,7 +54,7 @@
   </Target>
 
   <Target Name="RunEmulator" DependsOnTargets="PublishEmulatorApp">
-    <Exec Command="&quot;$(EmulatorPublishDir)\Koh.Emulator.App.exe&quot;" />
+    <Exec Command="&quot;$(EmulatorPublishDir)/$(EmulatorExecutableName)&quot;" />
   </Target>
 
   <Target Name="BuildSample2048">
