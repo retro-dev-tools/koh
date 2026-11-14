@@ -145,7 +145,10 @@ public sealed class NativeLinker
         }
     }
 
-    private static void Run(IEnumerable<string> arguments, string? input = null)
+    private static void Run(IEnumerable<string> arguments, string? input = null) =>
+        RunAsync(arguments, input).GetAwaiter().GetResult();
+
+    private static async Task RunAsync(IEnumerable<string> arguments, string? input)
     {
         var start = new ProcessStartInfo(FindExecutable())
         {
@@ -158,24 +161,27 @@ public sealed class NativeLinker
         foreach (var argument in arguments)
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new IOException("Cannot start koh-link");
-        var output = process.StandardOutput.ReadToEndAsync();
-        var errors = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var errors = process.StandardError.ReadToEndAsync(timeout.Token);
         try
         {
             if (input is not null)
-                process.StandardInput.Write(input);
+                await process
+                    .StandardInput.WriteAsync(input.AsMemory(), timeout.Token)
+                    .ConfigureAwait(false);
+            await process.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
             process.StandardInput.Close();
-            if (!process.WaitForExit(120_000))
-            {
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit();
-                throw new IOException("koh-link exceeded 120 seconds");
-            }
-            Task.WhenAll(output, errors).GetAwaiter().GetResult();
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+            await Task.WhenAll(output, errors).WaitAsync(timeout.Token).ConfigureAwait(false);
             if (process.ExitCode != 0)
                 throw new IOException(
-                    $"koh-link exited {process.ExitCode}: {errors.Result}{output.Result}"
+                    $"koh-link exited {process.ExitCode}: {await errors.ConfigureAwait(false)}{await output.ConfigureAwait(false)}"
                 );
+        }
+        catch (OperationCanceledException error) when (timeout.IsCancellationRequested)
+        {
+            throw new IOException("koh-link exceeded 120 seconds", error);
         }
         finally
         {
