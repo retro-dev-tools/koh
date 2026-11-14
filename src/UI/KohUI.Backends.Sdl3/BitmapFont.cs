@@ -1,29 +1,6 @@
-using Silk.NET.OpenGL;
+namespace KohUI.Backends.Sdl3;
 
-namespace KohUI.Backends.Gl;
-
-/// <summary>
-/// Tiny 6×8 bitmap font covering printable ASCII (32–126). Data is a
-/// flat array of 95 × 8 bytes; each byte is a row, bits MSB-first
-/// representing the 6 columns (bits 7..2; bits 1,0 are 0).
-///
-/// <para>
-/// Uploaded once to a single-channel GL texture as an atlas: glyphs
-/// laid side-by-side in one row, <c>glyph-index × 6</c> is the u
-/// coordinate. The red channel carries the coverage mask; the
-/// fragment shader multiplies by <c>vColor</c>, so a glyph rendered
-/// at (r=0, g=0, b=0) comes out black on whatever background is
-/// already painted.
-/// </para>
-///
-/// <para>
-/// The font data is a hand-designed subset, good enough for the
-/// counter demo's letters / digits / basic punctuation. Missing
-/// glyphs render as empty space — the pipeline is correct, extending
-/// to the full printable ASCII set is just filling in more bytes.
-/// </para>
-/// </summary>
-internal sealed unsafe class BitmapFont : IDisposable
+internal sealed class BitmapFont : IDisposable
 {
     public const int GlyphW = 6;
     public const int GlyphH = 8;
@@ -35,73 +12,25 @@ internal sealed unsafe class BitmapFont : IDisposable
     public int AtlasHeight => GlyphH;
     public uint Texture { get; }
 
-    private readonly GL _gl;
+    private readonly SdlContext _context;
 
-    public BitmapFont(GL gl)
+    public BitmapFont(SdlContext context)
     {
-        _gl = gl;
-
-        var data = BuildAtlasPixels();
-        Texture = gl.GenTexture();
-        gl.BindTexture(TextureTarget.Texture2D, Texture);
-        // Atlas width (95 glyphs × 6 px = 570) isn't a multiple of 4,
-        // so the default 4-byte unpack alignment would treat each row
-        // as 572 bytes and pick up 2 bytes of the next row — producing
-        // a sheared atlas. R8 data is tightly packed; force alignment 1.
-        gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
-        fixed (byte* p = data)
-            gl.TexImage2D(
-                TextureTarget.Texture2D,
-                0,
-                (int)InternalFormat.R8,
-                (uint)AtlasWidth,
-                (uint)AtlasHeight,
-                0,
-                PixelFormat.Red,
-                PixelType.UnsignedByte,
-                p
-            );
-        gl.TexParameter(
-            TextureTarget.Texture2D,
-            TextureParameterName.TextureMinFilter,
-            (int)TextureMinFilter.Nearest
-        );
-        gl.TexParameter(
-            TextureTarget.Texture2D,
-            TextureParameterName.TextureMagFilter,
-            (int)TextureMagFilter.Nearest
-        );
-        gl.TexParameter(
-            TextureTarget.Texture2D,
-            TextureParameterName.TextureWrapS,
-            (int)TextureWrapMode.ClampToEdge
-        );
-        gl.TexParameter(
-            TextureTarget.Texture2D,
-            TextureParameterName.TextureWrapT,
-            (int)TextureWrapMode.ClampToEdge
-        );
-        // The atlas is single-channel; the shader samples .r, so the
-        // swizzle needs to feed red → all four channels for the
-        // colour-multiply in the fragment. Use a swizzle on the
-        // texture so we get vec4(r,r,r,r) from a `texture()` call.
-        int[] swizzle = { (int)GLEnum.Red, (int)GLEnum.Red, (int)GLEnum.Red, (int)GLEnum.Red };
-        fixed (int* s = swizzle)
-            gl.TexParameterI(
-                TextureTarget.Texture2D,
-                TextureParameterName.TextureSwizzleRgba,
-                (uint*)s
-            );
+        _context = context;
+        var mask = BuildAtlasPixels();
+        var rgba = new byte[mask.Length * 4];
+        for (int i = 0; i < mask.Length; i++)
+        {
+            rgba[i * 4] = 255;
+            rgba[i * 4 + 1] = 255;
+            rgba[i * 4 + 2] = 255;
+            rgba[i * 4 + 3] = mask[i];
+        }
+        Texture = context.CreateTexture(AtlasWidth, AtlasHeight, rgba);
     }
 
-    /// <summary>Width in pixels of a string rendered at 1× scale.</summary>
     public int Measure(string s) => s.Length * GlyphW;
 
-    /// <summary>
-    /// Queue glyphs for <paramref name="s"/> into the batch at pixel
-    /// position <paramref name="x"/>, <paramref name="y"/>. Caller
-    /// must have set the batch texture to <see cref="Texture"/>.
-    /// </summary>
     public void DrawString(
         QuadBatch batch,
         string s,
@@ -130,14 +59,10 @@ internal sealed unsafe class BitmapFont : IDisposable
         }
     }
 
-    public void Dispose() => _gl.DeleteTexture(Texture);
+    public void Dispose() => _context.DeleteTexture(Texture);
 
-    // ─── Atlas pixel layout ─────────────────────────────────────────
-
-    private static byte[] BuildAtlasPixels()
+    internal static byte[] BuildAtlasPixels()
     {
-        // Layout: glyphs side-by-side in one horizontal strip.
-        // Atlas size = GlyphCount * GlyphW × GlyphH.
         var pixels = new byte[GlyphCount * GlyphW * GlyphH];
         for (int g = 0; g < GlyphCount; g++)
         {
@@ -156,12 +81,6 @@ internal sealed unsafe class BitmapFont : IDisposable
         return pixels;
     }
 
-    /// <summary>
-    /// 95 × 8 bytes. Row-major per glyph; MSB of each byte is the
-    /// leftmost (column 0) pixel. Bits 1 and 0 are always 0 so each
-    /// row is 6 columns wide. Hand-designed coverage for ASCII
-    /// printable range; a few rarely-used glyphs are blank.
-    /// </summary>
     private static readonly byte[] s_font =
     [
         // 32 (space)

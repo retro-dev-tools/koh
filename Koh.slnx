@@ -37,10 +37,11 @@
   </Folder>
   <Folder Name="/UI/">
     <Project Path="src/UI/KohUI.Backends.Dom/KohUI.Backends.Dom.csproj" />
-    <Project Path="src/UI/KohUI.Backends.Gl/KohUI.Backends.Gl.csproj" />
+    <Project Path="src/UI/KohUI.Backends.Sdl3/KohUI.Backends.Sdl3.csproj" />
     <Project Path="src/UI/KohUI/KohUI.csproj" />
     <Project Path="tests/UI/KohUI.Tests.E2E/KohUI.Tests.E2E.csproj" />
     <Project Path="tests/UI/KohUI.Tests/KohUI.Tests.csproj" />
+    <Project Path="tests/UI/KohUI.Sdl3.Tests/KohUI.Sdl3.Tests.csproj" />
   </Folder>
   <Folder Name="/Tools/">
     <Project Path="tests/Tools/Koh.Superopt.Tests/Koh.Superopt.Tests.csproj" />

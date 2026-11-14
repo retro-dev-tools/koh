@@ -26,7 +26,7 @@ For a window with graphics and audio:
 dotnet run --project src/Emulator/Koh.Emulator.App -- samples/asm/gb-2048/build/2048.gbc
 ```
 
-The desktop emulator needs a working display, OpenGL, and OpenAL. For a headless
+The desktop emulator needs a working display, SDL3, and OpenAL. For a headless
 check, use the same application with PNG output:
 
 ```sh
@@ -34,18 +34,18 @@ dotnet run --project src/Emulator/Koh.Emulator.App -- samples/asm/gb-2048/build/
 dotnet run --project src/Emulator/Koh.Emulator.App -- samples/csharp/gb-2048-v2/2048v2.gb --screenshot=csharp-title.png --frames=300
 ```
 
-Headless mode does not open a window, initialize audio, or host a debug adapter.
-It therefore checks ROM execution and rendering separately from editor debugging.
+PNG capture does not open a window or initialize audio or graphics. To host a
+debug adapter without a display, use `--headless --dap=<endpoint>` instead.
+See [SDL3 setup and verification](sdl3.md) for desktop dependencies.
 
 ## Debug assembly in VS Code
 
 The extension uses Windows named pipes or an explicit Unix socket path under
 `/tmp` to stay within Unix socket path limits even with a long `TMPDIR`.
 On Unix, it passes the same absolute path to the emulator and VS Code.
-A Linux VS Code smoke test reached the emulator's DAP server,
-but Xvfb could not create the emulator's OpenGL window (`glfwCreateWindow failed`).
-An editor breakpoint session with a working graphics environment remains unverified;
-Windows and macOS GUI debugging also need smoke tests.
+The DAP host runs independently of graphics initialization. If a desktop DAP
+session cannot initialize graphics, its debug adapter continues headlessly.
+Windows and macOS GUI debugging still need native runtime smoke tests.
 
 Install the Koh extension, or run its development host as described in the root
 README (Node.js and npm are required for extension development). Open the repository

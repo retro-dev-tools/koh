@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UseTestingPlatformRunner>true</UseTestingPlatformRunner>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/UI/KohUI.Backends.Sdl3/KohUI.Backends.Sdl3.csproj" />
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+</Project>

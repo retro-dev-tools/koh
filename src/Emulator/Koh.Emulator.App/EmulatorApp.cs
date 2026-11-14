@@ -236,7 +236,7 @@ public static class EmulatorApp
     /// Global keyboard shortcuts that aren't joypad bindings. Returns
     /// null for keys we don't claim so the joypad mapper and default
     /// backend handling can still take them. Called from
-    /// <c>Program.cs</c>'s GL <c>onKeyDown</c> hook; evaluated before
+    /// <c>Program.cs</c>'s <c>onKeyDown</c> hook; evaluated before
     /// <see cref="MapKey"/> so a shortcut wins over the joypad path.
     /// </summary>
     public static EmulatorMsg? MapShortcut(string keyName) =>
@@ -432,13 +432,7 @@ public static class EmulatorApp
         );
     }
 
-    /// <summary>
-    /// VRAM tile grid — bank 0 (and bank 1 on CGB) decoded as a 16-
-    /// wide strip of 8×8 tiles, stacked vertically. The Image widget
-    /// blits the buffer; the painter's texture cache keeps one GL
-    /// texture keyed on node path, so re-publish each frame is a
-    /// TexSubImage2D, not a realloc.
-    /// </summary>
+    /// <summary>Decoded VRAM tiles.</summary>
     private static Panel<EmulatorMsg, IView<EmulatorMsg>> BuildVramPanel(VramSnapshot? vram)
     {
         IView<EmulatorMsg> body = vram is null
@@ -531,7 +525,7 @@ public static class EmulatorApp
     /// <see cref="LoadRomSucceeded"/> / <see cref="LoadRomFailed"/>
     /// message. The dialog runs on the runner's invoke thread (same
     /// thread the event callback fires on), which is fine because
-    /// GetOpenFileName is reentrant and doesn't need the GLFW loop
+    /// GetOpenFileName is reentrant and doesn't need the native event loop
     /// pumping during its lifetime.
     /// </summary>
     private static EmulatorMsg OpenRomClick()

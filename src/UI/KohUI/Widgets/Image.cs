@@ -9,7 +9,7 @@ namespace KohUI.Widgets;
 /// The <paramref name="Pixels"/> array reference is expected to be
 /// stable across frames — if the underlying source writes into the same
 /// buffer each frame (as the emulator's <c>Framebuffer</c> does), the
-/// reconciler won't emit per-pixel patches. The GL backend doesn't need
+/// reconciler won't emit per-pixel patches. The native backend doesn't need
 /// them: it re-uploads the texture on every paint pass regardless.
 /// Higher-level DOM transport will need a frame-counter prop or a
 /// binary side-channel — out of scope for v0.1 image support.

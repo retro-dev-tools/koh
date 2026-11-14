@@ -19,7 +19,7 @@
       "src\\Emulator\\Koh.Emulator.App\\Koh.Emulator.App.csproj",
       "src\\Emulator\\Koh.Verify\\Koh.Verify.csproj",
       "src\\UI\\KohUI\\KohUI.csproj",
-      "src\\UI\\KohUI.Backends.Gl\\KohUI.Backends.Gl.csproj",
+      "src\\UI\\KohUI.Backends.Sdl3\\KohUI.Backends.Sdl3.csproj",
       "tools\\Koh.Superopt\\Koh.Superopt.csproj",
       "tests\\Tools\\Koh.Superopt.Tests\\Koh.Superopt.Tests.csproj",
       "tests\\Asm\\Koh.Asm.Tests\\Koh.Asm.Tests.csproj",
@@ -31,6 +31,7 @@
       "tests\\Emulator\\Koh.Emulator.Tests\\Koh.Emulator.Tests.csproj",
       "tests\\Emulator\\Koh.Debugger.Tests\\Koh.Debugger.Tests.csproj",
       "tests\\UI\\KohUI.Tests\\KohUI.Tests.csproj",
+      "tests\\UI\\KohUI.Sdl3.Tests\\KohUI.Sdl3.Tests.csproj",
       "tools\\benchmarks\\Koh.Benchmarks\\Koh.Benchmarks.csproj",
       "tests\\Emulator\\Koh.Boot.Tests\\Koh.Boot.Tests.csproj"
     ]

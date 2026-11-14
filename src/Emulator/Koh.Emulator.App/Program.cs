@@ -1,14 +1,9 @@
 using Koh.Emulator.App;
 using KohUI;
-using KohUI.Backends.Gl;
+using KohUI.Backends.Sdl3;
 
-// Phase 1: hardcoded ROM path. Resolve against the repo test-rom
-// fixture so the emulator window opens on something interesting —
-// file-picker UI comes in phase 2. CLI arg override keeps local
-// debugging flexible.
-// Parse --dap=<pipe> and the headless-mode flags before anything else so they
-// can be ignored by the ROM-path arg logic. Everything else is still positional.
 string? dapPipe = null;
+bool headless = false;
 string? screenshotPath = null;
 int frames = 120;
 string? inputScriptPath = null;
@@ -20,7 +15,9 @@ string? bootRomCgbPath = null;
 var positional = new List<string>();
 foreach (var arg in args)
 {
-    if (arg.StartsWith("--boot-rom=", StringComparison.Ordinal))
+    if (arg == "--headless")
+        headless = true;
+    else if (arg.StartsWith("--boot-rom=", StringComparison.Ordinal))
         bootRomPath = arg["--boot-rom=".Length..];
     else if (arg.StartsWith("--boot-rom-dmg=", StringComparison.Ordinal))
         bootRomDmgPath = arg["--boot-rom-dmg=".Length..];
@@ -47,11 +44,12 @@ foreach (var arg in args)
 
 string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
 EmulatorApp.BootRoms = new BootRomResolver(bootRomPath, bootRomDmgPath, bootRomCgbPath);
+if (headless && dapPipe is null && screenshotPath is null && !mode3ReportRequested)
+{
+    Console.Error.WriteLine("--headless requires --dap, --screenshot or --mode3-report");
+    return 1;
+}
 
-// Headless mode: run to completion and exit before any window/audio/GL/DAP backend is
-// constructed — this sandboxed build environment has no audio device or display, so
-// constructing those headlessly would hang or throw. See
-// docs/superpowers/specs/2026-07-16-koh-debug-tooling-design.md section 1.
 if (screenshotPath is not null || mode3ReportRequested)
 {
     return HeadlessRunner.Run(
@@ -65,49 +63,72 @@ if (screenshotPath is not null || mode3ReportRequested)
     );
 }
 
-// When VS Code launches us in debug mode it passes --dap=<pipe>.
-// The server runs on its own thread and stays open for the whole
-// emulator lifetime; Dispose shuts it down cleanly when the window
-// closes.
-// DapServerHost takes the loop so it can adopt every installed
-// System and drive pause/resume in response to DAP control commands.
-// Constructed later (below) because the loop has to exist first.
-
-// AudioSink owns the OpenAL context; EmulatorLoop runs the emulator
-// core on its own thread and paces against the sink's buffer depth.
-// This keeps emulated speed locked to the audio hardware clock (not
-// monitor vsync), which matters because GB is 59.73 Hz and a 60 Hz
-// display would otherwise introduce slow pitch drift.
-using var audio = new AudioSink();
+using var cancellation = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    cancellation.Cancel();
+};
+AudioSink? audio = null;
+if (!headless)
+{
+    try
+    {
+        audio = new AudioSink();
+    }
+    catch (Exception ex) when (dapPipe is not null)
+    {
+        Console.Error.WriteLine($"[koh-dap] audio unavailable: {ex.Message}");
+    }
+}
+using var audioLifetime = audio;
 using var loop = new EmulatorLoop(audio);
+var loaded = EmulatorApp.LoadRomFromDisk(romPath);
+if (loaded is LoadRomFailed failure)
+{
+    Console.Error.WriteLine(failure.Error);
+    return 1;
+}
+if (loaded is LoadRomSucceeded success)
+    loop.SetSystem(success.System, success.Path);
 using var dapServer = dapPipe is not null ? new DapServerHost(dapPipe, loop) : null;
+if (dapServer is not null)
+    _ = dapServer.Completion.ContinueWith(
+        _ =>
+        {
+            try
+            {
+                cancellation.Cancel();
+            }
+            catch (ObjectDisposedException) { }
+        },
+        TaskScheduler.Default
+    );
+else
+    loop.Resume();
+
+if (headless)
+{
+    await WaitForSessionEnd();
+    return 0;
+}
 
 var runner = new Runner<EmulatorModel, EmulatorMsg>(
     initialModel: new EmulatorModel(
         Loop: loop,
-        RomPath: null,
+        RomPath: romPath,
         FrameCount: 0,
-        Status: "Loading...",
+        Status: $"Loaded {Path.GetFileName(romPath)}",
         ShowDebug: false
     ),
     update: EmulatorApp.Update,
     view: EmulatorApp.View
 );
 
-// Load the ROM synchronously and seed the runner before the window
-// opens — that way the initial render already has the hardware booted
-// and we don't paint a frame with the grey placeholder. Hardware mode
-// (DMG vs CGB) comes from the cartridge header's CGB flag inside
-// LoadRomFromDisk, matching what a real Game Boy Color would do.
-runner.Dispatch(EmulatorApp.LoadRomFromDisk(romPath));
-
-var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
+var backend = new Sdl3Backend<EmulatorModel, EmulatorMsg>(
     runner,
     title: "Koh Emulator",
     onTick: () => new Tick(),
-    // Key resolution order: fast-forward hold (Tab) wins over
-    // everything so it stays responsive even if Tab overlaps a
-    // keyboard-focus cycle; one-shot shortcuts next; joypad last.
     onKeyDown: name =>
         name == "Tab"
             ? new SetFastForward(true)
@@ -119,17 +140,38 @@ var backend = new GlBackend<EmulatorModel, EmulatorMsg>(
             : (EmulatorApp.MapKey(name) is { } btn ? new JoypadUp(btn) : null)
 );
 
-backend.Run();
-
-await runner.DisposeAsync();
+try
+{
+    backend.Run(cancellation.Token);
+}
+catch (Exception ex) when (dapServer is not null)
+{
+    Console.Error.WriteLine($"[koh-dap] graphics unavailable; continuing headlessly: {ex.Message}");
+    await WaitForSessionEnd();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"[koh-emulator] graphics failed: {ex.Message}");
+    return 1;
+}
+finally
+{
+    await runner.DisposeAsync();
+}
 
 return 0;
 
+async Task WaitForSessionEnd()
+{
+    try
+    {
+        await dapServer!.Completion.WaitAsync(cancellation.Token);
+    }
+    catch (OperationCanceledException) { }
+}
+
 static string FindDefaultRom()
 {
-    // Search upward from the exe for the repo's .playwright-cli/ folder
-    // where azure-dreams.gbc lives — works whether you `dotnet run` from
-    // the project directory or invoke the published binary in-place.
     var dir = AppContext.BaseDirectory;
     while (dir is not null)
     {
@@ -138,8 +180,6 @@ static string FindDefaultRom()
             return candidate;
         dir = Path.GetDirectoryName(dir);
     }
-    // Fall through to a blargg test ROM — always present under
-    // tests/fixtures so builds from inside src/ still find something.
     dir = AppContext.BaseDirectory;
     while (dir is not null)
     {

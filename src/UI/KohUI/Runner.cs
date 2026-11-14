@@ -24,13 +24,14 @@ public sealed class Runner<TModel, TMsg> : IAsyncDisposable
 {
     private readonly Func<TMsg, TModel, TModel> _update;
     private readonly Func<TModel, IView<TMsg>> _view;
-    private readonly Channel<TMsg> _messages = Channel.CreateUnbounded<TMsg>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = true, // the background loop is the only consumer
-            AllowSynchronousContinuations = false,
-        }
-    );
+    private readonly Channel<(TMsg Message, Action? OnProcessed)> _messages =
+        Channel.CreateUnbounded<(TMsg, Action?)>(
+            new UnboundedChannelOptions
+            {
+                SingleReader = true, // the background loop is the only consumer
+                AllowSynchronousContinuations = false,
+            }
+        );
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _loopTask;
 
@@ -60,7 +61,10 @@ public sealed class Runner<TModel, TMsg> : IAsyncDisposable
     public RenderNode? CurrentRender => _lastRender;
 
     /// <summary>Enqueue a message for the update loop. Never blocks; never drops.</summary>
-    public void Dispatch(TMsg msg) => _messages.Writer.TryWrite(msg);
+    public void Dispatch(TMsg msg) => _messages.Writer.TryWrite((msg, null));
+
+    public void Dispatch(TMsg msg, Action onProcessed) =>
+        _messages.Writer.TryWrite((msg, onProcessed));
 
     private void RenderInitial()
     {
@@ -73,7 +77,7 @@ public sealed class Runner<TModel, TMsg> : IAsyncDisposable
     {
         try
         {
-            await foreach (var msg in _messages.Reader.ReadAllAsync(_cts.Token))
+            await foreach (var (msg, onProcessed) in _messages.Reader.ReadAllAsync(_cts.Token))
             {
                 _model = _update(msg, _model);
                 var next = _view(_model).Render();
@@ -81,6 +85,7 @@ public sealed class Runner<TModel, TMsg> : IAsyncDisposable
                 _lastRender = next;
                 if (patches.Count > 0)
                     OnPatchesReady?.Invoke(patches);
+                onProcessed?.Invoke();
             }
         }
         catch (OperationCanceledException)

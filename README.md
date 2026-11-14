@@ -105,6 +105,8 @@ The SDK writes `samples/csharp/gb-2048-v2/2048v2.gb`. See the [sample guide](sam
 
 Headless emulator captures use `--screenshot=frame.png --frames=300` with a ROM path. Screenshot output supports PNG only; other filename extensions are rejected. PNG encoding uses .NET directly and requires no image-library license key.
 
+The native emulator uses SDL3's 2D Renderer API for presentation, windows and input. Native SDL libraries are included in platform publishes; OpenAL still provides audio. Headless DAP sessions use `--headless --dap=<endpoint>` and initialize neither video nor audio. See [SDL3 rendering and validation](docs/sdl3.md) for renderer selection, software fallback and platform verification limits.
+
 If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulnerability. Report the package, version, and advisory URL; do not disable auditing to obtain a passing result. See the [roadmap](ROADMAP.md) for verification status.
 
 ### Test
@@ -187,7 +189,7 @@ src/
   Link/       Koh.Linker, Koh.Link (linker CLI)
   Compiler/   Koh.Compiler, Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
   Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App
-  UI/         KohUI, KohUI.Backends.Gl, KohUI.Backends.Dom
+  UI/         KohUI, KohUI.Backends.Sdl3, KohUI.Backends.Dom
 tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
 tools/        Koh.Superopt, benchmarks/
 samples/      asm/, csharp/, ui/
