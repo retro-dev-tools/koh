@@ -2,6 +2,9 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
+import * as net from 'net';
+import * as os from 'os';
+import * as path from 'path';
 import type { ChildProcess, SpawnOptions } from 'child_process';
 import { KohDapAdapterFactory, Spawner } from '../debug/KohDapAdapterFactory';
 import { DAP_LISTENING_MARKER } from '../debug/waitForDapReady';
@@ -110,13 +113,50 @@ suite('KohDapAdapterFactory', () => {
         const call = calls[0];
         assert.ok(call.command.includes('Koh.Emulator.App'), `unexpected command: ${call.command}`);
         assert.strictEqual(call.args.length, 2);
-        assert.ok(/^--dap=koh-dap-/.test(call.args[0]), `unexpected first arg: ${call.args[0]}`);
+        assert.ok(call.args[0].startsWith('--dap='), `unexpected first arg: ${call.args[0]}`);
+        assert.ok(path.basename(call.args[0].slice(6)).startsWith('koh-dap-'));
         assert.strictEqual(call.args[1], '/roms/foo.gb');
 
         // Feed the marker so the promise can settle — otherwise the
         // test hangs for the 15s timeout.
         call.stdout.write(`${DAP_LISTENING_MARKER} \\\\.\\pipe\\x\n`);
         await resultPromise;
+    });
+
+    test('descriptor connects to the endpoint passed to the emulator', async () => {
+        const { spawner, calls } = makeSpawner();
+        const factory = new KohDapAdapterFactory(log, fakeResolver(null), spawner);
+        const pending = factory.createDebugAdapterDescriptor(fakeSession({
+            type: 'koh', request: 'launch', name: 'transport',
+            program: '/roms/foo.gb', emulatorPath: '/fake/emulator',
+        }));
+        calls[0].stdout.write(`${DAP_LISTENING_MARKER} ready\n`);
+        const descriptor = await pending as vscode.DebugAdapterNamedPipeServer;
+        const pipe = calls[0].args[0].slice('--dap='.length);
+        const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\${pipe}` : pipe;
+        if (process.platform !== 'win32') {
+            assert.ok(path.isAbsolute(pipe), 'Unix host must receive an explicit socket path');
+            assert.strictEqual(path.dirname(pipe), os.tmpdir());
+        }
+        const server = net.createServer(socket => socket.end('connected'));
+        try {
+            await new Promise<void>((resolve, reject) => {
+                server.once('error', reject);
+                server.listen(endpoint, resolve);
+            });
+            const message = await new Promise<string>((resolve, reject) => {
+                const client = net.connect(descriptor.path);
+                let received = '';
+                client.setEncoding('utf8');
+                client.setTimeout(2000, () => client.destroy(new Error('connection timed out')));
+                client.once('error', reject);
+                client.on('data', data => { received += data; });
+                client.once('end', () => resolve(received));
+            });
+            assert.strictEqual(message, 'connected');
+        } finally {
+            await new Promise<void>(resolve => server.close(() => resolve()));
+        }
     });
 
     test('descriptor resolves only after the emulator prints the listening banner', async () => {

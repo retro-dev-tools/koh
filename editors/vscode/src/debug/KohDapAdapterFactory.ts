@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as os from 'os';
 import { spawn as realSpawn, ChildProcess, SpawnOptions } from 'child_process';
 import { randomUUID } from 'crypto';
 import { Logger } from '../core/Logger';
@@ -65,8 +66,10 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         }
 
         const pipeName = `koh-dap-${randomUUID()}`;
-        this.log.info(`spawning emulator: ${emuPath} --dap=${pipeName} ${rom}`);
-        const child: ChildProcess = this.spawner(emuPath, [`--dap=${pipeName}`, rom], {
+        const pipePath = this.pipePath(pipeName);
+        const hostPipe = process.platform === 'win32' ? pipeName : pipePath;
+        this.log.info(`spawning emulator: ${emuPath} --dap=${hostPipe} ${rom}`);
+        const child: ChildProcess = this.spawner(emuPath, [`--dap=${hostPipe}`, rom], {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         this.children.set(session.id, child);
@@ -90,7 +93,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         });
 
         await ready;
-        return new vscode.DebugAdapterNamedPipeServer(this.pipePath(pipeName));
+        return new vscode.DebugAdapterNamedPipeServer(pipePath);
     }
 
     /**
@@ -126,13 +129,8 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
 
 
     private pipePath(pipeName: string): string {
-        // Windows named-pipe path. .NET's NamedPipeServerStream maps
-        // `name` to `\\.\pipe\name`; VS Code expects the same full
-        // path. Unix-domain socket paths on Linux/macOS go through a
-        // file under /tmp — DAP host and resolver agree on `name`
-        // directly there.
         if (process.platform === 'win32') return `\\\\.\\pipe\\${pipeName}`;
-        return `/tmp/${pipeName}.sock`;
+        return path.join(os.tmpdir(), `${pipeName}.sock`);
     }
 
     private resolveEmulatorPath(cfg: vscode.DebugConfiguration): string | null {

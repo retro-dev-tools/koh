@@ -39,11 +39,12 @@ It therefore checks ROM execution and rendering separately from editor debugging
 
 ## Debug assembly in VS Code
 
-The following configuration describes the Windows named-pipe workflow. Linux and
-macOS editor debugging currently have a transport mismatch: the extension expects
-`/tmp/<name>.sock`, while the emulator uses .NET named pipes. Until that is fixed,
-use the headless commands above on those hosts. Windows GUI debugging still needs
-an interactive smoke test; debugger-core tests alone do not verify the editor.
+The extension uses Windows named pipes or an explicit Unix socket path in the
+system temporary directory. On Unix, it passes the same absolute path to the
+emulator and VS Code. A Linux VS Code smoke test reached the emulator's DAP server,
+but Xvfb could not create the emulator's OpenGL window (`glfwCreateWindow failed`).
+An editor breakpoint session with a working graphics environment remains unverified;
+Windows and macOS GUI debugging also need smoke tests.
 
 Install the Koh extension, or run its development host as described in the root
 README (Node.js and npm are required for extension development). Open the repository
