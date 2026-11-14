@@ -1,6 +1,6 @@
 use crate::{ir::*, resolve::Definition};
 use koh_objects::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn symbol(identity: Definition) -> String {
     format!("__koh_a{}_m{:08x}", identity.assembly, identity.token)
@@ -146,16 +146,38 @@ impl Code {
     }
 
     fn copy(&mut self, source: u16, destination: u16, width: u16) {
+        if source == destination {
+            return;
+        }
+        self.bytes(&[0xf5]);
+        self.address(source + 2);
+        self.bytes(&[0x44, 0x4d]);
+        self.address(destination + 2);
+        self.bytes(&[0x54, 0x5d, 0x60, 0x69, 0xf1]);
         for byte in 0..width {
-            self.load_a(source + byte);
-            self.store_a(destination + byte);
+            self.bytes(&[0x2a, 0x12]);
+            if byte + 1 < width {
+                self.bytes(&[0x13]);
+            }
         }
     }
 
+    fn indirect(&mut self, address: u16) {
+        self.load_a(address);
+        self.bytes(&[0x4f]);
+        self.load_a(address + 1);
+        self.bytes(&[0x47]);
+    }
+
     fn constant(&mut self, destination: u16, width: u16, bits: u64) {
+        self.bytes(&[0xf5]);
+        self.address(destination + 2);
+        self.bytes(&[0xf1]);
         for byte in 0..width {
-            self.bytes(&[0x3e, (bits >> (byte * 8)) as u8]);
-            self.store_a(destination + byte);
+            self.bytes(&[0x36, (bits >> (byte * 8)) as u8]);
+            if byte + 1 < width {
+                self.bytes(&[0x23]);
+            }
         }
     }
 
@@ -390,13 +412,95 @@ impl Layout {
             locals.push(offset as u16);
             offset += usize::from(ty.bits() / 8);
         }
+        let mut owners = BTreeMap::new();
+        let mut shared = BTreeSet::new();
+        for (block, body) in function.blocks.iter().enumerate() {
+            for &(id, _) in &body.parameters {
+                shared.insert(id);
+                owners.insert(id, block);
+            }
+            for instruction in &body.instructions {
+                if let Some((id, _)) = instruction.result {
+                    owners.insert(id, block);
+                }
+            }
+        }
+        let mut uses = vec![BTreeMap::new(); function.blocks.len()];
+        for (block, body) in function.blocks.iter().enumerate() {
+            let mut record = |id, position| {
+                uses[block].insert(id, position);
+                if owners[&id] != block {
+                    shared.insert(id);
+                }
+            };
+            for (position, instruction) in body.instructions.iter().enumerate() {
+                for id in instruction.op.operands() {
+                    record(id, position);
+                }
+            }
+            let end = body.instructions.len();
+            match &body.terminator.kind {
+                Control::Return(value) => {
+                    if let Some(id) = value {
+                        record(*id, end);
+                    }
+                }
+                Control::Jump(edge) => {
+                    for &id in &edge.arguments {
+                        record(id, end);
+                    }
+                }
+                Control::Branch { condition, yes, no } => {
+                    record(*condition, end);
+                    for &id in yes.arguments.iter().chain(&no.arguments) {
+                        record(id, end);
+                    }
+                }
+            }
+        }
         let mut values = BTreeMap::new();
-        for (id, ty) in types {
+        for (&id, &ty) in &types {
+            if !shared.contains(&id) {
+                continue;
+            }
             if offset > 0xf00 {
                 return Err("SM83 frame exceeds WRAM0 stack capacity".into());
             }
             values.insert(id, (offset as u16, ty));
             offset += usize::from(ty.bits() / 8);
+        }
+        let base = offset;
+        for (block, body) in function.blocks.iter().enumerate() {
+            let mut extent = base;
+            let mut free: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+            let mut active = Vec::new();
+            for (position, instruction) in body.instructions.iter().enumerate() {
+                active.retain(|&(end, slot, bytes)| {
+                    if end < position {
+                        free.entry(bytes).or_default().push(slot);
+                        false
+                    } else {
+                        true
+                    }
+                });
+                if let Some((id, ty)) = instruction.result {
+                    if shared.contains(&id) {
+                        continue;
+                    }
+                    let bytes = usize::from(ty.bits() / 8);
+                    let slot = free.entry(bytes).or_default().pop().unwrap_or_else(|| {
+                        let slot = extent;
+                        extent += bytes;
+                        slot
+                    });
+                    if extent > 0xf00 {
+                        return Err("SM83 frame exceeds WRAM0 stack capacity".into());
+                    }
+                    values.insert(id, (slot as u16, ty));
+                    active.push((*uses[block].get(&id).unwrap_or(&position), slot, bytes));
+                }
+            }
+            offset = offset.max(extent);
         }
         let edge = offset;
         offset += function
@@ -491,6 +595,47 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::LoadMemory {
+                    address,
+                    bits,
+                    signed,
+                } => {
+                    let copied = u16::from(bits / 8);
+                    code.indirect(slot(address));
+                    code.address(destination);
+                    code.bytes(&[0x50, 0x59]);
+                    for byte in 0..copied {
+                        code.bytes(&[0x1a, 0x22]);
+                        if byte + 1 < copied {
+                            code.bytes(&[0x13]);
+                        }
+                    }
+                    if copied < width {
+                        if signed {
+                            code.bytes(&[0x87, 0x9f]);
+                        } else {
+                            code.bytes(&[0xaf]);
+                        }
+                        for _ in copied..width {
+                            code.bytes(&[0x22]);
+                        }
+                    }
+                }
+                Op::StoreMemory {
+                    address,
+                    value,
+                    bits,
+                } => {
+                    code.indirect(slot(address));
+                    code.address(slot(value));
+                    code.bytes(&[0x50, 0x59]);
+                    for byte in 0..u16::from(bits / 8) {
+                        code.bytes(&[0x2a, 0x12]);
+                        if byte + 1 < u16::from(bits / 8) {
+                            code.bytes(&[0x13]);
+                        }
+                    }
+                }
                 Op::Call {
                     target,
                     ref signature,

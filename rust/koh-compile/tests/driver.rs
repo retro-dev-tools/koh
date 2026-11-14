@@ -147,6 +147,46 @@ fn execute(host: &Host, directory: &Path, linked: &koh_link::LinkResult, stop: &
 }
 
 #[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn indirect_memory_widths_and_aliases_execute(host: &Host, #[case] configuration: &str) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh memory ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Memory");
+    for file in ["Memory.csproj", "Program.cs"] {
+        std::fs::copy(fixture.join(file), directory.path().join(file)).unwrap();
+    }
+    let result = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Memory.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let bytes = std::fs::read(
+        directory
+            .path()
+            .join(format!("bin/{configuration}/net10.0/Memory.dll")),
+    )
+    .unwrap();
+    let resolver = Resolver::new(&[bytes.as_slice()]).unwrap();
+    let object = compile::object(&resolver, None).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute(host, directory.path(), &linked, "__koh_exit"),
+        "00 0000002A D000 OK"
+    );
+}
+
+#[rstest]
 fn cli_references_and_native_stack_traps_execute(host: &Host) {
     let directory = tempfile::Builder::new()
         .prefix("koh cli project references ")

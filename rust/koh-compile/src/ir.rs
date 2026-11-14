@@ -52,6 +52,16 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    LoadMemory {
+        address: u32,
+        bits: u8,
+        signed: bool,
+    },
+    StoreMemory {
+        address: u32,
+        value: u32,
+        bits: u8,
+    },
     Call {
         target: Definition,
         signature: Signature,
@@ -87,6 +97,28 @@ pub struct Instruction {
     pub result: Option<(u32, Type)>,
     pub op: Op,
     pub il_offset: u32,
+}
+
+impl Op {
+    pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
+        let pair = match *self {
+            Self::LoadMemory { address, .. } => [Some(address), None],
+            Self::StoreMemory { address, value, .. } => [Some(address), Some(value)],
+            Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
+                [Some(left), Some(right)]
+            }
+            Self::Negate(value)
+            | Self::Not(value)
+            | Self::Convert { value, .. }
+            | Self::StoreLocal { value, .. } => [Some(value), None],
+            Self::Call { .. } | Self::Constant(_) | Self::LoadLocal(_) => [None, None],
+        };
+        let arguments = match self {
+            Self::Call { arguments, .. } => arguments.as_slice(),
+            _ => &[],
+        };
+        pair.into_iter().flatten().chain(arguments.iter().copied())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,6 +369,37 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::LoadMemory { address, bits, .. } => {
+                        if check(address, position)? != Type::Native {
+                            return Err("Memory address must be native integer".into());
+                        }
+                        let ty = result.ok_or("Memory load has no result")?;
+                        if !matches!(bits, 8 | 16 | 32 | 64)
+                            || !matches!(
+                                (bits, ty),
+                                (8 | 16 | 32, Type::I32) | (64, Type::I64) | (16, Type::Native)
+                            )
+                        {
+                            return Err("Invalid memory load width/result".into());
+                        }
+                        Some(ty)
+                    }
+                    Op::StoreMemory {
+                        address,
+                        value,
+                        bits,
+                    } => {
+                        if check(address, position)? != Type::Native {
+                            return Err("Memory address must be native integer".into());
+                        }
+                        if !matches!(
+                            (bits, check(value, position)?),
+                            (8 | 16 | 32, Type::I32) | (64, Type::I64) | (16, Type::Native)
+                        ) {
+                            return Err("Invalid memory store width/value".into());
+                        }
+                        None
+                    }
                     Op::Call {
                         ref signature,
                         ref arguments,

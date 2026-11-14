@@ -526,6 +526,48 @@ fn stack_capacity_is_checked_before_frame_writes(host: &Host) {
 }
 
 #[rstest::rstest]
+fn indirect_memory_respects_the_last_stack_scratch_word(host: &Host) {
+    let f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::Native, Type::I32],
+        returns: Some(Type::I32),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::Native), (1, Type::I32)],
+            instructions: vec![
+                Instruction {
+                    result: None,
+                    op: Op::StoreMemory {
+                        address: 0,
+                        value: 1,
+                        bits: 32,
+                    },
+                    il_offset: 0,
+                },
+                Instruction {
+                    result: Some((2, Type::I32)),
+                    op: Op::LoadMemory {
+                        address: 0,
+                        bits: 32,
+                        signed: false,
+                    },
+                    il_offset: 1,
+                },
+            ],
+            terminator: Terminator {
+                kind: Control::Return(Some(2)),
+                il_offset: 2,
+            },
+        }],
+    };
+    run_at(host, &[(f.clone(), vec![0xc020, 42], Ok(42))], 0xc137);
+    run_at(host, &[(f, vec![0xc020, 42], Err(1))], 0xc136);
+}
+
+#[rstest::rstest]
 fn cyclic_block_arguments_transfer_simultaneously(host: &Host) {
     let mut f = function(Type::I32, Op::Constant(0));
     f.blocks[0].terminator.kind = Control::Jump(Edge {

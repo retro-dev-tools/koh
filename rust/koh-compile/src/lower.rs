@@ -19,6 +19,9 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
             | ElementType::Boolean,
         ) => Ok(Type::I32),
         TypeSig::Primitive(ElementType::I8 | ElementType::U8) => Ok(Type::I64),
+        TypeSig::Primitive(ElementType::IntPtr | ElementType::UIntPtr) | TypeSig::Ptr(_) => {
+            Ok(Type::Native)
+        }
         _ => Err(format!("Type {ty:?} has no integer lowering yet")),
     }
 }
@@ -659,6 +662,54 @@ fn translate(
                 condition: condition.0,
                 yes: b.edge(yes),
                 no: b.edge(no),
+            });
+        }
+        0x46..=0x4d => {
+            let (bits, signed, ty) = match i.opcode {
+                0x46 => (8, true, Type::I32),
+                0x47 => (8, false, Type::I32),
+                0x48 => (16, true, Type::I32),
+                0x49 => (16, false, Type::I32),
+                0x4a => (32, true, Type::I32),
+                0x4b => (32, false, Type::I32),
+                0x4c => (64, true, Type::I64),
+                _ => (16, false, Type::Native),
+            };
+            let address = b.pop()?;
+            if address.1 != Type::Native {
+                return Err("Indirect load requires native address".into());
+            }
+            let value = b.value(
+                ty,
+                Op::LoadMemory {
+                    address: address.0,
+                    bits,
+                    signed,
+                },
+            )?;
+            b.stack.push(value);
+        }
+        0x52..=0x55 | 0xdf => {
+            let (bits, ty) = match i.opcode {
+                0x52 => (8, Type::I32),
+                0x53 => (16, Type::I32),
+                0x54 => (32, Type::I32),
+                0x55 => (64, Type::I64),
+                _ => (16, Type::Native),
+            };
+            let value = b.pop()?;
+            let address = b.pop()?;
+            if address.1 != Type::Native || value.1 != ty {
+                return Err("Indirect store operand type mismatch".into());
+            }
+            b.instructions.push(Instruction {
+                result: None,
+                op: Op::StoreMemory {
+                    address: address.0,
+                    value: value.0,
+                    bits,
+                },
+                il_offset: b.offset,
             });
         }
         0x58..=0x64 => {

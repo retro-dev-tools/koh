@@ -285,3 +285,34 @@ and 172 ROM scenarios (158 normal returns, 14 traps). The original terminal exit
 record was lost during context transfer; the completed nextest summary was read
 directly after confirming the process had terminated. Separate workspace doctests
 exited 0 (no cases). No hosted result is claimed for this unpushed increment.
+
+## Indirect memory and CFG simplification
+
+The [memory increment](memory.md) adds explicit-width indirect integer loads and
+stores, native/unmanaged pointer signatures, single-predecessor CFG chain merging
+and conservative block-local spill reuse. Contiguous byte emission removes repeated
+address setup. All transformations preserve memory-operation order; alias-based
+optimization is not assumed. A combined Debug fixture exposed ROM0 overflow and
+was retained while the underlying block/copy costs were corrected.
+
+Focused tests passed **77/77**, exit 0, including the unchanged Debug/Release
+memory fixture, existing arithmetic/call/recursion/cyclic-transfer cases, width
+verification and a stack scratch-boundary check. Two additional block-order loop
+cases are included in the subsequent workspace run. Original expected integer
+results are also checked after simplification; repeated simplification is stable.
+Logs: `/tmp/koh-memory-optimized-focused.log` and `/tmp/koh-memory-nextest.log`.
+Whole legacy methods are not yet retired. Managed byrefs, aggregate/object/array
+memory, globals/initializers, real hardware intrinsic lowering and IRQ remain open.
+
+Preceding CLI head `b66b36e` completed all 14 hosted jobs successfully, including
+native Linux/Windows/macOS. The completed macOS job log reports
+`392 tests run: 392 passed, 0 skipped`; this supersedes the preceding call-head
+fixture failure. [Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43651123570)
+and [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43651123593).
+These hosted results do not cover the newer memory increment.
+
+Completed Linux workspace command `cargo nextest run --workspace --all-features --locked`
+with SDK 10.0.115 selected by `KOH_DOTNET`: **407 run, 407 passed, 0 skipped**,
+exit 0, 291.998 seconds. There are 231 compiler cases and 176 ROM scenarios
+(161 normal returns, 15 traps). Completed log: `/tmp/koh-memory-nextest.log`.
+Separate workspace doctests exited 0, no cases (`/tmp/koh-memory-doc.log`).

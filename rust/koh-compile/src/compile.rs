@@ -154,5 +154,9 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
     }
     functions.sort_by_key(|f| (f.identity.assembly, f.identity.token));
     verify_program(&functions)?;
+    for function in &mut functions {
+        crate::optimize::simplify(function)?;
+    }
+    verify_program(&functions)?;
     Ok(functions)
 }

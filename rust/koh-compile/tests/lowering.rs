@@ -40,6 +40,46 @@ fn backward_edges_preserve_mutable_locals() {
 }
 
 #[rstest]
+#[case(false)]
+#[case(true)]
+fn cfg_simplification_preserves_loops_across_block_order(#[case] reverse: bool) {
+    let mut m = method(&[
+        0x16, 0x0a, 0x06, 0x17, 0x58, 0x0a, 0x06, 0x19, 0x32, 0xf8, 0x06, 0x2a,
+    ]);
+    m.locals = vec![Type::I32];
+    let mut f = lower(m).unwrap();
+    if reverse {
+        let order: Vec<_> = std::iter::once(0)
+            .chain((1..f.blocks.len()).rev())
+            .collect();
+        let mut inverse = vec![0; order.len()];
+        for (new, &old) in order.iter().enumerate() {
+            inverse[old] = new;
+        }
+        f.blocks = order.iter().map(|&index| f.blocks[index].clone()).collect();
+        for block in &mut f.blocks {
+            match &mut block.terminator.kind {
+                Control::Jump(edge) => edge.block = inverse[edge.block],
+                Control::Branch { yes, no, .. } => {
+                    yes.block = inverse[yes.block];
+                    no.block = inverse[no.block];
+                }
+                Control::Return(_) => {}
+            }
+        }
+    }
+    verify(&f).unwrap();
+    assert_eq!(execute(&f), 3);
+    let before = f.blocks.len();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert!(f.blocks.len() < before);
+    assert_eq!(execute(&f), 3);
+    let once = format!("{f:?}");
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(format!("{f:?}"), once);
+}
+
+#[rstest]
 #[case(&[0x58, 0x2a], "underflow")]
 #[case(&[0x16], "fallthrough")]
 #[case(&[0x21, 0,0,0,0,0,0,0,0, 0x2a], "return")]
@@ -258,5 +298,16 @@ fn real_roslyn_integer_control_flow(assemblies: &[Vec<u8>; 2], #[case] configura
             "{configuration}: {name}"
         );
         assert!(function.blocks.iter().any(|b| b.terminator.il_offset > 0));
+        let mut optimized = function.clone();
+        koh_compile::optimize::simplify(&mut optimized).unwrap();
+        assert_eq!(
+            execute_with(&optimized, &arguments),
+            expected,
+            "optimized {configuration}: {name}"
+        );
+        assert!(optimized.blocks.len() < function.blocks.len());
+        let once = format!("{optimized:?}");
+        koh_compile::optimize::simplify(&mut optimized).unwrap();
+        assert_eq!(format!("{optimized:?}"), once);
     }
 }

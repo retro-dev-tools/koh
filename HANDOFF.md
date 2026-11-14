@@ -4,6 +4,28 @@ Branch feat/rust-cil-compiler, isolated from main checkout modified screenshot.
 Baseline integrated linker 9cd1472. Existing PR #55 stays draft; never merge.
 C# compiler remains production. Full attachment migration goal stays active.
 
+Latest memory increment complete locally: indirect 8/16/32/64/native integer
+memory, unmanaged/native signatures, unique-predecessor CFG chain simplification,
+block-local temporary slots and contiguous copy/constant emission. Read memory.md.
+Workspace nextest 407/407, no skips, exit 0, 291.998s; 231 compiler cases,
+176 emulator scenarios (161 normal, 15 trap). Log /tmp/koh-memory-nextest.log.
+Separate doctests exit 0 (no cases). Focused suite 77/77; new reversed-order loop
+regressions also pass in workspace. Source review complete; nested-push defect
+removed, scratch-boundary test passes. No delegated builds/writers remain.
+Preceding b66b36e passed all 14 hosted jobs, macOS log 392/392, superseding earlier
+fixture failure. New memory head hosted results must be checked separately.
+Next: metadata-driven register/region/control intrinsics, pointer arithmetic,
+static storage/initialization, followed by all outstanding full migration gates.
+Rough progress 27%; no product acceptance or C# compiler deletion yet.
+
+Current uncommitted unit: root owns integer indirect memory IR/verifier/lowering,
+SM83 byte-order/sign extension, unmanaged pointer/native signatures, block-local
+temporary slot reuse and shorter copy/constant emission. Tests add Memory fixture,
+Debug/Release ROM scenarios and width verifier cases. Focused suite running serially
+in target/. Review is read-only; no delegated edits or builds. Verify with workspace
+nextest then doctests/fmt. Large combined memory fixture initially hit ROM0 limit;
+retain that fixture and fix code size rather than split away the failure.
+
 Latest increment supersedes CLI-pending statements below: native koh-compile,
 startup, single canonical ELF composition and entry selection now exist.
 Read docs/rust-compiler/driver.md and progress.md. Linux nextest completed

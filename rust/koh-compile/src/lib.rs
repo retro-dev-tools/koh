@@ -5,6 +5,7 @@ pub mod compile;
 mod contracts;
 pub mod ir;
 pub mod lower;
+pub mod optimize;
 pub mod resolve;
 pub mod signature;
 pub mod sm83;

@@ -77,6 +77,55 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+#[rstest]
+#[case(Type::Native, Type::I32, 8, true)]
+#[case(Type::Native, Type::I32, 16, true)]
+#[case(Type::Native, Type::I32, 32, true)]
+#[case(Type::Native, Type::I64, 64, true)]
+#[case(Type::Native, Type::Native, 16, true)]
+#[case(Type::I32, Type::I32, 8, false)]
+#[case(Type::Native, Type::I32, 24, false)]
+#[case(Type::Native, Type::I32, 64, false)]
+#[case(Type::Native, Type::I64, 32, false)]
+#[case(Type::Native, Type::Native, 8, false)]
+fn memory_widths_are_verified(
+    #[case] address: Type,
+    #[case] value: Type,
+    #[case] bits: u8,
+    #[case] valid: bool,
+) {
+    let mut f = diamond();
+    f.parameters = vec![address, value];
+    f.returns = Some(value);
+    f.locals.clear();
+    f.blocks.truncate(1);
+    f.blocks[0].parameters = vec![(0, address), (1, value)];
+    f.blocks[0].instructions = vec![
+        Instruction {
+            result: None,
+            op: Op::StoreMemory {
+                address: 0,
+                value: 1,
+                bits,
+            },
+            il_offset: 0,
+        },
+        instruction(
+            2,
+            value,
+            Op::LoadMemory {
+                address: 0,
+                bits,
+                signed: false,
+            },
+        ),
+    ];
+    f.blocks[0].terminator.kind = Control::Return(Some(2));
+    assert_eq!(verify(&f).is_ok(), valid);
+    f.blocks[0].instructions.remove(0);
+    assert_eq!(verify(&f).is_ok(), valid);
+}
+
 fn recursive_call() -> Function {
     let mut f = diamond();
     f.blocks.truncate(1);
