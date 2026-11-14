@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as os from 'os';
 import { spawn as realSpawn, ChildProcess, SpawnOptions } from 'child_process';
 import { randomUUID } from 'crypto';
 import { Logger } from '../core/Logger';
@@ -130,7 +129,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
 
     private pipePath(pipeName: string): string {
         if (process.platform === 'win32') return `\\\\.\\pipe\\${pipeName}`;
-        return path.join(os.tmpdir(), `${pipeName}.sock`);
+        return path.join('/tmp', `${pipeName}.sock`);
     }
 
     private resolveEmulatorPath(cfg: vscode.DebugConfiguration): string | null {

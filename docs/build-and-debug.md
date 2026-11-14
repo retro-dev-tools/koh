@@ -39,9 +39,10 @@ It therefore checks ROM execution and rendering separately from editor debugging
 
 ## Debug assembly in VS Code
 
-The extension uses Windows named pipes or an explicit Unix socket path in the
-system temporary directory. On Unix, it passes the same absolute path to the
-emulator and VS Code. A Linux VS Code smoke test reached the emulator's DAP server,
+The extension uses Windows named pipes or an explicit Unix socket path under
+`/tmp` to stay within Unix socket path limits even with a long `TMPDIR`.
+On Unix, it passes the same absolute path to the emulator and VS Code.
+A Linux VS Code smoke test reached the emulator's DAP server,
 but Xvfb could not create the emulator's OpenGL window (`glfwCreateWindow failed`).
 An editor breakpoint session with a working graphics environment remains unverified;
 Windows and macOS GUI debugging also need smoke tests.
