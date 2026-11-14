@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Koh.Common;
 
 namespace Koh.Native;
@@ -18,6 +19,7 @@ internal sealed class NativeResponse
     public NativeSymbol[] Symbols { get; set; } = [];
     public NativeDiagnostic[] Diagnostics { get; set; } = [];
     public int[] Data { get; set; } = [];
+    public JsonElement Object { get; set; }
 }
 
 internal sealed class NativeDocument

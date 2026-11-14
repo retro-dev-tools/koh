@@ -2,11 +2,11 @@
 
 ## Project Structure & Module Organization
 
-Koh is a Rust and .NET 10 Game Boy development toolchain. C# projects live in `src/`, grouped by area: `Common/` (`Koh.Common` for diagnostics and source text, `Koh.Opcodes` for the SM83 opcode table, `Koh.Objects` for the shared object model and the `.kobj`/RGBDS/`.kdbg` formats), `Asm/` (`Koh.Native` native-service bridge, `Koh.Lsp`), `Link/` (`Koh.Linker`, the `Koh.Link` CLI), `Compiler/` (`Koh.Compiler`, `Koh.GameBoy`, `Koh.Build.Tasks`, `Koh.Sdk`), `Emulator/` (`Koh.Emulator`, `Koh.Debugger`, `Koh.Boot`, `Koh.Verify`, `Koh.Emulator.App`) and `UI/` (`KohUI*`). Tests under `tests/` mirror the same areas and project names, for example `tests/Asm/Koh.Lsp.Tests`. VS Code extension sources and grammar assets are in `editors/vscode/src` and `editors/vscode/syntaxes`. The Rust assembler and CLI live in `rust/koh-asm` in the root Cargo workspace. Tools and benchmarks are in `tools/`, samples in `samples/{asm,csharp,ui}`.
+Koh is a Rust and .NET 10 Game Boy development toolchain. C# projects live in `src/`, grouped by area: `Common/` (`Koh.Common` for diagnostics and source text, `Koh.Opcodes` for the SM83 opcode table, `Koh.Objects` for compiler output concepts and `.kdbg` reading), `Asm/` (`Koh.Native` native-service bridge, `Koh.Lsp`), `Compiler/` (`Koh.Compiler`, `Koh.GameBoy`, `Koh.Build.Tasks`, `Koh.Sdk`), `Emulator/` (`Koh.Emulator`, `Koh.Debugger`, `Koh.Boot`, `Koh.Verify`, `Koh.Emulator.App`) and `UI/` (`KohUI*`). Tests under `tests/` mirror the same areas and project names, for example `tests/Asm/Koh.Lsp.Tests`. VS Code extension sources and grammar assets are in `editors/vscode/src` and `editors/vscode/syntaxes`. The root Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, and the authoritative ELF32/SM83 model in `rust/koh-objects`. Tools and benchmarks are in `tools/`, samples in `samples/{asm,csharp,ui}`.
 
 ## Build, Test, and Development Commands
 
-- `cargo build --release -p koh-asm --locked` builds the native assembler.
+- `cargo build --release -p koh-asm -p koh-link --locked` builds the native assembler and linker.
 - `cargo test --workspace --locked` runs Rust tests; `KOH_RGBDS_TEST=1` enables checks against RGBDS 1.0.1.
 - `dotnet build` builds the default solution, including the native assembler bridge.
 - `dotnet restore Koh.Ci.slnf` and `dotnet build Koh.Ci.slnf --configuration Release` mirror CI's main build.

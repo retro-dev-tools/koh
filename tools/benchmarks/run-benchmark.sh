@@ -117,7 +117,7 @@ run_koh_assembly() {
   /usr/bin/time -v bash -c '
     set -e
     for asm in '"$(printf '%s ' "${ASM_FILES[@]}")"'; do
-      /opt/koh/koh-asm/koh-asm "${asm}.asm" -o "${asm}.koh.o" -f rgbds
+      /opt/koh/koh-asm/koh-asm "${asm}.asm" -o "${asm}.koh.o"
     done
   ' >"$logfile" 2>&1
 }
@@ -169,10 +169,10 @@ ENV_CPU=$(grep 'model name' /proc/cpuinfo | head -1 | sed 's/.*: //')
 ENV_KERNEL=$(uname -r)
 ENV_CONTAINER_OS=$(grep PRETTY_NAME /etc/os-release | sed 's/PRETTY_NAME="//' | sed 's/"//')
 ENV_RAM_MB=$(awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo)
-ENV_DOTNET=$(dotnet --list-runtimes 2>/dev/null | grep NETCore | head -1 | sed 's/.*App //' | sed 's/ .*//' || echo "unknown")
+ENV_DOTNET="not used (native tools)"
 ENV_RGBDS=$(rgbasm --version 2>&1 | head -1)
 ENV_KOH=$(/opt/koh/koh-asm/koh-asm --version 2>&1 | head -1 || echo "unknown")
-ENV_SDK_HOST="${DOTNET_SDK_HOST:-unknown}"
+ENV_SDK_HOST="not used (native tools)"
 
 cat > "$BENCH_OUTPUT/environment.txt" <<EOF
 cpu_model=$ENV_CPU
@@ -296,7 +296,7 @@ TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Assembly phase command templates (for recording in run data)
 RGBDS_ASM_CMD_TEMPLATE="rgbasm -Q8 -P includes.asm -Weverything -Wtruncation=1 -o \${asm}.o \${asm}.asm"
-KOH_ASM_CMD_TEMPLATE="/opt/koh/koh-asm/koh-asm \${asm}.asm -o \${asm}.koh.o -f rgbds"
+KOH_ASM_CMD_TEMPLATE="/opt/koh/koh-asm/koh-asm \${asm}.asm -o \${asm}.koh.o"
 ASM_FILES_CSV=$(IFS=,; echo "${ASM_FILES[*]}")
 
 for (( run=1; run<=BENCH_RUNS; run++ )); do

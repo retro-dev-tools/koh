@@ -7,12 +7,12 @@ using Koh.Compiler.Ir;
 using Koh.Compiler.Ir.Optimization;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
-using Koh.Linker;
+using Koh.Native;
 using Koh.Objects;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using KohDiagnosticSeverity = Koh.Common.DiagnosticSeverity;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Frontends;
 

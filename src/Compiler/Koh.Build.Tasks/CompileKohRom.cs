@@ -1,24 +1,13 @@
 using Koh.Common;
 using Koh.Compiler;
 using Koh.Compiler.Frontends;
-using Koh.Linker;
+using Koh.Native;
 using Koh.Objects;
 using Microsoft.Build.Framework;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Build.Tasks;
 
-/// <summary>
-/// MSBuild task that compiles a Koh game to a Game Boy ROM in-process, the same way the toolchain
-/// does: pick a frontend (by name, default <c>cil</c>) and a backend (by name) from
-/// <see cref="CompilerRegistry"/>, run <see cref="CompilerDriver"/> to get an <c>EmitModel</c>,
-/// then link it to a <c>.gb</c>. This is what the Koh SDK invokes after the ordinary build, so a
-/// game project needs no build driver of its own and never references the compiler or linker
-/// directly. The frontend lowers the already-built <see cref="AssemblyPath"/> plus
-/// <see cref="ReferencePaths"/> — no source files are read; <c>Koh.Compiler</c> has one frontend
-/// (<c>cil</c>, over Mono.Cecil) since <c>csharp</c> (Roslyn-source-driven) was deleted once <c>cil</c>
-/// reached parity.
-/// </summary>
 public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
 {
     /// <summary>Absolute path of the ROM to write.</summary>
@@ -47,13 +36,8 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
     /// Wins over <see cref="CgbCompatible"/>.</summary>
     public bool CgbOnly { get; set; }
 
-    /// <summary>
-    /// When true (the default), also write a <c>.kdbg</c> debug-info file next to <see cref="OutputPath"/>
-    /// (same base name, <c>.kdbg</c> extension) — mirrors <c>Koh.Link/Program.cs</c>'s own
-    /// <c>DebugInfoBuilder</c>/<c>DebugInfoPopulator</c>/<c>KdbgFileWriter</c> call, so every SDK-built ROM
-    /// gets the file the DAP debugger (<c>Koh.Debugger.Session.DebugInfoLoader</c>) already knows how to load.
-    /// </summary>
     public bool EmitDebugInfo { get; set; } = true;
+    public string? LinkerPath { get; set; }
 
     public override bool Execute()
     {
@@ -100,13 +84,15 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         if (hadError)
             return false;
 
-        var link = new LinkerType().Link(
+        var link = new LinkerType(LinkerPath).Link(
             [new LinkerInput(ProgramName, model)],
-            new LinkOptions(CgbCompatible, CgbOnly)
+            new LinkOptions(CgbCompatible, CgbOnly, EmitDebugInfo: EmitDebugInfo)
         );
 
         var rom = link.RomData;
-        if (rom is null)
+        foreach (var diagnostic in link.Diagnostics)
+            Log.LogError(diagnostic.Message);
+        if (!link.Success || rom is null)
         {
             Log.LogError("Koh: the linker produced no ROM.");
             return false;
@@ -128,12 +114,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
         if (EmitDebugInfo)
         {
             var kdbgPath = Path.ChangeExtension(OutputPath, ".kdbg");
-            var builder = new DebugInfoBuilder();
-
-            DebugInfoPopulator.Populate(builder, link);
-
-            using var kdbgStream = File.Create(kdbgPath);
-            KdbgFileWriter.Write(kdbgStream, builder);
+            File.WriteAllBytes(kdbgPath, link.DebugData);
 
             Log.LogMessage(MessageImportance.Normal, $"Koh: wrote {kdbgPath}.");
         }

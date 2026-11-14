@@ -1,5 +1,4 @@
 using Koh.Common;
-using Koh.Linker;
 using Koh.Native;
 using Koh.Native.Syntax;
 using Koh.Objects;
@@ -17,7 +16,7 @@ public class AssemblerLinkerGoldenIntegrationTests
                 $"assemble failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}"
             );
 
-        var result = new Koh.Linker.Linker().Link([new LinkerInput(path, model)]);
+        var result = new NativeLinker().Link([new LinkerInput(path, model)]);
         if (!result.Success)
             throw new InvalidOperationException(
                 $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
@@ -26,10 +25,6 @@ public class AssemblerLinkerGoldenIntegrationTests
         return result;
     }
 
-    /// <summary>
-    /// Assembles each file, round-trips it through the real per-file .kobj
-    /// serialization, then links them — the actual multi-file pipeline users hit.
-    /// </summary>
     private static LinkResult AssembleRoundtripLink(params (string path, string source)[] files)
     {
         var inputs = new List<LinkerInput>();
@@ -42,13 +37,12 @@ public class AssemblerLinkerGoldenIntegrationTests
                     $"assemble {path} failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}"
                 );
 
-            using var ms = new MemoryStream();
-            KobjWriter.Write(ms, model);
-            ms.Position = 0;
-            inputs.Add(new LinkerInput(path, KobjReader.Read(ms)));
+            if (model.ElfImage is not { Length: > 0 })
+                throw new InvalidOperationException("assembly produced no ELF object");
+            inputs.Add(new LinkerInput(path, model));
         }
 
-        var result = new Koh.Linker.Linker().Link(inputs);
+        var result = new NativeLinker().Link(inputs);
         if (!result.Success)
             throw new InvalidOperationException(
                 $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
@@ -94,8 +88,6 @@ public class AssemblerLinkerGoldenIntegrationTests
     [Test]
     public async Task CrossSectionAbsoluteRef_EmitsCorrectJpTarget()
     {
-        // Reset section pinned at $0100; Boot section floats and is placed at $0104.
-        // The `jp Boot` opcode must encode Boot's actual placed address ($0104), not $0000.
         var result = AssembleAndLink(
             "cross.asm",
             """
@@ -113,17 +105,16 @@ public class AssemblerLinkerGoldenIntegrationTests
         );
 
         var rom = result.RomData!;
-        await Assert.That(rom[0x0100]).IsEqualTo((byte)0x00); // nop
-        await Assert.That(rom[0x0101]).IsEqualTo((byte)0xC3); // jp
-        await Assert.That(rom[0x0102]).IsEqualTo((byte)0x04); // low(Boot)
-        await Assert.That(rom[0x0103]).IsEqualTo((byte)0x01); // high(Boot) → $0104
+        await Assert.That(rom[0x0100]).IsEqualTo((byte)0x00);
+        await Assert.That(rom[0x0101]).IsEqualTo((byte)0xC3);
+        await Assert
+            .That(rom[0x0102] | (rom[0x0103] << 8))
+            .IsEqualTo((int)result.Symbols.Single(symbol => symbol.Name == "Boot").AbsoluteAddress);
     }
 
     [Test]
     public async Task FixedSectionLabel_SymbolAtFixedAddress()
     {
-        // EntryPoint is the first byte of a section pinned at $0100.
-        // Its absolute address must be exactly $0100, not double-counted.
         var result = AssembleAndLink(
             "entry.asm",
             """
@@ -140,8 +131,6 @@ public class AssemblerLinkerGoldenIntegrationTests
     [Test]
     public async Task WramFixedSectionLabel_SymbolAtFixedAddress()
     {
-        // wBoard at the start of WRAM0[$C000] must report $C000, not $8000
-        // (the previous double-counted bug result).
         var result = AssembleAndLink(
             "wram.asm",
             """
@@ -170,26 +159,14 @@ public class AssemblerLinkerGoldenIntegrationTests
                 jr Start
             """
         );
-
-        // Start at $0100, after `nop` PC=$0101, after `jr Start` PC=$0103,
-        // jr offset = $0100 - $0103 = -3 = $FD
-        await Assert.That(result.RomData![0x0100]).IsEqualTo((byte)0x00); // nop
-        await Assert.That(result.RomData![0x0101]).IsEqualTo((byte)0x18); // jr
-        await Assert.That(result.RomData![0x0102]).IsEqualTo((byte)0xFD); // -3
+        await Assert.That(result.RomData![0x0100]).IsEqualTo((byte)0x00);
+        await Assert.That(result.RomData![0x0101]).IsEqualTo((byte)0x18);
+        await Assert.That(result.RomData![0x0102]).IsEqualTo((byte)0xFD);
     }
 
     [Test]
     public async Task FloatingSection_SameSectionRefs_ResolveToPlacedAddress()
     {
-        // Reset is pinned at $0100 (4 bytes); Body floats and is placed at $0104.
-        // Same-section refs inside a floating section defer to the linker and must
-        // resolve against Body's PLACED address, not the section-relative offset:
-        //   - `dw .end` → the ABSOLUTE address of the enclosing scope's .end
-        //      (regression: data-directive patches carried no SymbolName, so the
-        //      linker couldn't resolve them at all — `dw`/`db` pointer tables in a
-        //      floating section failed to link).
-        //   - `jr .end` → a position-independent relative displacement.
-        //   - the two identically-named `.end` locals resolve to their own scopes.
         var result = AssembleAndLink(
             "floating.asm",
             """
@@ -215,25 +192,17 @@ public class AssemblerLinkerGoldenIntegrationTests
         );
 
         var rom = result.RomData!;
-        // FuncA at $0104: dw(2) + jr(2) + nop(1) → FuncA.end at $0109.
-        await Assert.That(rom[0x0104]).IsEqualTo((byte)0x09); // low(FuncA.end) = $0109
-        await Assert.That(rom[0x0105]).IsEqualTo((byte)0x01); // high → absolute, not $0005
-        await Assert.That(rom[0x0106]).IsEqualTo((byte)0x18); // jr
-        await Assert.That(rom[0x0107]).IsEqualTo((byte)0x01); // displacement: skip nop
-        // FuncB at $010A: dw(2) + nop(1) → FuncB.end at $010D (distinct scope).
-        await Assert.That(rom[0x010A]).IsEqualTo((byte)0x0D); // low(FuncB.end) = $010D
-        await Assert.That(rom[0x010B]).IsEqualTo((byte)0x01); // high
+        int funcA = (int)result.Symbols.Single(symbol => symbol.Name == "FuncA").AbsoluteAddress;
+        int funcB = (int)result.Symbols.Single(symbol => symbol.Name == "FuncB").AbsoluteAddress;
+        await Assert.That(rom[funcA] | (rom[funcA + 1] << 8)).IsEqualTo(funcA + 5);
+        await Assert.That(rom[funcA + 2]).IsEqualTo((byte)0x18);
+        await Assert.That(rom[funcA + 3]).IsEqualTo((byte)1);
+        await Assert.That(rom[funcB] | (rom[funcB + 1] << 8)).IsEqualTo(funcB + 3);
     }
 
     [Test]
-    public async Task CrossSection_KobjRoundtrip_ResolvesDataRef()
+    public async Task CrossSection_ElfObject_ResolvesDataRef()
     {
-        // The real .kobj pipeline: assemble → serialize → deserialize → link.
-        // Section A references Target in section B from BOTH a `dw` (data) and a
-        // `call` (instruction). The data ref is the regression — `db`/`dw`/`dl`
-        // patches never carried a SymbolName, so a deferred (cross-section /
-        // floating) `dw Target` couldn't link. Round-tripping through KobjWriter/
-        // KobjReader also proves SymbolName survives serialization.
         var result = AssembleRoundtripLink(
             (
                 "mod.asm",
@@ -252,10 +221,10 @@ public class AssemblerLinkerGoldenIntegrationTests
         );
 
         var rom = result.RomData!;
-        await Assert.That(rom[0x0100]).IsEqualTo((byte)0x00); // dw Target → low($0200)
-        await Assert.That(rom[0x0101]).IsEqualTo((byte)0x02); // high — cross-section data ref
-        await Assert.That(rom[0x0102]).IsEqualTo((byte)0xCD); // call
-        await Assert.That(rom[0x0103]).IsEqualTo((byte)0x00); // low(Target)
-        await Assert.That(rom[0x0104]).IsEqualTo((byte)0x02); // high
+        await Assert.That(rom[0x0100]).IsEqualTo((byte)0x00);
+        await Assert.That(rom[0x0101]).IsEqualTo((byte)0x02);
+        await Assert.That(rom[0x0102]).IsEqualTo((byte)0xCD);
+        await Assert.That(rom[0x0103]).IsEqualTo((byte)0x00);
+        await Assert.That(rom[0x0104]).IsEqualTo((byte)0x02);
     }
 }

@@ -17,6 +17,9 @@
     <KohKdbgOutput Condition="'$(KohEmitDebugInfo)' == 'true'">$(KohKdbgPath)</KohKdbgOutput>
     <KohBuildTasksProject>$(KohRoot)src/Compiler/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
     <KohBuildTasksAssembly>$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
+    <KohLinkExecutable Condition="'$(KohLinkExecutable)' == '' and '$(KOH_LINK)' != ''">$(KOH_LINK)</KohLinkExecutable>
+    <KohLinkExecutable Condition="'$(KohLinkExecutable)' == '' and '$(OS)' == 'Windows_NT'">$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/koh-link.exe</KohLinkExecutable>
+    <KohLinkExecutable Condition="'$(KohLinkExecutable)' == ''">$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/koh-link</KohLinkExecutable>
     <KohEmulatorProject>$(KohRoot)src/Emulator/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
     <!-- Assumes the default (no-RID) build output; a RID-scoped `dotnet run -r <rid>` places the emulator
          DLL under a rid subfolder this path does not include. -->
@@ -99,6 +102,7 @@
       <_KohRomProps Include="OutputPath=$(KohRomPath)" />
       <_KohRomProps Include="KohFrontend=$(KohFrontend)" />
       <_KohRomProps Include="EmitDebugInfo=$(KohEmitDebugInfo)" />
+      <_KohRomProps Include="LinkerPath=$(KohLinkExecutable)" />
     </ItemGroup>
     <WriteLinesToFile File="$(KohRomPropsStampFile)" Lines="@(_KohRomProps)" Overwrite="true"
                        WriteOnlyWhenDifferent="true" />
@@ -117,7 +121,7 @@
        built by the old toolchain. The props stamp (written just above) makes toggling KohCgbCompatible
        or renaming the assembly do the same, without a source-file edit. -->
   <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
-          Inputs="$(TargetPath);@(ReferencePath);$(KohBuildTasksAssembly);$(KohRomPropsStampFile)"
+          Inputs="$(TargetPath);@(ReferencePath);$(KohBuildTasksAssembly);$(KohLinkExecutable);$(KohRomPropsStampFile)"
           Outputs="$(KohRomPath);$(KohKdbgOutput)">
     <CompileKohRom OutputPath="$(KohRomPath)"
                    Frontend="$(KohFrontend)"
@@ -125,7 +129,8 @@
                    ReferencePaths="@(ReferencePath)"
                    ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)"
                    CgbOnly="$(KohCgbOnly)"
-                   EmitDebugInfo="$(KohEmitDebugInfo)" />
+                   EmitDebugInfo="$(KohEmitDebugInfo)"
+                   LinkerPath="$(KohLinkExecutable)" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPath)" />
       <FileWrites Condition="'$(KohEmitDebugInfo)' == 'true'" Include="$(KohKdbgPath)" />

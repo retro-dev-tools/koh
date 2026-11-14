@@ -4,8 +4,8 @@ using Koh.Compiler.Backends.Sm83.Mir;
 using Koh.Compiler.Ir;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
-using Koh.Linker;
-using LinkerType = Koh.Linker.Linker;
+using Koh.Native;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Backends;
 

@@ -3,7 +3,6 @@ using Koh.Common;
 using Koh.Debugger;
 using Koh.Debugger.Dap;
 using Koh.Emulator;
-using Koh.Linker;
 using Koh.Native;
 using Koh.Native.Syntax;
 
@@ -20,17 +19,13 @@ public class DapGeneratedRomIntegrationTests
                 $"assemble failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}"
             );
 
-        var result = new Koh.Linker.Linker().Link([new LinkerInput(path, model)]);
+        var result = new NativeLinker().Link([new LinkerInput(path, model)]);
         if (!result.Success)
             throw new InvalidOperationException(
                 $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
             );
 
-        var builder = new DebugInfoBuilder();
-        DebugInfoPopulator.Populate(builder, result);
-        using var stream = new MemoryStream();
-        KdbgFileWriter.Write(stream, builder);
-        return (TestRom.WithValidHeader(result.RomData!), stream.ToArray());
+        return (TestRom.WithValidHeader(result.RomData!), result.DebugData);
     }
 
     private static byte[] Encode(int seq, string command, object arguments) =>

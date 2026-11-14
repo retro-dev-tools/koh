@@ -181,10 +181,26 @@ fn context_dependent_instruction_bytes_match_rgbds_1_0_1() {
             String::from_utf8_lossy(&output.stderr)
         );
         let object = assemble(source, asm.to_str().unwrap(), false).unwrap();
-        std::fs::write(&native, koh_asm::object::write_rgbds(&object).unwrap()).unwrap();
-        let mut roms = Vec::new();
+        std::fs::write(&native, koh_asm::object::write_elf(&object).unwrap()).unwrap();
+        let mut roms: Vec<Vec<u8>> = Vec::new();
         for (kind, path) in [("reference", reference), ("native", native)] {
             let rom = directory.join(format!("{name}-{kind}.gb"));
+            if kind == "native" {
+                let object = koh_asm::object::read_elf(&std::fs::read(&path).unwrap()).unwrap();
+                roms.push(
+                    koh_link::link(
+                        &[object],
+                        &koh_link::LinkOptions {
+                            raw: true,
+                            size: Some(roms[0].len()),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap()
+                    .rom,
+                );
+                continue;
+            }
             let output = std::process::Command::new("rgblink")
                 .args(["-x", "-o", rom.to_str().unwrap(), path.to_str().unwrap()])
                 .output()

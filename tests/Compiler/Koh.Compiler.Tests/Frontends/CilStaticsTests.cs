@@ -8,12 +8,12 @@ using Koh.Compiler.Ir.Optimization;
 using Koh.Compiler.Targets;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
-using Koh.Linker;
+using Koh.Native;
 using Koh.Objects;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using KohDiagnosticSeverity = Koh.Common.DiagnosticSeverity;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Frontends;
 
@@ -402,6 +402,41 @@ public class CilStaticsTests
         await Assert
             .That(RunMutableArray(OptimizationLevel.Release))
             .IsEqualTo(RunMutableArray(OptimizationLevel.Debug));
+    }
+
+    [Test]
+    [Arguments(OptimizationLevel.Debug)]
+    [Arguments(OptimizationLevel.Release)]
+    public async Task MutableStaticArray_CrossesWramBoundaryAndRetainsEndpointWrites(
+        OptimizationLevel level
+    )
+    {
+        var (_, model) = FrontendAndCompile(
+            """
+            public static class Program
+            {
+                public static byte[] Cells = new byte[5000];
+                public static void Main()
+                {
+                    Cells[0] = 7;
+                    Cells[4999] = 9;
+                }
+            }
+            """,
+            level
+        );
+        var link = new LinkerType().Link([new LinkerInput("cil", model)]);
+        await Assert.That(link.Success).IsTrue();
+        var cells = link.Symbols.Single(symbol => symbol.Name.EndsWith(".Cells"));
+        await Assert.That(cells.AbsoluteAddress).IsEqualTo((long)Sm83Backend.WramBase);
+        var gb = new GameBoySystem(CartridgeFactory.Load(link.RomData!), HardwareMode.Dmg);
+        gb.Registers.Sp = 0xFFFE;
+        gb.Registers.Pc = 0x100;
+        Run(gb, 0x100, 0x8000);
+        await Assert.That(gb.DebugReadByte(0xC000)).IsEqualTo((byte)0x88);
+        await Assert.That(gb.DebugReadByte(0xC001)).IsEqualTo((byte)0x13);
+        await Assert.That(gb.DebugReadByte(0xC002)).IsEqualTo((byte)7);
+        await Assert.That(gb.DebugReadByte(0xD389)).IsEqualTo((byte)9);
     }
 
     // ---- Regression coverage: a compiler-generated type's own '.cctor' (the no-capture-lambda

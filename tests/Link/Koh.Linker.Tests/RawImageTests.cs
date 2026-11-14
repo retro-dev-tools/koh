@@ -1,4 +1,3 @@
-using Koh.Linker;
 using Koh.Native;
 using Koh.Native.Syntax;
 using Koh.Objects;
@@ -18,7 +17,7 @@ public class RawImageTests
         Compilation.Create(SyntaxTree.Parse(source)).Emit();
 
     private static LinkResult LinkRaw(string source, int size) =>
-        new Koh.Linker.Linker().Link(
+        new NativeLinker().Link(
             [new LinkerInput("boot.asm", Emit(source))],
             new LinkOptions(PadToPowerOfTwo: false, MinSize: size)
         );
@@ -90,7 +89,7 @@ public class RawImageTests
     [Test]
     public async Task Cartridge_Output_Still_Pads_To_A_Power_Of_Two_By_Default()
     {
-        var result = new Koh.Linker.Linker().Link([
+        var result = new NativeLinker().Link([
             new LinkerInput("cart.asm", Emit("SECTION \"Main\", ROM0\nnop")),
         ]);
         await Assert.That(result.Success).IsTrue();
@@ -101,7 +100,7 @@ public class RawImageTests
     public async Task Cartridge_Output_Still_Gets_Its_Checksums_Fixed()
     {
         // The default path must be untouched: a cartridge still gets $014D patched.
-        var result = new Koh.Linker.Linker().Link([
+        var result = new NativeLinker().Link([
             new LinkerInput(
                 "cart.asm",
                 Emit("SECTION \"Main\", ROM0\nnop\nSECTION \"Hdr\", ROM0[$014D]\ndb $AA")

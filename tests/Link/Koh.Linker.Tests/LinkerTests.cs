@@ -1,4 +1,3 @@
-using Koh.Linker;
 using Koh.Native;
 using Koh.Native.Syntax;
 using Koh.Objects;
@@ -19,8 +18,7 @@ public class LinkerTests
     private static LinkerInput Input(string source, string filePath = "test.asm") =>
         new(filePath, Emit(source));
 
-    private static LinkResult LinkSingle(string source) =>
-        new Koh.Linker.Linker().Link([Input(source)]);
+    private static LinkResult LinkSingle(string source) => new NativeLinker().Link([Input(source)]);
 
     // =========================================================================
     // Basic linking
@@ -76,7 +74,7 @@ public class LinkerTests
     [Test]
     public async Task Link_CgbCompatible_SetsHeaderFlagAndKeepsChecksumsValid()
     {
-        var result = new Koh.Linker.Linker().Link(
+        var result = new NativeLinker().Link(
             [Input("SECTION \"Main\", ROM0\nnop")],
             new LinkOptions(CgbCompatible: true)
         );
@@ -125,7 +123,7 @@ public class LinkerTests
     {
         var input1 = Input("SECTION \"A\", ROM0\nmain::\nnop", "a.asm");
         var input2 = Input("SECTION \"B\", ROM0\nmain::\nnop", "b.asm");
-        var result = new Koh.Linker.Linker().Link([input1, input2]);
+        var result = new NativeLinker().Link([input1, input2]);
 
         await Assert.That(result.Diagnostics.Any(d => d.Message.Contains("Duplicate"))).IsTrue();
     }
@@ -173,9 +171,7 @@ public class LinkerTests
     public async Task SymFile_ContainsSymbols()
     {
         var result = LinkSingle("SECTION \"Main\", ROM0\nmain::\nnop\nend::\nhalt");
-        using var writer = new StringWriter();
-        SymFileWriter.Write(writer, result.Symbols);
-        var output = writer.ToString();
+        var output = result.SymbolText;
 
         await Assert.That(output).Contains("00:0000 main");
         await Assert.That(output).Contains("00:0001 end");
@@ -190,7 +186,7 @@ public class LinkerTests
     {
         var input1 = Input("SECTION \"Code\", ROM0\nnop\nnop", "code.asm");
         var input2 = Input("SECTION \"Data\", ROM0\ndb $FF", "data.asm");
-        var result = new Koh.Linker.Linker().Link([input1, input2]);
+        var result = new NativeLinker().Link([input1, input2]);
 
         await Assert.That(result.Success).IsTrue();
         await Assert.That(result.RomData![0]).IsEqualTo((byte)0x00); // nop from code.asm
@@ -220,7 +216,7 @@ public class LinkerTests
         // with bank 0 data if multiple banks are present.
         var input1 = Input("SECTION \"Bank0\", ROM0\ndb $11", "rom0.asm");
         var input2 = Input("SECTION \"Bank1\", ROMX\ndb $22", "romx.asm");
-        var result = new Koh.Linker.Linker().Link([input1, input2]);
+        var result = new NativeLinker().Link([input1, input2]);
 
         await Assert.That(result.Success).IsTrue();
         // Bank 0 data at physical offset 0x0000
@@ -235,7 +231,7 @@ public class LinkerTests
         // A ROM with one ROM0 section and one ROMX section must be at least 2 banks = 0x8000 bytes.
         var input1 = Input("SECTION \"Boot\", ROM0\nnop", "rom0.asm");
         var input2 = Input("SECTION \"Banked\", ROMX\ndb $FF", "romx.asm");
-        var result = new Koh.Linker.Linker().Link([input1, input2]);
+        var result = new NativeLinker().Link([input1, input2]);
 
         await Assert.That(result.Success).IsTrue();
         await Assert.That(result.RomData!.Length).IsGreaterThanOrEqualTo(0x8000);
@@ -251,9 +247,7 @@ public class LinkerTests
         await Assert.That(sym!.PlacedBank).IsEqualTo(1);
 
         // Verify the sym file also emits the correct bank prefix.
-        using var writer = new StringWriter();
-        SymFileWriter.Write(writer, result.Symbols);
-        await Assert.That(writer.ToString()).Contains("01:4000 func");
+        await Assert.That(result.SymbolText).Contains("01:4000 func");
     }
 
     [Test]
@@ -264,7 +258,7 @@ public class LinkerTests
         // BANK[$01] / BANK[$02]: the assembler syntax uses hex literals in brackets.
         var input1 = Input("SECTION \"Bank1\", ROMX[$4000], BANK[$01]\ndb $AA", "b1.asm");
         var input2 = Input("SECTION \"Bank2\", ROMX[$4000], BANK[$02]\ndb $BB", "b2.asm");
-        var result = new Koh.Linker.Linker().Link([input1, input2]);
+        var result = new NativeLinker().Link([input1, input2]);
 
         await Assert.That(result.Success).IsTrue();
         await Assert.That(result.RomData![0x4000]).IsEqualTo((byte)0xAA); // bank 1 physical offset
@@ -291,9 +285,9 @@ public class LinkerTests
     [Test]
     public async Task Link_SectionTooLarge_Diagnostic()
     {
-        var section = new SectionData("Big", SectionType.Hram, null, null, new byte[200], []);
-        var model = new EmitModel([section], [], success: true);
-        var result = new Koh.Linker.Linker().Link([new LinkerInput("large.kobj", model)]);
+        var section = new SectionData("Big", SectionType.Hram, null, null, new byte[200]);
+        var model = new EmitModel([section], [], diagnostics: []);
+        var result = new NativeLinker().Link([new LinkerInput("large.o", model)]);
         await Assert.That(result.Success).IsFalse();
         await Assert.That(result.RomData).IsNull();
         await Assert.That(result.Diagnostics.Any(d => d.Message.Contains("exceeds"))).IsTrue();

@@ -108,6 +108,7 @@ public sealed partial class Sm83Backend : IBackend
         // ROM data past the fixed ROM0 window ([DataBase, 0x4000)) spills into switchable ROM banks
         // (physical banks 1, 2, … each windowed at 0x4000–0x7FFF). bankData[i] is bank (i + 1).
         var bankData = new List<List<byte>>();
+        var globalBanks = new Dictionary<IrGlobal, int>(ReferenceEqualityComparer.Instance);
         int wramGlobals = WramBase,
             // The OAM DMA HRAM trampoline (see EmitOamDmaTrampolineInstall) always owns
             // [OamDmaTrampoline, OamDmaTrampoline + OamDmaTrampolineSize) — reserved unconditionally,
@@ -125,6 +126,7 @@ public sealed partial class Sm83Backend : IBackend
             {
                 var bytes = g.Initializer ?? new byte[SizeOf(g.Type)];
                 globalAddresses[g] = PlaceRomData(bytes, romData, bankData);
+                globalBanks[g] = globalAddresses[g] >= BankWindow ? bankData.Count : 0;
             }
             else if (g.AddressSpace == AddressSpace.Hram)
             {
@@ -278,11 +280,8 @@ public sealed partial class Sm83Backend : IBackend
                     fn.Name,
                     SymbolKind.Label,
                     SymbolVisibility.Exported,
-                    CodeSectionName,
-                    // SymbolResolver.ResolveAddresses computes `section.PlacedAddress + Value`, so Value
-                    // must be section-relative, not `addr` itself — the "CODE" section is always placed
-                    // at CodeBase (see the section below), so subtracting it here recovers `addr` there.
-                    addr - CodeBase
+                    offset < codeSplit ? CodeSectionName : "CODEX",
+                    offset < codeSplit ? offset : offset - codeSplit
                 )
             );
         }
@@ -304,7 +303,6 @@ public sealed partial class Sm83Backend : IBackend
                 fixedAddress: CodeBase,
                 bank: 0,
                 data: rom0Code,
-                patches: Array.Empty<PatchEntry>(),
                 lineMap: rom0Lines
             ),
         };
@@ -324,7 +322,6 @@ public sealed partial class Sm83Backend : IBackend
                     fixedAddress: BankWindow,
                     bank: 1,
                     data: bankCode,
-                    patches: Array.Empty<PatchEntry>(),
                     lineMap: bankLines
                 )
             );
@@ -337,8 +334,7 @@ public sealed partial class Sm83Backend : IBackend
                     SectionType.Rom0,
                     fixedAddress: DataBase,
                     bank: 0,
-                    data: romData.ToArray(),
-                    patches: Array.Empty<PatchEntry>()
+                    data: romData.ToArray()
                 )
             );
 
@@ -351,8 +347,7 @@ public sealed partial class Sm83Backend : IBackend
                     SectionType.RomX,
                     fixedAddress: BankWindow,
                     bank: i + 1,
-                    data: bankData[i].ToArray(),
-                    patches: Array.Empty<PatchEntry>()
+                    data: bankData[i].ToArray()
                 )
             );
 
@@ -363,8 +358,7 @@ public sealed partial class Sm83Backend : IBackend
                     SectionType.Rom0,
                     fixedAddress: 0x0100,
                     bank: 0,
-                    data: BuildHeader(entryAddress, extraBanks),
-                    patches: Array.Empty<PatchEntry>()
+                    data: BuildHeader(entryAddress, extraBanks)
                 )
             );
 
@@ -376,24 +370,35 @@ public sealed partial class Sm83Backend : IBackend
                     SectionType.Rom0,
                     fixedAddress: vector,
                     bank: 0,
-                    data: [0xC3, (byte)(address & 0xFF), (byte)(address >> 8)],
-                    patches: Array.Empty<PatchEntry>()
+                    data: [0xC3, (byte)(address & 0xFF), (byte)(address >> 8)]
                 )
             );
 
         foreach (var (g, addr) in globalAddresses)
+        {
+            string? globalSection = null;
+            int offset = addr;
+            if (g.FixedAddress is null && globalBanks.TryGetValue(g, out var dataBank))
+            {
+                globalSection = dataBank == 0 ? "RODATA" : $"ROMX_{dataBank}";
+                offset -= dataBank == 0 ? DataBase : BankWindow;
+            }
+            else if (g.FixedAddress is null)
+            {
+                globalSection = $"GLOBAL_{g.Name}";
+                AddGlobalSections(sections, globalSection, addr, SizeOf(g.Type));
+                offset = 0;
+            }
             symbols.Add(
                 new SymbolData(
                     g.Name,
                     SymbolKind.Label,
                     SymbolVisibility.Exported,
-                    CodeSectionName,
-                    // See the function-symbol loop above: Value must be relative to CodeSectionName's
-                    // placed address (CodeBase), regardless of which real memory region `addr` lives in
-                    // (WRAM/HRAM/SRAM/ROM data) — the resolver just adds CodeBase back at link time.
-                    addr - CodeBase
+                    globalSection,
+                    offset
                 )
             );
+        }
 
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
     }
@@ -585,25 +590,12 @@ public sealed partial class Sm83Backend : IBackend
                     f.Name,
                     SymbolKind.Label,
                     SymbolVisibility.Exported,
-                    CodeSectionName,
-                    // See CompileCore: Value must be relative to CodeSectionName's placed address
-                    // (CodeBase) — true here too even for a banked function's `funcAddr[f]` (a
-                    // BankWindow-relative address in a different section), since the resolver only ever
-                    // adds CodeSectionName's placed address back on top of Value.
-                    funcAddr[f] - CodeBase
+                    bankOf.TryGetValue(f, out var symbolBank)
+                        ? $"CODEX_{symbolBank}"
+                        : CodeSectionName,
+                    funcAddr[f] - (bankOf.ContainsKey(f) ? BankWindow : CodeBase)
                 )
             );
-        foreach (var (g, addr) in globalAddresses)
-            symbols.Add(
-                new SymbolData(
-                    g.Name,
-                    SymbolKind.Label,
-                    SymbolVisibility.Exported,
-                    CodeSectionName,
-                    addr - CodeBase
-                )
-            );
-
         List<LineMapEntry> LinesIn(int start, int end) =>
             emitter
                 .LineMap.Where(e => e.Offset >= start && e.Offset < end)
@@ -618,7 +610,6 @@ public sealed partial class Sm83Backend : IBackend
                 fixedAddress: CodeBase,
                 bank: 0,
                 data: emitter.Code.GetRange(0, rom0End).ToArray(),
-                patches: Array.Empty<PatchEntry>(),
                 lineMap: LinesIn(0, rom0End)
             ),
         };
@@ -630,7 +621,6 @@ public sealed partial class Sm83Backend : IBackend
                     fixedAddress: BankWindow,
                     bank: b,
                     data: emitter.Code.GetRange(start, end - start).ToArray(),
-                    patches: Array.Empty<PatchEntry>(),
                     lineMap: LinesIn(start, end)
                 )
             );
@@ -642,8 +632,7 @@ public sealed partial class Sm83Backend : IBackend
                     SectionType.Rom0,
                     fixedAddress: DataBase,
                     bank: 0,
-                    data: romData.ToArray(),
-                    patches: Array.Empty<PatchEntry>()
+                    data: romData.ToArray()
                 )
             );
 
@@ -653,8 +642,7 @@ public sealed partial class Sm83Backend : IBackend
                 SectionType.Rom0,
                 fixedAddress: 0x0100,
                 bank: 0,
-                data: BuildHeader(CodeBase, bankCount),
-                patches: Array.Empty<PatchEntry>()
+                data: BuildHeader(CodeBase, bankCount)
             )
         );
 
@@ -665,12 +653,76 @@ public sealed partial class Sm83Backend : IBackend
                     SectionType.Rom0,
                     fixedAddress: f.InterruptVector!.Value,
                     bank: 0,
-                    data: [0xC3, (byte)(funcAddr[f] & 0xFF), (byte)(funcAddr[f] >> 8)],
-                    patches: Array.Empty<PatchEntry>()
+                    data: [0xC3, (byte)(funcAddr[f] & 0xFF), (byte)(funcAddr[f] >> 8)]
                 )
             );
 
+        foreach (var (g, addr) in globalAddresses)
+        {
+            string? globalSection = null;
+            int offset = addr;
+            if (
+                g.FixedAddress is null
+                && (g.AddressSpace == AddressSpace.Rom || g.Initializer is not null)
+            )
+            {
+                globalSection = "RODATA";
+                offset -= DataBase;
+            }
+            else if (g.FixedAddress is null)
+            {
+                globalSection = $"GLOBAL_{g.Name}";
+                AddGlobalSections(sections, globalSection, addr, SizeOf(g.Type));
+                offset = 0;
+            }
+            symbols.Add(
+                new SymbolData(
+                    g.Name,
+                    SymbolKind.Label,
+                    SymbolVisibility.Exported,
+                    globalSection,
+                    offset
+                )
+            );
+        }
         return new EmitModel(sections, symbols, Array.Empty<Diagnostic>());
+    }
+
+    private static void AddGlobalSections(
+        List<SectionData> sections,
+        string name,
+        int address,
+        int size
+    )
+    {
+        if (address is >= 0xc000 and < 0xd000 && size > 0xd000 - address)
+        {
+            int firstSize = 0xd000 - address;
+            sections.Add(new SectionData(name, SectionType.Wram0, address, 0, new byte[firstSize]));
+            sections.Add(
+                new SectionData(
+                    name + ".wramx",
+                    SectionType.WramX,
+                    0xd000,
+                    1,
+                    new byte[size - firstSize]
+                )
+            );
+            return;
+        }
+        var (kind, bank) = address switch
+        {
+            >= 0x8000 and < 0xa000 => (SectionType.Vram, 0),
+            >= 0xa000 and < 0xc000 => (SectionType.Sram, 0),
+            >= 0xc000 and < 0xd000 => (SectionType.Wram0, 0),
+            >= 0xd000 and < 0xe000 => (SectionType.WramX, 1),
+            >= 0xfe00 and < 0xfea0 => (SectionType.Oam, 0),
+            >= 0xff80 and < 0xffff => (SectionType.Hram, 0),
+            _ => throw new NotSupportedException(
+                $"Global '{name}' has unsupported RAM address ${address:X4}"
+            ),
+        };
+        sections.Add(new SectionData(name, kind, address, bank, new byte[size]));
     }
 
     // A composite routine that requires another routine be present even if it never CALLs it directly

@@ -167,7 +167,7 @@ fn expression(
     sections: &HashMap<String, SectionId>,
     allow_imports: bool,
 ) -> Result<RelocationExpr, String> {
-    use {BinaryOp as B, RelocationExpr as R, UnaryOp as U};
+    use {RelocationExpr as R, UnaryOp as U};
     let recurse = |tree, object: &mut Object, symbols: &mut HashMap<String, SymbolId>| {
         expression(tree, object, symbols, sections, allow_imports)
     };
@@ -200,29 +200,7 @@ fn expression(
             {
                 return Err("division by zero in relocation expression".into());
             }
-            let op = match op.as_str() {
-                "+" => B::Add,
-                "-" => B::Subtract,
-                "*" => B::Multiply,
-                "/" => B::Divide,
-                "%" => B::Modulo,
-                "**" => B::Power,
-                "|" => B::BitOr,
-                "&" => B::BitAnd,
-                "^" => B::BitXor,
-                "&&" => B::LogicalAnd,
-                "||" => B::LogicalOr,
-                "==" => B::Equal,
-                "!=" => B::NotEqual,
-                ">" => B::Greater,
-                "<" => B::Less,
-                ">=" => B::GreaterEqual,
-                "<=" => B::LessEqual,
-                "<<" => B::ShiftLeft,
-                ">>" => B::ShiftRight,
-                ">>>" => B::UnsignedShiftRight,
-                _ => return Err(format!("unsupported relocation binary operator '{op}'")),
-            };
+            let op = binary_operator(&op)?;
             R::Binary(
                 op,
                 Box::new(recurse(*a, object, symbols)?),
@@ -293,5 +271,31 @@ fn section_type(name: &str) -> Option<u8> {
         "OAM" => 6,
         "HRAM" => 7,
         _ => return None,
+    })
+}
+
+pub(crate) fn binary_operator(op: &str) -> Result<BinaryOp, String> {
+    Ok(match op {
+        "+" => BinaryOp::Add,
+        "-" => BinaryOp::Subtract,
+        "*" => BinaryOp::Multiply,
+        "/" => BinaryOp::Divide,
+        "%" => BinaryOp::Modulo,
+        "**" => BinaryOp::Power,
+        "|" => BinaryOp::BitOr,
+        "&" => BinaryOp::BitAnd,
+        "^" => BinaryOp::BitXor,
+        "&&" => BinaryOp::LogicalAnd,
+        "||" => BinaryOp::LogicalOr,
+        "==" => BinaryOp::Equal,
+        "!=" => BinaryOp::NotEqual,
+        ">" => BinaryOp::Greater,
+        "<" => BinaryOp::Less,
+        ">=" => BinaryOp::GreaterEqual,
+        "<=" => BinaryOp::LessEqual,
+        "<<" => BinaryOp::ShiftLeft,
+        ">>" => BinaryOp::ShiftRight,
+        ">>>" => BinaryOp::UnsignedShiftRight,
+        _ => return Err(format!("unsupported relocation binary operator '{op}'")),
     })
 }

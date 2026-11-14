@@ -370,9 +370,12 @@ fn eval_inner(
             let n = number(e)?;
             match op.as_str() {
                 "+" => Ok(n),
-                "-" => Ok(n.wrapping_neg()),
-                "!" => Ok((n == 0) as i32),
-                "~" => Ok(!n),
+                "-" => Ok(koh_objects::evaluate_unary(koh_objects::UnaryOp::Negate, n)),
+                "!" => Ok(koh_objects::evaluate_unary(
+                    koh_objects::UnaryOp::LogicalNot,
+                    n,
+                )),
+                "~" => Ok(koh_objects::evaluate_unary(koh_objects::UnaryOp::BitNot, n)),
                 _ => Err(format!("Unknown unary operator {op}").into()),
             }
         }
@@ -418,44 +421,8 @@ fn eval_inner(
                 return Err("Negative exponent".into());
             }
             let (a, b) = both(left, right)?;
-            Ok(match op.as_str() {
-                "+" => a.wrapping_add(b),
-                "-" => a.wrapping_sub(b),
-                "*" => a.wrapping_mul(b),
-                "/" | "%" => {
-                    if b == 0 {
-                        return Err("Division by zero".into());
-                    }
-                    let a = a as i64;
-                    let b = b as i64;
-                    let mut q = a / b;
-                    let mut r = a % b;
-                    if r != 0 && (r < 0) != (b < 0) {
-                        q -= 1;
-                        r += b;
-                    }
-                    if op == "/" { q as i32 } else { r as i32 }
-                }
-                "**" => {
-                    if b < 0 {
-                        return Err("Negative exponent".into());
-                    }
-                    a.wrapping_pow(b as u32)
-                }
-                "&" => a & b,
-                "|" => a | b,
-                "^" => a ^ b,
-                "<<" | ">>" | ">>>" => shift(a, b, op),
-                "==" => (a == b) as i32,
-                "!=" => (a != b) as i32,
-                "<" => (a < b) as i32,
-                ">" => (a > b) as i32,
-                "<=" => (a <= b) as i32,
-                ">=" => (a >= b) as i32,
-                "&&" => (a != 0 && b != 0) as i32,
-                "||" => (a != 0 || b != 0) as i32,
-                _ => return Err(format!("Unknown binary operator {op}").into()),
-            })
+            koh_objects::evaluate_binary(crate::lower::binary_operator(op)?, a, b)
+                .map_err(EvalError::from)
         }
         Expr::Call(name, args) => eval_call(name, args, symbols, pc),
     }
@@ -472,24 +439,6 @@ fn both<A, B>(
         return Err(error);
     }
     Ok((left?, right?))
-}
-
-fn shift(value: i32, amount: i32, op: &str) -> i32 {
-    if amount < 0 {
-        return shift(
-            value,
-            amount.saturating_neg(),
-            if op == "<<" { ">>" } else { "<<" },
-        );
-    }
-    if amount >= 32 {
-        return if op == ">>" && value < 0 { -1 } else { 0 };
-    }
-    match op {
-        "<<" => value.wrapping_shl(amount as u32),
-        ">>" => value >> amount,
-        _ => ((value as u32) >> amount) as i32,
-    }
 }
 
 fn arity(name: &str, args: &[Expr], minimum: usize, maximum: usize) -> Result<(), String> {
@@ -553,12 +502,13 @@ fn eval_call(
         "HIGH" | "LOW" | "BITWIDTH" | "TZCOUNT" => {
             arity(name, args, 1, 1)?;
             let v = n(0)?;
-            Ok(match name {
-                "HIGH" => (v >> 8) & 255,
-                "LOW" => v & 255,
-                "BITWIDTH" => (32 - (v as u32).leading_zeros()) as i32,
-                _ => (v as u32).trailing_zeros() as i32,
-            })
+            let op = match name {
+                "HIGH" => koh_objects::UnaryOp::High,
+                "LOW" => koh_objects::UnaryOp::Low,
+                "BITWIDTH" => koh_objects::UnaryOp::BitWidth,
+                _ => koh_objects::UnaryOp::TrailingZeros,
+            };
+            Ok(koh_objects::evaluate_unary(op, v))
         }
         "STRLEN" | "CHARLEN" | "BYTELEN" => {
             arity(name, args, 1, 1)?;

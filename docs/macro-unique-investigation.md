@@ -1,4 +1,8 @@
-# Macro unique suffix investigation
+# Macro unique suffix investigation (historical findings)
+
+The findings below describe the former C# implementation. Current regression
+checks run the Rust ELF pipeline against independent RGBDS; no historical
+checkout is fetched or built.
 
 The sample comment in `samples/asm/gb-2048/src/macros.inc` reports a historical
 `WAIT_VBLANK` macro using `\@` that corrupted subsequent macro definitions. The
@@ -33,19 +37,16 @@ placeholders.
 Run from the repository root with compatible .NET and RGBDS tools on `PATH`:
 
 ```sh
-python3 scripts/reproduce-macro-unique.py --build --output /tmp/koh-macro-unique
+cargo build --release --locked -p koh-asm -p koh-link
+python3 scripts/reproduce-macro-unique.py --output /tmp/koh-macro-unique
 ```
 
-The default (`--no-build`) reuses the historical Release verifier without rebuilding.
-`--build` prepares and validates the external pinned checkout using
-`scripts/assembler_reference.py`; no production assembler project is retained. Override
-it with `--dotnet PATH` and `--helper PATH`. The script reads the verifier's
-`assemble kobj SOURCE OUTPUT`, `dump OBJECT`, and `link ROM OBJECT` interfaces.
-It validates both RGBDS versions, records every command and actual exit status,
-and writes `results.json` with tool versions, source revision, helper/sample
-hashes and the C# source diff from the checked revision. Unexpected failures or
-byte differences produce a nonzero exit. The known no-global-anchor rejection
-is explicitly checked rather than silently ignored.
+The script reuses current Release Rust binaries; override them with `--rust`
+and `--linker`. It writes reconstructed source companions and `results.json`.
+Four cases compare complete raw images from native ELF linking with RGBDS.
+The no-global-anchor case requires three native NOP bytes and the known RGBDS
+rejection. Unexpected exits or byte differences fail. The pinned historical
+helper and KOBJ dump/link interfaces have been removed.
 
 `rust/koh-asm/tests/macro_unique.rs` independently checks expected native bytes
 for the repeated WAIT/sample macros and nested repetition cases. These checks

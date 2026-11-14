@@ -13,7 +13,7 @@ using Koh.Objects;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using KohDiagnosticSeverity = Koh.Common.DiagnosticSeverity;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Frontends;
 
@@ -131,7 +131,7 @@ public class CilCanvasTests
 
     private static GameBoySystem Load(EmitModel model, out int start, HardwareMode mode)
     {
-        var link = new LinkerType().Link([new Koh.Linker.LinkerInput("cil", model)]);
+        var link = new LinkerType().Link([new Koh.Native.LinkerInput("cil", model)]);
         var rom = link.RomData ?? throw new InvalidOperationException("no ROM");
         start = 0x100;
         var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);

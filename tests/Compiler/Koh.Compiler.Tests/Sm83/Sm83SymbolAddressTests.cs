@@ -6,31 +6,10 @@ using Koh.Compiler.Frontends.Cil;
 using Koh.Objects;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using LinkerType = Koh.Linker.Linker;
+using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Compiler.Tests.Sm83;
 
-/// <summary>
-/// Regression coverage for a real bug in the Koh compiler pipeline (distinct from the rgbds-compat
-/// assembler path covered by <c>AssemblerLinkerGoldenIntegrationTests</c> in <c>Koh.Linker.Tests</c>):
-/// <see cref="Sm83Backend"/> emits a function/global Label symbol's <c>Value</c> as an already-absolute
-/// address (e.g. <c>Sm83Backend.CodeBase + offset</c>), but
-/// <see cref="Koh.Linker.SymbolResolver.ResolveAddresses"/> treats every Label symbol's
-/// <c>Value</c> as section-relative and adds the section's placed address on top of it — the same
-/// uniform invariant the assembler path already relies on (see
-/// <c>AssemblerLinkerGoldenIntegrationTests.WramFixedSectionLabel_SymbolAtFixedAddress</c> and
-/// <c>docs/known-issues.md</c> item 3). For Sm83Backend's output this double-counts
-/// <see cref="Sm83Backend.CodeBase"/>, so <see cref="Koh.Linker.LinkerSymbol.AbsoluteAddress"/> is
-/// wrong for every function/global symbol the backend emits. Program behavior is unaffected (call
-/// targets are baked into machine code before linking; only linker-computed symbol metadata is wrong) —
-/// but any consumer of <c>AbsoluteAddress</c> for a Koh ROM (<c>.sym</c> files, <c>.kdbg</c> debug info,
-/// the DAP debugger) sees the wrong address.
-///
-/// Moved from <c>Koh.Linker.Tests</c> (which had no Roslyn/Cecil reference) when the CIL frontend
-/// replaced <c>CSharpFrontend</c> as the only frontend: this project already carries both for its own
-/// Cil* fixtures, so the harness below mirrors <see cref="CilLoweringTests"/>'s compile-to-assembly
-/// shape (real C# source -&gt; Roslyn -&gt; assembly on disk -&gt; <see cref="CilFrontend"/> -&gt; IR).
-/// </summary>
 public class Sm83SymbolAddressTests
 {
     // ---- Roslyn: compile real C# to a real assembly on disk -----------------------------------
@@ -118,7 +97,7 @@ public class Sm83SymbolAddressTests
         await Assert.That(callOpcodeIndex).IsGreaterThanOrEqualTo(0);
         int calledAddress = code[callOpcodeIndex + 1] | (code[callOpcodeIndex + 2] << 8);
 
-        var link = new LinkerType().Link([new Koh.Linker.LinkerInput("game", model)]);
+        var link = new LinkerType().Link([new Koh.Native.LinkerInput("game", model)]);
         await Assert.That(link.Success).IsTrue();
 
         // CilFrontend names a function "{DeclaringType.Name}.{Method.Name}" (CilLoweringContext), unlike
@@ -130,12 +109,8 @@ public class Sm83SymbolAddressTests
     [Test]
     public async Task EntryFunctionLabel_SymbolMatchesHeaderEntryPoint()
     {
-        // The cartridge header's entry JP target (built from the backend's own `entryAddress`) and the
-        // linked `Main` symbol's resolved AbsoluteAddress describe the same address two different ways.
-        // They must agree; today they don't, because only the header path is exempt from the bug (it
-        // never goes through SymbolResolver).
         var model = Compile("static void Main() { }");
-        var link = new LinkerType().Link([new Koh.Linker.LinkerInput("game", model)]);
+        var link = new LinkerType().Link([new Koh.Native.LinkerInput("game", model)]);
         await Assert.That(link.Success).IsTrue();
 
         byte[] rom = link.RomData!;
@@ -155,7 +130,7 @@ public class Sm83SymbolAddressTests
         // $C000) — the fix's `addr - CodeBase` / `+ CodeBase` round trip must recover the real address
         // regardless of which memory region it is actually in.
         var model = Compile("static byte counter; static void Main() { counter = 1; }");
-        var link = new LinkerType().Link([new Koh.Linker.LinkerInput("game", model)]);
+        var link = new LinkerType().Link([new Koh.Native.LinkerInput("game", model)]);
         await Assert.That(link.Success).IsTrue();
 
         var counter = link.Symbols.Single(s => s.Name == "Program.counter");

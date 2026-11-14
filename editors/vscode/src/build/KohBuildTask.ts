@@ -8,7 +8,7 @@ export interface KohBinaries {
 }
 
 export function createBuildTask(binaries: KohBinaries, target: ResolvedTarget): vscode.Task {
-    const kobjPath = path.join(path.dirname(target.romPath), `${target.name}.kobj`);
+    const objectPath = path.join(path.dirname(target.romPath), `${target.name}.o`);
     const buildDir = path.dirname(target.romPath);
     const symPath = path.join(buildDir, `${target.name}.sym`);
 
@@ -18,8 +18,8 @@ export function createBuildTask(binaries: KohBinaries, target: ResolvedTarget): 
 
     const execution = new vscode.ShellExecution(
         `${mkdirCmd} && ` +
-        `"${binaries.asm}" "${target.entrypoint}" -o "${kobjPath}" && ` +
-        `"${binaries.link}" "${kobjPath}" -o "${target.romPath}" -n "${symPath}" -d "${target.kdbgPath}"`,
+        `"${binaries.asm}" "${target.entrypoint}" -o "${objectPath}" && ` +
+        `"${binaries.link}" "${objectPath}" -o "${target.romPath}" -n "${symPath}" -d "${target.kdbgPath}"`,
         { cwd: target.workspaceFolder }
     );
 
