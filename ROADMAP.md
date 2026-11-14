@@ -10,12 +10,12 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## Current condition
 
-- Rust assembler PR #01 and Rust linker/ELF [PR #54](https://github.com/retro-dev-tools/koh/pull/54) are merged.
+- Rust assembler [PR #53](https://github.com/retro-dev-tools/koh/pull/53) and Rust linker/ELF [PR #54](https://github.com/retro-dev-tools/koh/pull/54) are merged.
   `koh-objects` owns the canonical ELF32/SM83 model; the native assembler and linker share it.
   The linker migration removes the C# linker and retired object formats and retains C# game development.
   See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
-- Rust CIL compiler PR #03 is in its initial audit stage. The C# compiler remains active.
+- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) is in its initial audit stage. The C# compiler remains active.
   Track the [commit sequence and acceptance ledger](docs/rust-compiler/progress.md);
   a native compiler replacement has not yet been implemented or validated.
 

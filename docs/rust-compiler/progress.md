@@ -1,4 +1,4 @@
-# Native CIL compiler migration (PR #03)
+# Native CIL compiler migration (PR #55)
 
 Status: audit in progress. No native compiler is implemented or integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
@@ -6,7 +6,7 @@ This document tracks the single replacement PR; it does not establish acceptance
 ## Inspected baseline
 
 - Integrated master: `9cd147265eb0c660d94c7bf4eee6a97d9e1f4e1f`.
-- PR #02 ([#54](https://github.com/retro-dev-tools/koh/pull/54)) merged on
+- Linker migration [PR #54](https://github.com/retro-dev-tools/koh/pull/54) merged on
   2026-11-14. GitHub state and remote master were checked before branching.
 - Cargo workspace: `koh-asm`, `koh-objects`, `koh-link`; no compiler crate.
 - Canonical object boundary: `koh_objects::Object`, `validate`, `write_elf`.
@@ -34,7 +34,7 @@ or correctness needs it; no intermediate increment is a completed replacement.
 
 | Order | Increment | Required evidence |
 | --- | --- | --- |
-| 1 | Record baseline, scope and progress | Integrated PR #02 and preserved unrelated work |
+| 1 | Record baseline, scope and progress | Integrated linker migration and preserved unrelated work |
 | 2 | Inventory original tests | Exact source identities and explicit unaudited counts |
 | 3 | Complete semantic audit and select supported contract | Reviewed test dispositions, independent semantics, library coverage evaluation, sample feature requirements |
 | 4 | Native metadata/reference/PDB reader | Real Debug/Release Roslyn fixtures, malformed inputs, identity resolution, no assembly execution |
@@ -70,7 +70,7 @@ checks; neither old documentation nor a passing legacy test is an oracle.
 
 ## Acceptance ledger
 
-- [x] Branch from integrated PR #02.
+- [x] Branch from integrated linker migration, PR #54.
 - [ ] Complete architecture and test audit with independent expectations.
 - [ ] Implement native compiler and documented supported contract.
 - [ ] Prove game-level ROM execution and debugging.
