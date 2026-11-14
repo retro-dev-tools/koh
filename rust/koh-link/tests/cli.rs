@@ -172,3 +172,112 @@ fn long_aliases_version_and_default_outputs_with_spaces() {
     assert_eq!(std::fs::read(output).unwrap().len(), 0x8000);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn separate_processes_produce_identical_elf_and_link_artifacts() {
+    let dir = directory("deterministic");
+    let mut consumer = fixture();
+    consumer.sections[0].address = Some(0x100);
+    consumer.symbols.push(Symbol {
+        name: "loop".into(),
+        binding: SymbolBinding::Local,
+        definition: SymbolDefinition::Label {
+            section: SectionId(0),
+            offset: 1,
+        },
+        source: None,
+    });
+    let mut provider = fixture();
+    provider.sections[0].name = "provider".into();
+    provider.sections[0].address = Some(0x200);
+    provider.sections[0].data.fill(0);
+    provider.symbols[0].name = "Provider".into();
+    provider.symbols.push(Symbol {
+        name: "Start".into(),
+        binding: SymbolBinding::Local,
+        definition: SymbolDefinition::Import,
+        source: None,
+    });
+    provider.symbols.push(consumer.symbols[1].clone());
+    provider.sections[0].patches.push(Patch {
+        offset: 0,
+        width: PatchWidth::Word,
+        semantics: PatchSemantics::Absolute,
+        pc: AddressContext {
+            section: SectionId(0),
+            offset: 0,
+        },
+        expression: RelocationExpr::Binary(
+            BinaryOp::Add,
+            Box::new(RelocationExpr::Symbol(SymbolId(1))),
+            Box::new(RelocationExpr::Literal(1)),
+        ),
+        source: Provenance {
+            file: "input.asm".into(),
+            line: 1,
+            column: 1,
+            expansion: vec![],
+        },
+    });
+    let runs = [dir.join("first"), dir.join("second")];
+    for run in &runs {
+        std::fs::create_dir_all(run).unwrap();
+        for (name, object) in [("consumer.o", &consumer), ("provider.o", &provider)] {
+            let mut child = Command::new(env!("CARGO_BIN_EXE_koh-link"))
+                .args(["--emit-elf", "-o"])
+                .arg(run.join(name))
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(&serde_json::to_vec(object).unwrap())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let output = Command::new(env!("CARGO_BIN_EXE_koh-link"))
+            .arg("-o")
+            .arg(run.join("image.gb"))
+            .arg("-n")
+            .arg(run.join("image.sym"))
+            .arg("-d")
+            .arg(run.join("image.kdbg"))
+            .arg("--report-json")
+            .arg(run.join("image.json"))
+            .arg(run.join("consumer.o"))
+            .arg(run.join("provider.o"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            &std::fs::read(run.join("image.gb")).unwrap()[0x200..0x202],
+            &[1, 1]
+        );
+    }
+    for artifact in [
+        "consumer.o",
+        "provider.o",
+        "image.gb",
+        "image.sym",
+        "image.kdbg",
+        "image.json",
+    ] {
+        let first = std::fs::read(runs[0].join(artifact)).unwrap();
+        let second = std::fs::read(runs[1].join(artifact)).unwrap();
+        assert!(!first.is_empty(), "{artifact}");
+        assert_eq!(first, second, "{artifact} differs across processes");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
