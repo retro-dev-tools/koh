@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+from assembler_reference import COMMIT, HELPER, REFERENCE, ensure_reference
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,7 +60,7 @@ outer
 def main():
     parser = argparse.ArgumentParser(description='Reproduce the historical macro unique-suffix report')
     parser.add_argument('--dotnet', default='dotnet')
-    parser.add_argument('--helper', type=Path, default=ROOT / 'tools/rust-asm-verify/bin/Release/net10.0/koh-rust-asm-verify.dll')
+    parser.add_argument('--helper', type=Path, default=HELPER)
     parser.add_argument('--output', type=Path, default=Path(tempfile.gettempdir()) / 'koh-macro-unique-investigation')
     builds = parser.add_mutually_exclusive_group()
     builds.add_argument('--build', action='store_true', help='Build the C# helper before running')
@@ -90,8 +91,7 @@ def main():
         if version != f'{tool} v1.0.1':
             raise RuntimeError(f'Expected {tool} v1.0.1; got {version!r}')
         versions[tool] = version
-    if options.build:
-        require(run('helper', 'build', [options.dotnet, 'build', ROOT / 'tools/rust-asm-verify/RustAsmVerify.csproj', '-c', 'Release', '-m:1']), 'helper build')
+    ensure_reference(build=options.build, dotnet=options.dotnet)
     if not helper.is_file():
         raise RuntimeError(f'Helper missing: {helper}; use --build or --helper')
     sample_path = ROOT / 'samples/asm/gb-2048/src/macros.inc'
@@ -151,9 +151,10 @@ def main():
             result['unexpected_failure'] = 'Linked section bytes differ'
     report = {
         'source_head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+        'reference_commit': COMMIT,
         'sample_comment_sha256': hashlib.sha256(sample_path.read_bytes()).hexdigest(),
         'helper_sha256': hashlib.sha256(helper.read_bytes()).hexdigest(),
-        'assembler_source_diff_from_bf0a5fc': subprocess.check_output(['git', 'diff', 'bf0a5fc', '--', 'src/Asm/Koh.Assembler'], cwd=ROOT, text=True),
+        'assembler_source_diff_from_bf0a5fc': subprocess.check_output(['git', 'diff', COMMIT, '--', 'src/Asm/Koh.Assembler'], cwd=REFERENCE, text=True),
         'versions': versions,
         'results': results,
     }

@@ -37,6 +37,8 @@ jobs:
           path: |
             target/release/koh-asm
             target/release/koh-asm.exe
+            licenses/rust-assembler-dependencies.md
+            licenses/rust-assembler/
 
   references:
     runs-on: ubuntu-latest

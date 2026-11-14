@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Component, Path, PathBuf},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,6 +35,8 @@ struct Frame {
 }
 
 struct Assembler {
+    overlays: HashMap<String, (String, String)>,
+    binary_overlays: HashMap<String, (String, Vec<u8>)>,
     current_file: String,
     q: u8,
     pad: u8,
@@ -71,6 +73,16 @@ pub fn assemble(
     file: &str,
     allow_imports: bool,
 ) -> Result<crate::model::Object, Vec<Diagnostic>> {
+    assemble_with_overlays(text, file, allow_imports, &[], &[])
+}
+
+pub fn assemble_with_overlays(
+    text: &str,
+    file: &str,
+    allow_imports: bool,
+    sources: &[(String, String)],
+    binary_sources: &[(String, Vec<u8>)],
+) -> Result<crate::model::Object, Vec<Diagnostic>> {
     let (constants, mut strings) = crate::builtins::values().map_err(|message| {
         vec![Diagnostic {
             file: file.into(),
@@ -85,6 +97,14 @@ pub fn assemble(
     }
     let mutable = constants.keys().map(|name| (name.clone(), false)).collect();
     let mut asm = Assembler {
+        overlays: sources
+            .iter()
+            .map(|(path, data)| (overlay_key(path), (path.clone(), data.clone())))
+            .collect(),
+        binary_overlays: binary_sources
+            .iter()
+            .map(|(path, data)| (overlay_key(path), (path.clone(), data.clone())))
+            .collect(),
         current_file: file.into(),
         q: 16,
         pad: 0,
@@ -117,7 +137,8 @@ pub fn assemble(
     };
     let lines = source::lines(text, file);
     asm.prescan(&lines);
-    asm.includes.insert(file.into());
+    asm.includes
+        .insert(source_path(file).to_string_lossy().into_owned());
     if asm.run(&lines, &mut Frame::default(), 0, false) {
         asm.error(
             &SourceLine {
@@ -155,6 +176,42 @@ pub fn assemble(
 }
 
 impl Assembler {
+    fn resolve_file(
+        &self,
+        current: &str,
+        name: &str,
+        binary: bool,
+    ) -> Result<(String, Vec<u8>), String> {
+        let relative = Path::new(name);
+        let candidates = if relative.is_absolute() {
+            vec![source_path(name)]
+        } else {
+            vec![
+                source_path(name),
+                source_path(current)
+                    .parent()
+                    .unwrap_or(Path::new("."))
+                    .join(relative),
+            ]
+        };
+        for path in candidates {
+            let path = source_path(&path.to_string_lossy());
+            let key = overlay_key(&path.to_string_lossy());
+            if binary {
+                if let Some((origin, data)) = self.binary_overlays.get(&key) {
+                    return Ok((origin.clone(), data.clone()));
+                }
+            } else if let Some((origin, data)) = self.overlays.get(&key) {
+                return Ok((origin.clone(), data.as_bytes().to_vec()));
+            }
+            if path.is_file() {
+                return std::fs::read(&path)
+                    .map(|data| (path.to_string_lossy().into_owned(), data))
+                    .map_err(|e| format!("cannot read {}: {e}", path.display()));
+            }
+        }
+        Err(format!("file not found: {name}"))
+    }
     fn provenance(&self, line: &SourceLine) -> Provenance {
         Provenance {
             file: line.file.clone(),
@@ -246,12 +303,29 @@ impl Assembler {
     }
     fn tree(&self, text: &str) -> Result<Expr, String> {
         let tree = expr::parse_with_precision(text, self.q)?;
-        crate::context::fold(
+        crate::context::fold_with_reader(
             self.freeze(tree),
             self.maps.get(&self.map).map(Vec::as_slice).unwrap_or(&[]),
-            &self.current_file,
+            &source_path(&self.current_file).to_string_lossy(),
             &|n| self.lookup(n),
             self.pc(),
+            &|name, limit| {
+                let candidates = [
+                    source_path(name),
+                    source_path(&self.current_file)
+                        .parent()
+                        .unwrap_or(Path::new("."))
+                        .join(name),
+                ];
+                candidates
+                    .into_iter()
+                    .find_map(|path| self.overlays.get(&overlay_key(&path.to_string_lossy())))
+                    .map(|(_, text)| {
+                        text.as_bytes()
+                            [..text.len().min(usize::try_from(limit).unwrap_or(usize::MAX))]
+                            .to_vec()
+                    })
+            },
         )
     }
     fn freeze(&self, tree: Expr) -> Expr {
@@ -928,25 +1002,19 @@ impl Assembler {
             if head_upper == "INCLUDE" {
                 let result: Result<bool, String> = (|| {
                     let name = self.string(tail)?;
-                    let path = Path::new(&line.file)
-                        .parent()
-                        .unwrap_or(Path::new("."))
-                        .join(name);
-                    let path = path
-                        .canonicalize()
-                        .map_err(|e| format!("cannot include {}: {e}", path.display()))?;
-                    let file = path.to_string_lossy().into_owned();
-                    if !self.includes.insert(file.clone()) {
+                    let (file, data) = self.resolve_file(&line.file, &name, false)?;
+                    let key = source_path(&file).to_string_lossy().into_owned();
+                    if !self.includes.insert(key.clone()) {
                         return Err("circular INCLUDE".into());
                     }
-                    let text = std::fs::read_to_string(&path)
-                        .map_err(|e| format!("cannot include {file}: {e}"))?;
+                    let text = String::from_utf8(data)
+                        .map_err(|_| format!("INCLUDE {file}: source is not UTF-8"))?;
                     let body = source::lines(&text, &file);
                     self.prescan(&body);
                     self.expansion.push(location.clone());
                     let stop = self.run(&body, frame, depth + 1, in_loop);
                     self.expansion.pop();
-                    self.includes.remove(&file);
+                    self.includes.remove(&key);
                     Ok(stop)
                 })();
                 match result {
@@ -1201,12 +1269,7 @@ impl Assembler {
             "INCBIN" => {
                 let values = source::args(tail)?;
                 let name = self.string(values.first().ok_or("INCBIN requires file")?)?;
-                let path = Path::new(&line.file)
-                    .parent()
-                    .unwrap_or(Path::new("."))
-                    .join(name);
-                let data = std::fs::read(&path)
-                    .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+                let (_, data) = self.resolve_file(&line.file, &name, true)?;
                 let start = if values.len() > 1 {
                     self.value(&values[1])?
                 } else {
@@ -2001,6 +2064,59 @@ impl Assembler {
             _ => None,
         }
     }
+}
+
+pub(crate) fn source_path(name: &str) -> PathBuf {
+    let decoded = name.strip_prefix("file://").map(|uri| {
+        let mut output = Vec::with_capacity(uri.len());
+        let bytes = uri.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                if let (Some(high), Some(low)) = (
+                    (bytes[i + 1] as char).to_digit(16),
+                    (bytes[i + 2] as char).to_digit(16),
+                ) {
+                    output.push((high * 16 + low) as u8);
+                    i += 3;
+                    continue;
+                }
+            }
+            output.push(bytes[i]);
+            i += 1;
+        }
+        String::from_utf8(output).unwrap_or_else(|_| uri.into())
+    });
+    let name = decoded.as_deref().unwrap_or(name);
+    #[cfg(windows)]
+    let name = if name.as_bytes().get(2) == Some(&b':') {
+        &name[1..]
+    } else {
+        name
+    };
+    let path = Path::new(name);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    let mut result = PathBuf::new();
+    for part in absolute.components() {
+        match part {
+            Component::ParentDir => {
+                result.pop();
+            }
+            Component::CurDir => (),
+            other => result.push(other.as_os_str()),
+        }
+    }
+    result
+}
+
+pub(crate) fn overlay_key(name: &str) -> String {
+    source_path(name).to_string_lossy().to_lowercase()
 }
 
 fn patch_width(p: &Patch) -> usize {

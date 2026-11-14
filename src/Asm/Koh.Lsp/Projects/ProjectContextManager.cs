@@ -1,9 +1,9 @@
-using Koh.Assembler;
-using Koh.Assembler.Syntax;
 using Koh.Common;
 using Koh.Lsp.Config;
 using Koh.Lsp.Discovery;
 using Koh.Lsp.Source;
+using Koh.Native;
+using Koh.Native.Syntax;
 
 namespace Koh.Lsp.Projects;
 
@@ -467,6 +467,10 @@ internal sealed class ProjectContextManager
         public string ReadAllText(string path) => inner.ReadAllText(path);
 
         public byte[] ReadAllBytes(string path) => inner.ReadAllBytes(path);
+
+        public IReadOnlyDictionary<string, string> GetTextOverlays() => inner.GetTextOverlays();
+
+        public IReadOnlyDictionary<string, byte[]> GetBinaryOverlays() => inner.GetBinaryOverlays();
 
         public string ResolvePath(string currentFile, string includedPath)
         {

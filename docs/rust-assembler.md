@@ -1,9 +1,11 @@
 # Rust assembler
 
 The native assembler lives in `rust/koh-asm`. It builds with Rust 1.85 or newer,
-uses edition 2024, and has no third-party Rust dependencies. The C# assembler
-remains available as a compatibility reference; this migration does not replace
-the compiler, linker, LSP, debugger, emulator, or VS Code extension.
+uses edition 2024, and uses Serde for the managed host protocol. It replaces the
+C# assembler and CLI. The C# language server consumes native syntax and semantic
+metadata through `Koh.Native`; the compiler, linker, debugger, emulator, and
+VS Code extension remain managed. The historical C# implementation is built only
+from a separate, pinned checkout for differential validation.
 
 ## Build and run
 
@@ -38,6 +40,7 @@ Output is written through a temporary file in the destination directory.
 | `draft.rs`, `lower.rs` | Private construction records and name/reference validation |
 | `model.rs` | Format-independent symbols, expressions, patch semantics and provenance |
 | `object.rs` | Loss-checked KOBJ v4 and RGBDS adapters |
+| `analysis.rs`, `service.rs` | Native LSP metadata and versioned JSON service |
 | `main.rs` | CLI, diagnostics, output publication |
 
 `koh_asm::assemble(source, file, allow_imports)` exposes assembly to Rust callers.
@@ -138,9 +141,27 @@ and runtime behavior. Passing Rust unit tests does not prove cartridge execution
 or complete C# compatibility. The CI definition describes intended checks;
 successful hosted runs and full differential results must be reported separately.
 
-Local validation includes the existing C# assembler suite (1,082 passed), the C#
-fast suite (1,681 passed, two native-window tests skipped), and all 11 checks in
-the 2048 gameplay verifier on a Rust-built, C#-linked 64 KiB ROM. The independent
+Before removal, the historical C# assembler suite passed 1,082 tests. Native
+validation now includes 117 Rust tests with the RGBDS checks enabled and 204
+native-backed LSP tests. All 812 managed compiler tests passed after removal.
+The 2048 gameplay verifier also passed all 11 checks on a Rust-built, C#-linked
+64 KiB ROM. The independent
 relocation tests check linked bytes and actual failures for missing symbols,
 signed overflow and invalid high-memory addresses. Hosted Windows/macOS results
 remain separate evidence.
+
+## Historical reference
+
+`scripts/assembler_reference.py` checks out commit
+`bf0a5fc1792b6022328af080cd50f7b4d7e143c5` outside this source tree and builds
+the small driver under `tools/rust-asm-verify/reference`. Set
+`KOH_CSHARP_REFERENCE_ROOT` to choose a different checkout location. The script
+rejects a different commit or tracked modifications. Current production projects
+do not reference that checkout. The historical test corpus is extracted there;
+it is a behavioral reference, not a correctness oracle.
+
+The managed bridge starts `koh-asm --serve-json` and exchanges versioned JSON
+lines. `KOH_ASM` selects an executable explicitly; otherwise the bridge checks
+its application directory, local Cargo outputs, and PATH. Source and binary
+overlays remain separate. Native diagnostics and UTF-16 source spans feed the
+existing language-server features.

@@ -1,0 +1,40 @@
+<Project>
+  <PropertyGroup>
+    <BuildNativeAssembler Condition="'$(BuildNativeAssembler)' == ''">true</BuildNativeAssembler>
+    <KohRepositoryRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '../../..'))</KohRepositoryRoot>
+    <KohNativeRid Condition="'$(RuntimeIdentifier)' == ''">host</KohNativeRid>
+    <KohNativeRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</KohNativeRid>
+    <KohNativeTargetTriple Condition="'$(RuntimeIdentifier)' == 'linux-x64'">x86_64-unknown-linux-gnu</KohNativeTargetTriple>
+    <KohNativeTargetTriple Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">aarch64-unknown-linux-gnu</KohNativeTargetTriple>
+    <KohNativeTargetTriple Condition="'$(RuntimeIdentifier)' == 'win-x64'">x86_64-pc-windows-msvc</KohNativeTargetTriple>
+    <KohNativeTargetTriple Condition="'$(RuntimeIdentifier)' == 'win-arm64'">aarch64-pc-windows-msvc</KohNativeTargetTriple>
+    <KohNativeTargetTriple Condition="'$(RuntimeIdentifier)' == 'osx-x64'">x86_64-apple-darwin</KohNativeTargetTriple>
+    <KohNativeTargetTriple Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">aarch64-apple-darwin</KohNativeTargetTriple>
+    <KohNativeCargoTargetDir>$(KohRepositoryRoot)target/native-msbuild/$(Configuration)/$(KohNativeRid)</KohNativeCargoTargetDir>
+    <KohNativeTargetArgument Condition="'$(KohNativeTargetTriple)' != ''">--target $(KohNativeTargetTriple)</KohNativeTargetArgument>
+    <KohNativeExecutableName>koh-asm</KohNativeExecutableName>
+    <KohNativeExecutableName Condition="('$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT') or $(RuntimeIdentifier.StartsWith('win-'))">koh-asm.exe</KohNativeExecutableName>
+    <KohNativeAssembler>$(KohNativeCargoTargetDir)/release/$(KohNativeExecutableName)</KohNativeAssembler>
+    <KohNativeAssembler Condition="'$(KohNativeTargetTriple)' != ''">$(KohNativeCargoTargetDir)/$(KohNativeTargetTriple)/release/$(KohNativeExecutableName)</KohNativeAssembler>
+    <KohNativeHostRid>$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</KohNativeHostRid>
+    <KohNativeNeedsHostTool Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != '$(KohNativeHostRid)'">true</KohNativeNeedsHostTool>
+    <KohNativeHostExecutableName>koh-asm</KohNativeHostExecutableName>
+    <KohNativeHostExecutableName Condition="'$(OS)' == 'Windows_NT'">koh-asm.exe</KohNativeHostExecutableName>
+    <KohNativeHostAssembler>$(KohNativeAssembler)</KohNativeHostAssembler>
+    <KohNativeHostAssembler Condition="'$(KohNativeNeedsHostTool)' == 'true'">$(KohNativeCargoTargetDir)/host-tool/release/$(KohNativeHostExecutableName)</KohNativeHostAssembler>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(BuildNativeAssembler)' == 'true'">
+    <Content Include="$(KohNativeAssembler)" Link="$(KohNativeExecutableName)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(KohRepositoryRoot)licenses/rust-assembler/**/*" Link="licenses/rust-assembler/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(KohRepositoryRoot)licenses/rust-assembler-dependencies.md" Link="licenses/rust-assembler-dependencies.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(KohRepositoryRoot)licenses/rust-assembler-dependencies.md')" />
+  </ItemGroup>
+  <Target Name="BuildRustAssembler" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' and '$(BuildNativeAssembler)' == 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != '' and '$(KohNativeTargetTriple)' == ''" Text="No Rust target mapping for RuntimeIdentifier '$(RuntimeIdentifier)'." />
+    <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="cargo build --release --package koh-asm --locked --target-dir &quot;$(KohNativeCargoTargetDir)&quot; $(KohNativeTargetArgument)" />
+    <Exec Condition="'$(KohNativeNeedsHostTool)' == 'true'" WorkingDirectory="$(KohRepositoryRoot)" Command="cargo build --release --package koh-asm --locked --target-dir &quot;$(KohNativeCargoTargetDir)/host-tool&quot;" />
+    <Error Condition="!Exists('$(KohNativeAssembler)')" Text="Native assembler was not produced: $(KohNativeAssembler)" />
+    <Error Condition="!Exists('$(KohNativeHostAssembler)')" Text="Host assembler was not produced: $(KohNativeHostAssembler)" />
+  </Target>
+  <Target Name="GetNativeAssemblerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeAssembler)" />
+  <Target Name="GetNativeHostAssemblerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeHostAssembler)" />
+</Project>

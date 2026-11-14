@@ -17,6 +17,11 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Vec<String>) -> Result<u8, String> {
+    if args.as_slice() == ["--serve-json"] {
+        koh_asm::service::serve(std::io::stdin().lock(), std::io::stdout().lock())
+            .map_err(|e| format!("native protocol I/O: {e}"))?;
+        return Ok(0);
+    }
     if args.iter().any(|s| s == "--version") {
         println!("koh-asm {}", env!("CARGO_PKG_VERSION"));
         return Ok(0);

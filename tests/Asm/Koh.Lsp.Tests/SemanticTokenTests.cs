@@ -1,5 +1,5 @@
-using Koh.Assembler.Syntax;
 using Koh.Common;
+using Koh.Native.Syntax;
 
 namespace Koh.Lsp.Tests;
 

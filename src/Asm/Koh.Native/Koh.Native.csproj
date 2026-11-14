@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Koh.Lsp.Tests" />
+    <ProjectReference Include="../../Common/Koh.Common/Koh.Common.csproj" />
+    <ProjectReference Include="../../Common/Koh.Objects/Koh.Objects.csproj" />
+  </ItemGroup>
+  <Import Project="NativeBuild.targets" />
+</Project>

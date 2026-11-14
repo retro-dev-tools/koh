@@ -1,5 +1,5 @@
-using Koh.Assembler.Symbols;
-using Koh.Assembler.Syntax;
+using Koh.Native.Symbols;
+using Koh.Native.Syntax;
 using Koh.Objects;
 using CoreSymbolKind = Koh.Objects.SymbolKind;
 
@@ -115,7 +115,13 @@ internal sealed class SymbolFinder
             return $"'{newName}' is not a valid identifier.";
 
         // Keyword rejection
-        if (Lexer.IsKeyword(newName))
+        if (
+            SyntaxTree
+                .Parse(newName)
+                .Root.FindToken(0)
+                ?.Kind.ToString()
+                .EndsWith("Keyword", StringComparison.Ordinal) == true
+        )
             return $"'{newName}' is a reserved keyword.";
 
         // Register-name rejection
@@ -155,9 +161,9 @@ internal sealed class SymbolFinder
 
     private void WalkForOccurrences(
         SyntaxNode node,
-        Koh.Assembler.SemanticModel model,
+        Koh.Native.SemanticModel model,
         string uri,
-        (string? OwnerId, string QualifiedName) targetId,
+        string targetId,
         bool includeDeclarations,
         List<ResolvedSymbol> results,
         HashSet<(string Uri, int Start)> seen

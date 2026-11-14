@@ -13,7 +13,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 - Native Rust assembler migration is under validation on `feat/rust-assembler`.
   The format-independent object graph retains typed relocations, execution PC
   context and expansion provenance; KOBJ v4 and RGBDS are loss-checked adapters.
-  The existing C# assembler remains available. See [implementation and validation](docs/rust-assembler.md)
+  The C# assembler and CLI are replaced; the language server uses a native bridge. See [implementation and validation](docs/rust-assembler.md)
   and [format decisions](docs/rust-assembler-objects.md). Complete migration and
   hosted cross-platform checks remain gates before replacing the default tool.
 

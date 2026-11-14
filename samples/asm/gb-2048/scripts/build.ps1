@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 $null = New-Item -ItemType Directory -Force -Path build
 $root = git rev-parse --show-toplevel
-dotnet run --project "$root/src/Asm/Koh.Asm" -- src/main.asm -o build/2048.kobj
+cargo run --manifest-path "$root/Cargo.toml" --release --package koh-asm --locked -- src/main.asm -o build/2048.kobj
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 dotnet run --project "$root/src/Link/Koh.Link" -- build/2048.kobj `
   -o build/2048.gbc `

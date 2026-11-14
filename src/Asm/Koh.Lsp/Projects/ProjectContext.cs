@@ -1,4 +1,4 @@
-using Koh.Assembler;
+using Koh.Native;
 
 namespace Koh.Lsp.Projects;
 

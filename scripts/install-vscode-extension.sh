@@ -13,6 +13,7 @@ set -euo pipefail
 
 require() { command -v "$1" >/dev/null 2>&1 || { echo "$1 not found on PATH" >&2; exit 1; }; }
 require dotnet
+require cargo
 require npm
 
 # VS Code CLI is called `code` everywhere except Windows-native
@@ -70,7 +71,6 @@ cd "$repo_root"
 
 echo "── Publishing toolchain into $dev_bin ($rid) ──"
 dotnet publish src/Asm/Koh.Lsp          -c Release -r "$rid" --self-contained -o "$dev_bin"
-dotnet publish src/Asm/Koh.Asm          -c Release -r "$rid" -o "$dev_bin"
 dotnet publish src/Link/Koh.Link         -c Release -r "$rid" -o "$dev_bin"
 dotnet publish src/Emulator/Koh.Emulator.App -c Release -r "$rid" -o "$dev_bin"
 

@@ -11,6 +11,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+from assembler_reference import COMMIT as REFERENCE_COMMIT, REFERENCE, HELPER as REFERENCE_HELPER, ensure_reference
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,8 @@ def run(args, *, expect=0):
 
 
 def helper(*args):
-    return run(["dotnet", HELPER, *args])
+    executable=REFERENCE_HELPER if args[0] in ("assemble","corpus") else HELPER
+    return run(["dotnet", executable, *args])
 
 
 class RgbObject:
@@ -154,7 +156,7 @@ def verify_corpus(directory, rust):
     fixtures, excluded = [], []
     method_pattern = re.compile(r"public\s+(?:async\s+)?(?:Task|void)\s+(\w+)\s*\([^)]*\)")
     emit_pattern = re.compile(r'var\s+(\w+)\s*=\s*Emit\(\s*("{3,})(.*?)\2\s*\)', re.S)
-    for path in sorted((ROOT / "tests/Asm/Koh.Assembler.Tests").rglob("*.cs")):
+    for path in sorted((REFERENCE / "tests/Asm/Koh.Assembler.Tests").rglob("*.cs")):
         text = path.read_text()
         methods = list(method_pattern.finditer(text))
         for index, method in enumerate(methods):
@@ -575,7 +577,7 @@ def verify_negative_cases(directory, rust):
         for language in ("csharp", "rust", "reference"):
             output = directory / f"negative-{name}-{language}.o"
             output.unlink(missing_ok=True)
-            command = (["dotnet", HELPER, "assemble", "kobj", path, output] if language == "csharp" else
+            command = (["dotnet", REFERENCE_HELPER, "assemble", "kobj", path, output] if language == "csharp" else
                        [rust, path, "-o", output] if language == "rust" else
                        ["rgbasm", "-o", output, path])
             process = subprocess.run(list(map(str, command)), cwd=ROOT, text=True, capture_output=True)
@@ -630,6 +632,8 @@ def main():
             parser.error(f"Required tool is absent: {tool}")
     for tool in ("rgbasm", "rgblink"):
         compare(run([tool, "--version"]).strip(), f"{tool} v1.0.1", "RGBDS 1.0.1 required")
+    ensure_reference(build=not options.no_build)
+    print(f"Historical C# behavioral reference: {REFERENCE_COMMIT}")
     if not options.no_build:
         run(["dotnet", "build", ROOT / "tools/rust-asm-verify/RustAsmVerify.csproj", "-c", "Release", "-m:1"])
         run(["cargo", "build", "--release", "-p", "koh-asm"])

@@ -1,5 +1,5 @@
-using Koh.Assembler;
 using Koh.Lsp.Source;
+using Koh.Native;
 
 namespace Koh.Lsp.Tests.Source;
 

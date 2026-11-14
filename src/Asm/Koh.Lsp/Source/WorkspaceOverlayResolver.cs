@@ -1,4 +1,4 @@
-using Koh.Assembler;
+using Koh.Native;
 
 namespace Koh.Lsp.Source;
 
@@ -64,6 +64,19 @@ internal sealed class WorkspaceOverlayResolver : ISourceFileResolver
     {
         return _inner.ResolvePath(currentFile, includedPath);
     }
+
+    public IReadOnlyDictionary<string, string> GetTextOverlays()
+    {
+        var result = new Dictionary<string, string>(
+            _inner.GetTextOverlays(),
+            StringComparer.OrdinalIgnoreCase
+        );
+        foreach (var (path, text) in _overlays)
+            result[path] = text;
+        return result;
+    }
+
+    public IReadOnlyDictionary<string, byte[]> GetBinaryOverlays() => _inner.GetBinaryOverlays();
 
     private static string NormalizePath(string path)
     {

@@ -55,16 +55,16 @@ static class Sources
 
         init_hardware:
             ld a, $00
-            ldh [$40], a
+            ldh [$FF40], a
         .wait_vblank:
-            ldh a, [$44]
+            ldh a, [$FF44]
             cp 144
             jr nz, .wait_vblank
             ret
 
         init_game:
             ld a, PLAYER_SPEED
-            ld [player_speed], a
+            ld [player_speed_value], a
             ld a, MAX_HEALTH
             ld [player_hp], a
             ld hl, player_name
@@ -82,8 +82,8 @@ static class Sources
 
         read_input:
             ld a, $20
-            ldh [$00], a
-            ldh a, [$00]
+            ldh [$FF00], a
+            ldh a, [$FF00]
             cpl
             and $0F
             ret
@@ -120,7 +120,7 @@ static class Sources
         player_x:    ds 1
         player_y:    ds 1
         player_hp:   ds 1
-        player_speed: ds 1
+        player_speed_value: ds 1
         player_name: ds 8
         frame_count: ds 2
         """;
@@ -229,17 +229,17 @@ static class Sources
 
         poll_joypad:
             ld a, $20
-            ldh [$00], a
-            ldh a, [$00]
-            ldh a, [$00]
+            ldh [$FF00], a
+            ldh a, [$FF00]
+            ldh a, [$FF00]
             cpl
             and $0F
             swap a
             ld b, a
             ld a, $10
-            ldh [$00], a
-            ldh a, [$00]
-            ldh a, [$00]
+            ldh [$FF00], a
+            ldh a, [$FF00]
+            ldh a, [$FF00]
             cpl
             and $0F
             or b

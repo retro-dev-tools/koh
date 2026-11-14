@@ -1,8 +1,8 @@
-using Koh.Assembler;
 using Koh.Lsp.Config;
 using Koh.Lsp.Discovery;
 using Koh.Lsp.Projects;
 using Koh.Lsp.Source;
+using Koh.Native;
 
 namespace Koh.Lsp.Tests.Projects;
 

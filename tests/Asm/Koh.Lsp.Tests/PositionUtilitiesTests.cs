@@ -1,6 +1,6 @@
-using Koh.Assembler.Syntax;
 using Koh.Common;
 using Koh.Lsp;
+using Koh.Native.Syntax;
 using LspPosition = Microsoft.VisualStudio.LanguageServer.Protocol.Position;
 
 namespace Koh.Lsp.Tests;

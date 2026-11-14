@@ -13,7 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Koh.Assembler\Koh.Assembler.csproj" />
+    <ProjectReference Include="..\Koh.Native\Koh.Native.csproj" />
   </ItemGroup>
 
   <ItemGroup>

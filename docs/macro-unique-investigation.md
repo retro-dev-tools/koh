@@ -4,11 +4,13 @@ The sample comment in `samples/asm/gb-2048/src/macros.inc` reports a historical
 `WAIT_VBLANK` macro using `\@` that corrupted subsequent macro definitions. The
 omitted failing macro is unavailable in that file. A reconstructed ordinary
 `.wait\@:` / `jr z,.wait\@` loop did **not** reproduce that failure against the
-current C# assembler. The comment remains historical evidence, rather than proof
+pinned historical C# assembler. The comment remains historical evidence, rather than proof
 of a current defect.
 
-The checked C# assembler sources matched `bf0a5fc`; the investigation worktree
-HEAD was `45aed7d7321aeb521c11b98ef8f8576053431229`. The C# verifier was freshly
+The checked C# assembler sources matched `bf0a5fc`; the initial investigation
+worktree HEAD was `45aed7d7321aeb521c11b98ef8f8576053431229`. After removing
+the C# implementation, the same cases were rerun against the external checkout
+pinned to `bf0a5fc1792b6022328af080cd50f7b4d7e143c5`, with identical outcomes. The C# verifier was freshly
 built with .NET SDK 10.0.115: exit 0, zero warnings and zero errors. Both RGBDS
 tools were pinned to 1.0.1.
 
@@ -34,7 +36,9 @@ Run from the repository root with compatible .NET and RGBDS tools on `PATH`:
 python3 scripts/reproduce-macro-unique.py --build --output /tmp/koh-macro-unique
 ```
 
-The default (`--no-build`) reuses the existing Release verifier without rebuilding. Override
+The default (`--no-build`) reuses the historical Release verifier without rebuilding.
+`--build` prepares and validates the external pinned checkout using
+`scripts/assembler_reference.py`; no production assembler project is retained. Override
 it with `--dotnet PATH` and `--helper PATH`. The script reads the verifier's
 `assemble kobj SOURCE OUTPUT`, `dump OBJECT`, and `link ROM OBJECT` interfaces.
 It validates both RGBDS versions, records every command and actual exit status,

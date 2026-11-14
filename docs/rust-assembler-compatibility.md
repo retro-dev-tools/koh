@@ -1,6 +1,6 @@
 # Assembler compatibility evidence
 
-The C# assembler is the existing Koh behavioral reference. RGBDS 1.0.1 supplies
+The removed C# assembler at pinned commit `bf0a5fc` is the historical Koh behavioral reference. RGBDS 1.0.1 supplies
 independent language, object-format, and linking evidence. Koh extensions retain
 their documented behavior. This report covers named fixtures and workflows;
 it does not establish complete compatibility with either assembler.

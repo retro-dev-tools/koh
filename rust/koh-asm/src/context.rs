@@ -1,6 +1,7 @@
 use crate::expr::{self, Expr};
 use std::{fs::File, io::Read, path::Path};
 
+#[cfg(test)]
 pub fn fold(
     tree: Expr,
     maps: &[(String, Vec<i32>)],
@@ -8,7 +9,18 @@ pub fn fold(
     resolver: &dyn Fn(&str) -> Option<i32>,
     pc: i32,
 ) -> Result<Expr, String> {
-    let child = |tree| fold(tree, maps, base_file, resolver, pc);
+    fold_with_reader(tree, maps, base_file, resolver, pc, &|_, _| None)
+}
+
+pub fn fold_with_reader(
+    tree: Expr,
+    maps: &[(String, Vec<i32>)],
+    base_file: &str,
+    resolver: &dyn Fn(&str) -> Option<i32>,
+    pc: i32,
+    reader: &dyn Fn(&str, u64) -> Option<Vec<u8>>,
+) -> Result<Expr, String> {
+    let child = |tree| fold_with_reader(tree, maps, base_file, resolver, pc, reader);
     let (name, args) = match tree {
         Expr::Unary(op, value) => return Ok(Expr::Unary(op, Box::new(child(*value)?))),
         Expr::Binary(op, left, right) => {
@@ -70,10 +82,15 @@ pub fn fold(
                     .unwrap_or(Path::new("."))
                     .join(path)
             };
-            let mut bytes = Vec::new();
-            File::open(&path)
-                .and_then(|file| file.take(limit).read_to_end(&mut bytes))
-                .map_err(|error| format!("READFILE '{}': {error}", path.display()))?;
+            let bytes = if let Some(bytes) = reader(&filename, limit) {
+                bytes
+            } else {
+                let mut bytes = Vec::new();
+                File::open(&path)
+                    .and_then(|file| file.take(limit).read_to_end(&mut bytes))
+                    .map_err(|error| format!("READFILE '{}': {error}", path.display()))?;
+                bytes
+            };
             Ok(Expr::String(String::from_utf8(bytes).map_err(|_| {
                 format!("READFILE '{}': contents are not UTF-8", path.display())
             })?))

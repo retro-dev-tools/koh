@@ -1,7 +1,4 @@
 using System.Text.Json;
-using Koh.Assembler;
-using Koh.Assembler.Binding;
-using Koh.Assembler.Syntax;
 using Koh.Common;
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
@@ -11,69 +8,9 @@ using Koh.Objects;
 try
 {
     if (args.Length == 0)
-        throw new ArgumentException("Expected assemble, dump, link, or execute");
+        throw new ArgumentException("Expected dump, link, or execute");
     switch (args[0])
     {
-        case "corpus" when args.Length == 2:
-        {
-            var paths = JsonSerializer.Deserialize<string[]>(File.ReadAllText(args[1]))!;
-            var results = paths
-                .Select(path =>
-                {
-                    var model = Compilation
-                        .Create(SyntaxTree.Parse(SourceText.From(File.ReadAllText(path), path)))
-                        .Emit();
-                    if (model.Success)
-                    {
-                        using var output = File.Create(path + ".csharp.kobj");
-                        KobjWriter.Write(output, model);
-                    }
-                    return new
-                    {
-                        path,
-                        success = model.Success,
-                        diagnostics = model
-                            .Diagnostics.Select(diagnostic => diagnostic.Message)
-                            .ToArray(),
-                    };
-                })
-                .ToArray();
-            Console.WriteLine(JsonSerializer.Serialize(results));
-            break;
-        }
-        case "assemble" when args.Length == 4:
-        {
-            var path = Path.GetFullPath(args[2]);
-            var model = Compilation
-                .Create(
-                    new BinderOptions { AllowUndefinedSymbols = args[1] == "rgbds" },
-                    SyntaxTree.Parse(SourceText.From(File.ReadAllText(path), path))
-                )
-                .Emit();
-            foreach (var diagnostic in model.Diagnostics)
-            {
-                var diagnosticPath = string.IsNullOrEmpty(diagnostic.FilePath)
-                    ? path
-                    : diagnostic.FilePath;
-                var source = SourceText.From(File.ReadAllText(diagnosticPath), diagnosticPath);
-                var position = Math.Clamp(diagnostic.Span.Start, 0, source.Length);
-                var line = source.GetLineIndex(position);
-                Console.Error.WriteLine(
-                    $"{diagnosticPath}:{line + 1}:{position - source.Lines[line].Start + 1}: "
-                        + $"{diagnostic.Severity.ToString().ToLowerInvariant()}: {diagnostic.Message}"
-                );
-            }
-            if (!model.Success)
-                return 1;
-            using var output = File.Create(args[3]);
-            if (args[1] == "rgbds")
-                RgbdsObjectWriter.Write(output, model);
-            else if (args[1] == "kobj")
-                KobjWriter.Write(output, model);
-            else
-                throw new ArgumentException("Expected kobj or rgbds");
-            break;
-        }
         case "dump" when args.Length == 2:
         {
             using var input = File.OpenRead(args[1]);

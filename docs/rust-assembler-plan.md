@@ -1,6 +1,6 @@
 # Native assembler migration
 
-The Rust assembler retains the C# assembler as a behavioral reference and the
+The Rust assembler uses an external pinned C# checkout as a behavioral reference and the
 C# linker as the object consumer. C# language development remains supported.
 
 Use a line-oriented source expansion stage, Pratt expressions and table-driven

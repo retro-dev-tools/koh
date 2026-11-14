@@ -4,8 +4,10 @@
     <AssemblyName>koh-rust-asm-verify</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Asm/Koh.Assembler/Koh.Assembler.csproj" />
     <ProjectReference Include="../../src/Link/Koh.Linker/Koh.Linker.csproj" />
     <ProjectReference Include="../../src/Emulator/Koh.Emulator/Koh.Emulator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="reference/**/*.cs" />
   </ItemGroup>
 </Project>
