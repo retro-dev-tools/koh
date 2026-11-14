@@ -1,0 +1,74 @@
+name: Rust assembler
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt
+      - name: Check formatting
+        run: cargo +stable fmt --all -- --check
+      - name: Check
+        run: cargo +stable check --workspace --all-targets --locked
+      - name: Test
+        run: cargo +stable test --workspace --locked
+      - name: Build native executable
+        run: cargo +stable build --release --package koh-asm --locked
+      - name: Upload native executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: koh-asm-rust-${{ runner.os }}
+          path: |
+            target/release/koh-asm
+            target/release/koh-asm.exe
+
+  references:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install RGBDS build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bison flex libpng-dev pkg-config
+      - name: Build pinned RGBDS
+        run: |
+          git clone --depth 1 --branch v1.0.1 https://github.com/gbdev/rgbds.git "$RUNNER_TEMP/rgbds"
+          make -C "$RUNNER_TEMP/rgbds" -j2
+          echo "$RUNNER_TEMP/rgbds" >> "$GITHUB_PATH"
+      - name: Check RGBDS version
+        run: rgbasm --version
+      - name: Test against RGBDS
+        env:
+          KOH_RGBDS_TEST: '1'
+        run: cargo +stable test --workspace --locked
+      - name: Compare C# and native artifacts
+        run: python3 scripts/verify-rust-assembler.py --output "$RUNNER_TEMP/rust-assembler-verification"
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-assembler-verification
+          path: ${{ runner.temp }}/rust-assembler-verification
+          if-no-files-found: ignore

@@ -201,6 +201,13 @@ editors/
 
 Koh aims to make small Game Boy games practical to build, understand, and debug in assembly or C#. Reliable sample games, clear compatibility limits, and reproducible builds take priority over adding more tools or language features. See the [roadmap](ROADMAP.md).
 
+## Native Rust assembler
+
+The native Rust assembler is built with `cargo build --release -p koh-asm` and
+tested with `cargo test --workspace`. The C# assembler remains available during
+migration. See [Rust assembler status and validation](docs/rust-assembler.md)
+and [object-format decisions](docs/rust-assembler-objects.md).
+
 ## License
 
 MIT

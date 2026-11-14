@@ -1,7 +1,26 @@
 use crate::{draft, encode::OperandKind, expr::Expr, model::*};
 use std::collections::HashMap;
 
-pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object, String> {
+#[derive(Debug)]
+pub(crate) struct LoweringError {
+    pub source: Option<Provenance>,
+    pub message: String,
+}
+impl From<String> for LoweringError {
+    fn from(message: String) -> Self {
+        Self {
+            source: None,
+            message,
+        }
+    }
+}
+impl From<&str> for LoweringError {
+    fn from(message: &str) -> Self {
+        message.to_string().into()
+    }
+}
+
+pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object, LoweringError> {
     let mut object = Object::default();
     let mut symbols = HashMap::new();
     let sections: HashMap<_, _> = draft
@@ -16,7 +35,10 @@ pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object,
             return Err("non-numeric symbol reached object lowering".into());
         }
         if symbols.contains_key(&name) {
-            return Err(format!("duplicate symbol '{}'", sym.name));
+            return Err(LoweringError {
+                source: sym.source,
+                message: format!("duplicate symbol '{}'", sym.name),
+            });
         }
         let id = SymbolId(object.symbols.len());
         symbols.insert(name.clone(), id);
@@ -49,11 +71,9 @@ pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object,
                 &sections,
                 allow_imports,
             )
-            .map_err(|e| {
-                format!(
-                    "{}:{}:{}: {e}",
-                    patch.source.file, patch.source.line, patch.source.column
-                )
+            .map_err(|message| LoweringError {
+                source: Some(patch.source.clone()),
+                message,
             })?;
             let width = match patch.kind {
                 0 | 3 => PatchWidth::Byte,
@@ -87,10 +107,13 @@ pub(crate) fn lower(draft: draft::Object, allow_imports: bool) -> Result<Object,
             section.data
         } else {
             if section.data.iter().any(|v| *v != 0) {
-                return Err(format!(
-                    "initialized data in RAM section '{}' cannot be represented",
-                    section.name
-                ));
+                return Err(LoweringError {
+                    source: section.source,
+                    message: format!(
+                        "initialized data in RAM section '{}' cannot be represented",
+                        section.name
+                    ),
+                });
             }
             Vec::new()
         };

@@ -34,6 +34,19 @@ fn missing_references_are_explicit_imports_or_diagnostics() {
 }
 
 #[test]
+fn lowering_errors_keep_the_actual_use_location() {
+    let errors = assemble(
+        "SECTION \"code\",ROM0\nnop\ndw Missing",
+        "location.asm",
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(errors[0].file, "location.asm");
+    assert_eq!(errors[0].line, 3);
+    assert_eq!(errors[0].message, "undefined symbol 'Missing'");
+}
+
+#[test]
 fn pc_tracks_execution_section_inside_load() {
     let object = assemble(
         "SECTION \"rom\",ROM0[$100]\nLOAD \"ram\",WRAM0\ndw @\nENDL",

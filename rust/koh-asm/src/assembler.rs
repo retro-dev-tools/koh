@@ -42,7 +42,7 @@ struct Assembler {
     object: Object,
     constants: HashMap<String, i32>,
     deferred: HashMap<String, Expr>,
-    mutable: HashSet<String>,
+    mutable: HashMap<String, bool>,
     strings: HashMap<String, String>,
     macros: HashMap<String, Macro>,
     section: Option<usize>,
@@ -83,6 +83,7 @@ pub fn assemble(
             *value = format!("\"{value}\"");
         }
     }
+    let mutable = constants.keys().map(|name| (name.clone(), false)).collect();
     let mut asm = Assembler {
         current_file: file.into(),
         q: 16,
@@ -91,7 +92,7 @@ pub fn assemble(
         object: Object::default(),
         constants,
         deferred: HashMap::new(),
-        mutable: HashSet::new(),
+        mutable,
         strings,
         macros: HashMap::new(),
         section: None,
@@ -137,11 +138,15 @@ pub fn assemble(
     }
     asm.finish();
     if asm.errors.is_empty() {
-        crate::lower::lower(asm.object, allow_imports).map_err(|message| {
+        crate::lower::lower(asm.object, allow_imports).map_err(|error| {
             vec![Diagnostic {
-                file: file.into(),
-                line: 1,
-                message,
+                file: error
+                    .source
+                    .as_ref()
+                    .map(|s| s.file.clone())
+                    .unwrap_or_else(|| file.into()),
+                line: error.source.as_ref().map_or(1, |s| s.line),
+                message: error.message,
             }]
         })
     } else {
@@ -403,20 +408,38 @@ impl Assembler {
         }
     }
     fn expand_text(&self, text: &str, frame: &Frame) -> Result<String, String> {
+        const LIMIT: usize = 1 << 20;
+        fn append(result: &mut String, value: &str) -> Result<(), String> {
+            if result
+                .len()
+                .checked_add(value.len())
+                .is_none_or(|n| n > LIMIT)
+            {
+                return Err("expanded line exceeds 1 MiB".into());
+            }
+            result.push_str(value);
+            Ok(())
+        }
+        fn character(result: &mut String, value: char) -> Result<(), String> {
+            append(result, value.encode_utf8(&mut [0; 4]))
+        }
+        if text.len() > LIMIT {
+            return Err("expanded line exceeds 1 MiB".into());
+        }
         let mut result = String::new();
         let mut chars = text.chars().peekable();
         while let Some(c) = chars.next() {
             if c == '#' && chars.peek() == Some(&'"') {
-                result.push('#');
-                result.push(chars.next().unwrap());
+                character(&mut result, '#')?;
+                character(&mut result, chars.next().unwrap())?;
                 let triple = chars.clone().take(2).collect::<String>() == "\"\"";
                 if triple {
-                    result.push(chars.next().unwrap());
-                    result.push(chars.next().unwrap());
+                    character(&mut result, chars.next().unwrap())?;
+                    character(&mut result, chars.next().unwrap())?;
                 }
                 let mut quotes = 0;
                 for c in chars.by_ref() {
-                    result.push(c);
+                    character(&mut result, c)?;
                     quotes = if c == '"' { quotes + 1 } else { 0 };
                     if quotes == if triple { 3 } else { 1 } {
                         break;
@@ -424,14 +447,22 @@ impl Assembler {
                 }
             } else if c == '\\' {
                 match chars.next() {
-                    Some('@') => result.push_str(&format!("_{}", frame.unique)),
-                    Some('#') if frame.in_macro => result.push_str(&frame.args.join(",")),
-                    Some(n @ '1'..='9') if frame.in_macro => result.push_str(
+                    Some('@') => append(&mut result, &format!("_{}", frame.unique))?,
+                    Some('#') if frame.in_macro => {
+                        for (index, arg) in frame.args.iter().enumerate() {
+                            if index != 0 {
+                                append(&mut result, ",")?;
+                            }
+                            append(&mut result, arg)?;
+                        }
+                    }
+                    Some(n @ '1'..='9') if frame.in_macro => append(
+                        &mut result,
                         frame
                             .args
                             .get(n as usize - '1' as usize)
                             .ok_or("missing macro argument")?,
-                    ),
+                    )?,
                     Some('<') if frame.in_macro => {
                         let mut n = String::new();
                         for c in chars.by_ref() {
@@ -441,18 +472,19 @@ impl Assembler {
                             n.push(c);
                         }
                         let i = self.value(&n)?;
-                        result.push_str(
+                        append(
+                            &mut result,
                             frame
                                 .args
                                 .get(i.wrapping_sub(1) as usize)
                                 .ok_or("missing macro argument")?,
-                        );
+                        )?;
                     }
                     Some(c) => {
-                        result.push('\\');
-                        result.push(c);
+                        character(&mut result, '\\')?;
+                        character(&mut result, c)?;
                     }
-                    None => result.push('\\'),
+                    None => character(&mut result, '\\')?,
                 }
             } else if c == '{' {
                 let mut name = String::new();
@@ -470,6 +502,9 @@ impl Assembler {
                 let (format, key) = name.split_once(':').unwrap_or(("", &name));
                 let key = key.trim();
                 let value = if let Some(s) = self.strings.get(key) {
+                    if s.len() > LIMIT {
+                        return Err("expanded line exceeds 1 MiB".into());
+                    }
                     Expr::String(s.clone())
                 } else if key.to_ascii_uppercase().starts_with("SECTION(") && key.ends_with(')') {
                     let name = key[8..key.len() - 1].trim();
@@ -484,6 +519,9 @@ impl Assembler {
                             .and_then(|s| s.section)
                     }
                     .ok_or("SECTION requires a defined label or current section")?;
+                    if self.object.sections[section].name.len() > LIMIT {
+                        return Err("expanded line exceeds 1 MiB".into());
+                    }
                     Expr::String(self.object.sections[section].name.clone())
                 } else {
                     Expr::Number(self.value(key)?)
@@ -497,16 +535,19 @@ impl Assembler {
                 } else {
                     format
                 };
-                result.push_str(&expr::eval_string(
-                    &Expr::Call(
-                        "STRFMT".into(),
-                        vec![Expr::String(format!("%{format}")), value],
-                    ),
-                    &|n| self.lookup(n),
-                    self.pc(),
-                )?);
+                append(
+                    &mut result,
+                    &expr::eval_string(
+                        &Expr::Call(
+                            "STRFMT".into(),
+                            vec![Expr::String(format!("%{format}")), value],
+                        ),
+                        &|n| self.lookup(n),
+                        self.pc(),
+                    )?,
+                )?;
             } else {
-                result.push(c);
+                character(&mut result, c)?;
             }
         }
         if result.contains('\n') && source::lines(&result, "").len() > 1 {
@@ -531,8 +572,31 @@ impl Assembler {
                 0
             }
         };
-        Ok(result[..protected].to_owned()
-            + &source::replace_words(&result[protected..], |name| self.strings.get(name).cloned()))
+        let mut length = result.len();
+        let mut exceeded = false;
+        let expanded = source::replace_words(&result[protected..], |name| {
+            let value = self.strings.get(name)?;
+            if exceeded {
+                return None;
+            }
+            let next = length
+                .checked_sub(name.len())
+                .and_then(|n| n.checked_add(value.len()));
+            match next {
+                Some(next) if next <= LIMIT => {
+                    length = next;
+                    Some(value.clone())
+                }
+                _ => {
+                    exceeded = true;
+                    None
+                }
+            }
+        });
+        if exceeded {
+            return Err("expanded line exceeds 1 MiB".into());
+        }
+        Ok(result[..protected].to_owned() + &expanded)
     }
     fn run(
         &mut self,
@@ -547,7 +611,7 @@ impl Assembler {
             }
             return false;
         }
-        let mut cond: Vec<(bool, bool, bool)> = Vec::new();
+        let mut cond: Vec<(bool, bool, bool, bool)> = Vec::new();
         let mut lines = lines.to_vec();
         let mut replay_depths = vec![0; lines.len()];
         let mut i = 0;
@@ -607,11 +671,21 @@ impl Assembler {
                                 false
                             }
                         };
-                    cond.push((enabled, yes, yes));
+                    cond.push((enabled, yes, yes, false));
                     continue;
                 }
                 "ELIF" | "ELSE" => {
                     if let Some(c) = cond.last_mut() {
+                        if c.3 {
+                            self.error(line, format!("{head_upper} after ELSE"));
+                            continue;
+                        }
+                        if head_upper == "ELSE" {
+                            if c.0 && !tail.is_empty() {
+                                self.error(line, "unexpected tokens after ELSE");
+                            }
+                            c.3 = true;
+                        }
                         let yes = c.0
                             && !c.2
                             && (head_upper == "ELSE"
@@ -630,6 +704,9 @@ impl Assembler {
                     continue;
                 }
                 "ENDC" => {
+                    if cond.last().is_some_and(|c| c.0) && !tail.is_empty() {
+                        self.error(line, "unexpected tokens after ENDC");
+                    }
                     if cond.pop().is_none() {
                         self.error(line, "ENDC without IF");
                     }
@@ -645,7 +722,7 @@ impl Assembler {
                     let mut nesting = 1;
                     while i < lines.len() {
                         let (_, body) = source::label(&lines[i].text);
-                        let (h, _) = source::word(body);
+                        let (h, closer_tail) = source::word(body);
                         let h = h.to_ascii_uppercase();
                         if (close == "ENDM" && h == "MACRO")
                             || (close == "ENDR" && matches!(h.as_str(), "REPT" | "FOR"))
@@ -654,6 +731,9 @@ impl Assembler {
                         }
                         if h == close {
                             nesting -= 1;
+                            if nesting == 0 && enabled && !closer_tail.is_empty() {
+                                self.error(&lines[i], format!("unexpected tokens after {close}"));
+                            }
                         }
                         i += 1;
                         if nesting == 0 {
@@ -677,7 +757,7 @@ impl Assembler {
                         if self
                             .macros
                             .insert(
-                                name.to_ascii_uppercase(),
+                                name.strip_prefix('#').unwrap_or(name).to_ascii_uppercase(),
                                 Macro {
                                     body: block.to_vec(),
                                 },
@@ -796,7 +876,11 @@ impl Assembler {
                 };
                 continue;
             }
-            if let Some(mac) = self.macros.get(&head_upper).cloned() {
+            if let Some(mac) = self
+                .macros
+                .get(head_upper.strip_prefix('#').unwrap_or(&head_upper))
+                .cloned()
+            {
                 if let Some((name, export)) = label {
                     if let Err(e) = self.define_label(name, export, line) {
                         self.error(line, e);
@@ -944,12 +1028,32 @@ impl Assembler {
             self.symbol_sources
                 .insert(name.clone(), self.provenance(line));
             if op.eq_ignore_ascii_case("EQUS") {
-                if command != "REDEF" && self.strings.contains_key(&name) {
+                if command != "REDEF"
+                    && (self.strings.contains_key(&name) || self.mutable.contains_key(&name))
+                {
                     return Err(format!("symbol already defined: {name}"));
                 }
                 let value = self.string(value)?;
+                self.constants.remove(&name);
+                self.deferred.remove(&name);
+                self.mutable.remove(&name);
                 self.strings.insert(name, value);
                 return Ok(());
+            }
+            let is_mutable = matches!(op.to_ascii_uppercase().as_str(), "=" | "SET");
+            if command != "REDEF"
+                && (self.strings.contains_key(&name)
+                    || self
+                        .mutable
+                        .get(&name)
+                        .is_some_and(|old| !*old || !is_mutable))
+            {
+                return Err(format!("constant already defined: {name}; use REDEF"));
+            }
+            self.mutable.insert(name.clone(), is_mutable);
+            if command == "REDEF" {
+                self.strings.remove(&name);
+                self.deferred.remove(&name);
             }
             let v = if matches!(op.to_ascii_uppercase().as_str(), "RB" | "RW" | "RL") {
                 let old = self.rs;
@@ -983,13 +1087,6 @@ impl Assembler {
                     Err(e) => return Err(e),
                 }
             };
-            if command != "REDEF" && op.eq_ignore_ascii_case("EQU") {
-                if self.constants.get(&name).is_some_and(|old| *old != v) {
-                    return Err(format!("constant already defined: {name}"));
-                }
-            } else {
-                self.mutable.insert(name.clone());
-            }
             self.constants.insert(name, v);
             return Ok(());
         }
@@ -1146,9 +1243,7 @@ impl Assembler {
             }
             "PURGE" => {
                 for name in source::args(tail)? {
-                    self.constants.remove(&name);
-                    self.strings.remove(&name);
-                    self.macros.remove(&name.to_ascii_uppercase());
+                    self.purge(&self.qualify(&name))?;
                 }
                 Ok(())
             }
@@ -1535,11 +1630,17 @@ impl Assembler {
         }
         let section = self.pc_section().ok_or("ALIGN outside SECTION")?;
         let sec = &mut self.object.sections[section];
-        let base = sec.address.unwrap_or(sec.align_offset);
-        if sec.address.is_none() {
-            sec.align = sec.align.max(bits as u8);
+        if let Some(base) = sec.address {
+            return Ok((requested - base - sec.data.len() as i32).rem_euclid(boundary));
         }
-        Ok((requested - base - sec.data.len() as i32).rem_euclid(boundary))
+        let known_boundary = 1i32 << sec.align.min(bits as u8);
+        let padding =
+            (requested - sec.align_offset - sec.data.len() as i32).rem_euclid(known_boundary);
+        if bits as u8 > sec.align {
+            sec.align = bits as u8;
+            sec.align_offset = (requested - sec.data.len() as i32 - padding).rem_euclid(boundary);
+        }
+        Ok(padding)
     }
     fn encode_string(&self, text: &str) -> Result<Vec<i32>, String> {
         let map = self.maps.get(&self.map).ok_or("unknown charmap")?;
@@ -1621,6 +1722,91 @@ impl Assembler {
         Ok(())
     }
 
+    fn patch_value(&self, p: &Patch) -> Option<i32> {
+        if p.kind == 3 {
+            if let Some(value) = self.relative_value(&p.expression, p.pc_section, p.pc_offset) {
+                return Some(value - p.pc_after);
+            }
+        }
+        let base = self.object.sections[p.pc_section].address;
+        if base.is_none() && (has_pc(&p.expression) || p.kind == 3) {
+            return None;
+        }
+        let value = expr::eval(
+            &p.expression,
+            &|n| self.lookup_at(n, Some(p.pc_section)),
+            base.unwrap_or(0) + p.pc_offset,
+        )
+        .ok()
+        .or_else(|| self.invariant(&p.expression))?;
+        Some(if p.kind == 3 {
+            value - base.unwrap_or(0) - p.pc_after
+        } else {
+            value
+        })
+    }
+    fn purge(&mut self, name: &str) -> Result<(), String> {
+        if !self.constants.contains_key(name)
+            && !self.strings.contains_key(name)
+            && !self.macros.contains_key(&name.to_ascii_uppercase())
+            && !self.deferred.contains_key(name)
+            && !self.object.symbols.iter().any(|s| s.name == name)
+        {
+            return Err(format!("undefined symbol '{name}'"));
+        }
+        if self
+            .deferred
+            .values()
+            .any(|tree| references_symbol(tree, name))
+        {
+            return Err(format!("cannot purge referenced symbol '{name}'"));
+        }
+        let mut patches = Vec::new();
+        for (s, section) in self.object.sections.iter().enumerate() {
+            for (i, p) in section.patches.iter().enumerate() {
+                if references_symbol(&p.expression, name) {
+                    let value = self
+                        .patch_value(p)
+                        .ok_or_else(|| format!("cannot purge referenced symbol '{name}'"))?;
+                    if !patch_fits(p, value) {
+                        return Err(format!("operand out of range: {value}"));
+                    }
+                    patches.push((s, i, value));
+                }
+            }
+        }
+        let mut assertions = Vec::new();
+        for (i, (tree, _, pc, section, _)) in self.assertions.iter().enumerate() {
+            if references_symbol(tree, name) {
+                if has_pc(tree) && pc.is_none() {
+                    return Err(format!("cannot purge referenced symbol '{name}'"));
+                }
+                let value = expr::eval(tree, &|n| self.lookup_at(n, *section), pc.unwrap_or(0))
+                    .ok()
+                    .or_else(|| self.invariant(tree))
+                    .ok_or_else(|| format!("cannot purge referenced symbol '{name}'"))?;
+                assertions.push((i, value));
+            }
+        }
+        for (s, i, value) in patches.into_iter().rev() {
+            let p = self.object.sections[s].patches.remove(i);
+            for byte in 0..patch_width(&p) {
+                self.object.sections[s].data[p.offset + byte] = (value as u32 >> (byte * 8)) as u8;
+            }
+        }
+        for (i, value) in assertions {
+            self.assertions[i].0 = Expr::Number(value);
+        }
+        self.mutable.remove(name);
+        self.object.symbols.retain(|s| s.name != name);
+        self.constants.remove(name);
+        self.strings.remove(name);
+        self.macros.remove(&name.to_ascii_uppercase());
+        self.deferred.remove(name);
+        self.symbol_sources.remove(name);
+        self.exports.remove(name);
+        Ok(())
+    }
     fn finish(&mut self) {
         for (s, size) in &self.union_sizes {
             let size = (*size).max(self.object.sections[*s].data.len());
@@ -1676,6 +1862,7 @@ impl Assembler {
                 Err("ASSERT requires a placed current address".into())
             } else {
                 expr::eval(&tree, &|n| self.lookup_at(n, section), pc.unwrap_or(0))
+                    .or_else(|e| self.invariant(&tree).ok_or(e))
             };
             match result {
                 Ok(v) if v != 0 => (),
@@ -1690,50 +1877,8 @@ impl Assembler {
             let patches = std::mem::take(&mut self.object.sections[s].patches);
             for mut p in patches {
                 p.expression = self.freeze(p.expression);
-                let pc = self.object.sections[p.pc_section].address.unwrap_or(0) + p.pc_offset;
-                let value = if self.object.sections[p.pc_section].address.is_none()
-                    && has_pc(&p.expression)
-                {
-                    Err("unplaced current address".into())
-                } else {
-                    expr::eval(
-                        &p.expression,
-                        &|n| self.lookup_at(n, Some(p.pc_section)),
-                        pc,
-                    )
-                };
-                let relative_same = if p.kind == 3 {
-                    self.relative_value(&p.expression, p.pc_section, p.pc_offset)
-                } else {
-                    None
-                };
-                let value = relative_same.map(|v| v - p.pc_after).or_else(|| {
-                    if p.kind == 3 && self.object.sections[p.pc_section].address.is_none() {
-                        return None;
-                    }
-                    value
-                        .ok()
-                        .or_else(|| self.invariant(&p.expression))
-                        .map(|v| {
-                            if p.kind == 3 {
-                                v - (self.object.sections[p.pc_section].address.unwrap_or(0)
-                                    + p.pc_after)
-                            } else {
-                                v
-                            }
-                        })
-                });
-                if let Some(value) = value {
-                    let constraint = p.constraint;
-                    let valid = match constraint {
-                        Some(encode::OperandKind::Signed8)
-                        | Some(encode::OperandKind::Relative8) => (-128..=127).contains(&value),
-                        Some(encode::OperandKind::High8) => (0xff00..=0xffff).contains(&value),
-                        Some(encode::OperandKind::Unsigned8) => (-128..=255).contains(&value),
-                        Some(encode::OperandKind::Unsigned16) => (-32768..=65535).contains(&value),
-                        None => p.kind != 3 || (-128..=127).contains(&value),
-                    };
-                    if !valid {
+                if let Some(value) = self.patch_value(&p) {
+                    if !patch_fits(&p, value) {
                         self.errors.push(Diagnostic {
                             file: p.source.file,
                             line: p.source.line,
@@ -1741,11 +1886,7 @@ impl Assembler {
                         });
                         continue;
                     }
-                    let width = match p.kind {
-                        1 => 2,
-                        2 => 4,
-                        _ => 1,
-                    };
+                    let width = patch_width(&p);
                     for i in 0..width {
                         self.object.sections[s].data[p.offset + i] =
                             (value as u32 >> (8 * i)) as u8;
@@ -1815,8 +1956,29 @@ impl Assembler {
         if tree.references_pc() {
             return None;
         }
-        let (value, bases) = self.affine(tree)?;
-        if bases.is_empty() { Some(value) } else { None }
+        if let Some((value, bases)) = self.affine(tree) {
+            if bases.is_empty() {
+                return Some(value);
+            }
+        }
+        let folded = match tree {
+            Expr::Unary(op, a) => {
+                Expr::Unary(op.clone(), Box::new(Expr::Number(self.invariant(a)?)))
+            }
+            Expr::Binary(op, a, b) => Expr::Binary(
+                op.clone(),
+                Box::new(Expr::Number(self.invariant(a)?)),
+                Box::new(Expr::Number(self.invariant(b)?)),
+            ),
+            Expr::Call(op, args) => Expr::Call(
+                op.clone(),
+                args.iter()
+                    .map(|a| self.invariant(a).map(Expr::Number))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            _ => return None,
+        };
+        expr::eval(&folded, &|n| self.lookup(n), 0).ok()
     }
     fn relative_value(&self, tree: &Expr, section: usize, pc: i32) -> Option<i32> {
         match tree {
@@ -1841,6 +2003,34 @@ impl Assembler {
     }
 }
 
+fn patch_width(p: &Patch) -> usize {
+    match p.kind {
+        1 => 2,
+        2 => 4,
+        _ => 1,
+    }
+}
+fn patch_fits(p: &Patch, value: i32) -> bool {
+    match p.constraint {
+        Some(encode::OperandKind::Signed8) | Some(encode::OperandKind::Relative8) => {
+            (-128..=127).contains(&value)
+        }
+        Some(encode::OperandKind::High8) => (0xff00..=0xffff).contains(&value),
+        Some(encode::OperandKind::Unsigned8) => (-128..=255).contains(&value),
+        Some(encode::OperandKind::Unsigned16) => (-32768..=65535).contains(&value),
+        None => p.kind != 3 || (-128..=127).contains(&value),
+    }
+}
+fn references_symbol(tree: &Expr, name: &str) -> bool {
+    match tree {
+        Expr::Symbol(s) => s == name,
+        Expr::Unary(_, a) => references_symbol(a, name),
+        Expr::Binary(_, a, b) => references_symbol(a, name) || references_symbol(b, name),
+        Expr::Call(op, _) if matches!(op.as_str(), "SIZEOF" | "STARTOF") => false,
+        Expr::Call(_, args) => args.iter().any(|a| references_symbol(a, name)),
+        _ => false,
+    }
+}
 fn has_pc(tree: &Expr) -> bool {
     match tree {
         Expr::Pc => true,

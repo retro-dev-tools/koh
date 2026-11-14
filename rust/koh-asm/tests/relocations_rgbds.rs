@@ -244,3 +244,23 @@ fn unresolved_import_is_a_link_error() {
         println!("Expected missing-import failure ({name}): {stderr}");
     }
 }
+
+#[test]
+fn floating_alignment_constrains_base_without_unnecessary_padding() {
+    let Some(f) = Fixture::new("floating-alignment") else {
+        return;
+    };
+    let source = "SECTION \"head\",ROM0[0]\nds 7\nSECTION \"tail\",ROM0[9]\nds $4000-9\nSECTION \"fit\",ROM0\ndb $11\nALIGN 3\ndb $22\n";
+    let (reference, _) = f.object("reference", source, false);
+    let expected = f.linked("reference-link", &[reference]);
+    assert_eq!(&expected[7..9], &[0x11, 0x22]);
+    let (native, object) = f.object("native", source, true);
+    let object = object.unwrap();
+    let fit = object.sections.iter().find(|s| s.name == "fit").unwrap();
+    assert_eq!(fit.address, None);
+    assert_eq!(fit.align, 3);
+    assert_eq!(fit.align_offset, 7);
+    assert_eq!(fit.size, 2);
+    assert_eq!(fit.data, [0x11, 0x22]);
+    assert_eq!(f.linked("native-link", &[native]), expected);
+}

@@ -373,7 +373,12 @@ pub fn write_kobj(object: &Object) -> Result<Vec<u8>, String> {
     for symbol in &object.symbols {
         string(&mut out, &symbol.name, false)?;
         let (kind, visibility, section, value) = match symbol.definition {
-            SymbolDefinition::Import => (0, 2, None, 0),
+            SymbolDefinition::Import => {
+                return Err(format!(
+                    "Kobj v4 cannot represent imported symbol '{}'; use RGBDS output",
+                    symbol.name
+                ));
+            }
             SymbolDefinition::Absolute(value) => (
                 1,
                 u8::from(symbol.binding == SymbolBinding::Exported),

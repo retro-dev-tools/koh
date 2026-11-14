@@ -57,6 +57,25 @@
     <Exec Command="&quot;$(EmulatorPublishDir)/$(EmulatorExecutableName)&quot;" />
   </Target>
 
+  <Target Name="BuildRustAssembler">
+    <Exec Command="cargo build --release --package koh-asm --locked" />
+  </Target>
+
+  <Target Name="TestRustAssembler">
+    <Exec Command="cargo test --workspace --locked" />
+  </Target>
+
+  <Target Name="BuildSample2048Rust" DependsOnTargets="BuildRustAssembler">
+    <PropertyGroup>
+      <RustAssembler>$(MSBuildThisFileDirectory)target/release/koh-asm</RustAssembler>
+      <RustAssembler Condition="'$(OS)' == 'Windows_NT'">$(RustAssembler).exe</RustAssembler>
+    </PropertyGroup>
+    <MakeDir Directories="samples/asm/gb-2048/build" />
+    <Exec Command="&quot;$(RustAssembler)&quot; samples/asm/gb-2048/src/main.asm -o samples/asm/gb-2048/build/2048-rust.kobj" />
+    <Exec Command="dotnet run --project src/Link/Koh.Link -- samples/asm/gb-2048/build/2048-rust.kobj -o samples/asm/gb-2048/build/2048-rust.gbc -n samples/asm/gb-2048/build/2048-rust.sym -d samples/asm/gb-2048/build/2048-rust.kdbg" />
+    <Error Condition="!Exists('samples/asm/gb-2048/build/2048-rust.gbc')" Text="2048-rust.gbc was not produced" />
+  </Target>
+
   <Target Name="BuildSample2048">
     <MakeDir Directories="samples/asm/gb-2048/build" />
     <Exec Command="dotnet run --project src/Asm/Koh.Asm -- samples/asm/gb-2048/src/main.asm -o samples/asm/gb-2048/build/2048.kobj" />

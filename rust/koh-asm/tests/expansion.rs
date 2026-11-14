@@ -110,3 +110,108 @@ fn interpolation_uses_shared_numeric_formats_and_section_names() {
         );
     }
 }
+
+#[test]
+fn exponential_equs_replay_has_a_byte_budget() {
+    let errors = assemble(
+        "DEF boom EQUS \"boom boom\"\nboom\n",
+        "exponential.asm",
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("expanded line exceeds 1 MiB"))
+    );
+}
+
+#[test]
+fn macro_and_interpolation_appends_have_a_byte_budget() {
+    assert_eq!(
+        bytes("MACRO emit\n db \\#\nENDM\nSECTION \"Main\",ROM0\nemit 1,2,3\n"),
+        [1, 2, 3]
+    );
+    let large = "a".repeat(600_000);
+    for source in [
+        format!("MACRO emit\n db \\1,\\1\nENDM\nSECTION \"Main\",ROM0\nemit \"{large}\"\n"),
+        format!("MACRO emit\n db \\#,\\#\nENDM\nSECTION \"Main\",ROM0\nemit \"{large}\"\n"),
+        format!("DEF Large EQUS #\"{large}\"\nSECTION \"Main\",ROM0\ndb \"{{Large}}{{Large}}\"\n"),
+    ] {
+        let errors = assemble(&source, "expanded-append.asm", false).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("expanded line exceeds 1 MiB"))
+        );
+    }
+}
+
+#[test]
+fn conditional_branch_order_is_validated_even_when_suppressed() {
+    for body in [
+        "IF 0\nELSE\nELSE\nENDC\n",
+        "IF 0\nELSE\nELIF 1\nENDC\n",
+        "IF 0\n IF 0\n ELSE\n ELSE\n ENDC\nENDC\n",
+        "IF 0\n IF 0\n ELSE\n ELIF 1\n ENDC\nENDC\n",
+    ] {
+        let errors = assemble(
+            &format!("SECTION \"Main\",ROM0\n{body}"),
+            "bad-conditional.asm",
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("after ELSE")),
+            "{errors:?}"
+        );
+    }
+    assert_eq!(
+        bytes(
+            "SECTION \"Main\",ROM0\nIF 0\n db 1\nELIF 0\n db 2\nELIF 1\n db 3\nELSE\n db 4\nENDC\n"
+        ),
+        [3]
+    );
+}
+
+#[test]
+fn active_block_terminators_reject_trailing_tokens() {
+    for body in [
+        "IF 0\nELSE 1\nENDC\n",
+        "IF 0\nENDC 1\n",
+        "MACRO example\n nop\nENDM 1\n",
+        "REPT 1\n nop\nENDR 1\n",
+        "REPT 0\n nop\nENDR 1\n",
+    ] {
+        let errors = assemble(
+            &format!("SECTION \"Main\",ROM0\n{body}"),
+            "bad-terminator.asm",
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("unexpected tokens after")),
+            "{errors:?}"
+        );
+    }
+    assert_eq!(
+        bytes(
+            "SECTION \"Main\",ROM0\nIF 0\n IF 0\n ELSE 1\n ENDC\n MACRO example\n  nop\n ENDM 1\nENDC\ndb 7\n"
+        ),
+        [7]
+    );
+}
+
+#[test]
+fn raw_macro_definitions_and_calls_use_the_same_name() {
+    assert_eq!(
+        bytes("MACRO #Example\n db 7\nENDM\nSECTION \"Main\",ROM0\nExample\n#Example\n"),
+        [7, 7]
+    );
+    assert_eq!(
+        bytes("MACRO Example\n db 8\nENDM\nSECTION \"Main\",ROM0\n#Example\n"),
+        [8]
+    );
+}
