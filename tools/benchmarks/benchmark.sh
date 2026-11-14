@@ -24,12 +24,6 @@ if ! command -v docker &>/dev/null; then
 fi
 echo "[benchmark] Docker: $(docker --version)"
 
-if ! command -v dotnet &>/dev/null; then
-  echo "[benchmark] ERROR: dotnet not in PATH" >&2; exit 2
-fi
-DOTNET_SDK_VERSION=$(dotnet --version)
-echo "[benchmark] .NET SDK: $DOTNET_SDK_VERSION"
-
 # ---------------------------------------------------------------------------
 # Publish KOH (separate subdirs to avoid output collisions)
 # ---------------------------------------------------------------------------
@@ -73,7 +67,6 @@ DOCKER_ARGS=(
   -e "BENCH_WARMUP=${BENCH_WARMUP:-2}"
   -e "BENCH_STRICT=${BENCH_STRICT:-0}"
   -e "BENCH_COVERAGE=${BENCH_COVERAGE:-0}"
-  -e "DOTNET_SDK_HOST=$DOTNET_SDK_VERSION"
 )
 [[ -n "${POKECRYSTAL_REF:-}" ]] && DOCKER_ARGS+=(-e "POKECRYSTAL_REF=$POKECRYSTAL_REF")
 [[ -n "$BENCH_CPUSET" ]] && DOCKER_ARGS+=(--cpuset-cpus "$BENCH_CPUSET")

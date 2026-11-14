@@ -10,3 +10,5 @@ process, not Rust worker allocations.
 `benchmark.sh` builds the Rust assembler and linker for the Docker
 command-line comparison. Historical C# binder measurements describe the deleted
 implementation and are not directly comparable with native protocol timings.
+The CLI container needs no .NET runtime. Existing report keys for .NET versions
+remain readable and record `not used (native tools)` for these native runs.

@@ -169,10 +169,10 @@ ENV_CPU=$(grep 'model name' /proc/cpuinfo | head -1 | sed 's/.*: //')
 ENV_KERNEL=$(uname -r)
 ENV_CONTAINER_OS=$(grep PRETTY_NAME /etc/os-release | sed 's/PRETTY_NAME="//' | sed 's/"//')
 ENV_RAM_MB=$(awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo)
-ENV_DOTNET=$(dotnet --list-runtimes 2>/dev/null | grep NETCore | head -1 | sed 's/.*App //' | sed 's/ .*//' || echo "unknown")
+ENV_DOTNET="not used (native tools)"
 ENV_RGBDS=$(rgbasm --version 2>&1 | head -1)
 ENV_KOH=$(/opt/koh/koh-asm/koh-asm --version 2>&1 | head -1 || echo "unknown")
-ENV_SDK_HOST="${DOTNET_SDK_HOST:-unknown}"
+ENV_SDK_HOST="not used (native tools)"
 
 cat > "$BENCH_OUTPUT/environment.txt" <<EOF
 cpu_model=$ENV_CPU

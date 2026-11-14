@@ -12,13 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL "https://github.com/gbdev/rgbds/releases/download/v${RGBDS_VERSION}/rgbds-linux-x86_64.tar.xz" \
     | tar -xJ -C /usr/local/bin/
 
-# Install .NET 10 runtime
-RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 10.0 --runtime dotnet --install-dir /usr/share/dotnet \
-    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
-    && rm /tmp/dotnet-install.sh
-
 RUN mkdir -p /work /results /opt/koh
 
 COPY run-benchmark.sh /usr/local/bin/run-benchmark.sh
