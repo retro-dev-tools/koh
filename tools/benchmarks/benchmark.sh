@@ -37,18 +37,13 @@ echo "[benchmark] Publishing KOH for linux-x64..."
 PUBLISH_DIR="$SCRIPT_DIR/.publish"
 rm -rf "$PUBLISH_DIR"
 
-cargo build --manifest-path "$REPO_ROOT/Cargo.toml" --release --package koh-asm --locked \
+cargo build --manifest-path "$REPO_ROOT/Cargo.toml" --release --package koh-asm --package koh-link --locked \
   --target x86_64-unknown-linux-gnu --target-dir "$PUBLISH_DIR/cargo"
 mkdir -p "$PUBLISH_DIR/koh-asm"
 cp "$PUBLISH_DIR/cargo/x86_64-unknown-linux-gnu/release/koh-asm" "$PUBLISH_DIR/koh-asm/koh-asm"
 
-dotnet publish "$REPO_ROOT/src/Link/Koh.Link/Koh.Link.csproj" \
-  -c Release -r linux-x64 --no-self-contained \
-  -o "$PUBLISH_DIR/koh-link" --verbosity quiet
-
-if [[ -f "$PUBLISH_DIR/koh-link/Koh.Link" ]] && [[ ! -f "$PUBLISH_DIR/koh-link/koh-link" ]]; then
-  mv "$PUBLISH_DIR/koh-link/Koh.Link" "$PUBLISH_DIR/koh-link/koh-link"
-fi
+mkdir -p "$PUBLISH_DIR/koh-link"
+cp "$PUBLISH_DIR/cargo/x86_64-unknown-linux-gnu/release/koh-link" "$PUBLISH_DIR/koh-link/koh-link"
 
 # Verify the expected binaries exist
 [[ -f "$PUBLISH_DIR/koh-asm/koh-asm" ]] || { echo "[benchmark] ERROR: koh-asm binary not found after publish" >&2; exit 2; }

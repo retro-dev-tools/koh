@@ -17,7 +17,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 | Tool | Purpose |
 |------|---------|
 | `koh-asm` | Assembler for RGBDS-style Game Boy assembly |
-| `koh-link` | Linker for Koh object files; use `rgblink` for RGBDS objects |
+| `koh-link` | Native Rust linker for ELF32/SM83 objects |
 | `koh-lsp` | Language server for diagnostics, navigation, and refactoring |
 | VS Code extension | VS Code integration for Koh projects |
 | `Koh.Sdk` | MSBuild integration that compiles C# games to Game Boy ROMs |
@@ -46,7 +46,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 - sections, banking, and alignment handling
 - macros and conditional assembly
 - expressions, directives, and assertions
-- object or ROM output
+- ELF32/SM83 object output
 
 ### Linker
 
@@ -54,12 +54,12 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 - ROM bank assignment
 - section placement and alignment
 - symbol resolution and patching
-- `.sym` output
-- support for Koh and RGBDS object formats
+- `.sym` and `.kdbg` output
+- canonical [ELF32/SM83 ABI](docs/rust-linker/elf32-sm83.md) with checked complex relocations
 
 ## Status
 
-Koh is under active development. RGBDS syntax and object support are compatibility goals, not a guarantee that every RGBDS project builds unchanged. Compiler and emulator behavior is covered by tests and sample games; this does not establish complete language or hardware compatibility.
+Koh is under active development. RGBDS assembly syntax compatibility is a goal, not a guarantee that every RGBDS project builds unchanged. Compiler and emulator behavior is covered by tests and sample games; this does not establish complete language or hardware compatibility.
 
 Current priorities include:
 
@@ -183,12 +183,11 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 ## Repository Layout
 
 ```text
-rust/         koh-asm (native assembler and language service)
+rust/         koh-asm (assembler/service), koh-link (linker), koh-objects (ELF ABI)
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
-              Koh.Objects (object model; .kobj, RGBDS and .kdbg formats)
+              Koh.Objects (compiler output concepts and .kdbg reader)
   Asm/        Koh.Native (native bridge), Koh.Lsp (language server)
-  Link/       Koh.Linker, Koh.Link (linker CLI)
   Compiler/   Koh.Compiler, Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
   Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App
   UI/         KohUI, KohUI.Backends.Sdl3, KohUI.Backends.Dom

@@ -53,9 +53,6 @@ try {
     dotnet publish src/Asm/Koh.Lsp -c Release -r win-x64 --self-contained -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-lsp publish failed ($LASTEXITCODE)" }
 
-    dotnet publish src/Link/Koh.Link -c Release -r win-x64 -o $devBin
-    if ($LASTEXITCODE -ne 0) { throw "koh-link publish failed ($LASTEXITCODE)" }
-
     dotnet publish src/Emulator/Koh.Emulator.App -c Release -r win-x64 -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "emulator publish failed ($LASTEXITCODE)" }
 

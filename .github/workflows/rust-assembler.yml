@@ -1,4 +1,4 @@
-name: Rust assembler
+name: Rust toolchain
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
       - name: Test
         run: cargo +stable test --workspace --locked
       - name: Build native executable
-        run: cargo +stable build --release --package koh-asm --locked
+        run: cargo +stable build --release --package koh-asm --package koh-link --locked
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -48,6 +48,8 @@ jobs:
           path: |
             target/release/koh-asm
             target/release/koh-asm.exe
+            target/release/koh-link
+            target/release/koh-link.exe
             licenses/rust-assembler-dependencies.md
             licenses/rust-assembler/
 

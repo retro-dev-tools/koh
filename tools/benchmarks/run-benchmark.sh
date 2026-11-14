@@ -117,7 +117,7 @@ run_koh_assembly() {
   /usr/bin/time -v bash -c '
     set -e
     for asm in '"$(printf '%s ' "${ASM_FILES[@]}")"'; do
-      /opt/koh/koh-asm/koh-asm "${asm}.asm" -o "${asm}.koh.o" -f rgbds
+      /opt/koh/koh-asm/koh-asm "${asm}.asm" -o "${asm}.koh.o"
     done
   ' >"$logfile" 2>&1
 }
@@ -296,7 +296,7 @@ TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Assembly phase command templates (for recording in run data)
 RGBDS_ASM_CMD_TEMPLATE="rgbasm -Q8 -P includes.asm -Weverything -Wtruncation=1 -o \${asm}.o \${asm}.asm"
-KOH_ASM_CMD_TEMPLATE="/opt/koh/koh-asm/koh-asm \${asm}.asm -o \${asm}.koh.o -f rgbds"
+KOH_ASM_CMD_TEMPLATE="/opt/koh/koh-asm/koh-asm \${asm}.asm -o \${asm}.koh.o"
 ASM_FILES_CSV=$(IFS=,; echo "${ASM_FILES[*]}")
 
 for (( run=1; run<=BENCH_RUNS; run++ )); do

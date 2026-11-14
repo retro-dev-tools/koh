@@ -43,7 +43,6 @@ jobs:
           # YamlDotNet use runtime reflection); ship self-contained so
           # users don't need .NET 10 on PATH.
           dotnet publish src/Asm/Koh.Lsp          -c Release -r ${{ matrix.rid }} --self-contained -o "$bin"
-          dotnet publish src/Link/Koh.Link         -c Release -r ${{ matrix.rid }} -o "$bin"
           dotnet publish src/Emulator/Koh.Emulator.App -c Release -r ${{ matrix.rid }} -o "$bin"
 
       - name: Pack raw archive
