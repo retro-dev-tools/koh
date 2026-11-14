@@ -38,6 +38,10 @@ internal sealed class DapServerHost : IDisposable
     private DapDispatcher? _dispatcher;
     private readonly object _writeLock = new();
     private bool _stopOnEntry;
+    private readonly TaskCompletionSource _completion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    public Task Completion => _completion.Task;
 
     // Packed banked-address set of one-shot breakpoints installed by
     // step-over / step-out. The PausedOnBreak handler translates hits
@@ -56,6 +60,8 @@ internal sealed class DapServerHost : IDisposable
         // safe to call from there because the loop is paused across
         // SetSystem.
         _loop.SystemInstalled += system => _session.AdoptSystem(system);
+        if (_loop.CurrentSystem is { } current)
+            _session.AdoptSystem(current);
 
         // Loop pause because of a hit breakpoint / watchpoint → tell
         // VS Code. The event fires on the emulator thread, so we
@@ -106,7 +112,7 @@ internal sealed class DapServerHost : IDisposable
             );
 
             Console.Error.WriteLine($"[koh-dap] listening on \\\\.\\pipe\\{_pipeName}");
-            _pipe.WaitForConnection();
+            _pipe.WaitForConnectionAsync(_cts.Token).GetAwaiter().GetResult();
             Console.Error.WriteLine("[koh-dap] client connected");
 
             var dispatcher = new DapDispatcher();
@@ -123,6 +129,8 @@ internal sealed class DapServerHost : IDisposable
                 if (body is null)
                     break;
                 dispatcher.HandleRequest(body.Value.Span);
+                if (_endRequested)
+                    break;
             }
         }
         catch (OperationCanceledException)
@@ -134,27 +142,18 @@ internal sealed class DapServerHost : IDisposable
         }
         finally
         {
+            _dispatcher = null;
+            _loop.Pause();
             try
             {
                 _pipe?.Dispose();
             }
             catch { }
-        }
-
-        // We only reach this point when the DAP client disconnected (or
-        // crashed). In --dap mode the emulator is a slave of VS Code's
-        // debug session; outliving the client orphans a GUI process the
-        // user has no way to reconnect to. Tear the whole process down
-        // so killing VS Code reliably kills the emulator too, even
-        // when the extension's explicit child.kill() never arrives
-        // (VS Code force-close, host crash, Windows session logout).
-        // Suppress during cooperative shutdown (Dispose set _cts).
-        if (!_cts.IsCancellationRequested)
-        {
-            Console.Error.WriteLine("[koh-dap] client disconnected; exiting emulator");
-            Environment.Exit(0);
+            _completion.TrySetResult();
         }
     }
+
+    private bool _endRequested;
 
     private void RegisterHandlers(DapDispatcher dispatcher)
     {
@@ -233,6 +232,8 @@ internal sealed class DapServerHost : IDisposable
                     _loop.Pause();
                     Task.Run(() => SendStoppedEvent("entry"));
                 }
+                else
+                    _loop.Resume();
                 return new Response
                 {
                     RequestSeq = req.Seq,
@@ -244,11 +245,11 @@ internal sealed class DapServerHost : IDisposable
 
         dispatcher.RegisterHandler(
             "disconnect",
-            req => new Response
+            req =>
             {
-                RequestSeq = req.Seq,
-                Command = req.Command,
-                Success = true,
+                _loop.Pause();
+                _endRequested = true;
+                return Ok(req);
             }
         );
 
@@ -308,6 +309,7 @@ internal sealed class DapServerHost : IDisposable
             req =>
             {
                 _loop.Pause();
+                _endRequested = true;
                 return new Response
                 {
                     RequestSeq = req.Seq,
@@ -502,10 +504,18 @@ internal sealed class DapServerHost : IDisposable
     {
         lock (_writeLock)
         {
-            var header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
-            stream.Write(header);
-            stream.Write(body);
-            stream.Flush();
+            try
+            {
+                var header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
+                stream.Write(header);
+                stream.Write(body);
+                stream.Flush();
+            }
+            catch (IOException)
+            {
+                stream.Dispose();
+            }
+            catch (ObjectDisposedException) { }
         }
     }
 

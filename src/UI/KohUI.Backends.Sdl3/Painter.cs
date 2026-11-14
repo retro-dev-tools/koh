@@ -1,25 +1,15 @@
 using KohUI;
 using KohUI.Theme;
-using Silk.NET.OpenGL;
 
-namespace KohUI.Backends.Gl;
+namespace KohUI.Backends.Sdl3;
 
-/// <summary>
-/// Walks a <see cref="LayoutNode"/> tree and submits drawing calls to a
-/// <see cref="QuadBatch"/> (solid rectangles) and <see cref="BitmapFont"/>
-/// (text). Bevels are plain 1-pixel rects over the OpenGL vertex stream —
-/// the full Win98 look from a single shader.
-/// </summary>
 internal sealed class Painter : IDisposable
 {
     private readonly Win98Theme _theme;
     private readonly QuadBatch _batch;
     private readonly BitmapFont _font;
-    private readonly GL _gl;
+    private readonly SdlContext _context;
 
-    // One GL texture per Image node, keyed on layout path. Reused across
-    // frames — an emulator Image uploads 160×144 RGBA (~92 KB) per paint,
-    // so keeping the texture handle around avoids GenTexture churn.
     private readonly Dictionary<string, ImageTexture> _imageTextures = [];
     private readonly HashSet<string> _seenImagePaths = [];
 
@@ -34,12 +24,12 @@ internal sealed class Painter : IDisposable
         _titleText,
         _inputBg;
 
-    public Painter(Win98Theme theme, QuadBatch batch, BitmapFont font, GL gl)
+    public Painter(Win98Theme theme, QuadBatch batch, BitmapFont font, SdlContext context)
     {
         _theme = theme;
         _batch = batch;
         _font = font;
-        _gl = gl;
+        _context = context;
         _bg = theme.Background;
         _hi = theme.BevelHilite;
         _sh = theme.BevelShadow;
@@ -52,18 +42,6 @@ internal sealed class Painter : IDisposable
         _inputBg = theme.InputBackground;
     }
 
-    /// <summary>
-    /// Paint the tree. <paramref name="pressedPath"/> is the button path
-    /// currently held down (inverted bevel). <paramref name="focusPath"/>
-    /// is the focused widget (dotted focus ring on buttons; blue
-    /// highlight on menu items). <paramref name="caretOn"/> toggles the
-    /// TextBox caret on for this frame (the run loop flips it on a
-    /// ~530 ms cadence).
-    /// </summary>
-    // Clip rectangle for the current subtree, if any. Nested ScrollPanels
-    // intersect: the effective clip is the AND of every ancestor's clip,
-    // so content is only drawn where all enclosing scroll viewports show
-    // something.
     private Rect? _clip;
 
     public void Paint(
@@ -81,6 +59,7 @@ internal sealed class Painter : IDisposable
 
     private void PaintNode(LayoutNode node, string? pressedPath, string? focusPath, bool caretOn)
     {
+        _batch.SetClip(_clip);
         Draw(node, pressedPath, focusPath, caretOn);
         if (node.Source.Type == "ScrollPanel")
         {
@@ -125,8 +104,6 @@ internal sealed class Painter : IDisposable
             case "Stack":
             case "MenuBar":
             case "StatusBar":
-                // Container widgets paint nothing on their own — children
-                // cover the ground.
                 break;
 
             case "Panel":
@@ -194,15 +171,11 @@ internal sealed class Painter : IDisposable
         byte b = (byte)(node.Source.Props.TryGetValue("b", out var bv) && bv is int bi ? bi : 0);
         var rect = node.Bounds;
         Fill(rect, new KohColor(r, g, b));
-        // Single-pixel dark outline so light swatches are still
-        // distinguishable against a light background.
         Fill(new Rect(rect.X, rect.Y, rect.W, 1), _dk);
         Fill(new Rect(rect.X, rect.Bottom - 1, rect.W, 1), _dk);
         Fill(new Rect(rect.X, rect.Y, 1, rect.H), _dk);
         Fill(new Rect(rect.Right - 1, rect.Y, 1, rect.H), _dk);
     }
-
-    // ─── Panels ──────────────────────────────────────────────────────
 
     private void DrawPanel(Rect r, string bevel)
     {
@@ -222,8 +195,6 @@ internal sealed class Painter : IDisposable
         }
     }
 
-    // ─── Buttons ─────────────────────────────────────────────────────
-
     private void DrawButton(Rect r, string text, bool enabled, bool pressed, bool focused)
     {
         Fill(r, _bg);
@@ -240,8 +211,6 @@ internal sealed class Painter : IDisposable
             DrawFocusRing(Inset(r, 4));
     }
 
-    // ─── Menu ────────────────────────────────────────────────────────
-
     private void DrawMenuItem(string text, Rect r, bool focused)
     {
         var textColor = _text;
@@ -256,8 +225,6 @@ internal sealed class Painter : IDisposable
         int amp = text.IndexOf('&');
         if (amp >= 0 && amp < text.Length - 1)
         {
-            // Underline the accelerator glyph (6-pixel-wide block at the
-            // right pixel-column offset from the text's start).
             int textX = r.X + 4;
             int textY = r.Y + (r.H - BitmapFont.GlyphH) / 2;
             int underlineY = textY + BitmapFont.GlyphH - 1;
@@ -266,16 +233,12 @@ internal sealed class Painter : IDisposable
         }
     }
 
-    // ─── Status bar ──────────────────────────────────────────────────
-
     private void DrawStatusSegment(string text, Rect r)
     {
         Fill(r, _bg);
         DrawBevel(r, outerTL: _sh, outerBR: _hi, innerTL: _bg, innerBR: _bg);
         DrawText(text, r, center: false, _text);
     }
-
-    // ─── Check / Radio ───────────────────────────────────────────────
 
     private void DrawCheckBox(Rect r, string text, bool isChecked, bool focused)
     {
@@ -337,9 +300,7 @@ internal sealed class Painter : IDisposable
         }
     }
 
-    // ─── Image ───────────────────────────────────────────────────────
-
-    private unsafe void DrawImage(LayoutNode node)
+    private void DrawImage(LayoutNode node)
     {
         if (node.Source.Props.TryGetValue("pixels", out var pv) is false || pv is not byte[] pixels)
             return;
@@ -347,7 +308,7 @@ internal sealed class Painter : IDisposable
         int height = node.Source.Props.TryGetValue("height", out var hv) && hv is int hi ? hi : 0;
         if (width <= 0 || height <= 0)
             return;
-        if (pixels.Length < width * height * 4)
+        if ((long)width * height * 4 > pixels.Length)
             return;
 
         _seenImagePaths.Add(node.Path);
@@ -359,75 +320,45 @@ internal sealed class Painter : IDisposable
         )
         {
             if (_imageTextures.TryGetValue(node.Path, out var old))
-                _gl.DeleteTexture(old.Handle);
-
-            uint handle = _gl.GenTexture();
-            _gl.BindTexture(TextureTarget.Texture2D, handle);
-            _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
-            fixed (byte* p = pixels)
-                _gl.TexImage2D(
-                    TextureTarget.Texture2D,
-                    0,
-                    (int)InternalFormat.Rgba8,
-                    (uint)width,
-                    (uint)height,
-                    0,
-                    PixelFormat.Rgba,
-                    PixelType.UnsignedByte,
-                    p
-                );
-            // Nearest-neighbor for pixel-perfect retro scaling.
-            _gl.TexParameter(
-                TextureTarget.Texture2D,
-                TextureParameterName.TextureMinFilter,
-                (int)TextureMinFilter.Nearest
-            );
-            _gl.TexParameter(
-                TextureTarget.Texture2D,
-                TextureParameterName.TextureMagFilter,
-                (int)TextureMagFilter.Nearest
-            );
-            _gl.TexParameter(
-                TextureTarget.Texture2D,
-                TextureParameterName.TextureWrapS,
-                (int)TextureWrapMode.ClampToEdge
-            );
-            _gl.TexParameter(
-                TextureTarget.Texture2D,
-                TextureParameterName.TextureWrapT,
-                (int)TextureWrapMode.ClampToEdge
+                _context.DeleteTexture(old.Handle);
+            uint handle = _context.CreateTexture(
+                width,
+                height,
+                pixels.AsSpan(0, checked(width * height * 4))
             );
             tex = new ImageTexture(handle, width, height);
             _imageTextures[node.Path] = tex;
         }
         else
         {
-            // Same dimensions → reuse the texture, just push new pixels.
-            _gl.BindTexture(TextureTarget.Texture2D, tex.Handle);
-            _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
-            fixed (byte* p = pixels)
-                _gl.TexSubImage2D(
-                    TextureTarget.Texture2D,
-                    0,
-                    0,
-                    0,
-                    (uint)width,
-                    (uint)height,
-                    PixelFormat.Rgba,
-                    PixelType.UnsignedByte,
-                    p
-                );
+            _context.UpdateTexture(tex.Handle, pixels.AsSpan(0, checked(width * height * 4)));
         }
 
         var r = node.Bounds;
+        int scale =
+            node.Source.Props.TryGetValue("scale", out var sv) && sv is int si
+                ? Math.Max(1, si)
+                : 1;
         _batch.SetTexture(tex.Handle);
-        _batch.TexturedQuad(r.X, r.Y, r.W, r.H, 0f, 0f, 1f, 1f, 255, 255, 255);
+        _batch.SetClip(Intersect(_clip, r));
+        _batch.TexturedQuad(
+            r.X,
+            r.Y,
+            checked(width * scale),
+            checked(height * scale),
+            0f,
+            0f,
+            1f,
+            1f,
+            255,
+            255,
+            255
+        );
+        _batch.SetClip(_clip);
     }
 
     private void PruneStaleImageTextures()
     {
-        if (_imageTextures.Count == _seenImagePaths.Count)
-            return;
         List<string>? stale = null;
         foreach (var key in _imageTextures.Keys)
         {
@@ -440,7 +371,7 @@ internal sealed class Painter : IDisposable
             return;
         foreach (var key in stale)
         {
-            _gl.DeleteTexture(_imageTextures[key].Handle);
+            _context.DeleteTexture(_imageTextures[key].Handle);
             _imageTextures.Remove(key);
         }
     }
@@ -448,20 +379,17 @@ internal sealed class Painter : IDisposable
     public void Dispose()
     {
         foreach (var tex in _imageTextures.Values)
-            _gl.DeleteTexture(tex.Handle);
+            _context.DeleteTexture(tex.Handle);
         _imageTextures.Clear();
     }
 
     private readonly record struct ImageTexture(uint Handle, int Width, int Height);
-
-    // ─── TextBox ─────────────────────────────────────────────────────
 
     private void DrawTextBox(Rect r, string text, bool focused, bool caretOn)
     {
         Fill(r, _inputBg);
         DrawBevel(r, outerTL: _sh, outerBR: _hi, innerTL: _dk, innerBR: _bg);
 
-        // Content sits inside the 2-pixel bevel + 3-pixel padding.
         int contentX = r.X + _theme.BevelWidth + 3;
         int contentY = r.Y + (r.H - BitmapFont.GlyphH) / 2;
         if (!string.IsNullOrEmpty(text))
@@ -476,8 +404,6 @@ internal sealed class Painter : IDisposable
 
     private void DrawCheckGlyph(Rect box)
     {
-        // Hand-plotted ✓ at 13 px — readable at this scale without
-        // needing a vector check-glyph asset.
         int bx = box.X + 3;
         int by = box.Y + 3;
         (int x, int y)[] pts =
@@ -506,8 +432,6 @@ internal sealed class Painter : IDisposable
 
     private void DrawRadioGlyph(Rect box, bool selected)
     {
-        // 13×13 pixel-mapped circle; cells label which theme colour
-        // goes in each pixel (D / S / H / B / W).
         string[] rows =
         [
             "....DDDDD....",
@@ -547,8 +471,6 @@ internal sealed class Painter : IDisposable
             Fill(new Rect(box.X + 5, box.Y + 5, 3, 3), _text);
     }
 
-    // ─── Primitives ──────────────────────────────────────────────────
-
     private void Fill(Rect r, KohColor c)
     {
         if (_clip is { } clip)
@@ -565,11 +487,6 @@ internal sealed class Painter : IDisposable
         _batch.FillRect(r.X, r.Y, r.W, r.H, c.R, c.G, c.B);
     }
 
-    /// <summary>
-    /// Classic Win98 2-pixel bevel: outer top+left, outer bottom+right,
-    /// inner top+left (1 px inward), inner bottom+right. Four 1-pixel
-    /// rectangles per side, 8 fills total.
-    /// </summary>
     private void DrawBevel(
         Rect r,
         KohColor outerTL,
@@ -578,12 +495,10 @@ internal sealed class Painter : IDisposable
         KohColor innerBR
     )
     {
-        // Outer ring
         Fill(new Rect(r.X, r.Y, r.W, 1), outerTL); // top
         Fill(new Rect(r.X, r.Y, 1, r.H), outerTL); // left
         Fill(new Rect(r.X, r.Bottom - 1, r.W, 1), outerBR); // bottom
         Fill(new Rect(r.Right - 1, r.Y, 1, r.H), outerBR); // right
-        // Inner ring
         Fill(new Rect(r.X + 1, r.Y + 1, r.W - 2, 1), innerTL);
         Fill(new Rect(r.X + 1, r.Y + 1, 1, r.H - 2), innerTL);
         Fill(new Rect(r.X + 1, r.Bottom - 2, r.W - 2, 1), innerBR);
@@ -597,28 +512,11 @@ internal sealed class Painter : IDisposable
         int tw = _font.Measure(text);
         int x = center ? r.X + (r.W - tw) / 2 : r.X + 4;
         int y = r.Y + (r.H - BitmapFont.GlyphH) / 2;
-        // Row-granular clipping: if the glyph row falls outside an
-        // active scroll clip, skip the whole string rather than
-        // half-drawing it. Row-aligned content (debug views) loses no
-        // information; non-aligned text just can't straddle clip
-        // boundaries without going through the full per-glyph UV
-        // rewriter, which v1 doesn't have.
-        if (
-            _clip is { } clip
-            && (
-                y + BitmapFont.GlyphH <= clip.Y
-                || y >= clip.Bottom
-                || x + tw <= clip.X
-                || x >= clip.Right
-            )
-        )
-            return;
         _font.DrawString(_batch, text, x, y, colour.R, colour.G, colour.B);
     }
 
     private void DrawFocusRing(Rect r)
     {
-        // 1-pixel dotted perimeter inset `by` pixels from the widget edge.
         for (int x = r.X; x < r.Right; x += 2)
         {
             Fill(new Rect(x, r.Y, 1, 1), _text);

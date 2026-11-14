@@ -7,22 +7,7 @@ using Koh.Emulator.Ppu;
 namespace Koh.Emulator.App;
 
 /// <summary>
-/// Background-thread emulator pacer. The loop runs <c>RunFrame()</c> as
-/// fast as the <see cref="AudioSink"/> can absorb samples: once the
-/// sink reports enough buffered audio, we sleep; once it drains below
-/// the low-water mark, we catch up. This keeps the emulated speed
-/// exactly aligned to audio hardware clock (no drift, no monitor-refresh
-/// coupling) so a 60 Hz display showing a 59.73 Hz Game Boy still
-/// produces pitch-correct audio.
-///
-/// <para>
-/// Ported from <c>feature/audio-driven-pacing</c> — the algorithm is
-/// unchanged, but the surface is trimmed for the KohUI host: no
-/// <c>IAudioSink</c> indirection (only one implementation), no
-/// <c>FrameCompleted</c> event (the GL painter reads the live
-/// framebuffer directly), and a simpler command mailbox because we
-/// only need Pause/Resume/Quit in v1.
-/// </para>
+/// Emulator pacing with optional audio.
 /// </summary>
 public sealed class EmulatorLoop : IDisposable
 {
@@ -35,7 +20,7 @@ public sealed class EmulatorLoop : IDisposable
     private const int TargetFill = 2048; // ~46 ms
     private const int LowWater = 1024; // ~23 ms
 
-    private readonly AudioSink _sink;
+    private readonly AudioSink? _sink;
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _runGate = new(false);
     private readonly ManualResetEventSlim _exited = new(false);
@@ -158,7 +143,7 @@ public sealed class EmulatorLoop : IDisposable
     /// </summary>
     public event Action<StopReason>? PausedOnBreak;
 
-    public EmulatorLoop(AudioSink sink)
+    public EmulatorLoop(AudioSink? sink = null)
     {
         _sink = sink;
         // Raise Windows timer resolution so Thread.Sleep(1) actually
@@ -217,7 +202,7 @@ public sealed class EmulatorLoop : IDisposable
         _currentRomPath = romPath;
         if (system is not null && romPath is not null)
             LoadSramInto(system, romPath);
-        _sink.Reset();
+        _sink?.Reset();
         Volatile.Write(ref _frameCount, 0);
         if (system is not null)
             SystemInstalled?.Invoke(system);
@@ -391,7 +376,7 @@ public sealed class EmulatorLoop : IDisposable
                 // Audio queued before the load doesn't belong to the
                 // restored world — drop it so the new state's first
                 // samples aren't preceded by stale tail.
-                _sink.Reset();
+                _sink?.Reset();
             }
             catch (Exception ex)
             {
@@ -421,7 +406,7 @@ public sealed class EmulatorLoop : IDisposable
             while (!_disposed)
             {
                 long sinceLog = Stopwatch.GetTimestamp() - lastLogTicks;
-                if (sinceLog > Stopwatch.Frequency)
+                if (_sink is not null && sinceLog > Stopwatch.Frequency)
                 {
                     long now = Interlocked.Read(ref _frameCount);
                     int urNow = _sink.Underruns;
@@ -478,6 +463,7 @@ public sealed class EmulatorLoop : IDisposable
                     }
                 }
 
+                long frameStarted = Stopwatch.GetTimestamp();
                 var stop = sys.RunFrame();
                 Volatile.Write(ref _publishedFrame, sys.Ppu.Framebuffer.FrontArray);
                 Volatile.Write(ref _cpuSnapshot, CpuSnapshot.From(sys));
@@ -508,7 +494,7 @@ public sealed class EmulatorLoop : IDisposable
                     if (_drainScratch.Length < available)
                         _drainScratch = new short[available];
                     int n = sys.Apu.SampleBuffer.Drain(_drainScratch.AsSpan(0, available));
-                    lastBufferedAfterPush = _sink.Push(_drainScratch.AsSpan(0, n));
+                    lastBufferedAfterPush = _sink?.Push(_drainScratch.AsSpan(0, n)) ?? 0;
                     lastPushTimestampTicks = Stopwatch.GetTimestamp();
                     if (lastBufferedAfterPush < windowMinDepth)
                         windowMinDepth = lastBufferedAfterPush;
@@ -533,7 +519,18 @@ public sealed class EmulatorLoop : IDisposable
                 // starve the sink during startup (fps drops to 47 and
                 // we chew through the warmup buffer before audio
                 // stabilises).
-                if (lastBufferedAfterPush > HighWater && !_fastForward)
+                if (_sink is null)
+                {
+                    double frameTicks = Stopwatch.Frequency * (70224.0 / 4194304);
+                    while (
+                        !_disposed
+                        && !_paused
+                        && !_fastForward
+                        && Stopwatch.GetTimestamp() - frameStarted < frameTicks
+                    )
+                        Thread.Sleep(1);
+                }
+                else if (lastBufferedAfterPush > HighWater && !_fastForward)
                 {
                     while (!_disposed && !_paused && !_fastForward)
                     {

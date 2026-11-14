@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using KohUI;
 using KohUI.Theme;
 
-namespace KohUI.Backends.Gl;
+namespace KohUI.Backends.Sdl3;
 
 /// <summary>
 /// Rectangular box. Integer pixels — Win98 widgets are pixel-snapped by

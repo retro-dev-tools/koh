@@ -3,7 +3,7 @@ namespace KohUI.Theme;
 /// <summary>
 /// Packed 24-bit color. Ordered R-G-B so both backends can trivially
 /// lift it to their target format (CSS <c>#rrggbb</c> hex for the DOM,
-/// byte triple for the OpenGL vertex colour attribute).
+/// byte triple for the vertex colour attribute).
 /// </summary>
 public readonly record struct KohColor(byte R, byte G, byte B)
 {
@@ -19,9 +19,9 @@ public readonly record struct KohColor(byte R, byte G, byte B)
 ///         on <c>:root</c> so 98.css rules continue to read
 ///         <c>var(--win98-bg)</c> and friends — keeping the hand-written
 ///         subset in sync with the theme.</item>
-///   <item><b>GlBackend</b> maps the fields to RGB byte triples and
+///   <item><b>Sdl3Backend</b> maps the fields to RGB byte triples and
 ///         feeds them into the per-vertex colour attribute of a shared
-///         OpenGL quad batch — bevels, panels, text tint all share the
+///         SDL quad batch — bevels, panels, text tint all share the
 ///         same one-shader pipeline.</item>
 /// </list>
 ///

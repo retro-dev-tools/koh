@@ -1,4 +1,4 @@
-namespace KohUI.Backends.Gl;
+namespace KohUI.Backends.Sdl3;
 
 /// <summary>
 /// Resolves a window-local point to the deepest <see cref="LayoutNode"/>

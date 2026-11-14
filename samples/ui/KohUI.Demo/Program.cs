@@ -1,5 +1,5 @@
 using KohUI;
-using KohUI.Backends.Gl;
+using KohUI.Backends.Sdl3;
 using KohUI.Demo;
 #if KOHUI_DEV_PREVIEW
 using System.Net;
@@ -9,10 +9,10 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 #endif
 
 // Modes (Debug builds):
-//   default     Native SDL window PLUS DomBackend dev preview on a
+//   default     Native window PLUS DomBackend dev preview on a
 //               localhost port. One Runner feeds both surfaces so a
 //               click in either updates the other.
-//   --preview   Preview only — no SDL. Used by CI and Playwright so
+//   --preview   Preview only. Used by CI and Playwright so
 //               headless runners don't need a display server.
 //   --native    Native only — no localhost port even in Debug.
 //
@@ -65,9 +65,9 @@ if (nativeOnly)
     return 0;
 }
 
-// Both: start Kestrel on a background thread, launch the SDL window on
+// Both: start Kestrel on a background thread, launch the native window on
 // the main thread, shut Kestrel down when the window closes.
-var previewApp = await StartPreviewAsync(runner);
+var previewApp = StartPreviewAsync(runner).GetAwaiter().GetResult();
 try
 {
     RunNative(runner);
@@ -108,9 +108,9 @@ static async Task RunPreviewOnlyAsync(Runner<CounterModel, CounterMsg> runner)
 
 static void RunNative(Runner<CounterModel, CounterMsg> runner)
 {
-    // No width/height — GlBackend measures the root view and opens the
-    // GLFW window at content-size. Override only when the demo wants a
+    // No width/height — Sdl3Backend measures the root view and opens the
+    // Native window at content-size. Override only when the demo wants a
     // specific layout box regardless of content.
-    var backend = new GlBackend<CounterModel, CounterMsg>(runner, title: "KohUI Demo");
+    var backend = new Sdl3Backend<CounterModel, CounterMsg>(runner, title: "KohUI Demo");
     backend.Run();
 }

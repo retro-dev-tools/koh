@@ -6,10 +6,6 @@
     <IsAotCompatible>true</IsAotCompatible>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishAot>true</PublishAot>
-    <!-- Silk.NET.Core's path resolver uses Assembly.CodeBase /
-         DependencyContext which the AOT single-file analyzer flags. We
-         publish folder-style (exe + glfw3.dll), so the warnings are
-         false positives here. -->
     <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
     <StripSymbols>true</StripSymbols>
     <NativeDebugSymbols>false</NativeDebugSymbols>
@@ -24,7 +20,7 @@
     <ProjectReference Include="..\Koh.Emulator\Koh.Emulator.csproj" />
     <ProjectReference Include="..\Koh.Debugger\Koh.Debugger.csproj" />
     <ProjectReference Include="..\..\UI\KohUI\KohUI.csproj" />
-    <ProjectReference Include="..\..\UI\KohUI.Backends.Gl\KohUI.Backends.Gl.csproj" />
+    <ProjectReference Include="..\..\UI\KohUI.Backends.Sdl3\KohUI.Backends.Sdl3.csproj" />
   </ItemGroup>
 
   <ItemGroup>

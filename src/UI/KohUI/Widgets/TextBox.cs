@@ -13,7 +13,7 @@ namespace KohUI.Widgets;
 ///
 /// <para>
 /// DomBackend renders as <c>&lt;input type="text"&gt;</c> (Win98 chrome via
-/// CSS). GlBackend paints a sunken white field and runs the caret + key
+/// CSS). Sdl3Backend paints a sunken white field and runs the caret + key
 /// input itself. No caret movement in v0.1 — typing appends, Backspace
 /// removes the last char; Home/End/Arrow support comes with the caret
 /// model in v0.2.

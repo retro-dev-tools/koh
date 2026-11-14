@@ -12,7 +12,7 @@ namespace KohUI.Widgets;
 /// new RadioButton&lt;Msg&gt;("Advance",  m.Mode == Advance,  () =&gt; new SetMode(Advance))
 /// </code>
 ///
-/// Both backends render the same layout; GlBackend paints the sunken
+/// Both backends render the same layout; Sdl3Backend paints the sunken
 /// 13×13 circle and the center dot, DomBackend uses
 /// <c>&lt;input type="radio"&gt;</c>.
 /// </summary>
