@@ -89,6 +89,12 @@ Koh keeps per-byte `DS count, @` evaluation: `DS 4,@` at address zero emits
 implicit first local union member. These extensions require their own semantics;
 rejection by RGBDS alone does not classify them as errors.
 
+Bare `WARN` is another deliberate Koh extension: it emits the nonfatal message
+`WARN directive`. The historical suite explicitly tests this fallback. RGBDS
+1.0.1 rejects the same input; this does not establish a Koh implementation bug.
+Quoted warning messages and `ASSERT WARN` follow the independently checked RGBDS
+message semantics and reach both the CLI and language server as warnings.
+
 The v4 adapter cannot preserve arbitrary relocation expressions, floating
 alignment, combination flags, imports, or unresolved range constraints. It
 rejects these cases. Its C# linker uses case-insensitive names, so symbol names

@@ -1390,7 +1390,11 @@ impl Assembler {
             }
             "FAIL" => Err(format!("FAIL: {tail}")),
             "WARN" => {
-                let message = self.string(tail)?;
+                let message = if tail.trim().is_empty() {
+                    "WARN directive".into()
+                } else {
+                    self.string(tail)?
+                };
                 self.warnings.push(Diagnostic {
                     file: line.file.clone(),
                     line: line.line,

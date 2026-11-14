@@ -296,6 +296,15 @@ pub fn serve(reader: impl BufRead, mut writer: impl Write) -> io::Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn koh_empty_warn_extension_is_a_structured_warning() {
+        let request = json!({"version":1,"op":"assemble","sources":[{"path":"warn.asm","text":"WARN\nSECTION \"code\",ROM0\nnop"}]});
+        let response = process(&request.to_string());
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["diagnostics"][0]["severity"], "Warning");
+        assert_eq!(response["diagnostics"][0]["message"], "WARN directive");
+        assert_eq!(response["diagnostics"][0]["start"], 0);
+    }
+    #[test]
     fn canonical_assembly_controls_inactive_and_macro_body_diagnostics() {
         for (source, expected) in [
             ("SECTION \"code\",ROM0\nIF 0\nld a,\nENDC\nnop\n", vec![0]),

@@ -81,6 +81,18 @@ fn help_version_and_argument_diagnostics() {
 }
 
 #[test]
+fn koh_empty_warn_extension_remains_nonfatal() {
+    let fixture = Fixture::new();
+    fs::write(fixture.path("warn.asm"), "WARN\nSECTION \"code\",ROM0\nnop").unwrap();
+    let output = fixture.run(&["warn.asm"]);
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("warn.asm:1:1: warning: WARN directive")
+    );
+    assert!(fixture.path("warn.kobj").exists());
+}
+
+#[test]
 fn formats_defaults_and_output_aliases() {
     let fixture = Fixture::new();
     fs::write(
