@@ -1,4 +1,7 @@
-use clrmeta::{Metadata, MetadataRoot, TablesHeader, reader::Reader};
+use clrmeta::{
+    CodedIndexKind, Metadata, MetadataRoot, TableId, TablesHeader, reader::Reader,
+    tables::TableContext,
+};
 use object::{FileKind, pe, read::pe::SectionTable};
 use std::collections::HashSet;
 
@@ -37,6 +40,26 @@ fn u16_at(bytes: &[u8], offset: usize) -> Result<u16, String> {
 fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, String> {
     let data = range(bytes, offset, 4)?;
     Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+}
+
+fn table_row_size(context: &TableContext, table: TableId) -> usize {
+    match table {
+        TableId::Module => 2 + context.string_index_size() + 3 * context.guid_index_size(),
+        TableId::AssemblyProcessor => 4,
+        TableId::AssemblyOs => 12,
+        TableId::AssemblyRefProcessor => 4 + context.table_index_size(TableId::AssemblyRef),
+        TableId::AssemblyRefOs => 12 + context.table_index_size(TableId::AssemblyRef),
+        TableId::File => 4 + context.string_index_size() + context.blob_index_size(),
+        TableId::ExportedType => {
+            8 + 2 * context.string_index_size()
+                + context.coded_index_size(CodedIndexKind::Implementation)
+        }
+        TableId::ManifestResource => {
+            8 + context.string_index_size()
+                + context.coded_index_size(CodedIndexKind::Implementation)
+        }
+        _ => context.row_size(table),
+    }
 }
 
 fn metadata(bytes: &[u8]) -> Result<Metadata, String> {
@@ -80,7 +103,7 @@ fn metadata(bytes: &[u8]) -> Result<Metadata, String> {
     let mut rows = 0usize;
     let mut size = 0usize;
     for (table, count) in header.tables() {
-        if count != 0 && context.row_size(table) == 0 {
+        if count != 0 && table_row_size(&context, table) == 0 {
             return Err(format!(
                 "Metadata table {table:?} has no supported row layout"
             ));
@@ -90,8 +113,7 @@ fn metadata(bytes: &[u8]) -> Result<Metadata, String> {
             .ok_or("Metadata row overflow")?;
         size = size
             .checked_add(
-                context
-                    .row_size(table)
+                table_row_size(&context, table)
                     .checked_mul(count as usize)
                     .ok_or("Metadata table size overflow")?,
             )
@@ -204,20 +226,22 @@ impl<'a> Assembly<'a> {
 
     pub fn method_signature(&self, token: u32) -> Result<clrmeta::MethodSig, String> {
         let method = self.method(token)?;
-        let name = self.method_name(token)?;
-        let blob = self
-            .metadata
-            .blobs
-            .get(method.signature)
-            .map_err(|e| format!("{name}: {e}"))?;
-        let signature =
-            crate::signature::method_definition(blob).map_err(|e| format!("{name}: {e}"))?;
-        if (method.flags & 0x10 != 0) == (signature.calling_convention.0 & 0x20 != 0) {
-            return Err(format!(
-                "{name}: static/instance signature disagrees with method flags"
-            ));
-        }
-        Ok(signature)
+        (|| {
+            let blob = self
+                .metadata
+                .blobs
+                .get(method.signature)
+                .map_err(|e| e.to_string())?;
+            let signature = crate::signature::method_definition(blob)?;
+            if (method.flags & 0x10 != 0) == (signature.calling_convention.0 & 0x20 != 0) {
+                return Err("static/instance signature disagrees with method flags".into());
+            }
+            Ok(signature)
+        })()
+        .map_err(|error: String| match self.method_name(token) {
+            Ok(name) => format!("{name}: {error}"),
+            Err(name_error) => format!("0x{token:08x}: {name_error}; {error}"),
+        })
     }
 
     pub fn local_types(&self, token: u32) -> Result<Vec<clrmeta::TypeSig>, String> {
@@ -321,6 +345,27 @@ mod tests {
     use super::*;
     use clrmeta::StreamHeader;
     use rstest::rstest;
+
+    #[rstest]
+    #[case(TableId::Module, 10, 18)]
+    #[case(TableId::ExportedType, 14, 18)]
+    #[case(TableId::ManifestResource, 12, 14)]
+    #[case(TableId::File, 8, 12)]
+    #[case(TableId::AssemblyProcessor, 4, 4)]
+    #[case(TableId::AssemblyOs, 12, 12)]
+    #[case(TableId::AssemblyRefProcessor, 6, 6)]
+    #[case(TableId::AssemblyRefOs, 14, 14)]
+    fn metadata_row_layouts_match_ecma(
+        #[case] table: TableId,
+        #[case] narrow: usize,
+        #[case] wide: usize,
+    ) {
+        assert_eq!(
+            table_row_size(&TableContext::new(0, [0; 64]), table),
+            narrow
+        );
+        assert_eq!(table_row_size(&TableContext::new(7, [0; 64]), table), wide);
+    }
 
     fn root(streams: Vec<StreamHeader>, trailing: usize) -> Vec<u8> {
         let mut bytes = MetadataRoot {

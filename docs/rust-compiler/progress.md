@@ -1,7 +1,7 @@
 # Native CIL compiler migration (PR #55)
 
 Status: source audit and empirical baseline recorded; native raw metadata/body
-reader, CIL encoding decoder and bounded signatures implemented. No
+reader, CIL encoding decoder, bounded signatures and reference binding implemented. No
 executable native compiler is integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
 
@@ -156,3 +156,22 @@ three native host jobs. [Rust workflow](https://github.com/retro-dev-tools/koh/a
 and [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43631738198).
 Signature-head hosted validation remains separate. No legacy compiler method is
 retired and no native ROM generation is claimed by these parsing tests.
+
+## Reference-binding increment
+
+The [reference binder](reference-binding.md) resolves full assembly identities,
+types, overloads, fields, generic instantiations and explicit forwarders from
+supplied images. Debug/Release Roslyn projects exercise transitive binding;
+SDK reference metadata exercises strong-name identity without assembly execution.
+Review found malformed zero-row scopes and unchecked nested generic arities;
+both real-DLL mutation regressions failed before their fixes.
+Inherited generic substitution, contextual generic constraints, body reachability,
+typed lowering and executable code generation remain incomplete.
+
+Local Linux `cargo nextest run --workspace --all-features --locked`, with
+`KOH_DOTNET` selecting SDK 10.0.115, completed with **328 run, 328 passed, 0 skipped**
+and exit 0. Log: `/tmp/koh-reference-nextest.log`. Separate workspace doctests
+exited 0 with no cases (`/tmp/koh-reference-doc.log`); stable rustfmt check exited
+0 (`/tmp/koh-reference-fmt.log`). No legacy compiler-owned method is retired.
+All 14 hosted checks passed for preceding signature head `81d9836`, including
+Linux, Windows and macOS native jobs. Binding-head hosted results are pending.

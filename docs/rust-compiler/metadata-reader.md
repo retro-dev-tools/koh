@@ -44,7 +44,9 @@ does not implement ECMA's width-dependent sign extension.
   valid program roots belongs to compilation rather than inventing `Main` by name.
 
 Uncompressed `#-`, mixed native/managed entry points, multi-module assemblies and
-unknown table layouts are explicit reader diagnostics. These are reader limits;
+unknown table layouts are explicit reader diagnostics. Module and standard
+export/resource row sizing use small compatibility corrections described in
+[reference binding](reference-binding.md). These are reader limits;
 no game-language capability is retired by this intermediate commit.
 
 ## Tests and execution
