@@ -1,8 +1,10 @@
 # Koh
 
-A modern Game Boy development toolchain for RGBDS-style assembly, built on .NET 10.
+A Game Boy and Game Boy Color development toolchain for RGBDS-style assembly and C#, built on .NET 10.
 
-Koh combines an assembler, a linker, and a language server so Game Boy and Game Boy Color projects can be built, checked, and navigated with modern tooling.
+Koh combines an assembler, linker, language server, C# compiler, emulator, and debugger. Its goal is to take a game from source to a playable ROM with diagnostics and debugging in the same workflow.
+
+C# compilation targets the Game Boy's SM83 processor; it does not run .NET on the console. Start with the checked-in samples: the compiler supports a constrained C# subset, not arbitrary .NET applications.
 
 ## Why Koh?
 
@@ -18,6 +20,8 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 | `koh-link` | Linker for Koh and RGBDS object files |
 | `koh-lsp` | Language server for diagnostics, navigation, and refactoring |
 | VS Code extension | VS Code integration for Koh projects |
+| `Koh.Sdk` | MSBuild integration that compiles C# games to Game Boy ROMs |
+| `Koh.Emulator.App` | Desktop emulator and debug adapter |
 
 ## Features
 
@@ -55,27 +59,51 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 
 ## Status
 
-Koh is under active development.
+Koh is under active development. RGBDS syntax and object support are compatibility goals, not a guarantee that every RGBDS project builds unchanged. Compiler and emulator behavior is covered by tests and sample games; this does not establish complete language or hardware compatibility.
 
 Current priorities include:
 
-- RGBDS compatibility
-- solid compiler and linker foundations
-- semantic editor tooling
-- workspace support through `koh.yaml`
+- restoring a passing build with dependency auditing enabled
+- preventing tests from modifying tracked sample assets
+- RGBDS compatibility regressions backed by reference-tool results
+- a reproducible source-to-ROM and debugging workflow
+
+See the [maintainer assessment and roadmap](docs/roadmap.md) for current gaps and acceptance criteria, and [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks.
 
 ## Quick Start
 
 ### Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Node.js](https://nodejs.org) for the VS Code extension
+- [Node.js](https://nodejs.org) and npm only when developing the VS Code extension
+
+Run commands below from the repository root. SDK selection is controlled by `global.json`.
 
 ### Build
 
 ```sh
 dotnet build
 ```
+
+### Build a playable sample
+
+For assembly:
+
+```sh
+dotnet msbuild build.proj -t:BuildSample2048
+```
+
+The ROM is written to `samples/asm/gb-2048/build/2048.gbc`.
+
+For C#:
+
+```sh
+dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj
+```
+
+The SDK writes `samples/csharp/gb-2048-v2/2048v2.gb`. See the [sample guide](samples/csharp/gb-2048-v2/README.md) for its game code and compiler requirements. These source builds restore dependencies; the local Koh.Sdk feed does not make the whole build offline.
+
+If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulnerability. Report the package, version, and advisory URL; do not disable auditing to obtain a passing result. The [roadmap](docs/roadmap.md) records the current baseline blockers.
 
 ### Test
 
@@ -142,6 +170,8 @@ EntryPoint:
 |--------|-------------|
 | [`samples/ui/KohUI.Demo`](samples/ui/KohUI.Demo/) | Counter app showing off KohUI (the .NET UI framework strand of Koh) |
 | [`samples/asm/gb-2048`](samples/asm/gb-2048/) | 2048 game ROM for Game Boy Color demonstrating multi-bank assembly, GBC hardware features, and SRAM saves |
+| [`samples/csharp/gb-2048-v2`](samples/csharp/gb-2048-v2/) | C# 2048 using scenes, input, and tile assets |
+| [`samples/csharp/gb-jrpg`](samples/csharp/gb-jrpg/) | CGB mini-JRPG using PNG assets, sprites, dialogue, and encounters |
 
 Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 
@@ -165,7 +195,7 @@ editors/
 
 ## Project Direction
 
-Koh is intended to provide a complete development experience for Game Boy assembly projects: reliable builds, strong compatibility, and language tooling that scales to larger codebases.
+Koh aims to make small Game Boy games practical to build, understand, and debug in assembly or C#. Reliable sample games, clear compatibility limits, and reproducible builds take priority over adding more tools or language features. See the [roadmap](docs/roadmap.md).
 
 ## License
 

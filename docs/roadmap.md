@@ -1,0 +1,50 @@
+# Maintainer assessment and roadmap
+
+Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncommitted RGBDS expression changes and a modified JRPG screenshot. This is an initial assessment of the architecture, build and release configuration, representative implementation and tests, documentation, and recent history. It is not a complete code, security, licensing, or hardware conformance audit.
+
+## Product direction
+
+Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
+
+The next milestone should be one documented, reproducible source-to-ROM-to-debugger workflow. Prefer making that journey reliable over expanding the language, emulator UI framework, or number of command-line tools. Preserve existing file formats and game behavior unless a demonstrated correctness issue requires a change.
+
+## Current condition
+
+- Shared diagnostics, opcodes, and object formats are separated from assembler, linker, compiler, emulator, and UI projects. Recent architecture commits deliberately removed compiler dependencies on assembler implementation details. Retain those boundaries; there is no demonstrated need for another restructure.
+- Tests cover individual components and compile and emulate sample games. CI builds on Linux and Windows, runs extension tests, publishes the emulator with NativeAOT on three host platforms, and builds the assembly 2048 ROM. These workflow definitions describe intended checks, not evidence that current CI passes.
+- Release automation creates platform archives, checksums, and draft releases. A draft-and-smoke-test gate already exists; improve and verify it rather than replacing it.
+- Public documentation underrepresented the C# and emulator workflow. The README and contribution guide now expose those entry points, without claiming complete RGBDS or .NET compatibility.
+- The README and extension metadata declare MIT, but no tracked LICENSE or NOTICE file was found in the checkout or matching filename history. This needs an ownership and attribution review, not an invented copyright holder.
+- `GbJrpgTests` writes acceptance captures into `samples/csharp/gb-jrpg/screenshots`. That can alter tracked files during tests. Generated artifacts should have a separate output location; updating reference images should be deliberate.
+- The local Koh.Sdk package imports repository-relative source projects. Its presence in a local feed is useful for this checkout but does not establish a standalone SDK distribution story.
+
+## Baseline verification
+
+On .NET SDK 10.0.113, `dotnet msbuild build.proj -t:Test` exited 1 before tests ran. NuGet audit warnings treated as errors reported:
+
+| Package | Reported version | Audit result |
+| --- | --- | --- |
+| MessagePack | 2.5.302 | NU1902, including GHSA-qhrr-8q5h-9q3h |
+| Microsoft.DotNet.ILCompiler | 10.0.13 | NU1903, GHSA-p3jp-9v83-76w9 |
+| SixLabors.ImageSharp | 3.1.12 | NU1902 and NU1903, multiple advisories |
+
+These are restore diagnostics, not independently validated exploitability findings. No green baseline is claimed. Keep auditing enabled and establish supported fixed versions before upgrading; the SDK-selected compiler package and transitive MessagePack dependency need their owning dependency paths identified.
+
+Both documented sample builds were also attempted and exited 1: `BuildSample2048` was blocked by the ILCompiler advisory, and `dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj` was blocked by ILCompiler and ImageSharp advisories. Neither run established a newly built ROM. Documentation checks passed for nine local links and balanced code fences across the README, contribution guide, and this roadmap.
+
+## Priorities
+
+Order reflects impact, effort, risk, and dependencies; it is not a release-date commitment.
+
+| Order | Outcome | Effort / risk | Acceptance criteria |
+| --- | --- | --- | --- |
+| 1 | Restore a trustworthy build | Medium / medium | Resolve the reported dependency advisories through supported SDK/package versions; clean restore, CI build, fast and full suites pass without audit suppression. |
+| 2 | Make tests preserve the checkout | Small / low | Redirect JRPG captures to test artifacts; run the capture test and show tracked screenshot hashes remain unchanged. |
+| 3 | Close RGBDS expression regressions | Small / medium | Review the existing uncommitted HIGH/LOW/BANK work separately; compare focused object/link results with a versioned RGBDS oracle, then run the affected suites. |
+| 4 | Establish release readiness | Medium / ownership review required | Confirm license text and asset provenance with the rights holder; inventory shipped dependencies; smoke-test draft archives and the extension's install/update path on supported hosts. |
+| 5 | Prove the newcomer journey | Medium / low | From a fresh checkout, build both documented games, launch a ROM, set a breakpoint, and inspect state; record platform prerequisites and compatibility limits. |
+| 6 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
+
+## Boundaries
+
+No adoption, performance, hardware-accuracy, or complete compatibility claims are established by this assessment. Defer new language features, UI expansion, dependency replacements without evidence, and architectural rewrites until the core journey has a reproducible passing baseline. Reassess priorities when that evidence changes.

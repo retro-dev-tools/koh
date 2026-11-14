@@ -1,0 +1,60 @@
+# Contributing to Koh
+
+Start with a reproducible bug, a documentation correction, or a focused improvement to an existing workflow. Discuss substantial changes in an issue before implementing them. Keep pull requests limited to one behavior or problem.
+
+## Development setup
+
+Install the .NET 10 SDK selected by `global.json`. From the repository root:
+
+```sh
+dotnet restore Koh.Ci.slnf
+dotnet build Koh.Ci.slnf --no-restore --configuration Release
+dotnet msbuild build.proj -t:Test
+```
+
+Restore also installs the local tools and Husky.NET pre-commit hook. The hook formats staged C# with the pinned CSharpier version and stages the formatted files again. Review the staged diff before committing.
+
+NuGet audit warnings are errors. If restore reports a vulnerable package, include the package version and advisory URL in your report. A failed restore means the tests have not run; do not report it as a test failure or bypass auditing to claim a green build.
+
+## Choosing checks
+
+Run the matching test project first. For example, for assembler changes:
+
+```sh
+dotnet test --project tests/Asm/Koh.Assembler.Tests/Koh.Assembler.Tests.csproj
+dotnet msbuild build.proj -t:Test
+```
+
+The default fast suite excludes `Koh.Compiler.Tests`. Compiler changes also require:
+
+```sh
+dotnet msbuild build.proj -t:TestAll
+```
+
+Compiler tests compile fixtures and emulate the resulting ROMs. They consume substantial memory even with the project's parallelism limit; avoid running other builds or test suites alongside them. CI runs the full suite on Linux and Windows.
+
+For VS Code changes, install Node.js and npm, then:
+
+```sh
+cd editors/vscode
+npm ci
+npm test
+```
+
+On headless Linux, use `xvfb-run -a npm test` as CI does. To debug the extension, run `dotnet msbuild build.proj -t:PublishDev` from the repository root, open `editors/vscode` in VS Code, and press F5.
+
+Check C# formatting with `dotnet csharpier check <changed-file-or-directory>`. Avoid formatting unrelated files. Do not run builds concurrently in the same output directory.
+
+## Regression coverage
+
+Place tests under the matching area in `tests/`. A behavior fix should include a focused regression that fails before the fix. For RGBDS compatibility, include the smallest assembly reproducer and the reference tool's version and output. For emulator fixes, distinguish automated emulator results from tests on physical hardware.
+
+Do not commit downloaded ROMs, toolchains, generated build output, VSIX files, or test caches. Check `git status` after tests: the JRPG screenshot test currently writes into the sample's tracked screenshot directory. Keep generated images out of unrelated changes and preserve pre-existing edits.
+
+## Reporting and reviewing changes
+
+Bug reports should include the commit or release, OS, relevant tool versions, command, expected result, actual result, and a minimal reproducer. Remove secrets and machine-specific paths from logs.
+
+Pull requests should explain the user-visible problem and resulting behavior, list the commands actually run with their results, and identify checks that were blocked or skipped. Include screenshots or recordings for editor and debugger UI changes. Use scoped Conventional Commit subjects, such as `fix(link): handle ...` or `docs: explain ...`.
+
+The README declares MIT, but this checkout has no tracked license text. Copyright ownership and third-party attribution need maintainer review before release; do not add license claims for code or assets whose provenance is unknown.
