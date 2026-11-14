@@ -1,7 +1,8 @@
 # Native CIL compiler migration (PR #55)
 
 Status: source audit and empirical baseline recorded; native raw metadata/body
-reader, CIL encoding decoder, bounded signatures and reference binding implemented. No
+reader, CIL encoding decoder, bounded signatures, reference binding and initial
+typed integer lowering implemented. No
 executable native compiler is integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
 
@@ -174,4 +175,31 @@ and exit 0. Log: `/tmp/koh-reference-nextest.log`. Separate workspace doctests
 exited 0 with no cases (`/tmp/koh-reference-doc.log`); stable rustfmt check exited
 0 (`/tmp/koh-reference-fmt.log`). No legacy compiler-owned method is retired.
 All 14 hosted checks passed for preceding signature head `81d9836`, including
-Linux, Windows and macOS native jobs. Binding-head hosted results are pending.
+Linux, Windows and macOS native jobs. Binding-head hosted results are recorded below.
+
+## Typed IR and initial integer lowering
+
+The [IR contract and increment plan](ir.md) use typed SSA values, block parameters,
+explicit local storage and method/IL identities. The verifier checks graph shape,
+reachability, definition uniqueness, dominance, use order, edge signatures,
+operation types, return types and entry initialization for local loads.
+
+The initial native lowerer translates primitive integer CIL arithmetic,
+comparisons, conversions, local/argument accesses and branches into verified IR.
+Small storage gets explicit truncation/extension. Reachable unsupported execution
+shapes are diagnostics, not placeholder code. Calls, objects, generic execution,
+exception semantics, optimization and machine emission remain pending.
+
+Tests include independently authored IL joins/loops and malformed cases, plus real
+Roslyn Debug/Release fixtures checked against eight literal result scenarios per
+configuration in a bounded test-only IR interpreter. Review caught host-width
+arithmetic in that interpreter; all four new regressions failed before its fix.
+This is IR evidence, not SM83 execution or retirement of old compiler coverage.
+All 14 hosted checks passed for preceding binding head `215ce9e`; current-head
+hosted evidence must be recorded separately.
+
+Completed Linux verification: `cargo nextest run --workspace --all-features --locked`
+with `KOH_DOTNET` selecting SDK 10.0.115 reports **364 run, 364 passed, 0 skipped**,
+exit 0 (`/tmp/koh-ir-final-nextest.log`). This includes 188 compiler cases, 36 of
+which exercise the new IR/lowering increment. The earlier run of 360 cases
+preceded the four width regressions and is not final-tree evidence.

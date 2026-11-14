@@ -2,60 +2,48 @@
 
 Branch: `feat/rust-cil-compiler`, isolated from the main checkout's modified screenshot.
 Baseline: integrated linker migration `9cd1472`. Draft PR #55 already exists.
-Current production pipeline remains the C# compiler; no replacement claims.
-Source audits have landed in `4bf619d`: all 565 legacy methods accounted for.
+The C# compiler remains production. Keep the full attachment goal active.
 
-Bounded signature parsing and Assembly signature accessors are now implemented.
-The review caught modern ref-field support and MethodDef/call-site context gaps;
-both are fixed and covered. See `docs/rust-compiler/signatures.md`.
-Latest workspace nextest: 328/328 passed, including 152 compiler infrastructure cases.
-Keep the full attachment assignment active; this increment is not the migration.
-Next: typed instantiation and verified lowering, then a
-real native C# to ELF to ROM execution. Do not replace the goal with reader tests.
+## Implemented increments
 
-Reference-binding increment: root owns `resolve.rs`, its private `resolve/index.rs`,
-reference fixture projects and tests, plus metadata-row preflight corrections.
-Reference review is read-only: no owned files, edits, builds or commits.
-Verify focused `cargo test -p koh-compile --test references`, then full workspace
-nextest and separate doctests with KOH_DOTNET selecting .NET SDK 10.0.115.
+All 565 legacy test methods have source-level dispositions, not completed coverage
+migration. None is retired or fully replaced yet. All three audit documents are
+complete; no compiler-owned coverage may be deferred to another migration.
 
-## Concurrent audit ownership
+Native metadata/body, CIL encoding and signature readers plus full-identity
+reference/member binding are committed. Binding review's malformed zero-row scopes
+and nested generic-arity regressions were observed red then green. Generic inherited
+substitution and contextual constraints remain incomplete.
 
-- Root: native compiler tests and implementation. `rust/koh-compile` now contains
-  a bounded raw metadata/method-body reader using MIT clrmeta and object PE, plus
-  a raw CIL operand/control-target decoder.
-- Frontend audit: only `docs/rust-compiler/frontend-audit.md`; inspect all frontend
-  tests, runtime contracts and CIL lowering. No production edits or builds.
-- Backend audit: only `docs/rust-compiler/backend-audit.md`; inspect backend/IR/SM83
-  tests and backend ABI. No production edits or builds.
-- Integration audit: only `docs/rust-compiler/integration-audit.md`; inspect samples,
-  SDK/debug integration and remaining compiler tests. No production edits or builds.
+The next increment adds typed SSA IR/verifier and initial primitive-integer CIL
+lowering. See `docs/rust-compiler/ir.md` for invariants and temporary limits.
+Real Roslyn Debug/Release cases are interpreted against eight literal scenarios
+per configuration. These are IR tests, not machine execution. Review found four
+host-width bugs in the test helper; added regressions failed before their fixes.
+Root owns all implementation/tests. Audit and review agents are finished; no writers
+are delegated. No native executable, ELF emitter, SDK switch or new ROM exists yet.
 
-Audit output must distinguish source inspection from execution, give test-level
-traceability, identify independently justified requirements versus implementation
-assertions, and propose dispositions without claiming unimplemented Rust coverage.
-No compiler-owned tests may be deferred to a different migration.
+## Current evidence
 
-All three audit documents are complete as source reviews. They propose dispositions;
-no legacy methods are retired or fully replaced yet. See test-disposition.md.
+Completed workspace nextest: 364/364 passed, 0 skipped, exit 0, including 188
+compiler cases (36 new IR/lowering cases). Log `/tmp/koh-ir-final-nextest.log`.
+Separate workspace doctests exit 0, no cases (`/tmp/koh-ir-doc.log`); stable fmt
+check exit 0 (`/tmp/koh-ir-fmt-check.log`). Earlier 360-case run predates four
+width regressions. Legacy compiler baseline: 814/814 passed with one test at a time.
+All 14 hosted checks passed for binding head `215ce9e`. Check the new IR head
+separately after push; prior results do not validate its hosted tree.
 
-## Current native evidence
+## Next
 
-Latest local nextest workspace run: 328/328 passed, 0 skipped, exit 0.
-Log: /tmp/koh-reference-nextest.log. Separate workspace doctests exit 0 with no
-cases; stable rustfmt check exit 0. Legacy compiler baseline: 814/814 passed,
-0 skipped, with one test at a time. Full commands are in progress.md.
-All 14 hosted checks passed for signature head 81d9836. Binding-head hosted
-validation remains pending. No native ELF compiler, SDK switch or ROM execution.
-Reference review found malformed zero-row scopes and unchecked nested generic
-arities; both real-DLL mutation regressions failed before their fixes and pass now.
-Inherited generic substitution and contextual constraints remain incomplete.
-All audit and review agents are finished; no concurrent writers are assigned.
+Choose/document the SM83 ABI and advance integer lowering to canonical ELF and
+actual C# emulator execution. Complete missing language/runtime, optimization,
+generic, Portable PDB/debug, SDK, samples and test-migration requirements within
+this single PR. Never redefine success as a reader or IR milestone. Keep the old
+compiler until replacement acceptance, then delete it entirely as required.
 
-## Verification
+## Verification discipline
 
-Root runs builds serially. Use pinned .NET 10 SDK and completed log files with
-actual exit codes. Verify canonical ELF with `koh-objects`, execute ROMs with the
-existing C# emulator, and do not modify tracked sample assets. Audits alone do
-not establish supported features. Do not delete the old compiler until native
-replacement acceptance is demonstrated. Root reviews and commits each unit.
+Build serially per target directory. KOH_DOTNET selects pinned .NET SDK 10.0.115.
+Read completed logs and direct exit codes. Use stable rustfmt. Reuse koh-objects
+ELF and the Rust linker; execute with the existing C# emulator. Preserve tracked
+sample assets and the main checkout's unrelated screenshot. Commit logical units.
