@@ -73,3 +73,28 @@ deliberate Koh extension; RGBDS rejection alone does not establish a Koh bug.
 All11 locked Cargo package archives and copied license texts were verified.
 Rust standard-library/runtime notices remain a separate release-policy audit;
 the dependency manifest does not claim that audit. No merge or release is authorized.
+
+## PR53 review follow-up
+
+Current head9213bd9 has3open review threads and2native CI test failures.
+Ownership for independent fixes:
+- Encoding: encode.rs and assembler's encoder-call context, immediate/constant
+  instruction regressions against RGBDS.
+- Resolver: managed native requests plus explicit resolver mappings in engine
+  and analysis, nested entrypoint-root include regressions.
+- Source: source.rs block-comment scanner and regressions preserving literals/lines.
+- Lead: provenance test path spelling on Windows/macOS, regression via symlink,
+  integration tests, thread replies/resolution and CI on the new head.
+
+No shared output directory builds concurrently. Each owner uses an isolated
+Cargo target; wait for source freeze before integrated managed builds.
+
+Review fixes now committed in077803c; CI path assertion fixed ined987d2.
+Final local checks after hooks:148Rust/RGBDStests PASS;207LSP PASS;
+`/tmp/koh-review-integrated-build.log` EXIT0zero warnings/errors;
+`/tmp/koh-review-final-fast-tests.log` EXIT0,588passed2skipped;
+`/tmp/koh-review-final-verification.log` EXIT0,7workflows+semantics+9negatives,
+183matches+50classifieddeviations,0unknown. FinalROM still matches executed sample.
+Direct triple-quotedDB expressions remain an explicit documented limitation,
+not part of the comment-scanner review fix. Push then resolve3threads and
+wait for hosted CI on that new head before claiming cross-platform success.

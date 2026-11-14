@@ -157,8 +157,8 @@ or complete C# compatibility. The CI definition describes intended checks;
 successful hosted runs and full differential results must be reported separately.
 
 Before removal, the historical C# assembler suite passed 1,082 tests. Native
-validation now includes 125 Rust tests with the RGBDS checks enabled and 205
-native-backed LSP tests. The final managed fast suite passed 586 tests, with
+validation now includes 148 Rust tests with the RGBDS checks enabled and 207
+native-backed LSP tests. The final managed fast suite passed 588 tests, with
 two native-window tests skipped. All 812 managed compiler tests passed after
 removal.
 The 2048 gameplay verifier also passed all 11 checks on a Rust-built, C#-linked
