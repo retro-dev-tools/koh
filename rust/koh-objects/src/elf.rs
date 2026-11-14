@@ -494,13 +494,16 @@ pub fn write_elf(object: &Object) -> Result<Vec<u8>, String> {
             w.write_symbol(&Sym {
                 section,
                 st_name: w.string_offset(Some(id)),
-                st_info: if matches!(s.definition, SymbolDefinition::Import)
-                    || s.binding == SymbolBinding::Exported
-                {
-                    elf::STB_GLOBAL | elf::STT_NOTYPE
-                } else {
-                    elf::STB_LOCAL | elf::STT_NOTYPE
-                },
+                st_info: elf::SymbolInfo::new(
+                    if matches!(s.definition, SymbolDefinition::Import)
+                        || s.binding == SymbolBinding::Exported
+                    {
+                        elf::STB_GLOBAL
+                    } else {
+                        elf::STB_LOCAL
+                    },
+                    elf::STT_NOTYPE,
+                ),
                 st_other: elf::SymbolOther(0),
                 st_shndx,
                 st_value: value,

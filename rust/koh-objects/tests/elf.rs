@@ -1,5 +1,5 @@
 use koh_objects::*;
-use object::{Object as _, ObjectSection as _};
+use object::{Object as _, ObjectSection as _, ObjectSymbol as _};
 fn source() -> Provenance {
     Provenance {
         file: "日本語.asm".into(),
@@ -92,6 +92,22 @@ fn standard_sections_symbols_and_provenance_survive() {
         [0; 4]
     );
     assert_eq!(parsed.symbols().count(), 3);
+    for symbol in parsed.symbols() {
+        let (binding, undefined) = match symbol.name().unwrap() {
+            "constant" => (object::elf::STB_LOCAL, false),
+            "Target" => (object::elf::STB_GLOBAL, false),
+            "External" => (object::elf::STB_GLOBAL, true),
+            name => panic!("Unexpected symbol {name}"),
+        };
+        assert_eq!(symbol.is_undefined(), undefined);
+        assert_eq!(
+            symbol.flags(),
+            object::SymbolFlags::Elf {
+                st_info: object::elf::SymbolInfo((binding.0 << 4) | object::elf::STT_NOTYPE.0),
+                st_other: object::elf::SymbolOther(0),
+            }
+        );
+    }
     let restored = read_elf(&bytes).unwrap();
     assert_eq!(format!("{restored:?}"), format!("{original:?}"));
 }
