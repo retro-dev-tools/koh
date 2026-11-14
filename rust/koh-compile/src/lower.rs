@@ -5,58 +5,83 @@ use crate::{
 };
 use std::collections::{HashMap, VecDeque};
 
+fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
+    use clrmeta::{ElementType, TypeSig};
+    match ty {
+        TypeSig::Primitive(
+            ElementType::I1
+            | ElementType::U1
+            | ElementType::I2
+            | ElementType::U2
+            | ElementType::Char
+            | ElementType::I4
+            | ElementType::U4
+            | ElementType::Boolean,
+        ) => Ok(Type::I32),
+        TypeSig::Primitive(ElementType::I8 | ElementType::U8) => Ok(Type::I64),
+        _ => Err(format!("Type {ty:?} has no integer lowering yet")),
+    }
+}
+
+fn integer_signature(signature: &clrmeta::MethodSig) -> Result<Signature, String> {
+    if signature.calling_convention.has_this() || signature.generic_param_count != 0 {
+        return Err("Instance/generic methods require instantiated lowering".into());
+    }
+    if signature.calling_convention.0 & 0x0f != 0 || signature.params.len() > 1024 {
+        return Err("Unsupported calling convention or parameter count".into());
+    }
+    let parameters = signature
+        .params
+        .iter()
+        .map(integer_type)
+        .collect::<Result<_, _>>()?;
+    let returns =
+        if signature.return_type == clrmeta::TypeSig::Primitive(clrmeta::ElementType::Void) {
+            None
+        } else {
+            Some(integer_type(&signature.return_type)?)
+        };
+    Ok(Signature {
+        parameters,
+        returns,
+    })
+}
+
 pub fn assembly_method(
-    assembly: &crate::assembly::Assembly<'_>,
+    resolver: &crate::resolve::Resolver<'_>,
     identity: Definition,
 ) -> Result<Function, String> {
-    let convert = |ty: &clrmeta::TypeSig| -> Result<Type, String> {
-        use clrmeta::{ElementType, TypeSig};
-        match ty {
-            TypeSig::Primitive(
-                ElementType::I1
-                | ElementType::U1
-                | ElementType::I2
-                | ElementType::U2
-                | ElementType::Char
-                | ElementType::I4
-                | ElementType::U4
-                | ElementType::Boolean,
-            ) => Ok(Type::I32),
-            TypeSig::Primitive(ElementType::I8 | ElementType::U8) => Ok(Type::I64),
-            _ => Err(format!("Type {ty:?} has no integer lowering yet")),
-        }
-    };
+    let assembly = resolver.assembly(identity.assembly)?;
     let result = || -> Result<Function, String> {
-        let signature = assembly.method_signature(identity.token)?;
-        if signature.calling_convention.has_this() || signature.generic_param_count != 0 {
-            return Err("Instance/generic methods require instantiated lowering".into());
+        if resolver.module_initializer(identity.assembly)?.is_some() {
+            return Err("Module initializer requires static-initialization lowering".into());
         }
-        let parameters = signature
-            .params
-            .iter()
-            .map(convert)
-            .collect::<Result<_, _>>()?;
-        let returns =
-            if signature.return_type == clrmeta::TypeSig::Primitive(clrmeta::ElementType::Void) {
-                None
-            } else {
-                Some(convert(&signature.return_type)?)
-            };
+        if resolver.type_initializer(identity)?.is_some() {
+            return Err("Type initializer requires static-initialization lowering".into());
+        }
+        let signature = assembly.method_signature(identity.token)?;
+        let typed = integer_signature(&signature)?;
         let local_types = assembly.local_types(identity.token)?;
-        let locals = local_types.iter().map(convert).collect::<Result<_, _>>()?;
+        let locals = local_types
+            .iter()
+            .map(integer_type)
+            .collect::<Result<_, _>>()?;
         let body = assembly.method_body(identity.token)?;
         if body.extra_sections {
             return Err("Exception/extra method sections require explicit lowering".into());
         }
-        let mut function = lower(Method {
-            identity,
-            il: body.il,
-            parameters,
-            returns,
-            locals,
-            init_locals: body.init_locals,
-            max_stack: body.max_stack,
-        })?;
+        let mut function = lower_with(
+            Method {
+                identity,
+                il: body.il,
+                parameters: typed.parameters,
+                returns: typed.returns,
+                locals,
+                init_locals: body.init_locals,
+                max_stack: body.max_stack,
+            },
+            Some(resolver),
+        )?;
         let slots: Vec<_> = signature
             .params
             .iter()
@@ -240,7 +265,14 @@ impl Builder {
 }
 
 pub fn lower(method: Method<'_>) -> Result<Function, String> {
-    lower_inner(&method).map_err(|error| {
+    lower_with(method, None)
+}
+
+fn lower_with(
+    method: Method<'_>,
+    resolver: Option<&crate::resolve::Resolver<'_>>,
+) -> Result<Function, String> {
+    lower_inner(&method, resolver).map_err(|error| {
         format!(
             "Assembly {} method 0x{:08x}: {error}",
             method.identity.assembly, method.identity.token
@@ -248,7 +280,10 @@ pub fn lower(method: Method<'_>) -> Result<Function, String> {
     })
 }
 
-fn lower_inner(method: &Method<'_>) -> Result<Function, String> {
+fn lower_inner(
+    method: &Method<'_>,
+    resolver: Option<&crate::resolve::Resolver<'_>>,
+) -> Result<Function, String> {
     let cil = decode(method.il)?;
     if cil.len() >= 16_384
         || method.max_stack > 1024
@@ -345,6 +380,7 @@ fn lower_inner(method: &Method<'_>) -> Result<Function, String> {
             &indices,
             method,
             &locals,
+            resolver,
         )
         .map_err(|error| format!("IL_{:04x}: {error}", instruction.offset))?;
         if builder.stack.len() > usize::from(method.max_stack) {
@@ -424,6 +460,7 @@ fn translate(
     indices: &HashMap<u32, usize>,
     method: &Method<'_>,
     locals: &[Type],
+    resolver: Option<&crate::resolve::Resolver<'_>>,
 ) -> Result<Control, String> {
     let next = || {
         if block < count {
@@ -468,6 +505,46 @@ fn translate(
         Ok(())
     };
     match i.opcode {
+        0x28 => {
+            let resolver =
+                resolver.ok_or("CIL opcode 0x0028 requires assembly reference resolution")?;
+            let token = match i.operand {
+                Operand::Token(token) => token,
+                _ => return Err("Missing call method token".into()),
+            };
+            let target = resolver.resolve_method(method.identity.assembly, token)?;
+            if !target.type_arguments.is_empty() || !target.method_arguments.is_empty() {
+                return Err("Generic call instantiation is not lowered yet".into());
+            }
+            let metadata = resolver.assembly(target.definition.assembly)?;
+            let signature =
+                integer_signature(&metadata.method_signature(target.definition.token)?)?;
+            let mut arguments = Vec::with_capacity(signature.parameters.len());
+            for &ty in signature.parameters.iter().rev() {
+                let value = b.pop()?;
+                if value.1 != ty {
+                    return Err("CIL call argument type mismatch".into());
+                }
+                arguments.push(value.0);
+            }
+            arguments.reverse();
+            let returns = signature.returns;
+            let op = Op::Call {
+                target: target.definition,
+                signature,
+                arguments,
+            };
+            if let Some(ty) = returns {
+                let value = b.value(ty, op)?;
+                b.stack.push(value);
+            } else {
+                b.instructions.push(Instruction {
+                    result: None,
+                    op,
+                    il_offset: b.offset,
+                });
+            }
+        }
         0x00 => {}
         0x02..=0x05 => {
             let index = usize::from(i.opcode - 0x02);

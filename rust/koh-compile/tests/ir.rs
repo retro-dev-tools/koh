@@ -77,6 +77,61 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+fn recursive_call() -> Function {
+    let mut f = diamond();
+    f.blocks.truncate(1);
+    f.blocks[0].instructions = vec![instruction(
+        1,
+        Type::I32,
+        Op::Call {
+            target: f.identity,
+            arguments: vec![0],
+            signature: Signature {
+                parameters: vec![Type::I32],
+                returns: Some(Type::I32),
+            },
+        },
+    )];
+    f.blocks[0].terminator.kind = Control::Return(Some(1));
+    f
+}
+
+#[test]
+fn recursive_calls_have_explicit_typed_signatures() {
+    verify_program(&[recursive_call()]).unwrap();
+}
+
+#[rstest]
+#[case("count")]
+#[case("type")]
+#[case("target")]
+#[case("signature")]
+fn invalid_call_contracts_are_rejected(#[case] fault: &str) {
+    let mut f = recursive_call();
+    let mut other = recursive_call();
+    other.identity.token += 1;
+    if let Op::Call {
+        target,
+        arguments,
+        signature,
+    } = &mut f.blocks[0].instructions[0].op
+    {
+        match fault {
+            "count" => arguments.clear(),
+            "type" => signature.parameters[0] = Type::I64,
+            "target" => target.token += 2,
+            "signature" => {
+                target.token += 1;
+                other.returns = None;
+                other.blocks[0].instructions.clear();
+                other.blocks[0].terminator.kind = Control::Return(None);
+            }
+            _ => unreachable!(),
+        }
+    }
+    assert!(verify_program(&[f, other]).is_err());
+}
+
 #[test]
 fn loop_block_arguments_are_simultaneous_phi_values() {
     let mut f = diamond();

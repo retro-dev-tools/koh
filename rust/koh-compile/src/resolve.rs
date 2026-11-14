@@ -189,6 +189,40 @@ impl<'a> Resolver<'a> {
             .ok_or_else(|| format!("Invalid assembly index {index}"))
     }
 
+    pub fn type_initializer(&self, method: Definition) -> Result<Option<Definition>, String> {
+        let assembly = self.assembly(method.assembly)?;
+        assembly.method(method.token)?;
+        let rid = method.token & 0x00ff_ffff;
+        let owner = assembly
+            .metadata()
+            .type_defs
+            .partition_point(|ty| ty.method_list <= rid);
+        if owner == 0 {
+            return Err("Method has no declaring type".into());
+        }
+        self.initializer(method.assembly, owner as u32)
+    }
+
+    pub fn module_initializer(&self, assembly: usize) -> Result<Option<Definition>, String> {
+        self.initializer(assembly, 1)
+    }
+
+    fn initializer(&self, assembly: usize, owner: u32) -> Result<Option<Definition>, String> {
+        let methods = self
+            .index(assembly)?
+            .methods
+            .get(&owner)
+            .and_then(|names| names.get(".cctor"));
+        match methods.map(Vec::as_slice).unwrap_or(&[]) {
+            [] => Ok(None),
+            [token] => Ok(Some(Definition {
+                assembly,
+                token: *token,
+            })),
+            _ => Err("Type has multiple initializers".into()),
+        }
+    }
+
     fn index(&self, assembly: usize) -> Result<&Index, String> {
         self.indices
             .get(assembly)

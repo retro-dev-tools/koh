@@ -64,6 +64,7 @@ contract or backend ABI. Semantic execution tests remain required.
 The interpreter is a test helper, not a production managed runtime or substitute
 for SM83/emulator acceptance. These tests begin replacement of the old
 `IrBuilderAndVerifierTests` control-flow invariants and CIL arithmetic scenarios;
-they do not yet retire any old DLL-to-ROM assertion. Calls, memory, exceptions,
-object/generic execution, optimization, machine code and source debugging remain
-required subsequent work in this same PR.
+they do not yet retire any old DLL-to-ROM assertion. Memory and exception execution,
+object/generic execution, optimization and source debugging remain required work
+in this same PR. Initial integer machine emission and typed static calls are now
+implemented; see [SM83 ABI](sm83-abi.md) and [calls](calls.md).

@@ -45,7 +45,18 @@ pub enum Comparison {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    pub parameters: Vec<Type>,
+    pub returns: Option<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    Call {
+        target: Definition,
+        signature: Signature,
+        arguments: Vec<u32>,
+    },
     Constant(u64),
     Binary {
         op: Binary,
@@ -196,6 +207,45 @@ pub fn verify(function: &Function) -> Result<(), String> {
     })
 }
 
+pub fn verify_program(functions: &[Function]) -> Result<(), String> {
+    if functions.is_empty() || functions.len() > 4096 {
+        return Err("Invalid IR program function count".into());
+    }
+    let mut definitions = HashMap::new();
+    for function in functions {
+        verify(function)?;
+        if definitions.insert(function.identity, function).is_some() {
+            return Err("Duplicate IR function identity".into());
+        }
+    }
+    for function in functions {
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                if let Op::Call {
+                    target, signature, ..
+                } = &instruction.op
+                {
+                    let callee = definitions.get(target).ok_or_else(|| {
+                        format!(
+                            "Method 0x{:08x} IL_{:04x}: missing call target {target:?}",
+                            function.identity.token, instruction.il_offset
+                        )
+                    })?;
+                    if signature.parameters != callee.parameters
+                        || signature.returns != callee.returns
+                    {
+                        return Err(format!(
+                            "Method 0x{:08x} IL_{:04x}: call signature differs from target {target:?}",
+                            function.identity.token, instruction.il_offset
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn verify_inner(function: &Function) -> Result<(), String> {
     let blocks = &function.blocks;
     if blocks.is_empty() || blocks.len() > 16_384 || function.locals.len() > 1024 {
@@ -287,6 +337,21 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::Call {
+                        ref signature,
+                        ref arguments,
+                        ..
+                    } => {
+                        if arguments.len() != signature.parameters.len() || arguments.len() > 1024 {
+                            return Err("Invalid call argument count".into());
+                        }
+                        for (&value, &ty) in arguments.iter().zip(&signature.parameters) {
+                            if check(value, position)? != ty {
+                                return Err("Call argument type mismatch".into());
+                            }
+                        }
+                        signature.returns
+                    }
                     Op::Constant(bits) => {
                         let ty = result.ok_or("Constant has no result")?;
                         if ty.bits() < 64 && bits >= 1u64 << ty.bits() {

@@ -232,3 +232,23 @@ with SDK 10.0.115 selected through `KOH_DOTNET`: **374 run, 374 passed, 0 skippe
 exit 0 (`/tmp/koh-sm83-nextest.log`). The suite includes 198 compiler cases; the
 ten new backend cases are all discoverable by nextest. These results do not prove
 SDK replacement or complete legacy test migration.
+
+## Managed calls and body reachability
+
+The [call increment](calls.md) adds typed call sites and whole-program signature
+verification, iterative transitive body discovery, guarded caller storage, direct
+and mutual recursion, and linker-visible stack UNION reservations. Only reached
+methods are lowered; missing references and unsupported reachable code are errors.
+Type/module initializer omission was reproduced with real C# and corrected to
+explicit diagnostics pending static-storage/initialization implementation. Initializer
+execution remains required, not retired. The caller-guard mutation caused protected
+memory corruption and failed its test; the guard was restored for all final runs.
+
+Completed local command `cargo nextest run --workspace --all-features --locked`
+with `KOH_DOTNET` selecting SDK 10.0.115 reports **383 run, 383 passed, 0 skipped**,
+exit 0 (`/tmp/koh-calls-nextest.log`). There are 207 compiler cases and 154 ROM
+scenarios: 141 expected returns, 13 traps. Focused default-threaded tests also
+passed (25 IR, 16 lowering, 14 backend cases; `/tmp/koh-calls-focused.log`).
+All 14 hosted checks passed for preceding backend head `6e01f88`; call-head hosted
+validation must be checked separately. No native CLI, SDK switch, game graphics,
+PDB/KDBG or final legacy-test retirement is claimed.

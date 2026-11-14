@@ -1,57 +1,62 @@
 # PR #55 working handoff
 
-Branch: feat/rust-cil-compiler, isolated from main checkout modified screenshot.
-Baseline: integrated linker migration 9cd1472. Existing PR #55 remains draft.
-The C# compiler remains production. Full attachment migration goal stays active.
+Branch feat/rust-cil-compiler, isolated from main checkout modified screenshot.
+Baseline integrated linker 9cd1472. Existing PR #55 stays draft; never merge.
+C# compiler remains production. Full attachment migration goal stays active.
 
 ## Implemented
 
-All 565 legacy test methods have source dispositions, not completed migration.
-None is fully retired/replaced yet. No compiler-owned coverage may be deferred.
-Native metadata/body, CIL encoding/signature readers and full-identity reference
-binding are committed, plus typed SSA verification/initial integer lowering.
-Contextual generics/inherited substitution and broader lowering remain incomplete.
+All 565 legacy compiler methods have source dispositions, not complete migration.
+None is retired/replaced yet. Native readers/reference binding, typed SSA/verifier,
+integer lowering/emission and static managed calls/reachability are implemented.
+Read calls.md, sm83-abi.md and progress.md for exact scope/limits/evidence.
+Calls have explicit signatures validated against actual IR definitions. A finite
+work queue lowers each reached definition once; generic/instance/virtual shapes
+are still incomplete. No whole BCL or unreachable unsupported bodies are included.
+Dynamic SP frames preserve caller values and recursion. Caller capacity checks
+precede buffer writes/CALL; callee checks frame before writes. Every ELF object
+has a canonical WRAM0 UNION stack reservation, preventing linked global overlap.
 
-The current backend implements every operation in the initial integer IR, emits
-koh-objects canonical ELF/SM83 and executes in the unchanged C# emulator. Read
-sm83-abi.md for dynamic SP frames, caller-owned return/argument buffers, guarded
-WRAM0 capacity, arithmetic traps, spilled values and simultaneous edge transfers.
-ELF retains method and IL markers; they are not C# source/PDB/KDBG mappings.
-No production native CLI/startup, managed calls, SDK switch or game sample exists.
+Initializer omission was reproduced in real C#: both declaring-type .cctor and
+<Module>..cctor must not be ignored. They now produce explicit diagnostics for
+reached methods/assemblies until real static storage/initialization lowering lands.
+This is pending required implementation, not retirement of those capabilities.
+A controlled removal of caller guard produced CORRUPT sentinels despite a callee
+guard. The production guard was restored before all final runs.
 
-Root owns all implementation/tests. All read-only reviews are finished. Review
-found IL-offset diagnostic overflow and shared test paths/build dirs; fixed with
-max-offset red/green regression and isolated directories. Default cargo test
-threading passes. Emission caps bytes during generation, not after huge allocation.
+Root owns all files. Read-only reviews are complete, including module-init fix.
+No delegated writers/builds remain. No native CLI/startup/SDK switch, graphics,
+PDB/KDBG acceptance or legacy compiler deletion yet. Library entry is
+compile::reachable(&Resolver, Definition); output IR is program-verified.
 
 ## Evidence
 
-Workspace nextest: 374/374 passed, 0 skipped, exit 0; 198 compiler cases, including
-10 backend cases. Log /tmp/koh-sm83-nextest.log. Seven backend tests execute 140
-ROM scenarios through ELF serialization/readback, Rust linker and C# emulator:
-130 expected normal returns, 10 traps, all guard sentinels intact. Includes 18
-real Roslyn Debug/Release scenarios. Other cases cover symbols and diagnostics.
-Focused default-threaded suite: /tmp/koh-sm83-reviewed.log (10/10).
-Separate workspace doctests exit 0, no cases (/tmp/koh-sm83-doc.log); stable
-rustfmt check exit 0 (/tmp/koh-sm83-fmt-check.log).
-Legacy baseline remains 814/814. All 14 hosted checks passed on preceding IR head
-579b910. Check new backend head separately; old CI is not final-tree validation.
+Completed workspace nextest: 383/383 passed, 0 skipped, exit 0; 207 compiler cases.
+Log /tmp/koh-calls-nextest.log. Suite executes 154 ROM scenarios through ELF
+serialization/readback and Rust linker in unchanged C# emulator: 141 expected
+normal returns, 13 traps, guard sentinels below C100 preserved. New cases include
+12 real C# scenarios across Debug/Release (transitive calls, mixed widths, void,
+recursion/mutual recursion, deep-stack trap), plus caller guard/live value cases.
+Exact Main reachability is four methods; dead unsupported code stays absent.
+Focused default-threaded tests: 25 IR + 16 lowering + 14 backend passed, exit 0
+(/tmp/koh-calls-focused.log). Separate workspace doctests exit 0, no cases
+(/tmp/koh-calls-doc.log); stable fmt check exit 0 (/tmp/koh-calls-fmt-check.log).
+Legacy baseline 814/814 remains historical. All 14 hosted checks passed for
+preceding backend head 6e01f88. Check new call head separately after push.
 
 ## Next
 
-Implement managed calls/reachability and a native entry path. Reserve the ABI
-stack region through linker-visible RAM sections before adding globals/heap;
-current pure-function tests have no global allocator. Add call capacity checks
-before argument/return writes and CALL. Keep dynamic activation identity.
-Complete missing language/runtime, optimization, generic, banking, IRQ, Portable
-PDB/debug, SDK, sample, test-audit/migration and legacy deletion requirements in
-this single PR. Do not redefine success as the integer slice. Rough progress is
-16%; 100% means every original completion criterion verified. Keep old compiler
-until replacement acceptance, then delete it entirely. Do not merge PR yourself.
+Implement native entry/CLI/module emission, metadata hardware contracts, memory,
+static globals and real initialization. Then remaining language/runtime, generic,
+objects/arrays, optimization, banking/IRQ, PDB/debug, SDK, sample, test audit/
+migration, legacy deletion, performance/platform and bounded Docker work in this
+single PR. Do not redefine success as integer/call slice. Rough progress 20%;
+100% means every original requirement verified. Keep old compiler until replacement
+acceptance, then delete it entirely. GameBoy API is preserved by default.
 
 ## Verification
 
-Build serially per target directory. KOH_DOTNET selects SDK 10.0.115. Read completed
-logs/direct exit codes; use stable rustfmt. Reuse koh-objects ELF and Rust linker,
-execute with C# emulator. Preserve tracked sample assets and main screenshot.
-Commit/push logical increments and update this draft PR, never open another PR.
+Serial builds per output directory. KOH_DOTNET selects .NET SDK 10.0.115; read
+completed logs/direct exit codes. Use stable rustfmt. Reuse koh-objects ELF and
+Rust linker; execute C# emulator. Preserve sample assets/main screenshot. Commit
+and push logical increments to this draft PR; do not open another or merge it.

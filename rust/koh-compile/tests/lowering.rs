@@ -228,7 +228,9 @@ fn assemblies() -> [Vec<u8>; 2] {
 #[case(0)]
 #[case(1)]
 fn real_roslyn_integer_control_flow(assemblies: &[Vec<u8>; 2], #[case] configuration: usize) {
-    let assembly = koh_compile::assembly::Assembly::parse(&assemblies[configuration]).unwrap();
+    let resolver =
+        koh_compile::resolve::Resolver::new(&[assemblies[configuration].as_slice()]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
     for (name, arguments, expected) in [
         ("Sum", vec![], 55),
         ("Choose", vec![u32::MAX as u64], 7),
@@ -248,7 +250,7 @@ fn real_roslyn_integer_control_flow(assemblies: &[Vec<u8>; 2], #[case] configura
             .map(|(i, _)| 0x06000001 + i as u32)
             .unwrap();
         let function =
-            koh_compile::lower::assembly_method(&assembly, Definition { assembly: 0, token })
+            koh_compile::lower::assembly_method(&resolver, Definition { assembly: 0, token })
                 .unwrap();
         assert_eq!(
             execute_with(&function, &arguments),

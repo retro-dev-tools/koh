@@ -107,9 +107,21 @@ fn patch(offset: u32, target: SymbolId) -> Patch {
 }
 
 fn rom(f: &Function, arguments: &[u64], stack: u16) -> Vec<u8> {
-    let object = sm83::emit(f).unwrap();
-    let elf = write_elf(&object).unwrap();
-    let object = read_elf(&elf).unwrap();
+    rom_program(std::slice::from_ref(f), f.identity, arguments, stack)
+}
+
+fn rom_program(
+    functions: &[Function],
+    entry: Definition,
+    arguments: &[u64],
+    stack: u16,
+) -> Vec<u8> {
+    verify_program(functions).unwrap();
+    let f = functions.iter().find(|f| f.identity == entry).unwrap();
+    let objects: Vec<_> = functions
+        .iter()
+        .map(|f| read_elf(&write_elf(&sm83::emit(f).unwrap()).unwrap()).unwrap())
+        .collect();
     let mut data = vec![0; 0x150];
     data[0x100..0x103].copy_from_slice(&[0xc3, 0x50, 0x01]);
     data.extend_from_slice(&[0xf3, 0x31, stack as u8, (stack >> 8) as u8]);
@@ -178,7 +190,9 @@ fn rom(f: &Function, arguments: &[u64], stack: u16) -> Vec<u8> {
     };
     let mut entry = entry;
     entry.sections[0].patches.push(patch(call, SymbolId(0)));
-    koh_link::link(&[entry, object], &koh_link::LinkOptions::default())
+    let mut all = vec![entry];
+    all.extend(objects);
+    koh_link::link(&all, &koh_link::LinkOptions::default())
         .unwrap()
         .rom
 }
@@ -188,15 +202,23 @@ fn run(host: &Host, cases: &[(Function, Vec<u64>, Result<u64, u8>)]) {
 }
 
 fn run_at(host: &Host, cases: &[(Function, Vec<u64>, Result<u64, u8>)], stack: u16) {
+    let programs: Vec<_> = cases
+        .iter()
+        .map(|(f, args, expected)| (rom(f, args, stack), *expected))
+        .collect();
+    run_roms(host, &programs, stack);
+}
+
+fn run_roms(host: &Host, cases: &[(Vec<u8>, Result<u64, u8>)], stack: u16) {
     let directory = tempfile::Builder::new()
         .prefix("rom run ")
         .tempdir_in(host.directory.path())
         .unwrap();
     let mut command = dotnet();
     command.arg(&host.dll);
-    for (index, (f, args, _)) in cases.iter().enumerate() {
+    for (index, (rom, _)) in cases.iter().enumerate() {
         let path = directory.path().join(format!("case{index}.gb"));
-        std::fs::write(&path, rom(f, args, stack)).unwrap();
+        std::fs::write(&path, rom).unwrap();
         command.arg(path);
     }
     let output = command.output().unwrap();
@@ -209,7 +231,7 @@ fn run_at(host: &Host, cases: &[(Function, Vec<u64>, Result<u64, u8>)], stack: u
     let stdout = String::from_utf8(output.stdout).unwrap();
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines.len(), cases.len(), "{stdout}");
-    for (index, (line, (_, _, expected))) in lines.iter().zip(cases).enumerate() {
+    for (index, (line, (_, expected))) in lines.iter().zip(cases).enumerate() {
         let fields: Vec<_> = line.split_whitespace().collect();
         assert_eq!(
             fields[4], "OK",
@@ -233,6 +255,79 @@ fn run_at(host: &Host, cases: &[(Function, Vec<u64>, Result<u64, u8>)], stack: u
             "unbalanced SP in case {index}"
         );
     }
+}
+
+#[rstest::rstest]
+fn managed_calls_preserve_caller_values_and_guard_call_storage(host: &Host) {
+    let mut callee = function(
+        Type::I32,
+        Op::Binary {
+            op: Binary::Add,
+            left: 0,
+            right: 1,
+        },
+    );
+    callee.identity.token += 1;
+    let mut caller = function(
+        Type::I32,
+        Op::Call {
+            target: callee.identity,
+            signature: Signature {
+                parameters: vec![Type::I32; 2],
+                returns: Some(Type::I32),
+            },
+            arguments: vec![0, 1],
+        },
+    );
+    caller.blocks[0].instructions.push(Instruction {
+        result: Some((3, Type::I32)),
+        op: Op::Binary {
+            op: Binary::Add,
+            left: 0,
+            right: 2,
+        },
+        il_offset: 2,
+    });
+    caller.blocks[0].terminator.kind = Control::Return(Some(3));
+    let entry = caller.identity;
+    let functions = vec![caller, callee];
+    let normal = rom_program(&functions, entry, &[11, 22], 0xd000);
+    run_roms(host, &[(normal, Ok(44))], 0xd000);
+    let guarded = rom_program(&functions, entry, &[11, 22], 0xc144);
+    run_roms(host, &[(guarded, Err(1))], 0xc144);
+}
+
+#[test]
+fn stack_reservation_is_canonical_and_blocks_overlapping_globals() {
+    let f = function(
+        Type::I32,
+        Op::Binary {
+            op: Binary::Add,
+            left: 0,
+            right: 1,
+        },
+    );
+    let object = read_elf(&write_elf(&sm83::emit(&f).unwrap()).unwrap()).unwrap();
+    assert!(object.sections.iter().any(|s| s.kind == 4
+        && s.address == Some(0xc100)
+        && s.size == 0xf00
+        && s.combination == SectionCombination::Union));
+    let globals = Object {
+        sections: vec![Section {
+            name: "test.globals".into(),
+            kind: 4,
+            address: Some(0xc080),
+            bank: Some(0),
+            size: 0x90,
+            ..Default::default()
+        }],
+        symbols: vec![],
+    };
+    assert!(
+        koh_link::link(&[object, globals], &koh_link::LinkOptions::default())
+            .unwrap_err()
+            .contains("Cannot place")
+    );
 }
 
 #[rstest::rstest]
@@ -296,7 +391,8 @@ fn roslyn_methods_execute_as_sm83(host: &Host, #[case] configuration: &str) {
     );
     let bytes =
         std::fs::read(game.join(format!("bin/{configuration}/net10.0/Integers.dll"))).unwrap();
-    let assembly = koh_compile::assembly::Assembly::parse(&bytes).unwrap();
+    let resolver = koh_compile::resolve::Resolver::new(&[bytes.as_slice()]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
     let mut cases = Vec::new();
     for (name, arguments, expected) in [
         ("Sum", vec![], 55),
@@ -317,7 +413,7 @@ fn roslyn_methods_execute_as_sm83(host: &Host, #[case] configuration: &str) {
             .find(|(_, row)| assembly.metadata().strings.get(row.name).unwrap() == name)
             .map(|(i, _)| 0x06000001 + i as u32)
             .unwrap();
-        let f = koh_compile::lower::assembly_method(&assembly, Definition { assembly: 0, token })
+        let f = koh_compile::lower::assembly_method(&resolver, Definition { assembly: 0, token })
             .unwrap();
         cases.push((f, arguments, Ok(expected)));
     }
@@ -589,4 +685,166 @@ fn oversized_machine_code_is_diagnostic() {
         .collect();
     f.blocks[0].terminator.kind = Control::Return(Some(0));
     assert!(sm83::emit(&f).unwrap_err().contains("16 KiB"));
+}
+
+#[rstest::rstest]
+#[case("Debug")]
+#[case("Release")]
+fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configuration: &str) {
+    let directory = host.directory.path().join(format!("calls-{configuration}"));
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Calls");
+    for project in ["Entry", "Bridge", "Runtime"] {
+        std::fs::create_dir_all(directory.join(project)).unwrap();
+        for file in std::fs::read_dir(fixture.join(project)).unwrap() {
+            let file = file.unwrap();
+            std::fs::copy(file.path(), directory.join(project).join(file.file_name())).unwrap();
+        }
+    }
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.join("Entry/Entry.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let images: Vec<_> = [
+        ("Entry", "Game.Calls"),
+        ("Bridge", "Game.Bridge"),
+        ("Runtime", "Game.Runtime"),
+    ]
+    .iter()
+    .map(|(project, assembly)| {
+        std::fs::read(directory.join(format!(
+            "{project}/bin/{configuration}/net10.0/{assembly}.dll"
+        )))
+        .unwrap()
+    })
+    .collect();
+    let views: Vec<_> = images.iter().map(Vec::as_slice).collect();
+    let resolver = koh_compile::resolve::Resolver::new(&views).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let token = |name| {
+        assembly
+            .metadata()
+            .method_defs
+            .iter()
+            .enumerate()
+            .find(|(_, row)| assembly.metadata().strings.get(row.name).unwrap() == name)
+            .map(|(i, _)| 0x06000001 + i as u32)
+            .unwrap()
+    };
+    let mut cases = Vec::new();
+    for (name, expected) in [
+        ("Main", Ok(42)),
+        ("Wide", Ok(0x123456789ABCDEF9)),
+        ("Live", Ok(0x112233445566778B)),
+        ("Mutual", Ok(1)),
+        ("VoidCalls", Ok(9)),
+        ("Deep", Err(1)),
+    ] {
+        let entry = Definition {
+            assembly: 0,
+            token: token(name),
+        };
+        let functions = koh_compile::compile::reachable(&resolver, entry).unwrap();
+        if name == "Main" {
+            let mut names: Vec<_> = functions
+                .iter()
+                .map(|f| {
+                    resolver
+                        .assembly(f.identity.assembly)
+                        .unwrap()
+                        .method_name(f.identity.token)
+                        .unwrap()
+                })
+                .collect();
+            names.sort();
+            assert_eq!(
+                names,
+                [
+                    "Game::Play",
+                    "Program::Main",
+                    "Runtime::Answer",
+                    "Runtime::Sum"
+                ]
+            );
+        }
+        cases.push((rom_program(&functions, entry, &[], 0xd000), expected));
+    }
+    run_roms(host, &cases, 0xd000);
+    for (name, diagnostic) in [
+        ("Dead", "opcode"),
+        ("Generic", "Generic"),
+        ("Protected", "sections"),
+        ("StaticInit", "initializer"),
+    ] {
+        let error = koh_compile::compile::reachable(
+            &resolver,
+            Definition {
+                assembly: 0,
+                token: token(name),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.contains(diagnostic) && error.contains("IL_"),
+            "{name}: {error}"
+        );
+    }
+    let missing = koh_compile::resolve::Resolver::new(&views[..2]).unwrap();
+    let error = koh_compile::compile::reachable(
+        &missing,
+        Definition {
+            assembly: 0,
+            token: assembly.entry_point,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("Game.Runtime") && error.contains("IL_"),
+        "{error}"
+    );
+    let module_output = directory.join("module-initializer");
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.join("Entry/Entry.csproj"))
+        .args([
+            "-c",
+            configuration,
+            "--nologo",
+            "-v:q",
+            "-m:1",
+            "-p:DefineConstants=MODULE_INIT",
+            "-o",
+        ])
+        .arg(&module_output)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let module_bytes = std::fs::read(module_output.join("Game.Calls.dll")).unwrap();
+    let mut module_views = views;
+    module_views[0] = &module_bytes;
+    let module = koh_compile::resolve::Resolver::new(&module_views).unwrap();
+    let error = koh_compile::compile::reachable(
+        &module,
+        Definition {
+            assembly: 0,
+            token: module.assembly(0).unwrap().entry_point,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("Module initializer") && error.contains("IL_"),
+        "{error}"
+    );
 }

@@ -1,5 +1,6 @@
 pub mod assembly;
 pub mod cil;
+pub mod compile;
 pub mod ir;
 pub mod lower;
 pub mod resolve;

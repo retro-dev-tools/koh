@@ -15,7 +15,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   The linker migration removes the C# linker and retired object formats and retains C# game development.
   See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
-- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) has source-level dispositions for all 565 legacy test methods, native readers/reference binding, typed SSA verification and an initial integer CIL-to-ELF/SM83 slice. Local workspace nextest passes 374/374, including 140 ROM scenarios executed in the C# emulator. The C# compiler remains active; game runtime, calls, debug and SDK replacement remain incomplete.
+- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) has source-level dispositions for all 565 legacy test methods, native readers/reference binding, typed SSA verification and an integer CIL-to-ELF/SM83 slice with transitive static calls/recursion. Local workspace nextest passes 383/383, including 154 ROM scenarios executed in the C# emulator. The C# compiler remains active; initialization, game runtime, debug and SDK replacement remain incomplete.
   Track the [commit sequence and acceptance ledger](docs/rust-compiler/progress.md);
   a native compiler replacement has not yet been implemented or validated.
 

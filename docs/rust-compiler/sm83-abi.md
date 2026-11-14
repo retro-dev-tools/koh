@@ -28,11 +28,11 @@ division overflow branch to `__koh_trap_arithmetic`. Trap entry does not return.
 Signed remainder of minimum/-1 is zero. Hardware/native stack overflow is not
 allowed to become a successful ROM build or silent WRAM corruption.
 
-This is an initial ABI, not a claim that calls, recursion, interrupts, banking or
-the runtime are implemented yet. Interrupt support must reserve its worst-case
+Static integer calls and recursion are now exercised by the [call increment](calls.md).
+Interrupts, banking and the wider runtime remain incomplete. Interrupt support must reserve its worst-case
 stack budget before enabling IME and preserve interrupted registers/flags; IRQ
-recursion/nesting constraints need separate tests. Startup and linker-owned stack
-reservation must be integrated with globals/heap before final product acceptance.
+recursion/nesting constraints need separate tests. The linker-visible stack UNION
+reservation is implemented; startup/globals/heap must still be integrated.
 The current debugger's heuristic stack scan cannot distinguish spill bytes from
 return addresses; accurate frame inspection needs integration evidence.
 

@@ -47,6 +47,36 @@ impl Code {
         id
     }
 
+    fn import(&mut self, name: String) -> SymbolId {
+        if let Some(index) = self.symbols.iter().position(|s| s.name == name) {
+            return SymbolId(index);
+        }
+        let id = SymbolId(self.symbols.len());
+        self.symbols.push(Symbol {
+            name,
+            binding: SymbolBinding::Local,
+            definition: SymbolDefinition::Import,
+            source: None,
+        });
+        id
+    }
+
+    fn guard(&mut self, bytes: u16) {
+        let negative = 0u16.wrapping_sub(bytes);
+        self.bytes(&[
+            0xf8,
+            0,
+            0x11,
+            negative as u8,
+            (negative >> 8) as u8,
+            0x19,
+            0x7c,
+            0xfe,
+            0xc1,
+        ]);
+        self.jump(0xda, SymbolId(1));
+    }
+
     fn mark(&mut self, id: SymbolId) {
         self.symbols[id.0].definition = SymbolDefinition::Label {
             section: SectionId(0),
@@ -438,19 +468,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         il_offset: 0,
         overflow: false,
     };
-    let guard = 0u16.wrapping_sub(layout.size + 2);
-    code.bytes(&[
-        0xf8,
-        0,
-        0x11,
-        guard as u8,
-        (guard >> 8) as u8,
-        0x19,
-        0x7c,
-        0xfe,
-        0xc1,
-    ]);
-    code.jump(0xda, SymbolId(1));
+    code.guard(layout.size + 2);
     code.adjust_sp(-i32::from(layout.size));
     let return_width = function
         .returns
@@ -473,6 +491,39 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::Call {
+                    target,
+                    ref signature,
+                    ref arguments,
+                } => {
+                    let size: usize = signature
+                        .parameters
+                        .iter()
+                        .map(|ty| usize::from(ty.bits() / 8))
+                        .sum::<usize>()
+                        + usize::from(width);
+                    if size + 2 > 0xf00 {
+                        return Err(format!(
+                            "{name} IL_{:04x}: call storage exceeds stack capacity",
+                            instruction.il_offset
+                        ));
+                    }
+                    let size = size as u16;
+                    code.guard(size + 2);
+                    code.adjust_sp(-i32::from(size));
+                    let mut offset = width;
+                    for (&value, &ty) in arguments.iter().zip(&signature.parameters) {
+                        let bytes = u16::from(ty.bits() / 8);
+                        code.copy(slot(value) + size, offset, bytes);
+                        offset += bytes;
+                    }
+                    let callee = code.import(symbol(target));
+                    code.jump(0xcd, callee);
+                    if width != 0 {
+                        code.copy(0, destination + size, width);
+                    }
+                    code.adjust_sp(i32::from(size));
+                }
                 Op::Constant(bits) => code.constant(destination, width, bits),
                 Op::LoadLocal(local) => {
                     code.copy(layout.locals[local as usize], destination, width)
@@ -616,14 +667,25 @@ pub fn emit(function: &Function) -> Result<Object, String> {
     }
     code.check_size()?;
     let object = Object {
-        sections: vec![Section {
-            name: format!(".text.{name}"),
-            kind: 0,
-            size: code.data.len() as u32,
-            data: code.data,
-            patches: code.patches,
-            ..Default::default()
-        }],
+        sections: vec![
+            Section {
+                name: format!(".text.{name}"),
+                kind: 0,
+                size: code.data.len() as u32,
+                data: code.data,
+                patches: code.patches,
+                ..Default::default()
+            },
+            Section {
+                name: ".koh.stack".into(),
+                kind: 4,
+                combination: SectionCombination::Union,
+                address: Some(0xc100),
+                bank: Some(0),
+                size: 0xf00,
+                ..Default::default()
+            },
+        ],
         symbols: code.symbols,
     };
     object.validate()?;
