@@ -1,6 +1,7 @@
 # Native CIL compiler migration (PR #55)
 
-Status: audit in progress. No native compiler is implemented or integrated yet.
+Status: source audit recorded; native metadata reading is in development. No
+executable native compiler is integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
 
 ## Inspected baseline
@@ -71,6 +72,7 @@ checks; neither old documentation nor a passing legacy test is an oracle.
 ## Acceptance ledger
 
 - [x] Branch from integrated linker migration, PR #54.
+- [x] Account for every legacy compiler test declaration in source-level audits.
 - [ ] Complete architecture and test audit with independent expectations.
 - [ ] Implement native compiler and documented supported contract.
 - [ ] Prove game-level ROM execution and debugging.
@@ -80,3 +82,10 @@ checks; neither old documentation nor a passing legacy test is an oracle.
 
 No compiler build, test, sample execution, performance result or cross-platform
 validation is claimed by the initial documentation commits.
+
+## Audit results
+
+All 565 test methods are enumerated in the [disposition status](test-disposition.md).
+The source audits cover CIL/runtime semantics, backend/ABI and integration consumers.
+Their dispositions are proposals, not migrated tests. Empirical legacy baseline,
+final supported contract, native scenario coverage and sample execution remain open.

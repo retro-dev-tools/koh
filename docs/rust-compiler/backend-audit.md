@@ -1,0 +1,660 @@
+# Backend, IR and SM83 migration audit
+
+This is a source-review migration ledger, not runtime acceptance. Reviewed the 25 test
+files under `tests/Compiler/Koh.Compiler.Tests/{Backends,Ir,Sm83}` and the corresponding
+C# IR, optimization, allocation, emission, MIR decoding and peephole implementation.
+There are **290 [Test] methods**: Backends 156, Ir 94, Sm83 40. Parameterized
+`[Arguments]` expand methods into more executions; 290 is not an execution count.
+No builds or tests were run for this audit. Existing test names containing
+“InEmulator” or “OnHardware” describe their source harness, not fresh proof:
+the pointer-residency “OnHardware” tests instantiate `Koh.Emulator`.
+
+PORT means retain the externally meaningful assertion and input in native acceptance.
+REPLACE means retain the justified behavior/boundary while replacing private C# IR,
+allocation, byte-shape, helper or harness assertions. DELETE would mean removing a
+test with no independent requirement left; none is proposed here. No compiler-owned
+case is deferred to another migration. All paths below are **proposed future Rust
+test locations**, not implemented coverage. A PORT disposition does not require
+the C# ABI to be copied.
+
+## Independent requirements and ABI decisions
+
+### Storage and calling convention
+
+SM83 machine CALL/RET requires a balanced hardware stack; it does not require one
+static WRAM frame per function. C# `CompileCore` puts globals first, then disjoint
+function allocations; `FunctionAllocation` reuses slots by liveness and optionally
+places selected values/leaf parameters in registers. The independent requirement is
+that simultaneously live values and distinct live objects remain distinguishable.
+Pointers to address-taken objects must continue to identify those objects through
+calls and for their valid lifetime. A Rust design may use activation stack frames,
+static slots with a proven non-reentrant call graph, or a combination; it must not
+inherit static storage simply because the old tests name a slot.
+
+The C# direct ABI uses packed callee parameter slots with optional resident leaf
+parameters; returns are A (byte), HL (word), DE:HL (32-bit), and fixed ReturnScratch
+for 64/128-bit values. Recursive and banked functions use memory returns at every
+width. These are implementation conventions, not CIL requirements. Native callers,
+runtime helpers, return captures, far-call thunks and any assembly interface must
+agree on widths, byte order, clobbers and parameter placement. Test nested calls
+with caller live values, mixed-width parameters/results, pointer parameters and
+register pressure. An ABI change must update every participating caller/helper,
+not just a return-value assertion. External calls currently throw rather than
+silently accepting an unspecified ABI (`ControlFlowEmitter.EmitCall`).
+
+### Recursion and activation identity
+
+C# identifies recursive SCCs, stages arguments at ArgScratch, saves each recursive
+function's static frame to an upward software stack, restores on return and uses
+ReturnScratch. Recursive frames larger than 255 bytes are diagnosed. Correctness
+requires terminating direct/mutual recursion, preservation of caller locals and
+arguments, zero-sized frames, maximum-depth behavior, and a defined resource-limit
+failure. It also requires activation-specific identity for escaped locals: saving
+the bytes of a reused static frame alone does not give a pointer into an ancestor
+a different address from the current activation. Add a caller-local-address passed
+through recursive calls test; the ordinary pointer-parameter test does not establish
+this case.
+
+Concrete source risk: `EmitPushFrame` copies the complete frame and updates SoftSp
+**before** checking the live heap/ceiling/hardware-SP collision. Its trap can therefore
+follow corruption of heap data or return addresses. The Rust acceptance must require
+capacity checks before writes, not merely eventual trapping. The existing
+`Recursion_IsSupported` checks valid IR and nonempty emitted sections, with no
+recursive execution. Replace it with terminating emulator fixtures and overflow
+sentinels. This finding is source-derived, not a reproduced runtime failure.
+
+### Aliasing and optimization legality
+
+Language pointer reads/writes, fixed-address IO and overlapping forward copies are
+observable even if a pass can make IR shorter. C# `AllocaAnalysis.NonEscaping`
+permits only direct load/store-pointer uses; storing the address, GEP, passing or
+returning it marks escape. RLE, DSE and Mem2Reg rely on that proof. Keep conservative
+unknown-pointer/call barriers, preserve separate allocations, and do not infer
+“no alias” from two SSA names. The old forward-overlap loop fixture deliberately
+expects bytes produced by earlier iterations to be read by later iterations;
+substituting memmove changes its semantics. The Mem.Copy destination-before-source
+overlap test does not by itself promise all memmove overlap directions.
+
+MMIO reads can change without a store; writes can trigger hardware. C# retains
+unused loads in DCE and does not LICM-hoist loads. Backend dead-store/reload
+elimination is constrained to WRAM and disabled with interrupt handlers. These
+are conservative strategies. The replacement must explicitly preserve IO and
+asynchronous observations, not transplant only the positive optimization cases.
+
+### Interrupts and shared scratch
+
+An interrupt may arrive between ordinary emitted instructions. Handlers must save
+interrupted registers/flags they clobber, balance their stack and return via RETI;
+their reachable helpers and scratch must be reentrant or rejected before emission.
+C# pushes AF/BC/DE/HL, disables residency for handlers, rejects shared
+handler/mainline functions, rejects recursive handlers and detects shared wide
+arithmetic/memory-return scratch. Static frames in two functions do not make a
+shared runtime scratch area safe.
+
+Review gap: `UsesWideScratch` checks widths greater than two bytes and memory
+returns, but `EmitSDivMod16` also uses fixed RtCount/RtSignRem/RtSignQuot.
+Therefore the wide-only check is not proof that concurrent independent 16-bit
+divide helpers are safe. Need an interrupt-preemption test across narrow runtime
+division as well as wide arithmetic, return-copy, recursive argument staging and
+bank transitions. Also define or reject EI inside a handler: the safety argument
+“handlers never nest” is conditional on user code not enabling nested interrupts.
+These are migration acceptance obligations, not implemented fixes.
+
+### Banking and placement
+
+A 16-bit window address does not uniquely identify a physical bank. Calls and data
+accesses need the intended bank, with the caller mapping restored where required.
+C# single-overflow-bank mode keeps bank 1 mapped; multibank code uses ROM0 thunks
+and CurBank; simultaneous banked code and banked read-only data is rejected in
+the ordinary overflow path. Data selection is author-written; the IR
+bank-select elimination tracks constant MBC1 selects within one block and clears
+knowledge for calls/intrinsics, variable addresses and other MBC-control writes.
+Its documented interrupt assumption is that a handler restores the mapping.
+Do not generalize an MBC1 constant-store rule to an arbitrary mapper.
+
+Native acceptance needs cross-bank nested/recursive calls, all return widths,
+data-bank selection with aliases/calls, handler bank preservation, and clear
+unsupported-layout diagnostics. ROM0 vectors/trampolines and executing code must
+remain fetchable while mapping changes. Symbol values must remain section-relative
+in objects and resolve to actual linked addresses; fixed CodeBase/DataBase/WramBase
+are not mandatory when placement is otherwise valid. Those obligations belong to
+the compiler migration even though these 25 files do not comprehensively cover them.
+
+## Test-by-test disposition
+
+For each file, the independent justification applies to all enumerated methods;
+each row refines whether its existing assertion is a requirement, private detail,
+or a mixture. Future locations are under `rust/koh-compiler/tests/`.
+The method name identifies the exact source fixture, including every parameter row.
+
+### Backends/MirDecoderTests.cs (19)
+
+Classification: ISA metadata, not the old MIR representation. Hardware instructions define register/flag/memory/control effects; optimizer legality depends on preserving them. Byte round trips alone cannot certify effect metadata.
+
+Proposed future location: `rust/koh-compiler/tests/mir_effects.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Decode_RoundTripsToOriginalBytes` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_XorAWritesAAndAllFlags` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_LoadRegRegHasNoFlagEffect` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_LoadImmediateWritesRegisterOnly` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_AdcFromMemoryReadsCarryAAndHl` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_IncByteWritesZnhButNotCarry` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_CbBitTestsWithoutWritingRegister` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_ControlFlowIsClassified` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_PushPopAfTouchAllFlags` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_MmioLoadStoreLengthsAndEffects` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_IllegalOpcodeIsOpaqueBarrier` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_IsTotalOverEveryOpcode` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_HlPostIncrementLoadWritesHl` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_EveryLoadRegRegLeavesFlagsUntouched` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_EveryAluOpWritesAllFlagsAndReadsA` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_EveryCbFamilyHasTheExpectedFlagShape` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_EveryIncDecByteWritesZnhNotCarry` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_TruncatedTrailingCbDoesNotThrow` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_DiEiAreSideEffectingButNopIsNot` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+
+### Backends/Sm83BackendTests.cs (20)
+
+Classification: Mixed language behavior, debug contract, and allocator details. Return values and source mappings are observable; E/HL choices, default toggles and exact slots are private allocation decisions.
+
+Proposed future location: `rust/koh-compiler/tests/backend_semantics.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Emits_ExpectedBytes_ForConstantFolding` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `Residency_AssignsShortLivedByteValueToRegister` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_IsDisabledByDefault` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_ComputesCorrectResultThroughRegister` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Residency_SkipsValueUsedByNonGentleOp` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_AssignsSixteenBitValueToHL` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_ComputesCorrectSixteenBitResultThroughHL` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Residency_GivesSimultaneouslyLiveValuesDistinctRegisters` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_CoalescesChainIntoOneRegister` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_CoalescesSixteenBitChainInHL` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_UsesHalfOfHLUnderBytePressure` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_ReceivesLeafParametersInRegisters` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_ParameterPassingIsOffWithoutOptIn` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_RejectsParameterWhenEntryIsLoopHeader` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
+| `Residency_LeafCallPassesArgsInRegisters` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Allocation_ReusesSlotsForNonOverlappingValues` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `LineMap_MapsInstructionsToSourceLines` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Runs_ConstantChain_InEmulator` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Runs_RegisterPathSubtraction_InEmulator` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Runs_BitwiseOps_InEmulator` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+
+### Backends/Sm83CompareBranchFusionTests.cs (7)
+
+Classification: Comparison behavior and private fusion decisions. Signedness, operand width and multiple consumers determine observable branches; a fused-set membership or exact code size is only one implementation.
+
+Proposed future location: `rust/koh-compiler/tests/compare_branch.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `FusedCompareBranch_TakesCorrectArm` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoUseCompare_TrueArm_StillComputesBothUsesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoUseCompare_FalseArm_StillComputesBothUsesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `FusedCompareBranch_IsInternalContextSet_ForImmediatelyConsumedCompareOnly` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `FusedCompare_EmitsNoStoreToItsOwnSlot` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `UnfusedCompare_DoesEmitAStoreToItsOwnSlot_ProvingTheScanDetectsIt` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `FusedCompareBranch_EmitsExpectedByteCount_WithNoWramRoundTrip` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+
+### Backends/Sm83ControlFlowTests.cs (54)
+
+Classification: Language, memory, call, and cartridge contracts. Arithmetic, pointer scaling, parallel phi assignments and calls have observable values independently of the C# emitter.
+
+Proposed future location: `rust/koh-compiler/tests/control_flow.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `I16_Add_CarriesAcrossBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I16_Sub_BorrowsAcrossBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I16_Ult_True` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I16_Ugt_True_ViaSwap` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I16_Eq_False` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Mul_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Mul_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Mul_Signed_I8_LowByteMatches` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `UDiv_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `URem_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `UDiv_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SDiv_I16_NegativeDividend` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SRem_I16_SignOfDividend` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SDiv_I16_BothNegative` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Shl_Const_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `LShr_Const_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `AShr_Const_I8_SignFills` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Shl_Const_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `LShr_Const_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `AShr_Const_I16_SignFills` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Shl_Variable` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Slt_Signed_NegativeLessThanPositive` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Sgt_Signed_NegativeOrdering` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SignedVsUnsigned_DifferForNegatives` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Slt_Signed_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Slt_Signed_CloseValuesWithLowByteBorrow` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I32_Add_CarriesAcrossFourBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I32_Sub_BorrowsAcrossFourBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I32_Bitwise_And` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I32_SignedCompare_AcrossBoundary` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I32_ZeroExtendFromByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `ZExt_I8_To_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SExt_I8_To_I16_SignExtendsHighByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Trunc_I16_To_I8_KeepsLowByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Alloca_Store_Load_RoundTrips` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Gep_IndexesArrayElements` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Call_PassesArgs_ReturnsI8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Call_ReturnsI16_InHL` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Call_Nested_ChainOfFrames` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Recursion_IsSupported` | Requirement | REPLACE | Run terminating direct and mutual recursion with arguments and live locals; nonempty sections prove only emission. |
+| `Switch_SelectsCaseOrDefault` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Header_IsBootableCartridge` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Boots_FromEntryVector` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Mmio_StoreReachesHardwareRegister` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Global_RomTable_IndexedRead` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Global_RomI16Constant` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Global_WramState_MutatedAcrossCalls` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Gep_DynamicIndex_I8Array` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Gep_DynamicIndex_I16Array_ScalesBySize` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Pointer_Parameter_Dereferences` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Store_ThroughDynamicPointer_RoundTrips` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `PhiSwap_RealizedInParallel` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SumLoop_RunsToCompletion` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `PhiCopyCycle_MixedWidth_DoesNotCorruptWiderValue` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+
+### Backends/Sm83EmitterTests.cs (1)
+
+Classification: Private emitter byte count. An eleven-byte I8 add is not a language or ABI requirement; runtime addition with wrapping is.
+
+Proposed future location: `rust/koh-compiler/tests/backend_semantics.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `ArithmeticEmitter_LowersI8Add` | Detail | REPLACE | Execute wrapping I8 addition; remove the eleven-byte contract. |
+
+### Backends/Sm83EncodingTests.cs (4)
+
+Classification: ISA encodings. ROM bytes must implement the selected SM83 instructions; agreement with another Koh table is corroboration, not an external ISA oracle.
+
+Proposed future location: `rust/koh-compiler/tests/encoding.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Loads_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Alu_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `ControlFlow_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `CbShifts_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+
+### Backends/Sm83GepFusionTests.cs (5)
+
+Classification: Address computation and private fusion decisions. Pointer indexing and both uses must remain correct even if another instruction is scheduled between address definition and use.
+
+Proposed future location: `rust/koh-compiler/tests/addressing.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `SingleUseGep_ImmediatelyStored_ComputesCorrectAddress` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SingleUseGep_ImmediatelyLoaded_ComputesCorrectAddress` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoUseGep_StillComputesBothUsesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `DeferredSingleUseGep_AcrossInterveningInstructions_StillComputesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `FusedGep_IsInternalContextSet_ForImmediatelyConsumedGepOnly` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+
+### Backends/Sm83LoopPointerPhiResidencyTests.cs (5)
+
+Classification: Loop edge behavior and private pair assignment. Each predecessor supplies its own pointer and each loop step accesses the intended byte. Pair names and synchronization structures are implementation details.
+
+Proposed future location: `rust/koh-compiler/tests/loops.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `MultiEntry_BothArmsGetTheirOwnInitSync` | Mixed | REPLACE | Run the predecessor/dereference fixture and verify correct pointer stepping; no fixed HL/DE allocation. |
+| `MultiEntry_EachArmWalksItsOwnBuffer_RunsCorrectlyOnHardware` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `LoadWalk_PhiGetsRegisterPair_AndDerefIsFused` | Mixed | REPLACE | Run the predecessor/dereference fixture and verify correct pointer stepping; no fixed HL/DE allocation. |
+| `StoreWalk_PhiGetsRegisterPair_PrefersHl` | Mixed | REPLACE | Run the predecessor/dereference fixture and verify correct pointer stepping; no fixed HL/DE allocation. |
+| `LoadWalk_RunsCorrectlyOnHardware` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+
+### Backends/Sm83OpsTests.cs (3)
+
+Classification: ISA arithmetic helper facts and private normalization. ADC/SBC carry propagation, sign extension and predicate reversal follow integer/ISA semantics; helper names do not.
+
+Proposed future location: `rust/koh-compiler/tests/integer_semantics.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `AluOpcodes_UseCarryFormForHighBytes` | Requirement | REPLACE | Check resulting arithmetic/predicate values rather than C# helper outputs alone. |
+| `ByteOf_SignExtendsBeyond64Bits` | Requirement | REPLACE | Check resulting arithmetic/predicate values rather than C# helper outputs alone. |
+| `Normalize_SwapsAndSignsPredicates` | Requirement | REPLACE | Check resulting arithmetic/predicate values rather than C# helper outputs alone. |
+
+### Backends/Sm83PeepholeTests.cs (38)
+
+Classification: Rewrite legality plus private edit lists. Carry consumers, branch targets, aliases, calls, IO and asynchronous observers constrain transformations regardless of peephole architecture.
+
+Proposed future location: `rust/koh-compiler/tests/rewrite_legality.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `InstructionLength_MatchesTheOpcodeTable` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `ConvertsZeroLoad_WhenFollowedByAFlagRedefiningOp` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `ConvertsZeroLoad_WhenFollowedByAFlagRewritingCbRotate` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsZeroLoad_WhenFollowedByCarryConsumer` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsZeroLoad_WhenFollowedByACbCarryRotate` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsZeroLoad_WhenFollowedByAControlFlowBoundary` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsZeroLoad_WhenNextInstructionIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `FoldsHlLoadWithFollowingIncrement` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `FoldsHlStoreWithFollowingDecrement` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DoesNotFoldWhenIncrementIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DoesNotFoldAnUnrelatedInstruction` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `FoldsTailCallToJump` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DoesNotFoldTailCall_WhenCallTargetIsNotWhitelisted` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DoesNotFoldTailCall_WhenCallIsNotFollowedByRet` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DoesNotFoldTailCall_WhenRetIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DeletesDeadStore_WhenSameSlotIsOverwrittenAdjacently` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DeletesDeadStore_AcrossANonReadingInstruction` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenTheSecondTargetsADifferentSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenAReadIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenAPointerWriteIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenAddressIsAboveWram` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenAddressIsBelowWram` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenTheDeadStoreIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenAJoinIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsStore_WhenDeadStoreEliminationIsDisabled` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DeletesRedundantReload_AfterStoreToSameSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DeletesRedundantReload_AfterLoadOfSameSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DeletesRedundantReload_AcrossAStoreToAnotherSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsReload_WhenAIsWrittenBetween` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsReload_WhenAPointerWriteIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsReload_WhenACallIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsReload_WhenAddressIsNotWram` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsReload_WhenTheReloadIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsReload_WhenAJoinClearsTheMirror` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsReload_WhenEliminationIsDisabled` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DeletesJumpToFallThrough` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `KeepsJump_WhenNotMarkedRedundant` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `DeletesJumpToFallThrough_EvenWhenTheJumpIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+
+### Ir/IrBuilderAndVerifierTests.cs (5)
+
+Classification: IR invariants and textual compatibility. Typed returns/calls and terminated blocks are prerequisites for sound lowering; the C# builder API is disposable.
+
+Proposed future location: `rust/koh-compiler/tests/ir_validation.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Builder_ProducesVerifiableModule` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
+| `Builder_RoundTripsThroughText` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
+| `Verifier_FlagsMissingTerminator` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
+| `Verifier_FlagsReturnTypeMismatch` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
+| `Verifier_FlagsCallArgTypeMismatch` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
+
+### Ir/IrLivenessTests.cs (4)
+
+Classification: Dataflow safety with private set representation. Entry parameters, branch uses and backedges must not be overwritten while live. Constants do not need writable storage.
+
+Proposed future location: `rust/koh-compiler/tests/liveness.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Liveness_ParameterIsLiveInAtEntry` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
+| `Liveness_ValueLiveAcrossBranches` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
+| `Liveness_LoopCarriedValuesLiveAroundBackEdge` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
+| `Liveness_ConstantsAreNotTracked` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
+
+### Ir/IrRoundTripTests.cs (7)
+
+Classification: Private textual IR and verifier rules. Text syntax is not a published source-to-ROM interface; representation stability matters only if the replacement exposes it. Equal-sized bit reinterpretation is independently necessary.
+
+Proposed future location: `rust/koh-compiler/tests/ir_validation.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Canonical_ParsesAndVerifiesClean` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
+| `Canonical_HasExpectedStructure` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
+| `Print_Parse_Print_IsStable` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
+| `EntryFlag_RoundTrips` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
+| `Bitcast_RoundTripsAndVerifies` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
+| `Parser_RejectsNumericOpToken` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
+| `Bitcast_RejectsMismatchedSize` | Requirement | PORT | Reject size-changing bit reinterpretation. |
+
+### Ir/LoopInvariantCodeMotionTests.cs (6)
+
+Classification: Optimization shape with control/memory safety constraints. Invariant arithmetic may move only when values dominate their uses and no newly executed operation changes observable effects; loads need alias/IO proof.
+
+Proposed future location: `rust/koh-compiler/tests/optimization_semantics.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Licm_HoistsInvariantArithmeticIntoPreheader` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Licm_DoesNotHoistLoopVariantComputation` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Licm_DoesNotHoistLoads` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Licm_SplicesPreheaderWhenEntryEdgeIsConditional` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Licm_DoesNotOverHoistValueDefinedInSplicedInnerPreheader` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Licm_HoistedResultIsReusedNotRecomputed` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+
+### Ir/NarrowPassTests.cs (19)
+
+Classification: Integer-width preservation and private rewrite structure. Low-bit add/sub/mul/bitwise observations can permit narrowing; signed comparisons, division and shifts require separate proofs. Wide escaping uses forbid truncating their value.
+
+Proposed future location: `rust/koh-compiler/tests/narrowing.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Add_DemotesWhenOperandsAreExtensionsAndResultIsTruncated` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Add_DemotesToI16WhenOperandsAreExtensionsFromI16` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Add_DemotesWithMixedZextAndSextOperands` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Add_DemotesWithConstantOperand` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Chain_DemotesEveryLinkWhenOnlyTheOuterResultEscapesViaTrunc` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Chain_DoesNotDemoteWhenAnInnerLinkAlsoEscapesAtWideWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Add_DoesNotDemoteWhenResultAlsoObservedAtWideWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Add_DoesNotDemoteWhenTruncatedToTwoDifferentWidths` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Shl_IsNeverDemotedEvenWhenOperandsAndConsumerLookEligible` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `UDiv_IsNeverDemotedEvenWhenOperandsAndConsumerLookEligible` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Compare_SltWithZextOperandsRemapsToUltAndFoldsToTheCorrectValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Compare_SltWithSextOperandsStaysSltAndFoldsToTheCorrectValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Compare_SgeWithZextI16OperandsRemapsToUgeAndFoldsToTheCorrectValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Compare_UnsignedPredicateStaysUnchangedForEitherExtensionKind` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Compare_EqDemotesForMatchingExtensionKind` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Compare_DoesNotDemoteMixedExtensionKinds` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Compare_DoesNotDemoteWhenConstantDoesNotFitTheNarrowRange` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `NarrowPass_NarrowsAByteLoopCounterCompareAndIncrement` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_WiresNarrowPassIntoTheDefaultPipeline` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+
+### Ir/OptimizationTests.cs (36)
+
+Classification: Semantic preservation and private pipeline structure. Optimization must preserve fixed-width results, effects, aliases and CFG/phi meaning; node identity and specific pass ordering are not user contracts.
+
+Proposed future location: `rust/koh-compiler/tests/optimization_semantics.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `ConstantFolding_FoldsIntegerArithmetic` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `ConstantFolding_WrapsToOperandWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `ConstantFolding_SignedAndUnsignedDivideDiffer` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `ConstantFolding_DoesNotFoldDivideByZero` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `ConstantFolding_FoldsComparisons` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `ConstantFolding_FoldsConversions` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `ConstantFolding_AppliesIdentities` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DeadCodeElimination_RemovesUnusedChain` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DeadCodeElimination_KeepsUnusedLoad` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DeadCodeElimination_KeepsStoresAndCalls` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DeadCodeElimination_SweepsClosedDeadPhiCycle` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DeadCodeElimination_KeepsPhiCycleReachableFromStore` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_FoldsAndEliminatesCascade` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_RewritesPhiIncomingThroughRauw` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_LeavesNonConstantCodeIntact` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `RedundantLoadElimination_ForwardsStoredValueToLoad` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `RedundantLoadElimination_CollapsesRepeatedLoads` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `RedundantLoadElimination_DoesNotForwardThroughEscapingAlloca` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DeadStoreElimination_RemovesStoresToWriteOnlyAlloca` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DeadStoreElimination_KeepsStoresToLoadedAlloca` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `SimplifyCfg_FoldsConstantBranchAndDropsUnreachableBlock` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `SimplifyCfg_PrunesPhiIncomingFromDeadEdge` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_PromotesScalarLocalToDirectDataflow` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `StrengthReduction_MultiplyByPowerOfTwoBecomesShift` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `StrengthReduction_UnsignedDivideByPowerOfTwoBecomesShift` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `StrengthReduction_UnsignedRemainderByPowerOfTwoBecomesMask` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `StrengthReduction_LeavesNonPowersAlone` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `StrengthReduction_SignedDivideByPositivePowerOfTwoBecomesBiasedShift` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `StrengthReduction_LeavesSignedDivideByNegativePowerBoundaryAlone` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `LocalCse_DeduplicatesIdenticalExpressions` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `LocalCse_DeduplicatesGepWithEqualConstantIndex` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `LocalCse_KeepsDistinctAllocasAndLoads` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Mem2Reg_PromotesLocalAcrossIfElseIntoPhi` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `TrivialPhiElimination_ReplacesSingleIncomingPhi` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Inlining_SplicesLeafCalleeAndDropsTheCall` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_RemovesUnreachableFunctions` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+
+### Ir/RedundantBankSelectEliminationTests.cs (6)
+
+Classification: Mapper state and private elimination counts. Selecting a ROM bank changes which physical byte a window address denotes. Calls and unknown MBC writes can invalidate that state.
+
+Proposed future location: `rust/koh-compiler/tests/banking.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `RemovesConsecutiveSelectsOfTheSameBank` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `KeepsSelectsOfDifferentBanks` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `CallInvalidatesKnownBank` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `OrdinaryMemoryWriteIsTransparent` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `WriteToAnotherMbcRegisterInvalidates` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `VariableBankSelectClearsKnownBank` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+
+### Ir/RedundantCompareEliminationPassTests.cs (5)
+
+Classification: Boolean algebra with private normalized nodes. Comparisons produce 0/1; comparisons of arbitrary integers must not be treated as booleans.
+
+Proposed future location: `rust/koh-compiler/tests/comparisons.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `DoubleNegationChain_CollapsesToSingleNegatedCompare` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `NeAgainstZero_IsIdentity_ReplacedByInnerCompare` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `EqAgainstZero_IsNegation_ReplacedByFlippedPredicate` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `EqAgainstOne_IsIdentity_ReplacedByInnerCompare` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `NonBooleanOperand_IsLeftAlone` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+
+### Ir/RedundantConversionEliminationPassTests.cs (6)
+
+Classification: Conversion identities and private pipeline order. Truncate-to-original-width after extension preserves low bits; extension after truncation loses high bits and cannot generally be removed.
+
+Proposed future location: `rust/koh-compiler/tests/conversions.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `TruncOfZext_FoldsToTheOriginalValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `TruncOfSext_FoldsToTheOriginalValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `TruncOfZext_FoldsAtI16TooNotJustI8` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DoesNotFold_WhenTruncWidthDiffersFromTheOriginalValueWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DoesNotFold_ZextOfTrunc` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_WiresThePassIntoTheDefaultPipelineAfterNarrowPass` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+
+### Sm83/DisassemblerLengthTests.cs (1)
+
+Classification: Two internal decoders agreeing. Instruction boundaries are ISA facts; matching two local implementations is insufficient if they share the same defect.
+
+Proposed future location: `rust/koh-compiler/tests/encoding.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `EveryOpcode_HasTheSameLength_InBothDecoders` | Requirement | REPLACE | Check all base/CB lengths against an independently specified ISA vector; compare emitted boundaries too. |
+
+### Sm83/FlushRunLoopResidencyTests.cs (2)
+
+Classification: Private allocation/code shape on real runtime helper. A hot copy helper needs correct addressing and acceptable cost; two phis assigned HL/DE and a recognized opcode pattern are not the requirement.
+
+Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `FlushRun_DstAndSrcPointerPhisAreRegisterResident` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `FlushRun_CompiledLoopBodyUsesFusedAddressingNotPerIterationReload` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+
+### Sm83/MemRuntimeTests.cs (10)
+
+Classification: Runtime memory behavior and performance budgets. Zero count, exact extents, page boundaries, defined forward overlap and bounded target cycles are independently useful to games.
+
+Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Frontend_ProducesVerifiableIr` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Copy_CountZero_IsNoOp` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Copy_SingleByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Copy_OddSize` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Copy_CrossesA256ByteBoundary` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Fill_VariousCounts` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Fill_CrossesA256ByteBoundary` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Copy_OverlapDestinationBeforeSource_IsDefined` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Copy_CostPerByte_IsWithinLooseCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Copy_MarginalCostPerByte_IsWithinLooseCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+
+### Sm83/RedundantCompareLoopTests.cs (4)
+
+Classification: Real copy correctness and private compare graph. Guarded and sequential copies must obey guards, extents and source order; absence of compare-of-compare nodes is optional.
+
+Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `RealFlushRun_LoopGuards_HaveNoRedundantCompareChain` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `GuardedStride1CopyLoop_CopiesEveryByte_WhenGuardOpen` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `GuardedStride1CopyLoop_CopiesNothing_WhenGuardClosed` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoSequentialStride1CopyLoops_BothCopyCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+
+### Sm83/Sm83LoopCodegenTests.cs (20)
+
+Classification: Observable loop values, aliasing and target cycle budgets. Exited induction values, old SSA values, nested/sequential loops and overlapping forward copies must retain their language meaning.
+
+Proposed future location: `rust/koh-compiler/tests/loops.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `Baseline_CountedConstAddrStoreLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `CountedConstAddrStoreLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `InductionValueUsedAfterLoopExit` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `InductionValueUsedAfterLoopExit_WithInterveningClobber_StillCorrect` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `NestedLoops` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `EarlyBreakExitEdge` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `InductionValueSavedBeforeIncrement_UsedAfterIt` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `InductionValueSavedBeforeIncrement_ReadAfterLoopExit` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `PointerCopyLoop_RegressionSafe` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoPointerCopyLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SinglePointerFillLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `PointerUsedAfterLoopExit` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `NonQualifyingMiddleInstruction_NegativeAdmission_StillCorrect` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `OverlappingRegionCopy_ForwardSemanticsPreserved` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoSequentialI8CountedLoops_DistinctCounters` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoI8CountedLoopsInIfElseBranches` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoSequentialFillLoops_DistinctBuffers` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoLoopsInIfElseBranches` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoSequentialCopyLoops_DistinctBuffers` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `CopyLoopFollowedByFillLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+
+### Sm83/Sm83SymbolAddressTests.cs (3)
+
+Classification: Object/debug symbol and entry contracts with private placement. Symbols must resolve to emitted code/data and header entry; exact C000 placement is an implementation choice unless explicitly fixed.
+
+Proposed future location: `rust/koh-compiler/tests/symbols.rs` (not implemented).
+
+| Existing [Test] method | Assertion class | Disposition | Native acceptance |
+|---|---|---|---|
+| `FunctionLabel_SymbolAtActualCodeAddress_NotDoubleCountingCodeBase` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `EntryFunctionLabel_SymbolMatchesHeaderEntryPoint` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `WramGlobalLabel_SymbolAtWramBase` | Mixed | REPLACE | Resolve a global symbol to its actual allocated WRAM byte; preserve fixed placement only when explicitly requested. |
+
+## Coverage accounting and acceptance boundary
+
+Disposition totals: **PORT 105, REPLACE 185, DELETE 0**;
+total **290**, matching the source [Test] attribute count. No DEFER entries.
+Only the migration-ledger inventory was checked here; the native files named above
+are destinations, not acceptance results. The old suite mixes direct IR construction,
+Roslyn-compiled runtime helpers, byte/graph assertions, linking and emulator runs;
+passing one layer cannot substitute for another. Native completion requires actual
+Rust metadata-to-object output, canonical ELF inspection, linking and execution with
+observed values, bounded termination and fresh completed logs. Cycle ceilings
+(190 dots/counted-loop iteration, 740 dots/two-pointer-copy iteration, Mem.Copy
+1000 dots/byte small-case and 360 marginal dots/byte) are existing regression
+budgets, not claimed physical timing measurements or necessarily optimal limits.
+Retain them initially with the same measurement boundary; revise only against a
+game's independently justified timing budget.
+

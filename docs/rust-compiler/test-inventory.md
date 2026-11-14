@@ -3,7 +3,9 @@
 Baseline: `9cd147265eb0c660d94c7bf4eee6a97d9e1f4e1f`.
 
 This is the inventory input to the mandatory semantic disposition matrix, **not
-that completed matrix**. Every row is pending inspection. No compiler-owned
+that completed migration**. Source-level dispositions now live in the
+[frontend](frontend-audit.md), [backend](backend-audit.md) and
+[integration](integration-audit.md) audits. No compiler-owned
 coverage is deferred, removed, migrated or claimed discoverable by nextest.
 
 Mechanical source counts: 565 `[Test]` attributes, 390 `[Arguments(...)]`
@@ -14,7 +16,7 @@ parameterization and loops expand execution, and embedded C# fixtures need revie
 
 Migration totals today: 0 mapped Rust tests, 0 replacements, 0 approved deletions;
 semantic scenario count and independent justification remain unmeasured. The
-native emulator process harness, metadata reader and compiler are outstanding
+native emulator process harness and executable compiler are outstanding
 dependencies. Existing C# tests stay intact meanwhile.
 
 For each row, the completed disposition must identify individual requirements,
