@@ -284,7 +284,7 @@ public class ElfIntegrationTests
         var valid = Assemble("SECTION \"Code\",ROM0\nnop").ElfImage!;
         foreach (var bytes in new[] { new byte[4], valid[..20] })
         {
-            var result = Link(new EmitModel([], [], success: true) { ElfImage = bytes });
+            var result = Link(new EmitModel([], [], diagnostics: []) { ElfImage = bytes });
             await Assert.That(result.Success).IsFalse();
             await Assert.That(result.RomData).IsNull();
             await Assert.That(result.Diagnostics.Count).IsGreaterThan(0);

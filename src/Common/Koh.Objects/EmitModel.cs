@@ -28,18 +28,6 @@ public sealed class EmitModel
                 break;
             }
     }
-
-    public EmitModel(
-        IReadOnlyList<SectionData> sections,
-        IReadOnlyList<SymbolData> symbols,
-        bool success
-    )
-    {
-        Sections = sections;
-        Symbols = symbols;
-        Diagnostics = [];
-        Success = success;
-    }
 }
 
 /// <summary>

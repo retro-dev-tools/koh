@@ -286,7 +286,7 @@ public class LinkerTests
     public async Task Link_SectionTooLarge_Diagnostic()
     {
         var section = new SectionData("Big", SectionType.Hram, null, null, new byte[200]);
-        var model = new EmitModel([section], [], success: true);
+        var model = new EmitModel([section], [], diagnostics: []);
         var result = new NativeLinker().Link([new LinkerInput("large.o", model)]);
         await Assert.That(result.Success).IsFalse();
         await Assert.That(result.RomData).IsNull();

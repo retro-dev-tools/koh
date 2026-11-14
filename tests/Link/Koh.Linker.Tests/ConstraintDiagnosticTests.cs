@@ -181,7 +181,7 @@ public class ConstraintDiagnosticTests
     {
         public void PlaceAll(IEnumerable<SectionData> sections)
         {
-            var model = new EmitModel(sections.ToArray(), [], success: true);
+            var model = new EmitModel(sections.ToArray(), [], diagnostics: []);
             var result = new NativeLinker().Link([new LinkerInput("placement", model)]);
             foreach (var diagnostic in result.Diagnostics)
                 diagnostics.Report(diagnostic.Span, diagnostic.Message, diagnostic.Severity);
