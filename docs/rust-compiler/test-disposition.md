@@ -22,6 +22,15 @@ call-site counts equal the number of behavioral scenarios. Counting independentl
 justified native scenarios remains part of each port, not a number invented from
 attribute totals. See the [per-file inventory](test-inventory.md).
 
+The legacy compiler project was then run with .NET SDK 10.0.115 on Linux:
+**814 succeeded, 0 failed, 0 skipped**, exit 0. This is a parameter-expanded
+execution count, not 814 independently justified language rules. Command:
+`dotnet test --project tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj -c Release -- --maximum-parallel-tests 1`.
+Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
+`tests/Compiler/Koh.Compiler.Tests/bin/Release/net10.0/TestResults/Koh.Compiler.Tests-linux-net10.0-report.html`.
+The baseline establishes that the existing fixtures pass on this checkout;
+it does not make their expectations correctness oracles.
+
 **Migration completed: zero legacy methods retired or fully replaced.** The new
 native assembly-reader tests are infrastructure coverage, not full substitutes for
 the old DLL-to-ROM cases. All legacy tests remain. Proposed Rust filenames in the

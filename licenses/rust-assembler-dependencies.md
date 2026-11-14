@@ -42,7 +42,7 @@ The float-parsing code in `serde_json`'s `src/lexical` is derived from Alexander
 Huszagh's `lexical` crate: **copyright Alexander Huszagh**. That module offers the
 same MIT or Apache-2.0 choice as `serde_json`; MIT is selected here.
 
-The ten packages linked to the common MIT text ship byte-identical
+The packages linked to the common MIT text ship byte-identical
 `LICENSE-MIT` files. `memchr`'s separate text retains `Copyright (c) 2015 Andrew
 Gallant`. The Unicode text is copied from `unicode-ident` 1.0.27 and retains its
 shipped `Copyright © 1991-2023 Unicode, Inc.` notice; it is not replaced with a

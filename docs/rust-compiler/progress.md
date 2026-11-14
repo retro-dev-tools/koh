@@ -1,6 +1,7 @@
 # Native CIL compiler migration (PR #55)
 
-Status: source audit recorded; native raw metadata/body reader implemented. No
+Status: source audit and empirical baseline recorded; native raw metadata/body
+reader and CIL encoding decoder implemented. No
 executable native compiler is integrated yet.
 This document tracks the single replacement PR; it does not establish acceptance.
 
@@ -87,8 +88,10 @@ validation is claimed by the initial documentation commits.
 
 All 565 test methods are enumerated in the [disposition status](test-disposition.md).
 The source audits cover CIL/runtime semantics, backend/ABI and integration consumers.
-Their dispositions are proposals, not migrated tests. Empirical legacy baseline,
-final supported contract, native scenario coverage and sample execution remain open.
+Their dispositions are proposals, not migrated tests. The existing compiler suite
+passed 814/814 executions locally with .NET SDK 10.0.115 (see disposition status).
+Final supported contract, native semantic scenario coverage and native-compiled
+sample execution remain open.
 
 ## Native reader increment
 
@@ -111,3 +114,23 @@ formatter. Completed logs: `/tmp/koh-compile-nextest.log`,
 1.99.0; fixtures use .NET SDK 10.0.115. These local results are not hosted
 Windows/macOS or minimum-Rust-version evidence. CI now installs the SDK before
 nextest and runs documentation tests separately.
+
+## CIL decoder increment
+
+The [encoding decoder](cil-decoder.md) preserves IL byte offsets and operand
+bits, computes branch/switch targets and rejects malformed encodings and targets.
+Its .NET-catalog oracle runs only in tests. A decoded opcode is not yet a
+supported lowering operation; there is still no native ELF compiler or SDK switch.
+
+Local workspace nextest run: **232 run, 232 passed, 0 skipped**, exit 0, including
+56 compiler-reader/decoder cases. Full command was
+`CARGO_TARGET_DIR=/tmp/koh-compiler-decoder-target cargo nextest run --workspace --all-features --locked`
+with `KOH_DOTNET` selecting SDK 10.0.115. Separate target output kept this build
+isolated from the legacy .NET baseline's native build. Completed log:
+`/tmp/koh-compiler-decoder-workspace.log`.
+
+Hosted reader head `0f313ff` passed all 14 checks, including native nextest on
+Linux, Windows and macOS. [Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43630616545)
+and [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43630616487).
+These results precede the decoder commit and must not be described as its hosted
+validation.

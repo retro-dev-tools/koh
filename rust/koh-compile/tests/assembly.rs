@@ -73,6 +73,10 @@ fn reads_roslyn_assembly(assemblies: &Assemblies, #[case] configuration: usize) 
         .unwrap();
     let add = assembly.method_body(0x06000001 + add as u32).unwrap();
     assert!(add.il.contains(&0x58));
+    for method in 1..=assembly.metadata().method_defs.len() {
+        let body = assembly.method_body(0x06000000 | method as u32).unwrap();
+        koh_compile::cil::decode(body.il).unwrap();
+    }
     let exception = names
         .iter()
         .position(|name| name == "Program::WithException")

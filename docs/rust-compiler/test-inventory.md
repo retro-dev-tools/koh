@@ -15,7 +15,8 @@ Counts do not represent independently justified scenarios or executed assertions
 parameterization and loops expand execution, and embedded C# fixtures need review.
 
 Migration totals today: 0 mapped Rust tests, 0 replacements, 0 approved deletions;
-semantic scenario count and independent justification remain unmeasured. The
+native semantic scenario count remains unmeasured; the source audits document
+candidate justifications and stronger oracles still required. The
 native emulator process harness and executable compiler are outstanding
 dependencies. Existing C# tests stay intact meanwhile.
 

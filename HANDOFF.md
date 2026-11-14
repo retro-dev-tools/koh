@@ -8,7 +8,8 @@ Source audits have landed in `4bf619d`: all 565 legacy methods accounted for.
 ## Concurrent audit ownership
 
 - Root: native compiler tests and implementation. `rust/koh-compile` now contains
-  a bounded raw metadata/method-body reader using MIT clrmeta and object PE.
+  a bounded raw metadata/method-body reader using MIT clrmeta and object PE, plus
+  a raw CIL operand/control-target decoder.
 - Frontend audit: only `docs/rust-compiler/frontend-audit.md`; inspect all frontend
   tests, runtime contracts and CIL lowering. No production edits or builds.
 - Backend audit: only `docs/rust-compiler/backend-audit.md`; inspect backend/IR/SM83
@@ -26,13 +27,16 @@ no legacy methods are retired or fully replaced yet. See test-disposition.md.
 
 ## Current native evidence
 
-Local nextest workspace run: 198/198 passed, 0 skipped, including 22 reader cases.
+Latest local nextest workspace run: 232/232 passed, 0 skipped, including 56 reader/
+decoder cases. Legacy compiler baseline: 814/814 passed, 0 skipped, with one
+test at a time. Logs and exact commands are in docs/rust-compiler/progress.md.
 Separate doctests exited 0 with no cases. Formatting passed using
 `RUSTUP_TOOLCHAIN=stable cargo fmt --all -- --check` (host default rustup nightly
 lacks rustfmt; system compiler is 1.99.0). Reader regression covers Debug/Release,
 PE32/PE32+, method identities, malformed local tokens and image mutations. No ELF
-compiler, SDK switch or new ROM execution yet. Next: native signatures/reference
-binding, IL decoding and verified lowering, then independently executed SM83 code.
+compiler, SDK switch or new ROM execution yet. Reader head `0f313ff` passed all
+14 hosted checks; decoder hosted results remain pending. Next: native signatures/
+reference binding and verified lowering, then independently executed SM83 code.
 
 ## Verification
 
