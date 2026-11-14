@@ -6,12 +6,6 @@ using Koh.Objects;
 
 namespace Koh.Compiler;
 
-/// <summary>
-/// Orchestrates one compilation: source through a frontend to IR, then through a backend to
-/// an <see cref="EmitModel"/>. The backend owns legalization and instruction selection, so
-/// the driver stays a thin, target-agnostic pipeline. The resulting <see cref="EmitModel"/>
-/// is passed to the native ELF writer and Rust linker.
-/// </summary>
 public static class CompilerDriver
 {
     /// <summary>

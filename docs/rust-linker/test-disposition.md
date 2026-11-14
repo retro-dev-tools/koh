@@ -1,6 +1,6 @@
 # Test disposition before Rust linker migration
 
-Audit baseline: master 9a2cfa8; performed before test mutation. This document inventories current test intent, not passing results. No tests or production files were changed by this audit. Target names below are proposed test groups, not claims that implementations exist.
+Audit baseline: master 9a2cfa8; the inventory below was saved before any test mutation. The original disposition tables preserve that review, including proposed target groups. The final implementation mapping, explicit deletions, and measured focused results below supersede those proposed target names. The audit itself changed no tests or production files; the subsequent migration did.
 
 PORT = preserve invariant and move its owner. REPLACE = retain user behavior using the new interchange/pipeline, remove obsolete assertions. DELETE = obsolete wire-contract assertion only. DEFER = uncovered or unresolved requirement; blocks claiming equivalent coverage.
 
@@ -14,7 +14,7 @@ PORT = preserve invariant and move its owner. REPLACE = retain user behavior usi
 - **C**: independently calculated fixture result or host-language result compared with emulator registers/memory. This establishes intended observable behavior, not hardware execution.
 - **S**: [SDK targets](../../src/Compiler/Koh.Sdk/Sdk/Sdk.targets), [verification harness contract](../../tools/rust-asm-verify/README.md), and build.proj. These establish current integration paths, not proof they work.
 
-No current test provides ELF validation. A same-implementation writer/reader round trip is not independent ELF conformance evidence. Use an independent ELF parser/tool plus independently calculated linked bytes for replacements.
+At the audit baseline, no test provided ELF validation. The final ELF tests now include the third-party object crate's ELF parser and independently inspected header/table fields. A Koh writer/reader round trip alone remains insufficient independent conformance evidence. The object crate's reader and writer also share a dependency, so its acceptance is narrower evidence than interoperability with another toolchain.
 
 ## Linker unit and assembly integration inventory
 
@@ -123,7 +123,125 @@ SDK tests that only imitate CompileKohRom in C# cannot establish MSBuild target 
 3. Cross-object local namespaces, exported imports, absolute constants, every retained operator/query, LOAD PC, signed/high-memory/JR boundaries, alignment, UNION/FRAGMENT and debug provenance have independently expected outcomes.
 4. Fresh assembler and compiler/SDK ELF files link with the Rust implementation; no hidden C# linker or KOBJ conversion path supplies success.
 5. Read completed test logs and actual artifact bytes. RGBDS-gated early-return tests do not count as executed oracle cases.
-6. No execution was performed by this audit; no passing-suite or hardware claim is made.
+6. No execution was performed during the initial audit. Subsequent focused execution is recorded below; it does not establish hardware behavior or a complete SDK/platform qualification.
+
+## Final implementation mapping and feature coverage
+
+This maps contracts rather than equating old and new test counts. C# paths retain the Koh.Linker.Tests project name for solution compatibility; their production linker is Koh.Native.NativeLinker invoking the Rust executable. All Rust target names in this section were checked against the actual test bodies. Their presence is not an execution claim.
+
+Abbreviations: **EI** = tests/Common/Koh.Objects.Tests/ElfIntegrationTests.cs; **LT**, **CT**, **AT**, **LM**, **KT**, **RI** = LinkerTests, ConstraintDiagnosticTests, AssemblerLinkerGoldenIntegrationTests, LinkerLineMapIntegrationTests, KdbgFileWriterTests, RawImageTests under tests/Link/Koh.Linker.Tests. **OE** = rust/koh-objects/tests/elf.rs; **RL** = rust/koh-link/src/tests.rs; **LC** = rust/koh-link/tests/cli.rs.
+
+| Feature contract before migration | Actual final tests | Coverage after migration / remaining limit |
+|---|---|---|
+| KOBJ section data, empty/multiple sections, RAM kind/size, constants and exported labels | EI.Elf32RelocatableHeaderAndSectionData; EI.EmptyMultipleAndLargeSectionsRetainDataAndSymbols; OE.standard_sections_symbols_and_provenance_survive | Checks ELF32 ET_REL fields, PROGBITS bytes, NOBITS size, 256-byte payload, linked RAM address and constant value. OE reads through object::read::elf before Koh readback. KOBJ wire bytes intentionally absent. |
+| Imports, forward references, symbol visibility and patch identity | EI.ImportsAndLocalForwardReferencesResolveAcrossSeparateElfFiles; EI.InvalidElfAndMissingImportsFailWithoutRom; RL.import_resolves_export_not_same_named_local; RL.undefined_and_duplicate_exports_are_errors; retained LT.Link_DuplicateExport_Diagnostic | Real separate consumer/provider ELF files link to independently expected CALL/data bytes. An unrelated same-named local cannot satisfy an import. Rust duplicate test asserts error; the old C# test still only checks its diagnostic substring. |
+| All unary/binary expression operators survive serialization and evaluate correctly | EI.EveryDeferredOperatorEvaluatesAfterImportResolution; EI.CurrentAddressHighLowBankAndInstructionOperandsKeepTheirContext; OE.all_expression_operators_survive; RL.expression_arithmetic_matches_rgbds_floor_and_wrapping; RL.remaining_binary_operators_have_explicit_results; RL.all_expression_queries_and_unary_operators_resolve | C# independently expects values for imported ext=5; Rust separately checks arithmetic edge values and section/bank/unary queries. OE roundtrip checks preservation, not evaluation. RGBDS RPN byte codes are retired. |
+| Deferred patch width, signed/relative/high-memory meaning, independent execution PC | OE.relocation_semantics_widths_pc_and_expansion_survive; RL.patches_reject_out_of_range_and_accept_boundaries; rust/koh-asm/tests/object_architecture.rs.pc_tracks_execution_section_inside_load; rust/koh-asm/tests/relocations_rgbds.rs.load_uses_floating_execution_section_for_pc_bank_and_jr, signed_external_offset_is_asserted_at_link_time, external_high_memory_address_is_validated_at_link_time | Width/semantics/PC serialize; byte boundary cases evaluate; LOAD and external signed/high-memory cases compare Rust ELF linking against independently assembled RGBDS input when the oracle gate is enabled. The oracle is not exercised by the focused .NET runs below. |
+| Fixed/floating placement, ROMX physical offsets and symbol banks | Retained LT.Link_SectionPlacedAtCorrectAddress, Link_FixedAddress_PlacedCorrectly, Link_RomxSection_PlacedInPhysicalBankOffset, Link_TwoRomxBanks_DataAtCorrectPhysicalOffsets, Link_RomxSection_SymbolHasCorrectBank; RL.fixed_reservations_precede_floating_and_overlaps_fail; RL.all_memory_regions_obey_bank_and_alignment | Actual image and symbol checks remain. AT.CrossSectionAbsoluteRef_EmitsCorrectJpTarget and FloatingSection_SameSectionRefs_ResolveToPlacedAddress now derive expected references from placed symbols instead of assuming free ROM0 space below $100 must be skipped. |
+| Capacity/overlap failure and actionable numerical diagnostics | All eight original CT.Placement_* methods retained; OE.section_placement_checks_memory_and_bank_boundaries; OE.malformed_symbol_section_data_and_provenance_graphs_are_rejected | CT uses Rust through NativeLinker; accepts decimal or equivalent hexadecimal numerical values; preserves distinct required/free/overflow amounts and both conflicting names. OE's memory-boundary loop still derives region limits from memory_region, so it remains self-consistency evidence rather than an independently tabulated hardware map. |
+| UNION/FRAGMENT combination and rebasing | OE.section_combinations_names_and_optional_provenance_survive; RL.fragments_append_and_adjust_constraints_symbols_and_relocations; RL.union_uses_maximum_size_and_shared_start | Checks shared max-size start, appended bytes, rebased fragment symbol/PC and preserved combination metadata. These replace RGBDS writer/KOBJ-refusal assertions. |
+| Exact raw image size, zero fill, no checksum mutation; separate cartridge sizing/checksums/CGB flags | All original RI tests retained; LT.Link_HeaderChecksum_Correct, Link_GlobalChecksum_Correct, Link_CgbCompatible_SetsHeaderFlagAndKeepsChecksumsValid; RL.raw_is_exact_and_preserves_header_bytes; RL.cartridge_rounds_sets_cgb_and_both_checksums | Rust and C# pipeline cases check exact $100/$900 raw length, overflow refusal, preserved $14d bytes, cartridge bank rounding and checksum formulas. RI.Cartridge_Output_Still_Gets_Its_Checksums_Fixed remains a weaker inequality check; independent formulas are covered by LT/RL. |
+| Macro/charmap/local-label bytes and serialized data relocations | All seven original AT cases retained; CrossSection_KobjRoundtrip_ResolvesDataRef renamed CrossSection_ElfObject_ResolvesDataRef | Same golden bytes and fixed ROM/RAM symbol invariants cross the ELF boundary. The renamed case remains one object containing two sections; EI.ImportsAndLocalForwardReferencesResolveAcrossSeparateElfFiles provides true multi-object coverage. |
+| Real source line ranges and banked instruction addresses | All five LM cases retained; EI.SourceLineRangesSurviveSerializedElf; OE.standard_sections_symbols_and_provenance_survive | NativeLinker writes the assembler's ELF image and Rust produces KDBG. Tests cover no-code source lines, multibyte instruction start, bank 3 addresses and 600-byte line splitting. |
+| KDBG magic/version, symbols/source, explicit size and expansion ancestry | All four KT methods retained with real Rust-produced KDBG; RL.kdbg_chunks_lines_and_preserves_expansion_offsets; RL.kdbg_rejects_unrepresentable_symbols; tests/Emulator/Koh.Debugger.Tests/KdbgFixtureTests.ReaderPreservesExplicitSymbolSizeAndSource | Real nested macro expansion checks frame file/line values, not just count. Rust labels with unknown size assert zero. Synthetic explicit size=3 and line=42 reader coverage remains in the debugger fixture test, using test-only writer/builder. |
+| End-to-end debugger breakpoint/source/register agreement | DapGeneratedRomIntegrationTests.GeneratedRomKdbg_DapLaunchBreakpointStackTraceScopesAndVariables and StackTrace_UsesSourceForPcInsideMultiByteMappedRange; existing DapDispatcherTests and StepHandlersTests source-map cases | Real assembly ELF/Rust ROM/KDBG feeds the existing debugger: breakpoint at $102, A=$42, stack line/source and symbol/context scopes remain asserted. Synthetic debugger fixtures use tests/Support; they are not counted as Rust linking proof. |
+| Compiler calls/header entry/WRAM symbol metadata and portable-PDB source path | Sm83SymbolAddressTests.FunctionLabel_SymbolAtActualCodeAddress_NotDoubleCountingCodeBase, EntryFunctionLabel_SymbolMatchesHeaderEntryPoint, WramGlobalLabel_SymbolAtWramBase; Gb2048KdbgTests.Kdbg_ResolvesSymbolAndSourceLocation_ForCilFrontendBuild | Uses NativeLinker; compares linked symbols against independent CALL/header JP bytes and WRAM-base expectation. Real sample PDB source resolves through Rust KDBG to existing SymbolMap/SourceMap. No-PDB frontend test is preserved. |
+| Remaining compiler/emulator observable behavior | All 51 direct-linker files and cases enumerated in the appendix remain; aliases now point at Koh.Native.NativeLinker | Existing runtime/optimizer expected-state assertions remain. Only the symbol/KDBG classes were executed in this unit; full compiler execution belongs to the broader validation run. |
+| Invalid/truncated object rejection and preservation of existing artifacts | EI.InvalidElfAndMissingImportsFailWithoutRom, FailedAssemblyCannotEmitElf; OE.every_truncation_and_corruption_is_rejected, invalid_graph_never_serializes, malformed_rpn_is_rejected_before_evaluation, malformed_symbol_section_data_and_provenance_graphs_are_rejected, overlapping_section_payloads_cannot_amplify_input_allocations; rust/koh-objects/src/elf.rs.rpn_pending_operands_obey_expression_depth_limit; LC.corrupt_input_preserves_existing_output, alias_output_cannot_overwrite_input | Replaces KOBJ magic/version/tag and RGBDS failed-model cases with actual ELF rejection and trust-boundary tests. Truncation covers each prefix of one fixture; corruption mutates selected fields, not every possible ELF corruption. |
+| Assembler/linker CLI formats, output aliases, help/version, whitespace paths and source/output safety | Retained rust/koh-asm/tests/cli.rs cases; LC.json_to_elf_to_rom_sym_debug_and_report, long_aliases_version_and_default_outputs_with_spaces, corrupt_input_preserves_existing_output, alias_output_cannot_overwrite_input | Existing assembler safety cases now target ELF. Linker exercises real executable JSON→ELF→ROM/.sym/KDBG/report and default/explicit paths. |
+| Independent instruction/expression/relocation comparison | rust/koh-asm/tests/encoding_rgbds.rs.exhaustive_instruction_output_matches_rgbds_1_0_1; retained instruction_context.rs.context_dependent_instruction_bytes_match_rgbds_1_0_1; all six relocations_rgbds.rs cases; RL.rgbds_101_expression_oracle | Native object side is ELF/Rust; RGBDS object format remains only external reference-tool output. KOH_RGBDS_TEST=1 gate must be enabled explicitly. Source presence alone is not a passing oracle result. |
+| Historical assembler corpus and full sample parity | scripts/verify-rust-assembler.py compare_case/negative_cases/main replaces KOBJ/reference-helper flow; execution, relocations, macros, opcodes, semantics, gb2048, cross-file workflows | New harness retains named independent fixtures and emulator signature. It no longer extracts all historical C# raw Emit literals or checks old expected-differences graph snapshots. That historical corpus coverage is not claimed equivalent. The 2048 byte comparison pins a temporary native source copy to independently obtained RGBDS placements; a separate floating image is built, but matching pinned bytes does not prove identical unconstrained allocation. |
+| SDK/MSBuild incremental behavior and editor/platform launch | SDK targets/sample build graph migrated by implementation; no dedicated new test identified in this unit | Remains DEFER for this audit: source/reference/tool/property invalidation, debug-info toggling, clean tracking, executable packaging/discovery and cross-platform editor launch need direct integration evidence. Compiler tests that imitate the SDK do not discharge this gate. |
+
+## Explicit deletion and replacement ledger
+
+The three removed C# test files contained 37 methods, regrouped by contract above. Eight EI methods do not imply equal coverage by count. Only obsolete wire assertions were intentionally retired; semantic obligations have named successors or an explicit limit.
+
+- **KobjRoundtripTests.cs (21 methods)**: DELETE InvalidMagic_Throws, InvalidVersion_Throws, UnknownTag_Throws, V1KobjWithoutLineMap_Reads_LineMapEmpty, V2KobjWithPatches_Reads_SymbolNameNull as KOBJ magic/tag/version/backward-compatibility contracts. ELF malformed-input tests replace the validation category, not KOBJ compatibility. REPLACE Roundtrip_SimpleProgram, Symbols, MultipleSections, SectionType, EmptyProgram, SymbolCount, LargeData, ConstantSection_IsNull and DeserializedSuccess_IsTrue with EI section/symbol/data cases and OE.standard_sections_symbols_and_provenance_survive; there is no deserialized Success flag in ELF. REPLACE Write_FailedModel_Throws with EI.FailedAssemblyCannotEmitElf. REPLACE Roundtrip_Patch, Roundtrip_Patch_SymbolName_NonNull/Null with EI import/cross-file linking and OE relocation preservation; the malformed old positive patch-at-offset-3-in-four-bytes is not retained as a valid fixture. REPLACE all three Roundtrip_LineMap_* methods with EI.SourceLineRangesSurviveSerializedElf, LM cases and OE provenance preservation; real sources, empty maps and serialized ranges remain represented.
+- **RgbdsFormatTests.cs (12 methods)**: DELETE Header_ContainsMagicAndRevision, Header_SymbolAndSectionCounts and SectionType_Rom0EncodedCorrectly numerical RGB9/revision13/node/type encodings. REPLACE WriteAndRead_DoesNotThrow, Section_ContainsCorrectData and RamSection_NoDataEmitted weak length/zero-search checks with EI.Elf32RelocatableHeaderAndSectionData structural PROGBITS/NOBITS checks. REPLACE Symbol_ExportedLabelPresent and MultipleSymbols_AllPresent substring checks with parsed symbol and actual link assertions in EI/OE. REPLACE FailedModel_ThrowsException, ImportSymbol_WrittenCorrectly, ImportSymbol_PatchContainsRpnSymbolOpcode and ForwardRef_SameFile_NotImport with EI failure/import/forward-reference cases; RGBDS import/RPN opcode identity is retired.
+- **RgbdsExpressionTests.cs (4 methods)**: REPLACE Operators, CurrentAddressAndLiterals, FunctionCalls and InstructionOperands with EI deferred-expression/current-PC/operand cases, OE.all_expression_operators_survive and RL evaluation/query tests. DELETE the test-only RGBDS decoder and its exact RPN token strings; arithmetic, placement-dependent PC and patch semantics survive.
+- **rust/koh-asm/src/object.rs writer unit tests**: the module's KOBJ/RGBDS writers and exact wire tests are deleted. OE/RL and retained assembler object_architecture tests own the graph/evaluation/provenance/combination/bounds invariants. KOBJ affine-anchor generation, .NET string encodings, case-insensitive-name prohibitions and refusal of valid imports/floating alignment have no successor requirement because they were adapter limitations. OE.section_combinations_names_and_optional_provenance_survive instead accepts case-distinct names and UTF-8 section/source text. Exact old int64 KOBJ symbol storage is not an ELF32 promise: the new expression/value domain is 32 bits, as documented in elf32-sm83.md; KDBG v1 additionally rejects values it cannot represent.
+- **tools/rust-asm-verify/reference and old KOBJ/RGBDS parsers/snapshots in the verifier**: DELETE the retired C# object-format/linker reference path and wire snapshots. The execute-only helper and new independent RGBDS source-to-ROM workflows replace executable behavior checks. Historical corpus extraction/baseline classification is not silently claimed preserved; see the coverage limit above.
+- **No compiler runtime, assembler golden, placement, raw-image or generated-ROM debugger test class was deleted.** Linker dependency aliases and artifact consumers changed; synthetic KDBG writer/builder code moved to tests/Support, outside production. Linker KDBG symbol-size coverage was split into unknown real size=0 and explicit synthetic size=3.
+
+## Focused execution evidence and reproduction
+
+These results are from completed log files reread after their corresponding process returned. Every listed command returned exit 0 and every run below reported zero skipped cases. Focused results do not stand in for full CI, full compiler, SDK incremental, editor UI, external-oracle, or hardware runs.
+
+| Target | Completed build log | Completed test log and actual summary |
+|---|---|---|
+| Koh.Linker.Tests | /tmp/koh-link-tests-build-final.log: Build succeeded, 0 warnings, 0 errors | /tmp/koh-link-tests-final.log: total 52, succeeded 52, failed 0, skipped 0 |
+| Koh.Debugger.Tests | /tmp/koh-debugger-tests-build.log: Build succeeded, 0 warnings, 0 errors | /tmp/koh-debugger-tests.log: total 37, succeeded 37, failed 0, skipped 0 |
+| Koh.Objects.Tests | /tmp/koh-objects-tests-build.log: Build succeeded, 0 warnings, 0 errors | /tmp/koh-objects-tests.log: total 8, succeeded 8, failed 0, skipped 0 |
+| Koh.Compiler.Tests / Sm83SymbolAddressTests | /tmp/koh-compiler-tests-build.log: Build succeeded, 0 warnings, 0 errors | /tmp/koh-compiler-symbol-tests.log: total 3, succeeded 3, failed 0, skipped 0 |
+| Koh.Compiler.Tests / Gb2048KdbgTests | same compiler build | /tmp/koh-compiler-kdbg-tests.log: total 2, succeeded 2, failed 0, skipped 0 |
+
+The first Link run failed 21/52 cases and exposed facade JSON type/null handling, missing emitted-byte macro provenance, and diagnostics omissions; those were fixed in production and the fresh final 52/52 run above covers them. One combined TUnit filter run exited 0 but reported zero tests: /tmp/koh-compiler-focused-tests.log. It is excluded from passing evidence; the two explicit single-class filters above are the measured compiler cases.
+
+From the repository root, use a .NET SDK satisfying global.json (the local run used a locally installed .NET 10.0.115 SDK first in PATH). Build serially, then run each focused project serially:
+
+```sh
+dotnet build tests/Common/Koh.Objects.Tests/Koh.Objects.Tests.csproj -c Release -m:1 > /tmp/koh-objects-tests-build.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-objects-tests-build.log
+dotnet test --project tests/Common/Koh.Objects.Tests/Koh.Objects.Tests.csproj -c Release --no-build -- --maximum-parallel-tests 1 > /tmp/koh-objects-tests.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-objects-tests.log
+```
+
+Repeat that build/test command pair with tests/Link/Koh.Linker.Tests/Koh.Linker.Tests.csproj and tests/Emulator/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj, using separate logs. For the measured compiler subset:
+
+```sh
+dotnet build tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj -c Release -m:1 > /tmp/koh-compiler-tests-build.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-compiler-tests-build.log
+dotnet test --project tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj -c Release --no-build -- --maximum-parallel-tests 1 --treenode-filter '/*/*/Sm83SymbolAddressTests/*' > /tmp/koh-compiler-symbol-tests.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-compiler-symbol-tests.log
+dotnet test --project tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj -c Release --no-build -- --maximum-parallel-tests 1 --treenode-filter '/*/*/Gb2048KdbgTests/*' > /tmp/koh-compiler-kdbg-tests.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-compiler-kdbg-tests.log
+```
+
+The following reproduce Rust/oracle categories; this document does not claim their execution from the focused .NET logs:
+
+```sh
+cargo test --workspace --locked > /tmp/koh-workspace-tests.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-workspace-tests.log
+KOH_RGBDS_TEST=1 cargo test --workspace --locked > /tmp/koh-rgbds-oracle-tests.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-rgbds-oracle-tests.log
+python3 scripts/verify-rust-assembler.py > /tmp/koh-independent-workflows.log 2>&1
+echo "EXIT=$?"
+cat /tmp/koh-independent-workflows.log
+```
+
+RGBDS commands require installed rgbasm/rgblink 1.0.1. Artifact/log paths above are session-local evidence, not committed test fixtures; rerun commands on another checkout. For tests using the Native facade, its build target builds/deploys the native tools; --no-build is meaningful only after the appropriate current build.
+
+## Independent emulator observation
+
+Both representative ROMs were also run in **mGBA Qt 0.11.0**, independently of Koh.Emulator, using scripted framebuffer capture. Each run used an isolated ROM copy and configuration under ~/.cache/mgba-instances, QT_QPA_PLATFORM=offscreen, DISPLAY and WAYLAND_DISPLAY unset, and -C mute=1. No tracked sample screenshot was written. Each process finished at 600 frames with exit 0; the bounded controller retained its PID and would kill only that PID after 35 seconds. Both processes are stopped.
+
+The input script was identical: START at frame 180; LEFT, UP, RIGHT, DOWN, LEFT, UP at frames 300,350,400,450,500,550, held eight frames each. Captures at frames 150,300,450,600 came from mGBA itself and were inspected with view_image. The Lua sidecar read Game Boy addresses directly, not the GBA cartridge address base. This proves the particular boot/title/gameplay sequence below; it is not physical hardware, endurance, save persistence, or general emulator compatibility qualification.
+
+| ROM / SHA-256 of source and loaded copy | Actual observed behavior | Primary artifacts |
+|---|---|---|
+| samples/csharp/gb-2048-v2/2048v2.gb / fd83e0d12508708197214637def32d5d207bfb6ec943658455dad3d1aa589219 | Frame 150 shows 2048 / PRESS START; frame 300 shows SCORE 0 and two occupied cells; frame 600 shows SCORE 20 and a changed board. Lua $9800 background-map reads at the fixture's 4x4 board grid count 0,2,4,3 occupied cells at frames 150,300,450,600. $C000–$C0ff bytes were also captured but are not interpreted as named C# state. | $HOME/.cache/mgba-instances/koh-rust-link-csharp-pi8v71ot/ |
+| /tmp/koh-native-verification/gb2048-floating.gb / 8c15e8a8c853f1b2f061021b2b7912995382ba25f79d5fd7db6c2427525f97af | Frame 150 shows KOH 2048 / PRESS START; frame 300 shows two 2 tiles; frame 600 shows score 000020, two 8 tiles and three 2 tiles. Lua wBoard at $C000 has 0,2,4,5 occupied cells; wGameState at $C06e changes 0→1; wScore at $C060 ends 14000000 (little-endian 20). The independently replayed ELF link matches the loaded floating image hash exactly. | $HOME/.cache/mgba-instances/koh-rust-link-asm-w_ub31gj/ |
+
+Each artifact directory contains frame-00150.png, frame-00300.png, frame-00450.png, frame-00600.png, memory.txt, run.json, capture.lua, mgba.log and pid. The assembly directory additionally contains report.json, relink.log and relinked.gb: wBoard/wScore/wGameState addresses agree with the fixed $C000 section and declaration sizes in samples/asm/gb-2048/src/memory.inc. Its relink.log reports EXIT=0. run.json records source/copy hashes, process ID, exit status, frame count and keys. The logs contain an XDG_RUNTIME_DIR warning; complete rendered PNGs and flushed frame600 memory records were present despite that warning.
+
+To replay either retained instance after choosing its artifact directory as RUN, copy its game.gb into a fresh isolated directory, set XDG_CONFIG_HOME to that directory's config, preserve the Lua MEMORY/BOARD/SCORE/STATE variables where applicable, and invoke:
+
+```sh
+env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=offscreen \
+  FRAMES=600 EVERY=150 SHOT="$RUN/frame-%d.png" MEMORY="$RUN/memory.txt" \
+  KEYS='180:START,300:LEFT,350:UP,400:RIGHT,450:DOWN,500:LEFT,550:UP' \
+  mgba-qt -C mute=1 "$RUN/game.gb" --script "$RUN/capture.lua"
+```
+
+The assembly Lua requires BOARD=49152, SCORE=49248, STATE=49262. Fresh copies avoid an existing .sav affecting the sequence. The saved Lua files are the actual run scripts; no custom rendering code was used.
 
 ## Compiler file and case inventory
 

@@ -4,14 +4,14 @@ Base: master 9a2cfa8. Main checkout's modified JRPG screenshot is unrelated and 
 
 ## Ownership
 
-- Audit unit: read affected tests and write docs/rust-linker/test-disposition.md only; no test mutations before the audit exists.
-- Parent: architecture, ELF specification, shared Rust object crate and integration coordination.
-- Further units receive explicit ownership after the audit and shared interfaces are established.
+- Audit and migration units landed; Rust sources are frozen after shared numeric evaluation, ELF allocation bounds, alignment and JR wrap corrections.
+- Parent owns final evidence, current-head CI and the PR description. Implementation and review fixes are committed.
+- Independent C# / Rust / RGBDS comparison finished; temporary artifacts live at /tmp/koh-three-linkers. The historical source checkout is clean and is never a production dependency.
 
 ## Shared interfaces
 
-- ELF unit owns rust/koh-objects, Cargo.toml/Cargo.lock, assembler production integration and ELF ABI document. Move existing assembler model unchanged to koh_objects and re-export from assembler model; make memory_region public. Public read_elf(&[u8]) -> Result<Object,String>, write_elf(&Object) -> Result<Vec<u8>,String>. No duplicated model. ELF unit coordinates extension bytecodes with C# writer owner.
-- Link unit owns rust/koh-link only. Depend on koh-objects path ../koh-objects; library links &[Object], CLI reads ELF. Preserve raw/size, sym, kdbg and add CGB flags. Existing model is the authoritative interface. Parent integrates C# and build/CI.
+- `koh-objects` owns the model, ELF codec and numeric evaluator. `read_elf(&[u8])` and `write_elf(&Object)` are the sole binary object interface.
+- `koh-link` owns placement, resolved evaluation, ROM/SYM/KDBG and the compiler's JSON-to-ELF command boundary. The C# bridge contains process invocation and a resolved compiler-model view, without a relocation engine.
 - No builds in shared target directory except parent. Agents use CARGO_TARGET_DIR=/tmp/koh-elf-target or /tmp/koh-link-target.
 
 ## Verification
@@ -20,4 +20,6 @@ Run builds serially per output directory. Capture direct exit status and reread 
 
 ## Completion
 
-One PR against master only after full migration, removal of C# linker and KOBJ, sample and integration verification. No transitional PR.
+Draft PR #54 is open against master at the user's explicit request. Keep it draft and unmerged. Logical implementation, cleanup and correction commits are separate. The C# linker and retired object formats are deleted; no fallback is retained.
+
+Full .NET run before final review fixes: 1372 passed, 2 existing native-window skips, 0 failed (/tmp/koh-link-all-tests.log). Fast suite after initial review fixes: 561 passed, 2 skips, 0 failed (/tmp/koh-link-final-fast-tests.log). Focused compiler static-array class: 16/16 passed. Final native/object boundary: 10/10 passed. Rust workspace with RGBDS and extension 44-test suite passed. SDK incremental/path/failure checks, both sample targets and publish/type inspection passed. Both assembly and C# games ran in independent mGBA. See docs/rust-linker/validation.md and the test-disposition matrix for scope and actual artifacts. Verify the current PR head's hosted checks before any integration decision; do not mark ready or merge on the user's behalf.

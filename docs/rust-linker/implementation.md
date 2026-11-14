@@ -14,14 +14,18 @@ The requested result is one complete PR against master. The CIL frontend, SM83 i
 ## Implementation and checks
 
 - [x] Audit existing tests before modifying or deleting them: [matrix](test-disposition.md).
-- [ ] Extract shared model and implement ELF reader/writer, validated expression bytecode and malformed-input tests.
-- [ ] Implement placement, symbol resolution, relocation evaluation, ROM and debug output in Rust.
-- [ ] Integrate assembler ELF output and compiler native command boundary.
-- [ ] Correct compiler symbol section/bank associations without changing generated instructions.
-- [ ] Migrate .NET integration tests, retaining independently meaningful assertions.
-- [ ] Replace build, SDK, boot ROM, extension, sample and release references.
-- [ ] Remove C# linker and obsolete formats; inspect source and freshly built outputs.
-- [ ] Run Rust, .NET, extension, sample and emulator verification; record direct statuses and completed logs.
-- [ ] Review final diff and open exactly one comprehensive PR; do not merge.
+- [x] Extract shared model and implement ELF reader/writer, validated expression bytecode and malformed-input tests.
+- [x] Implement placement, symbol resolution, relocation evaluation, ROM and debug output in Rust.
+- [x] Integrate assembler ELF output and compiler native command boundary.
+- [x] Correct compiler symbol section/bank associations without changing generated instructions.
+- [x] Migrate .NET integration tests, retaining independently meaningful assertions.
+- [x] Replace build, SDK, boot ROM, extension, sample and release references.
+- [x] Remove C# linker and obsolete formats; inspect source and freshly built outputs.
+- [x] Run Rust, .NET, extension, sample and emulator verification; record direct statuses and completed logs.
+- [x] Review final diff and open exactly one comprehensive PR; do not merge.
+
+Draft [PR #54](https://github.com/retro-dev-tools/koh/pull/54) was opened at the
+user's explicit request during validation. See [validation evidence](validation.md)
+for completed local checks and the PR's current-head checks for hosted results.
 
 Run builds serially per output directory. Parallel units use separate Cargo target directories. Main checkout and existing assembler worktree are preserved. Linux results do not establish Windows/macOS runtime compatibility.

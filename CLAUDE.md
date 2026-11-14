@@ -6,7 +6,7 @@ file adds a map of the codebase and the non-obvious invariants that are easy to 
 
 ## What this is
 
-Koh is a .NET 10 (C# 14) Game Boy development toolchain: assembler, linker, LSP,
+Koh is a Rust and .NET 10 (C# 14) Game Boy development toolchain: assembler, linker, LSP,
 emulator, DAP debugger, a UI layer, and a retargetable **compiler platform**
 (`Koh.Compiler`) with pluggable frontends over a shared SSA IR over pluggable
 backends.
@@ -188,6 +188,6 @@ or when diagnosing an out-of-subset diagnostic.
 - Don't commit built ROMs (`*.gb`/`*.gbc`), `bin/`, `obj/` — samples ship a `.gitignore`.
 - The model identifier you run as must not appear in commits, PR bodies, or code.
 - A cartridge now boots through Koh's own boot ROM (`src/Emulator/Koh.Boot`, assembled by koh-asm/koh-link at build time). A hand-built test ROM needs the Nintendo logo + header checksum (`TestRom.Create()`) or it freezes at `jr nz,@`; a harness that jumps straight to PC=$0100 must `Array.Clear(gb.Mmu.VramArray)`, because VRAM powers on as $FF.
-- `Koh.Boot.csproj` finds the koh-asm/koh-link binaries via `<MSBuild Targets="GetTargetPath">`; don't hard-code `bin/...` or add `GlobalPropertiesToRemove` (that builds Koh.Assembler twice and races on its `deps.json` under `dotnet publish`). Check with `dotnet publish src/Emulator/Koh.Emulator.App -c Release -r linux-x64`.
+- `Koh.Boot.csproj` resolves host tools through `GetNativeHostAssemblerPath` and `GetNativeHostLinkerPath` on Koh.Native. Check with `dotnet publish src/Emulator/Koh.Emulator.App -c Release -r linux-x64`.
 - Close a file stream before `File.Move`-ing it: Windows refuses to rename an open file, and only Windows CI catches it.
 - Deleting or renaming a CI job: also update master's required status checks (`gh api repos/retro-dev-tools/koh/branches/master/protection/required_status_checks`), or every PR is blocked.

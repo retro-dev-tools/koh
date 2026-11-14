@@ -109,10 +109,6 @@ public class Sm83SymbolAddressTests
     [Test]
     public async Task EntryFunctionLabel_SymbolMatchesHeaderEntryPoint()
     {
-        // The cartridge header's entry JP target (built from the backend's own `entryAddress`) and the
-        // linked `Main` symbol's resolved AbsoluteAddress describe the same address two different ways.
-        // They must agree; today they don't, because only the header path is exempt from the bug (it
-        // never goes through SymbolResolver).
         var model = Compile("static void Main() { }");
         var link = new LinkerType().Link([new Koh.Native.LinkerInput("game", model)]);
         await Assert.That(link.Success).IsTrue();

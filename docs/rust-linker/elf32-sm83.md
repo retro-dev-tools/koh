@@ -13,6 +13,13 @@ architecture enum cannot identify SM83; low-level APIs preserve EM_NONE and raw
 relocation numbers. Default features are disabled. No separate ELF implementation
 or proprietary object wrapper is used.
 
+Library selection compared [object](https://github.com/gimli-rs/object), which
+provides both parsing and ELF writing, with [rust-elf](https://github.com/cole14/rust-elf),
+whose documented interface focuses on safe ELF parsing. Using the latter would
+still require a writer or a second library. The existing object low-level APIs
+cover both directions without inventing a processor identity or hand-writing ELF
+headers and string/section tables.
+
 ## Standard records
 
 Section indices 1 through N correspond to model sections, in model order.
@@ -120,6 +127,112 @@ Rust model uses serde's default external enum tagging and snake_case field names
 The compiler passes the same model JSON through `koh-link --emit-elf -o file.o`;
 this is a documented process API, not another persisted object format. Deserialized
 models must pass `Object::validate` before ELF writing or linking.
+
+For example, a resolved compiler section is represented as:
+
+```json
+{"sections":[{"name":"CODE","kind":0,"combination":"Normal","address":336,"bank":0,"align":0,"align_offset":0,"size":1,"data":[118],"patches":[],"lines":[],"source":null}],"symbols":[{"name":"Main","binding":"Exported","definition":{"Label":{"section":0,"offset":0}},"source":null}]}
+```
+
+Section and symbol IDs are zero-based integers. Definitions are `"Import"`,
+`{"Absolute":42}`, or `{"Label":{"section":0,"offset":0}}`. Expressions use
+external enum tags, for example `{"Binary":["Add",{"Symbol":0},{"Literal":1}]}`.
+A patch contains `offset`, `width` (`Byte`, `Word`, `Long`), `semantics`
+(`Absolute`, `Signed`, `HighMemory`, or `{"PcRelative":{"bias":2}}`),
+`pc` (`section`, `offset`), `expression`, and `source`.
+Sources contain `file`, positive `line`/`column`, and `expansion` locations;
+line records contain `offset`, `count`, `file`, `line`, and optional `expansion`.
+The command accepts at most 64 MiB of JSON and rejects unknown enum variants,
+invalid models, and output exceeding the ELF resource budget. Standard input is
+not an assembly syntax tree, a serialized C# model, or a compatibility object.
+
+## CPU addresses, banks, and placement
+
+ELF32 describes 32-bit container offsets, sizes and integer bit patterns. It does
+not make the SM83 a 32-bit processor. A placed label has a 16-bit CPU window
+address and a separate bank number. Relocations referencing its address produce
+the window address; `BANK(label)` produces the bank, not high address bits.
+The flat ROM file offset of ROMX is `bank * 0x4000 + address - 0x4000`.
+
+| Kind | CPU window, inclusive | ABI bank constraints |
+| --- | --- | --- |
+| ROM0 | 0000–3FFF | 0 |
+| ROMX | 4000–7FFF | 1–65535 in objects; linked cartridge limited to 8 MiB, banks 1–511 |
+| VRAM | 8000–9FFF | 0–1 |
+| SRAM | A000–BFFF | 0–255 |
+| WRAM0 | C000–CFFF | 0 |
+| WRAMX | D000–DFFF | 1–7 |
+| OAM | FE00–FE9F | 0 |
+| HRAM | FF80–FFFE | 0 |
+
+Bank constraints describe object placement; they do not promise every cartridge
+mapper or hardware mode can select every bank. Cartridge code owns mapper and
+RAM-bank switching. I/O registers are not allocatable sections. Fixed compiler
+hardware-address symbols use SHN_ABS; allocated compiler RAM globals use actual
+RAM sections, splitting contiguous WRAM allocations at CFFF/D000.
+
+Missing address or bank means floating. Fixed sections reserve their locations
+before floating sections. Placement is deterministic: fixed address, fixed bank,
+descending alignment, descending size, then declaration order. Floating placement
+chooses the first fitting aligned gap in ascending bank order. No section crosses
+its window; nonempty allocations in the same region/bank cannot overlap.
+An alignment constraint is `address mod 2^align = align_offset` (exponent 0–16).
+Incompatible fixed addresses, banks and congruences are errors.
+
+Normal section names must be unique across inputs. FRAGMENT sections with the
+same name/kind concatenate in input order; labels and PC contexts follow each
+fragment's offset, and fragment address/alignment constraints are adjusted for
+that offset. UNION sections share a base and reserve the maximum member size;
+they are allowed only in RAM. Conflicting combination/kind constraints fail.
+Local symbols remain object-local, imports resolve exported symbols by exact
+case-sensitive name, and duplicate exports or unresolved imports fail.
+
+## Expression and encoding semantics
+
+Arithmetic uses RGBDS-compatible 32-bit two's-complement values. Addition,
+subtraction, multiplication, negation and nonnegative exponentiation wrap at
+32 bits. Division rounds toward negative infinity; the remainder follows the
+divisor's sign. Division by zero and negative exponents fail. Negative shifts
+reverse direction; shifts at or beyond 32 bits produce zero, except arithmetic
+right shifts of negative values produce minus one. Comparisons/logical operators
+produce zero or one. HIGH and LOW explicitly select bits 8–15 and 0–7.
+
+Absolute encoding accepts signed or unsigned values of its width: byte
+−128–255, word −32768–65535, and all i32 bit patterns for long. Signed encoding
+uses only the signed range. High-memory byte operands accept 00–FF or FF00–FFFF;
+other values fail. JR targets must have a signed/unsigned 16-bit representation;
+the displacement wraps in the CPU's 16-bit address space, then must fit −128–127.
+An explicit HIGH/LOW operation is distinct from silently narrowing a value.
+
+The current-location value uses the patch's execution section and offset,
+independently of where bytes are stored. Its PC-relative bias identifies the PC
+after the instruction. This preserves LOAD execution semantics. Multi-symbol
+expressions and section queries resolve after placement. BANK of an absolute
+constant fails. Unknown operators, undefined symbols/sections, invalid types,
+overflowing encodings and unapplied relocations are errors before ROM output.
+
+## ROM, symbols, and debugging
+
+Cartridge images are zero-padded to a power of two, at least 32 KiB and at most
+8 MiB. The linker writes the size code at 0148, optionally selects CGB-compatible
+80 or CGB-only C0 at 0143, then fixes the header checksum at 014D and the big-endian
+global checksum at 014E–014F. Input sections supply the logo, title, cartridge
+type and remaining header content; the C# backend supplies its game header.
+Raw mode emits exactly the requested size, preserves all header-address bytes,
+and rejects overflow instead of enlarging the image.
+
+SYM lists address labels as `bank:address name`; absolute constants are omitted.
+Ordering is deterministic by bank, address and name. KDBG remains version 1,
+retaining source paths, line ranges, symbol definitions and macro call stacks;
+line runs longer than 255 bytes split into records. Its byte-wide bank field and
+16-bit symbol value field are existing format limits: requesting KDBG with an
+unrepresentable bank or constant fails explicitly. ROM/SYM linking without KDBG
+remains available, including through managed `LinkOptions.EmitDebugInfo=false`.
+There is no DWARF or debugger-format migration in this ABI.
+
+CLI outputs are written through temporary files and renamed, with the ROM last.
+Input/output aliasing is rejected, and validation failures preserve existing ROM
+outputs. Equivalent noncanonical ELF layouts are outside ABI 1 and fail explicitly.
 
 Canonical ELF output is limited to 64 MiB, including alignment padding, metadata
 and tables. The writer checks a conservative layout budget before file allocation;
