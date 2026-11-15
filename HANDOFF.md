@@ -1,174 +1,71 @@
 # PR #55 working handoff
 
-Branch feat/rust-cil-compiler, isolated from main checkout modified screenshot.
-Baseline integrated linker 9cd1472. Existing PR #55 stays draft; never merge.
-C# compiler remains production. Full attachment migration goal stays active.
+## Objective and checkout
 
-Latest init unit verified locally: type/module .cctor bodies run through generated
-once guards, states 0/1/2 in zeroed BSS, strict method checks and BFI field deferral.
-Readonly writes allowed only in the declaring constructor. Real D/R module dependencies, recursive
-and cyclic init, readonly values, repeated calls, dead BFInit body exclusion and
-store RHS-before-ctor ordering pass. Omission mutation returns 1 rather than 42.
-Earlier constructor-dependent field entry now executes 17. Unsupported throwing
-ctors still diagnose actual body opcode/member; no blanket ctor omission remains.
-Read initializers.md, including generated FF function-ID namespace and remaining
-single-thread/IRQ/exception/generic limits. Review read-only complete; no writers.
-Workspace 450/450, no skips, exit 0, 232.391s; 274 compiler cases, 186 ROM scenarios
-(171 normal, 15 traps), /tmp/koh-init-nextest.log. Focused 32/32 also passed.
-Prior 0e3cd05 passed all 14 hosted jobs, macOS 443/443. New head CI must be checked.
-Rough progress 35%; full original goal active. Next local/aggregate/array/runtime
-support and remaining IRQ/banking/PDB/SDK/sample/test/deletion/performance gates.
+Complete the entire native Rust CIL-to-SM83 migration in this single draft PR:
+https://github.com/retro-dev-tools/koh/pull/55 . Never merge it. Do not mark the
+goal complete for an increment. User wants logical commits and an ASCII progress
+bar where 100% means every original requirement is verified. Rough estimate 37%.
 
-Current uncommitted unit: root owns initialize.rs generated once guards/state
-addresses, method/field/module constructor triggers and readonly ctor writes.
-beforefieldinit types defer until field access; strict types guard static methods.
-Initializers D/R fixture verifies module ordering, recursive/cyclic defaults,
-readonly values, once counters, BFI deferral and dead initializer exclusion.
-Test-only guard-omission mutation must return failure1 instead of42. Earlier
-initializer-rejection tests now require real ctor values or body-specific unsupported
-exception diagnostics. Focused suite live, no concurrent builds; review read-only.
+Worktree `/home/minorum/projekty/koh-rust-compiler`, branch `feat/rust-cil-compiler`.
+Baseline integrated linker migration: `9cd1472`. The main checkout's modified
+battle screenshot is unrelated; preserve hash
+`fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.
 
-Latest statics increment verified: symbolic field addresses/ELF relocations,
-packed zero-fill WRAM0/startup clear, primitive ByRef(Scalar) types with call/memory
-type checks. D/R real referenced fields, all integer widths/bool/char/native,
-returned refs and ref byte/int mutation execute against poisoned RAM. Shared storage
-31 bytes; dead fields omitted; >256 bytes errors. Constructor-dependent fields,
-readonly writes, generic/RVA/literal/instance/aggregate/reference storage still
-diagnose. Read statics.md. Constructor execution is next mandatory unit, not retired.
-Workspace 443/443, no skips, exit 0, 224.302s; 267 compiler cases, 180 ROM scenarios
-(165 normal,15 trap), /tmp/koh-statics-nextest.log. Stronger poison readback/all-field
-zero assertions passed focused 2/2 afterward, with no production-code change.
-Separate doctests/fmt pass. Source review complete; no delegated edits/builds.
-Prior 0fe6192 passed all 14 hosted jobs, macOS log 420/420. New head CI pending.
-Rough progress 32%; full original migration remains active with SDK/debug/runtime,
-language/test migration/sample/deletion/performance/container gates still open.
-
-Current uncommitted unit: root owns integer static storage, symbolic field-address
-IR/ELF relocation, BSS allocation/zero startup, field reference resolution, scalar
-managed ByRef IR types and ld[s]flda/ref ABI. Initializer execution remains the next
-required increment; reached ctor-dependent fields still diagnose. Static tests use
-nonzero WRAM poison, D/R transitive fields and ref byte/int mutation; bounds and
-IR type/width checks added. Full nextest running serially in target/. Review only,
-no delegated edits/builds. Verify full suite, doctests/fmt, commit and push same PR.
-
-Latest intrinsic increment verified locally: canonical attribute payload/signature
-validation, register/region call-site lowering with no desktop bodies/initializers,
-mixed native/i32 add/sub. Real Hardware/Gb fixtures execute MMIO, LCD-off VRAM,
-custom aliases and positive/negative byte-pointer offsets in Debug/Release.
-Read hardware.md, including explicit target16 native-width extension and gaps.
-Workspace nextest 420/420, no skips, exit 0, 321.348s; 244 compiler cases and
-178 emulator scenarios (163 normal, 15 trap). Log /tmp/koh-intrinsic-nextest.log.
-Focused negative variants/payload tests pass in workspace. Source review complete;
-no delegated edits/builds. Prior memory head 5409d45 passed all 14 hosted jobs,
-macOS completed log 407/407. New head hosted results must be checked after push.
-Next static globals/initializers and remaining hardware control/IRQ/DMA/runtime;
-then full language/debug/SDK/sample/test migration/deletion/performance gates.
-Rough progress 30%; full original objective remains active and incomplete.
-
-Current uncommitted unit: root owns contracts.rs metadata payload/signature checks,
-call-site register/region intrinsic lowering and mixed native/i32 add/sub; Hardware
-fixture plus negative contract and scalar lowering cases. Uses existing GameBoy
-API and attribute addresses, no duplicate hardware table or desktop body execution.
-Focused tests are running serially in target/. Review read-only; no edits/builds.
-Verify full workspace nextest/doctests/fmt after review, then commit/push same PR.
-
-Latest memory increment complete locally: indirect 8/16/32/64/native integer
-memory, unmanaged/native signatures, unique-predecessor CFG chain simplification,
-block-local temporary slots and contiguous copy/constant emission. Read memory.md.
-Workspace nextest 407/407, no skips, exit 0, 291.998s; 231 compiler cases,
-176 emulator scenarios (161 normal, 15 trap). Log /tmp/koh-memory-nextest.log.
-Separate doctests exit 0 (no cases). Focused suite 77/77; new reversed-order loop
-regressions also pass in workspace. Source review complete; nested-push defect
-removed, scratch-boundary test passes. No delegated builds/writers remain.
-Preceding b66b36e passed all 14 hosted jobs, macOS log 392/392, superseding earlier
-fixture failure. New memory head hosted results must be checked separately.
-Next: metadata-driven register/region/control intrinsics, pointer arithmetic,
-static storage/initialization, followed by all outstanding full migration gates.
-Rough progress 27%; no product acceptance or C# compiler deletion yet.
-
-Current uncommitted unit: root owns integer indirect memory IR/verifier/lowering,
-SM83 byte-order/sign extension, unmanaged pointer/native signatures, block-local
-temporary slot reuse and shorter copy/constant emission. Tests add Memory fixture,
-Debug/Release ROM scenarios and width verifier cases. Focused suite running serially
-in target/. Review is read-only; no delegated edits or builds. Verify with workspace
-nextest then doctests/fmt. Large combined memory fixture initially hit ROM0 limit;
-retain that fixture and fix code size rather than split away the failure.
-
-Latest increment supersedes CLI-pending statements below: native koh-compile,
-startup, single canonical ELF composition and entry selection now exist.
-Read docs/rust-compiler/driver.md and progress.md. Linux nextest completed
-392/392 passed, no skips, 216 compiler cases, 172 emulator scenarios (158 normal,
-14 trap). Log /tmp/koh-driver-nextest.log, 283.774s. Original terminal exit record
-was lost in context transfer; completed summary was read after process termination.
-Separate doctests exit 0. DMG and CGB-only native CLI demonstrations both returned
-00 0000002A D000 OK, exit 0. No SDK/PDB/runtime completeness is claimed.
-Call-head a1c7685 macOS failed Roslyn fixture compilation before native compilation;
-direct Runtime reference fixes a locally reproduced DisableTransitiveProjectReferences
-failure. New hosted verification required. Driver review findings (nested entry
-identity and reference-only interrupt roots) were reproduced and fixed; 9 driver
-cases pass. No delegated writers/builds remain. Next memory/globals/initializers
-and real hardware intrinsic lowering, followed by remaining full goal requirements.
+The C# compiler remains the production SDK compiler. No old test method is fully
+retired yet. All 565 have source-level dispositions, not completed Rust migration.
+Read docs/rust-compiler/progress.md and source audits for the full acceptance ledger.
+The original assignment is also in the conversation and attachment
+`/home/minorum/.codex/attachments/f20b0d62-eb77-4947-9b7a-4dcb4328fc7f/pasted-text-1.txt`.
 
 ## Implemented
 
-All 565 legacy compiler methods have source dispositions, not complete migration.
-None is retired/replaced yet. Native readers/reference binding, typed SSA/verifier,
-integer lowering/emission and static managed calls/reachability are implemented.
-Read calls.md, sm83-abi.md and progress.md for exact scope/limits/evidence.
-Calls have explicit signatures validated against actual IR definitions. A finite
-work queue lowers each reached definition once; generic/instance/virtual shapes
-are still incomplete. No whole BCL or unreachable unsupported bodies are included.
-Dynamic SP frames preserve caller values and recursion. Caller capacity checks
-precede buffer writes/CALL; callee checks frame before writes. Every ELF object
-has a canonical WRAM0 UNION stack reservation, preventing linked global overlap.
+Bounded native PE/CLI/CIL/signature/reference reading; typed SSA/block arguments;
+dominance/type/program verification; integer lowering and SM83 emission; direct
+calls/recursion with guarded dynamic frames; native CLI/startup and canonical ELF;
+indirect memory, static storage and primitive managed references; register/region
+intrinsics; actual type/module constructors with once guards and BFI deferral.
+CFG chain merging and conservative block-local temporary reuse reduce code/frame
+costs. Reuse koh-objects/koh-link; no second linker or object serializer.
 
-Initializer omission was reproduced in real C#: both declaring-type .cctor and
-<Module>..cctor must not be ignored. They now produce explicit diagnostics for
-reached methods/assemblies until real static storage/initialization lowering lands.
-This is pending required implementation, not retirement of those capabilities.
-A controlled removal of caller guard produced CORRUPT sentinels despite a callee
-guard. The production guard was restored before all final runs.
-
-Root owns all files. Read-only reviews are complete, including module-init fix.
-No delegated writers/builds remain. No native CLI/startup/SDK switch, graphics,
-PDB/KDBG acceptance or legacy compiler deletion yet. Library entry is
-compile::reachable(&Resolver, Definition); output IR is program-verified.
+Latest unit adds primitive local/argument addresses, metadata-aware narrow load
+normalization, a bounded frame-return escape graph and managed null fault 4.
+Read local-references.md, statics.md, initializers.md and sm83-abi.md. Reference
+return analysis is conservative for reassignment/scoped-return contracts. Native
+pointers retain raw bus semantics. Arrays, structs/objects, float/generic/runtime,
+IRQ/banking and source-debug/SDK acceptance remain incomplete.
 
 ## Evidence
 
-Completed workspace nextest: 383/383 passed, 0 skipped, exit 0; 207 compiler cases.
-Log /tmp/koh-calls-nextest.log. Suite executes 154 ROM scenarios through ELF
-serialization/readback and Rust linker in unchanged C# emulator: 141 expected
-normal returns, 13 traps, guard sentinels below C100 preserved. New cases include
-12 real C# scenarios across Debug/Release (transitive calls, mixed widths, void,
-recursion/mutual recursion, deep-stack trap), plus caller guard/live value cases.
-Exact Main reachability is four methods; dead unsupported code stays absent.
-Focused default-threaded tests: 25 IR + 16 lowering + 14 backend passed, exit 0
-(/tmp/koh-calls-focused.log). Separate workspace doctests exit 0, no cases
-(/tmp/koh-calls-doc.log); stable fmt check exit 0 (/tmp/koh-calls-fmt-check.log).
-Legacy baseline 814/814 remains historical. All 14 hosted checks passed for
-preceding backend head 6e01f88. Check new call head separately after push.
+Linux workspace nextest: 472/472 passed, no skips, exit 0, 232.609s. Log:
+`/tmp/koh-local-ref-nextest.log`; 296 compiler cases, 196 ROM scenarios (179 normal,
+17 traps). Existing C# emulator executes all ROMs. Eight-level ancestor recursion,
+by-value argument addresses, narrow signed ref rewrites, long mutation and borrowed
+aliases pass in real Debug/Release Roslyn fixtures. Additional CPU cases cover
+short/wide addresses and null refs versus valid native bus address zero.
 
-## Next
+Focused predecessor suite 117/117. Stronger positive-to-negative byte/short setup
+passed 2/2 afterward, with no compiler-code change:
+`/tmp/koh-local-ref-signed-final.log`. Separate doctests and stable fmt checks exit 0.
+Read-only source review complete; no delegated writers/builds remain. Constructor
+head d73963a passed all 14 hosted jobs; completed macOS log confirms 450/450.
+Check new local-reference head separately after push. Historical legacy baseline
+814/814 is reference evidence, not a correctness oracle.
 
-Implement native entry/CLI/module emission, metadata hardware contracts, memory,
-static globals and real initialization. Then remaining language/runtime, generic,
-objects/arrays, optimization, banking/IRQ, PDB/debug, SDK, sample, test audit/
-migration, legacy deletion, performance/platform and bounded Docker work in this
-single PR. Do not redefine success as integer/call slice. Rough progress 20%;
-100% means every original requirement verified. Keep old compiler until replacement
-acceptance, then delete it entirely. GameBoy API is preserved by default.
+## Next work and verification
 
-## Verification
+Finish/review/commit/push this unit if not already committed, update the same draft
+PR and verify its remote head/draft state. Next pursue aggregate/array/runtime
+support toward real games; keep full IRQ/banking, Portable PDB/KDBG/debugger,
+native SDK/incremental/package/CI, sample graphics execution, complete Rust test
+audit/migration, C# compiler deletion, performance/platform and bounded Docker gates.
+Do not replace the full goal with a polished primitive slice or retire useful
+features merely to pass tests. Preserve Koh.GameBoy API and the existing emulator.
 
-Current uncommitted unit: root owns cartridge.rs/compile.rs/main.rs native entry,
-single-ELF module composition/startup, contracts.rs guards, driver tests/fixtures,
-shared test Host support and C# test-only native-PC stop mode. No emulator core
-changes. Review is read-only, no edits/builds. Driver currently passes eight cases
-including native CLI, 16 extra ROM executions, output safety/determinism and
-canonical Koh.GameBoy contract rejection. Full verification follows review.
-
-Serial builds per output directory. KOH_DOTNET selects .NET SDK 10.0.115; read
-completed logs/direct exit codes. Use stable rustfmt. Reuse koh-objects ELF and
-Rust linker; execute C# emulator. Preserve sample assets/main screenshot. Commit
-and push logical increments to this draft PR; do not open another or merge it.
+Build serially per output directory. Tests use
+`KOH_DOTNET=/home/minorum/.local/share/koh-dotnet-10.0.115/dotnet`.
+Run workspace nextest/all-features/locked and separate workspace doctests. Use
+`RUSTUP_TOOLCHAIN=stable cargo fmt --all -- --check`. Capture direct exits in logs
+and read completed logs. Commits need the pinned dotnet directory prepended to PATH
+for Husky/CSharpier. After its C# formatting, rerun the affected fixture cases.
+Stage only this unit's files; do not touch unrelated main-checkout assets or merge.

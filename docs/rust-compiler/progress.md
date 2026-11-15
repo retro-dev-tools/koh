@@ -404,3 +404,33 @@ macOS log reports `443 tests run: 443 passed, 0 skipped`.
 [Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43655742204),
 [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43655742198).
 New initializer-head hosted validation remains separate.
+
+## Primitive local/argument addresses and reference checks
+
+[Local reference lowering](local-references.md) adds short/wide `ldloca`/`ldarga`,
+stable addresses into dynamic invocation storage and normalization of narrow local
+loads after aliased writes. A bounded origin graph rejects managed references to
+the current frame returned through aliases, block arguments or reference-returning
+calls. Its conservative reassignment/scoped-return limitations are documented.
+Managed null dereferences abort with fault 4; native bus address zero remains legal.
+
+Local workspace command `cargo nextest run --workspace --all-features --locked`,
+SDK 10.0.115 through `KOH_DOTNET`: **472 passed, 0 skipped**, exit 0, 232.609s
+(`/tmp/koh-local-ref-nextest.log`). There are 296 compiler cases and 196 ROM
+scenarios (179 normal returns, 17 traps). Focused predecessor checks passed 117/117.
+Afterward, stronger positive-to-negative byte/short transitions passed the two
+Roslyn cases again, exit 0 (`/tmp/koh-local-ref-signed-final.log`); this changed only
+fixture assertions/setup, not compiler code. Separate doctests/fmt exited 0.
+
+Eight-level recursion verifies ancestor addresses and independent per-frame guards;
+additional cases check addressed by-value arguments, long mutation, borrowed returns,
+null read/write behavior, address encodings, typed storage and frame escapes.
+This advances primitive ref/ABI requirements, not aggregate/float references or
+whole legacy-method retirement. Arrays, objects, broader runtime, IRQ/banking,
+PDB/SDK/sample acceptance, test migration/deletion and performance work remain open.
+
+Previous constructor head `d73963a` passed all 14 hosted jobs; its completed macOS
+log reports `450 tests run: 450 passed, 0 skipped`.
+[Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43657584065),
+[CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43657584034).
+New local-reference head hosted validation must be checked separately.

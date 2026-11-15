@@ -40,6 +40,32 @@ fn backward_edges_preserve_mutable_locals() {
 }
 
 #[rstest]
+#[case(&[0x12, 0, 0x2a], false)]
+#[case(&[0x0f, 0, 0x2a], true)]
+fn cil_cannot_return_a_reference_to_its_own_storage(#[case] il: &[u8], #[case] argument: bool) {
+    let mut m = method(il);
+    m.returns = Some(Type::ByRef(Scalar::I32));
+    if argument {
+        m.parameters = vec![Type::I32];
+    } else {
+        m.locals = vec![Type::I32];
+    }
+    let error = lower(m).unwrap_err();
+    assert!(
+        error.contains("current frame may escape") && error.contains("IL_"),
+        "{error}"
+    );
+}
+
+#[test]
+fn cil_can_return_an_incoming_reference() {
+    let mut m = method(&[0x02, 0x2a]);
+    m.parameters = vec![Type::ByRef(Scalar::I32)];
+    m.returns = Some(Type::ByRef(Scalar::I32));
+    verify(&lower(m).unwrap()).unwrap();
+}
+
+#[rstest]
 #[case(false)]
 #[case(true)]
 fn cfg_simplification_preserves_loops_across_block_order(#[case] reverse: bool) {

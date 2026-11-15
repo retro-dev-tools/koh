@@ -1,5 +1,6 @@
 use crate::resolve::Definition;
 use std::collections::HashMap;
+mod escape;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
@@ -26,6 +27,13 @@ pub enum Scalar {
 }
 
 impl Scalar {
+    pub(crate) fn stack_type(self) -> Type {
+        match self {
+            Self::I64 | Self::U64 => Type::I64,
+            Self::NativeSigned | Self::NativeUnsigned => Type::Native,
+            _ => Type::I32,
+        }
+    }
     pub fn bits(self) -> u8 {
         match self {
             Self::Bool | Self::I8 | Self::U8 => 8,
@@ -83,6 +91,10 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    LocalAddress {
+        local: u32,
+        scalar: Scalar,
+    },
     InitializerAddress(Definition),
     StaticAddress {
         field: Definition,
@@ -151,6 +163,7 @@ impl Op {
             | Self::InitializerAddress(_)
             | Self::Constant(_)
             | Self::StaticAddress { .. }
+            | Self::LocalAddress { .. }
             | Self::LoadLocal(_) => [None, None],
         };
         let arguments = match self {
@@ -437,6 +450,18 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::LocalAddress {
+                        local: index,
+                        scalar,
+                    } => {
+                        if local(index)? != scalar.stack_type() || !initialized[index as usize] {
+                            return Err(
+                                "Local address requires initialized compatible primitive storage"
+                                    .into(),
+                            );
+                        }
+                        Some(Type::ByRef(scalar))
+                    }
                     Op::InitializerAddress(constructor) => {
                         if constructor.token >> 24 != 6 || constructor.token & 0xffffff == 0 {
                             return Err("Invalid initializer state identity".into());
@@ -623,5 +648,5 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         checked()
             .map_err(|e| format!("Block {block} IL_{:04x}: {e}", body.terminator.il_offset))?;
     }
-    Ok(())
+    escape::verify(function)
 }

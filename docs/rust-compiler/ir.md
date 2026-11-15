@@ -8,6 +8,13 @@ legalization. Promoting locals to SSA is optional optimization, not a correctnes
 prerequisite. A stack-machine IR would leave merge/type errors implicit; reproducing
 the old C# IR would import assumptions about widths and static frames.
 
+`LocalAddress` produces a typed primitive reference into stable invocation storage.
+Narrow metadata storage is normalized on both local loads and stores; padded high
+bytes are not an alias invariant. [Reference checks](local-references.md) reject
+current-frame returns, preserve borrowed aliases and distinguish managed null from
+native bus address zero. The origin analysis is conservative for local reassignment
+and reference-returning calls; it is not a general scoped-reference solver.
+
 Managed functions retain their assembly/token definition and source IL offsets.
 Generated [initializer guards](initializers.md) use the reserved FF identity tag,
 not a metadata MethodDef, and retain the real constructor in `InitializerAddress`.

@@ -77,6 +77,161 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+fn frame_reference() -> Function {
+    Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![],
+        returns: Some(Type::ByRef(Scalar::I32)),
+        locals: vec![Type::I32, Type::ByRef(Scalar::I32)],
+        blocks: vec![Block {
+            parameters: vec![],
+            instructions: vec![
+                instruction(0, Type::I32, Op::Constant(0)),
+                Instruction {
+                    result: None,
+                    op: Op::StoreLocal { local: 0, value: 0 },
+                    il_offset: 0,
+                },
+                instruction(1, Type::ByRef(Scalar::I32), Op::Constant(0)),
+                Instruction {
+                    result: None,
+                    op: Op::StoreLocal { local: 1, value: 1 },
+                    il_offset: 0,
+                },
+                instruction(
+                    2,
+                    Type::ByRef(Scalar::I32),
+                    Op::LocalAddress {
+                        local: 0,
+                        scalar: Scalar::I32,
+                    },
+                ),
+            ],
+            terminator: Terminator {
+                kind: Control::Return(Some(2)),
+                il_offset: 9,
+            },
+        }],
+    }
+}
+
+#[test]
+fn local_addresses_require_initialized_storage() {
+    let mut f = frame_reference();
+    f.returns = None;
+    f.blocks[0].terminator.kind = Control::Return(None);
+    f.blocks[0].instructions.remove(1);
+    assert!(
+        verify(&f)
+            .unwrap_err()
+            .contains("initialized compatible primitive storage")
+    );
+}
+
+#[rstest]
+#[case(0)]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+fn references_to_the_current_frame_cannot_escape(#[case] shape: u8) {
+    let mut f = frame_reference();
+    match shape {
+        1 => {
+            f.blocks[0].instructions.push(Instruction {
+                result: None,
+                op: Op::StoreLocal { local: 1, value: 2 },
+                il_offset: 4,
+            });
+            f.blocks[0].instructions.push(instruction(
+                3,
+                Type::ByRef(Scalar::I32),
+                Op::LoadLocal(1),
+            ));
+            f.blocks[0].terminator.kind = Control::Return(Some(3));
+        }
+        2 => {
+            f.blocks[0].instructions.push(instruction(
+                3,
+                Type::ByRef(Scalar::I32),
+                Op::Call {
+                    target: Definition {
+                        assembly: 0,
+                        token: 0x06000002,
+                    },
+                    signature: Signature {
+                        parameters: vec![Type::ByRef(Scalar::I32)],
+                        returns: Some(Type::ByRef(Scalar::I32)),
+                    },
+                    arguments: vec![2],
+                },
+            ));
+            f.blocks[0].terminator.kind = Control::Return(Some(3));
+        }
+        3 => {
+            f.blocks[0].terminator.kind = Control::Jump(Edge {
+                block: 1,
+                arguments: vec![2],
+            });
+            f.blocks.push(Block {
+                parameters: vec![(3, Type::ByRef(Scalar::I32))],
+                instructions: vec![],
+                terminator: Terminator {
+                    kind: Control::Branch {
+                        condition: 0,
+                        yes: Edge {
+                            block: 1,
+                            arguments: vec![3],
+                        },
+                        no: Edge {
+                            block: 2,
+                            arguments: vec![3],
+                        },
+                    },
+                    il_offset: 6,
+                },
+            });
+            f.blocks.push(Block {
+                parameters: vec![(4, Type::ByRef(Scalar::I32))],
+                instructions: vec![],
+                terminator: Terminator {
+                    kind: Control::Return(Some(4)),
+                    il_offset: 7,
+                },
+            });
+        }
+        _ => {}
+    }
+    let error = verify(&f).unwrap_err();
+    assert!(
+        error.contains("current frame may escape") && error.contains("IL_"),
+        "{error}"
+    );
+}
+
+#[rstest]
+#[case(0, Scalar::I32, Type::ByRef(Scalar::I32), true)]
+#[case(0, Scalar::U8, Type::ByRef(Scalar::U8), true)]
+#[case(0, Scalar::I64, Type::ByRef(Scalar::I64), false)]
+#[case(2, Scalar::I32, Type::ByRef(Scalar::I32), false)]
+#[case(0, Scalar::I32, Type::Native, false)]
+#[case(0, Scalar::I32, Type::ByRef(Scalar::U32), false)]
+fn local_addresses_validate_index_and_storage(
+    #[case] local: u32,
+    #[case] scalar: Scalar,
+    #[case] result: Type,
+    #[case] valid: bool,
+) {
+    let mut f = frame_reference();
+    f.returns = None;
+    f.blocks[0].terminator.kind = Control::Return(None);
+    f.blocks[0].instructions.last_mut().unwrap().op = Op::LocalAddress { local, scalar };
+    f.blocks[0].instructions.last_mut().unwrap().result = Some((2, result));
+    assert_eq!(verify(&f).is_ok(), valid);
+}
+
 #[rstest]
 #[case(0x06000001, Type::Native, true)]
 #[case(0x06000000, Type::Native, false)]

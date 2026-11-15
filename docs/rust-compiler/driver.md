@@ -27,7 +27,7 @@ Startup disables interrupts, initializes SP to D000 and clears IF/IE before
 calling the selected entry. Normal return leaves its 32-bit result in DE:HL
 (zero for void), restores SP to D000 and stops at `__koh_exit`. Trap paths stop
 at `__koh_abort`, with A identifying stack exhaustion (1), arithmetic failure (2)
-or an unexpected vector (3). These symbols support independent execution tests.
+an unexpected vector (3), or a null managed reference (4). These symbols support independent execution tests.
 This is an initial startup contract, not completed interrupt/runtime support.
 
 ## Input and output safety

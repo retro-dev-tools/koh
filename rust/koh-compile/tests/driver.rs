@@ -129,6 +129,62 @@ fn execute(host: &Host, directory: &Path, linked: &koh_link::LinkResult, stop: &
 #[rstest]
 #[case("Debug")]
 #[case("Release")]
+fn local_and_argument_references_preserve_ancestor_frames(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh ancestor frames ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/LocalReferences");
+    for file in ["LocalReferences.csproj", "Program.cs"] {
+        std::fs::copy(fixture.join(file), directory.path().join(file)).unwrap();
+    }
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.path().join("LocalReferences.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let input = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0/LocalReferences.dll"));
+    let path = directory.path().join("locals.o");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+        .arg(input)
+        .arg("-o")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let object = koh_objects::read_elf(&std::fs::read(path).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-poison"
+        ),
+        "00 0000002A D000 OK"
+    );
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
 fn type_and_module_initializers_execute_once_with_cycles(host: &Host, #[case] configuration: &str) {
     let directory = tempfile::Builder::new()
         .prefix("koh initializer order ")

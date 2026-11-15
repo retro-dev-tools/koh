@@ -14,6 +14,12 @@ entry parameters from the argument block, and writes its result to the caller's
 return buffer before restoring SP and executing RET. All registers/flags are
 caller-clobbered. SP and caller storage survive the call.
 
+Primitive managed references also occupy two bytes and retain their pointee type
+in IR. [Local/argument addresses](local-references.md) refer to stable storage in
+the owning invocation, including ancestor frames during recursion. Null managed
+dereferences abort through `__koh_trap_null` (fault 4); native bus address zero
+remains legal. Managed references to the current frame cannot be returned.
+
 The frame contains locals, SSA values and temporary storage for simultaneous block
 argument transfers and arithmetic. Temporary PUSH AF/POP AF pairs preserve carry
 across SP-relative address calculations; their two bytes are included in capacity

@@ -176,6 +176,14 @@ impl Code {
         self.bytes(&[0x47]);
     }
 
+    fn check_reference(&mut self, ty: Type) {
+        if matches!(ty, Type::ByRef(_)) {
+            self.bytes(&[0x78, 0xb1]);
+            let target = self.import("__koh_trap_null".into());
+            self.jump(0xca, target);
+        }
+    }
+
     fn constant(&mut self, destination: u16, width: u16, bits: u64) {
         self.bytes(&[0xf5]);
         self.address(destination + 2);
@@ -602,6 +610,13 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::LocalAddress { local, .. } => {
+                    code.address(layout.locals[local as usize]);
+                    code.bytes(&[0x44, 0x4d, 0x79]);
+                    code.store_a(destination);
+                    code.bytes(&[0x78]);
+                    code.store_a(destination + 1);
+                }
                 Op::StaticAddress { field, .. } | Op::InitializerAddress(field) => {
                     let target = code.import(static_symbol(field));
                     code.jump(0x21, target);
@@ -617,6 +632,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 } => {
                     let copied = u16::from(bits / 8);
                     code.indirect(slot(address));
+                    code.check_reference(layout.values[&address].1);
                     code.address(destination);
                     code.bytes(&[0x50, 0x59]);
                     for byte in 0..copied {
@@ -642,6 +658,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     bits,
                 } => {
                     code.indirect(slot(address));
+                    code.check_reference(layout.values[&address].1);
                     code.address(slot(value));
                     code.bytes(&[0x50, 0x59]);
                     for byte in 0..u16::from(bits / 8) {

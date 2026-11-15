@@ -188,6 +188,21 @@ fn normalize_storage(
     for block in &mut function.blocks {
         let mut instructions = Vec::new();
         for mut instruction in std::mem::take(&mut block.instructions) {
+            if let Op::LoadLocal(index) = instruction.op {
+                if let Some(shape) = slots[index as usize] {
+                    let original = instruction.result.ok_or("Local load has no result")?;
+                    let mut convert = conversion(original.0, shape, instruction.il_offset)?;
+                    let loaded = convert.result.ok_or("Storage conversion has no result")?;
+                    instruction.result = Some(loaded);
+                    convert.result = Some(original);
+                    if let Op::Convert { ref mut value, .. } = convert.op {
+                        *value = loaded.0;
+                    }
+                    instructions.push(instruction);
+                    instructions.push(convert);
+                    continue;
+                }
+            }
             if let Op::StoreLocal {
                 local,
                 ref mut value,
@@ -663,6 +678,49 @@ fn translate(
         }
         0x06..=0x09 => load(b, method.parameters.len() + usize::from(i.opcode - 0x06))?,
         0x0a..=0x0d => store(b, method.parameters.len() + usize::from(i.opcode - 0x0a))?,
+        0x0f | 0xfe0a | 0x12 | 0xfe0d => {
+            let argument = matches!(i.opcode, 0x0f | 0xfe0a);
+            let raw = variable()?;
+            if argument && raw >= method.parameters.len() {
+                return Err("Invalid argument address index".into());
+            }
+            let index = if argument {
+                raw
+            } else {
+                method.parameters.len() + raw
+            };
+            let ty = *locals.get(index).ok_or("Invalid local address index")?;
+            let storage = if let Some(resolver) = resolver {
+                let image = resolver.assembly(method.identity.assembly)?;
+                let types = if argument {
+                    image.method_signature(method.identity.token)?.params
+                } else {
+                    image.local_types(method.identity.token)?
+                };
+                scalar(
+                    types
+                        .get(raw)
+                        .ok_or("Missing addressed storage signature")?,
+                )?
+            } else {
+                match ty {
+                    Type::I32 => Scalar::I32,
+                    Type::I64 => Scalar::I64,
+                    Type::Native => Scalar::NativeSigned,
+                    Type::ByRef(_) => {
+                        return Err("Nested managed references are unsupported".into());
+                    }
+                }
+            };
+            let value = b.value(
+                Type::ByRef(storage),
+                Op::LocalAddress {
+                    local: index as u32,
+                    scalar: storage,
+                },
+            )?;
+            b.stack.push(value);
+        }
         0x0e | 0xfe09 => {
             let index = variable()?;
             if index >= method.parameters.len() {

@@ -98,6 +98,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     }
                 }
                 Op::Constant(_)
+                | Op::LocalAddress { .. }
                 | Op::StaticAddress { .. }
                 | Op::InitializerAddress(_)
                 | Op::LoadLocal(_) => {}

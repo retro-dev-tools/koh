@@ -120,6 +120,10 @@ fn rom_program(
     data.extend_from_slice(&[
         0x3e, 2, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
     ]);
+    let null_trap = data.len() as u32;
+    data.extend_from_slice(&[
+        0x3e, 4, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
+    ]);
     data.resize(0x300, 0);
     let entry = Object {
         sections: vec![Section {
@@ -145,6 +149,13 @@ fn rom_program(
                 SymbolDefinition::Label {
                     section: SectionId(0),
                     offset: arithmetic_trap,
+                },
+            ),
+            symbol(
+                "__koh_trap_null".into(),
+                SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: null_trap,
                 },
             ),
         ],
@@ -523,6 +534,78 @@ fn stack_capacity_is_checked_before_frame_writes(host: &Host) {
     huge.returns = Some(Type::I64);
     huge.blocks[0].terminator.kind = Control::Return(Some(0));
     assert!(sm83::emit(&huge).unwrap_err().contains("capacity"));
+}
+
+#[rstest::rstest]
+#[case(false, false)]
+#[case(false, true)]
+#[case(true, false)]
+#[case(true, true)]
+fn short_and_wide_local_argument_address_encodings_execute(
+    host: &Host,
+    #[case] argument: bool,
+    #[case] wide: bool,
+) {
+    let mut il = if wide {
+        vec![0xfe, if argument { 0x0a } else { 0x0d }, 0, 0]
+    } else {
+        vec![if argument { 0x0f } else { 0x12 }, 0]
+    };
+    il.extend_from_slice(&[0x1f, 42, 0x54, if argument { 0x02 } else { 0x06 }, 0x2a]);
+    let f = koh_compile::lower::lower(koh_compile::lower::Method {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        il: &il,
+        parameters: if argument { vec![Type::I32] } else { vec![] },
+        returns: Some(Type::I32),
+        locals: if argument { vec![] } else { vec![Type::I32] },
+        init_locals: true,
+        max_stack: 2,
+    })
+    .unwrap();
+    run(
+        host,
+        &[(f, if argument { vec![7] } else { vec![] }, Ok(42))],
+    );
+}
+
+#[rstest::rstest]
+#[case(false)]
+#[case(true)]
+fn null_managed_references_trap_but_native_bus_zero_is_valid(host: &Host, #[case] store: bool) {
+    let mut cases = Vec::new();
+    for ty in [Type::Native, Type::ByRef(Scalar::I32)] {
+        let mut f = function(Type::I32, Op::Constant(0));
+        f.parameters[0] = ty;
+        f.blocks[0].parameters[0].1 = ty;
+        f.blocks[0].instructions = vec![Instruction {
+            result: if store { None } else { Some((2, Type::I32)) },
+            op: if store {
+                Op::StoreMemory {
+                    address: 0,
+                    value: 1,
+                    bits: 32,
+                }
+            } else {
+                Op::LoadMemory {
+                    address: 0,
+                    bits: 32,
+                    signed: false,
+                }
+            },
+            il_offset: 0,
+        }];
+        f.blocks[0].terminator.kind = Control::Return(Some(if store { 1 } else { 2 }));
+        let expected = if matches!(ty, Type::ByRef(_)) {
+            Err(4)
+        } else {
+            Ok(if store { 42 } else { 0 })
+        };
+        cases.push((f, vec![0, 42], expected));
+    }
+    run(host, &cases);
 }
 
 #[rstest::rstest]
