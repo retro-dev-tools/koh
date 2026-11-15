@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="Koh.GameBoy" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-3d/$(KohCubeVariant)/*.cs" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-3d/shared/FixedMath.cs" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-3d/shared/Game.cs;$(KohRoot)/samples/csharp/gb-3d/shared/CubeRenderer.cs;$(KohRoot)/samples/csharp/gb-3d/shared/SpanFill.cs" Condition="'$(KohCubeVariant)' != 'double-buffered'" />
+    <ProjectReference Include="$(KohRoot)/src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
+  </ItemGroup>
+</Project>

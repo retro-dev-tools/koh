@@ -1,101 +1,96 @@
 # PR #55 handoff
 
-Active division increment: root owns all edits and serial builds. Read-only
-division review completed with no findings; no edits/builds. Backend50/50
-passed160.779s (/tmp/koh-division-sm83.log). Expanded boundary/cycle9/9 passed
-34.443s (/tmp/koh-division-boundaries.log): I32 4532T, I64 6212T. Original red:
-I32 51268T for30000/31 (/tmp/koh-division-cost-red.log). New word path checks
-normalized magnitudes, retains full-width fault/sign handling and wide fallback.
-Cube CGB Release probe now passes unchanged500-frame budget,10.424s
-(/tmp/koh-cube-word-division.log); structural assertions still need strengthening.
-Full4-case Cube run48692 is terminal exit100:2 CGB passed,2 DMG failed,
-40.931s (/tmp/koh-cube-word-all.log). DMG mode3 writes806Release/826Debug.
-No local build/test live. Next fix Canvas bounded CPU transfers and strengthen
-Cube geometry assertions; unchanged frame budgets. Commit only division files,
-its docs and this handoff; leave Cube/config probes for their completed unit.
+The full native Rust CIL-to-SM83 migration remains ACTIVE in one draft PR55
+against master. Never merge, split PRs, shrink acceptance or declare completion
+for an increment. Existing public APIs are evidence, not a baseline/convention.
+Full objective: use get_goal if needed; the user request's acceptance is intact.
 
-Full native CIL→SM83 migration stays ACTIVE in single draft PR55/master.
-Never merge, split PRs, shrink acceptance or mark complete for an increment.
-Existing public APIs are evidence, not a design baseline or convention.
+Worktree: /home/minorum/projekty/koh-rust-compiler, feat/rust-cil-compiler.
+Main worktree has unrelated battle.png edits: preserve SHA256
+fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454.
+Last pushed b77361e; local increments7f7b8a7 small-magnitude multiply and063c695
+shared canvas/tile transfers. This test commit exposes stronger actual Cube tests
+and serial nextest configuration in the same PR. Root owns edits and builds.
+Read-only multiply_transfer_review found no math/transfer defect; its concurrent
+cargo-test build concern is fixed by a local Roslyn build lock. No reviewer
+builds, edits or active subagents. No local build/test live at this update.
 
-Worktree /home/minorum/projekty/koh-rust-compiler, feat/rust-cil-compiler.
-Pushed HEAD34dc1cfb5c768a37fb6715a90262c1895db8c5a4 fixes lazy map storage;
-parent4e7212d implements checked raw arena. Root owns all writes
-Current-head hosted runs43747499032 (Rust) and43747499084 (managed) were LIVE
-at last primary query. Expected tracked native suite798 tests, Windows796;
-local untracked Cube4 adds another4 failing probes, not yet CI coverage.
-and serial builds; no local process live at this update. lazy_map_review completed
-read-only inspection with no Critical/Important/Minor findings. No tests/builds
-run by reviewer. Declined boundaries accepted: flattened bounds retain existing
-meaning, allocated shadows retain lifetime, LCD-on clears retain backing storage;
-cube rendering/timing are next units inside this SAME full goal, not deferred.
+## Verification and open cube failure
 
-Lazy writer keeps each absent map's uniform clear tile, allocates only when a
-real cell write/LCD-on clear needs backing, preserves16-byte alignment and queue
-invariants. Same-value valid writes consume no storage; invalid flattened indices
-still fault6. Existing Video.Init hardware behavior unchanged; no eager2KiB map
-reservation. Sprite/VideoInit heap expectations now require only OAM allocation
-and preserve poison in unused space. All map/palette/OAM/sprite assertions remain.
-Removed obsolete C010 debug writes that could alias compiler statics.
-See docs/rust-compiler/lazy-maps.md for decisions and test evidence.
+- Division b77361e: backend50/50, post-hook focused9/9; I32 30000/31
+  51268T→4532T, I64 now6212T. docs/rust-compiler/word-division.md.
+- Multiply red -30*-127: I32 47080T, I64 185896T, both fail20000T budget.
+  /tmp/koh-multiply-cost-red.log. Shared-helper green I32 3828T/I64 6260T;
+  /tmp/koh-multiply-shared.log passed9/9 in27.012s.
+- Initial inline multiply made actual Cube.Transform exceed16KiB, explicit
+  diagnostic /tmp/koh-cube-fast-math.log. Per-function/width helper fixes it.
+  Operands scratch0/8, result16, sign24; helper offsets+2 for CALL, entry
+  temporary guard4 for return+scratchpush. Full modular widths preserved.
+- Complete backend66/66 + real tile transfer4/4 passed70/70 in221.574s,
+  exit0 /tmp/koh-multiply-transfer-regression.log;90 unrelated cases filtered.
+  Covers dispatch255/256, MIN/high bits, wide fallback, large frames,
+  forty chained products fitting a bank, stack exhaustion, prior arithmetic.
+- Canvas now shares TileSet.CopyToVram. CPU value/destination and CGB registers
+  prepared before WaitVBlank; complete tile sizes; LCD-on GDMA bound1024.
+  Previous DMG red806Release/826Debug mode3 writes. Old weaker4 animation/VRAM
+  probes now pass49.586s /tmp/koh-cube-shared-transfer.log.
+- Stronger cubes.rs checks BOTH early/late captures: palette/alpha/dimensions,
+  centered96x80 viewport, multiple face shades, size/center, one8-connected
+  silhouette, animation, real boot/frame limits and zero mode3 writes.
+  Six synthetic validator cases pass. Real4-case result1passed/3failed,
+  51.034s, exit100 /tmp/koh-cube-shared-math.log:
+  DMGRelease passes; CGBRelease/Debug and DMGDebug first images are blank.
+  Limits unchanged CGB200/500, DMG1100/2000 after boot. DO NOT relax them.
+- /tmp/koh-cube-first-owner.log traces CGB first200 PC51EC bank3 to
+  Canvas.FillTriangle+85. Boot is complete, allocation492managed/1935raw
+  succeeds, mode3zero. Further performance investigation is required.
+  CubeHost reports first PC/bank as fields10/11 (12 total) for diagnostics.
+  The sample source is linked unmodified by fixture Cube.csproj. Full-frame
+  and racing-beam still need native structural acceptance.
+- Exact post-hook /tmp/koh-cube-multiply-postcommit.log:21 cases,18passed,
+  3failed,78.830s,exit100;55 unrelated backend cases filtered. All11 selected
+  math/stack cases pass,6 validator cases pass,DMGRelease cube passes; the3
+  remaining cube cases fail their first-capture geometry. No local process live.
+- Next: profile remaining startup/render cost, fix early-capture timing.
+  Do not claim the weaker inequality test establishes a rendered cube.
+  No emulator/core/debugger rewrite; no new C# parser or compiler fallback.
 
-Actual native Cube red /tmp/koh-canvas-boot-red.log: after155bootframes+68 startup,
-A05,managed2464,raw0:1935-byte canvas would exceed4096 shared capacity. With lazy
-maps, it runs past allocation:managed492,raw1935, no terminal fault.
-Current unfinished Cube probes still FAIL:
-CGB first200/last500 postboot snapshots identical white, rawNZ421,VRAMtileNZ0,
-palette/map correct, bankF9. Active PC41F7 in bank4 is Canvas.EdgeX+503.
-Log /tmp/koh-canvas-cgb-trace.log. Likely expensive generic32-bit math; investigate
-without relaxing frame bounds. DMG through2000frames reports mode3 writes812
-Release/691Debug (/tmp/koh-lazy-canvas-first.log): Canvas.PresentCpu copies3-byte
-chunks after setup; timing contract still unsafe. CGB GDMA path also needs probe
-once it reaches presentation. No emulator core/debugger rewrite.
+## CI, PR and closure
 
-UNTRACKED cubes.rs, fixtures/Cube and CubeHost are unfinished acceptance work.
-Keep them for next unit; do not discard/ignore or include as passing coverage.
-Run with --test cubes. Uncommitted nextest config now includes cubes in the
-roslyn serial group; commit that config with the Cube target when ready.
-Do not allow shared .NET outputs to build concurrently.
-The memory increment intentionally stages only tracked lazy tests, not failing
-cube probes. This is not compiler-test retirement or whole migration acceptance.
+PR https://github.com/retro-dev-tools/koh/pull/55 stays draft. Update its concise
+live checklist and evidence after pushes. Rough45% is not measured coverage.
+Test matrix32/565 complete,533partial/outstanding, zero physically retired.
+Cube source group3methods/6cases/8assertion sites remains partial; isolated
+Canvas7methods/36sites also need exact raster/plane/page tests. All compiler
+tests must finish migration; none may be deferred to the emulator PR.
 
-Final exact serial memory regression /tmp/koh-lazy-map-verified.log passed22/22,
-155.775s,exit0,72 unrelated driver cases filtered. Includes invalid no-op bounds,
-same-value zero writes to both maps,2500rawbytes, nonzero uniform seeding, both
-maps, D/R×DMG/CGB, full map/tiles/sprites/strings/showcase, exact full bank snapshots.
-Separate serial reds: /tmp/koh-lazy-noop-serial-red.log and
-/tmp/koh-lazy-bounds-red.log. Earlier overlapping42195/50017 runs were explicitly
-not used as final verification; both are terminal. NEVER start next build after
-write_stdin returns a session_id; only actual terminal output releases ownership.
-Post-commit /tmp/koh-lazy-map-postcommit.log passed22/22,169.673s,exit0,
-72unrelated cases filtered, after CSharpier hook. No local builds/tests live.
+b77361e native run43748940025: Linux132918364479 actual logs806/806 passed,
+769.867s, zero skipped; separate doctests (no cases), artifact graphics1/1
+(two other SDK cases intentionally filtered). References job132918364266
+success. macOS132918364416 and Windows132918364469 were live at last query.
+Managed run43748939949 failed; inspect primary logs before describing causes.
+Earlier4e7212d native all3hosts passed794Linux/macOS,792Windows. Two Unix
+assembler cases explain difference. Do not transfer that proof to newer heads.
+Newly committed cube acceptance will be red until early captures are fixed;
+that is intentional exposure of unfinished required work, not waived coverage.
 
-Raw predecessor4e7212d native CI43742721789 completed allsuccess. Actual job logs:
-Linux794/794613.381s (132899205310), macOS794/794939.618s (132899205349),
-Windows792/7921273.505s (132899205389),0skips. Two Unix assembler cases differ.
-Separate doctests (no cases) and release artifact graphics1/1 passed on allhosts;
-two unrelated SDK cases intentionally filtered. Reference/RGBDS job passed too.
-Managed run43742721700 failed only2class sample builds on Linux/Windows;
-actual logs132899205051/132899204781 show all3D128KiB ROMs built. Tests after
-solution build and dependent AOT/benchmark jobs skipped. Do not count them green.
+Still required: classes2048v2/JRPG, floats/IRQs/reentrancy/banked data and final
+capacity contract, all sample behavior, PortablePDB→ELF→KDBG/source breakpoints/
+stacks, complete test dispositions, delete C# compiler and compiler TUnit
+project/packages, final artifact/AOT/release checks, comparable compile time/
+memory/binary measurements and final Linux/Windows/macOS acceptance.
+Koh.GameBoy remains C# authoring library; tile-sheet build task preserved.
+ELF32/SM83 only; no KOBJ path, no hidden C# compiler route. Old source remains
+pending verified replacement, not final acceptance.
 
-Next implementation candidates (NOT implemented): optimize generic math with
-independently tested runtime small-value paths instead of narrowing C# semantics
-or increasing capture budgets. Word unsigned division can keep quotientHL,
-divisorBC,remainderDE with16 iterations and PUSH/POP AF counter; carry overflow
-must force subtraction. Use only after wide signed overflow/zero guards and
-normalization, extend result and apply sign at semantic width. Check high offsets
-and guard2-byte temporary stack. Multiplication can exit when remaining multiplier
-becomes0 while retaining full-width modular accumulator. Test actual results and
-CPU budgets before use. Then fix Canvas CPU presentation via a shared bounded
-vblank writer (existing MapWriter.FlushRun works) and CGB via existing precomputed
-CopyToVramInVBlank; avoid guessed fixed chunk counts. These are candidates, not
-approved/verified code or an architecture commitment.
+## Commands and discipline
 
-Matrix32/565 complete,533 partial/outstanding,0physically retired. Legacy compiler
-and tests remain. Still required: full subset/classes/floats/IRQ/banked-data,
-actual game behavior, PortablePDB→ELF/KDBG/debugger, test closure and deletion,
-final performance/3OS validation. All3D Release builds already produce128KiB ROMs;
-full-frame/racing captures visibly show cubes, double still fails acceptance.
-Do not hide samples. Preserve main checkout's unrelated battle.png edit.
-PR55 stays draft,rough45%,100% means all original criteria verified.
+Use RUSTUP_TOOLCHAIN=stable /usr/bin/cargo, target-dir /tmp/koh-header-target,
+-j1, KOH_DOTNET=/home/minorum/.local/share/koh-dotnet-10.0.115/dotnet.
+Run builds serially. A write_stdin result with session_id is STILL LIVE.
+Record actual terminal exit and re-read completed log. No pipeline status.
+Default: cargo nextest run --workspace --all-features; separate cargo test --doc.
+Cube target: --test cubes; all4 real cases plus6 checker cases are required.
+Commit hook PATH/DOTNET_ROOT=/home/minorum/.local/share/koh-dotnet-10.0.115.
+No destructive cleanup or unrelated staging. Preserve sample assets.
+Vault handoff is brief project-level knowledge; code details stay in this file.

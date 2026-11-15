@@ -8,7 +8,23 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [word division](word-division.md). Runtime magnitude dispatch
+Current units: [small-magnitude multiplication](magnitude-multiply.md) and
+[shared canvas transfers](canvas-transfers.md). Backend66/66 plus real tile
+transfer4/4 passed221.574s, exit0 (`/tmp/koh-multiply-transfer-regression.log`).
+Multiplication's I32 probe fell47080T→3828T; I64 fell185896T→6260T. One private
+helper per function/width prevents repeated arithmetic from overflowing a bank.
+Canvas's unsafe late-copy setup is replaced by the tile loader's bounded path.
+These changes do not complete game acceptance: stronger two-capture geometry
+finds blank early images on CGB Debug/Release and DMG Debug. DMG Release passes;
+the full real-game probe is1/4, with zero mode3 writes in all4. Its Rust target
+is committed as required acceptance, with unchanged frame budgets, and must be
+fixed in this PR. Legacy retirement stays32/565; no methods are newly complete.
+Exact post-hook selection:18passed/3failed in78.830s, exit100
+(`/tmp/koh-cube-multiply-postcommit.log`): all11 selected math/stack cases pass,
+all6 validator cases pass, DMGRelease cube passes; the other3 cubes fail their
+early capture.55 unrelated backend cases were intentionally filtered.
+
+Previous unit: [word division](word-division.md). Runtime magnitude dispatch
 preserves full-width CIL faults/sign semantics and uses register division for
 small operands. The independent I32 ROM test fell from51268T to4532T; I64 takes
 6212T. Backend50/50 and expanded division9/9 passed. These CPU execution costs

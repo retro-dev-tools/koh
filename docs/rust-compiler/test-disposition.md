@@ -39,6 +39,25 @@ remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
 
+## Cube replacement in progress
+
+`Samples/Cube3dTests.cs` has3 methods,6 parameter-expanded cases and8 assertion
+sites. The native `cubes` target supplies4 real double-buffered Debug/Release ×
+DMG/CGB cases plus6 tests of the independent capture validator. They are
+discoverable by cargo-nextest, not skipped or feature-gated. Current stronger
+acceptance remains red; no additional legacy method is counted complete.
+
+| Source method | Behavioral requirement and independent justification | Decision, native target and remaining work |
+| --- | --- | --- |
+| Demo_CompilesWithoutDiagnostics | Actual shipped sources and referenced library compile; compiler class names and diagnostic containers are private details | REPLACE with successful Roslyn/native compilation and ELF/linking in `cubes::double_buffered_cube_boots_and_animates`; double-buffered covered, full-frame still required |
+| Demo_LinksToBootableRom | Cartridge header and startup execute on the supported hardware model | REPLACE weak NOP/JP/two-logo-byte checks with real DMG/CGB boot-ROM unmapping and bounded game execution; same target, full-frame still required |
+| Demo_RunOnHardwareRendersARealCube | Authored shaded projection is visible and animates; expectations derive from sample geometry/palette and SM83/PPU behavior | PORT with stronger two-capture palette, viewport, size, connectivity and animation oracle; current early-capture failures and full-frame execution remain migration work |
+
+The7 `CilCanvasTests.cs` methods (36 assertion sites) remain partial: the real
+cube exercises rasterization/presentation, but cannot replace their exact plane
+bytes, isolated span/line cases, LCD-off and page-flip assertions. No compiler
+coverage is DEFERred. See [transfer design and current failures](canvas-transfers.md).
+
 ## Raw arena replacements
 
 Four methods in `Frontends/CilReferenceTests.cs` now map to
