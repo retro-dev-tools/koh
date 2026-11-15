@@ -109,6 +109,7 @@ pub enum Op {
     NewArray {
         element: Scalar,
         length: u32,
+        alignment: u16,
     },
     ArrayLength(u32),
     ArrayAddress {
@@ -123,6 +124,7 @@ pub enum Op {
     StaticAddress {
         field: Definition,
         bytes: u8,
+        alignment: u16,
     },
     LoadMemory {
         address: u32,
@@ -386,7 +388,7 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
     pins::verify_banks(functions)
 }
 
-pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8)>, String> {
+pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8, u16)>, String> {
     let mut fields = std::collections::BTreeMap::new();
     for instruction in functions
         .iter()
@@ -394,14 +396,18 @@ pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8)>, St
         .flat_map(|b| &b.instructions)
     {
         let storage = match instruction.op {
-            Op::StaticAddress { field, bytes } => Some((field, bytes)),
-            Op::InitializerAddress(constructor) => Some((constructor, 1)),
+            Op::StaticAddress {
+                field,
+                bytes,
+                alignment,
+            } => Some((field, bytes, alignment)),
+            Op::InitializerAddress(constructor) => Some((constructor, 1, 1)),
             _ => None,
         };
-        if let Some((field, bytes)) = storage {
+        if let Some((field, bytes, alignment)) = storage {
             if fields
-                .insert((field.assembly, field.token), bytes)
-                .is_some_and(|old| old != bytes)
+                .insert((field.assembly, field.token), (bytes, alignment))
+                .is_some_and(|old| old != (bytes, alignment))
             {
                 return Err(format!("Conflicting static field widths for {field:?}"));
             }
@@ -409,7 +415,9 @@ pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8)>, St
     }
     Ok(fields
         .into_iter()
-        .map(|((assembly, token), bytes)| (Definition { assembly, token }, bytes))
+        .map(|((assembly, token), (bytes, alignment))| {
+            (Definition { assembly, token }, bytes, alignment)
+        })
         .collect())
 }
 
@@ -586,7 +594,14 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         None
                     }
-                    Op::NewArray { element, length } => {
+                    Op::NewArray {
+                        element,
+                        length,
+                        alignment,
+                    } => {
+                        if alignment == 0 || alignment > 4096 || !alignment.is_power_of_two() {
+                            return Err("Invalid array payload alignment".into());
+                        }
                         if !matches!(check(length, position)?, Type::I32 | Type::Native) {
                             return Err("Array length must be int32 or native integer".into());
                         }
@@ -625,7 +640,14 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(Type::Native)
                     }
-                    Op::StaticAddress { field, bytes } => {
+                    Op::StaticAddress {
+                        field,
+                        bytes,
+                        alignment,
+                    } => {
+                        if alignment == 0 || alignment > 4096 || !alignment.is_power_of_two() {
+                            return Err("Invalid static storage alignment".into());
+                        }
                         if field.token >> 24 != 4
                             || field.token & 0xffffff == 0
                             || !matches!(bytes, 1 | 2 | 4 | 8)

@@ -143,7 +143,7 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilGraphicsSlice2Tests.cs`.
 
 Static buffer alignment and safe OAM-DMA execution/return are hardware requirements. The first allocation address and exact cursor movement are legacy allocator assumptions.
 
-- **REPLACE** `KohAligned_RoundsStaticWramGlobalCursorUpToAlignment` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
+- **REPLACE, complete** `KohAligned_RoundsStaticWramGlobalCursorUpToAlignment` — native `driver::aligned_static_arrays_have_aligned_mutable_payloads` checks actual aligned payloads after padding, scalar storage, identity and capacity; legacy fixed-address assertions are intentionally replaced. See [traceability](test-disposition.md#alignment-and-real-video-initialization).
 - **PORT** `RunOamDma_TriggersRealDmaAndReturnsWithBusUnlocked`.
 - **PORT** `RunOamDma_DebugAndReleaseProduceIdenticalObservableOam`.
 
@@ -416,7 +416,7 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilTileSetTests.cs`. Future
 
 Tile copies/subranges, 1bpp-to-2bpp ink/paper masks, row writes and clear preserve bytes with safe LCD-on scheduling. Hardware bitplanes and public API justify behavior.
 
-- **PORT** `Load_LcdOff_CopiesTileBytesVerbatimIntoVram`.
+- **PORT, complete** `Load_LcdOff_CopiesTileBytesVerbatimIntoVram` — native `driver::actual_tileset_load_copies_vram_and_preserves_banks`; whole-bank byte checks and real initialization dependency.
 - **PORT** `Load_SubRange_CopiesFromStartTileNotFromDataStart`.
 - **PORT** `Load1bpp_ExpandsSetBitsToInkClearBitsToPaper`.
 - **PORT** `Load1bpp_MixedInkPaper_ProducesCorrectPlaneMasks`.
@@ -430,7 +430,7 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilVideoJoypadTests.cs`. Fu
 Layer LCDC bits compose; initialization clears maps/OAM and sets palettes; EndFrame advances after vblank; held inputs emit one rising edge. Hardware and frame-loop API justify these.
 
 - **PORT** `LcdcComposesAcrossShowCallsAndStart`.
-- **PORT** `Init_ClearsBothTileMapsAndOamAndSetsDefaultDmgPalette`.
+- **PORT, complete** `Init_ClearsBothTileMapsAndOamAndSetsDefaultDmgPalette` — native same driver, `VideoInit` entry; every map/OAM byte, palettes and LCD state in D/R × DMG/CGB.
 - **PORT** `EndFrame_WaitsForVblankAndAdvancesFrameCount`.
 - **PORT** `Pressed_ReportsRisingEdgeOnceForAHeldButton`.
 

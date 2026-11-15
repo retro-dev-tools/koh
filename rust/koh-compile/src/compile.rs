@@ -176,6 +176,7 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
     verify_program(&functions)?;
     for function in &mut functions {
         crate::optimize::simplify(function)?;
+        crate::alignment::apply(resolver, function)?;
     }
     verify_program(&functions)?;
     Ok(functions)

@@ -6,6 +6,20 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
+Latest increment: [static/array alignment](alignment.md) and actual
+`Video.Init` execution. Focused Debug/Release × DMG/CGB emulator tests passed4/4
+(`/tmp/koh-video-init-poison-fixed.log`, exit0,19.541s), including tile maps, OAM,
+palettes, aligned backing storage and restored banking. Nine metadata boundary
+cases passed (`/tmp/koh-alignment-validation.log`, exit0). Workspace nextest
+passed617/617,0skips,exit0,451.447s (`/tmp/koh-alignment-workspace.log`). Expanded
+alignment assertions subsequently passed4/4,exit0,16.764s
+(`/tmp/koh-alignment-edges.log`):20 ROM executions covering empty4096 boundaries,
+overflow before heap writes, local/branch aliases, scalar placement and factory
+diagnostics. Final suite discovery includes441 compiler cases; combined executed
+coverage is444 ROM scenarios (375 normal,69 traps), with four frame comparisons.
+Workspace doctests (no cases) and rustfmt checks exited0. This is not a completed
+migration or a native SDK integration claim.
+
 ## Inspected baseline
 
 - Integrated master: `9cd147265eb0c660d94c7bf4eee6a97d9e1f4e1f`.

@@ -259,8 +259,10 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
     for (name, aligned, render) in [
         ("Unaligned", false, false),
         ("Aligned", true, false),
+        ("VideoInit", false, false),
         ("Render", false, true),
     ] {
+        let initialize = name == "VideoInit";
         let entry = format!("Program::{}{}", if color { "Banked" } else { "" }, name);
         let object = compile::object(&resolver, Some(&entry)).unwrap();
         let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
@@ -288,7 +290,7 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
             },
         );
         let fields: Vec<_> = text.split_whitespace().collect();
-        assert_eq!(fields.len(), if color { 9 } else { 7 }, "{entry}");
+        assert_eq!(fields.len(), if color { 11 } else { 9 }, "{entry}");
         assert_eq!(
             (fields[0], fields[1], fields[2], fields[3]),
             (
@@ -311,11 +313,20 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
             0x55, 0x33,
         ];
         let payload: &[u8] = if render { &pattern } else { &data };
-        heap[offset..offset + 2].copy_from_slice(&(payload.len() as u16).to_le_bytes());
-        heap[offset + 2..offset + 2 + payload.len()].copy_from_slice(payload);
+        if initialize {
+            for (header, length) in [(0x0e, 1024usize), (0x41e, 1024), (0x8fe, 160)] {
+                heap[header..header + 2].copy_from_slice(&(length as u16).to_le_bytes());
+                heap[header + 2..header + 2 + length].fill(0);
+            }
+        } else {
+            heap[offset..offset + 2].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+            heap[offset + 2..offset + 2 + payload.len()].copy_from_slice(payload);
+        }
         assert_heap_snapshot(fields[4], &heap, &entry);
         let mut vram = vec![0xa7; 8192];
-        if render {
+        if initialize {
+            vram[0x1800..0x2000].fill(0);
+        } else if render {
             vram[..16].copy_from_slice(&pattern);
             vram[0x1800..0x1c00].fill(0);
         } else {
@@ -382,7 +393,169 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
                 "{entry}: CPU-copy path must not program DMA"
             );
         }
+        assert_heap_snapshot(
+            fields[if color { 9 } else { 7 }],
+            &vec![if initialize { 0 } else { 0xc9 }; 160],
+            &entry,
+        );
+        let registers = fields[if color { 10 } else { 8 }];
+        if initialize {
+            assert_eq!(registers, "11E4E4E4", "{entry}: initialized LCD/palettes");
+        } else if render {
+            assert!(
+                registers.starts_with("91E4"),
+                "{entry}: enabled LCD/palette"
+            );
+        } else {
+            assert!(registers.starts_with("00"), "{entry}: LCD-off transfer");
+        }
     }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn aligned_static_arrays_have_aligned_mutable_payloads(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh aligned arrays ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Alignment");
+    for name in ["Alignment.csproj", "Program.cs", "Edges.cs"] {
+        std::fs::copy(source.join(name), directory.path().join(name)).unwrap();
+    }
+    let result = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Alignment.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let images =
+        ["Alignment.dll", "Koh.GameBoy.dll"].map(|name| std::fs::read(output.join(name)).unwrap());
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let object = compile::object(
+        &resolver,
+        Some(if color {
+            "Program::Banked"
+        } else {
+            "Program::Main"
+        }),
+    )
+    .unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Only
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let text = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-heap",
+    );
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(
+        (fields[0], fields[1], fields[2], fields[3]),
+        ("00", "0000BE4C", "D000", "OK")
+    );
+    let mut heap = vec![0x5a; 4096];
+    heap[..3].copy_from_slice(&[1, 0, 42]);
+    heap[0xfe..0x100].copy_from_slice(&160u16.to_le_bytes());
+    heap[0x100..0x1a0].fill(0);
+    heap[0x100] = 11;
+    heap[0x19f] = 22;
+    heap[0x1ae..0x1b0].copy_from_slice(&3u16.to_le_bytes());
+    heap[0x1b0..0x1b6].copy_from_slice(&[0x34, 0x12, 0, 0, 0xcd, 0xab]);
+    assert_heap_snapshot(fields[4], &heap, "aligned payloads");
+    if color {
+        assert_heap_snapshot(fields[5], &[0x6b; 4096], "untouched bank2");
+    }
+    for (entry, fault, result) in [
+        ("EmptyAligned::Main", 0, "00000000"),
+        ("OverflowAligned::Main", 5, "00000000"),
+        ("AliasAligned::Main", 0, "0000002A"),
+        ("ScalarAligned::Main", 0, "0000002A"),
+    ] {
+        let object = compile::object(&resolver, Some(entry)).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let stop = if fault == 0 {
+            "__koh_exit"
+        } else {
+            "__koh_abort"
+        };
+        let text = execute_mode(host, directory.path(), &linked, stop, "--native-heap");
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 }, "{entry}");
+        assert_eq!(fields[0], format!("{fault:02X}"), "{entry}");
+        assert_eq!(fields[3], "OK", "{entry}: static guard");
+        if fault == 0 {
+            assert_eq!(
+                (fields[1], fields[2], fields[3]),
+                (result, "D000", "OK"),
+                "{entry}"
+            );
+        }
+        let mut expected = vec![0x5a; 4096];
+        match entry {
+            "EmptyAligned::Main" => expected[4094..].fill(0),
+            "AliasAligned::Main" => {
+                expected[0xfe..0x100].copy_from_slice(&8u16.to_le_bytes());
+                expected[0x100..0x108].fill(0);
+                expected[0x100] = 42;
+            }
+            _ => {}
+        }
+        assert_heap_snapshot(fields[4], &expected, entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
+    }
+    let error = compile::object(&resolver, Some("FactoryAligned::Main")).unwrap_err();
+    assert!(
+        error.contains("visible newarr") && error.contains("IL_"),
+        "{error}"
+    );
 }
 
 #[rstest]

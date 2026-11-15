@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 enum Kind {
     Intrinsic,
     Interrupt,
+    Aligned,
 }
 
 pub(crate) enum Intrinsic {
@@ -142,6 +143,7 @@ fn kind(
     let kind = match name {
         "KohIntrinsicAttribute" => Kind::Intrinsic,
         "InterruptAttribute" => Kind::Interrupt,
+        "KohAlignedAttribute" => Kind::Aligned,
         _ => return Ok(None),
     };
     let owner = resolver.resolve_type(assembly, token)?;
@@ -162,6 +164,7 @@ fn kind(
             TypeSig::Primitive(clrmeta::ElementType::I4),
         ],
         Kind::Interrupt => vec![TypeSig::Primitive(clrmeta::ElementType::String)],
+        Kind::Aligned => vec![TypeSig::Primitive(clrmeta::ElementType::I4)],
     };
     if signature.params != expected {
         return Err("Invalid Koh attribute constructor parameters".into());
@@ -188,6 +191,21 @@ pub(crate) fn assembly(resolver: &Resolver<'_>, assembly: usize) -> Result<(), S
             kind
         };
         match resolved {
+            Some(Kind::Aligned) => {
+                if attribute.parent.table != Some(TableId::Field) {
+                    return Err("KohAligned must target a static field".into());
+                }
+                let field = row(&metadata.fields, attribute.parent.row)?;
+                if field.flags & 0x10 == 0 || field.flags & 0x40 != 0 {
+                    return Err("KohAligned requires a nonliteral static field".into());
+                }
+                alignment_payload(
+                    metadata
+                        .blobs
+                        .get(attribute.value)
+                        .map_err(|e| e.to_string())?,
+                )?;
+            }
             Some(Kind::Interrupt) => {
                 if attribute.parent.table != Some(TableId::MethodDef) {
                     return Err("Interrupt attribute must target a method".into());
@@ -225,6 +243,43 @@ pub(crate) fn assembly(resolver: &Resolver<'_>, assembly: usize) -> Result<(), S
         }
     }
     Ok(())
+}
+
+fn alignment_payload(bytes: &[u8]) -> Result<u16, String> {
+    if bytes.len() != 8 || bytes[..2] != [1, 0] || bytes[6..] != [0, 0] {
+        return Err("Invalid KohAligned attribute payload".into());
+    }
+    let value = u32::from_le_bytes(
+        bytes[2..6]
+            .try_into()
+            .map_err(|_| "Invalid alignment integer")?,
+    );
+    if value == 0 || value > 4096 || !value.is_power_of_two() {
+        return Err("KohAligned requires a power of two from 1 through 4096".into());
+    }
+    Ok(value as u16)
+}
+
+pub(crate) fn field_alignment(resolver: &Resolver<'_>, field: Definition) -> Result<u16, String> {
+    let metadata = resolver.assembly(field.assembly)?.metadata();
+    let mut alignment = None;
+    for attribute in &metadata.custom_attributes {
+        if attribute.parent.table == Some(TableId::Field)
+            && attribute.parent.row == field.token & 0xffffff
+            && kind(resolver, field.assembly, attribute)? == Some(Kind::Aligned)
+        {
+            let value = alignment_payload(
+                metadata
+                    .blobs
+                    .get(attribute.value)
+                    .map_err(|e| e.to_string())?,
+            )?;
+            if alignment.replace(value).is_some() {
+                return Err("Multiple KohAligned attributes on one field".into());
+            }
+        }
+    }
+    Ok(alignment.unwrap_or(1))
 }
 
 pub(crate) fn intrinsic(
@@ -315,10 +370,49 @@ pub(crate) fn method(resolver: &Resolver<'_>, method: Definition) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::payload;
+    use super::{alignment_payload, payload};
     use rstest::rstest;
 
     const VALID: &[u8] = b"\x01\x00\x08register\x40\xff\x00\x00\x00\x00";
+
+    #[rstest]
+    #[case(1)]
+    #[case(16)]
+    #[case(256)]
+    #[case(4096)]
+    fn valid_alignment_payload(#[case] value: u32) {
+        let mut bytes = vec![1, 0];
+        bytes.extend(value.to_le_bytes());
+        bytes.extend([0, 0]);
+        assert_eq!(alignment_payload(&bytes).unwrap(), value as u16);
+        for end in 0..bytes.len() {
+            assert!(alignment_payload(&bytes[..end]).is_err());
+        }
+        for index in [0, 1, 6, 7] {
+            let mut malformed = bytes.clone();
+            malformed[index] ^= 1;
+            assert!(alignment_payload(&malformed).is_err());
+        }
+        bytes.push(0);
+        assert!(alignment_payload(&bytes).is_err());
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(3)]
+    #[case(4097)]
+    #[case(8192)]
+    #[case(u32::MAX)]
+    fn invalid_alignment_value(#[case] value: u32) {
+        let mut bytes = vec![1, 0];
+        bytes.extend(value.to_le_bytes());
+        bytes.extend([0, 0]);
+        assert!(
+            alignment_payload(&bytes)
+                .unwrap_err()
+                .contains("power of two")
+        );
+    }
 
     #[test]
     fn intrinsic_payload_round_trip_and_truncation() {

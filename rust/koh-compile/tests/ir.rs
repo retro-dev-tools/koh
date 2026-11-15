@@ -456,7 +456,15 @@ fn array_operations_preserve_element_identity(#[case] element: Scalar) {
         parameters: vec![],
         instructions: vec![
             instruction(0, Type::I32, Op::Constant(3)),
-            instruction(1, Type::Array(element), Op::NewArray { element, length: 0 }),
+            instruction(
+                1,
+                Type::Array(element),
+                Op::NewArray {
+                    element,
+                    length: 0,
+                    alignment: 1,
+                },
+            ),
             instruction(2, Type::Native, Op::ArrayLength(1)),
             instruction(
                 3,
@@ -487,7 +495,7 @@ fn array_operations_preserve_element_identity(#[case] element: Scalar) {
 }
 
 #[rstest]
-#[case(Op::NewArray { element: Scalar::I32, length: 0 }, Type::Array(Scalar::I32))]
+#[case(Op::NewArray { element: Scalar::I32, length: 0, alignment: 1 }, Type::Array(Scalar::I32))]
 #[case(Op::ArrayAddress { array: 0, index: 0 }, Type::ByRef(Scalar::I32))]
 #[case(Op::Negate(0), Type::Array(Scalar::I32))]
 #[case(Op::Convert { value: 0, bits: 16, signed: false }, Type::Native)]
@@ -692,10 +700,44 @@ fn static_address(token: u32, bytes: u8, ty: Type) -> Function {
         Op::StaticAddress {
             field: Definition { assembly: 0, token },
             bytes,
+            alignment: 1,
         },
     )];
     f.blocks[0].terminator.kind = Control::Return(Some(0));
     f
+}
+
+#[rstest]
+#[case(0, false)]
+#[case(1, true)]
+#[case(3, false)]
+#[case(256, true)]
+#[case(4096, true)]
+#[case(4097, false)]
+fn storage_alignment_is_bounded_power_of_two(#[case] alignment: u16, #[case] valid: bool) {
+    let mut f = static_address(0x04000001, 2, Type::Native);
+    if let Op::StaticAddress {
+        alignment: value, ..
+    } = &mut f.blocks[0].instructions[0].op
+    {
+        *value = alignment;
+    }
+    assert_eq!(verify(&f).is_ok(), valid);
+    f.returns = Some(Type::Array(Scalar::U8));
+    f.blocks[0].instructions = vec![
+        instruction(0, Type::I32, Op::Constant(1)),
+        instruction(
+            1,
+            Type::Array(Scalar::U8),
+            Op::NewArray {
+                element: Scalar::U8,
+                length: 0,
+                alignment,
+            },
+        ),
+    ];
+    f.blocks[0].terminator.kind = Control::Return(Some(1));
+    assert_eq!(verify(&f).is_ok(), valid);
 }
 
 #[rstest]

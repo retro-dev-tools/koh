@@ -21,6 +21,10 @@ foreach (string path in args.Skip(native ? 2 : 0))
     gb.Cpu.Registers.Pc = 0x100;
     if (video)
     {
+        gb.Mmu.OamArray.AsSpan().Fill(0xC9);
+        for (ushort address = 0xFE00; address < 0xFEA0; address++)
+            if (gb.Mmu.DebugRead(address) != 0xC9)
+                throw new InvalidOperationException("Cannot poison OAM test memory");
         foreach (byte bank in color ? new byte[] { 0, 1 } : new byte[] { 0 })
         {
             gb.Mmu.DebugWrite(0xFF4F, bank);
@@ -112,6 +116,21 @@ foreach (string path in args.Skip(native ? 2 : 0))
                 (byte)(gb.Hdma.CpuHaltedByGp ? 1 : 0),
             };
             snapshot += " " + dmaBefore + ":" + Convert.ToHexString(dma);
+            byte[] oam = new byte[160];
+            for (int i = 0; i < oam.Length; i++)
+                oam[i] = gb.Mmu.DebugRead((ushort)(0xFE00 + i));
+            snapshot += " " + Convert.ToHexString(oam);
+            snapshot +=
+                " "
+                + Convert.ToHexString(
+                    new byte[]
+                    {
+                        gb.Mmu.DebugRead(0xFF40),
+                        gb.Mmu.DebugRead(0xFF47),
+                        gb.Mmu.DebugRead(0xFF48),
+                        gb.Mmu.DebugRead(0xFF49),
+                    }
+                );
         }
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"

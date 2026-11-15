@@ -164,12 +164,21 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
         .flat_map(|f| &f.blocks)
         .flat_map(|b| &b.instructions)
         .any(|i| matches!(i.op, crate::ir::Op::NewArray { .. }));
-    let bytes: u16 = fields
-        .iter()
-        .map(|(_, bytes)| u16::from(*bytes))
-        .try_fold(0u16, |total, bytes| total.checked_add(bytes))
-        .ok_or("Static storage exceeds capacity")?;
-    let bytes = bytes
+    let mut offset = 0u16;
+    let mut placements = Vec::new();
+    let mut section_alignment = 1u16;
+    for (field, width, alignment) in fields {
+        section_alignment = section_alignment.max(alignment);
+        offset = offset
+            .checked_add(alignment - 1)
+            .ok_or("Static alignment exceeds capacity")?
+            & !(alignment - 1);
+        placements.push((field, usize::from(offset)));
+        offset = offset
+            .checked_add(u16::from(width))
+            .ok_or("Static storage exceeds capacity")?;
+    }
+    let bytes = offset
         .checked_add(if heap { 2 } else { 0 })
         .ok_or("Static storage exceeds capacity")?;
     if bytes > 0x100 {
@@ -178,18 +187,17 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
     let mut objects = vec![startup(root, bytes)?];
     if bytes != 0 {
         let mut symbols = vec![symbol("__koh_statics".into(), 0, 0)];
-        let mut offset = 0;
-        for (field, width) in fields {
+        for (field, offset) in placements {
             symbols.push(symbol(sm83::static_symbol(field), 0, offset));
-            offset += usize::from(width);
         }
         if heap {
-            symbols.push(symbol("__koh_heap_cursor".into(), 0, offset));
+            symbols.push(symbol("__koh_heap_cursor".into(), 0, usize::from(offset)));
         }
         objects.push(Object {
             sections: vec![Section {
                 name: ".koh.statics".into(),
                 kind: 4,
+                align: section_alignment.trailing_zeros() as u8,
                 size: u32::from(bytes),
                 ..Default::default()
             }],

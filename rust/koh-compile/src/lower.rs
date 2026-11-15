@@ -353,7 +353,11 @@ impl Builder {
         {
             return Err("Managed reference arithmetic requires pointer conversion".into());
         }
-        if matches!(op, Binary::Add | Binary::Subtract)
+        let shift = matches!(
+            op,
+            Binary::ShiftLeft | Binary::ShiftRightSigned | Binary::ShiftRightUnsigned
+        );
+        if !shift
             && matches!(
                 (left.1, right.1),
                 (Type::Native, Type::I32) | (Type::I32, Type::Native)
@@ -380,10 +384,16 @@ impl Builder {
                 )?;
             }
         }
-        let shift = matches!(
-            op,
-            Binary::ShiftLeft | Binary::ShiftRightSigned | Binary::ShiftRightUnsigned
-        );
+        if shift && right.1 == Type::Native {
+            right = self.value(
+                Type::I32,
+                Op::Convert {
+                    value: right.0,
+                    bits: 16,
+                    signed: false,
+                },
+            )?;
+        }
         if right.1 != if shift { Type::I32 } else { left.1 } {
             return Err("CIL binary operand type mismatch".into());
         }
@@ -888,6 +898,7 @@ fn translate(
                 Op::NewArray {
                     element,
                     length: length.0,
+                    alignment: 1,
                 },
             )?;
             b.stack.push(value);
@@ -1338,6 +1349,7 @@ fn translate(
                 return Err("Static managed-reference storage is unsupported".into());
             }
             let ty = integer_type(&signature)?;
+            let alignment = crate::contracts::field_alignment(resolver, target.definition)?;
             let (bits, signed) = narrow_type(&signature).unwrap_or((ty.bits(), true));
             let address_type = if i.opcode == 0x7f {
                 Type::ByRef(scalar(&signature)?)
@@ -1349,6 +1361,11 @@ fn translate(
                 Op::StaticAddress {
                     field: target.definition,
                     bytes: bits / 8,
+                    alignment: if matches!(ty, Type::Array(_)) {
+                        1
+                    } else {
+                        alignment
+                    },
                 },
             )?;
             if i.opcode == 0x80 {

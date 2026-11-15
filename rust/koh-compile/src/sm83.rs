@@ -382,7 +382,7 @@ impl Code {
         self.mark(good);
     }
 
-    fn new_array(&mut self, length: u16, destination: u16, temp: u16) {
+    fn new_array(&mut self, length: u16, destination: u16, temp: u16, aligned: bool) {
         let fault = self.import("__koh_trap_allocation".into());
         self.below_constant(length, 4095, fault);
         self.copy(length, temp, 2);
@@ -402,6 +402,19 @@ impl Code {
         self.jump(0x21, cursor);
         self.bytes(&[0x2a, 0x4f, 0x46]);
         self.save_word(temp + 2);
+        if aligned {
+            self.constant(temp + 14, 2, 2);
+            self.arithmetic(temp + 2, temp + 14, temp + 2, 2, 0x88);
+            self.arithmetic(temp + 2, temp + 10, temp + 2, 2, 0x88);
+            for byte in 0..2 {
+                self.load_a(temp + 10 + byte);
+                self.bytes(&[0x2f, 0x4f]);
+                self.load_a(temp + 2 + byte);
+                self.bytes(&[0xa1]);
+                self.store_a(temp + 2 + byte);
+            }
+            self.arithmetic(temp + 2, temp + 14, temp + 2, 2, 0x98);
+        }
         self.arithmetic(temp, temp + 2, temp + 4, 2, 0x88);
         self.jump(0xda, fault);
         self.below_constant(temp + 4, 4097, fault);
@@ -986,6 +999,11 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         .flat_map(|b| &b.instructions)
         .any(|i| matches!(i.op, Op::NewArray { .. }))
         .then(|| code.label());
+    let aligned = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .any(|i| matches!(i.op, Op::NewArray {alignment,..} if alignment > 1));
     code.guard(layout.size + if allocator.is_some() { 4 } else { 2 });
     code.adjust_sp(-i32::from(layout.size));
     for &flag in layout.pins.values() {
@@ -1057,7 +1075,11 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         layout.arithmetic,
                     )?;
                 }
-                Op::NewArray { element, length } => {
+                Op::NewArray {
+                    element,
+                    length,
+                    alignment,
+                } => {
                     let temp = layout.arithmetic;
                     let fault = code.import("__koh_trap_allocation".into());
                     code.check_high(slot(length), place(length).bytes, fault);
@@ -1067,6 +1089,9 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         1,
                         u64::from((element.bits() / 8).trailing_zeros()),
                     );
+                    if aligned {
+                        code.constant(temp + 10, 2, u64::from(alignment - 1));
+                    }
                     code.jump(0xcd, allocator.ok_or("Missing array allocator")?);
                     code.copy(temp + 12, destination, 2);
                 }
@@ -1506,6 +1531,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             layout.arithmetic + 8,
             layout.arithmetic + 14,
             layout.arithmetic + 2,
+            aligned,
         );
         code.bytes(&[0xc9]);
     }

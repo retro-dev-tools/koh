@@ -1,5 +1,31 @@
 # PR #55 working handoff
 
+## Current uncommitted alignment unit
+
+Native KohAligned metadata validates static field targets and power-of-two bounds
+1..4096. Aligned primitive array payloads propagate from static stores through
+local/SSA aliases to visible allocations; factory/external aliases diagnose.
+Scalar static placement includes alignment padding. Native/int32 binary operands
+now follow the CIL operand table using the documented 16-bit native target.
+Actual Video.Init now executes in the TileSet fixture: aligned MapWriter/Sprites
+backing arrays, tile maps, OAM and palette state checked on DMG/CGB, Debug/Release.
+Focused test log /tmp/koh-video-init-poison-fixed.log: 4/4, EXIT=0,19.541s.
+Metadata boundary tests /tmp/koh-alignment-validation.log:9/9,EXIT=0.
+Full workspace run finished:617/617,0skips,EXIT=0,451.447s,
+/tmp/koh-alignment-workspace.log. No builds remain live.
+Current unit owned by root; no delegated edits/builds.
+Added Edges.cs and expanded alignment driver assertions after full run started:
+empty4096 header at4094, overflow fault5 with pristine heap, branch/local alias
+identity and strongest alignment, factory diagnostic with method IL provenance.
+Expanded assertions passed4/4,EXIT=0,16.764s (/tmp/koh-alignment-edges.log),
+20ROM executions. Separate doc/fmt checks EXIT=0; no doctests currently exist.
+Read-only arrays_review found no concrete defects in allocation/alias/metadata.
+New docs/rust-compiler/alignment.md documents current contract and limits.
+Combined coverage441 compiler cases,444 ROM scenarios(375normal,69traps),4frames.
+Seven legacy methods now have completed native behavioral replacements;558 still
+need completion auditing. None physically retired. Need logical commit/push,
+post-hook focused verification and PR/vault status refresh. Previous head d8ba335.
+
 ## Objective and checkout
 
 Complete the entire native Rust CIL-to-SM83 migration in this single draft PR:
@@ -14,8 +40,8 @@ battle screenshot is unrelated; preserve hash
 
 The C# compiler remains the production SDK compiler. No old test method is fully
 retired yet. All 565 have source-level dispositions, not completed Rust migration.
-Four switch methods have complete native behavioral replacements; their source
-definitions remain with the old project until deletion. Remaining561 need
+Seven methods have complete native behavioral replacements; their source
+definitions remain with the old project until deletion. Remaining558 need
 completion auditing.
 Read docs/rust-compiler/progress.md and source audits for the full acceptance ledger.
 The original assignment is also in the conversation and attachment

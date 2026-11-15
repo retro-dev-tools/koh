@@ -31,8 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: four legacy methods; zero physically retired.**
-The completed switch group is detailed below. The remaining561 methods still have
+**Native behavioral replacements: seven legacy methods; zero physically retired.**
+The switch, alignment, tile-copy and initialization groups are detailed below.
+The remaining558 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -116,11 +117,24 @@ No additional complete legacy method is retired by this increment. See the
 cases/12 ROM scenarios, including four full-frame RGBA comparisons. This partly
 ports `CilTileSetTests.Load_LcdOff_CopiesTileBytesVerbatimIntoVram` to actual library
 execution with whole-bank guards, plus GDMA-path and palette/bit-plane evidence.
-The old fixture's `Video.Init` dependency and LCD-on timing tests remain open;
-no additional whole legacy method is declared replaced by this increment.
+The later alignment increment executes the old fixture's `Video.Init` dependency
+separately through the real library. LCD-on timing remains open.
 Expected pixels come from independent bit-plane rules, not a screenshot produced
 by either compiler. PNG encoding stays in the existing emulator; the Rust-owned
 tests invoke its host as a process. See [graphics execution](graphics-execution.md).
+
+### Alignment and real video initialization
+
+| Original method | Requirement and independent basis | Decision and native location |
+| --- | --- | --- |
+| `CilGraphicsSlice2Tests.KohAligned_RoundsStaticWramGlobalCursorUpToAlignment` | DMA-compatible payload alignment after a preceding allocation; exact legacy WRAM addresses are implementation details | REPLACE complete: `driver::aligned_static_arrays_have_aligned_mutable_payloads`, four nextest cases; exact poisoned heap snapshots, mutable aliases, scalar alignment, empty/overflow boundaries. New managed headers replace legacy embedded global arrays. |
+| `CilTileSetTests.Load_LcdOff_CopiesTileBytesVerbatimIntoVram` | Public copy contract and SM83 memory behavior:32 supplied bytes appear at tile3 | PORT complete: `driver::actual_tileset_load_copies_vram_and_preserves_banks`, D/R × DMG/CGB, actual library code, complete guarded bank snapshots and independent expected bytes. Video.Init dependency executes separately in the same cases. |
+| `CilVideoJoypadTests.Init_ClearsBothTileMapsAndOamAndSetsDefaultDmgPalette` | Public initialization contract: maps/OAM zero, palettes E4, LCD disabled | PORT complete: same driver cases, `VideoInit` entry; every map/OAM byte checked after poison, palettes and LCDC11, backing arrays and bank preservation checked. D/R and CGB improve the original Debug/DMG-only coverage. |
+
+All three behavioral replacements are discoverable by cargo-nextest. Original
+C# definitions remain until production replacement. This adds three completed
+legacy methods to the four switch replacements, without retiring other graphics,
+OAM-DMA, input, timing or sample scenarios. See [alignment](alignment.md).
 
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.

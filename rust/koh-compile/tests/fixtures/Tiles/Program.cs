@@ -12,6 +12,19 @@ public static unsafe class Program
 
     public static int Aligned() => Load(true);
 
+    public static int VideoInit()
+    {
+        Video.Init();
+        return Video.IsCgb ? 0x43 : 0x44;
+    }
+
+    public static int BankedVideoInit()
+    {
+        Bank = 2;
+        int result = VideoInit();
+        return (Bank & 7) == 2 ? result : -1;
+    }
+
     public static int Unaligned() => Load(false);
 
     public static int BankedAligned()

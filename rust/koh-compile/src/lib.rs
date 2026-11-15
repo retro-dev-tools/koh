@@ -1,3 +1,4 @@
+mod alignment;
 pub mod assembly;
 mod cartridge;
 pub mod cil;
