@@ -27,6 +27,22 @@ while (gb.BootRomMapped && bootFrames++ < 600)
 int frame = 0;
 ushort firstPc = 0;
 int firstBank = 0;
+var profile = new Dictionary<int, ulong>();
+if (Environment.GetEnvironmentVariable("KOH_CUBE_PROFILE") == "1")
+{
+    ulong previousCycles = gb.Cpu.TotalTCycles;
+    int previousPc = gb.Cpu.Registers.Pc;
+    int previousBank = previousPc < 0x4000 ? 0 : cartridge.CurrentRomBank;
+    gb.BreakpointChecker = pc =>
+    {
+        int key = (previousBank << 16) | previousPc;
+        profile[key] = profile.GetValueOrDefault(key) + gb.Cpu.TotalTCycles - previousCycles;
+        previousCycles = gb.Cpu.TotalTCycles;
+        previousPc = pc;
+        previousBank = pc < 0x4000 ? 0 : cartridge.CurrentRomBank;
+        return false;
+    };
+}
 if (!gb.BootRomMapped)
     while (frame < last)
     {
@@ -40,8 +56,18 @@ if (!gb.BootRomMapped)
         {
             firstPc = gb.Cpu.Registers.Pc;
             firstBank = cartridge.CurrentRomBank;
+            gb.BreakpointChecker = null;
         }
     }
+if (profile.Count != 0)
+{
+    using var trace = new BinaryWriter(File.Create(args[0] + ".profile"));
+    foreach (var (pc, cycles) in profile.OrderBy(p => p.Key))
+    {
+        trace.Write(pc);
+        trace.Write(cycles);
+    }
+}
 using (var png = File.Create(args[0] + ".png"))
     gb.Framebuffer.WritePng(png);
 int Word(ushort address) =>

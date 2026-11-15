@@ -98,6 +98,45 @@ fn double_buffered_cube_boots_and_animates(
         String::from_utf8_lossy(&output.stderr)
     );
     let report = String::from_utf8(output.stdout).unwrap();
+    if let Ok(profile) = std::fs::read(rom.with_extension("gb.profile")) {
+        assert_eq!(profile.len() % 12, 0);
+        let mut methods = std::collections::BTreeMap::new();
+        for s in &linked.symbols {
+            let Some((assembly, token)) = s
+                .name
+                .strip_prefix("__koh_a")
+                .and_then(|s| s.split_once("_m"))
+            else {
+                continue;
+            };
+            if token.contains('.') {
+                continue;
+            }
+            let name = resolver
+                .assembly(assembly.parse().unwrap())
+                .unwrap()
+                .method_name(u32::from_str_radix(token, 16).unwrap())
+                .unwrap_or_else(|_| s.name.clone());
+            methods.insert((s.bank.unwrap_or(0), s.value), name);
+        }
+        let mut costs = std::collections::BTreeMap::<String, u64>::new();
+        for record in profile.chunks_exact(12) {
+            let key = u32::from_le_bytes(record[..4].try_into().unwrap());
+            let cycles = u64::from_le_bytes(record[4..].try_into().unwrap());
+            let (bank, pc) = (key >> 16, (key & 0xffff) as i32);
+            let name = methods
+                .range((bank, 0)..=(bank, pc))
+                .next_back()
+                .map(|(_, name)| name.as_str())
+                .unwrap_or("<startup>");
+            *costs.entry(name.into()).or_default() += cycles;
+        }
+        let mut costs: Vec<_> = costs.into_iter().collect();
+        costs.sort_by_key(|(_, cycles)| std::cmp::Reverse(*cycles));
+        for (name, cycles) in costs.into_iter().take(15) {
+            eprintln!("profile {cycles}T {name}");
+        }
+    }
     let fields: Vec<_> = report.split_whitespace().collect();
     assert_eq!(fields.len(), 12, "{report}");
     assert_eq!(
