@@ -211,18 +211,38 @@ pub struct Edge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Control {
     Jump(Edge),
-    Branch { condition: u32, yes: Edge, no: Edge },
+    Branch {
+        condition: u32,
+        yes: Edge,
+        no: Edge,
+    },
+    Switch {
+        selector: u32,
+        cases: Vec<Edge>,
+        default: Edge,
+    },
     Return(Option<u32>),
 }
 
 impl Control {
-    fn edges(&self) -> impl Iterator<Item = &Edge> {
-        let (first, second) = match self {
-            Self::Jump(edge) => (Some(edge), None),
-            Self::Branch { yes, no, .. } => (Some(yes), Some(no)),
-            Self::Return(_) => (None, None),
+    pub(crate) fn edges(&self) -> impl Iterator<Item = &Edge> {
+        let (first, second, cases): (_, _, &[Edge]) = match self {
+            Self::Jump(edge) => (Some(edge), None, &[]),
+            Self::Branch { yes, no, .. } => (Some(yes), Some(no), &[]),
+            Self::Switch { cases, default, .. } => (Some(default), None, cases),
+            Self::Return(_) => (None, None, &[]),
         };
-        first.into_iter().chain(second)
+        first.into_iter().chain(second).chain(cases)
+    }
+
+    pub(crate) fn edges_mut(&mut self) -> impl Iterator<Item = &mut Edge> {
+        let (first, second, cases): (_, _, &mut [Edge]) = match self {
+            Self::Jump(edge) => (Some(edge), None, &mut []),
+            Self::Branch { yes, no, .. } => (Some(yes), Some(no), &mut []),
+            Self::Switch { cases, default, .. } => (Some(default), None, cases),
+            Self::Return(_) => (None, None, &mut []),
+        };
+        first.into_iter().chain(second).chain(cases)
     }
 }
 
@@ -417,6 +437,19 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         .sum();
     if count > 262_144 {
         return Err("IR exceeds value/instruction limit".into());
+    }
+    let mut edge_count = 0usize;
+    for body in blocks {
+        if matches!(&body.terminator.kind, Control::Switch { cases, .. } if cases.len() > 16_384) {
+            return Err(format!(
+                "IL_{:04x}: Switch case count exceeds limit",
+                body.terminator.il_offset
+            ));
+        }
+        edge_count += body.terminator.kind.edges().count();
+        if edge_count > 262_144 {
+            return Err("IR exceeds control-flow edge limit".into());
+        }
     }
     let data_bytes = blocks
         .iter()
@@ -767,6 +800,11 @@ fn verify_inner(function: &Function) -> Result<(), String> {
             if let Control::Branch { condition, .. } = body.terminator.kind {
                 if check(condition, position)? != Type::I32 {
                     return Err("Branch condition must be int32".into());
+                }
+            }
+            if let Control::Switch { selector, .. } = body.terminator.kind {
+                if check(selector, position)? != Type::I32 {
+                    return Err("Switch selector must be int32".into());
                 }
             }
             if let Control::Return(value) = body.terminator.kind {

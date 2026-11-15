@@ -77,6 +77,40 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+#[rstest]
+#[case("type", "Switch selector must be int32")]
+#[case("missing", "Undefined value")]
+#[case("arguments", "Edge argument count")]
+#[case("capacity", "Switch case count exceeds limit")]
+fn malformed_switches_are_rejected(#[case] mutation: &str, #[case] expected: &str) {
+    let mut f = diamond();
+    let mut selector = 0;
+    let mut cases = vec![Edge {
+        block: 1,
+        arguments: vec![],
+    }];
+    match mutation {
+        "type" => {
+            f.parameters[0] = Type::I64;
+            f.blocks[0].parameters[0].1 = Type::I64;
+        }
+        "missing" => selector = 999,
+        "arguments" => cases[0].arguments.push(0),
+        "capacity" => cases.resize(16_385, cases[0].clone()),
+        _ => unreachable!(),
+    }
+    f.blocks[0].terminator.kind = Control::Switch {
+        selector,
+        cases,
+        default: Edge {
+            block: 2,
+            arguments: vec![],
+        },
+    };
+    let error = verify(&f).unwrap_err();
+    assert!(error.contains(expected), "{error}");
+}
+
 fn stack_buffer(bytes: u64) -> Function {
     let mut f = diamond();
     f.parameters.clear();

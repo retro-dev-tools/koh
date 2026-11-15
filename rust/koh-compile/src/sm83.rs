@@ -734,6 +734,18 @@ impl Layout {
                         record(id, end);
                     }
                 }
+                Control::Switch {
+                    selector,
+                    cases,
+                    default,
+                } => {
+                    record(*selector, end);
+                    for edge in cases.iter().chain(std::iter::once(default)) {
+                        for &id in &edge.arguments {
+                            record(id, end);
+                        }
+                    }
+                }
             }
         }
         let mut values = BTreeMap::new();
@@ -1341,6 +1353,25 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         code.mark_il(block.terminator.il_offset);
         match &block.terminator.kind {
             Control::Jump(edge) => transfer(&mut code, edge),
+            Control::Switch {
+                selector,
+                cases,
+                default,
+            } => {
+                let (offset, _, bytes) = layout.values[selector];
+                for (index, edge) in cases.iter().enumerate() {
+                    let next = code.label();
+                    for (byte, expected) in (index as u32).to_le_bytes().into_iter().enumerate() {
+                        code.value_a(Slot { offset, bytes }, byte as u16);
+                        code.bytes(&[0xfe, expected]);
+                        code.jump(0xc2, next);
+                    }
+                    transfer(&mut code, edge);
+                    code.mark(next);
+                    code.check_size()?;
+                }
+                transfer(&mut code, default);
+            }
             Control::Branch { condition, yes, no } => {
                 code.bytes(&[0x0e, 0]);
                 for byte in 0..layout.values[condition].2 {

@@ -291,6 +291,7 @@ pub struct Method<'a> {
 struct Builder {
     next: u32,
     data_bytes: usize,
+    edge_arguments: usize,
     instructions: Vec<Instruction>,
     stack: Vec<(u32, Type)>,
     offset: u32,
@@ -453,6 +454,14 @@ fn lower_inner(
 ) -> Result<Function, String> {
     let cil = decode(method.il)?;
     if cil.len() >= 16_384
+        || cil
+            .iter()
+            .map(|i| match &i.operand {
+                Operand::Targets(targets) => targets.len(),
+                _ => 0,
+            })
+            .sum::<usize>()
+            > 262_144
         || method.max_stack > 1024
         || method.locals.len() + method.parameters.len() > 1024
     {
@@ -471,6 +480,7 @@ fn lower_inner(
     let mut builder = Builder {
         next: method.parameters.len() as u32,
         data_bytes: 0,
+        edge_arguments: 0,
         instructions: vec![],
         stack: vec![],
         offset: 0,
@@ -551,19 +561,21 @@ fn lower_inner(
             resolver,
         )
         .map_err(|error| format!("IL_{:04x}: {error}", instruction.offset))?;
+        builder.edge_arguments += kind.edges().map(|e| e.arguments.len()).sum::<usize>();
+        if builder.edge_arguments > 1_048_576 {
+            return Err(format!(
+                "IL_{:04x}: Evaluation stack edge arguments exceed limit",
+                instruction.offset
+            ));
+        }
         if builder.stack.len() > usize::from(method.max_stack) {
             return Err(format!(
                 "IL_{:04x}: Evaluation stack exceeds declared maxstack",
                 instruction.offset
             ));
         }
-        let edges: Vec<&Edge> = match &kind {
-            Control::Jump(edge) => vec![edge],
-            Control::Branch { yes, no, .. } => vec![yes, no],
-            Control::Return(_) => vec![],
-        };
         let shape: Vec<_> = builder.stack.iter().map(|v| v.1).collect();
-        for edge in edges {
+        for edge in kind.edges() {
             if let Some(expected) = &mut incoming[edge.block] {
                 let mut changed = false;
                 if expected.len() != shape.len() {
@@ -609,12 +621,7 @@ fn lower_inner(
         })
         .collect();
     for body in blocks.iter_mut().flatten() {
-        let edges: Vec<&mut Edge> = match &mut body.terminator.kind {
-            Control::Jump(edge) => vec![edge],
-            Control::Branch { yes, no, .. } => vec![yes, no],
-            Control::Return(_) => vec![],
-        };
-        for edge in edges {
+        for edge in body.terminator.kind.edges_mut() {
             for (argument, &ty) in edge
                 .arguments
                 .iter_mut()
@@ -648,13 +655,8 @@ fn lower_inner(
         .into_iter()
         .flatten()
         .map(|mut body| {
-            match &mut body.terminator.kind {
-                Control::Jump(edge) => edge.block = remap[edge.block],
-                Control::Branch { yes, no, .. } => {
-                    yes.block = remap[yes.block];
-                    no.block = remap[no.block];
-                }
-                Control::Return(_) => {}
+            for edge in body.terminator.kind.edges_mut() {
+                edge.block = remap[edge.block];
             }
             body
         })
@@ -721,6 +723,40 @@ fn translate(
         Ok(())
     };
     match i.opcode {
+        0x45 => {
+            let Operand::Targets(targets) = &i.operand else {
+                return Err("Missing switch targets".into());
+            };
+            if targets.len() > 16_384 {
+                return Err("Switch case count exceeds limit".into());
+            }
+            let selector = b.pop()?;
+            if selector.1 != Type::I32 {
+                return Err("Switch selector must be int32".into());
+            }
+            if (targets.len() + 1)
+                .checked_mul(b.stack.len())
+                .and_then(|count| b.edge_arguments.checked_add(count))
+                .is_none_or(|count| count > 1_048_576)
+            {
+                return Err("Switch evaluation stack edge arguments exceed limit".into());
+            }
+            let cases = targets
+                .iter()
+                .map(|offset| {
+                    indices
+                        .get(offset)
+                        .copied()
+                        .map(|block| b.edge(block))
+                        .ok_or_else(|| "Invalid switch target".to_string())
+                })
+                .collect::<Result<_, _>>()?;
+            return Ok(Control::Switch {
+                selector: selector.0,
+                cases,
+                default: b.edge(next()?),
+            });
+        }
         0x71 | 0x81 | 0xfe15 | 0xfe1c => {
             let Operand::Token(token) = i.operand else {
                 return Err("Missing scalar type token".into());

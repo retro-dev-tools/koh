@@ -60,12 +60,7 @@ pub(super) fn analyze(function: &Function) -> Widths {
     }
     let mut incoming = vec![vec![]; function.blocks.len()];
     for b in &function.blocks {
-        let edges: Vec<_> = match &b.terminator.kind {
-            Control::Jump(e) => vec![e],
-            Control::Branch { yes, no, .. } => vec![yes, no],
-            _ => vec![],
-        };
-        for edge in edges {
+        for edge in b.terminator.kind.edges() {
             incoming[edge.block].push(edge);
         }
     }

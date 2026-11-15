@@ -78,3 +78,35 @@ they do not yet retire any old DLL-to-ROM assertion. Memory and exception execut
 object/generic execution, optimization and source debugging remain required work
 in this same PR. Initial integer machine emission and typed static calls are now
 implemented; see [SM83 ABI](sm83-abi.md) and [calls](calls.md).
+
+## Table switches
+
+`Switch` consumes one int32 selector and chooses a zero-based case edge using its
+unsigned value, or the default edge when outside the table. Every edge transports
+the remaining evaluation stack with normal typed block arguments. Empty tables,
+duplicate destinations and backward targets are valid. This follows ECMA-335
+III.3.66 in the [sixth edition](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf).
+Exception-region transfers remain outside the supported execution subset.
+
+The verifier checks selector definition/dominance/type and all edge arguments.
+CFG simplification rewrites switch selectors and edges through the same aliases
+and block remapping as branches. Spill liveness and upper-bound propagation
+include default and case edges. Method/IL provenance remains on the terminator.
+
+SM83 selection uses full-width equality comparisons followed by the existing
+simultaneous edge transfers. It adds no indirect-call convention or jump-table
+runtime. This linear selection is deliberately simple; large tables may hit the
+existing ROM0 capacity diagnostic. It does not promise constant-time dispatch.
+
+Limits are 16,384 cases per switch, 262,144 control-flow edges per IR function and
+1,048,576 edge arguments. The lowerer checks cumulative argument capacity before
+cloning the remaining stack into table edges. A regression retains128 values
+across16,384 targets and requires the allocation-budget diagnostic. These bounds
+supplement existing block/value/stack limits, rather than permitting an allocation
+spike before verification.
+
+Rust tests execute unsigned boundary selectors, remaining stack values, empty and
+duplicate tables and backward targets through the C# emulator. Real Roslyn Debug
+and Release fixtures assert that an actual `switch` opcode exists, then execute
+an independent wrapping checksum over all cases/defaults. Invalid selector types,
+undefined selectors, edge arguments and case capacity have verifier regressions.

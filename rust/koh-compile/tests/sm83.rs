@@ -724,6 +724,74 @@ fn division_boundaries_and_faults_execute(host: &Host) {
 }
 
 #[rstest::rstest]
+fn cil_switch_executes_full_width_selectors_and_stack_edges(host: &Host) {
+    let il = [
+        0x1f, 40, 0x02, 0x45, 3, 0, 0, 0, 4, 0, 0, 0, 7, 0, 0, 0, 10, 0, 0, 0, 0x1f, 9, 0x58, 0x2a,
+        0x17, 0x58, 0x2a, 0x18, 0x58, 0x2a, 0x19, 0x58, 0x2a,
+    ];
+    let mut f = koh_compile::lower::lower(koh_compile::lower::Method {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        il: &il,
+        parameters: vec![Type::I32],
+        returns: Some(Type::I32),
+        locals: vec![],
+        init_locals: true,
+        max_stack: 2,
+    })
+    .unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    let mut cases: Vec<_> = [0, 1, 2, 3, 256, 65536, 0x80000000, 0xffffffff]
+        .into_iter()
+        .map(|selector| {
+            (
+                f.clone(),
+                vec![selector],
+                Ok(if selector < 3 { 41 + selector } else { 49 }),
+            )
+        })
+        .collect();
+    let mut duplicate = il;
+    duplicate[16] = 7;
+    let empty = [0x1f, 40, 0x02, 0x45, 0, 0, 0, 0, 0x2a];
+    let mut loop_il = vec![0x16, 0x0a, 0x06, 0x17, 0x58, 0x0a, 0x06, 0x45, 4, 0, 0, 0];
+    for displacement in [-26i32, -26, -26, 0] {
+        loop_il.extend_from_slice(&displacement.to_le_bytes());
+    }
+    loop_il.extend_from_slice(&[0x06, 0x2a]);
+    for (il, parameters, locals, arguments, expected) in [
+        (duplicate.as_slice(), vec![Type::I32], vec![], vec![2], 42),
+        (
+            empty.as_slice(),
+            vec![Type::I32],
+            vec![],
+            vec![0xffffffff],
+            40,
+        ),
+        (loop_il.as_slice(), vec![], vec![Type::I32], vec![], 3),
+    ] {
+        let mut f = koh_compile::lower::lower(koh_compile::lower::Method {
+            identity: Definition {
+                assembly: 0,
+                token: 0x06000001,
+            },
+            il,
+            parameters,
+            returns: Some(Type::I32),
+            locals,
+            init_locals: true,
+            max_stack: 2,
+        })
+        .unwrap();
+        koh_compile::optimize::simplify(&mut f).unwrap();
+        cases.push((f, arguments, Ok(expected)));
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 fn stack_capacity_is_checked_before_frame_writes(host: &Host) {
     let f = function(
         Type::I32,

@@ -31,10 +31,12 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Migration completed: zero legacy methods retired or fully replaced.** The new
-native reader/IR tests and initial integer ROM cases are partial new coverage, not
-full substitutes for the old DLL-to-ROM suite. All legacy tests remain. Proposed Rust filenames in the
-audit are not implemented or discoverable merely because they are documented.
+**Native behavioral replacements: four legacy methods; zero physically retired.**
+The completed switch group is detailed below. The remaining561 methods still have
+partial coverage or outstanding dependencies. Legacy definitions temporarily
+remain with the live C# compiler; the final migration deletes that test project.
+Proposed Rust filenames in source audits are not implemented or discoverable
+merely because they are documented.
 
 ## Corrections required in acceptance
 
@@ -63,6 +65,37 @@ state come from independent values/models, rather than old compiler output.
 The actual Board sample source is linked unchanged. This replaces legacy private
 IR/frame-shape assumptions with observable semantics, but no complete legacy test
 method is retired: full runtime, graphics and other assertions remain outstanding.
+
+Table-switch coverage maps frontend `SwitchDispatch_JumpTable_SelectsCorrectCase`
+and `SwitchDispatch_OutOfRange_FallsThroughToDefault`, backend
+`Switch_SelectsCaseOrDefault`, and the behavioral part of
+`SwitchDispatch_LowersToRealSwitchInstruction` to Rust-owned tests in
+`tests/{lowering,ir,sm83,driver}.rs`. The first three are PORT; private representation
+assertions are REPLACE. ECMA-335 control transfer and independent integer checksums
+justify the new expectations. Nextest discovers18 cases, including13 ROM scenarios
+and explicit malformed/resource diagnostics. Full legacy methods are not retired
+until their remaining assertions and sample/runtime dependencies are accounted for.
+
+### Completed switch replacement group
+
+| Original method | Requirement and justification | Decision and native location |
+| --- | --- | --- |
+| `Frontends/CilStructTests.SwitchDispatch_JumpTable_SelectsCorrectCase` | Real Roslyn Debug/Release selects the indexed result; successful lowering and verified IR. CLI switch semantics independently justify the result. | PORT: `driver::roslyn_switch_tables_execute`, plus raw-stack cases in `lowering` and `sm83`. |
+| `Frontends/CilStructTests.SwitchDispatch_OutOfRange_FallsThroughToDefault` | Out-of-range values use default in both configurations. | PORT: both Roslyn checksum cases and full-width boundary CPU cases. |
+| `Frontends/CilStructTests.SwitchDispatch_LowersToRealSwitchInstruction` | Both configurations must actually exercise table-switch lowering. Private C# IR class identity is not a public contract. | REPLACE: driver asserts opcode0x45 in the actual input and executes every case/default; verifier and CPU coverage validate the resulting control flow. |
+| `Backends/Sm83ControlFlowTests.Switch_SelectsCaseOrDefault` | Independent selection/default results execute on SM83. The old accumulator/static-WRAM observation is an obsolete ABI assumption. | PORT: `sm83::cil_switch_executes_full_width_selectors_and_stack_edges`, with balanced SP and guard checks. |
+
+All four replacements are discoverable by cargo-nextest. The original group has
+five method executions from three PORT methods and two parameterized REPLACE
+executions; including helper Debug/Release loops, it contains19 expanded
+`Assert.That` checks (12 frontend fixture checks,4 representation checks,3 backend
+results). New coverage includes18 native cases and13 ROM executions. Counts are
+traceability, not proof by matching totals. The original BGP output channel is
+replaced by the native return-buffer checksum; BGP writes/readback independently
+remain covered in `driver::gameboy_register_and_region_intrinsics_execute` and
+`fixtures/Hardware`. No language or hardware capability is removed. These source
+definitions will disappear with the legacy project rather than leaving a second
+compiler test implementation in the final tree.
 
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.

@@ -16,6 +16,38 @@ public static class Program
     public static long LongEntry() => 42;
 
     public static void Unsupported() => throw new System.Exception();
+
+    public static int Switches()
+    {
+        int sum = 0;
+        for (int i = -1; i <= 9; i++)
+            sum = unchecked(sum * 31 + Select(i));
+        return sum ^ Select(65536) ^ Select(int.MinValue) ^ Select(int.MaxValue);
+    }
+
+    private static int Select(int value)
+    {
+        switch (value)
+        {
+            case 0:
+                return 17;
+            case 1:
+                return -23;
+            case 2:
+            case 3:
+                return 91;
+            case 4:
+                return -1000;
+            case 5:
+                return 65536;
+            case 6:
+                return 12345;
+            case 7:
+                return -6789;
+            default:
+                return 42;
+        }
+    }
 }
 
 #if NESTED

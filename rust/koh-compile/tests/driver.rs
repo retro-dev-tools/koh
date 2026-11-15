@@ -42,6 +42,55 @@ fn build_with(directory: &Path, configuration: &str, output: &str, definitions: 
 }
 
 #[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn roslyn_switch_tables_execute(host: &Host, #[case] configuration: &str) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh switch tables ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let path = build(directory.path(), configuration, "Library", false);
+    let bytes = std::fs::read(&path).unwrap();
+    let resolver = Resolver::new(&[&bytes]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let token = (1..=assembly.metadata().method_defs.len())
+        .map(|i| 0x06000000 | i as u32)
+        .find(|&token| assembly.method_name(token).unwrap() == "Program::Select")
+        .unwrap();
+    let body = assembly.method_body(token).unwrap();
+    assert!(
+        koh_compile::cil::decode(body.il)
+            .unwrap()
+            .iter()
+            .any(|i| i.opcode == 0x45),
+        "Roslyn {configuration} must exercise an actual switch table"
+    );
+    let output = directory.path().join("switch.o");
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+        .arg(&path)
+        .args(["--entry", "Program::Switches", "-o"])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let object = koh_objects::read_elf(&std::fs::read(output).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+    let mut expected = 0u32;
+    for value in [42i32, 17, -23, 91, 91, -1000, 65536, 12345, -6789, 42, 42] {
+        expected = expected.wrapping_mul(31).wrapping_add(value as u32);
+    }
+    expected ^= 42;
+    assert_eq!(
+        execute(host, directory.path(), &linked, "__koh_exit"),
+        format!("00 {expected:08X} D000 OK")
+    );
+}
+
+#[rstest]
 #[case("Debug", "Library")]
 #[case("Release", "Library")]
 #[case("Debug", "Exe")]

@@ -529,3 +529,38 @@ Predecessor RVA head `293585d` has successful completed
 [Rust](https://github.com/retro-dev-tools/koh/actions/runs/43666575641) and
 [CI](https://github.com/retro-dev-tools/koh/actions/runs/43666575657) workflows,
 queried live by commit SHA. These are predecessor results, not current-tree proof.
+
+## CIL table-switch increment
+
+[Typed switches](ir.md#table-switches) preserve the remaining stack on all default
+and case edges, verify int32 selectors and emit full-width SM83 comparisons.
+Empty/duplicate tables and backward targets execute. Actual Debug/Release Roslyn
+fixtures contain `switch` and produce an independently computed wrapping checksum.
+This replaces representation assumptions with observable control-flow semantics;
+it does not establish broader runtime or SDK/game acceptance.
+
+The raw-CIL regression first failed with missing opcode0x45 lowering
+(`/tmp/koh-switch-red.log`). Strengthened focused tests passed18/18, exit0,9.741s
+(`/tmp/koh-switch-final-focused.log`), including13 emulator ROM scenarios. An
+earlier17-case run passed16/17 because its expected diagnostic used lowercase
+`undefined` while the existing message begins `Undefined`; the fixture was fixed.
+Read-only review found cumulative stack-edge cloning could exceed the budget
+before verification. The preallocation guard and retained-stack regression now
+pass; review confirmed the fix. A redundant mutable test binding was then removed.
+The formatted tree passed Linux
+`cargo nextest run --workspace --all-features --locked --no-fail-fast`:
+**570/570 passed,0skips**, exit0,374.746s (`/tmp/koh-switch-workspace.log`). This
+includes394 compiler cases and365 ROM scenarios (304 normal returns,61 traps).
+The disposition matrix records complete native behavioral replacements for four
+legacy switch methods (three PORT,one REPLACE); their definitions remain until
+the old compiler test project is removed. The remaining561 methods still require
+completion auditing. The SDK remains on C# and the full migration is incomplete.
+Separate workspace documentation tests (currently no cases) and stable rustfmt
+checks exited0: `/tmp/koh-switch-doc.log`, `/tmp/koh-switch-fmt.log`.
+
+Predecessor Board head `448f35b` now has successful completed
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43672970728) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43672970693) workflows.
+Native Linux/Windows/macOS Test steps succeeded; completed macOS job132686867798
+log confirms552/552 passed,0skips,298.190s. These are predecessor results, not
+verification of the uncommitted switch unit.

@@ -80,6 +80,27 @@ pending. Historical legacy baseline
 
 ## Next work and verification
 
+Latest committed/pushed head is448f35b (enum/stack/2048 Board unit), verified draft
+PR#55 master base. Current uncommitted unit adds actual CIL switch lowering,
+typed Switch CFG edges and full-int32 SM83 comparison selection. Parent owns all
+edits/builds. Read-only review may inspect switch changes; do not edit or build.
+Focused raw CIL/CPU8/8 and Roslyn/lowering12/12 passed, exit0; strengthened
+IR/lowering/driver/CPU18/18 passed exit0,9.741s in
+/tmp/koh-switch-final-focused.log, including13ROMscenarios. Review found/fixed
+cumulative edge-argument cloning before budget validation; regression retains128
+values across16,384targets and review confirmed the preallocation guard. Earlier
+17-case run passed16/17 because the test expected lowercase diagnostic text.
+Workspace570/570 passed,0skips,exit0,374.746s in
+/tmp/koh-switch-workspace.log; compiler394cases,365ROMscenarios(304normal,61traps).
+Separate workspace doc/fmt checks exit0 (no doctest cases). No build remains
+running. Current unit ready to commit/push after updating this handoff. Four legacy switch
+methods now have complete native behavioral replacements in the disposition
+matrix; definitions remain until legacy-project deletion. Remaining561 methods
+need completion auditing. Predecessor448f35b has successful completed hosted
+Rust43672970728 and CI43672970693; native Linux/Windows/macOS Test steps succeeded,
+macOS log552/552 passed0skips298.190s. Do not infer current-switch hosted results.
+Text below records the completed predecessor unit, not pending work.
+
 Current uncommitted unit adds enum storage normalization, typed object memory
 operations, fixed-size acyclic stack allocation, and conservative physical spill
 width selection. ABI widths remain unchanged. Board fixture links the actual

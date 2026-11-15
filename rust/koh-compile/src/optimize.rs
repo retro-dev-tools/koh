@@ -5,13 +5,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
     verify(function)?;
     let mut predecessors = vec![0usize; function.blocks.len()];
     for block in &function.blocks {
-        match &block.terminator.kind {
-            Control::Jump(edge) => predecessors[edge.block] += 1,
-            Control::Branch { yes, no, .. } => {
-                predecessors[yes.block] += 1;
-                predecessors[no.block] += 1;
-            }
-            Control::Return(_) => {}
+        for edge in block.terminator.kind.edges() {
+            predecessors[edge.block] += 1;
         }
     }
     let mut blocks: Vec<_> = std::mem::take(&mut function.blocks)
@@ -119,17 +114,19 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
             }
         };
         match &mut block.terminator.kind {
-            Control::Jump(jump) => edge(jump),
-            Control::Branch { condition, yes, no } => {
+            Control::Branch { condition, .. } => {
                 value(condition);
-                edge(yes);
-                edge(no);
             }
+            Control::Switch { selector, .. } => value(selector),
+            Control::Jump(_) => {}
             Control::Return(result) => {
                 if let Some(id) = result {
                     value(id);
                 }
             }
+        }
+        for jump in block.terminator.kind.edges_mut() {
+            edge(jump);
         }
         function.blocks.push(block);
     }

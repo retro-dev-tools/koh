@@ -40,6 +40,74 @@ fn backward_edges_preserve_mutable_locals() {
 }
 
 #[rstest]
+#[case(0, 41)]
+#[case(1, 42)]
+#[case(2, 43)]
+#[case(3, 49)]
+#[case(256, 49)]
+#[case(65536, 49)]
+#[case(0xffff_ffff, 49)]
+fn cil_switch_preserves_the_remaining_stack(#[case] selector: u64, #[case] expected: u64) {
+    let il = [
+        0x1f, 40, 0x02, 0x45, 3, 0, 0, 0, 4, 0, 0, 0, 7, 0, 0, 0, 10, 0, 0, 0, 0x1f, 9, 0x58, 0x2a,
+        0x17, 0x58, 0x2a, 0x18, 0x58, 0x2a, 0x19, 0x58, 0x2a,
+    ];
+    let mut m = method(&il);
+    m.parameters = vec![Type::I32];
+    let mut f = lower(m).unwrap();
+    assert_eq!(execute_with(&f, &[selector]), expected);
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(execute_with(&f, &[selector]), expected);
+}
+
+#[test]
+fn empty_switch_falls_through_without_consuming_the_rest_of_the_stack() {
+    let il = [0x1f, 40, 0x02, 0x45, 0, 0, 0, 0, 0x58, 0x2a];
+    let mut m = method(&il);
+    m.parameters = vec![Type::I32];
+    assert!(lower(m).unwrap_err().contains("underflow"));
+    let il = [0x1f, 40, 0x02, 0x45, 0, 0, 0, 0, 0x2a];
+    let mut m = method(&il);
+    m.parameters = vec![Type::I32];
+    let mut f = lower(m).unwrap();
+    assert_eq!(execute_with(&f, &[0xffffffff]), 40);
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(execute_with(&f, &[0]), 40);
+}
+
+#[rstest]
+#[case(Type::I64)]
+#[case(Type::Native)]
+fn switch_rejects_non_int32_selectors(#[case] ty: Type) {
+    let il = [0x02, 0x45, 0, 0, 0, 0, 0x16, 0x2a];
+    let mut m = method(&il);
+    m.parameters = vec![ty];
+    let error = lower(m).unwrap_err();
+    assert!(
+        error.contains("IL_0001") && error.contains("Switch selector must be int32"),
+        "{error}"
+    );
+}
+
+#[test]
+fn switch_argument_budget_is_checked_before_cloning_the_stack() {
+    let mut il = vec![0x16; 129];
+    il.push(0x45);
+    il.extend_from_slice(&16384u32.to_le_bytes());
+    il.resize(il.len() + 16384 * 4, 0);
+    il.extend(std::iter::repeat_n(0x26, 128));
+    il.extend_from_slice(&[0x16, 0x2a]);
+    let mut m = method(&il);
+    m.max_stack = 129;
+    let error = lower(m).unwrap_err();
+    assert!(
+        error.contains("IL_0081")
+            && error.contains("Switch evaluation stack edge arguments exceed limit"),
+        "{error}"
+    );
+}
+
+#[rstest]
 #[case(&[0x12, 0, 0x2a], false)]
 #[case(&[0x0f, 0, 0x2a], true)]
 fn cil_cannot_return_a_reference_to_its_own_storage(#[case] il: &[u8], #[case] argument: bool) {
@@ -141,6 +209,11 @@ fn cfg_simplification_preserves_loops_across_block_order(#[case] reverse: bool) 
                     no.block = inverse[no.block];
                 }
                 Control::Return(_) => {}
+                Control::Switch { cases, default, .. } => {
+                    for edge in cases.iter_mut().chain(std::iter::once(default)) {
+                        edge.block = inverse[edge.block];
+                    }
+                }
             }
         }
     }
@@ -298,6 +371,11 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
         let edge = match &f.blocks[block].terminator.kind {
             Control::Return(value) => return value.map(|id| values[&id]).unwrap_or(0),
             Control::Jump(edge) => edge,
+            Control::Switch {
+                selector,
+                cases,
+                default,
+            } => cases.get(values[selector] as usize).unwrap_or(default),
             Control::Branch { condition, yes, no } => {
                 if values[condition] != 0 {
                     yes
