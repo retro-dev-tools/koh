@@ -78,19 +78,7 @@ static unsafe class Surface
     {
         if (Cgb.IsColor())
         {
-            // CGB: LCD stays ON the whole time — no more per-frame Lcd.Off flash. The 3840-byte
-            // page doesn't fit Cgb.CopyToVram's 2048-byte-per-transfer limit in one shot, so it goes
-            // as two 1920-byte GDMA transfers across two consecutive vblanks (the first half at
-            // $8000, the second at $8000+1920=$8780, the double-buffered demo's absolute-address
-            // precedent). Each transfer is safe from the mode-3 VRAM lock the same way
-            // double-buffered's CGB path is (HDMA writes, not CPU writes, so Mode3WriteGuard is
-            // untouched). Accepted tradeoff: for the one frame between the two WaitVBlank calls, the
-            // top half of the screen shows the new frame's content while the bottom half still shows
-            // the previous frame's — a one-frame horizontal seam, not a full-frame flash. Pacing to
-            // Ppu.WaitVBlank() (as before) still caps rotation speed to the hardware frame rate.
-            Ppu.WaitVBlank();
             Cgb.CopyToVram(pixels, 0x8000, 1920);
-            Ppu.WaitVBlank();
             Cgb.CopyToVram(pixels + 1920, 0x8780, 1920);
         }
         else

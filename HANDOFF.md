@@ -1,5 +1,32 @@
 # PR #55 handoff
 
+ACTIVE full-frame unit, after pushed e9a6be0 (remote verified).
+Root owns edits/serial builds; reviewer owns read-only inspection, no builds.
+Native CGB GDMA start trace revealed full-frame starts at LY0dot410 Release /
+LY1dot132 Debug, despite passing CPU-only mode3 guard and cube images.
+Current diff prepares registers/control before public Cgb.CopyToVram's LCD-on
+VBlank wait, deletes duplicate internal helper, updates TileSet + full-frame calls.
+Focused /tmp/koh-fullframe-safe-profile.log2pass/1fail25.294s exit100:
+bothCGB safe now; DMGDebug still no animation at450/750. No budgets waived.
+/tmp/koh-fullframe-cadence.log records framebuffer changes at83,437 only.
+Profile Mem.Copy6232152T tofirst450; remaining render also expensive.
+Rust cube target now8real D/R×DMG/CGB×2variants +12viewport validator cases;
+new9GDMA boundary cases need run. Review general API timing/maxcount as well.
+Single-transfer2048 phase test exposed DebugLY146dot248 and ReleaseLY145dot292,
+both red /tmp/koh-gdma-max-red.log2/2failed26.754s. PublicAPI nowLCDon1024
+chunks; setup/controlbeforeeachwait, LCDoffhardwaremax unchanged. Focused15/15
+passed53.813s /tmp/koh-gdma-chunks-green.log; newboundarycases expand4D/R×DMG/CGB
+with8maxphases plusZero/16/1024/1040/1920/Off2048. Reviewgdma_review no blockers.
+Serial session79233 terminal: /tmp/koh-gdma-regression.log44passed/1failed,
+239.891s exit100; solefullframeDMGDebuganimation. Newdistinct3C/C3sourcehalves
+verifyadvancingbothaddresses: final4cases passed29.211s,exit0,108filtered,
+/tmp/koh-gdma-patterns-final.log (56actualROMprobes). Allhandles terminal.
+Rootownsbuilds. Commit/push andupdatePR55next; thenpinned-bankrootfix.
+Nextcompilerrootfix: hosted e9 nativeCI43762030785 fails all3hosts onOamDma
+Main explicitbank2beforepin. Currentverify_banks rejects wholemethods rather
+than onlybankwrites/calls while a pinisactive. Do notweakenfixture. ManagedCI
+43762031131 failsknownreferenceclasses2048v2/JRPG. Exacthostlogsreadbyroot.
+
 ACTIVE VBlank unit: root owns edits/serial builds; review owns read-only
 inspection, no builds/edits. Ppu.WaitVBlank now >=144 leave / <144 enter.
 Old Debug phase3 took137692T, missing firstwindow (90k budget); Release67k.

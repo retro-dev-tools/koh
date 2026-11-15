@@ -13,12 +13,17 @@ fn cube_host() -> Host {
 }
 
 #[rstest]
-#[case("Release", true)]
-#[case("Debug", true)]
-#[case("Release", false)]
-#[case("Debug", false)]
-fn double_buffered_cube_boots_and_animates(
+#[case("double-buffered", "Release", true)]
+#[case("double-buffered", "Debug", true)]
+#[case("double-buffered", "Release", false)]
+#[case("double-buffered", "Debug", false)]
+#[case("full-frame", "Release", true)]
+#[case("full-frame", "Debug", true)]
+#[case("full-frame", "Release", false)]
+#[case("full-frame", "Debug", false)]
+fn cube_boots_and_animates(
     cube_host: &Host,
+    #[case] variant: &str,
     #[case] configuration: &str,
     #[case] color: bool,
 ) {
@@ -40,7 +45,7 @@ fn double_buffered_cube_boots_and_animates(
         .arg(project)
         .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
         .arg(format!("-p:KohRoot={}", root.display()))
-        .arg("-p:KohCubeVariant=double-buffered")
+        .arg(format!("-p:KohCubeVariant={variant}"))
         .output()
         .unwrap();
     drop(build_guard);
@@ -77,7 +82,13 @@ fn double_buffered_cube_boots_and_animates(
             .unwrap()
             .value
     };
-    let (first, last) = if color { (200, 500) } else { (1100, 2000) };
+    let (first, last, viewport) = match (variant, color) {
+        ("double-buffered", true) => (200, 500, (32, 32, 96, 80)),
+        ("double-buffered", false) => (1100, 2000, (32, 32, 96, 80)),
+        ("full-frame", true) => (300, 500, (16, 8, 128, 120)),
+        ("full-frame", false) => (450, 750, (16, 8, 128, 120)),
+        _ => unreachable!(),
+    };
     let rom = directory.path().join("cube.gb");
     std::fs::write(&rom, &linked.rom).unwrap();
     let output = dotnet()
@@ -146,9 +157,22 @@ fn double_buffered_cube_boots_and_animates(
     );
     assert!(fields[0].parse::<u32>().unwrap() < 600, "{report}");
     assert_eq!(fields[8], "0", "VRAM mode3 writes: {report}");
+    let starts = std::fs::read(rom.with_extension("gb.gdma")).unwrap();
+    assert_eq!(starts.len() % 4, 0);
+    assert_eq!(!starts.is_empty(), color, "LCD-on GDMA path");
+    for start in starts.chunks_exact(4) {
+        let line = u32::from(start[0]);
+        let dot = u32::from(u16::from_le_bytes([start[1], start[2]]));
+        let control = start[3];
+        let cost = (u32::from(control) + 1) * 32 + 8;
+        assert!(
+            gdma_fits_vblank(line, dot, control),
+            "GDMA overruns VBlank: LY={line} dot={dot} cost={cost}; {report}"
+        );
+    }
     let first = std::fs::read(rom.with_extension(format!("gb.{first}.rgba"))).unwrap();
     let last = std::fs::read(rom.with_extension(format!("gb.{last}.rgba"))).unwrap();
-    if first == last || check_cube(&first, color).is_err() {
+    if first == last || check_cube(&first, color, viewport).is_err() {
         let pc = i32::from_str_radix(fields[10], 16).unwrap();
         let bank = fields[11].parse::<u32>().unwrap();
         let owner = linked
@@ -175,8 +199,8 @@ fn double_buffered_cube_boots_and_animates(
             .unwrap();
         eprintln!("active {name}: {}+{}", owner.name, pc - owner.value);
     }
-    check_cube(&first, color).unwrap_or_else(|e| panic!("first capture: {e}; {report}"));
-    check_cube(&last, color).unwrap_or_else(|e| panic!("last capture: {e}; {report}"));
+    check_cube(&first, color, viewport).unwrap_or_else(|e| panic!("first capture: {e}; {report}"));
+    check_cube(&last, color, viewport).unwrap_or_else(|e| panic!("last capture: {e}; {report}"));
     assert!(
         first != last,
         "cube must animate: {report}; {}",
@@ -184,7 +208,40 @@ fn double_buffered_cube_boots_and_animates(
     );
 }
 
-fn check_cube(frame: &[u8], color: bool) -> Result<(), String> {
+fn gdma_fits_vblank(line: u32, dot: u32, control: u8) -> bool {
+    control & 0x80 == 0
+        && (144..154).contains(&line)
+        && dot < 456
+        && (u32::from(control) + 1) * 32 + 8 < (154 - line) * 456 - dot
+}
+
+#[rstest]
+#[case(144, 0, 119, true)]
+#[case(144, 455, 127, true)]
+#[case(145, 0, 127, false)]
+#[case(145, 255, 119, true)]
+#[case(145, 256, 119, false)]
+#[case(153, 0, 0, true)]
+#[case(153, 416, 0, false)]
+#[case(143, 0, 0, false)]
+#[case(154, 0, 0, false)]
+#[case(144, 456, 0, false)]
+#[case(144, 0, 128, false)]
+fn gdma_window_checks_cost_and_mode(
+    #[case] line: u32,
+    #[case] dot: u32,
+    #[case] control: u8,
+    #[case] valid: bool,
+) {
+    assert_eq!(gdma_fits_vblank(line, dot, control), valid);
+}
+
+fn check_cube(
+    frame: &[u8],
+    color: bool,
+    viewport: (usize, usize, usize, usize),
+) -> Result<(), String> {
+    let (left, top, width, height) = viewport;
     if frame.len() != 160 * 144 * 4 {
         return Err("invalid RGBA dimensions".into());
     }
@@ -210,8 +267,8 @@ fn check_cube(frame: &[u8], color: bool) -> Result<(), String> {
             continue;
         }
         let (x, y) = (index % 160, index / 160);
-        if !(32..128).contains(&x) || !(32..112).contains(&y) {
-            return Err(format!("pixel outside centered 96x80 viewport: {x},{y}"));
+        if !(left..left + width).contains(&x) || !(top..top + height).contains(&y) {
+            return Err(format!("pixel outside {viewport:?} viewport: {x},{y}"));
         }
         lit[index] = true;
         used.insert(pixel[0]);
@@ -229,8 +286,8 @@ fn check_cube(frame: &[u8], color: bool) -> Result<(), String> {
     }
     if max_x - min_x < 24
         || max_y - min_y < 24
-        || !(min_x..=max_x).contains(&80)
-        || !(min_y..=max_y).contains(&72)
+        || !(min_x..=max_x).contains(&(left + width / 2))
+        || !(min_y..=max_y).contains(&(top + height / 2))
     {
         return Err(format!(
             "implausible centered projection: {min_x},{min_y}..{max_x},{max_y}"
@@ -268,7 +325,11 @@ fn check_cube(frame: &[u8], color: bool) -> Result<(), String> {
 #[case(3, false)]
 #[case(4, false)]
 #[case(5, false)]
-fn cube_capture_checks_reject_invalid_images(#[case] damage: u8, #[case] valid: bool) {
+fn cube_capture_checks_reject_invalid_images(
+    #[case] damage: u8,
+    #[case] valid: bool,
+    #[values((32, 32, 96, 80), (16, 8, 128, 120))] viewport: (usize, usize, usize, usize),
+) {
     let mut frame = vec![255; 160 * 144 * 4];
     for y in 48..96 {
         for x in 40..120 {
@@ -284,5 +345,5 @@ fn cube_capture_checks_reject_invalid_images(#[case] damage: u8, #[case] valid: 
         5 => frame[(40 * 160 + 80) * 4..(40 * 160 + 80) * 4 + 3].fill(33),
         _ => {}
     }
-    assert_eq!(check_cube(&frame, true).is_ok(), valid);
+    assert_eq!(check_cube(&frame, true, viewport).is_ok(), valid);
 }

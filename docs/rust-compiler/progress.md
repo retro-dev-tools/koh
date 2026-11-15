@@ -8,7 +8,33 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [VBlank window and bounded map writes](vblank-window.md).
+Current unit: [complete GDMA windows](gdma-windows.md). Native FF55 tracing
+revealed late full-frame transfers despite passing images and CPU-write guards.
+LCD-on copies now use synchronized1024-byte bursts; LCD-off hardware-size
+copies remain. The direct2048-byte red fails Debug and Release, while the
+corrected focused selection passes15/15. Extra exact-memory/no-op/boundary
+cases and all8 real double-buffered/full-frame cases are now required native
+acceptance. The broader selection completes44passed/1failed in239.891s,
+exit100 (`/tmp/koh-gdma-regression.log`,98 unrelated cases filtered).
+Final distinct-source-half transfer recheck passes4/4 in29.211s, exit0
+(`/tmp/koh-gdma-patterns-final.log`):56 exact-memory ROM probes.
+Full-frame DMGDebug still fails animation at450/750: only frame
+changes83 and437 occur, and frame budgets remain unchanged. No additional
+legacy method is retired. See the timing document for the deliberate API and
+four-VBlank presentation change.
+
+Hosted head e9a6be0 is verified red, not pending. Native run
+[43762030785](https://github.com/retro-dev-tools/koh/actions/runs/43762030785)
+fails the same OAM pinned-bank diagnostic on Linux/macOS/Windows. Linux/macOS
+reach659 passes then1 failure; Windows657 then1. Another194 cases were not run
+after fail-fast, and downstream doctest/artifact checks were skipped. The
+fixture selects bank2 before pinning, exposing an overly broad method-level
+bank-write restriction. This must be corrected without weakening the fixture.
+Managed run [43762031131](https://github.com/retro-dev-tools/koh/actions/runs/43762031131)
+fails Linux/Windows solution builds at the known 2048v2/JRPG class limitations.
+Extension and SDL checks passed; these do not establish compiler acceptance.
+
+Previous unit: [VBlank window and bounded map writes](vblank-window.md).
 Final graphics selection passes28/28 in161.668s, exit0
 (`/tmp/koh-vblank-final-green.log`;90 unrelated tests filtered). It includes
 all four double-buffered Debug/Release × DMG/CGB cube cases, four actual

@@ -20,6 +20,9 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   Native byte fill and corrected VBlank polling let all four double-buffered
   Debug/Release × DMG/CGB cube cases pass structural captures. The current
   graphics selection passes28/28; full-frame/racing-beam acceptance remains open.
+  Stronger full-frame DMA tracing requires1024-byte LCD-on bursts; full-frame
+  DMGDebug animation remains red. Hosted native CI also exposes an overly broad
+  pinned-bank diagnostic in the OAM fixture on all three hosts; keep it required.
   Thirty-four legacy
   methods have complete replacements;531 remain partial/outstanding, none deleted.
   Full current-head workspace/hosted acceptance, source debugging, broader

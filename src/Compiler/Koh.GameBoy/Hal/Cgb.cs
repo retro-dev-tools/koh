@@ -33,8 +33,7 @@ public static unsafe class Cgb
 
     /// <summary>Copy <paramref name="byteCount"/> bytes from ROM/WRAM to VRAM with the CGB's
     /// general-purpose DMA (HDMA1-5 with bit 7 of HDMA5 clear): 2 bytes per M-cycle with the CPU
-    /// halted, so 1920 bytes cost ~480 M-cycles — comfortably inside one vblank. Call only during
-    /// vblank (after <see cref="Ppu.WaitVBlank"/>): the engine writes blindly, and blocks that
+    /// halted. LCD-on copies use at most 1024 bytes per VBlank. Blocks that
     /// collide with PPU mode 3 are dropped on real hardware (Pan Docs). Hardware-imposed
     /// constraints: <paramref name="source"/> and <paramref name="vramDest"/> are 16-byte aligned
     /// (the registers ignore the low 4 bits), and <paramref name="byteCount"/> is a multiple of 16,
@@ -47,16 +46,16 @@ public static unsafe class Cgb
     {
         if (!IsColor() || byteCount == 0)
             return;
-        ushort src = (ushort)source;
-        Hardware.HDMA1 = (byte)(src >> 8);
-        Hardware.HDMA2 = (byte)src;
-        Hardware.HDMA3 = (byte)(vramDest >> 8);
-        Hardware.HDMA4 = (byte)vramDest;
-        // (blocks - 1) with bit 7 clear = general-purpose mode; the CPU stalls until it completes.
-        Hardware.HDMA5 = (byte)((byteCount >> 4) - 1);
+        if ((Hardware.LCDC & 0x80) != 0 && byteCount > 1024)
+        {
+            CopyChunk(source, vramDest, 1024);
+            CopyChunk(source + 1024, (ushort)(vramDest + 1024), (ushort)(byteCount - 1024));
+        }
+        else
+            CopyChunk(source, vramDest, byteCount);
     }
 
-    internal static void CopyToVramInVBlank(byte* source, ushort vramDest, ushort byteCount)
+    private static void CopyChunk(byte* source, ushort vramDest, ushort byteCount)
     {
         ushort src = (ushort)source;
         Hardware.HDMA1 = (byte)(src >> 8);
@@ -64,7 +63,8 @@ public static unsafe class Cgb
         Hardware.HDMA3 = (byte)(vramDest >> 8);
         Hardware.HDMA4 = (byte)vramDest;
         byte control = (byte)((byteCount >> 4) - 1);
-        Ppu.WaitVBlank();
+        if ((Hardware.LCDC & 0x80) != 0)
+            Ppu.WaitVBlank();
         Hardware.HDMA5 = control;
     }
 

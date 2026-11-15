@@ -28,8 +28,7 @@ public static unsafe class Mem
     /// <paramref name="destination"/>, in ascending address order (a forward copy). Overlapping regions
     /// are only defined when <paramref name="destination"/> &lt; <paramref name="source"/> (each source
     /// byte is read before a lower/equal destination index could reach and overwrite it); a
-    /// <paramref name="count"/> of zero is a no-op. NOT vblank-aware — same stance as
-    /// <c>Cgb.CopyToVram</c>: the caller is responsible for PPU-mode safety when the destination is
+    /// <paramref name="count"/> of zero is a no-op. The caller owns PPU-mode safety when the destination is
     /// VRAM/OAM.
     ///
     /// This body is ordinary compiled Koh C#: the CIL frontend lowers it as referenced code (it is NOT a

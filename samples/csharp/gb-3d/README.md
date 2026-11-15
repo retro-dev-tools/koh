@@ -7,7 +7,7 @@ dithered, and encoded into Game Boy 2bpp tile memory at runtime.
 | ROM | Viewport | Presentation strategy |
 | --- | --- | --- |
 | `double-buffered/cube-double-buffered.gb` | 96x80 | Two 120-tile pages; render/upload the inactive page, then flip the tile map in VBlank. |
-| `full-frame/cube-full-frame.gb` | 128x120 | One 240-tile page; on CGB, two GDMA transfers across two VBlanks with the LCD kept on; on DMG, blank the LCD for one bulk `Mem.Copy` upload. |
+| `full-frame/cube-full-frame.gb` | 128x120 | One 240-tile page; CGB uses bounded GDMA bursts across VBlanks with the LCD on; DMG blanks the LCD for one bulk `Mem.Copy` upload. |
 | `racing-beam/cube-racing-beam.gb` | 64x64 | Compact generated page plus per-scanline SCX changes synchronized to HBlank. |
 
 The third experiment originally attempted to replace shared tile rows just behind the PPU fetch. Real
@@ -50,6 +50,15 @@ The PPU still consumes tile-formatted VRAM because that is the Game Boy's displa
 tiles are a transport for a runtime-generated bitmap, not a tileset or authored art pipeline.
 
 ## Performance
+
+The measurements below describe the retired C# compiler's output, not the Rust
+compiler. Native validation and remaining failures are tracked in
+[the compiler migration evidence](../../../docs/rust-compiler/progress.md).
+CGB copies now prepare registers before waiting and limit LCD-on bursts to1024
+bytes: full-frame presentation spans four VBlanks, with partial-page seams.
+This intentionally replaces the unsafe two-burst assumption; the larger viewport
+and continuously enabled CGB display remain. A CPU-only mode3 guard cannot prove
+DMA safety, so native tests also check complete-transfer timing and exact VRAM.
 
 Every present path moves pixel data through `Mem.Copy`/`Mem.Fill` (`src/Compiler/Koh.Compiler/Frontends/CSharp/
 MemRuntime.cs`), the Koh C# runtime's bulk-memory primitives, rather than hand-rolled per-byte loops.

@@ -67,18 +67,18 @@ DEFERred or physically deleted by this increment.
 ## Cube replacement in progress
 
 `Samples/Cube3dTests.cs` has3 methods,6 parameter-expanded cases and8 assertion
-sites. The native `cubes` target supplies4 real double-buffered Debug/Release ×
-DMG/CGB cases plus6 tests of the independent capture validator. They are
-discoverable by cargo-nextest, not skipped or feature-gated. Current stronger
-double-buffered acceptance passes in all four configurations after the
+sites. The native `cubes` target supplies8 real double-buffered/full-frame
+Debug/Release × DMG/CGB cases,12 independent viewport-validator cases and11
+GDMA-window boundary cases. They are discoverable by cargo-nextest, not skipped
+or feature-gated. Double-buffered acceptance passes in all four configurations after the
 [VBlank correction](vblank-window.md). No additional legacy method is counted
 complete: full-frame coverage remains required.
 
 | Source method | Behavioral requirement and independent justification | Decision, native target and remaining work |
 | --- | --- | --- |
-| Demo_CompilesWithoutDiagnostics | Actual shipped sources and referenced library compile; compiler class names and diagnostic containers are private details | REPLACE with successful Roslyn/native compilation and ELF/linking in `cubes::double_buffered_cube_boots_and_animates`; double-buffered covered, full-frame still required |
+| Demo_CompilesWithoutDiagnostics | Actual shipped sources and referenced library compile; compiler class names and diagnostic containers are private details | REPLACE with Roslyn/native compilation and ELF/linking in `cubes::cube_boots_and_animates`; both variants included, full-frame acceptance still required |
 | Demo_LinksToBootableRom | Cartridge header and startup execute on the supported hardware model | REPLACE weak NOP/JP/two-logo-byte checks with real DMG/CGB boot-ROM unmapping and bounded game execution; same target, full-frame still required |
-| Demo_RunOnHardwareRendersARealCube | Authored shaded projection is visible and animates; expectations derive from sample geometry/palette and SM83/PPU behavior | PORT with stronger two-capture palette, viewport, size, connectivity and animation oracle; double-buffered passes, full-frame execution remains migration work |
+| Demo_RunOnHardwareRendersARealCube | Authored shaded projection is visible and animates; expectations derive from sample geometry/palette and SM83/PPU behavior | PORT with stronger two-capture palette, viewport, size, connectivity, animation and full DMA-window checks; double-buffered passes, full-frame DMG Debug animation remains required |
 
 The7 `CilCanvasTests.cs` methods (36 assertion sites) remain partial: the real
 cube exercises rasterization/presentation, but cannot replace their exact plane

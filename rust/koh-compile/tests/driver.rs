@@ -82,6 +82,71 @@ fn vblank_wait_observes_first_window_at_varied_entry_phases(
 }
 
 #[rstest]
+#[case("Debug", true)]
+#[case("Release", true)]
+#[case("Debug", false)]
+#[case("Release", false)]
+fn direct_gdma_maximum_preserves_every_byte_at_varied_phases(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "Gdma");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let entries = (0..8).map(|phase| (format!("Phase{phase}"), 2048)).chain(
+        [
+            ("Zero", 0),
+            ("On16", 16),
+            ("On1024", 1024),
+            ("On1040", 1040),
+            ("On1920", 1920),
+            ("Off2048", 2048),
+        ]
+        .map(|(name, count)| (name.into(), count)),
+    );
+    for (name, count) in entries {
+        let entry = format!("Program::{name}");
+        let object = compile::object(&resolver, Some(&entry)).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-video",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 11 } else { 9 }, "{entry}");
+        assert_eq!(
+            (fields[0], fields[1], fields[2], fields[3]),
+            ("00", "00000043", "D000", "OK"),
+            "{entry}"
+        );
+        let mut vram = [0xa7; 8192];
+        if color {
+            vram[..count.min(1024)].fill(0x3c);
+            if count > 1024 {
+                vram[1024..count].fill(0xc3);
+            }
+            assert_heap_snapshot(fields[7], &[0xb8; 8192], &entry);
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], &entry);
+        }
+        assert_heap_snapshot(fields[if color { 6 } else { 5 }], &vram, &entry);
+    }
+}
+
+#[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]
 #[case("Debug", true)]

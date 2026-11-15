@@ -105,7 +105,7 @@ public static unsafe class TileSet
         {
             ushort remaining = (ushort)(total - copied);
             ushort chunk = remaining < VblankGdmaChunkBytes ? remaining : VblankGdmaChunkBytes;
-            Cgb.CopyToVramInVBlank(source + copied, (ushort)(dest + copied), chunk);
+            Cgb.CopyToVram(source + copied, (ushort)(dest + copied), chunk);
             copied += chunk;
         }
     }
