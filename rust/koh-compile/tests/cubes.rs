@@ -21,6 +21,10 @@ fn cube_host() -> Host {
 #[case("full-frame", "Debug", true)]
 #[case("full-frame", "Release", false)]
 #[case("full-frame", "Debug", false)]
+#[case::racing_release_cgb("racing-beam", "Release", true)]
+#[case::racing_debug_cgb("racing-beam", "Debug", true)]
+#[case::racing_release_dmg("racing-beam", "Release", false)]
+#[case::racing_debug_dmg("racing-beam", "Debug", false)]
 fn cube_boots_and_animates(
     cube_host: &Host,
     #[case] variant: &str,
@@ -88,6 +92,8 @@ fn cube_boots_and_animates(
         ("double-buffered", false) => (1100, 2000, (32, 32, 96, 80)),
         ("full-frame", true) => (300, 500, (16, 8, 128, 120)),
         ("full-frame", false) => (450, 750, (16, 8, 128, 120)),
+        ("racing-beam", true) => (300, 450, (43, 40, 70, 64)),
+        ("racing-beam", false) => (400, 700, (43, 40, 70, 64)),
         _ => unreachable!(),
     };
     let rom = directory.path().join("cube.gb");
@@ -102,6 +108,7 @@ fn cube_boots_and_animates(
             format!("{:x}", symbol("__koh_heap_cursor")),
             format!("{:x}", symbol("__koh_raw_used")),
         ])
+        .arg(variant)
         .output()
         .unwrap();
     assert!(
@@ -160,7 +167,11 @@ fn cube_boots_and_animates(
     assert_eq!(fields[8], "0", "VRAM mode3 writes: {report}");
     let starts = std::fs::read(rom.with_extension("gb.gdma")).unwrap();
     assert_eq!(starts.len() % 4, 0);
-    assert_eq!(!starts.is_empty(), color, "LCD-on GDMA path");
+    assert_eq!(
+        !starts.is_empty(),
+        color && variant != "racing-beam",
+        "LCD-on GDMA path"
+    );
     for start in starts.chunks_exact(4) {
         let line = u32::from(start[0]);
         let dot = u32::from(u16::from_le_bytes([start[1], start[2]]));
@@ -207,6 +218,64 @@ fn cube_boots_and_animates(
         "cube must animate: {report}; {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    if variant == "racing-beam" {
+        let lines = std::fs::read(rom.with_extension("gb.scroll-lines")).unwrap();
+        let writes = std::fs::read(rom.with_extension("gb.scroll-writes")).unwrap();
+        check_raster(&lines, &writes).unwrap();
+    }
+}
+
+fn check_raster(lines: &[u8], writes: &[u8]) -> Result<(), String> {
+    if lines.len() % 10 != 0 || writes.len() % 13 != 0 {
+        return Err("malformed scanline/write trace".into());
+    }
+    for write in writes.chunks_exact(13) {
+        let (line, mode, value) = (write[8], write[11], write[12]);
+        if mode > 1 || (value != 0 && (mode != 0 || !(39..=102).contains(&line))) {
+            return Err(format!(
+                "SCX write outside raster window: LY={line} dot={} mode={mode} value={value}",
+                u16::from_le_bytes([write[9], write[10]])
+            ));
+        }
+    }
+    let wave: Vec<u8> = (0..64)
+        .map(|row| {
+            let phase = row * 4;
+            let ramp = (phase & 63) * 2;
+            let sin = match phase >> 6 {
+                0 => ramp,
+                1 => 126 - ramp,
+                2 => -ramp,
+                _ => ramp - 126,
+            };
+            (sin / 32 + 2) as u8
+        })
+        .collect();
+    let lines: Vec<_> = lines
+        .chunks_exact(10)
+        .map(|r| (u64::from_le_bytes(r[..8].try_into().unwrap()), r[8], r[9]))
+        .collect();
+    let mut matched = 0;
+    for frame in lines.windows(144).filter(|frame| frame[0].1 == 0) {
+        if !frame.iter().enumerate().all(|(row, r)| r.1 as usize == row)
+            || !frame
+                .windows(2)
+                .all(|r| r[1].0 > r[0].0 && r[1].0 - r[0].0 < 912)
+        {
+            continue;
+        }
+        if frame[..40].iter().all(|r| r.2 == 0)
+            && frame[40..104].iter().map(|r| r.2).eq(wave.iter().copied())
+        {
+            matched += 1;
+        }
+    }
+    if matched < 2 {
+        return Err(format!(
+            "only {matched} complete raster frames; require sequential SCX wave on rows40..103"
+        ));
+    }
+    Ok(())
 }
 
 fn gdma_fits_vblank(line: u32, dot: u32, control: u8) -> bool {
@@ -214,6 +283,58 @@ fn gdma_fits_vblank(line: u32, dot: u32, control: u8) -> bool {
         && (144..154).contains(&line)
         && dot < 456
         && (u32::from(control) + 1) * 32 + 8 < (154 - line) * 456 - dot
+}
+
+#[rstest]
+#[case::complete(0, true)]
+#[case::drawing_write(1, false)]
+#[case::wrong_line_write(2, false)]
+#[case::wrong_wave(3, false)]
+#[case::missing_row(4, false)]
+#[case::spliced_frames(5, false)]
+#[case::one_frame(6, false)]
+#[case::truncated_lines(7, false)]
+#[case::truncated_writes(8, false)]
+fn raster_trace_checks_physical_rows(#[case] damage: u8, #[case] valid: bool) {
+    let mut lines = Vec::new();
+    for frame in 0..2u64 {
+        for row in 0..144u8 {
+            if damage == 4 && row == 70 {
+                continue;
+            }
+            let value = if (40..104).contains(&row) {
+                let position = i32::from(row - 40);
+                let triangle = match position {
+                    0..16 => position * 8,
+                    16..32 => 254 - position * 8,
+                    32..48 => 256 - position * 8,
+                    _ => position * 8 - 510,
+                };
+                (triangle / 32 + 2) as u8
+            } else {
+                0
+            };
+            let gap = if damage == 5 && row >= 70 { 70224 } else { 0 };
+            lines.extend_from_slice(&(frame * 70224 + u64::from(row) * 456 + gap).to_le_bytes());
+            lines.extend_from_slice(&[row, if damage == 3 && row == 70 { 99 } else { value }]);
+        }
+    }
+    let mut writes = Vec::new();
+    writes.extend_from_slice(&0u64.to_le_bytes());
+    writes.push(if damage == 2 { 38 } else { 39 });
+    writes.extend_from_slice(&300u16.to_le_bytes());
+    writes.extend_from_slice(&[if damage == 1 { 3 } else { 0 }, 2]);
+    match damage {
+        6 => lines.truncate(144 * 10),
+        7 => {
+            lines.pop();
+        }
+        8 => {
+            writes.pop();
+        }
+        _ => {}
+    }
+    assert_eq!(check_raster(&lines, &writes).is_ok(), valid);
 }
 
 #[rstest]
@@ -329,21 +450,29 @@ fn check_cube(
 fn cube_capture_checks_reject_invalid_images(
     #[case] damage: u8,
     #[case] valid: bool,
-    #[values((32, 32, 96, 80), (16, 8, 128, 120))] viewport: (usize, usize, usize, usize),
+    #[values((32, 32, 96, 80), (16, 8, 128, 120), (43, 40, 70, 64))] viewport: (
+        usize,
+        usize,
+        usize,
+        usize,
+    ),
 ) {
     let mut frame = vec![255; 160 * 144 * 4];
-    for y in 48..96 {
-        for x in 40..120 {
-            let shade = if x < 80 { 181 } else { 99 };
+    let (cx, cy) = (viewport.0 + viewport.2 / 2, viewport.1 + viewport.3 / 2);
+    for y in cy - 16..cy + 16 {
+        for x in cx - 24..cx + 24 {
+            let shade = if x < cx { 181 } else { 99 };
             frame[(y * 160 + x) * 4..(y * 160 + x) * 4 + 3].fill(shade);
         }
     }
     match damage {
         1 => frame.fill(255),
-        2 => frame[(60 * 160 + 60) * 4 + 3] = 0,
-        3 => frame[(60 * 160 + 60) * 4] = 77,
+        2 => frame[(cy * 160 + cx) * 4 + 3] = 0,
+        3 => frame[(cy * 160 + cx) * 4] = 77,
         4 => frame[(10 * 160 + 10) * 4..(10 * 160 + 10) * 4 + 3].fill(33),
-        5 => frame[(40 * 160 + 80) * 4..(40 * 160 + 80) * 4 + 3].fill(33),
+        5 => {
+            frame[((viewport.1 + 3) * 160 + cx) * 4..((viewport.1 + 3) * 160 + cx) * 4 + 3].fill(33)
+        }
         _ => {}
     }
     assert_eq!(check_cube(&frame, true, viewport).is_ok(), valid);

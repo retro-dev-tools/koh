@@ -5,6 +5,7 @@ bool cost = args.Length > 0 && args[0] == "--cost";
 bool fillCost = args.Length > 0 && args[0] == "--native-heap-cost";
 bool fillWrap = args.Length > 0 && args[0] == "--native-fill-wrap";
 bool copyWrap = args.Length > 0 && args[0] == "--native-copy-wrap";
+bool raster = args.Length > 0 && args[0] == "--native-raster";
 bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool oamMode = args.Length > 0 && args[0] == "--native-oam";
@@ -20,6 +21,7 @@ bool heap =
     || fillCost
     || fillWrap
     || copyWrap
+    || raster
     || (args.Length > 0 && args[0] == "--native-heap");
 bool native =
     args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu);
@@ -45,6 +47,7 @@ foreach (
     var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
     var timing = new VideoTiming(gb, oamMode);
     var fillWrites = new WrapTrace(copyWrap);
+    var rasterTrace = new RasterTrace(gb);
     if (video)
     {
         gb.Mmu.OamArray.AsSpan().Fill(0xC9);
@@ -84,6 +87,8 @@ foreach (
         gb.Mmu.Hook = new Koh.Emulator.Debug.CompositeMemoryHook(videoGuard, timing);
     if (fillWrap || copyWrap)
         gb.Mmu.Hook = fillWrites;
+    if (raster)
+        gb.Mmu.Hook = rasterTrace;
     int steps = 0;
     int dmaInstructions = 0;
     bool? controlIme = null;
@@ -236,6 +241,9 @@ foreach (
                 + string.Join(',', fillWrites.Reads.DefaultIfEmpty("-"))
                 + " "
                 + string.Join(',', fillWrites.Writes.DefaultIfEmpty("-"));
+        if (raster)
+            snapshot +=
+                $" {((rasterTrace.FinalIme ?? gb.Cpu.Ime) ? 1 : 0)}:{gb.Mmu.DebugRead(0xff70):X2}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)} {string.Join(',', rasterTrace.Reads.DefaultIfEmpty("-"))} {string.Join(',', rasterTrace.Writes.DefaultIfEmpty("-"))}";
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );
@@ -245,6 +253,32 @@ foreach (
         $"{gb.Mmu.DebugRead(0xC000):X2} {gb.Mmu.DebugRead(0xC001):X2} {Convert.ToHexString(result)} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}"
             + (cost ? $" {gb.Cpu.TotalTCycles}" : "")
     );
+}
+
+sealed class RasterTrace(GameBoySystem gb) : Koh.Emulator.Debug.MemoryHook
+{
+    bool active;
+    public List<string> Reads { get; } = [];
+    public List<string> Writes { get; } = [];
+    public bool? FinalIme { get; private set; }
+
+    public override void OnRead(ushort address, byte value)
+    {
+        if (active && address >= 0xD100 && address < 0xD190)
+            Reads.Add($"{address:X4}:{value:X2}");
+    }
+
+    public override void OnWrite(ushort address, byte value)
+    {
+        if (address == 0xff47)
+        {
+            if (active && value == 0x43)
+                FinalIme = gb.Cpu.Ime;
+            active = value == 0x42;
+        }
+        if (active && address == 0xff43)
+            Writes.Add($"{gb.Ppu.LY}:{gb.Ppu.Dot}:{(byte)gb.Ppu.Mode}:{value}");
+    }
 }
 
 sealed class WrapTrace(bool reads) : Koh.Emulator.Debug.MemoryHook

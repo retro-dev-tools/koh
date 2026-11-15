@@ -1267,6 +1267,59 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::HBlankStream {
+                    source,
+                    first,
+                    count,
+                    register,
+                } => {
+                    let done = code.label();
+                    code.load_a(slot(count));
+                    code.bytes(&[0xb7]);
+                    code.jump(0xca, done);
+                    code.bytes(&[0xf3, 0x4f]);
+                    code.load_a(slot(first));
+                    code.bytes(&[0x47, 0xfe, 144]);
+                    let bounds = code.import("__koh_trap_bounds".into());
+                    code.jump(0xd2, bounds);
+                    code.bytes(&[0x3e, 144, 0x90, 0xb9]);
+                    code.jump(0xda, bounds);
+                    code.bytes(&[0xf0, 0x40, 0xcb, 0x7f]);
+                    let hardware = code.import("__koh_trap_hardware".into());
+                    code.jump(0xca, hardware);
+                    code.bytes(&[0xc5]);
+                    code.indirect(slot(source) + 2);
+                    code.bytes(&[0x60, 0x69, 0xc1]);
+                    let leave_blank = code.label();
+                    let enter_blank = code.label();
+                    code.mark(leave_blank);
+                    code.bytes(&[0xf0, 0x44, 0xfe, 144]);
+                    code.jump(0xd2, leave_blank);
+                    code.mark(enter_blank);
+                    code.bytes(&[0xf0, 0x44, 0xfe, 144]);
+                    code.jump(0xda, enter_blank);
+                    let next = code.label();
+                    let line = code.label();
+                    let mode = code.label();
+                    code.mark(next);
+                    code.bytes(&[0x2a, 0x57]);
+                    code.mark(line);
+                    code.bytes(&[0xf0, 0x44, 0xb8]);
+                    code.jump(0xc2, line);
+                    code.mark(mode);
+                    code.bytes(&[0xf0, 0x41, 0xe6, 3]);
+                    code.jump(0xc2, mode);
+                    code.bytes(&[
+                        0x7a,
+                        0xea,
+                        register as u8,
+                        (register >> 8) as u8,
+                        0x04,
+                        0x0d,
+                    ]);
+                    code.jump(0xc2, next);
+                    code.mark(done);
+                }
                 Op::MemoryCopy {
                     destination,
                     source,

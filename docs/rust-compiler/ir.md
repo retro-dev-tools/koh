@@ -47,6 +47,10 @@ Local forwarding treats it as a memory barrier. Read/store order is ascending,
 including overlapping buffers; zero count accesses neither buffer. See
 [copy semantics and executable evidence](memory-copy.md).
 
+`HBlankStream` has native16 source, int32 first/count narrowed to unsigned8,
+a validated fixed display register and no result. All three uses survive operand
+remapping; the effect survives dead-value removal. See [raster semantics](raster-stream.md).
+
 Managed functions retain their assembly/token definition and source IL offsets.
 Generated [initializer guards](initializers.md) use the reserved FF identity tag,
 not a metadata MethodDef, and retain the real constructor in `InitializerAddress`.

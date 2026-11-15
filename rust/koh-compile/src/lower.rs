@@ -1319,6 +1319,16 @@ fn translate(
                     b.value(Type::Native, Op::Constant(u64::from(address)))
                 };
                 match intrinsic {
+                    Intrinsic::HBlankStream(register) => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::HBlankStream {
+                            source: arguments[0],
+                            first: arguments[1],
+                            count: arguments[2],
+                            register,
+                        },
+                        il_offset: b.offset,
+                    }),
                     Intrinsic::MemoryFill => b.instructions.push(Instruction {
                         result: None,
                         op: Op::MemoryFill {

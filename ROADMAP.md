@@ -23,7 +23,9 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   Full Linux Rust workspace/all-features passes924/924, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
   Forty-five legacy methods have complete replacements;520 remain partial/
-  outstanding, none deleted. Racing-beam and phase-sweep acceptance remain open.
+  outstanding, none deleted. Racing-beam now passes all four native configurations
+  with actual SCX/scanline traces; phase-sweep migration remains open. The924-test
+  workspace result predates the raster increment; its broader regression is pending.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain
   incomplete. Container cleanup is done. Existing API shapes are evidence,

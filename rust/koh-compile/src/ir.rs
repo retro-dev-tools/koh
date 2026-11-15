@@ -173,8 +173,18 @@ pub enum CpuControl {
     Stop,
 }
 
+pub(crate) fn is_hblank_register(register: u16) -> bool {
+    matches!(register, 0xff42..=0xff43 | 0xff47..=0xff4b)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    HBlankStream {
+        source: u32,
+        first: u32,
+        count: u32,
+        register: u16,
+    },
     ArenaAllocate(u32),
     ArenaReset,
     MemoryFill {
@@ -324,6 +334,11 @@ impl Op {
             Self::ExtractField { value, .. } => [Some(value), None],
             Self::StoreMemory { address, value, .. }
             | Self::MemoryFill { address, value, .. }
+            | Self::HBlankStream {
+                source: address,
+                first: value,
+                ..
+            }
             | Self::MemoryCopy {
                 destination: address,
                 source: value,
@@ -354,7 +369,9 @@ impl Op {
             _ => &[],
         };
         let count = match *self {
-            Self::MemoryFill { count, .. } | Self::MemoryCopy { count, .. } => Some(count),
+            Self::MemoryFill { count, .. }
+            | Self::MemoryCopy { count, .. }
+            | Self::HBlankStream { count, .. } => Some(count),
             _ => None,
         };
         pair.into_iter()
@@ -810,6 +827,21 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(storage.stack_type())
                     }
                     Op::ArenaReset | Op::CpuControl(_) => None,
+                    Op::HBlankStream {
+                        source,
+                        first,
+                        count,
+                        register,
+                    } => {
+                        if check(source, position)? != Type::Native
+                            || check(first, position)? != Type::I32
+                            || check(count, position)? != Type::I32
+                            || !is_hblank_register(register)
+                        {
+                            return Err("HBlank stream requires native source, int32 line/count and a display register".into());
+                        }
+                        None
+                    }
                     Op::MemoryFill {
                         address,
                         value,

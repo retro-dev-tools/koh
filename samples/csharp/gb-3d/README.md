@@ -13,7 +13,9 @@ dithered, and encoded into Game Boy 2bpp tile memory at runtime.
 The third experiment originally attempted to replace shared tile rows just behind the PPU fetch. Real
 DMG timing showed that even a very narrow generated-C# copy could not reliably meet HBlank. The shipped
 version therefore uses the viable raster-effect form of the technique: C# still draws the cube pixels,
-then races the beam with scanline scroll changes. It does not silently substitute either other backend.
+then races the beam with scanline scroll changes. `Ppu.StreamScrollX` streams a precomputed table in
+native code; ordinary C# polling/computation cannot guarantee HBlank timing. Nonempty streams leave
+interrupts disabled. See [the contract and executable evidence](../../../docs/rust-compiler/raster-stream.md).
 
 All ROMs are dual-compatible. On DMG they use the four-shade background palette. On CGB they detect
 `KEY1`, switch to double speed, and program a color background palette. The scene and renderer remain

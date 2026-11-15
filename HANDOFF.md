@@ -1,6 +1,53 @@
 # PR #55 handoff
 
-ACTIVE native byte-copy unit. Root owns code/serial builds; review read-only.
+RACING SDK: session76828 terminal exit0, /tmp/koh-raster-sdk.log 0warnings/errors,
+38.41s,131072byteROM. Direct header/global checksum and CGBflag checks pass.
+SDK emits obj/Release/net10.0/CubeRacingBeam.o and optional KDBG (still IL-only).
+All local builds terminal. Commit/push current complete raster unit next, then
+PRchecklist update; do not claim full migration/phase-sweep/source-debug complete.
+
+RASTER FINAL: session97729 terminal exit0, /tmp/koh-raster-regression.log
+380/380passed415.625s,126unrelateddriverfiltered. Includes all12realcubes,
+allIR/backend and4hardwareboundarycases. Read-only raster_review no blocking
+defect; no reviewer builds/edits. CSharpier ran before final regression. Tested
+code hashes in /tmp/koh-raster-tested.sha256. Root now owns serial SDK build
+session76828 /tmp/koh-raster-sdk.log; no second build until terminal. Commit,
+push and updatePR55 after SDK result. Phase-sweep and whole migration remainopen.
+
+ACTIVE raster unit; root owns all edits and serial builds. Reviewer may inspect
+only, no edits/builds. Base HEAD3ce00aa; current diff adds hblankstream metadata,
+typed IR/lowering/remap, native bounded stream, hardware fault9 and public
+Ppu.StreamScrollX. Racing sample precomputes table and uses native stream.
+Real four-way raster acceptance green4/4 in63.580s; boundary/IR10/10 in30.162s;
+backend/validators35/35 in8.023s. Logs /tmp/koh-racing-raster-green.log,
+/tmp/koh-hblank-boundaries.log, /tmp/koh-hblank-backend.log. Final expanded
+IR/remap/register tests + all sm83/IR/cubes and driver boundaries running in
+session97729 /tmp/koh-raster-regression.log; do not start another build until
+terminal. CSharpier formatted six owned C# files before final run. No commit
+yet. Review timing, count0/byte narrowing, long-offset setup, range/LCD guards,
+IME contract, optimizer effects and actual trace assertions. Full goal persists.
+
+Racing-beam acceptance in progress; three dirty files owned by root.
+Added physical scanline/SCX traces in CubeHost and four real racing ROM cases.
+Completed /tmp/koh-racing-raster-red.log: exit100, 0/4 passed. Geometry and
+animation pass before raster failure; writes occur during drawing or VBlank.
+No production timing fix yet; do not weaken raster assertions or claim support.
+Added nine adversarial raster-validator cases and expanded image-validator
+coverage to the racing viewport. Completed /tmp/koh-raster-checker.log: exit0,
+27/27 passed, 23 unrelated filtered, 0.199s. Session3588 terminal; no local build
+live. cargo fmt changed only the owned cubes.rs file. Next: choose a bounded
+hardware timing contract and implement/test native raster streaming; existing
+public API remains evidence, never the design baseline. Preserve full goal.
+
+ACTIVE full migration; byte-copy unit pushed3ce00aa7a944e03a3ea94a694ae0abd454c79dbe.
+Remote verified; draftPR55checklistupdated45/565complete520outstanding.
+Post-hook hashesmatchall14testedcode/fixturefiles. No localbuilds/tests live.
+NativeCI43771777807 andmanagedCI43771777666 confirmedinprogress; no greenclaim.
+Next: racing-beam native structural +SCX/HBlank effect validation and256phase
+sweep; inspectactualSurface.Present/Ppu.WaitForHBlank beforechoosingAPI/codefix.
+Classes2048v2/JRPG,PDB/KDBGsource,IRQ/bankeddata,testclosure,legacydeletion and
+hostperformance/release/crossplatform gates remainopen. Do notmerge orshrinkgoal.
+Onlythispost-pushhandoffrefreshuncommitted. Rootownsserialbuilds/code.
 Initial ordinaryCILcopy /tmp/koh-copy-cost-red.log8/8failedbudget: bulk3840
 Debug6235252T Release5735156T; exactmemoryassertions passedbeforeratefailure.
 Newaddresslessmemcopy contract void(byte*,byte*,ushort); typedMemoryCopy Op,
@@ -21,10 +68,10 @@ FinalrawBank2probe fixturestrengthening +allcontractcases4/4passed21.380s,
 64/256/1920=9040/19824/113008T, marginal56T/byte. Productioncodeunchanged.
 Reviewmemory_copy_review no blockingdefect; no reviewer builds/edits.
 No localbuildlive. Matrix45/565complete520outstandingzero physicallyretired.
-Needlogicalcommit/pushsamePR55, verifyhashesposthook, updatechecklist+vault.
+Commit3ce00aapushed; PRchecklistupdated; no legacycompilerfallbackadded.
 Do notclaimhostcompilerperformance fromtargetCPUcosts; legacyC#compilermustdelete.
 
-ACTIVE full native compiler migration. Latest pushed5c1c12e099b417fe69ac14a87c2f0b1c3eeb46db,
+Previous pin-scope checkpoint: pushed5c1c12e099b417fe69ac14a87c2f0b1c3eeb46db,
 remote verified; draftPR55updated withf86dfd7GDMA and5c1c12epinscopeincrements.
 NativeCI43764804111 andmanagedCI43764804116 confirmedinprogress; no greenclaim.
 Next: full-frameDMGDebug still450/750identical; profileMem.Copy6232152T and

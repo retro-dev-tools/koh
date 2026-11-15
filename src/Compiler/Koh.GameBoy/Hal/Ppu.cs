@@ -4,6 +4,12 @@ namespace Koh.GameBoy;
 /// and the tile map without tearing.</summary>
 public static class Ppu
 {
+    /// <summary>SCX table at consecutive HBlanks, starting next frame.</summary>
+    /// <remarks>LCD on; firstLine + count at most 144. Nonempty calls leave interrupts disabled.</remarks>
+    [KohIntrinsic("hblankstream", Hardware.ScrollXAddress)]
+    public static unsafe void StreamScrollX(byte* values, byte firstLine, byte count) =>
+        throw new PlatformNotSupportedException();
+
     /// <summary>Next VBlank window. LCD-on precondition.</summary>
     public static void WaitVBlank()
     {

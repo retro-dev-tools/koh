@@ -15,6 +15,130 @@ fn host() -> Host {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn hblank_stream_boundaries_and_hardware_state(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "HBlank");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for shape in ["Register", "Return", "Pointer", "Count"] {
+        let error =
+            compile::object(&resolver, Some(&format!("Program::Invalid{shape}"))).unwrap_err();
+        assert!(
+            error.contains("Invalid Koh hblankstream intrinsic contract") && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    for (name, first, count, fault, ime) in [
+        ("Zero", 255, 0, 0, 1),
+        ("ZeroOn", 144, 0, 0, 0),
+        ("First", 0, 1, 0, 0),
+        ("Last", 143, 1, 0, 0),
+        ("Full", 0, 144, 0, 0),
+        ("Cube", 39, 64, 0, 0),
+        ("Double", 0, 144, 0, 0),
+        ("BadFirst", 144, 1, 6, 0),
+        ("BadWrap", 255, 1, 6, 0),
+        ("BadEnd", 143, 2, 6, 0),
+        ("Off", 0, 1, 9, 0),
+    ] {
+        if name == "Double" && !color {
+            continue;
+        }
+        let entry = format!("Program::{name}");
+        let object = compile::object(&resolver, Some(&entry)).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if fault == 0 {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-raster",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 9 } else { 8 }, "{entry}: {text}");
+        assert_eq!(fields[0], format!("{fault:02X}"), "{entry}: {text}");
+        assert_eq!(fields[3], "OK", "{entry}: stack guard");
+        if fault == 0 {
+            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{entry}");
+        }
+        for bank in 0..if color { 2 } else { 1 } {
+            let mut memory = [if bank == 0 { 0x5a } else { 0x6b }; 4096];
+            if !color || bank == 1 {
+                for (i, value) in memory[0x100..0x190].iter_mut().enumerate() {
+                    *value = i as u8 + 1;
+                }
+            }
+            assert_heap_snapshot(fields[4 + bank], &memory, &entry);
+        }
+        let state = if color { 6 } else { 5 };
+        let control: Vec<_> = fields[state].split(':').collect();
+        assert_eq!(control[0], ime.to_string(), "{entry}: IME");
+        assert_eq!(
+            control[2],
+            if name == "Double" { "1" } else { "0" },
+            "{entry}: speed"
+        );
+        if color {
+            assert_eq!(
+                u8::from_str_radix(control[1], 16).unwrap() & 7,
+                2,
+                "{entry}: WRAM bank"
+            );
+        }
+        let performed = if fault == 0 { count as usize } else { 0 };
+        let expected_reads = (0..performed)
+            .map(|i| format!("{:04X}:{:02X}", 0xd100 + i, i + 1))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            fields[state + 1],
+            if performed == 0 {
+                "-".into()
+            } else {
+                expected_reads.join(",")
+            },
+            "{entry}: source reads"
+        );
+        if performed == 0 {
+            assert_eq!(fields[state + 2], "-", "{entry}: display writes");
+        } else {
+            let writes: Vec<_> = fields[state + 2].split(',').collect();
+            assert_eq!(writes.len(), performed, "{entry}");
+            for (i, write) in writes.iter().enumerate() {
+                let value: Vec<u32> = write.split(':').map(|s| s.parse().unwrap()).collect();
+                assert_eq!(
+                    (value[0], value[2], value[3]),
+                    (first + i as u32, 0, i as u32 + 1),
+                    "{entry}: {write}"
+                );
+                assert!(value[1] < 456, "{entry}: {write}");
+            }
+        }
+    }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn vblank_wait_observes_first_window_at_varied_entry_phases(
     host: &Host,
     #[case] configuration: &str,

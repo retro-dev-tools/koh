@@ -24,6 +24,7 @@ Implemented call-site contracts:
 | heapreset | `void()` | Release raw blocks while preserving managed arrays, no address |
 | memfill | `void(byte*, byte, ushort)` | Exact ascending [byte fill](runtime-memory.md), no address |
 | memcopy | `void(byte*, byte*, ushort)` | Ordered [byte copy](memory-copy.md), including overlap; no address |
+| hblankstream | `void(byte*, byte, byte)` | Bounded [HBlank display stream](raster-stream.md), fixed display-register address |
 
 Addresses must fit 0000..FFFF. A property marker applies to its accessor methods;
 a method marker can define a direct hardware alias. Multiple matching method and

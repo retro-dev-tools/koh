@@ -8,7 +8,32 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [native ordered byte copy](memory-copy.md). Rust now validates
+Current unit: [bounded HBlank streams](raster-stream.md). All four racing-beam
+Debug/Release × DMG/CGB cases now pass unchanged capture budgets and actual
+per-row SCX timing checks. Focused boundary/IR tests pass10/10; backend/validator
+checks pass35/35. Final formatted IR/backend/cube/boundary regression passes
+380/380 in415.625s, exit0 (`/tmp/koh-raster-regression.log`),126 unrelated
+driver tests filtered. Review found no blocking defect. Phase-sweep migration
+and current raster hosted validation remain pending. The924-test workspace
+result below predates this unit.
+Ordinary Release SDK racing-beam build succeeds with0 warnings/errors in38.41s,
+producing a131072-byte ROM with valid header/global checksums and CGB flag
+(`/tmp/koh-raster-sdk.log`). Portable PDB/source mapping remains unimplemented.
+
+Hosted copy-commit3ce00aa results were read directly from completed job logs:
+[Rust run43771777807](https://github.com/retro-dev-tools/koh/actions/runs/43771777807)
+passes Linux924/924 in713.150s, macOS924/924 in965.246s and Windows922/922
+in1396.444s, with zero skips in the workspace runs. Windows omits two Unix-only
+assembler path/symlink tests, not compiler targets. Separate rustdoc and native
+artifact smoke steps succeed on every host; the independent RGBDS job succeeds.
+[Managed run43771777666](https://github.com/retro-dev-tools/koh/actions/runs/43771777666)
+still fails Linux/Windows solution builds for 2048v2/JRPG reference classes
+(`Aggregate must be a sealed framework System.ValueType`). Its assembly2048,
+extension and SDL jobs pass; managed tests and AOT publishing are not reached.
+These results prove the previous commit's stated scope, not current raster or
+full migration acceptance.
+
+Previous unit: [native ordered byte copy](memory-copy.md). Rust now validates
 the metadata contract, lowers an effectful three-operand IR operation and emits
 an ascending SM83 byte loop. The3840-byte execution probe falls from6235252T
 Debug/5735156T Release to217748T; this is target execution, not host compiler

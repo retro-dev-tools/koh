@@ -14,6 +14,7 @@ pub(crate) enum Intrinsic {
     ResetArena,
     MemoryFill,
     MemoryCopy,
+    HBlankStream(u16),
     CpuControl(crate::ir::CpuControl),
     OamDma,
     Read(u16),
@@ -336,6 +337,24 @@ pub(crate) fn intrinsic(
             .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner)
     {
         return Err("Koh intrinsic requires a static non-generic method".into());
+    }
+    if kind == "hblankstream" {
+        use clrmeta::ElementType;
+        if !(0..=0xffff).contains(&address)
+            || !crate::ir::is_hblank_register(address as u16)
+            || signature.calling_convention.0 != 0
+            || signature.sentinel.is_some()
+            || signature.return_type != TypeSig::Primitive(ElementType::Void)
+            || signature.params
+                != [
+                    TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1))),
+                    TypeSig::Primitive(ElementType::U1),
+                    TypeSig::Primitive(ElementType::U1),
+                ]
+        {
+            return Err("Invalid Koh hblankstream intrinsic contract: expected static void(byte*, byte, byte) and a display register".into());
+        }
+        return Ok(Some(Intrinsic::HBlankStream(address as u16)));
     }
     if matches!(kind, "memfill" | "memcopy") {
         use clrmeta::ElementType;

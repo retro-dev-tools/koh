@@ -238,6 +238,12 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     destination: address,
                     source: stored,
                     count,
+                }
+                | Op::HBlankStream {
+                    source: address,
+                    first: stored,
+                    count,
+                    ..
                 } => {
                     value(address);
                     value(stored);

@@ -2,15 +2,11 @@ using System.Text;
 
 namespace Koh.GameBoy;
 
-/// <summary>
-/// The Game Boy memory-mapped register surface. On hardware these are bytes at 0xFF00.. that the CPU
-/// reads and writes; the Koh compiler lowers <c>Hardware.LCDC</c> etc. to those addresses. Under the
-/// plain .NET SDK the same names resolve here, and the runtime turns them into a real, playable game:
-/// reading <see cref="LY"/> paces the frame, <see cref="JOYP"/> reads the keyboard, and each frame the
-/// tile map is drawn to the console. So one source both compiles to a ROM and runs with <c>dotnet run</c>.
-/// </summary>
+/// <summary>Memory-mapped registers, identified by compiler metadata.</summary>
 public static class Hardware
 {
+    internal const int ScrollXAddress = 0xFF43;
+
     // Plain register storage. The game writes these to configure the display; the renderer reads LCDC
     // (bit 7 = LCD on) and BGP (the palette) to decide what and how to draw.
     [KohIntrinsic("register", 0xFF40)]
@@ -32,7 +28,7 @@ public static class Hardware
     [KohIntrinsic("register", 0xFF49)]
     public static byte OBP1 { get; set; }
 
-    [KohIntrinsic("register", 0xFF43)]
+    [KohIntrinsic("register", ScrollXAddress)]
     public static byte SCX { get; set; }
 
     [KohIntrinsic("register", 0xFF42)]

@@ -136,6 +136,7 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
         ("__koh_trap_bounds", 6),
         ("__koh_trap_initializer", 7),
         ("__koh_trap_pin", 8),
+        ("__koh_trap_hardware", 9),
     ] {
         symbols.push(symbol(name.into(), 1, data.len()));
         data.extend_from_slice(&[0xf3, 0x3e, code, 0xc3]);

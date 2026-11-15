@@ -3,6 +3,77 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(Type::Native, Type::I32, Type::I32, 0xff43, true)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff42, true)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff47, true)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff48, true)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff49, true)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff4a, true)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff4b, true)]
+#[case(Type::I32, Type::I32, Type::I32, 0xff43, false)]
+#[case(Type::Native, Type::I64, Type::I32, 0xff43, false)]
+#[case(Type::Native, Type::I32, Type::I64, 0xff43, false)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff40, false)]
+#[case(Type::Native, Type::I32, Type::I32, 0xff70, false)]
+fn hblank_stream_checks_types_and_register(
+    #[case] source: Type,
+    #[case] first: Type,
+    #[case] count: Type,
+    #[case] register: u16,
+    #[case] valid: bool,
+) {
+    let mut f = diamond();
+    f.parameters = vec![source, first, count];
+    f.returns = None;
+    f.locals.clear();
+    f.blocks = vec![Block {
+        parameters: vec![(0, source), (1, first), (2, count)],
+        instructions: vec![Instruction {
+            result: None,
+            op: Op::HBlankStream {
+                source: 0,
+                first: 1,
+                count: 2,
+                register,
+            },
+            il_offset: 99,
+        }],
+        terminator: Terminator {
+            il_offset: 100,
+            kind: Control::Return(None),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+    if valid {
+        f.locals = vec![Type::I32];
+        let mut stream = f.blocks[0].instructions.pop().unwrap();
+        if let Op::HBlankStream { count, .. } = &mut stream.op {
+            *count = 3;
+        }
+        f.blocks[0].instructions = vec![
+            Instruction {
+                result: None,
+                op: Op::StoreLocal { local: 0, value: 2 },
+                il_offset: 0,
+            },
+            instruction(3, Type::I32, Op::LoadLocal(0)),
+            stream,
+        ];
+        koh_compile::optimize::simplify(&mut f).unwrap();
+        let stream = f.blocks[0]
+            .instructions
+            .iter()
+            .find(|i| matches!(i.op, Op::HBlankStream { .. }))
+            .unwrap();
+        assert_eq!(stream.op.operands().collect::<Vec<_>>(), [0, 1, 2]);
+        assert_eq!(stream.il_offset, 99);
+        koh_compile::sm83::emit(&f).unwrap();
+        f.blocks[0].instructions.last_mut().unwrap().result = Some((4, Type::I32));
+        assert!(verify(&f).is_err());
+    }
+}
+
+#[rstest]
 #[case(Type::Native, Type::Native, Type::I32, true)]
 #[case(Type::I32, Type::Native, Type::I32, false)]
 #[case(Type::Native, Type::I32, Type::I32, false)]

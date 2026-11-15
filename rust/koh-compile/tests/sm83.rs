@@ -43,6 +43,72 @@ fn mixed_native_integer_operations_obey_the_operand_table(
     run(host, &[(f, vec![], Ok(expected))]);
 }
 
+#[rstest::rstest]
+#[case(0)]
+#[case(20)]
+fn hblank_stream_truncates_bytes_and_preserves_large_frames(host: &Host, #[case] locals: usize) {
+    let mut f = function(Type::I32, Op::Constant(0));
+    f.parameters = vec![Type::Native, Type::I32, Type::I32];
+    f.locals = vec![Type::I64; locals];
+    f.blocks[0].parameters = vec![(0, Type::Native), (1, Type::I32), (2, Type::I32)];
+    f.blocks[0].instructions.clear();
+    for (id, ty, value) in [
+        (3, Type::Native, 0xff40),
+        (4, Type::I32, 0x91),
+        (5, Type::Native, 0xff43),
+        (6, Type::I32, 0x33),
+        (7, Type::I32, 0),
+    ] {
+        f.blocks[0].instructions.push(Instruction {
+            result: Some((id, ty)),
+            op: Op::Constant(value),
+            il_offset: 0,
+        });
+    }
+    for (address, value) in [(3, 4), (5, 7), (0, 6)] {
+        f.blocks[0].instructions.push(Instruction {
+            result: None,
+            op: Op::StoreMemory {
+                address,
+                value,
+                bits: 8,
+            },
+            il_offset: 0,
+        });
+    }
+    f.blocks[0].instructions.push(Instruction {
+        result: None,
+        op: Op::HBlankStream {
+            source: 0,
+            first: 1,
+            count: 2,
+            register: 0xff43,
+        },
+        il_offset: 1,
+    });
+    f.blocks[0].instructions.push(Instruction {
+        result: Some((8, Type::I32)),
+        op: Op::LoadMemory {
+            address: 5,
+            bits: 8,
+            signed: false,
+        },
+        il_offset: 2,
+    });
+    f.blocks[0].terminator.kind = Control::Return(Some(8));
+    let cases = [
+        (0x100, 0x100, Ok(0)),
+        (0x100, 0x101, Ok(0x33)),
+        (0x18f, 1, Ok(0x33)),
+        (0x1ff, 0, Ok(0)),
+        (0x1ff, 1, Err(6)),
+        (143, 0x102, Err(6)),
+    ]
+    .map(|(first, count, result)| (f.clone(), vec![0xc018, first, count], result));
+    run(host, &cases);
+    run_at(host, &[(f, vec![0xc018, 0, 1], Err(1))], 0xc120);
+}
+
 fn function(ty: Type, op: Op) -> Function {
     Function {
         identity: Definition {
@@ -543,6 +609,14 @@ fn rom_program(
     data.extend_from_slice(&[
         0x3e, 8, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
     ]);
+    let bounds_trap = data.len() as u32;
+    data.extend_from_slice(&[
+        0x3e, 6, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
+    ]);
+    let hardware_trap = data.len() as u32;
+    data.extend_from_slice(&[
+        0x3e, 9, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
+    ]);
     data.resize(0x300, 0);
     let entry = Object {
         sections: vec![Section {
@@ -582,6 +656,20 @@ fn rom_program(
                 SymbolDefinition::Label {
                     section: SectionId(0),
                     offset: pin_trap,
+                },
+            ),
+            symbol(
+                "__koh_trap_bounds".into(),
+                SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: bounds_trap,
+                },
+            ),
+            symbol(
+                "__koh_trap_hardware".into(),
+                SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: hardware_trap,
                 },
             ),
         ],

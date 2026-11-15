@@ -92,19 +92,27 @@ See [contract, measured costs and completed logs](memory-copy.md).
 ## Cube replacements
 
 `Samples/Cube3dTests.cs` has3 methods,6 parameter-expanded cases and8 assertion
-sites. The native `cubes` target supplies8 real double-buffered/full-frame
-Debug/Release × DMG/CGB cases,12 independent viewport-validator cases and11
+sites. The native `cubes` target supplies12 real double-buffered/full-frame/
+racing-beam Debug/Release × DMG/CGB cases,18 independent viewport-validator cases and11
 GDMA-window boundary cases. They are discoverable by cargo-nextest, not skipped
 or feature-gated. Both variants now pass all four configurations after the
 [VBlank correction](vblank-window.md) and [native copy](memory-copy.md).
-These3 source methods are fully replaced; the separate racing-beam and phase-sweep
-tooling remains required migration work and is not silently counted complete.
+These3 source methods are fully replaced. Racing-beam additionally has9 adversarial
+trace-validator cases and actual per-row SCX checks; its separate standalone
+phase-sweep tooling still requires migration and is not counted complete.
 
 | Source method | Behavioral requirement and independent justification | Decision, native target and remaining work |
 | --- | --- | --- |
 | Demo_CompilesWithoutDiagnostics | Actual shipped sources and referenced library compile; compiler class names and diagnostic containers are private details | REPLACE with Roslyn/native compilation and actual ELF serialization/readback/linking in `cubes::cube_boots_and_animates`; both variants pass |
 | Demo_LinksToBootableRom | Cartridge header and startup execute on the supported hardware model | REPLACE weak NOP/JP/two-logo-byte checks with real DMG/CGB boot-ROM unmapping and bounded game execution; both variants pass |
 | Demo_RunOnHardwareRendersARealCube | Authored shaded projection is visible and animates; expectations derive from sample geometry/palette and SM83/PPU behavior | PORT with stronger two-capture palette, viewport, size, connectivity, animation and full DMA-window checks; all8 cases pass unchanged frame budgets |
+
+The separate racing-beam behavior now has native execution evidence beyond those
+original methods: four real builds pass unchanged budgets and physical SCX/line
+traces. `driver::hblank_stream_boundaries_and_hardware_state`, the HBlank Roslyn
+fixture and IR/backend cases assert exact stream reads/writes, faults, IME and
+bank/stack preservation. See [contract and evidence](raster-stream.md). This
+does not change the565-method completion count or defer any compiler coverage.
 
 The7 `CilCanvasTests.cs` methods (36 assertion sites) remain partial: the real
 cube exercises rasterization/presentation, but cannot replace their exact plane

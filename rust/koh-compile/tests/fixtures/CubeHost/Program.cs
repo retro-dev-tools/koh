@@ -15,7 +15,13 @@ ushort managed = Convert.ToUInt16(args[4], 16);
 ushort raw = Convert.ToUInt16(args[5], 16);
 var guard = new Mode3WriteGuard(gb);
 var dma = new DmaTrace(gb);
-gb.Mmu.Hook = new CompositeMemoryHook(guard, dma);
+bool raster = args.Length > 6 && args[6] == "racing-beam";
+var scroll = new ScrollTrace(gb);
+gb.Mmu.Hook = raster
+    ? new CompositeMemoryHook(guard, dma, scroll)
+    : new CompositeMemoryHook(guard, dma);
+if (raster)
+    gb.Ppu.HBlankEntered += scroll.Line;
 void Frame()
 {
     var result = gb.RunFrame();
@@ -85,6 +91,25 @@ using (var trace = new BinaryWriter(File.Create(args[0] + ".gdma")))
         trace.Write(dot);
         trace.Write(control);
     }
+if (raster)
+{
+    using var lines = new BinaryWriter(File.Create(args[0] + ".scroll-lines"));
+    foreach (var (ticks, line, value) in scroll.Lines)
+    {
+        lines.Write(ticks);
+        lines.Write(line);
+        lines.Write(value);
+    }
+    using var writes = new BinaryWriter(File.Create(args[0] + ".scroll-writes"));
+    foreach (var (ticks, line, dot, mode, value) in scroll.Writes)
+    {
+        writes.Write(ticks);
+        writes.Write(line);
+        writes.Write(dot);
+        writes.Write(mode);
+        writes.Write(value);
+    }
+}
 int Word(ushort address) =>
     gb.Mmu.DebugRead(address) | (gb.Mmu.DebugRead((ushort)(address + 1)) << 8);
 int rawStart = (0xe000 - Word(raw) + 15) & ~15;
@@ -111,5 +136,34 @@ sealed class DmaTrace(GameBoySystem system) : MemoryHook
             && (system.Ppu.LCDC & 0x80) != 0
         )
             Starts.Add((system.Ppu.LY, (ushort)system.Ppu.Dot, value));
+    }
+}
+
+sealed class ScrollTrace(GameBoySystem system) : MemoryHook
+{
+    public List<(ulong Ticks, byte Line, byte Value)> Lines { get; } = new();
+    public List<(ulong Ticks, byte Line, ushort Dot, byte Mode, byte Value)> Writes { get; } =
+        new();
+
+    public void Line()
+    {
+        if (!system.BootRomMapped)
+            Lines.Add((system.Clock.SystemTicks, system.Ppu.LY, system.Ppu.SCX));
+    }
+
+    public override void OnRead(ushort address, byte value) { }
+
+    public override void OnWrite(ushort address, byte value)
+    {
+        if (address == 0xFF43 && !system.BootRomMapped && (system.Ppu.LCDC & 0x80) != 0)
+            Writes.Add(
+                (
+                    system.Clock.SystemTicks,
+                    system.Ppu.LY,
+                    (ushort)system.Ppu.Dot,
+                    (byte)system.Ppu.Mode,
+                    value
+                )
+            );
     }
 }

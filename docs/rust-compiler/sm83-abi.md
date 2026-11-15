@@ -18,6 +18,11 @@ CALL return word is pushed before DMA and read after completion. Current calls
 require IME0; startup DI establishes that state. HRAM capacity/relocation belong
 to the linker, and unreferenced DMA reserves nothing.
 
+[HBlank streams](raster-stream.md) use HL source, B line, C count and D data.
+Setup reserves two transient stack bytes; the timing loop uses no stack or calls.
+Nonempty streams leave IME disabled; zero count leaves IME unchanged. Invalid
+line ranges use fault6; LCD-off nonempty streams use hardware fault9.
+
 Frame word transfers use BC and may clobber A, DE, HL and flags. Bank-switch
 helpers likewise clobber flags; no current caller depends on incoming flags
 surviving them. Byte loads/stores used inside arithmetic carry chains still preserve
