@@ -709,9 +709,50 @@ impl Code {
         self.mark(end);
     }
 
-    fn multiply(&mut self, left: Slot, right: Slot, destination: u16, width: u16, temp: u16) {
-        self.extend(left, temp, width);
-        self.extend(right, temp + 8, width);
+    fn multiply(&mut self, width: u16, temp: u16) {
+        let destination = temp + 16;
+        let wide = self.label();
+        let finished = self.label();
+        let sign = temp + 24;
+        if width >= 2 {
+            self.load_a(temp + width - 1);
+            self.load_b(temp + 8 + width - 1);
+            self.bytes(&[0xa8, 0xe6, 0x80]);
+            self.store_a(sign);
+            for slot in [temp, temp + 8] {
+                let positive = self.label();
+                self.load_a(slot + width - 1);
+                self.bytes(&[0xe6, 0x80]);
+                self.jump(0xca, positive);
+                self.negate(slot, slot, width);
+                self.mark(positive);
+            }
+            for slot in [temp, temp + 8] {
+                for byte in 1..width {
+                    self.load_a(slot + byte);
+                    self.bytes(&[0xb7]);
+                    self.jump(0xc2, wide);
+                }
+            }
+            self.indirect(temp);
+            self.bytes(&[0xc5]);
+            self.indirect(temp + 10);
+            self.bytes(&[0xd1, 0x41, 0x21, 0, 0, 0x0e, 8]);
+            let bit = self.label();
+            let skip = self.label();
+            self.mark(bit);
+            self.bytes(&[0xcb, 0x38]);
+            self.jump(0xd2, skip);
+            self.bytes(&[0x19]);
+            self.mark(skip);
+            self.bytes(&[0xcb, 0x23, 0xcb, 0x12, 0x0d]);
+            self.jump(0xc2, bit);
+            self.bytes(&[0x44, 0x4d]);
+            self.save_word(destination);
+            self.constant(destination + 2, width - 2, 0);
+            self.jump(0xc3, finished);
+        }
+        self.mark(wide);
         self.constant(destination, width, 0);
         self.bytes(&[0x0e, (width * 8) as u8]);
         let start = self.label();
@@ -726,6 +767,15 @@ impl Code {
         self.shift_one(temp + 8, width, false, false, false);
         self.bytes(&[0x0d]);
         self.jump(0xc2, start);
+        self.mark(finished);
+        if width >= 2 {
+            let positive = self.label();
+            self.load_a(sign);
+            self.bytes(&[0xb7]);
+            self.jump(0xca, positive);
+            self.negate(destination, destination, width);
+            self.mark(positive);
+        }
     }
 
     fn divide(
@@ -1164,7 +1214,28 @@ pub(crate) fn emit_with_strings(
         .iter()
         .flat_map(|b| &b.instructions)
         .any(|i| matches!(i.op, Op::NewArray {alignment,..} if alignment > 1));
-    code.guard(layout.size + if allocator.is_some() { 4 } else { 2 });
+    let multiplication = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .any(|i| {
+            matches!(
+                i.op,
+                Op::Binary {
+                    op: Binary::Multiply,
+                    ..
+                }
+            )
+        });
+    let mut multipliers = BTreeMap::<u16, SymbolId>::new();
+    code.guard(
+        layout.size
+            + if allocator.is_some() || multiplication {
+                4
+            } else {
+                2
+            },
+    );
     code.adjust_sp(-i32::from(layout.size));
     for &flag in layout.pins.values() {
         code.constant(flag, 1, 0);
@@ -1662,13 +1733,11 @@ pub(crate) fn emit_with_strings(
                                 );
                             }
                         } else {
-                            code.multiply(
-                                place(left),
-                                place(right),
-                                destination,
-                                width,
-                                layout.arithmetic,
-                            );
+                            code.extend(place(left), layout.arithmetic, width);
+                            code.extend(place(right), layout.arithmetic + 8, width);
+                            let routine = *multipliers.entry(width).or_insert_with(|| code.label());
+                            code.jump(0xcd, routine);
+                            code.copy(layout.arithmetic + 16, destination, width);
                         }
                     }
                     Binary::DivideSigned
@@ -1817,6 +1886,12 @@ pub(crate) fn emit_with_strings(
                 code.bytes(&[0xc9]);
             }
         }
+        code.check_size()?;
+    }
+    for (width, routine) in multipliers {
+        code.mark(routine);
+        code.multiply(width, layout.arithmetic + 2);
+        code.bytes(&[0xc9]);
         code.check_size()?;
     }
     if let Some(allocator) = allocator {

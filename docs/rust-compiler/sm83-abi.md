@@ -117,6 +117,14 @@ and return. Division is restoring long division with an overflow bit retained fo
 the remainder; multiplication is width-bounded shift/add. Signed helpers normalize
 magnitudes and restore signs. No integer arithmetic is delegated to C#.
 
+Small multiplication magnitudes use an8x8 register loop with a16-bit product;
+larger operands keep the width-bounded loop. A local helper per function/width
+uses the existing25-byte scratch region: inputs0/8, result16, sign24. The CALL
+return shifts its SP-relative addresses by2; the entry guard reserves4 scratch
+bytes for that return and its temporary push. This is an internal same-bank
+routine, not a managed call or another preserved-register convention. See
+[semantic proof and execution measurements](magnitude-multiply.md).
+
 Rust tests serialize emitted objects to ELF, read them back, link with `koh-link`,
 and invoke a minimal C# host around the unchanged emulator. The host initializes
 test-owned output/guard memory, steps with a fixed bound and reports memory/SP;

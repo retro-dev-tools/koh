@@ -959,6 +959,126 @@ fn widths_comparisons_shifts_and_conversions_execute(host: &Host) {
 #[rstest::rstest]
 #[case(Type::I32)]
 #[case(Type::I64)]
+fn repeated_products_fit_a_rom_bank_and_preserve_frames(host: &Host, #[case] ty: Type) {
+    let mut f = function(
+        ty,
+        Op::Binary {
+            op: Binary::Multiply,
+            left: 0,
+            right: 1,
+        },
+    );
+    f.locals = vec![Type::I64; 20];
+    f.blocks[0].instructions = (2..42)
+        .map(|id| Instruction {
+            result: Some((id, ty)),
+            op: Op::Binary {
+                op: Binary::Multiply,
+                left: if id == 2 { 0 } else { id - 1 },
+                right: 1,
+            },
+            il_offset: id,
+        })
+        .collect();
+    f.blocks[0].terminator.kind = Control::Return(Some(41));
+    run(host, &[(f, vec![30, 1], Ok(30))]);
+}
+
+#[rstest::rstest]
+#[case(Type::I32, 0xffff_ffe2, 0xffff_ff81)]
+#[case(Type::I64, (-30i64) as u64, (-127i64) as u64)]
+fn small_multiplication_cycle_cost(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] left: u64,
+    #[case] right: u64,
+) {
+    let f = function(
+        ty,
+        Op::Binary {
+            op: Binary::Multiply,
+            left: 0,
+            right: 1,
+        },
+    );
+    let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
+    let path = directory.path().join("multiply.gb");
+    std::fs::write(&path, rom(&f, &[left, right], 0xd000)).unwrap();
+    let output = dotnet()
+        .arg(&host.dll)
+        .arg("--cost")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let fields: Vec<_> = stdout.split_whitespace().collect();
+    assert_eq!(fields[0], "A5", "{stdout}");
+    assert_eq!(fields[2], "E20E000000000000", "{stdout}");
+    assert_eq!(fields[3], "D000", "{stdout}");
+    assert_eq!(fields[4], "OK", "{stdout}");
+    let cycles: u64 = fields[5].parse().unwrap();
+    println!("{ty:?}: {cycles} T-cycles");
+    assert!(
+        cycles < 20000,
+        "small {ty:?} multiplication costs {cycles} T-cycles; budget 20000"
+    );
+}
+
+#[rstest::rstest]
+#[case(Type::Native, 0)]
+#[case(Type::Native, 20)]
+#[case(Type::I32, 0)]
+#[case(Type::I32, 20)]
+#[case(Type::I64, 0)]
+#[case(Type::I64, 20)]
+fn multiplication_dispatch_preserves_modular_width(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] locals: usize,
+) {
+    let mask = if ty == Type::I64 {
+        u64::MAX
+    } else {
+        (1u64 << ty.bits()) - 1
+    };
+    let sign = 1u64 << (ty.bits() - 1);
+    let mut cases = Vec::new();
+    for (left, right) in [
+        (0, 0),
+        (255, 255),
+        (256, 255),
+        (255, 256),
+        (mask, mask),
+        (mask - 254, 255),
+        (255, mask - 254),
+        (mask - 255, 255),
+        (sign, mask),
+        (sign, 2),
+        (sign, sign),
+        (sign + 1, 3),
+    ] {
+        let mut f = function(
+            ty,
+            Op::Binary {
+                op: Binary::Multiply,
+                left: 0,
+                right: 1,
+            },
+        );
+        f.locals = vec![Type::I64; locals];
+        cases.push((f, vec![left, right], Ok(left.wrapping_mul(right) & mask)));
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case(Type::I32)]
+#[case(Type::I64)]
 fn narrow_spills_preserve_full_width_arithmetic_and_call_results(host: &Host, #[case] ty: Type) {
     let mask = if ty == Type::I64 {
         u64::MAX
@@ -1400,6 +1520,13 @@ fn stack_capacity_is_checked_before_frame_writes(host: &Host) {
         },
     );
     run_at(host, &[(f.clone(), vec![1, 2], Err(1))], 0xc120);
+    let mut multiply = f.clone();
+    multiply.blocks[0].instructions[0].op = Op::Binary {
+        op: Binary::Multiply,
+        left: 0,
+        right: 1,
+    };
+    run_at(host, &[(multiply, vec![30, 127], Err(1))], 0xc120);
     let mut huge = f;
     huge.parameters = vec![Type::I64; 1000];
     huge.blocks[0].parameters = (0..1000).map(|id| (id, Type::I64)).collect();
