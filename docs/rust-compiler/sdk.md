@@ -80,10 +80,11 @@ zero violations. Logs: `/tmp/koh-sdk-native-showcase-build.log`,
 `/tmp/koh-sdk-native-showcase-run.log`; artifacts are outside tracked sample assets.
 These observations are not performance comparisons or source-debug acceptance.
 
-The complete local SDK target passed3/3, zero skipped, in143.807s, exit0
-(`/tmp/koh-sdk-complete-focused.log`). A final test-only timestamp-isolation
-adjustment postdates that binary and requires its post-commit follow-up. This
-is not a full workspace or cross-host result. Red evidence includes native-tool
+The post-commit local SDK target passed3/3, zero skipped, in152.483s, exit0
+(`/tmp/koh-sdk-postcommit.log`), including timestamp-isolation checks. The full
+all-features workspace passed774/774, zero skipped, in1230.794s
+(`/tmp/koh-sdk-workspace.log`); separate doctests passed (no cases). These are
+local results, not cross-host acceptance. Red evidence includes native-tool
 selection ignored by the old SDK (`/tmp/koh-sdk-native-red.log`), stale debug
 symbols (`/tmp/koh-sdk-debug-toggle-red.log`), DLL replacement through an output
 alias (`/tmp/koh-sdk-alias-red.log`), and relative-ROM launch failure
@@ -94,6 +95,16 @@ Portable PDB reading and source KDBG/debugger validation are still outstanding.
 Current KDBG emission must not be described as completed source-level debugging.
 Other real games, release archives/CI packaging and legacy compiler deletion
 remain migration gates in this same draft PR.
+
+The published Linux build-task payload includes both native tools and the existing
+complete Rust dependency notice/license bundle. Both tools report1.0.2; the
+payload contains neither `Koh.Compiler.dll` nor `Mono.Cecil.dll`. Selecting its
+task DLL with default colocated tool discovery builds the real graphics sample;
+the managed emulator executes1200frames with a160x144 PNG and zero mode3
+violations. Logs: `/tmp/koh-compiler-task-package.log`,
+`/tmp/koh-compiler-task-package-smoke.log`, `/tmp/koh-compiler-task-package-run.log`.
+Release CI additionally runs the Rust SDK graphics case against its uploaded
+release executables on each host. Tagged archive/AOT smoke results remain open.
 
 ## Hosted predecessor regressions
 

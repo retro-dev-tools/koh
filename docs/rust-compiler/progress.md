@@ -15,7 +15,17 @@ three-case SDK target. The actual graphics sample builds a65536-byte ROM and
 runs1200frames with zero mode3 writes. Source debugging and release packaging
 remain open; a KDBG file is not proof of Portable PDB mappings. The two tile-sheet
 tests now have native ownership:26of565 complete,539 partial/outstanding, none
-physically retired. Full workspace and hosted validation of this unit are pending.
+physically retired. The local all-features workspace run completed774/774,
+zero skipped, in1230.794s (`/tmp/koh-sdk-workspace.log`); separate doctests passed
+(no cases). Hosted validation and final migration acceptance remain separate.
+
+Native CI/release packaging includes `koh-compile` at961e7c3. The task payload
+copies the existing complete Rust dependency notices and license bundle alongside
+both native tools. A published Linux task payload compiled the real graphics
+sample and the managed emulator ran1200frames:65536-byte ROM, PNG160x144,
+zero mode3 violations. Logs: `/tmp/koh-compiler-task-package.log`,
+`/tmp/koh-compiler-task-package-smoke.log`, `/tmp/koh-compiler-task-package-run.log`.
+This is not a tagged archive, AOT emulator or cross-platform release proof.
 
 [Banked calls](rom-banking.md) passed 4/4 expanded ABI cases in 37.635s and a
 755/755 workspace regression in 2581.751s, zero skipped

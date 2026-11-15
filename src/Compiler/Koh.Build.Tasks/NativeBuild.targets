@@ -7,6 +7,8 @@
   <ItemGroup>
     <Content Include="$(KohCompilerCargoTargetDir)/release/koh-compile$(KohCompilerExecutableSuffix)" Link="koh-compile$(KohCompilerExecutableSuffix)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(KohCompilerCargoTargetDir)/release/koh-link$(KohCompilerExecutableSuffix)" Link="koh-link$(KohCompilerExecutableSuffix)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(KohCompilerRoot)licenses/rust-assembler/**/*" Link="licenses/rust-assembler/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(KohCompilerRoot)licenses/rust-assembler-dependencies.md" Link="licenses/rust-assembler-dependencies.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="BuildRustCompiler" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
     <Exec WorkingDirectory="$(KohCompilerRoot)" Command="cargo build --release --package koh-compile --package koh-link --locked --target-dir &quot;$(KohCompilerCargoTargetDir)&quot;" />
