@@ -2,6 +2,205 @@ use koh_compile::ir::*;
 use koh_compile::resolve::Definition;
 use rstest::rstest;
 
+#[rstest]
+#[case(1)]
+#[case(16)]
+#[case(64)]
+#[case(4096)]
+fn aggregate_widths_preserve_full_storage(#[case] bytes: u16) {
+    let identity = Definition {
+        assembly: 0,
+        token: 0x02000001,
+    };
+    let value = ValueType::new(identity, bytes).unwrap();
+    assert_eq!((value.identity(), value.bytes()), (identity, bytes));
+    assert_eq!(Type::Struct(value).bits(), bytes * 8);
+    assert_eq!(Type::StructRef(value).bits(), 16);
+    let mut f = static_address(0x04000001, 2, Type::Native);
+    f.returns = Some(Type::Struct(value));
+    f.blocks[0].instructions[0] = instruction(0, Type::Struct(value), Op::Constant(0));
+    assert!(verify(&f).unwrap_err().contains("Aggregate constants"));
+}
+
+#[rstest]
+#[case(0x02000001, 0)]
+#[case(0x02000001, 4097)]
+#[case(0x02000001, u16::MAX)]
+#[case(0x02000000, 1)]
+#[case(0x01000001, 1)]
+#[case(0x04000001, 1)]
+fn invalid_aggregate_descriptors_diagnose(#[case] token: u32, #[case] bytes: u16) {
+    assert!(ValueType::new(Definition { assembly: 0, token }, bytes).is_err());
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn aggregate_identity_requires_consistent_storage(#[case] different_assembly: bool) {
+    let mut f = diamond();
+    let ty = Type::Struct(
+        ValueType::new(
+            Definition {
+                assembly: 0,
+                token: 0x02000001,
+            },
+            64,
+        )
+        .unwrap(),
+    );
+    f.parameters = vec![ty];
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![(0, ty)],
+        instructions: vec![],
+        terminator: Terminator {
+            kind: Control::Return(None),
+            il_offset: 0,
+        },
+    }];
+    verify(&f).unwrap();
+    let mut other = f.clone();
+    other.identity.token += 1;
+    let ty = Type::Struct(
+        ValueType::new(
+            Definition {
+                assembly: usize::from(different_assembly),
+                token: 0x02000001,
+            },
+            128,
+        )
+        .unwrap(),
+    );
+    other.parameters[0] = ty;
+    other.blocks[0].parameters[0].1 = ty;
+    assert_eq!(verify_program(&[f, other]).is_ok(), different_assembly);
+}
+
+fn aggregate_field(native: bool, nested: bool, offset: u16) -> Function {
+    let owner = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        64,
+    )
+    .unwrap();
+    let storage = if nested {
+        Storage::Struct(
+            ValueType::new(
+                Definition {
+                    assembly: 0,
+                    token: 0x02000002,
+                },
+                8,
+            )
+            .unwrap(),
+        )
+    } else {
+        Storage::Scalar(Scalar::U8)
+    };
+    let input = if native {
+        Type::Native
+    } else {
+        Type::StructRef(owner)
+    };
+    let output = if native {
+        Type::Native
+    } else {
+        storage.reference_type()
+    };
+    let mut f = diamond();
+    f.parameters = vec![input];
+    f.locals.clear();
+    f.returns = Some(output);
+    f.blocks = vec![Block {
+        parameters: vec![(0, input)],
+        instructions: vec![instruction(
+            1,
+            output,
+            Op::FieldAddress {
+                address: 0,
+                owner,
+                offset,
+                storage,
+            },
+        )],
+        terminator: Terminator {
+            kind: Control::Return(Some(1)),
+            il_offset: 2,
+        },
+    }];
+    f
+}
+
+#[rstest]
+#[case(false, false)]
+#[case(false, true)]
+#[case(true, false)]
+#[case(true, true)]
+fn field_references_preserve_native_bank_provenance(#[case] native: bool, #[case] nested: bool) {
+    let mut f = aggregate_field(native, nested, 8);
+    verify(&f).unwrap();
+    let changed = if native {
+        Type::ByRef(Scalar::U8)
+    } else {
+        Type::Native
+    };
+    f.returns = Some(changed);
+    f.blocks[0].instructions[0].result.as_mut().unwrap().1 = changed;
+    assert!(verify(&f).is_err());
+}
+
+#[rstest]
+#[case(56, true, true)]
+#[case(57, true, false)]
+#[case(63, false, true)]
+#[case(64, false, false)]
+#[case(u16::MAX, true, false)]
+fn aggregate_field_extents_are_checked(
+    #[case] offset: u16,
+    #[case] nested: bool,
+    #[case] valid: bool,
+) {
+    assert_eq!(
+        verify(&aggregate_field(false, nested, offset)).is_ok(),
+        valid
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn derived_struct_field_references_cannot_escape_frame(#[case] nested: bool) {
+    let mut f = aggregate_field(false, nested, 8);
+    let Type::StructRef(owner) = f.parameters[0] else {
+        unreachable!()
+    };
+    f.parameters.clear();
+    f.locals = vec![Type::Struct(owner)];
+    let field = f.blocks[0].instructions[0].clone();
+    f.blocks[0].parameters.clear();
+    f.blocks[0].instructions = vec![
+        instruction(2, Type::Struct(owner), Op::ZeroStruct),
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 2 },
+            il_offset: 0,
+        },
+        instruction(
+            0,
+            Type::StructRef(owner),
+            Op::LocalAddress {
+                local: 0,
+                storage: Storage::Struct(owner),
+            },
+        ),
+        field,
+    ];
+    assert!(verify(&f).unwrap_err().contains("current frame may escape"));
+}
+
 fn instruction(id: u32, ty: Type, op: Op) -> Instruction {
     Instruction {
         result: Some((id, ty)),
@@ -199,7 +398,7 @@ fn pinning_cannot_hide_a_managed_frame_reference_escape() {
                 Type::ByRef(Scalar::U8),
                 Op::LocalAddress {
                     local: 1,
-                    scalar: Scalar::U8,
+                    storage: Storage::Scalar(Scalar::U8),
                 },
             ),
         ],
@@ -545,7 +744,7 @@ fn frame_reference() -> Function {
                     Type::ByRef(Scalar::I32),
                     Op::LocalAddress {
                         local: 0,
-                        scalar: Scalar::I32,
+                        storage: Storage::Scalar(Scalar::I32),
                     },
                 ),
             ],
@@ -666,7 +865,10 @@ fn local_addresses_validate_index_and_storage(
     let mut f = frame_reference();
     f.returns = None;
     f.blocks[0].terminator.kind = Control::Return(None);
-    f.blocks[0].instructions.last_mut().unwrap().op = Op::LocalAddress { local, scalar };
+    f.blocks[0].instructions.last_mut().unwrap().op = Op::LocalAddress {
+        local,
+        storage: Storage::Scalar(scalar),
+    };
     f.blocks[0].instructions.last_mut().unwrap().result = Some((2, result));
     assert_eq!(verify(&f).is_ok(), valid);
 }
@@ -687,7 +889,7 @@ fn initializer_state_addresses_are_native_method_storage(
     assert_eq!(verify(&f).is_ok(), valid);
 }
 
-fn static_address(token: u32, bytes: u8, ty: Type) -> Function {
+fn static_address(token: u32, bytes: u16, ty: Type) -> Function {
     let mut f = diamond();
     f.parameters.clear();
     f.locals.clear();
@@ -754,7 +956,7 @@ fn storage_alignment_is_bounded_power_of_two(#[case] alignment: u16, #[case] val
 #[case(0x04000001, 1, Type::ByRef(Scalar::I32), false)]
 fn static_addresses_require_valid_identity_width_and_result(
     #[case] token: u32,
-    #[case] bytes: u8,
+    #[case] bytes: u16,
     #[case] ty: Type,
     #[case] valid: bool,
 ) {
@@ -842,7 +1044,7 @@ fn managed_reference_calls_preserve_the_storage_type(
 fn memory_widths_are_verified(
     #[case] address: Type,
     #[case] value: Type,
-    #[case] bits: u8,
+    #[case] bits: u16,
     #[case] valid: bool,
 ) {
     let mut f = diamond();

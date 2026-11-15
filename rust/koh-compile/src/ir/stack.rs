@@ -49,9 +49,9 @@ impl Constants<'_> {
                                     .into(),
                             );
                         }
-                        let copied = bits.min(self.ty(value).bits()).min(target);
+                        let copied = u16::from(bits).min(self.ty(value).bits()).min(target);
                         let mask = |bits| {
-                            if bits == 64 {
+                            if bits >= 64 {
                                 u64::MAX
                             } else {
                                 (1u64 << bits) - 1

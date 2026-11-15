@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: eight legacy methods; zero physically retired.**
-The switch, alignment, tile-copy and initialization groups are detailed below.
-The remaining557 methods still have
+**Native behavioral replacements: ten legacy methods; zero physically retired.**
+The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
+The remaining555 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -167,3 +167,26 @@ The audit findings above come from source inspection. Native execution evidence
 is recorded separately in [the SM83 ABI/slice](sm83-abi.md) and
 [progress](progress.md); it does not reproduce all identified legacy risks or
 establish completion of the final supported subset.
+
+### Unmanaged aggregate coverage
+
+The new native layout/IR/backend and real Roslyn fixtures are described in
+[aggregates.md](aggregates.md). Discoverable targets are `layout`, `ir`, `sm83`
+and `driver`; C# sources are fixture inputs, not compiler test implementations.
+
+| Source group | Requirement and independent justification | Disposition and native target |
+| --- | --- | --- |
+| `CilStructTests.StructFieldRoundTrip_WholeCopyDoesNotAlias` | C# value assignment copies storage; later mutation must not alias. | PORT: `driver::aggregate_csharp_values_and_native_fields_preserve_banks`, nested/explicit value copies and unchanged original fields. |
+| `CilStructTests.ByValStructParameter_CalleeMutationNotVisibleToCaller` | A by-value parameter has independent storage. | PORT: same driver, `Change(Packet)` mutates four scalar widths and returns a distinct value while the caller's original remains unchanged. |
+| `CilStructTests.RefStructParameter_MutatesCallersStorage` | Byrefs alias original storage. | Partial PORT: actual Sprite implicit-this/out methods and overlapping `Copy(ref Packet,ref Packet)`; retain pending whole-source retirement audit. |
+| `CilStructTests.NestedStructsAndArraysOfStructs_FieldsRoundTrip` | Nested fields and aggregate array elements retain identity. | Partial PORT: nested fields implemented; aggregate arrays still outstanding, not deleted or deferred. |
+| `CilStructReturnTests` | Value results, chaining, recursion, generic structs and concrete enumerators. | Partial PORT: ordinary factories, calls, nested/static results implemented; remaining shapes still outstanding. |
+| `CilSpritesTests`, `CilSpritesCgbTests`, `CilSpritePaletteHardwareTests` | Real sprite rendering, CGB attributes and hardware state. | Partial PORT: actual handle methods and exact shadow storage implemented; OAM flush, rendered sprites and palette scenarios remain outstanding. |
+| Legacy layout/private IR assumptions | Preserve language layouts, ABI and diagnostics rather than class identity. | REPLACE: bounded metadata mutations, canonical typed descriptors, field bounds/provenance, escape rejection and machine execution. |
+
+Both complete value-copy replacements preserve successful frontend lowering,
+verified IR, and independently expected Debug/Release execution. Their old BGP
+verdict channel is replaced by a return checksum plus whole-memory guards;
+register I/O is independently covered by the existing hardware fixtures.
+Final verified counts are recorded in progress.md after the complete run.
+No generic/array/sprite group is marked complete from a smaller passing subset.

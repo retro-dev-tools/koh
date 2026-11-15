@@ -6,8 +6,9 @@ pub(super) struct Widths {
     pub locals: Vec<u16>,
 }
 
-fn mask(bits: u8) -> u64 {
-    if bits == 64 {
+fn mask(bits: impl Into<u16>) -> u64 {
+    let bits = bits.into();
+    if bits >= 64 {
         u64::MAX
     } else {
         (1u64 << bits) - 1
@@ -21,7 +22,7 @@ fn width(ty: Type, maximum: u64) -> u16 {
             .find(|&bytes| bytes == 8 || maximum < 1u64 << (bytes * 8))
             .unwrap_or(8)
     } else {
-        u16::from(ty.bits() / 8)
+        ty.bits() / 8
     }
 }
 
@@ -44,18 +45,25 @@ pub(super) fn analyze(function: &Function) -> Widths {
     let mut aliases = vec![0; locals.len()];
     let mut minimum = vec![0; locals.len()];
     for i in function.blocks.iter().flat_map(|b| &b.instructions) {
-        if let Op::LocalAddress { local, scalar } = i.op {
+        if let Op::LocalAddress { local, storage } = i.op {
             let index = local as usize;
             let maximum = if matches!(
-                scalar,
-                Scalar::Bool | Scalar::U8 | Scalar::Char | Scalar::U16 | Scalar::U32 | Scalar::U64
+                storage,
+                Storage::Scalar(
+                    Scalar::Bool
+                        | Scalar::U8
+                        | Scalar::Char
+                        | Scalar::U16
+                        | Scalar::U32
+                        | Scalar::U64
+                )
             ) {
-                mask(scalar.bits())
+                mask(storage.bytes() * 8)
             } else {
                 mask(function.locals[index].bits())
             };
             aliases[index] = aliases[index].max(maximum);
-            minimum[index] = minimum[index].max(u16::from(scalar.bits() / 8));
+            minimum[index] = minimum[index].max(storage.bytes());
         }
     }
     let mut incoming = vec![vec![]; function.blocks.len()];
@@ -112,7 +120,7 @@ pub(super) fn analyze(function: &Function) -> Widths {
                         bits,
                         signed,
                     } => {
-                        let copied = bits.min(types[&value].bits()).min(ty.bits());
+                        let copied = u16::from(bits).min(types[&value].bits()).min(ty.bits());
                         let bound = maximum[&value].min(mask(copied));
                         if signed && bound >= 1u64 << (copied - 1) {
                             full

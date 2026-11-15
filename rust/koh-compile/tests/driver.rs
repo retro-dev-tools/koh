@@ -440,6 +440,235 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
     }
 }
 
+fn struct_images(host: &Host, configuration: &str) -> (tempfile::TempDir, [Vec<u8>; 2]) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh struct sprite ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Structs");
+    for name in ["Structs.csproj", "Program.cs"] {
+        std::fs::copy(source.join(name), directory.path().join(name)).unwrap();
+    }
+    let result = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Structs.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let images =
+        ["Structs.dll", "Koh.GameBoy.dll"].map(|name| std::fs::read(output.join(name)).unwrap());
+    (directory, images)
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn actual_sprite_handles_mutate_shadow_storage(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = struct_images(host, configuration);
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let object = compile::object(
+        &resolver,
+        Some(if color {
+            "Program::Banked"
+        } else {
+            "Program::Main"
+        }),
+    )
+    .unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Only
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let text = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-video",
+    );
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(fields.len(), if color { 11 } else { 9 });
+    assert_eq!(
+        (fields[0], fields[1], fields[2], fields[3]),
+        ("00", "00000003", "D000", "OK")
+    );
+    let mut heap = vec![0x5a; 4096];
+    for (header, length) in [(0x0e, 1024usize), (0x41e, 1024), (0x8fe, 160)] {
+        heap[header..header + 2].copy_from_slice(&(length as u16).to_le_bytes());
+        heap[header + 2..header + 2 + length].fill(0);
+    }
+    heap[0x90c..0x910].copy_from_slice(&[25, 6, 11, 0x20]);
+    assert_heap_snapshot(fields[4], &heap, "Sprite shadow");
+    let mut vram = vec![0xa7; 8192];
+    vram[0x1800..].fill(0);
+    assert_heap_snapshot(
+        fields[if color { 6 } else { 5 }],
+        &vram,
+        "unchanged tile data/cleared maps",
+    );
+    if color {
+        assert_heap_snapshot(fields[5], &[0x6b; 4096], "untouched bank2");
+        assert_heap_snapshot(fields[7], &[0xb8; 8192], "untouched VRAM1");
+    }
+    assert_heap_snapshot(
+        fields[if color { 9 } else { 7 }],
+        &[0; 160],
+        "unflushed hardware OAM",
+    );
+    assert_eq!(fields[if color { 10 } else { 8 }], "11E4E4E4");
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn aggregate_csharp_values_and_native_fields_preserve_banks(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = struct_images(host, configuration);
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let token = (1..=assembly.metadata().method_defs.len())
+        .map(|row| 0x06000000 | row as u32)
+        .find(|&token| assembly.method_name(token).unwrap() == "Program::Copy")
+        .unwrap();
+    let body = assembly.method_body(token).unwrap();
+    let instructions = koh_compile::cil::decode(body.il).unwrap();
+    let pair = instructions
+        .windows(2)
+        .find(|pair| {
+            pair[0].opcode == 0x71
+                && pair[1].opcode == 0x81
+                && pair[0].operand == pair[1].operand
+                && pair[1].offset == pair[0].offset + 5
+        })
+        .expect("Roslyn Copy must snapshot and store the same Packet type");
+    let base = (body.il.as_ptr() as usize)
+        .checked_sub(images[0].as_ptr() as usize)
+        .unwrap();
+    assert_eq!(&images[0][base..base + body.il.len()], body.il);
+    let offset = base + pair[0].offset as usize;
+    let mut cpobj = images[0].clone();
+    cpobj[offset] = 0x70;
+    cpobj[offset + 5..offset + 10].fill(0);
+    let copy_resolver = Resolver::new(&[&cpobj, &images[1]]).unwrap();
+    assert!(
+        koh_compile::cil::decode(
+            copy_resolver
+                .assembly(0)
+                .unwrap()
+                .method_body(token)
+                .unwrap()
+                .il
+        )
+        .unwrap()
+        .iter()
+        .any(|instruction| instruction.opcode == 0x70)
+    );
+    for (entry, resolver) in [
+        (
+            if color {
+                "Program::BankedValues"
+            } else {
+                "Program::Values"
+            },
+            &resolver,
+        ),
+        (
+            if color {
+                "Program::BankedScalarsAndOverlap"
+            } else {
+                "Program::ScalarsAndOverlap"
+            },
+            &resolver,
+        ),
+        ("Program::NativeFields", &resolver),
+        (
+            if color {
+                "Program::BankedScalarsAndOverlap"
+            } else {
+                "Program::ScalarsAndOverlap"
+            },
+            &copy_resolver,
+        ),
+    ] {
+        let object = compile::object(resolver, Some(entry)).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 }, "{entry}");
+        assert_eq!(
+            (fields[0], fields[1], fields[2], fields[3]),
+            ("00", "0000002A", "D000", "OK"),
+            "{entry}"
+        );
+        let mut bank1 = vec![0x5a; 4096];
+        let mut bank2 = vec![0x6b; 4096];
+        if entry == "Program::NativeFields" {
+            let memory = if color { &mut bank2 } else { &mut bank1 };
+            memory[0] = 7;
+            memory[2..4].copy_from_slice(&(-2i16).to_le_bytes());
+            memory[4..8].copy_from_slice(&0x12345678u32.to_le_bytes());
+            memory[8..16].copy_from_slice(&0x0123456789abcdefu64.to_le_bytes());
+        }
+        assert_heap_snapshot(fields[4], &bank1, entry);
+        if color {
+            assert_heap_snapshot(fields[5], &bank2, entry);
+        }
+    }
+}
+
 #[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]

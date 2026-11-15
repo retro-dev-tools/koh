@@ -346,7 +346,7 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
                     bits,
                     signed,
                 } => {
-                    let bits = bits.min(types[&value].bits());
+                    let bits = u16::from(bits).min(types[&value].bits());
                     if signed {
                         (((v(value) << (64 - bits)) as i64) >> (64 - bits)) as u64
                     } else if bits == 64 {

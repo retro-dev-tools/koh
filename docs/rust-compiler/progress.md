@@ -6,7 +6,23 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
-Latest increment: [LCD-on transfers](lcd-on-transfers.md). Independent guards
+Latest increment: [unmanaged values](aggregates.md). Bounded canonical layouts,
+inline/reference IR types, field access, default initialization, typed copies and
+value-type instance signatures now execute actual Sprite library methods and
+larger by-value C# fixtures. Compact copies/zeroing above8bytes resolve ROM0
+capacity failures without reducing the fixture. Whole-memory/bank guards cover
+nested/static/explicit-overlap fields, all integer widths and overlapping copies.
+Linux workspace nextest passed675/675,0skips,exit0,832.362s
+(`/tmp/koh-aggregate-workspace.log`), including499 compiler cases. The final explicit
+cpobj overlap variant passed4/4,exit0,25.109s
+(`/tmp/koh-aggregate-cpobj.log`), retaining original Roslyn ldobj/stobj execution.
+Combined native coverage is478 ROM scenarios (408 normal,70 traps), four full
+frame comparisons. Separate workspace doctests (no cases) and formatting pass.
+Ten of565 legacy methods have complete native behavioral replacements;555 still
+need completion auditing, none physically retired. Constructors/newobj,
+aggregate arrays, reference-bearing/generic values remain outstanding.
+
+Previous increment: [LCD-on transfers](lcd-on-transfers.md). Independent guards
 exposed unsafe legacy timing assumptions on the native backend. CPU targets and
 four-byte values, or GDMA registers/control, now prepare before waiting. LCD-on
 GDMA bursts are limited to1024 bytes; LCD-off limits and public signatures remain

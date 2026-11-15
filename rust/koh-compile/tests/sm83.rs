@@ -67,6 +67,386 @@ fn function(ty: Type, op: Op) -> Function {
     }
 }
 
+#[rstest::rstest]
+#[case(5)]
+#[case(16)]
+#[case(64)]
+fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: u16) {
+    let shape = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        bytes,
+    )
+    .unwrap();
+    let ty = Type::Struct(shape);
+    let child = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000002,
+        },
+        bytes / 2,
+    )
+    .unwrap();
+    let scalar = if bytes % 8 == 0 {
+        Scalar::U64
+    } else {
+        Scalar::U8
+    };
+    let storage = Storage::Scalar(scalar);
+    let scalar_ty = storage.stack_type();
+    let step = storage.bytes();
+    let pattern = |offset: u16| {
+        if step == 8 {
+            0x0123456789abcdefu64.rotate_left(u32::from(offset))
+        } else {
+            u64::from(0xa0 + offset)
+        }
+    };
+    let mut code = vec![];
+    let mut next = 2u32;
+    let mut value = |code: &mut Vec<Instruction>, ty, op| {
+        let id = next;
+        next += 1;
+        code.push(Instruction {
+            result: Some((id, ty)),
+            op,
+            il_offset: id,
+        });
+        id
+    };
+    let store = |code: &mut Vec<Instruction>, op| {
+        code.push(Instruction {
+            result: None,
+            op,
+            il_offset: 0,
+        })
+    };
+    let zero = value(&mut code, ty, Op::ZeroStruct);
+    store(
+        &mut code,
+        Op::StoreLocal {
+            local: 0,
+            value: zero,
+        },
+    );
+    let local = value(
+        &mut code,
+        Type::StructRef(shape),
+        Op::LocalAddress {
+            local: 0,
+            storage: Storage::Struct(shape),
+        },
+    );
+    let mut valid = value(&mut code, Type::I32, Op::Constant(1));
+    for offset in (0..bytes).step_by(usize::from(step)) {
+        let address = value(
+            &mut code,
+            storage.reference_type(),
+            Op::FieldAddress {
+                address: local,
+                owner: shape,
+                offset,
+                storage,
+            },
+        );
+        let actual = value(
+            &mut code,
+            scalar_ty,
+            Op::LoadMemory {
+                address,
+                bits: step * 8,
+                signed: false,
+            },
+        );
+        let expected = value(&mut code, scalar_ty, Op::Constant(0));
+        let equal = value(
+            &mut code,
+            Type::I32,
+            Op::Compare {
+                op: Comparison::Equal,
+                left: actual,
+                right: expected,
+            },
+        );
+        valid = value(
+            &mut code,
+            Type::I32,
+            Op::Binary {
+                op: Binary::And,
+                left: valid,
+                right: equal,
+            },
+        );
+        let address = value(
+            &mut code,
+            Type::Native,
+            Op::FieldAddress {
+                address: 0,
+                owner: shape,
+                offset,
+                storage,
+            },
+        );
+        let data = value(&mut code, scalar_ty, Op::Constant(pattern(offset)));
+        store(
+            &mut code,
+            Op::StoreMemory {
+                address,
+                value: data,
+                bits: step * 8,
+            },
+        );
+    }
+    let snapshot = value(
+        &mut code,
+        ty,
+        Op::LoadMemory {
+            address: 0,
+            bits: bytes * 8,
+            signed: false,
+        },
+    );
+    let changed = value(&mut code, scalar_ty, Op::Constant(0));
+    store(
+        &mut code,
+        Op::StoreMemory {
+            address: 0,
+            value: changed,
+            bits: step * 8,
+        },
+    );
+    let callee = Definition {
+        assembly: 0,
+        token: 0x06000002,
+    };
+    let returned = value(
+        &mut code,
+        ty,
+        Op::Call {
+            target: callee,
+            signature: Signature {
+                parameters: vec![ty],
+                returns: Some(ty),
+            },
+            arguments: vec![snapshot],
+        },
+    );
+    store(
+        &mut code,
+        Op::StoreLocal {
+            local: 0,
+            value: returned,
+        },
+    );
+    let copied = value(&mut code, ty, Op::LoadLocal(0));
+    store(
+        &mut code,
+        Op::StoreMemory {
+            address: 1,
+            value: copied,
+            bits: bytes * 8,
+        },
+    );
+    let nested = value(
+        &mut code,
+        Type::Struct(child),
+        Op::ExtractField {
+            value: returned,
+            offset: bytes - child.bytes(),
+            storage: Storage::Struct(child),
+        },
+    );
+    let address = value(
+        &mut code,
+        Type::Native,
+        Op::FieldAddress {
+            address: 1,
+            owner: shape,
+            offset: bytes - child.bytes(),
+            storage: Storage::Struct(child),
+        },
+    );
+    store(
+        &mut code,
+        Op::StoreMemory {
+            address,
+            value: nested,
+            bits: child.bytes() * 8,
+        },
+    );
+    let signed = value(
+        &mut code,
+        Type::I32,
+        Op::ExtractField {
+            value: returned,
+            offset: 0,
+            storage: Storage::Scalar(Scalar::I8),
+        },
+    );
+    let expected = value(
+        &mut code,
+        Type::I32,
+        Op::Constant(u64::from(pattern(0) as u8 as i8 as i32 as u32)),
+    );
+    let equal = value(
+        &mut code,
+        Type::I32,
+        Op::Compare {
+            op: Comparison::Equal,
+            left: signed,
+            right: expected,
+        },
+    );
+    valid = value(
+        &mut code,
+        Type::I32,
+        Op::Binary {
+            op: Binary::And,
+            left: valid,
+            right: equal,
+        },
+    );
+    for offset in (0..bytes).step_by(usize::from(step)) {
+        let address = value(
+            &mut code,
+            Type::Native,
+            Op::FieldAddress {
+                address: 1,
+                owner: shape,
+                offset,
+                storage,
+            },
+        );
+        let actual = value(
+            &mut code,
+            scalar_ty,
+            Op::LoadMemory {
+                address,
+                bits: step * 8,
+                signed: false,
+            },
+        );
+        let expected = value(&mut code, scalar_ty, Op::Constant(pattern(offset)));
+        let equal = value(
+            &mut code,
+            Type::I32,
+            Op::Compare {
+                op: Comparison::Equal,
+                left: actual,
+                right: expected,
+            },
+        );
+        valid = value(
+            &mut code,
+            Type::I32,
+            Op::Binary {
+                op: Binary::And,
+                left: valid,
+                right: equal,
+            },
+        );
+    }
+    let result = value(
+        &mut code,
+        Type::I64,
+        Op::Convert {
+            value: valid,
+            bits: 32,
+            signed: false,
+        },
+    );
+    let root = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::Native, Type::Native],
+        returns: Some(Type::I64),
+        locals: vec![ty],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::Native), (1, Type::Native)],
+            instructions: code,
+            terminator: Terminator {
+                kind: Control::Return(Some(result)),
+                il_offset: 0,
+            },
+        }],
+    };
+    let echo = Function {
+        identity: callee,
+        parameters: vec![ty],
+        returns: Some(ty),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, ty)],
+            instructions: vec![],
+            terminator: Terminator {
+                kind: Control::Return(Some(0)),
+                il_offset: 0,
+            },
+        }],
+    };
+    let rom = rom_program(
+        &[root.clone(), echo],
+        root.identity,
+        &[0xd000, 0xd080],
+        0xd000,
+    );
+    run_roms(host, &[(rom, Ok(1))], 0xd000);
+}
+
+#[rstest::rstest]
+fn null_struct_field_reference_traps_before_offset(host: &Host) {
+    let shape = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        64,
+    )
+    .unwrap();
+    let f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::StructRef(shape)],
+        returns: Some(Type::I32),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::StructRef(shape))],
+            instructions: vec![
+                Instruction {
+                    result: Some((1, Type::ByRef(Scalar::U32))),
+                    op: Op::FieldAddress {
+                        address: 0,
+                        owner: shape,
+                        offset: 8,
+                        storage: Storage::Scalar(Scalar::U32),
+                    },
+                    il_offset: 0,
+                },
+                Instruction {
+                    result: Some((2, Type::I32)),
+                    op: Op::LoadMemory {
+                        address: 1,
+                        bits: 32,
+                        signed: false,
+                    },
+                    il_offset: 1,
+                },
+            ],
+            terminator: Terminator {
+                kind: Control::Return(Some(2)),
+                il_offset: 2,
+            },
+        }],
+    };
+    run(host, &[(f, vec![0], Err(4))]);
+}
+
 fn symbol(name: String, definition: SymbolDefinition) -> Symbol {
     Symbol {
         name,
@@ -141,6 +521,7 @@ fn rom_program(
     let call = data.len() as u32;
     data.extend_from_slice(&[0, 0]);
     for i in 0..ret_bytes {
+        let i = u8::try_from(i).unwrap();
         data.extend_from_slice(&[0xf8, i, 0x7e, 0xea, 0x08 + i, 0xc0]);
     }
     data.extend_from_slice(&[0xe8, bytes as u8, 0x3e, 0xa5, 0xea, 0x00, 0xc0, 0x18, 0xfe]);
@@ -689,7 +1070,10 @@ fn partial_local_aliases_preserve_high_bits_and_carry(
         instruction(
             1,
             Type::ByRef(scalar),
-            Op::LocalAddress { local: 0, scalar },
+            Op::LocalAddress {
+                local: 0,
+                storage: Storage::Scalar(scalar),
+            },
         ),
         instruction(2, Type::I32, Op::Constant(rewritten)),
         Instruction {
@@ -697,7 +1081,7 @@ fn partial_local_aliases_preserve_high_bits_and_carry(
             op: Op::StoreMemory {
                 address: 1,
                 value: 2,
-                bits: scalar.bits(),
+                bits: u16::from(scalar.bits()),
             },
             il_offset: 1,
         },

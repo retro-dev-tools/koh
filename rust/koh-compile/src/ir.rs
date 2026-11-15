@@ -5,6 +5,31 @@ mod pins;
 mod stack;
 pub(crate) use stack::allocations as stack_allocations;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ValueType {
+    identity: Definition,
+    bytes: u16,
+}
+
+impl ValueType {
+    pub fn new(identity: Definition, bytes: u16) -> Result<Self, String> {
+        if identity.token >> 24 != 2 || identity.token & 0xffffff == 0 {
+            return Err("Value type requires a TypeDef identity".into());
+        }
+        if !(1..=4096).contains(&bytes) {
+            return Err("Value type storage must be 1 through 4096 bytes".into());
+        }
+        Ok(Self { identity, bytes })
+    }
+
+    pub fn identity(self) -> Definition {
+        self.identity
+    }
+    pub fn bytes(self) -> u16 {
+        self.bytes
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     I32,
@@ -14,6 +39,8 @@ pub enum Type {
     Array(Scalar),
     Null,
     FieldHandle(Definition),
+    Struct(ValueType),
+    StructRef(ValueType),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +60,12 @@ pub enum Scalar {
 }
 
 impl Scalar {
+    pub(crate) fn signed(self) -> bool {
+        matches!(
+            self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::NativeSigned
+        )
+    }
     pub(crate) fn stack_type(self) -> Type {
         match self {
             Self::I64 | Self::U64 => Type::I64,
@@ -51,15 +84,49 @@ impl Scalar {
 }
 
 impl Type {
-    pub(crate) fn addresses(self, bits: u8) -> bool {
-        self == Self::Native || matches!(self, Self::ByRef(scalar) if scalar.bits() == bits)
+    pub(crate) fn is_byref(self) -> bool {
+        matches!(self, Self::ByRef(_) | Self::StructRef(_))
     }
-    pub fn bits(self) -> u8 {
+    pub(crate) fn addresses(self, bits: u16) -> bool {
+        self == Self::Native
+            || matches!(self, Self::ByRef(scalar) if u16::from(scalar.bits()) == bits)
+            || matches!(self, Self::StructRef(value) if value.bytes * 8 == bits)
+    }
+    pub fn bits(self) -> u16 {
         match self {
+            Self::Struct(value) => value.bytes * 8,
+            Self::StructRef(_) => 16,
             Self::FieldHandle(_) => 0,
             Self::I32 => 32,
             Self::I64 => 64,
             Self::Native | Self::ByRef(_) | Self::Array(_) | Self::Null => 16,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Storage {
+    Scalar(Scalar),
+    Struct(ValueType),
+}
+
+impl Storage {
+    pub fn bytes(self) -> u16 {
+        match self {
+            Self::Scalar(value) => u16::from(value.bits() / 8),
+            Self::Struct(value) => value.bytes,
+        }
+    }
+    pub fn stack_type(self) -> Type {
+        match self {
+            Self::Scalar(value) => value.stack_type(),
+            Self::Struct(value) => Type::Struct(value),
+        }
+    }
+    pub fn reference_type(self) -> Type {
+        match self {
+            Self::Scalar(value) => Type::ByRef(value),
+            Self::Struct(value) => Type::StructRef(value),
         }
     }
 }
@@ -98,6 +165,18 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    ZeroStruct,
+    FieldAddress {
+        address: u32,
+        owner: ValueType,
+        offset: u16,
+        storage: Storage,
+    },
+    ExtractField {
+        value: u32,
+        offset: u16,
+        storage: Storage,
+    },
     StackAllocate {
         bytes: u32,
     },
@@ -118,23 +197,23 @@ pub enum Op {
     },
     LocalAddress {
         local: u32,
-        scalar: Scalar,
+        storage: Storage,
     },
     InitializerAddress(Definition),
     StaticAddress {
         field: Definition,
-        bytes: u8,
+        bytes: u16,
         alignment: u16,
     },
     LoadMemory {
         address: u32,
-        bits: u8,
+        bits: u16,
         signed: bool,
     },
     StoreMemory {
         address: u32,
         value: u32,
-        bits: u8,
+        bits: u16,
     },
     Call {
         target: Definition,
@@ -178,13 +257,34 @@ pub struct Instruction {
 }
 
 impl Op {
+    fn value_types(&self) -> impl Iterator<Item = ValueType> {
+        let (owner, storage) = match *self {
+            Self::FieldAddress { owner, storage, .. } => (Some(owner), Some(storage)),
+            Self::ExtractField { storage, .. } | Self::LocalAddress { storage, .. } => {
+                (None, Some(storage))
+            }
+            _ => (None, None),
+        };
+        [
+            owner,
+            match storage {
+                Some(Storage::Struct(value)) => Some(value),
+                _ => None,
+            },
+        ]
+        .into_iter()
+        .flatten()
+    }
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
             Self::StackAllocate { bytes } => [Some(bytes), None],
             Self::InitializeArray { array, .. } => [Some(array), None],
             Self::NewArray { length, .. } | Self::ArrayLength(length) => [Some(length), None],
             Self::ArrayAddress { array, index } => [Some(array), Some(index)],
-            Self::LoadMemory { address, .. } => [Some(address), None],
+            Self::LoadMemory { address, .. } | Self::FieldAddress { address, .. } => {
+                [Some(address), None]
+            }
+            Self::ExtractField { value, .. } => [Some(value), None],
             Self::StoreMemory { address, value, .. } => [Some(address), Some(value)],
             Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
                 [Some(left), Some(right)]
@@ -195,6 +295,7 @@ impl Op {
             | Self::StoreLocal { value, .. }
             | Self::StorePinned { value, .. } => [Some(value), None],
             Self::Call { .. }
+            | Self::ZeroStruct
             | Self::FieldHandle(_)
             | Self::InitializerAddress(_)
             | Self::Constant(_)
@@ -353,9 +454,11 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
         return Err("Invalid IR program function count".into());
     }
     let mut definitions = HashMap::new();
+    let mut aggregates = HashMap::new();
     static_fields(functions)?;
     for function in functions {
         verify(function)?;
+        aggregate_types(function, &mut aggregates)?;
         if definitions.insert(function.identity, function).is_some() {
             return Err("Duplicate IR function identity".into());
         }
@@ -388,7 +491,7 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
     pins::verify_banks(functions)
 }
 
-pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8, u16)>, String> {
+pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u16, u16)>, String> {
     let mut fields = std::collections::BTreeMap::new();
     for instruction in functions
         .iter()
@@ -421,7 +524,48 @@ pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8, u16)
         .collect())
 }
 
+fn aggregate_types(
+    function: &Function,
+    sizes: &mut HashMap<Definition, u16>,
+) -> Result<(), String> {
+    for ty in function
+        .parameters
+        .iter()
+        .chain(&function.locals)
+        .chain(function.returns.iter())
+        .copied()
+        .chain(function.blocks.iter().flat_map(|block| {
+            block.parameters.iter().map(|p| p.1).chain(
+                block
+                    .instructions
+                    .iter()
+                    .filter_map(|i| i.result.map(|result| result.1)),
+            )
+        }))
+        .chain(function.blocks.iter().flat_map(|block| {
+            block
+                .instructions
+                .iter()
+                .flat_map(|i| i.op.value_types().map(Type::Struct))
+        }))
+    {
+        if let Type::Struct(value) | Type::StructRef(value) = ty {
+            if sizes
+                .insert(value.identity, value.bytes)
+                .is_some_and(|old| old != value.bytes)
+            {
+                return Err(format!(
+                    "Conflicting aggregate storage sizes for {:?}",
+                    value.identity
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn verify_inner(function: &Function) -> Result<(), String> {
+    aggregate_types(function, &mut HashMap::new())?;
     if function
         .parameters
         .iter()
@@ -565,6 +709,50 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::ZeroStruct => {
+                        if !matches!(result, Some(Type::Struct(_))) {
+                            return Err("ZeroStruct requires aggregate result".into());
+                        }
+                        result
+                    }
+                    Op::FieldAddress {
+                        address,
+                        owner,
+                        offset,
+                        storage,
+                    } => {
+                        let pointer = check(address, position)?;
+                        if pointer != Type::Native && pointer != Type::StructRef(owner) {
+                            return Err("Field address owner type mismatch".into());
+                        }
+                        if offset
+                            .checked_add(storage.bytes())
+                            .is_none_or(|end| end > owner.bytes)
+                        {
+                            return Err("Field address exceeds aggregate storage".into());
+                        }
+                        Some(if pointer == Type::Native {
+                            Type::Native
+                        } else {
+                            storage.reference_type()
+                        })
+                    }
+                    Op::ExtractField {
+                        value,
+                        offset,
+                        storage,
+                    } => {
+                        let Type::Struct(owner) = check(value, position)? else {
+                            return Err("Field extraction requires aggregate value".into());
+                        };
+                        if offset
+                            .checked_add(storage.bytes())
+                            .is_none_or(|end| end > owner.bytes)
+                        {
+                            return Err("Field extraction exceeds aggregate storage".into());
+                        }
+                        Some(storage.stack_type())
+                    }
                     Op::StackAllocate { bytes } => {
                         if !matches!(check(bytes, position)?, Type::I32 | Type::Native) {
                             return Err("Stack allocation size must be int32/native".into());
@@ -624,15 +812,15 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     }
                     Op::LocalAddress {
                         local: index,
-                        scalar,
+                        storage,
                     } => {
-                        if local(index)? != scalar.stack_type() || !initialized[index as usize] {
+                        if local(index)? != storage.stack_type() || !initialized[index as usize] {
                             return Err(
                                 "Local address requires initialized compatible primitive storage"
                                     .into(),
                             );
                         }
-                        Some(Type::ByRef(scalar))
+                        Some(storage.reference_type())
                     }
                     Op::InitializerAddress(constructor) => {
                         if constructor.token >> 24 != 6 || constructor.token & 0xffffff == 0 {
@@ -650,13 +838,17 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if field.token >> 24 != 4
                             || field.token & 0xffffff == 0
-                            || !matches!(bytes, 1 | 2 | 4 | 8)
+                            || (!matches!(bytes, 1 | 2 | 4 | 8)
+                                && !matches!(result, Some(Type::StructRef(value)) if value.bytes == bytes))
                         {
                             return Err("Invalid static field address/width".into());
                         }
                         match result {
                             Some(Type::Native) => Some(Type::Native),
-                            Some(Type::ByRef(scalar)) if scalar.bits() == bytes * 8 => result,
+                            Some(Type::ByRef(scalar)) if u16::from(scalar.bits()) == bytes * 8 => {
+                                result
+                            }
+                            Some(Type::StructRef(value)) if value.bytes == bytes => result,
                             _ => {
                                 return Err(
                                     "Static address result must match native/reference storage"
@@ -665,7 +857,11 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             }
                         }
                     }
-                    Op::LoadMemory { address, bits, .. } => {
+                    Op::LoadMemory {
+                        address,
+                        bits,
+                        signed,
+                    } => {
                         if !check(address, position)?.addresses(bits) {
                             return Err(
                                 "Memory address must be native or a matching primitive reference"
@@ -674,13 +870,14 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         let ty = result.ok_or("Memory load has no result")?;
                         if matches!(check(address, position)?, Type::ByRef(scalar) if scalar.stack_type() != ty)
+                            || matches!(check(address, position)?, Type::StructRef(value) if Type::Struct(value) != ty)
                         {
                             return Err(
                                 "Managed-reference load differs from storage stack type".into()
                             );
                         }
-                        if !matches!(bits, 8 | 16 | 32 | 64)
-                            || !matches!(
+                        if !matches!(ty, Type::Struct(value) if value.bytes * 8 == bits && !signed)
+                            && !matches!(
                                 (bits, ty),
                                 (8 | 16 | 32, Type::I32)
                                     | (64, Type::I64)
@@ -704,17 +901,20 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         let stored = check(value, position)?;
                         if matches!(check(address, position)?, Type::ByRef(scalar) if scalar.stack_type() != stored)
+                            || matches!(check(address, position)?, Type::StructRef(value) if Type::Struct(value) != stored)
                         {
                             return Err(
                                 "Managed-reference store differs from storage stack type".into()
                             );
                         }
-                        if !matches!(
-                            (bits, stored),
-                            (8 | 16 | 32, Type::I32)
-                                | (64, Type::I64)
-                                | (16, Type::Native | Type::Array(_))
-                        ) {
+                        if !matches!(stored, Type::Struct(value) if value.bytes * 8 == bits)
+                            && !matches!(
+                                (bits, stored),
+                                (8 | 16 | 32, Type::I32)
+                                    | (64, Type::I64)
+                                    | (16, Type::Native | Type::Array(_))
+                            )
+                        {
                             return Err("Invalid memory store width/value".into());
                         }
                         None
@@ -746,10 +946,19 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     }
                     Op::Constant(bits) => {
                         let ty = result.ok_or("Constant has no result")?;
+                        if matches!(ty, Type::Struct(_)) {
+                            return Err(
+                                "Aggregate constants require explicit storage operations".into()
+                            );
+                        }
                         if matches!(ty, Type::FieldHandle(_)) {
                             return Err("Field handles require metadata identity".into());
                         }
-                        if matches!(ty, Type::ByRef(_) | Type::Array(_) | Type::Null) && bits != 0 {
+                        if matches!(
+                            ty,
+                            Type::ByRef(_) | Type::StructRef(_) | Type::Array(_) | Type::Null
+                        ) && bits != 0
+                        {
                             return Err("Nonzero managed reference constant".into());
                         }
                         if ty.bits() < 64 && bits >= 1u64 << ty.bits() {
@@ -780,6 +989,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(left)
                     }
                     Op::Compare { left, right, .. } => {
+                        if matches!(check(left, position)?, Type::Struct(_)) {
+                            return Err("Aggregate comparison is unsupported".into());
+                        }
                         if matches!(check(left, position)?, Type::FieldHandle(_)) {
                             return Err("Metadata handle comparison is unsupported".into());
                         }
@@ -796,6 +1008,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(ty)
                     }
                     Op::Convert { value, bits, .. } => {
+                        if matches!(check(value, position)?, Type::Struct(_)) {
+                            return Err("Aggregate value conversion is unsupported".into());
+                        }
                         if matches!(
                             check(value, position)?,
                             Type::Array(_) | Type::Null | Type::FieldHandle(_)
@@ -806,7 +1021,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if !matches!(ty, Type::I32 | Type::I64 | Type::Native) {
                             return Err("Conversion cannot fabricate a managed reference".into());
                         }
-                        if !matches!(bits, 8 | 16 | 32 | 64) || bits > ty.bits() {
+                        if !matches!(bits, 8 | 16 | 32 | 64) || u16::from(bits) > ty.bits() {
                             return Err("Invalid conversion width".into());
                         }
                         Some(ty)

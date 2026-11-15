@@ -1,8 +1,8 @@
-use super::{Control, Function, Op, Type};
+use super::{Control, Function, Op};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(super) fn verify(function: &Function) -> Result<(), String> {
-    if !matches!(function.returns, Some(Type::ByRef(_))) {
+    if function.returns.is_none_or(|ty| !ty.is_byref()) {
         return Ok(());
     }
     let mut pending = VecDeque::new();
@@ -26,7 +26,7 @@ pub(super) fn verify(function: &Function) -> Result<(), String> {
                 .copied()
                 .chain(block.instructions.iter().filter_map(|i| i.result))
         })
-        .filter(|(_, ty)| matches!(ty, Type::ByRef(_)))
+        .filter(|(_, ty)| ty.is_byref())
         .map(|(id, _)| id)
         .collect();
     let local = |index: u32| (1u64 << 32) | u64::from(index);
@@ -55,8 +55,9 @@ pub(super) fn verify(function: &Function) -> Result<(), String> {
                     edge(u64::from(value), local(index))?;
                 }
             }
-            if let Some((id, Type::ByRef(_))) = instruction.result {
+            if let Some((id, _)) = instruction.result.filter(|(_, ty)| ty.is_byref()) {
                 match &instruction.op {
+                    Op::FieldAddress { address, .. } => edge(u64::from(*address), u64::from(id))?,
                     Op::LoadLocal(index) => edge(local(*index), u64::from(id))?,
                     Op::Call { arguments, .. } => {
                         for argument in arguments {

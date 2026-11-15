@@ -77,7 +77,10 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     value(array);
                     value(index);
                 }
-                Op::LoadMemory { address, .. } => value(address),
+                Op::LoadMemory { address, .. } | Op::FieldAddress { address, .. } => value(address),
+                Op::ExtractField {
+                    value: extracted, ..
+                } => value(extracted),
                 Op::StoreMemory {
                     address,
                     value: stored,
@@ -101,6 +104,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     }
                 }
                 Op::Constant(_)
+                | Op::ZeroStruct
                 | Op::FieldHandle(_)
                 | Op::LocalAddress { .. }
                 | Op::StaticAddress { .. }

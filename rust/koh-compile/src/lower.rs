@@ -65,7 +65,21 @@ fn storage_type(
 ) -> Result<clrmeta::TypeSig, String> {
     use clrmeta::TypeSig;
     Ok(match ty {
-        TypeSig::ValueType(encoded) => resolver.enum_storage(assembly, *encoded)?,
+        TypeSig::ValueType(encoded) => {
+            let identity =
+                resolver.resolve_type(assembly, crate::resolve::type_token(*encoded)?)?;
+            let metadata = resolver.assembly(identity.assembly)?.metadata();
+            let definition = &metadata.type_defs[(identity.token & 0xffffff) as usize - 1];
+            if definition.extends.table == Some(clrmeta::TableId::TypeRef)
+                && crate::resolve::framework_type(metadata, 0x01000000 | definition.extends.row)?
+                    == Some(("System", "Enum"))
+            {
+                resolver.enum_storage(assembly, *encoded)?
+            } else {
+                crate::layout::value(resolver, identity)?;
+                ty.clone()
+            }
+        }
         TypeSig::ByRef(inner) => TypeSig::ByRef(Box::new(storage_type(resolver, assembly, inner)?)),
         TypeSig::SzArray(inner) => {
             TypeSig::SzArray(Box::new(storage_type(resolver, assembly, inner)?))
@@ -79,20 +93,92 @@ fn storage_type(
 
 fn storage_signature(
     resolver: &crate::resolve::Resolver<'_>,
-    assembly: usize,
+    identity: Definition,
     signature: &clrmeta::MethodSig,
 ) -> Result<clrmeta::MethodSig, String> {
     let mut result = signature.clone();
     result.params = signature
         .params
         .iter()
-        .map(|ty| storage_type(resolver, assembly, ty))
+        .map(|ty| storage_type(resolver, identity.assembly, ty))
         .collect::<Result<_, _>>()?;
-    result.return_type = storage_type(resolver, assembly, &signature.return_type)?;
+    result.return_type = storage_type(resolver, identity.assembly, &signature.return_type)?;
+    if signature.calling_convention.has_this() {
+        let owner = owner_type(resolver, identity)?;
+        crate::layout::value(resolver, owner)?;
+        result.params.insert(
+            0,
+            clrmeta::TypeSig::ByRef(Box::new(clrmeta::TypeSig::ValueType(
+                (owner.token & 0xffffff) << 2,
+            ))),
+        );
+        result.calling_convention.0 &= !0x20;
+    }
     Ok(result)
 }
 
-fn integer_signature(signature: &clrmeta::MethodSig) -> Result<Signature, String> {
+fn owner_type(
+    resolver: &crate::resolve::Resolver<'_>,
+    identity: Definition,
+) -> Result<Definition, String> {
+    let metadata = resolver.assembly(identity.assembly)?.metadata();
+    let rid = identity.token & 0xffffff;
+    let owner = match identity.token >> 24 {
+        6 => metadata
+            .type_defs
+            .partition_point(|ty| ty.method_list <= rid),
+        4 => metadata
+            .type_defs
+            .partition_point(|ty| ty.field_list <= rid),
+        _ => return Err("Member requires method/field identity".into()),
+    };
+    if owner == 0 {
+        return Err("Member has no declaring type".into());
+    }
+    Ok(Definition {
+        assembly: identity.assembly,
+        token: 0x02000000 | owner as u32,
+    })
+}
+
+fn bound_type(
+    resolver: &crate::resolve::Resolver<'_>,
+    assembly: usize,
+    ty: &clrmeta::TypeSig,
+) -> Result<Type, String> {
+    let shape = |encoded| -> Result<ValueType, String> {
+        let identity = resolver.resolve_type(assembly, crate::resolve::type_token(encoded)?)?;
+        let layout = crate::layout::value(resolver, identity)?;
+        ValueType::new(layout.identity, layout.bytes)
+    };
+    match ty {
+        clrmeta::TypeSig::ValueType(encoded) => Ok(Type::Struct(shape(*encoded)?)),
+        clrmeta::TypeSig::ByRef(inner) => match **inner {
+            clrmeta::TypeSig::ValueType(encoded) => Ok(Type::StructRef(shape(encoded)?)),
+            _ => integer_type(ty),
+        },
+        clrmeta::TypeSig::Pinned(inner) => bound_type(resolver, assembly, inner),
+        _ => integer_type(ty),
+    }
+}
+
+fn bound_storage(
+    resolver: &crate::resolve::Resolver<'_>,
+    assembly: usize,
+    signature: &clrmeta::TypeSig,
+) -> Result<Storage, String> {
+    let signature = storage_type(resolver, assembly, signature)?;
+    match bound_type(resolver, assembly, &signature)? {
+        Type::Struct(value) => Ok(Storage::Struct(value)),
+        _ => Ok(Storage::Scalar(scalar(&signature)?)),
+    }
+}
+
+fn bound_signature(
+    resolver: &crate::resolve::Resolver<'_>,
+    assembly: usize,
+    signature: &clrmeta::MethodSig,
+) -> Result<Signature, String> {
     if signature.calling_convention.has_this() || signature.generic_param_count != 0 {
         return Err("Instance/generic methods require instantiated lowering".into());
     }
@@ -102,13 +188,13 @@ fn integer_signature(signature: &clrmeta::MethodSig) -> Result<Signature, String
     let parameters = signature
         .params
         .iter()
-        .map(integer_type)
+        .map(|ty| bound_type(resolver, assembly, ty))
         .collect::<Result<_, _>>()?;
     let returns =
         if signature.return_type == clrmeta::TypeSig::Primitive(clrmeta::ElementType::Void) {
             None
         } else {
-            Some(integer_type(&signature.return_type)?)
+            Some(bound_type(resolver, assembly, &signature.return_type)?)
         };
     Ok(Signature {
         parameters,
@@ -125,10 +211,10 @@ pub fn assembly_method(
         crate::contracts::method(resolver, identity)?;
         let signature = storage_signature(
             resolver,
-            identity.assembly,
+            identity,
             &assembly.method_signature(identity.token)?,
         )?;
-        let typed = integer_signature(&signature)?;
+        let typed = bound_signature(resolver, identity.assembly, &signature)?;
         let local_types = assembly
             .local_types(identity.token)?
             .iter()
@@ -136,7 +222,7 @@ pub fn assembly_method(
             .collect::<Result<Vec<_>, _>>()?;
         let locals = local_types
             .iter()
-            .map(integer_type)
+            .map(|ty| bound_type(resolver, identity.assembly, ty))
             .collect::<Result<_, _>>()?;
         let pinned: Vec<_> = local_types
             .iter()
@@ -524,7 +610,16 @@ fn lower_inner(
         });
     }
     for (i, &ty) in method.locals.iter().enumerate() {
-        let value = builder.value(ty, Op::Constant(0))?.0;
+        let value = builder
+            .value(
+                ty,
+                if matches!(ty, Type::Struct(_)) {
+                    Op::ZeroStruct
+                } else {
+                    Op::Constant(0)
+                },
+            )?
+            .0;
         builder.instructions.push(Instruction {
             result: None,
             op: Op::StoreLocal {
@@ -797,27 +892,55 @@ fn translate(
                 default: b.edge(next()?),
             });
         }
-        0x71 | 0x81 | 0xfe15 | 0xfe1c => {
+        0x70 | 0x71 | 0x81 | 0xfe15 | 0xfe1c => {
             let Operand::Token(token) = i.operand else {
                 return Err("Missing scalar type token".into());
             };
             let resolver = resolver.ok_or("Typed scalar operations require metadata resolution")?;
-            let storage = scalar(&resolver.scalar_signature(method.identity.assembly, token)?)?;
+            let storage = bound_storage(
+                resolver,
+                method.identity.assembly,
+                &resolver.type_signature(method.identity.assembly, token)?,
+            )?;
             let ty = storage.stack_type();
             if i.opcode == 0xfe1c {
-                let value = b.value(Type::I32, Op::Constant(u64::from(storage.bits() / 8)))?;
+                let value = b.value(Type::I32, Op::Constant(u64::from(storage.bytes())))?;
                 b.stack.push(value);
             } else {
-                let stored = if i.opcode == 0x81 {
+                let stored = if i.opcode == 0x70 {
+                    let source = b.pop()?;
+                    if !source.1.addresses(storage.bytes() * 8)
+                        || matches!(source.1, Type::ByRef(scalar) if scalar.stack_type() != ty)
+                        || matches!(source.1, Type::StructRef(value) if Type::Struct(value) != ty)
+                    {
+                        return Err("Typed copy source differs from storage type".into());
+                    }
+                    Some(b.value(
+                        ty,
+                        Op::LoadMemory {
+                            address: source.0,
+                            bits: storage.bytes() * 8,
+                            signed: matches!(storage, Storage::Scalar(scalar) if scalar.signed()),
+                        },
+                    )?)
+                } else if i.opcode == 0x81 {
                     Some(b.pop()?)
                 } else if i.opcode == 0xfe15 {
-                    Some(b.value(ty, Op::Constant(0))?)
+                    Some(b.value(
+                        ty,
+                        if matches!(ty, Type::Struct(_)) {
+                            Op::ZeroStruct
+                        } else {
+                            Op::Constant(0)
+                        },
+                    )?)
                 } else {
                     None
                 };
                 let address = b.pop()?;
-                if !address.1.addresses(storage.bits())
+                if !address.1.addresses(storage.bytes() * 8)
                     || matches!(address.1, Type::ByRef(scalar) if scalar.stack_type() != ty)
+                    || matches!(address.1, Type::StructRef(value) if Type::Struct(value) != ty)
                 {
                     return Err("Typed scalar address differs from its storage type".into());
                 }
@@ -830,20 +953,17 @@ fn translate(
                         op: Op::StoreMemory {
                             address: address.0,
                             value: value.0,
-                            bits: storage.bits(),
+                            bits: storage.bytes() * 8,
                         },
                         il_offset: b.offset,
                     });
                 } else {
-                    let signed = matches!(
-                        storage,
-                        Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::I64 | Scalar::NativeSigned
-                    );
+                    let signed = matches!(storage, Storage::Scalar(scalar) if scalar.signed());
                     let value = b.value(
                         ty,
                         Op::LoadMemory {
                             address: address.0,
-                            bits: storage.bits(),
+                            bits: storage.bytes() * 8,
                             signed,
                         },
                     )?;
@@ -974,7 +1094,7 @@ fn translate(
                     op: Op::StoreMemory {
                         address: address.0,
                         value: value.0,
-                        bits: element.bits(),
+                        bits: u16::from(element.bits()),
                     },
                     il_offset: b.offset,
                 });
@@ -996,7 +1116,7 @@ fn translate(
                     ty,
                     Op::LoadMemory {
                         address: address.0,
-                        bits: element.bits(),
+                        bits: u16::from(element.bits()),
                         signed,
                     },
                 )?;
@@ -1058,10 +1178,11 @@ fn translate(
             }
             let metadata_signature = storage_signature(
                 resolver,
-                target.definition.assembly,
+                target.definition,
                 &metadata.method_signature(target.definition.token)?,
             )?;
-            let signature = integer_signature(&metadata_signature)?;
+            let signature =
+                bound_signature(resolver, target.definition.assembly, &metadata_signature)?;
             let mut arguments = Vec::with_capacity(signature.parameters.len());
             for &ty in signature.parameters.iter().rev() {
                 let value = b.pop()?;
@@ -1149,35 +1270,47 @@ fn translate(
                 method.parameters.len() + raw
             };
             let ty = *locals.get(index).ok_or("Invalid local address index")?;
-            let storage = if let Some(resolver) = resolver {
+            let storage = if let Type::Struct(value) = ty {
+                Storage::Struct(value)
+            } else if let Some(resolver) = resolver {
                 let image = resolver.assembly(method.identity.assembly)?;
                 let types = if argument {
-                    image.method_signature(method.identity.token)?.params
+                    storage_signature(
+                        resolver,
+                        method.identity,
+                        &image.method_signature(method.identity.token)?,
+                    )?
+                    .params
                 } else {
                     image.local_types(method.identity.token)?
                 };
-                scalar(&storage_type(
+                bound_storage(
                     resolver,
                     method.identity.assembly,
                     types
                         .get(raw)
                         .ok_or("Missing addressed storage signature")?,
-                )?)?
+                )?
             } else {
-                match ty {
+                Storage::Scalar(match ty {
                     Type::I32 => Scalar::I32,
                     Type::I64 => Scalar::I64,
                     Type::Native => Scalar::NativeSigned,
-                    Type::ByRef(_) | Type::Array(_) | Type::Null | Type::FieldHandle(_) => {
+                    Type::ByRef(_)
+                    | Type::Array(_)
+                    | Type::Null
+                    | Type::FieldHandle(_)
+                    | Type::Struct(_)
+                    | Type::StructRef(_) => {
                         return Err("Nested managed references are unsupported".into());
                     }
-                }
+                })
             };
             let value = b.value(
-                Type::ByRef(storage),
+                storage.reference_type(),
                 Op::LocalAddress {
                     local: index as u32,
-                    scalar: storage,
+                    storage,
                 },
             )?;
             b.stack.push(value);
@@ -1291,6 +1424,106 @@ fn translate(
                 no: b.edge(no),
             });
         }
+        0x7b..=0x7d => {
+            let resolver = resolver.ok_or("Instance fields require metadata resolution")?;
+            let Operand::Token(token) = i.operand else {
+                return Err("Invalid instance field token".into());
+            };
+            let target = resolver.resolve_field(method.identity.assembly, token)?;
+            if !target.type_arguments.is_empty() {
+                return Err("Generic instance fields require instantiated lowering".into());
+            }
+            let owner = owner_type(resolver, target.definition)?;
+            let layout = crate::layout::value(resolver, owner)?;
+            let shape = ValueType::new(layout.identity, layout.bytes)?;
+            let image = resolver.assembly(target.definition.assembly)?;
+            let row = (target.definition.token & 0xffffff)
+                .checked_sub(1)
+                .and_then(|row| image.metadata().fields.get(row as usize))
+                .ok_or("Invalid instance field definition")?;
+            if row.flags & (0x10 | 0x40 | 0x100) != 0 {
+                return Err("Instance field opcode requires a nonstatic value field".into());
+            }
+            if i.opcode != 0x7b && row.flags & 0x20 != 0 {
+                let method_image = resolver.assembly(method.identity.assembly)?;
+                let constructor = method_image
+                    .metadata()
+                    .strings
+                    .get(method_image.method(method.identity.token)?.name)
+                    .map_err(|e| e.to_string())?
+                    == ".ctor";
+                if !constructor || owner_type(resolver, method.identity)? != owner {
+                    return Err(
+                        "Readonly instance field writes/addresses require declaring constructor"
+                            .into(),
+                    );
+                }
+            }
+            let field = layout
+                .fields
+                .iter()
+                .find(|field| field.identity == target.definition)
+                .ok_or("Field is not in aggregate layout")?;
+            let storage = bound_storage(resolver, target.definition.assembly, &field.signature)?;
+            let stored = if i.opcode == 0x7d {
+                Some(b.pop()?)
+            } else {
+                None
+            };
+            let receiver = b.pop()?;
+            if receiver.1 == Type::Struct(shape) && i.opcode == 0x7b {
+                let value = b.value(
+                    storage.stack_type(),
+                    Op::ExtractField {
+                        value: receiver.0,
+                        offset: field.offset,
+                        storage,
+                    },
+                )?;
+                b.stack.push(value);
+            } else {
+                if receiver.1 != Type::Native && receiver.1 != Type::StructRef(shape) {
+                    return Err("Instance field receiver requires matching struct reference".into());
+                }
+                let address = b.value(
+                    if receiver.1 == Type::Native {
+                        Type::Native
+                    } else {
+                        storage.reference_type()
+                    },
+                    Op::FieldAddress {
+                        address: receiver.0,
+                        owner: shape,
+                        offset: field.offset,
+                        storage,
+                    },
+                )?;
+                if let Some(value) = stored {
+                    let value = b.coerce(value, storage.stack_type())?;
+                    b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::StoreMemory {
+                            address: address.0,
+                            value: value.0,
+                            bits: storage.bytes() * 8,
+                        },
+                        il_offset: b.offset,
+                    });
+                } else if i.opcode == 0x7c {
+                    b.stack.push(address);
+                } else {
+                    let value = b.value(
+                        storage.stack_type(),
+                        Op::LoadMemory {
+                            address: address.0,
+                            bits: storage.bytes() * 8,
+                            signed: matches!(storage, Storage::Scalar(scalar) if scalar.signed()),
+                        },
+                    )?;
+                    b.stack.push(value);
+                }
+            }
+        }
         0x7e..=0x80 => {
             let resolver = resolver.ok_or("Static fields require assembly resolution")?;
             let Operand::Token(token) = i.operand else {
@@ -1348,10 +1581,14 @@ fn translate(
             if matches!(signature, clrmeta::TypeSig::ByRef(_)) {
                 return Err("Static managed-reference storage is unsupported".into());
             }
-            let ty = integer_type(&signature)?;
+            let ty = bound_type(resolver, target.definition.assembly, &signature)?;
             let alignment = crate::contracts::field_alignment(resolver, target.definition)?;
-            let (bits, signed) = narrow_type(&signature).unwrap_or((ty.bits(), true));
-            let address_type = if i.opcode == 0x7f {
+            let (bits, signed) = narrow_type(&signature)
+                .map(|(bits, signed)| (u16::from(bits), signed))
+                .unwrap_or((ty.bits(), !matches!(ty, Type::Struct(_))));
+            let address_type = if let Type::Struct(value) = ty {
+                Type::StructRef(value)
+            } else if i.opcode == 0x7f {
                 Type::ByRef(scalar(&signature)?)
             } else {
                 Type::Native

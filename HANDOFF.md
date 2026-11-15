@@ -1,5 +1,43 @@
 # PR #55 working handoff
 
+## Current aggregate unit
+
+Root owns all edits/builds; no delegated writers. Layout metadata committed/pushed as14b9a89; aggregate execution remains
+uncommitted. Draft PR #55 targets master. Full migration remains active, about45%.
+
+Actual Sprite acceptance now passes Debug/Release × DMG/CGB: real Video.Init,
+out/byref handle, instance Set/Move/SetAttr/SetTile, complete shadow OAM heap
+snapshot, unchanged VRAM/OAM and bank restoration. Broader Roslyn fixtures pass
+by-value arguments/results, static/nested/explicit-overlap fields, padding zero,
+all scalar field widths, addressed explicit instance arguments, overlapping
+64-byte copies and raw bank2 pointer fields. No GameBoy API changes in this unit.
+
+Layout reader uses cached canonical identities and bounded unmanaged layouts;
+independent .NET Size5 probes caught erroneous tail rounding. Typed Struct and
+StructRef, Storage descriptors, wide memory operations, field address/extract
+and ZeroStruct preserve byte layouts and derived-reference escape checks.
+Native field addresses retain raw bank provenance; managed refs map heap bank1.
+Implicit value-type this is a typed reference. Constructors/newobj, aggregate
+arrays, reference-bearing/generic/auto/InlineArray shapes remain unsupported.
+
+Initial broad execution exceeded ROM0: fixed backend copies/zeroing above8bytes
+with compact counted loops, retaining scalar instruction paths. Did not shrink
+the fixture or bypass canonical linker capacity. Focused combined12/12 passed,
+exit0,41.664s,/tmp/koh-aggregate-compact-first.log. Additional scalar/overlap fixture
+4/4 passed,exit0,19.854s,/tmp/koh-aggregate-scalars-overlap.log. IR156/156 passed.
+Full workspace675/675 passed,0skips,exit0,832.362s,
+/tmp/koh-aggregate-workspace.log. Final cpobj focused run4/4 passed,exit0,25.109s,
+/tmp/koh-aggregate-cpobj.log. No concurrent builds in its target directory.
+
+Read-only aggregate review found no actionable defects; cpobj coverage gap now
+has a same-length test IL variant retaining original Roslyn assignment. Final focused execution passed after full run. Latest scalar/overlap run actual exit0 confirmed.
+
+Next: reread doc/fmt logs, commit aggregate execution increment,
+push same draft PR, then update PR/vault evidence. Coverage499 compiler cases,
+478 ROM scenarios (408 normal,70 traps), ten complete legacy replacements. Do not claim whole migration or complete struct support.
+SDK still uses C# compiler; PDB/debug, full runtime/language coverage, samples,
+test migration, packaging and legacy deletion remain outstanding.
+
 ## Current LCD-on graphics unit
 
 Root owns fixtures/host/driver; no delegated edits or builds. Extend actual

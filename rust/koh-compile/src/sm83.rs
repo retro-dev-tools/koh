@@ -190,6 +190,26 @@ impl Code {
         self.bytes(&[0x44, 0x4d]);
         self.address(destination);
         self.bytes(&[0x54, 0x5d, 0x60, 0x69]);
+        self.copy_registers(width);
+    }
+
+    fn copy_registers(&mut self, width: u16) {
+        if width > 8 {
+            self.bytes(&[
+                0x01,
+                width as u8,
+                (width >> 8) as u8,
+                0x2a,
+                0x12,
+                0x13,
+                0x0b,
+                0x78,
+                0xb1,
+                0x20,
+                0xf8,
+            ]);
+            return;
+        }
         for byte in 0..width {
             self.bytes(&[0x2a, 0x12]);
             if byte + 1 < width {
@@ -230,7 +250,10 @@ impl Code {
     }
 
     fn check_reference(&mut self, ty: Type) {
-        if matches!(ty, Type::ByRef(_) | Type::Array(_) | Type::Null) {
+        if matches!(
+            ty,
+            Type::ByRef(_) | Type::StructRef(_) | Type::Array(_) | Type::Null
+        ) {
             self.bytes(&[0x78, 0xb1]);
             let target = self.import("__koh_trap_null".into());
             self.jump(0xca, target);
@@ -438,9 +461,38 @@ impl Code {
     }
 
     fn constant(&mut self, destination: u16, width: u16, bits: u64) {
+        if width > 8 {
+            if bits != 0 {
+                self.constant(destination, 8, bits);
+                self.constant(destination + 8, width - 8, 0);
+            } else {
+                self.address(destination);
+                self.bytes(&[
+                    0x01,
+                    width as u8,
+                    (width >> 8) as u8,
+                    0x36,
+                    0,
+                    0x23,
+                    0x0b,
+                    0x78,
+                    0xb1,
+                    0x20,
+                    0xf8,
+                ]);
+            }
+            return;
+        }
         self.address(destination);
         for byte in 0..width {
-            self.bytes(&[0x36, (bits >> (byte * 8)) as u8]);
+            self.bytes(&[
+                0x36,
+                if byte < 8 {
+                    (bits >> (byte * 8)) as u8
+                } else {
+                    0
+                },
+            ]);
             if byte + 1 < width {
                 self.bytes(&[0x23]);
             }
@@ -1009,13 +1061,10 @@ pub fn emit(function: &Function) -> Result<Object, String> {
     for &flag in layout.pins.values() {
         code.constant(flag, 1, 0);
     }
-    let return_width = function
-        .returns
-        .map(|ty| u16::from(ty.bits() / 8))
-        .unwrap_or(0);
+    let return_width = function.returns.map(|ty| ty.bits() / 8).unwrap_or(0);
     let mut argument = layout.size + 2 + return_width;
     for &(id, ty) in &function.blocks[0].parameters {
-        let width = u16::from(ty.bits() / 8);
+        let width = ty.bits() / 8;
         code.copy(argument, layout.values[&id].0, layout.values[&id].2);
         argument += width;
     }
@@ -1062,6 +1111,44 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     }
                 }
                 Op::FieldHandle(_) => {}
+                Op::ZeroStruct => code.constant(destination, width, 0),
+                Op::FieldAddress {
+                    address, offset, ..
+                } => {
+                    code.indirect(slot(address));
+                    code.check_reference(layout.values[&address].1);
+                    code.bytes(&[
+                        0x60,
+                        0x69,
+                        0x11,
+                        offset as u8,
+                        (offset >> 8) as u8,
+                        0x19,
+                        0x44,
+                        0x4d,
+                    ]);
+                    code.save_word(destination);
+                }
+                Op::ExtractField {
+                    value,
+                    offset,
+                    storage,
+                } => {
+                    let source = slot(value) + offset;
+                    let copied = width.min(storage.bytes());
+                    code.copy(source, destination, copied);
+                    if copied < width {
+                        if matches!(storage, Storage::Scalar(scalar) if scalar.signed()) {
+                            code.load_a(source + copied - 1);
+                            code.bytes(&[0x87, 0x9f]);
+                        } else {
+                            code.bytes(&[0xaf]);
+                        }
+                        for byte in copied..width {
+                            code.store_a(destination + byte);
+                        }
+                    }
+                }
                 Op::InitializeArray { array, ref bytes } => {
                     let stride = match layout.values[&array].1 {
                         Type::Array(element) => element.bits() / 8,
@@ -1144,16 +1231,21 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     let copied = u16::from(bits / 8);
                     code.indirect(slot(address));
                     code.check_reference(layout.values[&address].1);
-                    let managed = matches!(layout.values[&address].1, Type::ByRef(_));
+                    let managed = layout.values[&address].1.is_byref();
                     if managed {
                         code.heap_bank(layout.arithmetic + 24);
                     }
                     code.address(destination);
                     code.bytes(&[0x50, 0x59]);
-                    for byte in 0..copied {
-                        code.bytes(&[0x1a, 0x22]);
-                        if byte + 1 < copied {
-                            code.bytes(&[0x13]);
+                    if copied > 8 {
+                        code.bytes(&[0x44, 0x4d, 0x62, 0x6b, 0x50, 0x59]);
+                        code.copy_registers(copied);
+                    } else {
+                        for byte in 0..copied {
+                            code.bytes(&[0x1a, 0x22]);
+                            if byte + 1 < copied {
+                                code.bytes(&[0x13]);
+                            }
                         }
                     }
                     if copied < width {
@@ -1177,18 +1269,16 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 } => {
                     code.indirect(slot(address));
                     code.check_reference(layout.values[&address].1);
-                    let managed = matches!(layout.values[&address].1, Type::ByRef(_));
+                    let managed = layout.values[&address].1.is_byref();
                     if managed {
                         code.heap_bank(layout.arithmetic + 24);
                     }
                     code.address(slot(value));
                     code.bytes(&[0x50, 0x59]);
                     let copied = place(value).bytes.min(u16::from(bits / 8));
-                    for byte in 0..copied {
-                        code.bytes(&[0x2a, 0x12]);
-                        if byte + 1 < u16::from(bits / 8) {
-                            code.bytes(&[0x13]);
-                        }
+                    code.copy_registers(copied);
+                    if copied != 0 && copied <= 8 && copied < bits / 8 {
+                        code.bytes(&[0x13]);
                     }
                     if copied < u16::from(bits / 8) {
                         code.bytes(&[0xaf]);
@@ -1208,10 +1298,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     ref signature,
                     ref arguments,
                 } => {
-                    let abi_return = signature
-                        .returns
-                        .map(|ty| u16::from(ty.bits() / 8))
-                        .unwrap_or(0);
+                    let abi_return = signature.returns.map(|ty| ty.bits() / 8).unwrap_or(0);
                     let size: usize = signature
                         .parameters
                         .iter()
@@ -1229,7 +1316,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     code.adjust_sp(-i32::from(size));
                     let mut offset = abi_return;
                     for (&value, &ty) in arguments.iter().zip(&signature.parameters) {
-                        let bytes = u16::from(ty.bits() / 8);
+                        let bytes = ty.bits() / 8;
                         code.extend(
                             Slot {
                                 offset: slot(value) + size,
@@ -1287,11 +1374,10 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     if copied < width {
                         if signed
                             && copied
-                                == u16::from(
-                                    bits.min(layout.values[&value].1.bits())
-                                        .min(output.ok_or("Conversion result missing")?.1.bits())
-                                        / 8,
-                                )
+                                == (u16::from(bits)
+                                    .min(layout.values[&value].1.bits())
+                                    .min(output.ok_or("Conversion result missing")?.1.bits())
+                                    / 8)
                         {
                             code.load_a(slot(value) + copied - 1);
                             code.bytes(&[0x87, 0x9f]);
@@ -1314,7 +1400,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         code.equal_zero(slot(right), destination, place(right).bytes);
                     } else {
                         let mut op = op;
-                        if compared_width < u16::from(layout.values[&left].1.bits() / 8) {
+                        if compared_width < layout.values[&left].1.bits() / 8 {
                             op = match op {
                                 Comparison::LessSigned => Comparison::LessUnsigned,
                                 Comparison::GreaterSigned => Comparison::GreaterUnsigned,
@@ -1403,7 +1489,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                             layout.arithmetic
                         };
                         let signed = op == Binary::ShiftRightSigned
-                            && place(left).bytes == u16::from(semantic_bits / 8);
+                            && place(left).bytes == semantic_bits / 8;
                         code.extend(place(left), working, working_width);
                         if let Some(&count) = constants.get(&right) {
                             code.shift_constant(
@@ -1418,7 +1504,12 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                             continue;
                         }
                         code.load_a(slot(right));
-                        code.bytes(&[0xe6, semantic_bits - 1, 0x4f]);
+                        code.bytes(&[
+                            0xe6,
+                            u8::try_from(semantic_bits - 1)
+                                .map_err(|_| "Shift exceeds scalar width")?,
+                            0x4f,
+                        ]);
                         let start = code.label();
                         let end = code.label();
                         code.jump(0xca, end);
