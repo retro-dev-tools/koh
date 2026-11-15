@@ -6,7 +6,25 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
-Latest increment: [unmanaged values](aggregates.md). Bounded canonical layouts,
+Latest increment: value constructors in [unmanaged values](aggregates.md).
+Nongeneric newobj uses private frame locals, ordinary typed calls and result
+snapshots; default versus parameterless construction, chaining, value/ref
+arguments, static initialization, recursive returns and same-frame loop reuse
+execute on DMG/CGB. Readonly static/nested address reads now work; direct stores
+remain restricted to their declaring constructor. Two Rust metadata cases add12
+rejection probes and check actual loop newobj plus private-local isolation.
+
+Final focused regression17/17 passed,exit0,60.713s
+(`/tmp/koh-value-constructors-regression-final.log`). Prior full local run was
+673/677,0skips,exit100,839.665s; four diagnostic failures were then corrected and
+rechecked in that focused run. The corrected full-suite result is pending;
+**do not claim677/677**. Workspace discovery is677 cases including501 compiler
+cases. Combined execution coverage is482 ROM scenarios (412 returns,70 traps),
+four full-frame comparisons. Doc tests (no cases)/formatting pass. Ten complete
+legacy replacements remain;555 methods still require completion auditing.
+Class/generic construction, aggregate arrays and wider runtime remain open.
+
+Previous increment: [unmanaged values](aggregates.md). Bounded canonical layouts,
 inline/reference IR types, field access, default initialization, typed copies and
 value-type instance signatures now execute actual Sprite library methods and
 larger by-value C# fixtures. Compact copies/zeroing above8bytes resolve ROM0

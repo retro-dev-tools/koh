@@ -1620,7 +1620,8 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
     }
     run_roms(host, &cases, 0xd000);
     for (name, diagnostic) in [
-        ("Dead", "opcode"),
+        ("Dead", "System.Runtime"),
+        ("DeadThrow", "opcode"),
         ("Generic", "Generic"),
         ("Protected", "sections"),
         ("StaticInit", ".cctor"),

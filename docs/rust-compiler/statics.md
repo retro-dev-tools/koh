@@ -33,8 +33,9 @@ nonzero reference constants and conversions that fabricate references are reject
 
 Accepted references originate from static fields, incoming references or
 [primitive local/argument storage](local-references.md). Frame-return escape checks
-and ancestor recursion now have separate coverage. Aggregate references and
-readonly/scoped modifier semantics remain pending. No optimization infers
+and ancestor recursion now have separate coverage. Aggregate references now retain canonical [value-type layouts](aggregates.md).
+Readonly address loads are supported; direct stores require the declaring
+constructor. Scoped modifier semantics remain pending. No optimization infers
 non-aliasing from different reference values. Returning a reference to a static
 field and mutating that field through another call use the same actual storage.
 

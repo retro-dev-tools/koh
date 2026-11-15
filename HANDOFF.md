@@ -1,5 +1,51 @@
 # PR #55 working handoff
 
+## Container cleanup checkpoint
+
+Pushed f7ccff7 to same draftPR55 while constructor code remains uncommitted.
+Removed only Dockerfile, benchmark.sh, run-benchmark.sh, generate-reports.py.
+Both Koh capability arrays were empty, so harness classified Koh unsupported;
+no CI/root consumer invoked it. Kept Koh.Benchmarks, root benchmark target, CI
+Phase2/Phase3/Native discovery and pinned RGBDS verification. Existing output
+ignores remain to protect local caches. After cleanup repository-wide searches
+found no active docker/podman/compose invocation, container job/devcontainer or
+container definition. Historical docs/incidental npm metadata not prerequisites.
+Docs container-cleanup.md captures audit, rationale and host-native commands.
+Read commit/push logs /tmp/koh-container-cleanup-{commit,push}.log, both exit0;
+GitHub verified draft/master headf7ccff7b61fa517e51bd10760c19fcc983a12924.
+PRbody refreshed. Constructor full run still active below; no concurrent build.
+
+## Current constructor unit
+
+Root owns edits/builds; no delegated writers. New constructor increment pending
+commit after pushedf7ccff7. Same draftPR55/master; full goal active about45%.
+newobj uses existing IR/ABI/backend: private per-site frame locals, entry/site
+zeroing, typed this/call and result snapshots. CIL cannot access hidden locals;
+normalization metadata extends with None for generated slots. Constructor flags,
+name/instance/void/nongeneric validated. Readonly field address reads corrected;
+direct writes still require declaring ctor. No immutability assumptions or
+unverifiable indirect-write guarantee. Review found no concrete defect; requested
+same-frame loop now uses Remember(new Constructed(i),ref previous,i), plus actual
+backward-branch/newobj metadata assertion. All independently expected value,
+recursive/chaining/default/static/readonly/bank checks pass D/R×DMG/CGB.
+
+First full run519pass/1fail stopped on CLI expectation; second complete run
+673/677,0skips,exit100,839.665s,
+/tmp/koh-value-constructors-workspace-final.log. Four failures were diagnostics:
+newobj now resolves Exception and reports missing System.Runtime; call message
+lost opcode detail. Restored numeric opcode message, retained original missing-
+reference cases, added direct throw variants including module initializer.
+All four failures and new constructor coverage pass final17/17,exit0,60.713s,
+/tmp/koh-value-constructors-regression-final.log. Do not claim677/677 yet.
+Separate final doctests (no cases)/rustfmt checks exited0. No test/build active.
+
+Next commit constructor increment, post-hook focused verification, push same PR.
+Then get clean full-suite/hosted results of corrected head. Docs/ABI/dispositions
+updated. Discovery677 workspace/501 compiler;482 ROM scenarios (412 returns,
+70 traps), four frame comparisons. Ten complete legacy replacements;555 pending.
+Broader classes/generics/arrays/runtime/gameplay, PDB/debug, SDK/package replacement
+and compiler deletion remain open. No scope reduction or completion claim.
+
 ## Current aggregate unit
 
 Root owns edits/builds; no delegated writers. Layout14b9a89 and aggregate execution

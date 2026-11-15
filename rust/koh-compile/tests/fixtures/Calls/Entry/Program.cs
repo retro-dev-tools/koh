@@ -2,7 +2,7 @@ public static class Program
 {
 #if MODULE_INIT
     [System.Runtime.CompilerServices.ModuleInitializer]
-    public static void InitModule() => throw new System.Exception();
+    public static void InitModule() => throw null!;
 #endif
 
     public static int Main() => Game.Play(6);
@@ -26,6 +26,8 @@ public static class Program
     public static int StaticInit() => Initialized.Read();
 
     public static void Dead() => throw new System.Exception();
+
+    public static void DeadThrow() => throw null!;
 
     public static int Protected()
     {

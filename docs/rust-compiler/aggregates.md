@@ -48,6 +48,64 @@ paths retain their existing encodings. This trades execution time for code size;
 no measured performance improvement is claimed. The Rust linker remains the
 only authority for placement and capacity.
 
+## Value constructors
+
+Nongeneric unmanaged value types support parameterless and parameterized
+constructors, including chaining through ordinary calls, by-value/ref arguments,
+static initialization and recursive factories. `default(T)` still zeroes the
+value without invoking a user constructor; `new T()` invokes an explicit
+parameterless constructor when Roslyn emits that call.
+
+The newobj target must be an instance, nongeneric, void `.ctor` marked with both
+SpecialName and RTSpecialName. Class and generic construction diagnose explicitly.
+The lowering evaluates and retains explicit argument values, zeroes a private
+frame slot, calls the constructor with its typed `this` followed by those
+arguments, then snapshots the completed value. One slot is reused per reachable
+IL site in each invocation. Entry initialization preserves the IR's existing
+local invariant; each execution resets the slot before the call. Constructor
+locals count toward the same local/frame/stack limits. They are appended after
+CIL translation, so a malformed CIL local index cannot access them.
+
+This uses existing local, zero, address, call and load IR operations. A separate
+construction operation/backend path was unnecessary. Returning a snapshot avoids
+aliasing the reusable slot; recursion gets separate hardware-stack frames. The
+newobj argument evaluation/receiver convention follows ECMA-335 III.4.21 and the
+[.NET instruction contract](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.emit.opcodes.newobj).
+No register allocator, calling convention or linker change is needed.
+
+Readonly field address loads are allowed: Roslyn uses them for ordinary static
+and nested struct reads. Direct writes still require the declaring constructor.
+The former blanket address rejection confused correct CIL with verifiability;
+ECMA-335 III.4.15 distinguishes them and warns that indirect mutation of an
+init-only static outside initialization has unpredictable behavior. Such writes
+are not a supported C# guarantee. The optimizer derives no immutability or
+non-aliasing assumptions from init-only metadata.
+
+Focused Debug/Release × DMG/CGB execution plus metadata/local-bound mutations and
+unsupported class/generic diagnostics initially passed 6/6, exit0,37.427s
+(`/tmp/koh-value-constructors-expanded.log`). The new constructor ROMs check
+parameterless versus default initialization, value/ref arguments, chaining,
+static readonly initialization, nested readonly reads, recursive returns,
+repeated calls, zero padding and complete bank guards. A subsequent loop case
+constructs directly within one frame and preserves a prior by-value snapshot;
+its input IL contains newobj within a backward branch. The final focused run
+including that assertion passes7/7,exit0,40.564s
+(`/tmp/koh-value-constructors-final-focused.log`). The first full run exposed a
+CLI test assumption: newobj now resolves Exception and reports missing
+System.Runtime. That reference check remains; a separate direct throw fixture
+preserves unsupported-opcode and input/output preservation assertions. The completed full run then reported673/677, zero skips,exit100,839.665s
+(`/tmp/koh-value-constructors-workspace-final.log`). Its remaining four failures
+were diagnostic expectations: missing System.Runtime after newobj resolution,
+and a call message that lost the opcode number. Numeric opcode detail is
+restored. Original exception-construction reference checks remain, with separate
+direct-throw fixtures for unsupported-opcode and module-initializer execution.
+The final focused regression run passes17/17,exit0,60.713s
+(`/tmp/koh-value-constructors-regression-final.log`), including all four failures.
+A clean full-suite run of the corrected head is still pending; do not report
+677/677 from these scoped results. Twelve rejection probes
+check malformed flags/targets, hidden-local access, direct readonly stores and
+unsupported shapes. Final full-suite validation of the corrected head remains pending.
+
 ## Evidence and limits
 
 Rust layout tests cover14 layout/unsupported-shape cases and9 malformed/capacity
@@ -64,7 +122,7 @@ field widths, addressed instance arguments, overlapping64-byte copies and raw
 banked pointers. Expected values and poisoned memory are independent assertions,
 not comparisons with the old compiler's output.
 
-Parameterized constructors/newobj, aggregate array elements, boxing,
+Aggregate array elements, boxing,
 reference-bearing values and generic values remain outstanding migration work.
 Do not infer their support from successful Sprite or unmanaged-value fixtures.
 Portable PDB/source debugging and ordinary SDK native compilation also remain

@@ -265,12 +265,13 @@ pub fn assembly_method(
             }
         }
         function.blocks[0].instructions.splice(0..0, prefix);
-        let slots: Vec<_> = signature
+        let mut slots: Vec<_> = signature
             .params
             .iter()
             .chain(&local_types)
             .map(narrow_type)
             .collect();
+        slots.resize(function.locals.len(), None);
         normalize_storage(&mut function, &slots, narrow_type(&signature.return_type))?;
         verify(&function)?;
         Ok(function)
@@ -393,6 +394,7 @@ struct Builder {
     data_bytes: usize,
     edge_arguments: usize,
     pinned: HashSet<usize>,
+    constructions: HashMap<u32, (u32, ValueType)>,
     instructions: Vec<Instruction>,
     stack: Vec<(u32, Type)>,
     offset: u32,
@@ -595,6 +597,7 @@ fn lower_inner(
         data_bytes: 0,
         edge_arguments: 0,
         pinned: pinned.iter().copied().collect(),
+        constructions: HashMap::new(),
         instructions: vec![],
         stack: vec![],
         offset: 0,
@@ -774,7 +777,7 @@ fn lower_inner(
             next += 1;
         }
     }
-    let blocks = blocks
+    let mut blocks: Vec<Block> = blocks
         .into_iter()
         .flatten()
         .map(|mut body| {
@@ -784,6 +787,28 @@ fn lower_inner(
             body
         })
         .collect();
+    let mut constructions: Vec<_> = std::mem::take(&mut builder.constructions)
+        .into_values()
+        .collect();
+    constructions.sort_unstable_by_key(|(index, _)| *index);
+    builder.offset = 0;
+    for &(local, shape) in &constructions {
+        let zero = builder.value(Type::Struct(shape), Op::ZeroStruct)?;
+        builder.instructions.push(Instruction {
+            result: None,
+            op: Op::StoreLocal {
+                local,
+                value: zero.0,
+            },
+            il_offset: 0,
+        });
+    }
+    blocks[0].instructions.append(&mut builder.instructions);
+    locals.extend(
+        constructions
+            .into_iter()
+            .map(|(_, shape)| Type::Struct(shape)),
+    );
     let function = Function {
         identity: method.identity,
         parameters: method.parameters.clone(),
@@ -1123,14 +1148,19 @@ fn translate(
                 b.stack.push(value);
             }
         }
-        0x28 => {
-            let resolver =
-                resolver.ok_or("CIL opcode 0x0028 requires assembly reference resolution")?;
+        0x28 | 0x73 => {
+            let constructing = i.opcode == 0x73;
+            let resolver = resolver.ok_or_else(|| {
+                format!(
+                    "CIL opcode 0x{:04x} requires assembly reference resolution",
+                    i.opcode
+                )
+            })?;
             let token = match i.operand {
                 Operand::Token(token) => token,
                 _ => return Err("Missing call method token".into()),
             };
-            if resolver.array_initializer(method.identity.assembly, token)? {
+            if !constructing && resolver.array_initializer(method.identity.assembly, token)? {
                 let handle = b.pop()?;
                 let Type::FieldHandle(field) = handle.1 else {
                     return Err("InitializeArray requires a known RVA field handle".into());
@@ -1167,6 +1197,27 @@ fn translate(
                 return Err("Generic call instantiation is not lowered yet".into());
             }
             let metadata = resolver.assembly(target.definition.assembly)?;
+            if constructing {
+                let definition = metadata.method(target.definition.token)?;
+                let signature = metadata.method_signature(target.definition.token)?;
+                if metadata
+                    .metadata()
+                    .strings
+                    .get(definition.name)
+                    .map_err(|e| e.to_string())?
+                    != ".ctor"
+                    || definition.flags & 0x1810 != 0x1800
+                    || !signature.calling_convention.has_this()
+                    || signature.generic_param_count != 0
+                    || signature.return_type
+                        != clrmeta::TypeSig::Primitive(clrmeta::ElementType::Void)
+                {
+                    return Err(
+                        "newobj requires a nongeneric instance void .ctor with constructor flags"
+                            .into(),
+                    );
+                }
+            }
             if metadata
                 .metadata()
                 .strings
@@ -1184,13 +1235,29 @@ fn translate(
             let signature =
                 bound_signature(resolver, target.definition.assembly, &metadata_signature)?;
             let mut arguments = Vec::with_capacity(signature.parameters.len());
-            for &ty in signature.parameters.iter().rev() {
+            let constructed = if constructing {
+                let Some(Type::StructRef(shape)) = signature.parameters.first() else {
+                    return Err("newobj requires an unmanaged value-type constructor".into());
+                };
+                Some(*shape)
+            } else {
+                None
+            };
+            for &ty in signature
+                .parameters
+                .iter()
+                .skip(usize::from(constructing))
+                .rev()
+            {
                 let value = b.pop()?;
                 let value = b.coerce(value, ty)?;
                 arguments.push(value.0);
             }
             arguments.reverse();
             if let Some(intrinsic) = crate::contracts::intrinsic(resolver, target.definition)? {
+                if constructing {
+                    return Err("newobj cannot invoke a hardware intrinsic".into());
+                }
                 use crate::contracts::Intrinsic;
                 let address = match intrinsic {
                     Intrinsic::Read(a) | Intrinsic::Write(a) | Intrinsic::Region(a) => a,
@@ -1219,6 +1286,57 @@ fn translate(
                     }),
                     Intrinsic::Region(_) => b.stack.push(pointer),
                 }
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
+            if let Some(shape) = constructed {
+                let local = if let Some(&(local, old)) = b.constructions.get(&b.offset) {
+                    if old != shape {
+                        return Err("Constructor storage type changed during stack merging".into());
+                    }
+                    local
+                } else {
+                    let local = locals.len() + b.constructions.len();
+                    if local >= 1024 {
+                        return Err("Constructor storage exceeds method local limit".into());
+                    }
+                    b.constructions.insert(b.offset, (local as u32, shape));
+                    local as u32
+                };
+                let zero = b.value(Type::Struct(shape), Op::ZeroStruct)?;
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::StoreLocal {
+                        local,
+                        value: zero.0,
+                    },
+                    il_offset: b.offset,
+                });
+                let address = b.value(
+                    Type::StructRef(shape),
+                    Op::LocalAddress {
+                        local,
+                        storage: Storage::Struct(shape),
+                    },
+                )?;
+                arguments.insert(0, address.0);
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::Call {
+                        target: target.definition,
+                        signature,
+                        arguments,
+                    },
+                    il_offset: b.offset,
+                });
+                let value = b.value(
+                    Type::Struct(shape),
+                    Op::LoadMemory {
+                        address: address.0,
+                        bits: shape.bytes() * 8,
+                        signed: false,
+                    },
+                )?;
+                b.stack.push(value);
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let returns = signature.returns;
@@ -1444,7 +1562,7 @@ fn translate(
             if row.flags & (0x10 | 0x40 | 0x100) != 0 {
                 return Err("Instance field opcode requires a nonstatic value field".into());
             }
-            if i.opcode != 0x7b && row.flags & 0x20 != 0 {
+            if i.opcode == 0x7d && row.flags & 0x20 != 0 {
                 let method_image = resolver.assembly(method.identity.assembly)?;
                 let constructor = method_image
                     .metadata()
@@ -1454,8 +1572,7 @@ fn translate(
                     == ".ctor";
                 if !constructor || owner_type(resolver, method.identity)? != owner {
                     return Err(
-                        "Readonly instance field writes/addresses require declaring constructor"
-                            .into(),
+                        "Readonly instance field writes require declaring constructor".into(),
                     );
                 }
             }
@@ -1552,10 +1669,9 @@ fn translate(
                 return Err("Static field flags require literal/RVA/instance lowering".into());
             }
             let initializer = resolver.field_initializer(target.definition)?;
-            if i.opcode != 0x7e && field.flags & 0x20 != 0 && initializer != Some(method.identity) {
+            if i.opcode == 0x80 && field.flags & 0x20 != 0 && initializer != Some(method.identity) {
                 return Err(
-                    "Readonly static field writes/addresses require their declaring constructor"
-                        .into(),
+                    "Readonly static field writes require their declaring constructor".into(),
                 );
             }
             for constructor in [

@@ -190,3 +190,31 @@ verdict channel is replaced by a return checksum plus whole-memory guards;
 register I/O is independently covered by the existing hardware fixtures.
 Final verified counts are recorded in progress.md after the complete run.
 No generic/array/sprite group is marked complete from a smaller passing subset.
+
+### Value constructors
+
+`driver::aggregate_csharp_values_and_native_fields_preserve_banks` now also
+executes real nongeneric value construction in Debug/Release × DMG/CGB. The
+fixture checks default versus explicit parameterless construction, scalar/ref/
+value arguments, chaining, static initialization, recursive factories, repeated
+calls, padding and nested readonly addresses. This is a partial PORT of the
+factory/instance/recursive portions of `CilStructReturnTests`; generic returns,
+enumerators and remaining whole-source expectations are still outstanding.
+No additional complete legacy method is claimed from this increment.
+
+`driver::value_constructor_metadata_and_private_storage_diagnose` adds two
+rstest cases with12 explicit rejection probes: malformed flags, nonconstructor
+target, attempted access to compiler-private locals, direct readonly stores,
+generic construction and class construction. These REPLACE implementation-shape
+assumptions with metadata/ABI isolation and visible diagnostics, independently
+justified by ECMA-335 constructor/field semantics and the documented subset.
+They are discoverable by cargo-nextest; no compiler-owned test is deferred.
+
+Constructor progress also exposed diagnostic fixtures that assumed newobj itself
+was unsupported. Keep their original exception-allocation/missing-reference
+checks; add direct-throw variants for unsupported opcode and module-initializer
+body execution. Numeric opcode diagnostics for unresolved calls remain checked.
+This replaces incidental instruction ordering with separate reference, execution
+and output-preservation assertions; it does not weaken rejection behavior.
+The prior full run's four diagnostic failures all pass the final17-case focused
+regression. Clean corrected-head full/hosted validation remains pending.

@@ -20,6 +20,13 @@ entry parameters from the argument block, and writes its result to the caller's
 return buffer before restoring SP and executing RET. All registers/flags are
 caller-clobbered. SP and caller storage survive the call.
 
+[Unmanaged aggregate values](aggregates.md) occupy their complete metadata layout
+in argument/return buffers. Typed aggregate references occupy two bytes. A value
+constructor uses the ordinary void-call ABI, with `this` as the first reference
+argument. Newobj allocates a compiler-private local per IL site, resets it before
+the call and loads an independent value afterward. These locals live in the
+same guarded activation frame and cannot be addressed by CIL local indices.
+
 Primitive managed references also occupy two bytes and retain their pointee type
 in IR. [Local/argument addresses](local-references.md) refer to stable storage in
 the owning invocation, including ancestor frames during recursion. Null managed

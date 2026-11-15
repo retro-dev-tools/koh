@@ -17,6 +17,8 @@ public static class Program
 
     public static void Unsupported() => throw new System.Exception();
 
+    public static void UnsupportedThrow() => throw null!;
+
     public static int Switches()
     {
         int sum = 0;

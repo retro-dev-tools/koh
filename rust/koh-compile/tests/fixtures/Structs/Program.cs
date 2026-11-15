@@ -31,6 +31,78 @@ public static unsafe class Program
 
     static Packet Global;
 
+    static Constructed Create(int value) => new Constructed(value);
+
+    static int Remember(Constructed value, ref Constructed previous, int index)
+    {
+        if (index > 0 && previous.Value != index - 1)
+            return -100;
+        previous = value;
+        value.Value = -5;
+        return index;
+    }
+
+    static Constructed Reshape(Constructed value) => new Constructed(value, 6);
+
+    static Constructed Recursive(int depth) =>
+        depth == 0 ? Create(3) : new Constructed(Recursive(depth - 1), 2);
+
+    static readonly Constructed Cached = new Constructed(8);
+
+    public static int UnsupportedGeneric() => new GenericConstructed<int>(1).Value;
+
+    public static int UnsupportedClass() => new ReferenceConstructed(1).Value;
+
+    public static int BankedConstructors()
+    {
+        Bank = 2;
+        int result = Constructors();
+        return (Bank & 7) == 2 ? result : -99;
+    }
+
+    public static int Constructors()
+    {
+        Constructed empty = default;
+        Constructed initialized = new Constructed();
+        Constructed first = Create(37);
+        Constructed second = Reshape(first);
+        Constructed third = Create(38);
+        Constructed recursive = Recursive(2);
+        Immutable immutable = new Immutable(123);
+        int counter = 9;
+        Constructed borrowed = new Constructed(ref counter);
+        int total = 0;
+        Constructed previous = default;
+        for (int i = 0; i < 3; i++)
+            total += Remember(new Constructed(i), ref previous, i);
+        byte* padding = (byte*)&first;
+        for (int i = 0; i < sizeof(Constructed); i++)
+            if ((i >= 4 && i < 8 || i >= 20) && padding[i] != 0)
+                return -3;
+        return
+            empty.Value == 0
+            && initialized.Value == 11
+            && initialized.Extra == 0
+            && initialized.Wide == 0
+            && first.Value == 37
+            && first.Wide == 0x0123456789ABCDEF
+            && second.Value == 43
+            && second.Extra == 6
+            && second.Wide == first.Wide
+            && third.Value == 38
+            && recursive.Value == 7
+            && recursive.Extra == 2
+            && immutable.Value == 123
+            && immutable.Data.Body.Score == 123
+            && borrowed.Value == 9
+            && counter == 10
+            && total == 3
+            && previous.Value == 2
+            && Cached.Value == 8
+            ? 42
+            : -1;
+    }
+
     static Packet Make()
     {
         Packet value = default;
@@ -213,4 +285,72 @@ public struct Overlap
 
     [FieldOffset(8)]
     public Packet Second;
+}
+
+[StructLayout(LayoutKind.Sequential, Size = 32)]
+public struct Constructed
+{
+    public int Value;
+    public long Wide;
+    public int Extra;
+
+    public Constructed()
+    {
+        Value = 11;
+    }
+
+    public Constructed(int value)
+    {
+        Value = value;
+        Wide = 0x0123456789ABCDEF;
+    }
+
+    public Constructed(Constructed value, int delta)
+        : this(value.Value + delta)
+    {
+        Wide = value.Wide;
+        Extra = delta;
+    }
+
+    public Constructed(ref int counter)
+        : this(counter)
+    {
+        counter++;
+    }
+}
+
+public readonly struct Immutable
+{
+    public readonly int Value;
+    public readonly Nested Data;
+
+    public Immutable(int value)
+    {
+        Value = value;
+        Packet packet = default;
+        packet.Score = value;
+        Nested data = default;
+        data.Body = packet;
+        Data = data;
+    }
+}
+
+public struct GenericConstructed<T>
+{
+    public T Value;
+
+    public GenericConstructed(T value)
+    {
+        Value = value;
+    }
+}
+
+public sealed class ReferenceConstructed
+{
+    public int Value;
+
+    public ReferenceConstructed(int value)
+    {
+        Value = value;
+    }
 }

@@ -618,6 +618,14 @@ fn aggregate_csharp_values_and_native_fields_preserve_banks(
         ("Program::NativeFields", &resolver),
         (
             if color {
+                "Program::BankedConstructors"
+            } else {
+                "Program::Constructors"
+            },
+            &resolver,
+        ),
+        (
+            if color {
                 "Program::BankedScalarsAndOverlap"
             } else {
                 "Program::ScalarsAndOverlap"
@@ -666,6 +674,122 @@ fn aggregate_csharp_values_and_native_fields_preserve_banks(
         if color {
             assert_heap_snapshot(fields[5], &bank2, entry);
         }
+    }
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn value_constructor_metadata_and_private_storage_diagnose(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let (_directory, images) = struct_images(host, configuration);
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let method = |name: &str| {
+        (1..=assembly.metadata().method_defs.len())
+            .map(|row| 0x06000000 | row as u32)
+            .find(|&token| assembly.method_name(token).unwrap() == name)
+            .unwrap()
+    };
+    let create = method("Program::Create");
+    let body = assembly.method_body(create).unwrap();
+    let base = (body.il.as_ptr() as usize)
+        .checked_sub(images[0].as_ptr() as usize)
+        .unwrap();
+    assert_eq!(&images[0][base..base + body.il.len()], body.il);
+    let il = koh_compile::cil::decode(body.il).unwrap();
+    let construct = il
+        .iter()
+        .find(|i| i.opcode == 0x73)
+        .expect("Factory must use newobj");
+    let koh_compile::cil::Operand::Token(token) = construct.operand else {
+        panic!("Constructor token")
+    };
+    let target = resolver.resolve_method(0, token).unwrap().definition;
+    let definition = assembly.method(target.token).unwrap();
+    let mut needle = definition.rva.to_le_bytes().to_vec();
+    needle.extend(definition.impl_flags.to_le_bytes());
+    needle.extend(definition.flags.to_le_bytes());
+    let rows: Vec<_> = images[0]
+        .windows(needle.len())
+        .enumerate()
+        .filter_map(|(i, bytes)| (bytes == needle).then_some(i))
+        .collect();
+    assert_eq!(rows.len(), 1);
+    let declared = assembly.local_types(create).unwrap().len();
+    assert!(declared < 4);
+    let last = il.last().unwrap();
+    assert_eq!(last.opcode, 0x2a);
+    let constructors = method("Program::Constructors");
+    let read = assembly.method_body(constructors).unwrap();
+    let read_base = (read.il.as_ptr() as usize)
+        .checked_sub(images[0].as_ptr() as usize)
+        .unwrap();
+    assert_eq!(&images[0][read_base..read_base + read.il.len()], read.il);
+    let readonly = koh_compile::cil::decode(read.il)
+        .unwrap()
+        .into_iter()
+        .find(|i| i.opcode == 0x7f)
+        .expect("Readonly static struct read must take its address");
+    let body = koh_compile::cil::decode(read.il).unwrap();
+    assert!(
+        body.iter().any(|branch| {
+            matches!(branch.operand, koh_compile::cil::Operand::Target(target)
+            if target < branch.offset && body.iter().any(|site|
+                site.opcode == 0x73 && site.offset >= target && site.offset < branch.offset))
+        }),
+        "Constructor fixture must reuse a newobj site within a loop"
+    );
+    for (kind, expected) in [
+        ("flags", "newobj requires"),
+        ("target", "newobj requires"),
+        ("private-local", "Invalid local/argument index"),
+        ("readonly-store", "Readonly static field writes require"),
+    ] {
+        let mut bytes = images[0].clone();
+        let selected = if kind == "readonly-store" {
+            constructors
+        } else {
+            create
+        };
+        match kind {
+            "flags" => bytes[rows[0] + 6..rows[0] + 8]
+                .copy_from_slice(&(definition.flags & !0x1000).to_le_bytes()),
+            "target" => bytes
+                [base + construct.offset as usize + 1..base + construct.offset as usize + 5]
+                .copy_from_slice(&method("Program::Values").to_le_bytes()),
+            "private-local" => bytes[base + last.offset as usize] = 0x06 + declared as u8,
+            "readonly-store" => bytes[read_base + readonly.offset as usize] = 0x80,
+            _ => unreachable!(),
+        }
+        let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let resolver = Resolver::new(&[&bytes, &images[1]])?;
+            koh_compile::lower::assembly_method(
+                &resolver,
+                koh_compile::resolve::Definition {
+                    assembly: 0,
+                    token: selected,
+                },
+            )
+        }))
+        .expect("Malformed constructor input must not panic")
+        .unwrap_err();
+        assert!(
+            checked.contains(expected) && checked.contains("IL_"),
+            "{kind}: {checked}"
+        );
+    }
+    for (entry, expected) in [
+        ("Program::UnsupportedGeneric", "Generic call instantiation"),
+        ("Program::UnsupportedClass", "System.ValueType"),
+    ] {
+        let error = compile::object(&resolver, Some(entry)).unwrap_err();
+        assert!(
+            error.contains(expected) && error.contains(entry) && error.contains("IL_"),
+            "{error}"
+        );
     }
 }
 
@@ -2069,7 +2193,8 @@ fn cli_failures_preserve_inputs_and_previous_output() {
     for (arguments, diagnostic) in [
         (vec!["--unknown"], "Unknown option"),
         (vec!["--entry"], "Missing"),
-        (vec!["--entry", "Program::Unsupported"], "opcode"),
+        (vec!["--entry", "Program::Unsupported"], "System.Runtime"),
+        (vec!["--entry", "Program::UnsupportedThrow"], "opcode"),
         (vec!["--entry", "Program::NeedsArgument"], "parameter"),
         (
             vec!["--reference", missing.to_str().unwrap()],
@@ -2134,7 +2259,8 @@ fn library_entry_is_unambiguous_and_checked() {
     for (name, diagnostic) in [
         ("NeedsArgument", "parameter"),
         ("LongEntry", "return"),
-        ("Unsupported", "opcode"),
+        ("Unsupported", "System.Runtime"),
+        ("UnsupportedThrow", "opcode"),
     ] {
         let error = compile::object(&resolver, Some(&format!("Program::{name}"))).unwrap_err();
         assert!(error.contains(diagnostic), "{error}");
