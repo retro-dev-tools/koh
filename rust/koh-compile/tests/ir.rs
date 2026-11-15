@@ -77,6 +77,79 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+fn stack_buffer(bytes: u64) -> Function {
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(0, Type::I32, Op::Constant(bytes)),
+            instruction(1, Type::Native, Op::StackAllocate { bytes: 0 }),
+        ],
+        terminator: Terminator {
+            il_offset: 2,
+            kind: Control::Return(None),
+        },
+    }];
+    f
+}
+
+#[rstest]
+#[case(0)]
+#[case(4)]
+#[case(65)]
+#[case(3840)]
+fn fixed_stack_buffers_verify(#[case] bytes: u64) {
+    verify(&stack_buffer(bytes)).unwrap();
+}
+
+#[rstest]
+#[case(3841)]
+#[case(4096)]
+#[case(0xffff_ffff)]
+fn oversized_stack_buffers_are_rejected(#[case] bytes: u64) {
+    let error = verify(&stack_buffer(bytes)).unwrap_err();
+    assert!(error.contains("IL_0001"), "{error}");
+    assert!(error.contains("capacity"), "{error}");
+}
+
+#[test]
+fn dynamic_stack_buffer_is_rejected() {
+    let mut f = stack_buffer(4);
+    f.parameters = vec![Type::I32];
+    f.blocks[0].parameters = vec![(0, Type::I32)];
+    f.blocks[0].instructions.remove(0);
+    let error = verify(&f).unwrap_err();
+    assert!(error.contains("statically known size"), "{error}");
+}
+
+#[test]
+fn repeated_stack_allocation_site_is_rejected() {
+    let mut f = stack_buffer(4);
+    f.blocks.insert(
+        0,
+        Block {
+            parameters: vec![],
+            instructions: vec![],
+            terminator: Terminator {
+                il_offset: 0,
+                kind: Control::Jump(Edge {
+                    block: 1,
+                    arguments: vec![],
+                }),
+            },
+        },
+    );
+    f.blocks[1].terminator.kind = Control::Jump(Edge {
+        block: 1,
+        arguments: vec![],
+    });
+    let error = verify(&f).unwrap_err();
+    assert!(error.contains("control-flow cycle"), "{error}");
+}
+
 fn initializer(ty: Type, bytes: Vec<u8>) -> Function {
     Function {
         identity: Definition {

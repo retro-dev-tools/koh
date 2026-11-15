@@ -1,6 +1,8 @@
 use crate::resolve::Definition;
 use std::collections::HashMap;
 mod escape;
+mod stack;
+pub(crate) use stack::allocations as stack_allocations;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
@@ -95,6 +97,9 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    StackAllocate {
+        bytes: u32,
+    },
     FieldHandle(Definition),
     InitializeArray {
         array: u32,
@@ -168,6 +173,7 @@ pub struct Instruction {
 impl Op {
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
+            Self::StackAllocate { bytes } => [Some(bytes), None],
             Self::InitializeArray { array, .. } => [Some(array), None],
             Self::NewArray { length, .. } | Self::ArrayLength(length) => [Some(length), None],
             Self::ArrayAddress { array, index } => [Some(array), Some(index)],
@@ -496,6 +502,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::StackAllocate { bytes } => {
+                        if !matches!(check(bytes, position)?, Type::I32 | Type::Native) {
+                            return Err("Stack allocation size must be int32/native".into());
+                        }
+                        Some(Type::Native)
+                    }
                     Op::FieldHandle(field) => {
                         if field.token >> 24 != 4 || field.token & 0xffffff == 0 {
                             return Err("Invalid field handle identity".into());
@@ -584,6 +596,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         let ty = result.ok_or("Memory load has no result")?;
+                        if matches!(check(address, position)?, Type::ByRef(scalar) if scalar.stack_type() != ty)
+                        {
+                            return Err(
+                                "Managed-reference load differs from storage stack type".into()
+                            );
+                        }
                         if !matches!(bits, 8 | 16 | 32 | 64)
                             || !matches!(
                                 (bits, ty),
@@ -607,8 +625,15 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     .into(),
                             );
                         }
+                        let stored = check(value, position)?;
+                        if matches!(check(address, position)?, Type::ByRef(scalar) if scalar.stack_type() != stored)
+                        {
+                            return Err(
+                                "Managed-reference store differs from storage stack type".into()
+                            );
+                        }
                         if !matches!(
-                            (bits, check(value, position)?),
+                            (bits, stored),
                             (8 | 16 | 32, Type::I32)
                                 | (64, Type::I64)
                                 | (16, Type::Native | Type::Array(_))
@@ -765,5 +790,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         checked()
             .map_err(|e| format!("Block {block} IL_{:04x}: {e}", body.terminator.il_offset))?;
     }
-    escape::verify(function)
+    escape::verify(function)?;
+    stack_allocations(function)?;
+    Ok(())
 }

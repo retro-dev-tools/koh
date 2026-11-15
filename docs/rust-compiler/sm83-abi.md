@@ -6,6 +6,12 @@ additional interrupt-safe pointer publication; SP-relative frames avoid that sha
 state. The first allocator spills SSA values into deterministic frame slots.
 Register residency and lifetime-based slot reuse are optimizations, not semantics.
 
+The [enum/stack increment](stack-enums.md) adds conservative zero-upper-byte
+spill compression. Evaluation widths and call/return buffers below remain
+unchanged; physical spills may use fewer bytes, with explicit extension at
+consumers. Address-exposed storage retains its accessible width. Fixed acyclic
+stack buffers live in each invocation's guarded frame and are zeroed before use.
+
 On callee entry, SP addresses the two-byte machine return address. The caller-owned
 return buffer follows, then packed arguments in declaration order. Each value uses
 its evaluation width (int32: four bytes, int64: eight, native: two), little-endian.

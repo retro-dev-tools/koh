@@ -211,30 +211,101 @@ impl<'a> Resolver<'a> {
         Ok(true)
     }
 
-    pub(crate) fn primitive(
-        &self,
-        assembly: usize,
-        token: u32,
-    ) -> Result<crate::ir::Scalar, String> {
-        use crate::ir::Scalar;
+    pub(crate) fn scalar_signature(&self, assembly: usize, token: u32) -> Result<TypeSig, String> {
+        use clrmeta::ElementType;
+        if token >> 24 == 0x1b {
+            let metadata = self.assembly(assembly)?.metadata();
+            let specification = row(&metadata.type_specs, token, 0x1b)?;
+            return crate::signature::type_spec(
+                metadata
+                    .blobs
+                    .get(specification.signature)
+                    .map_err(|e| e.to_string())?,
+            );
+        }
         let Some(("System", name)) = self.framework_type(assembly, token)? else {
-            return Err("Array element requires a supported framework primitive identity".into());
+            let encoded = match token >> 24 {
+                1 => ((token & 0xffffff) << 2) | 1,
+                2 => (token & 0xffffff) << 2,
+                _ => return Err("Array element requires a primitive or enum type token".into()),
+            };
+            return self.enum_storage(assembly, encoded);
         };
-        Ok(match name {
-            "Boolean" => Scalar::Bool,
-            "Char" => Scalar::Char,
-            "SByte" => Scalar::I8,
-            "Byte" => Scalar::U8,
-            "Int16" => Scalar::I16,
-            "UInt16" => Scalar::U16,
-            "Int32" => Scalar::I32,
-            "UInt32" => Scalar::U32,
-            "Int64" => Scalar::I64,
-            "UInt64" => Scalar::U64,
-            "IntPtr" => Scalar::NativeSigned,
-            "UIntPtr" => Scalar::NativeUnsigned,
+        Ok(TypeSig::Primitive(match name {
+            "Boolean" => ElementType::Boolean,
+            "Char" => ElementType::Char,
+            "SByte" => ElementType::I1,
+            "Byte" => ElementType::U1,
+            "Int16" => ElementType::I2,
+            "UInt16" => ElementType::U2,
+            "Int32" => ElementType::I4,
+            "UInt32" => ElementType::U4,
+            "Int64" => ElementType::I8,
+            "UInt64" => ElementType::U8,
+            "IntPtr" => ElementType::IntPtr,
+            "UIntPtr" => ElementType::UIntPtr,
             _ => return Err("Array element is not a supported integer primitive".into()),
-        })
+        }))
+    }
+
+    pub(crate) fn enum_storage(&self, assembly: usize, encoded: u32) -> Result<TypeSig, String> {
+        let definition = self.resolve_type(assembly, type_token(encoded)?)?;
+        let image = self.assembly(definition.assembly)?;
+        let metadata = image.metadata();
+        let ty = row(&metadata.type_defs, definition.token, 2)?;
+        if ty.extends.table != Some(TableId::TypeRef)
+            || framework_type(metadata, coded(ty.extends)?)? != Some(("System", "Enum"))
+            || ty.flags & 0x100 == 0
+            || metadata.generic_params.iter().any(|p| {
+                p.owner.table == Some(TableId::TypeDef)
+                    && p.owner.row == definition.token & 0xffffff
+            })
+        {
+            return Err("Value type is not a supported nongeneric sealed enum".into());
+        }
+        let end = metadata
+            .type_defs
+            .get((definition.token & 0xffffff) as usize)
+            .map(|t| t.field_list)
+            .unwrap_or(metadata.fields.len() as u32 + 1);
+        let mut underlying = None;
+        for index in ty.field_list..end {
+            let field = &metadata.fields[index as usize - 1];
+            if field.flags & 0x10 != 0 {
+                if field.flags & 0x40 == 0 {
+                    return Err("Enum static fields must be literal constants".into());
+                }
+                continue;
+            }
+            if field.flags & 0x600 != 0x600
+                || metadata
+                    .strings
+                    .get(field.name)
+                    .map_err(|e| e.to_string())?
+                    != "value__"
+                || underlying.is_some()
+            {
+                return Err("Enum requires one special value__ instance field".into());
+            }
+            let storage = image.field_signature(0x04000000 | index)?;
+            if !matches!(
+                storage,
+                TypeSig::Primitive(
+                    clrmeta::ElementType::I1
+                        | clrmeta::ElementType::U1
+                        | clrmeta::ElementType::I2
+                        | clrmeta::ElementType::U2
+                        | clrmeta::ElementType::I4
+                        | clrmeta::ElementType::U4
+                        | clrmeta::ElementType::I8
+                        | clrmeta::ElementType::U8
+                )
+            ) {
+                return Err("Enum underlying storage must be an 8/16/32/64-bit integer".into());
+            }
+            underlying = Some(storage);
+        }
+        underlying.ok_or("Enum has no underlying value__ field".into())
     }
     pub fn new(images: &[&'a [u8]]) -> Result<Self, String> {
         if images.len() > 1024

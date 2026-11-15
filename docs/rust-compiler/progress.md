@@ -500,3 +500,32 @@ Native Linux, Windows and macOS jobs include successful Test steps; completed
 macOS log confirms501/501, no skips. RVA-head hosted evidence remains separate.
 Real sample graphics, broader runtime/aggregate/enum, IRQ/banking, PDB/debug/SDK,
 whole-test migration/deletion and performance/container gates remain open.
+
+## Enum and stack-buffer increment
+
+[Enum storage, fixed stack buffers and physical spill widths](stack-enums.md)
+support the actual 2048 Board component without changing its source. Four Rust
+driver cases cover Debug/Release and DMG/CGB, with independent board merge and
+memory expectations. Complete graphical-game and SDK acceptance remain open.
+The ABI retains full evaluation widths across calls; upper-bound analysis reduces
+only provably zero spill bytes. Partial-alias regression tests caught an incorrect
+max-versus-OR combination before this increment was committed.
+
+Focused arithmetic2/2, partial-alias2/2 and stack-IR9/9 runs passed with exit0.
+Logs: `/tmp/koh-width-boundaries.log`, `/tmp/koh-alias-regression.log` and
+`/tmp/koh-stack-ir-final.log`. The first stack-IR run passed8/9: its cycle fixture
+incorrectly branched to the prohibited entry block. Moving that cycle to a valid
+nonentry block tests the intended allocation diagnostic without changing it.
+Linux `cargo nextest run --workspace --all-features --locked --no-fail-fast`
+completed **552/552 passed, 0 skipped**, exit0,365.322s
+(`/tmp/koh-board-workspace-nextest.log`). This includes376 compiler cases and352
+ROM scenarios overall (291 normal returns,61 intentional traps). C# formatting
+completed successfully; the focused post-format run passed8/8, exit0,30.588s
+(`/tmp/koh-board-formatted.log`), including all four real Board configurations.
+Read-only backend review found no confirmed defect; a tentative enum-array
+identity concern was withdrawn after checking CLI reduced-type compatibility.
+
+Predecessor RVA head `293585d` has successful completed
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43666575641) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43666575657) workflows,
+queried live by commit SHA. These are predecessor results, not current-tree proof.

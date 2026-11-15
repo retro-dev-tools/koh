@@ -313,6 +313,200 @@ fn assert_heap_snapshot(text: &str, expected: &[u8], entry: &str) {
     }
 }
 
+fn slide_2048(input: &[u8; 16], direction: usize) -> ([u8; 16], u16) {
+    let mut output = [0; 16];
+    let mut score = 0u16;
+    let index = |line: usize, offset: usize| match direction {
+        0 => line * 4 + offset,
+        1 => line * 4 + 3 - offset,
+        2 => offset * 4 + line,
+        _ => (3 - offset) * 4 + line,
+    };
+    for line in 0..4 {
+        let mut tiles = (0..4)
+            .map(|i| input[index(line, i)])
+            .filter(|&v| v != 0)
+            .peekable();
+        let mut position = 0;
+        while let Some(mut value) = tiles.next() {
+            if tiles.peek() == Some(&value) {
+                tiles.next();
+                value += 1;
+                score = score.wrapping_add((1u32 << value) as u16);
+            }
+            output[index(line, position)] = value;
+            position += 1;
+        }
+    }
+    (output, score)
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn real_2048_board_and_stack_buffers_execute(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh real 2048 board ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Board");
+    for name in ["Board.csproj", "Program.cs"] {
+        std::fs::copy(fixture.join(name), directory.path().join(name)).unwrap();
+    }
+    let built = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Board.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        built.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let initial = [1u8, 1, 1, 1, 1, 1, 2, 0, 0, 2, 0, 2, 3, 0, 3, 3];
+    assert_eq!(
+        slide_2048(&initial, 0),
+        ([2, 2, 0, 0, 2, 2, 0, 0, 3, 0, 0, 0, 4, 3, 0, 0], 36)
+    );
+    for (direction, name) in [
+        "Left",
+        "Right",
+        "Up",
+        "Down",
+        "Scratch",
+        "Zeroed",
+        "Empty",
+        "Enums",
+        "PointerReference",
+        "ExhaustedStack",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let entry = if color && (direction < 4 || name == "Enums") {
+            format!("Banked{name}")
+        } else {
+            name.into()
+        };
+        let object_path = directory.path().join("board.o");
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+            .arg(output.join("Board.dll"))
+            .arg("-r")
+            .arg(output.join("Koh.GameBoy.dll"))
+            .args(["--entry", &format!("Program::{entry}")])
+            .arg("-o")
+            .arg(&object_path)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let object = koh_objects::read_elf(&std::fs::read(&object_path).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if name == "ExhaustedStack" {
+                "__koh_abort"
+            } else {
+                "__koh_exit"
+            },
+            "--native-stack",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 });
+        assert_eq!(
+            fields[0],
+            if name == "ExhaustedStack" { "01" } else { "00" },
+            "{name}"
+        );
+        assert_eq!(fields[3], "OK", "{name}");
+        if name != "ExhaustedStack" {
+            assert_eq!(fields[2], "D000", "{name}");
+        }
+        let mut heap = vec![0x5a; 4096];
+        let expected = if direction < 4 {
+            let (board, score) = slide_2048(&initial, direction);
+            heap[..2].copy_from_slice(&16u16.to_le_bytes());
+            heap[2..18].copy_from_slice(&board);
+            heap[18..20].copy_from_slice(&16u16.to_le_bytes());
+            heap[20..36].copy_from_slice(&initial);
+            u32::from(score)
+                | (u32::from(board != initial) << 16)
+                | (u32::from(board.iter().any(|&v| v >= 11)) << 17)
+                | (1 << 18)
+        } else {
+            if name == "Enums" {
+                heap[..5].copy_from_slice(&[3, 0, 0xff, 0xfe, 0xfe]);
+                heap[5..7].copy_from_slice(&1u16.to_le_bytes());
+                heap[7..15].copy_from_slice(&0xfedcba9876543210u64.to_le_bytes());
+            }
+            match name {
+                "Scratch" => (20..=28).sum(),
+                "Zeroed" => 0xab + 0xcd,
+                "PointerReference" => 0x12345678,
+                _ => 42,
+            }
+        };
+        if name != "ExhaustedStack" {
+            assert_eq!(fields[1], format!("{expected:08X}"), "{name}");
+        }
+        assert_heap_snapshot(fields[4], &heap, name);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], name);
+        }
+    }
+    for entry in ["Oversized", "Dynamic"] {
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+            .arg(output.join("Board.dll"))
+            .arg("-r")
+            .arg(output.join("Koh.GameBoy.dll"))
+            .args(["--entry", &format!("Program::{entry}")])
+            .arg("-o")
+            .arg(directory.path().join("invalid.o"))
+            .output()
+            .unwrap();
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            !result.status.success()
+                && error.contains("IL_")
+                && (error.contains("stack") || error.contains("Stack")),
+            "{entry}: {error}"
+        );
+    }
+}
+
 #[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]

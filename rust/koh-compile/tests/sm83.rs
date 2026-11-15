@@ -478,6 +478,213 @@ fn widths_comparisons_shifts_and_conversions_execute(host: &Host) {
 }
 
 #[rstest::rstest]
+#[case(Type::I32)]
+#[case(Type::I64)]
+fn narrow_spills_preserve_full_width_arithmetic_and_call_results(host: &Host, #[case] ty: Type) {
+    let mask = if ty == Type::I64 {
+        u64::MAX
+    } else {
+        u64::from(u32::MAX)
+    };
+    let mut cases = Vec::new();
+    let normalized = |op| {
+        let mut f = function(ty, op);
+        f.blocks[0].instructions.insert(
+            0,
+            Instruction {
+                result: Some((3, ty)),
+                op: Op::Convert {
+                    value: 0,
+                    bits: 8,
+                    signed: false,
+                },
+                il_offset: 1,
+            },
+        );
+        f.blocks[0].instructions.insert(
+            1,
+            Instruction {
+                result: Some((4, ty)),
+                op: Op::Convert {
+                    value: 1,
+                    bits: 8,
+                    signed: false,
+                },
+                il_offset: 2,
+            },
+        );
+        f
+    };
+    for (op, left, right, expected) in [
+        (Binary::Add, 0x1234ff, 0xab01, 256),
+        (Binary::Subtract, 0, 1, mask),
+        (Binary::Multiply, 255, 255, 65025),
+        (Binary::And, 0xff, 0x80, 0x80),
+        (Binary::Or, 0x80, 1, 0x81),
+        (Binary::Xor, 0xff, 0xf0, 15),
+        (Binary::DivideSigned, 255, 2, 127),
+        (Binary::RemainderSigned, 255, 2, 1),
+        (Binary::DivideUnsigned, 255, 2, 127),
+        (Binary::RemainderUnsigned, 255, 2, 1),
+        (Binary::ShiftRightSigned, 255, 1, 127),
+        (Binary::ShiftRightUnsigned, 255, 8, 0),
+        (Binary::ShiftRightSigned, 255, 31, 0),
+        (
+            Binary::ShiftLeft,
+            1,
+            40,
+            if ty == Type::I64 { 1 << 40 } else { 256 },
+        ),
+    ] {
+        let mut f = normalized(Op::Binary {
+            op,
+            left: 3,
+            right: 4,
+        });
+        if matches!(
+            op,
+            Binary::ShiftLeft | Binary::ShiftRightSigned | Binary::ShiftRightUnsigned
+        ) {
+            f.blocks[0].instructions[1].result = Some((4, Type::I32));
+        }
+        cases.push((f, vec![left, right], Ok(expected)));
+    }
+    for (op, expected) in [(Op::Negate(3), mask - 254), (Op::Not(3), mask ^ 255)] {
+        cases.push((normalized(op), vec![255, 0], Ok(expected)));
+    }
+    for (comparison, left, right, signed, expected) in [
+        (Comparison::LessSigned, 255, 1, false, 0),
+        (Comparison::GreaterSigned, 128, 1, false, 1),
+        (Comparison::LessSigned, mask, 1, true, 1),
+        (Comparison::Equal, 255, 255, false, 1),
+    ] {
+        let mut f = normalized(Op::Compare {
+            op: comparison,
+            left: 3,
+            right: 4,
+        });
+        f.blocks[0].instructions[0].op = Op::Convert {
+            value: 0,
+            bits: 8,
+            signed,
+        };
+        f.blocks[0].instructions[2].result = Some((2, Type::I32));
+        f.returns = Some(Type::I32);
+        cases.push((f, vec![left, right], Ok(expected)));
+    }
+    let mut f = normalized(Op::Binary {
+        op: Binary::Multiply,
+        left: 3,
+        right: 5,
+    });
+    f.blocks[0].instructions.insert(
+        2,
+        Instruction {
+            result: Some((5, ty)),
+            op: Op::Constant(4),
+            il_offset: 3,
+        },
+    );
+    cases.push((f, vec![255, 0], Ok(1020)));
+    for signed in [false, true] {
+        let mut f = normalized(Op::Convert {
+            value: 3,
+            bits: 16,
+            signed,
+        });
+        f.blocks[0].instructions[2].result = Some((2, Type::Native));
+        f.returns = Some(Type::Native);
+        cases.push((f, vec![255, 0], Ok(255)));
+    }
+    let mut f = normalized(Op::Convert {
+        value: 3,
+        bits: 8,
+        signed: true,
+    });
+    cases.push((f.clone(), vec![255, 0], Ok(mask)));
+    f.blocks[0].instructions[0].op = Op::Convert {
+        value: 0,
+        bits: 16,
+        signed: false,
+    };
+    f.blocks[0].instructions[2].op = Op::Binary {
+        op: Binary::ShiftRightSigned,
+        left: 3,
+        right: 4,
+    };
+    f.blocks[0].instructions[1].result = Some((4, Type::I32));
+    cases.push((f, vec![65535, 1], Ok(32767)));
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case(Scalar::U8, 256, 255, 0)]
+#[case(Scalar::U16, 65536, 65535, 8)]
+fn partial_local_aliases_preserve_high_bits_and_carry(
+    host: &Host,
+    #[case] scalar: Scalar,
+    #[case] initial: u64,
+    #[case] rewritten: u64,
+    #[case] shift: u64,
+) {
+    let mut f = function(Type::I32, Op::Constant(0));
+    f.parameters.clear();
+    f.locals = vec![Type::I32];
+    f.blocks[0].parameters.clear();
+    let instruction = |id, ty, op| Instruction {
+        result: Some((id, ty)),
+        op,
+        il_offset: id,
+    };
+    f.blocks[0].instructions = vec![
+        instruction(0, Type::I32, Op::Constant(initial)),
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 0 },
+            il_offset: 0,
+        },
+        instruction(
+            1,
+            Type::ByRef(scalar),
+            Op::LocalAddress { local: 0, scalar },
+        ),
+        instruction(2, Type::I32, Op::Constant(rewritten)),
+        Instruction {
+            result: None,
+            op: Op::StoreMemory {
+                address: 1,
+                value: 2,
+                bits: scalar.bits(),
+            },
+            il_offset: 1,
+        },
+        instruction(3, Type::I32, Op::LoadLocal(0)),
+        instruction(4, Type::I32, Op::Constant(shift)),
+        instruction(
+            5,
+            Type::I32,
+            Op::Binary {
+                op: Binary::ShiftRightUnsigned,
+                left: 3,
+                right: 4,
+            },
+        ),
+        instruction(6, Type::I32, Op::Constant(0xfeff)),
+        instruction(
+            7,
+            Type::I32,
+            Op::Binary {
+                op: Binary::Add,
+                left: 5,
+                right: 6,
+            },
+        ),
+    ];
+    f.blocks[0].terminator.kind = Control::Return(Some(7));
+    run(host, &[(f, vec![], Ok(0x100fe))]);
+}
+
+#[rstest::rstest]
 fn division_boundaries_and_faults_execute(host: &Host) {
     let mut cases = Vec::new();
     for (ty, mask, sign) in [

@@ -80,13 +80,28 @@ pending. Historical legacy baseline
 
 ## Next work and verification
 
-RVA unit ready for commit/push. Parent owns edits/builds; two read-only review
-passes complete, no delegated writers/builds. Verify committed/remote draft state
-after publishing and rerun formatted C# fixtures post-hook.
+Current uncommitted unit adds enum storage normalization, typed object memory
+operations, fixed-size acyclic stack allocation, and conservative physical spill
+width selection. ABI widths remain unchanged. Board fixture links the actual
+2048 Board.cs and tests all moves plus recursive/zeroed stack buffers, all enum
+widths and pointer aliases in Debug/Release and DMG/CGB. Parent owns all edits and
+builds. Read-only review completed with no confirmed findings; no delegated builds or writers.
+Arithmetic width regressions passed 2/2, partial local alias regressions passed
+2/2, both exit 0. Workspace552/552 passed,0skips,exit0,365.322s in
+/tmp/koh-board-workspace-nextest.log; compiler376cases and352ROMscenarios
+(291normal,61traps). Post-format8/8 passed,exit0,30.588s in
+/tmp/koh-board-formatted.log. Separate doc/fmt checks exit0 (no doctest cases).
+Previous RVA unit was committed and pushed as 293585d, with completed successful
+Rust run43666575641 and CI run43666575657 queried live by commit SHA.
+No build remains running. Current unit is ready to commit/push; after the hook,
+rerun the four Board cases and verify the same draft PR's head.
 
-Finish/review/commit/push this unit if not already committed, update the same draft
-PR and verify its remote head/draft state. Next pursue enum/switch/pinned-storage
-and library/runtime support needed by actual Board/Tiles/gfx-demo sources, then aggregate/array/runtime
+Finish verification/commit/push this unit, update the same draft PR and verify its
+remote head/draft state. Format changed fixture C# and rerun affected cases after
+formatting. New stack-IR9/9 passed; the initial cyclic fixture incorrectly targeted
+entry block0, corrected to a valid nonentry loop without changing the assertion.
+Next pursue switch/pinned-storage and library/runtime support needed by actual
+Tiles/gfx-demo sources, then aggregate/array/runtime
 support toward real games; keep full IRQ/banking, Portable PDB/KDBG/debugger,
 native SDK/incremental/package/CI, sample graphics execution, complete Rust test
 audit/migration, C# compiler deletion, performance/platform and bounded Docker gates.

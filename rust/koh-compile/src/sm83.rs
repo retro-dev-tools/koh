@@ -1,6 +1,13 @@
 use crate::{ir::*, resolve::Definition};
 use koh_objects::*;
 use std::collections::{BTreeMap, BTreeSet};
+mod ranges;
+
+#[derive(Clone, Copy)]
+struct Slot {
+    offset: u16,
+    bytes: u16,
+}
 
 pub fn symbol(identity: Definition) -> String {
     format!("__koh_a{}_m{:08x}", identity.assembly, identity.token)
@@ -191,6 +198,30 @@ impl Code {
         }
     }
 
+    fn extend(&mut self, source: Slot, destination: u16, width: u16) {
+        let copied = source.bytes.min(width);
+        self.copy(source.offset, destination, copied);
+        if copied < width {
+            self.constant(destination + copied, width - copied, 0);
+        }
+    }
+
+    fn value_a(&mut self, value: Slot, byte: u16) {
+        if byte < value.bytes {
+            self.load_a(value.offset + byte);
+        } else {
+            self.bytes(&[0x3e, 0]);
+        }
+    }
+
+    fn value_b(&mut self, value: Slot, byte: u16) {
+        if byte < value.bytes {
+            self.load_b(value.offset + byte);
+        } else {
+            self.bytes(&[0x06, 0]);
+        }
+    }
+
     fn indirect(&mut self, address: u16) {
         self.load_a(address);
         self.bytes(&[0x4f]);
@@ -225,6 +256,9 @@ impl Code {
     }
 
     fn check_high(&mut self, slot: u16, width: u16, fault: SymbolId) {
+        if width <= 2 {
+            return;
+        }
         self.bytes(&[0x0e, 0]);
         for byte in 2..width {
             self.load_a(slot + byte);
@@ -336,9 +370,7 @@ impl Code {
     }
 
     fn constant(&mut self, destination: u16, width: u16, bits: u64) {
-        self.bytes(&[0xf5]);
-        self.address(destination + 2);
-        self.bytes(&[0xf1]);
+        self.address(destination);
         for byte in 0..width {
             self.bytes(&[0x36, (bits >> (byte * 8)) as u8]);
             if byte + 1 < width {
@@ -356,19 +388,53 @@ impl Code {
     }
 
     fn arithmetic(&mut self, left: u16, right: u16, destination: u16, width: u16, opcode: u8) {
+        self.arithmetic_values(
+            Slot {
+                offset: left,
+                bytes: width,
+            },
+            Slot {
+                offset: right,
+                bytes: width,
+            },
+            destination,
+            width,
+            opcode,
+        );
+    }
+
+    fn arithmetic_values(
+        &mut self,
+        left: Slot,
+        right: Slot,
+        destination: u16,
+        width: u16,
+        opcode: u8,
+    ) {
         self.bytes(&[0xaf]);
         for byte in 0..width {
-            self.load_a(left + byte);
-            self.load_b(right + byte);
+            self.value_a(left, byte);
+            self.value_b(right, byte);
             self.bytes(&[opcode]);
             self.store_a(destination + byte);
         }
     }
 
     fn negate(&mut self, source: u16, destination: u16, width: u16) {
+        self.negate_value(
+            Slot {
+                offset: source,
+                bytes: width,
+            },
+            destination,
+            width,
+        );
+    }
+
+    fn negate_value(&mut self, source: Slot, destination: u16, width: u16) {
         self.bytes(&[0x37]);
         for byte in 0..width {
-            self.load_a(source + byte);
+            self.value_a(source, byte);
             self.bytes(&[0x2f, 0xce, 0]);
             self.store_a(destination + byte);
         }
@@ -394,6 +460,36 @@ impl Code {
             }
             self.store_a(slot + byte);
         }
+    }
+
+    fn shift_constant(
+        &mut self,
+        source: u16,
+        destination: u16,
+        width: u16,
+        count: u8,
+        left: bool,
+        signed: bool,
+    ) {
+        self.copy(source, destination, width);
+        if count != 0 {
+            self.bytes(&[0x0e, count]);
+            let start = self.label();
+            self.mark(start);
+            self.shift_one(destination, width, left, signed, false);
+            self.bytes(&[0x0d]);
+            self.jump(0xc2, start);
+        }
+    }
+
+    fn equal_zero(&mut self, source: u16, destination: u16, width: u16) {
+        self.address(source);
+        self.bytes(&[0x0e, 0]);
+        for _ in 0..width {
+            self.bytes(&[0x2a, 0xb1, 0x4f]);
+        }
+        self.bytes(&[0x79, 0xb7, 0x3e, 0, 0x20, 1, 0x3c]);
+        self.store_a(destination);
     }
 
     fn compare(
@@ -438,16 +534,16 @@ impl Code {
         }
         self.jump(0xc3, if op == Comparison::Equal { yes } else { no });
         self.mark(yes);
-        self.constant(destination, 4, 1);
+        self.constant(destination, 1, 1);
         self.jump(0xc3, end);
         self.mark(no);
-        self.constant(destination, 4, 0);
+        self.constant(destination, 1, 0);
         self.mark(end);
     }
 
-    fn multiply(&mut self, left: u16, right: u16, destination: u16, width: u16, temp: u16) {
-        self.copy(left, temp, width);
-        self.copy(right, temp + 8, width);
+    fn multiply(&mut self, left: Slot, right: Slot, destination: u16, width: u16, temp: u16) {
+        self.extend(left, temp, width);
+        self.extend(right, temp + 8, width);
         self.constant(destination, width, 0);
         self.bytes(&[0x0e, (width * 8) as u8]);
         let start = self.label();
@@ -466,8 +562,8 @@ impl Code {
 
     fn divide(
         &mut self,
-        left: u16,
-        right: u16,
+        left: Slot,
+        right: Slot,
         destination: u16,
         width: u16,
         temp: u16,
@@ -478,8 +574,8 @@ impl Code {
         let divisor = temp + 8;
         let rest = temp + 16;
         let sign = temp + 24;
-        self.copy(left, quotient, width);
-        self.copy(right, divisor, width);
+        self.extend(left, quotient, width);
+        self.extend(right, divisor, width);
         self.bytes(&[0x0e, 0]);
         for byte in 0..width {
             self.load_a(divisor + byte);
@@ -558,8 +654,10 @@ impl Code {
 }
 
 struct Layout {
-    values: BTreeMap<u32, (u16, Type)>,
+    values: BTreeMap<u32, (u16, Type, u16)>,
+    allocations: BTreeMap<u32, (u16, u16)>,
     locals: Vec<u16>,
+    local_widths: Vec<u16>,
     edge: u16,
     arithmetic: u16,
     size: u16,
@@ -567,6 +665,7 @@ struct Layout {
 
 impl Layout {
     fn new(function: &Function) -> Result<Self, String> {
+        let widths = ranges::analyze(function);
         let types: BTreeMap<_, _> = function
             .blocks
             .iter()
@@ -579,9 +678,17 @@ impl Layout {
             .collect();
         let mut offset = 0usize;
         let mut locals = Vec::new();
-        for ty in &function.locals {
+        for &width in &widths.locals {
             locals.push(offset as u16);
-            offset += usize::from(ty.bits() / 8);
+            offset += usize::from(width);
+        }
+        let mut allocations = BTreeMap::new();
+        for (id, bytes) in stack_allocations(function)? {
+            if offset + usize::from(bytes) > 0xf00 {
+                return Err("Stack allocation and locals exceed WRAM0 frame capacity".into());
+            }
+            allocations.insert(id, (offset as u16, bytes));
+            offset += usize::from(bytes);
         }
         let mut owners = BTreeMap::new();
         let mut shared = BTreeSet::new();
@@ -637,14 +744,14 @@ impl Layout {
             if offset > 0xf00 {
                 return Err("SM83 frame exceeds WRAM0 stack capacity".into());
             }
-            values.insert(id, (offset as u16, ty));
-            offset += usize::from(ty.bits() / 8);
+            values.insert(id, (offset as u16, ty, widths.values[&id]));
+            offset += usize::from(widths.values[&id]);
         }
         let base = offset;
         for (block, body) in function.blocks.iter().enumerate() {
             let mut extent = base;
             let mut free: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-            let mut active = Vec::new();
+            let mut active: Vec<(usize, usize, usize)> = Vec::new();
             for (position, instruction) in body.instructions.iter().enumerate() {
                 active.retain(|&(end, slot, bytes)| {
                     if end < position {
@@ -658,17 +765,39 @@ impl Layout {
                     if shared.contains(&id) {
                         continue;
                     }
-                    let bytes = usize::from(ty.bits() / 8);
-                    let slot = free.entry(bytes).or_default().pop().unwrap_or_else(|| {
-                        let slot = extent;
-                        extent += bytes;
-                        slot
+                    let bytes = usize::from(widths.values[&id]);
+                    let reused = if let Op::Convert { value, .. } = instruction.op {
+                        if !shared.contains(&value) && uses[block].get(&value) == Some(&position) {
+                            active
+                                .iter()
+                                .position(|&(end, slot, reserved)| {
+                                    end == position
+                                        && slot == usize::from(values[&value].0)
+                                        && reserved >= bytes
+                                })
+                                .map(|index| {
+                                    let (_, slot, reserved) = active.remove(index);
+                                    (slot, reserved)
+                                })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    let (slot, reserved) = reused.unwrap_or_else(|| {
+                        let slot = free.entry(bytes).or_default().pop().unwrap_or_else(|| {
+                            let slot = extent;
+                            extent += bytes;
+                            slot
+                        });
+                        (slot, bytes)
                     });
                     if extent > 0xf00 {
                         return Err("SM83 frame exceeds WRAM0 stack capacity".into());
                     }
-                    values.insert(id, (slot as u16, ty));
-                    active.push((*uses[block].get(&id).unwrap_or(&position), slot, bytes));
+                    values.insert(id, (slot as u16, ty, bytes as u16));
+                    active.push((*uses[block].get(&id).unwrap_or(&position), slot, reserved));
                 }
             }
             offset = offset.max(extent);
@@ -680,7 +809,7 @@ impl Layout {
             .map(|b| {
                 b.parameters
                     .iter()
-                    .map(|p| usize::from(p.1.bits() / 8))
+                    .map(|p| usize::from(widths.values[&p.0]))
                     .sum::<usize>()
             })
             .max()
@@ -701,7 +830,9 @@ impl Layout {
         }
         Ok(Self {
             values,
+            allocations,
             locals,
+            local_widths: widths.locals,
             edge: edge as u16,
             arithmetic: arithmetic as u16,
             size: offset as u16,
@@ -711,12 +842,17 @@ impl Layout {
 
 pub fn emit(function: &Function) -> Result<Object, String> {
     verify(function)?;
-    let booleans: BTreeSet<_> = function
+    let constants: BTreeMap<_, _> = function
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .filter(|i| matches!(i.op, Op::Compare { .. }))
-        .filter_map(|i| i.result.map(|r| r.0))
+        .filter_map(|i| {
+            if let (Some((id, _)), Op::Constant(bits)) = (i.result, &i.op) {
+                Some((id, *bits))
+            } else {
+                None
+            }
+        })
         .collect();
     let layout = Layout::new(function)?;
     let name = symbol(function.identity);
@@ -767,7 +903,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
     let mut argument = layout.size + 2 + return_width;
     for &(id, ty) in &function.blocks[0].parameters {
         let width = u16::from(ty.bits() / 8);
-        code.copy(argument, layout.values[&id].0, width);
+        code.copy(argument, layout.values[&id].0, layout.values[&id].2);
         argument += width;
     }
     let labels: Vec<_> = function.blocks.iter().map(|_| code.label()).collect();
@@ -778,9 +914,40 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             code.mark_il(instruction.il_offset);
             let output = instruction.result.map(|r| layout.values[&r.0]);
             let slot = |id| layout.values[&id].0;
-            let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
+            let place = |id| Slot {
+                offset: layout.values[&id].0,
+                bytes: layout.values[&id].2,
+            };
+            let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::StackAllocate { .. } => {
+                    let (region, bytes) = layout.allocations[&instruction
+                        .result
+                        .ok_or("Invalid stack allocation result")?
+                        .0];
+                    if bytes == 0 {
+                        code.constant(destination, 2, 0);
+                    } else {
+                        code.address(region);
+                        code.bytes(&[
+                            0x01,
+                            bytes as u8,
+                            (bytes >> 8) as u8,
+                            0x36,
+                            0,
+                            0x23,
+                            0x0b,
+                            0x78,
+                            0xb1,
+                            0x20,
+                            0xf8,
+                        ]);
+                        code.address(region);
+                        code.bytes(&[0x44, 0x4d]);
+                        code.save_word(destination);
+                    }
+                }
                 Op::FieldHandle(_) => {}
                 Op::InitializeArray { array, ref bytes } => {
                     let stride = match layout.values[&array].1 {
@@ -798,12 +965,8 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 Op::NewArray { element, length } => {
                     let temp = layout.arithmetic;
                     let fault = code.import("__koh_trap_allocation".into());
-                    code.check_high(
-                        slot(length),
-                        u16::from(layout.values[&length].1.bits() / 8),
-                        fault,
-                    );
-                    code.copy(slot(length), temp + 6, 2);
+                    code.check_high(slot(length), place(length).bytes, fault);
+                    code.extend(place(length), temp + 6, 2);
                     code.constant(
                         temp + 8,
                         1,
@@ -825,13 +988,10 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     code.array_header(slot(array), temp + 24);
                     code.save_word(temp);
                     let fault = code.import("__koh_trap_bounds".into());
-                    code.check_high(
-                        slot(index),
-                        u16::from(layout.values[&index].1.bits() / 8),
-                        fault,
-                    );
-                    code.below_word(slot(index), temp, fault);
-                    code.copy(slot(index), temp, 2);
+                    code.check_high(slot(index), place(index).bytes, fault);
+                    code.extend(place(index), temp + 10, 2);
+                    code.below_word(temp + 10, temp, fault);
+                    code.copy(temp + 10, temp, 2);
                     for _ in 0..(element.bits() / 8).trailing_zeros() {
                         code.shift_one(temp, 2, true, false, false);
                     }
@@ -903,10 +1063,20 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     }
                     code.address(slot(value));
                     code.bytes(&[0x50, 0x59]);
-                    for byte in 0..u16::from(bits / 8) {
+                    let copied = place(value).bytes.min(u16::from(bits / 8));
+                    for byte in 0..copied {
                         code.bytes(&[0x2a, 0x12]);
                         if byte + 1 < u16::from(bits / 8) {
                             code.bytes(&[0x13]);
+                        }
+                    }
+                    if copied < u16::from(bits / 8) {
+                        code.bytes(&[0xaf]);
+                        for byte in copied..u16::from(bits / 8) {
+                            code.bytes(&[0x12]);
+                            if byte + 1 < u16::from(bits / 8) {
+                                code.bytes(&[0x13]);
+                            }
                         }
                     }
                     if managed {
@@ -918,12 +1088,16 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     ref signature,
                     ref arguments,
                 } => {
+                    let abi_return = signature
+                        .returns
+                        .map(|ty| u16::from(ty.bits() / 8))
+                        .unwrap_or(0);
                     let size: usize = signature
                         .parameters
                         .iter()
                         .map(|ty| usize::from(ty.bits() / 8))
                         .sum::<usize>()
-                        + usize::from(width);
+                        + usize::from(abi_return);
                     if size + 2 > 0xf00 {
                         return Err(format!(
                             "{name} IL_{:04x}: call storage exceeds stack capacity",
@@ -933,10 +1107,17 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     let size = size as u16;
                     code.guard(size + 2);
                     code.adjust_sp(-i32::from(size));
-                    let mut offset = width;
+                    let mut offset = abi_return;
                     for (&value, &ty) in arguments.iter().zip(&signature.parameters) {
                         let bytes = u16::from(ty.bits() / 8);
-                        code.copy(slot(value) + size, offset, bytes);
+                        code.extend(
+                            Slot {
+                                offset: slot(value) + size,
+                                bytes: place(value).bytes,
+                            },
+                            offset,
+                            bytes,
+                        );
                         offset += bytes;
                     }
                     let callee = code.import(symbol(target));
@@ -947,18 +1128,23 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     code.adjust_sp(i32::from(size));
                 }
                 Op::Constant(bits) => code.constant(destination, width, bits),
-                Op::LoadLocal(local) => {
-                    code.copy(layout.locals[local as usize], destination, width)
-                }
-                Op::StoreLocal { local, value } => code.copy(
-                    slot(value),
-                    layout.locals[local as usize],
-                    u16::from(function.locals[local as usize].bits() / 8),
+                Op::LoadLocal(local) => code.extend(
+                    Slot {
+                        offset: layout.locals[local as usize],
+                        bytes: layout.local_widths[local as usize],
+                    },
+                    destination,
+                    width,
                 ),
-                Op::Negate(value) => code.negate(slot(value), destination, width),
+                Op::StoreLocal { local, value } => code.extend(
+                    place(value),
+                    layout.locals[local as usize],
+                    layout.local_widths[local as usize],
+                ),
+                Op::Negate(value) => code.negate_value(place(value), destination, width),
                 Op::Not(value) => {
                     for byte in 0..width {
-                        code.load_a(slot(value) + byte);
+                        code.value_a(place(value), byte);
                         code.bytes(&[0x2f]);
                         code.store_a(destination + byte);
                     }
@@ -968,12 +1154,17 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     bits,
                     signed,
                 } => {
-                    let copied = width
-                        .min(u16::from(bits / 8))
-                        .min(u16::from(layout.values[&value].1.bits() / 8));
+                    let copied = width.min(u16::from(bits / 8)).min(place(value).bytes);
                     code.copy(slot(value), destination, copied);
                     if copied < width {
-                        if signed {
+                        if signed
+                            && copied
+                                == u16::from(
+                                    bits.min(layout.values[&value].1.bits())
+                                        .min(output.ok_or("Conversion result missing")?.1.bits())
+                                        / 8,
+                                )
+                        {
                             code.load_a(slot(value) + copied - 1);
                             code.bytes(&[0x87, 0x9f]);
                         } else {
@@ -987,13 +1178,31 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         }
                     }
                 }
-                Op::Compare { op, left, right } => code.compare(
-                    slot(left),
-                    slot(right),
-                    destination,
-                    u16::from(layout.values[&left].1.bits() / 8),
-                    op,
-                ),
+                Op::Compare { op, left, right } => {
+                    let compared_width = place(left).bytes.max(place(right).bytes);
+                    if op == Comparison::Equal && constants.get(&right) == Some(&0) {
+                        code.equal_zero(slot(left), destination, place(left).bytes);
+                    } else if op == Comparison::Equal && constants.get(&left) == Some(&0) {
+                        code.equal_zero(slot(right), destination, place(right).bytes);
+                    } else {
+                        let mut op = op;
+                        if compared_width < u16::from(layout.values[&left].1.bits() / 8) {
+                            op = match op {
+                                Comparison::LessSigned => Comparison::LessUnsigned,
+                                Comparison::GreaterSigned => Comparison::GreaterUnsigned,
+                                _ => op,
+                            };
+                        }
+                        let mut offsets = [slot(left), slot(right)];
+                        for (index, id) in [left, right].into_iter().enumerate() {
+                            if place(id).bytes < compared_width {
+                                offsets[index] = layout.arithmetic + index as u16 * 8;
+                                code.extend(place(id), offsets[index], compared_width);
+                            }
+                        }
+                        code.compare(offsets[0], offsets[1], destination, compared_width, op);
+                    }
+                }
                 Op::Binary { op, left, right } => match op {
                     Binary::Add | Binary::Subtract | Binary::And | Binary::Or | Binary::Xor => {
                         let opcode = match op {
@@ -1004,21 +1213,53 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                             Binary::Xor => 0xa8,
                             _ => unreachable!(),
                         };
-                        code.arithmetic(slot(left), slot(right), destination, width, opcode);
+                        code.arithmetic_values(
+                            place(left),
+                            place(right),
+                            destination,
+                            width,
+                            opcode,
+                        );
                     }
-                    Binary::Multiply => code.multiply(
-                        slot(left),
-                        slot(right),
-                        destination,
-                        width,
-                        layout.arithmetic,
-                    ),
+                    Binary::Multiply => {
+                        let literal = [(left, right), (right, left)].into_iter().find_map(
+                            |(value, literal)| {
+                                constants
+                                    .get(&literal)
+                                    .filter(|c| **c == 0 || c.is_power_of_two())
+                                    .map(|&c| (value, c))
+                            },
+                        );
+                        if let Some((value, constant)) = literal {
+                            if constant == 0 {
+                                code.constant(destination, width, 0);
+                            } else {
+                                code.extend(place(value), destination, width);
+                                code.shift_constant(
+                                    destination,
+                                    destination,
+                                    width,
+                                    constant.trailing_zeros() as u8,
+                                    true,
+                                    false,
+                                );
+                            }
+                        } else {
+                            code.multiply(
+                                place(left),
+                                place(right),
+                                destination,
+                                width,
+                                layout.arithmetic,
+                            );
+                        }
+                    }
                     Binary::DivideSigned
                     | Binary::DivideUnsigned
                     | Binary::RemainderSigned
                     | Binary::RemainderUnsigned => code.divide(
-                        slot(left),
-                        slot(right),
+                        place(left),
+                        place(right),
                         destination,
                         width,
                         layout.arithmetic,
@@ -1026,23 +1267,45 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         matches!(op, Binary::RemainderSigned | Binary::RemainderUnsigned),
                     ),
                     Binary::ShiftLeft | Binary::ShiftRightSigned | Binary::ShiftRightUnsigned => {
-                        code.copy(slot(left), destination, width);
+                        let semantic_bits = layout.values[&left].1.bits();
+                        let working_width = width.max(place(left).bytes);
+                        let working = if working_width == width {
+                            destination
+                        } else {
+                            layout.arithmetic
+                        };
+                        let signed = op == Binary::ShiftRightSigned
+                            && place(left).bytes == u16::from(semantic_bits / 8);
+                        code.extend(place(left), working, working_width);
+                        if let Some(&count) = constants.get(&right) {
+                            code.shift_constant(
+                                working,
+                                working,
+                                working_width,
+                                (count & u64::from(semantic_bits - 1)) as u8,
+                                op == Binary::ShiftLeft,
+                                signed,
+                            );
+                            code.copy(working, destination, width);
+                            continue;
+                        }
                         code.load_a(slot(right));
-                        code.bytes(&[0xe6, (width * 8 - 1) as u8, 0x4f]);
+                        code.bytes(&[0xe6, semantic_bits - 1, 0x4f]);
                         let start = code.label();
                         let end = code.label();
                         code.jump(0xca, end);
                         code.mark(start);
                         code.shift_one(
-                            destination,
-                            width,
+                            working,
+                            working_width,
                             op == Binary::ShiftLeft,
-                            op == Binary::ShiftRightSigned,
+                            signed,
                             false,
                         );
                         code.bytes(&[0x0d]);
                         code.jump(0xc2, start);
                         code.mark(end);
+                        code.copy(working, destination, width);
                     }
                 },
             }
@@ -1050,15 +1313,26 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         }
         let transfer = |code: &mut Code, edge: &Edge| {
             let mut offset = layout.edge;
-            for &value in &edge.arguments {
-                let (source, ty) = layout.values[&value];
-                let width = u16::from(ty.bits() / 8);
-                code.copy(source, offset, width);
+            for (&value, &(target, _)) in edge
+                .arguments
+                .iter()
+                .zip(&function.blocks[edge.block].parameters)
+            {
+                let (source, _, source_width) = layout.values[&value];
+                let width = layout.values[&target].2;
+                code.extend(
+                    Slot {
+                        offset: source,
+                        bytes: source_width,
+                    },
+                    offset,
+                    width,
+                );
                 offset += width;
             }
             offset = layout.edge;
-            for &(id, ty) in &function.blocks[edge.block].parameters {
-                let width = u16::from(ty.bits() / 8);
+            for &(id, _) in &function.blocks[edge.block].parameters {
+                let width = layout.values[&id].2;
                 code.copy(offset, layout.values[&id].0, width);
                 offset += width;
             }
@@ -1069,7 +1343,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             Control::Jump(edge) => transfer(&mut code, edge),
             Control::Branch { condition, yes, no } => {
                 code.bytes(&[0x0e, 0]);
-                for byte in 0..if booleans.contains(condition) { 1 } else { 4 } {
+                for byte in 0..layout.values[condition].2 {
                     code.load_a(layout.values[condition].0 + byte);
                     code.bytes(&[0xb1, 0x4f]);
                 }
@@ -1082,7 +1356,14 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             }
             Control::Return(value) => {
                 if let Some(value) = value {
-                    code.copy(layout.values[value].0, layout.size + 2, return_width);
+                    code.extend(
+                        Slot {
+                            offset: layout.values[value].0,
+                            bytes: layout.values[value].2,
+                        },
+                        layout.size + 2,
+                        return_width,
+                    );
                 }
                 code.adjust_sp(i32::from(layout.size));
                 code.bytes(&[0xc9]);

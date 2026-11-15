@@ -30,8 +30,13 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
 
 fn scalar(ty: &clrmeta::TypeSig) -> Result<Scalar, String> {
     use clrmeta::{ElementType, TypeSig};
+    if matches!(ty, TypeSig::Ptr(_)) {
+        return Ok(Scalar::NativeUnsigned);
+    }
     let TypeSig::Primitive(ty) = ty else {
-        return Err("Managed references currently require primitive scalar storage".into());
+        return Err(format!(
+            "Managed references require primitive/pointer scalar storage, found {ty:?}"
+        ));
     };
     Ok(match ty {
         ElementType::Boolean => Scalar::Bool,
@@ -48,6 +53,37 @@ fn scalar(ty: &clrmeta::TypeSig) -> Result<Scalar, String> {
         ElementType::UIntPtr => Scalar::NativeUnsigned,
         _ => return Err("Managed reference scalar type is unsupported".into()),
     })
+}
+
+fn storage_type(
+    resolver: &crate::resolve::Resolver<'_>,
+    assembly: usize,
+    ty: &clrmeta::TypeSig,
+) -> Result<clrmeta::TypeSig, String> {
+    use clrmeta::TypeSig;
+    Ok(match ty {
+        TypeSig::ValueType(encoded) => resolver.enum_storage(assembly, *encoded)?,
+        TypeSig::ByRef(inner) => TypeSig::ByRef(Box::new(storage_type(resolver, assembly, inner)?)),
+        TypeSig::SzArray(inner) => {
+            TypeSig::SzArray(Box::new(storage_type(resolver, assembly, inner)?))
+        }
+        _ => ty.clone(),
+    })
+}
+
+fn storage_signature(
+    resolver: &crate::resolve::Resolver<'_>,
+    assembly: usize,
+    signature: &clrmeta::MethodSig,
+) -> Result<clrmeta::MethodSig, String> {
+    let mut result = signature.clone();
+    result.params = signature
+        .params
+        .iter()
+        .map(|ty| storage_type(resolver, assembly, ty))
+        .collect::<Result<_, _>>()?;
+    result.return_type = storage_type(resolver, assembly, &signature.return_type)?;
+    Ok(result)
 }
 
 fn integer_signature(signature: &clrmeta::MethodSig) -> Result<Signature, String> {
@@ -81,9 +117,17 @@ pub fn assembly_method(
     let assembly = resolver.assembly(identity.assembly)?;
     let result = || -> Result<Function, String> {
         crate::contracts::method(resolver, identity)?;
-        let signature = assembly.method_signature(identity.token)?;
+        let signature = storage_signature(
+            resolver,
+            identity.assembly,
+            &assembly.method_signature(identity.token)?,
+        )?;
         let typed = integer_signature(&signature)?;
-        let local_types = assembly.local_types(identity.token)?;
+        let local_types = assembly
+            .local_types(identity.token)?
+            .iter()
+            .map(|ty| storage_type(resolver, identity.assembly, ty))
+            .collect::<Result<Vec<_>, _>>()?;
         let locals = local_types
             .iter()
             .map(integer_type)
@@ -677,6 +721,71 @@ fn translate(
         Ok(())
     };
     match i.opcode {
+        0x71 | 0x81 | 0xfe15 | 0xfe1c => {
+            let Operand::Token(token) = i.operand else {
+                return Err("Missing scalar type token".into());
+            };
+            let resolver = resolver.ok_or("Typed scalar operations require metadata resolution")?;
+            let storage = scalar(&resolver.scalar_signature(method.identity.assembly, token)?)?;
+            let ty = storage.stack_type();
+            if i.opcode == 0xfe1c {
+                let value = b.value(Type::I32, Op::Constant(u64::from(storage.bits() / 8)))?;
+                b.stack.push(value);
+            } else {
+                let stored = if i.opcode == 0x81 {
+                    Some(b.pop()?)
+                } else if i.opcode == 0xfe15 {
+                    Some(b.value(ty, Op::Constant(0))?)
+                } else {
+                    None
+                };
+                let address = b.pop()?;
+                if !address.1.addresses(storage.bits())
+                    || matches!(address.1, Type::ByRef(scalar) if scalar.stack_type() != ty)
+                {
+                    return Err("Typed scalar address differs from its storage type".into());
+                }
+                if let Some(value) = stored {
+                    if value.1 != ty {
+                        return Err("Typed scalar store value type mismatch".into());
+                    }
+                    b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::StoreMemory {
+                            address: address.0,
+                            value: value.0,
+                            bits: storage.bits(),
+                        },
+                        il_offset: b.offset,
+                    });
+                } else {
+                    let signed = matches!(
+                        storage,
+                        Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::I64 | Scalar::NativeSigned
+                    );
+                    let value = b.value(
+                        ty,
+                        Op::LoadMemory {
+                            address: address.0,
+                            bits: storage.bits(),
+                            signed,
+                        },
+                    )?;
+                    b.stack.push(value);
+                }
+            }
+        }
+        0xfe0f => {
+            let size = b.pop()?;
+            if !b.stack.is_empty() {
+                return Err("localloc requires an otherwise empty evaluation stack".into());
+            }
+            if !matches!(size.1, Type::I32 | Type::Native) {
+                return Err("localloc requires an int32/native byte count".into());
+            }
+            let value = b.value(Type::Native, Op::StackAllocate { bytes: size.0 })?;
+            b.stack.push(value);
+        }
         0xd0 => {
             let Operand::Token(token) = i.operand else {
                 return Err("Missing ldtoken field identity".into());
@@ -699,9 +808,11 @@ fn translate(
             let Operand::Token(token) = i.operand else {
                 return Err("Missing array element type".into());
             };
-            let element = resolver
-                .ok_or("Array element requires metadata resolution")?
-                .primitive(method.identity.assembly, token)?;
+            let element = scalar(
+                &resolver
+                    .ok_or("Array element requires metadata resolution")?
+                    .scalar_signature(method.identity.assembly, token)?,
+            )?;
             let length = b.pop()?;
             if !matches!(length.1, Type::I32 | Type::Native) {
                 return Err("Invalid array length type".into());
@@ -735,11 +846,11 @@ fn translate(
                 let Operand::Token(token) = i.operand else {
                     return Err("Missing array element type".into());
                 };
-                Some(
-                    resolver
+                Some(scalar(
+                    &resolver
                         .ok_or("Array element requires metadata resolution")?
-                        .primitive(method.identity.assembly, token)?,
-                )
+                        .scalar_signature(method.identity.assembly, token)?,
+                )?)
             } else {
                 None
             };
@@ -868,8 +979,12 @@ fn translate(
             {
                 return Err("Direct CIL calls to type/module constructors are unsupported".into());
             }
-            let signature =
-                integer_signature(&metadata.method_signature(target.definition.token)?)?;
+            let metadata_signature = storage_signature(
+                resolver,
+                target.definition.assembly,
+                &metadata.method_signature(target.definition.token)?,
+            )?;
+            let signature = integer_signature(&metadata_signature)?;
             let mut arguments = Vec::with_capacity(signature.parameters.len());
             for &ty in signature.parameters.iter().rev() {
                 let value = b.pop()?;
@@ -915,7 +1030,17 @@ fn translate(
                 arguments,
             };
             if let Some(ty) = returns {
-                let value = b.value(ty, op)?;
+                let mut value = b.value(ty, op)?;
+                if let Some((bits, signed)) = narrow_type(&metadata_signature.return_type) {
+                    value = b.value(
+                        Type::I32,
+                        Op::Convert {
+                            value: value.0,
+                            bits,
+                            signed,
+                        },
+                    )?;
+                }
                 b.stack.push(value);
             } else {
                 b.instructions.push(Instruction {
@@ -954,11 +1079,13 @@ fn translate(
                 } else {
                     image.local_types(method.identity.token)?
                 };
-                scalar(
+                scalar(&storage_type(
+                    resolver,
+                    method.identity.assembly,
                     types
                         .get(raw)
                         .ok_or("Missing addressed storage signature")?,
-                )?
+                )?)?
             } else {
                 match ty {
                     Type::I32 => Scalar::I32,
@@ -1136,7 +1263,11 @@ fn translate(
                     });
                 }
             }
-            let signature = image.field_signature(target.definition.token)?;
+            let signature = storage_type(
+                resolver,
+                target.definition.assembly,
+                &image.field_signature(target.definition.token)?,
+            )?;
             if matches!(signature, clrmeta::TypeSig::ByRef(_)) {
                 return Err("Static managed-reference storage is unsupported".into());
             }

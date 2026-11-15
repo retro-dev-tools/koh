@@ -1,7 +1,8 @@
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 
-bool heap = args.Length > 0 && args[0] == "--native-heap";
+bool stack = args.Length > 0 && args[0] == "--native-stack";
+bool heap = stack || (args.Length > 0 && args[0] == "--native-heap");
 bool native = args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap);
 ushort stop = native ? Convert.ToUInt16(args[1], 16) : (ushort)0;
 foreach (string path in args.Skip(native ? 2 : 0))
@@ -13,6 +14,10 @@ foreach (string path in args.Skip(native ? 2 : 0))
         if (!gb.Mmu.DebugWrite(address, 0))
             throw new InvalidOperationException("Cannot initialize test output");
     gb.Cpu.Registers.Pc = 0x100;
+    if (stack)
+        for (ushort address = 0xC100; address < 0xD000; address++)
+            if (!gb.Mmu.DebugWrite(address, 0xA6) || gb.Mmu.DebugRead(address) != 0xA6)
+                throw new InvalidOperationException("Cannot poison stack test memory");
     if (heap || (args.Length > 0 && args[0] == "--native-poison"))
         for (ushort address = 0xC000; address < 0xC080; address++)
             if (!gb.Mmu.DebugWrite(address, 0xA5) || gb.Mmu.DebugRead(address) != 0xA5)

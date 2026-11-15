@@ -54,6 +54,16 @@ and bytes replace brittle ROM/pass assumptions. Full sample/runtime coverage and
 whole-method retirement remain open. All new assertions are Rust-owned and
 discoverable by nextest; C# files are compiled fixtures or the emulator host.
 
+[Enum/stack/width coverage](stack-enums.md) partly implements the integer,
+indirect-memory, array, recursion and sample-behavior audit groups. Four Rust
+driver cases execute40 ROM scenarios and8 allocation rejection probes; two
+parameterized arithmetic cases execute50 ROM scenarios, two alias cases execute2,
+and9 IR cases check allocation acceptance/rejection. Expected arithmetic and board
+state come from independent values/models, rather than old compiler output.
+The actual Board sample source is linked unchanged. This replaces legacy private
+IR/frame-shape assumptions with observable semantics, but no complete legacy test
+method is retired: full runtime, graphics and other assertions remain outstanding.
+
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.
 - Test mutable array identity and writes; compiler-folded ROM bytes do not prove
