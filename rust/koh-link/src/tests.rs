@@ -299,6 +299,30 @@ fn cartridge_rounds_sets_cgb_and_both_checksums() {
         .fold(0u16, |a, (_, b)| a.wrapping_add(*b as u16));
     assert_eq!(&r.rom[0x14e..0x150], &sum.to_be_bytes());
 }
+
+#[test]
+fn cartridge_supplies_boot_logo_while_raw_preserves_input() {
+    let mut header = section("header", 0, 0x150);
+    header.address = Some(0);
+    header.data.fill(0xa5);
+    let object = Object {
+        sections: vec![header],
+        symbols: vec![],
+    };
+    let rom = link(&[object.clone()], &LinkOptions::default())
+        .unwrap()
+        .rom;
+    let logo = [
+        0xce, 0xed, 0x66, 0x66, 0xcc, 0x0d, 0, 0x0b, 3, 0x73, 0, 0x83, 0, 0x0c, 0, 0x0d, 0, 8,
+        0x11, 0x1f, 0x88, 0x89, 0, 0x0e, 0xdc, 0xcc, 0x6e, 0xe6, 0xdd, 0xdd, 0xd9, 0x99, 0xbb,
+        0xbb, 0x67, 0x63, 0x6e, 0x0e, 0xec, 0xcc, 0xdd, 0xdc, 0x99, 0x9f, 0xbb, 0xb9, 0x33, 0x3e,
+    ];
+    assert_eq!(&rom[0x104..0x134], &logo);
+    assert_eq!(
+        &link(&[object], &raw(0x150)).unwrap().rom,
+        &vec![0xa5; 0x150]
+    );
+}
 #[test]
 fn expression_arithmetic_matches_rgbds_floor_and_wrapping() {
     use BinaryOp::*;

@@ -67,5 +67,18 @@ VRAM writes. Its black PNG is not graphics acceptance: skipping boot leaves
 CGB attributes poisoned FF. More importantly, actual Koh CGB boot from PC0
 remains in its logo-check loop at 0287 (`/tmp/koh-banked-gfx-boot-execute2.log`,
 exit134). The cartridge logo bytes are currently zero. Linker-owned canonical
-header finalization and a real boot regression are required next; this sample
-is not yet bootable, and no production emulator or game API was changed.
+header finalization was subsequently added to the Rust linker. Its full focused
+suite passes 23/23 (`/tmp/koh-header-green.log`), including raw-byte preservation.
+The same unmodified ELF then boots and renders through Koh's CGB boot ROM
+(`/tmp/koh-banked-gfx-boot-fixed.log`, exit0). No production emulator or game API
+was changed.
+
+Stronger whole-showcase acceptance is still in progress. Initial Debug/Release
+DMG/CGB boot/render/movement cases passed 4/4, but a new numeric-HUD assertion
+exposed a remaining failure: Debug DMG leaves all five score cells at tile zero
+over 120 observed frames despite seven scroll and eight sprite updates. Boot
+took 151 frames; game startup took 489. See
+`/tmp/koh-showcase-hud-diagnostic.log` (exit100). The first numeric decoder also
+incorrectly rejected documented space padding; that was corrected before this
+raw-zero result. The score assertion remains enabled. Timing versus lowering
+must be diagnosed before claiming complete sample acceptance.

@@ -14,7 +14,11 @@ arguments and ROM0 strings. Read-only review found no concrete defects. Full
 755-case workspace regression is still running; no full-pass claim is made.
 The full Release graphics showcase now links, but actual Koh CGB boot remains
 at its logo check: cartridge header logo bytes are zero. Linker-owned header
-finalization and real boot regression coverage are the next required correction.
+finalization was corrected: 23/23 linker cases pass and the actual CGB boot
+hands off to a rendered showcase. Stronger sample coverage remains local work:
+four initial D/R×DMG/CGB boot/render/movement cases pass, but numeric HUD progress
+fails on Debug DMG (all five cells stay zero). This is not complete sample
+acceptance, and the failing assertion is retained for diagnosis.
 
 Latest pushed increment: [HRAM-safe OAM DMA](oam-dma.md). Reachable metadata intrinsics
 emit one linker-placed eight-byte HRAM routine, installed at startup. No fixed

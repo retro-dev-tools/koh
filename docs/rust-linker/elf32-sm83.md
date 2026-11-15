@@ -216,10 +216,18 @@ overflowing encodings and unapplied relocations are errors before ROM output.
 Cartridge images are zero-padded to a power of two, at least 32 KiB and at most
 8 MiB. The linker writes the size code at 0148, optionally selects CGB-compatible
 80 or CGB-only C0 at 0143, then fixes the header checksum at 014D and the big-endian
-global checksum at 014E–014F. Input sections supply the logo, title, cartridge
-type and remaining header content; the C# backend supplies its game header.
+global checksum at 014E–014F. Cartridge finalization supplies the canonical boot
+logo at 0104–0133; input sections supply the title, cartridge
+type and remaining hardware-specific header content.
 Raw mode emits exactly the requested size, preserves all header-address bytes,
 and rejects overflow instead of enlarging the image.
+
+PR #55 moves logo ownership from producers to cartridge finalization: a native
+compiler ROM without those bytes linked successfully but stopped in the boot
+ROM's logo check. Emitting another logo table in the compiler would duplicate
+header policy. Normal output now always installs the canonical boot logo;
+custom or deliberately malformed header bytes require raw mode. See
+[PanDocs](https://raw.githubusercontent.com/gbdev/pandocs/master/src/The_Cartridge_Header.md).
 
 SYM lists address labels as `bank:address name`; absolute constants are omitted.
 Ordering is deterministic by bank, address and name. KDBG remains version 1,

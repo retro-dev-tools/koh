@@ -24,7 +24,7 @@ The linker preserves `-o/--output`, `-n/--sym`, `-d/--kdbg`,
 `--raw`, hexadecimal `--size=HEX`, `--help` and `--version`.
 The default output is the first input with `.gb`, or `.bin` in raw mode.
 The default size is $8000. Cartridge output rounds up to a power of two,
-updates the ROM size byte and both checksums, and optionally sets
+supplies the canonical boot logo, updates the ROM size byte and both checksums, and optionally sets
 `--cgb-compatible` or `--cgb-only`. Raw output has the exact requested size;
 it never changes cartridge-header bytes and rejects overflow.
 
