@@ -83,6 +83,30 @@ pending. Historical legacy baseline
 
 ## Next work and verification
 
+Latest committed/pushed head19e4949 (pin unit), PR#55 draft/master. Current
+uncommitted graphics acceptance unit adds actual TileSet.Load aligned/unaligned
+DMG/CGB fixtures, two rendered frames with independent full RGBA expectations,
+poisoned full VRAM/WRAM bank snapshots and canonical emulator PNG writer output.
+No compiler algorithms or emulator core algorithms changed. Emulator csproj only
+adds InternalsVisibleTo EmulatorHost so test shim can use the existing PNG writer.
+Parent owns all edits/builds; read-only review must not edit/build. First copies
+4/4 passed (/tmp/koh-tiles-first.log), then full rendered checks4/4 passed
+(/tmp/koh-tiles-render.log). Current DMA-state strengthening/formatted fixtures
+running session37450, /tmp/koh-tiles-dma.log. It checks programmed GDMA source/
+destination and completion state on aligned CGB; other paths retain initial DMA
+parameters. Current unit has4newRustcases/12ROMscenarios (four frame captures).
+Full workspace588/588 passed,0skips,exit0,412.346s
+(/tmp/koh-tiles-workspace.log);412compiler cases,410ROMscenarios(345normal,65traps).
+Standalone serial direct-project CLI DMG/CGB demonstrations passed with all pixels
+validated; /tmp/koh-tiles-root-demo.log,exit0. PNGs visually inspected, artifacts
+/tmp/koh-native-tiles-demo-pXXzIw/{dmg,cgb}.{gb,o,png,rgba},evidence.json. Both ROMs
+32768bytes, ELF80008/82380bytes, PNG822/805bytes. Doc/fmt checks exit0(no doctests).
+No builds remain running. Unit ready for commit/push; rerun graphic cases after
+commit hook. Predecessor19e4949 hosted Rust43676239605/CI43676239601 successful;
+native three hosts Test steps succeeded, macOS584/584 confirmed. This is library graphics output,
+not full 2048/other sample acceptance or LCD-on copy timing coverage.
+All text below is predecessor history, not current build state.
+
 Latest committed/pushed head is2c44000, switch unit; PR#55 remains draft/master.
 Current uncommitted pin unit normalizes scalar byref/array pinned locals and
 introduces StorePinned with per-frame pin flags/saved bank. Heap pins map bank1;

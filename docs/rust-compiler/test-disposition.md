@@ -110,6 +110,18 @@ checked-cleanup ROM scenarios. All14 new cases are discoverable by nextest.
 No additional complete legacy method is retired by this increment. See the
 [pin contract and target bank restrictions](pinned-pointers.md).
 
+### Tile loading and static rendered frames
+
+`driver::actual_tileset_load_copies_vram_and_preserves_banks` adds four native
+cases/12 ROM scenarios, including four full-frame RGBA comparisons. This partly
+ports `CilTileSetTests.Load_LcdOff_CopiesTileBytesVerbatimIntoVram` to actual library
+execution with whole-bank guards, plus GDMA-path and palette/bit-plane evidence.
+The old fixture's `Video.Init` dependency and LCD-on timing tests remain open;
+no additional whole legacy method is declared replaced by this increment.
+Expected pixels come from independent bit-plane rules, not a screenshot produced
+by either compiler. PNG encoding stays in the existing emulator; the Rust-owned
+tests invoke its host as a process. See [graphics execution](graphics-execution.md).
+
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.
 - Test mutable array identity and writes; compiler-folded ROM bytes do not prove

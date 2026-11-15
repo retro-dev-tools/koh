@@ -210,6 +210,182 @@ fn pinned_array_pointers_copy_tiles_and_restore_banks(
 }
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn actual_tileset_load_copies_vram_and_preserves_banks(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh real tileset ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Tiles");
+    for name in ["Tiles.csproj", "Program.cs"] {
+        std::fs::copy(source.join(name), directory.path().join(name)).unwrap();
+    }
+    let result = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Tiles.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let images =
+        ["Tiles.dll", "Koh.GameBoy.dll"].map(|name| std::fs::read(output.join(name)).unwrap());
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let data = [
+        0x3c, 0x7e, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x7e, 0x5e, 0x7e, 0x0a, 0x7c, 0x56, 0x38,
+        0x7c, 0xff, 0x00, 0x7e, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81,
+        0x7e, 0xff,
+    ];
+    for (name, aligned, render) in [
+        ("Unaligned", false, false),
+        ("Aligned", true, false),
+        ("Render", false, true),
+    ] {
+        let entry = format!("Program::{}{}", if color { "Banked" } else { "" }, name);
+        let object = compile::object(&resolver, Some(&entry)).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            if render {
+                "--native-frame"
+            } else {
+                "--native-video"
+            },
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 9 } else { 7 }, "{entry}");
+        assert_eq!(
+            (fields[0], fields[1], fields[2], fields[3]),
+            (
+                "00",
+                if color { "00000043" } else { "00000044" },
+                "D000",
+                "OK"
+            ),
+            "{entry}"
+        );
+        let mut heap = vec![0x5a; 4096];
+        let offset = if aligned {
+            heap[..14].copy_from_slice(&[12, 0, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            14
+        } else {
+            0
+        };
+        let pattern = [
+            0xaa, 0xcc, 0x55, 0x33, 0xaa, 0xcc, 0x55, 0x33, 0xaa, 0xcc, 0x55, 0x33, 0xaa, 0xcc,
+            0x55, 0x33,
+        ];
+        let payload: &[u8] = if render { &pattern } else { &data };
+        heap[offset..offset + 2].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+        heap[offset + 2..offset + 2 + payload.len()].copy_from_slice(payload);
+        assert_heap_snapshot(fields[4], &heap, &entry);
+        let mut vram = vec![0xa7; 8192];
+        if render {
+            vram[..16].copy_from_slice(&pattern);
+            vram[0x1800..0x1c00].fill(0);
+        } else {
+            vram[48..80].copy_from_slice(&data);
+        }
+        assert_heap_snapshot(fields[if color { 6 } else { 5 }], &vram, &entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], &entry);
+            let mut attributes = [0xb8; 8192];
+            if render {
+                attributes[0x1800..0x1c00].fill(0);
+            }
+            assert_heap_snapshot(fields[7], &attributes, &entry);
+        }
+        if render {
+            let pixels = std::fs::read(directory.path().join("native game.rgba")).unwrap();
+            assert_eq!(pixels.len(), 160 * 144 * 4);
+            for y in 0..144 {
+                for x in 0..160 {
+                    let bit = 7 - (x & 7);
+                    let lo = if y & 1 == 0 { 0xaau8 } else { 0x55 };
+                    let hi = if y & 1 == 0 { 0xccu8 } else { 0x33 };
+                    let index = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
+                    let expected = if color {
+                        [
+                            [255, 255, 255, 255],
+                            [255, 0, 0, 255],
+                            [0, 255, 0, 255],
+                            [0, 0, 255, 255],
+                        ][index as usize]
+                    } else {
+                        let shade = [255, 170, 85, 0][index as usize];
+                        [shade, shade, shade, 255]
+                    };
+                    let offset = (y * 160 + x) * 4;
+                    assert_eq!(
+                        &pixels[offset..offset + 4],
+                        &expected,
+                        "{entry}: pixel {x},{y}"
+                    );
+                }
+            }
+            let png = std::fs::read(directory.path().join("native game.png")).unwrap();
+            assert!(png.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]));
+            assert_eq!(&png[16..24], &[0, 0, 0, 160, 0, 0, 0, 144]);
+        }
+        let (before, after) = fields[if color { 8 } else { 6 }].split_once(':').unwrap();
+        assert_eq!(after.len(), 14, "{entry}: malformed DMA state");
+        assert_eq!(
+            &after[8..],
+            "000000",
+            "{entry}: DMA must finish in general-purpose mode"
+        );
+        if color && aligned {
+            assert_eq!(
+                &after[..8],
+                "D0108030",
+                "{entry}: programmed DMA source/destination"
+            );
+        } else {
+            assert_eq!(
+                &after[..8],
+                before,
+                "{entry}: CPU-copy path must not program DMA"
+            );
+        }
+    }
+}
+
+#[rstest]
 #[case("Debug", "Library")]
 #[case("Release", "Library")]
 #[case("Debug", "Exe")]

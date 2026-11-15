@@ -601,3 +601,46 @@ Predecessor switch head `2c44000` has successful completed
 Native Linux/Windows/macOS Test steps succeeded; the completed macOS
 job132690390503 log confirms570/570,0skips,190.157s. These do not verify the new
 pin implementation.
+
+## Native graphics execution
+
+[Actual tile loading and rendered frames](graphics-execution.md) add four Rust
+D/R × DMG/CGB cases,12 ROM executions and four full-frame pixel comparisons.
+The real GameBoy library copies tile data through CPU and aligned CGB GDMA paths,
+preserves caller banks and renders explicitly authored bit planes/palettes. Full
+poisoned bank snapshots and programmed DMA state are checked in Rust. PNG uses
+the existing emulator framebuffer writer via a test-friend declaration; emulator
+algorithms and game APIs are unchanged. This is library/frame evidence, not full
+Video.Init or complete sample gameplay acceptance.
+
+First copies4/4 passed (`/tmp/koh-tiles-first.log`), then rendered4/4 passed
+(`/tmp/koh-tiles-render.log`); formatted DMA checks4/4 passed,exit0,17.682s
+(`/tmp/koh-tiles-dma.log`). Read-only review found no concrete issues. The
+formatted tree passed Linux
+`cargo nextest run --workspace --all-features --locked --no-fail-fast`:
+**588/588 passed,0skips**, exit0,412.346s (`/tmp/koh-tiles-workspace.log`). This
+includes412 compiler cases and410 ROM scenarios (345 normal returns,65 traps),
+with four full-frame comparisons. Full SDK/game/debug acceptance remains open.
+
+Standalone Release Roslyn → native CLI ELF → native CLI linker → existing C#
+emulator runs also passed for DMG and CGB, including independent complete-pixel
+checks and fresh PNG artifacts. The documented direct project builds were run
+serially and reproduced the same pixels. Logs `/tmp/koh-tiles-demo.log` and
+`/tmp/koh-tiles-root-demo.log`, both exit0; artifacts and `evidence.json` under
+`/tmp/koh-native-tiles-demo-pXXzIw`. Both ROMs are32768bytes. DMG ELF80008bytes and
+PNG822bytes, result `00 00000044 D000 OK`; CGB ELF82380bytes and PNG805bytes, result
+`00 00000043 D000 OK`. Raw RGBA SHA256 values:
+
+- DMG: `5d21f5266cb14dfce3e6fefd01ad48ae41edf280923492ead5dcefd82835824a`.
+- CGB: `26e9b35f016a5b1b4e0bed412bb384df061ead6d4f82baf77e66bed6b0f6dfc7`.
+
+PNGs were visually inspected after pixel validation. These are local component
+artifacts, not compilation performance or full sample-game/debug evidence.
+Separate workspace doctests (currently no cases) and stable rustfmt checks exited0
+(`/tmp/koh-tiles-doc.log`, `/tmp/koh-tiles-fmt.log`).
+
+Predecessor pin head `19e4949` has successful completed
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43676239605) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43676239601) workflows.
+Native Linux/Windows/macOS Test steps succeeded; completed macOS job132696913473
+log confirms584/584,0skips,271.132s. Current graphics-head hosted proof is separate.
