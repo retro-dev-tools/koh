@@ -32,8 +32,11 @@ unchanged; physical spills may use fewer bytes, with explicit extension at
 consumers. Address-exposed storage retains its accessible width. Fixed acyclic
 stack buffers live in each invocation's guarded frame and are zeroed before use.
 
-On callee entry, SP addresses the two-byte machine return address. The caller-owned
-return buffer follows, then packed arguments in declaration order. Each value uses
+Production cartridge calls use [banked ROM calls](rom-banking.md): on callee entry,
+SP addresses a two-byte ROM0 return-stub address, followed by a four-byte caller
+PC/bank cookie. The caller-owned return buffer follows, then packed arguments in
+declaration order. Low-level standalone emission tests use near calls without
+the cookie. Each value uses
 its evaluation width (int32: four bytes, int64: eight, native: two), little-endian.
 Void has no return bytes. The callee reserves its frame below SP, initializes its
 entry parameters from the argument block, and writes its result to the caller's

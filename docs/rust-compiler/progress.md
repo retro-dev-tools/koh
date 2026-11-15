@@ -6,7 +6,17 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
-Current increment: [HRAM-safe OAM DMA](oam-dma.md). Reachable metadata intrinsics
+Work in progress: [banked managed calls](rom-banking.md). Floating ROMX methods,
+ROM0 trampolines and per-call PC/bank cookies execute actual C# across distinct
+banks including 257/258. Expanded ABI cases passed 4/4 in 37.635s, with eight
+ROM executions covering recursion, long/aggregate returns, byrefs, void/narrow
+arguments and ROM0 strings. Read-only review found no concrete defects. Full
+755-case workspace regression is still running; no full-pass claim is made.
+The full Release graphics showcase now links, but actual Koh CGB boot remains
+at its logo check: cartridge header logo bytes are zero. Linker-owned header
+finalization and real boot regression coverage are the next required correction.
+
+Latest pushed increment: [HRAM-safe OAM DMA](oam-dma.md). Reachable metadata intrinsics
 emit one linker-placed eight-byte HRAM routine, installed at startup. No fixed
 HRAM address or shared WRAM page scratch is required. Blocking execution and raw
 FF46 trigger probes cover Debug/Release on DMG/CGB, relocated HRAM including its
@@ -17,6 +27,11 @@ The full workspace passed **751/751**, zero skipped, in 878.612s
 driver cases were filtered. Separate workspace doctests passed (currently no
 cases). Twenty of 565 legacy methods now have complete replacements; 545 remain
 partial/outstanding, and none have been physically retired.
+
+OAM head 5d60bb6 completed both hosted Rust and managed CI successfully.
+Actual native logs: Linux 751/751 in 391.508s; macOS 751/751 in 578.793s;
+Windows 749/749 in 767.198s, all zero skipped. Complete name sets differ only
+by two Unix assembler path cases. Dependent AOT/publish jobs also succeeded.
 
 The unchanged full Release graphics showcase now compiles to canonical ELF.
 Its 80 allocated ROM sections total 48073 bytes, all currently ROM0. The Rust

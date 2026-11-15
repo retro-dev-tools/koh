@@ -53,6 +53,7 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
         },
     ];
     let mut boot = vec![0; 0x150];
+    boot[0x147] = 0x19;
     boot[0x101] = 0xc3;
     let mut boot_patches = vec![patch(0, 0x102, 0)];
     let mut data = vec![0xf3, 0x31, 0, 0xd0, 0xaf, 0xe0, 0x0f, 0xea, 0xff, 0xff];
@@ -95,11 +96,25 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
         ]);
     }
     let returns = entry.returns.is_some();
-    if returns {
-        data.extend_from_slice(&[0xe8, 0xfc]);
-    }
-    data.push(0xcd);
+    data.extend_from_slice(&[
+        0xe8,
+        if returns { 0xf8 } else { 0xfc },
+        0xf8,
+        2,
+        0x36,
+        0,
+        0x23,
+        0x36,
+        0,
+    ]);
+    data.push(0x01);
     let mut patches = vec![patch(1, data.len(), 1)];
+    data.extend_from_slice(&[0, 0, 0x11]);
+    let mut entry_bank = patch(1, data.len(), 1);
+    entry_bank.expression = RelocationExpr::Bank(SymbolId(1));
+    patches.push(entry_bank);
+    data.extend_from_slice(&[0, 0, 0xcd]);
+    let far_call = data.len();
     data.extend_from_slice(&[0, 0]);
     if returns {
         data.extend_from_slice(&[
@@ -138,6 +153,20 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
         boot[vector] = 0xc3;
         boot_patches.push(patch(0, vector + 1, 6));
     }
+    let far = symbols.len();
+    symbols.push(symbol("__koh_far_call".into(), 1, data.len()));
+    patches.push(patch(1, far_call, far));
+    data.extend_from_slice(&[0xe1, 0xe8, 2, 0xe5, 0x21]);
+    let tail_address = data.len();
+    data.extend_from_slice(&[
+        0, 0, 0xe5, 0x7b, 0xea, 0, 0x20, 0x7a, 0xea, 0, 0x30, 0x60, 0x69, 0xe9,
+    ]);
+    let tail = symbols.len();
+    symbols.push(symbol("__koh_far_return".into(), 1, data.len()));
+    patches.push(patch(1, tail_address, tail));
+    data.extend_from_slice(&[
+        0xc1, 0xd1, 0x7b, 0xea, 0, 0x20, 0x7a, 0xea, 0, 0x30, 0x60, 0x69, 0xe9,
+    ]);
     if globals != 0 {
         let id = symbols.len();
         symbols.push(Symbol {
@@ -315,7 +344,7 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
         });
     }
     for function in functions {
-        objects.push(sm83::emit_with_strings(function, Some(&strings))?);
+        objects.push(sm83::emit_with_strings(function, Some(&strings), true)?);
     }
     combine(objects)
 }
@@ -479,6 +508,8 @@ fn combine(objects: Vec<Object>) -> Result<Object, String> {
         patch.pc.section = section_maps[input][patch.pc.section.0];
         patch.expression = match patch.expression {
             RelocationExpr::Symbol(id) => RelocationExpr::Symbol(symbol_maps[input][id.0]),
+            RelocationExpr::Bank(id) => RelocationExpr::Bank(symbol_maps[input][id.0]),
+            RelocationExpr::BankCurrent => RelocationExpr::BankCurrent,
             _ => return Err("Unsupported compiler relocation expression".into()),
         };
         output.sections[section_maps[input][section].0]

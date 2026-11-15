@@ -65,7 +65,7 @@ impl Code {
     fn check_size(&self) -> Result<(), String> {
         if self.overflow {
             Err(format!(
-                "{}: emitted ROM0 function exceeds 16 KiB; optimization/banked code required",
+                "{}: emitted function exceeds 16 KiB ROM bank capacity",
                 self.prefix
             ))
         } else {
@@ -792,7 +792,7 @@ struct Layout {
 }
 
 impl Layout {
-    fn new(function: &Function) -> Result<Self, String> {
+    fn new(function: &Function, cookie: usize) -> Result<Self, String> {
         let widths = ranges::analyze(function);
         let types: BTreeMap<_, _> = function
             .blocks
@@ -998,7 +998,7 @@ impl Layout {
             .returns
             .map(|ty| usize::from(ty.bits() / 8))
             .unwrap_or(0);
-        if offset + arguments + returns + 4 > 0xf00 {
+        if offset + arguments + returns + cookie + 4 > 0xf00 {
             return Err("SM83 frame and call storage exceed WRAM0 stack capacity".into());
         }
         Ok(Self {
@@ -1016,12 +1016,13 @@ impl Layout {
 }
 
 pub fn emit(function: &Function) -> Result<Object, String> {
-    emit_with_strings(function, None)
+    emit_with_strings(function, None, false)
 }
 
 pub(crate) fn emit_with_strings(
     function: &Function,
     strings: Option<&BTreeMap<Vec<u16>, String>>,
+    banked: bool,
 ) -> Result<Object, String> {
     verify(function)?;
     let constants: BTreeMap<_, _> = function
@@ -1036,7 +1037,9 @@ pub(crate) fn emit_with_strings(
             }
         })
         .collect();
-    let layout = Layout::new(function)?;
+    let cookie = if banked { 4 } else { 0 };
+    let layout = Layout::new(function, cookie)?;
+    let cookie = cookie as u16;
     let name = symbol(function.identity);
     let mut code = Code {
         data: vec![],
@@ -1087,7 +1090,7 @@ pub(crate) fn emit_with_strings(
         code.constant(flag, 1, 0);
     }
     let return_width = function.returns.map(|ty| ty.bits() / 8).unwrap_or(0);
-    let mut argument = layout.size + 2 + return_width;
+    let mut argument = layout.size + 2 + cookie + return_width;
     for &(id, ty) in &function.blocks[0].parameters {
         let width = ty.bits() / 8;
         code.copy(argument, layout.values[&id].0, layout.values[&id].2);
@@ -1379,7 +1382,7 @@ pub(crate) fn emit_with_strings(
                         .iter()
                         .map(|ty| usize::from(ty.bits() / 8))
                         .sum::<usize>()
-                        + usize::from(abi_return);
+                        + usize::from(abi_return + cookie);
                     if size + 2 > 0xf00 {
                         return Err(format!(
                             "{name} IL_{:04x}: call storage exceeds stack capacity",
@@ -1389,7 +1392,7 @@ pub(crate) fn emit_with_strings(
                     let size = size as u16;
                     code.guard(size + 2);
                     code.adjust_sp(-i32::from(size));
-                    let mut offset = abi_return;
+                    let mut offset = abi_return + cookie;
                     for (&value, &ty) in arguments.iter().zip(&signature.parameters) {
                         let bytes = ty.bits() / 8;
                         code.extend(
@@ -1403,7 +1406,20 @@ pub(crate) fn emit_with_strings(
                         offset += bytes;
                     }
                     let callee = code.import(symbol(target));
-                    code.jump(0xcd, callee);
+                    if banked {
+                        code.jump(0x01, SymbolId(0));
+                        code.patches.last_mut().unwrap().expression = RelocationExpr::BankCurrent;
+                        code.address(2);
+                        code.bytes(&[0x71, 0x23, 0x70]);
+                        code.jump(0x11, callee);
+                        code.patches.last_mut().unwrap().expression = RelocationExpr::Bank(callee);
+                        code.jump(0x01, callee);
+                        let trampoline = code.import("__koh_far_call".into());
+                        code.jump(0xcd, trampoline);
+                    } else {
+                        code.jump(0xcd, callee);
+                    }
+                    let size = size - cookie;
                     if width != 0 {
                         code.copy(0, destination + size, width);
                     }
@@ -1681,7 +1697,7 @@ pub(crate) fn emit_with_strings(
                             offset: layout.values[value].0,
                             bytes: layout.values[value].2,
                         },
-                        layout.size + 2,
+                        layout.size + 2 + cookie,
                         return_width,
                     );
                 }
@@ -1706,7 +1722,7 @@ pub(crate) fn emit_with_strings(
         sections: vec![
             Section {
                 name: format!(".text.{name}"),
-                kind: 0,
+                kind: if banked { 1 } else { 0 },
                 size: code.data.len() as u32,
                 data: code.data,
                 patches: code.patches,

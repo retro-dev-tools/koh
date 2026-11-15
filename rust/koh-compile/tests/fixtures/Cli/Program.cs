@@ -78,6 +78,46 @@ public sealed class KohIntrinsicAttribute(string value) : System.Attribute
     public string Value { get; } = value;
 }
 
+public static class BankedAbi
+{
+    private struct Pair
+    {
+        public byte Tag;
+        public long Value;
+    }
+
+    public static int Run()
+    {
+        int value = 7;
+        Pair pair = Make(-0x200000000L, 4);
+        long result = Consume(pair, ref value);
+        string text = Text();
+        return
+            result == -0x1FFFEDBCL
+            && value == 16
+            && Narrow(250, -300) == -50
+            && text.Length == 3
+            && text[1] == '\uD83D'
+            ? 42
+            : -1;
+    }
+
+    private static Pair Make(long value, int shift) =>
+        new Pair { Tag = 9, Value = (value >> shift) + 0x1234 };
+
+    private static long Consume(Pair pair, ref int value)
+    {
+        Add(ref value, pair.Tag);
+        return pair.Value + value;
+    }
+
+    private static void Add(ref int value, byte amount) => value += amount;
+
+    private static int Narrow(byte left, short right) => left + right;
+
+    private static string Text() => "A\uD83D\uDE80";
+}
+
 #if AMBIGUOUS
 public static class Alternative
 {

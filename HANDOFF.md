@@ -1,5 +1,61 @@
 # PR #55 working handoff
 
+## Banked-call unit in progress
+
+OAM DMA is committed/pushed as5d60bb6; post-commit6/6 passed in74.851s.
+New-head Rust43716250872 and CI43716250882 were live at last observation.
+Both workflows have now completed successfully. Actual native job logs:
+Linux132818319400:751/751,391.508s; Windows132818319435:749/749,767.198s;
+macOS132818319459:751/751,578.793s. Zero skips. Complete name sets differ only
+by two Unix assembler path cases; all compiler cases match. Managed CI and
+all dependent AOT/publish jobs succeeded. PR evidence updated in place.
+PR checklist updated in place, still draft/master and approximately45%.
+
+Next unit: all cartridge managed functions use linker-placed ROMX; immutable
+data and runtime remain ROM0 initially, with explicit ROM0 overflow diagnostics.
+MBC5 bank relocations provide low/high bank bytes. Managed calls reserve a
+four-byte cookie before return/argument storage: original caller PC then caller
+bank16. A ROM0 trampoline receives BC=targetPC,DE=targetBank, replaces the machine
+return address with its ROM0 return stub and saves original PC in the cookie.
+Return stub pops original PC/bank, restores mapper then jumps to caller. No
+shared mutable mapper shadow; recursion has independent cookies. Entry uses the
+same ABI with caller bank0. IRQ support remains unimplemented; startup keeps DI.
+Existing standalone function-emission tests retain their explicit near-call ABI;
+the production cartridge path uses banked emission. Do not infer interrupt safety
+or arbitrary banked ROM pointers from this managed-call design.
+
+Tests force actual C# Main/Sum into distinct ROMX banks including257/258, execute
+recursion D/R on DMG/CGB and require42 plus balanced SP. True feature red is
+/tmp/koh-rombank-red3.log (ROMX assertion), exit100. Earlier test-only API/type
+typos failed compilation and are not feature evidence. Banked backend/startup
+implemented; compiler combine now remaps Bank and preserves BankCurrent.
+First positive4/4 passed29.196s; expanded4/4 passed37.635s, covering long/aggregate
+returns, byrefs, void/narrow calls and ROM0 UTF-16 literals in forced distinct
+banks. Logs /tmp/koh-rombank-{second,abi}.log. Initializer negative mutation
+required replacing the far CALL with ADD SP,4 (release cookie), rather than
+assuming a direct CD callee patch. Its old assumption actually failed in
+/tmp/koh-rombank-initializers.log; assertions remain42 before/1 after mutation.
+
+Full755-case regression live session62624,/tmp/koh-rombank-workspace.log; no
+concurrent cargo build. Full Release showcase now compiles AND LINKS, logs
+/tmp/koh-full-gfx-banked-{compile,link}.log, canonical object/ROM/report under
+/tmp/koh full gfx bjddrtfb/showcase-banked.*. Actual behavior still unproven.
+External observer /tmp/koh-banked-gfx-probe uses unchanged production emulator,
+600 frames, exact checkerboard/tile/OAM checks plus Mode3WriteGuard and PNG.
+Its separate --artifacts-path build is session3131, log
+/tmp/koh-banked-gfx-probe-build.log; isolated outputs avoid fixture build races.
+Do not mark banking/sample/ABI complete before full regression and execution.
+
+Read-only banked-call review: reviewer owns no files and must not build/test;
+root owns every mutation and verification. Review working diff versus5d60bb6,
+especially cookie layout, scratch guards, bank relocation remapping and startup.
+Manual no-boot600-frame probe passed full checkerboard/tile/OAM and Mode3 checks,
+but PNG black: poisoned CGB attributesFF select bank1/palette7. Actual boot probe
+now correctly starts PC0 and fails at0287 logo check, BootMapped=True after600
+frames (/tmp/koh-banked-gfx-boot-execute2.log; session24421). Earlier boot probe
+started PC100 incorrectly and is not boot evidence. Native header104..133 is
+zero. Next required unit: linker-owned canonical logo finalization + boot test.
+
 ## Current OAM DMA unit
 
 Base pushed358beafd23fe7a4c24d574cfb283ff419a607d53, same draftPR55/master.

@@ -91,6 +91,53 @@ fn roslyn_switch_tables_execute(host: &Host, #[case] configuration: &str) {
 }
 
 #[rstest]
+#[case("Debug", false, 1)]
+#[case("Release", false, 257)]
+#[case("Debug", true, 257)]
+#[case("Release", true, 1)]
+fn managed_calls_and_recursion_restore_rom_banks(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+    #[case] first_bank: i32,
+) {
+    let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
+    let path = build(directory.path(), configuration, "Exe", false);
+    let assembly = std::fs::read(path).unwrap();
+    let resolver = Resolver::new(&[&assembly]).unwrap();
+    for entry in [None, Some("BankedAbi::Run")] {
+        let mut object = compile::object(&resolver, entry).unwrap();
+        let mut bank = first_bank;
+        for section in &mut object.sections {
+            if section.name.starts_with(".text.__koh_a") {
+                assert_eq!(section.kind, 1, "managed code must use ROMX");
+                section.bank = Some(bank);
+                bank += 1;
+            }
+        }
+        assert!(bank >= first_bank + 2, "fixture must call another function");
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(linked.rom[0x147], 0x19, "MBC5 cartridge contract");
+        assert_eq!(
+            execute(host, directory.path(), &linked, "__koh_exit"),
+            "00 0000002A D000 OK"
+        );
+    }
+}
+
+#[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]
 #[case("Debug", true)]
@@ -2476,19 +2523,24 @@ fn type_and_module_initializers_execute_once_with_cycles(host: &Host, #[case] co
     );
     let mut omitted = 0;
     for section in &mut object.sections {
-        section.patches.retain(|patch| {
+        let mut calls = Vec::new();
+        for patch in &section.patches {
             let koh_objects::RelocationExpr::Symbol(id) = &patch.expression else {
-                return true;
+                continue;
             };
             let name = &object.symbols[id.0].name;
             if !name.contains("_mff") || name.contains('.') {
-                return true;
+                continue;
             }
-            assert_eq!(section.data[patch.offset - 1], 0xcd);
-            section.data[patch.offset - 1..patch.offset + 2].fill(0);
+            assert_eq!(section.data[patch.offset - 1], 0x01);
+            assert_eq!(section.data[patch.offset + 2], 0xcd);
+            calls.push(patch.offset + 3);
+            section.data[patch.offset + 2..patch.offset + 5].copy_from_slice(&[0xe8, 4, 0]);
             omitted += 1;
-            false
-        });
+        }
+        section
+            .patches
+            .retain(|patch| !calls.contains(&patch.offset));
     }
     assert!(omitted > 0);
     let mutated = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
