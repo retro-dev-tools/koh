@@ -163,8 +163,7 @@ public class Cube3dTests
         return link.RomData;
     }
 
-    /// <summary>Boot a compiled ROM and run it for a bounded number of hardware frames, returning the RGB
-    /// framebuffer at the end (mirrors samples/csharp/gb-3d/verify/Cube3dVerify's capture, simplified).</summary>
+    /// <summary>Legacy bounded ROM capture.</summary>
     private static byte[] Boot(byte[] rom, int frames, HardwareMode mode = HardwareMode.Dmg)
     {
         var gb = new GameBoySystem(CartridgeFactory.Load(rom), mode);
@@ -185,10 +184,7 @@ public class Cube3dTests
         return rgb;
     }
 
-    /// <summary>Simplified structural check (see Cube3dVerify.CubeFrameChecks for the fuller version this
-    /// mirrors): the corner pixel is background, and at least two distinct non-background shades exist
-    /// within a lit region that neither is a handful of stray pixels nor covers the whole screen. That is
-    /// a shape a blank or garbage framebuffer cannot satisfy by accident.</summary>
+    /// <summary>Legacy structural capture checks.</summary>
     private static (int distinctShades, int litPixels) Analyze(byte[] rgb)
     {
         int Color(int x, int y)
@@ -252,15 +248,7 @@ public class Cube3dTests
         HardwareMode mode
     )
     {
-        // The software rasterizer is slow relative to hardware vblank. Frame-by-frame framebuffer
-        // diffing against the real built ROMs (samples/csharp/gb-3d/verify/Program.cs's technique) measured:
-        // double-buffered/CGB's first content lands at ~frame 63 (Surface.Present() moves the whole
-        // page with one general-purpose DMA inside a single vblank and flips via LCDC.4), with a
-        // steady-state render+present cadence of 19-47 frames — 200 frames clears boot plus more than
-        // two full cycles. full-frame/DMG's first content lands at ~frame 17, with a cadence of 59-114
-        // frames (one Lcd-off Mem.Copy(3840) present plus render) — 250 frames clears boot plus more
-        // than one full cycle. Both ROMs' DMG (double-buffered) or CGB (full-frame) counterpart, and
-        // racing-beam in both modes, are covered by samples/csharp/gb-3d/verify, not re-run here.
+        // Native replacement: rust/koh-compile/tests/cubes.rs.
         var rgb = Boot(Compile(ReadDemo(variant)), frames, mode);
         var (distinctShades, litPixels) = Analyze(rgb);
 

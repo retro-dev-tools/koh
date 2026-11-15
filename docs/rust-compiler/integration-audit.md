@@ -65,7 +65,14 @@ Compiler-origin C# PDB mapping is independent acceptance. Existing assembly-orig
 - **REPLACE** `Demo_LinksToBootableRom` (same variants): partial NOP/JP/logo check becomes valid header/entry plus boot acceptance.
 - **PORT** `Demo_RunOnHardwareRendersARealCube` (double-buffered/CGB/200 frames; full-frame/DMG/250 frames): >=2 nonbackground shades and 50..85%-screen nonbackground pixels. Despite its name it uses `GameBoySystem`, not physical hardware. The thresholds reject blank output but do not prove a cube, orientation, animation or race-free presentation.
 
-The separate `samples/csharp/gb-3d/verify/Program.cs`, `CubeFrameChecks.cs`, `PhaseSweepCheck.cs` are **PORT**, compiler migration owner: preserve all three variants (including racing-beam), both hardware modes, first/second frame comparison, structural checks and Mode3WriteGuard/phase checks. These are separate acceptance tooling, not cases counted above and not proof that CI executes them. Existing comments about measured timing are historical rationale, not fresh measurements. Keep bounded gameplay/render progress, reconsider exact old frame budgets from native output evidence.
+The separate `samples/csharp/gb-3d/verify/Program.cs`, `CubeFrameChecks.cs` and
+`PhaseSweepCheck.cs` are now **PORT/REPLACE complete** in the native `cubes` target.
+All three variants, both hardware modes/configurations, both structural captures,
+animation and mode3 checks are preserved/strengthened. The CLR all256-phase sweep
+has Rust-owned assertions in both configurations; it remains distinct from native
+ROM execution. The redundant C# project and solution entries are deleted.
+See the [quantified disposition matrix and evidence limits](cube-phase-sweep.md).
+These standalone groups are outside the565-method inventory; nothing is DEFERred.
 
 ### `Samples/GbGfxDemoTests.cs` — 9 methods, 9 cases
 

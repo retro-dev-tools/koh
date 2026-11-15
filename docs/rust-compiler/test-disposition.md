@@ -98,8 +98,9 @@ GDMA-window boundary cases. They are discoverable by cargo-nextest, not skipped
 or feature-gated. Both variants now pass all four configurations after the
 [VBlank correction](vblank-window.md) and [native copy](memory-copy.md).
 These3 source methods are fully replaced. Racing-beam additionally has9 adversarial
-trace-validator cases and actual per-row SCX checks; its separate standalone
-phase-sweep tooling still requires migration and is not counted complete.
+trace-validator cases and actual per-row SCX checks. The standalone phase sweep
+is now Rust-owned: two cases execute768 phase/geometry scenarios each, with24
+adversarial frame-validator cases. See its separate [disposition matrix](cube-phase-sweep.md).
 
 | Source method | Behavioral requirement and independent justification | Decision, native target and remaining work |
 | --- | --- | --- |

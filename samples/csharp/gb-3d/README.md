@@ -35,18 +35,30 @@ the ROM in Koh.Emulator.
 ## Headless verification
 
 ```powershell
-dotnet run --project samples/csharp/gb-3d/verify/Cube3dVerify.csproj
+cargo nextest run -p koh-compile --test cubes --locked
 ```
 
-The verifier boots all three ROMs in both DMG and CGB modes, runs a per-ROM-per-mode frame budget tuned
-to each demo's measured render+present cadence (see `verify/Program.cs`), and checks structural
-properties a real rendered cube must have (deterministic, not a golden-image comparison): at least two
-distinct non-background shades on screen, all of them inside one bounding box comfortably clear of the
-screen edge and of a plausible size, a uniform background outside that box, and a later frame that
-differs from the first (the cube is animating, not frozen). It also sweeps the shared renderer across
-all 256 rotation phases per viewport geometry, checking the same edge-clearance/area-band properties
-independent of any ROM's timing. It writes screenshots under `verify/out/`. Pass one or more renderer
-names (`double-buffered`, `full-frame`, `racing-beam`) to limit a run.
+Rust tests compile the actual samples in Debug/Release, link canonical ELF and boot all three ROMs
+in the existing DMG/CGB emulator. Two captures must show a shaded, connected, centered cube that
+animates within bounded frame counts. VRAM-write guards, complete GDMA timing and actual racing-beam
+SCX/scanline traces also run. Select a variant with nextest filters, for example
+`-E 'test(racing_)'` or `-E 'test(double_)'`.
+
+The same target drives the shared renderer through all256 phases at64x64,96x80 and128x120 in both
+Roslyn configurations. Rust checks nonempty output, palette, two-pixel edge clearance and a10..75%
+bounding-area band. This preserves the old CLR geometry sweep; it is not all-phase native ROM
+execution, nor a sweep of the separate Canvas-based double-buffered renderer. Use
+`-E 'test(shared_renderer_sweeps)'` for only this check. See [test disposition](../../../docs/rust-compiler/cube-phase-sweep.md).
+
+For a persistent PNG capture of a built ROM, use the existing emulator CLI:
+
+```powershell
+New-Item -ItemType Directory -Force artifacts
+dotnet run --project src/Emulator/Koh.Emulator.App -c Release -- --headless samples/csharp/gb-3d/racing-beam/cube-racing-beam.gb --frames=500 --screenshot=artifacts/cube-racing-beam.png --mode3-report
+```
+
+The obsolete standalone C# verifier and its solution entries have been removed. Generated captures
+belong in artifacts, not tracked sample assets.
 
 The PPU still consumes tile-formatted VRAM because that is the Game Boy's display hardware. Here the
 tiles are a transport for a runtime-generated bitmap, not a tileset or authored art pipeline.
@@ -66,7 +78,7 @@ The current [bulk-memory contract](../../../docs/rust-compiler/memory-copy.md)
 lowers `Mem.Copy`/`Mem.Fill` through native Rust IR and SM83 loops. Its3840-byte
 copy probe takes217748T at normal CPU speed; this is not a whole-frame cadence.
 The historical C# compiler measurements below used framebuffer differences
-(the technique in `verify/Program.cs`) to measure frames per render/present cycle:
+to measure frames per render/present cycle:
 
 | ROM | CGB cadence | DMG cadence |
 | --- | --- | --- |

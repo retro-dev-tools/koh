@@ -30,8 +30,7 @@ static class CubeRenderer
         short cx = FixedMath.Cos((byte)(phase + phase / 2));
         short centerX = (short)(Canvas.Width / 2);
         short centerY = (short)(Canvas.Height / 2);
-        // Projection scale — see shared/CubeRenderer.cs's Transform for the full worst-case-vertex
-        // derivation this reuses verbatim (Canvas.Width/Height stand in for Surface.Width()/Height()).
+        // Projection clearance across all phases.
         short scale = Canvas.Width > 64 ? (short)112 : (short)(Canvas.Width + Canvas.Width / 2);
 
         for (byte i = 0; i < 8; i++)

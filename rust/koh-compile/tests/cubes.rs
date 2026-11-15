@@ -13,14 +13,155 @@ fn cube_host() -> Host {
 }
 
 #[rstest]
-#[case("double-buffered", "Release", true)]
-#[case("double-buffered", "Debug", true)]
-#[case("double-buffered", "Release", false)]
-#[case("double-buffered", "Debug", false)]
-#[case("full-frame", "Release", true)]
-#[case("full-frame", "Debug", true)]
-#[case("full-frame", "Release", false)]
-#[case("full-frame", "Debug", false)]
+#[case("Debug")]
+#[case("Release")]
+fn shared_renderer_sweeps_every_phase(#[case] configuration: &str) {
+    let directory = tempfile::tempdir().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/CubePhases");
+    for name in ["CubePhases.csproj", "Program.cs"] {
+        std::fs::copy(fixture.join(name), directory.path().join(name)).unwrap();
+    }
+    let guard = ROSLYN.lock().unwrap();
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.path().join("CubePhases.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    drop(guard);
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = dotnet()
+        .arg(
+            directory
+                .path()
+                .join(format!("bin/{configuration}/net10.0/CubePhases.dll")),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut bytes = output.stdout.as_slice();
+    let mut scenarios = 0;
+    for (width, height) in [(64, 64), (96, 80), (128, 120)] {
+        assert_eq!(bytes.get(..2), Some([width as u8, height as u8].as_slice()));
+        bytes = &bytes[2..];
+        for phase in 0..256 {
+            assert_eq!(bytes.first().copied(), Some(phase as u8));
+            let frame = bytes
+                .get(1..1 + width * height)
+                .expect("truncated phase frame");
+            check_phase(frame, width, height)
+                .unwrap_or_else(|e| panic!("{configuration} {width}x{height} phase{phase}: {e}"));
+            bytes = &bytes[1 + width * height..];
+            scenarios += 1;
+        }
+    }
+    assert!(bytes.is_empty(), "unexpected phase records");
+    assert_eq!(scenarios, 768);
+}
+
+fn check_phase(frame: &[u8], width: usize, height: usize) -> Result<(), String> {
+    if width < 5 || height < 5 || width.checked_mul(height) != Some(frame.len()) {
+        return Err("invalid phase dimensions".into());
+    }
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (width, height, 0, 0);
+    let mut lit = false;
+    for (index, &value) in frame.iter().enumerate() {
+        if value > 3 {
+            return Err("invalid phase palette".into());
+        }
+        if value == 0 {
+            continue;
+        }
+        lit = true;
+        let (x, y) = (index % width, index / width);
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    if !lit {
+        return Err("empty phase".into());
+    }
+    if min_x < 2 || min_y < 2 || max_x > width - 3 || max_y > height - 3 {
+        return Err("phase touches viewport edge".into());
+    }
+    let area = (max_x - min_x + 1) * (max_y - min_y + 1);
+    if area * 100 < frame.len() * 10 || area * 100 > frame.len() * 75 {
+        return Err("phase bounding area outside 10..75 percent".into());
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case(0, None)]
+#[case(1, Some("empty"))]
+#[case(2, Some("dimensions"))]
+#[case(3, Some("palette"))]
+#[case(4, Some("edge"))]
+#[case(5, Some("area"))]
+#[case(6, Some("area"))]
+#[case(7, Some("dimensions"))]
+fn phase_checks_reject_invalid_frames(
+    #[case] damage: u8,
+    #[case] error: Option<&str>,
+    #[values((64, 64), (96, 80), (128, 120))] geometry: (usize, usize),
+) {
+    let (width, height) = geometry;
+    let mut frame = vec![0; width * height];
+    let (cx, cy) = (width / 2, height / 2);
+    for y in cy - 16..cy + 16 {
+        frame[y * width + cx - 24..y * width + cx + 24].fill(2);
+    }
+    match damage {
+        1 => frame.fill(0),
+        2 => {
+            frame.pop();
+        }
+        3 => frame[cy * width + cx] = 4,
+        4 => frame[width + cx] = 2,
+        5 => {
+            frame.fill(0);
+            frame[cy * width + cx] = 2;
+        }
+        6 => {
+            for y in 2..height - 2 {
+                frame[y * width + 2..y * width + width - 2].fill(2);
+            }
+        }
+        7 => frame.push(0),
+        _ => {}
+    }
+    let result = check_phase(&frame, width, height);
+    match error {
+        None => result.unwrap(),
+        Some(expected) => assert!(result.unwrap_err().contains(expected)),
+    }
+}
+
+#[rstest]
+#[case::double_release_cgb("double-buffered", "Release", true)]
+#[case::double_debug_cgb("double-buffered", "Debug", true)]
+#[case::double_release_dmg("double-buffered", "Release", false)]
+#[case::double_debug_dmg("double-buffered", "Debug", false)]
+#[case::full_release_cgb("full-frame", "Release", true)]
+#[case::full_debug_cgb("full-frame", "Debug", true)]
+#[case::full_release_dmg("full-frame", "Release", false)]
+#[case::full_debug_dmg("full-frame", "Debug", false)]
 #[case::racing_release_cgb("racing-beam", "Release", true)]
 #[case::racing_debug_cgb("racing-beam", "Debug", true)]
 #[case::racing_release_dmg("racing-beam", "Release", false)]

@@ -8,7 +8,20 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [bounded HBlank streams](raster-stream.md). All four racing-beam
+Current unit: [Rust-owned cube phase sweep](cube-phase-sweep.md). Two Roslyn
+configurations pass all768 shared-renderer phase/geometry scenarios each;24
+adversarial validator cases also pass. The redundant C# verifier and its solution
+entries are removed after caller audit; screenshot capture uses the existing
+emulator CLI. Final76/76 cube tests pass in123.815s, exit0, zero skips
+(`/tmp/koh-cube-phases-final.log`). The documented CLI exits0 after500 frames
+with zero mode3 writes and a160x144 four-color shaded-cube PNG,1269 lit pixels
+inside the racing viewport (`/tmp/koh-phase-screenshot.log`). Coverage review
+found no blocking issue. No compiler-owned assertions remain in the deleted
+standalone verifier; this does not close additional565-inventory methods.
+This is CLR geometry evidence alongside native ROM cases, not all-phase native
+execution; reference classes and the remaining whole-migration gates stay open.
+
+Previous unit: [bounded HBlank streams](raster-stream.md). All four racing-beam
 Debug/Release × DMG/CGB cases now pass unchanged capture budgets and actual
 per-row SCX timing checks. Focused boundary/IR tests pass10/10; backend/validator
 checks pass35/35. Final formatted IR/backend/cube/boundary regression passes

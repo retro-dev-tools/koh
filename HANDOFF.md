@@ -1,5 +1,44 @@
 # PR #55 handoff
 
+PHASE FINAL: session6273 terminal exit0, /tmp/koh-cube-phases-final.log76/76
+passed123.815s zero skips. All12nativeROMs +2CLRallphase/config +24negative
+phasecases + existingimage/GDMA/rasterchecks. Reviewerphase_review found no
+blockingdefect/lostassertions; no reviewerbuilds/edits. Session20350 terminal
+exit0, /tmp/koh-phase-screenshot.log existingheadlessApp ranSDKracingROM500frames,
+0mode3writes. PNG /tmp/koh-cube-sweep-capture.png160x144opaquegray4colors,
+1269litpixels withinracingviewport; visualinspection shadedcube. No assets
+modified. All localbuilds terminal. Solution/filter36projectsconsistent.
+Finalhash/format/commit/push andPRchecklist next. No prodcompileralgorithm/API
+changes inthisunit. Fullmigrationremainsactive; matrix45/565unchanged.
+
+ACTIVE phase-sweep migration, base pushed4341278. Root owns edits and serial
+builds; reviewer read-only, no builds/edits. Rust cubes.rs now owns CLR allphase
+geometry assertions:768scenarios/config,24negativeframecases. New CubePhases
+fixture emits actualsharedrenderer pixels withoutassertions. Red26cases24pass/
+2missingfixture /tmp/koh-phase-red.log; green26/26 4.227s /tmp/koh-phase-green.log.
+Deleted redundant samples/csharp/gb-3d/verify project+3sources+ignore; removed
+Koh.slnx/Koh.Ci.slnf entries. All36 CI filter projects exist and belong tosolution.
+Updated docs/consumercomments; onlyremainingdeleted-path references areaudit
+history. ExistingemulatorCLI preservesPNGcapture; documentedcommand pendingrun.
+Current serial session6273 /tmp/koh-cube-phases-final.log runsall76cube cases,
+including12actualnativeROMs. Do not start another build untilterminal.
+Review scope: behavioralcoverage vs removed verifier, CLR/native boundary,
+fixture math/naivedither, records/counts, edge/area rules and consumerdeletion.
+No production compileralgorithm/API changes. Fullmigrationnotcomplete.
+
+PUSHED raster43412789d0d8030000d1a5e25222dc4cb8c58934, remote and draftPR55
+head/base verified. PRbody/checklist updated;45/565 complete remains honest.
+Post-hook all17 testedcode/fixture hashes match /tmp/koh-raster-tested.sha256.
+All local sessions terminal. NativeCI43776124627 and managedCI43776124629
+confirmed inprogress; do not infer results. Previous3ce nativeCI green allhosts
+924Linux/macOS922Windows; exactlogs read. ManagedCI3ce fails referenceclasses.
+Next: migrate standalone 256-phase/3viewport checks to Rust-owned assertions,
+then close/delete redundant compiler-owned C# cube verifier after caller audit.
+Do not delete Koh.Verify production component. Whole migration stillactive;
+classes2048v2/JRPG,PDB/source,KDBGstack,IRQ/bankeddata,testclosure,legacycompiler
+deletion, performance/release/finalcrossplatform remainrequired. No merge.
+Only this post-push handoff refresh is uncommitted. Main battle.png hash unchanged.
+
 RACING SDK: session76828 terminal exit0, /tmp/koh-raster-sdk.log 0warnings/errors,
 38.41s,131072byteROM. Direct header/global checksum and CGBflag checks pass.
 SDK emits obj/Release/net10.0/CubeRacingBeam.o and optional KDBG (still IL-only).

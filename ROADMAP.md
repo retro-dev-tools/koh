@@ -24,8 +24,13 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
   Forty-five legacy methods have complete replacements;520 remain partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
-  with actual SCX/scanline traces; phase-sweep migration remains open. The924-test
-  workspace result predates the raster increment; its broader regression is pending.
+  with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
+  Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
+  The924-test workspace result predates the raster/phase increments; the raster
+  regression passed380/380 and the full phase/cube target passes76/76. The
+  existing headless emulator captures the SDK-built racing ROM with zero mode3
+  writes. This CLR sweep complements native ROM tests; it is not all-phase
+  native or Canvas-renderer execution.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain
   incomplete. Container cleanup is done. Existing API shapes are evidence,
