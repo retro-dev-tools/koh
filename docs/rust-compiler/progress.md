@@ -16,8 +16,9 @@ Linux workspace nextest passed675/675,0skips,exit0,832.362s
 (`/tmp/koh-aggregate-workspace.log`), including499 compiler cases. The final explicit
 cpobj overlap variant passed4/4,exit0,25.109s
 (`/tmp/koh-aggregate-cpobj.log`), retaining original Roslyn ldobj/stobj execution.
-Combined native coverage is478 ROM scenarios (408 normal,70 traps), four full
-frame comparisons. Separate workspace doctests (no cases) and formatting pass.
+Post-commit Sprite/aggregate checks passed8/8,exit0,50.459s
+(`/tmp/koh-aggregate-postcommit.log`). Combined native coverage is478 ROM
+scenarios (408 normal,70 traps), four full frame comparisons. Separate workspace doctests (no cases) and formatting pass.
 Ten of565 legacy methods have complete native behavioral replacements;555 still
 need completion auditing, none physically retired. Constructors/newobj,
 aggregate arrays, reference-bearing/generic values remain outstanding.

@@ -2,41 +2,39 @@
 
 ## Current aggregate unit
 
-Root owns all edits/builds; no delegated writers. Layout metadata committed/pushed as14b9a89; aggregate execution remains
-uncommitted. Draft PR #55 targets master. Full migration remains active, about45%.
+Root owns edits/builds; no delegated writers. Layout14b9a89 and aggregate execution
+6f9b66d committed; same draft PR#55 targets master. Full goal remains active,
+about45%; do not merge or claim migration complete.
 
-Actual Sprite acceptance now passes Debug/Release × DMG/CGB: real Video.Init,
-out/byref handle, instance Set/Move/SetAttr/SetTile, complete shadow OAM heap
-snapshot, unchanged VRAM/OAM and bank restoration. Broader Roslyn fixtures pass
-by-value arguments/results, static/nested/explicit-overlap fields, padding zero,
-all scalar field widths, addressed explicit instance arguments, overlapping
-64-byte copies and raw bank2 pointer fields. No GameBoy API changes in this unit.
+Native nongeneric unmanaged structs now have bounded cached canonical layouts,
+inline/ref types and Storage descriptors, unified wide memory operations,
+zero init, field address/extraction, implicit instance this, packed value calls
+and results, and derived-local escape verification. Raw fields retain caller
+bank; managed refs preserve bank1 mapping. Bulk copies/zeroing above8bytes use
+compact loops after unchanged broad fixtures exceeded ROM0. No API rewrite.
 
-Layout reader uses cached canonical identities and bounded unmanaged layouts;
-independent .NET Size5 probes caught erroneous tail rounding. Typed Struct and
-StructRef, Storage descriptors, wide memory operations, field address/extract
-and ZeroStruct preserve byte layouts and derived-reference escape checks.
-Native field addresses retain raw bank provenance; managed refs map heap bank1.
-Implicit value-type this is a typed reference. Constructors/newobj, aggregate
-arrays, reference-bearing/generic/auto/InlineArray shapes remain unsupported.
+Real Sprite runs Video.Init/out/Set/Move/SetAttr/SetTile and checks complete
+shadow storage, bank restoration and unchanged VRAM/OAM. Broad D/R×DMG/CGB
+fixtures cover scalar widths, instance argument addresses, nested/static/explicit
+layouts, zero padding, by-value isolation and overlapping64-byte copies.
+Known-fixture cpobj variant retains original Roslyn ldobj/stobj execution.
+Independent Size5 .NET probes caught layout rounding bug. Compiler never runs
+input assemblies. Read-only review found no actionable defects; cpobj gap fixed.
 
-Initial broad execution exceeded ROM0: fixed backend copies/zeroing above8bytes
-with compact counted loops, retaining scalar instruction paths. Did not shrink
-the fixture or bypass canonical linker capacity. Focused combined12/12 passed,
-exit0,41.664s,/tmp/koh-aggregate-compact-first.log. Additional scalar/overlap fixture
-4/4 passed,exit0,19.854s,/tmp/koh-aggregate-scalars-overlap.log. IR156/156 passed.
 Full workspace675/675 passed,0skips,exit0,832.362s,
-/tmp/koh-aggregate-workspace.log. Final cpobj focused run4/4 passed,exit0,25.109s,
-/tmp/koh-aggregate-cpobj.log. No concurrent builds in its target directory.
+/tmp/koh-aggregate-workspace.log. Final cpobj4/4 passed,exit0,25.109s,
+/tmp/koh-aggregate-cpobj.log. Post-commit8/8 passed,exit0,50.459s,
+/tmp/koh-aggregate-postcommit.log. Separate doctests (no cases) and rustfmt pass.
+Coverage499 compiler cases;478 ROM scenarios (408 returns,70 traps); four full
+frame comparisons. Ten of565 complete legacy replacements,555 still require
+completion auditing; none physically retired. Docs/test-disposition updated.
+No builds/tests active. Hosted validation for this head remains pending.
 
-Read-only aggregate review found no actionable defects; cpobj coverage gap now
-has a same-length test IL variant retaining original Roslyn assignment. Final focused execution passed after full run. Latest scalar/overlap run actual exit0 confirmed.
-
-Next: reread doc/fmt logs, commit aggregate execution increment,
-push same draft PR, then update PR/vault evidence. Coverage499 compiler cases,
-478 ROM scenarios (408 normal,70 traps), ten complete legacy replacements. Do not claim whole migration or complete struct support.
-SDK still uses C# compiler; PDB/debug, full runtime/language coverage, samples,
-test migration, packaging and legacy deletion remain outstanding.
+Next: value constructors/newobj, aggregate arrays and remaining runtime/generic
+support, followed by real games and PDB/ELF/KDBG debugger proof. SDK still uses
+C# compiler. Full test migration, SDK/package/CI boundary and old compiler
+removal remain open. Keep original full objective; no feature retirement inferred
+from these temporary unsupported shapes. See aggregates.md and progress.md.
 
 ## Current LCD-on graphics unit
 
