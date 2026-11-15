@@ -91,6 +91,144 @@ fn showcase_host() -> Host {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn raw_arena_shares_capacity_without_resetting_managed_arrays(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "RawArena");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for (entry, kind) in [
+        ("InvalidAllocation", "alloc"),
+        ("InvalidReset", "heapreset"),
+    ] {
+        let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
+        assert!(
+            error.contains(&format!("Invalid Koh {kind} intrinsic contract"))
+                && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    for (entry, succeeds) in [
+        ("Main", true),
+        ("ResetOnly", true),
+        ("ResetWithManagedArray", true),
+        ("BankPreservation", true),
+        ("FullArena", true),
+        ("ExactSharedCapacity", true),
+        ("ManagedThenRawCollision", false),
+        ("RawThenManagedCollision", false),
+        ("AlignedCollision", false),
+        ("NegativeSize", false),
+        ("Oversize", false),
+        ("TruncatedSize", false),
+        ("Exhausted", false),
+    ] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if succeeds {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-arena",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 7 } else { 6 }, "{entry}");
+        assert_eq!(fields[0], if succeeds { "00" } else { "05" }, "{entry}");
+        assert_eq!(fields[3], "OK", "{entry}");
+        if succeeds {
+            assert_eq!(&fields[1..3], &["0000002A", "D000"], "{entry}");
+        }
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], "untouched WRAM2");
+        }
+        if entry == "Main" {
+            assert_eq!(*fields.last().unwrap(), "2A", "MMIO round trip");
+            let mut expected = vec![0x5a; 4096];
+            expected[4092] = 11;
+            expected[4088] = 22;
+            assert_heap_snapshot(fields[4], &expected, "distinct raw blocks");
+        } else if entry == "FullArena" {
+            let mut expected = vec![0x5a; 4096];
+            expected[0] = 42;
+            expected[4095] = 99;
+            assert_heap_snapshot(fields[4], &expected, "full raw arena");
+        } else if entry == "ExactSharedCapacity" || entry == "ManagedThenRawCollision" {
+            let mut expected = vec![0x5a; 4096];
+            expected[..4092].fill(0);
+            expected[..2].copy_from_slice(&[0xfa, 0x0f]);
+            expected[4091] = 99;
+            if succeeds {
+                expected[4092] = 42;
+                expected[4095] = 43;
+            }
+            assert_heap_snapshot(fields[4], &expected, "managed array and raw boundary");
+        } else if entry == "AlignedCollision" {
+            let mut expected = vec![0x5a; 4096];
+            expected[254..257].copy_from_slice(&[1, 0, 0]);
+            assert_heap_snapshot(fields[4], &expected, "aligned array remains intact");
+        } else if entry == "ResetWithManagedArray" {
+            let mut expected = vec![0x5a; 4096];
+            expected[..5].copy_from_slice(&[3, 0, 11, 0, 22]);
+            expected[4092] = 42;
+            assert_heap_snapshot(fields[4], &expected, "reset preserves live managed storage");
+        } else if entry == "BankPreservation" {
+            let mut expected = vec![0x5a; 4096];
+            expected[4092] = 43;
+            assert_heap_snapshot(fields[4], &expected, "raw bank1 storage");
+        } else if !succeeds || entry == "ResetOnly" {
+            assert_heap_snapshot(
+                fields[4],
+                &[0x5a; 4096],
+                "allocation must not write raw payload",
+            );
+        }
+    }
+}
+
+#[rstest]
+fn raw_arena_desktop_boundary_is_checked(host: &Host) {
+    let (directory, _) = gameboy_images(host, "Release", "RawArenaDesktop");
+    let result = dotnet()
+        .arg(
+            directory
+                .path()
+                .join("bin/Release/net10.0/RawArenaDesktop.dll"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap().trim(),
+        "8188 33 True 1:1:1:2 True 42:99"
+    );
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn full_graphics_showcase_boots_and_animates(
     showcase_host: &Host,
     #[case] configuration: &str,

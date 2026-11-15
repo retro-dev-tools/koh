@@ -228,7 +228,14 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
         .iter()
         .flat_map(|f| &f.blocks)
         .flat_map(|b| &b.instructions)
-        .any(|i| matches!(i.op, crate::ir::Op::NewArray { .. }));
+        .any(|i| {
+            matches!(
+                i.op,
+                crate::ir::Op::NewArray { .. }
+                    | crate::ir::Op::ArenaAllocate(_)
+                    | crate::ir::Op::ArenaReset
+            )
+        });
     let mut offset = 0u16;
     let mut placements = Vec::new();
     let mut section_alignment = 1u16;
@@ -244,7 +251,7 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
             .ok_or("Static storage exceeds capacity")?;
     }
     let bytes = offset
-        .checked_add(if heap { 2 } else { 0 })
+        .checked_add(if heap { 4 } else { 0 })
         .ok_or("Static storage exceeds capacity")?;
     if bytes > 0x100 {
         return Err("Compiler static storage exceeds available WRAM0 capacity (256 bytes)".into());
@@ -285,6 +292,7 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
         }
         if heap {
             symbols.push(symbol("__koh_heap_cursor".into(), 0, usize::from(offset)));
+            symbols.push(symbol("__koh_raw_used".into(), 0, usize::from(offset) + 2));
         }
         objects.push(Object {
             sections: vec![Section {

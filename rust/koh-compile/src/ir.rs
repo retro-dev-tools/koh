@@ -175,6 +175,8 @@ pub enum CpuControl {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    ArenaAllocate(u32),
+    ArenaReset,
     CpuControl(CpuControl),
     OamDma(u32),
     StringLiteral(Vec<u16>),
@@ -297,7 +299,9 @@ impl Op {
     }
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
-            Self::StackAllocate { bytes } | Self::OamDma(bytes) => [Some(bytes), None],
+            Self::ArenaAllocate(bytes) | Self::StackAllocate { bytes } | Self::OamDma(bytes) => {
+                [Some(bytes), None]
+            }
             Self::InitializeArray { array, .. } => [Some(array), None],
             Self::NewArray { length, .. }
             | Self::ArrayLength(length)
@@ -317,7 +321,8 @@ impl Op {
             | Self::Convert { value, .. }
             | Self::StoreLocal { value, .. }
             | Self::StorePinned { value, .. } => [Some(value), None],
-            Self::CpuControl(_)
+            Self::ArenaReset
+            | Self::CpuControl(_)
             | Self::Call { .. }
             | Self::StringLiteral(_)
             | Self::ZeroStruct
@@ -781,7 +786,13 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(storage.stack_type())
                     }
-                    Op::CpuControl(_) => None,
+                    Op::ArenaReset | Op::CpuControl(_) => None,
+                    Op::ArenaAllocate(bytes) => {
+                        if check(bytes, position)? != Type::I32 {
+                            return Err("Raw arena size must be int32".into());
+                        }
+                        Some(Type::Native)
+                    }
                     Op::OamDma(page) => {
                         if check(page, position)? != Type::I32 {
                             return Err("OAM DMA page requires int32 byte storage".into());

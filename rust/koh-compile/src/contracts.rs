@@ -10,6 +10,8 @@ enum Kind {
 }
 
 pub(crate) enum Intrinsic {
+    Allocate,
+    ResetArena,
     CpuControl(crate::ir::CpuControl),
     OamDma,
     Read(u16),
@@ -332,6 +334,36 @@ pub(crate) fn intrinsic(
             .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner)
     {
         return Err("Koh intrinsic requires a static non-generic method".into());
+    }
+    if matches!(kind, "alloc" | "heapreset") {
+        use clrmeta::ElementType;
+        let valid = if kind == "alloc" {
+            signature.params == [TypeSig::Primitive(ElementType::I4)]
+                && signature.return_type
+                    == TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1)))
+        } else {
+            signature.params.is_empty()
+                && signature.return_type == TypeSig::Primitive(ElementType::Void)
+        };
+        if address != -1
+            || signature.calling_convention.0 != 0
+            || signature.sentinel.is_some()
+            || !valid
+        {
+            return Err(format!(
+                "Invalid Koh {kind} intrinsic contract: expected address-less static {}",
+                if kind == "alloc" {
+                    "byte*(int32)"
+                } else {
+                    "void()"
+                }
+            ));
+        }
+        return Ok(Some(if kind == "alloc" {
+            Intrinsic::Allocate
+        } else {
+            Intrinsic::ResetArena
+        }));
     }
     if matches!(kind, "di" | "ei" | "halt" | "nop" | "stop") {
         if address != -1

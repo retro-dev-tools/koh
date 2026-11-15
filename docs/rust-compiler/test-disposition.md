@@ -31,13 +31,34 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: twenty-eight legacy methods; zero physically retired.**
+**Native behavioral replacements: thirty-two legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining537 methods still have
+The remaining533 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Raw arena replacements
+
+Four methods in `Frontends/CilReferenceTests.cs` now map to
+`driver::raw_arena_shares_capacity_without_resetting_managed_arrays`, four
+Debug/Release × DMG/CGB nextest cases. The original group has12 assertion sites
+and seven parameter-expanded executions; these counts do not mean12 independent
+semantics. The replacement executes52 ROM scenarios, eight malformed-contract
+checks, a separate desktop runtime case and five typed-IR cases. See
+[the new lifetime/capacity contract](raw-arena.md).
+
+| Source method | Public requirement and independent justification | Decision and native evidence |
+| --- | --- | --- |
+| MemAlloc_IsACompilerOwnedIntrinsic_AndAllocatesAtTheExpectedAddress | Writable raw allocation and MMIO round trip; hardware bus behavior justifies bytes, not the old private DE00 heap top | REPLACE: actual BGP42 read independently by the emulator, distinct block snapshots and linker-reserved bank1 bounds; old DDFC address is intentionally retired |
+| MemAlloc_DebugAndReleaseProduceIdenticalObservableState | Roslyn configurations preserve program meaning | PORT with stronger oracle: both configurations must independently return42 and match the expected entire raw-memory image, rather than merely agree with each other |
+| Arena_AllocatesDistinctBlocks | Two positive-size live blocks are writable and nonaliasing | PORT: bytes11/22 appear in distinct regions of an otherwise unchanged poisoned arena; observable sum and return state checked |
+| Arena_ResetReclaimsEverything | Reset permits raw address reuse | PORT with corrected lifetime: repeated address and new writes work while a live managed array retains length/contents; reset does not free managed references |
+
+The original diagnostics/verifier assertions are replaced by successful native
+compilation, execution and negative Rust IR typing checks. No compiler-owned test
+is deferred or physically deleted by this increment.
 
 ## CPU control and speed switching
 

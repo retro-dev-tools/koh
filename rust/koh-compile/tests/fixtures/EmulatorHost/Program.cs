@@ -7,8 +7,9 @@ bool oamMode = args.Length > 0 && args[0] == "--native-oam";
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
 bool maps = args.Length > 0 && args[0] == "--native-maps";
 bool cpu = args.Length > 0 && args[0] == "--native-cpu";
+bool arena = args.Length > 0 && args[0] == "--native-arena";
 bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
-bool heap = video || stack || (args.Length > 0 && args[0] == "--native-heap");
+bool heap = video || stack || arena || (args.Length > 0 && args[0] == "--native-heap");
 bool native =
     args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu);
 ushort stop = native ? Convert.ToUInt16(args[1], 16) : (ushort)0;
@@ -203,6 +204,8 @@ foreach (string path in args.Skip(native ? 2 : 0))
         }
         if (oamMode || rawOam)
             snapshot += $" {timing.OamStarts}:{dmaInstructions}:{gb.Mmu.DebugRead(0xff46):X2}";
+        if (arena)
+            snapshot += $" {gb.Mmu.DebugRead(0xff47):X2}";
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );

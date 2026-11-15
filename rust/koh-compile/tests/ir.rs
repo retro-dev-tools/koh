@@ -3,6 +3,54 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(Type::I32, true)]
+#[case(Type::I64, false)]
+#[case(Type::Native, false)]
+#[case(Type::String, false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8)), false)]
+fn arena_operations_are_typed_and_observable(#[case] size: Type, #[case] valid: bool) {
+    let mut f = diamond();
+    f.parameters = vec![size];
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![(0, size)],
+        instructions: vec![
+            Instruction {
+                result: Some((1, Type::Native)),
+                op: Op::ArenaAllocate(0),
+                il_offset: 0,
+            },
+            Instruction {
+                result: None,
+                op: Op::ArenaReset,
+                il_offset: 1,
+            },
+        ],
+        terminator: Terminator {
+            il_offset: 2,
+            kind: Control::Return(None),
+        },
+    }];
+    if !valid {
+        assert!(
+            verify(&f)
+                .unwrap_err()
+                .contains("Raw arena size must be int32")
+        );
+        return;
+    }
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(f.blocks[0].instructions.len(), 2);
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0].instructions[0].result = Some((1, Type::I32));
+    assert!(verify(&f).unwrap_err().contains("result type mismatch"));
+    f.blocks[0].instructions[0].result = Some((1, Type::Native));
+    f.blocks[0].instructions[1].result = Some((2, Type::Native));
+    assert!(verify(&f).unwrap_err().contains("result type mismatch"));
+}
+
+#[rstest]
 #[case(CpuControl::DisableInterrupts)]
 #[case(CpuControl::EnableInterrupts)]
 #[case(CpuControl::Halt)]

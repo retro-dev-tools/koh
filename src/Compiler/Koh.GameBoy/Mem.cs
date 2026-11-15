@@ -1,37 +1,28 @@
 namespace Koh.GameBoy;
 
-/// <summary>
-/// The WRAM arena allocator, as the managed reference runtime. On a ROM the Koh compiler lowers
-/// <c>Mem.Alloc</c>/<c>Mem.Reset</c> to its intrinsic bump allocator (a heap pointer descending from
-/// <c>CSharpFrontend.HeapTop</c>, $DE00); this class backs the same names for the desktop build with
-/// the same downward-bump semantics over the simulated address space, so pointer arithmetic on an
-/// allocation behaves identically in both worlds. Managed-only: it lives outside <c>Hal/</c>, so the
-/// SDK never feeds it to the Koh frontend (which has its own <c>Mem</c> intrinsic).
-/// </summary>
+/// <summary>Raw WRAM storage. Reset releases raw blocks; managed arrays remain valid.</summary>
 public static unsafe class Mem
 {
-    /// <summary>Top of the arena; mirrors the compiler's <c>HeapTop</c> ($DE00).</summary>
-    private const ushort HeapTop = 0xDE00;
+    private const int Capacity = 4096;
+    private const ushort ArenaEnd = 0xE000;
 
-    private static ushort _heap = HeapTop;
+    private static int _used;
 
-    /// <summary>Bump the heap pointer down by <paramref name="size"/> bytes and return the new
-    /// pointer. No individual free — <see cref="Reset"/> releases the whole arena at once.
-    /// <c>[KohIntrinsic("alloc")]</c>: the arena heap is COMPILER-owned (<c>new</c> bumps the same
-    /// <c>__heap</c> global — see <c>CilLoweringContext.EnsureHeapGlobal</c>/<c>CSharpFrontend.HeapTop</c>),
-    /// and this managed body reaches <see cref="Gb.Base"/>'s <c>Unsafe.AsPointer</c> (BCL, unlowerable),
-    /// so a frontend must intercept the call rather than lower this body.</summary>
+    /// <summary>Uninitialized bytes in WRAM bank1. Select bank1 when accessing the returned pointer.</summary>
     [KohIntrinsic("alloc")]
     public static byte* Alloc(int size)
     {
-        _heap = (ushort)(_heap - size);
-        return Gb.Base + _heap;
+        if ((uint)size > Capacity)
+            throw new ArgumentOutOfRangeException(nameof(size));
+        if (size > Capacity - _used)
+            throw new OutOfMemoryException("Raw WRAM arena exhausted");
+        _used += size;
+        return Gb.Base + ArenaEnd - _used;
     }
 
-    /// <summary>Restore the heap pointer to the top of the arena, freeing every allocation.
-    /// <c>[KohIntrinsic("heapreset")]</c> — same compiler-owned-heap reasoning as <see cref="Alloc"/>.</summary>
+    /// <summary>Release raw blocks only; all previous raw pointers become invalid.</summary>
     [KohIntrinsic("heapreset")]
-    public static void Reset() => _heap = HeapTop;
+    public static void Reset() => _used = 0;
 
     /// <summary>Copy <paramref name="count"/> bytes from <paramref name="source"/> to
     /// <paramref name="destination"/>, in ascending address order (a forward copy). Overlapping regions

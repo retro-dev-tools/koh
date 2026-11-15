@@ -63,6 +63,12 @@ bank semantics. Internal allocation calls reserve their extra machine return wor
 as well as AF scratch in the guard. Heap exhaustion and bounds abort with faults
 5 and 6. This does not establish interrupt safety, GC or ROM banking.
 
+[Raw allocations](raw-arena.md) return native16 bank1 bus pointers, preserving
+SVBK. The same4KiB arena holds upward managed allocations and downward raw blocks.
+`__koh_heap_cursor` and `__koh_raw_used` are independent startup-zeroed16-bit
+offset/count words in WRAM0; their sum cannot exceed4096. `Mem.Reset` clears raw
+usage only. Native pointer access remains the caller's bank responsibility.
+
 The frame contains locals, SSA values and temporary storage for simultaneous block
 argument transfers and arithmetic. Temporary PUSH AF/POP AF pairs preserve carry
 across SP-relative address calculations; their two bytes are included in capacity
@@ -85,17 +91,17 @@ Signed remainder of minimum/-1 is zero. Hardware/native stack overflow is not
 allowed to become a successful ROM build or silent WRAM corruption.
 
 Static integer calls and recursion are now exercised by the [call increment](calls.md).
-Interrupts, banking and the wider runtime remain incomplete. Interrupt support must reserve its worst-case
+Interrupts, banked data and the wider runtime remain incomplete. Interrupt support must reserve its worst-case
 stack budget before enabling IME and preserve interrupted registers/flags; IRQ
 recursion/nesting constraints need separate tests. The linker-visible stack UNION
-reservation is implemented; startup/globals/heap must still be integrated.
+reservation, startup, globals, bounded heap and banked calls are integrated.
 The current debugger's heuristic stack scan cannot distinguish spill bytes from
 return addresses; accurate frame inspection needs integration evidence.
 
 Emission uses `koh_objects::Object` and its ELF writer. Code and internal branch
 targets are symbols/relocations; ROM placement, bank capacities, header/checksums
-belong to `koh-link`. Initial functions are ROM0 code. Banked calls/data and
-Portable PDB mappings remain later requirements in this same PR.
+belong to `koh-link`. Banked calls use the documented ROM0 return stub/cookie.
+Banked data and Portable PDB mappings remain requirements in this same PR.
 
 Plan: execute literal arithmetic/ABI cases in the C# emulator, then real Roslyn
 Debug/Release integer methods; keep unsupported emission diagnostic until each

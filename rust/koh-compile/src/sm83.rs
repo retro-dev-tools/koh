@@ -439,6 +439,12 @@ impl Code {
         self.arithmetic(temp, temp + 2, temp + 4, 2, 0x88);
         self.jump(0xda, fault);
         self.below_constant(temp + 4, 4097, fault);
+        let raw_used = self.import("__koh_raw_used".into());
+        self.jump(0x21, raw_used);
+        self.bytes(&[0x2a, 0x4f, 0x46]);
+        self.save_word(temp + 16);
+        self.arithmetic(temp + 4, temp + 16, temp + 18, 2, 0x88);
+        self.below_constant(temp + 18, 4097, fault);
         self.indirect(temp + 4);
         self.jump(0x21, cursor);
         self.bytes(&[0x79, 0x22, 0x78, 0x77]);
@@ -456,6 +462,35 @@ impl Code {
         self.address(length);
         self.bytes(&[0x50, 0x59, 0x2a, 0x12, 0x13, 0x2a, 0x12]);
         self.restore_bank(temp + 24);
+    }
+
+    fn allocate_raw(&mut self, size: Slot, destination: u16, temp: u16) {
+        let fault = self.import("__koh_trap_allocation".into());
+        self.check_high(size.offset, size.bytes, fault);
+        self.extend(size, temp, 2);
+        self.below_constant(temp, 4097, fault);
+        let raw_used = self.import("__koh_raw_used".into());
+        self.jump(0x21, raw_used);
+        self.bytes(&[0x2a, 0x4f, 0x46]);
+        self.save_word(temp + 2);
+        self.arithmetic(temp, temp + 2, temp + 4, 2, 0x88);
+        self.below_constant(temp + 4, 4097, fault);
+        let managed = self.import("__koh_heap_cursor".into());
+        self.jump(0x21, managed);
+        self.bytes(&[0x2a, 0x4f, 0x46]);
+        self.save_word(temp + 6);
+        self.arithmetic(temp + 4, temp + 6, temp + 8, 2, 0x88);
+        self.below_constant(temp + 8, 4097, fault);
+        self.indirect(temp + 4);
+        self.jump(0x21, raw_used);
+        self.bytes(&[0x79, 0x22, 0x78, 0x77]);
+        self.constant(temp + 6, 2, 4096);
+        self.arithmetic(temp + 6, temp + 4, temp + 6, 2, 0x98);
+        self.indirect(temp + 6);
+        let heap = self.import("__koh_heap".into());
+        self.jump(0x21, heap);
+        self.bytes(&[0x50, 0x59, 0x19, 0x44, 0x4d]);
+        self.save_word(destination);
     }
 
     fn constant(&mut self, destination: u16, width: u16, bits: u64) {
@@ -1118,6 +1153,14 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::ArenaAllocate(bytes) => {
+                    code.allocate_raw(place(bytes), destination, layout.arithmetic)
+                }
+                Op::ArenaReset => {
+                    let used = code.import("__koh_raw_used".into());
+                    code.jump(0x21, used);
+                    code.bytes(&[0x36, 0, 0x23, 0x36, 0]);
+                }
                 Op::CpuControl(control) => match control {
                     CpuControl::DisableInterrupts => code.bytes(&[0xf3]),
                     CpuControl::EnableInterrupts => code.bytes(&[0xfb]),

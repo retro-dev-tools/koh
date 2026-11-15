@@ -21,12 +21,15 @@ alias their source. Scalar element stores truncate to the declared storage width
 loads obey the CIL opcode's signedness. Native integers use Koh's two-byte ABI.
 
 The linker places a 4096-byte WRAMX bank-1 reservation named `.koh.heap`; the
-compiler does not choose its address or perform layout. A two-byte bump cursor is
-part of startup-zeroed WRAM0 static storage and counts against its capacity.
+compiler does not choose its address or perform layout. Two little-endian words
+in startup-zeroed WRAM0 count against static capacity: the managed end offset and
+the [raw arena](raw-arena.md)'s used-byte count. Managed storage grows upward and
+raw blocks grow downward; every allocation checks their combined capacity.
 Allocation checks the original int32/native length before narrowing, then the
 scaled size and remaining capacity before publishing the cursor or touching the
 heap. A byte array can contain at most 4094 elements. There is currently no
-collection, freeing or reset; allocations live until the ROM restarts. Games
+managed collection, freeing or reset; allocations live until the ROM restarts.
+`Mem.Reset` releases raw blocks only and cannot invalidate managed arrays. Games
 must budget their total allocations. This is an initial allocator contract, not
 general .NET allocation support or a retirement of the existing runtime APIs.
 

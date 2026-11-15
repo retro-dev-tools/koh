@@ -28,6 +28,11 @@ removal preserves calls, memory writes, allocation and traps even when their
 results are unused. Diamond agreement/disagreement and real byref mutations are
 covered in `tests/ir.rs` and the ancestor-frame C# execution cases.
 
+[Raw arena](raw-arena.md) operations are observable effects. `ArenaAllocate`
+requires an int32 size and returns native16; `ArenaReset` has no operands/result.
+Neither can be removed when its result is unused. Reset invalidates raw storage
+only; managed arrays retain their lifetime and allocation cursor.
+
 Managed functions retain their assembly/token definition and source IL offsets.
 Generated [initializer guards](initializers.md) use the reserved FF identity tag,
 not a metadata MethodDef, and retain the real constructor in `InitializerAddress`.

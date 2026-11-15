@@ -229,7 +229,9 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
     for mut block in blocks.into_iter().flatten() {
         for instruction in &mut block.instructions {
             match &mut instruction.op {
-                Op::StackAllocate { bytes } | Op::OamDma(bytes) => value(bytes),
+                Op::ArenaAllocate(bytes) | Op::StackAllocate { bytes } | Op::OamDma(bytes) => {
+                    value(bytes)
+                }
                 Op::InitializeArray { array, .. } => value(array),
                 Op::NewArray { length, .. }
                 | Op::ArrayLength(length)
@@ -268,7 +270,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                         value(id);
                     }
                 }
-                Op::CpuControl(_)
+                Op::ArenaReset
+                | Op::CpuControl(_)
                 | Op::Constant(_)
                 | Op::ZeroStruct
                 | Op::FieldHandle(_)

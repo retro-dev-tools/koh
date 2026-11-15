@@ -18,6 +18,10 @@ Implemented call-site contracts:
 | register | `byte Read()` | One byte read, zero-extended to the CIL stack type |
 | register | `void Write(byte value)` | One byte write, truncating to eight bits |
 | region | Pointer/native-integer return, no parameters | Constant 16-bit bus address |
+| di/ei/halt/nop/stop | `void()` | Observable [CPU instruction](cpu-control.md), no address |
+| oamdma | `void(byte page)` | Blocking [HRAM DMA routine](oam-dma.md), no address |
+| alloc | `byte*(int size)` | Checked [raw arena allocation](raw-arena.md), no address |
+| heapreset | `void()` | Release raw blocks while preserving managed arrays, no address |
 
 Addresses must fit 0000..FFFF. A property marker applies to its accessor methods;
 a method marker can define a direct hardware alias. Multiple matching method and
@@ -32,9 +36,9 @@ methods use [real initializer lowering](initializers.md); this exception belongs
 to the explicit intrinsic contract. There is no duplicate compiler address table.
 
 Memory effects remain ordered and are not eliminated as unused results. VRAM and
-MMIO access use the real SM83 bus; LCD timing restrictions still apply. Control
-intrinsics, OAM DMA, heap operations and interrupt handlers remain pending and
-produce diagnostics. These temporary omissions are not feature retirements.
+MMIO access use the real SM83 bus; LCD timing restrictions still apply. Interrupt
+handlers remain pending and produce diagnostics. Reentrant allocation is unsupported.
+These temporary omissions are not feature retirements.
 
 ## Pointer arithmetic and target width
 

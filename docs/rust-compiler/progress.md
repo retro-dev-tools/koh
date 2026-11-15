@@ -8,16 +8,36 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [CPU control and startup speed switching](cpu-control.md). Native
+Current unit: [checked raw arena](raw-arena.md). Allocation/reset lower through
+typed IR into the linker-owned4KiB bank1 region. Independent managed/raw cursors
+check their combined capacity; reset preserves managed arrays. Native D/R ×
+DMG/CGB, desktop-body, IR and existing array regressions passed26/26 in136.631s
+(`/tmp/koh-raw-arena-array-regression.log`, exit0;265 unrelated cases filtered).
+The allocation red and separate desktop wraparound red are retained. Four more
+legacy methods have complete native replacements:32of565 complete,533 partial/
+outstanding, none physically retired. All three actual3D Release SDK builds now
+produce128KiB ROMs with zero warnings/errors. Real-boot headless captures show
+cubes for full-frame/racing-beam, but double-buffered remains on the boot logo.
+That sample is failing; zero mode3 writes alone is not acceptance. Full regression,
+exact game-state assertions and the double-buffered runtime diagnosis remain open.
+
+Previous unit: [CPU control and startup speed switching](cpu-control.md). Native
 DI/EI/HALT/NOP/STOP lowering and six IR cases pass alongside four Debug/Release ×
 DMG/CGB execution cases:10/10 focused,25.164s, exit0
 (`/tmp/koh-cpu-control-final.log`;271 unrelated cases filtered). The IME probe
 exposed the old speed helper's unconditional interrupt enable. Its explicit
 startup contract now preserves IE/pending requests and leaves IME disabled.
 Two more legacy speed-switch methods have complete native replacements:
-28of565 complete,537 partial/outstanding, none physically retired. Full workspace
-validation of this increment remains pending; handler ABI/reentrancy and physical
-speed-switch timing are not proved by these tests.
+28of565 complete,537 partial/outstanding at that checkpoint, none physically
+retired. Its local workspace completed784/784, zero skipped,1210.838s, exit0
+(`/tmp/koh-cpu-workspace.log`); separate doctests passed (no cases). This used
+CPU-control production code plus the corrected unknown-kind rejection fixture;
+the new raw-arena cases were not in that binary. Hosted6898940 passed Linux and
+macOS784/784 and Windows782/782, zero skipped; two Unix assembler cases explain
+the count difference. All three passed separate release-artifact graphics smoke
+1/1 (two SDK cases intentionally filtered), and separate doctests. Handler
+ABI/reentrancy and physical speed-switch timing
+are not proved by these tests.
 
 Previous unit: [native SDK boundary](sdk.md). Ordinary Debug/Release builds,
 implementation references, canonical ELF, real CPU/MMIO and asset consumption,
