@@ -1,6 +1,6 @@
 # Rust toolchain dependency notices
 
-Redistributions containing `koh-asm` or `koh-link` must retain this notice and the accompanying
+Redistributions containing `koh-asm`, `koh-link` or `koh-compile` must retain this notice and the accompanying
 `rust-assembler/` license texts. This inventory covers every external package in
 the repository's `Cargo.lock`, including host-side procedural macro dependencies.
 It does not assert that every listed package is linked into every target binary.

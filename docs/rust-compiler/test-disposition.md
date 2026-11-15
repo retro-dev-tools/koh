@@ -62,8 +62,8 @@ requirements, plus compiler selection, changed reference bodies, unsupported IL,
 stale-debug cleanup and output aliases. A real native CLI's nonzero rejection
 replaces the Unix-only mock exit7; the exit status is still asserted. SDK run
 routing has a separate real graphics/headless case. See [SDK boundary](sdk.md).
-The existing Python verification script remains until its CI consumers are
-updated in the packaging/integration step; it is not replacement coverage.
+The Python verification script is retired after migrating its nine build-phase
+requirements; native CI runs the Rust target through workspace nextest.
 
 ## Graphics showcase replacements
 

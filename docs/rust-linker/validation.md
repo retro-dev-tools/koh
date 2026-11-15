@@ -80,16 +80,18 @@ dotnet msbuild build.proj -t:BuildSample2048 -p:Configuration=Release
 dotnet msbuild build.proj -t:BuildSample2048Rust -p:Configuration=Release
 python3 scripts/verify-rust-assembler.py
 python3 scripts/reproduce-macro-unique.py
-python3 scripts/verify-rust-sdk.py
+cargo nextest run -p koh-compile --test sdk
 ```
 
 Capture each command's exit status directly and inspect its completed log; do not
-pipe the command through another program to infer success. The SDK verifier
-requires a fresh output directory, keeps commands/logs, and checks paths with
-spaces, no-op builds, CGB property changes, linker mtime changes, linker selection,
-debug opt-out, visible failure propagation and unchanged old output on failure.
-It runs in native CI on Linux, Windows and macOS. Windows injects a missing
-executable; Unix injects a process exiting 7.
+pipe the command through another program to infer success. Rust-owned SDK tests
+use fresh temporary projects and check paths with spaces, no-op builds, CGB/debug
+properties, compiler/linker timestamps and selection, native process failures,
+preserved old output, asset generation and actual ROM execution. The workspace
+nextest command includes them on Linux, Windows and macOS. Unix additionally
+checks parent-directory symbolic-link aliases; junction-specific Windows behavior
+remains a separate validation limit. See the compiler SDK evidence for current
+pass/failure scopes rather than treating these commands as completed acceptance.
 
 ## Independent ELF and execution evidence
 

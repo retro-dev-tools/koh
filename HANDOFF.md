@@ -1,11 +1,27 @@
 # PR #55 handoff
 
+Packaging preparation follows7fe8c13 and is independent of live17148:
+Rust CI uploads/builds compiler; release staging adds target-specific compiler
+and packaged C# build/emulator smoke step; old Python SDK verifier retired after
+its9 phases move to Rust; notices/docs updated. Both YAMLs parse and8 release Bash
+steps pass bash-n. No packaged runtime/hosted proof yet. Add license copying to
+Build.Tasks output only after full-run production freeze ends, then finish
+packaging validation/review/commit. Do not count prepared workflow as executed.
+Read-only packaging review: banked_calls_review owns inspection of workflow,
+license-notice and verifier-retirement diff only; no edits/builds/tests/commits.
+Root owns all mutation and the live774 run.
+Packaging review completed with no concrete defects; no runtime tests executed.
+
 ## Current SDK unit
 
-SDK native-boundary unit follows pushed3a9f3a1. Root owns all writes/builds.
-No local build/test is live. Final3-case SDK target passed3/3,0skips,143.807s,
-exit0 `/tmp/koh-sdk-complete-focused.log`; a later test-only timestamp-isolation
-adjustment needs post-commit follow-up. Use `/tmp/koh-header-target` serially.
+SDK native-boundary unit is PUSHED7fe8c13b2aa4b41b5b9be9bf4439f4afacd0782f.
+Root owns all writes/builds. Post-commit SDK3/3 passed152.483s,0skips,exit0,
+`/tmp/koh-sdk-postcommit.log`, including final timestamp-isolation strengthening.
+Full774 workspace/allfeatures is LIVE17148 in `/tmp/koh-header-target`,
+`/tmp/koh-sdk-workspace.log`; doctests scheduled sequentially after it succeeds.
+Do not duplicate builds or mutate production Rust/GameBoy/SDK source while this
+run's later SDK fixtures may rebuild host tools from the live source. Pure CI/docs
+changes are independent. Poll handle17148 and actual completed logs before reuse.
 Initial nativeSDK2/2 passed259.720s cold;
 expanded flag/ref/failure2/2 passed90.914s; assets2/2 passed98.566s. Subsequent
 output-alias test exposed actual DLL replacement via symlinked parent
@@ -46,6 +62,16 @@ expectations; JRPG walking/callback and dialogue screenshot startup. Do NOT clai
 managed CI green, drop gameplay, weaken assertions, or restore C# fallback. Source
 SDK changed, class/other-game support still pending. Inspect/fix native contracts
 and port coverage before retirement. Native SDK full solution build is not proven.
+
+Local native SDK `dotnet build Koh.Ci.slnf -c Release -m:1` FINISHED exit1,
+0warnings,5errors,33.94s (`/tmp/koh-sdk-managed-solution.log`). Actual five failed
+projects:2048v2 and JRPG reject reference classes (`Aggregate must be a sealed
+framework System.ValueType`); 3D double-buffered rejects `di` in
+Cgb.TryEnableDoubleSpeed; full-frame/racing-beam reject `alloc` in
+Surface.Initialize. Original2048 built131072-byte ROM; gfx built65536-byte ROM.
+Do not remove these projects from CI or count build-only proof as gameplay.
+These are3 root missing capabilities, not5 unrelated blockers. Current SDK
+diagnostics should improve alongside implementing the capabilities. No fallback.
 
 ## Goal and ownership
 
