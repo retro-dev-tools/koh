@@ -1315,12 +1315,17 @@ fn translate(
                     return Err("newobj cannot invoke a hardware intrinsic".into());
                 }
                 use crate::contracts::Intrinsic;
-                let address = match intrinsic {
-                    Intrinsic::Read(a) | Intrinsic::Write(a) | Intrinsic::Region(a) => a,
+                let address = |b: &mut Builder, address: u16| {
+                    b.value(Type::Native, Op::Constant(u64::from(address)))
                 };
-                let pointer = b.value(Type::Native, Op::Constant(u64::from(address)))?;
                 match intrinsic {
-                    Intrinsic::Read(_) => {
+                    Intrinsic::OamDma => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::OamDma(arguments[0]),
+                        il_offset: b.offset,
+                    }),
+                    Intrinsic::Read(a) => {
+                        let pointer = address(b, a)?;
                         let value = b.value(
                             Type::I32,
                             Op::LoadMemory {
@@ -1331,16 +1336,22 @@ fn translate(
                         )?;
                         b.stack.push(value);
                     }
-                    Intrinsic::Write(_) => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::StoreMemory {
-                            address: pointer.0,
-                            value: arguments[0],
-                            bits: 8,
-                        },
-                        il_offset: b.offset,
-                    }),
-                    Intrinsic::Region(_) => b.stack.push(pointer),
+                    Intrinsic::Write(a) => {
+                        let pointer = address(b, a)?;
+                        b.instructions.push(Instruction {
+                            result: None,
+                            op: Op::StoreMemory {
+                                address: pointer.0,
+                                value: arguments[0],
+                                bits: 8,
+                            },
+                            il_offset: b.offset,
+                        });
+                    }
+                    Intrinsic::Region(a) => {
+                        let pointer = address(b, a)?;
+                        b.stack.push(pointer);
+                    }
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }

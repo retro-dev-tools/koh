@@ -56,9 +56,10 @@ than a test count or a working standalone compiler. All work stays in PR #55.
    Container cleanup is complete. Keep the single PR draft until all gates pass;
    do not merge it automatically.
 
-Current increment: UTF-16 strings and real Text.Draw/DrawToWindow execution;
-full737 and final297 tests pass, plus4 direct video snapshot cases. Next commit
-and verify hosted results, then the runtime needs of complete native games.
+Current increment: HRAM-safe OAM DMA; full workspace751/751 and final focused6/6
+pass. The full graphics showcase now compiles to ELF, but its48073 ROM0 bytes
+exceed bank capacity. Next: banked code/data with a verified calling convention.
+SDK replacement, source debugging and legacy deletion remain open.
 
 ## Baseline verification
 

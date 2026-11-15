@@ -6,6 +6,8 @@ use crate::{
 use koh_objects::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+const OAM_DMA: [u8; 8] = [0xe0, 0x46, 0x3e, 40, 0x3d, 0x20, 0xfd, 0xc9];
+
 fn symbol(name: String, section: usize, offset: usize) -> Symbol {
     Symbol {
         name,
@@ -37,7 +39,7 @@ fn patch(section: usize, offset: usize, target: usize) -> Patch {
     }
 }
 
-fn startup(entry: &Function, globals: u16) -> Result<Object, String> {
+fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> {
     if !entry.parameters.is_empty() || !matches!(entry.returns, None | Some(Type::I32)) {
         return Err("Invalid cartridge entry signature".into());
     }
@@ -71,6 +73,25 @@ fn startup(entry: &Function, globals: u16) -> Result<Object, String> {
             0xb1,
             0x20,
             0xf8,
+        ]);
+    }
+    let install = data.len();
+    if dma {
+        data.extend_from_slice(&[
+            0x21,
+            0,
+            0,
+            0x11,
+            0,
+            0,
+            0x06,
+            OAM_DMA.len() as u8,
+            0x2a,
+            0x12,
+            0x13,
+            0x05,
+            0x20,
+            0xfa,
         ]);
     }
     let returns = entry.returns.is_some();
@@ -126,6 +147,21 @@ fn startup(entry: &Function, globals: u16) -> Result<Object, String> {
             source: None,
         });
         patches.push(patch(1, zero + 1, id));
+    }
+    if dma {
+        for (name, offset) in [
+            ("__koh_oamdma_bytes", install + 1),
+            ("__koh_oamdma", install + 4),
+        ] {
+            let id = symbols.len();
+            symbols.push(Symbol {
+                name: name.into(),
+                binding: SymbolBinding::Local,
+                definition: SymbolDefinition::Import,
+                source: None,
+            });
+            patches.push(patch(1, offset, id));
+        }
     }
     Ok(Object {
         sections: vec![
@@ -184,7 +220,35 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
     if bytes > 0x100 {
         return Err("Compiler static storage exceeds available WRAM0 capacity (256 bytes)".into());
     }
-    let mut objects = vec![startup(root, bytes)?];
+    let dma = functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+        .any(|i| matches!(i.op, crate::ir::Op::OamDma(_)));
+    let mut objects = vec![startup(root, bytes, dma)?];
+    if dma {
+        objects.push(Object {
+            sections: vec![
+                Section {
+                    name: ".rodata.koh.oamdma".into(),
+                    kind: 0,
+                    size: OAM_DMA.len() as u32,
+                    data: OAM_DMA.to_vec(),
+                    ..Default::default()
+                },
+                Section {
+                    name: ".koh.oamdma.hram".into(),
+                    kind: 7,
+                    size: OAM_DMA.len() as u32,
+                    ..Default::default()
+                },
+            ],
+            symbols: vec![
+                symbol("__koh_oamdma_bytes".into(), 0, 0),
+                symbol("__koh_oamdma".into(), 1, 0),
+            ],
+        });
+    }
     if bytes != 0 {
         let mut symbols = vec![symbol("__koh_statics".into(), 0, 0)];
         for (field, offset) in placements {

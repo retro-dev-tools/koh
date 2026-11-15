@@ -1,5 +1,50 @@
 # PR #55 working handoff
 
+## Current OAM DMA unit
+
+Base pushed358beafd23fe7a4c24d574cfb283ff419a607d53, same draftPR55/master.
+User requested a SHORT PR description with live checkboxes. It has been replaced;
+update those items/current evidence in place, never prepend checkpoint histories.
+Full original assignment reread from attachment. Goal remains active about45%.
+Root owns all edits/builds. Reviewer is read-only; no edits/builds permitted.
+
+Actual full gb-gfx-demo source Roslyn-builds cleanly via isolated standard SDK
+project /tmp/koh full gfx bjddrtfb/Showcase.csproj (source unchanged, not SDK proof).
+Initial native CLI rejected Sprites.Flush oamdma, /tmp/koh-full-gfx-compile.log.
+Native OamDma IR/metadata/backend/runtime now implemented. Address-less(-1)
+static void(byte) required; page is low byte of I32. One 8-byte HRAM reservation
+and ROM source are emitted only for reachable DMA, copied once at startup via
+symbolic relocations; linker chooses HRAM address. A argument, leaf wait loop40,
+no global page scratch. Startup DI/unsupported EI keeps IME0; API requires IME0.
+Existing per-frame2byte scratch guard covers CALL return address too.
+
+Raw FF46 writes remain asynchronous. Test-only host modes distinguish blocking
+CPU execution from raw trigger+700 hardware ticks with CPU stopped. Blocking
+mode guards HRAM PC and IME while bus locks. Fixtures prove two transfers,
+managed helper and custom intrinsic alias, pointer-derived aligned bank1 source,
+caller bank2 restoration, exact all160 OAM/source/VRAM guards, HRAM relocation
+around a reserved16-byte range, capacity rejection. Short-counter1 mutation
+must fail the DMA-PC guard. Metadata mutations and typed/observable IR tests.
+
+Focused193/193 passed,exit0,59.590s,/tmp/koh-oamdma-expanded.log. Initial red2
+unsupported-intrinsic exit100, /tmp/koh-oamdma-red2.log; first red was harness
+variable collision, fixed. First full positive4/4,96.329s,/tmp/koh-oamdma-first.log.
+Full workspace finished: 751/751 passed, zero skipped, 878.612s,
+/tmp/koh-oamdma-workspace.log. Final test-only boundary extensions passed6/6,
+59.821s,/tmp/koh-oamdma-final-focused.log. Separate doctests passed, no cases.
+No build/test remains running. Twenty legacy methods replaced;545 outstanding.
+String-head Rust CI passed all hosts; Windows managed CI failed the LSP request
+deadline assertion (5.1140190s versus5s), with dependent jobs skipped. Root cause
+unproven; do not weaken or rewrite LSP in this compiler increment.
+
+CLI now compiles full Release showcase to canonical ELF, exit0,
+/tmp/koh-full-gfx-compile-after-dma.log. Actual Rust linker rejects ROM0 capacity,
+/tmp/koh-full-gfx-link-after-dma.log. ELF /tmp/koh full gfx bjddrtfb/showcase.o;
+readelf /tmp/koh-full-gfx-sections.log. This sample is NOT passing or omitted;
+banked code/data is the next concrete acceptance gap, with IRQ ABI still open.
+Do not weaken sample/limits or invent a second layout/linker to make it fit.
+Keep SDK/test migration/C# deletion/PDB/debug/game/performance/full-host gates.
+
 ## Current executable-string unit
 
 Base ec50f610af197ac45231982f75d9433a70a66d18, same draft PR55/master.

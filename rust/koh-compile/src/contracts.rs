@@ -10,6 +10,7 @@ enum Kind {
 }
 
 pub(crate) enum Intrinsic {
+    OamDma,
     Read(u16),
     Write(u16),
     Region(u16),
@@ -330,6 +331,21 @@ pub(crate) fn intrinsic(
             .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner)
     {
         return Err("Koh intrinsic requires a static non-generic method".into());
+    }
+    if kind == "oamdma" {
+        use clrmeta::ElementType;
+        if address != -1
+            || signature.calling_convention.0 != 0
+            || signature.sentinel.is_some()
+            || signature.params != [TypeSig::Primitive(ElementType::U1)]
+            || signature.return_type != TypeSig::Primitive(ElementType::Void)
+        {
+            return Err(
+                "Invalid Koh oamdma intrinsic contract: expected address-less static void(byte)"
+                    .into(),
+            );
+        }
+        return Ok(Some(Intrinsic::OamDma));
     }
     if !matches!(kind, "register" | "region") {
         return Err(format!("Unsupported Koh intrinsic '{kind}'"));

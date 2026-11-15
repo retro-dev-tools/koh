@@ -31,13 +31,30 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: eighteen legacy methods; zero physically retired.**
+**Native behavioral replacements: twenty legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining547 methods still have
+The remaining545 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## OAM DMA test replacements
+
+Both OamDmaTrigger methods in `CilSpritePaletteHardwareTests.cs` are PORT to the
+raw-register branch of `driver.rs::oam_dma_runs_from_relocated_hram_and_preserves_banks`.
+Six original assertion sites expand to488 checks across3 executions: frontend/
+verifier, FF46 readback, completed bus lock, all160 bytes, and Debug/Release
+equivalence. Native tests use independent expected bytes in both configurations
+on both targets and preserve exact source/guard checks. The CPU deliberately
+stops at the raw trigger while the existing DMA device is advanced separately;
+that probe does not claim safe continued ROM execution during DMA.
+
+The blocking intrinsic additionally executes from relocated HRAM, including
+FFFE at its final byte, with exact OAM, heap, bank and stack expectations. A
+short-wait mutation must fail, and metadata/IR cases reject invalid contracts.
+All cases are Rust/nextest; no compiler test is deferred. Other methods in the
+source group remain outstanding. See [OAM contract and evidence](oam-dma.md).
 
 ## String test replacements
 

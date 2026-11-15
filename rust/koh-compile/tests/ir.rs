@@ -3,6 +3,52 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(Type::I32, true)]
+#[case(Type::I64, false)]
+#[case(Type::Native, false)]
+#[case(Type::String, false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8)), false)]
+fn oam_dma_is_typed_and_observable(#[case] ty: Type, #[case] valid: bool) {
+    let mut f = diamond();
+    f.parameters = vec![ty];
+    f.locals.clear();
+    f.returns = Some(Type::I32);
+    f.blocks = vec![Block {
+        parameters: vec![(0, ty)],
+        instructions: vec![
+            Instruction {
+                result: None,
+                op: Op::OamDma(0),
+                il_offset: 0,
+            },
+            instruction(1, Type::I32, Op::Constant(42)),
+        ],
+        terminator: Terminator {
+            il_offset: 1,
+            kind: Control::Return(Some(1)),
+        },
+    }];
+    if !valid {
+        assert!(
+            verify(&f)
+                .unwrap_err()
+                .contains("OAM DMA page requires int32")
+        );
+        return;
+    }
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert!(
+        f.blocks[0]
+            .instructions
+            .iter()
+            .any(|i| matches!(i.op, Op::OamDma(0)))
+    );
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0].instructions[0].result = Some((2, Type::I32));
+    assert!(verify(&f).unwrap_err().contains("result type mismatch"));
+}
+
+#[rstest]
 #[case(0)]
 #[case(1)]
 #[case(2)]

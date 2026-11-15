@@ -483,6 +483,279 @@ fn gameboy_images(
 }
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn oam_dma_runs_from_relocated_hram_and_preserves_banks(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "OamDma");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let object = compile::object(&resolver, Some("Program::Main")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    assert_eq!(object.sections.iter().filter(|s| s.kind == 7).count(), 1);
+    assert_eq!(
+        object.sections.iter().find(|s| s.kind == 7).unwrap().size,
+        8
+    );
+    let reservation = |size| koh_objects::Object {
+        sections: vec![koh_objects::Section {
+            name: ".test.hram".into(),
+            kind: 7,
+            address: Some(0xff80),
+            size,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    for reserved in [0, 16, 119] {
+        let mut inputs = vec![object.clone()];
+        if reserved != 0 {
+            inputs.push(reservation(reserved));
+        }
+        let linked = koh_link::link(
+            &inputs,
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let hram = linked
+            .symbols
+            .iter()
+            .find(|s| s.name == "__koh_oamdma")
+            .unwrap()
+            .value;
+        assert!(hram >= 0xff80 + reserved as i32);
+        assert!(hram + 8 <= 0xffff);
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-oam",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(&fields[..4], ["00", "0000002A", "D000", "OK"]);
+        let pattern: Vec<u8> = (0..160).map(|i| ((i * 3 + 1) as u8) ^ 255).collect();
+        let mut heap = vec![0x5a; 4096];
+        heap[254..256].copy_from_slice(&160u16.to_le_bytes());
+        heap[256..416].copy_from_slice(&pattern);
+        assert_heap_snapshot(fields[4], &heap, "DMA source");
+        assert_heap_snapshot(fields[if color { 9 } else { 7 }], &pattern, "hardware OAM");
+        assert_heap_snapshot(
+            fields[if color { 6 } else { 5 }],
+            &[0xa7; 8192],
+            "untouched VRAM0",
+        );
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], "untouched WRAM2");
+            assert_heap_snapshot(fields[7], &[0xb8; 8192], "untouched VRAM1");
+        }
+        let monitor: Vec<_> = fields.last().unwrap().split(':').collect();
+        assert_eq!(monitor[0], "2");
+        assert!(monitor[1].parse::<usize>().unwrap() > 0);
+        assert_eq!(monitor[2], "D1");
+        if configuration == "Debug" && !color && reserved == 0 {
+            let mut rom = linked.rom.clone();
+            let source = linked
+                .symbols
+                .iter()
+                .find(|s| s.name == "__koh_oamdma_bytes")
+                .unwrap()
+                .value as usize;
+            assert_eq!(rom[source + 3], 40);
+            rom[source + 3] = 1;
+            let path = directory.path().join("short DMA.gb");
+            std::fs::write(&path, rom).unwrap();
+            let stop = linked
+                .symbols
+                .iter()
+                .find(|s| s.name == "__koh_exit")
+                .unwrap()
+                .value;
+            let output = dotnet()
+                .arg(&host.dll)
+                .args(["--native-oam", &format!("{stop:x}")])
+                .arg(path)
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("DMA execution outside HRAM"),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    let raw = compile::object(&resolver, Some("Program::Raw")).unwrap();
+    assert!(raw.sections.iter().all(|s| s.kind != 7));
+    let raw = koh_objects::read_elf(&koh_objects::write_elf(&raw).unwrap()).unwrap();
+    let raw = koh_link::link(
+        &[raw],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Only
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let text = execute_mode(
+        host,
+        directory.path(),
+        &raw,
+        "__koh_exit",
+        "--native-oam-trigger",
+    );
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(fields[3], "OK");
+    let pattern: Vec<u8> = (0..160).map(|i| (i * 3 + 1) as u8).collect();
+    let mut heap = vec![0x5a; 4096];
+    heap[254..256].copy_from_slice(&160u16.to_le_bytes());
+    heap[256..416].copy_from_slice(&pattern);
+    assert_heap_snapshot(fields[4], &heap, "raw DMA source");
+    assert_heap_snapshot(fields[if color { 9 } else { 7 }], &pattern, "raw DMA OAM");
+    assert_eq!(*fields.last().unwrap(), "1:0:D1");
+    if color {
+        assert_heap_snapshot(fields[5], &[0x6b; 4096], "raw DMA WRAM2");
+    }
+    assert!(
+        koh_link::link(&[object, reservation(127)], &Default::default())
+            .unwrap_err()
+            .contains("Cannot place")
+    );
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn oam_dma_metadata_contract_rejects_invalid_signatures_and_addresses(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "OamDma");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let alias = (1..=assembly.metadata().method_defs.len())
+        .map(|row| 0x06000000 | row as u32)
+        .find(|&token| assembly.method_name(token).unwrap() == "Program::Alias")
+        .unwrap();
+    let signature = assembly.method(alias).unwrap().signature;
+    assert_eq!(
+        assembly.metadata().blobs.get(signature).unwrap(),
+        &[0, 1, 1, 5]
+    );
+    let heap = assembly.metadata().blobs.data();
+    let positions: Vec<_> = images[0]
+        .windows(heap.len())
+        .enumerate()
+        .filter_map(|(i, bytes)| (bytes == heap).then_some(i))
+        .collect();
+    assert_eq!(positions.len(), 1);
+    let signature = positions[0] + signature as usize + 1;
+    let needle = b"\x01\x00\x06oamdma\xff\xff\xff\xff\x00\x00";
+    let attributes: Vec<_> = images[0]
+        .windows(needle.len())
+        .enumerate()
+        .filter_map(|(i, bytes)| (bytes == needle).then_some(i))
+        .collect();
+    assert_eq!(attributes.len(), 1);
+    for (offset, value) in [
+        (signature, 5),
+        (signature + 2, 8),
+        (signature + 3, 7),
+        (attributes[0] + 9, 0),
+    ] {
+        let mut image = images[0].clone();
+        image[offset] = value;
+        let resolver = Resolver::new(&[&image, &images[1]]).unwrap();
+        let error = koh_compile::lower::assembly_method(
+            &resolver,
+            koh_compile::resolve::Definition {
+                assembly: 0,
+                token: alias,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("Program::Alias")
+                && error.contains("Invalid Koh oamdma intrinsic contract"),
+            "{error}"
+        );
+    }
+    let method = |name: &str| {
+        (1..=assembly.metadata().method_defs.len())
+            .map(|row| 0x06000000 | row as u32)
+            .find(|&token| assembly.method_name(token).unwrap() == name)
+            .unwrap()
+    };
+    let raw = assembly.method_body(method("Program::Raw")).unwrap();
+    let il = koh_compile::cil::decode(raw.il).unwrap();
+    let (position, call) = il
+        .iter()
+        .enumerate()
+        .find(|(_, i)| {
+            if i.opcode != 0x28 {
+                return false;
+            }
+            let koh_compile::cil::Operand::Token(token) = i.operand else {
+                return false;
+            };
+            let target = resolver.resolve_method(0, token).unwrap().definition;
+            resolver
+                .assembly(target.assembly)
+                .unwrap()
+                .method_name(target.token)
+                .unwrap()
+                .ends_with("::set_DMA")
+        })
+        .unwrap();
+    assert_eq!(il[position - 1].opcode, 0xd2);
+    let transfer = assembly.method_body(method("Program::Transfer")).unwrap();
+    let target = koh_compile::cil::decode(transfer.il)
+        .unwrap()
+        .into_iter()
+        .find(|i| i.opcode == 0x28)
+        .unwrap();
+    let koh_compile::cil::Operand::Token(target) = target.operand else {
+        panic!("DMA member token")
+    };
+    let base = raw.il.as_ptr() as usize - images[0].as_ptr() as usize;
+    let mut wide = images[0].clone();
+    wide[base + il[position - 1].offset as usize] = 0x67;
+    wide[base + call.offset as usize + 1..base + call.offset as usize + 5]
+        .copy_from_slice(&target.to_le_bytes());
+    let resolver = Resolver::new(&[&wide, &images[1]]).unwrap();
+    let object = compile::object(&resolver, Some("Program::Raw")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &Default::default()).unwrap();
+    let text = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-oam",
+    );
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(&fields[..4], ["00", "0000002A", "D000", "OK"]);
+    let pattern: Vec<u8> = (0..160).map(|i| (i * 3 + 1) as u8).collect();
+    assert_heap_snapshot(fields[7], &pattern, "signed-byte page OAM");
+    let monitor: Vec<_> = fields.last().unwrap().split(':').collect();
+    assert_eq!((monitor[0], monitor[2]), ("1", "D1"));
+}
+
+#[rstest]
 #[case("Debug")]
 #[case("Release")]
 fn string_metadata_contracts_and_direct_calls(host: &Host, #[case] configuration: &str) {

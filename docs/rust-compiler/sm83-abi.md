@@ -12,6 +12,12 @@ reference identity across calls and assemblies. Accessors check null/full-width
 indices and never switch WRAM banks. String fields/arguments/results use two
 bytes; Length/char results retain their int32 evaluation/call widths.
 
+[OAM DMA](oam-dma.md) uses a linker-placed8-byte HRAM routine installed once at
+boot. Its source page is passed in A; no shared WRAM scratch is required. The
+CALL return word is pushed before DMA and read after completion. Current calls
+require IME0; startup DI establishes that state. HRAM capacity/relocation belong
+to the linker, and unreferenced DMA reserves nothing.
+
 Frame word transfers use BC and may clobber A, DE, HL and flags. Bank-switch
 helpers likewise clobber flags; no current caller depends on incoming flags
 surviving them. Byte loads/stores used inside arithmetic carry chains still preserve

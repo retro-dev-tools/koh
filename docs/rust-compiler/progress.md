@@ -6,7 +6,30 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
-Current increment: [UTF-16 strings](strings.md), exact framework accessor binding,
+Current increment: [HRAM-safe OAM DMA](oam-dma.md). Reachable metadata intrinsics
+emit one linker-placed eight-byte HRAM routine, installed at startup. No fixed
+HRAM address or shared WRAM page scratch is required. Blocking execution and raw
+FF46 trigger probes cover Debug/Release on DMG/CGB, relocated HRAM including its
+last usable range, bank restoration, full OAM/source guards and invalid metadata.
+The full workspace passed **751/751**, zero skipped, in 878.612s
+(`/tmp/koh-oamdma-workspace.log`). Subsequent test-only boundary extensions passed
+**6/6** focused cases in 59.821s (`/tmp/koh-oamdma-final-focused.log`); 65 unrelated
+driver cases were filtered. Separate workspace doctests passed (currently no
+cases). Twenty of 565 legacy methods now have complete replacements; 545 remain
+partial/outstanding, and none have been physically retired.
+
+The unchanged full Release graphics showcase now compiles to canonical ELF.
+Its 80 allocated ROM sections total 48073 bytes, all currently ROM0. The Rust
+linker correctly rejects placement (`/tmp/koh-full-gfx-link-after-dma.log`). This
+is a known sample failure, making banked code/data the next product requirement.
+The probe uses an isolated ordinary SDK project, not native Koh SDK integration.
+
+String head 358beaf passed hosted Rust CI on all three platforms. Its managed
+Windows CI failed `UnreadLargeRequestTimesOutAndClientCanRestart`: 5.1140190s
+exceeded the five-second assertion; dependent jobs were skipped. Root cause is
+unproven. LSP changes are outside this migration; no assertion was weakened.
+
+Previous increment: [UTF-16 strings](strings.md), exact framework accessor binding,
 typed String IR and canonical interned ROM0 literals. Value calls/statics/nulls,
 checked indexing, actual Video.Init/Text.Draw/DrawToWindow and ordered helper/
 foreach output execute in D/R×DMG/CGB. Conservative local/constant forwarding,

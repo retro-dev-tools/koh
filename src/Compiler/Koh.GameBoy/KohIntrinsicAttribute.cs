@@ -10,8 +10,7 @@ namespace Koh.GameBoy;
 /// control-flow intrinsic with no address: <c>"ei"</c>, <c>"di"</c>, <c>"halt"</c>, <c>"nop"</c>, or
 /// <c>"stop"</c>; an arena-heap intrinsic with no address: <c>"alloc"</c> (bump the compiler-owned
 /// heap global down by an argument byte count and return the new pointer) or <c>"heapreset"</c>
-/// (restore the heap global to its top, freeing everything at once); or <c>"oamdma"</c> (no address —
-/// stage the byte argument, then CALL the boot-installed HRAM OAM-DMA trampoline).
+/// (restore the heap global to its top, freeing everything at once); or <c>"oamdma"</c> (blocking OAM DMA).
 /// </param>
 /// <param name="address">The fixed address for <c>"register"</c>/<c>"region"</c> kinds; <c>-1</c> for
 /// an address-less control/heap/oamdma intrinsic.</param>

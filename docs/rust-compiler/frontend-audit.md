@@ -319,6 +319,15 @@ New MMIO registers reach hardware and OAM DMA copies the entire page on target a
 - **PORT** `OamDmaTrigger_DebugAndReleaseProduceIdenticalObservableState`.
 - **PORT** `DesktopHost_HardwareDmaSetterCopiesWramPageIntoGbOam`.
 
+The two OamDmaTrigger methods now map to the raw-trigger branch of
+`driver.rs::oam_dma_runs_from_relocated_hram_and_preserves_banks`. Each target/
+configuration checks independent page/readback/bus-idle/OAM expectations rather
+than using one compiler result as the other configuration's oracle. They are
+discoverable by nextest. The register palette and desktop API methods remain
+outstanding, with no compiler-owned deferral. Blocking HRAM DMA has additional
+native execution, relocation, capacity, byte-width and guard-mutation coverage;
+see [OAM DMA](oam-dma.md).
+
 ### CilSpritesCgbTests.cs
 
 Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilSpritesCgbTests.cs`. Future Rust test group: `cil_sprites_cgb`.

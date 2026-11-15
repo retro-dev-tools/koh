@@ -3,7 +3,9 @@ using Koh.Emulator.Cartridge;
 
 bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
-bool video = frame || (args.Length > 0 && args[0] == "--native-video");
+bool oamMode = args.Length > 0 && args[0] == "--native-oam";
+bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
+bool video = frame || oamMode || rawOam || (args.Length > 0 && args[0] == "--native-video");
 bool heap = video || stack || (args.Length > 0 && args[0] == "--native-heap");
 bool native = args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap);
 ushort stop = native ? Convert.ToUInt16(args[1], 16) : (ushort)0;
@@ -20,7 +22,7 @@ foreach (string path in args.Skip(native ? 2 : 0))
             throw new InvalidOperationException("Cannot initialize test output");
     gb.Cpu.Registers.Pc = 0x100;
     var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
-    var timing = new VideoTiming(gb);
+    var timing = new VideoTiming(gb, oamMode);
     if (video)
     {
         gb.Mmu.OamArray.AsSpan().Fill(0xC9);
@@ -59,9 +61,32 @@ foreach (string path in args.Skip(native ? 2 : 0))
     if (video)
         gb.Mmu.Hook = new Koh.Emulator.Debug.CompositeMemoryHook(videoGuard, timing);
     int steps = 0;
-    bool Finished() => native ? gb.Cpu.Registers.Pc == stop : gb.Mmu.DebugRead(0xC000) != 0;
+    int dmaInstructions = 0;
+    bool Finished() =>
+        rawOam ? timing.OamStarts != 0
+        : native ? gb.Cpu.Registers.Pc == stop
+        : gb.Mmu.DebugRead(0xC000) != 0;
     while (!Finished() && steps++ < 2_000_000)
+    {
+        if (oamMode && gb.OamDma.IsBusLocking)
+        {
+            if (gb.Cpu.Ime || gb.Cpu.Registers.Pc < 0xff80 || gb.Cpu.Registers.Pc > 0xfffe)
+                throw new InvalidOperationException(
+                    "DMA execution outside HRAM or with IME enabled"
+                );
+            dmaInstructions++;
+        }
         gb.StepInstruction();
+    }
+    if (oamMode && (gb.OamDma.IsBusLocking || timing.OamStarts == 0 || dmaInstructions == 0))
+        throw new InvalidOperationException("OAM DMA was not observed completing");
+    if (rawOam)
+    {
+        for (int tick = 0; tick < 700; tick++)
+            gb.OamDma.TickT();
+        if (gb.OamDma.IsBusLocking)
+            throw new InvalidOperationException("Raw OAM DMA did not complete");
+    }
     if (!Finished())
         throw new InvalidOperationException(
             $"ROM did not finish: {path}, PC={gb.Cpu.Registers.Pc:X4}"
@@ -142,6 +167,8 @@ foreach (string path in args.Skip(native ? 2 : 0))
                     }
                 );
         }
+        if (oamMode || rawOam)
+            snapshot += $" {timing.OamStarts}:{dmaInstructions}:{gb.Mmu.DebugRead(0xff46):X2}";
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );
@@ -152,11 +179,12 @@ foreach (string path in args.Skip(native ? 2 : 0))
     );
 }
 
-sealed class VideoTiming(GameBoySystem system) : Koh.Emulator.Debug.MemoryHook
+sealed class VideoTiming(GameBoySystem system, bool guardOam) : Koh.Emulator.Debug.MemoryHook
 {
     ulong lastBlank;
     public List<string> Writes { get; } = [];
     public string? UnsafeDma { get; private set; }
+    public int OamStarts { get; private set; }
 
     public override void OnRead(ushort address, byte value)
     {
@@ -166,6 +194,21 @@ sealed class VideoTiming(GameBoySystem system) : Koh.Emulator.Debug.MemoryHook
 
     public override void OnWrite(ushort address, byte value)
     {
+        if (address == 0xff46)
+        {
+            if (
+                guardOam
+                && (
+                    system.Cpu.Ime
+                    || system.Cpu.Registers.Pc < 0xff80
+                    || system.Cpu.Registers.Pc > 0xfffe
+                )
+            )
+                throw new InvalidOperationException(
+                    "OAM DMA trigger outside HRAM or with IME enabled"
+                );
+            OamStarts++;
+        }
         if (address == 0xFF55 && (value & 0x80) == 0 && (system.Ppu.LCDC & 0x80) != 0)
         {
             int dots = ((value & 0x7F) + 1) * 32;

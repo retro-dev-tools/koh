@@ -140,21 +140,7 @@ public static unsafe class Sprites
         _dirty = true;
     }
 
-    /// <summary>Fires <see cref="Hardware.RunOamDma"/> on the shadow's own page when (and only when)
-    /// something changed since the last flush. Not part of the public surface — <see cref="Video.EndFrame"/>
-    /// is what a game calls; this exists <c>internal</c> for tests and for a game managing vblank itself
-    /// via <see cref="Ppu"/> directly (design doc §3). MUST run during vblank — the caller's
-    /// responsibility, exactly like <see cref="Video.EndFrame"/> already waiting before reaching this
-    /// call.
-    ///
-    /// The page is the shadow's own LINKED address, right-shifted 8 — <c>[KohAligned(256)]</c> already
-    /// guarantees the low byte is 0, so this is exact, not an approximation. Taking <c>&amp;Shadow[0]</c>
-    /// (the single-element-address form — plain <c>ldelema</c>, not the array form that would emit an
-    /// unsupported <c>ldlen</c> null-check guard; see <c>TileSet</c>'s matching remark) rather than
-    /// hand-writing the address is what makes this correct regardless of where in WRAM the backend
-    /// happens to place <c>Shadow</c> relative to any other static in the program — no magic offset to
-    /// keep in sync by hand, exactly what <c>[KohAligned]</c> exists to replace (see this class's own
-    /// remarks on the desktop-only gap this same expression has).</summary>
+    /// <summary>Vblank OAM flush.</summary>
     internal static void Flush()
     {
         if (!_dirty)

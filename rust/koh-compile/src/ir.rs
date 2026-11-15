@@ -166,6 +166,7 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    OamDma(u32),
     StringLiteral(Vec<u16>),
     StringLength(u32),
     StringChar {
@@ -286,7 +287,7 @@ impl Op {
     }
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
-            Self::StackAllocate { bytes } => [Some(bytes), None],
+            Self::StackAllocate { bytes } | Self::OamDma(bytes) => [Some(bytes), None],
             Self::InitializeArray { array, .. } => [Some(array), None],
             Self::NewArray { length, .. }
             | Self::ArrayLength(length)
@@ -768,6 +769,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             return Err("Field extraction exceeds aggregate storage".into());
                         }
                         Some(storage.stack_type())
+                    }
+                    Op::OamDma(page) => {
+                        if check(page, position)? != Type::I32 {
+                            return Err("OAM DMA page requires int32 byte storage".into());
+                        }
+                        None
                     }
                     Op::StackAllocate { bytes } => {
                         if !matches!(check(bytes, position)?, Type::I32 | Type::Native) {

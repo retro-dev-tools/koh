@@ -1108,6 +1108,11 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::OamDma(page) => {
+                    code.load_a(slot(page));
+                    let routine = code.import("__koh_oamdma".into());
+                    code.jump(0xcd, routine);
+                }
                 Op::StackAllocate { .. } => {
                     let (region, bytes) = layout.allocations[&instruction
                         .result
