@@ -15,7 +15,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   The linker migration removes the C# linker and retired object formats and retains C# game development.
   See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
-- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, pinned banking, unmanaged values and constructors. Aggregate arrays now preserve identity, value copies and byrefs/pins with checked arbitrary strides and capacity. Local workspace691/691 passes; final nested-value addition passes4/4. Coverage515 compiler cases/531 ROM scenarios/four full-frame comparisons; eleven complete legacy replacements,554 still need completion auditing. Constructor checkpoint34f5b10 passed Linux/macOS677/677 and Windows675/675 (two Unix assembler paths absent). Array-head hosted validation remains pending. Container cleanup is done. The SDK still uses C# compiler; source debugging, broader runtime/gameplay, full test migration, native SDK/package replacement and legacy deletion remain incomplete.
+- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls. The workspace passed769/769 before the final LCD-on clear correction; subsequent showcase/sprite8/8 and map/text6/6 checks passed. Discovery is771 cases, including594 compiler cases, none ignored. Twenty-four legacy methods have complete replacements;541 remain partial/outstanding. Predecessor44c7ff7 passed native CI on Linux/macOS756/756 and Windows754/754 (two Unix assembler paths absent), plus managed CI; optimization-head CI is pending. Container cleanup is done. SDK replacement, source debugging, broader runtime/gameplay, full test migration and legacy deletion remain incomplete.
   Track the [commit sequence and acceptance ledger](docs/rust-compiler/progress.md);
   the standalone native compiler is verified only for its documented subset, not final migration acceptance.
 
@@ -56,10 +56,14 @@ than a test count or a working standalone compiler. All work stays in PR #55.
    Container cleanup is complete. Keep the single PR draft until all gates pass;
    do not merge it automatically.
 
-Current increment: HRAM-safe OAM DMA; full workspace751/751 and final focused6/6
-pass. The full graphics showcase now compiles to ELF, but its48073 ROM0 bytes
-exceed bank capacity. Next: banked code/data with a verified calling convention.
-SDK replacement, source debugging and legacy deletion remain open.
+Current increment: the unchanged graphics showcase executes through Roslyn,
+native compiler, canonical ELF, Rust linker and real DMG/CGB boot in the existing
+emulator. Stronger HUD checks exposed late flushes; full-map tests exposed unsafe
+LCD-on clear. Both are corrected with independent graphics/data/timing checks.
+This uses a plain Roslyn fixture, not the Koh SDK. Existing public APIs are not
+a design baseline. Next: native SDK integration and the remaining game/runtime,
+source-debug and test-disposition gates. Detailed evidence and timing-phase limits
+are in [presentation decisions](docs/rust-compiler/presentation.md).
 
 ## Baseline verification
 

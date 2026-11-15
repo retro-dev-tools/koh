@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="Koh.GameBoy" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-gfx-demo/Game.cs" />
+    <ProjectReference Include="$(KohRoot)/src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
+  </ItemGroup>
+</Project>

@@ -18,9 +18,15 @@ and reference-returning calls; it is not a general scoped-reference solver.
 [String](strings.md) is a distinct reference type with literal, length and checked
 character operations. It cannot be used as an array, native memory address or
 numeric operand. UTF-16 char results use unsigned int32 evaluation values.
-Block-local forwarding and typed constant reuse preserve SSA dominance; memory,
-call, allocation and trapping operations invalidate local knowledge. Dead-value
-removal retains those observable operations, even when their results are unused.
+Typed constant reuse and local forwarding preserve SSA dominance. Cross-block
+forwarding requires the identical SSA value on every incoming path and excludes
+address-exposed or pinned locals. Calls and memory writes cannot alias the remaining
+private local storage. A bounded worklist computes this agreement; functions whose
+block/local product exceeds one million conservatively skip that optimization.
+Block-local forwarding retains its conservative effect barriers. Dead-value
+removal preserves calls, memory writes, allocation and traps even when their
+results are unused. Diamond agreement/disagreement and real byref mutations are
+covered in `tests/ir.rs` and the ancestor-frame C# execution cases.
 
 Managed functions retain their assembly/token definition and source IL offsets.
 Generated [initializer guards](initializers.md) use the reserved FF identity tag,

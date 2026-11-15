@@ -5,7 +5,8 @@ bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool oamMode = args.Length > 0 && args[0] == "--native-oam";
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
-bool video = frame || oamMode || rawOam || (args.Length > 0 && args[0] == "--native-video");
+bool maps = args.Length > 0 && args[0] == "--native-maps";
+bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
 bool heap = video || stack || (args.Length > 0 && args[0] == "--native-heap");
 bool native = args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap);
 ushort stop = native ? Convert.ToUInt16(args[1], 16) : (ushort)0;
@@ -66,7 +67,7 @@ foreach (string path in args.Skip(native ? 2 : 0))
         rawOam ? timing.OamStarts != 0
         : native ? gb.Cpu.Registers.Pc == stop
         : gb.Mmu.DebugRead(0xC000) != 0;
-    while (!Finished() && steps++ < 2_000_000)
+    while (!Finished() && steps++ < (maps ? 8_000_000 : 2_000_000))
     {
         if (oamMode && gb.OamDma.IsBusLocking)
         {
@@ -89,7 +90,7 @@ foreach (string path in args.Skip(native ? 2 : 0))
     }
     if (!Finished())
         throw new InvalidOperationException(
-            $"ROM did not finish: {path}, PC={gb.Cpu.Registers.Pc:X4}"
+            $"ROM did not finish: {path}, PC={gb.Cpu.Registers.Pc:X4}, C010={gb.Mmu.DebugRead(0xC010):X2}"
         );
     if (frame)
     {

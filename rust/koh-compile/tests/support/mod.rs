@@ -13,6 +13,10 @@ pub fn dotnet() -> Command {
 }
 
 pub fn build_host() -> Host {
+    build_fixture_host("EmulatorHost")
+}
+
+pub fn build_fixture_host(name: &str) -> Host {
     let directory = tempfile::Builder::new()
         .prefix("koh emulator execution ")
         .tempdir()
@@ -22,11 +26,14 @@ pub fn build_host() -> Host {
         .unwrap()
         .parent()
         .unwrap();
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/EmulatorHost");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name);
     for name in ["EmulatorHost.csproj", "Program.cs"] {
         std::fs::copy(fixture.join(name), directory.path().join(name)).unwrap();
     }
     let output = dotnet()
+        .env("CARGO_BUILD_JOBS", "1")
         .arg("build")
         .arg(directory.path().join("EmulatorHost.csproj"))
         .args(["-c", "Release", "--nologo", "-v:q", "-m:1"])

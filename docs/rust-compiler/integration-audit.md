@@ -1,6 +1,9 @@
 # Compiler integration acceptance audit
 
-Status: source inspection only, 2026-11-14. No builds, emulator runs, or migrated-coverage claims. Dispositions below are proposed work before retiring the managed compiler, not evidence the Rust compiler implements it. Paths are relative to this repository.
+Initial audit: source inspection, 2026-11-14. Dispositions below identify required
+work before retiring the managed compiler. Current implementation evidence is
+recorded in [test disposition status](test-disposition.md); proposed targets alone
+are not implemented coverage. Paths are relative to this repository.
 
 ## Inventory and decision rule
 
@@ -59,6 +62,11 @@ Compiler-origin C# PDB mapping is independent acceptance. Existing assembly-orig
 The separate `samples/csharp/gb-3d/verify/Program.cs`, `CubeFrameChecks.cs`, `PhaseSweepCheck.cs` are **PORT**, compiler migration owner: preserve all three variants (including racing-beam), both hardware modes, first/second frame comparison, structural checks and Mode3WriteGuard/phase checks. These are separate acceptance tooling, not cases counted above and not proof that CI executes them. Existing comments about measured timing are historical rationale, not fresh measurements. Keep bounded gameplay/render progress, reconsider exact old frame budgets from native output evidence.
 
 ### `Samples/GbGfxDemoTests.cs` — 9 methods, 9 cases
+
+The first four named methods now have complete Rust replacements in four
+`driver.rs::full_graphics_showcase_boots_and_animates` cases. They execute the
+unchanged sample through real DMG/CGB boot and retain chronological HUD progress.
+The other five remain partial/outstanding; see the linked disposition matrix.
 
 - **REPLACE** `Demo_CompilesWithoutDiagnostics`, `Demo_LinksToBootableRom`: real sample acceptance; managed IR verifier and partial header bytes become ELF/header/boot checks.
 - **PORT** `WindowMap_SpellsScoreViaFontBasePlusOffset`: stable SCORE glyphs after >=2 completed iterations.

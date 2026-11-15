@@ -2,112 +2,7 @@ using Koh.GameBoy;
 
 namespace Koh.GameBoy.Graphics;
 
-/// <summary>
-/// The one internal helper <see cref="Bg"/> and <see cref="Win"/> both delegate to (graphics-library
-/// design doc §3 "Bg.cs / Win.cs"), so the rect-fill/blit/attribute logic exists exactly once regardless
-/// of which of the two 32x32 tile maps (<see cref="Gb.TileMap"/> at $9800 or <see cref="Gb.TileMap1"/> at
-/// $9C00) it targets. Not public — the map selector is an implementation seam, not API surface; games call
-/// <see cref="Bg"/>/<see cref="Win"/>.
-///
-/// <b>Impossible-by-construction write safety (shadow + vblank flush).</b> Game code never writes a
-/// tilemap VRAM byte directly, so the mode-3 VRAM-write hazard (a CPU write into $9800-$9FFF while the PPU
-/// owns the bus in mode 3, silently dropped on real hardware) is not even expressible from a game. Every
-/// tile-INDEX write here lands in a full WRAM shadow of each map (<see cref="ShadowBg"/>/
-/// <see cref="ShadowWin"/>, an always-consistent 1024-byte mirror of intended VRAM state), and is copied
-/// into real VRAM later, during vblank, by <see cref="Flush"/> — which <see cref="Video.EndFrame"/> calls
-/// after its own <see cref="Ppu.WaitVBlank"/>, exactly as it already calls <see cref="Sprites.Flush"/>.
-/// This mirrors how <see cref="Sprites"/> shadows OAM in WRAM and flushes it in vblank.
-///
-/// The one branch that decides shadow-only vs. direct is the LCD on/off rule (<see cref="WriteCell"/>):
-/// <list type="bullet">
-/// <item><b>LCD off</b> (<c>Hardware.LCDC &amp; 0x80 == 0</c>): the PPU does not own the bus, so a write
-/// updates the shadow AND writes VRAM directly and immediately, with no dirty marking. This is why an
-/// init-time full-map paint (<see cref="Video.Init"/>'s clears, a game's LCD-off authoring) lands in VRAM
-/// instantly with no drip, while still populating the shadow.</item>
-/// <item><b>LCD on</b>: a write updates the shadow and marks the cell dirty ONLY; it does not touch VRAM.
-/// The change reaches VRAM at the next <see cref="Flush"/>.</item>
-/// </list>
-/// Dirty state is tracked as ONE contiguous linear-index range per map: a dirty flag plus
-/// <c>[MinIdx..MaxIdx]</c> bounds over the flattened <c>row*32+col</c> index space
-/// (<see cref="DirtyBg"/>/<see cref="MinIdxBg"/>/<see cref="MaxIdxBg"/> and the Win equivalents), rather
-/// than tracking each of the 32 rows separately. Because the shadow is a FULL mirror (LCD-off writes and
-/// <see cref="Video.Init"/> populated every cell), flushing the whole <c>[MinIdx..MaxIdx]</c> run in one
-/// shot is always valid — every cell in the run holds a real value, never garbage — even the cells inside
-/// the range that were never individually written this frame. A flush that runs out of vblank time before
-/// covering the whole range resumes the rest next frame by advancing <c>MinIdx</c> past what was copied
-/// and leaving the map dirty. This replaces an earlier per-row <c>[minCol..maxCol]</c> design: scanning
-/// all 32 rows every flush (even to skip clean ones) cost enough SM83 cycles on its own that <c>LY</c>
-/// could leave the vblank window before later dirty rows were reached, silently dropping them for the
-/// rest of the program's life. A single range with a single flush call has no per-row scan to pay for.
-///
-/// <b>Single-vblank GDMA flush on CGB, split into PREPARE (outside vblank) + COMMIT (inside vblank).</b>
-/// <see cref="FlushBg"/>/<see cref="FlushWin"/> branch on <see cref="Video.IsCgb"/> (a per-flush runtime
-/// branch, not a per-byte one — it sits outside <see cref="FlushRun"/>'s loop, so the DMG drip's hot loop
-/// carries no extra state or check). On CGB the whole dirty run lands in ONE GDMA transfer instead of
-/// draining over several frames — but the naive version of this (compute the aligned range, the register
-/// bytes, AND fire the transfer all inside vblank, right where the DMG drip does its work) turned out to
-/// be a real bug, not just a missed optimization: computing <c>alignedMin</c>/<c>count</c> from
-/// <c>ushort</c> fields hits C#'s usual-arithmetic-conversion promotion to <c>int</c> for <c>&amp;</c>/
-/// <c>|</c> (ECMA-334 — see <c>NarrowPass</c>'s own remarks on why this doesn't always narrow back down),
-/// and the resulting i32 arithmetic on an 8-bit CPU with no 32-bit ALU costs HUNDREDS of M-cycles via the
-/// generic width-N memory routine, not the few cycles a 16-bit round-to-alignment "should" cost. Measured
-/// on the <c>gb-jrpg</c> sample's dialogue-paging flush: ~130 M-cycles computing the aligned source/dest
-/// bytes plus ~386 M-cycles computing the aligned length byte — burning almost the ENTIRE vblank window
-/// before the GDMA trigger (HDMA5) was even written, so the trigger landed at LY≈3 in mode 3 (Drawing) on
-/// the FOLLOWING frame. <see cref="Emulator.Bus.Mmu.WriteByteHdma"/> respects the mode-3 VRAM lock —
-/// exactly like a real transfer that overruns vblank — so EVERY byte of that transfer was silently
-/// dropped, and because the old code cleared the dirty flag unconditionally right after arming the
-/// transfer, the drop was never retried: a dialogue page that never updated.
-///
-/// The fix: <see cref="PrepareFlush"/> does ALL the expensive arithmetic (the aligned range, and every
-/// HDMA1-5 register BYTE) OUTSIDE vblank — called by <see cref="Video.EndFrame"/> BEFORE
-/// <see cref="Ppu.WaitVBlank"/>, with no timing pressure at all — and stashes the five precomputed bytes
-/// per map (<c>Prepared*Src/Dst/Len</c> below). <see cref="FlushBg"/>/<see cref="FlushWin"/>'s CGB branch,
-/// running AFTER <see cref="Ppu.WaitVBlank"/> like the DMG drip, then does nothing but a safety-gated
-/// five-register-store trigger: no arithmetic, no <see cref="Cgb.CopyToVram"/> call (which itself computes
-/// the same bytes from raw pointers — this flush writes <see cref="Hardware"/>'s HDMA registers directly
-/// instead so the commit path is provably just stores). The one thing the commit path DOES check is
-/// whether there's still enough vblank left for the transfer (<c>(byte)(Hardware.LY - 144) &gt; 5</c> —
-/// outside <c>[144,149]</c> leaves less than ~3.5 lines, worse than 400 M-cycles of margin for a
-/// &lt;=1024-byte transfer at GDMA's ~2 bytes/M-cycle): if the window's too tight (e.g. a slow frame ate
-/// into vblank before <see cref="Video.EndFrame"/> even ran), the commit is skipped and BOTH the dirty
-/// flag and the prepared bytes are left exactly as they are, so next frame's flush retries the same
-/// (already-computed, still outside-vblank-cheap-to-recompute) transfer rather than silently losing it.
-///
-/// A write between <see cref="PrepareFlush"/> and the matching <see cref="Flush"/> could otherwise widen
-/// the dirty range out from under the already-prepared bytes; <see cref="MarkDirty"/> defensively clears
-/// the relevant map's <c>Prepared*Ready</c> flag on every new dirty mark to make that impossible to get
-/// wrong, though in practice it never fires here — <see cref="Video.EndFrame"/> calls
-/// <see cref="PrepareFlush"/> as its very first statement, after all of that frame's game-code writes and
-/// before anything else runs, so nothing dirties a cell between prepare and commit.
-///
-/// The run's <c>[MinIdx..MaxIdx]</c> bounds are widened to the enclosing 16-byte-aligned block range
-/// (GDMA's source/dest alignment precondition), and because the shadow is a full mirror, copying the extra
-/// cells the widening pulls in is exactly as safe as the existing <c>[MinIdx..MaxIdx]</c> over-copy above
-/// — every cell in the wider range holds a real value too, never garbage. The shadow arrays
-/// (<see cref="ShadowBg"/>/<see cref="ShadowWin"/>) carry <c>[KohAligned(16)]</c> so their WRAM address is
-/// itself a multiple of 16, and $9800/$9C00 already are; since both sides of the copy are offset by the
-/// identical <c>alignedMin</c>, source and dest stay 16-aligned together. Worst case, a single LCD-on
-/// frame that dirties BOTH full maps costs ~2x1024 = 2048 bytes of GDMA at ~2 bytes/M-cycle = ~1024
-/// M-cycles of TRANSFER time (the arithmetic itself no longer counts against this budget, having moved
-/// outside vblank), against a ~1140 M-cycle vblank window — tight but still inside budget, and only
-/// reachable by an LCD-on full-map rewrite (no current caller does this; full re-authors run with the LCD
-/// off, which takes the direct-write path in <see cref="WriteCell"/> instead of ever marking dirty). A
-/// per-frame GDMA byte cap could be added if such a caller ever appears, mirroring
-/// <see cref="Graphics.TileSet"/>'s <c>VblankGdmaChunkBytes</c>. The DMG drip path (<see cref="FlushRun"/>)
-/// is untouched by any of this — same byte-at-a-time, LY-polled copy as before.
-///
-/// <b>CGB attributes (bank 1) are NOT shadow-flushed in this pass.</b> <see cref="SetAttr"/>/
-/// <see cref="FillAttr"/> keep the direct-VRAM path, still gated on <see cref="Ppu.WaitForVramAccess"/>
-/// (which is a no-op the moment the LCD is off, so an init/LCD-off attribute pass writes freely). The
-/// impossible-by-construction guarantee above covers tile-INDEX writes; per-frame CGB attribute writes with
-/// the LCD on are not yet shadow-flushed — in practice attributes are written at init / with the LCD off,
-/// so this is a documented, scoped gap, not a regression. Likewise <see cref="TileSet"/> (tile data) and
-/// <see cref="Palettes"/> keep their existing, already-vblank-safe paths — this redesign is about the
-/// tilemap only. Attribute writes are also a true no-op on DMG (<see cref="Video.IsCgb"/> is false): DMG
-/// has no bank 1 to switch into, and writing through the map base with the bank still at 0 would clobber
-/// the tile-index map at the same physical $9800/$9C00 address.
-/// </summary>
+/// <summary>Tile-map writes.</summary>
 internal static unsafe class MapWriter
 {
     /// <summary>Full WRAM shadow of the BG map ($9800, <c>map</c> = 0): the always-consistent 1024-byte
@@ -195,19 +90,30 @@ internal static unsafe class MapWriter
             );
     }
 
-    /// <summary>Set every cell of the full 32x32 map to one tile index (used by <see cref="Video.Init"/>
-    /// to bring both the shadow and VRAM into a known blank state while the LCD is off). A bulk
-    /// <see cref="Mem.Fill"/> straight into VRAM and the shadow array, not 1024 individual
-    /// <see cref="WriteCell"/> dispatches — this only ever runs with the LCD off (<see cref="Video.Init"/>
-    /// is its only caller), so it writes VRAM directly with no dirty marking needed, same as any other
-    /// LCD-off write.</summary>
+    /// <summary>Full-map clear.</summary>
     internal static void Clear(byte map, byte tile)
     {
-        byte* mapBase = map == 0 ? Gb.TileMap : Gb.TileMap1;
         byte[] shadow = map == 0 ? ShadowBg : ShadowWin;
-        Mem.Fill(mapBase, tile, 1024);
         fixed (byte* p = &shadow[0])
             Mem.Fill(p, tile, 1024);
+        if ((Hardware.LCDC & 0x80) != 0)
+        {
+            MarkDirty(map, 0);
+            MarkDirty(map, 1023);
+            return;
+        }
+        byte* mapBase = map == 0 ? Gb.TileMap : Gb.TileMap1;
+        Mem.Fill(mapBase, tile, 1024);
+        if (map == 0)
+        {
+            DirtyBg = 0;
+            PreparedBgReady = 0;
+        }
+        else
+        {
+            DirtyWin = 0;
+            PreparedWinReady = 0;
+        }
     }
 
     /// <summary>The write dispatch: always update the shadow; then either write VRAM directly (LCD off) or
@@ -367,29 +273,17 @@ internal static unsafe class MapWriter
         FlushWin();
     }
 
-    /// <summary>Flush the BG map's dirty run into VRAM. On CGB, <see cref="PrepareFlushBg"/> already did
-    /// every byte of arithmetic OUTSIDE vblank; this commit path is deliberately just a safety gate plus
-    /// five back-to-back register stores (no <see cref="Cgb.CopyToVram"/> call, no shifts, no widening —
-    /// see the class remarks for why that split exists). The gate reads <see cref="Hardware.LY"/> once:
-    /// <c>(byte)(Hardware.LY - 144) &gt; 5</c> is true whenever LY is NOT in <c>[144,149]</c>, i.e. less
-    /// than ~3.5 lines (&lt;400 M-cycles) of vblank remain — not enough margin for a &lt;=1024-byte GDMA
-    /// transfer at ~2 bytes/M-cycle. If the gate fails, this returns WITHOUT clearing
-    /// <see cref="DirtyBg"/> or <see cref="PreparedBgReady"/>, so the exact same already-computed bytes
-    /// commit on the very next frame's <see cref="Flush"/> instead of being silently dropped by the
-    /// hardware's own mode-3 VRAM lock (<see cref="Emulator.Bus.Mmu.WriteByteHdma"/>) the way the
-    /// original bug lost them. On DMG (and CGB is decided per-flush, not compiled away, since
-    /// <see cref="Video.IsCgb"/> is a runtime flag set once by <see cref="Video.Init"/>), the original
-    /// per-byte <see cref="FlushRun"/> drip runs as much as fits this vblank (it stops before mode 3 and
-    /// reports how much landed); <see cref="MinIdxBg"/> advances by that, and <see cref="DirtyBg"/> clears
-    /// once it catches up to <see cref="MaxIdxBg"/>, else the remainder resumes next frame.</summary>
+    /// <summary>Prepared background commit.</summary>
     private static void FlushBg()
     {
         if (DirtyBg == 0)
             return;
         if (Video.IsCgb)
         {
-            if (PreparedBgReady == 0 || (byte)(Hardware.LY - 144) > 5)
-                return; // not (yet) prepared, or too little vblank left this frame — retry next frame
+            if (PreparedBgReady == 0)
+                return;
+            if ((byte)(Hardware.LY - 144) > 5)
+                Ppu.WaitVBlank();
             Hardware.HDMA1 = PreparedBgSrcHi;
             Hardware.HDMA2 = PreparedBgSrcLo;
             Hardware.HDMA3 = PreparedBgDstHi;
@@ -416,8 +310,10 @@ internal static unsafe class MapWriter
             return;
         if (Video.IsCgb)
         {
-            if (PreparedWinReady == 0 || (byte)(Hardware.LY - 144) > 5)
+            if (PreparedWinReady == 0)
                 return;
+            if ((byte)(Hardware.LY - 144) > 5)
+                Ppu.WaitVBlank();
             Hardware.HDMA1 = PreparedWinSrcHi;
             Hardware.HDMA2 = PreparedWinSrcLo;
             Hardware.HDMA3 = PreparedWinDstHi;
@@ -436,17 +332,13 @@ internal static unsafe class MapWriter
             DirtyWin = 0;
     }
 
-    /// <summary>Copy up to <paramref name="n"/> bytes shadow-&gt;VRAM, stopping the instant the PPU leaves
-    /// the vblank window so a write can NEVER land in mode 3 (returns the count actually copied; the caller
-    /// leaves the rest dirty for next frame). A plain stride-1 pointer walk bounded by a <c>dst != end</c>
-    /// pointer compare — no separate byte counter, so only the two pointers <paramref name="dst"/>/
-    /// <paramref name="src"/> are loop-carried (they map onto the two register pairs the loop-residency pass
-    /// can hold). The ONLY pointer loop in this file, called once per map per frame (never inside a loop),
-    /// so it can't collide with a sibling stride-1 loop under the backend register allocator.</summary>
+    /// <summary>Bounded vblank copy.</summary>
     private static ushort FlushRun(byte* dst, byte* src, ushort n)
     {
         byte* start = dst;
         byte* end = dst + n;
+        if (n != 0 && (byte)(Hardware.LY - 144) > 5)
+            Ppu.WaitVBlank();
         while (dst != end)
         {
             // (byte)(LY-144) is 0..8 inside vblank [144,152] and wraps large outside it — one MMIO read and

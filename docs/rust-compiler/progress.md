@@ -1,26 +1,46 @@
 # Native CIL compiler migration (PR #55)
 
-Status: source audit and empirical baseline recorded; native raw metadata/body
-reader, CIL encoding decoder, bounded signatures, reference binding and initial
-typed integer lowering and initial ELF/SM83 emission implemented. No
-native SDK integration has landed yet; a standalone native executable now exists.
-This document tracks the single replacement PR; it does not establish acceptance.
+Status: migration incomplete. Native CIL reading, typed IR, optimization and
+SM83/ELF emission are implemented, including banked managed calls. The SDK still
+invokes the C# compiler; its source and test project remain. Portable PDB/source
+debugging, complete sample acceptance, test-disposition closure and performance
+comparison remain required. The current public API is evidence, not a design
+baseline; authoring needs and hardware constraints determine the new contract.
 
-Work in progress: [banked managed calls](rom-banking.md). Floating ROMX methods,
-ROM0 trampolines and per-call PC/bank cookies execute actual C# across distinct
-banks including 257/258. Expanded ABI cases passed 4/4 in 37.635s, with eight
-ROM executions covering recursion, long/aggregate returns, byrefs, void/narrow
-arguments and ROM0 strings. Read-only review found no concrete defects. Full
-755-case workspace regression is still running; no full-pass claim is made.
-The full Release graphics showcase now links, but actual Koh CGB boot remains
-at its logo check: cartridge header logo bytes are zero. Linker-owned header
-finalization was corrected: 23/23 linker cases pass and the actual CGB boot
-hands off to a rendered showcase. Stronger sample coverage remains local work:
-four initial D/R×DMG/CGB boot/render/movement cases pass, but numeric HUD progress
-fails on Debug DMG (all five cells stay zero). This is not complete sample
-acceptance, and the failing assertion is retained for diagnosis.
+[Banked calls](rom-banking.md) passed 4/4 expanded ABI cases in 37.635s and a
+755/755 workspace regression in 2581.751s, zero skipped
+(`/tmp/koh-rombank-workspace.log`). Calls cross banks including 257/258, covering
+recursion, long/aggregate returns, byrefs, void/narrow arguments and strings.
+Linker-owned boot-logo finalization passed 23/23 native linker cases; corrected
+raw golden fixtures passed 52/52 managed linker tests. These runs precede the
+current presentation work and do not establish final migration acceptance.
 
-Latest pushed increment: [HRAM-safe OAM DMA](oam-dma.md). Reachable metadata intrinsics
+Predecessor `44c7ff7` completed hosted Rust CI on Linux (756/756, 346.993s),
+macOS (756/756, 448.466s) and Windows (754/754, 694.396s), zero skipped;
+separate documentation tests passed with no cases. These are actual job-log
+summaries from run 43723302350. Managed CI also passed at that head. New local
+optimization commits `bb629b6` and `b9be7eb` are pushed; their CI is pending.
+
+Current local work: [presentation timing](presentation.md). The stronger showcase
+checks exposed a HUD that never progressed. Generated-code optimizations alone
+did not fix it; private copy/commit paths now reacquire vblank when late. Four
+Debug/Release × DMG/CGB cases passed, including real boot, visible score changes,
+sprite geometry, independent checker pixels and VRAM safety. The full 769-case
+workspace run passed, zero skipped, exit0, in1997.889s
+(`/tmp/koh-showcase-workspace.log`). After strengthening chronological score
+assertions and correcting LCD-on clear, focused showcase/sprite8/8 and full-map/
+text6/6 passed (`/tmp/koh-presentation-final-focused.log`,
+`/tmp/koh-map-text-final.log`, both exit0). Separate workspace doctests passed
+(currently no cases). The full769 run predates that clear correction and the
+two new full-map cases; it is not a full771-case result. Four graphics contracts
+now have complete replacements:24of565 complete,541 partial/outstanding, none
+physically retired. All-start-phase GDMA proof remains open.
+Neither this fixture nor its
+passing results prove native SDK integration or source debugging.
+
+## Earlier increment evidence
+
+[HRAM-safe OAM DMA](oam-dma.md). Reachable metadata intrinsics
 emit one linker-placed eight-byte HRAM routine, installed at startup. No fixed
 HRAM address or shared WRAM page scratch is required. Blocking execution and raw
 FF46 trigger probes cover Debug/Release on DMG/CGB, relocated HRAM including its

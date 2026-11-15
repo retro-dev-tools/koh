@@ -10,6 +10,187 @@ fn host() -> Host {
     support::build_host()
 }
 
+#[rstest::fixture]
+#[once]
+fn showcase_host() -> Host {
+    support::build_fixture_host("ShowcaseHost")
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn full_graphics_showcase_boots_and_animates(
+    showcase_host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let directory = tempfile::tempdir_in(showcase_host.directory.path()).unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Showcase/Showcase.csproj");
+    let project = directory.path().join("Showcase.csproj");
+    std::fs::copy(fixture, &project).unwrap();
+    let built = dotnet()
+        .arg("build")
+        .arg(project)
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        built.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let object_path = directory.path().join("showcase.o");
+    let compiled = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+        .arg(output.join("Showcase.dll"))
+        .arg("-r")
+        .arg(output.join("Koh.GameBoy.dll"))
+        .arg("-o")
+        .arg(&object_path)
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let object = koh_objects::read_elf(&std::fs::read(object_path).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(linked.rom.len() > 0x8000, "exercise an actual banked game");
+    let rom = directory.path().join("showcase.gb");
+    std::fs::write(&rom, linked.rom).unwrap();
+    let result = dotnet().arg(&showcase_host.dll).arg(&rom).output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report: Vec<u32> = String::from_utf8(result.stdout)
+        .unwrap()
+        .split_whitespace()
+        .map(|s| s.parse().unwrap())
+        .collect();
+    assert_eq!(report.len(), 5);
+    assert!(report[0] > 0 && report[0] < 600, "real boot handoff");
+    assert!(report[1] < 2000, "bounded startup");
+    assert!(
+        report[2] > 0 && report[3] > 0,
+        "scroll and sprites must animate"
+    );
+    assert_eq!(report[4], 0, "no mode-3 VRAM writes");
+    let snapshot = std::fs::read(rom.with_extension("gb.snapshot")).unwrap();
+    assert_eq!(snapshot.len(), 32 + 1024 + 1024 + 160);
+    for (i, byte) in snapshot[..32].iter().enumerate() {
+        assert_eq!(*byte, if (i < 16) == (i % 2 == 0) { 255 } else { 0 });
+    }
+    for row in 0..32 {
+        for col in 0..32 {
+            assert_eq!(snapshot[32 + row * 32 + col], ((row + col) & 1) as u8);
+        }
+    }
+    assert_eq!(
+        &snapshot[1056..1062],
+        &[67, 51, 63, 66, 53, 16],
+        "SCORE window text"
+    );
+    let oam = &snapshot[2080..];
+    for i in 0..4 {
+        assert_eq!(&oam[i * 4 + 2..i * 4 + 4], &[2, (i * 32) as u8]);
+        assert!((64..=112).contains(&oam[i * 4]));
+        assert!((64..=112).contains(&oam[i * 4 + 1]));
+    }
+    let mut dx = i16::from(oam[1]) - 88;
+    let mut dy = i16::from(oam[0]) - 88;
+    assert!([(24, 0), (22, 9), (17, 17), (9, 22), (0, 24)].contains(&(dx.abs(), dy.abs())));
+    for i in 1..4 {
+        (dx, dy) = (-dy, dx);
+        assert_eq!(
+            (i16::from(oam[i * 4 + 1]) - 88, i16::from(oam[i * 4]) - 88),
+            (dx, dy),
+            "quarter-turn sprite spacing"
+        );
+    }
+    assert!(
+        oam[16..].iter().all(|b| *b == 0),
+        "unused sprites remain hidden"
+    );
+    let hud = std::fs::read(rom.with_extension("gb.hud")).unwrap();
+    assert_eq!(hud.len(), 120 * 5);
+    let mut scores: Vec<u32> = hud
+        .chunks_exact(5)
+        .filter_map(|digits| {
+            let first = digits.iter().position(|digit| *digit != 16)?;
+            digits[first..].iter().try_fold(0, |value, digit| {
+                (32..=41)
+                    .contains(digit)
+                    .then(|| value * 10 + u32::from(*digit) - 32)
+            })
+        })
+        .filter(|value| *value > 0 && value % 17 == 0)
+        .collect();
+    scores.dedup();
+    assert!(
+        scores
+            .windows(2)
+            .any(|pair| pair[0].checked_add(17) == Some(pair[1])),
+        "completed HUD scores must advance by17: {scores:?}; raw={:?}; report={report:?}",
+        hud.chunks_exact(5)
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    let rgba = std::fs::read(rom.with_extension("gb.rgba")).unwrap();
+    assert_eq!(rgba.len(), 160 * 144 * 4);
+    let palettes: Vec<[[u8; 4]; 2]> = if color {
+        vec![
+            [[165, 206, 165, 255], [66, 115, 66, 255]],
+            [[0, 165, 206, 255], [0, 66, 115, 255]],
+        ]
+    } else {
+        vec![
+            [[170, 170, 170, 255], [85, 85, 85, 255]],
+            [[255, 255, 255, 255], [170, 170, 170, 255]],
+        ]
+    };
+    assert!(
+        palettes.iter().any(|colors| (0..16).any(|phase| {
+            (0..160).all(|x| rgba[x * 4..x * 4 + 4] == colors[((x + phase) / 8) & 1])
+        })),
+        "rendered checkerboard must match a documented palette and scroll phase"
+    );
+    if configuration == "Release" && color {
+        let mut corrupt = std::fs::read(&rom).unwrap();
+        corrupt[0x104] = 0;
+        let bad = directory.path().join("bad-logo.gb");
+        std::fs::write(&bad, corrupt).unwrap();
+        let rejected = dotnet().arg(&showcase_host.dll).arg(bad).output().unwrap();
+        assert!(!rejected.status.success());
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("Boot did not hand off"));
+    }
+}
+
 fn build(directory: &Path, configuration: &str, output: &str, ambiguous: bool) -> PathBuf {
     build_with(
         directory,
@@ -527,6 +708,41 @@ fn gameboy_images(
     let images = [format!("{fixture}.dll"), "Koh.GameBoy.dll".into()]
         .map(|name| std::fs::read(output.join(name)).unwrap());
     (directory, images)
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn full_cgb_map_transfers_preserve_vram_and_complete(host: &Host, #[case] configuration: &str) {
+    let (directory, images) = gameboy_images(host, configuration, "MapTransfers");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for entry in ["Program::Fill", "Program::Clear"] {
+        let object = compile::object(&resolver, Some(entry)).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: koh_link::CgbMode::Only,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-maps",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), 11, "{entry}");
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        let mut vram = vec![0xa7; 8192];
+        vram[0x1800..0x1c00].fill(0x33);
+        vram[0x1c00..].fill(0x11);
+        assert_heap_snapshot(fields[6], &vram, entry);
+        assert_heap_snapshot(fields[7], &[0xb8; 8192], "untouched VRAM1");
+        assert_heap_snapshot(fields[9], &[0; 160], "untouched OAM");
+    }
 }
 
 #[rstest]

@@ -31,13 +31,37 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: twenty legacy methods; zero physically retired.**
+**Native behavioral replacements: twenty-four legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining545 methods still have
+The remaining541 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Graphics showcase replacements
+
+Four methods in `Samples/GbGfxDemoTests.cs` (12 original assertion call sites)
+now have complete replacements in
+`driver.rs::full_graphics_showcase_boots_and_animates`, discoverable as four
+Debug/Release × DMG/CGB nextest cases. The unchanged sample runs through actual
+Koh boot ROMs and the existing emulator. Final focused execution passed4/4,
+alongside4 sprite cases (`/tmp/koh-presentation-final-focused.log`, exit0).
+
+| Source method | Requirement and independent justification | Decision and replacement |
+| --- | --- | --- |
+| Demo_CompilesWithoutDiagnostics | Real sample compiles and verifies; CIL/IR validity is required, C# verifier identity is incidental | REPLACE: native CLI success, verified IR and canonical ELF consumed by Rust linker |
+| Demo_LinksToBootableRom | A valid cartridge boots; two particular entry opcodes and two logo bytes are weak implementation proxies | REPLACE: actual DMG/CGB boot handoff, independent header suite and corrupted-logo rejection |
+| WindowMap_SpellsScoreViaFontBasePlusOffset | Visible SCORE glyphs after at least two completed updates; sample text and font encoding define the expected bytes | PORT: exact six glyph bytes and chronological positive score increments of17 |
+| Lcdc_HasBgObjAndWindowEnabled | LCD/BG/OBJ/window enable bits are hardware-visible display requirements | PORT: host requires LCDC=F3 before observing ongoing scroll/sprite/HUD progress |
+
+These are public game/toolchain contracts. No compiler-owned test is deferred.
+The remaining five graphics-demo methods are partial/outstanding: independent
+quarter-turn geometry does not yet replace exact sprite/score phase assertions,
+and the short observation window does not prove a60-iteration palette toggle.
+The new full-map Fill/Clear checks strengthen hardware coverage but do not close
+the separate scattered-span/DMG-drip source methods without their own audit.
+See [presentation decisions and limits](presentation.md).
 
 ## OAM DMA test replacements
 
