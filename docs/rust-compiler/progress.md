@@ -644,3 +644,6 @@ Predecessor pin head `19e4949` has successful completed
 [CI](https://github.com/retro-dev-tools/koh/actions/runs/43676239601) workflows.
 Native Linux/Windows/macOS Test steps succeeded; completed macOS job132696913473
 log confirms584/584,0skips,271.132s. Current graphics-head hosted proof is separate.
+Graphics commit `7c8b917` passed post-commit focused checks4/4,exit0,18.300s
+(`/tmp/koh-tiles-postcommit.log`). The separate roadmap refresh changes only
+documentation; it does not add code verification claims.

@@ -83,8 +83,9 @@ pending. Historical legacy baseline
 
 ## Next work and verification
 
-Latest committed/pushed head19e4949 (pin unit), PR#55 draft/master. Current
-uncommitted graphics acceptance unit adds actual TileSet.Load aligned/unaligned
+Graphics acceptance committed as7c8b917; post-commit4/4 passed,exit0,18.300s
+(/tmp/koh-tiles-postcommit.log). Refreshing ROADMAP in a separate docs increment
+before pushing both commits to the same draft PR#55. Graphics unit adds actual TileSet.Load aligned/unaligned
 DMG/CGB fixtures, two rendered frames with independent full RGBA expectations,
 poisoned full VRAM/WRAM bank snapshots and canonical emulator PNG writer output.
 No compiler algorithms or emulator core algorithms changed. Emulator csproj only
@@ -101,8 +102,8 @@ Standalone serial direct-project CLI DMG/CGB demonstrations passed with all pixe
 validated; /tmp/koh-tiles-root-demo.log,exit0. PNGs visually inspected, artifacts
 /tmp/koh-native-tiles-demo-pXXzIw/{dmg,cgb}.{gb,o,png,rgba},evidence.json. Both ROMs
 32768bytes, ELF80008/82380bytes, PNG822/805bytes. Doc/fmt checks exit0(no doctests).
-No builds remain running. Unit ready for commit/push; rerun graphic cases after
-commit hook. Predecessor19e4949 hosted Rust43676239605/CI43676239601 successful;
+No builds remain running. Publish current commits and verify draft/master head.
+Predecessor19e4949 hosted Rust43676239605/CI43676239601 successful;
 native three hosts Test steps succeeded, macOS584/584 confirmed. This is library graphics output,
 not full 2048/other sample acceptance or LCD-on copy timing coverage.
 All text below is predecessor history, not current build state.
