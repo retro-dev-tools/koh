@@ -243,10 +243,8 @@ impl Code {
     }
 
     fn indirect(&mut self, address: u16) {
-        self.load_a(address);
-        self.bytes(&[0x4f]);
-        self.load_a(address + 1);
-        self.bytes(&[0x47]);
+        self.address(address);
+        self.bytes(&[0x4e, 0x23, 0x46]);
     }
 
     fn check_reference(&mut self, ty: Type) {
@@ -261,21 +259,20 @@ impl Code {
     }
 
     fn save_word(&mut self, destination: u16) {
-        self.bytes(&[0x79]);
-        self.store_a(destination);
-        self.bytes(&[0x78]);
-        self.store_a(destination + 1);
+        self.address(destination);
+        self.bytes(&[0x71, 0x23, 0x70]);
     }
 
     fn heap_bank(&mut self, saved: u16) {
         self.bytes(&[0xf0, 0x70]);
-        self.store_a(saved);
+        self.address(saved);
+        self.bytes(&[0x77]);
         self.bytes(&[0x3e, 1, 0xe0, 0x70]);
     }
 
     fn restore_bank(&mut self, saved: u16) {
-        self.load_a(saved);
-        self.bytes(&[0xe0, 0x70]);
+        self.address(saved);
+        self.bytes(&[0x7e, 0xe0, 0x70]);
     }
 
     fn pins_active(&mut self, pins: &BTreeMap<u32, u16>) {
@@ -382,43 +379,40 @@ impl Code {
     }
 
     fn below_constant(&mut self, value: u16, limit: u16, fault: SymbolId) {
-        let good = self.label();
-        self.load_a(value + 1);
-        self.bytes(&[0xfe, (limit >> 8) as u8]);
-        self.jump(0xda, good);
-        self.jump(0xc2, fault);
-        self.load_a(value);
-        self.bytes(&[0xfe, limit as u8]);
+        self.indirect(value);
+        self.bytes(&[0x79, 0xd6, limit as u8, 0x78, 0xde, (limit >> 8) as u8]);
         self.jump(0xd2, fault);
-        self.mark(good);
     }
 
     fn below_word(&mut self, value: u16, limit: u16, fault: SymbolId) {
-        let good = self.label();
         self.indirect(value);
         self.address(limit);
-        self.bytes(&[0x23, 0x78, 0xbe]);
-        self.jump(0xda, good);
-        self.jump(0xc2, fault);
-        self.bytes(&[0x2b, 0x79, 0xbe]);
+        self.bytes(&[0x79, 0x96, 0x23, 0x78, 0x9e]);
         self.jump(0xd2, fault);
-        self.mark(good);
+    }
+
+    fn scale_word(&mut self, value: u16, stride: u16) {
+        if stride.is_power_of_two() {
+            for _ in 0..stride.trailing_zeros() {
+                self.shift_one(value, 2, true, false, false);
+            }
+        } else {
+            self.indirect(value);
+            self.bytes(&[0x50, 0x59, 0x21, 0, 0]);
+            for bit in (0..=stride.ilog2()).rev() {
+                self.bytes(&[0x29]);
+                if stride & (1 << bit) != 0 {
+                    self.bytes(&[0x19]);
+                }
+            }
+            self.bytes(&[0x44, 0x4d]);
+            self.save_word(value);
+        }
     }
 
     fn new_array(&mut self, length: u16, destination: u16, temp: u16, aligned: bool) {
         let fault = self.import("__koh_trap_allocation".into());
-        self.below_constant(length, 4095, fault);
-        self.copy(length, temp, 2);
-        self.load_a(temp + 8);
-        self.bytes(&[0x4f, 0xb7]);
-        let shifted = self.label();
-        let shift = self.label();
-        self.jump(0xca, shifted);
-        self.mark(shift);
-        self.shift_one(temp, 2, true, false, false);
-        self.bytes(&[0x0d]);
-        self.jump(0xc2, shift);
-        self.mark(shifted);
+        self.copy(temp + 8, temp, 2);
         self.constant(temp + 2, 2, 2);
         self.arithmetic(temp, temp + 2, temp, 2, 0x88);
         let cursor = self.import("__koh_heap_cursor".into());
@@ -800,9 +794,14 @@ impl Layout {
             .collect();
         let mut offset = 0usize;
         let mut locals = Vec::new();
-        for &width in &widths.locals {
+        let mut large_locals = Vec::new();
+        for (index, &width) in widths.locals.iter().enumerate() {
             locals.push(offset as u16);
-            offset += usize::from(width);
+            if width > 8 {
+                large_locals.push((index, width));
+            } else {
+                offset += usize::from(width);
+            }
         }
         let mut allocations = BTreeMap::new();
         for (id, bytes) in stack_allocations(function)? {
@@ -971,6 +970,13 @@ impl Layout {
             .unwrap_or(0);
         let arithmetic = offset;
         offset += 25;
+        for (index, width) in large_locals {
+            if offset + usize::from(width) > 0xf00 {
+                return Err("SM83 frame exceeds WRAM0 stack capacity".into());
+            }
+            locals[index] = offset as u16;
+            offset += usize::from(width);
+        }
         let arguments: usize = function
             .parameters
             .iter()
@@ -1117,16 +1123,22 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 } => {
                     code.indirect(slot(address));
                     code.check_reference(layout.values[&address].1);
-                    code.bytes(&[
-                        0x60,
-                        0x69,
-                        0x11,
-                        offset as u8,
-                        (offset >> 8) as u8,
-                        0x19,
-                        0x44,
-                        0x4d,
-                    ]);
+                    if offset <= 2 {
+                        for _ in 0..offset {
+                            code.bytes(&[0x03]);
+                        }
+                    } else {
+                        code.bytes(&[
+                            0x60,
+                            0x69,
+                            0x11,
+                            offset as u8,
+                            (offset >> 8) as u8,
+                            0x19,
+                            0x44,
+                            0x4d,
+                        ]);
+                    }
                     code.save_word(destination);
                 }
                 Op::ExtractField {
@@ -1151,7 +1163,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 }
                 Op::InitializeArray { array, ref bytes } => {
                     let stride = match layout.values[&array].1 {
-                        Type::Array(element) => element.bits() / 8,
+                        Type::Array(element) => element.bytes(),
                         Type::Null => 1,
                         _ => return Err("Invalid verified initializer operand".into()),
                     };
@@ -1171,11 +1183,9 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     let fault = code.import("__koh_trap_allocation".into());
                     code.check_high(slot(length), place(length).bytes, fault);
                     code.extend(place(length), temp + 6, 2);
-                    code.constant(
-                        temp + 8,
-                        1,
-                        u64::from((element.bits() / 8).trailing_zeros()),
-                    );
+                    code.below_constant(temp + 6, 4094 / element.bytes() + 1, fault);
+                    code.copy(temp + 6, temp + 8, 2);
+                    code.scale_word(temp + 8, element.bytes());
                     if aligned {
                         code.constant(temp + 10, 2, u64::from(alignment - 1));
                     }
@@ -1199,9 +1209,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     code.extend(place(index), temp + 10, 2);
                     code.below_word(temp + 10, temp, fault);
                     code.copy(temp + 10, temp, 2);
-                    for _ in 0..(element.bits() / 8).trailing_zeros() {
-                        code.shift_one(temp, 2, true, false, false);
-                    }
+                    code.scale_word(temp, element.bytes());
                     code.indirect(slot(array));
                     code.address(temp);
                     code.bytes(&[0x5e, 0x23, 0x56, 0x60, 0x69, 0x19, 0x23, 0x23, 0x44, 0x4d]);
@@ -1210,18 +1218,14 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 }
                 Op::LocalAddress { local, .. } => {
                     code.address(layout.locals[local as usize]);
-                    code.bytes(&[0x44, 0x4d, 0x79]);
-                    code.store_a(destination);
-                    code.bytes(&[0x78]);
-                    code.store_a(destination + 1);
+                    code.bytes(&[0x44, 0x4d]);
+                    code.save_word(destination);
                 }
                 Op::StaticAddress { field, .. } | Op::InitializerAddress(field) => {
                     let target = code.import(static_symbol(field));
                     code.jump(0x21, target);
-                    code.bytes(&[0x44, 0x4d, 0x79]);
-                    code.store_a(destination);
-                    code.bytes(&[0x78]);
-                    code.store_a(destination + 1);
+                    code.bytes(&[0x44, 0x4d]);
+                    code.save_word(destination);
                 }
                 Op::LoadMemory {
                     address,

@@ -440,9 +440,13 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
     }
 }
 
-fn struct_images(host: &Host, configuration: &str) -> (tempfile::TempDir, [Vec<u8>; 2]) {
+fn gameboy_images(
+    host: &Host,
+    configuration: &str,
+    fixture: &str,
+) -> (tempfile::TempDir, [Vec<u8>; 2]) {
     let directory = tempfile::Builder::new()
-        .prefix("koh struct sprite ")
+        .prefix("koh gameboy fixture ")
         .tempdir_in(host.directory.path())
         .unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -450,13 +454,16 @@ fn struct_images(host: &Host, configuration: &str) -> (tempfile::TempDir, [Vec<u
         .unwrap()
         .parent()
         .unwrap();
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Structs");
-    for name in ["Structs.csproj", "Program.cs"] {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(fixture);
+    let project = format!("{fixture}.csproj");
+    for name in [project.as_str(), "Program.cs"] {
         std::fs::copy(source.join(name), directory.path().join(name)).unwrap();
     }
     let result = dotnet()
         .arg("build")
-        .arg(directory.path().join("Structs.csproj"))
+        .arg(directory.path().join(project))
         .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
         .arg(format!("-p:KohRoot={}", root.display()))
         .output()
@@ -470,9 +477,121 @@ fn struct_images(host: &Host, configuration: &str) -> (tempfile::TempDir, [Vec<u
     let output = directory
         .path()
         .join(format!("bin/{configuration}/net10.0"));
-    let images =
-        ["Structs.dll", "Koh.GameBoy.dll"].map(|name| std::fs::read(output.join(name)).unwrap());
+    let images = [format!("{fixture}.dll"), "Koh.GameBoy.dll".into()]
+        .map(|name| std::fs::read(output.join(name)).unwrap());
     (directory, images)
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn aggregate_arrays_copy_alias_scale_and_preserve_banks(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "StructArrays");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    for (name, opcode) in [("Read", 0xa3), ("Write", 0xa4)] {
+        let token = (1..=assembly.metadata().method_defs.len())
+            .map(|row| 0x06000000 | row as u32)
+            .find(|&token| assembly.method_name(token).unwrap() == format!("Program::{name}"))
+            .unwrap();
+        assert!(
+            koh_compile::cil::decode(assembly.method_body(token).unwrap().il)
+                .unwrap()
+                .iter()
+                .any(|i| i.opcode == opcode),
+            "{name}: fixture must exercise typed array opcode"
+        );
+    }
+    for (entry, fault) in [
+        (if color { "Banked" } else { "Main" }, 0),
+        (if color { "BankedAligned" } else { "Aligned" }, 0),
+        (if color { "BankedPinned" } else { "Pinned" }, 0),
+        ("Capacity", 0),
+        ("HugeEmpty", 0),
+        ("NestedValues", 0),
+        ("Null", 4),
+        ("Bounds", 6),
+        ("Negative", 5),
+        ("OverOdd", 5),
+        ("Wrap", 5),
+        ("HugeTooBig", 5),
+    ] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}")))
+            .unwrap_or_else(|error| panic!("{entry}: {error}"));
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if fault == 0 {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 }, "{entry}");
+        assert_eq!(fields[0], format!("{fault:02X}"), "{entry}");
+        assert_eq!(fields[3], "OK", "{entry}");
+        if fault == 0 {
+            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{entry}");
+        }
+        let mut heap = vec![0x5a; 4096];
+        match entry {
+            "Main" | "Banked" => {
+                heap[..157].fill(0);
+                heap[..11].copy_from_slice(&[3, 0, 4, 2, 3, 1, 9, 3, 7, 0, 0]);
+                heap[15] = 2;
+                heap[22..27].copy_from_slice(&[0x78, 0x56, 0x34, 0x12, 0x9a]);
+                heap[27] = 2;
+                heap[29] = 0xcd;
+                heap[37..45].copy_from_slice(&0x0123456789abcdefu64.to_le_bytes());
+                heap[93] = 0xab;
+                heap[101..109].copy_from_slice(&0x0123456789abcdefu64.to_le_bytes());
+            }
+            "Aligned" | "BankedAligned" => {
+                heap[14..22].fill(0);
+                heap[14] = 2;
+                heap[21] = 0xcd;
+            }
+            "Pinned" | "BankedPinned" => heap[..5].copy_from_slice(&[1, 0, 9, 7, 6]),
+            "Capacity" => {
+                heap.fill(0);
+                heap[..2].copy_from_slice(&1364u16.to_le_bytes());
+                heap[4093] = 0xe1;
+            }
+            "HugeEmpty" => heap[..2].fill(0),
+            "NestedValues" => heap[..8].copy_from_slice(&[3, 0, 5, 0, 6, 0, 7, 0]),
+            "Bounds" => {
+                heap[..5].fill(0);
+                heap[0] = 1;
+            }
+            _ => {}
+        }
+        assert_heap_snapshot(fields[4], &heap, entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
+    }
 }
 
 #[rstest]
@@ -485,7 +604,7 @@ fn actual_sprite_handles_mutate_shadow_storage(
     #[case] configuration: &str,
     #[case] color: bool,
 ) {
-    let (directory, images) = struct_images(host, configuration);
+    let (directory, images) = gameboy_images(host, configuration, "Structs");
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     let object = compile::object(
         &resolver,
@@ -558,7 +677,7 @@ fn aggregate_csharp_values_and_native_fields_preserve_banks(
     #[case] configuration: &str,
     #[case] color: bool,
 ) {
-    let (directory, images) = struct_images(host, configuration);
+    let (directory, images) = gameboy_images(host, configuration, "Structs");
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     let assembly = resolver.assembly(0).unwrap();
     let token = (1..=assembly.metadata().method_defs.len())
@@ -684,7 +803,7 @@ fn value_constructor_metadata_and_private_storage_diagnose(
     host: &Host,
     #[case] configuration: &str,
 ) {
-    let (_directory, images) = struct_images(host, configuration);
+    let (_directory, images) = gameboy_images(host, configuration, "Structs");
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     let assembly = resolver.assembly(0).unwrap();
     let method = |name: &str| {

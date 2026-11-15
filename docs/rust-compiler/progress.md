@@ -6,7 +6,24 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
-Latest increment: value constructors in [unmanaged values](aggregates.md).
+Latest increment: [unmanaged arrays](arrays.md). Storage-based nominal element
+types now lower typed array operations, byrefs and pins. Checked length/stride
+scaling prevents overflow before allocation; odd3/5-byte elements,64-byte copies,
+aligned payloads, empty4096-byte values and exact4KiB capacity execute with full
+memory guards. The retained large Debug fixture exposed ROM0 costs; compact word/
+bounds/access emission and cold placement of large locals fixed them without
+relaxing capacities or reducing assertions. Review found no concrete defects.
+
+Linux workspace691/691 passed,0skips,exit0,870.103s
+(`/tmp/koh-aggregate-arrays-workspace.log`). A final nested-value fixture addition
+subsequently passed4/4 D/R×DMG/CGB cases,exit0,28.644s
+(`/tmp/koh-aggregate-arrays-final-focused.log`), executing48 ROM programs.
+Discovery515 compiler cases; combined531 ROM scenarios (436 returns,95 traps),
+four full-frame comparisons. Eleven of565 complete legacy replacements;554
+still need completion auditing, none physically retired. Final-head hosted proof
+remains pending. SDK/source-debug/full-game/legacy-deletion gates remain open.
+
+Previous increment: value constructors in [unmanaged values](aggregates.md).
 Nongeneric newobj uses private frame locals, ordinary typed calls and result
 snapshots; default versus parameterless construction, chaining, value/ref
 arguments, static initialization, recursive returns and same-frame loop reuse
@@ -17,8 +34,12 @@ rejection probes and check actual loop newobj plus private-local isolation.
 Final focused regression17/17 passed,exit0,60.713s
 (`/tmp/koh-value-constructors-regression-final.log`). Prior full local run was
 673/677,0skips,exit100,839.665s; four diagnostic failures were then corrected and
-rechecked in that focused run. The corrected full-suite result is pending;
-**do not claim677/677**. Workspace discovery is677 cases including501 compiler
+rechecked in that focused run. The corrected head34f5b10 subsequently passed hosted Linux677/677 (389.415s),
+macOS677/677 (462.890s), Windows675/675 (555.538s), all zero skips. Completed
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43696752727) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43696752665) workflows
+are successful. Windows omits only the two previously documented Unix assembler
+path cases; actual test-name sets were compared, with identical compiler coverage. Workspace discovery is677 cases including501 compiler
 cases. Combined execution coverage is482 ROM scenarios (412 returns,70 traps),
 four full-frame comparisons. Doc tests (no cases)/formatting pass. Ten complete
 legacy replacements remain;555 methods still require completion auditing.

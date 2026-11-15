@@ -398,7 +398,9 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
 }
 
 #[rstest::rstest]
-fn null_struct_field_reference_traps_before_offset(host: &Host) {
+#[case(0)]
+#[case(8)]
+fn null_struct_field_reference_traps_before_offset(host: &Host, #[case] offset: u16) {
     let shape = ValueType::new(
         Definition {
             assembly: 0,
@@ -423,7 +425,7 @@ fn null_struct_field_reference_traps_before_offset(host: &Host) {
                     op: Op::FieldAddress {
                         address: 0,
                         owner: shape,
-                        offset: 8,
+                        offset,
                         storage: Storage::Scalar(Scalar::U32),
                     },
                     il_offset: 0,

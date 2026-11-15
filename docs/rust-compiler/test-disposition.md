@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: ten legacy methods; zero physically retired.**
+**Native behavioral replacements: eleven legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining555 methods still have
+The remaining554 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -179,7 +179,7 @@ and `driver`; C# sources are fixture inputs, not compiler test implementations.
 | `CilStructTests.StructFieldRoundTrip_WholeCopyDoesNotAlias` | C# value assignment copies storage; later mutation must not alias. | PORT: `driver::aggregate_csharp_values_and_native_fields_preserve_banks`, nested/explicit value copies and unchanged original fields. |
 | `CilStructTests.ByValStructParameter_CalleeMutationNotVisibleToCaller` | A by-value parameter has independent storage. | PORT: same driver, `Change(Packet)` mutates four scalar widths and returns a distinct value while the caller's original remains unchanged. |
 | `CilStructTests.RefStructParameter_MutatesCallersStorage` | Byrefs alias original storage. | Partial PORT: actual Sprite implicit-this/out methods and overlapping `Copy(ref Packet,ref Packet)`; retain pending whole-source retirement audit. |
-| `CilStructTests.NestedStructsAndArraysOfStructs_FieldsRoundTrip` | Nested fields and aggregate array elements retain identity. | Partial PORT: nested fields implemented; aggregate arrays still outstanding, not deleted or deferred. |
+| `CilStructTests.NestedStructsAndArraysOfStructs_FieldsRoundTrip` | Nested fields and aggregate array elements retain identity. | PORT completed: nested fields and aggregate arrays now execute; see the completed nested/value-array group below. |
 | `CilStructReturnTests` | Value results, chaining, recursion, generic structs and concrete enumerators. | Partial PORT: ordinary factories, calls, nested/static results implemented; remaining shapes still outstanding. |
 | `CilSpritesTests`, `CilSpritesCgbTests`, `CilSpritePaletteHardwareTests` | Real sprite rendering, CGB attributes and hardware state. | Partial PORT: actual handle methods and exact shadow storage implemented; OAM flush, rendered sprites and palette scenarios remain outstanding. |
 | Legacy layout/private IR assumptions | Preserve language layouts, ABI and diagnostics rather than class identity. | REPLACE: bounded metadata mutations, canonical typed descriptors, field bounds/provenance, escape rejection and machine execution. |
@@ -218,3 +218,29 @@ This replaces incidental instruction ordering with separate reference, execution
 and output-preservation assertions; it does not weaken rejection behavior.
 The prior full run's four diagnostic failures all pass the final17-case focused
 regression. Clean corrected-head full/hosted validation remains pending.
+
+### Completed nested/value-array replacement
+
+| Original method | Requirement and independent justification | Decision and native location |
+| --- | --- | --- |
+| `Frontends/CilStructTests.NestedStructsAndArraysOfStructs_FieldsRoundTrip` | Nested Line/Point fields and a three-element Point array retain field values, zero-initialize untouched fields, and produce BGP28 from1+2+3+4+5+6+7. ECMA value/array semantics and SM83 MMIO justify the result independently. | PORT: `driver::aggregate_arrays_copy_alias_scale_and_preserve_banks`, `StructArrays/Program.cs::NestedValues`, Debug/Release × DMG/CGB. |
+
+The original method expands to six assertions (frontend errors/verifier in both
+configurations and two expected BGP results). Native compilation requires clean
+lowering and verified IR, then the real ROM writes/reads BGP28 and returns its
+independent checksum. Whole-bank snapshots additionally check count and every
+Point field byte, untouched memory and CGB bank2; successful return checks SP and
+guards. All four Rust cases are discoverable by nextest. The old definition stays
+only until the legacy compiler test project is removed.
+
+The coherent array group also adds48 observable ROM scenarios across the four
+Rust cases: value snapshots/ref mutation, odd3/5-byte strides,64-byte calls/copies,
+alignment, pins, full capacity and explicit null/bounds/overflow faults. Nine new
+IR cases check aggregate array identity, canonical sizes, pin identity and rejected
+aggregate RVA initialization; one additional CPU case checks a zero-offset null
+field. These partly replace broader legacy storage/ABI assumptions without
+claiming those larger groups complete. No compiler coverage is deferred.
+
+Compiler discovery now515 cases; combined native execution531 ROM scenarios
+(436 returns,95 traps), four full-frame comparisons. Eleven of565 complete legacy
+replacements,554 still need completion auditing; none physically retired.

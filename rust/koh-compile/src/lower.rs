@@ -23,7 +23,7 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
             Ok(Type::Native)
         }
         TypeSig::ByRef(inner) => Ok(Type::ByRef(scalar(inner)?)),
-        TypeSig::SzArray(inner) => Ok(Type::Array(scalar(inner)?)),
+        TypeSig::SzArray(inner) => Ok(Type::Array(Storage::Scalar(scalar(inner)?))),
         TypeSig::Pinned(inner) if matches!(**inner, TypeSig::ByRef(_) | TypeSig::SzArray(_)) => {
             integer_type(inner)
         }
@@ -158,6 +158,9 @@ fn bound_type(
             _ => integer_type(ty),
         },
         clrmeta::TypeSig::Pinned(inner) => bound_type(resolver, assembly, inner),
+        clrmeta::TypeSig::SzArray(inner) => {
+            Ok(Type::Array(bound_storage(resolver, assembly, inner)?))
+        }
         _ => integer_type(ty),
     }
 }
@@ -860,7 +863,7 @@ fn translate(
         let ty = *locals.get(index).ok_or("Invalid local/argument index")?;
         let value = b.pop()?;
         let pinned = b.pinned.contains(&index);
-        let value = if pinned && matches!(ty, Type::ByRef(_)) && value.1 == Type::Native {
+        let value = if pinned && ty.is_byref() && value.1 == Type::Native {
             value
         } else {
             b.coerce(value, ty)?
@@ -1029,10 +1032,11 @@ fn translate(
             let Operand::Token(token) = i.operand else {
                 return Err("Missing array element type".into());
             };
-            let element = scalar(
-                &resolver
-                    .ok_or("Array element requires metadata resolution")?
-                    .scalar_signature(method.identity.assembly, token)?,
+            let resolver = resolver.ok_or("Array element requires metadata resolution")?;
+            let element = bound_storage(
+                resolver,
+                method.identity.assembly,
+                &resolver.type_signature(method.identity.assembly, token)?,
             )?;
             let length = b.pop()?;
             if !matches!(length.1, Type::I32 | Type::Native) {
@@ -1068,10 +1072,11 @@ fn translate(
                 let Operand::Token(token) = i.operand else {
                     return Err("Missing array element type".into());
                 };
-                Some(scalar(
-                    &resolver
-                        .ok_or("Array element requires metadata resolution")?
-                        .scalar_signature(method.identity.assembly, token)?,
+                let resolver = resolver.ok_or("Array element requires metadata resolution")?;
+                Some(bound_storage(
+                    resolver,
+                    method.identity.assembly,
+                    &resolver.type_signature(method.identity.assembly, token)?,
                 )?)
             } else {
                 None
@@ -1087,7 +1092,10 @@ fn translate(
                 _ => Scalar::NativeSigned,
             };
             let array = if raw.1 == Type::Null {
-                b.coerce(raw, Type::Array(explicit.unwrap_or(default)))?
+                b.coerce(
+                    raw,
+                    Type::Array(explicit.unwrap_or(Storage::Scalar(default))),
+                )?
             } else {
                 raw
             };
@@ -1096,13 +1104,13 @@ fn translate(
             };
             if explicit.is_some_and(|ty| ty != element)
                 || (explicit.is_none()
-                    && (element.bits() != default.bits()
+                    && (element.bytes() * 8 != u16::from(default.bits())
                         || element.stack_type() != default.stack_type()))
             {
                 return Err("Array opcode differs from element storage type".into());
             }
             let address = b.value(
-                Type::ByRef(element),
+                element.reference_type(),
                 Op::ArrayAddress {
                     array: array.0,
                     index: index.0,
@@ -1119,16 +1127,13 @@ fn translate(
                     op: Op::StoreMemory {
                         address: address.0,
                         value: value.0,
-                        bits: u16::from(element.bits()),
+                        bits: element.bytes() * 8,
                     },
                     il_offset: b.offset,
                 });
             } else {
                 let signed = if explicit.is_some() {
-                    matches!(
-                        element,
-                        Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::I64 | Scalar::NativeSigned
-                    )
+                    matches!(element, Storage::Scalar(scalar) if scalar.signed())
                 } else {
                     matches!(i.opcode, 0x90 | 0x92 | 0x94 | 0x96 | 0x97)
                 };
@@ -1141,7 +1146,7 @@ fn translate(
                     ty,
                     Op::LoadMemory {
                         address: address.0,
-                        bits: u16::from(element.bits()),
+                        bits: element.bytes() * 8,
                         signed,
                     },
                 )?;
@@ -1166,12 +1171,14 @@ fn translate(
                     return Err("InitializeArray requires a known RVA field handle".into());
                 };
                 let array = b.pop()?;
-                if !matches!(array.1, Type::Array(_) | Type::Null) {
+                if !matches!(array.1, Type::Array(Storage::Scalar(_)) | Type::Null) {
                     return Err("InitializeArray requires a primitive array".into());
                 }
                 if matches!(
                     array.1,
-                    Type::Array(Scalar::NativeSigned | Scalar::NativeUnsigned)
+                    Type::Array(Storage::Scalar(
+                        Scalar::NativeSigned | Scalar::NativeUnsigned
+                    ))
                 ) {
                     return Err(
                         "Native-width RVA array initialization is not portable to SM83".into(),

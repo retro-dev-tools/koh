@@ -398,7 +398,7 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStructTests.cs`. Future 
 Struct copies do not alias; nested/array layouts, pointers, stackalloc, ref/byval parameters, switch defaults and enum values remain correct. CIL memory/value semantics justify results; a real Switch IR opcode is optional.
 
 - **PORT** `StructFieldRoundTrip_WholeCopyDoesNotAlias`.
-- **PORT** `NestedStructsAndArraysOfStructs_FieldsRoundTrip`.
+- **PORT** `NestedStructsAndArraysOfStructs_FieldsRoundTrip` — completed in Rust `driver::aggregate_arrays_copy_alias_scale_and_preserve_banks`, fixture `StructArrays::NestedValues`; Debug/Release × DMG/CGB verifies independent BGP28 and full array bytes.
 - **PORT** `PointerWriteToVram_ReadBack`.
 - **PORT** `PointerArithmetic_OffsetWriteReadBack`.
 - **PORT** `StackAllocBuffer_RoundTrips`.

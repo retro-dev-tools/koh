@@ -212,14 +212,6 @@ impl<'a> Resolver<'a> {
         Ok(true)
     }
 
-    pub(crate) fn scalar_signature(&self, assembly: usize, token: u32) -> Result<TypeSig, String> {
-        let signature = self.type_signature(assembly, token)?;
-        match signature {
-            TypeSig::ValueType(encoded) => self.enum_storage(assembly, encoded),
-            _ => Ok(signature),
-        }
-    }
-
     pub(crate) fn type_signature(&self, assembly: usize, token: u32) -> Result<TypeSig, String> {
         use clrmeta::ElementType;
         if token >> 24 == 0x1b {
@@ -236,7 +228,7 @@ impl<'a> Resolver<'a> {
             let encoded = match token >> 24 {
                 1 => ((token & 0xffffff) << 2) | 1,
                 2 => (token & 0xffffff) << 2,
-                _ => return Err("Array element requires a primitive or enum type token".into()),
+                _ => return Err("Expected primitive or value-type token".into()),
             };
             return Ok(TypeSig::ValueType(encoded));
         };

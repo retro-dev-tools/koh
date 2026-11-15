@@ -1,5 +1,46 @@
 # PR #55 working handoff
 
+## Current aggregate-array unit
+
+Root owns edits/builds, no delegated writers. Base pushed34f5b10, same draftPR55
+master. Full goal active about45%; complete original assignment reread.
+Unit ready to commit: array types/ops reuse Storage(Scalar|Struct), canonical
+value identity, typed element refs, signatures/null/statics/pins. Allocation
+checks length<=4094/stride before multiplication, then cursor/alignment/capacity
+before writes. Odd strides use register16 shift/add. Primitive-only RVA remains
+explicitly checked; dead scalar_signature wrapper removed. Existing assertions
+retained with explicit Storage wrappers.
+
+Retained expanded Debug fixture exposed ROM0 costs. Fixed backend word/address/
+bounds transfers, small field offsets, dead flag saves and placement of >8byte
+locals after hot slots. Frame budget/ABI unchanged. All word/bank helper callers
+reviewed: incoming flags dead there; scalar byte arithmetic still preserves AF.
+Read-only review independently found no concrete defects. Zero-offset managed
+null test added. No game-facing API/emulator production code changed.
+
+Full workspace691/691 passed,0skips,exit0,870.103s,
+/tmp/koh-aggregate-arrays-workspace.log. Final focused4/4 passed,exit0,28.644s,
+/tmp/koh-aggregate-arrays-final-focused.log, includes subsequent NestedValues
+addition:12 scenarios×4configs=48 ROMs with full heap/bank/return/trap/SP guards.
+Covers odd3/5 widths,64-byte copies, refs/pins/alignment, exact4KiB, emptyHuge4096,
+overflow-before-write, null/bounds. Nested Line/Point + Point[] writes/reads BGP28,
+independent1+2+3+4+5+6+7; completes one legacy method's six expanded assertions.
+Separate all-feature doctests (no cases)/rustfmt checks exit0, logs
+/tmp/koh-aggregate-arrays-{doc,fmt}.log. No local build/test active.
+
+Discovery691 workspace/515 compiler;531 ROM scenarios (436 returns,95 traps),
+four framebuffer comparisons. Eleven of565 complete legacy replacements,554
+still need completion auditing; none physically retired. Docs/ABI/test matrix/
+ROADMAP updated. Next commit array unit, post-hook4case check, push same PR,
+verify hosted final-head results, then strings/text and full graphical samples.
+SDK replacement, source debugging, wider runtime/banks/IRQ, test migration and
+legacy deletion remain open. No completion claim or scope reduction.
+
+Constructor head34f5b10 clean hosted Rust+CI runs43696752727/43696752665: Linux
+677/677,389.415s; macOS677/677,462.890s; Windows675/675,555.538s, zero skips.
+Compared name sets differ only in two Unix assembler path tests; compiler same.
+This supersedes earlier constructor pending notes, not array-head hosted proof.
+
 ## Container cleanup checkpoint
 
 Pushed f7ccff7 to same draftPR55 while constructor code was uncommitted.

@@ -1,4 +1,4 @@
-# Primitive arrays and bounded heap
+# Arrays and bounded heap
 
 Semantic reference: [ECMA-335, sixth edition](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf),
 Partition III array instructions and integer storage rules. Koh's bank layout,
@@ -6,17 +6,18 @@ allocator lifetime and 16-bit native width below are explicit target extensions.
 
 The native path supports mutable, one-dimensional, zero-based arrays of CLI
 integer primitives: bool, char, signed/unsigned 8/16/32/64-bit integers and native
-integers. Arrays retain element identity in IR; references occupy two bytes.
+integers, plus nongeneric unmanaged value types with sequential/explicit layouts. Arrays retain element identity in IR; references occupy two bytes.
 `newarr`, `ldlen`, integer `ldelem`/`stelem`, typed `ldelem`/`stelem` and `ldelema`
 lower to allocation, length and checked element-address operations. Locals,
 parameters, return values, static fields and null joins preserve array identity.
 Only reachable methods contribute code or storage.
 
 Array objects contain a little-endian unsigned 16-bit element count followed by
-packed primitive elements. The reference points at the count. There is no padding;
-the SM83 accesses multi-byte values as individual bytes. Empty arrays allocate
-distinct, non-null two-byte objects. Every allocated byte is initialized before
-the reference is returned. Element stores truncate to the declared storage width;
+packed elements using their complete metadata storage size. The reference points at the count. There is no extra gap between header and payload or between elements; layout
+padding belongs to each value element. The SM83 accesses values bytewise. Empty arrays allocate
+distinct, non-null two-byte objects. Every object byte is initialized before
+the reference is returned. Value copies include all layout padding and do not
+alias their source. Scalar element stores truncate to the declared storage width;
 loads obey the CIL opcode's signedness. Native integers use Koh's two-byte ABI.
 
 The linker places a 4096-byte WRAMX bank-1 reservation named `.koh.heap`; the
@@ -59,8 +60,9 @@ extension: the CLI specifies native widths of 32 or 64 bits, not a 16-bit platfo
 Primitive type tokens are recognized only under the named, signed framework
 assembly identities. This does not require copying or lowering the BCL. Arbitrary
 user types named `System.Int32` are not primitive array storage. Missing ordinary
-references continue to fail resolution. Struct, object, reference-element, nested,
-multidimensional and floating-point arrays remain explicit diagnostics.
+references continue to fail resolution. Object, reference-element, nested-array, multidimensional and floating-point
+arrays remain explicit diagnostics. Nested unmanaged fields inside a value
+element are distinct from nested arrays.
 [RVA initialization](rva-initializers.md) now copies validated literal bytes into
 ordinary mutable heap arrays. Actual sample graphics and broader array/runtime
 contracts remain migration requirements.
@@ -91,3 +93,49 @@ checks apply to the documented native ABI. No complete legacy method is retired:
 framework allocator APIs, aggregates, multidimensional arrays,
 and associated sample behavior are still required. This increment does not prove
 source debugging, graphics or complete game acceptance.
+
+## Unmanaged value elements
+
+Array types and allocation operations now reuse Storage (Scalar or Struct),
+rather than inventing another element model. A value element retains resolved
+assembly/type identity and full byte size; ldelema returns its StructRef type.
+Typed ldelem/stelem copy snapshots, including values larger than eight bytes.
+Fields and nested values use the same layout and memory operations as ordinary
+[unmanaged values](aggregates.md). Scalar array assertions remain unchanged apart
+from the explicit Storage wrapper. RVA initialization remains primitive-only
+until a separate aggregate contract is justified; IR rejects aggregate use.
+
+Allocation first checks the original length, then bounds it by4094/element_size
+before multiplication. This prevents a product such as1024*64 from wrapping to
+zero. The common allocator receives checked payload bytes and still validates
+alignment, cursor addition and remaining capacity before publishing or writing.
+A4096-byte element admits an empty array but cannot fit a nonempty object in the
+current heap. Empty objects retain distinct two-byte identities.
+
+Power-of-two scaling keeps its shift path; odd sizes use sixteen-bit register
+shift/add. Array bounds are checked before scaling. The real fixtures cover
+3-byte and5-byte strides,64-byte copies, zero/padding initialization, reference
+aliases, aligned payloads, pinned native field access and exact4KiB occupancy.
+Oversized, negative, wrapping, null and out-of-bounds cases check exact faults
+and unchanged poisoned memory. The final C# fixture also ports the nested-line
+and Point-array behavioral contract, independently summing1+2+3+4+5+6+7=28 and
+writing/reading BGP, with full array-memory guards.
+
+The enlarged Debug fixture initially exceeded ROM0. It was retained. Shared
+word transfers now calculate a frame address once, large locals are placed after
+hot small slots, small field offsets use INC BC, and unsigned bounds use low/high
+subtraction with borrow. Word/bank helper callers have no live incoming flags;
+scalar arithmetic byte helpers retain carry preservation. The total guarded
+frame size and call ABI stay unchanged. No capacity check or linker placement
+rule was relaxed. See the [ABI](sm83-abi.md) for clobber rules.
+
+The first expanded11-scenario fixture passed4/4 D/R×DMG/CGB,exit0,27.538s
+(`/tmp/koh-aggregate-arrays-direct-words.log`), after reproducing capacity failures.
+IR/lowering coverage passed209 cases before the final emitter refinements.
+The completed full run passes691/691,zero skipped,exit0,870.103s
+(`/tmp/koh-aggregate-arrays-workspace.log`). The final four-case run includes
+the added nested-value scenario and all48 ROM programs, passing4/4,exit0,28.644s
+(`/tmp/koh-aggregate-arrays-final-focused.log`). Combined native coverage is
+515 compiler cases and531 ROM scenarios (436 returns,95 traps), four full-frame
+comparisons. These scoped results do not establish a finished
+migration, native SDK route, IRQ safety or general managed-array compatibility.

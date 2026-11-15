@@ -143,8 +143,8 @@ fn array_null_joins_are_typed_in_both_orders(#[case] reverse: bool) {
         il[6] = 0x14;
     }
     let mut m = method(&il);
-    m.parameters = vec![Type::I32, Type::Array(Scalar::I32)];
-    m.returns = Some(Type::Array(Scalar::I32));
+    m.parameters = vec![Type::I32, Type::Array(Storage::Scalar(Scalar::I32))];
+    m.returns = Some(Type::Array(Storage::Scalar(Scalar::I32)));
     let mut function = lower(m).unwrap();
     verify(&function).unwrap();
     koh_compile::optimize::simplify(&mut function).unwrap();
@@ -163,7 +163,7 @@ fn native_and_int16_array_loads_are_distinct(
 ) {
     let il = [0x02, 0x16, opcode, 0x2a];
     let mut m = method(&il);
-    m.parameters = vec![Type::Array(element)];
+    m.parameters = vec![Type::Array(Storage::Scalar(element))];
     m.returns = Some(result);
     assert!(lower(m).unwrap_err().contains("element storage type"));
 }
@@ -178,7 +178,7 @@ fn native_and_int16_array_stores_are_distinct(
 ) {
     let il = [0x02, 0x16, 0x03, opcode, 0x2a];
     let mut m = method(&il);
-    m.parameters = vec![Type::Array(element), value];
+    m.parameters = vec![Type::Array(Storage::Scalar(element)), value];
     m.returns = None;
     assert!(lower(m).unwrap_err().contains("element storage type"));
 }

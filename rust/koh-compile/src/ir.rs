@@ -36,7 +36,7 @@ pub enum Type {
     I64,
     Native,
     ByRef(Scalar),
-    Array(Scalar),
+    Array(Storage),
     Null,
     FieldHandle(Definition),
     Struct(ValueType),
@@ -186,7 +186,7 @@ pub enum Op {
         bytes: Vec<u8>,
     },
     NewArray {
-        element: Scalar,
+        element: Storage,
         length: u32,
         alignment: u16,
     },
@@ -260,9 +260,11 @@ impl Op {
     fn value_types(&self) -> impl Iterator<Item = ValueType> {
         let (owner, storage) = match *self {
             Self::FieldAddress { owner, storage, .. } => (Some(owner), Some(storage)),
-            Self::ExtractField { storage, .. } | Self::LocalAddress { storage, .. } => {
-                (None, Some(storage))
-            }
+            Self::ExtractField { storage, .. }
+            | Self::LocalAddress { storage, .. }
+            | Self::NewArray {
+                element: storage, ..
+            } => (None, Some(storage)),
             _ => (None, None),
         };
         [
@@ -549,7 +551,9 @@ fn aggregate_types(
                 .flat_map(|i| i.op.value_types().map(Type::Struct))
         }))
     {
-        if let Type::Struct(value) | Type::StructRef(value) = ty {
+        if let Type::Struct(value) | Type::StructRef(value) | Type::Array(Storage::Struct(value)) =
+            ty
+        {
             if sizes
                 .insert(value.identity, value.bytes)
                 .is_some_and(|old| old != value.bytes)
@@ -766,15 +770,19 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(Type::FieldHandle(field))
                     }
                     Op::InitializeArray { array, ref bytes } => {
-                        if !matches!(check(array, position)?, Type::Array(_) | Type::Null)
-                            || bytes.is_empty()
+                        if !matches!(
+                            check(array, position)?,
+                            Type::Array(Storage::Scalar(_)) | Type::Null
+                        ) || bytes.is_empty()
                             || bytes.len() > 4096
                         {
                             return Err("Invalid primitive array initializer".into());
                         }
                         if matches!(
                             check(array, position)?,
-                            Type::Array(Scalar::NativeSigned | Scalar::NativeUnsigned)
+                            Type::Array(Storage::Scalar(
+                                Scalar::NativeSigned | Scalar::NativeUnsigned
+                            ))
                         ) {
                             return Err(
                                 "Native-width RVA array initialization is unsupported".into()
@@ -808,7 +816,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if !matches!(check(index, position)?, Type::I32 | Type::Native) {
                             return Err("Array index must be int32 or native integer".into());
                         }
-                        Some(Type::ByRef(element))
+                        Some(element.reference_type())
                     }
                     Op::LocalAddress {
                         local: index,
@@ -1061,13 +1069,13 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         value,
                     } => {
                         let ty = local(index)?;
-                        if !matches!(ty, Type::ByRef(_) | Type::Array(_)) {
+                        if !ty.is_byref() && !matches!(ty, Type::Array(_)) {
                             return Err(
                                 "Pinned storage requires a managed reference or array".into()
                             );
                         }
                         let input = check(value, position)?;
-                        if input != ty && !(matches!(ty, Type::ByRef(_)) && input == Type::Native) {
+                        if input != ty && !(ty.is_byref() && input == Type::Native) {
                             return Err("Pinned store type mismatch".into());
                         }
                         if !initialized[index as usize] {

@@ -15,7 +15,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   The linker migration removes the C# linker and retired object formats and retains C# game development.
   See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
-- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the full565-method source audit, typed SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, pinned banking and unmanaged values. Value constructors now execute through the existing ABI, including recursion, chaining and same-frame loop reuse. Aggregate checkpoint7863872 passed Linux/macOS675/675 and Windows673/673; two Unix assembler paths explain the platform difference. Latest constructor full local run was673/677, with four diagnostic failures subsequently corrected and17/17 focused checks passing; clean corrected-head full validation is pending. Coverage501 compiler cases/482 ROM scenarios/four full-frame comparisons; ten complete legacy replacements,555 still need completion auditing. Obsolete container benchmarks are removed; maintained native benchmarks/RGBDS verification remain. The SDK still uses C# compiler; source debugging, broader runtime/gameplay, full test migration, native SDK/package replacement and legacy deletion remain incomplete.
+- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, pinned banking, unmanaged values and constructors. Aggregate arrays now preserve identity, value copies and byrefs/pins with checked arbitrary strides and capacity. Local workspace691/691 passes; final nested-value addition passes4/4. Coverage515 compiler cases/531 ROM scenarios/four full-frame comparisons; eleven complete legacy replacements,554 still need completion auditing. Constructor checkpoint34f5b10 passed Linux/macOS677/677 and Windows675/675 (two Unix assembler paths absent). Array-head hosted validation remains pending. Container cleanup is done. The SDK still uses C# compiler; source debugging, broader runtime/gameplay, full test migration, native SDK/package replacement and legacy deletion remain incomplete.
   Track the [commit sequence and acceptance ledger](docs/rust-compiler/progress.md);
   the standalone native compiler is verified only for its documented subset, not final migration acceptance.
 
@@ -56,8 +56,8 @@ than a test count or a working standalone compiler. All work stays in PR #55.
    Container cleanup is complete. Keep the single PR draft until all gates pass;
    do not merge it automatically.
 
-Next increment: clean corrected-head constructor CI, then aggregate arrays and
-the language/runtime work needed for complete native graphical samples.
+Next increment: close aggregate-array review/commit/hosted validation, then
+strings/text and the runtime needs of complete native graphical samples.
 
 ## Baseline verification
 

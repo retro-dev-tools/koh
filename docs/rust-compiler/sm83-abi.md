@@ -6,6 +6,14 @@ additional interrupt-safe pointer publication; SP-relative frames avoid that sha
 state. The first allocator spills SSA values into deterministic frame slots.
 Register residency and lifetime-based slot reuse are optimizations, not semantics.
 
+Frame word transfers use BC and may clobber A, DE, HL and flags. Bank-switch
+helpers likewise clobber flags; no current caller depends on incoming flags
+surviving them. Byte loads/stores used inside arithmetic carry chains still preserve
+AF. Small fields can advance BC directly after the managed-null check. Locals
+larger than eight bytes live after the hot small-slot/scratch area, preserving
+stable local addresses and total frame capacity while reducing long SP-relative
+address sequences. Local order in memory is not a game-facing contract.
+
 The [enum/stack increment](stack-enums.md) adds conservative zero-upper-byte
 spill compression. Evaluation widths and call/return buffers below remain
 unchanged; physical spills may use fewer bytes, with explicit extension at

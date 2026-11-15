@@ -122,7 +122,9 @@ field widths, addressed instance arguments, overlapping64-byte copies and raw
 banked pointers. Expected values and poisoned memory are independent assertions,
 not comparisons with the old compiler's output.
 
-Aggregate array elements, boxing,
+[Aggregate array elements](arrays.md) now have implementation and focused
+execution evidence, including odd strides, whole64-byte snapshots and pinned
+field access. Full workspace691/691 and final focused4/4 checks pass. Boxing,
 reference-bearing values and generic values remain outstanding migration work.
 Do not infer their support from successful Sprite or unmanaged-value fixtures.
 Portable PDB/source debugging and ordinary SDK native compilation also remain

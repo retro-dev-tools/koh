@@ -34,11 +34,23 @@ fn invalid_aggregate_descriptors_diagnose(#[case] token: u32, #[case] bytes: u16
 }
 
 #[rstest]
-#[case(false)]
-#[case(true)]
-fn aggregate_identity_requires_consistent_storage(#[case] different_assembly: bool) {
+#[case(false, false)]
+#[case(true, false)]
+#[case(false, true)]
+#[case(true, true)]
+fn aggregate_identity_requires_consistent_storage(
+    #[case] different_assembly: bool,
+    #[case] array: bool,
+) {
+    let representation = |value| {
+        if array {
+            Type::Array(Storage::Struct(value))
+        } else {
+            Type::Struct(value)
+        }
+    };
     let mut f = diamond();
-    let ty = Type::Struct(
+    let ty = representation(
         ValueType::new(
             Definition {
                 assembly: 0,
@@ -62,7 +74,7 @@ fn aggregate_identity_requires_consistent_storage(#[case] different_assembly: bo
     verify(&f).unwrap();
     let mut other = f.clone();
     other.identity.token += 1;
-    let ty = Type::Struct(
+    let ty = representation(
         ValueType::new(
             Definition {
                 assembly: usize::from(different_assembly),
@@ -75,6 +87,135 @@ fn aggregate_identity_requires_consistent_storage(#[case] different_assembly: bo
     other.parameters[0] = ty;
     other.blocks[0].parameters[0].1 = ty;
     assert_eq!(verify_program(&[f, other]).is_ok(), different_assembly);
+}
+
+#[rstest]
+#[case(3)]
+#[case(5)]
+#[case(64)]
+#[case(4096)]
+fn aggregate_array_operations_preserve_identity(#[case] bytes: u16) {
+    let shape = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        bytes,
+    )
+    .unwrap();
+    let other = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000002,
+        },
+        bytes,
+    )
+    .unwrap();
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = Some(Type::StructRef(shape));
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(0, Type::I32, Op::Constant(1)),
+            instruction(
+                1,
+                Type::Array(Storage::Struct(shape)),
+                Op::NewArray {
+                    element: Storage::Struct(shape),
+                    length: 0,
+                    alignment: 1,
+                },
+            ),
+            instruction(
+                2,
+                Type::StructRef(shape),
+                Op::ArrayAddress { array: 1, index: 0 },
+            ),
+        ],
+        terminator: Terminator {
+            kind: Control::Return(Some(2)),
+            il_offset: 3,
+        },
+    }];
+    verify(&f).unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    let valid = f.clone();
+    f.returns = Some(Type::StructRef(other));
+    f.blocks[0].instructions[2].result = Some((2, Type::StructRef(other)));
+    assert!(verify(&f).unwrap_err().contains("result type mismatch"));
+    f = valid;
+    let Op::NewArray { element, .. } = &mut f.blocks[0].instructions[1].op else {
+        unreachable!()
+    };
+    *element = Storage::Struct(other);
+    assert!(verify(&f).unwrap_err().contains("result type mismatch"));
+}
+
+#[test]
+fn aggregate_rva_initialization_requires_an_explicit_contract() {
+    let shape = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        3,
+    )
+    .unwrap();
+    assert!(
+        verify(&initializer(
+            Type::Array(Storage::Struct(shape)),
+            vec![1, 2, 3]
+        ))
+        .unwrap_err()
+        .contains("primitive array initializer")
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn pinned_struct_references_keep_storage_identity(#[case] different: bool) {
+    let shape = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        3,
+    )
+    .unwrap();
+    let argument = ValueType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001 + u32::from(different),
+        },
+        3,
+    )
+    .unwrap();
+    let mut f = pinned_reference();
+    f.locals[0] = Type::StructRef(shape);
+    f.parameters[0] = Type::StructRef(argument);
+    f.blocks[0].parameters[0].1 = Type::StructRef(argument);
+    f.blocks[0].instructions[0].result.as_mut().unwrap().1 = Type::StructRef(shape);
+    if different {
+        assert!(
+            verify(&f)
+                .unwrap_err()
+                .contains("Pinned store type mismatch")
+        );
+    } else {
+        verify(&f).unwrap();
+        f.blocks[0].instructions.extend([
+            instruction(2, Type::Native, Op::Constant(0)),
+            Instruction {
+                result: None,
+                op: Op::StorePinned { local: 0, value: 2 },
+                il_offset: 4,
+            },
+        ]);
+        koh_compile::optimize::simplify(&mut f).unwrap();
+    }
 }
 
 fn aggregate_field(native: bool, nested: bool, offset: u16) -> Function {
@@ -548,7 +689,7 @@ fn initializer(ty: Type, bytes: Vec<u8>) -> Function {
 #[case(Type::FieldHandle(Definition { assembly: 0, token: 0x04000001 }), false)]
 #[case(Type::FieldHandle(Definition { assembly: 0, token: 0x04000001 }), true)]
 fn metadata_values_cannot_cross_machine_calls(#[case] ty: Type, #[case] parameter: bool) {
-    let mut function = initializer(Type::Array(Scalar::U8), vec![1]);
+    let mut function = initializer(Type::Array(Storage::Scalar(Scalar::U8)), vec![1]);
     let source = match ty {
         Type::FieldHandle(field) => Op::FieldHandle(field),
         _ => Op::Constant(0),
@@ -579,11 +720,11 @@ fn metadata_values_cannot_cross_machine_calls(#[case] ty: Type, #[case] paramete
 }
 
 #[rstest]
-#[case(Type::Array(Scalar::U8), 3, true)]
-#[case(Type::Array(Scalar::I64), 24, true)]
-#[case(Type::Array(Scalar::U8), 0, false)]
-#[case(Type::Array(Scalar::U8), 4097, false)]
-#[case(Type::Array(Scalar::NativeSigned), 2, false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8)), 3, true)]
+#[case(Type::Array(Storage::Scalar(Scalar::I64)), 24, true)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8)), 0, false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8)), 4097, false)]
+#[case(Type::Array(Storage::Scalar(Scalar::NativeSigned)), 2, false)]
 #[case(Type::I32, 3, false)]
 fn initializer_ir_requires_bounded_primitive_storage(
     #[case] ty: Type,
@@ -602,7 +743,7 @@ fn initializer_ir_requires_bounded_primitive_storage(
 #[case(16, true)]
 #[case(17, false)]
 fn initializer_ir_data_budget_is_bounded(#[case] copies: usize, #[case] valid: bool) {
-    let mut function = initializer(Type::Array(Scalar::U8), vec![1; 4096]);
+    let mut function = initializer(Type::Array(Storage::Scalar(Scalar::U8)), vec![1; 4096]);
     function.blocks[0].instructions = vec![function.blocks[0].instructions[0].clone(); copies];
     assert_eq!(verify(&function).is_ok(), valid);
 }
@@ -617,7 +758,7 @@ fn field_handles_require_metadata_identity_and_have_no_runtime_abi(
     #[case] valid: bool,
 ) {
     let field = Definition { assembly: 0, token };
-    let mut function = initializer(Type::Array(Scalar::U8), vec![1]);
+    let mut function = initializer(Type::Array(Storage::Scalar(Scalar::U8)), vec![1]);
     function.blocks[0].instructions.insert(
         0,
         instruction(1, Type::FieldHandle(field), Op::FieldHandle(field)),
@@ -657,9 +798,9 @@ fn array_operations_preserve_element_identity(#[case] element: Scalar) {
             instruction(0, Type::I32, Op::Constant(3)),
             instruction(
                 1,
-                Type::Array(element),
+                Type::Array(Storage::Scalar(element)),
                 Op::NewArray {
-                    element,
+                    element: Storage::Scalar(element),
                     length: 0,
                     alignment: 1,
                 },
@@ -694,18 +835,18 @@ fn array_operations_preserve_element_identity(#[case] element: Scalar) {
 }
 
 #[rstest]
-#[case(Op::NewArray { element: Scalar::I32, length: 0, alignment: 1 }, Type::Array(Scalar::I32))]
+#[case(Op::NewArray { element: Storage::Scalar(Scalar::I32), length: 0, alignment: 1 }, Type::Array(Storage::Scalar(Scalar::I32)))]
 #[case(Op::ArrayAddress { array: 0, index: 0 }, Type::ByRef(Scalar::I32))]
-#[case(Op::Negate(0), Type::Array(Scalar::I32))]
+#[case(Op::Negate(0), Type::Array(Storage::Scalar(Scalar::I32)))]
 #[case(Op::Convert { value: 0, bits: 16, signed: false }, Type::Native)]
-#[case(Op::Constant(1), Type::Array(Scalar::I32))]
+#[case(Op::Constant(1), Type::Array(Storage::Scalar(Scalar::I32)))]
 fn invalid_array_ir_is_rejected(#[case] op: Op, #[case] ty: Type) {
     let mut function = diamond();
     function.locals.clear();
-    function.parameters = vec![Type::Array(Scalar::I32)];
+    function.parameters = vec![Type::Array(Storage::Scalar(Scalar::I32))];
     function.returns = Some(ty);
     function.blocks = vec![Block {
-        parameters: vec![(0, Type::Array(Scalar::I32))],
+        parameters: vec![(0, Type::Array(Storage::Scalar(Scalar::I32)))],
         instructions: vec![instruction(1, ty, op)],
         terminator: Terminator {
             il_offset: 2,
@@ -925,14 +1066,14 @@ fn storage_alignment_is_bounded_power_of_two(#[case] alignment: u16, #[case] val
         *value = alignment;
     }
     assert_eq!(verify(&f).is_ok(), valid);
-    f.returns = Some(Type::Array(Scalar::U8));
+    f.returns = Some(Type::Array(Storage::Scalar(Scalar::U8)));
     f.blocks[0].instructions = vec![
         instruction(0, Type::I32, Op::Constant(1)),
         instruction(
             1,
-            Type::Array(Scalar::U8),
+            Type::Array(Storage::Scalar(Scalar::U8)),
             Op::NewArray {
-                element: Scalar::U8,
+                element: Storage::Scalar(Scalar::U8),
                 length: 0,
                 alignment,
             },
