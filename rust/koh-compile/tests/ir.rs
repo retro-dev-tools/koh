@@ -77,6 +77,121 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+fn initializer(ty: Type, bytes: Vec<u8>) -> Function {
+    Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![ty],
+        returns: None,
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, ty)],
+            instructions: vec![Instruction {
+                result: None,
+                op: Op::InitializeArray { array: 0, bytes },
+                il_offset: 7,
+            }],
+            terminator: Terminator {
+                il_offset: 8,
+                kind: Control::Return(None),
+            },
+        }],
+    }
+}
+
+#[rstest]
+#[case(Type::Null, false)]
+#[case(Type::Null, true)]
+#[case(Type::FieldHandle(Definition { assembly: 0, token: 0x04000001 }), false)]
+#[case(Type::FieldHandle(Definition { assembly: 0, token: 0x04000001 }), true)]
+fn metadata_values_cannot_cross_machine_calls(#[case] ty: Type, #[case] parameter: bool) {
+    let mut function = initializer(Type::Array(Scalar::U8), vec![1]);
+    let source = match ty {
+        Type::FieldHandle(field) => Op::FieldHandle(field),
+        _ => Op::Constant(0),
+    };
+    function.blocks[0]
+        .instructions
+        .insert(0, instruction(1, ty, source));
+    function.blocks[0].instructions.insert(
+        1,
+        Instruction {
+            result: if parameter { None } else { Some((2, ty)) },
+            op: Op::Call {
+                target: Definition {
+                    assembly: 0,
+                    token: 0x06000002,
+                },
+                signature: Signature {
+                    parameters: if parameter { vec![ty] } else { vec![] },
+                    returns: if parameter { None } else { Some(ty) },
+                },
+                arguments: if parameter { vec![1] } else { vec![] },
+            },
+            il_offset: 1,
+        },
+    );
+    assert!(verify(&function).unwrap_err().contains("machine call ABI"));
+    assert!(koh_compile::sm83::emit(&function).is_err());
+}
+
+#[rstest]
+#[case(Type::Array(Scalar::U8), 3, true)]
+#[case(Type::Array(Scalar::I64), 24, true)]
+#[case(Type::Array(Scalar::U8), 0, false)]
+#[case(Type::Array(Scalar::U8), 4097, false)]
+#[case(Type::Array(Scalar::NativeSigned), 2, false)]
+#[case(Type::I32, 3, false)]
+fn initializer_ir_requires_bounded_primitive_storage(
+    #[case] ty: Type,
+    #[case] bytes: usize,
+    #[case] valid: bool,
+) {
+    let mut function = initializer(ty, vec![0x42; bytes]);
+    assert_eq!(verify(&function).is_ok(), valid);
+    if valid {
+        koh_compile::optimize::simplify(&mut function).unwrap();
+        verify(&function).unwrap();
+    }
+}
+
+#[rstest]
+#[case(16, true)]
+#[case(17, false)]
+fn initializer_ir_data_budget_is_bounded(#[case] copies: usize, #[case] valid: bool) {
+    let mut function = initializer(Type::Array(Scalar::U8), vec![1; 4096]);
+    function.blocks[0].instructions = vec![function.blocks[0].instructions[0].clone(); copies];
+    assert_eq!(verify(&function).is_ok(), valid);
+}
+
+#[rstest]
+#[case(0, false)]
+#[case(0x04000000, false)]
+#[case(0x06000001, false)]
+#[case(0x04000001, true)]
+fn field_handles_require_metadata_identity_and_have_no_runtime_abi(
+    #[case] token: u32,
+    #[case] valid: bool,
+) {
+    let field = Definition { assembly: 0, token };
+    let mut function = initializer(Type::Array(Scalar::U8), vec![1]);
+    function.blocks[0].instructions.insert(
+        0,
+        instruction(1, Type::FieldHandle(field), Op::FieldHandle(field)),
+    );
+    assert_eq!(verify(&function).is_ok(), valid);
+    if valid {
+        function.blocks[0].instructions[0].op = Op::Constant(0);
+        assert!(verify(&function).unwrap_err().contains("metadata identity"));
+        function.blocks[0].instructions[0].op = Op::FieldHandle(field);
+        function.returns = Some(Type::FieldHandle(field));
+        function.blocks[0].terminator.kind = Control::Return(Some(1));
+        assert!(verify(&function).unwrap_err().contains("declared storage"));
+    }
+}
+
 #[rstest]
 #[case(Scalar::Bool)]
 #[case(Scalar::Char)]

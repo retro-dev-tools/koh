@@ -246,6 +246,7 @@ pub struct Method<'a> {
 
 struct Builder {
     next: u32,
+    data_bytes: usize,
     instructions: Vec<Instruction>,
     stack: Vec<(u32, Type)>,
     offset: u32,
@@ -425,6 +426,7 @@ fn lower_inner(
     locals.extend_from_slice(&method.locals);
     let mut builder = Builder {
         next: method.parameters.len() as u32,
+        data_bytes: 0,
         instructions: vec![],
         stack: vec![],
         offset: 0,
@@ -675,6 +677,24 @@ fn translate(
         Ok(())
     };
     match i.opcode {
+        0xd0 => {
+            let Operand::Token(token) = i.operand else {
+                return Err("Missing ldtoken field identity".into());
+            };
+            let resolver = resolver.ok_or("ldtoken requires metadata resolution")?;
+            let field = resolver.resolve_field(method.identity.assembly, token)?;
+            if !field.type_arguments.is_empty() {
+                return Err("Generic RVA field handles are unsupported".into());
+            }
+            resolver
+                .assembly(field.definition.assembly)?
+                .field_data(field.definition.token)?;
+            let value = b.value(
+                Type::FieldHandle(field.definition),
+                Op::FieldHandle(field.definition),
+            )?;
+            b.stack.push(value);
+        }
         0x8d => {
             let Operand::Token(token) = i.operand else {
                 return Err("Missing array element type".into());
@@ -802,6 +822,38 @@ fn translate(
                 Operand::Token(token) => token,
                 _ => return Err("Missing call method token".into()),
             };
+            if resolver.array_initializer(method.identity.assembly, token)? {
+                let handle = b.pop()?;
+                let Type::FieldHandle(field) = handle.1 else {
+                    return Err("InitializeArray requires a known RVA field handle".into());
+                };
+                let array = b.pop()?;
+                if !matches!(array.1, Type::Array(_) | Type::Null) {
+                    return Err("InitializeArray requires a primitive array".into());
+                }
+                if matches!(
+                    array.1,
+                    Type::Array(Scalar::NativeSigned | Scalar::NativeUnsigned)
+                ) {
+                    return Err(
+                        "Native-width RVA array initialization is not portable to SM83".into(),
+                    );
+                }
+                let bytes = resolver.assembly(field.assembly)?.field_data(field.token)?;
+                b.data_bytes += bytes.len();
+                if b.data_bytes > 65536 {
+                    return Err("Method RVA initializer data exceeds 64 KiB budget".into());
+                }
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::InitializeArray {
+                        array: array.0,
+                        bytes: bytes.to_vec(),
+                    },
+                    il_offset: b.offset,
+                });
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             let target = resolver.resolve_method(method.identity.assembly, token)?;
             if !target.type_arguments.is_empty() || !target.method_arguments.is_empty() {
                 return Err("Generic call instantiation is not lowered yet".into());
@@ -912,7 +964,7 @@ fn translate(
                     Type::I32 => Scalar::I32,
                     Type::I64 => Scalar::I64,
                     Type::Native => Scalar::NativeSigned,
-                    Type::ByRef(_) | Type::Array(_) | Type::Null => {
+                    Type::ByRef(_) | Type::Array(_) | Type::Null | Type::FieldHandle(_) => {
                         return Err("Nested managed references are unsupported".into());
                     }
                 }

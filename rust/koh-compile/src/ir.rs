@@ -10,6 +10,7 @@ pub enum Type {
     ByRef(Scalar),
     Array(Scalar),
     Null,
+    FieldHandle(Definition),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +53,7 @@ impl Type {
     }
     pub fn bits(self) -> u8 {
         match self {
+            Self::FieldHandle(_) => 0,
             Self::I32 => 32,
             Self::I64 => 64,
             Self::Native | Self::ByRef(_) | Self::Array(_) | Self::Null => 16,
@@ -93,6 +95,11 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    FieldHandle(Definition),
+    InitializeArray {
+        array: u32,
+        bytes: Vec<u8>,
+    },
     NewArray {
         element: Scalar,
         length: u32,
@@ -161,6 +168,7 @@ pub struct Instruction {
 impl Op {
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
+            Self::InitializeArray { array, .. } => [Some(array), None],
             Self::NewArray { length, .. } | Self::ArrayLength(length) => [Some(length), None],
             Self::ArrayAddress { array, index } => [Some(array), Some(index)],
             Self::LoadMemory { address, .. } => [Some(address), None],
@@ -173,6 +181,7 @@ impl Op {
             | Self::Convert { value, .. }
             | Self::StoreLocal { value, .. } => [Some(value), None],
             Self::Call { .. }
+            | Self::FieldHandle(_)
             | Self::InitializerAddress(_)
             | Self::Constant(_)
             | Self::StaticAddress { .. }
@@ -378,9 +387,11 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         .iter()
         .chain(&function.locals)
         .chain(function.returns.iter())
-        .any(|ty| *ty == Type::Null)
+        .any(|ty| matches!(ty, Type::Null | Type::FieldHandle(_)))
     {
-        return Err("Null is an evaluation-stack type, not declared storage".into());
+        return Err(
+            "Null/metadata handles are evaluation-stack types, not declared storage".into(),
+        );
     }
     let blocks = &function.blocks;
     if blocks.is_empty() || blocks.len() > 16_384 || function.locals.len() > 1024 {
@@ -400,6 +411,19 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         .sum();
     if count > 262_144 {
         return Err("IR exceeds value/instruction limit".into());
+    }
+    let data_bytes = blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .try_fold(0usize, |total, i| {
+            total.checked_add(match &i.op {
+                Op::InitializeArray { bytes, .. } => bytes.len(),
+                _ => 0,
+            })
+        })
+        .ok_or("IR initializer size overflow")?;
+    if data_bytes > 65536 {
+        return Err("IR initializer data exceeds 64 KiB budget".into());
     }
     let mut definitions = HashMap::with_capacity(count);
     let mut predecessors = vec![Vec::new(); blocks.len()];
@@ -472,6 +496,29 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::FieldHandle(field) => {
+                        if field.token >> 24 != 4 || field.token & 0xffffff == 0 {
+                            return Err("Invalid field handle identity".into());
+                        }
+                        Some(Type::FieldHandle(field))
+                    }
+                    Op::InitializeArray { array, ref bytes } => {
+                        if !matches!(check(array, position)?, Type::Array(_) | Type::Null)
+                            || bytes.is_empty()
+                            || bytes.len() > 4096
+                        {
+                            return Err("Invalid primitive array initializer".into());
+                        }
+                        if matches!(
+                            check(array, position)?,
+                            Type::Array(Scalar::NativeSigned | Scalar::NativeUnsigned)
+                        ) {
+                            return Err(
+                                "Native-width RVA array initialization is unsupported".into()
+                            );
+                        }
+                        None
+                    }
                     Op::NewArray { element, length } => {
                         if !matches!(check(length, position)?, Type::I32 | Type::Native) {
                             return Err("Array length must be int32 or native integer".into());
@@ -575,6 +622,16 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         ref arguments,
                         ..
                     } => {
+                        if signature
+                            .parameters
+                            .iter()
+                            .chain(signature.returns.iter())
+                            .any(|ty| matches!(ty, Type::Null | Type::FieldHandle(_)))
+                        {
+                            return Err(
+                                "Metadata-only values cannot use the machine call ABI".into()
+                            );
+                        }
                         if arguments.len() != signature.parameters.len() || arguments.len() > 1024 {
                             return Err("Invalid call argument count".into());
                         }
@@ -587,6 +644,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     }
                     Op::Constant(bits) => {
                         let ty = result.ok_or("Constant has no result")?;
+                        if matches!(ty, Type::FieldHandle(_)) {
+                            return Err("Field handles require metadata identity".into());
+                        }
                         if matches!(ty, Type::ByRef(_) | Type::Array(_) | Type::Null) && bits != 0 {
                             return Err("Nonzero managed reference constant".into());
                         }
@@ -618,6 +678,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(left)
                     }
                     Op::Compare { left, right, .. } => {
+                        if matches!(check(left, position)?, Type::FieldHandle(_)) {
+                            return Err("Metadata handle comparison is unsupported".into());
+                        }
                         if check(left, position)? != check(right, position)? {
                             return Err("Comparison operand type mismatch".into());
                         }
@@ -631,7 +694,10 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(ty)
                     }
                     Op::Convert { value, bits, .. } => {
-                        if matches!(check(value, position)?, Type::Array(_) | Type::Null) {
+                        if matches!(
+                            check(value, position)?,
+                            Type::Array(_) | Type::Null | Type::FieldHandle(_)
+                        ) {
                             return Err("Array reference conversion is unsupported".into());
                         }
                         let ty = result.ok_or("Conversion has no result")?;

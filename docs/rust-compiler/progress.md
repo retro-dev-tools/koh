@@ -468,3 +468,35 @@ Prior local-reference head `8267af0` now has completed successful hosted
 [CI](https://github.com/retro-dev-tools/koh/actions/runs/43660015743) workflows.
 That is predecessor evidence; the array head requires separate hosted validation.
 No legacy test method is fully retired and the production SDK still uses C#.
+
+## Mutable RVA array literals
+
+[RVA initializers](rva-initializers.md) add bounded field-data reading, symbolic
+metadata-only field handles, exact framework-helper identity/signature checks and
+runtime payload copying from canonical read-only ELF sections. Arrays remain
+distinct mutable allocations, including static readonly references. Partial/empty
+copies follow the helper contract; invalid size faults7 before payload writes.
+Compile-time handles cannot cross machine calls or acquire fabricated constants.
+Opaque RVA storage requires canonical ValueType ancestry and explicit layout.
+
+Focused reader/IR/driver checks passed **34/34**, exit0, 81.735s
+(`/tmp/koh-rva-review-fixes.log`). Four D/R x DMG/CGB cases execute24 ROM scenarios
+and12 malformed helper probes; reader cases include three PE variants and eleven
+malformed metadata mutations. Review found and fixed the standalone IR call-ABI
+gap; negative tests preserve its rejection. The earlier526-case workspace run was
+intentionally interrupted after498 passes to complete review fixes; it is not a
+successful full-suite result. The corrected535-case rerun is recorded separately.
+
+The corrected formatted tree passed Linux
+`cargo nextest run --workspace --all-features --locked --no-fail-fast`:
+**535 passed, 0 skipped**, exit0, 333.191s (`/tmp/koh-rva-final-nextest.log`). This
+includes359 compiler cases and260 ROM scenarios (203 normal returns,57 traps).
+Rust formatting and separate workspace doctests (currently no cases) exit0.
+
+Predecessor array head `4a32ba8` has successful completed
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43664185371) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43664185401) workflows.
+Native Linux, Windows and macOS jobs include successful Test steps; completed
+macOS log confirms501/501, no skips. RVA-head hosted evidence remains separate.
+Real sample graphics, broader runtime/aggregate/enum, IRQ/banking, PDB/debug/SDK,
+whole-test migration/deletion and performance/container gates remain open.

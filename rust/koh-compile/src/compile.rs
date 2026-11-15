@@ -134,6 +134,7 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
     let mut queue = VecDeque::from([entry]);
     let mut functions = Vec::new();
     let mut instructions = 0usize;
+    let mut data_bytes = 0usize;
     for assembly in 0..resolver.assembly_count() {
         crate::contracts::assembly(resolver, assembly)?;
     }
@@ -153,6 +154,12 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
         }
         for block in &function.blocks {
             for instruction in &block.instructions {
+                if let Op::InitializeArray { ref bytes, .. } = instruction.op {
+                    data_bytes += bytes.len();
+                    if data_bytes > 16 * 1024 * 1024 {
+                        return Err("Reachable initializer data exceeds 16 MiB budget".into());
+                    }
+                }
                 if let Op::Call { target, .. } = instruction.op {
                     if seen.insert(target) {
                         if seen.len() > 4096 {

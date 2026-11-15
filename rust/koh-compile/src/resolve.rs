@@ -133,41 +133,94 @@ fn identity(metadata: &Metadata) -> Result<Identity, String> {
     })
 }
 
+pub(crate) fn framework_type(
+    metadata: &Metadata,
+    token: u32,
+) -> Result<Option<(&str, &str)>, String> {
+    if token >> 24 != 1 {
+        return Ok(None);
+    }
+    let ty = row(&metadata.type_refs, token, 1)?;
+    if ty.resolution_scope.table != Some(TableId::AssemblyRef) {
+        return Ok(None);
+    }
+    let reference = row(&metadata.assembly_refs, coded(ty.resolution_scope)?, 0x23)?;
+    let string = |index| metadata.strings.get(index).map_err(|e| e.to_string());
+    let expected = match string(reference.name)? {
+        "System.Runtime" => [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a],
+        "System.Private.CoreLib" => [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e],
+        "mscorlib" => [0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89],
+        _ => return Ok(None),
+    };
+    if reference.flags & 0x0f00 != 0
+        || !string(reference.culture)?.is_empty()
+        || key(
+            metadata
+                .blobs
+                .get(reference.public_key_or_token)
+                .map_err(|e| e.to_string())?,
+            reference.flags & 1 != 0,
+        )? != Some(expected)
+    {
+        return Ok(None);
+    }
+    Ok(Some((string(ty.type_namespace)?, string(ty.type_name)?)))
+}
+
 impl<'a> Resolver<'a> {
+    fn framework_type(&self, assembly: usize, token: u32) -> Result<Option<(&str, &str)>, String> {
+        framework_type(self.assembly(assembly)?.metadata(), token)
+    }
+
+    pub(crate) fn array_initializer(&self, assembly: usize, token: u32) -> Result<bool, String> {
+        if token >> 24 != 0x0a {
+            return Ok(false);
+        }
+        let metadata = self.assembly(assembly)?.metadata();
+        let method = row(&metadata.member_refs, token, 0x0a)?;
+        if metadata
+            .strings
+            .get(method.name)
+            .map_err(|e| e.to_string())?
+            != "InitializeArray"
+            || self.framework_type(assembly, coded(method.class)?)?
+                != Some(("System.Runtime.CompilerServices", "RuntimeHelpers"))
+        {
+            return Ok(false);
+        }
+        let signature = crate::signature::method(
+            metadata
+                .blobs
+                .get(method.signature)
+                .map_err(|e| e.to_string())?,
+        )?;
+        let [TypeSig::Class(array), TypeSig::ValueType(handle)] = signature.params.as_slice()
+        else {
+            return Err("Invalid RuntimeHelpers.InitializeArray parameter signature".into());
+        };
+        if signature.calling_convention.0 != 0
+            || signature.generic_param_count != 0
+            || signature.sentinel.is_some()
+            || signature.return_type != TypeSig::Primitive(clrmeta::ElementType::Void)
+            || self.framework_type(assembly, type_token(*array)?)? != Some(("System", "Array"))
+            || self.framework_type(assembly, type_token(*handle)?)?
+                != Some(("System", "RuntimeFieldHandle"))
+        {
+            return Err("Invalid RuntimeHelpers.InitializeArray signature".into());
+        }
+        Ok(true)
+    }
+
     pub(crate) fn primitive(
         &self,
         assembly: usize,
         token: u32,
     ) -> Result<crate::ir::Scalar, String> {
         use crate::ir::Scalar;
-        let metadata = self.assembly(assembly)?.metadata();
-        let ty = row(&metadata.type_refs, token, 1)?;
-        if ty.resolution_scope.table != Some(TableId::AssemblyRef) {
-            return Err("Array element requires a framework primitive type".into());
-        }
-        let reference = row(&metadata.assembly_refs, coded(ty.resolution_scope)?, 0x23)?;
-        let string = |index| metadata.strings.get(index).map_err(|e| e.to_string());
-        let name = string(reference.name)?;
-        let expected = match name {
-            "System.Runtime" => [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a],
-            "System.Private.CoreLib" => [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e],
-            "mscorlib" => [0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89],
-            _ => return Err("Array element is not a supported framework primitive".into()),
+        let Some(("System", name)) = self.framework_type(assembly, token)? else {
+            return Err("Array element requires a supported framework primitive identity".into());
         };
-        if reference.flags & 0x0f00 != 0
-            || !string(reference.culture)?.is_empty()
-            || key(
-                metadata
-                    .blobs
-                    .get(reference.public_key_or_token)
-                    .map_err(|e| e.to_string())?,
-                reference.flags & 1 != 0,
-            )? != Some(expected)
-            || string(ty.type_namespace)? != "System"
-        {
-            return Err("Invalid framework primitive identity".into());
-        }
-        Ok(match string(ty.type_name)? {
+        Ok(match name {
             "Boolean" => Scalar::Bool,
             "Char" => Scalar::Char,
             "SByte" => Scalar::I8,

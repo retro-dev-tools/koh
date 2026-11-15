@@ -15,6 +15,8 @@ pub fn static_symbol(identity: Definition) -> String {
 
 struct Code {
     data: Vec<u8>,
+    readonly: Vec<u8>,
+    literals: BTreeMap<Vec<u8>, SymbolId>,
     symbols: Vec<Symbol>,
     patches: Vec<Patch>,
     prefix: String,
@@ -23,6 +25,27 @@ struct Code {
 }
 
 impl Code {
+    fn literal(&mut self, bytes: &[u8]) -> Result<SymbolId, String> {
+        if let Some(&symbol) = self.literals.get(bytes) {
+            return Ok(symbol);
+        }
+        if self.readonly.len() + bytes.len() > 0x4000 {
+            return Err("Function initializer data exceeds ROM0 capacity".into());
+        }
+        let id = SymbolId(self.symbols.len());
+        self.symbols.push(Symbol {
+            name: format!("{}.D{}", self.prefix, id.0),
+            binding: SymbolBinding::Local,
+            definition: SymbolDefinition::Label {
+                section: SectionId(2),
+                offset: self.readonly.len() as u32,
+            },
+            source: None,
+        });
+        self.readonly.extend_from_slice(bytes);
+        self.literals.insert(bytes.to_vec(), id);
+        Ok(id)
+    }
     fn bytes(&mut self, bytes: &[u8]) {
         if self.data.len() + bytes.len() > 0x4000 {
             self.overflow = true;
@@ -153,7 +176,7 @@ impl Code {
     }
 
     fn copy(&mut self, source: u16, destination: u16, width: u16) {
-        if source == destination {
+        if source == destination || width == 0 {
             return;
         }
         self.address(source);
@@ -216,6 +239,34 @@ impl Code {
         self.check_reference(Type::Null);
         self.heap_bank(saved);
         self.bytes(&[0x60, 0x69, 0x2a, 0x4f, 0x46]);
+    }
+
+    fn initialize_array(
+        &mut self,
+        array: u16,
+        stride: u16,
+        bytes: &[u8],
+        temp: u16,
+    ) -> Result<(), String> {
+        let literal = self.literal(bytes)?;
+        self.array_header(array, temp + 24);
+        self.save_word(temp);
+        let fault = self.import("__koh_trap_initializer".into());
+        self.below_constant(temp, (bytes.len() as u16 / stride) + 1, fault);
+        for _ in 0..stride.trailing_zeros() {
+            self.shift_one(temp, 2, true, false, false);
+        }
+        self.indirect(temp);
+        self.address(array);
+        self.bytes(&[0x5e, 0x23, 0x56, 0x13, 0x13]);
+        self.jump(0x21, literal);
+        self.bytes(&[0x78, 0xb1]);
+        let done = self.label();
+        self.jump(0xca, done);
+        self.bytes(&[0x2a, 0x12, 0x13, 0x0b, 0x78, 0xb1, 0x20, 0xf8]);
+        self.mark(done);
+        self.restore_bank(temp + 24);
+        Ok(())
     }
 
     fn below_constant(&mut self, value: u16, limit: u16, fault: SymbolId) {
@@ -671,6 +722,8 @@ pub fn emit(function: &Function) -> Result<Object, String> {
     let name = symbol(function.identity);
     let mut code = Code {
         data: vec![],
+        readonly: vec![],
+        literals: BTreeMap::new(),
         symbols: vec![
             Symbol {
                 name: name.clone(),
@@ -728,6 +781,20 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::FieldHandle(_) => {}
+                Op::InitializeArray { array, ref bytes } => {
+                    let stride = match layout.values[&array].1 {
+                        Type::Array(element) => element.bits() / 8,
+                        Type::Null => 1,
+                        _ => return Err("Invalid verified initializer operand".into()),
+                    };
+                    code.initialize_array(
+                        slot(array),
+                        u16::from(stride),
+                        bytes,
+                        layout.arithmetic,
+                    )?;
+                }
                 Op::NewArray { element, length } => {
                     let temp = layout.arithmetic;
                     let fault = code.import("__koh_trap_allocation".into());
@@ -1033,7 +1100,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         code.bytes(&[0xc9]);
     }
     code.check_size()?;
-    let object = Object {
+    let mut object = Object {
         sections: vec![
             Section {
                 name: format!(".text.{name}"),
@@ -1055,6 +1122,15 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         ],
         symbols: code.symbols,
     };
+    if !code.readonly.is_empty() {
+        object.sections.push(Section {
+            name: format!(".rodata.{name}"),
+            kind: 0,
+            size: code.readonly.len() as u32,
+            data: code.readonly,
+            ..Default::default()
+        });
+    }
     object.validate()?;
     Ok(object)
 }

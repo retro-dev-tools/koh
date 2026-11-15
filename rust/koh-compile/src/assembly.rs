@@ -281,6 +281,84 @@ impl<'a> Assembly<'a> {
         crate::signature::field(blob).map_err(|e| format!("{name}: {e}"))
     }
 
+    pub fn field_data(&self, token: u32) -> Result<&'a [u8], String> {
+        use clrmeta::{ElementType, TypeSig};
+        let signature = self.field_signature(token)?;
+        let index = (token & 0xffffff) as usize - 1;
+        let field = &self.metadata.fields[index];
+        if field.flags & 0x110 != 0x110 || field.flags & 0x40 != 0 {
+            return Err("RVA data requires a nonliteral static HasFieldRVA field".into());
+        }
+        let size = match signature {
+            TypeSig::Primitive(ElementType::Boolean | ElementType::I1 | ElementType::U1) => 1,
+            TypeSig::Primitive(ElementType::Char | ElementType::I2 | ElementType::U2) => 2,
+            TypeSig::Primitive(ElementType::I4 | ElementType::U4 | ElementType::R4) => 4,
+            TypeSig::Primitive(ElementType::I8 | ElementType::U8 | ElementType::R8) => 8,
+            TypeSig::ValueType(encoded) if encoded & 3 == 0 && encoded >> 2 != 0 => {
+                let row = encoded >> 2;
+                let ty = self
+                    .metadata
+                    .type_defs
+                    .get(row as usize - 1)
+                    .ok_or("Invalid RVA field value type")?;
+                if ty.extends.table != Some(TableId::TypeRef)
+                    || crate::resolve::framework_type(&self.metadata, 0x01000000 | ty.extends.row)?
+                        != Some(("System", "ValueType"))
+                {
+                    return Err(
+                        "RVA opaque value type must derive from framework System.ValueType".into(),
+                    );
+                }
+                let end = self
+                    .metadata
+                    .type_defs
+                    .get(row as usize)
+                    .map(|t| t.field_list)
+                    .unwrap_or(self.metadata.fields.len() as u32 + 1);
+                if ty.flags & 0x18 != 0x10
+                    || end != ty.field_list
+                    || self
+                        .metadata
+                        .generic_params
+                        .iter()
+                        .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == row)
+                {
+                    return Err("RVA value types require nongeneric opaque explicit layout".into());
+                }
+                let mut layouts = self
+                    .metadata
+                    .class_layouts
+                    .iter()
+                    .filter(|l| l.parent == row);
+                let layout = layouts.next().ok_or("RVA value type has no ClassLayout")?;
+                if layouts.next().is_some()
+                    || !matches!(layout.packing_size, 0 | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128)
+                {
+                    return Err("Invalid or duplicate RVA ClassLayout".into());
+                }
+                layout.class_size as usize
+            }
+            _ => return Err("Unsupported RVA field storage type".into()),
+        };
+        if size == 0 || size > 4096 {
+            return Err("RVA initializer data exceeds supported 1..4096-byte size".into());
+        }
+        let mut rows = self
+            .metadata
+            .field_rvas
+            .iter()
+            .filter(|r| r.field == index as u32 + 1);
+        let data = rows.next().ok_or("HasFieldRVA field has no RVA row")?;
+        if rows.next().is_some() || data.rva == 0 {
+            return Err("Invalid or duplicate FieldRVA row".into());
+        }
+        let bytes = self
+            .sections
+            .pe_data_at(self.bytes, data.rva)
+            .ok_or("Invalid field data RVA")?;
+        range(bytes, 0, size).map_err(|error| format!("Field 0x{token:08x} data: {error}"))
+    }
+
     pub fn method(&self, token: u32) -> Result<&clrmeta::MethodDefRow, String> {
         if token >> 24 != 6 {
             return Err(format!("Expected MethodDef token, got 0x{token:08x}"));

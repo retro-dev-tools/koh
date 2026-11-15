@@ -75,6 +75,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
     for mut block in blocks.into_iter().flatten() {
         for instruction in &mut block.instructions {
             match &mut instruction.op {
+                Op::InitializeArray { array, .. } => value(array),
                 Op::NewArray { length, .. } | Op::ArrayLength(length) => value(length),
                 Op::ArrayAddress { array, index } => {
                     value(array);
@@ -103,6 +104,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     }
                 }
                 Op::Constant(_)
+                | Op::FieldHandle(_)
                 | Op::LocalAddress { .. }
                 | Op::StaticAddress { .. }
                 | Op::InitializerAddress(_)

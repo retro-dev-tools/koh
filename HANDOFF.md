@@ -5,7 +5,7 @@
 Complete the entire native Rust CIL-to-SM83 migration in this single draft PR:
 https://github.com/retro-dev-tools/koh/pull/55 . Never merge it. Do not mark the
 goal complete for an increment. User wants logical commits and an ASCII progress
-bar where 100% means every original requirement is verified. Rough estimate 40%.
+bar where 100% means every original requirement is verified. Rough estimate 42%.
 
 Worktree `/home/minorum/projekty/koh-rust-compiler`, branch `feat/rust-cil-compiler`.
 Baseline integrated linker migration: `9cd1472`. The main checkout's modified
@@ -28,7 +28,7 @@ intrinsics; actual type/module constructors with once guards and BFI deferral.
 CFG chain merging and conservative block-local temporary reuse reduce code/frame
 costs. Reuse koh-objects/koh-link; no second linker or object serializer.
 
-Latest unit adds primitive local/argument addresses, metadata-aware narrow load
+Earlier unit adds primitive local/argument addresses, metadata-aware narrow load
 normalization, a bounded frame-return escape graph and managed null fault 4.
 Read local-references.md, statics.md, initializers.md and sm83-abi.md. Reference
 return analysis is conservative for reassignment/scoped-return contracts. Native
@@ -40,14 +40,24 @@ linker-reserved WRAMX bank 1. Full-width length/index checks fault before invali
 writes; empty objects have distinct identities. Array/static/local/return/null
 semantics and heap element refs are typed. Managed references preserve SVBK;
 native bus pointers retain selected-bank semantics. Internal allocator CALL/AF
-scratch is guarded. Read arrays.md. No GC/reset, RVA initialization or aggregate/
+scratch is guarded. Read arrays.md. No GC/reset or aggregate/
 reference/float/multidimensional array support yet; these remain required work.
+RVA initialization now copies validated field bytes into distinct mutable arrays;
+compile-time field handles have no machine representation and cannot cross calls.
+Exact framework helper identity/signature checks replace pattern suppression.
+Canonical read-only ELF sections carry literal bytes; runtime null/size checks
+and bank preservation guard copies. Read rva-initializers.md for subset limits.
 
 ## Evidence
 
-Latest formatted-tree Linux workspace nextest: 501/501 passed, no skips, exit 0,
-251.829s (`/tmp/koh-arrays-verified.log`); 325 compiler cases, 236 ROM scenarios
-(187 normal, 49 traps). Array-focused 29/29 passes; four D/R x DMG/CGB cases check
+Latest formatted-tree Linux workspace nextest: 535/535 passed, no skips, exit 0,
+333.191s (`/tmp/koh-rva-final-nextest.log`); 359 compiler cases,260 ROM scenarios
+(203 normal,57 traps). RVA-focused34/34, including24 ROM cases,12 helper rejection
+probes,3 PE variants,11 malformed metadata cases and16 IR invariants. Source
+review caught machine-call metadata handle fabrication; negative tests now reject
+it through both verifier/emitter. An earlier526-case run was deliberately
+interrupted after498 passes for those review fixes, not a full success.
+Array-focused 29/29 passes; four D/R x DMG/CGB cases check
 40 ROM scenarios and 16 rejection probes, full poisoned-bank snapshots, all twelve
 primitive element types, returned refs and loop/null joins. Review caught native/
 int16 opcode confusion; six malformed-IL regressions preserve the distinction.
@@ -63,19 +73,20 @@ passed 2/2 afterward, with no compiler-code change:
 `/tmp/koh-local-ref-signed-final.log`. Separate doctests and stable fmt checks exit 0.
 Read-only source review complete; no delegated writers/builds remain. Constructor
 head d73963a passed all 14 hosted jobs; completed macOS log confirms 450/450.
-Local-reference head8267af0 has successful completed Rust/CI workflows; array-head
-hosted results remain pending. Historical legacy baseline
+Array head4a32ba8 has successful completed Rust/CI workflows, native Linux/Windows/
+macOS Test steps; completed macOS log501/501. RVA-head hosted results remain
+pending. Historical legacy baseline
 814/814 is reference evidence, not a correctness oracle.
 
 ## Next work and verification
 
-Array unit ready for commit/push to the same draft PR. Parent owns edits/builds;
-two read-only review passes complete, no delegated writers/builds. Final logs are
-above. Verify committed tree/remote head and draft state after publishing.
+RVA unit ready for commit/push. Parent owns edits/builds; two read-only review
+passes complete, no delegated writers/builds. Verify committed/remote draft state
+after publishing and rerun formatted C# fixtures post-hook.
 
 Finish/review/commit/push this unit if not already committed, update the same draft
-PR and verify its remote head/draft state. Next pursue RVA array initialization
-used by Tiles.cs/gfx-demo assets, then aggregate/array/runtime
+PR and verify its remote head/draft state. Next pursue enum/switch/pinned-storage
+and library/runtime support needed by actual Board/Tiles/gfx-demo sources, then aggregate/array/runtime
 support toward real games; keep full IRQ/banking, Portable PDB/KDBG/debugger,
 native SDK/incremental/package/CI, sample graphics execution, complete Rust test
 audit/migration, C# compiler deletion, performance/platform and bounded Docker gates.

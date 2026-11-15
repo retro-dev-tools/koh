@@ -43,8 +43,16 @@ Primitive mutable-array coverage is now partly implemented in
 scenarios and 16 explicit rejection probes. Twelve element-type verifier cases,
 five malformed IR operations, two null-merge orderings and six native/int16
 opcode mismatch cases are separately discoverable by nextest. These cover parts
-of the array-length/memory audit groups; RVA/aggregate/framework/sample behavior
+of the array-length/memory audit groups; aggregate/framework/sample behavior
 remains open. No complete legacy method has been retired by this increment.
+
+[RVA initialization](rva-initializers.md) adds four Rust driver cases with 24 ROM
+scenarios and 12 helper-metadata rejection probes, three PE reader variants,
+eleven malformed RVA/layout cases and sixteen IR identity/storage/budget/call-ABI
+cases. These partly implement the literal/static/memory groups; mutable identity
+and bytes replace brittle ROM/pass assumptions. Full sample/runtime coverage and
+whole-method retirement remain open. All new assertions are Rust-owned and
+discoverable by nextest; C# files are compiled fixtures or the emulator host.
 
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.

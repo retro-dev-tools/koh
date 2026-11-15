@@ -314,6 +314,302 @@ fn assert_heap_snapshot(text: &str, expected: &[u8], entry: &str) {
 }
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn rva_literals_initialize_distinct_mutable_arrays(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    use koh_compile::{assembly::Assembly, cil};
+    let directory = tempfile::Builder::new()
+        .prefix("koh RVA arrays ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ArrayLiterals");
+    std::fs::create_dir(directory.path().join("Library")).unwrap();
+    for name in [
+        "ArrayLiterals.csproj",
+        "Program.cs",
+        "Library/ArrayData.csproj",
+        "Library/Data.cs",
+    ] {
+        std::fs::copy(fixture.join(name), directory.path().join(name)).unwrap();
+    }
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.path().join("ArrayLiterals.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let original = std::fs::read(output.join("ArrayLiterals.dll")).unwrap();
+    let image = Assembly::parse(&original).unwrap();
+    let probe = (1..=image.metadata().method_defs.len())
+        .map(|r| 0x06000000 | r as u32)
+        .find(|&t| image.method_name(t).unwrap() == "Program::Probe")
+        .unwrap();
+    let body = image.method_body(probe).unwrap();
+    let base = body.il.as_ptr() as usize - original.as_ptr() as usize;
+    let il = cil::decode(body.il).unwrap();
+    let allocation = il.windows(2).find(|pair| pair[1].opcode == 0x8d).unwrap();
+    assert_eq!(
+        allocation[0].opcode, 0x19,
+        "Probe must allocate three elements"
+    );
+    assert!(
+        il.iter().any(|i| i.opcode == 0xd0),
+        "Roslyn must emit a field token"
+    );
+    for (kind, fault, expected_result) in [
+        ("Main", 0, 42),
+        ("Probe", 0, 3),
+        ("Small", 0, 2),
+        ("Empty", 0, 0),
+        ("Large", 7, 0),
+        ("Null", 4, 0),
+    ] {
+        let mut bytes = original.clone();
+        if matches!(kind, "Small" | "Empty" | "Large") {
+            bytes[base + allocation[0].offset as usize] = match kind {
+                "Small" => 0x18,
+                "Empty" => 0x16,
+                _ => 0x1a,
+            };
+        } else if kind == "Null" {
+            let position = base + allocation[1].offset as usize;
+            bytes[position..position + 5].copy_from_slice(&[0x26, 0x14, 0, 0, 0]);
+        }
+        let path = directory.path().join("mutated fixture.dll");
+        std::fs::write(&path, &bytes).unwrap();
+        let object = directory.path().join("array literals.o");
+        let entry = match (kind == "Main", color) {
+            (true, false) => "Main",
+            (true, true) => "Banked",
+            (false, false) => "Probe",
+            (false, true) => "BankedProbe",
+        };
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+            .arg(&path)
+            .arg("-r")
+            .arg(output.join("ArrayData.dll"))
+            .arg("-r")
+            .arg(output.join("Koh.GameBoy.dll"))
+            .args(["--entry", &format!("Program::{entry}")])
+            .arg("-o")
+            .arg(&object)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{kind}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let object = koh_objects::read_elf(&std::fs::read(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if fault == 0 {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 });
+        assert_eq!(fields[0], format!("{fault:02X}"), "{kind}");
+        assert_eq!(fields[3], "OK", "{kind}");
+        if fault == 0 {
+            assert_eq!(
+                (fields[1], fields[2]),
+                (format!("{expected_result:08X}").as_str(), "D000"),
+                "{kind}"
+            );
+        }
+        let mut expected = vec![];
+        let mut array = |count: u16, data: &[u8]| {
+            expected.extend_from_slice(&count.to_le_bytes());
+            expected.extend_from_slice(data);
+        };
+        array(4, &[21, 22, if kind == "Main" { 77 } else { 23 }, 24]);
+        if kind == "Main" {
+            let mut data = vec![
+                6, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+            ];
+            data[1] = 99;
+            array(18, &data);
+            data[1] = 2;
+            array(18, &data);
+            array(3, &[0xff, 2, 0xfd]);
+            array(
+                3,
+                &[-1i16, 0x1234, -1234]
+                    .into_iter()
+                    .flat_map(i16::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            );
+            array(
+                3,
+                &[0xfedcu16, 1, 2]
+                    .into_iter()
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            );
+            array(
+                3,
+                &[-1i32, 0x12345678, i32::MIN]
+                    .into_iter()
+                    .flat_map(i32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            );
+            array(
+                3,
+                &[0xfedcba98u32, 1, u32::MAX]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            );
+            array(
+                3,
+                &[0x1122334455667788i64, -2, i64::MIN]
+                    .into_iter()
+                    .flat_map(i64::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            );
+            array(
+                3,
+                &[0xfedcba9876543210u64, 1, u64::MAX]
+                    .into_iter()
+                    .flat_map(u64::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            );
+            array(
+                3,
+                &[65u16, 0xf123, 0]
+                    .into_iter()
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            );
+            array(4, &[1, 0, 1, 0]);
+        } else if kind != "Null" {
+            let data: &[u8] = match kind {
+                "Probe" => &[1, 2, 3],
+                "Small" => &[1, 2],
+                "Empty" => &[],
+                _ => &[0, 0, 0, 0],
+            };
+            array(data.len() as u16, data);
+        }
+        let mut heap = vec![0x5a; 4096];
+        heap[..expected.len()].copy_from_slice(&expected);
+        assert_heap_snapshot(fields[4], &heap, kind);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], kind);
+        }
+    }
+    let metadata = image.metadata();
+    let helper = metadata
+        .member_refs
+        .iter()
+        .find(|m| metadata.strings.get(m.name).unwrap() == "InitializeArray")
+        .unwrap();
+    let signature = metadata.blobs.get(helper.signature).unwrap();
+    let owner = &metadata.type_refs[helper.class.row as usize - 1];
+    assert_eq!(helper.class.table, Some(clrmeta::TableId::TypeRef));
+    assert_eq!(
+        owner.resolution_scope.table,
+        Some(clrmeta::TableId::AssemblyRef)
+    );
+    for mutation in ["has-this", "handle-class", "wrong-scope"] {
+        let (needle, offset, replacement) = if mutation == "wrong-scope" {
+            let mut row = ((owner.resolution_scope.row as u16) << 2 | 2)
+                .to_le_bytes()
+                .to_vec();
+            assert!(owner.type_name < 65536 && owner.type_namespace < 65536);
+            row.extend_from_slice(&(owner.type_name as u16).to_le_bytes());
+            row.extend_from_slice(&(owner.type_namespace as u16).to_le_bytes());
+            let reference = metadata
+                .assembly_refs
+                .iter()
+                .position(|a| metadata.strings.get(a.name).unwrap() == "ArrayData")
+                .unwrap() as u16
+                + 1;
+            (row, 0, ((reference << 2) | 2).to_le_bytes().to_vec())
+        } else {
+            assert_eq!(signature[0], 0);
+            assert_eq!(signature[signature.len() - 2], 0x11);
+            (
+                signature.to_vec(),
+                if mutation == "has-this" {
+                    0
+                } else {
+                    signature.len() - 2
+                },
+                vec![if mutation == "has-this" { 0x20 } else { 0x12 }],
+            )
+        };
+        let positions: Vec<_> = original
+            .windows(needle.len())
+            .enumerate()
+            .filter_map(|(i, b)| (b == needle).then_some(i))
+            .collect();
+        assert_eq!(positions.len(), 1, "Unique helper metadata mutation");
+        let mut bytes = original.clone();
+        let start = positions[0] + offset;
+        bytes[start..start + replacement.len()].copy_from_slice(&replacement);
+        let path = directory.path().join("bad helper.dll");
+        std::fs::write(&path, bytes).unwrap();
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+            .arg(&path)
+            .arg("-r")
+            .arg(output.join("ArrayData.dll"))
+            .arg("-r")
+            .arg(output.join("Koh.GameBoy.dll"))
+            .args(["--entry", "Program::Probe"])
+            .arg("-o")
+            .arg(directory.path().join("bad.o"))
+            .output()
+            .unwrap();
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            !result.status.success() && error.contains("IL_") && !error.contains("panicked"),
+            "{mutation}: {error}"
+        );
+        assert!(!directory.path().join("bad.o").exists());
+    }
+}
+
+#[rstest]
 #[case("Debug")]
 #[case("Release")]
 fn local_and_argument_references_preserve_ancestor_frames(

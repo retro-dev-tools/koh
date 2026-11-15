@@ -60,9 +60,10 @@ Primitive type tokens are recognized only under the named, signed framework
 assembly identities. This does not require copying or lowering the BCL. Arbitrary
 user types named `System.Int32` are not primitive array storage. Missing ordinary
 references continue to fail resolution. Struct, object, reference-element, nested,
-multidimensional and floating-point arrays remain explicit diagnostics. RVA array
-initialization (`RuntimeHelpers.InitializeArray`) is still pending; existing sample
-asset arrays and broader array/runtime contracts remain migration requirements.
+multidimensional and floating-point arrays remain explicit diagnostics.
+[RVA initialization](rva-initializers.md) now copies validated literal bytes into
+ordinary mutable heap arrays. Actual sample graphics and broader array/runtime
+contracts remain migration requirements.
 
 ## Evidence and test disposition
 
@@ -82,11 +83,11 @@ Six malformed-IL cases distinguish native integer arrays from short/char arrays
 despite their equal physical widths. The real fixture also carries null/array
 joins through a loop and returns an element reference across a managed call.
 
-These are partial PORT/REPLACE coverage for `CilArrayLengthTests`, primitive
-portions of `CilMemoryTests` and mutable-array scenarios identified in
+These are partial PORT/REPLACE coverage for `CilLoweringTests.ArrayLength_*`,
+`CilStaticsTests.MutableStaticArray_*` and mutable-array scenarios identified in
 [the frontend audit](frontend-audit.md). Expected bytes follow CLI integer/array
 semantics and SM83 little-endian memory, not old compiler output. Representation
 checks apply to the documented native ABI. No complete legacy method is retired:
-RVA initialization, framework allocator APIs, aggregates, multidimensional arrays,
+framework allocator APIs, aggregates, multidimensional arrays,
 and associated sample behavior are still required. This increment does not prove
 source debugging, graphics or complete game acceptance.
