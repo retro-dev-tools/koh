@@ -28,7 +28,7 @@ Background/window map coordinates, fill/draw byte contents, CGB bank-1 attribute
 
 Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilCanvasTests.cs`. Future Rust test group: `cil_canvas`.
 
-Tile-planar pixel placement, shade/dither masks, line/triangle rasterization, double-buffer presentation and CGB GDMA with no mode-3 writes. Preserve the Canvas API and observed pixels; buffer addresses and DMA choice are implementation choices unless hardware requires them.
+Tile-planar pixel placement, shade/dither masks, line/triangle rasterization and double-buffer presentation with no mode-3 writes are useful authoring capabilities. Existing API names and shapes are not a baseline; preserve independently justified pixels and hardware behavior, with buffer addresses and DMA choice treated as implementation choices unless hardware requires them.
 
 - **PORT** `Init_Clear_SetPixel_Present_LcdOff_MatchesExpectedBuffer`.
 - **PORT** `FillRect_SolidShade_FillsEveryPlaneByteFF`.

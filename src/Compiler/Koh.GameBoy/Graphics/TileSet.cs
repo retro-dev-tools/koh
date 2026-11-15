@@ -72,6 +72,11 @@ public static unsafe class TileSet
     {
         byte* dest = Gb.TileData + (ushort)(firstTile * TileBytes);
         ushort total = (ushort)(count * TileBytes);
+        CopyToVram(dest, source, total);
+    }
+
+    internal static void CopyToVram(byte* dest, byte* source, ushort total)
+    {
         bool gdma = CanUseGdma(source, dest);
         bool lcdOn = (Hardware.LCDC & 0x80) != 0;
 
