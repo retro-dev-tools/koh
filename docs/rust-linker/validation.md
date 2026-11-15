@@ -59,7 +59,7 @@ finished log or resulting artifacts were read again.
 | Independent pipeline verifier | Exit 0: seven workflows and eighteen negative tool pipelines |
 | Macro reproduction verifier | Exit 0: five cases, including the documented native-only language extension |
 | SDK incremental/path verifier | Exit 0; expected injected linker failure returned MSBuild exit 1 and preserved the existing ROM |
-| Shell syntax checks | Exit 0; Docker benchmark execution was not run |
+| Shell syntax checks | Exit 0; then-tracked container benchmark was not executed (obsolete harness retired in PR #55) |
 
 The full local run predates the final focused corrections; it is not represented
 as a full run of a later tree. Hosted full-suite results must correspond to the

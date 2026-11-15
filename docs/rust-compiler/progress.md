@@ -23,6 +23,18 @@ Ten of565 legacy methods have complete native behavioral replacements;555 still
 need completion auditing, none physically retired. Constructors/newobj,
 aggregate arrays, reference-bearing/generic values remain outstanding.
 
+Hosted aggregate checkpoint `7863872` now has completed successful
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43693156643) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43693156641) workflows.
+Completed native logs report Linux675/675 (417.995s), macOS675/675 (450.576s),
+Windows673/673 (400.440s), all zero skips. Windows omits only Unix-specific
+assembler `physical_include_keys_preserve_native_path_separators` and
+`include_provenance_preserves_the_logical_symlink_path`; no compiler case differs.
+Native build/check/doc/SDK-boundary steps also succeeded on all three hosts.
+The SDK boundary here still uses the production C# compiler for C# authoring;
+these jobs do not prove a native compiler SDK replacement. This is predecessor
+proof, not validation of the subsequent uncommitted constructor changes.
+
 Previous increment: [LCD-on transfers](lcd-on-transfers.md). Independent guards
 exposed unsafe legacy timing assumptions on the native backend. CPU targets and
 four-byte values, or GDMA registers/control, now prepare before waiting. LCD-on
@@ -69,9 +81,12 @@ migration or a native SDK integration claim.
   even after frontend errors. It does not invoke the IR verifier.
 - Compiler tests occupy 72 C# files and 24,834 source lines. Inventory and semantic
   disposition are separate steps; no coverage is migrated yet.
-- Docker benchmark scripts remain tracked. The CI also uses
-  `tools/benchmarks/Koh.Benchmarks`; deleting the entire benchmark directory would
-  remove an active CI consumer. Audit consumers individually.
+- The baseline included a container-only pokecrystal benchmark harness alongside
+  active `tools/benchmarks/Koh.Benchmarks`. Consumer audit found no CI/root target
+  using the container scripts; both Koh phases were permanently unsupported by
+  empty capability arrays. PR #55 removes that harness and report generator,
+  preserving host-native benchmark discovery/execution and RGBDS verification.
+  See [bounded cleanup](container-cleanup.md).
 
 ## Commit-sized work sequence
 
