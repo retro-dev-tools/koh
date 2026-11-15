@@ -1,5 +1,52 @@
 # PR #55 handoff
 
+## Current SDK unit
+
+SDK native-boundary unit follows pushed3a9f3a1. Root owns all writes/builds.
+No local build/test is live. Final3-case SDK target passed3/3,0skips,143.807s,
+exit0 `/tmp/koh-sdk-complete-focused.log`; a later test-only timestamp-isolation
+adjustment needs post-commit follow-up. Use `/tmp/koh-header-target` serially.
+Initial nativeSDK2/2 passed259.720s cold;
+expanded flag/ref/failure2/2 passed90.914s; assets2/2 passed98.566s. Subsequent
+output-alias test exposed actual DLL replacement via symlinked parent
+(`/tmp/koh-sdk-alias-red.log`,exit100). New canonical path-component resolution
+passed final verification. Debug-toggle red exposed staleKDBG; cleanup after
+successful no-debug link fixes it. Relative-output SDK run initially failed
+(`ROM not found`) and now passes after absolute-path forwarding,17.955s,
+`/tmp/koh-sdk-relative-run-green.log`. The three-case target includes default
+SDK dotnet-run/headless real graphics and all asset/ref/flag/failure cases.
+
+SDK production changes: Task now uses native processes/ArgumentList, no compiler
+or object algorithms; Build.Tasks references neither Compiler nor Native bridge.
+Its private host-tool target builds Rust compiler/linker into separate
+target/compiler-msbuild/<config>. SDK persists canonical .o, tracks tool paths/
+timestamps, removes frontend/backend registry options, retains tile-sheet tools,
+and builds emulator only on dotnet run. PDB/source-debug acceptance remains open.
+Synthetic PNG fixtures have real CRC/Adler checksums; Rust SDK tests drive actual
+source generation plus ROM data consumption and five-color errors. These map
+both original tile-sheet methods. Matrix now26/565 complete,539 outstanding,
+none physically retired. Exact16-byte WRAM payload replaces brittle generated
+source formatting checks; Some.Ns.Art consumption proves configurable namespace.
+
+Actual native SDK Release build of graphics sample passed, ROM65536bytes.
+Actual dotnet run1200frames exited0, screenshot/tmp/koh-native-sdk-gfx.png viewed
+(checker/orbs/SCORE833); mode3report0. These are workflow evidence, not performance
+comparisons or full game/source-debug acceptance. No sample assets modified.
+
+Read-only review completed: banked_calls_review found no concrete defects in
+Task/targets, native build, test assertions or path identity. No reviewer builds
+or edits. Root owns landing and final logs. Release packaging, older SDK script migration,
+remaining games and full workspace rerun still required; never weaken CI filters.
+
+Important hosted evidence:3a9f3a1 native43728226099 PASSED Linux771/771679.078s,
+macOS771/771614.780s, Windows769/769946.295s,0skips. Managed43728226133 FAILED6
+legacy compiler cases on both hosts: DMG scattered run61-frame budget;2048v2
+title/play/slide; FlushRun fused addressing and register-resident phi structural
+expectations; JRPG walking/callback and dialogue screenshot startup. Do NOT claim
+managed CI green, drop gameplay, weaken assertions, or restore C# fallback. Source
+SDK changed, class/other-game support still pending. Inspect/fix native contracts
+and port coverage before retirement. Native SDK full solution build is not proven.
+
 ## Goal and ownership
 
 Complete the full Rust CIL-to-SM83 compiler migration in this one draft PR against

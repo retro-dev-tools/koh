@@ -1,11 +1,21 @@
 # Native CIL compiler migration (PR #55)
 
 Status: migration incomplete. Native CIL reading, typed IR, optimization and
-SM83/ELF emission are implemented, including banked managed calls. The SDK still
-invokes the C# compiler; its source and test project remain. Portable PDB/source
+SM83/ELF emission are implemented, including banked managed calls. The SDK now
+invokes native compiler/linker processes; the legacy compiler source and test
+project still remain pending final replacement acceptance. Portable PDB/source
 debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
+
+Current unit: [native SDK boundary](sdk.md). Ordinary Debug/Release builds,
+implementation references, canonical ELF, real CPU/MMIO and asset consumption,
+incremental inputs, flags/failures/aliases and real dotnet-run routing pass the
+three-case SDK target. The actual graphics sample builds a65536-byte ROM and
+runs1200frames with zero mode3 writes. Source debugging and release packaging
+remain open; a KDBG file is not proof of Portable PDB mappings. The two tile-sheet
+tests now have native ownership:26of565 complete,539 partial/outstanding, none
+physically retired. Full workspace and hosted validation of this unit are pending.
 
 [Banked calls](rom-banking.md) passed 4/4 expanded ABI cases in 37.635s and a
 755/755 workspace regression in 2581.751s, zero skipped
@@ -15,13 +25,15 @@ Linker-owned boot-logo finalization passed 23/23 native linker cases; corrected
 raw golden fixtures passed 52/52 managed linker tests. These runs precede the
 current presentation work and do not establish final migration acceptance.
 
-Predecessor `44c7ff7` completed hosted Rust CI on Linux (756/756, 346.993s),
-macOS (756/756, 448.466s) and Windows (754/754, 694.396s), zero skipped;
-separate documentation tests passed with no cases. These are actual job-log
-summaries from run 43723302350. Managed CI also passed at that head. New local
-optimization commits `bb629b6` and `b9be7eb` are pushed; their CI is pending.
+Presentation predecessor3a9f3a1 completed native CI: Linux771/771679.078s,
+macOS771/771614.780s, Windows769/769946.295s, zero skipped (two Unix assembler
+cases differ). Actual job logs from43728226099 were inspected. Managed CI
+43728226133 failed six legacy compiler tests on both hosts: DMG drip budget,
+two private loop-IR assertions, 2048v2 gameplay and two JRPG acceptance cases.
+These remain open regressions, documented in [SDK evidence](sdk.md), not a green
+baseline or justification to weaken assertions. SDK-head validation is separate.
 
-Current local work: [presentation timing](presentation.md). The stronger showcase
+Previous unit: [presentation timing](presentation.md). The stronger showcase
 checks exposed a HUD that never progressed. Generated-code optimizations alone
 did not fix it; private copy/commit paths now reacquire vblank when late. Four
 Debug/Release × DMG/CGB cases passed, including real boot, visible score changes,

@@ -1,140 +1,77 @@
 <Project>
-
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
   <PropertyGroup>
-    <!-- The ROM lands next to the project by default (e.g. samples/csharp/gb-2048-cs/2048.gb); override
-         KohRomName / KohRomPath per project. -->
     <KohRomName Condition="'$(KohRomName)' == ''">$(AssemblyName).gb</KohRomName>
     <KohRomPath Condition="'$(KohRomPath)' == ''">$(MSBuildProjectDirectory)/$(KohRomName)</KohRomPath>
+    <KohObjectPath Condition="'$(KohObjectPath)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', '$(AssemblyName).o'))</KohObjectPath>
     <KohCgbCompatible Condition="'$(KohCgbCompatible)' == ''">false</KohCgbCompatible>
     <KohCgbOnly Condition="'$(KohCgbOnly)' == ''">false</KohCgbOnly>
     <KohEmitDebugInfo Condition="'$(KohEmitDebugInfo)' == ''">true</KohEmitDebugInfo>
     <KohKdbgPath>$([System.IO.Path]::ChangeExtension('$(KohRomPath)', '.kdbg'))</KohKdbgPath>
-    <!-- Only counts as a tracked incremental Output/FileWrite when actually emitted, so disabling
-         KohEmitDebugInfo doesn't make the target perpetually "out of date" chasing a file that's
-         never written. -->
     <KohKdbgOutput Condition="'$(KohEmitDebugInfo)' == 'true'">$(KohKdbgPath)</KohKdbgOutput>
     <KohBuildTasksProject>$(KohRoot)src/Compiler/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
     <KohBuildTasksAssembly>$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
+    <KohNativeSuffix Condition="'$(OS)' == 'Windows_NT'">.exe</KohNativeSuffix>
+    <KohCompilerExecutable Condition="'$(KohCompilerExecutable)' == '' and '$(KOH_COMPILE)' != ''">$(KOH_COMPILE)</KohCompilerExecutable>
+    <KohCompilerExecutable Condition="'$(KohCompilerExecutable)' == ''">$([System.IO.Path]::GetDirectoryName('$(KohBuildTasksAssembly)'))/koh-compile$(KohNativeSuffix)</KohCompilerExecutable>
     <KohLinkExecutable Condition="'$(KohLinkExecutable)' == '' and '$(KOH_LINK)' != ''">$(KOH_LINK)</KohLinkExecutable>
-    <KohLinkExecutable Condition="'$(KohLinkExecutable)' == '' and '$(OS)' == 'Windows_NT'">$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/koh-link.exe</KohLinkExecutable>
-    <KohLinkExecutable Condition="'$(KohLinkExecutable)' == ''">$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/koh-link</KohLinkExecutable>
+    <KohLinkExecutable Condition="'$(KohLinkExecutable)' == ''">$([System.IO.Path]::GetDirectoryName('$(KohBuildTasksAssembly)'))/koh-link$(KohNativeSuffix)</KohLinkExecutable>
     <KohEmulatorProject>$(KohRoot)src/Emulator/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
-    <!-- Assumes the default (no-RID) build output; a RID-scoped `dotnet run -r <rid>` places the emulator
-         DLL under a rid subfolder this path does not include. -->
-    <KohEmulatorAssembly>$(KohRoot)src/Emulator/Koh.Emulator.App/bin/$(Configuration)/net10.0/Koh.Emulator.App.dll</KohEmulatorAssembly>
-  </PropertyGroup>
-
-  <!-- `dotnet run` opens the compiled ROM in the Koh emulator (a GL window): the build emits the ROM
-       (CompileKohRom below, AfterTargets=Build) and these override the run command to exec the emulator's
-       built binary on it. Unconditional and after the .NET SDK import, so it wins over the SDK's default
-       RunCommand (the app host); `dotnet run` reads these properties directly. This trades the terminal
-       reference renderer for the GL emulator on `dotnet run` (so it needs a display/audio device) — the
-       managed reference build a game also compiles to is still the project's own binary, run it directly
-       (`dotnet exec bin/<config>/net10.0/<AssemblyName>.dll`) for the terminal/headless renderer. -->
-  <PropertyGroup>
+    <KohAbsoluteRomPath>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(KohRomPath)'))</KohAbsoluteRomPath>
     <RunCommand>dotnet</RunCommand>
-    <RunArguments>exec "$(KohEmulatorAssembly)" "$(KohRomPath)"</RunArguments>
+    <RunArguments>run --project "$(KohEmulatorProject)" --configuration "$(Configuration)" -- "$(KohAbsoluteRomPath)"</RunArguments>
+    <KohTileSheetsFile>$(IntermediateOutputPath)KohTileSheets.g.cs</KohTileSheetsFile>
+    <KohRomPropsStampFile>$(IntermediateOutputPath)Koh.CompileKohRom.props.txt</KohRomPropsStampFile>
   </PropertyGroup>
 
-  <!-- Build the emulator as part of the game's build graph so `dotnet run` can exec it, but keep it off
-       the game's compile references (ReferenceOutputAssembly=false) - the game depends only on the
-       Koh.GameBoy runtime, not the emulator's GL/audio stack. -->
   <ItemGroup>
-    <ProjectReference Include="$(KohEmulatorProject)"
-                      ReferenceOutputAssembly="false" Private="false" />
-  </ItemGroup>
-
-  <!-- Build the in-process compile task (and, transitively, the compiler and linker) as part of the
-       build graph, so it is restored and built before use. ReferenceOutputAssembly=false keeps it off
-       the game's own compile references - the game depends only on the Koh.GameBoy runtime. -->
-  <ItemGroup>
-    <ProjectReference Include="$(KohBuildTasksProject)"
-                      ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="$(KohBuildTasksProject)" ReferenceOutputAssembly="false" Private="false"
+                      GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;_IsPublishing;PublishAot" />
   </ItemGroup>
 
   <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
   <UsingTask TaskName="Koh.Build.Tasks.GenerateKohTileSheets" AssemblyFile="$(KohBuildTasksAssembly)" />
 
-  <!-- The tile-sheet pipeline: every @(KohTileSheet) PNG (default: art/**/*.png, see Sdk.props)
-       becomes 2bpp tile data + a CGB palette in ONE generated file, compiled into the game as
-       `static class Art` — art is authored as images, never as hand-written byte arrays. Split into
-       a generate target (timestamp-incremental) and an include target (always runs, so the Compile
-       item exists even when generation was skipped as up to date). DependsOnTargets=
-       ResolveProjectReferences guarantees the task assembly (built as part of this project's own
-       build graph, see the ProjectReference above) exists before the task loads. -->
-  <PropertyGroup>
-    <KohTileSheetsFile>$(IntermediateOutputPath)KohTileSheets.g.cs</KohTileSheetsFile>
-  </PropertyGroup>
-
   <Target Name="KohGenerateTileSheets" DependsOnTargets="ResolveProjectReferences"
           Condition="'@(KohTileSheet)' != ''"
           Inputs="@(KohTileSheet);$(KohBuildTasksAssembly)" Outputs="$(KohTileSheetsFile)">
-    <GenerateKohTileSheets Sheets="@(KohTileSheet)"
-                           OutputFile="$(KohTileSheetsFile)"
-                           Namespace="$(RootNamespace)" />
+    <GenerateKohTileSheets Sheets="@(KohTileSheet)" OutputFile="$(KohTileSheetsFile)" Namespace="$(RootNamespace)" />
   </Target>
 
-  <Target Name="KohIncludeTileSheets" BeforeTargets="CoreCompile"
-          DependsOnTargets="KohGenerateTileSheets" Condition="'@(KohTileSheet)' != ''">
+  <Target Name="KohIncludeTileSheets" BeforeTargets="CoreCompile" DependsOnTargets="KohGenerateTileSheets" Condition="'@(KohTileSheet)' != ''">
     <ItemGroup>
       <Compile Include="$(KohTileSheetsFile)" />
       <FileWrites Include="$(KohTileSheetsFile)" />
     </ItemGroup>
   </Target>
 
-  <!-- CompileKohRom's Inputs (below) are file-timestamp based, so an MSBuild *property* the task
-       consumes (ProgramName/CgbCompatible - see CompileKohRom.cs's task parameters) doesn't naturally
-       participate: flipping KohCgbCompatible without touching a source file would leave a stale ROM
-       built under the old flag. Standard idiom: stamp the property values to a file that only changes
-       (and so only bumps its timestamp) when their content actually changes, and make that stamp file
-       an Input too. -->
-  <PropertyGroup>
-    <KohRomPropsStampFile>$(IntermediateOutputPath)Koh.CompileKohRom.props.txt</KohRomPropsStampFile>
-  </PropertyGroup>
-
   <Target Name="_KohWriteRomPropsStamp">
     <ItemGroup>
-      <_KohRomProps Include="ProgramName=$(AssemblyName)" />
       <_KohRomProps Include="CgbCompatible=$(KohCgbCompatible)" />
       <_KohRomProps Include="CgbOnly=$(KohCgbOnly)" />
       <_KohRomProps Include="OutputPath=$(KohRomPath)" />
-      <_KohRomProps Include="KohFrontend=$(KohFrontend)" />
+      <_KohRomProps Include="ObjectPath=$(KohObjectPath)" />
       <_KohRomProps Include="EmitDebugInfo=$(KohEmitDebugInfo)" />
+      <_KohRomProps Include="CompilerPath=$(KohCompilerExecutable)" />
       <_KohRomProps Include="LinkerPath=$(KohLinkExecutable)" />
     </ItemGroup>
-    <WriteLinesToFile File="$(KohRomPropsStampFile)" Lines="@(_KohRomProps)" Overwrite="true"
-                       WriteOnlyWhenDifferent="true" />
+    <WriteLinesToFile File="$(KohRomPropsStampFile)" Lines="@(_KohRomProps)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPropsStampFile)" />
     </ItemGroup>
   </Target>
 
-  <!-- After the ordinary managed build succeeds, compile the game (the frontend lowers the built
-       assembly plus its referenced assemblies, e.g. Koh.GameBoy's Hal framework - no source list) to a
-       Game Boy ROM. AfterTargets="Build" runs after CoreCompile/ResolveReferences/the copy to
-       $(TargetPath), so the managed assembly exists and @(ReferencePath) is populated by the time this
-       runs. Both the assembly and its references are Inputs, so a changed reference (e.g. editing
-       Koh.GameBoy) re-emits the ROM, not just a changed game source. The compile task assembly is an
-       Input too, so a change to the compiler/linker/task re-emits the ROM instead of leaving a stale one
-       built by the old toolchain. The props stamp (written just above) makes toggling KohCgbCompatible
-       or renaming the assembly do the same, without a source-file edit. -->
   <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
-          Inputs="$(TargetPath);@(ReferencePath);$(KohBuildTasksAssembly);$(KohLinkExecutable);$(KohRomPropsStampFile)"
-          Outputs="$(KohRomPath);$(KohKdbgOutput)">
-    <CompileKohRom OutputPath="$(KohRomPath)"
-                   Frontend="$(KohFrontend)"
-                   AssemblyPath="$(TargetPath)"
-                   ReferencePaths="@(ReferencePath)"
-                   ProgramName="$(AssemblyName)" CgbCompatible="$(KohCgbCompatible)"
-                   CgbOnly="$(KohCgbOnly)"
-                   EmitDebugInfo="$(KohEmitDebugInfo)"
-                   LinkerPath="$(KohLinkExecutable)" />
+          Inputs="$(TargetPath);@(ReferencePath);$(KohBuildTasksAssembly);$(KohCompilerExecutable);$(KohLinkExecutable);$(KohRomPropsStampFile)"
+          Outputs="$(KohRomPath);$(KohObjectPath);$(KohKdbgOutput)">
+    <CompileKohRom OutputPath="$(KohRomPath)" ObjectPath="$(KohObjectPath)" ProjectDirectory="$(MSBuildProjectDirectory)"
+                   AssemblyPath="$(TargetPath)" ReferencePaths="@(ReferencePath)"
+                   CgbCompatible="$(KohCgbCompatible)" CgbOnly="$(KohCgbOnly)" EmitDebugInfo="$(KohEmitDebugInfo)"
+                   CompilerPath="$(KohCompilerExecutable)" LinkerPath="$(KohLinkExecutable)" />
     <ItemGroup>
-      <FileWrites Include="$(KohRomPath)" />
+      <FileWrites Include="$(KohRomPath);$(KohObjectPath)" />
       <FileWrites Condition="'$(KohEmitDebugInfo)' == 'true'" Include="$(KohKdbgPath)" />
     </ItemGroup>
   </Target>
-
 </Project>

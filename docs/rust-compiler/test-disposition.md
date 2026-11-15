@@ -31,13 +31,39 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: twenty-four legacy methods; zero physically retired.**
+**Native behavioral replacements: twenty-six legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining541 methods still have
+The remaining539 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Tile-sheet and SDK replacements
+
+Both methods in `Frontends/TileSheetConverterTests.cs` (nine original assertion
+sites) are PORT to `sdk.rs::sdk_uses_native_compiler_and_tracks_outputs`, two
+Debug/Release nextest cases. They preserve public authoring requirements, not
+the converter's managed class location or source formatting.
+
+| Source method | Requirement and independent justification | Native assertion |
+| --- | --- | --- |
+| SyntheticPng_RoundTripsToPlanesPaletteAndSource | One8×8 tile, luminance-ordered RGB555 bookends, exact2bpp rows, configurable namespace and named members; justified by PNG pixels and GB encoding | Checksum-valid PNG goes through MSBuild; real C# code consumes Some.Ns.Art members, checks palette/count and weighted data; existing emulator exposes all16 expected bytes in WRAM and result42 |
+| FiveColorSheet_IsARejectedAuthoringError | One tile palette has four color slots; excess colors require an authoring error | Real dotnet build diagnoses five distinct colors and preserves the previous ROM; no silent quantization |
+
+No compiler-owned case is deferred. Generated source must still be included on
+unchanged builds; harmless whitespace or namespace syntax is not an assertion.
+The old malformed Adler32 fixture is replaced with valid PNG checksums rather
+than preserving its permissiveness as a contract.
+
+The same Rust target covers the SDK script's assembly/reference, output path,
+no-op, CGB/debug flags, tool timestamps/selection and failed-link preservation
+requirements, plus compiler selection, changed reference bodies, unsupported IL,
+stale-debug cleanup and output aliases. A real native CLI's nonzero rejection
+replaces the Unix-only mock exit7; the exit status is still asserted. SDK run
+routing has a separate real graphics/headless case. See [SDK boundary](sdk.md).
+The existing Python verification script remains until its CI consumers are
+updated in the packaging/integration step; it is not replacement coverage.
 
 ## Graphics showcase replacements
 

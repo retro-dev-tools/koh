@@ -79,6 +79,10 @@ Stable-score synchronization is an observation aid; generated instruction counts
 
 ### `Frontends/TileSheetConverterTests.cs` — 2 methods, 2 cases
 
+Both methods now have complete Rust SDK replacements with real PNG input,
+MSBuild source generation, C# member/namespace consumption and exact ROM-executed
+WRAM data. See [current disposition evidence](test-disposition.md).
+
 - **PORT**, SDK owner within this migration: `SyntheticPng_RoundTripsToPlanesPaletteAndSource` checks 8x8 → 16-byte 2bpp row planes, luminance-ordered palette bookends and generated namespace/member names. The required output is real tile/palette/source compatibility, not this class's location under compiler tests. Retain/move this small managed art tool if useful; replacing the compiler does not require rewriting PNG conversion.
 - **PORT**, SDK owner within this migration: `FiveColorSheet_IsARejectedAuthoringError` rejects >4 colors. Keep a clear authoring error at the build boundary even if exception type changes across a process boundary.
 

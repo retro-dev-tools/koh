@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <KohCompilerRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '../../..'))</KohCompilerRoot>
+    <KohCompilerCargoTargetDir>$(KohCompilerRoot)target/compiler-msbuild/$(Configuration)</KohCompilerCargoTargetDir>
+    <KohCompilerExecutableSuffix Condition="'$(OS)' == 'Windows_NT'">.exe</KohCompilerExecutableSuffix>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(KohCompilerCargoTargetDir)/release/koh-compile$(KohCompilerExecutableSuffix)" Link="koh-compile$(KohCompilerExecutableSuffix)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(KohCompilerCargoTargetDir)/release/koh-link$(KohCompilerExecutableSuffix)" Link="koh-link$(KohCompilerExecutableSuffix)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="BuildRustCompiler" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec WorkingDirectory="$(KohCompilerRoot)" Command="cargo build --release --package koh-compile --package koh-link --locked --target-dir &quot;$(KohCompilerCargoTargetDir)&quot;" />
+  </Target>
+</Project>
