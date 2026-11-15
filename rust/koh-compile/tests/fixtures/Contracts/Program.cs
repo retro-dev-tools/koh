@@ -40,7 +40,7 @@ public static class Program
 
     public static int Main() => Register;
 #else
-    [KohIntrinsic("halt")]
+    [KohIntrinsic("unsupported-cpu-control")]
     public static void DesktopNoOp() { }
 
     public static int Main()

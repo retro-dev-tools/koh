@@ -49,3 +49,10 @@ only its test host adds probes. Emulator speed switching omits the physical
 switch stall, so these cases cannot establish PLL/PPU timing safety. Unarmed
 STOP wake-up, HALT-bug combinations, handler dispatch, interrupt ABI and
 reentrancy remain open migration requirements.
+
+Hosted native run43739101141 exposed a stale rejection fixture: it used the now
+supported `halt` kind to stand in for an unknown intrinsic. The fixture now uses
+`unsupported-cpu-control`; rejection assertions remain intact and actual HALT
+execution has separate native coverage. The corrected eight-variant rejection
+case passed locally during the workspace run in24.998s. This does not establish
+that the whole workspace run or hosted follow-up has passed.
