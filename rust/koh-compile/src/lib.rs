@@ -6,6 +6,7 @@ pub mod compile;
 mod contracts;
 mod initialize;
 pub mod ir;
+pub mod layout;
 pub mod lower;
 pub mod optimize;
 pub mod resolve;

@@ -31,6 +31,7 @@ pub struct Resolver<'a> {
     identities: HashMap<Identity, usize>,
     indices: Vec<Index>,
     type_cache: RefCell<HashMap<Definition, Definition>>,
+    pub(crate) value_layouts: RefCell<HashMap<Definition, std::sync::Arc<crate::layout::Layout>>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -88,7 +89,7 @@ fn null_index(index: CodedIndex, zero_table: TableId) -> Result<bool, String> {
     Ok(true)
 }
 
-fn type_token(value: u32) -> Result<u32, String> {
+pub(crate) fn type_token(value: u32) -> Result<u32, String> {
     let table = match value & 3 {
         0 => 2,
         1 => 1,
@@ -212,6 +213,14 @@ impl<'a> Resolver<'a> {
     }
 
     pub(crate) fn scalar_signature(&self, assembly: usize, token: u32) -> Result<TypeSig, String> {
+        let signature = self.type_signature(assembly, token)?;
+        match signature {
+            TypeSig::ValueType(encoded) => self.enum_storage(assembly, encoded),
+            _ => Ok(signature),
+        }
+    }
+
+    pub(crate) fn type_signature(&self, assembly: usize, token: u32) -> Result<TypeSig, String> {
         use clrmeta::ElementType;
         if token >> 24 == 0x1b {
             let metadata = self.assembly(assembly)?.metadata();
@@ -229,7 +238,7 @@ impl<'a> Resolver<'a> {
                 2 => (token & 0xffffff) << 2,
                 _ => return Err("Array element requires a primitive or enum type token".into()),
             };
-            return self.enum_storage(assembly, encoded);
+            return Ok(TypeSig::ValueType(encoded));
         };
         Ok(TypeSig::Primitive(match name {
             "Boolean" => ElementType::Boolean,
@@ -353,6 +362,7 @@ impl<'a> Resolver<'a> {
             identities,
             indices,
             type_cache: RefCell::new(HashMap::new()),
+            value_layouts: RefCell::new(HashMap::new()),
         })
     }
 
@@ -656,7 +666,12 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn validate_type(&self, assembly: usize, ty: &TypeSig, depth: usize) -> Result<(), String> {
+    pub(crate) fn validate_type(
+        &self,
+        assembly: usize,
+        ty: &TypeSig,
+        depth: usize,
+    ) -> Result<(), String> {
         if depth >= 64 {
             return Err("Type validation cycle or nesting exceeds 64".into());
         }

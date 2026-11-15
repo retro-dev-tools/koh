@@ -7,5 +7,5 @@ slow-timeout = { period = "60s", terminate-after = 3 }
 max-threads = 1
 
 [[profile.default.overrides]]
-filter = 'package(koh-compile) & (binary(assembly) | binary(opcodes) | binary(references) | binary(lowering) | binary(sm83) | binary(driver))'
+filter = 'package(koh-compile) & (binary(assembly) | binary(opcodes) | binary(references) | binary(lowering) | binary(sm83) | binary(driver) | binary(layout))'
 test-group = 'roslyn'
