@@ -564,3 +564,40 @@ Predecessor Board head `448f35b` now has successful completed
 Native Linux/Windows/macOS Test steps succeeded; completed macOS job132686867798
 log confirms552/552 passed,0skips,298.190s. These are predecessor results, not
 verification of the uncommitted switch unit.
+
+## Pinned pointer increment
+
+[Pinned byref/array locals](pinned-pointers.md) keep heap bank1 mapped for native
+copy routines and restore the caller's SVBK when the final pin ends or the method
+returns. Per-frame flags preserve nested/recursive invocations and tolerate
+cleanup order. Unbanked pins leave SVBK unchanged. Known explicit bank writes
+reachable from a pinned method diagnose; raw bus manipulation remains unsafe.
+Pin stores participate in verification, optimization and frame-reference escape.
+Native zero cleanup is guarded against nonzero reference fabrication (fault8).
+
+The real D/R × DMG/CGB fixture initially failed4/4 with unsupported pinned-local
+types (`/tmp/koh-pinned-red.log`). After implementation, strengthened checks passed
+14/14, then15/15 with the review-found invalid-initialization-index regression:
+`/tmp/koh-pinned-review-fixes.log`, exit0,19.700s. This selector includes one old
+reservation test;14 tests are new. Four driver cases execute28 ROM scenarios and
+eight compile rejection probes; the raw cleanup test executes five ROM scenarios.
+Nine IR cases cover valid and malformed pin lifetimes/storage. Actual referenced
+`Koh.GameBoy.Mem.Copy` writes known LCD-off VRAM bytes and mutates array aliases.
+These are not full graphics, DMA, TileSet or SDK acceptance.
+
+Read-only review found local state indexing could precede bounds validation on a
+malformed pin initialization. The implementation now validates the index first;
+the regression and review confirmation preserve the diagnostic boundary. The
+formatted pin tree passed Linux
+`cargo nextest run --workspace --all-features --locked --no-fail-fast`:
+**584/584 passed,0skips**, exit0,394.810s (`/tmp/koh-pinned-workspace.log`). This
+includes408 compiler cases and398 ROM scenarios (333 normal returns,65 traps).
+Separate workspace doctests (currently no cases) and stable rustfmt checks exited0
+(`/tmp/koh-pinned-doc.log`, `/tmp/koh-pinned-fmt.log`).
+
+Predecessor switch head `2c44000` has successful completed
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43674121192) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43674121261) workflows.
+Native Linux/Windows/macOS Test steps succeeded; the completed macOS
+job132690390503 log confirms570/570,0skips,190.157s. These do not verify the new
+pin implementation.

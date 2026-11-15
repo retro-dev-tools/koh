@@ -45,6 +45,10 @@ pub(super) fn verify(function: &Function) -> Result<(), String> {
             if let Op::StoreLocal {
                 local: index,
                 value,
+            }
+            | Op::StorePinned {
+                local: index,
+                value,
             } = instruction.op
             {
                 if references.contains(&value) {

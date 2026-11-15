@@ -91,7 +91,7 @@ pub(super) fn analyze(function: &Function) -> Widths {
                 }
             }
             for i in &body.instructions {
-                if let Op::StoreLocal { local, value } = i.op {
+                if let Op::StoreLocal { local, value } | Op::StorePinned { local, value } = i.op {
                     stored[local as usize] = stored[local as usize].max(maximum[&value]);
                 }
                 let Some((id, ty)) = i.result else {

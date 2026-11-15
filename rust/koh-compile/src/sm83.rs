@@ -255,6 +255,61 @@ impl Code {
         self.bytes(&[0xe0, 0x70]);
     }
 
+    fn pins_active(&mut self, pins: &BTreeMap<u32, u16>) {
+        self.bytes(&[0x0e, 0]);
+        for &flag in pins.values() {
+            self.load_a(flag);
+            self.bytes(&[0xb1, 0x4f]);
+        }
+        self.bytes(&[0x79, 0xb7]);
+    }
+
+    fn release_pin(&mut self, flag: u16, saved: u16, pins: &BTreeMap<u32, u16>) {
+        let done = self.label();
+        self.load_a(flag);
+        self.bytes(&[0xb7]);
+        self.jump(0xca, done);
+        self.constant(flag, 1, 0);
+        self.pins_active(pins);
+        self.jump(0xc2, done);
+        self.restore_bank(saved);
+        self.mark(done);
+    }
+
+    fn store_pin(
+        &mut self,
+        source: u16,
+        local: u16,
+        flag: u16,
+        saved: u16,
+        pins: &BTreeMap<u32, u16>,
+        clear: bool,
+    ) {
+        if clear {
+            self.indirect(source);
+            self.bytes(&[0x78, 0xb1]);
+            let fault = self.import("__koh_trap_pin".into());
+            self.jump(0xc2, fault);
+        }
+        self.copy(source, local, 2);
+        self.release_pin(flag, saved, pins);
+        let done = self.label();
+        self.load_a(local + 1);
+        self.bytes(&[0xfe, 0xd0]);
+        self.jump(0xda, done);
+        self.bytes(&[0xfe, 0xe0]);
+        self.jump(0xd2, done);
+        self.pins_active(pins);
+        let mapped = self.label();
+        self.jump(0xc2, mapped);
+        self.bytes(&[0xf0, 0x70]);
+        self.store_a(saved);
+        self.mark(mapped);
+        self.constant(flag, 1, 1);
+        self.bytes(&[0x3e, 1, 0xe0, 0x70]);
+        self.mark(done);
+    }
+
     fn check_high(&mut self, slot: u16, width: u16, fault: SymbolId) {
         if width <= 2 {
             return;
@@ -658,6 +713,8 @@ struct Layout {
     allocations: BTreeMap<u32, (u16, u16)>,
     locals: Vec<u16>,
     local_widths: Vec<u16>,
+    pins: BTreeMap<u32, u16>,
+    pin_bank: u16,
     edge: u16,
     arithmetic: u16,
     size: u16,
@@ -690,6 +747,27 @@ impl Layout {
             allocations.insert(id, (offset as u16, bytes));
             offset += usize::from(bytes);
         }
+        let pinned: BTreeSet<_> = function
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .filter_map(|i| match i.op {
+                Op::StorePinned { local, .. } => Some(local),
+                _ => None,
+            })
+            .collect();
+        let pin_bank = offset as u16;
+        if !pinned.is_empty() {
+            offset += 1;
+        }
+        let pins = pinned
+            .into_iter()
+            .map(|local| {
+                let flag = offset as u16;
+                offset += 1;
+                (local, flag)
+            })
+            .collect();
         let mut owners = BTreeMap::new();
         let mut shared = BTreeSet::new();
         for (block, body) in function.blocks.iter().enumerate() {
@@ -845,6 +923,8 @@ impl Layout {
             allocations,
             locals,
             local_widths: widths.locals,
+            pins,
+            pin_bank,
             edge: edge as u16,
             arithmetic: arithmetic as u16,
             size: offset as u16,
@@ -908,6 +988,9 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         .then(|| code.label());
     code.guard(layout.size + if allocator.is_some() { 4 } else { 2 });
     code.adjust_sp(-i32::from(layout.size));
+    for &flag in layout.pins.values() {
+        code.constant(flag, 1, 0);
+    }
     let return_width = function
         .returns
         .map(|ty| u16::from(ty.bits() / 8))
@@ -1148,6 +1231,14 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     destination,
                     width,
                 ),
+                Op::StorePinned { local, value } => code.store_pin(
+                    slot(value),
+                    layout.locals[local as usize],
+                    layout.pins[&local],
+                    layout.pin_bank,
+                    &layout.pins,
+                    layout.values[&value].1 == Type::Native,
+                ),
                 Op::StoreLocal { local, value } => code.extend(
                     place(value),
                     layout.locals[local as usize],
@@ -1386,6 +1477,13 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 transfer(&mut code, yes);
             }
             Control::Return(value) => {
+                if !layout.pins.is_empty() {
+                    code.pins_active(&layout.pins);
+                    let done = code.label();
+                    code.jump(0xca, done);
+                    code.restore_bank(layout.pin_bank);
+                    code.mark(done);
+                }
                 if let Some(value) = value {
                     code.extend(
                         Slot {

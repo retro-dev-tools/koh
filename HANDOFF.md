@@ -5,7 +5,7 @@
 Complete the entire native Rust CIL-to-SM83 migration in this single draft PR:
 https://github.com/retro-dev-tools/koh/pull/55 . Never merge it. Do not mark the
 goal complete for an increment. User wants logical commits and an ASCII progress
-bar where 100% means every original requirement is verified. Rough estimate 42%.
+bar where 100% means every original requirement is verified. Rough estimate 45%.
 
 Worktree `/home/minorum/projekty/koh-rust-compiler`, branch `feat/rust-cil-compiler`.
 Baseline integrated linker migration: `9cd1472`. The main checkout's modified
@@ -14,6 +14,9 @@ battle screenshot is unrelated; preserve hash
 
 The C# compiler remains the production SDK compiler. No old test method is fully
 retired yet. All 565 have source-level dispositions, not completed Rust migration.
+Four switch methods have complete native behavioral replacements; their source
+definitions remain with the old project until deletion. Remaining561 need
+completion auditing.
 Read docs/rust-compiler/progress.md and source audits for the full acceptance ledger.
 The original assignment is also in the conversation and attachment
 `/home/minorum/.codex/attachments/f20b0d62-eb77-4947-9b7a-4dcb4328fc7f/pasted-text-1.txt`.
@@ -79,6 +82,31 @@ pending. Historical legacy baseline
 814/814 is reference evidence, not a correctness oracle.
 
 ## Next work and verification
+
+Latest committed/pushed head is2c44000, switch unit; PR#55 remains draft/master.
+Current uncommitted pin unit normalizes scalar byref/array pinned locals and
+introduces StorePinned with per-frame pin flags/saved bank. Heap pins map bank1;
+last release/method return restores the caller bank. Unbanked frame pins do not
+change SVBK. Native zero cleanup is checked (fault8 for nonzero). Normal writes
+cannot bypass pinned local initialization; frame-reference escape graph includes
+pin stores. A transitive constant-SVBK-write check rejects known explicit bank
+remapping in pinned methods; callers may select a bank before entering them.
+Parent owns all edits/builds; read-only reviewers must not edit/build. Focused
+14/14 passed in /tmp/koh-pinned-strengthened.log; new bank rejection checks and
+formatted fixtures passed14/14 in /tmp/koh-pinned-bank-guards.log. Review found
+StoreLocal could index initialized state before checking a malformed pin local
+index; fixed and regression added. Review confirmed the fix. Strengthened15/15
+passed,exit0,19.700s in /tmp/koh-pinned-review-fixes.log (includes one old test).
+Workspace584/584 passed,0skips,exit0,394.810s in
+/tmp/koh-pinned-workspace.log;408compiler cases and398ROMscenarios(333normal,65traps).
+Separate doc/fmt checks exit0(no doctests). No build remains running. Pin unit
+ready for commit/push. New fixtures cover real Mem.Copy,28ROMscenarios
+across D/R x DMG/CGB plus5raw checked-cleanup scenarios; heap/bank snapshots,
+nested/recursive/loop/empty/null/unbanked pin lifetimes. Read-only review complete.
+After full tests, run doc/fmt checks, commit/push this unit and verify draft head;
+rerun pinned fixtures post-hook. Next investigate actual TileSet/graphics control
+and DMA runtime dependencies without weakening timing/output assertions.
+Everything below is predecessor history, not current pending build state.
 
 Latest committed/pushed head is448f35b (enum/stack/2048 Board unit), verified draft
 PR#55 master base. Current uncommitted unit adds actual CIL switch lowering,

@@ -3,7 +3,7 @@ use crate::{
     ir::*,
     resolve::Definition,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
     use clrmeta::{ElementType, TypeSig};
@@ -24,6 +24,9 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
         }
         TypeSig::ByRef(inner) => Ok(Type::ByRef(scalar(inner)?)),
         TypeSig::SzArray(inner) => Ok(Type::Array(scalar(inner)?)),
+        TypeSig::Pinned(inner) if matches!(**inner, TypeSig::ByRef(_) | TypeSig::SzArray(_)) => {
+            integer_type(inner)
+        }
         _ => Err(format!("Type {ty:?} has no integer lowering yet")),
     }
 }
@@ -66,6 +69,9 @@ fn storage_type(
         TypeSig::ByRef(inner) => TypeSig::ByRef(Box::new(storage_type(resolver, assembly, inner)?)),
         TypeSig::SzArray(inner) => {
             TypeSig::SzArray(Box::new(storage_type(resolver, assembly, inner)?))
+        }
+        TypeSig::Pinned(inner) => {
+            TypeSig::Pinned(Box::new(storage_type(resolver, assembly, inner)?))
         }
         _ => ty.clone(),
     })
@@ -132,6 +138,13 @@ pub fn assembly_method(
             .iter()
             .map(integer_type)
             .collect::<Result<_, _>>()?;
+        let pinned: Vec<_> = local_types
+            .iter()
+            .enumerate()
+            .filter_map(|(index, ty)| {
+                matches!(ty, clrmeta::TypeSig::Pinned(_)).then_some(index + signature.params.len())
+            })
+            .collect();
         let body = assembly.method_body(identity.token)?;
         if body.extra_sections {
             return Err("Exception/extra method sections require explicit lowering".into());
@@ -147,6 +160,7 @@ pub fn assembly_method(
                 max_stack: body.max_stack,
             },
             Some(resolver),
+            &pinned,
         )?;
         let mut prefix = Vec::new();
         for constructor in [
@@ -292,6 +306,7 @@ struct Builder {
     next: u32,
     data_bytes: usize,
     edge_arguments: usize,
+    pinned: HashSet<usize>,
     instructions: Vec<Instruction>,
     stack: Vec<(u32, Type)>,
     offset: u32,
@@ -433,14 +448,15 @@ impl Builder {
 }
 
 pub fn lower(method: Method<'_>) -> Result<Function, String> {
-    lower_with(method, None)
+    lower_with(method, None, &[])
 }
 
 fn lower_with(
     method: Method<'_>,
     resolver: Option<&crate::resolve::Resolver<'_>>,
+    pinned: &[usize],
 ) -> Result<Function, String> {
-    lower_inner(&method, resolver).map_err(|error| {
+    lower_inner(&method, resolver, pinned).map_err(|error| {
         format!(
             "Assembly {} method 0x{:08x}: {error}",
             method.identity.assembly, method.identity.token
@@ -451,6 +467,7 @@ fn lower_with(
 fn lower_inner(
     method: &Method<'_>,
     resolver: Option<&crate::resolve::Resolver<'_>>,
+    pinned: &[usize],
 ) -> Result<Function, String> {
     let cil = decode(method.il)?;
     if cil.len() >= 16_384
@@ -481,6 +498,7 @@ fn lower_inner(
         next: method.parameters.len() as u32,
         data_bytes: 0,
         edge_arguments: 0,
+        pinned: pinned.iter().copied().collect(),
         instructions: vec![],
         stack: vec![],
         offset: 0,
@@ -711,12 +729,24 @@ fn translate(
     let store = |b: &mut Builder, index: usize| -> Result<(), String> {
         let ty = *locals.get(index).ok_or("Invalid local/argument index")?;
         let value = b.pop()?;
-        let value = b.coerce(value, ty)?;
+        let pinned = b.pinned.contains(&index);
+        let value = if pinned && matches!(ty, Type::ByRef(_)) && value.1 == Type::Native {
+            value
+        } else {
+            b.coerce(value, ty)?
+        };
         b.instructions.push(Instruction {
             result: None,
-            op: Op::StoreLocal {
-                local: index as u32,
-                value: value.0,
+            op: if pinned {
+                Op::StorePinned {
+                    local: index as u32,
+                    value: value.0,
+                }
+            } else {
+                Op::StoreLocal {
+                    local: index as u32,
+                    value: value.0,
+                }
             },
             il_offset: b.offset,
         });

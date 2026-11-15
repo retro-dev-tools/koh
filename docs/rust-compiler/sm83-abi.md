@@ -39,6 +39,13 @@ across SP-relative address calculations; their two bytes are included in capacit
 checks. No arithmetic helper shares fixed WRAM scratch. Byte carry chains cannot
 depend on flags surviving address generation unless explicitly preserved.
 
+[Pinned pointer scopes](pinned-pointers.md) add per-invocation pin flags and a
+saved SVBK byte to the guarded frame. Live heap pins reserve bank1 for native bus
+access; the final release or method return restores the caller's register.
+Unbanked frame/static pins leave it unchanged. Known explicit SVBK writes reachable
+from a pinned method diagnose; bank selection belongs in its caller. Native-zero
+pin cleanup is checked and nonzero fabrication aborts with fault8.
+
 The initial stack region is WRAM0 `$C100..$CFFF`, with startup SP `$D000`.
 Frame guards run before allocation/writes; a stack failure branches to
 `__koh_trap_stack`. A caller must reserve/check its complete argument/return block

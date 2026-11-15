@@ -124,6 +124,10 @@ fn rom_program(
     data.extend_from_slice(&[
         0x3e, 4, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
     ]);
+    let pin_trap = data.len() as u32;
+    data.extend_from_slice(&[
+        0x3e, 8, 0xea, 1, 0xc0, 0x3e, 0xee, 0xea, 0, 0xc0, 0x18, 0xfe,
+    ]);
     data.resize(0x300, 0);
     let entry = Object {
         sections: vec![Section {
@@ -156,6 +160,13 @@ fn rom_program(
                 SymbolDefinition::Label {
                     section: SectionId(0),
                     offset: null_trap,
+                },
+            ),
+            symbol(
+                "__koh_trap_pin".into(),
+                SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: pin_trap,
                 },
             ),
         ],
@@ -809,6 +820,59 @@ fn stack_capacity_is_checked_before_frame_writes(host: &Host) {
     huge.returns = Some(Type::I64);
     huge.blocks[0].terminator.kind = Control::Return(Some(0));
     assert!(sm83::emit(&huge).unwrap_err().contains("capacity"));
+}
+
+#[rstest::rstest]
+fn pinned_native_clear_checks_zero_before_fabricating_a_reference(host: &Host) {
+    let f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::Native],
+        returns: Some(Type::I32),
+        locals: vec![Type::ByRef(Scalar::U8)],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::Native)],
+            instructions: vec![
+                Instruction {
+                    result: Some((1, Type::ByRef(Scalar::U8))),
+                    op: Op::Constant(0),
+                    il_offset: 0,
+                },
+                Instruction {
+                    result: None,
+                    op: Op::StoreLocal { local: 0, value: 1 },
+                    il_offset: 0,
+                },
+                Instruction {
+                    result: None,
+                    op: Op::StorePinned { local: 0, value: 0 },
+                    il_offset: 1,
+                },
+                Instruction {
+                    result: Some((2, Type::I32)),
+                    op: Op::Constant(42),
+                    il_offset: 2,
+                },
+            ],
+            terminator: Terminator {
+                il_offset: 3,
+                kind: Control::Return(Some(2)),
+            },
+        }],
+    };
+    let cases: Vec<_> = [0, 1, 0xc100, 0xd000, 0xffff]
+        .into_iter()
+        .map(|value| {
+            (
+                f.clone(),
+                vec![value],
+                if value == 0 { Ok(42) } else { Err(8) },
+            )
+        })
+        .collect();
+    run(host, &cases);
 }
 
 #[rstest::rstest]

@@ -91,6 +91,125 @@ fn roslyn_switch_tables_execute(host: &Host, #[case] configuration: &str) {
 }
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn pinned_array_pointers_copy_tiles_and_restore_banks(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh pinned graphics ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pinned");
+    for name in ["Pinned.csproj", "Program.cs"] {
+        std::fs::copy(source.join(name), directory.path().join(name)).unwrap();
+    }
+    let result = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Pinned.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let images =
+        ["Pinned.dll", "Koh.GameBoy.dll"].map(|name| std::fs::read(output.join(name)).unwrap());
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let mut shapes = std::collections::BTreeSet::new();
+    for token in (1..=assembly.metadata().method_defs.len()).map(|i| 0x06000000 | i as u32) {
+        for ty in assembly.local_types(token).unwrap() {
+            if let clrmeta::TypeSig::Pinned(inner) = ty {
+                shapes.insert(match *inner {
+                    clrmeta::TypeSig::ByRef(_) => "byref",
+                    clrmeta::TypeSig::SzArray(_) => "array",
+                    _ => "other",
+                });
+            }
+        }
+    }
+    assert_eq!(shapes, std::collections::BTreeSet::from(["array", "byref"]));
+    for (name, expected) in [
+        ("Copy", 42),
+        ("Empty", 42),
+        ("Null", 42),
+        ("Nested", 42),
+        ("Recursive", 25),
+        ("Loop", 5),
+        ("Unbanked", 42),
+    ] {
+        let entry = format!("Program::{}{name}", if color { "Banked" } else { "" });
+        let object = compile::object(&resolver, Some(&entry)).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 }, "{name}");
+        assert_eq!(
+            (fields[0], fields[1], fields[2], fields[3]),
+            ("00", format!("{expected:08X}").as_str(), "D000", "OK"),
+            "{name}"
+        );
+        let mut heap = vec![0x5a; 4096];
+        let bytes: &[u8] = match name {
+            "Copy" => &[8, 0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xa5, 0xde, 0xf0],
+            "Empty" => &[0, 0],
+            "Nested" => &[2, 0, 0x34, 22, 1, 0, 0xcd, 0xab],
+            "Recursive" => &[1, 0, 7, 1, 0, 6, 1, 0, 5, 1, 0, 4, 1, 0, 3],
+            "Loop" => &[1, 0, 5],
+            _ => &[],
+        };
+        heap[..bytes.len()].copy_from_slice(bytes);
+        assert_heap_snapshot(fields[4], &heap, name);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], name);
+        }
+    }
+    for name in ["BadBank", "IndirectBadBank"] {
+        let error = compile::object(&resolver, Some(&format!("Program::{name}"))).unwrap_err();
+        assert!(
+            error.contains("IL_")
+                && error.contains("WRAM bank writes reachable from a pinned method"),
+            "{name}: {error}"
+        );
+    }
+}
+
+#[rstest]
 #[case("Debug", "Library")]
 #[case("Release", "Library")]
 #[case("Debug", "Exe")]

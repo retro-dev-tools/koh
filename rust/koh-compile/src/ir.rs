@@ -1,6 +1,7 @@
 use crate::resolve::Definition;
 use std::collections::HashMap;
 mod escape;
+mod pins;
 mod stack;
 pub(crate) use stack::allocations as stack_allocations;
 
@@ -161,6 +162,10 @@ pub enum Op {
         local: u32,
         value: u32,
     },
+    StorePinned {
+        local: u32,
+        value: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,7 +190,8 @@ impl Op {
             Self::Negate(value)
             | Self::Not(value)
             | Self::Convert { value, .. }
-            | Self::StoreLocal { value, .. } => [Some(value), None],
+            | Self::StoreLocal { value, .. }
+            | Self::StorePinned { value, .. } => [Some(value), None],
             Self::Call { .. }
             | Self::FieldHandle(_)
             | Self::InitializerAddress(_)
@@ -377,7 +383,7 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
             }
         }
     }
-    Ok(())
+    pins::verify_banks(functions)
 }
 
 pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8)>, String> {
@@ -502,6 +508,22 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         }
     }
     let parents = dominators(blocks, &predecessors)?;
+    let pinned: std::collections::HashSet<_> = blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|i| match i.op {
+            Op::StorePinned { local, .. } => Some(local),
+            _ => None,
+        })
+        .collect();
+    let zeroes: std::collections::HashSet<_> = blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|i| match (i.result, &i.op) {
+            (Some((id, _)), Op::Constant(0)) => Some(id),
+            _ => None,
+        })
+        .collect();
     let mut initialized = vec![false; function.locals.len()];
     for (block, body) in blocks.iter().enumerate() {
         let check = |value: u32, position: usize| -> Result<Type, String> {
@@ -778,11 +800,41 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         local: index,
                         value,
                     } => {
-                        if check(value, position)? != local(index)? {
+                        let ty = local(index)?;
+                        if pinned.contains(&index)
+                            && (block != 0
+                                || initialized[index as usize]
+                                || !zeroes.contains(&value))
+                        {
+                            return Err(
+                                "Pinned local must use a pin store outside zero initialization"
+                                    .into(),
+                            );
+                        }
+                        if check(value, position)? != ty {
                             return Err("Local store type mismatch".into());
                         }
                         if block == 0 {
                             initialized[index as usize] = true;
+                        }
+                        None
+                    }
+                    Op::StorePinned {
+                        local: index,
+                        value,
+                    } => {
+                        let ty = local(index)?;
+                        if !matches!(ty, Type::ByRef(_) | Type::Array(_)) {
+                            return Err(
+                                "Pinned storage requires a managed reference or array".into()
+                            );
+                        }
+                        let input = check(value, position)?;
+                        if input != ty && !(matches!(ty, Type::ByRef(_)) && input == Type::Native) {
+                            return Err("Pinned store type mismatch".into());
+                        }
+                        if !initialized[index as usize] {
+                            return Err("Pinned local lacks entry initialization".into());
                         }
                         None
                     }
@@ -830,5 +882,5 @@ fn verify_inner(function: &Function) -> Result<(), String> {
     }
     escape::verify(function)?;
     stack_allocations(function)?;
-    Ok(())
+    pins::verify_banks(std::slice::from_ref(function))
 }

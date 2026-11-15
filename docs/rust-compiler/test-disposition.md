@@ -97,6 +97,19 @@ remain covered in `driver::gameboy_register_and_region_intrinsics_execute` and
 definitions will disappear with the legacy project rather than leaving a second
 compiler test implementation in the final tree.
 
+### Pinned-pointer coverage added
+
+`driver::pinned_array_pointers_copy_tiles_and_restore_banks` adds four D/R ×
+DMG/CGB cases with28 ROM scenarios and8 known-bank-write rejection probes. Actual
+referenced `Mem.Copy` runs under pinned scopes; expected VRAM words, heap bytes,
+separate-bank poison, return values and balanced SP independently justify the
+assertions. This covers part of `MemRuntimeTests` and pointer/graphics audit
+groups, not their larger counts, performance or LCD-on timing requirements.
+`ir` adds9 pin storage/initialization/escape cases; `sm83` adds one test with5
+checked-cleanup ROM scenarios. All14 new cases are discoverable by nextest.
+No additional complete legacy method is retired by this increment. See the
+[pin contract and target bank restrictions](pinned-pointers.md).
+
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.
 - Test mutable array identity and writes; compiler-folded ROM bytes do not prove

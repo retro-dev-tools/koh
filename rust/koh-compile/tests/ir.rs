@@ -77,6 +77,141 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+fn pinned_reference() -> Function {
+    Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::ByRef(Scalar::U8)],
+        returns: None,
+        locals: vec![Type::ByRef(Scalar::U8)],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::ByRef(Scalar::U8))],
+            instructions: vec![
+                instruction(1, Type::ByRef(Scalar::U8), Op::Constant(0)),
+                Instruction {
+                    result: None,
+                    op: Op::StoreLocal { local: 0, value: 1 },
+                    il_offset: 1,
+                },
+                Instruction {
+                    result: None,
+                    op: Op::StorePinned { local: 0, value: 0 },
+                    il_offset: 2,
+                },
+            ],
+            terminator: Terminator {
+                il_offset: 3,
+                kind: Control::Return(None),
+            },
+        }],
+    }
+}
+
+#[test]
+fn pinned_reference_initialization_and_cleanup_verify() {
+    let mut f = pinned_reference();
+    verify(&f).unwrap();
+    f.blocks[0].instructions.extend([
+        instruction(2, Type::Native, Op::Constant(0)),
+        Instruction {
+            result: None,
+            op: Op::StorePinned { local: 0, value: 2 },
+            il_offset: 4,
+        },
+    ]);
+    verify(&f).unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    verify(&f).unwrap();
+}
+
+#[rstest]
+#[case("type", "Pinned storage requires")]
+#[case("value", "Pinned store type mismatch")]
+#[case("initialization", "Pinned local lacks entry initialization")]
+#[case("bypass", "Pinned local must use a pin store")]
+#[case("index", "Invalid local")]
+#[case("initial-index", "Invalid local")]
+#[case("result", "Operation result type mismatch")]
+fn malformed_pinned_storage_is_rejected(#[case] mutation: &str, #[case] expected: &str) {
+    let mut f = pinned_reference();
+    match mutation {
+        "type" => {
+            f.locals[0] = Type::I32;
+            f.blocks[0].instructions[0].result = Some((1, Type::I32));
+        }
+        "value" => {
+            f.blocks[0]
+                .instructions
+                .insert(2, instruction(2, Type::I32, Op::Constant(1)));
+            f.blocks[0].instructions[3].op = Op::StorePinned { local: 0, value: 2 };
+        }
+        "initialization" => {
+            f.blocks[0].instructions.remove(1);
+        }
+        "bypass" => f.blocks[0].instructions.push(Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 1 },
+            il_offset: 4,
+        }),
+        "index" => {
+            f.blocks[0].instructions[2].op = Op::StorePinned {
+                local: 99,
+                value: 0,
+            }
+        }
+        "initial-index" => {
+            f.blocks[0].instructions[1].op = Op::StoreLocal {
+                local: 99,
+                value: 1,
+            };
+            f.blocks[0].instructions[2].op = Op::StorePinned {
+                local: 99,
+                value: 0,
+            };
+        }
+        "result" => f.blocks[0].instructions[2].result = Some((2, Type::I32)),
+        _ => unreachable!(),
+    }
+    let error = verify(&f).unwrap_err();
+    assert!(error.contains(expected), "{error}");
+}
+
+#[test]
+fn pinning_cannot_hide_a_managed_frame_reference_escape() {
+    let mut f = pinned_reference();
+    f.parameters.clear();
+    f.blocks[0].parameters.clear();
+    f.locals.push(Type::I32);
+    f.returns = Some(Type::ByRef(Scalar::U8));
+    f.blocks[0].instructions.splice(
+        0..0,
+        [
+            instruction(3, Type::I32, Op::Constant(0)),
+            Instruction {
+                result: None,
+                op: Op::StoreLocal { local: 1, value: 3 },
+                il_offset: 0,
+            },
+            instruction(
+                0,
+                Type::ByRef(Scalar::U8),
+                Op::LocalAddress {
+                    local: 1,
+                    scalar: Scalar::U8,
+                },
+            ),
+        ],
+    );
+    f.blocks[0]
+        .instructions
+        .push(instruction(2, Type::ByRef(Scalar::U8), Op::LoadLocal(0)));
+    f.blocks[0].terminator.kind = Control::Return(Some(2));
+    let error = verify(&f).unwrap_err();
+    assert!(error.contains("current frame may escape"), "{error}");
+}
+
 #[rstest]
 #[case("type", "Switch selector must be int32")]
 #[case("missing", "Undefined value")]

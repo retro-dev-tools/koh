@@ -93,7 +93,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 Op::Negate(id)
                 | Op::Not(id)
                 | Op::Convert { value: id, .. }
-                | Op::StoreLocal { value: id, .. } => value(id),
+                | Op::StoreLocal { value: id, .. }
+                | Op::StorePinned { value: id, .. } => value(id),
                 Op::Call { arguments, .. } => {
                     for id in arguments {
                         value(id);

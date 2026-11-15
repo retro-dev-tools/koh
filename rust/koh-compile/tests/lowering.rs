@@ -297,7 +297,7 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
             let bits = match i.op {
                 Op::Constant(bits) => bits,
                 Op::LoadLocal(index) => locals[index as usize],
-                Op::StoreLocal { local, value } => {
+                Op::StoreLocal { local, value } | Op::StorePinned { local, value } => {
                     locals[local as usize] = v(value);
                     0
                 }
