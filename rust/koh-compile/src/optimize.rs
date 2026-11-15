@@ -97,7 +97,10 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                         value(id);
                     }
                 }
-                Op::Constant(_) | Op::StaticAddress { .. } | Op::LoadLocal(_) => {}
+                Op::Constant(_)
+                | Op::StaticAddress { .. }
+                | Op::InitializerAddress(_)
+                | Op::LoadLocal(_) => {}
             }
         }
         let edge = |edge: &mut Edge| {

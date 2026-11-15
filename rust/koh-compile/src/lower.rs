@@ -80,12 +80,6 @@ pub fn assembly_method(
     let assembly = resolver.assembly(identity.assembly)?;
     let result = || -> Result<Function, String> {
         crate::contracts::method(resolver, identity)?;
-        if resolver.module_initializer(identity.assembly)?.is_some() {
-            return Err("Module initializer requires static-initialization lowering".into());
-        }
-        if resolver.type_initializer(identity)?.is_some() {
-            return Err("Type initializer requires static-initialization lowering".into());
-        }
         let signature = assembly.method_signature(identity.token)?;
         let typed = integer_signature(&signature)?;
         let local_types = assembly.local_types(identity.token)?;
@@ -109,6 +103,23 @@ pub fn assembly_method(
             },
             Some(resolver),
         )?;
+        let mut prefix = Vec::new();
+        for constructor in [
+            resolver.module_initializer(identity.assembly)?,
+            resolver.method_initializer(identity)?,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if constructor != identity {
+                prefix.push(Instruction {
+                    result: None,
+                    op: crate::initialize::guard(constructor),
+                    il_offset: 0,
+                });
+            }
+        }
+        function.blocks[0].instructions.splice(0..0, prefix);
         let slots: Vec<_> = signature
             .params
             .iter()
@@ -574,6 +585,15 @@ fn translate(
                 return Err("Generic call instantiation is not lowered yet".into());
             }
             let metadata = resolver.assembly(target.definition.assembly)?;
+            if metadata
+                .metadata()
+                .strings
+                .get(metadata.method(target.definition.token)?.name)
+                .map_err(|e| e.to_string())?
+                == ".cctor"
+            {
+                return Err("Direct CIL calls to type/module constructors are unsupported".into());
+            }
             let signature =
                 integer_signature(&metadata.method_signature(target.definition.token)?)?;
             let mut arguments = Vec::with_capacity(signature.parameters.len());
@@ -775,19 +795,27 @@ fn translate(
             if field.flags & 0x10 == 0 || field.flags & (0x40 | 0x100) != 0 {
                 return Err("Static field flags require literal/RVA/instance lowering".into());
             }
-            if i.opcode != 0x7e && field.flags & 0x20 != 0 {
+            let initializer = resolver.field_initializer(target.definition)?;
+            if i.opcode != 0x7e && field.flags & 0x20 != 0 && initializer != Some(method.identity) {
                 return Err(
-                    "Readonly static field writes/addresses require initializer lowering".into(),
+                    "Readonly static field writes/addresses require their declaring constructor"
+                        .into(),
                 );
             }
-            if resolver.field_initializer(target.definition)?.is_some()
-                || resolver
-                    .module_initializer(target.definition.assembly)?
-                    .is_some()
+            for constructor in [
+                resolver.module_initializer(target.definition.assembly)?,
+                initializer,
+            ]
+            .into_iter()
+            .flatten()
             {
-                return Err(
-                    "Static field initializer requires static-initialization lowering".into(),
-                );
+                if constructor != method.identity {
+                    b.instructions.push(Instruction {
+                        result: None,
+                        op: crate::initialize::guard(constructor),
+                        il_offset: b.offset,
+                    });
+                }
             }
             let signature = image.field_signature(target.definition.token)?;
             if matches!(signature, clrmeta::TypeSig::ByRef(_)) {

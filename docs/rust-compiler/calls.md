@@ -50,9 +50,9 @@ assertions. The C# emulator implementation is unchanged.
 Initialization was a real omission found during this increment: ordinary method
 reachability could omit a declaring type's `.cctor` or `<Module>..cctor`. Real C#
 throwing initializers reproduced both successful-but-wrong lowering paths before
-their fixes. Reached type/module initializers now produce explicit diagnostics.
-This is a temporary boundary, not retirement of static initialization; real
-initialization must land with static storage/runtime work in this same PR.
+their fixes. That increment introduced temporary diagnostics. They are now replaced
+by [actual constructor execution](initializers.md); throwing bodies still diagnose
+at their unsupported exception operations rather than being silently omitted.
 [C# module initializer semantics](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/attributes#23510-the-moduleinitializer-attribute)
 provide an independent reason these bodies cannot be silently skipped.
 

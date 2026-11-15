@@ -4,6 +4,30 @@ Branch feat/rust-cil-compiler, isolated from main checkout modified screenshot.
 Baseline integrated linker 9cd1472. Existing PR #55 stays draft; never merge.
 C# compiler remains production. Full attachment migration goal stays active.
 
+Latest init unit verified locally: type/module .cctor bodies run through generated
+once guards, states 0/1/2 in zeroed BSS, strict method checks and BFI field deferral.
+Readonly writes allowed only in the declaring constructor. Real D/R module dependencies, recursive
+and cyclic init, readonly values, repeated calls, dead BFInit body exclusion and
+store RHS-before-ctor ordering pass. Omission mutation returns 1 rather than 42.
+Earlier constructor-dependent field entry now executes 17. Unsupported throwing
+ctors still diagnose actual body opcode/member; no blanket ctor omission remains.
+Read initializers.md, including generated FF function-ID namespace and remaining
+single-thread/IRQ/exception/generic limits. Review read-only complete; no writers.
+Workspace 450/450, no skips, exit 0, 232.391s; 274 compiler cases, 186 ROM scenarios
+(171 normal, 15 traps), /tmp/koh-init-nextest.log. Focused 32/32 also passed.
+Prior 0e3cd05 passed all 14 hosted jobs, macOS 443/443. New head CI must be checked.
+Rough progress 35%; full original goal active. Next local/aggregate/array/runtime
+support and remaining IRQ/banking/PDB/SDK/sample/test/deletion/performance gates.
+
+Current uncommitted unit: root owns initialize.rs generated once guards/state
+addresses, method/field/module constructor triggers and readonly ctor writes.
+beforefieldinit types defer until field access; strict types guard static methods.
+Initializers D/R fixture verifies module ordering, recursive/cyclic defaults,
+readonly values, once counters, BFI deferral and dead initializer exclusion.
+Test-only guard-omission mutation must return failure1 instead of42. Earlier
+initializer-rejection tests now require real ctor values or body-specific unsupported
+exception diagnostics. Focused suite live, no concurrent builds; review read-only.
+
 Latest statics increment verified: symbolic field addresses/ELF relocations,
 packed zero-fill WRAM0/startup clear, primitive ByRef(Scalar) types with call/memory
 type checks. D/R real referenced fields, all integer widths/bool/char/native,

@@ -60,6 +60,15 @@ pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definiti
             .ok_or("No static entry method found (assembly entry or Main)")?
     };
     let signature = assembly.method_signature(token)?;
+    if matches!(
+        metadata
+            .strings
+            .get(assembly.method(token)?.name)
+            .map_err(|e| e.to_string())?,
+        ".ctor" | ".cctor"
+    ) {
+        return Err("Constructors cannot be cartridge entry methods".into());
+    }
     let owner = metadata
         .type_defs
         .partition_point(|ty| ty.method_list <= token & 0x00ff_ffff) as u32;
@@ -129,7 +138,11 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
         crate::contracts::assembly(resolver, assembly)?;
     }
     while let Some(identity) = queue.pop_front() {
-        let function = crate::lower::assembly_method(resolver, identity)?;
+        let function = if identity.token >> 24 == 0xff {
+            crate::initialize::function(resolver, identity)?
+        } else {
+            crate::lower::assembly_method(resolver, identity)?
+        };
         instructions += function
             .blocks
             .iter()

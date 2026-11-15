@@ -193,7 +193,7 @@ impl<'a> Resolver<'a> {
         self.assemblies.len()
     }
 
-    pub fn type_initializer(&self, method: Definition) -> Result<Option<Definition>, String> {
+    pub fn method_initializer(&self, method: Definition) -> Result<Option<Definition>, String> {
         let assembly = self.assembly(method.assembly)?;
         assembly.method(method.token)?;
         let rid = method.token & 0x00ff_ffff;
@@ -203,6 +203,9 @@ impl<'a> Resolver<'a> {
             .partition_point(|ty| ty.method_list <= rid);
         if owner == 0 {
             return Err("Method has no declaring type".into());
+        }
+        if assembly.metadata().type_defs[owner - 1].flags & 0x100000 != 0 {
+            return Ok(None);
         }
         self.initializer(method.assembly, owner as u32)
     }

@@ -785,7 +785,7 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
         ("Dead", "opcode"),
         ("Generic", "Generic"),
         ("Protected", "sections"),
-        ("StaticInit", "initializer"),
+        ("StaticInit", ".cctor"),
     ] {
         let error = koh_compile::compile::reachable(
             &resolver,
@@ -849,7 +849,7 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
     )
     .unwrap_err();
     assert!(
-        error.contains("Module initializer") && error.contains("IL_"),
+        error.contains("InitModule") && error.contains("opcode") && error.contains("IL_"),
         "{error}"
     );
 }

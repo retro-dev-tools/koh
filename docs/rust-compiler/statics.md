@@ -38,15 +38,13 @@ tests do not establish ancestor-frame address correctness. No optimization infer
 non-aliasing from different reference values. Returning a reference to a static
 field and mutating that field through another call use the same actual storage.
 
-## Initialization remains required
+## Constructor execution
 
-Zero-fill storage is not type-constructor execution. Reached type/module
-initializers, including field accesses into a type with a constructor, still
-diagnose pending the initialization state machine. Readonly field writes/addresses
-also require the initializer rules. The next increment must execute constructors
-once with independently tested ordering and recursion semantics; none of these
-capabilities is retired. Unreachable types with unsupported initializers do not
-prevent compiling unrelated code.
+Zero-fill storage is separate from [type/module constructor execution](initializers.md),
+which now uses generated once guards and ordinary lowered bodies. Readonly writes
+are restricted to the declaring constructor. Unsupported body operations still
+diagnose; unreachable types with unsupported initializers do not prevent compiling
+unrelated code. Initialization state bytes count toward static capacity.
 
 ## Evidence
 
@@ -60,8 +58,8 @@ initial values cannot pass merely because the emulator happens to clear RAM.
 
 Only 31 bytes of fields are reached. Dead oversized fields and an unused type with
 an object initializer remain absent. Selecting the oversized entry must fail with
-a static-storage capacity diagnostic. Selecting constructor-dependent or generic
-fields must diagnose, rather than return default placeholder values. IR cases cover
+a static-storage capacity diagnostic. The constructor-dependent entry now returns
+17; generic storage still diagnoses. IR cases cover
 field identity/width/result checks, cross-function consistency, managed-reference
 call types and incompatible dereference widths.
 

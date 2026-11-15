@@ -40,12 +40,11 @@ Rejected inputs preserve a previous output. Reference order does not change the
 tested output bytes.
 
 Canonical Koh.GameBoy intrinsic attributes are identified by assembly and type
-identity, not a coincidentally matching simple name. Until hardware lowering
-lands, reached intrinsic bodies are rejected rather than compiling their desktop
-implementations. Interrupt metadata in any supplied assembly also diagnoses,
-including handlers not reached by ordinary calls. These are temporary fail-closed
-guards, not decisions to retire hardware capabilities. Initializers still
-diagnose pending their implementation.
+identity, not a coincidentally matching simple name. [Register/region access](hardware.md)
+uses explicit bus operations; unsupported intrinsic kinds diagnose. Interrupt
+metadata in any supplied assembly also diagnoses, including uncalled handlers.
+These are temporary boundaries, not decisions to retire hardware capabilities.
+[Type/module constructors](initializers.md) now execute through once guards.
 
 ## Evidence and remaining integration
 

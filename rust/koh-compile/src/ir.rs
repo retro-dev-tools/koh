@@ -83,6 +83,7 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    InitializerAddress(Definition),
     StaticAddress {
         field: Definition,
         bytes: u8,
@@ -147,6 +148,7 @@ impl Op {
             | Self::Convert { value, .. }
             | Self::StoreLocal { value, .. } => [Some(value), None],
             Self::Call { .. }
+            | Self::InitializerAddress(_)
             | Self::Constant(_)
             | Self::StaticAddress { .. }
             | Self::LoadLocal(_) => [None, None],
@@ -324,7 +326,12 @@ pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8)>, St
         .flat_map(|f| &f.blocks)
         .flat_map(|b| &b.instructions)
     {
-        if let Op::StaticAddress { field, bytes } = instruction.op {
+        let storage = match instruction.op {
+            Op::StaticAddress { field, bytes } => Some((field, bytes)),
+            Op::InitializerAddress(constructor) => Some((constructor, 1)),
+            _ => None,
+        };
+        if let Some((field, bytes)) = storage {
             if fields
                 .insert((field.assembly, field.token), bytes)
                 .is_some_and(|old| old != bytes)
@@ -430,6 +437,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::InitializerAddress(constructor) => {
+                        if constructor.token >> 24 != 6 || constructor.token & 0xffffff == 0 {
+                            return Err("Invalid initializer state identity".into());
+                        }
+                        Some(Type::Native)
+                    }
                     Op::StaticAddress { field, bytes } => {
                         if field.token >> 24 != 4
                             || field.token & 0xffffff == 0

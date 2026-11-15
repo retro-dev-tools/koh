@@ -28,7 +28,7 @@ API. A region pointer does not promise support for every possible pointed-to typ
 Call lowering emits the existing typed constant/load/store IR, rather than a call
 to the desktop body. Consequently `Gb`'s pinned desktop buffer and `Hardware`'s
 desktop static state/initializers are not embedded in a ROM. Ordinary reached
-methods still require real initializer lowering; this exception belongs solely
+methods use [real initializer lowering](initializers.md); this exception belongs solely
 to the explicit intrinsic contract. There is no duplicate compiler address table.
 
 Memory effects remain ordered and are not eliminated as unused results. VRAM and

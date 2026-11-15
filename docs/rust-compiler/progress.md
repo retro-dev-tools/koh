@@ -377,3 +377,30 @@ log reports `420 tests run: 420 passed, 0 skipped`.
 [Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43654007601),
 [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43654007574).
 New static-storage hosted validation must be checked separately.
+
+## Executed type and module constructors
+
+[Initializer lowering](initializers.md) now includes ordinary supported constructor
+bodies through generated, verified once guards. Module and strict-type method checks
+preserve order; `beforefieldinit` types defer to field access and leave unused
+initializers unreachable. Recursive/cyclic access observes initialized-so-far/default
+state. Readonly writes require the declaring constructor. Unsupported exception
+bodies still diagnose at their actual member/IL operation, replacing blanket rejection.
+
+Completed local command `cargo nextest run --workspace --all-features --locked`
+with SDK 10.0.115 selected through `KOH_DOTNET`: **450 passed, 0 skipped**, exit 0,
+232.391 seconds (`/tmp/koh-init-nextest.log`). There are 274 compiler cases and
+186 ROM scenarios (171 normal returns, 15 traps). Focused driver/backend tests
+also passed 32/32 (`/tmp/koh-init-focused.log`). Real Debug/Release fixtures cover
+module dependencies, readonly initialization, once counters, recursion, cycles,
+BFI deferral, dead initializer omission and static-store operand ordering.
+Removing generated guards in a test-only object mutation must produce failure 1
+instead of 42. The prior initializer-dependent field entry now executes and returns 17.
+No legacy compiler method is yet retired; broader runtime, IRQ, exception/generic
+semantics, PDB/SDK/game acceptance and compiler deletion remain incomplete.
+
+Preceding static-storage head `0e3cd05` passed all 14 hosted jobs; its completed
+macOS log reports `443 tests run: 443 passed, 0 skipped`.
+[Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43655742204),
+[CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43655742198).
+New initializer-head hosted validation remains separate.

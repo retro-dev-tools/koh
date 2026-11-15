@@ -8,8 +8,11 @@ legalization. Promoting locals to SSA is optional optimization, not a correctnes
 prerequisite. A stack-machine IR would leave merge/type errors implicit; reproducing
 the old C# IR would import assumptions about widths and static frames.
 
-Each function retains an assembly/token definition and every instruction and
-terminator retains its original IL byte offset. Block zero is the entry; its
+Managed functions retain their assembly/token definition and source IL offsets.
+Generated [initializer guards](initializers.md) use the reserved FF identity tag,
+not a metadata MethodDef, and retain the real constructor in `InitializerAddress`.
+Generated checks associate with the triggering IL offset; helper locations are
+synthetic. Block zero is the entry; its
 parameters match the function signature. Other block parameters are phi values,
 with one typed argument per incoming edge. Value IDs are unique per function.
 Every use must be dominated by its definition; same-block instruction definitions

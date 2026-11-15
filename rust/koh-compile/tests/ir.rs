@@ -77,6 +77,22 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+#[rstest]
+#[case(0x06000001, Type::Native, true)]
+#[case(0x06000000, Type::Native, false)]
+#[case(0x04000001, Type::Native, false)]
+#[case(0x06000001, Type::I32, false)]
+#[case(0x06000001, Type::ByRef(Scalar::U8), false)]
+fn initializer_state_addresses_are_native_method_storage(
+    #[case] token: u32,
+    #[case] ty: Type,
+    #[case] valid: bool,
+) {
+    let mut f = static_address(0x04000001, 1, ty);
+    f.blocks[0].instructions[0].op = Op::InitializerAddress(Definition { assembly: 0, token });
+    assert_eq!(verify(&f).is_ok(), valid);
+}
+
 fn static_address(token: u32, bytes: u8, ty: Type) -> Function {
     let mut f = diamond();
     f.parameters.clear();

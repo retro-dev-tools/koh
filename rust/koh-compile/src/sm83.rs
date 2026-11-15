@@ -602,7 +602,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
-                Op::StaticAddress { field, .. } => {
+                Op::StaticAddress { field, .. } | Op::InitializerAddress(field) => {
                     let target = code.import(static_symbol(field));
                     code.jump(0x21, target);
                     code.bytes(&[0x44, 0x4d, 0x79]);

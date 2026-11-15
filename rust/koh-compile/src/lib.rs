@@ -3,6 +3,7 @@ mod cartridge;
 pub mod cil;
 pub mod compile;
 mod contracts;
+mod initialize;
 pub mod ir;
 pub mod lower;
 pub mod optimize;

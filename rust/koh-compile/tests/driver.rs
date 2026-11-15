@@ -126,6 +126,108 @@ fn execute(host: &Host, directory: &Path, linked: &koh_link::LinkResult, stop: &
     execute_mode(host, directory, linked, stop, "--native")
 }
 
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn type_and_module_initializers_execute_once_with_cycles(host: &Host, #[case] configuration: &str) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh initializer order ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Initializers");
+    for project in ["Entry", "Runtime"] {
+        std::fs::create_dir(directory.path().join(project)).unwrap();
+        for file in std::fs::read_dir(fixture.join(project)).unwrap() {
+            let file = file.unwrap();
+            std::fs::copy(
+                file.path(),
+                directory.path().join(project).join(file.file_name()),
+            )
+            .unwrap();
+        }
+    }
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Entry/Entry.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let input = directory
+        .path()
+        .join(format!("Entry/bin/{configuration}/net10.0/Entry.dll"));
+    let reference = directory
+        .path()
+        .join(format!("Runtime/bin/{configuration}/net10.0/Runtime.dll"));
+    let object = directory.path().join("initialized.o");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+        .arg(&input)
+        .arg("-r")
+        .arg(&reference)
+        .arg("-o")
+        .arg(&object)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut object = koh_objects::read_elf(&std::fs::read(object).unwrap()).unwrap();
+    let linked = koh_link::link(&[object.clone()], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-poison"
+        ),
+        "00 0000002A D000 OK"
+    );
+    let mut omitted = 0;
+    for section in &mut object.sections {
+        section.patches.retain(|patch| {
+            let koh_objects::RelocationExpr::Symbol(id) = &patch.expression else {
+                return true;
+            };
+            let name = &object.symbols[id.0].name;
+            if !name.contains("_mff") || name.contains('.') {
+                return true;
+            }
+            assert_eq!(section.data[patch.offset - 1], 0xcd);
+            section.data[patch.offset - 1..patch.offset + 2].fill(0);
+            omitted += 1;
+            false
+        });
+    }
+    assert!(omitted > 0);
+    let mutated = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute_mode(
+            host,
+            directory.path(),
+            &mutated,
+            "__koh_exit",
+            "--native-poison"
+        ),
+        "00 00000001 D000 OK"
+    );
+    let bytes = std::fs::read(&input).unwrap();
+    let runtime = std::fs::read(&reference).unwrap();
+    let resolver = Resolver::new(&[bytes.as_slice(), runtime.as_slice()]).unwrap();
+    assert!(
+        compile::object(&resolver, Some("Program::.cctor"))
+            .unwrap_err()
+            .contains("Constructors")
+    );
+}
+
 fn execute_mode(
     host: &Host,
     directory: &Path,
@@ -237,10 +339,19 @@ fn static_fields_and_byref_aliases_execute(host: &Host, #[case] configuration: &
         error.contains("static storage") && error.contains("capacity"),
         "{error}"
     );
-    for (entry, diagnostic) in [
-        ("NeedsInitialization", "initializer"),
-        ("NeedsGenericStorage", "Generic"),
-    ] {
+    let initialized = compile::object(&resolver, Some("Program::NeedsInitialization")).unwrap();
+    let linked = koh_link::link(&[initialized], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-poison"
+        ),
+        "00 00000011 D000 OK"
+    );
+    for (entry, diagnostic) in [("NeedsGenericStorage", "Generic")] {
         let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
         assert!(
             error.contains(diagnostic) && error.contains("IL_"),
