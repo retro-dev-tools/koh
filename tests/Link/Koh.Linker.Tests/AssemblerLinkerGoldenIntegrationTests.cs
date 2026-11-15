@@ -16,7 +16,10 @@ public class AssemblerLinkerGoldenIntegrationTests
                 $"assemble failed: {string.Join("; ", model.Diagnostics.Select(d => d.Message))}"
             );
 
-        var result = new NativeLinker().Link([new LinkerInput(path, model)]);
+        var result = new NativeLinker().Link(
+            [new LinkerInput(path, model)],
+            new LinkOptions(PadToPowerOfTwo: false)
+        );
         if (!result.Success)
             throw new InvalidOperationException(
                 $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"
@@ -42,7 +45,7 @@ public class AssemblerLinkerGoldenIntegrationTests
             inputs.Add(new LinkerInput(path, model));
         }
 
-        var result = new NativeLinker().Link(inputs);
+        var result = new NativeLinker().Link(inputs, new LinkOptions(PadToPowerOfTwo: false));
         if (!result.Success)
             throw new InvalidOperationException(
                 $"link failed: {string.Join("; ", result.Diagnostics.Select(d => d.Message))}"

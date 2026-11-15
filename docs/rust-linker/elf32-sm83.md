@@ -229,6 +229,10 @@ header policy. Normal output now always installs the canonical boot logo;
 custom or deliberately malformed header bytes require raw mode. See
 [PanDocs](https://raw.githubusercontent.com/gbdev/pandocs/master/src/The_Cartridge_Header.md).
 
+The C# assembler/linker golden-byte bridge fixtures use raw mode: their data
+deliberately occupies 0104 and is not a cartridge logo. Their byte assertions
+remain unchanged. Cartridge boot and header checks use normal output instead.
+
 SYM lists address labels as `bank:address name`; absolute constants are omitted.
 Ordering is deterministic by bank, address and name. KDBG remains version 1,
 retaining source paths, line ranges, symbol definitions and macro call stacks;
