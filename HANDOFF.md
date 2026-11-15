@@ -1,5 +1,32 @@
 # PR #55 handoff
 
+ACTIVE VBlank unit: root owns edits/serial builds; review owns read-only
+inspection, no builds/edits. Ppu.WaitVBlank now >=144 leave / <144 enter.
+Old Debug phase3 took137692T, missing firstwindow (90k budget); Release67k.
+Red /tmp/koh-vblank-phase-red.log2/4fail; new32phase+4doublewait cases green
+/tmp/koh-vblank-map-green.log5/5 (includesCGBDebugshowcase),44.393s.
+Initial rangefixmadeallcube10/10 green50.773s /tmp/koh-cube-vblank-window.log,
+but broad28 hadoneCGBDebugshowcase regression5mode3writes. Traced toFlushRun:
+checkLY152→store948dotslateratLY0 (/tmp/koh-vblank-map-margin-red.log).
+Fix source/destination preparationbeforeguard, byteLYcomparisons, stopbefore152.
+AddedShowcaseHost bank/PC/line/clock failure diagnostics. Rejected global
+read-to-write metric: it included unrelated writes and zero DMG observations;
+removing it does not weaken the actual mode3, pixel or frame assertions.
+Read-only vblank_map_review found no blocking issue in the final diff.
+Final serial /tmp/koh-vblank-final-green.log completed28/28,161.668s,exit0;
+90 unrelated tests filtered. Includes all10 cube cases,4 showcase,4 tile,
+2fullmap,4lazy and4VBlank (32phases+4doublewaits). Session40973 terminal.
+Post-hook /tmp/koh-vblank-postcommit.log8/8 passed87.227s,exit0,
+100 unrelated cases filtered. Includes all4 showcase + all4 VBlank cases.
+Session11197 terminal; no local build/test live. Push remains next.
+Do not waive clocks, mode3 checks or framebounds.
+
+Latest pushed77c0fc3c3ae80ce76be97445dc3170b161d61b76 (remote verified),
+with411f3ed profiling and77c0fc3 nativefill. DraftPR55 checklist updated34/565.
+New native CI43757920270 and managed CI43757920724 were verified live after
+push; no current-head hosted outcome claimed. All local process handles terminal.
+Only this post-push handoff refresh is uncommitted; all code/tests/docs pushed.
+
 Current unit: native MemoryFill, following profiling commit411f3ed. Root owns
 edits and serial builds. Base for this unit is pushed2ebfc4c. Existing API shapes
 are evidence, not conventions. No local test/build live at this update.

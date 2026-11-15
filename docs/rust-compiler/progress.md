@@ -8,7 +8,17 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [native byte fill](runtime-memory.md). The real cube profile
+Current unit: [VBlank window and bounded map writes](vblank-window.md).
+Final graphics selection passes28/28 in161.668s, exit0
+(`/tmp/koh-vblank-final-green.log`;90 unrelated tests filtered). It includes
+all four double-buffered Debug/Release × DMG/CGB cube cases, four actual
+showcases, tile/map transfers, lazy storage and four VBlank cases exercising
+32 entry phases and four double waits. Frame budgets, structural capture,
+exact memory and actual mode3 assertions are unchanged. Read-only review
+found no blocking issue. Full-frame/racing-beam structural acceptance remains
+open, so legacy dispositions stay34/565 complete and531 partial/outstanding.
+
+Previous unit: [native byte fill](runtime-memory.md). The real cube profile
 identified the old C# loop as its largest early-capture cost. Exact guarded
 fill ROMs improve from1434496T Debug/1276400T Release to91492T in either mode;
 this is target execution, not host compiler-performance evidence. The validated

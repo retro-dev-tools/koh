@@ -16,7 +16,7 @@ Each file forms a coherent group under the stated behavioral requirement. Every 
 
 Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilBgWinTests.cs`. Future Rust test group: `cil_bg_win`.
 
-Background/window map coordinates, fill/draw byte contents, CGB bank-1 attributes, DMG no-op behavior and safe LCD-on batched writes. Hardware memory layout and the public Bg/Win API justify these independently of the compiler.
+Background/window map coordinates, fill/draw byte contents, CGB bank-1 attributes, DMG no-op behavior and safe LCD-on batched writes. Justification comes from authored graphics intent and hardware memory layout. The existing Bg/Win API is evidence of that intent, not a contract or design convention to preserve.
 
 - **PORT** `BgFillAndDrawMap_WriteExpectedMapBytes`.
 - **PORT** `WinFillAndDrawMap_WriteExpectedMapBytes`.

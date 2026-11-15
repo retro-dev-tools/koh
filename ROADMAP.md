@@ -17,9 +17,10 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
 - Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls.
   The SDK invokes Rust tools, retains tile-sheet generation and runs the existing emulator.
-  Native byte fill improves the real cube: CGB Debug/Release and DMG Release
-  pass structural captures; DMG Debug's early capture remains required work.
-  The broader selected regression is308passed/1failed. Thirty-four legacy
+  Native byte fill and corrected VBlank polling let all four double-buffered
+  Debug/Release × DMG/CGB cube cases pass structural captures. The current
+  graphics selection passes28/28; full-frame/racing-beam acceptance remains open.
+  Thirty-four legacy
   methods have complete replacements;531 remain partial/outstanding, none deleted.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain

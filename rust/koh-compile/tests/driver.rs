@@ -15,6 +15,77 @@ fn host() -> Host {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn vblank_wait_observes_first_window_at_varied_entry_phases(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "VBlank");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for phase in 0..9 {
+        let entry = if phase == 8 {
+            "Program::Twice".into()
+        } else {
+            format!("Program::Phase{phase}")
+        };
+        let object = compile::object(&resolver, Some(&entry)).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap-cost",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 7 } else { 6 });
+        assert_eq!(
+            (fields[0], fields[2], fields[3]),
+            ("00", "D000", "OK"),
+            "{entry}"
+        );
+        let line = u32::from_str_radix(fields[1], 16).unwrap();
+        let cycles: u64 = fields.last().unwrap().parse().unwrap();
+        println!("{configuration} color={color} phase={phase}: LY={line} {cycles}T");
+        assert!(
+            (144..=147).contains(&line),
+            "{entry}: returned late/outside early VBlank at LY={line}"
+        );
+        if phase == 8 {
+            assert!(
+                (130000..160000).contains(&cycles),
+                "{entry}: {cycles}T must wait for two distinct windows"
+            );
+        } else {
+            assert!(
+                cycles < 90000,
+                "{entry}: {cycles}T missed the first VBlank window"
+            );
+        }
+        assert_heap_snapshot(fields[4], &[0x5a; 4096], &entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], &entry);
+        }
+    }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn memory_fill_exact_extents_alignment_and_cost(
     host: &Host,
     #[case] configuration: &str,
@@ -630,7 +701,49 @@ fn full_graphics_showcase_boots_and_animates(
         report[2] > 0 && report[3] > 0,
         "scroll and sprites must animate"
     );
-    assert_eq!(report[4], 0, "no mode-3 VRAM writes");
+    if report[4] != 0 {
+        let images = ["Showcase.dll", "Koh.GameBoy.dll"]
+            .map(|name| std::fs::read(output.join(name)).unwrap());
+        let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+        for line in String::from_utf8_lossy(&result.stderr)
+            .lines()
+            .filter(|line| line.starts_with("mode3 "))
+        {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            let bank = fields[1].parse().unwrap();
+            let pc = i32::from_str_radix(fields[2], 16).unwrap();
+            if let Some(owner) = linked
+                .symbols
+                .iter()
+                .filter(|s| {
+                    s.bank == Some(bank)
+                        && s.value <= pc
+                        && s.name.starts_with("__koh_a")
+                        && !s.name.contains('.')
+                })
+                .max_by_key(|s| s.value)
+            {
+                let (assembly, token) = owner
+                    .name
+                    .strip_prefix("__koh_a")
+                    .unwrap()
+                    .split_once("_m")
+                    .unwrap();
+                let name = resolver
+                    .assembly(assembly.parse().unwrap())
+                    .unwrap()
+                    .method_name(u32::from_str_radix(token, 16).unwrap())
+                    .unwrap_or_else(|_| owner.name.clone());
+                eprintln!("{line}: {name}+{}", pc - owner.value);
+            }
+        }
+    }
+    assert_eq!(
+        report[4],
+        0,
+        "no mode-3 VRAM writes: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     let snapshot = std::fs::read(rom.with_extension("gb.snapshot")).unwrap();
     assert_eq!(snapshot.len(), 32 + 1024 + 1024 + 160);
     for (i, byte) in snapshot[..32].iter().enumerate() {

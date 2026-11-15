@@ -373,16 +373,20 @@ internal static unsafe class MapWriter
     {
         byte* start = dst;
         byte* end = dst + n;
-        if (n != 0 && (byte)(Hardware.LY - 144) > 5)
-            Ppu.WaitVBlank();
+        if (n != 0)
+        {
+            byte line = Hardware.LY;
+            if (line < 144 || line > 149)
+                Ppu.WaitVBlank();
+        }
         while (dst != end)
         {
-            // (byte)(LY-144) is 0..8 inside vblank [144,152] and wraps large outside it — one MMIO read and
-            // one compare for the whole `LY < 144 || LY > 152` test. Stop before writing if we've left the
-            // window, reporting how much landed so a write can NEVER touch VRAM in mode 3.
-            if ((byte)(Hardware.LY - 144) > 8)
+            byte* target = dst;
+            byte value = *src;
+            byte line = Hardware.LY;
+            if (line < 144 || line >= 152)
                 return (ushort)(dst - start);
-            *dst = *src;
+            *target = value;
             dst++;
             src++;
         }

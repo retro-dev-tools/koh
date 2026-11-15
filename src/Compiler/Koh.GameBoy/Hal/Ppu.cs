@@ -4,11 +4,11 @@ namespace Koh.GameBoy;
 /// and the tile map without tearing.</summary>
 public static class Ppu
 {
-    /// <summary>Spin until the LCD next enters vertical blank (scanline 144).</summary>
+    /// <summary>Next VBlank window. LCD-on precondition.</summary>
     public static void WaitVBlank()
     {
-        while (Hardware.LY == 144) { } // leave the current vblank, if in one
-        while (Hardware.LY != 144) { } // wait for the next one
+        while (Hardware.LY >= 144) { }
+        while (Hardware.LY < 144) { }
     }
 
     public static void WaitForVramAccess()

@@ -8,7 +8,8 @@ var gb = new GameBoySystem(CartridgeFactory.Load(File.ReadAllBytes(args[0])));
 gb.LoadBootRom(BootRom.FromBytes(gb.Mode == HardwareMode.Cgb ? KohBootRoms.Cgb : KohBootRoms.Dmg));
 gb.Cpu.Registers.Pc = 0;
 var guard = new Mode3WriteGuard(gb);
-gb.Mmu.Hook = guard;
+var trace = new ViolationTrace(gb, guard);
+gb.Mmu.Hook = new CompositeMemoryHook(guard, trace);
 void Frame()
 {
     var result = gb.RunFrame();
@@ -64,3 +65,30 @@ using (var png = File.Create(args[0] + ".png"))
 Console.WriteLine(
     $"{bootFrames} {startupFrames} {scrollChanges} {spriteChanges} {guard.Violations.Count}"
 );
+
+sealed class ViolationTrace(GameBoySystem system, Mode3WriteGuard guard) : MemoryHook
+{
+    int seen;
+    byte lastLine;
+    ulong lastRead;
+
+    public override void OnRead(ushort address, byte value)
+    {
+        if (address == 0xFF44)
+        {
+            lastLine = value;
+            lastRead = system.Clock.SystemTicks;
+        }
+    }
+
+    public override void OnWrite(ushort address, byte value)
+    {
+        if (guard.Violations.Count == seen)
+            return;
+        var violation = guard.Violations[^1];
+        if (seen++ < 16)
+            Console.Error.WriteLine(
+                $"mode3 {system.Cartridge.CurrentRomBank} {violation.Pc:X4} {violation.Address:X4} {violation.Ly} check={lastLine} elapsed={system.Clock.SystemTicks - lastRead}"
+            );
+    }
+}
