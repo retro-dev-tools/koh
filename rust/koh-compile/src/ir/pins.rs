@@ -14,7 +14,7 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
     let mut writes = HashSet::new();
     let mut pending = VecDeque::new();
     for function in functions {
-        let constants: HashMap<_, _> = function
+        let mut constants: HashMap<_, _> = function
             .blocks
             .iter()
             .flat_map(|b| &b.instructions)
@@ -23,13 +23,68 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
                 _ => None,
             })
             .collect();
+        let types: HashMap<_, _> = function
+            .blocks
+            .iter()
+            .flat_map(|b| {
+                b.parameters
+                    .iter()
+                    .copied()
+                    .chain(b.instructions.iter().filter_map(|i| i.result))
+            })
+            .collect();
+        let mut conversions = HashMap::<u32, Vec<(u32, u16, u16, bool)>>::new();
+        for i in function.blocks.iter().flat_map(|b| &b.instructions) {
+            if let (
+                Some((id, ty)),
+                Op::Convert {
+                    value,
+                    bits,
+                    signed,
+                },
+            ) = (i.result, &i.op)
+            {
+                let copied = u16::from(*bits).min(types[value].bits()).min(ty.bits());
+                conversions
+                    .entry(*value)
+                    .or_default()
+                    .push((id, ty.bits(), copied, *signed));
+            }
+        }
+        let mask = |bits: u16| {
+            if bits == 64 {
+                u64::MAX
+            } else {
+                (1u64 << bits) - 1
+            }
+        };
+        let mut known: VecDeque<_> = constants.keys().copied().collect();
+        while let Some(input) = known.pop_front() {
+            for &(id, target, copied, signed) in conversions.get(&input).into_iter().flatten() {
+                let mut value = constants[&input] & mask(copied);
+                if signed && value & (1u64 << (copied - 1)) != 0 {
+                    value |= !mask(copied);
+                }
+                if constants.insert(id, value & mask(target)).is_none() {
+                    known.push_back(id);
+                }
+            }
+        }
         for i in function.blocks.iter().flat_map(|b| &b.instructions) {
             if let Op::Call { target, .. } = i.op {
                 callers.entry(target).or_default().push(function.identity);
             }
-            if matches!(i.op, Op::StoreMemory { address, .. } if constants.get(&address) == Some(&0xff70))
-                && writes.insert(function.identity)
-            {
+            let bank_write = match i.op {
+                Op::StoreMemory { address, .. } => constants.get(&address) == Some(&0xff70),
+                Op::MemoryFill { address, count, .. } => constants
+                    .get(&address)
+                    .zip(constants.get(&count))
+                    .is_some_and(|(&address, &count)| {
+                        0xff70u16.wrapping_sub(address as u16) < count as u16
+                    }),
+                _ => false,
+            };
+            if bank_write && writes.insert(function.identity) {
                 pending.push_back(function.identity);
             }
         }

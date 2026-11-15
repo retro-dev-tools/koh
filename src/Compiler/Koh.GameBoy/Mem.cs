@@ -80,38 +80,15 @@ public static unsafe class Mem
         }
     }
 
-    /// <summary>Fill <paramref name="count"/> bytes starting at <paramref name="destination"/> with
-    /// <paramref name="value"/>, in ascending address order. A <paramref name="count"/> of zero is a
-    /// no-op. NOT vblank-aware — same stance as <c>Cgb.CopyToVram</c>: the caller is responsible for
-    /// PPU-mode safety when the destination is VRAM/OAM.
-    ///
-    /// This body is ordinary compiled Koh C# (not a <c>[KohIntrinsic]</c>) — see <see cref="Copy"/>'s
-    /// remarks for why the loop is shaped as a byte-induction-variable block/remainder walk sharing one
-    /// <c>do</c>/<c>while</c> node instead of two sequential loops; the same reasoning and register-
-    /// allocator constraint apply here.</summary>
+    /// <summary>Ascending fill. Zero-count no-op. Caller-owned capacity and PPU timing.</summary>
+    [KohIntrinsic("memfill")]
     public static void Fill(byte* destination, byte value, ushort count)
     {
-        byte blocks = (byte)(count >> 8);
-        byte remainder = (byte)count;
-        while (blocks != 0 || remainder != 0)
+        while (count != 0)
         {
-            byte i;
-            if (blocks != 0)
-            {
-                i = 0;
-                blocks--;
-            }
-            else
-            {
-                i = (byte)(0 - remainder);
-                remainder = 0;
-            }
-            do
-            {
-                *destination = value;
-                destination++;
-                i++;
-            } while (i != 0);
+            *destination = value;
+            destination++;
+            count--;
         }
     }
 }

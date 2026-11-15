@@ -12,6 +12,7 @@ enum Kind {
 pub(crate) enum Intrinsic {
     Allocate,
     ResetArena,
+    MemoryFill,
     CpuControl(crate::ir::CpuControl),
     OamDma,
     Read(u16),
@@ -334,6 +335,23 @@ pub(crate) fn intrinsic(
             .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner)
     {
         return Err("Koh intrinsic requires a static non-generic method".into());
+    }
+    if kind == "memfill" {
+        use clrmeta::ElementType;
+        if address != -1
+            || signature.calling_convention.0 != 0
+            || signature.sentinel.is_some()
+            || signature.return_type != TypeSig::Primitive(ElementType::Void)
+            || signature.params
+                != [
+                    TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1))),
+                    TypeSig::Primitive(ElementType::U1),
+                    TypeSig::Primitive(ElementType::U2),
+                ]
+        {
+            return Err("Invalid Koh memfill intrinsic contract: expected address-less static void(byte*, byte, ushort)".into());
+        }
+        return Ok(Some(Intrinsic::MemoryFill));
     }
     if matches!(kind, "alloc" | "heapreset") {
         use clrmeta::ElementType;

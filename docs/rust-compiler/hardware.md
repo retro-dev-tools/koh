@@ -22,6 +22,7 @@ Implemented call-site contracts:
 | oamdma | `void(byte page)` | Blocking [HRAM DMA routine](oam-dma.md), no address |
 | alloc | `byte*(int size)` | Checked [raw arena allocation](raw-arena.md), no address |
 | heapreset | `void()` | Release raw blocks while preserving managed arrays, no address |
+| memfill | `void(byte*, byte, ushort)` | Exact ascending [byte fill](runtime-memory.md), no address |
 
 Addresses must fit 0000..FFFF. A property marker applies to its accessor methods;
 a method marker can define a direct hardware alias. Multiple matching method and
@@ -29,7 +30,7 @@ property markers are errors. Instance or generic intrinsic methods are rejected.
 The supported register contract deliberately matches the library's byte register
 API. A region pointer does not promise support for every possible pointed-to type.
 
-Call lowering emits the existing typed constant/load/store IR, rather than a call
+Call lowering emits typed IR for the corresponding effect, rather than a call
 to the desktop body. Consequently `Gb`'s pinned desktop buffer and `Hardware`'s
 desktop static state/initializers are not embedded in a ROM. Ordinary reached
 methods use [real initializer lowering](initializers.md); this exception belongs solely

@@ -125,6 +125,14 @@ bytes for that return and its temporary push. This is an internal same-bank
 routine, not a managed call or another preserved-register convention. See
 [semantic proof and execution measurements](magnitude-multiply.md).
 
+The address-less `memfill` contract is exact `void(byte*,byte,ushort)` metadata.
+IR stores address as native16 and value/count as int32; the emitter truncates
+the latter to8/16 bits, captures them before writing and performs ascending
+byte writes through DE with a BC counter. A four-byte temporary guard covers
+operand capture. It preserves selected banks, supports zero count and wraps
+bus addresses modulo65536; it adds no managed bounds or PPU scheduling. See
+[memory contract and independent observations](runtime-memory.md).
+
 Rust tests serialize emitted objects to ELF, read them back, link with `koh-link`,
 and invoke a minimal C# host around the unchanged emulator. The host initializes
 test-owned output/guard memory, steps with a fixed bound and reports memory/SP;

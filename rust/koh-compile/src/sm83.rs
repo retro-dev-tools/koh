@@ -1228,9 +1228,14 @@ pub(crate) fn emit_with_strings(
             )
         });
     let mut multipliers = BTreeMap::<u16, SymbolId>::new();
+    let fill = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .any(|i| matches!(i.op, Op::MemoryFill { .. }));
     code.guard(
         layout.size
-            + if allocator.is_some() || multiplication {
+            + if allocator.is_some() || multiplication || fill {
                 4
             } else {
                 2
@@ -1262,6 +1267,26 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::MemoryFill {
+                    address,
+                    value,
+                    count,
+                } => {
+                    code.extend(place(count), layout.arithmetic, 2);
+                    code.load_a(slot(value));
+                    code.bytes(&[0xf5]);
+                    code.indirect(slot(address) + 2);
+                    code.bytes(&[0xc5]);
+                    code.indirect(layout.arithmetic + 4);
+                    code.bytes(&[0xd1, 0xf1, 0x67, 0x78, 0xb1]);
+                    let done = code.label();
+                    let byte = code.label();
+                    code.jump(0xca, done);
+                    code.mark(byte);
+                    code.bytes(&[0x7c, 0x12, 0x13, 0x0b, 0x78, 0xb1]);
+                    code.jump(0xc2, byte);
+                    code.mark(done);
+                }
                 Op::ArenaAllocate(bytes) => {
                     code.allocate_raw(place(bytes), destination, layout.arithmetic)
                 }

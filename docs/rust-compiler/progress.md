@@ -8,7 +8,28 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current units: [small-magnitude multiplication](magnitude-multiply.md) and
+Current unit: [native byte fill](runtime-memory.md). The real cube profile
+identified the old C# loop as its largest early-capture cost. Exact guarded
+fill ROMs improve from1434496T Debug/1276400T Release to91492T in either mode;
+this is target execution, not host compiler-performance evidence. The validated
+metadata contract lowers to effectful IR and complete Rust code generation.
+Final post-hook fill selection passes24/24 in125.887s,exit0, including exact
+bus wrap, local aliases and signed/narrow constant classification. The actual
+SDK graphics dotnet build/run also passes87.842s with zero mode3 writes.
+Two more legacy methods have native replacements:34/565 complete,
+531partial/outstanding, none physically retired. CGB Debug/Release cube
+captures now pass, as does DMGRelease; DMGDebug still fails its early capture.
+The stronger ten-case cube run is9passed/1failed,59.485s, exit100.
+The next root cause to test is Ppu.WaitVBlank's one-scanline polling window.
+No frame limit, geometry assertion or failing case is waived.
+The broader regression completed308passed/1failed in466.164s,exit100
+(`/tmp/koh-fill-graphics-regression.log`,82 unrelated cases filtered). The
+only failure is that DMGDebug early capture; IR, backend, fill, tile, lazy-map
+and showcase checks pass. Read-only review found no new Rust correctness defect;
+the retiring C# compiler's inability to consume memfill is intentional and
+documented, not serviced by a fallback implementation.
+
+Previous units: [small-magnitude multiplication](magnitude-multiply.md) and
 [shared canvas transfers](canvas-transfers.md). Backend66/66 plus real tile
 transfer4/4 passed221.574s, exit0 (`/tmp/koh-multiply-transfer-regression.log`).
 Multiplication's I32 probe fell47080T→3828T; I64 fell185896T→6260T. One private

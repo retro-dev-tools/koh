@@ -177,6 +177,11 @@ pub enum CpuControl {
 pub enum Op {
     ArenaAllocate(u32),
     ArenaReset,
+    MemoryFill {
+        address: u32,
+        value: u32,
+        count: u32,
+    },
     CpuControl(CpuControl),
     OamDma(u32),
     StringLiteral(Vec<u16>),
@@ -312,7 +317,9 @@ impl Op {
                 [Some(address), None]
             }
             Self::ExtractField { value, .. } => [Some(value), None],
-            Self::StoreMemory { address, value, .. } => [Some(address), Some(value)],
+            Self::StoreMemory { address, value, .. } | Self::MemoryFill { address, value, .. } => {
+                [Some(address), Some(value)]
+            }
             Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
                 [Some(left), Some(right)]
             }
@@ -337,7 +344,14 @@ impl Op {
             Self::Call { arguments, .. } => arguments.as_slice(),
             _ => &[],
         };
-        pair.into_iter().flatten().chain(arguments.iter().copied())
+        let count = match *self {
+            Self::MemoryFill { count, .. } => Some(count),
+            _ => None,
+        };
+        pair.into_iter()
+            .flatten()
+            .chain(count)
+            .chain(arguments.iter().copied())
     }
 }
 
@@ -787,6 +801,22 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(storage.stack_type())
                     }
                     Op::ArenaReset | Op::CpuControl(_) => None,
+                    Op::MemoryFill {
+                        address,
+                        value,
+                        count,
+                    } => {
+                        if check(address, position)? != Type::Native
+                            || check(value, position)? != Type::I32
+                            || check(count, position)? != Type::I32
+                        {
+                            return Err(
+                                "Memory fill requires native address and int32 byte/count storage"
+                                    .into(),
+                            );
+                        }
+                        None
+                    }
                     Op::ArenaAllocate(bytes) => {
                         if check(bytes, position)? != Type::I32 {
                             return Err("Raw arena size must be int32".into());

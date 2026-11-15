@@ -573,7 +573,9 @@ Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not imple
 
 Classification: Runtime memory behavior and performance budgets. Zero count, exact extents, page boundaries, defined forward overlap and bounded target cycles are independently useful to games.
 
-Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not implemented).
+Native fill replacements now live in `rust/koh-compile/tests/driver.rs`,
+`tests/ir.rs` and `tests/sm83.rs`; Copy and combined frontend acceptance remain
+open. See [test disposition status](test-disposition.md#runtime-fill-replacements).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|

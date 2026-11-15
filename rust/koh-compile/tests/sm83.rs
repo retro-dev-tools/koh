@@ -957,6 +957,48 @@ fn widths_comparisons_shifts_and_conversions_execute(host: &Host) {
 }
 
 #[rstest::rstest]
+#[case(0, false)]
+#[case(20, false)]
+#[case(0, true)]
+#[case(20, true)]
+fn memory_fill_truncates_formal_widths_and_preserves_stack(
+    host: &Host,
+    #[case] locals: usize,
+    #[case] constant: bool,
+) {
+    let mut f = function(Type::I32, Op::Constant(0));
+    f.parameters = vec![Type::Native, Type::I32, Type::I32];
+    f.returns = None;
+    f.locals = vec![Type::I64; locals];
+    f.blocks[0].parameters = vec![(0, Type::Native), (1, Type::I32), (2, Type::I32)];
+    f.blocks[0].terminator.kind = Control::Return(None);
+    let mut cases = Vec::new();
+    for count in [0u64, 1, 2, 7, 8, 0x10000, 0x10002] {
+        f.blocks[0].instructions.clear();
+        if constant {
+            f.blocks[0].instructions.push(Instruction {
+                result: Some((3, Type::I32)),
+                op: Op::Constant(count),
+                il_offset: 0,
+            });
+        }
+        f.blocks[0].instructions.push(Instruction {
+            result: None,
+            op: Op::MemoryFill {
+                address: 0,
+                value: 1,
+                count: if constant { 3 } else { 2 },
+            },
+            il_offset: 1,
+        });
+        let expected = (0..(count & 0xffff)).fold(0, |bits, byte| bits | (0xa7u64 << (byte * 8)));
+        cases.push((f.clone(), vec![0xc008, 0x123456a7, count], Ok(expected)));
+    }
+    run(host, &cases);
+    run_at(host, &[(f, vec![0xc008, 0xa7, 2], Err(1))], 0xc120);
+}
+
+#[rstest::rstest]
 #[case(Type::I32)]
 #[case(Type::I64)]
 fn repeated_products_fit_a_rom_bank_and_preserve_frames(host: &Host, #[case] ty: Type) {

@@ -33,6 +33,13 @@ requires an int32 size and returns native16; `ArenaReset` has no operands/result
 Neither can be removed when its result is unused. Reset invalidates raw storage
 only; managed arrays retain their lifetime and allocation cursor.
 
+`MemoryFill` is an ordered raw-memory effect with native16 address and int32
+value/count operands, no result. Its runtime contract narrows value/count to
+8/16 bits; zero count performs no bus access. All three uses participate in
+dominance, dead-value reachability and operand remapping. It is a memory-write
+barrier, not a pure expression. Native pointer capacity/banking and PPU timing
+remain caller-owned; see [the exact contract and tests](runtime-memory.md).
+
 Managed functions retain their assembly/token definition and source IL offsets.
 Generated [initializer guards](initializers.md) use the reserved FF identity tag,
 not a metadata MethodDef, and retain the real constructor in `InitializerAddress`.

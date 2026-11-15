@@ -15,6 +15,227 @@ fn host() -> Host {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn memory_fill_exact_extents_alignment_and_cost(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "MemoryFill");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for shape in ["Address", "Return", "Pointer", "Value", "Count"] {
+        let error = compile::object(&resolver, Some(&format!("Program::Bad{shape}"))).unwrap_err();
+        assert!(
+            error.contains("Invalid Koh memfill intrinsic contract") && error.contains("IL_"),
+            "{shape}: {error}"
+        );
+    }
+    for alignment in 0..4 {
+        let entry = format!("Program::Main{alignment}");
+        let object = compile::object(&resolver, Some(&entry)).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap-cost",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 7 } else { 6 });
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        let mut expected = vec![0x5a; 4096];
+        let mut start = 0x100 + alignment;
+        for (count, value) in [
+            (0, 0xaa),
+            (1, 0xbb),
+            (2, 0x80),
+            (3, 0x7f),
+            (4, 0xcc),
+            (5, 0),
+            (7, 0xcc),
+            (15, 0xff),
+            (16, 0x19),
+            (17, 0xe7),
+            (255, 0x18),
+            (256, 0x80),
+            (257, 0xef),
+            (300, 0x7e),
+        ] {
+            expected[start..start + count].fill(value);
+            start += count + 16;
+        }
+        expected[4092..].fill(0x7f);
+        assert_heap_snapshot(fields[4], &expected, &entry);
+        if color {
+            assert_eq!(fields[5], "6B".repeat(4096), "{entry} changed WRAM bank2");
+        }
+        let cycles: u64 = fields.last().unwrap().parse().unwrap();
+        println!("{configuration} color={color} alignment={alignment}: {cycles}T");
+        assert!(
+            cycles < 350000,
+            "{entry}: {cycles}T exceeds five-frame fill budget"
+        );
+    }
+    let object = compile::object(&resolver, Some("Program::Wrap")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let text = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-fill-wrap",
+    );
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+    assert_eq!(fields.last().unwrap(), &"FFFE:A7,FFFF:A7,0000:A7,0001:A7");
+    assert_heap_snapshot(fields[4], &[0x5a; 4096], "wrapped fill");
+    if color {
+        assert_heap_snapshot(fields[5], &[0x6b; 4096], "wrapped fill bank2");
+    }
+    for (entry, result) in [("LocalAlias", "12A7A7A7"), ("LocalNoOp", "12345678")] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", result, "D000", "OK"], "{entry}");
+        assert_heap_snapshot(fields[4], &[0x5a; 4096], entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
+    }
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn memory_fill_desktop_body_preserves_extents(host: &Host, #[case] configuration: &str) {
+    let (directory, _) = gameboy_images(host, configuration, "MemoryFill");
+    let output = dotnet()
+        .arg(
+            directory
+                .path()
+                .join(format!("bin/{configuration}/net10.0/MemoryFill.dll")),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "56 fills OK"
+    );
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn memory_fill_respects_pinned_bank_contract(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "MemoryFill");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for entry in ["BadBank", "IndirectBadBank"] {
+        let result = compile::object(&resolver, Some(&format!("Program::{entry}")));
+        assert!(
+            result.is_err(),
+            "{entry}: accepted a fill spanning SVBK while pinned"
+        );
+        let error = result.err().unwrap();
+        assert!(
+            error.contains("IL_")
+                && error.contains("WRAM bank writes reachable from a pinned method"),
+            "{error}"
+        );
+    }
+    for entry in ["ZeroBank", "PinnedFill"] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        let mut expected = vec![0x5a; 4096];
+        expected[..3].copy_from_slice(&[1, 0, 42]);
+        if entry == "PinnedFill" {
+            expected[0x100..0x103].fill(2);
+        }
+        assert_heap_snapshot(fields[4], &expected, entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
+    }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn cpu_control_and_speed_switch_execute(
     host: &Host,
     #[case] configuration: &str,

@@ -3,6 +3,176 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(0xd000, 0xff, 8, true, true)]
+#[case(0xd000, 0xff, 8, false, false)]
+#[case(0xff70, 0x10000, 16, false, false)]
+#[case(0x1ff6f, 2, 16, false, true)]
+fn memory_fill_constant_conversions_control_bank_spans(
+    #[case] address: u64,
+    #[case] count: u64,
+    #[case] bits: u8,
+    #[case] signed: bool,
+    #[case] rejected: bool,
+) {
+    let array = Type::Array(Storage::Scalar(Scalar::U8));
+    let mut f = diamond();
+    f.parameters = vec![array];
+    f.locals = vec![array];
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![(0, array)],
+        instructions: vec![
+            Instruction {
+                result: Some((6, array)),
+                op: Op::Constant(0),
+                il_offset: 0,
+            },
+            Instruction {
+                result: None,
+                op: Op::StoreLocal { local: 0, value: 6 },
+                il_offset: 0,
+            },
+            Instruction {
+                result: None,
+                op: Op::StorePinned { local: 0, value: 0 },
+                il_offset: 1,
+            },
+            Instruction {
+                result: Some((1, Type::I32)),
+                op: Op::Constant(address),
+                il_offset: 2,
+            },
+            Instruction {
+                result: Some((2, Type::Native)),
+                op: Op::Convert {
+                    value: 1,
+                    bits: 16,
+                    signed: false,
+                },
+                il_offset: 3,
+            },
+            Instruction {
+                result: Some((3, Type::I32)),
+                op: Op::Constant(2),
+                il_offset: 4,
+            },
+            Instruction {
+                result: Some((4, Type::I32)),
+                op: Op::Constant(count),
+                il_offset: 5,
+            },
+            Instruction {
+                result: Some((5, Type::I32)),
+                op: Op::Convert {
+                    value: 4,
+                    bits,
+                    signed,
+                },
+                il_offset: 6,
+            },
+            Instruction {
+                result: None,
+                op: Op::MemoryFill {
+                    address: 2,
+                    value: 3,
+                    count: 5,
+                },
+                il_offset: 7,
+            },
+        ],
+        terminator: Terminator {
+            il_offset: 8,
+            kind: Control::Return(None),
+        },
+    }];
+    if rejected {
+        assert!(
+            verify(&f)
+                .unwrap_err()
+                .contains("WRAM bank writes reachable from a pinned method")
+        );
+    } else {
+        koh_compile::optimize::simplify(&mut f).unwrap();
+        koh_compile::sm83::emit(&f).unwrap();
+    }
+}
+
+#[rstest]
+#[case(Type::Native, Type::I32, Type::I32, true)]
+#[case(Type::I32, Type::I32, Type::I32, false)]
+#[case(Type::ByRef(Scalar::U8), Type::I32, Type::I32, false)]
+#[case(Type::Native, Type::Native, Type::I32, false)]
+#[case(Type::Native, Type::I32, Type::I64, false)]
+#[case(Type::Native, Type::I32, Type::Native, false)]
+fn memory_fill_is_typed_and_preserves_all_operands(
+    #[case] address: Type,
+    #[case] value: Type,
+    #[case] count: Type,
+    #[case] valid: bool,
+) {
+    let mut f = diamond();
+    f.parameters = vec![address, value, count];
+    f.returns = None;
+    f.locals.clear();
+    f.blocks = vec![Block {
+        parameters: vec![(0, address), (1, value), (2, count)],
+        instructions: vec![Instruction {
+            result: None,
+            op: Op::MemoryFill {
+                address: 0,
+                value: 1,
+                count: 2,
+            },
+            il_offset: 0,
+        }],
+        terminator: Terminator {
+            il_offset: 1,
+            kind: Control::Return(None),
+        },
+    }];
+    if !valid {
+        assert!(verify(&f).unwrap_err().contains("Memory fill requires"));
+        return;
+    }
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(f.blocks[0].instructions.len(), 1);
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0].instructions[0].result = Some((3, Type::I32));
+    assert!(verify(&f).unwrap_err().contains("result type mismatch"));
+    f.blocks[0].instructions[0].result = None;
+    f.locals.push(Type::I32);
+    f.blocks[0].instructions.insert(
+        0,
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 2 },
+            il_offset: 0,
+        },
+    );
+    f.blocks[0].instructions.insert(
+        1,
+        Instruction {
+            result: Some((3, Type::I32)),
+            op: Op::LoadLocal(0),
+            il_offset: 0,
+        },
+    );
+    f.blocks[0].instructions[2].op = Op::MemoryFill {
+        address: 0,
+        value: 1,
+        count: 3,
+    };
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert!(
+        f.blocks[0]
+            .instructions
+            .iter()
+            .any(|i| matches!(i.op, Op::MemoryFill { count: 2, .. }))
+    );
+    koh_compile::sm83::emit(&f).unwrap();
+}
+
+#[rstest]
 #[case(Type::I32, true)]
 #[case(Type::I64, false)]
 #[case(Type::Native, false)]

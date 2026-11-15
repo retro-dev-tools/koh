@@ -31,13 +31,38 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: thirty-two legacy methods; zero physically retired.**
+**Native behavioral replacements: thirty-four legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining533 methods still have
+The remaining531 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Runtime fill replacements
+
+Two `Sm83/MemRuntimeTests.cs` methods now map to
+`driver::memory_fill_exact_extents_alignment_and_cost`: four Debug/Release ×
+DMG/CGB cases, each executing four alignments plus a bus-wrap ROM. The original
+group has7 assertion sites and316 individual byte assertions across the two
+methods; those are oracle observations, not316 language features.
+
+| Source method | Behavioral requirement and independent justification | Decision and native evidence |
+| --- | --- | --- |
+| Fill_VariousCounts | Zero count changes nothing; positive count changes exactly its byte extent with the requested value | PORT with stronger whole-bank poison/guard snapshots for0/1/2/3/4/5/7/15/16/17/255/256/257/300 lengths and four alignments; no legacy heap address assumption |
+| Fill_CrossesA256ByteBoundary | A byte counter boundary must not truncate or extend a fill | PORT: exact255/256/257/300 regions plus unchanged following gaps and DFFF endpoint guard; comparison comes from Rust-generated expected bytes |
+
+The normal fill matrix has16 ROM scenarios with15 fills each; four additional
+ROMs validate exact wrapped bus writes. Separate four-case pinned-bank tests
+execute safe zero/nonbanking fills and reject direct/transitive known SVBK
+ranges. Two desktop cases check56 extents each, six IR cases check typing and
+preserved dependencies, and four backend cases check scalar truncation, large
+offsets and stack guards. All are nextest-discoverable. See
+[contract, review, measurements and completed logs](runtime-memory.md).
+
+The other8 methods in this source group remain partial/outstanding: they
+include Copy semantics/performance and a combined frontend check. Nothing is
+DEFERred or physically deleted by this increment.
 
 ## Cube replacement in progress
 

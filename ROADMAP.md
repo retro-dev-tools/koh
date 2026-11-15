@@ -15,7 +15,16 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   The linker migration removes the C# linker and retired object formats and retains C# game development.
   See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
-- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls. Presentation fixes passed14/14 post-commit checks. The SDK now invokes Rust tools, retains tile-sheet generation and builds the emulator on dotnet run; three SDK cases cover real builds/execution, references, flags, assets, failures and path/incremental behavior. Twenty-six legacy methods have complete replacements;539 remain partial/outstanding. Full SDK-head workspace/hosted proof is pending. Container cleanup is done. Source debugging, broader runtime/gameplay, full test migration, release integration and legacy deletion remain incomplete.
+- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls.
+  The SDK invokes Rust tools, retains tile-sheet generation and runs the existing emulator.
+  Native byte fill improves the real cube: CGB Debug/Release and DMG Release
+  pass structural captures; DMG Debug's early capture remains required work.
+  The broader selected regression is308passed/1failed. Thirty-four legacy
+  methods have complete replacements;531 remain partial/outstanding, none deleted.
+  Full current-head workspace/hosted acceptance, source debugging, broader
+  runtime/gameplay, test closure, release integration and legacy deletion remain
+  incomplete. Container cleanup is done. Existing API shapes are evidence,
+  not a design baseline.
   Track the [commit sequence and acceptance ledger](docs/rust-compiler/progress.md);
   the standalone native compiler is verified only for its documented subset, not final migration acceptance.
 

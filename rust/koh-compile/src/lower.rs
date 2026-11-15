@@ -1319,6 +1319,15 @@ fn translate(
                     b.value(Type::Native, Op::Constant(u64::from(address)))
                 };
                 match intrinsic {
+                    Intrinsic::MemoryFill => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::MemoryFill {
+                            address: arguments[0],
+                            value: arguments[1],
+                            count: arguments[2],
+                        },
+                        il_offset: b.offset,
+                    }),
                     Intrinsic::Allocate => {
                         let pointer = b.value(Type::Native, Op::ArenaAllocate(arguments[0]))?;
                         b.stack.push(pointer);

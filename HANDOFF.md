@@ -1,5 +1,52 @@
 # PR #55 handoff
 
+Current unit: native MemoryFill, following profiling commit411f3ed. Root owns
+edits and serial builds. Base for this unit is pushed2ebfc4c. Existing API shapes
+are evidence, not conventions. No local test/build live at this update.
+
+CGB first200 profile: Mem.Fill8733956T, FillSpan6646432T
+(/tmp/koh-cube-profile-first.log). Byte-loop fill ROM1434496Debug/1276400Release;
+word-loop attempt814812Debug/722476Release stillfailed350000T budget.
+New metadata memfill void(byte*,byte,ushort) -> effectful IR -> native52T/byte,
+no source loop/compiler fallback. Actual testROM91492T allalignments/modes/configs.
+Four temporary stack bytes, low8/low16 formals, ascending16bit wrapping writes.
+Desktop body is ordinary byte C#, safe unaligned. Legacy C# compiler rejects
+new metadata; explicitly accepted because it must be deleted and SDK is Rust-only.
+
+Focused fill20/20 passed68.415s /tmp/koh-fill-all-contracts.log; additional
+wrap4/4 passed34.553s /tmp/koh-fill-wrap.log. Covers exactfullpoisonbanks,
+zero/tails/255/256/257/300, four alignments, DFFF guard, fivebadmetadata shapes,
+desktop112fills, sixIRcases and fourbackendlargeoffset/truncation/stack cases.
+Executable wrap exactlyFFFE:A7,FFFF:A7,0000:A7,0001:A7; no extra0002.
+Pin red /tmp/koh-fill-pinned-red.log acceptedSVBKFF6F+2. Fixed using known
+constant/conversion graph and modulo16bit spancheck, including transitivecalls.
+First literal-only fix failed because pointer was OpConvert; corrected20green.
+Dynamic rawpointer capacity/bank safety remains caller-owned, same as raw
+StoreMemory. Review memory_fill_review verified graphlinear, masks andstack;
+no remainingCritical/Important issues, no reviewer builds/edits. Instance/generic/
+calling-convention metadata mutations are not claimed as new coverage.
+
+Broader /tmp/koh-fill-graphics-regression.log completed308passed/1failed,
+466.164s,exit100;82 unrelateddrivercasesfiltered. All207IR,70backend,22selected
+drivercasespass. Cube has9passes/1fail: sixvalidatorcases, threegamecasespass.
+CGB Debug/Release and DMGRelease now pass both structuralcaptures. DMGDebug
+first1100 remainsblank; late2000capture / VRAMsafe checksremainrequired.
+Cube /tmp/koh-cube-native-fill.log9/10,59.485s,exit100. No assertion/budgetrelaxation.
+
+Final post-hook fill24/24 passed125.887s,exit0:
+/tmp/koh-fill-final-posthook.log. Includes new local-memory aliases and4 IR
+conversion/sign/zero/pointer-truncation cases;361 unrelated casesfiltered.
+ActualSDKgraphics dotnetbuild/run passed87.842s; post-hookproductionselection
+30/31 passed273.776s,exit100 /tmp/koh-fill-postcommit-sdk.log, soleDMGDebugcube.
+Nativeproductioncodeunchanged since thatSDKcheck; later additions are tests/docs.
+Push logicalincrements and update draft PR55 checklist34/565complete,
+531partial/outstanding (0deleted).
+Then test/fix Ppu.WaitVBlank: currentcodepollsonlyLY==144 (one456-dotline);
+profileDMGDebug49518400T inWait, firstcapturePCinWait. Test nextblank latency /
+fullVBlankwindow, notlargerframebudgets. Source start/stopandGDMA timingmust
+remain safe; existingemulator/core/debuggernotrewritten. Fullframe/racingbeam
+need actualnative structuralacceptance afterdoublebuffer is fullygreen.
+
 The full native Rust CIL-to-SM83 migration remains ACTIVE in one draft PR55
 against master. Never merge, split PRs, shrink acceptance or declare completion
 for an increment. Existing public APIs are evidence, not a baseline/convention.
@@ -8,8 +55,9 @@ Full objective: use get_goal if needed; the user request's acceptance is intact.
 Worktree: /home/minorum/projekty/koh-rust-compiler, feat/rust-cil-compiler.
 Main worktree has unrelated battle.png edits: preserve SHA256
 fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454.
-Last pushed b77361e; local increments7f7b8a7 small-magnitude multiply and063c695
-shared canvas/tile transfers. This test commit exposes stronger actual Cube tests
+Base HEAD2ebfc4c63b4bc1a08a2866a49519d4906dfe071c was remote-verified.
+Increments7f7b8a7 small-magnitude multiply and063c695 shared canvas/tile transfers.
+Test commit2ebfc4c exposes stronger actual Cube tests
 and serial nextest configuration in the same PR. Root owns edits and builds.
 Read-only multiply_transfer_review found no math/transfer defect; its concurrent
 cargo-test build concern is fixed by a local Roslyn build lock. No reviewer
@@ -57,9 +105,12 @@ builds, edits or active subagents. No local build/test live at this update.
 
 ## CI, PR and closure
 
+Current2ebfc4c runs43750920221 (Rust) and43750920286 (managed) verified live
+after push. Poll these exact runs; no current-head cross-platform result yet.
+
 PR https://github.com/retro-dev-tools/koh/pull/55 stays draft. Update its concise
 live checklist and evidence after pushes. Rough45% is not measured coverage.
-Test matrix32/565 complete,533partial/outstanding, zero physically retired.
+Test matrix34/565 complete,531partial/outstanding, zero physically retired.
 Cube source group3methods/6cases/8assertion sites remains partial; isolated
 Canvas7methods/36sites also need exact raster/plane/page tests. All compiler
 tests must finish migration; none may be deferred to the emulator PR.

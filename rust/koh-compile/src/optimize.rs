@@ -229,6 +229,15 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
     for mut block in blocks.into_iter().flatten() {
         for instruction in &mut block.instructions {
             match &mut instruction.op {
+                Op::MemoryFill {
+                    address,
+                    value: stored,
+                    count,
+                } => {
+                    value(address);
+                    value(stored);
+                    value(count);
+                }
                 Op::ArenaAllocate(bytes) | Op::StackAllocate { bytes } | Op::OamDma(bytes) => {
                     value(bytes)
                 }
