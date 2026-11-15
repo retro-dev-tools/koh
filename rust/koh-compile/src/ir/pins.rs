@@ -4,7 +4,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 fn bank_write(op: &Op, constants: &HashMap<u32, u64>) -> bool {
     match *op {
         Op::StoreMemory { address, .. } => constants.get(&address) == Some(&0xff70),
-        Op::MemoryFill { address, count, .. } => constants
+        Op::MemoryFill { address, count, .. }
+        | Op::MemoryCopy {
+            destination: address,
+            count,
+            ..
+        } => constants
             .get(&address)
             .zip(constants.get(&count))
             .is_some_and(|(&address, &count)| {

@@ -134,10 +134,19 @@ operand capture. It preserves selected banks, supports zero count and wraps
 bus addresses modulo65536; it adds no managed bounds or PPU scheduling. See
 [memory contract and independent observations](runtime-memory.md).
 
+The address-less `memcopy` contract is exact `void(byte*,byte*,ushort)` metadata.
+The emitter captures count's low16 bits and both native pointers before buffer
+access, using two temporary pushes covered by the four-byte guard. DE is the
+destination, HL source, BC count; each ascending read precedes its write.
+Both pointers wrap at16 bits and zero count touches neither buffer. All working
+registers are temporary under the spilled-value ABI. No implicit bank or PPU
+changes occur; see [copy contract and alias tests](memory-copy.md).
+
 Rust tests serialize emitted objects to ELF, read them back, link with `koh-link`,
 and invoke a minimal C# host around the unchanged emulator. The host initializes
 test-owned output/guard memory, steps with a fixed bound and reports memory/SP;
-all behavioral expectations and assertions are in Rust. No game DLL is executed.
+hardware expectations and assertions are in Rust. The compiler never executes
+game DLLs; separate desktop fixtures check ordinary CLR library behavior.
 The fixture uses ordinary Roslyn output with Portable PDBs; matching PDB reading
 and source breakpoints are still incomplete.
 

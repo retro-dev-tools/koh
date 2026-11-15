@@ -4,6 +4,7 @@ using Koh.Emulator.Cartridge;
 bool cost = args.Length > 0 && args[0] == "--cost";
 bool fillCost = args.Length > 0 && args[0] == "--native-heap-cost";
 bool fillWrap = args.Length > 0 && args[0] == "--native-fill-wrap";
+bool copyWrap = args.Length > 0 && args[0] == "--native-copy-wrap";
 bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool oamMode = args.Length > 0 && args[0] == "--native-oam";
@@ -18,6 +19,7 @@ bool heap =
     || arena
     || fillCost
     || fillWrap
+    || copyWrap
     || (args.Length > 0 && args[0] == "--native-heap");
 bool native =
     args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu);
@@ -42,7 +44,7 @@ foreach (
     gb.Cpu.Registers.Pc = 0x100;
     var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
     var timing = new VideoTiming(gb, oamMode);
-    var fillWrites = new FillWriteTrace();
+    var fillWrites = new WrapTrace(copyWrap);
     if (video)
     {
         gb.Mmu.OamArray.AsSpan().Fill(0xC9);
@@ -80,7 +82,7 @@ foreach (
         gb.Mmu.DebugWrite(address, 0x5A);
     if (video)
         gb.Mmu.Hook = new Koh.Emulator.Debug.CompositeMemoryHook(videoGuard, timing);
-    if (fillWrap)
+    if (fillWrap || copyWrap)
         gb.Mmu.Hook = fillWrites;
     int steps = 0;
     int dmaInstructions = 0;
@@ -228,6 +230,12 @@ foreach (
             snapshot += $" {gb.Cpu.TotalTCycles}";
         if (fillWrap)
             snapshot += " " + string.Join(',', fillWrites.Writes);
+        if (copyWrap)
+            snapshot +=
+                " "
+                + string.Join(',', fillWrites.Reads.DefaultIfEmpty("-"))
+                + " "
+                + string.Join(',', fillWrites.Writes.DefaultIfEmpty("-"));
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );
@@ -239,12 +247,17 @@ foreach (
     );
 }
 
-sealed class FillWriteTrace : Koh.Emulator.Debug.MemoryHook
+sealed class WrapTrace(bool reads) : Koh.Emulator.Debug.MemoryHook
 {
     bool active;
     public List<string> Writes { get; } = [];
+    public List<string> Reads { get; } = [];
 
-    public override void OnRead(ushort address, byte value) { }
+    public override void OnRead(ushort address, byte value)
+    {
+        if (reads && active && (address >= 0xFFFE || address <= 2))
+            Reads.Add($"{address:X4}:{value:X2}");
+    }
 
     public override void OnWrite(ushort address, byte value)
     {

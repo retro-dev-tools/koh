@@ -62,6 +62,7 @@ fn cube_boots_and_animates(
         ["Cube.dll", "Koh.GameBoy.dll"].map(|name| std::fs::read(output.join(name)).unwrap());
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     let object = compile::object(&resolver, None).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
     let linked = koh_link::link(
         &[object],
         &koh_link::LinkOptions {

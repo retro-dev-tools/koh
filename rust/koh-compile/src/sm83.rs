@@ -1228,14 +1228,14 @@ pub(crate) fn emit_with_strings(
             )
         });
     let mut multipliers = BTreeMap::<u16, SymbolId>::new();
-    let fill = function
+    let memory_loop = function
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .any(|i| matches!(i.op, Op::MemoryFill { .. }));
+        .any(|i| matches!(i.op, Op::MemoryFill { .. } | Op::MemoryCopy { .. }));
     code.guard(
         layout.size
-            + if allocator.is_some() || multiplication || fill {
+            + if allocator.is_some() || multiplication || memory_loop {
                 4
             } else {
                 2
@@ -1267,6 +1267,26 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::MemoryCopy {
+                    destination,
+                    source,
+                    count,
+                } => {
+                    code.extend(place(count), layout.arithmetic, 2);
+                    code.indirect(slot(source));
+                    code.bytes(&[0xc5]);
+                    code.indirect(slot(destination) + 2);
+                    code.bytes(&[0xc5]);
+                    code.indirect(layout.arithmetic + 4);
+                    code.bytes(&[0xd1, 0xe1, 0x78, 0xb1]);
+                    let done = code.label();
+                    let byte = code.label();
+                    code.jump(0xca, done);
+                    code.mark(byte);
+                    code.bytes(&[0x2a, 0x12, 0x13, 0x0b, 0x78, 0xb1]);
+                    code.jump(0xc2, byte);
+                    code.mark(done);
+                }
                 Op::MemoryFill {
                     address,
                     value,

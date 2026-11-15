@@ -233,6 +233,11 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     address,
                     value: stored,
                     count,
+                }
+                | Op::MemoryCopy {
+                    destination: address,
+                    source: stored,
+                    count,
                 } => {
                     value(address);
                     value(stored);

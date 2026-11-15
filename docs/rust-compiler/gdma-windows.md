@@ -65,6 +65,11 @@ to `Mem.Copy`. No frame budget is increased and the failing case is retained.
 This evidence is emulator execution, not physical hardware validation or a
 whole-migration completion claim.
 
+The subsequent [native byte-copy correction](memory-copy.md) resolves that DMG
+animation failure at the same450/750 budgets. All8 double-buffered/full-frame
+cases pass in the924-case workspace run; the failures above describe this
+earlier DMA checkpoint, not the latest result.
+
 Final distinct-source-half fixture recheck:4/4 passed in29.211s, exit0,
 `/tmp/koh-gdma-patterns-final.log`;108 unrelated tests filtered. These four
 Debug/Release × DMG/CGB cases execute56 ROM probes. Reproduce all affected

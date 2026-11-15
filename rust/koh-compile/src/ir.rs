@@ -182,6 +182,11 @@ pub enum Op {
         value: u32,
         count: u32,
     },
+    MemoryCopy {
+        destination: u32,
+        source: u32,
+        count: u32,
+    },
     CpuControl(CpuControl),
     OamDma(u32),
     StringLiteral(Vec<u16>),
@@ -317,9 +322,13 @@ impl Op {
                 [Some(address), None]
             }
             Self::ExtractField { value, .. } => [Some(value), None],
-            Self::StoreMemory { address, value, .. } | Self::MemoryFill { address, value, .. } => {
-                [Some(address), Some(value)]
-            }
+            Self::StoreMemory { address, value, .. }
+            | Self::MemoryFill { address, value, .. }
+            | Self::MemoryCopy {
+                destination: address,
+                source: value,
+                ..
+            } => [Some(address), Some(value)],
             Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
                 [Some(left), Some(right)]
             }
@@ -345,7 +354,7 @@ impl Op {
             _ => &[],
         };
         let count = match *self {
-            Self::MemoryFill { count, .. } => Some(count),
+            Self::MemoryFill { count, .. } | Self::MemoryCopy { count, .. } => Some(count),
             _ => None,
         };
         pair.into_iter()
@@ -812,6 +821,22 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         {
                             return Err(
                                 "Memory fill requires native address and int32 byte/count storage"
+                                    .into(),
+                            );
+                        }
+                        None
+                    }
+                    Op::MemoryCopy {
+                        destination,
+                        source,
+                        count,
+                    } => {
+                        if check(destination, position)? != Type::Native
+                            || check(source, position)? != Type::Native
+                            || check(count, position)? != Type::I32
+                        {
+                            return Err(
+                                "Memory copy requires native addresses and int32 count storage"
                                     .into(),
                             );
                         }

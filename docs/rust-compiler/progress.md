@@ -8,7 +8,26 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [pin-scope bank validation](pinned-pointers.md). The whole-method
+Current unit: [native ordered byte copy](memory-copy.md). Rust now validates
+the metadata contract, lowers an effectful three-operand IR operation and emits
+an ascending SM83 byte loop. The3840-byte execution probe falls from6235252T
+Debug/5735156T Release to217748T; this is target execution, not host compiler
+performance. All8 double-buffered/full-frame Debug/Release × DMG/CGB cube cases
+now pass unchanged frame budgets and stronger geometry/DMA checks.
+
+Full Linux workspace/all-features nextest completed924/924 in1638.039s, exit0,
+zero skipped/retried (`/tmp/koh-copy-workspace-nextest.log`), including747 compiler
+cases and all3 native SDK build/run cases. The separate rustdoc command succeeds
+with no current doctests. Final selected-bank strengthening passes4/4 in21.380s
+(`/tmp/koh-copy-final-banks.log`),56 ROM probes, with measured56T/byte marginal
+copy cost. Tested production code is unchanged across those runs. Read-only
+review found no blocking defect. Source mappings, IRQs, banked data, reference
+classes, racing-beam/phase-sweep acceptance, legacy deletion and final hosted/
+release/performance validation remain open. Test dispositions now45/565 complete,
+520 partial/outstanding, zero physically retired:8 more runtime-memory methods
+and3 cube methods have independently justified replacements.
+
+Previous unit: [pin-scope bank validation](pinned-pointers.md). The whole-method
 bank-write ban incorrectly rejected bank selection before a fixed block.
 CFG possible-live-pin sets now guard writes and transitive call sites, preserving
 rejection while a pin may be active and allowing selection before acquisition

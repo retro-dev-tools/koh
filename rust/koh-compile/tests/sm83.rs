@@ -961,6 +961,69 @@ fn widths_comparisons_shifts_and_conversions_execute(host: &Host) {
 #[case(20, false)]
 #[case(0, true)]
 #[case(20, true)]
+fn memory_copy_truncates_count_and_preserves_stack(
+    host: &Host,
+    #[case] locals: usize,
+    #[case] constant: bool,
+) {
+    let mut f = function(Type::I32, Op::Constant(0));
+    f.parameters = vec![Type::Native, Type::Native, Type::I32];
+    f.returns = None;
+    f.locals = vec![Type::I64; locals];
+    f.blocks[0].parameters = vec![(0, Type::Native), (1, Type::Native), (2, Type::I32)];
+    f.blocks[0].terminator.kind = Control::Return(None);
+    let pattern = 0x8877665544332211u64;
+    let mut cases = Vec::new();
+    for count in [0u64, 1, 2, 7, 8, 0x10000, 0x10002] {
+        f.blocks[0].instructions = vec![
+            Instruction {
+                result: Some((3, Type::I64)),
+                op: Op::Constant(pattern),
+                il_offset: 0,
+            },
+            Instruction {
+                result: None,
+                op: Op::StoreMemory {
+                    address: 1,
+                    value: 3,
+                    bits: 64,
+                },
+                il_offset: 0,
+            },
+        ];
+        if constant {
+            f.blocks[0].instructions.push(Instruction {
+                result: Some((4, Type::I32)),
+                op: Op::Constant(count),
+                il_offset: 0,
+            });
+        }
+        f.blocks[0].instructions.push(Instruction {
+            result: None,
+            op: Op::MemoryCopy {
+                destination: 0,
+                source: 1,
+                count: if constant { 4 } else { 2 },
+            },
+            il_offset: 1,
+        });
+        let bytes = count & 0xffff;
+        let expected = if bytes == 8 {
+            pattern
+        } else {
+            pattern & ((1u64 << (bytes * 8)) - 1)
+        };
+        cases.push((f.clone(), vec![0xc008, 0xc018, count], Ok(expected)));
+    }
+    run(host, &cases);
+    run_at(host, &[(f, vec![0xc008, 0xc018, 2], Err(1))], 0xc120);
+}
+
+#[rstest::rstest]
+#[case(0, false)]
+#[case(20, false)]
+#[case(0, true)]
+#[case(20, true)]
 fn memory_fill_truncates_formal_widths_and_preserves_stack(
     host: &Host,
     #[case] locals: usize,

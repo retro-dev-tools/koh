@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: thirty-four legacy methods; zero physically retired.**
+**Native behavioral replacements: forty-five legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining531 methods still have
+The remaining520 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -60,25 +60,51 @@ preserved dependencies, and four backend cases check scalar truncation, large
 offsets and stack guards. All are nextest-discoverable. See
 [contract, review, measurements and completed logs](runtime-memory.md).
 
-The other8 methods in this source group remain partial/outstanding: they
-include Copy semantics/performance and a combined frontend check. Nothing is
-DEFERred or physically deleted by this increment.
+The other8 methods now have complete native replacements below. All10 methods
+in this group are mapped; nothing is DEFERred or physically deleted yet.
 
-## Cube replacement in progress
+## Runtime copy replacements
+
+The remaining8 `Sm83/MemRuntimeTests.cs` methods have8 assertion call sites,
+including a300-iteration byte check. The native cases replace unordered vector
+equivalence with exact byte positions and whole-bank guards. Expected memory
+comes from fixed inputs and ordered-copy semantics, not legacy compiler output.
+
+| Source method | Behavioral requirement and independent justification | Decision and native evidence |
+| --- | --- | --- |
+| Frontend_ProducesVerifiableIr | Allocation, copy and fill compose through valid lowering; the C# IR/verifier API is incidental | REPLACE: `driver::memory_copy_contract_aliases_and_bus_wrap`, `CopyFillIntegration`, verified compilation/ELF/linking plus exact ROM memory |
+| Copy_CountZero_IsNoOp | Zero count leaves both buffers untouched | PORT: short-count matrix plus external bus trace requiring zero source reads and destination writes |
+| Copy_SingleByte | Copy exactly one source byte and preserve surrounding bytes | PORT: `driver::memory_copy_exact_extents_alignment_and_cost`, exact whole-bank snapshots |
+| Copy_OddSize | Seven-byte copies preserve the following bytes | PORT: same target includes7 and other odd sizes with16-byte gaps |
+| Copy_CrossesA256ByteBoundary | Pointer/count carries must preserve all300 bytes | PORT:255/256/257/300 and3840-byte cases with nonuniform sources, four paired byte offsets and DFFF endpoint |
+| Copy_OverlapDestinationBeforeSource_IsDefined | Ordered reads must preserve the defined lower-destination overlap | PORT: exact original seven-byte overlap result `[3,4,5,6,7,8,9,7,8,9]`; add reverse overlap, self-copy and aliased local cases |
+| Copy_CostPerByte_IsWithinLooseCeiling | A64-byte copy meets the loose hardware execution budget | REPLACE old body/layout assumptions with64/256/1920 ROM probes; retain64000T ceiling including allocation/call overhead |
+| Copy_MarginalCostPerByte_IsWithinLooseCeiling | Count growth must not produce pathological per-byte cost | PORT: retain256→1920 slope and360T/byte ceiling; measured56T/byte in all four configurations |
+
+The copy matrix executes32 short/bulk ROMs; contract/rate tests execute56 ROMs,
+including explicit bank2 access, pin restoration, both16-bit bus-wrap directions,
+zero accesses and five malformed attributes. Four backend cases execute32 ROMs
+for count truncation, large offsets and stack traps. Five typed/effect IR cases
+and four additional copy-span/conversion cases are nextest-discoverable. Two
+desktop cases execute224 copies each through the ordinary C# library body.
+See [contract, measured costs and completed logs](memory-copy.md).
+
+## Cube replacements
 
 `Samples/Cube3dTests.cs` has3 methods,6 parameter-expanded cases and8 assertion
 sites. The native `cubes` target supplies8 real double-buffered/full-frame
 Debug/Release × DMG/CGB cases,12 independent viewport-validator cases and11
 GDMA-window boundary cases. They are discoverable by cargo-nextest, not skipped
-or feature-gated. Double-buffered acceptance passes in all four configurations after the
-[VBlank correction](vblank-window.md). No additional legacy method is counted
-complete: full-frame coverage remains required.
+or feature-gated. Both variants now pass all four configurations after the
+[VBlank correction](vblank-window.md) and [native copy](memory-copy.md).
+These3 source methods are fully replaced; the separate racing-beam and phase-sweep
+tooling remains required migration work and is not silently counted complete.
 
 | Source method | Behavioral requirement and independent justification | Decision, native target and remaining work |
 | --- | --- | --- |
-| Demo_CompilesWithoutDiagnostics | Actual shipped sources and referenced library compile; compiler class names and diagnostic containers are private details | REPLACE with Roslyn/native compilation and ELF/linking in `cubes::cube_boots_and_animates`; both variants included, full-frame acceptance still required |
-| Demo_LinksToBootableRom | Cartridge header and startup execute on the supported hardware model | REPLACE weak NOP/JP/two-logo-byte checks with real DMG/CGB boot-ROM unmapping and bounded game execution; same target, full-frame still required |
-| Demo_RunOnHardwareRendersARealCube | Authored shaded projection is visible and animates; expectations derive from sample geometry/palette and SM83/PPU behavior | PORT with stronger two-capture palette, viewport, size, connectivity, animation and full DMA-window checks; double-buffered passes, full-frame DMG Debug animation remains required |
+| Demo_CompilesWithoutDiagnostics | Actual shipped sources and referenced library compile; compiler class names and diagnostic containers are private details | REPLACE with Roslyn/native compilation and actual ELF serialization/readback/linking in `cubes::cube_boots_and_animates`; both variants pass |
+| Demo_LinksToBootableRom | Cartridge header and startup execute on the supported hardware model | REPLACE weak NOP/JP/two-logo-byte checks with real DMG/CGB boot-ROM unmapping and bounded game execution; both variants pass |
+| Demo_RunOnHardwareRendersARealCube | Authored shaded projection is visible and animates; expectations derive from sample geometry/palette and SM83/PPU behavior | PORT with stronger two-capture palette, viewport, size, connectivity, animation and full DMA-window checks; all8 cases pass unchanged frame budgets |
 
 The7 `CilCanvasTests.cs` methods (36 assertion sites) remain partial: the real
 cube exercises rasterization/presentation, but cannot replace their exact plane

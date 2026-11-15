@@ -17,15 +17,13 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
 - Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls.
   The SDK invokes Rust tools, retains tile-sheet generation and runs the existing emulator.
-  Native byte fill and corrected VBlank polling let all four double-buffered
-  Debug/Release × DMG/CGB cube cases pass structural captures. The current
-  graphics selection passes28/28; full-frame/racing-beam acceptance remains open.
-  Stronger full-frame DMA tracing requires1024-byte LCD-on bursts; full-frame
-  DMGDebug animation remains red. The overly broad OAM pinned-bank diagnostic
-  exposed by hosted CI is fixed locally:241/241 scope/pointer/OAM regressions and
-  final229/229 IR checks pass; new-head hosted acceptance remains required.
-  Thirty-four legacy
-  methods have complete replacements;531 remain partial/outstanding, none deleted.
+  Native copy/fill and corrected VBlank polling let all eight double-buffered/
+  full-frame Debug/Release × DMG/CGB cases pass structural captures. CGB uses
+  bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
+  Full Linux Rust workspace/all-features passes924/924, plus separate rustdoc;
+  actual SDK build/run checks pass. Final selected-bank probes pass4/4.
+  Forty-five legacy methods have complete replacements;520 remain partial/
+  outstanding, none deleted. Racing-beam and phase-sweep acceptance remain open.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain
   incomplete. Container cleanup is done. Existing API shapes are evidence,

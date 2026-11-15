@@ -40,6 +40,13 @@ dominance, dead-value reachability and operand remapping. It is a memory-write
 barrier, not a pure expression. Native pointer capacity/banking and PPU timing
 remain caller-owned; see [the exact contract and tests](runtime-memory.md).
 
+`MemoryCopy` is the corresponding ordered read/write effect with native16
+destination/source and int32 count, narrowed to unsigned16. It has no result;
+all three operands survive remapping and participate in use/dominance checks.
+Local forwarding treats it as a memory barrier. Read/store order is ascending,
+including overlapping buffers; zero count accesses neither buffer. See
+[copy semantics and executable evidence](memory-copy.md).
+
 Managed functions retain their assembly/token definition and source IL offsets.
 Generated [initializer guards](initializers.md) use the reserved FF identity tag,
 not a metadata MethodDef, and retain the real constructor in `InitializerAddress`.

@@ -1,7 +1,36 @@
 # PR #55 handoff
 
-ACTIVE pinned-bank scope unit. Latest pushed f86dfd7b26c447286d2b0cc96fd7a2bc8e214f38,
-remote verified; draftPR55updated44pass/1failgraphics +4/4distincttransfercases.
+ACTIVE native byte-copy unit. Root owns code/serial builds; review read-only.
+Initial ordinaryCILcopy /tmp/koh-copy-cost-red.log8/8failedbudget: bulk3840
+Debug6235252T Release5735156T; exactmemoryassertions passedbeforeratefailure.
+Newaddresslessmemcopy contract void(byte*,byte*,ushort); typedMemoryCopy Op,
+effectful3operands/remap, knownSVBKdestination spans, SM83DEdestHLsrcBCcount
+forwardbyte56T loop,4Btemporaryguard. OrdinaryCLR body simplebytewalk.
+/tmp/koh-copy-cost-green.log8/8passed50.685s. /tmp/koh-copy-backend-cubes.log
+17/17passed128.775s: all8realcubeD/RDMG/CGB nowgreen unchangedbudgets,5typedIR,
+4backendwidth/largeframe/stackcases. /tmp/koh-copy-contracts.log31/31passed
+116.418s: bulk217748T allmodes/alignments; smallmatrix94036T; wrapsource/dest,
+zero bus accesses, aliases, invalidmetadata5shapes, pinnedSVBKguards, desktop.
+Added original7byteoverlap, combinedalloc/copy/fill and64/256/1920ratecases.
+Cube test nowroundtripscanonicalELF beforelinking. Finalformatted code and
+fixtures fullworkspace/allfeatures/no-fail-fast924/924passed1638.039s,exit0,
+zeroskips/retries /tmp/koh-copy-workspace-nextest.log session12214terminal.
+Doctests separateall4crates0cases succeeded /tmp/koh-copy-doctests.log.
+FinalrawBank2probe fixturestrengthening +allcontractcases4/4passed21.380s,
+/tmp/koh-copy-final-banks.log session81905terminal;56ROMprobes, rates
+64/256/1920=9040/19824/113008T, marginal56T/byte. Productioncodeunchanged.
+Reviewmemory_copy_review no blockingdefect; no reviewer builds/edits.
+No localbuildlive. Matrix45/565complete520outstandingzero physicallyretired.
+Needlogicalcommit/pushsamePR55, verifyhashesposthook, updatechecklist+vault.
+Do notclaimhostcompilerperformance fromtargetCPUcosts; legacyC#compilermustdelete.
+
+ACTIVE full native compiler migration. Latest pushed5c1c12e099b417fe69ac14a87c2f0b1c3eeb46db,
+remote verified; draftPR55updated withf86dfd7GDMA and5c1c12epinscopeincrements.
+NativeCI43764804111 andmanagedCI43764804116 confirmedinprogress; no greenclaim.
+Next: full-frameDMGDebug still450/750identical; profileMem.Copy6232152T and
+framechanges83,437. Diagnosecopycost andpreservebudgets; racing-beamneedsnative
+effectvalidation. Fullclasses/PDB/IRQ/testclosure/compilerdeletion remainopen.
+No localbuild/test live. Onlythispost-pushhandoffrefreshuncommitted.
 Post-hook hashes of all9 tested code/fixture files unchanged. No hidden fallback.
 Root owns edits/serialbuilds. Red /tmp/koh-pin-scope-red.log2pass/8fail19.812s;
 4OamDma and4validbefore/after rejected. Expanded12IRconversion/direct/callee
@@ -14,7 +43,7 @@ exit0,98unrelatedfiltered; fullIR +14OAM/fixed/memoryfillbank cases.
 Reviewpin_scope_review found no blocker; requested overlappinglocals coverage.
 Added2cases first-release rejects/final-release allows. FinalfullIR229/229,
 1.610s exit0 /tmp/koh-pin-ir-final.log session13532terminal. No localbuildslive.
-No testsweakened or diagnosticchecksremoved. Commit/push andupdatePRnext.
+No testsweakened or diagnosticchecksremoved. Commit5c1c12epushed; PRupdated.
 
 ACTIVE full-frame unit, after pushed e9a6be0 (remote verified).
 Root owns edits/serial builds; reviewer owns read-only inspection, no builds.

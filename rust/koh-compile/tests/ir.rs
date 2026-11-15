@@ -3,16 +3,83 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(Type::Native, Type::Native, Type::I32, true)]
+#[case(Type::I32, Type::Native, Type::I32, false)]
+#[case(Type::Native, Type::I32, Type::I32, false)]
+#[case(Type::ByRef(Scalar::U8), Type::Native, Type::I32, false)]
+#[case(Type::Native, Type::Native, Type::I64, false)]
+fn memory_copy_operands_are_typed_and_effectful(
+    #[case] destination: Type,
+    #[case] source: Type,
+    #[case] count: Type,
+    #[case] valid: bool,
+) {
+    let mut f = diamond();
+    f.parameters = vec![destination, source, count];
+    f.returns = None;
+    f.locals = vec![Type::I32];
+    f.blocks = vec![Block {
+        parameters: vec![(0, destination), (1, source), (2, count)],
+        instructions: vec![Instruction {
+            result: None,
+            op: Op::MemoryCopy {
+                destination: 0,
+                source: 1,
+                count: 2,
+            },
+            il_offset: 99,
+        }],
+        terminator: Terminator {
+            il_offset: 100,
+            kind: Control::Return(None),
+        },
+    }];
+    if !valid {
+        assert!(verify(&f).unwrap_err().contains("Memory copy requires"));
+        return;
+    }
+    f.blocks[0].instructions = vec![
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 2 },
+            il_offset: 0,
+        },
+        instruction(3, Type::I32, Op::LoadLocal(0)),
+        Instruction {
+            result: None,
+            op: Op::MemoryCopy {
+                destination: 0,
+                source: 1,
+                count: 3,
+            },
+            il_offset: 99,
+        },
+    ];
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    let copy = f.blocks[0]
+        .instructions
+        .iter()
+        .find(|i| matches!(i.op, Op::MemoryCopy { .. }))
+        .unwrap();
+    assert_eq!(copy.il_offset, 99);
+    assert_eq!(copy.op.operands().collect::<Vec<_>>(), vec![0, 1, 2]);
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0].instructions.last_mut().unwrap().result = Some((4, Type::I32));
+    assert!(verify(&f).is_err());
+}
+
+#[rstest]
 #[case(0xd000, 0xff, 8, true, true)]
 #[case(0xd000, 0xff, 8, false, false)]
 #[case(0xff70, 0x10000, 16, false, false)]
 #[case(0x1ff6f, 2, 16, false, true)]
-fn memory_fill_constant_conversions_control_bank_spans(
+fn raw_memory_constant_conversions_control_bank_spans(
     #[case] address: u64,
     #[case] count: u64,
     #[case] bits: u8,
     #[case] signed: bool,
     #[case] rejected: bool,
+    #[values(false, true)] copy: bool,
 ) {
     let array = Type::Array(Storage::Scalar(Scalar::U8));
     let mut f = diamond();
@@ -85,6 +152,15 @@ fn memory_fill_constant_conversions_control_bank_spans(
             kind: Control::Return(None),
         },
     }];
+    if copy {
+        f.blocks[0].instructions[5].result = Some((3, Type::Native));
+        f.blocks[0].instructions[5].op = Op::Constant(0xff70);
+        f.blocks[0].instructions[8].op = Op::MemoryCopy {
+            destination: 2,
+            source: 3,
+            count: 5,
+        };
+    }
     if rejected {
         assert!(
             verify(&f)

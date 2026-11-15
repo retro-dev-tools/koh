@@ -1328,6 +1328,15 @@ fn translate(
                         },
                         il_offset: b.offset,
                     }),
+                    Intrinsic::MemoryCopy => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::MemoryCopy {
+                            destination: arguments[0],
+                            source: arguments[1],
+                            count: arguments[2],
+                        },
+                        il_offset: b.offset,
+                    }),
                     Intrinsic::Allocate => {
                         let pointer = b.value(Type::Native, Op::ArenaAllocate(arguments[0]))?;
                         b.stack.push(pointer);

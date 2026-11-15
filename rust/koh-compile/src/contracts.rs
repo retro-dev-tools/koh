@@ -13,6 +13,7 @@ pub(crate) enum Intrinsic {
     Allocate,
     ResetArena,
     MemoryFill,
+    MemoryCopy,
     CpuControl(crate::ir::CpuControl),
     OamDma,
     Read(u16),
@@ -336,8 +337,14 @@ pub(crate) fn intrinsic(
     {
         return Err("Koh intrinsic requires a static non-generic method".into());
     }
-    if kind == "memfill" {
+    if matches!(kind, "memfill" | "memcopy") {
         use clrmeta::ElementType;
+        let copied = kind == "memcopy";
+        let second = if copied {
+            TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1)))
+        } else {
+            TypeSig::Primitive(ElementType::U1)
+        };
         if address != -1
             || signature.calling_convention.0 != 0
             || signature.sentinel.is_some()
@@ -345,13 +352,20 @@ pub(crate) fn intrinsic(
             || signature.params
                 != [
                     TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1))),
-                    TypeSig::Primitive(ElementType::U1),
+                    second,
                     TypeSig::Primitive(ElementType::U2),
                 ]
         {
-            return Err("Invalid Koh memfill intrinsic contract: expected address-less static void(byte*, byte, ushort)".into());
+            let value = if copied { "byte*" } else { "byte" };
+            return Err(format!(
+                "Invalid Koh {kind} intrinsic contract: expected address-less static void(byte*, {value}, ushort)"
+            ));
         }
-        return Ok(Some(Intrinsic::MemoryFill));
+        return Ok(Some(if copied {
+            Intrinsic::MemoryCopy
+        } else {
+            Intrinsic::MemoryFill
+        }));
     }
     if matches!(kind, "alloc" | "heapreset") {
         use clrmeta::ElementType;

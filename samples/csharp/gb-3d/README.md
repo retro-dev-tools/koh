@@ -60,11 +60,11 @@ This intentionally replaces the unsafe two-burst assumption; the larger viewport
 and continuously enabled CGB display remain. A CPU-only mode3 guard cannot prove
 DMA safety, so native tests also check complete-transfer timing and exact VRAM.
 
-Every present path moves pixel data through `Mem.Copy`/`Mem.Fill` (`src/Compiler/Koh.Compiler/Frontends/CSharp/
-MemRuntime.cs`), the Koh C# runtime's bulk-memory primitives, rather than hand-rolled per-byte loops.
-Frame-by-frame framebuffer diffing against the built ROMs (the technique in `verify/Program.cs`'s
-comments) measured these steady-state render+present cadences (frames per cycle; a smaller number is a
-faster flip):
+The current [bulk-memory contract](../../../docs/rust-compiler/memory-copy.md)
+lowers `Mem.Copy`/`Mem.Fill` through native Rust IR and SM83 loops. Its3840-byte
+copy probe takes217748T at normal CPU speed; this is not a whole-frame cadence.
+The historical C# compiler measurements below used framebuffer differences
+(the technique in `verify/Program.cs`) to measure frames per render/present cycle:
 
 | ROM | CGB cadence | DMG cadence |
 | --- | --- | --- |

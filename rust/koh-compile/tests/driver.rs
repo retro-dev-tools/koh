@@ -151,6 +151,258 @@ fn direct_gdma_maximum_preserves_every_byte_at_varied_phases(
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn memory_copy_exact_extents_alignment_and_cost(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+    #[values(false, true)] bulk: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "MemoryCopy");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let data: Vec<u8> = (0..3844).map(|i| (i ^ (i >> 8)) as u8).collect();
+    for alignment in 0..4 {
+        let entry = format!("Program::{}{alignment}", if bulk { "Bulk" } else { "Main" });
+        let mut object = compile::object(&resolver, Some(&entry)).unwrap();
+        object.sections.push(koh_objects::Section {
+            name: ".test.copy.source".into(),
+            kind: 0,
+            address: Some(0x2000),
+            size: data.len() as u32,
+            data: data.clone(),
+            ..Default::default()
+        });
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap-cost",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 7 } else { 6 });
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        let source = (alignment + 1) & 3;
+        let mut expected = [0x5a; 4096];
+        if bulk {
+            expected[0x80 + alignment..0x80 + alignment + 3840]
+                .copy_from_slice(&data[source..source + 3840]);
+        } else {
+            let mut destination = 0x100 + alignment;
+            for count in [0, 1, 2, 3, 4, 5, 7, 15, 16, 17, 255, 256, 257, 300] {
+                expected[destination..destination + count]
+                    .copy_from_slice(&data[source..source + count]);
+                destination += count + 16;
+            }
+            expected[4092..].copy_from_slice(&data[source..source + 4]);
+        }
+        assert_heap_snapshot(fields[4], &expected, &entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], &entry);
+        }
+        let cycles: u64 = fields.last().unwrap().parse().unwrap();
+        println!("{configuration} color={color} bulk={bulk} alignment={alignment}: {cycles}T");
+        assert!(
+            cycles < 350000,
+            "{entry}: {cycles}T exceeds five-frame copy budget"
+        );
+    }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn memory_copy_contract_aliases_and_bus_wrap(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "MemoryCopy");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for shape in ["Address", "Return", "Destination", "Source", "Count"] {
+        let error = compile::object(&resolver, Some(&format!("Program::Bad{shape}"))).unwrap_err();
+        assert!(
+            error.contains("Invalid Koh memcopy intrinsic contract") && error.contains("IL_"),
+            "{shape}: {error}"
+        );
+    }
+    for entry in ["BadBank", "IndirectBadBank"] {
+        let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
+        assert!(
+            error.contains("WRAM bank writes reachable from a pinned method")
+                && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    let link = |entry: &str| {
+        let mut object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        object.sections.push(koh_objects::Section {
+            name: ".test.copy.source".into(),
+            kind: 0,
+            address: Some(0x2000),
+            size: 4,
+            data: vec![0x33, 0x44, 0x55, 0x66],
+            ..Default::default()
+        });
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    for entry in ["WrapDestination", "WrapSource", "ZeroBus"] {
+        let linked = link(entry);
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-copy-wrap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 8 } else { 7 }, "{entry}");
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        let mut heap = [0x5a; 4096];
+        let (reads, writes) = match entry {
+            "WrapDestination" => ("-".into(), "FFFE:33,FFFF:44,0000:55,0001:66"),
+            "WrapSource" => {
+                heap[0x100..0x104].copy_from_slice(&[0x11, 4, linked.rom[0], linked.rom[1]]);
+                (
+                    format!(
+                        "FFFE:11,FFFF:04,0000:{:02X},0001:{:02X}",
+                        linked.rom[0], linked.rom[1]
+                    ),
+                    "-",
+                )
+            }
+            _ => ("-".into(), "-"),
+        };
+        assert_heap_snapshot(fields[4], &heap, entry);
+        assert_eq!(
+            &fields[fields.len() - 2..],
+            &[reads.as_str(), writes],
+            "{entry}"
+        );
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
+    }
+    for (entry, result) in [
+        ("ForwardOverlap", "78787878"),
+        ("BackwardOverlap", "12123456"),
+        ("SameAddress", "12345678"),
+        ("LocalNoOp", "12345678"),
+        ("PinnedCopy", "0000002A"),
+        ("OverlapSeven", "0000002A"),
+        ("CopyFillIntegration", "0000002A"),
+        ("BankTwoCopy", "0000002A"),
+    ] {
+        let linked = link(entry);
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", result, "D000", "OK"], "{entry}");
+        let mut heap = [0x5a; 4096];
+        if entry == "PinnedCopy" {
+            heap[..4].copy_from_slice(&[2, 0, 42, 17]);
+            heap[0x100..0x102].copy_from_slice(&[42, 17]);
+        } else if entry == "OverlapSeven" {
+            heap[0x100..0x10a].copy_from_slice(&[3, 4, 5, 6, 7, 8, 9, 7, 8, 9]);
+        } else if entry == "CopyFillIntegration" {
+            heap[4092..].fill(1);
+        } else if entry == "BankTwoCopy" && !color {
+            heap[0x100..0x104].copy_from_slice(&[0x33, 0x44, 0x55, 0x66]);
+        }
+        assert_heap_snapshot(fields[4], &heap, entry);
+        if color {
+            let mut bank2 = [0x6b; 4096];
+            if entry == "BankTwoCopy" {
+                bank2[0x100..0x104].copy_from_slice(&[0x33, 0x44, 0x55, 0x66]);
+            }
+            assert_heap_snapshot(fields[5], &bank2, entry);
+        }
+    }
+    let mut costs = Vec::new();
+    for count in [64, 256, 1920] {
+        let linked = link(&format!("Cost{count}"));
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap-cost",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+        assert_heap_snapshot(fields[4], &[0x5a; 4096], "copy cost storage");
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], "copy cost bank2");
+        }
+        costs.push(fields.last().unwrap().parse::<u64>().unwrap());
+    }
+    assert!(costs[0] <= 64000, "64-byte copy: {}T", costs[0]);
+    let marginal = (costs[2] - costs[1]) as f64 / (1920 - 256) as f64;
+    println!("{configuration} color={color} copy costs={costs:?}, marginal={marginal}T/byte");
+    assert!((0.0..=360.0).contains(&marginal));
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn memory_copy_desktop_body_preserves_extents(host: &Host, #[case] configuration: &str) {
+    let (directory, _) = gameboy_images(host, configuration, "MemoryCopy");
+    let result = dotnet()
+        .arg(
+            directory
+                .path()
+                .join(format!("bin/{configuration}/net10.0/MemoryCopy.dll")),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap().trim(),
+        "224 copies OK"
+    );
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn memory_fill_exact_extents_alignment_and_cost(
     host: &Host,
     #[case] configuration: &str,
