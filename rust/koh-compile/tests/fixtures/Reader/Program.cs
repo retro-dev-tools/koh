@@ -10,6 +10,8 @@ public static class Program
 
     public static T Echo<T>(T value) => value;
 
+    public static string StringLiteral() => "SCORE\0caf\u00e9\uD83D\uDE00\uD800x\uDC00";
+
     public static byte[] Literal() => new byte[] { 0x12, 0x34, 0x56, 0x78, 0x9A };
 
     public static byte[] OtherLiteral() => new byte[] { 9, 8, 7, 6, 5, 4, 3, 2, 1 };

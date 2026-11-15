@@ -42,6 +42,88 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, String> {
     Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
 }
 
+fn user_string(heap: &[u8], token: u32) -> Result<Vec<u16>, String> {
+    if token >> 24 != 0x70 || token & 0xffffff == 0 {
+        return Err("Expected a nonzero #US token".into());
+    }
+    let bytes = heap
+        .get((token & 0xffffff) as usize..)
+        .ok_or("User string offset exceeds #US heap")?;
+    let mut reader = Reader::new(bytes);
+    let length = reader.read_compressed_uint().map_err(|e| e.to_string())? as usize;
+    if length == 0 || length % 2 == 0 {
+        return Err("User string requires UTF-16 units and a terminal flag".into());
+    }
+    let bytes = reader.read_bytes(length).map_err(|e| e.to_string())?;
+    if bytes[length - 1] > 1 {
+        return Err("Invalid user string terminal flag".into());
+    }
+    Ok(bytes[..length - 1]
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect())
+}
+
+#[cfg(test)]
+mod user_string_tests {
+    use super::user_string;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(&[0, 1, 0], &[])]
+    #[case(&[0, 3, 0, 0, 0], &[0])]
+    #[case(&[0, 3, 0, 0xd8, 1], &[0xd800])]
+    #[case(&[0, 3, 0, 0xdc, 1], &[0xdc00])]
+    #[case(&[0, 5, 0x3d, 0xd8, 0, 0xde, 1], &[0xd83d, 0xde00])]
+    fn preserves_units(#[case] bytes: &[u8], #[case] expected: &[u16]) {
+        assert_eq!(user_string(bytes, 0x70000001).unwrap(), expected);
+    }
+
+    #[rstest]
+    #[case(&[])]
+    #[case(&[0])]
+    #[case(&[0, 0])]
+    #[case(&[0, 2, 0, 0])]
+    #[case(&[0, 3, 65, 0])]
+    #[case(&[0, 3, 65, 0, 2])]
+    #[case(&[0, 0x80])]
+    #[case(&[0, 0xc0, 0, 0])]
+    #[case(&[0, 0xff])]
+    #[case(&[0, 0xdf, 0xff, 0xff, 0xff])]
+    fn rejects_malformed_entries(#[case] bytes: &[u8]) {
+        assert!(user_string(bytes, 0x70000001).is_err());
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(63)]
+    #[case(64)]
+    #[case(8191)]
+    #[case(8192)]
+    fn validates_every_truncation(#[case] units: usize) {
+        let length = units * 2 + 1;
+        let mut bytes = vec![0];
+        if length < 128 {
+            bytes.push(length as u8);
+        } else if length < 16384 {
+            bytes.extend_from_slice(&[(length >> 8) as u8 | 0x80, length as u8]);
+        } else {
+            bytes.extend_from_slice(&((length as u32) | 0xc0000000).to_be_bytes());
+        }
+        for _ in 0..units {
+            bytes.extend_from_slice(&0xd800u16.to_le_bytes());
+        }
+        bytes.push(1);
+        assert_eq!(
+            user_string(&bytes, 0x70000001).unwrap(),
+            vec![0xd800; units]
+        );
+        for end in 0..bytes.len() {
+            assert!(user_string(&bytes[..end], 0x70000001).is_err(), "{end}");
+        }
+    }
+}
+
 fn table_row_size(context: &TableContext, table: TableId) -> usize {
     match table {
         TableId::Module => 2 + context.string_index_size() + 3 * context.guid_index_size(),
@@ -222,6 +304,11 @@ impl<'a> Assembly<'a> {
 
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    pub fn user_string(&self, token: u32) -> Result<Vec<u16>, String> {
+        user_string(self.metadata.user_strings.data(), token)
+            .map_err(|error| format!("User string 0x{token:08x}: {error}"))
     }
 
     pub fn method_signature(&self, token: u32) -> Result<clrmeta::MethodSig, String> {

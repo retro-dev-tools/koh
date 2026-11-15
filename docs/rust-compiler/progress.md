@@ -6,6 +6,13 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
+Current string groundwork: the [metadata boundary](metadata-reader.md) now reads
+raw UTF-16 user-string units, preserving isolated surrogates rejected by the
+dependency's Unicode-scalar conversion. Real Roslyn PE32/PE32+ Debug/Release
+fixtures and malformed-entry/truncation tests cover this boundary. Executable
+String IR, member lowering, interning and text/game execution remain open;
+this does not count as a completed legacy string-test replacement.
+
 Latest increment: [unmanaged arrays](arrays.md). Storage-based nominal element
 types now lower typed array operations, byrefs and pins. Checked length/stride
 scaling prevents overflow before allocation; odd3/5-byte elements,64-byte copies,

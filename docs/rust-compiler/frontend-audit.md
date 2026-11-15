@@ -374,7 +374,7 @@ ASCII strings preserve byte order, length, foreach and parameter/field flow; uns
 - **PORT** `StringLiteral_IndexLoop_WritesExactAsciiBytesToWram`.
 - **PORT** `StringLiteral_DebugAndReleaseProduceIdenticalObservableBytes`.
 - **PORT** `StringLiteral_ForeachLoop_WritesExactAsciiBytes`.
-- **PORT** `StringLiteral_NonAsciiCharacter_ReportsDiagnostic_DoesNotThrow`.
+- **REPLACE** `StringLiteral_NonAsciiCharacter_ReportsDiagnostic_DoesNotThrow`: the ASCII-only restriction conflicts with C# UTF-16 semantics. Native metadata tests already preserve Latin text, embedded NUL and surrogate units; executable string coverage remains outstanding.
 - **PORT** `StringLength_OnParameterAcrossCallBoundary_Compiles_ReturnsRealLength`.
 - **PORT** `TextDrawShapedLibraryCall_StringParameterAcrossCallBoundary_CompilesAndRuns`.
 - **PORT** `WriteAsciiHelper_StringParameter_LandsAsciiBytesAndRomBlob`.

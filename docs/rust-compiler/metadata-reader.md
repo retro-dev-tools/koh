@@ -19,6 +19,25 @@ semantics and debugging remain compiler work. Do not call the library's
 convenience name accessors that substitute empty strings after malformed heaps.
 Read heap entries through their fallible APIs instead.
 
+User strings use `Assembly::user_string` rather than clrmeta's `get`: the latter
+converts UTF-16 to a Rust Unicode scalar string, rejecting isolated surrogate
+units that a CLI string can contain, and does not read the terminal heap flag.
+The small compatibility reader preserves `Vec<u16>` exactly, validates the #US
+token, compressed length, complete payload and terminal flag range, and reports
+the token on errors. It does not interpret that flag as a text encoding or
+transcode the data. No assembly execution is involved. The compiler's eventual
+literal capacity checks belong to lowering/emission, not metadata decoding.
+
+Real Roslyn Debug/Release/PE32+ fixtures cover embedded NUL, Latin text, surrogate
+pairs and isolated high/low surrogates. Raw cases cover empty strings, invalid
+tokens/payloads/flags and every truncation across one-, two- and four-byte length
+encodings. This reader increment does not yet add executable string operations.
+String length/indexing must retain UTF-16 units: see the independent
+[String.Length](https://learn.microsoft.com/en-us/dotnet/api/system.string.length?view=net-10.0),
+[String.Chars](https://learn.microsoft.com/en-us/dotnet/api/system.string.chars?view=net-10.0)
+and [#US encoding](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.metadata.blobbuilder.writeuserstring?view=net-10.0)
+contracts. The old ASCII-only compiler behavior is not the language oracle.
+
 The library's table parser preallocates from declared row counts and slices the
 tables stream without validating its range. The native boundary checks every
 stream before parsing tables, rejects duplicates/overlap/header overlap, checks
@@ -66,8 +85,9 @@ have independent temporary output directories; no generated binaries are tracked
 CI installs .NET before testing on Linux, Windows and macOS. A workflow definition
 is not hosted execution evidence.
 
-The portable PDB emitted by Roslyn is not yet consumed. ELF emission, reference
-resolution, IR, executable code generation and emulator acceptance remain open.
+The portable PDB emitted by Roslyn is not yet consumed. Subsequent increments
+implement reference resolution, typed IR, ELF/SM83 emission and component emulator
+execution; complete game and SDK acceptance remain open. See [progress](progress.md).
 
 ## Independent specifications
 

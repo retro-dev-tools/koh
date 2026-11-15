@@ -6,6 +6,38 @@ struct Assemblies {
     bytes: [Vec<u8>; 3],
 }
 
+#[rstest]
+#[case(0)]
+#[case(1)]
+#[case(2)]
+fn user_strings_preserve_utf16_units(assemblies: &Assemblies, #[case] configuration: usize) {
+    let assembly = Assembly::parse(&assemblies.bytes[configuration]).unwrap();
+    let token = (1..=assembly.metadata().method_defs.len())
+        .map(|row| 0x06000000 | row as u32)
+        .find(|&token| assembly.method_name(token).unwrap() == "Program::StringLiteral")
+        .unwrap();
+    let body = assembly.method_body(token).unwrap();
+    let token = koh_compile::cil::decode(body.il)
+        .unwrap()
+        .into_iter()
+        .find_map(
+            |instruction| match (instruction.opcode, instruction.operand) {
+                (0x72, koh_compile::cil::Operand::Token(token)) => Some(token),
+                _ => None,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        assembly.user_string(token).unwrap(),
+        [
+            83, 67, 79, 82, 69, 0, 99, 97, 102, 233, 0xd83d, 0xde00, 0xd800, 120, 0xdc00
+        ]
+    );
+    for invalid in [0, 0x70000000, 0x71000001, 0x70ffffff] {
+        assert!(assembly.user_string(invalid).is_err(), "{invalid:08x}");
+    }
+}
+
 #[fixture]
 #[once]
 fn assemblies() -> Assemblies {

@@ -1,5 +1,21 @@
 # PR #55 working handoff
 
+## Current UTF-16 reader unit
+
+Array head bc6d701 pushed to same draft PR55/master; hosted Rust43704317356
+and CI43704317367 were in progress at last observation. No completion claim.
+Root owns edits/builds. String audit found clrmeta #US get rejects isolated
+surrogates and omits terminal-byte validation. Assembly::user_string now reads
+bounded raw UTF-16 units, with token/length/payload/flag diagnostics. Real Roslyn
+fixture spans NUL, Latin, pairs and isolated surrogates in D/R and PE32+.
+Red /tmp/koh-user-strings-red.log exits100 with invalid UTF-16; green3/3 exits0,
+20.443s, /tmp/koh-user-strings-green.log. Expanded raw cases cover all truncations
+through compressed-length boundaries. Reader suite131/131 passed,0skips,exit0,
+125.335s, /tmp/koh-user-strings-reader-suite.log. Rustfmt and diff checks pass.
+Next finish executable String IR, exact System.String member binding, canonical
+interned ROM literals, checked UTF-16 indexing, calls/statics/nulls and text/game
+execution. Reader alone is not string support. Full goal and ~45% unchanged.
+
 ## Current aggregate-array unit
 
 Root owns edits/builds, no delegated writers. Base pushed34f5b10, same draftPR55
