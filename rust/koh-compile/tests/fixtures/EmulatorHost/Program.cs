@@ -1,6 +1,7 @@
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 
+bool cost = args.Length > 0 && args[0] == "--cost";
 bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool oamMode = args.Length > 0 && args[0] == "--native-oam";
@@ -13,7 +14,13 @@ bool heap = video || stack || arena || (args.Length > 0 && args[0] == "--native-
 bool native =
     args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu);
 ushort stop = native ? Convert.ToUInt16(args[1], 16) : (ushort)0;
-foreach (string path in args.Skip(native ? 2 : 0))
+foreach (
+    string path in args.Skip(
+        native ? 2
+        : cost ? 1
+        : 0
+    )
+)
 {
     byte[] rom = File.ReadAllBytes(path);
     bool color = (rom[0x143] & 0x80) != 0;
@@ -213,6 +220,7 @@ foreach (string path in args.Skip(native ? 2 : 0))
     }
     Console.WriteLine(
         $"{gb.Mmu.DebugRead(0xC000):X2} {gb.Mmu.DebugRead(0xC001):X2} {Convert.ToHexString(result)} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}"
+            + (cost ? $" {gb.Cpu.TotalTCycles}" : "")
     );
 }
 

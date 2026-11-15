@@ -784,6 +784,43 @@ impl Code {
                 self.mark(positive);
             }
         }
+        let wide = self.label();
+        let finished = self.label();
+        if width >= 2 {
+            for slot in [quotient, divisor] {
+                for byte in 2..width {
+                    self.load_a(slot + byte);
+                    self.bytes(&[0xb7]);
+                    self.jump(0xc2, wide);
+                }
+            }
+            self.indirect(quotient);
+            self.bytes(&[0xc5]);
+            self.indirect(divisor + 2);
+            self.bytes(&[0xe1, 0x11, 0, 0, 0x3e, 16]);
+            let bit = self.label();
+            let subtract_word = self.label();
+            let next = self.label();
+            self.mark(bit);
+            self.bytes(&[0xf5, 0x29, 0xcb, 0x13, 0xcb, 0x12]);
+            self.jump(0xda, subtract_word);
+            self.bytes(&[0x7b, 0x91, 0x7a, 0x98]);
+            self.jump(0xda, next);
+            self.mark(subtract_word);
+            self.bytes(&[0x7b, 0x91, 0x5f, 0x7a, 0x98, 0x57, 0x2c]);
+            self.mark(next);
+            self.bytes(&[0xf1, 0x3d]);
+            self.jump(0xc2, bit);
+            self.bytes(if remainder {
+                &[0x42, 0x4b]
+            } else {
+                &[0x44, 0x4d]
+            });
+            self.save_word(destination);
+            self.constant(destination + 2, width - 2, 0);
+            self.jump(0xc3, finished);
+        }
+        self.mark(wide);
         self.constant(rest, width, 0);
         self.bytes(&[0x0e, (width * 8) as u8]);
         let start = self.label();
@@ -810,6 +847,7 @@ impl Code {
         self.jump(0xc2, start);
         let result = if remainder { rest } else { quotient };
         self.copy(result, destination, width);
+        self.mark(finished);
         if signed {
             let positive = self.label();
             self.load_a(sign);

@@ -8,7 +8,17 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [lazy map storage](lazy-maps.md). Native game tracing confirmed
+Current unit: [word division](word-division.md). Runtime magnitude dispatch
+preserves full-width CIL faults/sign semantics and uses register division for
+small operands. The independent I32 ROM test fell from51268T to4532T; I64 takes
+6212T. Backend50/50 and expanded division9/9 passed. These CPU execution costs
+are not compiler-performance measurements or whole-game acceptance.
+The actual cube probe now passes Debug/Release CGB at the unchanged500-frame
+budget. DMG still fails with806/826 mode3 writes (Release/Debug); full probe
+result2passed/2failed,40.931s (`/tmp/koh-cube-word-all.log`, exit100).
+Its structural geometry assertions still need strengthening before retirement.
+
+Previous unit: [lazy map storage](lazy-maps.md). Native game tracing confirmed
 that eager map shadows exhausted the shared arena before canvas allocation.
 The writer now records uniform clears and creates each aligned shadow only when
 needed, preserving same-value no-ops and flattened bounds failures. The final

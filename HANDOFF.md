@@ -1,12 +1,29 @@
 # PR #55 handoff
 
+Active division increment: root owns all edits and serial builds. Read-only
+division review completed with no findings; no edits/builds. Backend50/50
+passed160.779s (/tmp/koh-division-sm83.log). Expanded boundary/cycle9/9 passed
+34.443s (/tmp/koh-division-boundaries.log): I32 4532T, I64 6212T. Original red:
+I32 51268T for30000/31 (/tmp/koh-division-cost-red.log). New word path checks
+normalized magnitudes, retains full-width fault/sign handling and wide fallback.
+Cube CGB Release probe now passes unchanged500-frame budget,10.424s
+(/tmp/koh-cube-word-division.log); structural assertions still need strengthening.
+Full4-case Cube run48692 is terminal exit100:2 CGB passed,2 DMG failed,
+40.931s (/tmp/koh-cube-word-all.log). DMG mode3 writes806Release/826Debug.
+No local build/test live. Next fix Canvas bounded CPU transfers and strengthen
+Cube geometry assertions; unchanged frame budgets. Commit only division files,
+its docs and this handoff; leave Cube/config probes for their completed unit.
+
 Full native CIL→SM83 migration stays ACTIVE in single draft PR55/master.
 Never merge, split PRs, shrink acceptance or mark complete for an increment.
 Existing public APIs are evidence, not a design baseline or convention.
 
 Worktree /home/minorum/projekty/koh-rust-compiler, feat/rust-cil-compiler.
-Last pushed HEAD4e7212dbc9344cf7e7f0cfe30c302c5ab3177553 implements checked raw arena.
-Current tracked increment: lazy map shadows, ready to commit. Root owns all writes
+Pushed HEAD34dc1cfb5c768a37fb6715a90262c1895db8c5a4 fixes lazy map storage;
+parent4e7212d implements checked raw arena. Root owns all writes
+Current-head hosted runs43747499032 (Rust) and43747499084 (managed) were LIVE
+at last primary query. Expected tracked native suite798 tests, Windows796;
+local untracked Cube4 adds another4 failing probes, not yet CI coverage.
 and serial builds; no local process live at this update. lazy_map_review completed
 read-only inspection with no Critical/Important/Minor findings. No tests/builds
 run by reviewer. Declined boundaries accepted: flattened bounds retain existing
@@ -36,8 +53,9 @@ once it reaches presentation. No emulator core/debugger rewrite.
 
 UNTRACKED cubes.rs, fixtures/Cube and CubeHost are unfinished acceptance work.
 Keep them for next unit; do not discard/ignore or include as passing coverage.
-Run with --test cubes. Before full local workspace, add cubes binary to nextest
-roslyn serial group; do not allow shared .NET outputs to build concurrently.
+Run with --test cubes. Uncommitted nextest config now includes cubes in the
+roslyn serial group; commit that config with the Cube target when ready.
+Do not allow shared .NET outputs to build concurrently.
 The memory increment intentionally stages only tracked lazy tests, not failing
 cube probes. This is not compiler-test retirement or whole migration acceptance.
 
@@ -49,15 +67,17 @@ Separate serial reds: /tmp/koh-lazy-noop-serial-red.log and
 /tmp/koh-lazy-bounds-red.log. Earlier overlapping42195/50017 runs were explicitly
 not used as final verification; both are terminal. NEVER start next build after
 write_stdin returns a session_id; only actual terminal output releases ownership.
-Post-commit focused check still required after CSharpier hook.
+Post-commit /tmp/koh-lazy-map-postcommit.log passed22/22,169.673s,exit0,
+72unrelated cases filtered, after CSharpier hook. No local builds/tests live.
 
 Raw predecessor4e7212d native CI43742721789 completed allsuccess. Actual job logs:
 Linux794/794613.381s (132899205310), macOS794/794939.618s (132899205349),
 Windows792/7921273.505s (132899205389),0skips. Two Unix assembler cases differ.
 Separate doctests (no cases) and release artifact graphics1/1 passed on allhosts;
 two unrelated SDK cases intentionally filtered. Reference/RGBDS job passed too.
-Managed run43742721700 status/evidence needs inspection; prior state failed class
-samples. Do not equate hosted native success with full SDK/game acceptance.
+Managed run43742721700 failed only2class sample builds on Linux/Windows;
+actual logs132899205051/132899204781 show all3D128KiB ROMs built. Tests after
+solution build and dependent AOT/benchmark jobs skipped. Do not count them green.
 
 Next implementation candidates (NOT implemented): optimize generic math with
 independently tested runtime small-value paths instead of narrowing C# semantics

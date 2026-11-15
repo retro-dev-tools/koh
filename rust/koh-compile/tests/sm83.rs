@@ -1167,6 +1167,122 @@ fn partial_local_aliases_preserve_high_bits_and_carry(
 }
 
 #[rstest::rstest]
+#[case(Type::I32)]
+#[case(Type::I64)]
+fn small_division_cycle_cost(host: &Host, #[case] ty: Type) {
+    let f = function(
+        ty,
+        Op::Binary {
+            op: Binary::DivideSigned,
+            left: 0,
+            right: 1,
+        },
+    );
+    let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
+    let path = directory.path().join("division.gb");
+    std::fs::write(&path, rom(&f, &[30000, 31], 0xd000)).unwrap();
+    let output = dotnet()
+        .arg(&host.dll)
+        .arg("--cost")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let fields: Vec<_> = stdout.split_whitespace().collect();
+    assert_eq!(fields[0], "A5", "{stdout}");
+    assert_eq!(fields[2], "C703000000000000", "{stdout}");
+    assert_eq!(fields[3], "D000", "{stdout}");
+    assert_eq!(fields[4], "OK", "{stdout}");
+    let cycles: u64 = fields[5].parse().unwrap();
+    println!("{ty:?}: {cycles} T-cycles");
+    assert!(
+        cycles < 20000,
+        "small {ty:?} division costs {cycles} T-cycles; budget 20000"
+    );
+}
+
+#[rstest::rstest]
+#[case(Type::Native, 0)]
+#[case(Type::Native, 20)]
+#[case(Type::I32, 0)]
+#[case(Type::I32, 20)]
+#[case(Type::I64, 0)]
+#[case(Type::I64, 20)]
+fn division_word_boundaries_execute(host: &Host, #[case] ty: Type, #[case] locals: usize) {
+    let mask = if ty == Type::I64 {
+        u64::MAX
+    } else {
+        (1u64 << ty.bits()) - 1
+    };
+    let mut cases = Vec::new();
+    for (left, right) in [
+        (0, 1),
+        (1, 65535),
+        (32768, 1),
+        (65535, 32768),
+        (65535, 65534),
+        (65535, 255),
+        (65535, 1),
+        (65536, 31),
+        (131071, 65536),
+    ] {
+        if left > mask || right > mask {
+            continue;
+        }
+        for (op, expected) in [
+            (Binary::DivideUnsigned, left / right),
+            (Binary::RemainderUnsigned, left % right),
+        ] {
+            let mut f = function(
+                ty,
+                Op::Binary {
+                    op,
+                    left: 0,
+                    right: 1,
+                },
+            );
+            f.locals = vec![Type::I64; locals];
+            cases.push((f, vec![left, right], Ok(expected)));
+        }
+    }
+    for (left, right) in [
+        (-32768i64, -1i64),
+        (-30000, 31),
+        (30000, -31),
+        (-30000, -31),
+    ] {
+        if ty == Type::Native && left == -32768 && right == -1 {
+            continue;
+        }
+        for (op, expected) in [
+            (Binary::DivideSigned, left / right),
+            (Binary::RemainderSigned, left % right),
+        ] {
+            let mut f = function(
+                ty,
+                Op::Binary {
+                    op,
+                    left: 0,
+                    right: 1,
+                },
+            );
+            f.locals = vec![Type::I64; locals];
+            cases.push((
+                f,
+                vec![left as u64 & mask, right as u64 & mask],
+                Ok(expected as u64 & mask),
+            ));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 fn division_boundaries_and_faults_execute(host: &Host) {
     let mut cases = Vec::new();
     for (ty, mask, sign) in [
