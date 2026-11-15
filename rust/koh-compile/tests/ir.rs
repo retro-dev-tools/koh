@@ -66,12 +66,20 @@ fn local_forwarding_preserves_effects_and_traps(#[case] barrier: u8) {
             il_offset: 0,
         },
         instruction(2, Type::I32, Op::LoadLocal(0)),
+        instruction(
+            8,
+            Type::ByRef(Scalar::I32),
+            Op::LocalAddress {
+                local: 0,
+                storage: Storage::Scalar(Scalar::I32),
+            },
+        ),
     ];
     match barrier {
         0 => instructions.push(Instruction {
             result: None,
             op: Op::StoreMemory {
-                address: 0,
+                address: 8,
                 value: 2,
                 bits: 32,
             },
@@ -85,10 +93,10 @@ fn local_forwarding_preserves_effects_and_traps(#[case] barrier: u8) {
                     token: 0x06000002,
                 },
                 signature: Signature {
-                    parameters: vec![Type::Native],
+                    parameters: vec![Type::ByRef(Scalar::I32)],
                     returns: None,
                 },
-                arguments: vec![0],
+                arguments: vec![8],
             },
             il_offset: 1,
         }),
@@ -701,6 +709,65 @@ fn diamond() -> Function {
             },
         ],
     }
+}
+
+#[rstest]
+#[case(false, false, false)]
+#[case(true, false, true)]
+#[case(false, true, true)]
+fn local_forwarding_requires_all_paths_and_unaliased_storage(
+    #[case] disagree: bool,
+    #[case] addressed: bool,
+    #[case] retained: bool,
+) {
+    let mut f = diamond();
+    let store = |value| Instruction {
+        result: None,
+        op: Op::StoreLocal { local: 0, value },
+        il_offset: 0,
+    };
+    f.blocks[0].instructions.push(store(0));
+    if addressed {
+        f.blocks[0].instructions.push(instruction(
+            6,
+            Type::ByRef(Scalar::I32),
+            Op::LocalAddress {
+                local: 0,
+                storage: Storage::Scalar(Scalar::I32),
+            },
+        ));
+    }
+    f.blocks[1]
+        .instructions
+        .push(store(if disagree { 1 } else { 0 }));
+    f.blocks[2].instructions.push(store(0));
+    if addressed {
+        for (block, value) in [(1, 1), (2, 2)] {
+            f.blocks[block].instructions.push(Instruction {
+                result: None,
+                op: Op::StoreMemory {
+                    address: 6,
+                    value,
+                    bits: 32,
+                },
+                il_offset: 1,
+            });
+        }
+    }
+    f.blocks[3]
+        .instructions
+        .push(instruction(4, Type::I32, Op::LoadLocal(0)));
+    f.blocks[3].terminator.kind = Control::Return(Some(4));
+    verify(&f).unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(
+        f.blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .any(|i| matches!(i.op, Op::LoadLocal(0))),
+        retained
+    );
+    verify(&f).unwrap();
 }
 
 #[test]

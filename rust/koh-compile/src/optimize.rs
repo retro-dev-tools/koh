@@ -1,5 +1,81 @@
 use crate::ir::*;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+
+fn forward_locals(function: &Function) -> BTreeMap<u32, u32> {
+    let count = function.locals.len();
+    let mut aliases = BTreeMap::new();
+    if count == 0 || count.saturating_mul(function.blocks.len()) > 1_000_000 {
+        return aliases;
+    }
+    let mut eligible = vec![true; count];
+    let mut predecessors = vec![vec![]; function.blocks.len()];
+    for (index, block) in function.blocks.iter().enumerate() {
+        for i in &block.instructions {
+            if let Op::LocalAddress { local, .. } | Op::StorePinned { local, .. } = i.op {
+                eligible[local as usize] = false;
+            }
+        }
+        for edge in block.terminator.kind.edges() {
+            predecessors[edge.block].push(index);
+        }
+    }
+    let incoming = |block: usize, states: &[Vec<Option<u32>>]| {
+        let mut values = vec![None; count];
+        if block != 0 {
+            if let Some((&first, rest)) = predecessors[block].split_first() {
+                values.clone_from(&states[first]);
+                for &previous in rest {
+                    for (value, other) in values.iter_mut().zip(&states[previous]) {
+                        if value != other {
+                            *value = None;
+                        }
+                    }
+                }
+            }
+        }
+        values
+    };
+    let mut outgoing = vec![vec![None; count]; function.blocks.len()];
+    let mut pending: VecDeque<_> = (0..function.blocks.len()).collect();
+    let mut queued = vec![true; function.blocks.len()];
+    while let Some(index) = pending.pop_front() {
+        queued[index] = false;
+        let mut values = incoming(index, &outgoing);
+        for i in &function.blocks[index].instructions {
+            if let Op::StoreLocal { local, value } = i.op {
+                if eligible[local as usize] {
+                    values[local as usize] = Some(value);
+                }
+            }
+        }
+        if values != outgoing[index] {
+            outgoing[index] = values;
+            for edge in function.blocks[index].terminator.kind.edges() {
+                if !queued[edge.block] {
+                    pending.push_back(edge.block);
+                    queued[edge.block] = true;
+                }
+            }
+        }
+    }
+    for (index, block) in function.blocks.iter().enumerate() {
+        let mut values = incoming(index, &outgoing);
+        for i in &block.instructions {
+            match i.op {
+                Op::StoreLocal { local, value } if eligible[local as usize] => {
+                    values[local as usize] = Some(value);
+                }
+                Op::LoadLocal(local) if eligible[local as usize] => {
+                    if let (Some((id, _)), Some(value)) = (i.result, values[local as usize]) {
+                        aliases.insert(id, value);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    aliases
+}
 
 fn pure(op: &Op) -> bool {
     matches!(
@@ -55,6 +131,7 @@ fn remove_unused(function: &mut Function) {
 
 pub fn simplify(function: &mut Function) -> Result<(), String> {
     verify(function)?;
+    let mut aliases = forward_locals(function);
     let mut predecessors = vec![0usize; function.blocks.len()];
     for block in &function.blocks {
         for edge in block.terminator.kind.edges() {
@@ -66,7 +143,6 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
         .map(Some)
         .collect();
     let mut owner: Vec<_> = (0..blocks.len()).collect();
-    let mut aliases = BTreeMap::new();
     for index in 0..blocks.len() {
         let Some(mut block) = blocks[index].take() else {
             continue;
