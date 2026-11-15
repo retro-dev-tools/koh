@@ -1319,6 +1319,11 @@ fn translate(
                     b.value(Type::Native, Op::Constant(u64::from(address)))
                 };
                 match intrinsic {
+                    Intrinsic::CpuControl(control) => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::CpuControl(control),
+                        il_offset: b.offset,
+                    }),
                     Intrinsic::OamDma => b.instructions.push(Instruction {
                         result: None,
                         op: Op::OamDma(arguments[0]),

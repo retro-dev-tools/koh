@@ -10,6 +10,76 @@ fn host() -> Host {
     support::build_host()
 }
 
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn cpu_control_and_speed_switch_execute(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "CpuControl");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for (entry, kind) in [
+        ("BadReturn", "di"),
+        ("BadParameter", "nop"),
+        ("BadAddress", "stop"),
+    ] {
+        let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
+        assert!(
+            error.contains(&format!("Invalid Koh {kind} intrinsic contract"))
+                && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    for entry in ["Program::Raw", "Program::Main", "Program::Wait"] {
+        let object = compile::object(&resolver, Some(entry)).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-cpu",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields.len(), 6);
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        assert_eq!(
+            fields[4],
+            if color && entry == "Program::Main" {
+                "0:1:0:0:FE"
+            } else if color {
+                "0:0:0:0:7E"
+            } else {
+                "0:0:0:0:FF"
+            },
+            "{entry}"
+        );
+        assert_eq!(
+            fields[5],
+            match entry {
+                "Program::Raw" => "1:0",
+                "Program::Wait" => "0:1",
+                _ => "0:0",
+            }
+        );
+    }
+}
+
 #[rstest::fixture]
 #[once]
 fn showcase_host() -> Host {

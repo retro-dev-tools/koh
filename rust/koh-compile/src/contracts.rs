@@ -10,6 +10,7 @@ enum Kind {
 }
 
 pub(crate) enum Intrinsic {
+    CpuControl(crate::ir::CpuControl),
     OamDma,
     Read(u16),
     Write(u16),
@@ -331,6 +332,26 @@ pub(crate) fn intrinsic(
             .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner)
     {
         return Err("Koh intrinsic requires a static non-generic method".into());
+    }
+    if matches!(kind, "di" | "ei" | "halt" | "nop" | "stop") {
+        if address != -1
+            || signature.calling_convention.0 != 0
+            || signature.sentinel.is_some()
+            || !signature.params.is_empty()
+            || signature.return_type != TypeSig::Primitive(clrmeta::ElementType::Void)
+        {
+            return Err(format!(
+                "Invalid Koh {kind} intrinsic contract: expected address-less static void()"
+            ));
+        }
+        use crate::ir::CpuControl;
+        return Ok(Some(Intrinsic::CpuControl(match kind {
+            "di" => CpuControl::DisableInterrupts,
+            "ei" => CpuControl::EnableInterrupts,
+            "halt" => CpuControl::Halt,
+            "nop" => CpuControl::Nop,
+            _ => CpuControl::Stop,
+        })));
     }
     if kind == "oamdma" {
         use clrmeta::ElementType;

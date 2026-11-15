@@ -268,7 +268,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                         value(id);
                     }
                 }
-                Op::Constant(_)
+                Op::CpuControl(_)
+                | Op::Constant(_)
                 | Op::ZeroStruct
                 | Op::FieldHandle(_)
                 | Op::LocalAddress { .. }

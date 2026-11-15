@@ -3,6 +3,73 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(CpuControl::DisableInterrupts)]
+#[case(CpuControl::EnableInterrupts)]
+#[case(CpuControl::Halt)]
+#[case(CpuControl::Nop)]
+#[case(CpuControl::Stop)]
+fn cpu_control_has_no_result_and_survives_optimization(#[case] control: CpuControl) {
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![Instruction {
+            result: None,
+            op: Op::CpuControl(control),
+            il_offset: 0,
+        }],
+        terminator: Terminator {
+            il_offset: 1,
+            kind: Control::Return(None),
+        },
+    }];
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(f.blocks[0].instructions.len(), 1);
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0].instructions[0].result = Some((0, Type::I32));
+    assert!(verify(&f).unwrap_err().contains("result type mismatch"));
+}
+
+#[test]
+fn cpu_control_emits_ordered_sm83_encodings() {
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: [
+            CpuControl::DisableInterrupts,
+            CpuControl::EnableInterrupts,
+            CpuControl::Nop,
+            CpuControl::Halt,
+            CpuControl::Stop,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, control)| Instruction {
+            result: None,
+            op: Op::CpuControl(control),
+            il_offset: i as u32,
+        })
+        .collect(),
+        terminator: Terminator {
+            il_offset: 5,
+            kind: Control::Return(None),
+        },
+    }];
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    let object = koh_compile::sm83::emit(&f).unwrap();
+    assert!(object.sections.iter().any(|s| {
+        s.data
+            .windows(6)
+            .any(|bytes| bytes == [0xf3, 0xfb, 0, 0x76, 0x10, 0])
+    }));
+}
+
+#[rstest]
 #[case(Type::I32, true)]
 #[case(Type::I64, false)]
 #[case(Type::Native, false)]

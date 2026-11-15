@@ -1118,6 +1118,13 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::CpuControl(control) => match control {
+                    CpuControl::DisableInterrupts => code.bytes(&[0xf3]),
+                    CpuControl::EnableInterrupts => code.bytes(&[0xfb]),
+                    CpuControl::Halt => code.bytes(&[0x76]),
+                    CpuControl::Nop => code.bytes(&[0]),
+                    CpuControl::Stop => code.bytes(&[0x10, 0]),
+                },
                 Op::OamDma(page) => {
                     code.load_a(slot(page));
                     let routine = code.import("__koh_oamdma".into());

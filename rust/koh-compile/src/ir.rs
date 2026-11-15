@@ -164,8 +164,18 @@ pub struct Signature {
     pub returns: Option<Type>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CpuControl {
+    DisableInterrupts,
+    EnableInterrupts,
+    Halt,
+    Nop,
+    Stop,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    CpuControl(CpuControl),
     OamDma(u32),
     StringLiteral(Vec<u16>),
     StringLength(u32),
@@ -307,7 +317,8 @@ impl Op {
             | Self::Convert { value, .. }
             | Self::StoreLocal { value, .. }
             | Self::StorePinned { value, .. } => [Some(value), None],
-            Self::Call { .. }
+            Self::CpuControl(_)
+            | Self::Call { .. }
             | Self::StringLiteral(_)
             | Self::ZeroStruct
             | Self::FieldHandle(_)
@@ -770,6 +781,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(storage.stack_type())
                     }
+                    Op::CpuControl(_) => None,
                     Op::OamDma(page) => {
                         if check(page, position)? != Type::I32 {
                             return Err("OAM DMA page requires int32 byte storage".into());

@@ -7,6 +7,7 @@ public static unsafe class Cgb
         return Hardware.KEY1 != 0xFF;
     }
 
+    /// <summary>Startup speed switch; call with IME disabled. Preserves IE and leaves IME disabled.</summary>
     public static bool TryEnableDoubleSpeed()
     {
         if (!IsColor())
@@ -14,16 +15,13 @@ public static unsafe class Cgb
         if ((Hardware.KEY1 & 0x80) != 0)
             return true;
 
-        // Pan Docs' canonical speed-switch sequence: a pending/firing interrupt right at STOP can
-        // derail the switch on real hardware, so mask interrupts, deselect the joypad matrix
-        // (P1/JOYP = $30, per Pan Docs) and clear IF before arming KEY1 and executing STOP, then
-        // restore interrupts once the switch has resolved.
         Hardware.DisableInterrupts();
+        byte enabled = Hardware.IE;
+        Hardware.IE = 0;
         Hardware.JOYP = 0x30;
-        Hardware.IF = 0;
         Hardware.KEY1 = 1;
         Hardware.Stop();
-        Hardware.EnableInterrupts();
+        Hardware.IE = enabled;
         return (Hardware.KEY1 & 0x80) != 0;
     }
 

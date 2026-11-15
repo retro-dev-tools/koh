@@ -29,6 +29,12 @@ All method names below are exact names in the named class. A coherent group enum
 - **REPLACE** `CgbHal_CompilesThroughTheRealBackend`: native compilation of referenced Cgb/Ppu methods, not instantiation of `CilFrontend`/`Sm83Backend` or managed diagnostics types.
 - **PORT** `TryEnableDoubleSpeed_FlipsKey1Bit7_InCgbMode`: returned success, KEY1 bit 7, emulator double-speed state, and switch disarming.
 - **PORT** `TryEnableDoubleSpeed_DoesNothingHarmful_InDmgMode`: false result, no speed state, CPU not parked in STOP.
+
+These two speed-switch methods now map to discoverable native
+`driver::cpu_control_and_speed_switch_execute` Debug/Release × DMG/CGB cases.
+The replacement also checks pending requests, IE and IME before shutdown; see
+[the redesigned startup contract](cpu-control.md). Other methods remain open.
+
 - **PORT** `SelectVramBank_SelectsBank1_InCgbMode`, `SelectVramBank_IsInertOnDmg`: bank-1/VBK readback on CGB and no switch on DMG.
 - **PORT** `SetBackgroundColor_WritesPaletteRam_InCgbMode`, `SetBackgroundColor_WritesTheRequestedPaletteAndColorSlot`: little-endian RGB555 at exact palette/color slots (0/0 and 2/3).
 

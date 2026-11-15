@@ -8,7 +8,18 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [native SDK boundary](sdk.md). Ordinary Debug/Release builds,
+Current unit: [CPU control and startup speed switching](cpu-control.md). Native
+DI/EI/HALT/NOP/STOP lowering and six IR cases pass alongside four Debug/Release ×
+DMG/CGB execution cases:10/10 focused,25.164s, exit0
+(`/tmp/koh-cpu-control-final.log`;271 unrelated cases filtered). The IME probe
+exposed the old speed helper's unconditional interrupt enable. Its explicit
+startup contract now preserves IE/pending requests and leaves IME disabled.
+Two more legacy speed-switch methods have complete native replacements:
+28of565 complete,537 partial/outstanding, none physically retired. Full workspace
+validation of this increment remains pending; handler ABI/reentrancy and physical
+speed-switch timing are not proved by these tests.
+
+Previous unit: [native SDK boundary](sdk.md). Ordinary Debug/Release builds,
 implementation references, canonical ELF, real CPU/MMIO and asset consumption,
 incremental inputs, flags/failures/aliases and real dotnet-run routing pass the
 three-case SDK target. The actual graphics sample builds a65536-byte ROM and

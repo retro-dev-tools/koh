@@ -31,13 +31,25 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: twenty-six legacy methods; zero physically retired.**
+**Native behavioral replacements: twenty-eight legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining539 methods still have
+The remaining537 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## CPU control and speed switching
+
+Two `Samples/CgbHalTests.cs` methods are PORT to the four nextest cases in
+`driver::cpu_control_and_speed_switch_execute`: `TryEnableDoubleSpeed_FlipsKey1Bit7_InCgbMode`
+(four original assertion sites: returned success, double-speed state, KEY1 bit7,
+disarming) and `TryEnableDoubleSpeed_DoesNothingHarmful_InDmgMode` (three sites:
+false result, normal speed, CPU not stopped). Expectations derive from KEY1/STOP
+hardware semantics, not the C# compiler's calling convention. New tests add
+Debug/Release, repeated calls, IE/pending-request preservation and an IME probe
+before shutdown. See [contract and evidence](cpu-control.md). Five other methods
+in this source group remain partial/outstanding; no C# tests are deleted yet.
 
 ## Tile-sheet and SDK replacements
 

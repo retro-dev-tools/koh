@@ -6,9 +6,11 @@ bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool oamMode = args.Length > 0 && args[0] == "--native-oam";
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
 bool maps = args.Length > 0 && args[0] == "--native-maps";
+bool cpu = args.Length > 0 && args[0] == "--native-cpu";
 bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
 bool heap = video || stack || (args.Length > 0 && args[0] == "--native-heap");
-bool native = args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap);
+bool native =
+    args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu);
 ushort stop = native ? Convert.ToUInt16(args[1], 16) : (ushort)0;
 foreach (string path in args.Skip(native ? 2 : 0))
 {
@@ -63,6 +65,10 @@ foreach (string path in args.Skip(native ? 2 : 0))
         gb.Mmu.Hook = new Koh.Emulator.Debug.CompositeMemoryHook(videoGuard, timing);
     int steps = 0;
     int dmaInstructions = 0;
+    bool? controlIme = null;
+    int cpuEnables = 0;
+    int cpuHalts = 0;
+    bool delayedEnable = false;
     bool Finished() =>
         rawOam ? timing.OamStarts != 0
         : native ? gb.Cpu.Registers.Pc == stop
@@ -77,7 +83,31 @@ foreach (string path in args.Skip(native ? 2 : 0))
                 );
             dmaInstructions++;
         }
+        if (cpu && gb.Cpu.Halted)
+        {
+            cpuHalts++;
+            if (cpuHalts != 1 || gb.Cpu.Ime)
+                throw new InvalidOperationException("Invalid HALT state");
+            gb.Mmu.DebugWrite(0xff0f, 1);
+        }
+        byte opcode = cpu && !gb.Cpu.Halted ? gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) : (byte)0;
         gb.StepInstruction();
+        if (cpu)
+        {
+            if ((opcode == 0xf3 && gb.Cpu.Ime) || (delayedEnable && opcode != 0xf3 && !gb.Cpu.Ime))
+                throw new InvalidOperationException("Invalid DI/EI state");
+            delayedEnable = opcode == 0xfb;
+            if (delayedEnable)
+            {
+                cpuEnables++;
+                if (gb.Cpu.Ime)
+                    throw new InvalidOperationException(
+                        "EI enabled before the following instruction"
+                    );
+            }
+        }
+        if (cpu && controlIme is null && gb.Mmu.DebugRead(0xff43) == 1)
+            controlIme = gb.Cpu.Ime;
     }
     if (oamMode && (gb.OamDma.IsBusLocking || timing.OamStarts == 0 || dmaInstructions == 0))
         throw new InvalidOperationException("OAM DMA was not observed completing");
@@ -116,6 +146,9 @@ foreach (string path in args.Skip(native ? 2 : 0))
     if (native)
     {
         string snapshot = "";
+        if (cpu)
+            snapshot =
+                $" {(controlIme is false ? 0 : 1)}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)}:{(gb.KeyOne.SwitchArmed ? 1 : 0)}:{(gb.Cpu.Stopped ? 1 : 0)}:{gb.Mmu.DebugRead(0xff4d):X2} {cpuEnables}:{cpuHalts}";
         if (heap)
         {
             byte saved = gb.Mmu.DebugRead(0xFF70);
