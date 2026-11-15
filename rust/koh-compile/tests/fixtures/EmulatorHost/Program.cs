@@ -19,6 +19,8 @@ foreach (string path in args.Skip(native ? 2 : 0))
         if (!gb.Mmu.DebugWrite(address, 0))
             throw new InvalidOperationException("Cannot initialize test output");
     gb.Cpu.Registers.Pc = 0x100;
+    var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
+    var timing = new VideoTiming(gb);
     if (video)
     {
         gb.Mmu.OamArray.AsSpan().Fill(0xC9);
@@ -54,6 +56,8 @@ foreach (string path in args.Skip(native ? 2 : 0))
         }
     for (ushort address = 0xC080; address < 0xC100; address++)
         gb.Mmu.DebugWrite(address, 0x5A);
+    if (video)
+        gb.Mmu.Hook = new Koh.Emulator.Debug.CompositeMemoryHook(videoGuard, timing);
     int steps = 0;
     bool Finished() => native ? gb.Cpu.Registers.Pc == stop : gb.Mmu.DebugRead(0xC000) != 0;
     while (!Finished() && steps++ < 2_000_000)
@@ -71,6 +75,12 @@ foreach (string path in args.Skip(native ? 2 : 0))
         using var capture = File.Create(Path.ChangeExtension(path, ".png"));
         gb.Framebuffer.WritePng(capture);
     }
+    if (videoGuard.Violations.Count != 0)
+        throw new InvalidOperationException(
+            $"Mode-3 VRAM writes: {videoGuard.Violations.Count}, first={videoGuard.Violations[0]}; {string.Join("; ", timing.Writes)}"
+        );
+    if (timing.UnsafeDma is not null)
+        throw new InvalidOperationException(timing.UnsafeDma);
     byte[] result = new byte[8];
     for (int i = 0; i < result.Length; i++)
         result[i] = gb.Mmu.DebugRead((ushort)(0xC008 + i));
@@ -140,4 +150,38 @@ foreach (string path in args.Skip(native ? 2 : 0))
     Console.WriteLine(
         $"{gb.Mmu.DebugRead(0xC000):X2} {gb.Mmu.DebugRead(0xC001):X2} {Convert.ToHexString(result)} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}"
     );
+}
+
+sealed class VideoTiming(GameBoySystem system) : Koh.Emulator.Debug.MemoryHook
+{
+    ulong lastBlank;
+    public List<string> Writes { get; } = [];
+    public string? UnsafeDma { get; private set; }
+
+    public override void OnRead(ushort address, byte value)
+    {
+        if (address == 0xFF44 && value == 144)
+            lastBlank = system.Clock.SystemTicks;
+    }
+
+    public override void OnWrite(ushort address, byte value)
+    {
+        if (address == 0xFF55 && (value & 0x80) == 0 && (system.Ppu.LCDC & 0x80) != 0)
+        {
+            int dots = ((value & 0x7F) + 1) * 32;
+            int remaining = (154 - system.Ppu.LY) * 456 - system.Ppu.Dot;
+            if (system.Ppu.LY < 144 || dots > remaining)
+                UnsafeDma ??=
+                    $"GDMA outside safe vblank: LY={system.Ppu.LY},dot={system.Ppu.Dot},duration={dots},after144={system.Clock.SystemTicks - lastBlank}";
+        }
+        if (
+            address >= 0x8000
+            && address < 0xA000
+            && (system.Ppu.LCDC & 0x80) != 0
+            && Writes.Count < 64
+        )
+            Writes.Add(
+                $"{address:X4}@LY{system.Ppu.LY}/mode{system.Ppu.Mode}/after144={system.Clock.SystemTicks - lastBlank}"
+            );
+    }
 }

@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: seven legacy methods; zero physically retired.**
+**Native behavioral replacements: eight legacy methods; zero physically retired.**
 The switch, alignment, tile-copy and initialization groups are detailed below.
-The remaining558 methods still have
+The remaining557 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -135,6 +135,21 @@ All three behavioral replacements are discoverable by cargo-nextest. Original
 C# definitions remain until production replacement. This adds three completed
 legacy methods to the four switch replacements, without retiring other graphics,
 OAM-DMA, input, timing or sample scenarios. See [alignment](alignment.md).
+
+### LCD-on tile loading
+
+`CilTileSetTests.Load_LcdOn_ChunksAcrossVblanksAndNeverWritesDuringMode3` is now
+**PORT complete**, discoverable through the four existing
+`driver::actual_tileset_load_copies_vram_and_preserves_banks` cases. They retain
+the original32 distinct bytes1..32 at tile7, add Release and CGB aligned/unaligned
+paths, guard every attempted CPU write with the existing emulator's mode-3 hook,
+and require each GDMA burst to fit the remaining vblank dots. Every byte and
+poisoned bank is checked. A1920-byte CGB case proves multiple bounded bursts.
+This public hardware contract is independently justified by PPU bus ownership
+and exact supplied data, rather than legacy code shape or compiler output.
+The initial native version failed these guards; the runtime ordering/burst fix
+and final proof scopes are in [LCD-on timing](lcd-on-transfers.md). One additional
+legacy method is replaced behaviorally; its C# definition remains temporarily.
 
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.

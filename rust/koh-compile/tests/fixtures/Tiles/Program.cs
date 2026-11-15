@@ -12,6 +12,39 @@ public static unsafe class Program
 
     public static int Aligned() => Load(true);
 
+    public static int OnAligned() => Load(true, true);
+
+    public static int OnUnaligned() => Load(false, true);
+
+    public static int BankedOnLargeAligned()
+    {
+        Bank = 2;
+        Hardware.LCDC = 0;
+        Video.IsCgb = Cgb.IsColor();
+        byte[] padding = new byte[12];
+        padding[0] = 42;
+        byte[] tiles = new byte[1920];
+        for (int i = 0; i < tiles.Length; i++)
+            tiles[i] = (byte)i;
+        Hardware.LCDC = 0x91;
+        TileSet.Load(3, tiles, 120);
+        return (Bank & 7) == 2 ? 0x43 : -1;
+    }
+
+    public static int BankedOnAligned()
+    {
+        Bank = 2;
+        int result = OnAligned();
+        return (Bank & 7) == 2 ? result : -1;
+    }
+
+    public static int BankedOnUnaligned()
+    {
+        Bank = 2;
+        int result = OnUnaligned();
+        return (Bank & 7) == 2 ? result : -1;
+    }
+
     public static int VideoInit()
     {
         Video.Init();
@@ -90,7 +123,7 @@ public static unsafe class Program
         return Video.IsCgb ? 0x43 : 0x44;
     }
 
-    static int Load(bool aligned)
+    static int Load(bool aligned, bool lcdOn = false)
     {
         Hardware.LCDC = 0;
         Video.IsCgb = Cgb.IsColor();
@@ -134,7 +167,13 @@ public static unsafe class Program
             0x7E,
             0xFF,
         };
-        TileSet.Load(3, tiles, 2);
+        if (lcdOn)
+        {
+            for (int i = 0; i < tiles.Length; i++)
+                tiles[i] = (byte)(i + 1);
+            Hardware.LCDC = 0x91;
+        }
+        TileSet.Load(lcdOn ? (byte)7 : (byte)3, tiles, 2);
         return Video.IsCgb ? 0x43 : 0x44;
     }
 }

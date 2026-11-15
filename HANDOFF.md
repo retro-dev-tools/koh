@@ -1,5 +1,46 @@
 # PR #55 working handoff
 
+## Current LCD-on graphics unit
+
+Root owns fixtures/host/driver; no delegated edits or builds. Extend actual
+TileSet.Load acceptance to LCD-on aligned/unaligned CPU/GDMA paths with the
+existing emulator Mode3WriteGuard and complete poisoned-bank checks.
+Old vblank timing was unsafe on the native backend; guards exposed and now cover
+the corrected transfer ordering. Normal-speed/interrupts-disabled proof only.
+Previous verified pushed checkpoint f19bf50; full migration remains incomplete.
+
+Root cause verified: firstCPUwrite10044dots after LY144 and2680dots/byte;
+alignedGDMA14160dots later atLY21dot92. Red4/4failed,exit100,
+/tmp/koh-lcd-on-red.log; detailed /tmp/koh-lcd-on-timing-fixed.log and
+/tmp/koh-lcd-on-gdma-timing.log. Ordinary C# runtime fix prepares CPU byte/target
+before WaitVBlank and writes directly afterward; GDMA setup/control precedes wait
+in new internal Cgb.CopyToVramInVBlank helper. Public API/nonwaiting helper unchanged.
+1920-byte burst still failed atLY146dot104(duration3840,remaining3544); reduced
+LCD-on chunk1024, retaining2048 LCD-off ceiling. Focused4/4passed,exit0,23.790s,
+/tmp/koh-lcd-on-bounded.log, including1920-byte two-burst CGB fixture. Initial
+onebyte/frame fallback superseded by prepared32-bit store retaining4bytes/frame.
+Formatted4C#files +Rust. Workspace617/617passed,0skips,exit0,456.891s beforefinal
+fourbyte refinement. Final focused4/4passed,exit0,23.357s,
+/tmp/koh-lcd-on-final-focused.log; retainsoriginalbytes1..32 at tile7. .NETbuild
+exit0,zero warnings/errors,11.56s; filteredCilTileSet tests7/7,0skips,exit0,7.431s,
+/tmp/koh-lcd-on-dotnet-{build,tests}.log. Doc/fmt EXIT=0, no doctests.
+No active builds. Need commit/push, posthook focused test, PR/vault refresh.
+Combined454ROM scenarios(385normal,69traps). Eight legacy behavioral replacements,
+557 still needcompletionauditing, none physically retired. Docs:lcd-on-transfers.md.
+Read-only review may inspect runtime/host/driver; root owns edits and all builds.
+Read-only arrays_review completed: no concrete correctness defects. Evidence is
+normal-speed, interrupts-disabled execution; no double-speed/IRQ timing claim.
+Throughput improvement implemented after the serial full run:
+DripCpu total is always count*16; prepare a uint value and uint* target before
+WaitVBlank, then one direct 32-bit store and copied+=4. SM83 StoreMemory32 emits
+one address setup and four contiguous byte stores (about88 transfer dots), unlike
+the expensive C# Mem.Copy loop. Focused fourbyte run4/4passed,exit0,23.464s,
+/tmp/koh-lcd-on-word.log, including1920-byte two-burst CGB transfers and all guards.
+Full workspace prior onebyte version617/617passed,0skips,exit0,456.891s,
+/tmp/koh-lcd-on-workspace.log. Final code nowfourbytes/frame; old slow onebyte is
+superseded. Read-only follow-up confirms uint count/alignment/non-overlap conditions;
+no concrete defects. Public APIs unchanged; .NET oldcompiler graphics proofpassed.
+
 ## Latest verified alignment unit
 
 Committed/pushed94f3764b16b7e8b3acf8d919be82a592ae825f30. DraftPR#55
@@ -48,8 +89,8 @@ battle screenshot is unrelated; preserve hash
 
 The C# compiler remains the production SDK compiler. No old test method is fully
 retired yet. All 565 have source-level dispositions, not completed Rust migration.
-Seven methods have complete native behavioral replacements; their source
-definitions remain with the old project until deletion. Remaining558 need
+Eight methods have complete native behavioral replacements; their source
+definitions remain with the old project until deletion. Remaining557 need
 completion auditing.
 Read docs/rust-compiler/progress.md and source audits for the full acceptance ledger.
 The original assignment is also in the conversation and attachment

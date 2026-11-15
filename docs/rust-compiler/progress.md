@@ -6,7 +6,19 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
-Latest increment: [static/array alignment](alignment.md) and actual
+Latest increment: [LCD-on transfers](lcd-on-transfers.md). Independent guards
+exposed unsafe legacy timing assumptions on the native backend. CPU targets and
+four-byte values, or GDMA registers/control, now prepare before waiting. LCD-on
+GDMA bursts are limited to1024 bytes; LCD-off limits and public signatures remain
+unchanged. Workspace617/617 passed before the final four-byte refinement;
+formatted final focused cases passed4/4,exit0,23.357s. Still-live .NET TileSet
+integration passed7/7 after a zero-warning build. Doc/fmt checks exited0.
+Combined coverage now454 ROM scenarios (385 normal,69 traps), four frame checks,
+and eight complete legacy behavioral replacements;557 methods need completion
+auditing and none is physically retired. IRQ/double-speed timing and full native
+SDK/game/debug acceptance remain open.
+
+Previous increment: [static/array alignment](alignment.md) and actual
 `Video.Init` execution. Focused Debug/Release × DMG/CGB emulator tests passed4/4
 (`/tmp/koh-video-init-poison-fixed.log`, exit0,19.541s), including tile maps, OAM,
 palettes, aligned backing storage and restored banking. Nine metadata boundary

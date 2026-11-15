@@ -58,6 +58,18 @@ public static unsafe class Cgb
         Hardware.HDMA5 = (byte)((byteCount >> 4) - 1);
     }
 
+    internal static void CopyToVramInVBlank(byte* source, ushort vramDest, ushort byteCount)
+    {
+        ushort src = (ushort)source;
+        Hardware.HDMA1 = (byte)(src >> 8);
+        Hardware.HDMA2 = (byte)src;
+        Hardware.HDMA3 = (byte)(vramDest >> 8);
+        Hardware.HDMA4 = (byte)vramDest;
+        byte control = (byte)((byteCount >> 4) - 1);
+        Ppu.WaitVBlank();
+        Hardware.HDMA5 = control;
+    }
+
     public static void SetBackgroundColor(byte palette, byte color, ushort rgb555)
     {
         if (!IsColor())

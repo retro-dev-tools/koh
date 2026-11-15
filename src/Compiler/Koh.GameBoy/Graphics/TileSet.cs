@@ -44,29 +44,7 @@ public static unsafe class TileSet
     /// chunk size.</summary>
     private const ushort GdmaHardwareCeiling = 2048;
 
-    /// <summary>Safe per-vblank CGB GDMA chunk while the LCD stays ON: 120 blocks (1920 bytes) at 32
-    /// dots/block (2 bytes per M-cycle, CPU halted, per <see cref="Cgb.CopyToVram"/>'s remarks) =
-    /// 3840 dots, against the ~4104-dot usable vblank budget (10 lines x 456 dots, minus the one line
-    /// <see cref="Ppu.WaitVBlank"/>'s edge detection eats) — a 264-dot margin. Lifted verbatim from
-    /// <c>samples/csharp/gb-3d/double-buffered/Surface.cs</c>'s <c>Present()</c>, which measured and verified
-    /// this exact figure against its Mode3WriteGuard harness (deliberately NOT the full 2048-byte
-    /// hardware ceiling above: 128 blocks x 32 dots = 4096 dots would leave only an 8-dot margin against
-    /// the same budget — razor-thin, not the proven number).</summary>
-    private const ushort VblankGdmaChunkBytes = 1920;
-
-    /// <summary>Safe per-vblank CPU-copy chunk (DMG, or CGB with an unaligned source/dest — GDMA needs
-    /// both 16-byte aligned). <c>Surface.cs</c>'s DMG fallback measured cost(n) = 1528 + 300n dots for
-    /// a BARE <c>Mem.Copy(dst, src, n)</c> call and tuned n=7 against that isolated figure — but
-    /// <see cref="DripCpu"/> reaches its <c>Mem.Copy</c> through an extra call layer
-    /// (<c>Load</c> -&gt; <c>LoadCore</c> -&gt; <c>DripCpu</c>, versus Surface.cs's flat <c>Present()</c>),
-    /// and empirically (this module's own <c>Mode3WriteGuard</c>-style e2e test — see
-    /// <c>CilTileSetTests.Load_LcdOn_ChunksAcrossVblanksAndNeverWritesDuringMode3</c>) n=7 overruns the
-    /// vblank window by a byte or two on this shape: not enough margin once the extra call/dispatch
-    /// overhead is counted. Falls back to n=4 — Surface.cs's OWN prior, more conservative figure before
-    /// its n=7 tuning pass ("up from the old 4-bytes/vblank manual-loop drip") — rather than re-deriving
-    /// a new tuned constant from scratch; slower (a 384-tile full tileset takes well under a minute at 4
-    /// bytes/vblank) but proven safe against the guard, which is what actually gates this constant.</summary>
-    private const byte VblankCpuChunkBytes = 4;
+    private const ushort VblankGdmaChunkBytes = 1024;
 
     /// <summary>Copy <paramref name="count"/> tiles (16 bytes each, 2bpp) from the START of
     /// <paramref name="data"/> into VRAM at <paramref name="firstTile"/> ($8000 addressing). See the
@@ -79,7 +57,7 @@ public static unsafe class TileSet
     /// wanting the GDMA fast path aligns its data with <c>[KohAligned(16)]</c>). LCD on: vblank-chunked
     /// internally (<see cref="Ppu.WaitVBlank"/> once per chunk) — CGB GDMA in
     /// <see cref="VblankGdmaChunkBytes"/>-byte chunks when aligned, else CPU-copy drip in
-    /// <see cref="VblankCpuChunkBytes"/>-byte chunks. Returns when the whole load is done either way.</summary>
+    /// four-byte/vblank steps.</summary>
     public static void Load(byte firstTile, byte[] data, byte count)
     {
         if (count == 0)
@@ -154,29 +132,23 @@ public static unsafe class TileSet
         ushort copied = 0;
         while (copied < total)
         {
-            Ppu.WaitVBlank();
             ushort remaining = (ushort)(total - copied);
             ushort chunk = remaining < VblankGdmaChunkBytes ? remaining : VblankGdmaChunkBytes;
-            Cgb.CopyToVram(source + copied, (ushort)(dest + copied), chunk);
+            Cgb.CopyToVramInVBlank(source + copied, (ushort)(dest + copied), chunk);
             copied += chunk;
         }
     }
 
-    /// <summary>LCD-on DMG (or unaligned-CGB) path: one <see cref="VblankCpuChunkBytes"/> CPU copy per
-    /// vblank, per the 1528+300n dot-cost model this constant is derived from. Its own function for the
-    /// same lean-hot-loop reason as <see cref="DripGdma"/> — the measured cost model assumes exactly
-    /// this shape (<c>Ppu.WaitVBlank()</c>; compute a chunk; one <see cref="Mem.Copy"/> call), not one
-    /// sharing a loop body with an untaken GDMA branch.</summary>
     private static void DripCpu(byte* dest, byte* source, ushort total)
     {
         ushort copied = 0;
         while (copied < total)
         {
+            uint* target = (uint*)(dest + copied);
+            uint value = *(uint*)(source + copied);
             Ppu.WaitVBlank();
-            ushort remaining = (ushort)(total - copied);
-            byte chunk = remaining < VblankCpuChunkBytes ? (byte)remaining : VblankCpuChunkBytes;
-            Mem.Copy(dest + copied, source + copied, chunk);
-            copied += chunk;
+            *target = value;
+            copied += 4;
         }
     }
 

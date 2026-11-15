@@ -259,10 +259,18 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
     for (name, aligned, render) in [
         ("Unaligned", false, false),
         ("Aligned", true, false),
+        ("OnAligned", true, false),
+        ("OnLargeAligned", true, false),
+        ("OnUnaligned", false, false),
         ("VideoInit", false, false),
         ("Render", false, true),
     ] {
         let initialize = name == "VideoInit";
+        let lcd_on = name.starts_with("On");
+        let large = name == "OnLargeAligned";
+        if large && !color {
+            continue;
+        }
         let entry = format!("Program::{}{}", if color { "Banked" } else { "" }, name);
         let object = compile::object(&resolver, Some(&entry)).unwrap();
         let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
@@ -312,7 +320,17 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
             0xaa, 0xcc, 0x55, 0x33, 0xaa, 0xcc, 0x55, 0x33, 0xaa, 0xcc, 0x55, 0x33, 0xaa, 0xcc,
             0x55, 0x33,
         ];
-        let payload: &[u8] = if render { &pattern } else { &data };
+        let large_data: Vec<u8> = (0..1920).map(|i| i as u8).collect();
+        let lcd_data: Vec<u8> = (1..=32).collect();
+        let payload: &[u8] = if large {
+            &large_data
+        } else if lcd_on {
+            &lcd_data
+        } else if render {
+            &pattern
+        } else {
+            &data
+        };
         if initialize {
             for (header, length) in [(0x0e, 1024usize), (0x41e, 1024), (0x8fe, 160)] {
                 heap[header..header + 2].copy_from_slice(&(length as u16).to_le_bytes());
@@ -330,7 +348,8 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
             vram[..16].copy_from_slice(&pattern);
             vram[0x1800..0x1c00].fill(0);
         } else {
-            vram[48..80].copy_from_slice(&data);
+            let offset = if lcd_on && !large { 112 } else { 48 };
+            vram[offset..offset + payload.len()].copy_from_slice(payload);
         }
         assert_heap_snapshot(fields[if color { 6 } else { 5 }], &vram, &entry);
         if color {
@@ -383,7 +402,13 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
         if color && aligned {
             assert_eq!(
                 &after[..8],
-                "D0108030",
+                if large {
+                    "D4108430"
+                } else if lcd_on {
+                    "D0108070"
+                } else {
+                    "D0108030"
+                },
                 "{entry}: programmed DMA source/destination"
             );
         } else {
@@ -407,7 +432,10 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
                 "{entry}: enabled LCD/palette"
             );
         } else {
-            assert!(registers.starts_with("00"), "{entry}: LCD-off transfer");
+            assert!(
+                registers.starts_with(if name.starts_with("On") { "91" } else { "00" }),
+                "{entry}: transfer LCD state"
+            );
         }
     }
 }

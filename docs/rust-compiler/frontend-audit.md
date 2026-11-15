@@ -420,7 +420,7 @@ Tile copies/subranges, 1bpp-to-2bpp ink/paper masks, row writes and clear preser
 - **PORT** `Load_SubRange_CopiesFromStartTileNotFromDataStart`.
 - **PORT** `Load1bpp_ExpandsSetBitsToInkClearBitsToPaper`.
 - **PORT** `Load1bpp_MixedInkPaper_ProducesCorrectPlaneMasks`.
-- **PORT** `Load_LcdOn_ChunksAcrossVblanksAndNeverWritesDuringMode3`.
+- **PORT, complete** `Load_LcdOn_ChunksAcrossVblanksAndNeverWritesDuringMode3` — native actual_tileset driver retains32 distinct bytes at tile7, adds D/R×DMG/CGB and1920-byte split GDMA; zero mode-3 writes and bounded DMA duration. See [timing evidence](lcd-on-transfers.md).
 - **PORT** `SetRowAndClear_PassThroughToTileData`.
 
 ### CilVideoJoypadTests.cs
