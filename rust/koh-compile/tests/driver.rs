@@ -483,6 +483,267 @@ fn gameboy_images(
 }
 
 #[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn string_metadata_contracts_and_direct_calls(host: &Host, #[case] configuration: &str) {
+    let (directory, images) = gameboy_images(host, configuration, "Strings");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let method = |name: &str| {
+        (1..=assembly.metadata().method_defs.len())
+            .map(|row| 0x06000000 | row as u32)
+            .find(|&token| assembly.method_name(token).unwrap() == name)
+            .unwrap()
+    };
+    let at = method("Program::At");
+    let unsupported = koh_compile::lower::assembly_method(
+        &resolver,
+        koh_compile::resolve::Definition {
+            assembly: 0,
+            token: method("Program::Unsupported"),
+        },
+    )
+    .unwrap_err();
+    assert!(
+        unsupported.contains("Unsupported System.String member Concat"),
+        "{unsupported}"
+    );
+    let body = assembly.method_body(at).unwrap();
+    let base = body.il.as_ptr() as usize - images[0].as_ptr() as usize;
+    let call = koh_compile::cil::decode(body.il)
+        .unwrap()
+        .into_iter()
+        .find(|i| i.opcode == 0x6f)
+        .unwrap();
+    let koh_compile::cil::Operand::Token(token) = call.operand else {
+        panic!("String getter token")
+    };
+    let member = &assembly.metadata().member_refs[(token & 0xffffff) as usize - 1];
+    assert_eq!(
+        assembly.metadata().blobs.get(member.signature).unwrap(),
+        &[0x20, 1, 3, 8]
+    );
+    let heap = assembly.metadata().blobs.data();
+    let positions: Vec<_> = images[0]
+        .windows(heap.len())
+        .enumerate()
+        .filter_map(|(i, bytes)| (bytes == heap).then_some(i))
+        .collect();
+    assert_eq!(positions.len(), 1);
+    let signature = positions[0] + member.signature as usize + 1;
+    for (byte, value) in [(0, 0), (1, 0), (2, 8), (3, 0x18)] {
+        let mut image = images[0].clone();
+        image[signature + byte] = value;
+        let resolver = Resolver::new(&[&image, &images[1]]).unwrap();
+        let error = koh_compile::lower::assembly_method(
+            &resolver,
+            koh_compile::resolve::Definition {
+                assembly: 0,
+                token: at,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("Program::At") && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    let runtime = assembly
+        .metadata()
+        .assembly_refs
+        .iter()
+        .find(|reference| {
+            assembly.metadata().strings.get(reference.name).unwrap() == "System.Runtime"
+        })
+        .unwrap();
+    let mut forged = images[0].clone();
+    forged[positions[0] + runtime.public_key_or_token as usize + 1] ^= 1;
+    let forged = Resolver::new(&[&forged, &images[1]]).unwrap();
+    assert!(
+        koh_compile::lower::assembly_method(
+            &forged,
+            koh_compile::resolve::Definition {
+                assembly: 0,
+                token: at
+            }
+        )
+        .unwrap_err()
+        .contains("callvirt")
+    );
+
+    let other = method("Program::Other");
+    let body = assembly.method_body(other).unwrap();
+    let base_other = body.il.as_ptr() as usize - images[0].as_ptr() as usize;
+    let literal = koh_compile::cil::decode(body.il)
+        .unwrap()
+        .into_iter()
+        .find(|i| i.opcode == 0x72)
+        .unwrap();
+    for token in [0x04000001u32, 0x70ffffff] {
+        let mut image = images[0].clone();
+        image[base_other + literal.offset as usize + 1..base_other + literal.offset as usize + 5]
+            .copy_from_slice(&token.to_le_bytes());
+        let resolver = Resolver::new(&[&image, &images[1]]).unwrap();
+        let error = koh_compile::lower::assembly_method(
+            &resolver,
+            koh_compile::resolve::Definition {
+                assembly: 0,
+                token: other,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("Program::Other") && error.contains("IL_"),
+            "{error}"
+        );
+    }
+
+    let mut direct = images[0].clone();
+    direct[base + call.offset as usize] = 0x28;
+    let resolver = Resolver::new(&[&direct, &images[1]]).unwrap();
+    let object = compile::object(&resolver, Some("Program::Main")).unwrap();
+    let linked = koh_link::link(&[object], &Default::default()).unwrap();
+    assert_eq!(
+        execute(host, directory.path(), &linked, "__koh_exit"),
+        "00 0000002A D000 OK"
+    );
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn strings_preserve_utf16_calls_identity_and_bounds(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "Strings");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let object = compile::object(&resolver, Some("Program::TextLibrary")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let size: u32 = object
+        .sections
+        .iter()
+        .filter(|s| s.kind == 0)
+        .map(|s| s.size)
+        .sum();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Only
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("TextLibrary ROM0 total {size}: {error}"));
+    let video = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-video",
+    );
+    let fields: Vec<_> = video.split_whitespace().collect();
+    assert_eq!(&fields[..4], ["00", "0000002A", "D000", "OK"]);
+    let mut vram = vec![0xa7; 8192];
+    vram[0x1800..].fill(0);
+    vram[0x1841..0x1846].copy_from_slice(&[51, 35, 47, 50, 37]);
+    vram[0x1c62..0x1c64].copy_from_slice(&[40, 41]);
+    assert_heap_snapshot(fields[if color { 6 } else { 5 }], &vram, "TextLibrary VRAM");
+    if color {
+        assert_heap_snapshot(fields[5], &[0x6b; 4096], "TextLibrary WRAM2");
+        assert_heap_snapshot(fields[7], &[0xb8; 8192], "TextLibrary VRAM1");
+    }
+    assert_heap_snapshot(
+        fields[if color { 9 } else { 7 }],
+        &[0; 160],
+        "TextLibrary OAM",
+    );
+    assert_eq!(fields[if color { 10 } else { 8 }], "11E4E4E4");
+    for (entry, fault) in [
+        ("Main", 0),
+        ("ArrayCopies", 0),
+        ("NullLength", 4),
+        ("NullIndex", 4),
+        ("Negative", 6),
+        ("High", 6),
+        ("End", 6),
+        ("Empty", 6),
+    ] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}")))
+            .unwrap_or_else(|error| panic!("{entry}: {error}"));
+        if entry == "Main" {
+            let pool: Vec<_> = object
+                .sections
+                .iter()
+                .filter(|s| s.name == ".rodata.koh.strings")
+                .collect();
+            assert_eq!(pool.len(), 1);
+            let units: [Vec<u16>; 4] = [
+                vec![],
+                vec![0, 99, 97, 102, 233, 0xd83d, 0xde00, 0xd800, 120, 0xdc00],
+                vec![79, 84, 72, 69, 82],
+                vec![83, 67, 79, 82, 69],
+            ];
+            let expected: Vec<_> = units
+                .iter()
+                .flat_map(|units| {
+                    (units.len() as u16)
+                        .to_le_bytes()
+                        .into_iter()
+                        .chain(units.iter().flat_map(|unit| unit.to_le_bytes()))
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            assert_eq!(pool[0].data, expected);
+        }
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Only
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if fault == 0 {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields[0], format!("{fault:02X}"), "{entry}: {text}");
+        assert_eq!(fields[3], "OK", "{entry}: {text}");
+        if fault == 0 {
+            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{text}");
+        }
+        let mut expected = vec![0x5a; 4096];
+        if entry == "ArrayCopies" {
+            expected[..14].copy_from_slice(&[5, 0, 83, 67, 79, 82, 69, 5, 0, 83, 67, 79, 82, 69]);
+        }
+        assert_heap_snapshot(fields[4], &expected, entry);
+        if color {
+            assert_heap_snapshot(fields[5], &vec![0x6b; 4096], entry);
+        }
+    }
+}
+
+#[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]
 #[case("Debug", true)]

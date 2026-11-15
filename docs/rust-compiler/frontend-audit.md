@@ -367,17 +367,22 @@ Callbacks stored through constructor/instance/static fields and parameters keep 
 
 ### CilStringLiteralTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStringLiteralTests.cs`. Future Rust test group: `cil_string_literal`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStringLiteralTests.cs`. Native group: `driver.rs::strings_preserve_utf16_calls_identity_and_bounds`, `string_metadata_contracts_and_direct_calls`, and String/optimizer IR cases; see [contract and traceability](strings.md).
 
-ASCII strings preserve byte order, length, foreach and parameter/field flow; unsupported Unicode diagnoses rather than truncating. ASCII is the existing target subset, not the full C# string contract; runtime headers are internal.
+Strings preserve unit order, length, foreach and parameter/field flow. The native contract uses UTF-16 rather than the historical ASCII restriction. Internal ROM headers are replaced by exact canonical UTF-16 pool assertions and observable byte/VRAM output.
 
-- **PORT** `StringLiteral_IndexLoop_WritesExactAsciiBytesToWram`.
+- **REPLACE** `StringLiteral_IndexLoop_WritesExactAsciiBytesToWram`: ordered array/pointer output and canonical UTF-16 pool; the historical byte-per-char ROM assertion was an internal representation.
 - **PORT** `StringLiteral_DebugAndReleaseProduceIdenticalObservableBytes`.
 - **PORT** `StringLiteral_ForeachLoop_WritesExactAsciiBytes`.
-- **REPLACE** `StringLiteral_NonAsciiCharacter_ReportsDiagnostic_DoesNotThrow`: the ASCII-only restriction conflicts with C# UTF-16 semantics. Native metadata tests already preserve Latin text, embedded NUL and surrogate units; executable string coverage remains outstanding.
+- **REPLACE** `StringLiteral_NonAsciiCharacter_ReportsDiagnostic_DoesNotThrow`: Latin/NUL/surrogate ROM execution and checked invalid metadata replace the unjustified ASCII restriction.
 - **PORT** `StringLength_OnParameterAcrossCallBoundary_Compiles_ReturnsRealLength`.
 - **PORT** `TextDrawShapedLibraryCall_StringParameterAcrossCallBoundary_CompilesAndRuns`.
-- **PORT** `WriteAsciiHelper_StringParameter_LandsAsciiBytesAndRomBlob`.
+- **REPLACE** `WriteAsciiHelper_StringParameter_LandsAsciiBytesAndRomBlob`: exact helper output and canonical UTF-16 pool replace the historical ASCII ROM representation assertion.
+
+All seven methods' behavioral contracts now have native replacements: four PORT,
+three REPLACE, none deferred. Their eight Arguments attributes and22 assertion
+sites are the historical inventory, not a promise to preserve private IR shapes.
+The old definitions remain temporarily with the still-live C# compiler.
 
 ### CilStructReturnTests.cs
 

@@ -32,8 +32,8 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 Overall progress is roughly45%; 100% requires every acceptance gate, rather
 than a test count or a working standalone compiler. All work stays in PR #55.
 
-1. Finish the language/runtime needs of existing games: aggregate arrays,
-   strings/text, software floating point, reference objects and required generic,
+1. Finish the language/runtime needs of existing games: wider string operations,
+   software floating point, reference objects and required generic,
    interface/delegate/dispatch shapes. Document deliberate subset decisions and
    reject unsupported IL explicitly.
 2. Complete hardware ABI support: interrupts, banked code/data, arithmetic and
@@ -56,8 +56,9 @@ than a test count or a working standalone compiler. All work stays in PR #55.
    Container cleanup is complete. Keep the single PR draft until all gates pass;
    do not merge it automatically.
 
-Next increment: close aggregate-array review/commit/hosted validation, then
-strings/text and the runtime needs of complete native graphical samples.
+Current increment: UTF-16 strings and real Text.Draw/DrawToWindow execution;
+full737 and final297 tests pass, plus4 direct video snapshot cases. Next commit
+and verify hosted results, then the runtime needs of complete native games.
 
 ## Baseline verification
 

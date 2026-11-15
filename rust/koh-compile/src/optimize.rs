@@ -1,5 +1,57 @@
 use crate::ir::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+fn pure(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::Constant(_)
+            | Op::ZeroStruct
+            | Op::FieldHandle(_)
+            | Op::StringLiteral(_)
+            | Op::LoadLocal(_)
+            | Op::Convert { .. }
+            | Op::Compare { .. }
+            | Op::Negate(_)
+            | Op::Not(_)
+    ) || matches!(op, Op::Binary { op, .. } if !matches!(op,
+            Binary::DivideSigned | Binary::DivideUnsigned | Binary::RemainderSigned | Binary::RemainderUnsigned))
+}
+
+fn remove_unused(function: &mut Function) {
+    let mut definitions = BTreeMap::new();
+    let mut pending = Vec::new();
+    for block in &function.blocks {
+        for instruction in &block.instructions {
+            if let Some((id, _)) = instruction.result.filter(|_| pure(&instruction.op)) {
+                definitions.insert(id, instruction.op.operands().collect::<Vec<_>>());
+            } else {
+                pending.extend(instruction.op.operands());
+            }
+        }
+        for edge in block.terminator.kind.edges() {
+            pending.extend(&edge.arguments);
+        }
+        match block.terminator.kind {
+            Control::Return(Some(id))
+            | Control::Branch { condition: id, .. }
+            | Control::Switch { selector: id, .. } => pending.push(id),
+            _ => {}
+        }
+    }
+    let mut used = HashSet::new();
+    while let Some(id) = pending.pop() {
+        if used.insert(id) {
+            if let Some(operands) = definitions.get(&id) {
+                pending.extend(operands);
+            }
+        }
+    }
+    for block in &mut function.blocks {
+        block
+            .instructions
+            .retain(|i| !pure(&i.op) || i.result.is_none_or(|(id, _)| used.contains(&id)));
+    }
+}
 
 pub fn simplify(function: &mut Function) -> Result<(), String> {
     verify(function)?;
@@ -35,6 +87,37 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
             block.terminator = next.terminator;
         }
         blocks[index] = Some(block);
+    }
+    for block in blocks.iter().flatten() {
+        let mut locals = BTreeMap::new();
+        let mut constants = HashMap::new();
+        for instruction in &block.instructions {
+            match instruction.op {
+                Op::Constant(bits) => {
+                    if let Some((id, ty)) = instruction.result {
+                        if let Some(&value) = constants.get(&(ty, bits)) {
+                            aliases.insert(id, value);
+                        } else {
+                            constants.insert((ty, bits), id);
+                        }
+                    }
+                }
+                Op::StoreLocal { local, value } => {
+                    locals.insert(local, value);
+                }
+                Op::LoadLocal(local) => {
+                    if let Some((id, _)) = instruction.result {
+                        if let Some(&value) = locals.get(&local) {
+                            aliases.insert(id, value);
+                        } else {
+                            locals.insert(local, id);
+                        }
+                    }
+                }
+                _ if pure(&instruction.op) => {}
+                _ => locals.clear(),
+            }
+        }
     }
     let resolve = |mut value| -> Result<u32, String> {
         for _ in 0..=aliases.len() {
@@ -72,7 +155,13 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
             match &mut instruction.op {
                 Op::StackAllocate { bytes } => value(bytes),
                 Op::InitializeArray { array, .. } => value(array),
-                Op::NewArray { length, .. } | Op::ArrayLength(length) => value(length),
+                Op::NewArray { length, .. }
+                | Op::ArrayLength(length)
+                | Op::StringLength(length) => value(length),
+                Op::StringChar { string, index } => {
+                    value(string);
+                    value(index);
+                }
                 Op::ArrayAddress { array, index } => {
                     value(array);
                     value(index);
@@ -109,7 +198,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 | Op::LocalAddress { .. }
                 | Op::StaticAddress { .. }
                 | Op::InitializerAddress(_)
-                | Op::LoadLocal(_) => {}
+                | Op::LoadLocal(_)
+                | Op::StringLiteral(_) => {}
             }
         }
         let edge = |edge: &mut Edge| {
@@ -135,5 +225,23 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
         }
         function.blocks.push(block);
     }
+    remove_unused(function);
+    let read: HashSet<_> = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|i| match i.op {
+            Op::LoadLocal(local)
+            | Op::LocalAddress { local, .. }
+            | Op::StorePinned { local, .. } => Some(local),
+            _ => None,
+        })
+        .collect();
+    for block in &mut function.blocks {
+        block
+            .instructions
+            .retain(|i| !matches!(i.op, Op::StoreLocal { local, .. } if !read.contains(&local)));
+    }
+    remove_unused(function);
     verify(function)
 }

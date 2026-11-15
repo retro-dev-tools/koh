@@ -30,20 +30,21 @@ impl ValueType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
     I32,
     I64,
     Native,
     ByRef(Scalar),
     Array(Storage),
+    String,
     Null,
     FieldHandle(Definition),
     Struct(ValueType),
     StructRef(ValueType),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Scalar {
     Bool,
     Char,
@@ -99,12 +100,12 @@ impl Type {
             Self::FieldHandle(_) => 0,
             Self::I32 => 32,
             Self::I64 => 64,
-            Self::Native | Self::ByRef(_) | Self::Array(_) | Self::Null => 16,
+            Self::Native | Self::ByRef(_) | Self::Array(_) | Self::String | Self::Null => 16,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Storage {
     Scalar(Scalar),
     Struct(ValueType),
@@ -165,6 +166,12 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    StringLiteral(Vec<u16>),
+    StringLength(u32),
+    StringChar {
+        string: u32,
+        index: u32,
+    },
     ZeroStruct,
     FieldAddress {
         address: u32,
@@ -281,8 +288,11 @@ impl Op {
         let pair = match *self {
             Self::StackAllocate { bytes } => [Some(bytes), None],
             Self::InitializeArray { array, .. } => [Some(array), None],
-            Self::NewArray { length, .. } | Self::ArrayLength(length) => [Some(length), None],
+            Self::NewArray { length, .. }
+            | Self::ArrayLength(length)
+            | Self::StringLength(length) => [Some(length), None],
             Self::ArrayAddress { array, index } => [Some(array), Some(index)],
+            Self::StringChar { string, index } => [Some(string), Some(index)],
             Self::LoadMemory { address, .. } | Self::FieldAddress { address, .. } => {
                 [Some(address), None]
             }
@@ -297,6 +307,7 @@ impl Op {
             | Self::StoreLocal { value, .. }
             | Self::StorePinned { value, .. } => [Some(value), None],
             Self::Call { .. }
+            | Self::StringLiteral(_)
             | Self::ZeroStruct
             | Self::FieldHandle(_)
             | Self::InitializerAddress(_)
@@ -619,6 +630,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         .try_fold(0usize, |total, i| {
             total.checked_add(match &i.op {
                 Op::InitializeArray { bytes, .. } => bytes.len(),
+                Op::StringLiteral(units) => units.len() * 2 + 2,
                 _ => 0,
             })
         })
@@ -803,6 +815,26 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(Type::Array(element))
                     }
+                    Op::StringLiteral(ref units) => {
+                        if units.len() > 8191 {
+                            return Err("String literal exceeds ROM0 capacity".into());
+                        }
+                        Some(Type::String)
+                    }
+                    Op::StringLength(string) => {
+                        if !matches!(check(string, position)?, Type::String | Type::Null) {
+                            return Err("String length requires a string reference".into());
+                        }
+                        Some(Type::I32)
+                    }
+                    Op::StringChar { string, index } => {
+                        if !matches!(check(string, position)?, Type::String | Type::Null)
+                            || check(index, position)? != Type::I32
+                        {
+                            return Err("String indexing requires a string and int32 index".into());
+                        }
+                        Some(Type::I32)
+                    }
                     Op::ArrayLength(array) => {
                         if !matches!(check(array, position)?, Type::Array(_) | Type::Null) {
                             return Err("Array length requires an array reference".into());
@@ -889,7 +921,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 (bits, ty),
                                 (8 | 16 | 32, Type::I32)
                                     | (64, Type::I64)
-                                    | (16, Type::Native | Type::Array(_))
+                                    | (16, Type::Native | Type::Array(_) | Type::String)
                             )
                         {
                             return Err("Invalid memory load width/result".into());
@@ -920,7 +952,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 (bits, stored),
                                 (8 | 16 | 32, Type::I32)
                                     | (64, Type::I64)
-                                    | (16, Type::Native | Type::Array(_))
+                                    | (16, Type::Native | Type::Array(_) | Type::String)
                             )
                         {
                             return Err("Invalid memory store width/value".into());
@@ -964,7 +996,11 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if matches!(
                             ty,
-                            Type::ByRef(_) | Type::StructRef(_) | Type::Array(_) | Type::Null
+                            Type::ByRef(_)
+                                | Type::StructRef(_)
+                                | Type::Array(_)
+                                | Type::String
+                                | Type::Null
                         ) && bits != 0
                         {
                             return Err("Nonzero managed reference constant".into());
@@ -996,7 +1032,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(left)
                     }
-                    Op::Compare { left, right, .. } => {
+                    Op::Compare { op, left, right } => {
                         if matches!(check(left, position)?, Type::Struct(_)) {
                             return Err("Aggregate comparison is unsupported".into());
                         }
@@ -1005,6 +1041,16 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if check(left, position)? != check(right, position)? {
                             return Err("Comparison operand type mismatch".into());
+                        }
+                        if check(left, position)? == Type::String
+                            && op != Comparison::Equal
+                            && !(op == Comparison::GreaterUnsigned
+                                && (zeroes.contains(&left) || zeroes.contains(&right)))
+                        {
+                            return Err(
+                                "String references support equality and unsigned null checks"
+                                    .into(),
+                            );
                         }
                         Some(Type::I32)
                     }
@@ -1021,9 +1067,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if matches!(
                             check(value, position)?,
-                            Type::Array(_) | Type::Null | Type::FieldHandle(_)
+                            Type::Array(_) | Type::String | Type::Null | Type::FieldHandle(_)
                         ) {
-                            return Err("Array reference conversion is unsupported".into());
+                            return Err("Managed reference conversion is unsupported".into());
                         }
                         let ty = result.ok_or("Conversion has no result")?;
                         if !matches!(ty, Type::I32 | Type::I64 | Type::Native) {

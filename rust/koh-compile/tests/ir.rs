@@ -3,6 +3,251 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(0)]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+fn local_forwarding_preserves_effects_and_traps(#[case] barrier: u8) {
+    let mut f = diamond();
+    f.parameters = vec![Type::Native];
+    f.locals = vec![Type::I32];
+    f.returns = Some(Type::I32);
+    let mut instructions = vec![
+        instruction(1, Type::I32, Op::Constant(7)),
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 1 },
+            il_offset: 0,
+        },
+        instruction(2, Type::I32, Op::LoadLocal(0)),
+    ];
+    match barrier {
+        0 => instructions.push(Instruction {
+            result: None,
+            op: Op::StoreMemory {
+                address: 0,
+                value: 2,
+                bits: 32,
+            },
+            il_offset: 1,
+        }),
+        1 => instructions.push(Instruction {
+            result: None,
+            op: Op::Call {
+                target: Definition {
+                    assembly: 0,
+                    token: 0x06000002,
+                },
+                signature: Signature {
+                    parameters: vec![Type::Native],
+                    returns: None,
+                },
+                arguments: vec![0],
+            },
+            il_offset: 1,
+        }),
+        2 => instructions.extend([
+            instruction(6, Type::I32, Op::Constant(0)),
+            instruction(
+                7,
+                Type::I32,
+                Op::Binary {
+                    op: Binary::DivideSigned,
+                    left: 2,
+                    right: 6,
+                },
+            ),
+        ]),
+        3 => instructions.push(instruction(
+            6,
+            Type::Array(Storage::Scalar(Scalar::U8)),
+            Op::NewArray {
+                element: Storage::Scalar(Scalar::U8),
+                length: 2,
+                alignment: 1,
+            },
+        )),
+        _ => unreachable!(),
+    }
+    instructions.extend([
+        instruction(3, Type::I32, Op::LoadLocal(0)),
+        instruction(4, Type::I32, Op::Constant(7)),
+        instruction(
+            5,
+            Type::I32,
+            Op::Binary {
+                op: Binary::Add,
+                left: 3,
+                right: 4,
+            },
+        ),
+    ]);
+    f.blocks = vec![Block {
+        parameters: vec![(0, Type::Native)],
+        instructions,
+        terminator: Terminator {
+            il_offset: 2,
+            kind: Control::Return(Some(5)),
+        },
+    }];
+    verify(&f).unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    let instructions = &f.blocks[0].instructions;
+    assert!(
+        !instructions
+            .iter()
+            .any(|i| i.result.is_some_and(|(id, _)| id == 2 || id == 4))
+    );
+    assert!(
+        instructions
+            .iter()
+            .any(|i| i.result == Some((3, Type::I32)))
+    );
+    assert!(instructions.iter().any(|i| match barrier {
+        0 => matches!(i.op, Op::StoreMemory { .. }),
+        1 => matches!(i.op, Op::Call { .. }),
+        2 => matches!(
+            i.op,
+            Op::Binary {
+                op: Binary::DivideSigned,
+                ..
+            }
+        ),
+        _ => matches!(i.op, Op::NewArray { .. }),
+    }));
+    let once = f.clone();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(f.blocks, once.blocks);
+    assert_eq!(f.locals, once.locals);
+}
+
+#[rstest]
+#[case(0)]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+#[case(4)]
+#[case(5)]
+#[case(6)]
+#[case(7)]
+#[case(8)]
+#[case(9)]
+fn string_ir_preserves_reference_and_index_types(#[case] mutation: u8) {
+    let mut f = diamond();
+    f.locals.clear();
+    f.parameters = vec![Type::String, Type::I32];
+    f.returns = Some(Type::I32);
+    f.blocks = vec![Block {
+        parameters: vec![(0, Type::String), (1, Type::I32)],
+        instructions: vec![instruction(
+            2,
+            Type::I32,
+            Op::StringChar {
+                string: 0,
+                index: 1,
+            },
+        )],
+        terminator: Terminator {
+            il_offset: 1,
+            kind: Control::Return(Some(2)),
+        },
+    }];
+    verify(&f).unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    let i = &mut f.blocks[0].instructions[0];
+    match mutation {
+        0 => i.op = Op::ArrayLength(0),
+        1 => i.op = Op::StringLength(1),
+        2 => {
+            i.op = Op::StringChar {
+                string: 0,
+                index: 0,
+            }
+        }
+        3 => i.result = Some((2, Type::Native)),
+        4 => {
+            i.op = Op::Convert {
+                value: 0,
+                bits: 16,
+                signed: false,
+            }
+        }
+        5 => {
+            i.op = Op::Constant(1);
+            i.result = Some((2, Type::String));
+        }
+        6 => {
+            i.op = Op::StringLiteral(vec![0; 8192]);
+            i.result = Some((2, Type::String));
+        }
+        7 => {
+            i.op = Op::LoadMemory {
+                address: 0,
+                bits: 16,
+                signed: false,
+            }
+        }
+        8 => {
+            i.op = Op::Compare {
+                op: Comparison::LessSigned,
+                left: 0,
+                right: 0,
+            }
+        }
+        9 => {
+            i.op = Op::Compare {
+                op: Comparison::GreaterUnsigned,
+                left: 0,
+                right: 0,
+            }
+        }
+        _ => unreachable!(),
+    }
+    f.returns = i.result.map(|(_, ty)| ty);
+    let expected = [
+        "Array length requires",
+        "String length requires",
+        "String indexing requires",
+        "result type mismatch",
+        "Managed reference conversion",
+        "Nonzero managed reference",
+        "String literal exceeds",
+        "Memory address must",
+        "String references support",
+        "String references support",
+    ];
+    let error = verify(&f).unwrap_err();
+    assert!(error.contains(expected[mutation as usize]), "{error}");
+}
+
+#[rstest]
+#[case(vec![])]
+#[case(vec![0, 0xd800, 0xdc00])]
+#[case(vec![0; 8191])]
+fn string_literals_preserve_units_through_optimization(#[case] units: Vec<u16>) {
+    let mut f = diamond();
+    f.locals.clear();
+    f.parameters.clear();
+    f.returns = Some(Type::String);
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![instruction(
+            0,
+            Type::String,
+            Op::StringLiteral(units.clone()),
+        )],
+        terminator: Terminator {
+            il_offset: 1,
+            kind: Control::Return(Some(0)),
+        },
+    }];
+    verify(&f).unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(f.blocks[0].instructions[0].op, Op::StringLiteral(units));
+    koh_compile::sm83::emit(&f).unwrap();
+}
+
+#[rstest]
 #[case(1)]
 #[case(16)]
 #[case(64)]

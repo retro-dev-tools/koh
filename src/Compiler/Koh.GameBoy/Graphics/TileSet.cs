@@ -2,38 +2,7 @@ using Koh.GameBoy;
 
 namespace Koh.GameBoy.Graphics;
 
-/// <summary>
-/// Bulk 2bpp tile loading — getting pixels into VRAM tile data ($8000 addressing, aliased by
-/// <see cref="Gb.TileData"/>/<see cref="Gb.Vram"/>) without a per-tile <see cref="TileData.SetRow"/>
-/// hand-loop (graphics-library design doc §3 "TileSet.cs"). Build ON <see cref="Ppu"/>/<see cref="Cgb"/>
-/// (never re-derive PPU-mode timing here) and go straight to <see cref="Gb"/> pointers for the bulk
-/// copy itself, per the architecture rule.
-///
-/// <b>API deviation from design §3 (documented, not silently dropped):</b> the design sketches a
-/// zero-count <c>Load(byte firstTile, byte[] data)</c> that infers the tile count from
-/// <c>data.Length</c>. The CIL frontend does not support <c>.Length</c>/<c>ldlen</c> on an array
-/// received as a PARAMETER — only a local traced back to its own <c>newarr</c> (or a static field read
-/// in the SAME method) carries a compile-time element count; a library method receiving <c>byte[]
-/// data</c> has no such trace, and no runtime length header exists to fall back on (that's how
-/// <c>System.String</c> now works, post "string flows across CIL call boundaries" — a length-prefixed
-/// ROM blob — but retrofitting the same prefix onto every <c>byte[]</c> would shift every existing raw
-/// data-blob element offset by 2 bytes, breaking unrelated code). Confirmed with a spike fixture
-/// (compile -&gt; <c>CilFrontend</c> -&gt; link -&gt; <c>GameBoySystem</c>, asserted against
-/// <c>tests/Compiler/Koh.Compiler.Tests/Frontends/CilLoweringTests.cs</c>'s existing
-/// <c>ArrayLength_OnUntraceableArray_ReportsDiagnostic_DoesNotThrow</c> coverage of the same limitation)
-/// before committing to this shape — see <see cref="CilTileSetTests"/>. Every overload below therefore
-/// takes an explicit tile <c>count</c> instead; the caller (which DOES have <c>data</c> traced to its
-/// own <c>static readonly byte[]</c> declaration) computes it once, e.g.
-/// <c>TileSet.Load(0, BoardTiles, (byte)(BoardTiles.Length / 16))</c> — the length arithmetic just moves
-/// one call frame up, where the frontend can actually see it.
-///
-/// A <c>byte[]</c> parameter is already a raw pointer at the IR level (every reference type lowers to
-/// <c>Pointer(I8)</c> — see <c>CilTypeMapper.Map</c>), so <c>fixed (byte* p = &amp;data[0])</c>
-/// (the single-element-address form, which lowers to a plain <c>ldelema</c> — NOT the array form, which
-/// would emit a null/empty-array <c>ldlen</c> guard and hit the same unsupported opcode) is how every
-/// method below turns its <c>byte[]</c> parameter into the <c>byte*</c> <see cref="Mem.Copy"/>/
-/// <see cref="Cgb.CopyToVram"/> need.
-/// </summary>
+/// <summary>Tile loading.</summary>
 public static unsafe class TileSet
 {
     private const int TileBytes = 16;
@@ -47,9 +16,7 @@ public static unsafe class TileSet
     private const ushort VblankGdmaChunkBytes = 1024;
 
     /// <summary>Copy <paramref name="count"/> tiles (16 bytes each, 2bpp) from the START of
-    /// <paramref name="data"/> into VRAM at <paramref name="firstTile"/> ($8000 addressing). See the
-    /// class remarks for why this takes an explicit count instead of self-measuring
-    /// <paramref name="data"/>.
+    /// <paramref name="data"/> into VRAM at <paramref name="firstTile"/> ($8000 addressing).
     ///
     /// LCD off: one straight copy — CGB GDMA (<see cref="Cgb.CopyToVram"/>, chunked at the 2048-byte
     /// hardware ceiling) when both the ROM source and the VRAM destination happen to be 16-byte
@@ -84,8 +51,7 @@ public static unsafe class TileSet
     /// size versus shipping it pre-expanded to 2bpp. Immediate-checked (gates on
     /// <see cref="Ppu.WaitForVramAccess"/> per row, like <see cref="Graphics.Palettes"/>'s writes) rather
     /// than vblank-chunked — a 1bpp table is small (a 96-glyph font is 768 bytes) and this is a one-time
-    /// load, not a per-frame budget concern. See the class remarks for why <paramref name="count"/> is
-    /// explicit rather than inferred from <paramref name="mono"/>.</summary>
+    /// load, not a per-frame budget concern.</summary>
     public static void Load1bpp(byte firstTile, byte[] mono, byte ink, byte paper, byte count)
     {
         if (count == 0)

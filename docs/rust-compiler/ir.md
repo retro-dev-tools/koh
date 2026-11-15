@@ -15,6 +15,13 @@ current-frame returns, preserve borrowed aliases and distinguish managed null fr
 native bus address zero. The origin analysis is conservative for local reassignment
 and reference-returning calls; it is not a general scoped-reference solver.
 
+[String](strings.md) is a distinct reference type with literal, length and checked
+character operations. It cannot be used as an array, native memory address or
+numeric operand. UTF-16 char results use unsigned int32 evaluation values.
+Block-local forwarding and typed constant reuse preserve SSA dominance; memory,
+call, allocation and trapping operations invalidate local knowledge. Dead-value
+removal retains those observable operations, even when their results are unused.
+
 Managed functions retain their assembly/token definition and source IL offsets.
 Generated [initializer guards](initializers.md) use the reserved FF identity tag,
 not a metadata MethodDef, and retain the real constructor in `InitializerAddress`.

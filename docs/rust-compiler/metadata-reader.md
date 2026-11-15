@@ -31,7 +31,7 @@ literal capacity checks belong to lowering/emission, not metadata decoding.
 Real Roslyn Debug/Release/PE32+ fixtures cover embedded NUL, Latin text, surrogate
 pairs and isolated high/low surrogates. Raw cases cover empty strings, invalid
 tokens/payloads/flags and every truncation across one-, two- and four-byte length
-encodings. This reader increment does not yet add executable string operations.
+encodings. Executable operations are documented in the [string contract](strings.md).
 String length/indexing must retain UTF-16 units: see the independent
 [String.Length](https://learn.microsoft.com/en-us/dotnet/api/system.string.length?view=net-10.0),
 [String.Chars](https://learn.microsoft.com/en-us/dotnet/api/system.string.chars?view=net-10.0)

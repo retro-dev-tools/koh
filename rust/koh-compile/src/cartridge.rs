@@ -4,7 +4,7 @@ use crate::{
     sm83,
 };
 use koh_objects::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 fn symbol(name: String, section: usize, offset: usize) -> Symbol {
     Symbol {
@@ -216,10 +216,127 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
             symbols: vec![symbol("__koh_heap".into(), 0, 0)],
         });
     }
+    let literals: BTreeSet<_> = functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+        .filter_map(|i| match &i.op {
+            crate::ir::Op::StringLiteral(units) => Some(units.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut strings = BTreeMap::new();
+    let mut data = Vec::new();
+    let mut symbols = Vec::new();
+    for (index, units) in literals.into_iter().enumerate() {
+        if data.len() + units.len() * 2 + 2 > 0x4000 {
+            return Err("Interned string data exceeds ROM0 capacity".into());
+        }
+        let name = format!("__koh_string_{index}");
+        symbols.push(symbol(name.clone(), 0, data.len()));
+        data.extend_from_slice(&(units.len() as u16).to_le_bytes());
+        data.extend(units.iter().flat_map(|unit| unit.to_le_bytes()));
+        strings.insert(units, name);
+    }
+    if !data.is_empty() {
+        objects.push(Object {
+            sections: vec![Section {
+                name: ".rodata.koh.strings".into(),
+                kind: 0,
+                size: data.len() as u32,
+                data,
+                ..Default::default()
+            }],
+            symbols,
+        });
+    }
     for function in functions {
-        objects.push(sm83::emit(function)?);
+        objects.push(sm83::emit_with_strings(function, Some(&strings))?);
     }
     combine(objects)
+}
+
+#[cfg(test)]
+mod string_tests {
+    use super::*;
+    use crate::ir::{Block, Control, Instruction, Op, Terminator};
+
+    fn function(assembly: usize, units: Vec<u16>) -> Function {
+        Function {
+            identity: Definition {
+                assembly,
+                token: 0x06000001,
+            },
+            parameters: vec![],
+            returns: Some(Type::I32),
+            locals: vec![],
+            blocks: vec![Block {
+                parameters: vec![],
+                instructions: vec![
+                    Instruction {
+                        result: Some((0, Type::String)),
+                        op: Op::StringLiteral(units),
+                        il_offset: 0,
+                    },
+                    Instruction {
+                        result: Some((1, Type::I32)),
+                        op: Op::StringLength(0),
+                        il_offset: 1,
+                    },
+                ],
+                terminator: Terminator {
+                    il_offset: 2,
+                    kind: Control::Return(Some(1)),
+                },
+            }],
+        }
+    }
+
+    #[rstest::rstest]
+    #[case(false)]
+    #[case(true)]
+    fn interns_across_assemblies_in_either_order(#[case] reverse: bool) {
+        let mut functions = vec![function(0, vec![0, 0xd800]), function(1, vec![0, 0xd800])];
+        let entry = functions[0].identity;
+        if reverse {
+            functions.reverse();
+        }
+        let object = emit(&functions, entry).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let pool: Vec<_> = object
+            .sections
+            .iter()
+            .filter(|s| s.name == ".rodata.koh.strings")
+            .collect();
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool[0].data, [2, 0, 0, 0, 0, 0xd8]);
+        assert_eq!(
+            object
+                .symbols
+                .iter()
+                .filter(|s| s.name.starts_with("__koh_string_"))
+                .count(),
+            1
+        );
+        koh_link::link(&[object], &Default::default()).unwrap();
+    }
+
+    #[test]
+    fn pool_capacity_is_checked_before_link_layout() {
+        let functions = vec![function(0, vec![0; 4096]), function(1, vec![1; 4096])];
+        assert!(
+            emit(&functions, functions[0].identity)
+                .unwrap_err()
+                .contains("Interned string data exceeds ROM0")
+        );
+        let functions = vec![function(0, vec![0; 8191])];
+        let object = emit(&functions, functions[0].identity).unwrap();
+        assert!(
+            koh_link::link(&[object], &Default::default())
+                .unwrap_err()
+                .contains("Cannot place")
+        );
+    }
 }
 
 fn combine(objects: Vec<Object>) -> Result<Object, String> {

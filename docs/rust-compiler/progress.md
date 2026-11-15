@@ -6,14 +6,36 @@ typed integer lowering and initial ELF/SM83 emission implemented. No
 native SDK integration has landed yet; a standalone native executable now exists.
 This document tracks the single replacement PR; it does not establish acceptance.
 
-Current string groundwork: the [metadata boundary](metadata-reader.md) now reads
-raw UTF-16 user-string units, preserving isolated surrogates rejected by the
-dependency's Unicode-scalar conversion. Real Roslyn PE32/PE32+ Debug/Release
-fixtures and malformed-entry/truncation tests cover this boundary. Executable
-String IR, member lowering, interning and text/game execution remain open;
-this does not count as a completed legacy string-test replacement.
+Current increment: [UTF-16 strings](strings.md), exact framework accessor binding,
+typed String IR and canonical interned ROM0 literals. Value calls/statics/nulls,
+checked indexing, actual Video.Init/Text.Draw/DrawToWindow and ordered helper/
+foreach output execute in D/R×DMG/CGB. Conservative local/constant forwarding,
+dead pure values/unread stores and compact byte/word copies resolve the retained
+Debug text fixture's ROM0 overflow. Read-only review found no concrete defects.
+Full workspace737/737 passed,0skips,exit0,1061.785s
+(`/tmp/koh-strings-workspace.log`). Final297/297 focused cases passed,exit0,
+117.812s (`/tmp/koh-strings-final-focused.log`), covering subsequent interning/
+capacity tests, explicit unsupported-member diagnostics, recursive returns and
+unused-result null traps. Stronger direct VRAM snapshot assertions subsequently
+passed4/4 D/R×DMG/CGB cases,exit0,61.310s
+(`/tmp/koh-strings-video-snapshots.log`). Separate doctests (no cases), CSharpier,
+Rust formatting and diff checks pass. The full run preceded the final3 unit
+cases/diagnostic refinements; it is not a claim of a full740-case rerun.
+Seven additional legacy methods now have native behavioral replacements
+(4PORT,3REPLACE);18of565 complete,547 still partial/outstanding, none physically
+retired. Current nextest JSON discovery is740 cases including564 compiler cases,
+zero ignored (`/tmp/koh-strings-list.json`, list/build exit0). Combined execution569 ROM scenarios (450 returns,119 traps), four full
+framebuffer comparisons. Hosted validation of this new unit remains pending.
 
-Latest increment: [unmanaged arrays](arrays.md). Storage-based nominal element
+Predecessor reader head ec50f61 has completed successful
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43704915974) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43704915959) workflows.
+Actual native logs: Linux714/714,542.603s; macOS714/714,359.201s;
+Windows712/712,745.200s; zero skips. Complete name-set comparison differs only
+by two Unix assembler path cases, with identical compiler coverage. This is
+reader/array predecessor evidence, not validation of uncommitted String work.
+
+Previous increment: [unmanaged arrays](arrays.md). Storage-based nominal element
 types now lower typed array operations, byrefs and pins. Checked length/stride
 scaling prevents overflow before allocation; odd3/5-byte elements,64-byte copies,
 aligned payloads, empty4096-byte values and exact4KiB capacity execute with full

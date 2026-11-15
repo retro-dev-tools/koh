@@ -1,5 +1,36 @@
 # PR #55 working handoff
 
+## Current executable-string unit
+
+Base ec50f610af197ac45231982f75d9433a70a66d18, same draft PR55/master.
+Root owns all edits/builds. Reviewer owns read-only correctness review, no edits
+or builds in this output directory. Full goal remains active, roughly45%.
+String type, literal/length/char ops, exact framework getter metadata binding,
+calls/statics/null merges, canonical program-wide ROM0 UTF-16 pool now execute.
+Unknown reference shapes still diagnose; no managed runtime dependency added.
+Real D/R×DMG/CGB fixture has Main, ArrayCopies, six null/bounds traps and actual
+Video.Init/Text.Draw/DrawToWindow VRAM assertions. String metadata cases mutate
+getter signature/strongname/literal tokens and execute direct-call variants.
+
+Debug TextLibrary initially required18355 ROM0 bytes (Release passed). Retained
+fixture. Conservative block-local local forwarding, typed constant reuse,
+dead pure values/unread local stores and 1/2-byte direct frame transfers reduce
+cost. Every effect/trapping op invalidates the local cache; addressed/pinned
+locals retain storage, division/loads/calls/allocation/string checks retained.
+All copy callers inspected: flags/register outputs dead there. No limits relaxed.
+IR tests cover effect barriers, traps and optimizer idempotence; actual C# also
+checks ref/native alias writes. Full737/737 passed,0skips,exit0,1061.785s,
+/tmp/koh-strings-workspace.log. Final297/297 focused passed,exit0,117.812s,
+/tmp/koh-strings-final-focused.log, including subsequent3 pool tests/diagnostic
+refinements and unused-result null/recursive cases. Stronger direct poisoned
+VRAM/OAM/palette snapshot assertions passed4/4,exit0,61.310s,
+/tmp/koh-strings-video-snapshots.log. No full740 rerun claimed. Separate doc
+tests (no cases)/formatting pass. Review and follow-up found no concrete defects.
+18of565 complete legacy replacements,547 partial/outstanding; none retired.
+Current JSON discovery740 workspace/564 compiler,zero ignored; all targets built,
+/tmp/koh-strings-list.json. 569 ROM scenarios (450 returns/119 traps), four frame comparisons. String unit
+ready to commit; no local tests running. SDK and legacy compiler unchanged.
+
 ## Current UTF-16 reader unit
 
 Array head bc6d701 pushed to same draft PR55/master; hosted Rust43704317356

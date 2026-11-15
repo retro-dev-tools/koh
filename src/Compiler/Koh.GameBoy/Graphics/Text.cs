@@ -2,25 +2,7 @@ using Koh.GameBoy;
 
 namespace Koh.GameBoy.Graphics;
 
-/// <summary>
-/// Draws text using the font loaded by <see cref="Font.LoadDefault"/> (graphics-library design doc §3
-/// "Font.cs / Text.cs") — the confirmed hole that neither existing sample could fill at all. A glyph
-/// index is <c>Font.FirstTile + ((byte)ch - Font.FirstCodePoint)</c>; every <c>Draw</c> overload below
-/// walks its text source left to right and writes one tile per character via <see cref="Bg.SetTile"/>/
-/// <see cref="Win.SetTile"/> — which route through <see cref="MapWriter"/>'s WRAM shadow + vblank flush, so
-/// <see cref="Text"/> inherits the same impossible-by-construction write safety and needs no timing calls
-/// of its own (the deferred VRAM copy happens in <see cref="Video.EndFrame"/>).
-///
-/// <b>String overloads work because strings flow across CIL call boundaries</b> (graphics-library design
-/// doc §8, resolved decision 3): <paramref name="text"/> is a pointer to a length-prefixed ROM blob, so
-/// <c>.Length</c>/the indexer inside THIS method's own body are ordinary runtime memory reads off
-/// whatever pointer value the caller passed — a literal (<c>Text.Draw(1, 0, "SCORE")</c>) is exactly as
-/// valid a receiver as any other string value. See <c>CilStringLiteralTests</c>'s
-/// <c>TextDrawShapedLibraryCall_StringParameterAcrossCallBoundary_CompilesAndRuns</c> fixture, which is
-/// this exact shape. The <see cref="Draw(byte, byte, byte[], byte)"/> overload is kept anyway as the
-/// guaranteed-expressible fallback the design doc calls for, and for ROM tables a game already has as
-/// <c>byte[]</c> (not every caller wants to allocate a string literal).
-/// </summary>
+/// <summary>Tile text.</summary>
 public static unsafe class Text
 {
     /// <summary>Draw <paramref name="text"/> to the background layer starting at
@@ -38,11 +20,7 @@ public static unsafe class Text
             Win.SetTile((byte)(col + i), row, Glyph((byte)text[i]));
     }
 
-    /// <summary>Explicit-count <c>byte[]</c> fallback (no string literal needed): draws
-    /// <paramref name="length"/> ASCII bytes from the START of <paramref name="ascii"/> to the
-    /// background layer. Takes an explicit count for the same reason <see cref="TileSet"/>'s overloads
-    /// do — <c>.Length</c> on a <c>byte[]</c> PARAMETER has no runtime representation in this subset (see
-    /// <c>TileSet</c>'s class remarks); only <c>string</c> carries a length prefix.</summary>
+    /// <summary>ASCII bytes.</summary>
     public static void Draw(byte col, byte row, byte[] ascii, byte length)
     {
         if (length == 0)

@@ -160,6 +160,12 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                         return Err("Reachable initializer data exceeds 16 MiB budget".into());
                     }
                 }
+                if let Op::StringLiteral(ref units) = instruction.op {
+                    data_bytes += units.len() * 2 + 2;
+                    if data_bytes > 16 * 1024 * 1024 {
+                        return Err("Reachable literal data exceeds 16 MiB budget".into());
+                    }
+                }
                 if let Op::Call { target, .. } = instruction.op {
                     if seen.insert(target) {
                         if seen.len() > 4096 {

@@ -186,6 +186,18 @@ impl Code {
         if source == destination || width == 0 {
             return;
         }
+        if width == 1 {
+            self.address(source);
+            self.bytes(&[0x7e]);
+            self.address(destination);
+            self.bytes(&[0x77]);
+            return;
+        }
+        if width == 2 {
+            self.indirect(source);
+            self.save_word(destination);
+            return;
+        }
         self.address(source);
         self.bytes(&[0x44, 0x4d]);
         self.address(destination);
@@ -250,7 +262,7 @@ impl Code {
     fn check_reference(&mut self, ty: Type) {
         if matches!(
             ty,
-            Type::ByRef(_) | Type::StructRef(_) | Type::Array(_) | Type::Null
+            Type::ByRef(_) | Type::StructRef(_) | Type::Array(_) | Type::String | Type::Null
         ) {
             self.bytes(&[0x78, 0xb1]);
             let target = self.import("__koh_trap_null".into());
@@ -1004,6 +1016,13 @@ impl Layout {
 }
 
 pub fn emit(function: &Function) -> Result<Object, String> {
+    emit_with_strings(function, None)
+}
+
+pub(crate) fn emit_with_strings(
+    function: &Function,
+    strings: Option<&BTreeMap<Vec<u16>, String>>,
+) -> Result<Object, String> {
     verify(function)?;
     let constants: BTreeMap<_, _> = function
         .blocks
@@ -1159,6 +1178,53 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         for byte in copied..width {
                             code.store_a(destination + byte);
                         }
+                    }
+                }
+                Op::StringLiteral(ref units) => {
+                    let target = if let Some(strings) = strings {
+                        code.import(
+                            strings
+                                .get(units)
+                                .ok_or("Missing interned string literal")?
+                                .clone(),
+                        )
+                    } else {
+                        let mut bytes = (units.len() as u16).to_le_bytes().to_vec();
+                        bytes.extend(units.iter().flat_map(|unit| unit.to_le_bytes()));
+                        code.literal(&bytes)?
+                    };
+                    code.jump(0x01, target);
+                    code.save_word(destination);
+                }
+                Op::StringLength(string) => {
+                    code.indirect(slot(string));
+                    code.check_reference(Type::String);
+                    code.bytes(&[0x60, 0x69, 0x4e, 0x23, 0x46]);
+                    code.save_word(destination);
+                    for byte in 2..width {
+                        code.constant(destination + byte, 1, 0);
+                    }
+                }
+                Op::StringChar { string, index } => {
+                    let temp = layout.arithmetic;
+                    code.indirect(slot(string));
+                    code.check_reference(Type::String);
+                    code.bytes(&[0x60, 0x69, 0x4e, 0x23, 0x46]);
+                    code.save_word(temp);
+                    let fault = code.import("__koh_trap_bounds".into());
+                    code.check_high(slot(index), place(index).bytes, fault);
+                    code.extend(place(index), temp + 10, 2);
+                    code.below_word(temp + 10, temp, fault);
+                    code.copy(temp + 10, temp, 2);
+                    code.scale_word(temp, 2);
+                    code.indirect(slot(string));
+                    code.address(temp);
+                    code.bytes(&[
+                        0x5e, 0x23, 0x56, 0x60, 0x69, 0x19, 0x23, 0x23, 0x4e, 0x23, 0x46,
+                    ]);
+                    code.save_word(destination);
+                    for byte in 2..width {
+                        code.constant(destination + byte, 1, 0);
                     }
                 }
                 Op::InitializeArray { array, ref bytes } => {

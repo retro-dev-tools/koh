@@ -31,13 +31,24 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: eleven legacy methods; zero physically retired.**
+**Native behavioral replacements: eighteen legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining554 methods still have
+The remaining547 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## String test replacements
+
+All7 methods in `Frontends/CilStringLiteralTests.cs` (8 Arguments attributes,
+22 assertion sites) map to Rust driver string execution/metadata cases and
+String/optimizer IR tests. Four PORT the independently justified order/length/
+foreach/call contracts; three REPLACE internal ASCII blob assumptions and the
+unjustified Unicode rejection. Exact UTF-16 pool bytes, independent ordered heap
+output, actual Text.Draw/DrawToWindow tile output and null/bounds traps strengthen
+the contract. See [strings](strings.md) and the per-method frontend matrix.
+These tests are discoverable by nextest; no compiler-owned case is deferred.
 
 ## Corrections required in acceptance
 
@@ -241,6 +252,6 @@ aggregate RVA initialization; one additional CPU case checks a zero-offset null
 field. These partly replace broader legacy storage/ABI assumptions without
 claiming those larger groups complete. No compiler coverage is deferred.
 
-Compiler discovery now515 cases; combined native execution531 ROM scenarios
+At the aggregate-array checkpoint, compiler discovery was515 cases; execution531 ROM scenarios
 (436 returns,95 traps), four full-frame comparisons. Eleven of565 complete legacy
 replacements,554 still need completion auditing; none physically retired.

@@ -173,6 +173,56 @@ impl<'a> Resolver<'a> {
         framework_type(self.assembly(assembly)?.metadata(), token)
     }
 
+    pub(crate) fn string_member(
+        &self,
+        assembly: usize,
+        token: u32,
+    ) -> Result<Option<bool>, String> {
+        if token >> 24 != 0x0a {
+            return Ok(None);
+        }
+        let metadata = self.assembly(assembly)?.metadata();
+        let member = row(&metadata.member_refs, token, 0x0a)?;
+        if self.framework_type(assembly, coded(member.class)?)? != Some(("System", "String")) {
+            return Ok(None);
+        }
+        let name = metadata
+            .strings
+            .get(member.name)
+            .map_err(|e| e.to_string())?;
+        let indexed = match name {
+            "get_Length" => false,
+            "get_Chars" => true,
+            _ => return Err(format!("Unsupported System.String member {name}")),
+        };
+        let signature = crate::signature::method(
+            metadata
+                .blobs
+                .get(member.signature)
+                .map_err(|e| e.to_string())?,
+        )?;
+        use clrmeta::ElementType;
+        let expected = if indexed {
+            &[TypeSig::Primitive(ElementType::I4)][..]
+        } else {
+            &[]
+        };
+        if signature.calling_convention.0 != 0x20
+            || signature.generic_param_count != 0
+            || signature.sentinel.is_some()
+            || signature.params != expected
+            || signature.return_type
+                != TypeSig::Primitive(if indexed {
+                    ElementType::Char
+                } else {
+                    ElementType::I4
+                })
+        {
+            return Err("Invalid System.String accessor signature".into());
+        }
+        Ok(Some(indexed))
+    }
+
     pub(crate) fn array_initializer(&self, assembly: usize, token: u32) -> Result<bool, String> {
         if token >> 24 != 0x0a {
             return Ok(false);

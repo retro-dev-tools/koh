@@ -1,10 +1,16 @@
-# Native SM83 ABI (initial integer implementation)
+# Native SM83 ABI
 
 Functions use dynamic hardware-stack activation frames. Per-function static frames
 would alias ancestor locals during recursion. A separate software stack would need
 additional interrupt-safe pointer publication; SP-relative frames avoid that shared
 state. The first allocator spills SSA values into deterministic frame slots.
 Register residency and lifetime-based slot reuse are optimizations, not semantics.
+
+[Strings](strings.md) use a distinct16-bit ROM0 reference: u16 UTF-16 unit count,
+then u16 units, all little-endian. Program-wide literal interning preserves
+reference identity across calls and assemblies. Accessors check null/full-width
+indices and never switch WRAM banks. String fields/arguments/results use two
+bytes; Length/char results retain their int32 evaluation/call widths.
 
 Frame word transfers use BC and may clobber A, DE, HL and flags. Bank-switch
 helpers likewise clobber flags; no current caller depends on incoming flags

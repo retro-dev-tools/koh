@@ -19,6 +19,7 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
             | ElementType::Boolean,
         ) => Ok(Type::I32),
         TypeSig::Primitive(ElementType::I8 | ElementType::U8) => Ok(Type::I64),
+        TypeSig::Primitive(ElementType::String) => Ok(Type::String),
         TypeSig::Primitive(ElementType::IntPtr | ElementType::UIntPtr) | TypeSig::Ptr(_) => {
             Ok(Type::Native)
         }
@@ -405,7 +406,7 @@ struct Builder {
 
 impl Builder {
     fn coerce(&mut self, value: (u32, Type), ty: Type) -> Result<(u32, Type), String> {
-        if value.1 == Type::Null && matches!(ty, Type::Array(_)) {
+        if value.1 == Type::Null && matches!(ty, Type::Array(_) | Type::String) {
             self.value(ty, Op::Constant(0))
         } else if value.1 == ty {
             Ok(value)
@@ -711,10 +712,12 @@ fn lower_inner(
                     return Err("Incompatible evaluation stack heights".into());
                 }
                 for (old, &new) in expected.iter_mut().zip(&shape) {
-                    if *old == Type::Null && matches!(new, Type::Array(_)) {
+                    if *old == Type::Null && matches!(new, Type::Array(_) | Type::String) {
                         *old = new;
                         changed = true;
-                    } else if *old != new && !(new == Type::Null && matches!(old, Type::Array(_))) {
+                    } else if *old != new
+                        && !(new == Type::Null && matches!(old, Type::Array(_) | Type::String))
+                    {
                         return Err(format!(
                             "IL_{:04x}: Incompatible evaluation stacks at merge IL_{:04x}",
                             instruction.offset,
@@ -756,7 +759,7 @@ fn lower_inner(
                 .iter_mut()
                 .zip(incoming[edge.block].as_deref().unwrap_or(&[]))
             {
-                if types[argument] == Type::Null && matches!(ty, Type::Array(_)) {
+                if types[argument] == Type::Null && matches!(ty, Type::Array(_) | Type::String) {
                     let id = builder.next;
                     builder.next += 1;
                     if builder.next > 262_144 {
@@ -886,6 +889,24 @@ fn translate(
         Ok(())
     };
     match i.opcode {
+        0x72 => {
+            let Operand::Token(token) = i.operand else {
+                return Err("Missing ldstr token".into());
+            };
+            let resolver = resolver.ok_or("ldstr requires metadata resolution")?;
+            let units = resolver
+                .assembly(method.identity.assembly)?
+                .user_string(token)?;
+            if units.len() > 8191 {
+                return Err("String literal exceeds ROM0 capacity".into());
+            }
+            b.data_bytes += units.len() * 2 + 2;
+            if b.data_bytes > 65536 {
+                return Err("Method literal data exceeds 64 KiB budget".into());
+            }
+            let value = b.value(Type::String, Op::StringLiteral(units))?;
+            b.stack.push(value);
+        }
         0x45 => {
             let Operand::Targets(targets) = &i.operand else {
                 return Err("Missing switch targets".into());
@@ -1153,7 +1174,7 @@ fn translate(
                 b.stack.push(value);
             }
         }
-        0x28 | 0x73 => {
+        0x28 | 0x6f | 0x73 => {
             let constructing = i.opcode == 0x73;
             let resolver = resolver.ok_or_else(|| {
                 format!(
@@ -1165,6 +1186,34 @@ fn translate(
                 Operand::Token(token) => token,
                 _ => return Err("Missing call method token".into()),
             };
+            if !constructing {
+                if let Some(indexed) = resolver.string_member(method.identity.assembly, token)? {
+                    let index = if indexed {
+                        let value = b.pop()?;
+                        if value.1 != Type::I32 {
+                            return Err("String index must be int32".into());
+                        }
+                        Some(value.0)
+                    } else {
+                        None
+                    };
+                    let string = b.pop()?;
+                    let string = b.coerce(string, Type::String)?;
+                    let op = match index {
+                        Some(index) => Op::StringChar {
+                            string: string.0,
+                            index,
+                        },
+                        None => Op::StringLength(string.0),
+                    };
+                    let value = b.value(Type::I32, op)?;
+                    b.stack.push(value);
+                    return Ok(Control::Jump(b.edge(next()?)));
+                }
+            }
+            if i.opcode == 0x6f {
+                return Err("callvirt requires a supported System.String member".into());
+            }
             if !constructing && resolver.array_initializer(method.identity.assembly, token)? {
                 let handle = b.pop()?;
                 let Type::FieldHandle(field) = handle.1 else {
@@ -1423,6 +1472,7 @@ fn translate(
                     Type::Native => Scalar::NativeSigned,
                     Type::ByRef(_)
                     | Type::Array(_)
+                    | Type::String
                     | Type::Null
                     | Type::FieldHandle(_)
                     | Type::Struct(_)
