@@ -2,7 +2,7 @@
 
 ## Container cleanup checkpoint
 
-Pushed f7ccff7 to same draftPR55 while constructor code remains uncommitted.
+Pushed f7ccff7 to same draftPR55 while constructor code was uncommitted.
 Removed only Dockerfile, benchmark.sh, run-benchmark.sh, generate-reports.py.
 Both Koh capability arrays were empty, so harness classified Koh unsupported;
 no CI/root consumer invoked it. Kept Koh.Benchmarks, root benchmark target, CI
@@ -13,12 +13,12 @@ container definition. Historical docs/incidental npm metadata not prerequisites.
 Docs container-cleanup.md captures audit, rationale and host-native commands.
 Read commit/push logs /tmp/koh-container-cleanup-{commit,push}.log, both exit0;
 GitHub verified draft/master headf7ccff7b61fa517e51bd10760c19fcc983a12924.
-PRbody refreshed. Constructor full run still active below; no concurrent build.
+PRbody refreshed. Constructor increment subsequently pushed62ef008; see below.
 
 ## Current constructor unit
 
-Root owns edits/builds; no delegated writers. New constructor increment pending
-commit after pushedf7ccff7. Same draftPR55/master; full goal active about45%.
+Root owns edits/builds; no delegated writers. Constructor increment62ef008
+committed/pushed afterf7ccff7. Same draftPR55/master, full goal active about45%.
 newobj uses existing IR/ABI/backend: private per-site frame locals, entry/site
 zeroing, typed this/call and result snapshots. CIL cannot access hidden locals;
 normalization metadata extends with None for generated slots. Constructor flags,
@@ -37,10 +37,14 @@ lost opcode detail. Restored numeric opcode message, retained original missing-
 reference cases, added direct throw variants including module initializer.
 All four failures and new constructor coverage pass final17/17,exit0,60.713s,
 /tmp/koh-value-constructors-regression-final.log. Do not claim677/677 yet.
-Separate final doctests (no cases)/rustfmt checks exited0. No test/build active.
+Separate final doctests (no cases)/rustfmt checks exited0. Post-commit17/17
+passed,exit0,61.212s,/tmp/koh-value-constructors-postcommit.log. No local build
+or test active. Hosted runs43696469519 (Rust) and43696469489 (CI) are in progress
+for62ef008; do not infer clean677/677 before reading completed logs.
 
-Next commit constructor increment, post-hook focused verification, push same PR.
-Then get clean full-suite/hosted results of corrected head. Docs/ABI/dispositions
+User requested explicit full-goal breakdown; recorded in ROADMAP.md.
+Next get clean full-suite/hosted results, then aggregate arrays and real-game
+language/runtime requirements. Docs/ABI/dispositions
 updated. Discovery677 workspace/501 compiler;482 ROM scenarios (412 returns,
 70 traps), four frame comparisons. Ten complete legacy replacements;555 pending.
 Broader classes/generics/arrays/runtime/gameplay, PDB/debug, SDK/package replacement

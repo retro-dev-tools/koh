@@ -27,6 +27,38 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 - `GbJrpgTests` writes acceptance captures under the test binary's `TestResults/gb-jrpg/<run-id>/`. Its regression guard checks that curated sample screenshots are not rewritten. Updating documentation images is a deliberate manual step.
 - The local Koh.Sdk package imports repository-relative source projects. Its presence in a local feed is useful for this checkout but does not establish a standalone SDK distribution story.
 
+## PR #55 completion path
+
+Overall progress is roughly45%; 100% requires every acceptance gate, rather
+than a test count or a working standalone compiler. All work stays in PR #55.
+
+1. Finish the language/runtime needs of existing games: aggregate arrays,
+   strings/text, software floating point, reference objects and required generic,
+   interface/delegate/dispatch shapes. Document deliberate subset decisions and
+   reject unsupported IL explicitly.
+2. Complete hardware ABI support: interrupts, banked code/data, arithmetic and
+   memory operations, reentrancy rules and checked ROM/RAM/stack capacities.
+3. Prove complete representative games in the existing C# emulator, including
+   graphics and nontrivial language behavior. Preserve assets and distinguish
+   documented aspirational examples from passing acceptance samples.
+4. Finish matching Portable PDB reading and source provenance through IR/ELF/KDBG;
+   prove actual debugger breakpoints, source/disassembly mapping and stack inspection.
+5. Switch SDK/MSBuild, run/debug tooling, CI and release payloads to Rust. Verify
+   ordinary dotnet builds, references, DMG/CGB flags, incremental behavior and
+   paths with spaces; preserve useful tile-sheet/build functionality.
+6. Migrate tests alongside each feature, then close every disposition in the
+   565-method audit. Run all feasible compiler-owned scenarios from Rust with
+   nextest; keep only justified noncompiler .NET tests and fixture executables.
+7. Delete the C# compiler, obsolete dependencies/projects and all fallback routes
+   after replacement acceptance; verify there is one production compiler.
+8. Record comparable compile-time/size/peak-memory measurements and final
+   Linux/Windows/macOS results. Recheck samples, diagnostics, docs and packaging.
+   Container cleanup is complete. Keep the single PR draft until all gates pass;
+   do not merge it automatically.
+
+Next increment: clean corrected-head constructor CI, then aggregate arrays and
+the language/runtime work needed for complete native graphical samples.
+
 ## Baseline verification
 
 On .NET SDK 10.0.113, `dotnet msbuild build.proj -t:Test` exited 1 before tests ran. NuGet audit warnings treated as errors reported:
