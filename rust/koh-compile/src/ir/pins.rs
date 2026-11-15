@@ -1,6 +1,19 @@
 use super::{Function, Op};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+fn bank_write(op: &Op, constants: &HashMap<u32, u64>) -> bool {
+    match *op {
+        Op::StoreMemory { address, .. } => constants.get(&address) == Some(&0xff70),
+        Op::MemoryFill { address, count, .. } => constants
+            .get(&address)
+            .zip(constants.get(&count))
+            .is_some_and(|(&address, &count)| {
+                0xff70u16.wrapping_sub(address as u16) < count as u16
+            }),
+        _ => false,
+    }
+}
+
 pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
     if !functions
         .iter()
@@ -13,6 +26,7 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
     let mut callers: HashMap<_, Vec<_>> = HashMap::new();
     let mut writes = HashSet::new();
     let mut pending = VecDeque::new();
+    let mut constants_by_function = Vec::with_capacity(functions.len());
     for function in functions {
         let mut constants: HashMap<_, _> = function
             .blocks
@@ -74,20 +88,11 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
             if let Op::Call { target, .. } = i.op {
                 callers.entry(target).or_default().push(function.identity);
             }
-            let bank_write = match i.op {
-                Op::StoreMemory { address, .. } => constants.get(&address) == Some(&0xff70),
-                Op::MemoryFill { address, count, .. } => constants
-                    .get(&address)
-                    .zip(constants.get(&count))
-                    .is_some_and(|(&address, &count)| {
-                        0xff70u16.wrapping_sub(address as u16) < count as u16
-                    }),
-                _ => false,
-            };
-            if bank_write && writes.insert(function.identity) {
+            if bank_write(&i.op, &constants) && writes.insert(function.identity) {
                 pending.push_back(function.identity);
             }
         }
+        constants_by_function.push(constants);
     }
     while let Some(method) = pending.pop_front() {
         for &caller in callers.get(&method).into_iter().flatten() {
@@ -96,20 +101,42 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
             }
         }
     }
-    for function in functions {
+    for (function, constants) in functions.iter().zip(&constants_by_function) {
         if !writes.contains(&function.identity) {
             continue;
         }
-        if let Some(i) = function
-            .blocks
-            .iter()
-            .flat_map(|b| &b.instructions)
-            .find(|i| matches!(i.op, Op::StorePinned { .. }))
-        {
-            return Err(format!(
-                "Assembly {} method 0x{:08x} IL_{:04x}: Explicit WRAM bank writes reachable from a pinned method are unsupported; select the bank in its caller",
-                function.identity.assembly, function.identity.token, i.il_offset
-            ));
+        let mut incoming = vec![HashSet::new(); function.blocks.len()];
+        let mut visited = vec![false; function.blocks.len()];
+        visited[0] = true;
+        let mut pending = VecDeque::from([0]);
+        while let Some(index) = pending.pop_front() {
+            let mut active = incoming[index].clone();
+            let block = &function.blocks[index];
+            for i in &block.instructions {
+                if let Op::StorePinned { local, value } = i.op {
+                    if constants.get(&value) == Some(&0) {
+                        active.remove(&local);
+                    } else {
+                        active.insert(local);
+                    }
+                }
+                let writes_bank = bank_write(&i.op, constants)
+                    || matches!(i.op, Op::Call { target, .. } if writes.contains(&target));
+                if writes_bank && !active.is_empty() {
+                    return Err(format!(
+                        "Assembly {} method 0x{:08x} IL_{:04x}: Explicit WRAM bank writes reachable from a pinned method while a pin may be active are unsupported; select the bank outside its pinned scopes",
+                        function.identity.assembly, function.identity.token, i.il_offset
+                    ));
+                }
+            }
+            for edge in block.terminator.kind.edges() {
+                let before = incoming[edge.block].len();
+                incoming[edge.block].extend(&active);
+                if !visited[edge.block] || incoming[edge.block].len() != before {
+                    visited[edge.block] = true;
+                    pending.push_back(edge.block);
+                }
+            }
         }
     }
     Ok(())

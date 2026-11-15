@@ -1,5 +1,21 @@
 # PR #55 handoff
 
+ACTIVE pinned-bank scope unit. Latest pushed f86dfd7b26c447286d2b0cc96fd7a2bc8e214f38,
+remote verified; draftPR55updated44pass/1failgraphics +4/4distincttransfercases.
+Post-hook hashes of all9 tested code/fixture files unchanged. No hidden fallback.
+Root owns edits/serialbuilds. Red /tmp/koh-pin-scope-red.log2pass/8fail19.812s;
+4OamDma and4validbefore/after rejected. Expanded12IRconversion/direct/callee
+cases red4pass/8fail /tmp/koh-pin-address-red.log. Changedpins.rs to possible
+live localsets, joinsunion, zeroStorePinnedkill, transitivecalls checkedatcall.
+Focused /tmp/koh-pin-scope-green.log20/20 passed46.505s exit0, all4originalOAM
+and4memoryfill bank cases +12IR scopes. Added4CFG join/backedge cases.
+Session64791 terminal: /tmp/koh-pin-scopes-regression.log241/241passed82.006s
+exit0,98unrelatedfiltered; fullIR +14OAM/fixed/memoryfillbank cases.
+Reviewpin_scope_review found no blocker; requested overlappinglocals coverage.
+Added2cases first-release rejects/final-release allows. FinalfullIR229/229,
+1.610s exit0 /tmp/koh-pin-ir-final.log session13532terminal. No localbuildslive.
+No testsweakened or diagnosticchecksremoved. Commit/push andupdatePRnext.
+
 ACTIVE full-frame unit, after pushed e9a6be0 (remote verified).
 Root owns edits/serial builds; reviewer owns read-only inspection, no builds.
 Native CGB GDMA start trace revealed full-frame starts at LY0dot410 Release /

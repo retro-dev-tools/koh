@@ -8,7 +8,18 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [complete GDMA windows](gdma-windows.md). Native FF55 tracing
+Current unit: [pin-scope bank validation](pinned-pointers.md). The whole-method
+bank-write ban incorrectly rejected bank selection before a fixed block.
+CFG possible-live-pin sets now guard writes and transitive call sites, preserving
+rejection while a pin may be active and allowing selection before acquisition
+or after the final release. The regression passes241/241 in82.006s, exit0
+(`/tmp/koh-pin-scopes-regression.log`,98 unrelated cases filtered), including
+all four original OAM-DMA cases without changing their fixtures/assertions.
+Final229/229 IR checks pass in1.610s, exit0, including two overlapping-pin cases
+added after review. These local results fix the reproduced hosted diagnostic;
+they do not establish a green new-head hosted run. Dispositions stay34/565.
+
+Previous unit: [complete GDMA windows](gdma-windows.md). Native FF55 tracing
 revealed late full-frame transfers despite passing images and CPU-write guards.
 LCD-on copies now use synchronized1024-byte bursts; LCD-off hardware-size
 copies remain. The direct2048-byte red fails Debug and Release, while the

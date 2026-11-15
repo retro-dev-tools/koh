@@ -1110,6 +1110,207 @@ fn pinned_reference_initialization_and_cleanup_verify() {
 }
 
 #[rstest]
+#[case(0, true)]
+#[case(1, false)]
+#[case(2, true)]
+fn bank_writes_respect_live_pin_scopes(
+    #[case] position: u8,
+    #[case] valid: bool,
+    #[values(false, true)] indirect: bool,
+    #[values(0xff70, 0x1ff70)] address: u64,
+) {
+    let mut f = pinned_reference();
+    let pin = f.blocks[0].instructions.pop().unwrap();
+    let clear = Instruction {
+        result: None,
+        op: Op::StorePinned { local: 0, value: 1 },
+        il_offset: 50,
+    };
+    let mut callee = f.clone();
+    callee.identity.token += 1;
+    callee.parameters.clear();
+    callee.locals.clear();
+    callee.blocks[0].parameters.clear();
+    let bank_write = Instruction {
+        result: None,
+        op: Op::StoreMemory {
+            address: 4,
+            value: 3,
+            bits: 8,
+        },
+        il_offset: 99,
+    };
+    callee.blocks[0].instructions = vec![
+        instruction(2, Type::I32, Op::Constant(address)),
+        instruction(3, Type::I32, Op::Constant(2)),
+        instruction(
+            4,
+            Type::Native,
+            Op::Convert {
+                value: 2,
+                bits: 16,
+                signed: false,
+            },
+        ),
+        bank_write.clone(),
+    ];
+    f.blocks[0].instructions.extend([
+        instruction(2, Type::I32, Op::Constant(address)),
+        instruction(3, Type::I32, Op::Constant(2)),
+        instruction(
+            4,
+            Type::Native,
+            Op::Convert {
+                value: 2,
+                bits: 16,
+                signed: false,
+            },
+        ),
+    ]);
+    let write = if indirect {
+        Instruction {
+            result: None,
+            op: Op::Call {
+                target: callee.identity,
+                signature: Signature {
+                    parameters: vec![],
+                    returns: None,
+                },
+                arguments: vec![],
+            },
+            il_offset: 99,
+        }
+    } else {
+        bank_write
+    };
+    f.blocks[0].instructions.extend(match position {
+        0 => [write, pin, clear],
+        1 => [pin, write, clear],
+        2 => [pin, clear, write],
+        _ => unreachable!(),
+    });
+    let result = verify_program(&[f, callee]);
+    assert_eq!(result.is_ok(), valid, "{result:?}");
+}
+
+#[rstest]
+fn bank_write_scopes_merge_across_joins_and_backedges(
+    #[values(false, true)] looping: bool,
+    #[values(false, true)] clear: bool,
+) {
+    let mut f = pinned_reference();
+    let pin = f.blocks[0].instructions.pop().unwrap();
+    f.blocks[0].instructions.extend([
+        instruction(2, Type::Native, Op::Constant(0xff70)),
+        instruction(3, Type::I32, Op::Constant(2)),
+        instruction(4, Type::I32, Op::Constant(1)),
+    ]);
+    let jump = |block| {
+        Control::Jump(Edge {
+            block,
+            arguments: vec![],
+        })
+    };
+    let branch = |yes, no| Control::Branch {
+        condition: 4,
+        yes: Edge {
+            block: yes,
+            arguments: vec![],
+        },
+        no: Edge {
+            block: no,
+            arguments: vec![],
+        },
+    };
+    let body = |instructions, kind| Block {
+        parameters: vec![],
+        instructions,
+        terminator: Terminator {
+            il_offset: 100,
+            kind,
+        },
+    };
+    let write = Instruction {
+        result: None,
+        op: Op::StoreMemory {
+            address: 2,
+            value: 3,
+            bits: 8,
+        },
+        il_offset: 99,
+    };
+    let mut scope = vec![pin];
+    if clear {
+        scope.push(Instruction {
+            result: None,
+            op: Op::StorePinned { local: 0, value: 1 },
+            il_offset: 50,
+        });
+    }
+    if looping {
+        f.blocks[0].terminator.kind = jump(1);
+        scope.insert(0, write);
+        f.blocks.push(body(scope, branch(1, 2)));
+        f.blocks.push(body(vec![], Control::Return(None)));
+    } else {
+        f.blocks[0].terminator.kind = branch(1, 2);
+        f.blocks.push(body(scope, jump(3)));
+        f.blocks.push(body(vec![], jump(3)));
+        f.blocks.push(body(vec![write], Control::Return(None)));
+    }
+    let result = verify(&f);
+    assert_eq!(result.is_ok(), clear, "{result:?}");
+    if let Err(error) = result {
+        assert!(error.contains("IL_0063"), "{error}");
+    }
+}
+
+#[rstest]
+fn bank_selection_requires_releasing_every_pin(#[values(false, true)] both: bool) {
+    let mut f = pinned_reference();
+    let pin = f.blocks[0].instructions.pop().unwrap();
+    f.locals.push(Type::ByRef(Scalar::U8));
+    f.blocks[0].instructions.extend([
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 1, value: 1 },
+            il_offset: 1,
+        },
+        instruction(2, Type::Native, Op::Constant(0xff70)),
+        instruction(3, Type::I32, Op::Constant(2)),
+        pin,
+        Instruction {
+            result: None,
+            op: Op::StorePinned { local: 1, value: 0 },
+            il_offset: 3,
+        },
+        Instruction {
+            result: None,
+            op: Op::StorePinned { local: 0, value: 1 },
+            il_offset: 4,
+        },
+    ]);
+    if both {
+        f.blocks[0].instructions.push(Instruction {
+            result: None,
+            op: Op::StorePinned { local: 1, value: 1 },
+            il_offset: 5,
+        });
+    }
+    f.blocks[0].instructions.push(Instruction {
+        result: None,
+        op: Op::StoreMemory {
+            address: 2,
+            value: 3,
+            bits: 8,
+        },
+        il_offset: 99,
+    });
+    let result = verify(&f);
+    assert_eq!(result.is_ok(), both, "{result:?}");
+}
+
+#[rstest]
 #[case("type", "Pinned storage requires")]
 #[case("value", "Pinned store type mismatch")]
 #[case("initialization", "Pinned local lacks entry initialization")]

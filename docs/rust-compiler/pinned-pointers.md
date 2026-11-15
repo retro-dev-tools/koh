@@ -31,13 +31,26 @@ Null pins do not map a bank; an empty whole-array `fixed` produces a null pointe
 
 Pinning temporarily changes the observable SVBK register on CGB. Code must not
 remap the WRAM window while a heap-derived native pointer is in use. The compiler
-conservatively rejects a pinned method if it or a transitive callee contains a
-known explicit write to SVBK. Bank selection in its caller is supported. This
-whole-method restriction can reject bank changes before or after the lexical
-`fixed` scope; it avoids pretending to solve arbitrary pointer/bank aliasing.
+rejects known explicit SVBK writes while a pin may be active, including calls
+to transitive bank-writing callees. Selection before acquisition and after the
+final release is supported in the same method. A CFG analysis unions possible
+live pin locals at joins and backedges; a known-zero pin store releases its
+local, while an unknown value conservatively acquires it. It does not infer
+arbitrary pointer/bank aliasing or correlations between branch conditions.
 Raw dynamic bus writes remain unsafe and must respect the reserved mapping,
 just as they must respect stack and heap reservations. This is not ROM banking,
 interrupt/reentrancy support or permission to use a pointer after its pin ends.
+
+The earlier whole-method ban rejected the shipped OAM fixture's bank selection
+before its fixed block on all three CI hosts. Local reproduction failed all4
+Debug/Release × DMG/CGB OAM cases and4 allowed direct/callee scope cases
+(`/tmp/koh-pin-scope-red.log`,2passed/8failed,19.812s). The scoped correction
+passes the original OAM assertions without editing that fixture or its tests.
+The regression selection passes241/241 in82.006s, exit0, including the full IR
+suite and14 existing memory-fill/pointer/OAM cases. Two additional overlapping
+pin tests verify that releasing only one pin is insufficient; releasing both
+permits selection. Final IR run:229/229 passed in1.610s, exit0,
+`/tmp/koh-pin-ir-final.log`. No legacy test disposition is closed by this fix.
 
 ## IR and ABI checks
 

@@ -21,8 +21,9 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   Debug/Release × DMG/CGB cube cases pass structural captures. The current
   graphics selection passes28/28; full-frame/racing-beam acceptance remains open.
   Stronger full-frame DMA tracing requires1024-byte LCD-on bursts; full-frame
-  DMGDebug animation remains red. Hosted native CI also exposes an overly broad
-  pinned-bank diagnostic in the OAM fixture on all three hosts; keep it required.
+  DMGDebug animation remains red. The overly broad OAM pinned-bank diagnostic
+  exposed by hosted CI is fixed locally:241/241 scope/pointer/OAM regressions and
+  final229/229 IR checks pass; new-head hosted acceptance remains required.
   Thirty-four legacy
   methods have complete replacements;531 remain partial/outstanding, none deleted.
   Full current-head workspace/hosted acceptance, source debugging, broader

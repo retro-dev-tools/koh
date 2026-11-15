@@ -20,8 +20,8 @@ The Rust frontend validates the metadata signature and lowers the call to typed
 - This is unsafe raw memory, not an array operation. The caller owns capacity,
   selected bank, PPU access timing and interrupt/reentrancy discipline. It adds
   no implicit VBlank wait, managed bound, allocation or LCD-off flash.
-- Known constant fill ranges spanning SVBK are rejected when reachable from a
-  pinned method, including transitive calls. Constant integer conversions are
+- Known constant fill ranges spanning SVBK are rejected while a pin may be
+  active, including transitive calls. Constant integer conversions are
   evaluated with their source/target widths using a linear dependency queue.
   Dynamic raw addresses/counts retain the existing caller-owned bank contract;
   this check does not establish general alias or bank-provenance safety.
