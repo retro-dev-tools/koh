@@ -38,18 +38,7 @@ public static unsafe class Video
     /// yet — each one only flips its own bits in the mirror, then writes the whole mirror through.</summary>
     private static byte _lcdcMirror;
 
-    /// <summary>LCD off, both tile maps and OAM cleared, all sprites hidden (OAM zeroed -&gt; Y=0 -&gt;
-    /// off-screen), default palettes (DMG 0xE4 flat shades; CGB slot-0 grayscale), CGB detected and
-    /// cached. The screen stays off — call <see cref="Start"/> once authoring is done.
-    ///
-    /// The two tilemap clears go through <see cref="MapWriter"/> (via <see cref="Bg.Clear"/> and
-    /// <see cref="MapWriter.Clear"/>) rather than a loop written here — both are function calls, so this
-    /// method never grows a second inline stride-1 pointer-walk loop (which <c>Mem.Copy</c>/<c>Mem.Fill</c>'s
-    /// own doc remarks warn corrupts a sibling loop under the SM83 backend's register allocator). Clearing
-    /// through <see cref="MapWriter"/> (not a raw <c>Mem.Fill</c> into VRAM) also seeds the WRAM tilemap
-    /// SHADOW to the same blank state: because the LCD is off here, each clear writes VRAM directly AND
-    /// populates the shadow, so every later vblank flush draws from a fully-mirrored map. The OAM clear
-    /// stays a direct <see cref="Mem.Fill"/>; <see cref="Sprites.HideAll"/> seeds the sprite shadow.</summary>
+    /// <summary>LCD off; clear maps/OAM, reset palettes/frame count, detect CGB. Call Start after setup.</summary>
     public static void Init()
     {
         Lcd.Off();

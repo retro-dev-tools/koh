@@ -74,10 +74,12 @@ library also eagerly creates both1024-byte map shadows in `Video.Init`. That
 initialization contract requires measured game-level validation; successful
 allocation fixtures do not prove that every sample fits or renders correctly.
 
-All three ordinary Release SDK builds now produce128KiB ROMs without warnings
+At the raw-arena checkpoint, all three ordinary Release SDK builds produce128KiB ROMs without warnings
 (`/tmp/koh-raw-{full-frame,racing-beam,double-buffered}-build.log`). Headless runs
 with real boot ROMs produced160x144 PNGs after1200frames and zero mode3 writes.
 The full-frame and racing-beam captures visibly contain cubes; double-buffered
 still shows the boot logo. That is a failed sample, not acceptance: diagnosing
 its CPU/allocator state and preserving the canvas behavior remain required.
 Captures/reports are outside tracked sample assets under `/tmp/koh-raw-*`.
+The subsequent [lazy-map correction](lazy-maps.md) fixes allocation pressure;
+complete canvas rendering/presentation acceptance remains open.

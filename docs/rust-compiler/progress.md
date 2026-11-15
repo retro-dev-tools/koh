@@ -8,7 +8,17 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [checked raw arena](raw-arena.md). Allocation/reset lower through
+Current unit: [lazy map storage](lazy-maps.md). Native game tracing confirmed
+that eager map shadows exhausted the shared arena before canvas allocation.
+The writer now records uniform clears and creates each aligned shadow only when
+needed, preserving same-value no-ops and flattened bounds failures. The final
+serial graphics/map/sprite/text regression passed22/22 in155.775s, exit0
+(`/tmp/koh-lazy-map-verified.log`). Read-only review found no concrete defects.
+The cube proceeds past allocation, but CGB arithmetic cost and DMG presentation
+timing still fail the new diagnostic acceptance probes; these remain open work.
+No additional legacy method is fully retired by this memory correction.
+
+Previous unit: [checked raw arena](raw-arena.md). Allocation/reset lower through
 typed IR into the linker-owned4KiB bank1 region. Independent managed/raw cursors
 check their combined capacity; reset preserves managed arrays. Native D/R ×
 DMG/CGB, desktop-body, IR and existing array regressions passed26/26 in136.631s
@@ -18,8 +28,12 @@ legacy methods have complete native replacements:32of565 complete,533 partial/
 outstanding, none physically retired. All three actual3D Release SDK builds now
 produce128KiB ROMs with zero warnings/errors. Real-boot headless captures show
 cubes for full-frame/racing-beam, but double-buffered remains on the boot logo.
-That sample is failing; zero mode3 writes alone is not acceptance. Full regression,
-exact game-state assertions and the double-buffered runtime diagnosis remain open.
+That sample is failing; zero mode3 writes alone is not acceptance. Exact
+game-state assertions and double-buffered rendering remain open. Pinned
+head4e7212d passed native CI43742721789 on Linux794/794613.381s,
+macOS794/794939.618s and Windows792/7921273.505s, zero skipped; two Unix assembler
+cases explain the count difference. All hosts also passed separate doctests and
+release-artifact graphics smoke1/1 (two SDK cases intentionally filtered).
 
 Previous unit: [CPU control and startup speed switching](cpu-control.md). Native
 DI/EI/HALT/NOP/STOP lowering and six IR cases pass alongside four Debug/Release ×

@@ -87,6 +87,106 @@ fn showcase_host() -> Host {
 }
 
 #[rstest]
+#[case("Debug", true)]
+#[case("Release", true)]
+#[case("Debug", false)]
+#[case("Release", false)]
+fn lazy_maps_preserve_uniform_backgrounds_and_raw_storage(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "MapTransfers");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for window in [false, true] {
+        let bad = compile::object(
+            &resolver,
+            Some(if window {
+                "Program::BadWindowIndex"
+            } else {
+                "Program::BadBgIndex"
+            }),
+        )
+        .unwrap();
+        let bad = koh_link::link(
+            &[bad],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let bad = execute_mode(host, directory.path(), &bad, "__koh_abort", "--native-maps");
+        assert_eq!(
+            bad.split_whitespace().next(),
+            Some("06"),
+            "invalid cell must not become a no-op"
+        );
+        let object = compile::object(
+            &resolver,
+            Some(if window {
+                "Program::LazyWindow"
+            } else {
+                "Program::LazyBg"
+            }),
+        )
+        .unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-maps",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+        let mut heap = vec![0x5a; 4096];
+        heap[254..256].copy_from_slice(&[160, 0]);
+        heap[256..416].fill(0);
+        heap[430..432].copy_from_slice(&[0, 4]);
+        heap[432..1456].fill(if window { 0 } else { 0x33 });
+        heap[432 + 67] = if window { 0x11 } else { 0x44 };
+        heap[1596] = 42;
+        heap[4095] = 43;
+        assert_heap_snapshot(fields[4], &heap, "one map shadow and raw buffer");
+        let mut vram = vec![0xa7; 8192];
+        vram[0x1800..0x1c00].fill(0x33);
+        vram[0x1c00..].fill(0);
+        vram[if window { 0x1c00 + 67 } else { 0x1800 + 67 }] = if window { 0x11 } else { 0x44 };
+        assert_heap_snapshot(
+            fields[if color { 6 } else { 5 }],
+            &vram,
+            "uniform maps and changed cell",
+        );
+        assert_heap_snapshot(
+            fields[if color { 9 } else { 7 }],
+            &[0; 160],
+            "hidden sprites",
+        );
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], "untouched WRAM2");
+            assert_heap_snapshot(fields[7], &[0xb8; 8192], "untouched VRAM1");
+        }
+    }
+}
+
+#[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]
 #[case("Debug", true)]
@@ -768,10 +868,8 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
             &data
         };
         if initialize {
-            for (header, length) in [(0x0e, 1024usize), (0x41e, 1024), (0x8fe, 160)] {
-                heap[header..header + 2].copy_from_slice(&(length as u16).to_le_bytes());
-                heap[header + 2..header + 2 + length].fill(0);
-            }
+            heap[254..256].copy_from_slice(&[160, 0]);
+            heap[256..416].fill(0);
         } else {
             heap[offset..offset + 2].copy_from_slice(&(payload.len() as u16).to_le_bytes());
             heap[offset + 2..offset + 2 + payload.len()].copy_from_slice(payload);
@@ -1647,11 +1745,9 @@ fn actual_sprite_handles_mutate_shadow_storage(
         ("00", "00000003", "D000", "OK")
     );
     let mut heap = vec![0x5a; 4096];
-    for (header, length) in [(0x0e, 1024usize), (0x41e, 1024), (0x8fe, 160)] {
-        heap[header..header + 2].copy_from_slice(&(length as u16).to_le_bytes());
-        heap[header + 2..header + 2 + length].fill(0);
-    }
-    heap[0x90c..0x910].copy_from_slice(&[25, 6, 11, 0x20]);
+    heap[254..256].copy_from_slice(&[160, 0]);
+    heap[256..416].fill(0);
+    heap[0x10c..0x110].copy_from_slice(&[25, 6, 11, 0x20]);
     assert_heap_snapshot(fields[4], &heap, "Sprite shadow");
     let mut vram = vec![0xa7; 8192];
     vram[0x1800..].fill(0);

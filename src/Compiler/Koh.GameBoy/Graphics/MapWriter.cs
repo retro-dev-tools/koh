@@ -5,23 +5,14 @@ namespace Koh.GameBoy.Graphics;
 /// <summary>Tile-map writes.</summary>
 internal static unsafe class MapWriter
 {
-    /// <summary>Full WRAM shadow of the BG map ($9800, <c>map</c> = 0): the always-consistent 1024-byte
-    /// mirror of intended VRAM tile-index state, flushed to real VRAM in vblank by <see cref="Flush"/>. Not
-    /// guaranteed zero at power-on (WRAM never is) — <see cref="Video.Init"/> clears it (LCD off, so shadow
-    /// + direct together) before anything reads it. <see cref="KohAlignedAttribute"/>(16): on CGB,
-    /// <see cref="PrepareFlushBg"/> takes a slice of this array's address as a GDMA SOURCE, which requires
-    /// a 16-byte-aligned address (the HDMA1/2 registers ignore the low 4 bits) — the backend rounds this
-    /// static's WRAM address up to a multiple of 16 so every slice offset by a multiple of 16 (see
-    /// <see cref="PrepareFlushBg"/>'s <c>alignedMin</c>) stays 16-aligned too. No-op marker on the desktop
-    /// reference build (see the attribute's own doc comment).</summary>
     [KohAligned(16)]
-    private static byte[] ShadowBg = new byte[1024];
+    private static byte[]? ShadowBg;
 
-    /// <summary>Full WRAM shadow of the window map ($9C00, <c>map</c> = 1). Same contract as
-    /// <see cref="ShadowBg"/>, including the <see cref="KohAlignedAttribute"/>(16) GDMA-source
-    /// requirement.</summary>
     [KohAligned(16)]
-    private static byte[] ShadowWin = new byte[1024];
+    private static byte[]? ShadowWin;
+
+    private static byte ClearBgTile;
+    private static byte ClearWinTile;
 
     // Single contiguous dirty range per map, over the flattened row*32+col linear index space. Written
     // only while the LCD is on (see WriteCell); consumed and cleared (fully or partially) by Flush()
@@ -93,10 +84,22 @@ internal static unsafe class MapWriter
     /// <summary>Full-map clear.</summary>
     internal static void Clear(byte map, byte tile)
     {
-        byte[] shadow = map == 0 ? ShadowBg : ShadowWin;
-        fixed (byte* p = &shadow[0])
-            Mem.Fill(p, tile, 1024);
-        if ((Hardware.LCDC & 0x80) != 0)
+        bool lcdOn = (Hardware.LCDC & 0x80) != 0;
+        if (map == 0)
+            ClearBgTile = tile;
+        else
+            ClearWinTile = tile;
+        byte[]? shadow = map == 0 ? ShadowBg : ShadowWin;
+        if (shadow is not null)
+        {
+            fixed (byte* p = &shadow[0])
+                Mem.Fill(p, tile, 1024);
+        }
+        else if (lcdOn)
+        {
+            InitializeShadow(map);
+        }
+        if (lcdOn)
         {
             MarkDirty(map, 0);
             MarkDirty(map, 1023);
@@ -116,6 +119,27 @@ internal static unsafe class MapWriter
         }
     }
 
+    private static void InitializeShadow(byte map)
+    {
+        byte[] shadow;
+        byte tile;
+        if (map == 0)
+        {
+            ShadowBg = new byte[1024];
+            shadow = ShadowBg;
+            tile = ClearBgTile;
+        }
+        else
+        {
+            ShadowWin = new byte[1024];
+            shadow = ShadowWin;
+            tile = ClearWinTile;
+        }
+        if (tile != 0)
+            fixed (byte* p = &shadow[0])
+                Mem.Fill(p, tile, 1024);
+    }
+
     /// <summary>The write dispatch: always update the shadow; then either write VRAM directly (LCD off) or
     /// mark the cell dirty for the vblank flush (LCD on). See the class remarks for the full rationale.</summary>
     private static void WriteCell(byte map, byte col, byte row, byte tile)
@@ -128,13 +152,25 @@ internal static unsafe class MapWriter
         // higher-index cell (the board) forever — a livelock, not just slowness.
         if (map == 0)
         {
-            if (ShadowBg[idx] == tile)
+            if (ShadowBg is null)
+            {
+                if (tile == ClearBgTile && idx < 1024)
+                    return;
+                InitializeShadow(0);
+            }
+            if (ShadowBg![idx] == tile)
                 return;
             ShadowBg[idx] = tile;
         }
         else
         {
-            if (ShadowWin[idx] == tile)
+            if (ShadowWin is null)
+            {
+                if (tile == ClearWinTile && idx < 1024)
+                    return;
+                InitializeShadow(1);
+            }
+            if (ShadowWin![idx] == tile)
                 return;
             ShadowWin[idx] = tile;
         }
@@ -231,7 +267,7 @@ internal static unsafe class MapWriter
         ushort alignedMin = (ushort)(MinIdxBg & ~0xF);
         ushort count = (ushort)(((MaxIdxBg | 0xF) - alignedMin) + 1);
         ushort src;
-        fixed (byte* s = &ShadowBg[0])
+        fixed (byte* s = &ShadowBg![0])
             src = (ushort)(s + alignedMin);
         ushort dst = (ushort)((ushort)Gb.TileMap + alignedMin);
         PreparedBgSrcHi = (byte)(src >> 8);
@@ -251,7 +287,7 @@ internal static unsafe class MapWriter
         ushort alignedMin = (ushort)(MinIdxWin & ~0xF);
         ushort count = (ushort)(((MaxIdxWin | 0xF) - alignedMin) + 1);
         ushort src;
-        fixed (byte* s = &ShadowWin[0])
+        fixed (byte* s = &ShadowWin![0])
             src = (ushort)(s + alignedMin);
         ushort dst = (ushort)((ushort)Gb.TileMap1 + alignedMin);
         PreparedWinSrcHi = (byte)(src >> 8);
@@ -295,7 +331,7 @@ internal static unsafe class MapWriter
         }
         ushort n = (ushort)(MaxIdxBg - MinIdxBg + 1);
         ushort copied;
-        fixed (byte* s = &ShadowBg[0])
+        fixed (byte* s = &ShadowBg![0])
             copied = FlushRun(Gb.TileMap + MinIdxBg, s + MinIdxBg, n);
         MinIdxBg = (ushort)(MinIdxBg + copied);
         if (MinIdxBg > MaxIdxBg)
@@ -325,7 +361,7 @@ internal static unsafe class MapWriter
         }
         ushort n = (ushort)(MaxIdxWin - MinIdxWin + 1);
         ushort copied;
-        fixed (byte* s = &ShadowWin[0])
+        fixed (byte* s = &ShadowWin![0])
             copied = FlushRun(Gb.TileMap1 + MinIdxWin, s + MinIdxWin, n);
         MinIdxWin = (ushort)(MinIdxWin + copied);
         if (MinIdxWin > MaxIdxWin)
