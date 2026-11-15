@@ -766,6 +766,59 @@ fn integer_arithmetic_executes_in_existing_emulator(host: &Host) {
 }
 
 #[rstest::rstest]
+#[case(Type::Native, 0)]
+#[case(Type::Native, 20)]
+#[case(Type::I32, 0)]
+#[case(Type::I32, 20)]
+#[case(Type::I64, 0)]
+#[case(Type::I64, 20)]
+fn narrow_arithmetic_preserves_carry_at_large_stack_offsets(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] locals: usize,
+) {
+    let mask = if ty == Type::I64 {
+        u64::MAX
+    } else {
+        (1u64 << ty.bits()) - 1
+    };
+    let left = 254u64;
+    let right = 0x123456789abcdef & mask;
+    let mut cases = Vec::new();
+    for (op, expected) in [
+        (Binary::Add, left.wrapping_add(right)),
+        (Binary::Subtract, left.wrapping_sub(right)),
+        (Binary::And, left & right),
+        (Binary::Or, left | right),
+        (Binary::Xor, left ^ right),
+    ] {
+        let mut f = function(
+            ty,
+            Op::Binary {
+                op,
+                left: 3,
+                right: 1,
+            },
+        );
+        f.locals = vec![Type::I64; locals];
+        f.blocks[0].instructions.insert(
+            0,
+            Instruction {
+                result: Some((3, ty)),
+                op: Op::Convert {
+                    value: 0,
+                    bits: 8,
+                    signed: false,
+                },
+                il_offset: 0,
+            },
+        );
+        cases.push((f, vec![0x12fe, right], Ok(expected & mask)));
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 #[case("Debug")]
 #[case("Release")]
 fn roslyn_methods_execute_as_sm83(host: &Host, #[case] configuration: &str) {

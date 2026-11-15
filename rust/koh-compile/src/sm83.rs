@@ -246,14 +246,6 @@ impl Code {
         }
     }
 
-    fn value_b(&mut self, value: Slot, byte: u16) {
-        if byte < value.bytes {
-            self.load_b(value.offset + byte);
-        } else {
-            self.bytes(&[0x06, 0]);
-        }
-    }
-
     fn indirect(&mut self, address: u16) {
         self.address(address);
         self.bytes(&[0x4e, 0x23, 0x46]);
@@ -514,19 +506,13 @@ impl Code {
     }
 
     fn arithmetic(&mut self, left: u16, right: u16, destination: u16, width: u16, opcode: u8) {
-        self.arithmetic_values(
-            Slot {
-                offset: left,
-                bytes: width,
-            },
-            Slot {
-                offset: right,
-                bytes: width,
-            },
-            destination,
-            width,
-            opcode,
-        );
+        self.bytes(&[0xaf]);
+        for byte in 0..width {
+            self.load_a(left + byte);
+            self.load_b(right + byte);
+            self.bytes(&[opcode]);
+            self.store_a(destination + byte);
+        }
     }
 
     fn arithmetic_values(
@@ -537,12 +523,33 @@ impl Code {
         width: u16,
         opcode: u8,
     ) {
+        self.address(left.offset);
+        self.bytes(&[0x44, 0x4d]);
+        self.address(destination);
+        self.bytes(&[0x54, 0x5d]);
+        if right.offset > 127 {
+            self.bytes(&[0xd5]);
+            self.address(right.offset + 2);
+            self.bytes(&[0xd1]);
+        } else {
+            self.address(right.offset);
+        }
         self.bytes(&[0xaf]);
         for byte in 0..width {
-            self.value_a(left, byte);
-            self.value_b(right, byte);
-            self.bytes(&[opcode]);
-            self.store_a(destination + byte);
+            self.bytes(if byte < left.bytes {
+                &[0x0a]
+            } else {
+                &[0x3e, 0]
+            });
+            if byte < right.bytes {
+                self.bytes(&[opcode + 6]);
+            } else {
+                self.bytes(&[opcode + 0x46, 0]);
+            }
+            self.bytes(&[0x12]);
+            if byte + 1 < width {
+                self.bytes(&[0x03, 0x23, 0x13]);
+            }
         }
     }
 
@@ -1376,6 +1383,20 @@ pub(crate) fn emit_with_strings(
                     ref signature,
                     ref arguments,
                 } => {
+                    let initialized = if banked && target.token >> 24 == 0xff {
+                        let constructor = Definition {
+                            assembly: target.assembly,
+                            token: 0x06000000 | (target.token & 0xffffff),
+                        };
+                        let state = code.import(static_symbol(constructor));
+                        code.jump(0xfa, state);
+                        code.bytes(&[0xb7]);
+                        let done = code.label();
+                        code.jump(0xc2, done);
+                        Some(done)
+                    } else {
+                        None
+                    };
                     let abi_return = signature.returns.map(|ty| ty.bits() / 8).unwrap_or(0);
                     let size: usize = signature
                         .parameters
@@ -1424,6 +1445,9 @@ pub(crate) fn emit_with_strings(
                         code.copy(0, destination + size, width);
                     }
                     code.adjust_sp(i32::from(size));
+                    if let Some(done) = initialized {
+                        code.mark(done);
+                    }
                 }
                 Op::Constant(bits) => code.constant(destination, width, bits),
                 Op::LoadLocal(local) => code.extend(
