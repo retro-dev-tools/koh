@@ -434,3 +434,37 @@ log reports `450 tests run: 450 passed, 0 skipped`.
 [Rust workflow](https://github.com/retro-dev-tools/koh/actions/runs/43657584065),
 [CI workflow](https://github.com/retro-dev-tools/koh/actions/runs/43657584034).
 New local-reference head hosted validation must be checked separately.
+
+## Primitive arrays and checked WRAM heap
+
+[Array lowering and ABI](arrays.md) add mutable primitive SZARRAYs, null joins,
+runtime length, checked element references and a linker-reserved bank-1 heap.
+Allocation checks full-width inputs and remaining capacity before writes; objects
+are initialized explicitly. Managed reference accesses preserve the caller's SVBK.
+The allocator's internal CALL is included in frame guards. Object/reference,
+aggregate, float and multidimensional arrays and RVA initialization remain pending.
+
+The final focused array/IR/lowering selection passed **29/29**, exit 0
+(`/tmp/koh-arrays-focused-final.log`). Four real Debug/Release DMG/CGB driver cases
+execute 40 ROM scenarios and 16 rejection probes; IR/lowering cases validate
+element identities, null joins and malformed operations. Review caught and fixed
+native/int16 opcode confusion. Additional ref-return and loop-join fixtures exposed
+ROM0 costs; shared allocation helpers, direct word address arithmetic, contiguous
+comparison/extension and proven-boolean branch tests resolve them without reducing
+assertions.
+
+The corrected, formatted tree passed the full Linux workspace command
+`cargo nextest run --workspace --all-features --locked`: **501 passed, 0 skipped**,
+exit 0, 251.829s (`/tmp/koh-arrays-verified.log`). This includes 325 compiler cases
+and 236 ROM scenarios overall (187 normal returns, 49 intentional traps). An
+earlier complete run passed 500/501: the rejected return-type diagnostic had lost
+its operation context. The implementation restores that context; its assertion
+was retained. Separate workspace doctests (no cases) and stable fmt checks exited
+0. Source review checked allocator SP offsets/capacity and bank preservation,
+without claiming runtime evidence beyond the executed cases.
+
+Prior local-reference head `8267af0` now has completed successful hosted
+[Rust](https://github.com/retro-dev-tools/koh/actions/runs/43660015702) and
+[CI](https://github.com/retro-dev-tools/koh/actions/runs/43660015743) workflows.
+That is predecessor evidence; the array head requires separate hosted validation.
+No legacy test method is fully retired and the production SDK still uses C#.

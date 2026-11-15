@@ -68,6 +68,56 @@ fn cil_can_return_an_incoming_reference() {
 #[rstest]
 #[case(false)]
 #[case(true)]
+fn array_null_joins_are_typed_in_both_orders(#[case] reverse: bool) {
+    let mut il = vec![0x02, 0x2d, 3, 0x14, 0x2b, 1, 0x03, 0x2a];
+    if reverse {
+        il[3] = 0x03;
+        il[6] = 0x14;
+    }
+    let mut m = method(&il);
+    m.parameters = vec![Type::I32, Type::Array(Scalar::I32)];
+    m.returns = Some(Type::Array(Scalar::I32));
+    let mut function = lower(m).unwrap();
+    verify(&function).unwrap();
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    verify(&function).unwrap();
+}
+
+#[rstest]
+#[case(Scalar::I16, 0x97, Type::Native)]
+#[case(Scalar::Char, 0x97, Type::Native)]
+#[case(Scalar::NativeSigned, 0x92, Type::I32)]
+#[case(Scalar::NativeUnsigned, 0x93, Type::I32)]
+fn native_and_int16_array_loads_are_distinct(
+    #[case] element: Scalar,
+    #[case] opcode: u8,
+    #[case] result: Type,
+) {
+    let il = [0x02, 0x16, opcode, 0x2a];
+    let mut m = method(&il);
+    m.parameters = vec![Type::Array(element)];
+    m.returns = Some(result);
+    assert!(lower(m).unwrap_err().contains("element storage type"));
+}
+
+#[rstest]
+#[case(Scalar::I16, 0x9b, Type::Native)]
+#[case(Scalar::NativeSigned, 0x9d, Type::I32)]
+fn native_and_int16_array_stores_are_distinct(
+    #[case] element: Scalar,
+    #[case] opcode: u8,
+    #[case] value: Type,
+) {
+    let il = [0x02, 0x16, 0x03, opcode, 0x2a];
+    let mut m = method(&il);
+    m.parameters = vec![Type::Array(element), value];
+    m.returns = None;
+    assert!(lower(m).unwrap_err().contains("element storage type"));
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
 fn cfg_simplification_preserves_loops_across_block_order(#[case] reverse: bool) {
     let mut m = method(&[
         0x16, 0x0a, 0x06, 0x17, 0x58, 0x0a, 0x06, 0x19, 0x32, 0xf8, 0x06, 0x2a,

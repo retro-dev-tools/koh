@@ -127,6 +127,193 @@ fn execute(host: &Host, directory: &Path, linked: &koh_link::LinkResult, stop: &
 }
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn primitive_arrays_are_zeroed_checked_and_bank_safe(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh primitive arrays ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Arrays");
+    for file in ["Arrays.csproj", "Program.cs"] {
+        std::fs::copy(fixture.join(file), directory.path().join(file)).unwrap();
+    }
+    let output = dotnet()
+        .arg("build")
+        .arg(directory.path().join("Arrays.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .arg(format!("-p:KohRoot={}", root.display()))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let object_path = directory.path().join("arrays.o");
+    for (entry, fault) in [
+        (if color { "Banked" } else { "Main" }, 0),
+        (if color { "BankedTypes" } else { "Types" }, 0),
+        ("NullArray", 4),
+        ("Negative", 5),
+        ("TooLarge", 5),
+        ("Truncated", 5),
+        ("NegativeIndex", 6),
+        ("HighIndex", 6),
+        ("EmptyIndex", 6),
+        ("Exhausted", 5),
+    ] {
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+            .arg(output.join("Arrays.dll"))
+            .arg("-r")
+            .arg(output.join("Koh.GameBoy.dll"))
+            .args(["--entry", &format!("Program::{entry}")])
+            .arg("-o")
+            .arg(&object_path)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{entry}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let object = koh_objects::read_elf(&std::fs::read(&object_path).unwrap()).unwrap();
+        let options = koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Only
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        };
+        let linked = koh_link::link(&[object], &options).unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if fault == 0 {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(
+            fields.len(),
+            if color { 6 } else { 5 },
+            "{entry}: malformed host output"
+        );
+        assert_eq!(fields[0], format!("{fault:02X}"), "{entry}");
+        assert_eq!(fields[3], "OK", "{entry}: corrupted frame guards");
+        let mut heap = vec![0x5a; 0x1000];
+        if fault == 0 {
+            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{entry}");
+            let mut expected = vec![];
+            let mut array = |count: u16, data: &[u8]| {
+                expected.extend_from_slice(&count.to_le_bytes());
+                expected.extend_from_slice(data);
+            };
+            if matches!(entry, "Types" | "BankedTypes") {
+                array(1, &[1]);
+                array(1, &0xf123u16.to_le_bytes());
+                array(1, &(-1234i16).to_le_bytes());
+                array(1, &0xfedcba98u32.to_le_bytes());
+                array(1, &0xfedcba9876543210u64.to_le_bytes());
+                array(1, &(-1234i16).to_le_bytes());
+                array(1, &0xfedcu16.to_le_bytes());
+            } else {
+                let values: Vec<_> = [38i32, 39, 41, 41, 42]
+                    .into_iter()
+                    .flat_map(i32::to_le_bytes)
+                    .collect();
+                array(5, &values);
+                array(3, &[0, 0xab, 0]);
+                array(2, &[0, 0xfe]);
+                array(2, &[0, 0, 0xdc, 0xfe]);
+                let mut wide = vec![0; 8];
+                wide.extend_from_slice(&0x1122334455667788u64.to_le_bytes());
+                array(2, &wide);
+                array(0, &[]);
+                array(0, &[]);
+            }
+            heap[..expected.len()].copy_from_slice(&expected);
+        } else if entry == "Exhausted" {
+            heap.fill(0);
+            heap[..2].copy_from_slice(&4094u16.to_le_bytes());
+            heap[2] = 0x7b;
+        } else if matches!(entry, "NegativeIndex" | "HighIndex" | "EmptyIndex") {
+            let count = if entry == "EmptyIndex" { 0u16 } else { 2u16 };
+            let bytes = if entry == "NegativeIndex" {
+                8
+            } else if entry == "HighIndex" {
+                2
+            } else {
+                0
+            };
+            heap[..bytes + 2].fill(0);
+            heap[..2].copy_from_slice(&count.to_le_bytes());
+        }
+        assert_heap_snapshot(fields[4], &heap, entry);
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 0x1000], entry);
+        }
+    }
+    for entry in [
+        "FloatArray",
+        "ObjectArray",
+        "NestedArray",
+        "Multidimensional",
+    ] {
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+            .arg(output.join("Arrays.dll"))
+            .arg("-r")
+            .arg(output.join("Koh.GameBoy.dll"))
+            .args(["--entry", &format!("Program::{entry}")])
+            .arg("-o")
+            .arg(&object_path)
+            .output()
+            .unwrap();
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            !result.status.success()
+                && error.contains("IL_")
+                && (error.contains("primitive")
+                    || error.contains("integer")
+                    || error.contains("Instance")),
+            "{entry}: {error}"
+        );
+    }
+}
+
+fn assert_heap_snapshot(text: &str, expected: &[u8], entry: &str) {
+    assert_eq!(
+        text.len(),
+        expected.len() * 2,
+        "{entry}: heap snapshot length"
+    );
+    for (index, byte) in expected.iter().enumerate() {
+        let actual = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).unwrap();
+        assert_eq!(actual, *byte, "{entry}: heap offset {index:04X}");
+    }
+}
+
+#[rstest]
 #[case("Debug")]
 #[case("Release")]
 fn local_and_argument_references_preserve_ancestor_frames(

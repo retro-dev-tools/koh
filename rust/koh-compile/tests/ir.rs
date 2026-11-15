@@ -77,6 +77,80 @@ fn typed_join_is_valid() {
     verify(&diamond()).unwrap();
 }
 
+#[rstest]
+#[case(Scalar::Bool)]
+#[case(Scalar::Char)]
+#[case(Scalar::I8)]
+#[case(Scalar::U8)]
+#[case(Scalar::I16)]
+#[case(Scalar::U16)]
+#[case(Scalar::I32)]
+#[case(Scalar::U32)]
+#[case(Scalar::I64)]
+#[case(Scalar::U64)]
+#[case(Scalar::NativeSigned)]
+#[case(Scalar::NativeUnsigned)]
+fn array_operations_preserve_element_identity(#[case] element: Scalar) {
+    let mut function = diamond();
+    function.parameters.clear();
+    function.locals.clear();
+    function.returns = Some(Type::ByRef(element));
+    function.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(0, Type::I32, Op::Constant(3)),
+            instruction(1, Type::Array(element), Op::NewArray { element, length: 0 }),
+            instruction(2, Type::Native, Op::ArrayLength(1)),
+            instruction(
+                3,
+                Type::ByRef(element),
+                Op::ArrayAddress { array: 1, index: 0 },
+            ),
+        ],
+        terminator: Terminator {
+            il_offset: 4,
+            kind: Control::Return(Some(3)),
+        },
+    }];
+    verify(&function).unwrap();
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    function.blocks[0].instructions[3].result = Some((
+        3,
+        Type::ByRef(if element == Scalar::I32 {
+            Scalar::I64
+        } else {
+            Scalar::I32
+        }),
+    ));
+    assert!(
+        verify(&function)
+            .unwrap_err()
+            .contains("result type mismatch")
+    );
+}
+
+#[rstest]
+#[case(Op::NewArray { element: Scalar::I32, length: 0 }, Type::Array(Scalar::I32))]
+#[case(Op::ArrayAddress { array: 0, index: 0 }, Type::ByRef(Scalar::I32))]
+#[case(Op::Negate(0), Type::Array(Scalar::I32))]
+#[case(Op::Convert { value: 0, bits: 16, signed: false }, Type::Native)]
+#[case(Op::Constant(1), Type::Array(Scalar::I32))]
+fn invalid_array_ir_is_rejected(#[case] op: Op, #[case] ty: Type) {
+    let mut function = diamond();
+    function.locals.clear();
+    function.parameters = vec![Type::Array(Scalar::I32)];
+    function.returns = Some(ty);
+    function.blocks = vec![Block {
+        parameters: vec![(0, Type::Array(Scalar::I32))],
+        instructions: vec![instruction(1, ty, op)],
+        terminator: Terminator {
+            il_offset: 2,
+            kind: Control::Return(Some(1)),
+        },
+    }];
+    assert!(verify(&function).is_err());
+}
+
 fn frame_reference() -> Function {
     Function {
         identity: Definition {

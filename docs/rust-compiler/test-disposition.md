@@ -38,6 +38,14 @@ audit are not implemented or discoverable merely because they are documented.
 
 ## Corrections required in acceptance
 
+Primitive mutable-array coverage is now partly implemented in
+[arrays.md](arrays.md): four Rust driver cases execute 40 real Roslyn ROM
+scenarios and 16 explicit rejection probes. Twelve element-type verifier cases,
+five malformed IR operations, two null-merge orderings and six native/int16
+opcode mismatch cases are separately discoverable by nextest. These cover parts
+of the array-length/memory audit groups; RVA/aggregate/framework/sample behavior
+remains open. No complete legacy method has been retired by this increment.
+
 - Require an independent expected result as well as Debug/Release agreement.
 - Require bounded program completion before inspecting output memory.
 - Test mutable array identity and writes; compiler-folded ROM bytes do not prove

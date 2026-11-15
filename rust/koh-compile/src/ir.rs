@@ -8,6 +8,8 @@ pub enum Type {
     I64,
     Native,
     ByRef(Scalar),
+    Array(Scalar),
+    Null,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +54,7 @@ impl Type {
         match self {
             Self::I32 => 32,
             Self::I64 => 64,
-            Self::Native | Self::ByRef(_) => 16,
+            Self::Native | Self::ByRef(_) | Self::Array(_) | Self::Null => 16,
         }
     }
 }
@@ -91,6 +93,15 @@ pub struct Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    NewArray {
+        element: Scalar,
+        length: u32,
+    },
+    ArrayLength(u32),
+    ArrayAddress {
+        array: u32,
+        index: u32,
+    },
     LocalAddress {
         local: u32,
         scalar: Scalar,
@@ -150,6 +161,8 @@ pub struct Instruction {
 impl Op {
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
+            Self::NewArray { length, .. } | Self::ArrayLength(length) => [Some(length), None],
+            Self::ArrayAddress { array, index } => [Some(array), Some(index)],
             Self::LoadMemory { address, .. } => [Some(address), None],
             Self::StoreMemory { address, value, .. } => [Some(address), Some(value)],
             Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
@@ -360,6 +373,15 @@ pub fn static_fields(functions: &[Function]) -> Result<Vec<(Definition, u8)>, St
 }
 
 fn verify_inner(function: &Function) -> Result<(), String> {
+    if function
+        .parameters
+        .iter()
+        .chain(&function.locals)
+        .chain(function.returns.iter())
+        .any(|ty| *ty == Type::Null)
+    {
+        return Err("Null is an evaluation-stack type, not declared storage".into());
+    }
     let blocks = &function.blocks;
     if blocks.is_empty() || blocks.len() > 16_384 || function.locals.len() > 1024 {
         return Err("Invalid IR block/local count".into());
@@ -450,6 +472,27 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::NewArray { element, length } => {
+                        if !matches!(check(length, position)?, Type::I32 | Type::Native) {
+                            return Err("Array length must be int32 or native integer".into());
+                        }
+                        Some(Type::Array(element))
+                    }
+                    Op::ArrayLength(array) => {
+                        if !matches!(check(array, position)?, Type::Array(_) | Type::Null) {
+                            return Err("Array length requires an array reference".into());
+                        }
+                        Some(Type::Native)
+                    }
+                    Op::ArrayAddress { array, index } => {
+                        let Type::Array(element) = check(array, position)? else {
+                            return Err("Array element address requires an array reference".into());
+                        };
+                        if !matches!(check(index, position)?, Type::I32 | Type::Native) {
+                            return Err("Array index must be int32 or native integer".into());
+                        }
+                        Some(Type::ByRef(element))
+                    }
                     Op::LocalAddress {
                         local: index,
                         scalar,
@@ -497,7 +540,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if !matches!(bits, 8 | 16 | 32 | 64)
                             || !matches!(
                                 (bits, ty),
-                                (8 | 16 | 32, Type::I32) | (64, Type::I64) | (16, Type::Native)
+                                (8 | 16 | 32, Type::I32)
+                                    | (64, Type::I64)
+                                    | (16, Type::Native | Type::Array(_))
                             )
                         {
                             return Err("Invalid memory load width/result".into());
@@ -517,7 +562,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if !matches!(
                             (bits, check(value, position)?),
-                            (8 | 16 | 32, Type::I32) | (64, Type::I64) | (16, Type::Native)
+                            (8 | 16 | 32, Type::I32)
+                                | (64, Type::I64)
+                                | (16, Type::Native | Type::Array(_))
                         ) {
                             return Err("Invalid memory store width/value".into());
                         }
@@ -540,7 +587,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     }
                     Op::Constant(bits) => {
                         let ty = result.ok_or("Constant has no result")?;
-                        if matches!(ty, Type::ByRef(_)) && bits != 0 {
+                        if matches!(ty, Type::ByRef(_) | Type::Array(_) | Type::Null) && bits != 0 {
                             return Err("Nonzero managed reference constant".into());
                         }
                         if ty.bits() < 64 && bits >= 1u64 << ty.bits() {
@@ -551,7 +598,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     Op::Binary { op, left, right } => {
                         let left = check(left, position)?;
                         let right = check(right, position)?;
-                        if matches!(left, Type::ByRef(_)) || matches!(right, Type::ByRef(_)) {
+                        if !matches!(left, Type::I32 | Type::I64 | Type::Native)
+                            || !matches!(right, Type::I32 | Type::I64 | Type::Native)
+                        {
                             return Err(
                                 "Managed reference arithmetic requires explicit pointer conversion"
                                     .into(),
@@ -576,15 +625,17 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     }
                     Op::Negate(value) | Op::Not(value) => {
                         let ty = check(value, position)?;
-                        if matches!(ty, Type::ByRef(_)) {
+                        if !matches!(ty, Type::I32 | Type::I64 | Type::Native) {
                             return Err("Managed reference unary arithmetic".into());
                         }
                         Some(ty)
                     }
                     Op::Convert { value, bits, .. } => {
-                        check(value, position)?;
+                        if matches!(check(value, position)?, Type::Array(_) | Type::Null) {
+                            return Err("Array reference conversion is unsupported".into());
+                        }
                         let ty = result.ok_or("Conversion has no result")?;
-                        if matches!(ty, Type::ByRef(_)) {
+                        if !matches!(ty, Type::I32 | Type::I64 | Type::Native) {
                             return Err("Conversion cannot fabricate a managed reference".into());
                         }
                         if !matches!(bits, 8 | 16 | 32 | 64) || bits > ty.bits() {

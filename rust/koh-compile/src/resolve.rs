@@ -134,6 +134,55 @@ fn identity(metadata: &Metadata) -> Result<Identity, String> {
 }
 
 impl<'a> Resolver<'a> {
+    pub(crate) fn primitive(
+        &self,
+        assembly: usize,
+        token: u32,
+    ) -> Result<crate::ir::Scalar, String> {
+        use crate::ir::Scalar;
+        let metadata = self.assembly(assembly)?.metadata();
+        let ty = row(&metadata.type_refs, token, 1)?;
+        if ty.resolution_scope.table != Some(TableId::AssemblyRef) {
+            return Err("Array element requires a framework primitive type".into());
+        }
+        let reference = row(&metadata.assembly_refs, coded(ty.resolution_scope)?, 0x23)?;
+        let string = |index| metadata.strings.get(index).map_err(|e| e.to_string());
+        let name = string(reference.name)?;
+        let expected = match name {
+            "System.Runtime" => [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a],
+            "System.Private.CoreLib" => [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e],
+            "mscorlib" => [0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89],
+            _ => return Err("Array element is not a supported framework primitive".into()),
+        };
+        if reference.flags & 0x0f00 != 0
+            || !string(reference.culture)?.is_empty()
+            || key(
+                metadata
+                    .blobs
+                    .get(reference.public_key_or_token)
+                    .map_err(|e| e.to_string())?,
+                reference.flags & 1 != 0,
+            )? != Some(expected)
+            || string(ty.type_namespace)? != "System"
+        {
+            return Err("Invalid framework primitive identity".into());
+        }
+        Ok(match string(ty.type_name)? {
+            "Boolean" => Scalar::Bool,
+            "Char" => Scalar::Char,
+            "SByte" => Scalar::I8,
+            "Byte" => Scalar::U8,
+            "Int16" => Scalar::I16,
+            "UInt16" => Scalar::U16,
+            "Int32" => Scalar::I32,
+            "UInt32" => Scalar::U32,
+            "Int64" => Scalar::I64,
+            "UInt64" => Scalar::U64,
+            "IntPtr" => Scalar::NativeSigned,
+            "UIntPtr" => Scalar::NativeUnsigned,
+            _ => return Err("Array element is not a supported integer primitive".into()),
+        })
+    }
     pub fn new(images: &[&'a [u8]]) -> Result<Self, String> {
         if images.len() > 1024
             || images

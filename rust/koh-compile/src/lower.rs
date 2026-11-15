@@ -23,6 +23,7 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
             Ok(Type::Native)
         }
         TypeSig::ByRef(inner) => Ok(Type::ByRef(scalar(inner)?)),
+        TypeSig::SzArray(inner) => Ok(Type::Array(scalar(inner)?)),
         _ => Err(format!("Type {ty:?} has no integer lowering yet")),
     }
 }
@@ -251,6 +252,18 @@ struct Builder {
 }
 
 impl Builder {
+    fn coerce(&mut self, value: (u32, Type), ty: Type) -> Result<(u32, Type), String> {
+        if value.1 == Type::Null && matches!(ty, Type::Array(_)) {
+            self.value(ty, Op::Constant(0))
+        } else if value.1 == ty {
+            Ok(value)
+        } else {
+            Err(format!(
+                "CIL operand type mismatch: {:?}, expected {ty:?}",
+                value.1
+            ))
+        }
+    }
     fn value(&mut self, ty: Type, op: Op) -> Result<(u32, Type), String> {
         if self.next >= 262_144 {
             return Err("Lowered value count exceeds limit".into());
@@ -274,7 +287,9 @@ impl Builder {
     fn binary(&mut self, op: Binary) -> Result<(), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
-        if matches!(left.1, Type::ByRef(_)) || matches!(right.1, Type::ByRef(_)) {
+        if !matches!(left.1, Type::I32 | Type::I64 | Type::Native)
+            || !matches!(right.1, Type::I32 | Type::I64 | Type::Native)
+        {
             return Err("Managed reference arithmetic requires pointer conversion".into());
         }
         if matches!(op, Binary::Add | Binary::Subtract)
@@ -324,8 +339,32 @@ impl Builder {
     }
 
     fn compare(&mut self, op: Comparison) -> Result<(u32, Type), String> {
-        let right = self.pop()?;
-        let left = self.pop()?;
+        let mut right = self.pop()?;
+        let mut left = self.pop()?;
+        if left.1 == Type::Null {
+            left = self.coerce(left, right.1)?;
+        }
+        if right.1 == Type::Null {
+            right = self.coerce(right, left.1)?;
+        }
+        if matches!(
+            (left.1, right.1),
+            (Type::Native, Type::I32) | (Type::I32, Type::Native)
+        ) {
+            let value = if left.1 == Type::Native {
+                &mut left
+            } else {
+                &mut right
+            };
+            *value = self.value(
+                Type::I32,
+                Op::Convert {
+                    value: value.0,
+                    bits: 16,
+                    signed: matches!(op, Comparison::LessSigned | Comparison::GreaterSigned),
+                },
+            )?;
+        }
         if left.1 != right.1 {
             return Err("CIL comparison operand type mismatch".into());
         }
@@ -479,13 +518,25 @@ fn lower_inner(
         };
         let shape: Vec<_> = builder.stack.iter().map(|v| v.1).collect();
         for edge in edges {
-            if let Some(expected) = &incoming[edge.block] {
-                if expected != &shape {
-                    return Err(format!(
-                        "IL_{:04x}: Incompatible evaluation stacks at merge IL_{:04x}",
-                        instruction.offset,
-                        cil[edge.block - 1].offset
-                    ));
+            if let Some(expected) = &mut incoming[edge.block] {
+                let mut changed = false;
+                if expected.len() != shape.len() {
+                    return Err("Incompatible evaluation stack heights".into());
+                }
+                for (old, &new) in expected.iter_mut().zip(&shape) {
+                    if *old == Type::Null && matches!(new, Type::Array(_)) {
+                        *old = new;
+                        changed = true;
+                    } else if *old != new && !(new == Type::Null && matches!(old, Type::Array(_))) {
+                        return Err(format!(
+                            "IL_{:04x}: Incompatible evaluation stacks at merge IL_{:04x}",
+                            instruction.offset,
+                            cil[edge.block - 1].offset
+                        ));
+                    }
+                }
+                if changed {
+                    queue.push_back(edge.block);
                 }
             } else {
                 incoming[edge.block] = Some(shape.clone());
@@ -500,6 +551,44 @@ fn lower_inner(
                 kind,
             },
         });
+    }
+    let types: HashMap<_, _> = blocks
+        .iter()
+        .flatten()
+        .flat_map(|b| {
+            b.parameters
+                .iter()
+                .copied()
+                .chain(b.instructions.iter().filter_map(|i| i.result))
+        })
+        .collect();
+    for body in blocks.iter_mut().flatten() {
+        let edges: Vec<&mut Edge> = match &mut body.terminator.kind {
+            Control::Jump(edge) => vec![edge],
+            Control::Branch { yes, no, .. } => vec![yes, no],
+            Control::Return(_) => vec![],
+        };
+        for edge in edges {
+            for (argument, &ty) in edge
+                .arguments
+                .iter_mut()
+                .zip(incoming[edge.block].as_deref().unwrap_or(&[]))
+            {
+                if types[argument] == Type::Null && matches!(ty, Type::Array(_)) {
+                    let id = builder.next;
+                    builder.next += 1;
+                    if builder.next > 262_144 {
+                        return Err("Null merge conversions exceed value limit".into());
+                    }
+                    body.instructions.push(Instruction {
+                        result: Some((id, ty)),
+                        op: Op::Constant(0),
+                        il_offset: body.terminator.il_offset,
+                    });
+                    *argument = id;
+                }
+            }
+        }
     }
     let mut remap = vec![0; blocks.len()];
     let mut next = 0;
@@ -574,9 +663,7 @@ fn translate(
     let store = |b: &mut Builder, index: usize| -> Result<(), String> {
         let ty = *locals.get(index).ok_or("Invalid local/argument index")?;
         let value = b.pop()?;
-        if value.1 != ty {
-            return Err("Local/argument store type mismatch".into());
-        }
+        let value = b.coerce(value, ty)?;
         b.instructions.push(Instruction {
             result: None,
             op: Op::StoreLocal {
@@ -588,6 +675,126 @@ fn translate(
         Ok(())
     };
     match i.opcode {
+        0x8d => {
+            let Operand::Token(token) = i.operand else {
+                return Err("Missing array element type".into());
+            };
+            let element = resolver
+                .ok_or("Array element requires metadata resolution")?
+                .primitive(method.identity.assembly, token)?;
+            let length = b.pop()?;
+            if !matches!(length.1, Type::I32 | Type::Native) {
+                return Err("Invalid array length type".into());
+            }
+            let value = b.value(
+                Type::Array(element),
+                Op::NewArray {
+                    element,
+                    length: length.0,
+                },
+            )?;
+            b.stack.push(value);
+        }
+        0x8e => {
+            let array = b.pop()?;
+            if !matches!(array.1, Type::Array(_) | Type::Null) {
+                return Err("ldlen requires an array".into());
+            }
+            let value = b.value(Type::Native, Op::ArrayLength(array.0))?;
+            b.stack.push(value);
+        }
+        0x8f..=0x97 | 0x9b..=0x9f | 0xa3 | 0xa4 => {
+            let store = matches!(i.opcode, 0x9b..=0x9f | 0xa4);
+            let stored = if store { Some(b.pop()?) } else { None };
+            let index = b.pop()?;
+            if !matches!(index.1, Type::I32 | Type::Native) {
+                return Err("Invalid array index type".into());
+            }
+            let raw = b.pop()?;
+            let explicit = if matches!(i.opcode, 0x8f | 0xa3 | 0xa4) {
+                let Operand::Token(token) = i.operand else {
+                    return Err("Missing array element type".into());
+                };
+                Some(
+                    resolver
+                        .ok_or("Array element requires metadata resolution")?
+                        .primitive(method.identity.assembly, token)?,
+                )
+            } else {
+                None
+            };
+            let default = match i.opcode {
+                0x90 | 0x9c => Scalar::I8,
+                0x91 => Scalar::U8,
+                0x92 | 0x9d => Scalar::I16,
+                0x93 => Scalar::U16,
+                0x94 | 0x9e => Scalar::I32,
+                0x95 => Scalar::U32,
+                0x96 | 0x9f => Scalar::I64,
+                _ => Scalar::NativeSigned,
+            };
+            let array = if raw.1 == Type::Null {
+                b.coerce(raw, Type::Array(explicit.unwrap_or(default)))?
+            } else {
+                raw
+            };
+            let Type::Array(element) = array.1 else {
+                return Err("Array operation requires an array reference".into());
+            };
+            if explicit.is_some_and(|ty| ty != element)
+                || (explicit.is_none()
+                    && (element.bits() != default.bits()
+                        || element.stack_type() != default.stack_type()))
+            {
+                return Err("Array opcode differs from element storage type".into());
+            }
+            let address = b.value(
+                Type::ByRef(element),
+                Op::ArrayAddress {
+                    array: array.0,
+                    index: index.0,
+                },
+            )?;
+            if i.opcode == 0x8f {
+                b.stack.push(address);
+            } else if let Some(value) = stored {
+                if value.1 != element.stack_type() {
+                    return Err("Array store value type mismatch".into());
+                }
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::StoreMemory {
+                        address: address.0,
+                        value: value.0,
+                        bits: element.bits(),
+                    },
+                    il_offset: b.offset,
+                });
+            } else {
+                let signed = if explicit.is_some() {
+                    matches!(
+                        element,
+                        Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::I64 | Scalar::NativeSigned
+                    )
+                } else {
+                    matches!(i.opcode, 0x90 | 0x92 | 0x94 | 0x96 | 0x97)
+                };
+                let ty = if explicit.is_some() {
+                    element.stack_type()
+                } else {
+                    default.stack_type()
+                };
+                let value = b.value(
+                    ty,
+                    Op::LoadMemory {
+                        address: address.0,
+                        bits: element.bits(),
+                        signed,
+                    },
+                )?;
+                b.stack.push(value);
+            }
+        }
         0x28 => {
             let resolver =
                 resolver.ok_or("CIL opcode 0x0028 requires assembly reference resolution")?;
@@ -614,9 +821,7 @@ fn translate(
             let mut arguments = Vec::with_capacity(signature.parameters.len());
             for &ty in signature.parameters.iter().rev() {
                 let value = b.pop()?;
-                if value.1 != ty {
-                    return Err("CIL call argument type mismatch".into());
-                }
+                let value = b.coerce(value, ty)?;
                 arguments.push(value.0);
             }
             arguments.reverse();
@@ -707,7 +912,7 @@ fn translate(
                     Type::I32 => Scalar::I32,
                     Type::I64 => Scalar::I64,
                     Type::Native => Scalar::NativeSigned,
-                    Type::ByRef(_) => {
+                    Type::ByRef(_) | Type::Array(_) | Type::Null => {
                         return Err("Nested managed references are unsupported".into());
                     }
                 }
@@ -737,6 +942,10 @@ fn translate(
         }
         0x11 | 0xfe0c => load(b, method.parameters.len() + variable()?)?,
         0x13 | 0xfe0e => store(b, method.parameters.len() + variable()?)?,
+        0x14 => {
+            let value = b.value(Type::Null, Op::Constant(0))?;
+            b.stack.push(value);
+        }
         0x15..=0x21 => {
             let (bits, ty) = match i.opcode {
                 0x15 => (u64::from(u32::MAX), Type::I32),
@@ -766,9 +975,9 @@ fn translate(
             let value = match method.returns {
                 Some(ty) => {
                     let value = b.pop()?;
-                    if value.1 != ty {
-                        return Err("CIL return type mismatch".into());
-                    }
+                    let value = b
+                        .coerce(value, ty)
+                        .map_err(|error| format!("CIL return type mismatch: {error}"))?;
                     Some(value.0)
                 }
                 None => None,
@@ -895,9 +1104,7 @@ fn translate(
             )?;
             if i.opcode == 0x80 {
                 let value = b.pop()?;
-                if value.1 != ty {
-                    return Err("Static field store type mismatch".into());
-                }
+                let value = b.coerce(value, ty)?;
                 b.instructions.push(Instruction {
                     result: None,
                     op: Op::StoreMemory {

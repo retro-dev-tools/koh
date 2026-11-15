@@ -156,11 +156,10 @@ impl Code {
         if source == destination {
             return;
         }
-        self.bytes(&[0xf5]);
-        self.address(source + 2);
+        self.address(source);
         self.bytes(&[0x44, 0x4d]);
-        self.address(destination + 2);
-        self.bytes(&[0x54, 0x5d, 0x60, 0x69, 0xf1]);
+        self.address(destination);
+        self.bytes(&[0x54, 0x5d, 0x60, 0x69]);
         for byte in 0..width {
             self.bytes(&[0x2a, 0x12]);
             if byte + 1 < width {
@@ -177,11 +176,112 @@ impl Code {
     }
 
     fn check_reference(&mut self, ty: Type) {
-        if matches!(ty, Type::ByRef(_)) {
+        if matches!(ty, Type::ByRef(_) | Type::Array(_) | Type::Null) {
             self.bytes(&[0x78, 0xb1]);
             let target = self.import("__koh_trap_null".into());
             self.jump(0xca, target);
         }
+    }
+
+    fn save_word(&mut self, destination: u16) {
+        self.bytes(&[0x79]);
+        self.store_a(destination);
+        self.bytes(&[0x78]);
+        self.store_a(destination + 1);
+    }
+
+    fn heap_bank(&mut self, saved: u16) {
+        self.bytes(&[0xf0, 0x70]);
+        self.store_a(saved);
+        self.bytes(&[0x3e, 1, 0xe0, 0x70]);
+    }
+
+    fn restore_bank(&mut self, saved: u16) {
+        self.load_a(saved);
+        self.bytes(&[0xe0, 0x70]);
+    }
+
+    fn check_high(&mut self, slot: u16, width: u16, fault: SymbolId) {
+        self.bytes(&[0x0e, 0]);
+        for byte in 2..width {
+            self.load_a(slot + byte);
+            self.bytes(&[0xb1, 0x4f]);
+        }
+        self.bytes(&[0x79, 0xb7]);
+        self.jump(0xc2, fault);
+    }
+
+    fn array_header(&mut self, array: u16, saved: u16) {
+        self.indirect(array);
+        self.check_reference(Type::Null);
+        self.heap_bank(saved);
+        self.bytes(&[0x60, 0x69, 0x2a, 0x4f, 0x46]);
+    }
+
+    fn below_constant(&mut self, value: u16, limit: u16, fault: SymbolId) {
+        let good = self.label();
+        self.load_a(value + 1);
+        self.bytes(&[0xfe, (limit >> 8) as u8]);
+        self.jump(0xda, good);
+        self.jump(0xc2, fault);
+        self.load_a(value);
+        self.bytes(&[0xfe, limit as u8]);
+        self.jump(0xd2, fault);
+        self.mark(good);
+    }
+
+    fn below_word(&mut self, value: u16, limit: u16, fault: SymbolId) {
+        let good = self.label();
+        self.indirect(value);
+        self.address(limit);
+        self.bytes(&[0x23, 0x78, 0xbe]);
+        self.jump(0xda, good);
+        self.jump(0xc2, fault);
+        self.bytes(&[0x2b, 0x79, 0xbe]);
+        self.jump(0xd2, fault);
+        self.mark(good);
+    }
+
+    fn new_array(&mut self, length: u16, destination: u16, temp: u16) {
+        let fault = self.import("__koh_trap_allocation".into());
+        self.below_constant(length, 4095, fault);
+        self.copy(length, temp, 2);
+        self.load_a(temp + 8);
+        self.bytes(&[0x4f, 0xb7]);
+        let shifted = self.label();
+        let shift = self.label();
+        self.jump(0xca, shifted);
+        self.mark(shift);
+        self.shift_one(temp, 2, true, false, false);
+        self.bytes(&[0x0d]);
+        self.jump(0xc2, shift);
+        self.mark(shifted);
+        self.constant(temp + 2, 2, 2);
+        self.arithmetic(temp, temp + 2, temp, 2, 0x88);
+        let cursor = self.import("__koh_heap_cursor".into());
+        self.jump(0x21, cursor);
+        self.bytes(&[0x2a, 0x4f, 0x46]);
+        self.save_word(temp + 2);
+        self.arithmetic(temp, temp + 2, temp + 4, 2, 0x88);
+        self.jump(0xda, fault);
+        self.below_constant(temp + 4, 4097, fault);
+        self.indirect(temp + 4);
+        self.jump(0x21, cursor);
+        self.bytes(&[0x79, 0x22, 0x78, 0x77]);
+        self.indirect(temp + 2);
+        let heap = self.import("__koh_heap".into());
+        self.jump(0x21, heap);
+        self.bytes(&[0x50, 0x59, 0x19, 0x44, 0x4d]);
+        self.save_word(destination);
+        self.heap_bank(temp + 24);
+        self.indirect(temp);
+        self.address(destination);
+        self.bytes(&[0x5e, 0x23, 0x56, 0x62, 0x6b]);
+        self.bytes(&[0x36, 0, 0x23, 0x0b, 0x78, 0xb1, 0x20, 0xf8]);
+        self.indirect(destination);
+        self.address(length);
+        self.bytes(&[0x50, 0x59, 0x2a, 0x12, 0x13, 0x2a, 0x12]);
+        self.restore_bank(temp + 24);
     }
 
     fn constant(&mut self, destination: u16, width: u16, bits: u64) {
@@ -271,14 +371,19 @@ impl Code {
             self.jump(0xc3, no);
             self.mark(same);
         }
+        self.address(left + width - 1);
+        self.bytes(&[0x44, 0x4d]);
+        self.address(right + width - 1);
+        self.bytes(&[0x54, 0x5d, 0x60, 0x69]);
         for byte in (0..width).rev() {
-            self.load_a(left + byte);
-            self.load_b(right + byte);
-            self.bytes(&[0xb8]);
+            self.bytes(&[0x1a, 0x47, 0x7e, 0xb8]);
             if op != Comparison::Equal {
                 self.jump(0xda, yes);
             }
             self.jump(0xc2, no);
+            if byte != 0 {
+                self.bytes(&[0x2b, 0x1b]);
+            }
         }
         self.jump(0xc3, if op == Comparison::Equal { yes } else { no });
         self.mark(yes);
@@ -555,6 +660,13 @@ impl Layout {
 
 pub fn emit(function: &Function) -> Result<Object, String> {
     verify(function)?;
+    let booleans: BTreeSet<_> = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter(|i| matches!(i.op, Op::Compare { .. }))
+        .filter_map(|i| i.result.map(|r| r.0))
+        .collect();
     let layout = Layout::new(function)?;
     let name = symbol(function.identity);
     let mut code = Code {
@@ -587,7 +699,13 @@ pub fn emit(function: &Function) -> Result<Object, String> {
         il_offset: 0,
         overflow: false,
     };
-    code.guard(layout.size + 2);
+    let allocator = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .any(|i| matches!(i.op, Op::NewArray { .. }))
+        .then(|| code.label());
+    code.guard(layout.size + if allocator.is_some() { 4 } else { 2 });
     code.adjust_sp(-i32::from(layout.size));
     let return_width = function
         .returns
@@ -610,6 +728,52 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             let width = output.map(|p| u16::from(p.1.bits() / 8)).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::NewArray { element, length } => {
+                    let temp = layout.arithmetic;
+                    let fault = code.import("__koh_trap_allocation".into());
+                    code.check_high(
+                        slot(length),
+                        u16::from(layout.values[&length].1.bits() / 8),
+                        fault,
+                    );
+                    code.copy(slot(length), temp + 6, 2);
+                    code.constant(
+                        temp + 8,
+                        1,
+                        u64::from((element.bits() / 8).trailing_zeros()),
+                    );
+                    code.jump(0xcd, allocator.ok_or("Missing array allocator")?);
+                    code.copy(temp + 12, destination, 2);
+                }
+                Op::ArrayLength(array) => {
+                    code.array_header(slot(array), layout.arithmetic + 24);
+                    code.save_word(destination);
+                    code.restore_bank(layout.arithmetic + 24);
+                }
+                Op::ArrayAddress { array, index } => {
+                    let Type::Array(element) = layout.values[&array].1 else {
+                        return Err("Invalid verified array type".into());
+                    };
+                    let temp = layout.arithmetic;
+                    code.array_header(slot(array), temp + 24);
+                    code.save_word(temp);
+                    let fault = code.import("__koh_trap_bounds".into());
+                    code.check_high(
+                        slot(index),
+                        u16::from(layout.values[&index].1.bits() / 8),
+                        fault,
+                    );
+                    code.below_word(slot(index), temp, fault);
+                    code.copy(slot(index), temp, 2);
+                    for _ in 0..(element.bits() / 8).trailing_zeros() {
+                        code.shift_one(temp, 2, true, false, false);
+                    }
+                    code.indirect(slot(array));
+                    code.address(temp);
+                    code.bytes(&[0x5e, 0x23, 0x56, 0x60, 0x69, 0x19, 0x23, 0x23, 0x44, 0x4d]);
+                    code.save_word(destination);
+                    code.restore_bank(temp + 24);
+                }
                 Op::LocalAddress { local, .. } => {
                     code.address(layout.locals[local as usize]);
                     code.bytes(&[0x44, 0x4d, 0x79]);
@@ -633,6 +797,10 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                     let copied = u16::from(bits / 8);
                     code.indirect(slot(address));
                     code.check_reference(layout.values[&address].1);
+                    let managed = matches!(layout.values[&address].1, Type::ByRef(_));
+                    if managed {
+                        code.heap_bank(layout.arithmetic + 24);
+                    }
                     code.address(destination);
                     code.bytes(&[0x50, 0x59]);
                     for byte in 0..copied {
@@ -651,6 +819,9 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                             code.bytes(&[0x22]);
                         }
                     }
+                    if managed {
+                        code.restore_bank(layout.arithmetic + 24);
+                    }
                 }
                 Op::StoreMemory {
                     address,
@@ -659,6 +830,10 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                 } => {
                     code.indirect(slot(address));
                     code.check_reference(layout.values[&address].1);
+                    let managed = matches!(layout.values[&address].1, Type::ByRef(_));
+                    if managed {
+                        code.heap_bank(layout.arithmetic + 24);
+                    }
                     code.address(slot(value));
                     code.bytes(&[0x50, 0x59]);
                     for byte in 0..u16::from(bits / 8) {
@@ -666,6 +841,9 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         if byte + 1 < u16::from(bits / 8) {
                             code.bytes(&[0x13]);
                         }
+                    }
+                    if managed {
+                        code.restore_bank(layout.arithmetic + 24);
                     }
                 }
                 Op::Call {
@@ -734,8 +912,11 @@ pub fn emit(function: &Function) -> Result<Object, String> {
                         } else {
                             code.bytes(&[0xaf]);
                         }
-                        for byte in copied..width {
-                            code.store_a(destination + byte);
+                        code.bytes(&[0xf5]);
+                        code.address(destination + copied + 2);
+                        code.bytes(&[0xf1]);
+                        for _ in copied..width {
+                            code.bytes(&[0x22]);
                         }
                     }
                 }
@@ -821,7 +1002,7 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             Control::Jump(edge) => transfer(&mut code, edge),
             Control::Branch { condition, yes, no } => {
                 code.bytes(&[0x0e, 0]);
-                for byte in 0..4 {
+                for byte in 0..if booleans.contains(condition) { 1 } else { 4 } {
                     code.load_a(layout.values[condition].0 + byte);
                     code.bytes(&[0xb1, 0x4f]);
                 }
@@ -841,6 +1022,15 @@ pub fn emit(function: &Function) -> Result<Object, String> {
             }
         }
         code.check_size()?;
+    }
+    if let Some(allocator) = allocator {
+        code.mark(allocator);
+        code.new_array(
+            layout.arithmetic + 8,
+            layout.arithmetic + 14,
+            layout.arithmetic + 2,
+        );
+        code.bytes(&[0xc9]);
     }
     code.check_size()?;
     let object = Object {

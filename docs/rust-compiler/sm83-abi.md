@@ -20,6 +20,13 @@ the owning invocation, including ancestor frames during recursion. Null managed
 dereferences abort through `__koh_trap_null` (fault 4); native bus address zero
 remains legal. Managed references to the current frame cannot be returned.
 
+[Primitive array references](arrays.md) occupy two bytes and point at a packed
+count/payload allocation in linker-reserved WRAMX bank 1. Managed-reference memory
+operations select that bank and restore SVBK; native pointers retain raw selected
+bank semantics. Internal allocation calls reserve their extra machine return word
+as well as AF scratch in the guard. Heap exhaustion and bounds abort with faults
+5 and 6. This does not establish interrupt safety, GC or ROM banking.
+
 The frame contains locals, SSA values and temporary storage for simultaneous block
 argument transfers and arithmetic. Temporary PUSH AF/POP AF pairs preserve carry
 across SP-relative address calculations; their two bytes are included in capacity

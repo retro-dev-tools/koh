@@ -96,6 +96,8 @@ fn startup(entry: &Function, globals: u16) -> Result<Object, String> {
         ("__koh_trap_arithmetic", 2),
         ("__koh_trap_unexpected", 3),
         ("__koh_trap_null", 4),
+        ("__koh_trap_allocation", 5),
+        ("__koh_trap_bounds", 6),
     ] {
         symbols.push(symbol(name.into(), 1, data.len()));
         data.extend_from_slice(&[0xf3, 0x3e, code, 0xc3]);
@@ -155,10 +157,18 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
         .find(|f| f.identity == entry)
         .ok_or("Cartridge entry is absent")?;
     let fields = crate::ir::static_fields(functions)?;
+    let heap = functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+        .any(|i| matches!(i.op, crate::ir::Op::NewArray { .. }));
     let bytes: u16 = fields
         .iter()
         .map(|(_, bytes)| u16::from(*bytes))
         .try_fold(0u16, |total, bytes| total.checked_add(bytes))
+        .ok_or("Static storage exceeds capacity")?;
+    let bytes = bytes
+        .checked_add(if heap { 2 } else { 0 })
         .ok_or("Static storage exceeds capacity")?;
     if bytes > 0x100 {
         return Err("Compiler static storage exceeds available WRAM0 capacity (256 bytes)".into());
@@ -171,6 +181,9 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
             symbols.push(symbol(sm83::static_symbol(field), 0, offset));
             offset += usize::from(width);
         }
+        if heap {
+            symbols.push(symbol("__koh_heap_cursor".into(), 0, offset));
+        }
         objects.push(Object {
             sections: vec![Section {
                 name: ".koh.statics".into(),
@@ -179,6 +192,18 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
                 ..Default::default()
             }],
             symbols,
+        });
+    }
+    if heap {
+        objects.push(Object {
+            sections: vec![Section {
+                name: ".koh.heap".into(),
+                kind: 5,
+                bank: Some(1),
+                size: 4096,
+                ..Default::default()
+            }],
+            symbols: vec![symbol("__koh_heap".into(), 0, 0)],
         });
     }
     for function in functions {
