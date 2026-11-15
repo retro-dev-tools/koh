@@ -1,6 +1,9 @@
 # PR #55 working handoff
 
-## Current uncommitted alignment unit
+## Latest verified alignment unit
+
+Committed/pushed94f3764b16b7e8b3acf8d919be82a592ae825f30. DraftPR#55
+verified master base and matching head; body records this increment. Never merge.
 
 Native KohAligned metadata validates static field targets and power-of-two bounds
 1..4096. Aligned primitive array payloads propagate from static stores through
@@ -23,8 +26,13 @@ Read-only arrays_review found no concrete defects in allocation/alias/metadata.
 New docs/rust-compiler/alignment.md documents current contract and limits.
 Combined coverage441 compiler cases,444 ROM scenarios(375normal,69traps),4frames.
 Seven legacy methods now have completed native behavioral replacements;558 still
-need completion auditing. None physically retired. Need logical commit/push,
-post-hook focused verification and PR/vault status refresh. Previous head d8ba335.
+need completion auditing. None physically retired. Post-commit graphics/alignment
+checks8/8,EXIT=0,37.085s (/tmp/koh-alignment-postcommit.log). PR/vault refreshed.
+No build remains live. Hosted validation of this new head is pending.
+Next broader aggregate/runtime/game and PDB/KDBG dependencies, native SDK/package
+replacement, full test migration/deletion and measured cross-platform/performance
+gates. Benchmark shell now consumes Rust assembler/linker: assess host-native
+replacement rather than deleting it based on the obsolete baseline description.
 
 ## Objective and checkout
 
