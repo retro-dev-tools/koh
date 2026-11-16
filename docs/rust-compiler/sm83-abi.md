@@ -169,6 +169,12 @@ Both pointers wrap at16 bits and zero count touches neither buffer. All working
 registers are temporary under the spilled-value ABI. No implicit bank or PPU
 changes occur; see [copy contract and alias tests](memory-copy.md).
 
+`vblankcopy` uses the same native pointer/count capture and guarded temporary
+pushes, but returns a zero-extended16-bit copied count. Nonempty calls disable
+interrupts, validate LCD-on state and copy a bounded VBlank prefix; zero count
+preserves IME and touches no hardware/buffer. Its gate reserves instruction
+latency as well as the two-line tail. See [exact timing and tests](vblank-copy.md).
+
 Rust tests serialize emitted objects to ELF, read them back, link with `koh-link`,
 and invoke a minimal C# host around the unchanged emulator. The host initializes
 test-owned output/guard memory, steps with a fixed bound and reports memory/SP;

@@ -8,7 +8,26 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Latest increment: sequential reference-bearing value structs and typed reference
+Latest increment: [bounded VBlank copy](vblank-copy.md) and actual2048v2 SDK
+gameplay. Four Debug/Release × DMG/CGB cases build the unmodified game sources,
+round-trip canonical ELF, reproduce the SDK ROM with the Rust linker, boot the
+existing emulator and play eight moves. Rust independently checks merge/score/
+single-spawn rules, title/HUD glyphs, uploaded art and every board pixel. The
+original capture budgets were kept. All four final cases pass; the bounded-copy
+sweep also passes6160 phase/count/frame probes, including actual stack offsets
+above127 and interrupt-state checks. Review's late-store LY152 defect was
+reproduced and fixed by reserving instruction latency before the two-line tail.
+
+The full workspace/all-features run completed1086 tests in1729.809s:1084 passed,
+two new LCD-off tests failed, zero skipped, exit100. The emulator starts with
+LCDC=0x91; those tests had incorrectly assumed LCD-off state. They now establish
+that state explicitly, retaining the fault9 assertions, and pass2/2 in10.475s,
+exit0. Production and all other source hashes stayed unchanged. Do not describe
+the original full command as green. Current-increment hosted CI remains pending.
+The two original2048v2 methods/three scenarios now have stronger native
+replacements:50/565 complete,515 outstanding, zero physically retired.
+
+Previous increment: sequential reference-bearing value structs and typed reference
 cells. Inline copies retain independent scalar storage and shared class/string/
 array referents; nested, static, class-owned and array-element values execute.
 `ldind.ref`/`stind.ref` retain cell types. Explicit managed layouts and scoped
@@ -19,14 +38,24 @@ all-feature/all-target check succeeds in8.45s with the existing cube-helper warn
 IR field projections remain trusted metadata declarations, not a sandbox for
 arbitrary hand-authored IR; see [IR contract](ir.md).
 
-Ordinary2048v2 Release SDK build now succeeds, producing131072 bytes in31.59s.
+Hosted verification for pushed6eda360 is complete: native workflow43799726969
+passes1063 Linux cases in1054.414s,1063 macOS cases in1216.587s and1061 Windows
+cases in1385.779s, zero skipped; separate rustdoc passes on all three hosts.
+These results predate the pending bounded-VBlank-copy/gameplay increment. Managed
+workflow43799726853 still fails the actual JRPG SDK build at rank2 byte[,] in
+World::IsWalkable IL0013. Do not describe the complete solution CI as green.
+
+At the managed-value checkpoint, the ordinary2048v2 Release SDK build succeeded,
+producing131072 bytes in31.59s.
 Manual emulator runs display its title and scripted gameplay. New native-owned
 SDK acceptance is still uncommitted: both CGB configurations pass exact board
 state, single-merge/spawn rules, tile bytes and board pixels. Both DMG cases fail
 exact pixels: after300 settling frames the clear's dirty range still begins at
 140 of1024, leaving title text and partial tiles. Do not claim sample acceptance
 or increase settling budgets to conceal the flush throughput defect. The test
-reference's four independent merge cases pass. Test ledger remains48/565.
+reference's four independent merge cases passed. That historical checkpoint's
+ledger was48/565; the bounded-copy/gameplay increment above resolves these DMG
+failures and adds complete native sample acceptance.
 
 Previous increment: [native class virtual dispatch](virtual-dispatch.md). Typed
 synthetic dispatch functions preserve newslot/override/base-call semantics,

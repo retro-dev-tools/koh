@@ -369,29 +369,9 @@ internal static unsafe class MapWriter
     }
 
     /// <summary>Bounded vblank copy.</summary>
-    private static ushort FlushRun(byte* dst, byte* src, ushort n)
-    {
-        byte* start = dst;
-        byte* end = dst + n;
-        if (n != 0)
-        {
-            byte line = Hardware.LY;
-            if (line < 144 || line > 149)
-                Ppu.WaitVBlank();
-        }
-        while (dst != end)
-        {
-            byte* target = dst;
-            byte value = *src;
-            byte line = Hardware.LY;
-            if (line < 144 || line >= 152)
-                return (ushort)(dst - start);
-            *target = value;
-            dst++;
-            src++;
-        }
-        return n;
-    }
+    [KohIntrinsic("vblankcopy")]
+    private static ushort FlushRun(byte* dst, byte* src, ushort n) =>
+        throw new PlatformNotSupportedException();
 
     /// <summary>Set one cell's CGB attribute byte (VRAM bank 1). Silent no-op on DMG. Direct-to-VRAM (see
     /// the class remarks: per-frame attribute shadowing is out of scope for this pass); still gated on

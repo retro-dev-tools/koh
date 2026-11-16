@@ -1539,6 +1539,17 @@ fn translate(
                         },
                         il_offset: b.offset,
                     }),
+                    Intrinsic::VBlankCopy => {
+                        let copied = b.value(
+                            Type::I32,
+                            Op::VBlankCopy {
+                                destination: arguments[0],
+                                source: arguments[1],
+                                count: arguments[2],
+                            },
+                        )?;
+                        b.stack.push(copied);
+                    }
                     Intrinsic::Allocate => {
                         let pointer = b.value(Type::Native, Op::ArenaAllocate(arguments[0]))?;
                         b.stack.push(pointer);

@@ -1252,7 +1252,12 @@ pub(crate) fn emit_with_strings(
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .any(|i| matches!(i.op, Op::MemoryFill { .. } | Op::MemoryCopy { .. }));
+        .any(|i| {
+            matches!(
+                i.op,
+                Op::MemoryFill { .. } | Op::MemoryCopy { .. } | Op::VBlankCopy { .. }
+            )
+        });
     code.guard(
         layout.size
             + if allocator.is_some() || multiplication || memory_loop {
@@ -1418,6 +1423,46 @@ pub(crate) fn emit_with_strings(
                     ]);
                     code.jump(0xc2, next);
                     code.mark(done);
+                }
+                Op::VBlankCopy {
+                    destination: target,
+                    source,
+                    count,
+                } => {
+                    code.extend(place(count), layout.arithmetic, 2);
+                    code.indirect(slot(source));
+                    code.bytes(&[0xc5]);
+                    code.indirect(slot(target) + 2);
+                    code.bytes(&[0xc5]);
+                    code.indirect(layout.arithmetic + 4);
+                    code.bytes(&[0xd1, 0xe1, 0x78, 0xb1]);
+                    let done = code.label();
+                    let byte = code.label();
+                    let active = code.label();
+                    let blank = code.label();
+                    code.jump(0xca, done);
+                    code.bytes(&[0xf3, 0xf0, 0x40, 0xcb, 0x7f]);
+                    let hardware = code.import("__koh_trap_hardware".into());
+                    code.jump(0xca, hardware);
+                    code.bytes(&[0xf0, 0x44, 0xd6, 144, 0xfe, 6]);
+                    code.jump(0xda, byte);
+                    code.mark(active);
+                    code.bytes(&[0xf0, 0x44, 0xfe, 144]);
+                    code.jump(0xd2, active);
+                    code.mark(blank);
+                    code.bytes(&[0xf0, 0x44, 0xfe, 144]);
+                    code.jump(0xda, blank);
+                    code.mark(byte);
+                    code.bytes(&[0xf0, 0x44, 0xd6, 144, 0xfe, 7]);
+                    code.jump(0xd2, done);
+                    code.bytes(&[0x2a, 0x12, 0x13, 0x0b, 0x78, 0xb1]);
+                    code.jump(0xc2, byte);
+                    code.mark(done);
+                    code.bytes(&[0xc5]);
+                    code.address(layout.arithmetic + 2);
+                    code.bytes(&[0xd1, 0x2a, 0x93, 0x4f, 0x7e, 0x9a, 0x47, 0xc5]);
+                    code.address(destination + 2);
+                    code.bytes(&[0xd1, 0x73, 0x23, 0x72, 0x23, 0xaf, 0x22, 0x77]);
                 }
                 Op::MemoryCopy {
                     destination,

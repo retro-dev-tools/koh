@@ -239,6 +239,11 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     source: stored,
                     count,
                 }
+                | Op::VBlankCopy {
+                    destination: address,
+                    source: stored,
+                    count,
+                }
                 | Op::HBlankStream {
                     source: address,
                     first: stored,

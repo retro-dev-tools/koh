@@ -1,3 +1,5 @@
+#[path = "sdk/game.rs"]
+mod game;
 mod support;
 
 use rstest::rstest;

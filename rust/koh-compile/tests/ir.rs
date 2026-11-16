@@ -471,7 +471,23 @@ fn memory_copy_operands_are_typed_and_effectful(
     #[case] source: Type,
     #[case] count: Type,
     #[case] valid: bool,
+    #[values(false, true)] bounded: bool,
 ) {
+    let operation = |count| {
+        if bounded {
+            Op::VBlankCopy {
+                destination: 0,
+                source: 1,
+                count,
+            }
+        } else {
+            Op::MemoryCopy {
+                destination: 0,
+                source: 1,
+                count,
+            }
+        }
+    };
     let mut f = diamond();
     f.parameters = vec![destination, source, count];
     f.returns = None;
@@ -479,12 +495,8 @@ fn memory_copy_operands_are_typed_and_effectful(
     f.blocks = vec![Block {
         parameters: vec![(0, destination), (1, source), (2, count)],
         instructions: vec![Instruction {
-            result: None,
-            op: Op::MemoryCopy {
-                destination: 0,
-                source: 1,
-                count: 2,
-            },
+            result: bounded.then_some((3, Type::I32)),
+            op: operation(2),
             il_offset: 99,
         }],
         terminator: Terminator {
@@ -504,12 +516,8 @@ fn memory_copy_operands_are_typed_and_effectful(
         },
         instruction(3, Type::I32, Op::LoadLocal(0)),
         Instruction {
-            result: None,
-            op: Op::MemoryCopy {
-                destination: 0,
-                source: 1,
-                count: 3,
-            },
+            result: bounded.then_some((4, Type::I32)),
+            op: operation(3),
             il_offset: 99,
         },
     ];
@@ -517,12 +525,13 @@ fn memory_copy_operands_are_typed_and_effectful(
     let copy = f.blocks[0]
         .instructions
         .iter()
-        .find(|i| matches!(i.op, Op::MemoryCopy { .. }))
+        .find(|i| matches!(i.op, Op::MemoryCopy { .. } | Op::VBlankCopy { .. }))
         .unwrap();
     assert_eq!(copy.il_offset, 99);
     assert_eq!(copy.op.operands().collect::<Vec<_>>(), vec![0, 1, 2]);
     koh_compile::sm83::emit(&f).unwrap();
-    f.blocks[0].instructions.last_mut().unwrap().result = Some((4, Type::I32));
+    f.blocks[0].instructions.last_mut().unwrap().result =
+        if bounded { None } else { Some((4, Type::I32)) };
     assert!(verify(&f).is_err());
 }
 

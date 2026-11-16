@@ -2,6 +2,8 @@ use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 use std::path::{Path, PathBuf};
 mod support;
+#[path = "driver/vblank.rs"]
+mod vblank;
 use support::{Host, dotnet};
 
 #[rstest::fixture]

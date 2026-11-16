@@ -31,13 +31,41 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: forty-eight legacy methods; zero physically retired.**
+**Native behavioral replacements: fifty legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining517 methods still have
+The remaining515 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## 2048 scene-game replacements
+
+The two `Samples/Gb2048V2Tests` methods contain three original scenarios: two
+Roslyn configurations for compilation and one Release/DMG gameplay run. They now
+map to four nextest-discoverable rstest cases in `sdk::game`, each checking both
+compilation and gameplay, plus eight independent Rust rule-reference cases.
+
+| Source method / purpose | Behavioral requirement and independent justification | Contract / decision / native target |
+| --- | --- | --- |
+| `Sample_CompilesUnmodified_NoDiagnostics_ValidIr` | All actual sample sources compile through ordinary SDK/Roslyn in Debug and Release; native verified compilation emits canonical ELF and a valid ROM | Public authoring/build contract. REPLACE complete: `sdk::game::sdk_2048_scene_game_obeys_rules_and_draws_tiles`, four Debug/Release × DMG/CGB cases. ELF round trip and independent linker invocation reproduce the SDK ROM. Private C# IR types and the old compiler ABI are not preserved. |
+| `Sample_BootsToTitle_StartsGame_SlidesSpawnTiles` | Boot to title, Start enters a two-tile board with zero score, eight directional inputs perform valid single-merge slides and one spawn per changed move, HUD and board rendering match state | Public game behavior, independently checked against 2048 rules, literal tile art and target palette colors. REPLACE complete: the same four native cases boot the existing emulator with Koh boot ROMs, inspect typed WRAM state, check exact per-move results/score/spawns and every board pixel at nine captures per configuration. Title/HUD glyphs, uploaded tile bytes, final population and zero mode3 violations are also asserted. |
+
+The observer shim only steps the existing emulator, applies inputs and snapshots
+memory/video. All rule logic and acceptance assertions live in Rust. Metadata
+field offsets are an observation adapter, not a promise to retain current private
+fields or public framework design. The game sources and art remain unchanged.
+Legacy static return slots, byte dispatch tags and ROM-folding assumptions are
+not acceptance oracles. Win/lose/restart and JRPG behavior are separate coverage;
+these two replacements do not close unrelated framework or array tests.
+
+Final current-source SDK cases pass56.818/56.162/19.374/19.293s in the completed
+full workspace run, `/tmp/koh-vblank-workspace.log`. The four final bounded-copy
+cases also pass, covering6160 phase/count/frame probes. The full workspace
+completed1086 tests:1084 passed and two new LCD-off setup tests failed. Both now
+explicitly disable the emulator's initially enabled LCD, preserve fault9
+assertions, and pass2/2 in `/tmp/koh-vblank-lcd-off-corrected.log`. Production
+code stayed unchanged. This is not a green result for the original full command.
 
 The [reference-class layout foundation](class-layout.md) supplies25 native
 metadata cases within the48-case layout target, plus the existing10 reference

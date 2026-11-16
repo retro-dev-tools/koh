@@ -14,6 +14,7 @@ pub(crate) enum Intrinsic {
     ResetArena,
     MemoryFill,
     MemoryCopy,
+    VBlankCopy,
     HBlankStream(u16),
     CpuControl(crate::ir::CpuControl),
     OamDma,
@@ -356,9 +357,14 @@ pub(crate) fn intrinsic(
         }
         return Ok(Some(Intrinsic::HBlankStream(address as u16)));
     }
-    if matches!(kind, "memfill" | "memcopy") {
+    if matches!(kind, "memfill" | "memcopy" | "vblankcopy") {
         use clrmeta::ElementType;
-        let copied = kind == "memcopy";
+        let copied = kind != "memfill";
+        let returns = if kind == "vblankcopy" {
+            ElementType::U2
+        } else {
+            ElementType::Void
+        };
         let second = if copied {
             TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1)))
         } else {
@@ -367,7 +373,7 @@ pub(crate) fn intrinsic(
         if address != -1
             || signature.calling_convention.0 != 0
             || signature.sentinel.is_some()
-            || signature.return_type != TypeSig::Primitive(ElementType::Void)
+            || signature.return_type != TypeSig::Primitive(returns)
             || signature.params
                 != [
                     TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1))),
@@ -376,11 +382,18 @@ pub(crate) fn intrinsic(
                 ]
         {
             let value = if copied { "byte*" } else { "byte" };
+            let result = if kind == "vblankcopy" {
+                "ushort"
+            } else {
+                "void"
+            };
             return Err(format!(
-                "Invalid Koh {kind} intrinsic contract: expected address-less static void(byte*, {value}, ushort)"
+                "Invalid Koh {kind} intrinsic contract: expected address-less static {result}(byte*, {value}, ushort)"
             ));
         }
-        return Ok(Some(if copied {
+        return Ok(Some(if kind == "vblankcopy" {
+            Intrinsic::VBlankCopy
+        } else if copied {
             Intrinsic::MemoryCopy
         } else {
             Intrinsic::MemoryFill

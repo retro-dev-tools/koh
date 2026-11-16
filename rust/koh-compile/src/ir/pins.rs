@@ -9,6 +9,11 @@ fn bank_write(op: &Op, constants: &HashMap<u32, u64>) -> bool {
             destination: address,
             count,
             ..
+        }
+        | Op::VBlankCopy {
+            destination: address,
+            count,
+            ..
         } => constants
             .get(&address)
             .zip(constants.get(&count))

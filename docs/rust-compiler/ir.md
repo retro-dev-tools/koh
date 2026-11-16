@@ -83,6 +83,11 @@ Local forwarding treats it as a memory barrier. Read/store order is ascending,
 including overlapping buffers; zero count accesses neither buffer. See
 [copy semantics and executable evidence](memory-copy.md).
 
+`VBlankCopy` has the same address/count operands and an int32 copied-count result.
+It is observable even when its result is unused. Operand remapping retains all
+three uses; local forwarding treats it as a memory barrier. The operation also
+has timing, interrupt and fault effects; see [its hardware contract](vblank-copy.md).
+
 `HBlankStream` has native16 source, int32 first/count narrowed to unsigned8,
 a validated fixed display register and no result. All three uses survive operand
 remapping; the effect survives dead-value removal. See [raster semantics](raster-stream.md).

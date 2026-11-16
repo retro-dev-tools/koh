@@ -1108,6 +1108,55 @@ fn memory_copy_truncates_count_and_preserves_stack(
 }
 
 #[rstest::rstest]
+#[case(0)]
+#[case(20)]
+fn vblank_copy_zero_count_and_lcd_off_are_explicit(host: &Host, #[case] locals: usize) {
+    let mut f = function(Type::I32, Op::Constant(0));
+    f.parameters = vec![Type::Native, Type::Native, Type::I32];
+    f.locals = vec![Type::I64; locals];
+    f.blocks[0].parameters = vec![(0, Type::Native), (1, Type::Native), (2, Type::I32)];
+    f.blocks[0].instructions = vec![
+        Instruction {
+            result: Some((4, Type::Native)),
+            op: Op::Constant(0xff40),
+            il_offset: 0,
+        },
+        Instruction {
+            result: Some((5, Type::I32)),
+            op: Op::Constant(0),
+            il_offset: 0,
+        },
+        Instruction {
+            result: None,
+            op: Op::StoreMemory {
+                address: 4,
+                value: 5,
+                bits: 8,
+            },
+            il_offset: 0,
+        },
+        Instruction {
+            result: Some((3, Type::I32)),
+            op: Op::VBlankCopy {
+                destination: 0,
+                source: 1,
+                count: 2,
+            },
+            il_offset: 1,
+        },
+    ];
+    f.blocks[0].terminator.kind = Control::Return(Some(3));
+    let cases = [0u64, 0x10000, 1, 0x10001].map(|count| {
+        (
+            f.clone(),
+            vec![0xffff, 0xffff, count],
+            if count as u16 == 0 { Ok(0) } else { Err(9) },
+        )
+    });
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 #[case(0, false)]
 #[case(20, false)]
 #[case(0, true)]

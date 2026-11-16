@@ -49,8 +49,18 @@ Compiler-origin C# PDB mapping is independent acceptance. Existing assembly-orig
 
 ### `Samples/Gb2048V2Tests.cs` — 2 methods, 3 cases
 
-- **REPLACE** `Sample_CompilesUnmodified_NoDiagnostics_ValidIr` (Debug, Release): preserve both Roslyn IL configurations of all unmodified sample files; replace managed IR verification with native ELF validation.
-- **PORT** `Sample_BootsToTitle_StartsGame_SlidesSpawnTiles`: title observation, Start transition, exactly two initial cells, bounded cell-count change after input and final count >2 and <=16. This is interactive scene/input/spawn acceptance, not exact board-state validation or win/lose/restart coverage.
+- **REPLACE, complete** `Sample_CompilesUnmodified_NoDiagnostics_ValidIr` (Debug, Release): preserve both Roslyn IL configurations of all unmodified sample files; replace managed IR verification with native verified compilation and ELF validation.
+- **REPLACE, complete** `Sample_BootsToTitle_StartsGame_SlidesSpawnTiles`: preserve title, Start, two initial tiles, movement/spawns and final population observations; strengthen the original count-only assertions with independent exact board/score/spawn/pixel checks. Win/lose/restart remains separate coverage.
+
+Both methods now have complete native replacements in
+`tests/sdk/game.rs::sdk_2048_scene_game_obeys_rules_and_draws_tiles`, discoverable
+under the `sdk` nextest binary. Four Debug/Release × DMG/CGB cases build the actual
+sources through the SDK and execute with real Koh boot ROMs. Independent Rust
+rules strengthen the original count-only gameplay observations to exact board,
+score and valid single-spawn transitions for eight moves; title/HUD glyphs,
+tile bytes, every board pixel and mode3 safety are checked too. The private IR
+and legacy ABI expectations are replaced, not ported. See the quantified
+[disposition record](test-disposition.md#2048-scene-game-replacements).
 
 ### `Samples/GbJrpgTests.cs` — 4 methods, 5 cases
 

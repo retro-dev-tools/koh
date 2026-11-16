@@ -354,6 +354,11 @@ pub enum Op {
         source: u32,
         count: u32,
     },
+    VBlankCopy {
+        destination: u32,
+        source: u32,
+        count: u32,
+    },
     CpuControl(CpuControl),
     OamDma(u32),
     StringLiteral(Vec<u16>),
@@ -520,6 +525,11 @@ impl Op {
                 destination: address,
                 source: value,
                 ..
+            }
+            | Self::VBlankCopy {
+                destination: address,
+                source: value,
+                ..
             } => [Some(address), Some(value)],
             Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
                 [Some(left), Some(right)]
@@ -549,6 +559,7 @@ impl Op {
         let count = match *self {
             Self::MemoryFill { count, .. }
             | Self::MemoryCopy { count, .. }
+            | Self::VBlankCopy { count, .. }
             | Self::HBlankStream { count, .. } => Some(count),
             _ => None,
         };
@@ -1128,6 +1139,11 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         destination,
                         source,
                         count,
+                    }
+                    | Op::VBlankCopy {
+                        destination,
+                        source,
+                        count,
                     } => {
                         if check(destination, position)? != Type::Native
                             || check(source, position)? != Type::Native
@@ -1138,7 +1154,11 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     .into(),
                             );
                         }
-                        None
+                        if matches!(instruction.op, Op::VBlankCopy { .. }) {
+                            Some(Type::I32)
+                        } else {
+                            None
+                        }
                     }
                     Op::ArenaAllocate(bytes) => {
                         if check(bytes, position)? != Type::I32 {

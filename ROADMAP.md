@@ -22,7 +22,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
   Full Linux Rust workspace/all-features passes924/924, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
-  Forty-eight legacy methods have complete replacements;517 remain partial/
+  Fifty legacy methods have complete replacements;515 remain partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
   with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
   Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
@@ -45,8 +45,13 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   diagnostic assertions; both strengthened replacements pass in that selection.
   Do not call that original full run green. Reference-bearing structs and typed
   reference-cell indirection now pass347 selected regressions, including16 ROM
-  probes; ordinary2048v2 SDK compilation succeeds. Full scene-game acceptance
-  remains open. JRPG's next verified build blocker is its rectangular byte[,]
+  probes; ordinary2048v2 SDK compilation succeeds. Native2048v2 gameplay now
+  passes Debug/Release × DMG/CGB with eight-move rules, exact board pixels and
+  title/HUD checks. Bounded VBlank copy fixes DMG flushing at unchanged capture
+  budgets, with6160 phase/count/frame probes. The1086-case workspace run has
+  1084 passes and two LCD-off setup failures; both corrected tests pass2/2 with
+  unchanged compiler sources. Do not call that original command green.
+  JRPG's next verified build blocker is its rectangular byte[,]
   map; [requirements](docs/rust-compiler/rectangular-arrays.md) distinguish CLI
   semantics from legacy layout and readonly-array folding assumptions. Interface
   dispatch and the other whole-migration gates remain required.
