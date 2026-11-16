@@ -1,6 +1,7 @@
 # Source debugging migration
 
-Status: implementation in progress; no source-debugging acceptance claim.
+Status: source breakpoint and machine-state acceptance implemented; complete
+caller-stack unwinding and real sample debugging remain open.
 
 The native IR already carries method identity and original IL offsets on
 instructions and terminators. Emission already records instruction-boundary IL
@@ -167,9 +168,39 @@ The first timestamp probe incorrectly touched `bin`: the SDK recopies symbols
 from `obj`. The corrected probe touches the intermediate PDB, checks the copied
 timestamp and retains the ROM-rebuild assertion. This is not a relaxed assertion.
 
-Actual debugger source breakpoints, disassembly/source display and ABI-aware
-call-stack inspection still require execution evidence. Emitting KDBG and
-checking its header do not close those acceptance gates.
+The checkpoint above did not establish actual debugger execution. The Rust
+`driver::symbols::debugger_stops_on_native_csharp_source_and_inspects_machine_state`
+cases now build real Debug/Release DLL/PDBs, round-trip canonical ELF and link
+ROM/KDBG, then drive the existing C# DebugSession/DAP through a thin process host.
+The ROM boots through the existing boot ROM, stops at a physical Program.cs line,
+and reports that exact top-frame source line, PC/SP and readable function symbols.
+Disassembly bytes are compared with the actual linked ROM. The same session then
+continues to a function breakpoint at `__koh_exit`, with return42, no fault and
+restored D000 SP checked through debugger register responses. No production
+emulator/debugger code is replaced by the fixture.
+
+This proves top-frame/source and machine-state inspection, not caller unwinding.
+The existing StackTraceHandler scans arbitrary stack words up to FFFE; native
+frames include spilled values and banked return cookies, with startup SP D000.
+Those heuristic assumptions are not a compiler ABI requirement. Reliable caller
+frames still need independently validated compiler/debugger integration; the
+milestone remains open, including source debugging of a real game sample.
+
+`driver::symbols::genuinely_symbol_free_roslyn_assembly_compiles_and_executes`
+rebuilds the root assembly with DebugType=None and DebugSymbols=false, independently
+checks PE debug records for absent CodeView/embedded PDB/checksum, compiles without
+symbols and executes42 in both configurations. Its real Koh.GameBoy DLL is copied
+into an isolated file reference before rebuilding, with bytes preserved and no
+sidecar; the test cannot rebuild shared runtime outputs with symbols disabled.
+This replaces `Gb2048KdbgTests.Frontend_DoesNotThrow_WhenAssemblyHasNoPdb`; the
+sample-specific KDBG resolution method remains partially covered.
+
+Final focused selection:10/10 passes in69.777s, exit0
+(`/tmp/koh-debug-symbols-reviewed.log`);243 unrelated driver cases were explicitly
+unselected. Initial fixture compilation failures (delegate conversion and an
+invalid StopReason member) were fixed. Review caught the shared reference rebuild
+described above; the final run uses the isolated reference and same-session resume
+assertions. No tests were ignored or weakened to obtain this result.
 
 The broader selected regression completes254/254 in416.277s, exit0
 (`/tmp/koh-pdb-mapping-regression.log`), with253 intentionally unselected cases

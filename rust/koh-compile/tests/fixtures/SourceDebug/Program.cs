@@ -2,6 +2,14 @@ public static class Program
 {
     private static int Value;
 
+    public static int Inspect() => Probe(Main());
+
+    private static int Probe(int value)
+    {
+        Value = value + 0;
+        return Value;
+    }
+
     public static int Main()
     {
 #line 100 "mapped source.cs"

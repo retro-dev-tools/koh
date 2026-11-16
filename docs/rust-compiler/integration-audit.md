@@ -43,7 +43,7 @@ Independent justification: public HAL register behavior and Game Boy mode differ
 ### `Samples/Gb2048KdbgTests.cs` — 2 methods, 2 cases
 
 - **REPLACE** `Kdbg_ResolvesSymbolAndSourceLocation_ForCilFrontendBuild`: real sample + portable PDB → compiler → ELF/linker → `.kdbg` → `DebugInfoLoader`. Currently only requires some symbol with some source location at the same PC. Preserve symbol/source coexistence, strengthen to a known method and expected original file/line; do not copy old addresses or require the old optimization pipeline.
-- **PORT** `Frontend_DoesNotThrow_WhenAssemblyHasNoPdb`: a genuinely PDB-free assembly still compiles without error. Replace the weak managed `module.Functions.Any()` check with executable native output; missing optional debug data must not reject otherwise valid input.
+- **PORT, complete** `Frontend_DoesNotThrow_WhenAssemblyHasNoPdb`: `driver::symbols::genuinely_symbol_free_roslyn_assembly_compiles_and_executes` rebuilds a genuine symbol-free root PE in Debug/Release, checks absent PE CodeView/PDB/checksum records and missing sidecars, then runs native ROM output42 with restored SP and intact guards. The copied real runtime DLL is unchanged; no shared reference project is rebuilt. ECMA metadata optionality and observable execution independently justify this public build contract. Both cases are discoverable by cargo-nextest.
 
 Compiler-origin C# PDB mapping is independent acceptance. Existing assembly-origin DAP tests below do not cover it.
 

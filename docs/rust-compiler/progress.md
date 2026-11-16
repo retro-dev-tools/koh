@@ -8,7 +8,20 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current source-mapping increment: validated PDB inputs now reach surviving IL
+Current debugger acceptance increment: Rust tests drive the existing C# DAP on
+native Debug/Release ROMs through real source breakpoints, exact top-frame source,
+registers, readable symbols and ROM-matching disassembly. The same debug session
+continues to `__koh_exit`, returns42 without a fault and restores SP D000. Genuine
+symbol-free root PE files compile and execute in both configurations, closing
+`Gb2048KdbgTests.Frontend_DoesNotThrow_WhenAssemblyHasNoPdb`. Final focused
+PDB/CLI/debugger regression passes10/10 in69.777s, exit0, with243 intentionally
+unselected driver cases; this is not a workspace or cross-platform result.
+Read-only review caught shared reference rebuilds in the no-PDB test; the corrected
+test rebuilds only the temporary root project against an unchanged DLL copy.
+Caller-stack unwinding and real game source-debugger acceptance remain open.
+Ledger:69/565 complete,496 partial/outstanding, zero physically retired.
+
+Previous source-mapping increment: validated PDB inputs now reach surviving IL
 origins, emitted byte ranges, canonical ELF and linker KDBG metadata. Native CLI
 adjacent/explicit discovery and disabling are integrated into the SDK, with
 PDB-aware incremental inputs and presence/path stamps. Readable method aliases
@@ -20,9 +33,9 @@ cases. SDK Debug/Release passes2/2 in125.502s, exit0, including real project
 reference maps, PDB timestamp copying/invalidation and debug toggling. Initial
 MSBuild item-expression and output-PDB timestamp-probe failures are recorded in
 the [source-debugging evidence](source-debugging.md). No assertions were relaxed.
-Read-only review found no confirmed implementation defect. Actual debugger
-breakpoints/disassembly/stack acceptance and a genuinely symbol-free assembly
-case remain open; no legacy debug method is claimed closed. Ledger68/565 remains.
+Read-only review found no confirmed implementation defect. At that checkpoint,
+actual debugger acceptance and a genuinely symbol-free assembly case remained
+open; no legacy debug method was claimed closed. Ledger then remained68/565.
 
 Remaining work is tracked as four acceptance milestones: source debugging;
 compiler/runtime/hardware and games; all test dispositions and legacy removal;

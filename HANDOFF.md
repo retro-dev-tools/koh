@@ -568,3 +568,41 @@ withoutcheckingitcomplete. Continueactualdebugger/KDBGloader/breakpoint/stack
 inspection. Existingmethoddisplaynamesomitnestedparents; module/tokenaliases
 areunique butqualifiednamesmaybeimprovedduringdebuggerwork. Existingcall-stack
 walkerheuristicandbankbytearenotABIorhardwarespecs; donotadaptABItoimitatebugs.
+
+
+## CI simplification checkpoint
+
+User requested fewer CI steps on every commit. Commit 180eb3356136376b23bca45de30d7691ef73bbe0 is pushed to draft PR55. Ordinary code PR pushes now start only two Linux jobs: full Rust workspace/all-features nextest plus rustdoc, and Koh.Fast .NET tests. Dependency/build caches and superseded-run cancellation enabled. Full validation retains platform matrix, renderer, AOT, full .NET suite, reference/sample/benchmark checks, running on master, non-draft open/reopen/ready or manual dispatch once workflow reaches master. Tag releases unchanged. Seven protected check names/matrices/steps and strict protection verified unchanged by primary API and structural comparison. Manual default-branch limitation documented in docs/ci-validation.md.
+
+Actionlint1.7.11 exits0 with empty completed log; git diff --check passes. Hosted run43886672981 confirms exactly Rust checks and .NET fast tests jobs on current head, both running; no hosted success claim. Prior7c04 Rust run43883525888 remains running; prior managed CI43883526018 failed. PR body updated with CI policy, four migration milestones unchanged. Source debugging remains next migration task; full migration incomplete. No concurrent local builds. Working tree clean after CI commit; main battle.png hash preserved.
+
+## Source debugger acceptance review unit
+
+Owned dirty increment: tests/driver/symbols.rs plus SourceDebug fixture, new
+DebuggerHost fixture, serde_json dev dependency/lock, source-debug docs/audit.
+Rust drives existing DebugSession/DAP using Roslyn Debug/Release DLL/PDB,
+canonical ELF, Rust linker ROM/KDBG, source breakpoint, register/source frame,
+function symbols and ROM-matching disassembly. No production debugger rewrite.
+Genuinely no-PDB PE build/execute tested separately. Parent test process94389
+running selected10driverPDB/symbol cases in /tmp/koh-header-target, no otherbuild.
+Review read-only; own no files; do not start another build. Inspect teststrength,
+shared project outputs, protocol correctness, unsupported callerunwindclaims.
+
+
+## Source debugger execution verified
+
+Final selected PDB/CLI/DAP suite10/10pass69.777s, exit0,243intentionally
+unselected drivercases /tmp/koh-debug-symbols-reviewed.log. Same-session native
+Debug/Release break+resume returns42 A00/SPD000, mapped physicalsource topframe,
+functionsymbols and ROM-byte disassembly checked. No-PDB rootPE truly noCodeView/
+embeddedPDB/checksum. Reviewfixed sharedRebuild: copiedproject now references
+unchanged tempDLL, neverrebuildsruntimewithsymbolsdisabled. Reviewrecheck no
+furtherconfirmedfindings. Alltarget/allfeature workspacecheck13.46spass(existing
+cubes build_host warning), separateworkspace rustdocpasses0cases;rustfmtpasses.
+Ledger69/565complete,496remaining,nonephysicallyretired. Callerstackunwind and
+realgame source-debug acceptance stillopen; do notcounttopframe ascallerproof.
+Sourcehashsnapshot /tmp/koh-debugger-sources.json beforecommit. Parenthandles
+94389,34286,19036,66006 nowterminal. No live localbuild. PR55stilldraft.
+Next commit thisverifiedincrement andpush, updatePRmilestoneprogress without
+checkingmilestone1complete. Investigate nativeABI-awarecallerunwind without
+reproducing StackTraceHandler's arbitraryword/FFFE/bankbyte assumptions.

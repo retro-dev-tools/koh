@@ -16,3 +16,4 @@ koh-link = { path = "../koh-link" }
 rstest.workspace = true
 tempfile = "3"
 png = "=0.18.1"
+serde_json = "1"
