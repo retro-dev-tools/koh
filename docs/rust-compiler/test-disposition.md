@@ -31,13 +31,23 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: 114 legacy methods; zero physically retired.**
+**Native behavioral replacements: 137 legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 451 methods still have
+The remaining 428 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Software runtime replacements
+
+All3 CilKohRuntimeTests and20 SoftFloatDifferentialTests methods are complete:
+22PORT/1REPLACE. Four native cases execute24 banked AddF32 ROMs with six independent
+finite IEEE vectors, full results and actual MMIO. Eight Rust-driven managed
+library groups preserve all85 original rows and145 assertions. The C# host prints
+raw results only; no assertions or compiler algorithms remain there. This does
+not establish float/double CIL lowering or runtime-key dispatch. See the
+[method/group matrix and domain distinctions](softfloat-bits-tests.md).
 
 ## Recursion replacement status
 

@@ -8,12 +8,27 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current accumulator optimization fixes exact Sum(500)=66 in Debug/Release ×
+Current software-runtime test migration closes23 methods (3CilKohRuntimeTests,
+20SoftFloatDifferentialTests):24 actual banked AddF32 ROMs plus145 independent
+managed-library numeric checks covering every original85 parameter row. The
+12 Rust cases pass12/12 in53.059s, exit0 (/tmp/koh-softfloat-first.log). Review
+confirms no lost inputs/predicates; no production code/API/emulator changes.
+Ledger137/565 complete,428 partial/outstanding, zero physically retired. Float/
+double CIL lowering and runtime-key dispatch remain unfinished. See the
+[complete dispositions and numeric-domain rationale](softfloat-bits-tests.md).
+
+The duplicate local15d0cff full run was intentionally interrupted after555 passes
+(one SIGINT,817 not run, exit100), while hosted43968285185 for the same head was
+verified actively running Rust tests with .NET fast tests successful. It is not
+reported as a full pass or a code failure. Hosted full-suite results remain
+pending; the23-method test increment was not present in that baseline snapshot.
+
+Previous accumulator optimization fixes exact Sum(500)=66 in Debug/Release ×
 DMG/CGB without changing the ABI or consuming heap. Eligibility excludes memory,
 addresses, other/multiple calls, division and fault terminators. Signed8/U16/I32/
 I64 fixtures and a signed-widening exclusion independently execute; first expanded
 selection passes22/22 in34.306s, exit0 (/tmp/koh-accumulator-widths.log).
-All6 CilRecursionTests methods now have complete ports: ledger114/565 complete,
+All6 CilRecursionTests methods now have complete ports: ledger then114/565 complete,
 451 partial/outstanding, zero physically retired. General recursion still has
 checked capacity limits. See [proof and design](accumulator-recursion.md) and
 [per-method matrix](recursion-tests.md). Full migration remains incomplete.

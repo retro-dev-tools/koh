@@ -1213,3 +1213,38 @@ cargo nextest run --workspace --all-features --locked -j1 --target-dir /tmp/koh-
 /tmp/koh-accumulator-workspace.log. DO NOTstartanotherbuildinthatdirectory; poll
 samehandleandreadfinishedlog. No fullsuitepassclaimpendingactualterminalresult.
 Readylogicalcommit/pushcurrentunit, updatePR55/vault; preservefullscopeactive.
+Pushed15d0cff; fullworkspace10031stilllive at1373cases, do notstartsameoutputbuild.
+Nextunitpreparingtest-onlySoftFloatordinaryreferencedcodebaseline: all3
+CilKohRuntimeTests methods (6assertsites5expandedexecutions11expandedassertions).
+UseactualAddF32body+6finiteIEEEvectors independentlycomputedfromRustf32; no claim
+float/doubleCILsupported orKohRuntime dispatchindeximplemented. Parentownsallfiles/
+builds. Newtestsnotpartofalreadycompiled15d0cff fullrun; validateafteritfinishes.
+Extendedsameunitwith20SoftFloatDifferentialTests managedlibrary methods:85rows,
+30sites145expandedassertions. Newtest-onlySoftFloatHostreflectspublicinteger/
+boolmethods andprintsrawresults; eightRustgroupsindependentf32/f64oracles. No
+C#assertions/compileralgorithms/framework. Preserveallinputs6predicatecomparisons
+andsaturationhelperchecks (notuncheckedCILoutofrangecontract). Expectednewtotal
+closure23methods ->137/565428remainingONLYAFTERpassed. CurrentlyUNEXECUTED,
+ledger114unchanged. Dirtynewfiles docssoftfloat-bits-tests.md, driver/softfloat_bits.rs,
+driver/softfloat_host.rs, fixturesSoftFloatBits+SoftFloatHost, driver.rs modulehooks.
+Needformat, run12newcases, fixrootfailures, reviewer/auditclosure/commit/pushPR55.
+Do notbuildsharedtargetuntil10031terminal. Current15d0cff fullsuite snapshot
+excludesnewtests; reporthead/evidenceaccordingly. NativefloatCIL+runtimekeydispatch
+stillnotimplemented; no scopeclaimbeyondordinaryintegerlibrary/manageddifferential.
+Full10031nowTERMINAL: deliberatelySIGINTrecordedPID1585669 afterprimaryGitHub
+CI43968285185same15d0cffconfirmedRunRusttests live (.NETfastsuccess). Avoidduplicate
+fullrunblockingfocuseddevelopment; keephostedbaselinealive, holdnextpushuntilits
+completion. LocalWORKSPACE_EXIT100:555pass1SIGINT817notrun /tmp/koh-accumulator-workspace.log;
+notafullpassandnotareproduciblecodefailure. Safe/sharedoutputnowfreeforfocusednew
+runtime12cases. Mustfixallrealtestfailures andrecordhostedheadscope. No restart
+becauseoftimeout; intentionaldeduplicationwithverifiedliveCIcoverage.
+Softfloat91455terminalEXIT0:12/12pass53.059s /tmp/koh-softfloat-first.log.
+24nativeAddF32ROMs6finitevectors plus8managedhostgroupsall85rows145assertions.
+Read-onlyreviewbackend_audit no lostinputs/predicates/signedbits; scopeCLR-vs-ROM
+correct. All23methodscomplete22PORT1REPLACE; ledger137/565428remainingzero retired.
+62090terminal workspacecheckEXIT0 16.78s existingcubesunusedbuild_hostwarning;
+workspacerustdocEXIT0 zerocases4crates. Rustfmt/CSharpierEXIT0 (2C#files).
+Currentunitdocs/frontendmatrix/roadmapupdated. ReadylogicalLOCALcommit; HOLDPUSH
+untilhosted15d0cff43968285185fullbaselinefinishes toavoidcancelinganotherfullrun.
+No productionchanges. NativefloatCIL/runtime-keyindex stillunfinished; don'tclaim
+allsoftwarefloatoperationsrunontarget (onlyAddF32native;20methodsmanagedasoriginal).

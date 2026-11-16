@@ -19,6 +19,10 @@ mod pdb;
 mod rectangular;
 #[path = "driver/recursion.rs"]
 mod recursion;
+#[path = "driver/softfloat_bits.rs"]
+mod softfloat_bits;
+#[path = "driver/softfloat_host.rs"]
+mod softfloat_host;
 #[path = "driver/struct_returns.rs"]
 mod struct_returns;
 mod support;

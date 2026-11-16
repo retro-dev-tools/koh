@@ -193,13 +193,13 @@ Generated yield state machines and independent foreach consumers retain their ow
 
 ### CilKohRuntimeTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilKohRuntimeTests.cs`. Future Rust test group: `cil_koh_runtime`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilKohRuntimeTests.cs`. Native group: `driver::softfloat_bits`; all three complete. See [matrix and independent oracles](softfloat-bits-tests.md).
 
-Referenced SoftFloat code must be discoverable, lower transitively and produce correct AddF32 bits. Runtime keys are an extension contract; an old module function-name assertion is not.
+Referenced SoftFloat code must be discoverable, lower transitively and produce correct AddF32 bits. Actual referenced-body execution replaces the old IR display-name assertion. This does not establish float-CIL runtime-key dispatch support.
 
-- **REPLACE** `SoftFloatAddF32_LowersCleanlyAsOrdinaryReferencedCode` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `SoftFloatAddF32_ComputesTheCorrectIeeeBits`.
-- **PORT** `SoftFloatAddF32_DebugAndReleaseProduceIdenticalObservableState`.
+- **REPLACE, complete** `SoftFloatAddF32_LowersCleanlyAsOrdinaryReferencedCode` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
+- **PORT, complete** `SoftFloatAddF32_ComputesTheCorrectIeeeBits`.
+- **PORT, complete** `SoftFloatAddF32_DebugAndReleaseProduceIdenticalObservableState`.
 
 ### CilLinqTests.cs
 
@@ -508,30 +508,30 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilWideArithmeticTests.cs`.
 
 ### SoftFloatDifferentialTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/SoftFloatDifferentialTests.cs`. Future Rust test group: `cil_soft_float_differential`.
+Source: `tests/Compiler/Koh.Compiler.Tests/SoftFloatDifferentialTests.cs`. Native group: `driver::softfloat_host`; all20 complete. All85 rows and145 expanded assertions are retained in eight Rust groups; see [matrix](softfloat-bits-tests.md).
 
 Managed runtime arithmetic/comparisons/conversions must match independent host or explicit target conversion vectors in their declared numeric domain. These are runtime algorithm tests, not evidence of Rust compiler or emitted-ROM coverage.
 
-- **PORT** `AddF32_MatchesHost`.
-- **PORT** `SubF32_MatchesHost`.
-- **PORT** `MulF32_MatchesHost`.
-- **PORT** `DivF32_MatchesHost`.
-- **PORT** `NegF32_MatchesHost`.
-- **PORT** `F32Comparisons_MatchHost`.
-- **PORT** `ToI32_MatchesHost`.
-- **PORT** `ToU32_MatchesHost`.
-- **PORT** `FromI32_MatchesHost`.
-- **PORT** `FromU32_MatchesHost`.
-- **PORT** `AddF64_MatchesHost`.
-- **PORT** `SubF64_MatchesHost`.
-- **PORT** `MulF64_MatchesHost`.
-- **PORT** `DivF64_MatchesHost`.
-- **PORT** `F64Comparisons_MatchHost`.
-- **PORT** `ToI64_MatchesHost`.
-- **PORT** `ToU64_MatchesHost`.
-- **PORT** `FromI64_MatchesHost`.
-- **PORT** `ToF64_MatchesHost`.
-- **PORT** `ToF32_MatchesHost`.
+- **PORT, complete** `AddF32_MatchesHost`.
+- **PORT, complete** `SubF32_MatchesHost`.
+- **PORT, complete** `MulF32_MatchesHost`.
+- **PORT, complete** `DivF32_MatchesHost`.
+- **PORT, complete** `NegF32_MatchesHost`.
+- **PORT, complete** `F32Comparisons_MatchHost`.
+- **PORT, complete** `ToI32_MatchesHost`.
+- **PORT, complete** `ToU32_MatchesHost`.
+- **PORT, complete** `FromI32_MatchesHost`.
+- **PORT, complete** `FromU32_MatchesHost`.
+- **PORT, complete** `AddF64_MatchesHost`.
+- **PORT, complete** `SubF64_MatchesHost`.
+- **PORT, complete** `MulF64_MatchesHost`.
+- **PORT, complete** `DivF64_MatchesHost`.
+- **PORT, complete** `F64Comparisons_MatchHost`.
+- **PORT, complete** `ToI64_MatchesHost`.
+- **PORT, complete** `ToU64_MatchesHost`.
+- **PORT, complete** `FromI64_MatchesHost`.
+- **PORT, complete** `ToF64_MatchesHost`.
+- **PORT, complete** `ToF32_MatchesHost`.
 
 ## Legacy mechanisms versus minimum replacement features
 
