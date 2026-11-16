@@ -49,3 +49,20 @@ observable unused results. `tests/sm83.rs` covers count truncation, empty LCD-of
 execution and explicit nonempty LCD-off faults.
 
 These are emulator and encoding checks, not physical hardware measurements.
+
+## Initialization evidence
+
+`LCDC=0x91` is documented at cartridge entry (`PC=$0100`) after the boot ROM,
+not established as a cold-reset default by that table. See
+[Pan Docs' hardware-register handoff values](https://github.com/gbdev/pandocs/blob/master/src/Power_Up_Sequence.md#hardware-registers).
+Koh's current PPU constructor uses that value, while CPU registers/PC start at
+zero and `LoadBootRom` only maps the image. This mixed initialization model is
+an emulator follow-up, not a hardware specification or compiler invariant.
+
+The compiler test establishes its own LCD-off precondition. If the LCD is enabled,
+it leaves any current VBlank, waits for the next VBlank and then disables it,
+following the [hardware transition restriction](https://github.com/gbdev/pandocs/blob/master/src/LCDC.md#lcdc7--lcd-enable).
+It does not assert a constructor value or weaken the nonempty fault9 expectation.
+This corrects the earlier test setup, which wrote LCDC without a timing gate.
+The emulator's complete power-on/post-boot state model remains unverified here;
+existing emulator tests and source comments are evidence, not acceptance oracles.

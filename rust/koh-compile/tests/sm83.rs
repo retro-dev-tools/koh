@@ -1145,7 +1145,128 @@ fn vblank_copy_zero_count_and_lcd_off_are_explicit(host: &Host, #[case] locals: 
             il_offset: 1,
         },
     ];
-    f.blocks[0].terminator.kind = Control::Return(Some(3));
+    let off = f.blocks[0].instructions.split_off(2);
+    let instruction = |id, ty, op| Instruction {
+        result: Some((id, ty)),
+        op,
+        il_offset: 0,
+    };
+    f.blocks[0].instructions.extend([
+        instruction(6, Type::Native, Op::Constant(0xff44)),
+        instruction(7, Type::I32, Op::Constant(144)),
+        instruction(8, Type::I32, Op::Constant(128)),
+        instruction(
+            9,
+            Type::I32,
+            Op::LoadMemory {
+                address: 4,
+                bits: 8,
+                signed: false,
+            },
+        ),
+        instruction(
+            10,
+            Type::I32,
+            Op::Binary {
+                op: Binary::And,
+                left: 9,
+                right: 8,
+            },
+        ),
+    ]);
+    f.blocks[0].terminator.kind = Control::Branch {
+        condition: 10,
+        yes: Edge {
+            block: 3,
+            arguments: vec![],
+        },
+        no: Edge {
+            block: 2,
+            arguments: vec![],
+        },
+    };
+    f.blocks.push(Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(
+                11,
+                Type::I32,
+                Op::LoadMemory {
+                    address: 6,
+                    bits: 8,
+                    signed: false,
+                },
+            ),
+            instruction(
+                12,
+                Type::I32,
+                Op::Compare {
+                    op: Comparison::LessUnsigned,
+                    left: 11,
+                    right: 7,
+                },
+            ),
+        ],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Branch {
+                condition: 12,
+                yes: Edge {
+                    block: 1,
+                    arguments: vec![],
+                },
+                no: Edge {
+                    block: 2,
+                    arguments: vec![],
+                },
+            },
+        },
+    });
+    f.blocks.push(Block {
+        parameters: vec![],
+        instructions: off,
+        terminator: Terminator {
+            il_offset: 2,
+            kind: Control::Return(Some(3)),
+        },
+    });
+    f.blocks.push(Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(
+                13,
+                Type::I32,
+                Op::LoadMemory {
+                    address: 6,
+                    bits: 8,
+                    signed: false,
+                },
+            ),
+            instruction(
+                14,
+                Type::I32,
+                Op::Compare {
+                    op: Comparison::LessUnsigned,
+                    left: 13,
+                    right: 7,
+                },
+            ),
+        ],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Branch {
+                condition: 14,
+                yes: Edge {
+                    block: 1,
+                    arguments: vec![],
+                },
+                no: Edge {
+                    block: 3,
+                    arguments: vec![],
+                },
+            },
+        },
+    });
     let cases = [0u64, 0x10000, 1, 0x10001].map(|count| {
         (
             f.clone(),
