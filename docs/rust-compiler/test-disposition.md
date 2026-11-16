@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: 112 legacy methods; zero physically retired.**
+**Native behavioral replacements: 114 legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 453 methods still have
+The remaining 451 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -41,12 +41,12 @@ merely because they are documented.
 
 ## Recursion replacement status
 
-Four of six `CilRecursionTests` methods are PORT complete: real Roslyn Fib(10)=55
-and mutual parity(10/7) independently execute across Debug/Release × DMG/CGB.
-Eight ROMs check full returns, actual MMIO and frame/bank/heap guards. The exact
-Sum(500) success reproducer reaches stack overflow; its two contracts remain
-outstanding, without a smaller-depth or fault substitution. See the
-[per-method matrix and measured frame-capacity evidence](recursion-tests.md).
+All six `CilRecursionTests` methods are PORT complete: real Roslyn Fib(10)=55,
+mutual parity(10/7) and exact Sum(500)=66 independently execute across
+Debug/Release × DMG/CGB. Additional signed/wide entries strengthen the group to32
+ROMs checking full returns, MMIO and frame/bank/heap guards. A restricted pure
+modular accumulator optimization corrects the depth failure, without a smaller
+depth or fault substitution. See the [per-method matrix and proof](recursion-tests.md).
 
 ## Basic CIL replacement
 

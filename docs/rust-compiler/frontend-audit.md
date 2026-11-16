@@ -290,25 +290,25 @@ DMG shade registers, CGB palette RAM, unsupported DMG slots and RGB555 channel p
 
 ### CilRecursionTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilRecursionTests.cs`. Native group: `driver::recursion`; four methods complete, two depth requirements outstanding. See the [assertion audit and capacity evidence](recursion-tests.md).
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilRecursionTests.cs`. Native group: `driver::recursion`; all six methods complete. See the [assertion audit and corrected capacity failure](recursion-tests.md).
 
 Direct/mutual/deep recursive calls must preserve caller locals, arguments, returns and bounded stack behavior. Fibonacci/parity results are independent oracles; exact stack placement is an ABI choice.
 
 Real Roslyn Fib(10)=55 and IsEven(10)/IsEven(7) now execute in Debug and Release,
 with full I32 results, actual MMIO, banked helpers and untouched memory checks.
 The legacy Sum(500) case expects66 after byte truncation; its exact reproducer
-currently reaches native stack overflow (49-byte Debug frame versus3,840-byte stack).
+now succeeds through a restricted pure modular accumulator transformation.
 A smaller successful depth or an overflow trap alone does not replace that
 legacy success assertion. Any intentional capacity change needs a visible
 hardware-cost rationale and bounded success/fault evidence, not silent omission.
-Only the two depth methods remain outstanding in the completed-method ledger.
+All six methods are complete. Effectful/general recursion remains bounded by the ABI; arbitrary depth500 is not promised.
 
 - **PORT, complete** `DirectRecursion_Fibonacci_ComputesExpectedValue`.
 - **PORT, complete** `DirectRecursion_Fibonacci_DebugAndReleaseProduceIdenticalObservableState`.
 - **PORT, complete** `MutualRecursion_IsEvenIsOdd_ComputesExpectedValues`.
 - **PORT, complete** `MutualRecursion_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `DeepRecursion_ExercisesRelocatedWramCallStack`.
-- **PORT** `DeepRecursion_DebugAndReleaseProduceIdenticalObservableState`.
+- **PORT, complete** `DeepRecursion_ExercisesRelocatedWramCallStack`.
+- **PORT, complete** `DeepRecursion_DebugAndReleaseProduceIdenticalObservableState`.
 
 ### CilReferenceTests.cs
 

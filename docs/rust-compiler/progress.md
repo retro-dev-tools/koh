@@ -8,13 +8,29 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current recursion audit closes four methods with native Fib(10)=55 and mutual
+Current accumulator optimization fixes exact Sum(500)=66 in Debug/Release ×
+DMG/CGB without changing the ABI or consuming heap. Eligibility excludes memory,
+addresses, other/multiple calls, division and fault terminators. Signed8/U16/I32/
+I64 fixtures and a signed-widening exclusion independently execute; first expanded
+selection passes22/22 in34.306s, exit0 (/tmp/koh-accumulator-widths.log).
+All6 CilRecursionTests methods now have complete ports: ledger114/565 complete,
+451 partial/outstanding, zero physically retired. General recursion still has
+checked capacity limits. See [proof and design](accumulator-recursion.md) and
+[per-method matrix](recursion-tests.md). Full migration remains incomplete.
+Final source/debugger/unwind/CLI-stack/backend selection passes14/14 in122.102s,
+exit0 (`/tmp/koh-accumulator-debug-stack-final.log`). Optimized Sum source ranges
+survive ELF/link/KDBG. The broader run's obsolete pure-sum overflow expectation
+is replaced by non-associative continuation depth10=5/depth10000 trap coverage;
+that interrupted614-case run is not claimed green. Rustfmt/CSharpier pass;
+full workspace/all-features verification is pending separately.
+
+Previous recursion audit closes four methods with native Fib(10)=55 and mutual
 parity(10/7) execution across Debug/Release × DMG/CGB. Full returns, actual MMIO,
 banked helpers and frame/heap/bank guards pass4/4 initially in22.987s, exit0
 (`/tmp/koh-recursion-bounded.log`). The exact Sum(500) reproducer fails with native
 stack overflow: Debug frame49 bytes exceeds3,840-byte stack capacity at that depth.
 Both depth-success contracts remain outstanding; no overflow test substitutes
-for success. Ledger now112/565 complete,453 partial/outstanding, zero physically
+for success. Ledger then112/565 complete,453 partial/outstanding, zero physically
 retired. See the [recursion matrix and root-cause evidence](recursion-tests.md).
 Final recursion/bank-restoration selection passes8/8 in44.783s, exit0
 (`/tmp/koh-recursion-final.log`); Rustfmt/CSharpier pass. Production code unchanged.

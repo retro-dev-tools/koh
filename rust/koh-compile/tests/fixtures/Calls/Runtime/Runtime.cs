@@ -2,6 +2,8 @@ public static class Runtime
 {
     public static int Sum(int n) => n <= 0 ? 0 : n + Sum(n - 1);
 
+    public static int StackDepth(int n) => n <= 0 ? 0 : n - StackDepth(n - 1);
+
     public static int Answer() => 21;
 
     public static long Combine(int a, long b, int c) => b + a + c;

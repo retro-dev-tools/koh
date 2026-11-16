@@ -214,3 +214,7 @@ Workspace acceptance continues to use `cargo nextest run --workspace --all-featu
 and separate `cargo test --doc --workspace --all-features --locked`.
 
 Instruction encoding/flag reference: [gbdev opcode data](https://github.com/gbdev/gb-opcodes/blob/master/Opcodes.json).
+
+Pure scalar modular addition recursion may become an [accumulator loop](accumulator-recursion.md).
+Its source identity/offsets remain, but eliminated calls have no physical stack
+frames. Other recursion retains this checked ABI and its capacity limits.

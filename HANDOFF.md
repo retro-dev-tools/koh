@@ -1178,3 +1178,38 @@ bank-restorationregressions /tmp/koh-recursion-final.log. Rustfmt/CSharpierEXIT0
 Ledger112/565453outstandingzero physicallyretired. No productionchanges. Next
 rootworkmustreduce retainedrecursive state withsoundalgorithm/storagestrategy;
 do notmarkSum500doneorconvertitsrequiredsuccesstoexpectedoverflow. No ignoredtest.
+Depthfix starts03f85d0: inspect optimizedSum Debug/ReleaseIR, then select bounded
+state reduction with semanticproof. Existing failing500 evidence retained. Parent
+owns edits/builds; no newagents. NeedIRnegative/alias/fault tests beforeproduction.
+Accumulatorpass implementedinternaloptimize/recursion.rs: onepureinteger selfcall,
+normalizedmodularAdd continuation ->localaccumulator+loop. Rejectmemory/addresses/
+other/multiplecalls/division/faults; validatecandidateIRbeforemutation. Newentry
+initializesoldlocals forIRentryrule; oldentryreinitializeseachiteration. Review
+caughtmixedwidthconstanttype-erasure; fixedbyoriginalty==returntyrestriction,
+redIRtestplusactualSM83F0=0/F1=-1/F3=-3. Existingreviewerbackend_audit read-only
+followup nootherconfirmedblockers. No backend/ABI/emulatorchanges.
+Red69245EXIT100bothD/R500. RedIR79363EXIT1006positivefail7exclusionspass.
+Initialnative30156stillfailed: verifiercandidateentryinitializationrejected;
+reviewred91670EXIT100bothentryinitandconstantcases. Corrected18527EXIT0
+19/19pass24.298s inclactual500all4configs. Expanded46523EXIT0 22/22pass34.306s
+signed8/U16/I32/I64halves and17IRcases +wideningnative. Added6handSM83cases30ROMs
+original/optimized0/17 vsindependentmodularoracle +optimized500, allpassinbroadrun.
+Broad38065EXIT100:597pass1fail16notrun (614selected), oldnativeCallsDeeppure
+Sum10000optimizedloopnolongertraps andbudgettimesout. Replacedguardfixturewith
+nonassociativeF(n)=n-F(n-1):depth10=5anddepth10000stillrequiredstacktrap; bothCLI/
+backendretainassertions. Notweakeningrequiredsum500success. PDBoptimizedSum
+sectionlines+linkedKDBGassertionsadded. First80061compileEXIT101banki32/u32test
+comparisonfixedcheckedconversion. Current74048live /tmp/koh-accumulator-debug-stack-final.log
+14cases includesCLI/backendstackguard,32nativewidthROMs,existingPDB/debugger/unwind.
+Pendingterminalchecks/fullsuite/rustdoc/fmt, docsfinalresults/commit/push/PR/vault.
+Ledger114/565451remaining zero retired; do notclaimfullmigrationdone.
+Final74048terminalEXIT0 14/14pass122.102s /tmp/koh-accumulator-debug-stack-final.log:
+32width/depthROMsoptimizedSumPDB/ELF/link/KDBG, actualsourcebreakpoint/inspection,
+corruptstackrejection andcorrectedCLI/backendguard fixtures. Rustfmt/CSharpier
+checksEXIT0 (3C#fixtures). Reviewconstantfixconfirmed nootherblockers. Movedpass
+maps/maxID constructionaftereligibility toavoidoverheadonnonrecursivefunctions.
+WorkspaceallfeaturesrustdocEXIT0 zerodoctestsin4crates. Current10031live running
+cargo nextest run --workspace --all-features --locked -j1 --target-dir /tmp/koh-header-target,
+/tmp/koh-accumulator-workspace.log. DO NOTstartanotherbuildinthatdirectory; poll
+samehandleandreadfinishedlog. No fullsuitepassclaimpendingactualterminalresult.
+Readylogicalcommit/pushcurrentunit, updatePR55/vault; preservefullscopeactive.

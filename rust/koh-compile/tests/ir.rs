@@ -1,6 +1,8 @@
 use koh_compile::ir::*;
 use koh_compile::resolve::Definition;
 use rstest::rstest;
+#[path = "ir/recursion.rs"]
+mod accumulator_recursion;
 
 #[test]
 fn delegate_ref_results_cannot_hide_a_frame_escape() {

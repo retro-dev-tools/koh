@@ -1,5 +1,6 @@
 use crate::ir::*;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+mod recursion;
 
 fn forward_locals(function: &Function) -> BTreeMap<u32, u32> {
     let count = function.locals.len();
@@ -375,5 +376,6 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
             .retain(|i| !matches!(i.op, Op::StoreLocal { local, .. } if !read.contains(&local)));
     }
     remove_unused(function);
+    recursion::apply(function);
     verify(function)
 }

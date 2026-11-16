@@ -19,7 +19,9 @@ public static class Program
         return 9;
     }
 
-    public static int Deep() => Runtime.Sum(10000);
+    public static int Deep() => Runtime.StackDepth(10000);
+
+    public static int StackValue() => Runtime.StackDepth(10);
 
     public static int Generic() => Runtime.Identity(1);
 

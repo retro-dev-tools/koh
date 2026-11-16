@@ -4682,6 +4682,7 @@ fn cli_references_and_native_stack_traps_execute(host: &Host) {
     for (entry, reverse) in [
         ("Program::Main", false),
         ("Program::Mutual", false),
+        ("Program::StackValue", false),
         ("Program::Deep", false),
         ("Program::Main", true),
     ] {
@@ -4708,6 +4709,8 @@ fn cli_references_and_native_stack_traps_execute(host: &Host) {
         } else {
             let value = if entry == "Program::Mutual" {
                 "00 00000001 D000 OK"
+            } else if entry == "Program::StackValue" {
+                "00 00000005 D000 OK"
             } else {
                 "00 0000002A D000 OK"
             };

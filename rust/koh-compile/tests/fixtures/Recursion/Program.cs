@@ -31,6 +31,37 @@ public static class Program
         return (byte)(Sum(n - 1) + x);
     }
 
+    static sbyte SignedSum(int n)
+    {
+        if (n == 0)
+            return -7;
+        sbyte x = (sbyte)(n * 3);
+        return (sbyte)(SignedSum(n - 1) + x);
+    }
+
+    static ushort Sum16(int n)
+    {
+        if (n == 0)
+            return 60000;
+        ushort x = (ushort)n;
+        return (ushort)(Sum16(n - 1) + x);
+    }
+
+    static int Sum32(int n)
+    {
+        if (n == 0)
+            return 0x7ffffff0;
+        return Sum32(n - 1) + n;
+    }
+
+    static long Sum64(int n)
+    {
+        if (n == 0)
+            return 0x7ffffffffffffff0L;
+        long x = n;
+        return x + Sum64(n - 1);
+    }
+
     static void Prepare()
     {
         Hardware.SCY = 0;
@@ -63,5 +94,35 @@ public static class Program
         byte value = Sum(500);
         Hardware.SCX = value;
         return value;
+    }
+
+    public static int Signed()
+    {
+        Prepare();
+        return SignedSum(500);
+    }
+
+    public static int Word()
+    {
+        Prepare();
+        return Sum16(500);
+    }
+
+    public static int Integer()
+    {
+        Prepare();
+        return Sum32(500);
+    }
+
+    public static int WideLow()
+    {
+        Prepare();
+        return (int)Sum64(500);
+    }
+
+    public static int WideHigh()
+    {
+        Prepare();
+        return (int)(Sum64(500) >> 32);
     }
 }

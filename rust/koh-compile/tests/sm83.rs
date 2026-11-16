@@ -2,6 +2,8 @@ use koh_compile::{ir::*, resolve::Definition, sm83};
 use koh_objects::*;
 use rstest::fixture;
 use std::path::Path;
+#[path = "support/recursion.rs"]
+mod recursion_fixture;
 mod support;
 use support::{Host, dotnet};
 
@@ -9,6 +11,79 @@ use support::{Host, dotnet};
 #[once]
 fn host() -> Host {
     support::build_host()
+}
+
+#[rstest::rstest]
+fn recursive_signed_widening_constant_executes_without_type_erasure(host: &Host) {
+    use recursion_fixture::{instruction, sum};
+    let mut function = sum(Type::I64, 64, false);
+    function.blocks[2]
+        .instructions
+        .insert(4, instruction(11, Type::I32, Op::Constant(0xffff_ffff)));
+    function.blocks[2].instructions.insert(
+        5,
+        instruction(
+            12,
+            Type::I64,
+            Op::Convert {
+                value: 11,
+                bits: 64,
+                signed: true,
+            },
+        ),
+    );
+    function.blocks[2].instructions[6].op = Op::Binary {
+        op: Binary::Add,
+        left: 8,
+        right: 12,
+    };
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    run(
+        host,
+        &[
+            (function.clone(), vec![0, 0], Ok(0)),
+            (function.clone(), vec![1, 0], Ok(u64::MAX)),
+            (function, vec![3, 0], Ok(u64::MAX - 2)),
+        ],
+    );
+}
+
+#[rstest::rstest]
+#[case(Type::I32, 8, false, 200)]
+#[case(Type::I32, 8, true, 200)]
+#[case(Type::I32, 16, false, 40000)]
+#[case(Type::I32, 16, true, 65533)]
+#[case(Type::I32, 32, false, 0xffff_fffd)]
+#[case(Type::I64, 64, false, 0x8000_0000_0000_0001)]
+fn recursive_and_accumulator_roms_match_modular_arithmetic(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] bits: u8,
+    #[case] signed: bool,
+    #[case] term: u64,
+) {
+    let original = recursion_fixture::sum(ty, bits, signed);
+    let mut optimized = original.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mask = |bits| {
+        if bits == 64 {
+            u64::MAX
+        } else {
+            (1u64 << bits) - 1
+        }
+    };
+    let mut cases = Vec::new();
+    for n in [0u64, 17, 500] {
+        let mut expected = n.wrapping_mul(term) & mask(bits);
+        if signed && expected & (1u64 << (bits - 1)) != 0 {
+            expected |= mask(ty.bits() as u8) ^ mask(bits);
+        }
+        cases.push((optimized.clone(), vec![n, term], Ok(expected)));
+        if n < 500 {
+            cases.push((original.clone(), vec![n, term], Ok(expected)));
+        }
+    }
+    run(host, &cases);
 }
 
 #[rstest::rstest]
@@ -2249,6 +2324,7 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
         ("Mutual", Ok(1)),
         ("VoidCalls", Ok(9)),
         ("Generic", Ok(1)),
+        ("StackValue", Ok(5)),
         ("Deep", Err(1)),
     ] {
         let entry = Definition {

@@ -32,6 +32,11 @@ not compiler-owned layout. Startup/global/heap integration remains incomplete.
 
 ## Evidence and remaining work
 
+The accumulator increment replaces the pure-sum overflow fixture with the
+non-associative recurrence F(n)=n−F(n−1), checking depth10=5 and depth10000 stack
+failure in both CLI/backend paths. Pure Sum(500) now succeeds independently.
+The counts below describe the original increment, not the current total.
+
 Rust tests compile three real C# projects (Entry → Bridge → Runtime) in Debug and
 Release and check the exact transitive method set. Twelve new ROM scenarios cover
 result 42 from a recursive sum across references, mixed 32/64-bit arguments/results,
