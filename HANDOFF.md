@@ -1162,3 +1162,19 @@ reviewconfirms12methods22executions25sites47expandedassertions, noweakenedcontra
 Rustfmt/CSharpierchecksEXIT0 (2C#files). Matrixcil-basics.md complete10PORT2REPLACE;
 ledger108/565457remaining zero physicallyretired. No productioncompiler/emulator
 changes. Readylogicalcommit/push; fullgoalremainsactive.
+
+Nextunit recursion: audit all6CilRecursionTests, retainFib10=55, mutual10/7 and
+Sum500=66 inDebug/Release, actualMMIO and fullresults. No reduceddepthsubstitute.
+Parentownsallbuilds/edits; currentCI43963076937 live. Testfirstthenfixrootcause.
+Initial1623EXIT100, diagnostic88904EXIT100: Fib/MutualpassedthenDeep500 PC01BB
+(__koh_abort01BA). Diagnosis14478EXIT0 logkoh-recursion-banked-layout: Sumtoken
+06000004 Debugframe0031=49, calldelta0039=57, I32arg/return. 500frames>WRAM0
+3840beforecallstorage. No budgetincreasefix, reduceddepthorfaultsubstituteallowed.
+RetainProgram::Deepreproducer;2deepmethodsOUTSTANDING. 4Fib/MutualmethodsPORT
+complete;10assertsites6expandedexecutions17expandedassertions. New4rstestcases
+8ROMsindependentfullreturns/MMIO, bankedhelpersanduntouchedheap/bank/frameguards.
+32199EXIT0 4/4pass22.987s. Final7072EXIT0 8/8pass44.783s includes4existing
+bank-restorationregressions /tmp/koh-recursion-final.log. Rustfmt/CSharpierEXIT0.
+Ledger112/565453outstandingzero physicallyretired. No productionchanges. Next
+rootworkmustreduce retainedrecursive state withsoundalgorithm/storagestrategy;
+do notmarkSum500doneorconvertitsrequiredsuccesstoexpectedoverflow. No ignoredtest.

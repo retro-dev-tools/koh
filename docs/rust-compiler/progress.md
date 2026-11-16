@@ -8,14 +8,25 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current test closure completes all12 CilLoweringTests methods: ten PORT observable
+Current recursion audit closes four methods with native Fib(10)=55 and mutual
+parity(10/7) execution across Debug/Release × DMG/CGB. Full returns, actual MMIO,
+banked helpers and frame/heap/bank guards pass4/4 initially in22.987s, exit0
+(`/tmp/koh-recursion-bounded.log`). The exact Sum(500) reproducer fails with native
+stack overflow: Debug frame49 bytes exceeds3,840-byte stack capacity at that depth.
+Both depth-success contracts remain outstanding; no overflow test substitutes
+for success. Ledger now112/565 complete,453 partial/outstanding, zero physically
+retired. See the [recursion matrix and root-cause evidence](recursion-tests.md).
+Final recursion/bank-restoration selection passes8/8 in44.783s, exit0
+(`/tmp/koh-recursion-final.log`); Rustfmt/CSharpier pass. Production code unchanged.
+
+Previous test closure completes all12 CilLoweringTests methods: ten PORT observable
 contracts and two REPLACE private IR assumptions. Four rstest configurations run40
 ROMs with464 ordered packet bytes and160 actual MMIO bytes; hand-CIL tests check
 both typed stack-join outcomes. The selected lowering/host/struct-return regression
 passes53/53 in62.067s; final default-entry strengthening passes6/6 in27.642s, exit0
 (`/tmp/koh-cil-basics-entry-final.log`). Rustfmt and CSharpier checks pass. Production
 compiler/emulator code is unchanged; the test host adds register observations.
-Ledger now108/565 complete,457 partial/outstanding, zero physically retired.
+Ledger then108/565 complete,457 partial/outstanding, zero physically retired.
 See the [basic CIL per-method matrix](cil-basics.md).
 
 Previous test closure ports all five CilStructReturnTests methods to Rust-driven
