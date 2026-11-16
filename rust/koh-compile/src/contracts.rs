@@ -7,6 +7,7 @@ enum Kind {
     Intrinsic,
     Interrupt,
     Aligned,
+    Runtime,
 }
 
 pub(crate) enum Intrinsic {
@@ -153,6 +154,7 @@ fn kind(
         "KohIntrinsicAttribute" => Kind::Intrinsic,
         "InterruptAttribute" => Kind::Interrupt,
         "KohAlignedAttribute" => Kind::Aligned,
+        "KohRuntimeAttribute" => Kind::Runtime,
         _ => return Ok(None),
     };
     let owner = resolver.resolve_type(assembly, token)?;
@@ -172,7 +174,7 @@ fn kind(
             TypeSig::Primitive(clrmeta::ElementType::String),
             TypeSig::Primitive(clrmeta::ElementType::I4),
         ],
-        Kind::Interrupt => vec![TypeSig::Primitive(clrmeta::ElementType::String)],
+        Kind::Interrupt | Kind::Runtime => vec![TypeSig::Primitive(clrmeta::ElementType::String)],
         Kind::Aligned => vec![TypeSig::Primitive(clrmeta::ElementType::I4)],
     };
     if signature.params != expected {
@@ -200,6 +202,9 @@ pub(crate) fn assembly(resolver: &Resolver<'_>, assembly: usize) -> Result<(), S
             kind
         };
         match resolved {
+            Some(Kind::Runtime) => {
+                runtime_declaration(resolver, assembly, attribute)?;
+            }
             Some(Kind::Aligned) => {
                 if attribute.parent.table != Some(TableId::Field) {
                     return Err("KohAligned must target a static field".into());
@@ -252,6 +257,159 @@ pub(crate) fn assembly(resolver: &Resolver<'_>, assembly: usize) -> Result<(), S
         }
     }
     Ok(())
+}
+
+fn runtime_payload(bytes: &[u8]) -> Result<&str, String> {
+    let read = || -> Result<&str, clrmeta::error::Error> {
+        let mut reader = clrmeta::reader::Reader::new(bytes);
+        if reader.read_u16()? != 1 {
+            return Err(clrmeta::error::Error::ValidationError(
+                "invalid runtime attribute prolog".into(),
+            ));
+        }
+        let length = reader.read_compressed_uint()? as usize;
+        if length == 0 || length > 128 || reader.position() != 3 + usize::from(length >= 128) {
+            return Err(clrmeta::error::Error::ValidationError(
+                "invalid runtime key length".into(),
+            ));
+        }
+        let key = std::str::from_utf8(reader.read_bytes(length)?)
+            .map_err(|_| clrmeta::error::Error::InvalidString(2))?;
+        if !key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_'))
+            || reader.read_u16()? != 0
+            || !reader.is_empty()
+        {
+            return Err(clrmeta::error::Error::ValidationError(
+                "invalid runtime key or named arguments".into(),
+            ));
+        }
+        Ok(key)
+    };
+    read().map_err(|error| format!("Invalid KohRuntime payload: {error}"))
+}
+
+fn runtime_declaration(
+    resolver: &Resolver<'_>,
+    assembly: usize,
+    attribute: &CustomAttributeRow,
+) -> Result<(String, Definition), String> {
+    if attribute.parent.table != Some(TableId::MethodDef) {
+        return Err("KohRuntime must target a static method".into());
+    }
+    let metadata = resolver.assembly(assembly)?.metadata();
+    let method = row(&metadata.method_defs, attribute.parent.row)?;
+    let signature = crate::signature::method(
+        metadata
+            .blobs
+            .get(method.signature)
+            .map_err(|e| e.to_string())?,
+    )?;
+    let owner = metadata
+        .type_defs
+        .partition_point(|ty| ty.method_list <= attribute.parent.row) as u32;
+    if owner == 0 {
+        return Err("KohRuntime method has no declaring type".into());
+    }
+    if method.flags & 0x10 == 0
+        || method.flags & 0x400 != 0
+        || signature.calling_convention.0 != 0
+        || signature.sentinel.is_some()
+        || signature.generic_param_count != 0
+    {
+        return Err(
+            "KohRuntime requires a nongeneric static method with standard calling convention"
+                .into(),
+        );
+    }
+    resolver
+        .check_arity(
+            Definition {
+                assembly,
+                token: 0x02000000 | owner,
+            },
+            0,
+        )
+        .map_err(|error| format!("KohRuntime declaring type must be nongeneric: {error}"))?;
+    let definition = Definition {
+        assembly,
+        token: 0x06000000 | attribute.parent.row,
+    };
+    let key = runtime_payload(
+        metadata
+            .blobs
+            .get(attribute.value)
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|error| format!("Runtime method {definition:?}: {error}"))?;
+    Ok((key.to_owned(), definition))
+}
+
+fn discover_runtime(resolver: &Resolver<'_>) -> Result<(), String> {
+    if resolver.runtime_methods.borrow().is_some() {
+        return Ok(());
+    }
+    let mut methods = std::collections::BTreeMap::new();
+    for assembly in 0..resolver.assembly_count() {
+        let metadata = resolver.assembly(assembly)?.metadata();
+        let mut kinds = HashMap::new();
+        for attribute in &metadata.custom_attributes {
+            let constructor = (attribute.attr_type.table, attribute.attr_type.row);
+            let resolved = if let Some(&kind) = kinds.get(&constructor) {
+                kind
+            } else {
+                let resolved = kind(resolver, assembly, attribute)?;
+                kinds.insert(constructor, resolved);
+                resolved
+            };
+            if resolved != Some(Kind::Runtime) {
+                continue;
+            }
+            if methods.len() >= 4096 {
+                return Err("Runtime method index exceeds4096 declarations".into());
+            }
+            let (key, definition) = runtime_declaration(resolver, assembly, attribute)?;
+            if let Some(previous) = methods.insert(key.clone(), definition) {
+                return Err(format!(
+                    "Duplicate KohRuntime operation key {key}: {previous:?} and {definition:?}"
+                ));
+            }
+        }
+    }
+    *resolver.runtime_methods.borrow_mut() = Some(methods);
+    Ok(())
+}
+
+pub(crate) fn float_add(resolver: &Resolver<'_>) -> Result<Definition, String> {
+    discover_runtime(resolver)?;
+    let definition = resolver
+        .runtime_methods
+        .borrow()
+        .as_ref()
+        .and_then(|methods| methods.get("f32.add"))
+        .copied()
+        .ok_or("Missing KohRuntime f32.add implementation; include a runtime assembly")?;
+    let metadata = resolver.assembly(definition.assembly)?.metadata();
+    let method = row(&metadata.method_defs, definition.token & 0xffffff)?;
+    if method.rva == 0 || method.impl_flags & 7 != 0 {
+        return Err(format!(
+            "KohRuntime f32.add {definition:?} has no CIL body; supply its implementation assembly"
+        ));
+    }
+    let signature = crate::signature::method(
+        metadata
+            .blobs
+            .get(method.signature)
+            .map_err(|e| e.to_string())?,
+    )?;
+    let raw = TypeSig::Primitive(clrmeta::ElementType::U4);
+    if signature.params != [raw.clone(), raw.clone()] || signature.return_type != raw {
+        return Err(format!(
+            "KohRuntime f32.add {definition:?} requires uint(uint,uint) raw-bit signature"
+        ));
+    }
+    Ok(definition)
 }
 
 fn alignment_payload(bytes: &[u8]) -> Result<u16, String> {
@@ -520,8 +678,44 @@ pub(crate) fn method(resolver: &Resolver<'_>, method: Definition) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::{alignment_payload, payload};
+    use super::{alignment_payload, payload, runtime_payload};
     use rstest::rstest;
+
+    #[rstest]
+    #[case("f32.add")]
+    #[case("a")]
+    #[case(&"x".repeat(128))]
+    fn runtime_key_round_trip_and_truncation(#[case] key: &str) {
+        let mut bytes = vec![1, 0];
+        if key.len() == 128 {
+            bytes.extend([0x80, 0x80]);
+        } else {
+            bytes.push(key.len() as u8);
+        }
+        bytes.extend(key.bytes());
+        bytes.extend([0, 0]);
+        assert_eq!(runtime_payload(&bytes).unwrap(), key);
+        for end in 0..bytes.len() {
+            assert!(runtime_payload(&bytes[..end]).is_err(), "prefix {end}");
+        }
+    }
+
+    #[rstest]
+    #[case(b"\x02\x00\x01a\x00\x00")]
+    #[case(b"\x01\x00\x00\x00\x00")]
+    #[case(b"\x01\x00\xff")]
+    #[case(b"\x01\x00\x01\xfe\x00\x00")]
+    #[case(b"\x01\x00\x01-\x00\x00")]
+    #[case(b"\x01\x00\x01a\x01\x00")]
+    #[case(b"\x01\x00\x01a\x00\x00\x00")]
+    #[case(b"\x01\x00\x80\x01a\x00\x00")]
+    fn invalid_runtime_key_is_diagnostic(#[case] bytes: &[u8]) {
+        assert!(
+            runtime_payload(bytes)
+                .unwrap_err()
+                .contains("KohRuntime payload")
+        );
+    }
 
     const VALID: &[u8] = b"\x01\x00\x08register\x40\xff\x00\x00\x00\x00";
 

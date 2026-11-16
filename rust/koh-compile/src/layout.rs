@@ -89,7 +89,7 @@ impl Build<'_, '_> {
                 | ElementType::IntPtr
                 | ElementType::UIntPtr,
             ) => 2,
-            TypeSig::Primitive(ElementType::I4 | ElementType::U4) => 4,
+            TypeSig::Primitive(ElementType::I4 | ElementType::U4 | ElementType::R4) => 4,
             TypeSig::Primitive(ElementType::I8 | ElementType::U8) => 8,
             TypeSig::Ptr(inner) => {
                 self.resolver.validate_type(assembly, inner, 0)?;

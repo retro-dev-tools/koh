@@ -82,6 +82,7 @@ fn pure(op: &Op) -> bool {
     matches!(
         op,
         Op::Constant(_)
+            | Op::Reinterpret(_)
             | Op::ZeroStruct
             | Op::FieldHandle(_)
             | Op::MethodHandle(_)
@@ -304,7 +305,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     value(left);
                     value(right);
                 }
-                Op::Negate(id)
+                Op::Reinterpret(id)
+                | Op::Negate(id)
                 | Op::Upcast { value: id, .. }
                 | Op::CheckObject(id)
                 | Op::IsClass { object: id, .. }

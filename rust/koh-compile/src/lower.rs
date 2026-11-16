@@ -5,7 +5,7 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 
-fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
+fn primitive_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
     use clrmeta::{ElementType, TypeSig};
     match ty {
         TypeSig::Primitive(
@@ -19,6 +19,7 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
             | ElementType::Boolean,
         ) => Ok(Type::I32),
         TypeSig::Primitive(ElementType::I8 | ElementType::U8) => Ok(Type::I64),
+        TypeSig::Primitive(ElementType::R4) => Ok(Type::F32),
         TypeSig::Primitive(ElementType::String) => Ok(Type::String),
         TypeSig::Primitive(ElementType::IntPtr | ElementType::UIntPtr) | TypeSig::Ptr(_) => {
             Ok(Type::Native)
@@ -33,9 +34,9 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
             ArrayKind::Rectangle,
         )),
         TypeSig::Pinned(inner) if matches!(**inner, TypeSig::ByRef(_) | TypeSig::SzArray(_)) => {
-            integer_type(inner)
+            primitive_type(inner)
         }
-        _ => Err(format!("Type {ty:?} has no integer lowering yet")),
+        _ => Err(format!("Type {ty:?} has no supported scalar lowering yet")),
     }
 }
 
@@ -81,6 +82,7 @@ fn scalar(ty: &clrmeta::TypeSig) -> Result<Scalar, String> {
         ElementType::U4 => Scalar::U32,
         ElementType::I8 => Scalar::I64,
         ElementType::U8 => Scalar::U64,
+        ElementType::R4 => Scalar::F32,
         ElementType::IntPtr => Scalar::NativeSigned,
         ElementType::UIntPtr => Scalar::NativeUnsigned,
         _ => return Err("Managed reference scalar type is unsupported".into()),
@@ -244,7 +246,7 @@ pub(crate) fn bound_type(
                 bound_storage(resolver, assembly, rectangle_element(inner)?)?,
                 ArrayKind::Rectangle,
             ))),
-            _ => integer_type(ty),
+            _ => primitive_type(ty),
         },
         clrmeta::TypeSig::Pinned(inner) => bound_type(resolver, assembly, inner),
         clrmeta::TypeSig::SzArray(inner) => Ok(Type::Array(
@@ -260,7 +262,7 @@ pub(crate) fn bound_type(
         | clrmeta::TypeSig::MVar(_) => {
             Err("Unsupported generic type requires instantiated lowering".into())
         }
-        _ => integer_type(ty),
+        _ => primitive_type(ty),
     }
 }
 
@@ -663,6 +665,31 @@ impl Builder<'_, '_> {
     fn binary(&mut self, op: Binary) -> Result<(), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
+        if left.1 == Type::F32 || right.1 == Type::F32 {
+            if left.1 != Type::F32 || right.1 != Type::F32 || op != Binary::Add {
+                return Err("Unsupported float32 binary operation or mixed operand types".into());
+            }
+            let resolver = self
+                .resolver
+                .ok_or("float32 addition requires runtime metadata")?;
+            let target = crate::contracts::float_add(resolver)?;
+            let left = self.value(Type::I32, Op::Reinterpret(left.0))?;
+            let right = self.value(Type::I32, Op::Reinterpret(right.0))?;
+            let bits = self.value(
+                Type::I32,
+                Op::Call {
+                    target,
+                    signature: Signature {
+                        parameters: vec![Type::I32, Type::I32],
+                        returns: Some(Type::I32),
+                    },
+                    arguments: vec![left.0, right.0],
+                },
+            )?;
+            let value = self.value(Type::F32, Op::Reinterpret(bits.0))?;
+            self.stack.push(value);
+            return Ok(());
+        }
         if !matches!(left.1, Type::I32 | Type::I64 | Type::Native)
             || !matches!(right.1, Type::I32 | Type::I64 | Type::Native)
         {
@@ -1482,9 +1509,9 @@ fn translate(
             let value = b.value(Type::Native, Op::ArrayLength(array.0))?;
             b.stack.push(value);
         }
-        0x8f..=0x97 | 0x9a..=0x9f | 0xa2..=0xa4 => {
+        0x8f..=0x98 | 0x9a..=0xa0 | 0xa2..=0xa4 => {
             let reference = matches!(i.opcode, 0x9a | 0xa2);
-            let store = matches!(i.opcode, 0x9b..=0x9f | 0xa2 | 0xa4);
+            let store = matches!(i.opcode, 0x9b..=0xa0 | 0xa2 | 0xa4);
             let stored = if store { Some(b.pop()?) } else { None };
             let index = b.pop()?;
             if !matches!(index.1, Type::I32 | Type::Native) {
@@ -1516,6 +1543,7 @@ fn translate(
                 0x94 | 0x9e => Scalar::I32,
                 0x95 => Scalar::U32,
                 0x96 | 0x9f => Scalar::I64,
+                0x98 | 0xa0 => Scalar::F32,
                 _ => Scalar::NativeSigned,
             };
             let array = if raw.1 == Type::Null {
@@ -2305,6 +2333,7 @@ fn translate(
                 FieldStorage::Value(Storage::Scalar(match ty {
                     Type::I32 => Scalar::I32,
                     Type::I64 => Scalar::I64,
+                    Type::F32 => Scalar::F32,
                     Type::Native => Scalar::NativeSigned,
                     Type::ByRef(_)
                     | Type::Delegate(_)
@@ -2366,6 +2395,13 @@ fn translate(
                 },
             };
             let value = b.value(ty, Op::Constant(bits))?;
+            b.stack.push(value);
+        }
+        0x22 => {
+            let Operand::Float32(bits) = i.operand else {
+                return Err("Missing float32 constant".into());
+            };
+            let value = b.value(Type::F32, Op::Constant(u64::from(bits)))?;
             b.stack.push(value);
         }
         0x25 => {
@@ -2732,7 +2768,7 @@ fn translate(
                 b.stack.push(value);
             }
         }
-        0x46..=0x4d => {
+        0x46..=0x4e => {
             let (bits, signed, ty) = match i.opcode {
                 0x46 => (8, true, Type::I32),
                 0x47 => (8, false, Type::I32),
@@ -2741,6 +2777,7 @@ fn translate(
                 0x4a => (32, true, Type::I32),
                 0x4b => (32, false, Type::I32),
                 0x4c => (64, true, Type::I64),
+                0x4e => (32, false, Type::F32),
                 _ => (16, false, Type::Native),
             };
             let address = b.pop()?;
@@ -2759,12 +2796,13 @@ fn translate(
             )?;
             b.stack.push(value);
         }
-        0x52..=0x55 | 0xdf => {
+        0x52..=0x56 | 0xdf => {
             let (bits, ty) = match i.opcode {
                 0x52 => (8, Type::I32),
                 0x53 => (16, Type::I32),
                 0x54 => (32, Type::I32),
                 0x55 => (64, Type::I64),
+                0x56 => (32, Type::F32),
                 _ => (16, Type::Native),
             };
             let value = b.pop()?;
@@ -2802,6 +2840,9 @@ fn translate(
         }
         0x65 | 0x66 => {
             let value = b.pop()?;
+            if value.1 == Type::F32 {
+                return Err("float32 unary operation requires software runtime lowering".into());
+            }
             let op = if i.opcode == 0x65 {
                 Op::Negate(value.0)
             } else {

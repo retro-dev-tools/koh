@@ -2234,6 +2234,7 @@ pub(crate) fn emit_with_strings_origin(
                     layout.locals[local as usize],
                     layout.local_widths[local as usize],
                 ),
+                Op::Reinterpret(value) => code.extend(place(value), destination, width),
                 Op::Negate(value) => code.negate_value(place(value), destination, width),
                 Op::Not(value) => {
                     for byte in 0..width {

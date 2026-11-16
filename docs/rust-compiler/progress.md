@@ -8,6 +8,13 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+Current compiler increment adds distinct binary32 IR, explicit bit transport,
+float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
+addition. Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
+covered. Other float operations remain unfinished and reject explicitly; this
+does not close the full legacy floating test group or change the137/565 ledger.
+See [float lowering contract and evidence](float-lowering.md).
+
 Current runtime correction fixes inherited AddF32 subnormal/special-value errors
 observed in both managed execution and a Rust-compiled ROM. Raw1+raw1 now returns
 raw2; NaNs are quieted and infinity/zero/overflow/rounding boundaries are checked.
@@ -15,14 +22,15 @@ Expanded14/14 passes64.421s, exit0 (/tmp/koh-softfloat-ieee-first.log):80 actual
 banked ROMs and415 managed observations. Independent Rust oracles and numerical
 review support the correction; sampled coverage is not exhaustive IEEE proof.
 API/compiler/emulator implementations are unchanged apart from this numeric
-runtime body. Float-valued CIL/runtime-key dispatch remain unfinished; ledger
+runtime body. Broader floating arithmetic/conversion lowering remains unfinished; ledger
 stays137/565 complete,428 partial/outstanding, zero physically retired.
 See [algorithm rationale and evidence](softfloat-addition.md).
 Formatted final14/14 passes45.734s, exit0
 (`/tmp/koh-softfloat-ieee-final.log`). Rustfmt/CSharpier pass. Hosted baseline
 15d0cff run43968285185 has completed1373/1373 in1953.920s, zero skips, with
 separate rustdoc and .NET fast tests successful. This proves that baseline;
-the queued runtime/test commits require their own subsequent CI evidence.
+4741e89 run43974339605 has also completed successfully. The current Float32
+compiler increment still requires its own hosted CI evidence.
 
 Previous software-runtime test migration closes23 methods (3CilKohRuntimeTests,
 20SoftFloatDifferentialTests):24 actual banked AddF32 ROMs plus145 independent

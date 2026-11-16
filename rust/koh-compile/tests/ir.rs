@@ -3,6 +3,8 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 #[path = "ir/recursion.rs"]
 mod accumulator_recursion;
+#[path = "ir/float32.rs"]
+mod float32;
 
 #[test]
 fn delegate_ref_results_cannot_hide_a_frame_escape() {

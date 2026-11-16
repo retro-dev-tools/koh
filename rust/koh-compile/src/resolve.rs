@@ -46,6 +46,7 @@ pub struct Resolver<'a> {
     pub(crate) generic_instances: RefCell<Vec<crate::generics::Instance>>,
     pub(crate) generic_work: std::cell::Cell<usize>,
     pub(crate) generic_nodes: std::cell::Cell<usize>,
+    pub(crate) runtime_methods: RefCell<Option<std::collections::BTreeMap<String, Definition>>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -390,6 +391,7 @@ impl<'a> Resolver<'a> {
             "UInt32" => ElementType::U4,
             "Int64" => ElementType::I8,
             "UInt64" => ElementType::U8,
+            "Single" => ElementType::R4,
             "IntPtr" => ElementType::IntPtr,
             "UIntPtr" => ElementType::UIntPtr,
             "Object" => ElementType::Object,
@@ -516,6 +518,7 @@ impl<'a> Resolver<'a> {
             generic_instances: RefCell::new(Vec::new()),
             generic_work: std::cell::Cell::new(0),
             generic_nodes: std::cell::Cell::new(0),
+            runtime_methods: RefCell::new(None),
         })
     }
 

@@ -1270,3 +1270,42 @@ BaselineCI43968285185isnowTERMINALSUCCESShead15d0cff:download95895GH_EXIT0
 rustdoc4zerotestsand.NETfastPassedsummary. Holdpushgatecleared: commitcurrent
 numericfixthenpushbothlocal650c522+fixinONEbatch; updatePR55/vault/currentCI.
 Noactivelocalbuilds. Ledger137/565428remainingzero retired, fullscopeactive.
+NextunitFloatingCIL actualcompilerfeature starts4741e89: distinctbinary32IRtype,
+explicitbitreinterpretation, metadataKohRuntimekeyindex, lowerfloatAddtoordinary
+helpercalls. TestFloat32actualRoslynAdd/call/phi/ref plusunsupporteddivision,
+4D/RDMGCGBcases16ROMs prepared. Mustrejectmixedfloat/int IR anddiagnoseunsupported
+floatops. No floatgeneralcompatibilityclaim. Parentownsallfiles/builds. Plan
+docs/rust-compiler/float-lowering.md. No newagentsunlessreviewskillasks.
+Floatunitprogress:91668redEXIT100opcode0022. AddedTypeF32/ScalarF32 andexplicit
+OpReinterpret(I32↔F32only), backendbitscopy, IRrejectintarithmetic/compare/convert
+onfloat. ldc.r4/ldind.r4/stind.r4, fields/arraysscalar4, ClassSingleframeworkmap.
+MetadataKohRuntime keyindex viaexistingqualifiedattributeKind; staticnongeneric,
+boundedcanonicalpayload/duplicatesdiagnose, f32.addrawuint(uint,uint) checked.
+Indexclearedperreachability thenpopulatedbeforelowering; helperbodyrequiredonly
+whenchosen(referenceassemblydeclarationsallowed). FloatAdd→bitcast/call/bitcast,
+otherbinary/unaryfloatopsreject. No nativefloatALUorC#compilerfallback.
+Initial55783EXIT0 1/1pass4.289s. 75053EXIT0 11/11pass17.238s. AddedField/Array,
+51934redEXIT100MissingSystem.RuntimeforSystem.Single; resolvedprimitiveframework
+map+ldelem.r4/stelem.r4. 56570EXIT0 11/11pass18.335s (24ROMs+7IRcases), missingkey/
+duplicatekey/wrongrawsignaturechecks. NewtestrenamesactualhelperAddF32→SumF32 in
+inputmetadata toproveattribute-basedselection, rootPortablePDB/ELF/KDBGchecks.
+Current52232live /tmp/koh-float32-regression.log: selectedalllib/IR/lowering plus
+Float32/newbasic/runtimebankcases. Parentownsalledits/builds. Needreview, payload
+unitnegatives/finalchecks/docs/subsetABIupdate/logicalcommit; holdpushuntilcurrent
+4741e89CI43974339605finishes ifstillrunning, batchfuturecommits. Ledger137unchanged.
+
+2026-11-17 Float32 continuation: current pushed4741e89 CI43974339605 now
+TERMINALSUCCESS. SDK first run45310 terminal/missinghandle; completedprimarylog
+/tmp/koh-float32-sdk-first.log explicitly2/2pass99.416s. Added11runtimepayload
+cases (valid1/7/128bytekeys, alltruncatedprefixes, invalidcanonical/UTF8/namedargs/
+trailingdata). Updated float-lowering.md contract/evidence and sm83-abi.md.
+Current final539selectedtests handle43599 /tmp/koh-float32-final.log ACTIVE;
+537passreported, SDKcasespending. No fullcurrentworkspaceclaim. Dirtyfeature
+uncommitted; finishlog/checks/review thenlogicalcommit. Fullgoalstillactive.
+Final43599 TERMINALEXIT0:539/539 selectedtests pass117.417s,334unselected
+(/tmp/koh-float32-final.log). Includesalllib/allIR,4Float32drivercases24ROMs,
+2SDKD/Rcases. No assertionthatunselectedtestsran. Current47861 workspace
+alltargets/allfeaturescheck+separaterustdoc /tmp/koh-float32-workspace-check.log
+and/tmp/koh-float32-doc.log; readterminalstatusbeforecommit.
+47861 TERMINAL: workspacealltargets/allfeaturescheckEXIT0(10.92s, existing
+unusedcubeshelperwarning), separaterustdocEXIT0zerodoctests. Format/diffcheckpass.

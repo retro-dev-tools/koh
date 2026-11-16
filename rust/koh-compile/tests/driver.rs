@@ -7,6 +7,8 @@ mod cil_basics;
 mod default_interfaces;
 #[path = "driver/delegates.rs"]
 mod delegates;
+#[path = "driver/float32.rs"]
+mod float32;
 #[path = "driver/generics.rs"]
 mod generics;
 #[path = "driver/interfaces.rs"]

@@ -131,6 +131,7 @@ pub enum Type {
     ReferenceCell(ReferenceCell),
     I32,
     I64,
+    F32,
     Native,
     ByRef(Scalar),
     Array(Storage, ArrayKind),
@@ -191,6 +192,7 @@ pub enum Scalar {
     U32,
     I64,
     U64,
+    F32,
     NativeSigned,
     NativeUnsigned,
 }
@@ -205,6 +207,7 @@ impl Scalar {
     pub(crate) fn stack_type(self) -> Type {
         match self {
             Self::I64 | Self::U64 => Type::I64,
+            Self::F32 => Type::F32,
             Self::NativeSigned | Self::NativeUnsigned => Type::Native,
             _ => Type::I32,
         }
@@ -213,7 +216,7 @@ impl Scalar {
         match self {
             Self::Bool | Self::I8 | Self::U8 => 8,
             Self::Char | Self::I16 | Self::U16 | Self::NativeSigned | Self::NativeUnsigned => 16,
-            Self::I32 | Self::U32 => 32,
+            Self::I32 | Self::U32 | Self::F32 => 32,
             Self::I64 | Self::U64 => 64,
         }
     }
@@ -246,7 +249,7 @@ impl Type {
             Self::Struct(value) => value.bytes * 8,
             Self::StructRef(_) => 16,
             Self::FieldHandle(_) | Self::MethodHandle(_) => 0,
-            Self::I32 => 32,
+            Self::I32 | Self::F32 => 32,
             Self::I64 => 64,
             Self::Native
             | Self::Delegate(_)
@@ -379,6 +382,7 @@ pub(crate) fn is_hblank_register(register: u16) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    Reinterpret(u32),
     IsClass {
         object: u32,
         class: ClassType,
@@ -600,7 +604,8 @@ impl Op {
             Self::NewDelegate { receiver, .. } => [Some(receiver), None],
             Self::RectangleAddress { array, row, .. } => [Some(array), Some(row)],
             Self::ArrayDimension { array, dimension } => [Some(array), Some(dimension)],
-            Self::ArenaAllocate(bytes)
+            Self::Reinterpret(bytes)
+            | Self::ArenaAllocate(bytes)
             | Self::StackAllocate { bytes }
             | Self::OamDma(bytes)
             | Self::CheckObject(bytes)
@@ -1143,6 +1148,20 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::Reinterpret(value) => {
+                        let source = check(value, position)?;
+                        let target = result.ok_or("Bit reinterpretation has no result")?;
+                        if !matches!(
+                            (source, target),
+                            (Type::I32, Type::F32) | (Type::F32, Type::I32)
+                        ) {
+                            return Err(
+                                "Bit reinterpretation requires matching integer/float widths"
+                                    .into(),
+                            );
+                        }
+                        Some(target)
+                    }
                     Op::IsClass { object, .. }
                     | Op::CastClass { object, .. }
                     | Op::TryCastClass { object, .. } => {
@@ -1525,6 +1544,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         let ty = result.ok_or("Memory load has no result")?;
+                        if ty == Type::F32 && signed {
+                            return Err("Float memory loads require raw unsigned bits".into());
+                        }
                         if matches!(ty, Type::Struct(value) if value.references && check(address, position)? != Type::StructRef(value))
                         {
                             return Err(
@@ -1553,6 +1575,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             && !matches!(
                                 (bits, ty),
                                 (8 | 16 | 32, Type::I32)
+                                    | (32, Type::F32)
                                     | (64, Type::I64)
                                     | (
                                         16,
@@ -1608,6 +1631,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             && !matches!(
                                 (bits, stored),
                                 (8 | 16 | 32, Type::I32)
+                                    | (32, Type::F32)
                                     | (64, Type::I64)
                                     | (
                                         16,
@@ -1746,6 +1770,13 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(left)
                     }
                     Op::Compare { op, left, right } => {
+                        if check(left, position)? == Type::F32
+                            || check(right, position)? == Type::F32
+                        {
+                            return Err(
+                                "Float comparison requires software runtime lowering".into()
+                            );
+                        }
                         if matches!(check(left, position)?, Type::Struct(_)) {
                             return Err("Aggregate comparison is unsupported".into());
                         }
@@ -1780,6 +1811,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(ty)
                     }
                     Op::Convert { value, bits, .. } => {
+                        if check(value, position)? == Type::F32 {
+                            return Err(
+                                "Numeric float conversion requires software runtime lowering"
+                                    .into(),
+                            );
+                        }
                         if matches!(check(value, position)?, Type::Struct(_)) {
                             return Err("Aggregate value conversion is unsupported".into());
                         }
