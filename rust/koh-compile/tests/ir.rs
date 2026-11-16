@@ -3,6 +3,56 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(Type::Null, true)]
+#[case(Type::Native, false)]
+#[case(Type::I32, false)]
+#[case(Type::String, false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8)), false)]
+fn class_checks_preserve_reference_types_and_effects(#[case] input: Type, #[case] valid: bool) {
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(0, input, Op::Constant(0)),
+            instruction(
+                1,
+                Type::Object(ClassType::root()),
+                Op::CastClass {
+                    object: 0,
+                    class: ClassType::root(),
+                },
+            ),
+            instruction(
+                2,
+                Type::I32,
+                Op::IsClass {
+                    object: 0,
+                    class: ClassType::root(),
+                },
+            ),
+        ],
+        terminator: Terminator {
+            il_offset: 3,
+            kind: Control::TypeFault,
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+    if valid {
+        koh_compile::optimize::simplify(&mut f).unwrap();
+        assert!(
+            f.blocks[0]
+                .instructions
+                .iter()
+                .any(|i| matches!(i.op, Op::CastClass { .. }))
+        );
+        koh_compile::sm83::emit(&f).unwrap();
+    }
+}
+
+#[rstest]
 #[case("same", true)]
 #[case("bytes", false)]
 #[case("base", false)]

@@ -294,6 +294,14 @@ pub(crate) fn is_hblank_register(register: u16) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    IsClass {
+        object: u32,
+        class: ClassType,
+    },
+    CastClass {
+        object: u32,
+        class: ClassType,
+    },
     NewObject(ClassType),
     Upcast {
         value: u32,
@@ -424,6 +432,17 @@ pub struct Instruction {
 }
 
 impl Op {
+    pub(crate) fn class_types(&self) -> impl Iterator<Item = ClassType> {
+        match *self {
+            Self::NewObject(class)
+            | Self::Upcast { class, .. }
+            | Self::IsClass { class, .. }
+            | Self::CastClass { class, .. }
+            | Self::ObjectFieldAddress { owner: class, .. } => Some(class),
+            _ => None,
+        }
+        .into_iter()
+    }
     fn value_types(&self) -> impl Iterator<Item = ValueType> {
         let (owner, storage) = match *self {
             Self::FieldAddress { owner, storage, .. } => (Some(owner), Some(storage)),
@@ -450,6 +469,8 @@ impl Op {
             | Self::StackAllocate { bytes }
             | Self::OamDma(bytes)
             | Self::CheckObject(bytes)
+            | Self::IsClass { object: bytes, .. }
+            | Self::CastClass { object: bytes, .. }
             | Self::ObjectFieldAddress { object: bytes, .. }
             | Self::Upcast { value: bytes, .. } => [Some(bytes), None],
             Self::InitializeArray { array, .. } => [Some(array), None],
@@ -520,6 +541,7 @@ pub struct Edge {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Control {
+    TypeFault,
     Jump(Edge),
     Branch {
         condition: u32,
@@ -540,7 +562,7 @@ impl Control {
             Self::Jump(edge) => (Some(edge), None, &[]),
             Self::Branch { yes, no, .. } => (Some(yes), Some(no), &[]),
             Self::Switch { cases, default, .. } => (Some(default), None, cases),
-            Self::Return(_) => (None, None, &[]),
+            Self::Return(_) | Self::TypeFault => (None, None, &[]),
         };
         first.into_iter().chain(second).chain(cases)
     }
@@ -550,7 +572,7 @@ impl Control {
             Self::Jump(edge) => (Some(edge), None, &mut []),
             Self::Branch { yes, no, .. } => (Some(yes), Some(no), &mut []),
             Self::Switch { cases, default, .. } => (Some(default), None, cases),
-            Self::Return(_) => (None, None, &mut []),
+            Self::Return(_) | Self::TypeFault => (None, None, &mut []),
         };
         first.into_iter().chain(second).chain(cases)
     }
@@ -762,6 +784,11 @@ fn aggregate_types(
                 .iter()
                 .flat_map(|i| i.op.value_types().map(Type::Struct))
         }))
+        .chain(function.blocks.iter().flat_map(|b| {
+            b.instructions
+                .iter()
+                .flat_map(|i| i.op.class_types().map(Type::Object))
+        }))
     {
         let storage = match ty {
             Type::Struct(value)
@@ -934,6 +961,15 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
+                    Op::IsClass { object, .. } | Op::CastClass { object, .. } => {
+                        if !matches!(check(object, position)?, Type::Object(_) | Type::Null) {
+                            return Err("Class operation requires an object reference".into());
+                        }
+                        Some(match instruction.op {
+                            Op::CastClass { class, .. } => Type::Object(class),
+                            _ => Type::I32,
+                        })
+                    }
                     Op::NewObject(class) => Some(Type::Object(class)),
                     Op::Upcast { value, class } => {
                         let Type::Object(source) = check(value, position)? else {

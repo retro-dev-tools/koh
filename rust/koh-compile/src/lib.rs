@@ -4,6 +4,7 @@ mod cartridge;
 pub mod cil;
 pub mod compile;
 mod contracts;
+mod dispatch;
 mod initialize;
 pub mod ir;
 pub mod layout;

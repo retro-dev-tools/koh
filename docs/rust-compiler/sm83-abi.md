@@ -21,8 +21,12 @@ Allocation zeroes fields and installs identity before constructor execution.
 Reference-valued fields/static storage/array elements use typed two-byte cells;
 raw memory loads cannot invent managed reference identities. Calls and returns
 pass the reference itself, preserving aliases. Null access faults with code4;
-arena exhaustion faults with code5. Heap accesses preserve CGB SVBK. Virtual
-and interface dispatch remain pending and explicitly diagnose in this increment.
+arena exhaustion faults with code5. Heap accesses preserve CGB SVBK.
+[Class virtual dispatch](virtual-dispatch.md) uses typed synthetic functions and
+ordinary banked calls; direct base calls remain direct. Exact runtime descriptor
+tests select implementations, and checked receiver casts follow parent links
+without changing reference identity. Invalid runtime type faults use code10.
+Interface/explicit MethodImpl dispatch remains pending and explicitly diagnoses.
 
 [OAM DMA](oam-dma.md) uses a linker-placed8-byte HRAM routine installed once at
 boot. Its source page is passed in A; no shared WRAM scratch is required. The

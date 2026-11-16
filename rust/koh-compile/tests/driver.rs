@@ -11,6 +11,220 @@ fn host() -> Host {
 }
 
 #[rstest]
+#[case("Debug", false, 1)]
+#[case("Release", false, 257)]
+#[case("Debug", true, 257)]
+#[case("Release", true, 1)]
+fn virtual_slots_and_constructor_dispatch_execute(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+    #[case] first_bank: i32,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "VirtualCalls");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for (entry, fault) in [
+        ("Main", 0),
+        ("Slots", 0),
+        ("Constructor", 0),
+        ("Null", 4),
+        ("Transitive", 0),
+        ("Cast", 0),
+        ("InvalidCast", 10),
+        ("NullCast", 0),
+        ("Wide", 0),
+    ] {
+        let mut object = compile::object(&resolver, Some(&format!("Program::{entry}")))
+            .unwrap_or_else(|e| panic!("{entry}: {e}"));
+        let metadata = resolver.assembly(0).unwrap();
+        let unused = (1..=metadata.metadata().method_defs.len())
+            .find(|&row| metadata.method_name(0x06000000 | row as u32).unwrap() == "Unused::Area")
+            .unwrap();
+        let unused = koh_compile::sm83::symbol(koh_compile::resolve::Definition {
+            assembly: 0,
+            token: 0x06000000 | unused as u32,
+        });
+        assert!(
+            !object.symbols.iter().any(|s| s.name == unused),
+            "uninstantiated override must remain dead"
+        );
+        let mut bank = first_bank;
+        for section in &mut object.sections {
+            if section.name.starts_with(".text.__koh_a") {
+                assert_eq!(section.kind, 1);
+                section.bank = Some(bank);
+                bank += 1;
+            }
+        }
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if fault == 0 {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields[0], format!("{fault:02X}"), "{entry}: {report}");
+        assert_eq!(fields[3], "OK", "{entry}: frame guards");
+        if entry == "Main" {
+            let mut expected = 8u16.to_le_bytes().to_vec();
+            for value in [18i32, 0xe3, 12, 0x82, 4, 0xa3, 0, 0] {
+                expected.extend(value.to_le_bytes());
+            }
+            assert_heap_snapshot(&fields[4][..expected.len() * 2], &expected, entry);
+        }
+        if fault == 0 {
+            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{entry}");
+        }
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
+    }
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn malformed_virtual_overrides_are_diagnostics(host: &Host, #[case] configuration: &str) {
+    let (_directory, images) = gameboy_images(host, configuration, "VirtualCalls");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let image = resolver.assembly(0).unwrap();
+    let unsupported = compile::object(&resolver, Some("Program::Covariant"))
+        .err()
+        .expect("Explicit MethodImpl must diagnose until implemented");
+    assert!(
+        unsupported.contains("MethodImpl") && unsupported.contains("Program::Covariant IL_"),
+        "{unsupported}"
+    );
+    let method = |name| {
+        (1..=image.metadata().method_defs.len())
+            .map(|row| 0x06000000 | row as u32)
+            .find(|&token| image.method_name(token).unwrap() == name)
+            .unwrap()
+    };
+    let position = |token| {
+        let row = image.method(token).unwrap();
+        let mut needle = row.rva.to_le_bytes().to_vec();
+        needle.extend(row.impl_flags.to_le_bytes());
+        needle.extend(row.flags.to_le_bytes());
+        needle.extend(u16::try_from(row.name).unwrap().to_le_bytes());
+        needle.extend(u16::try_from(row.signature).unwrap().to_le_bytes());
+        let matches: Vec<_> = images[0]
+            .windows(needle.len())
+            .enumerate()
+            .filter_map(|(at, bytes)| (bytes == needle).then_some(at))
+            .collect();
+        assert_eq!(matches.len(), 1);
+        matches[0]
+    };
+    for (kind, entry, expected) in [
+        ("final", "Slots", "final"),
+        ("duplicate", "Main", "Ambiguous"),
+    ] {
+        let mut changed = images[0].clone();
+        if kind == "final" {
+            let token = method("First::Value");
+            let at = position(token);
+            changed[at + 6..at + 8]
+                .copy_from_slice(&(image.method(token).unwrap().flags | 0x20).to_le_bytes());
+        } else {
+            let token = method("Square::Kind");
+            let at = position(token);
+            let area = image.method(method("Square::Area")).unwrap();
+            changed[at + 8..at + 10]
+                .copy_from_slice(&u16::try_from(area.name).unwrap().to_le_bytes());
+            changed[at + 10..at + 12]
+                .copy_from_slice(&u16::try_from(area.signature).unwrap().to_le_bytes());
+            let parsed = koh_compile::assembly::Assembly::parse(&changed).unwrap();
+            assert_eq!(parsed.method(token).unwrap().name, area.name);
+            assert_eq!(
+                parsed.method_signature(token).unwrap(),
+                image.method_signature(method("Square::Area")).unwrap()
+            );
+        }
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let resolver = Resolver::new(&[&changed, &images[1]])?;
+            compile::object(&resolver, Some(&format!("Program::{entry}")))
+        }))
+        .expect("Malformed virtual metadata must not panic")
+        .err()
+        .expect("Malformed overrides must diagnose");
+        assert!(
+            error.contains(expected) && error.contains(&format!("Program::{entry} IL_")),
+            "{kind}: {error}"
+        );
+    }
+}
+
+#[test]
+fn virtual_binding_work_limit_is_diagnostic() {
+    let directory = tempfile::Builder::new()
+        .prefix("koh virtual work ")
+        .tempdir()
+        .unwrap();
+    let project = directory.path().join("Work.csproj");
+    std::fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NuGetAudit>true</NuGetAudit></PropertyGroup></Project>").unwrap();
+    let mut source = String::from("public class Root {");
+    for index in 0..80 {
+        source.push_str(&format!("public virtual int M{index}() => 0;"));
+    }
+    source.push('}');
+    for index in 0..80 {
+        source.push_str(&format!("public sealed class C{index} : Root {{}}"));
+    }
+    source
+        .push_str("public class Program { public static int Main() { Root current; int total = 0;");
+    for index in 0..80 {
+        source.push_str(&format!(
+            "current = new C{index}(); total += current.M{index}();"
+        ));
+    }
+    source.push_str("return total; }}");
+    std::fs::write(directory.path().join("Program.cs"), source).unwrap();
+    let result = dotnet()
+        .arg("build")
+        .arg(&project)
+        .args(["-c", "Release", "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let image = std::fs::read(directory.path().join("bin/Release/net10.0/Work.dll")).unwrap();
+    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let resolver = Resolver::new(&[&image])?;
+        compile::object(&resolver, None)
+    }))
+    .expect("Virtual work bound must not panic")
+    .unwrap_err();
+    assert!(
+        error.contains("Virtual binding work exceeds1048576")
+            && error.contains("Program::Main IL_"),
+        "{error}"
+    );
+}
+
+#[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]
 #[case("Debug", true)]
@@ -2352,16 +2566,20 @@ fn string_metadata_contracts_and_direct_calls(host: &Host, #[case] configuration
     let mut forged = images[0].clone();
     forged[positions[0] + runtime.public_key_or_token as usize + 1] ^= 1;
     let forged = Resolver::new(&[&forged, &images[1]]).unwrap();
+    let forged_error = koh_compile::lower::assembly_method(
+        &forged,
+        koh_compile::resolve::Definition {
+            assembly: 0,
+            token: at,
+        },
+    )
+    .unwrap_err();
     assert!(
-        koh_compile::lower::assembly_method(
-            &forged,
-            koh_compile::resolve::Definition {
-                assembly: 0,
-                token: at
-            }
-        )
-        .unwrap_err()
-        .contains("callvirt")
+        forged_error.contains("Missing assembly System.Runtime")
+            && forged_error.contains("public key token")
+            && forged_error.contains("Program::At")
+            && forged_error.contains("IL_"),
+        "{forged_error}"
     );
 
     let other = method("Program::Other");

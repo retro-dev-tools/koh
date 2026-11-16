@@ -137,6 +137,7 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
         ("__koh_trap_initializer", 7),
         ("__koh_trap_pin", 8),
         ("__koh_trap_hardware", 9),
+        ("__koh_trap_type", 10),
     ] {
         symbols.push(symbol(name.into(), 1, data.len()));
         data.extend_from_slice(&[0xf3, 0x3e, code, 0xc3]);
@@ -370,6 +371,11 @@ pub(crate) fn emit(
                     .iter()
                     .map(|p| p.1)
                     .chain(b.instructions.iter().filter_map(|i| i.result.map(|p| p.1)))
+            }))
+            .chain(function.blocks.iter().flat_map(|b| {
+                b.instructions
+                    .iter()
+                    .flat_map(|i| i.op.class_types().map(crate::ir::Type::Object))
             }))
         {
             if let Some(class) = ty.class() {

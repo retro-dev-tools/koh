@@ -456,7 +456,7 @@ Inherited fields never overlap, base-typed calls dispatch by runtime receiver, s
 
 - **PORT, complete** `InheritedFields_UsePrefixLayout_NoOverlap` — same native driver, `ObjectCore::InheritedFields`; exact base/derived/alias packets and final heap descriptors in Debug/Release × DMG/CGB; see test-disposition.md.
 - **PORT** `UntraceableInterfaceCall_IsDiagnostic`.
-- **PORT** `VirtualCalls_TagDispatchThroughBaseTypedStatic`.
+- **PORT, complete** `VirtualCalls_TagDispatchThroughBaseTypedStatic` — native `driver::virtual_slots_and_constructor_dispatch_execute`, exact three-type Area/Kind packets through static receiver reloads and loop reassignment; separate ROM banks including257+, four D/R × DMG/CGB cases. Slot representation is redesigned; see virtual-dispatch.md.
 - **PORT** `SceneMachine_GameRun_DeferredChangeWithCtorState`.
 - **PORT** `TagDispatch_CoexistsWithInterruptHandlerRoots`.
 

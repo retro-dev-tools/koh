@@ -285,6 +285,12 @@ impl Code {
         self.bytes(&[0x7e, 0xe0, 0x70]);
     }
 
+    fn object_class(&mut self, saved: u16) {
+        self.heap_bank(saved);
+        self.bytes(&[0x0a, 0x5f, 0x03, 0x0a, 0x57]);
+        self.restore_bank(saved);
+    }
+
     fn pins_active(&mut self, pins: &BTreeMap<u32, u16>) {
         self.bytes(&[0x0e, 0]);
         for &flag in pins.values() {
@@ -1008,6 +1014,7 @@ impl Layout {
             }
             let end = body.instructions.len();
             match &body.terminator.kind {
+                Control::TypeFault => {}
                 Control::Return(value) => {
                     if let Some(id) = value {
                         record(*id, end);
@@ -1280,6 +1287,49 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::IsClass { object, class } => {
+                    code.indirect(slot(object));
+                    code.constant(destination, 4, 0);
+                    let done = code.label();
+                    code.bytes(&[0x78, 0xb1]);
+                    code.jump(0xca, done);
+                    code.object_class(layout.arithmetic + 24);
+                    let descriptor = code.import(class_symbol(class.identity()));
+                    code.jump(0x21, descriptor);
+                    code.bytes(&[0x7a, 0xbc]);
+                    code.jump(0xc2, done);
+                    code.bytes(&[0x7b, 0xbd]);
+                    code.jump(0xc2, done);
+                    code.constant(destination, 4, 1);
+                    code.mark(done);
+                }
+                Op::CastClass { object, class } => {
+                    code.copy(slot(object), destination, 2);
+                    code.indirect(destination);
+                    let done = code.label();
+                    code.bytes(&[0x78, 0xb1]);
+                    code.jump(0xca, done);
+                    code.object_class(layout.arithmetic + 24);
+                    code.bytes(&[0x62, 0x6b]);
+                    let descriptor = code.import(class_symbol(class.identity()));
+                    code.jump(0x01, descriptor);
+                    code.bytes(&[0x16, 65]);
+                    let again = code.label();
+                    let parent = code.label();
+                    let fault = code.import("__koh_trap_type".into());
+                    code.mark(again);
+                    code.bytes(&[0x7c, 0xb8]);
+                    code.jump(0xc2, parent);
+                    code.bytes(&[0x7d, 0xb9]);
+                    code.jump(0xca, done);
+                    code.mark(parent);
+                    code.bytes(&[0x7c, 0xb5]);
+                    code.jump(0xca, fault);
+                    code.bytes(&[0x2a, 0x66, 0x6f, 0x15]);
+                    code.jump(0xc2, again);
+                    code.jump(0xc3, fault);
+                    code.mark(done);
+                }
                 Op::Upcast { value, .. } => code.copy(slot(value), destination, 2),
                 Op::CheckObject(object) => {
                     code.indirect(slot(object));
@@ -2010,6 +2060,10 @@ pub(crate) fn emit_with_strings(
                 transfer(&mut code, no);
                 code.mark(truth);
                 transfer(&mut code, yes);
+            }
+            Control::TypeFault => {
+                let fault = code.import("__koh_trap_type".into());
+                code.jump(0xc3, fault);
             }
             Control::Return(value) => {
                 if !layout.pins.is_empty() {

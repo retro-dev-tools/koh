@@ -208,7 +208,7 @@ fn cfg_simplification_preserves_loops_across_block_order(#[case] reverse: bool) 
                     yes.block = inverse[yes.block];
                     no.block = inverse[no.block];
                 }
-                Control::Return(_) => {}
+                Control::Return(_) | Control::TypeFault => {}
                 Control::Switch { cases, default, .. } => {
                     for edge in cases.iter_mut().chain(std::iter::once(default)) {
                         edge.block = inverse[edge.block];
@@ -369,6 +369,7 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
             }
         }
         let edge = match &f.blocks[block].terminator.kind {
+            Control::TypeFault => panic!("Unexpected runtime type fault in integer interpreter"),
             Control::Return(value) => return value.map(|id| values[&id]).unwrap_or(0),
             Control::Jump(edge) => edge,
             Control::Switch {

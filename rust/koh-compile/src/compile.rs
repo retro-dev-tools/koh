@@ -141,38 +141,80 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
     let mut functions = Vec::new();
     let mut instructions = 0usize;
     let mut data_bytes = 0usize;
+    let mut virtuals = std::collections::BTreeMap::new();
+    let mut classes = std::collections::BTreeMap::new();
+    let mut binder = crate::dispatch::Binder::new(resolver);
     for assembly in 0..resolver.assembly_count() {
         crate::contracts::assembly(resolver, assembly)?;
     }
-    while let Some(identity) = queue.pop_front() {
-        let function = if identity.token >> 24 == 0xff {
-            crate::initialize::function(resolver, identity)?
-        } else {
-            crate::lower::assembly_method(resolver, identity)?
-        };
-        instructions += function
-            .blocks
-            .iter()
-            .map(|b| b.parameters.len() + b.instructions.len() + 1)
-            .sum::<usize>();
-        if instructions > 2_000_000 {
-            return Err("Reachable IR exceeds program size limit".into());
+    loop {
+        while let Some(identity) = queue.pop_front() {
+            let function = if identity.token >> 24 == 0xff {
+                crate::initialize::function(resolver, identity)?
+            } else {
+                crate::lower::assembly_method(resolver, identity)?
+            };
+            instructions += function
+                .blocks
+                .iter()
+                .map(|b| b.parameters.len() + b.instructions.len() + 1)
+                .sum::<usize>();
+            if instructions > 2_000_000 {
+                return Err("Reachable IR exceeds program size limit".into());
+            }
+            for block in &function.blocks {
+                for instruction in &block.instructions {
+                    if let Op::NewObject(class) = instruction.op {
+                        if let Some(id) = class.identity() {
+                            classes.insert((id.assembly, id.token), class);
+                        }
+                    }
+                    if let Op::InitializeArray { ref bytes, .. } = instruction.op {
+                        data_bytes += bytes.len();
+                        if data_bytes > 16 * 1024 * 1024 {
+                            return Err("Reachable initializer data exceeds 16 MiB budget".into());
+                        }
+                    }
+                    if let Op::StringLiteral(ref units) = instruction.op {
+                        data_bytes += units.len() * 2 + 2;
+                        if data_bytes > 16 * 1024 * 1024 {
+                            return Err("Reachable literal data exceeds 16 MiB budget".into());
+                        }
+                    }
+                    if let Op::Call { target, .. } = instruction.op {
+                        if seen.insert(target) {
+                            if seen.len() > 4096 {
+                                return Err("Reachable method count exceeds 4096".into());
+                            }
+                            if target.token >> 24 == 0xfe {
+                                virtuals.insert(
+                                    (target.assembly, target.token),
+                                    (
+                                        crate::dispatch::declaration(target),
+                                        format!(
+                                            "{} IL_{:04x}",
+                                            resolver
+                                                .assembly(identity.assembly)?
+                                                .method_name(identity.token)?,
+                                            instruction.il_offset
+                                        ),
+                                    ),
+                                );
+                            } else {
+                                queue.push_back(target);
+                            }
+                        }
+                    }
+                }
+            }
+            functions.push(function);
         }
-        for block in &function.blocks {
-            for instruction in &block.instructions {
-                if let Op::InitializeArray { ref bytes, .. } = instruction.op {
-                    data_bytes += bytes.len();
-                    if data_bytes > 16 * 1024 * 1024 {
-                        return Err("Reachable initializer data exceeds 16 MiB budget".into());
-                    }
-                }
-                if let Op::StringLiteral(ref units) = instruction.op {
-                    data_bytes += units.len() * 2 + 2;
-                    if data_bytes > 16 * 1024 * 1024 {
-                        return Err("Reachable literal data exceeds 16 MiB budget".into());
-                    }
-                }
-                if let Op::Call { target, .. } = instruction.op {
+        for (method, site) in virtuals.values() {
+            for &class in classes.values() {
+                if let Some(target) = binder
+                    .implementation(*method, class)
+                    .map_err(|error| format!("{site}: {error}"))?
+                {
                     if seen.insert(target) {
                         if seen.len() > 4096 {
                             return Err("Reachable method count exceeds 4096".into());
@@ -181,6 +223,23 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                     }
                 }
             }
+        }
+        if queue.is_empty() {
+            break;
+        }
+    }
+    let classes: Vec<_> = classes.into_values().collect();
+    for (method, site) in virtuals.into_values() {
+        let function = binder
+            .function(method, &classes)
+            .map_err(|error| format!("{site}: {error}"))?;
+        instructions += function
+            .blocks
+            .iter()
+            .map(|b| b.parameters.len() + b.instructions.len() + 1)
+            .sum::<usize>();
+        if instructions > 2_000_000 {
+            return Err("Reachable IR exceeds program size limit".into());
         }
         functions.push(function);
     }

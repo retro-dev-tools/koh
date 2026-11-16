@@ -8,14 +8,29 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [reference-class layout and executable object core](class-layout.md).
+Current unit: [native class virtual dispatch](virtual-dispatch.md). Typed
+synthetic dispatch functions preserve newslot/override/base-call semantics,
+constructor-time dispatch, null checks and transitive class reachability.
+Four D/R × DMG/CGB configurations execute36 ROM probes with separate banks
+including257+, exact per-type packets and wide/byref signatures. Review's
+duplicate-override defect was reproduced and fixed. Final focused283/283 checks
+pass43.495s, exit0. The full workspace run completed1047 tests in1487.093s:
+1045 passed, two stale forged-framework diagnostic assertions failed, zero
+skipped; both strengthened replacements pass in the focused run. Do not describe
+that original full command as green. New-head hosted validation remains required.
+One more legacy method is replaced:48/565 complete,517 outstanding.
+Ordinary2048v2 SDK build advances to Assets::Load IL_0005 and rejects managed
+references inside value structs, exit1 in29.78s. Interfaces, scene-game behavior,
+managed structs and the other whole-migration gates remain required.
+
+Previous unit: [reference-class layout and executable object core](class-layout.md).
 Object-core work now passes60 ROM probes (15 entries across
 Debug/Release and DMG/CGB) in four rstest cases. Typed references,
 fresh allocation, constructors/direct calls, inherited fields, aliases,
 reference arrays, null faults and exhaustion are exercised. Broader regression
 passes376/376 in338.797s; final focused checks pass277/277 in40.210s, exit0.
 Review-discovered fabrication/alias gaps have negative regressions and fixes.
-Virtual/interface dispatch and real scene games are still required. Two legacy
+At that checkpoint virtual/interface dispatch and real scene games remained required. Two legacy
 class methods now have complete replacements:47/565 complete,518 outstanding.
 Workspace all-feature/all-target check succeeds7.14s (existing cube support
 unused-helper warning); separate rustdoc succeeds for four crates/zero cases.
@@ -51,7 +66,7 @@ The pushed metadata commitb4caf55 also now has completed hosted Rust evidence:
 Actual nextest logs show Linux1012/1012 in774.586s, macOS1012/1012 in1178.527s
 and Windows1010/1010 in1792.635s, zero workspace skips. The same two Unix-only
 assembler cases explain the Windows difference. Separate rustdoc, artifact
-smoke and RGBDS jobs succeed. These results predate the uncommitted object core;
+smoke and RGBDS jobs succeed. These results predate the object-core increment;
 they do not establish its cross-platform acceptance or the real class games.
 
 Previous unit: [Rust-owned cube phase sweep](cube-phase-sweep.md). Two Roslyn

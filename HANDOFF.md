@@ -1,5 +1,148 @@
 # PR #55 handoff
 
+## Dispatch verification ready for commit
+
+Full1047-case workspace run finished exit100 in1487.093s:1045passed, two stale
+string diagnostic assertions failed, zero skipped. Both were the already
+identified forged-framework wording check. Production rejects the correct
+missing identity. Final selected run283/283 passed43.495s, exit0 (132 filtered):
+IR, all virtual/negative/work-bound cases, exact three-type packets with unsigned
+byte kinds, and both strengthened string tests. Source hashes match
+/tmp/koh-virtual-tested.sha256. Workspace all-feature/all-target check succeeds
+7.49s (existing cube support dead-code warning); separate rustdoc succeeds for
+four crates/zero cases. All local process handles terminal. Full test log remains
+an honest failed original run, not retroactively green. Hosted next-head CI needed.
+
+Exact packet now replaces aggregate-only observations. Legacy virtual static-
+receiver method has a complete stronger replacement:48/565 complete,517 partial/
+outstanding, zero physically retired. Re-review found no remaining production
+blocker after duplicate-override fix. Added docs/ABI traceability and removed
+obsolete byte-tag implementation claims from Game/Scene XML (no API change).
+Next commit/push this unit, update PR55 checklist and monitor fresh CI.
+
+## Active uncommitted unit — virtual dispatch
+
+Worktree now has native class virtual slot binding, fixed-point reachability,
+typed synthetic dispatchers, checked class casts and fault10. Initial banked/IR
+run278/278 passed24.479s; review/fix selection281/281 passed35.138s, exit0.
+Nine native fixture entries execute across four D/R × DMG/CGB configurations,
+separate ROM banks including257+, SVBK2/poison/guards and wide/byref signatures.
+Review's duplicate-override bug reproduced both configurations and is fixed,
+with final-method/malformed metadata tests. Generated80-class/80-slot work-limit
+probe passes with caller/IL diagnostic. Re-review reports no remaining blocker.
+The newest fixture also checks explicit covariant MethodImpl rejection; its
+final full run is pending. No virtual-unit commit or legacy closure yet.
+
+Full workspace/all-features nextest is LIVE: write_stdin session55690,
+/tmp/koh-virtual-workspace.log. Initial full build exposed two exhaustive test
+Control matches missing TypeFault in lowering.rs; both were updated, then the
+full run restarted only after the first handle finished exit101. Poll55690;
+do not start another shared build. All earlier handles terminal.
+Pushed419803b hosted native run43787325828 FAILED on all hosts/references job.
+Actual logs show only the forged-framework string test's brittle `contains
+callvirt` assertion: production now rejects earlier with missing exact assembly
+identity. Updated Rust source assertion to require Missing assembly System.Runtime,
+public key token and Program::At/IL location. This does not permit compilation.
+Current full-run binary predates this TEST-ONLY edit and is expected to show
+that stale assertion in both configurations; preserve the run for other checks,
+then rerun the two source tests under the new assertion before claiming a fix.
+Primary log job133037767310:839passed/1failed before fail-fast cancellation.
+Independent isolated Roslyn/CLI probe reproduced the exact rejection without
+another shared build: SDK build exit0, native compiler exit1, no object output;
+Program::At IL_0002 Missing assembly System.Runtime version10.0.0.0 with altered
+public key token. Logs /tmp/koh-forged-framework-{build,cli}.log. PR55 description
+now honestly notes419803b CI failure rather than pending. New assertion still
+requires its focused rerun after current full binary finishes.
+SDK2048v2 now reaches Assets::Load IL_0005 and explicitly fails managed reference
+fields inside value structs, exit1 in29.78s. Preserve useful asset capability;
+do not force API redesign merely to bypass missing compiler semantics.
+Latest pushed commit is still419803b object core; PR55 is draft/unmerged and its
+checklist correctly describes committed work.47/565 closed,518 outstanding.
+After full results, run separate rustdoc/check as needed, refresh source hashes,
+update docs/ABI/test matrix, commit/push logical dispatch increment and PR body.
+Before closing the legacy virtual test, strengthen Main with exact per-type
+Area/Kind observations (prefer a32-byte raw packet checked by Rust). Current
+three-type loop only checks aggregate42, which could miss compensating wrong
+selections. Keep current full-run inputs stable; add/check the packet afterward.
+Then managed structs and actual scene-game behavior, interfaces/delegates/IRQs/
+source debugging, remaining test migration and old compiler deletion remain.
+
+Independent read-only audits during the full run:
+- TileAsset/MapAsset are value handles containing array references. Preserve
+  inline value-copy semantics plus shared heap references; changing them to
+  classes just to evade current layout rejection is not a correctness fix.
+  Managed byrefs in ordinary fields must remain distinct/rejected. Explicit
+  managed-reference overlap needs its own ECMA rule/diagnostic, not byte-copy
+  assumptions. No next-unit production code has been changed.
+- clrmeta0.1.0 TableId ends at0x2c; it does not cover Portable PDB tables0x30+.
+  Evaluate maintained symbolic-ppdb against needed sequence points, identity
+  matching and local scopes before choosing a small isolated compatibility
+  layer. Official dotnet/runtime PortablePdb-Metadata.md is the format source.
+- Existing DAP StackTraceHandler walks16-bit words toFFFE using current ROM
+  bank; native ABI uses dynamic frames endingD000 plus bank cookies. Source
+  line lookup/KDBG emission cannot establish stack correctness. Investigate a
+  minimal compiler-specific unwind integration, not a debugger rewrite/DWARF.
+  Existing Cartridge.CurrentRomBank is byte-valued, so ninth-bank-bit debug
+  handling also requires explicit validation. These are outstanding gates.
+
+## Current checkpoint — object core pushed
+
+Pushed419803be92e0f4c579d8c4cd9d917955749cebf0; remote branch and PR55 head,
+master base, open/draft/unmerged state verified. Live checklist updated.
+Native object core passes376/376 broad regressions and277/277 final focused
+checks after formatting/final class-shape validation; workspace check and
+separate rustdoc succeed. Eleven tested source hashes still match after the
+commit hook (/tmp/koh-object-tested.sha256). All local process handles terminal.
+Sixty ObjectCore ROM probes cover15 entries in Debug/Release × DMG/CGB.
+Test dispositions47/565 complete,518 outstanding, zero physically retired.
+
+Ordinary2048v2 SDK build now advances to Game::Run IL_000c and fails explicitly
+on pending virtual dispatch, exit1,29.55s. It remains a required failing sample.
+Review found raw/ref-array fabrication, static-cell aliases and class identity
+shape gaps; fixes/negative cases are included, re-review has no remaining blocker.
+New native CI43787325828 and managed CI43787325868 confirmed in progress.
+Priorb4caf55 native CI completed1012Linux/macOS,1010Windows, zero workspace
+skips plus rustdoc/artifact/RGBDS; those results are not new-head acceptance.
+
+Next: virtual dispatch with exact CIL slot semantics, including newslot/override,
+base calls, null checks, constructor-time dispatch, inherited implementations
+and closed-world reachable instantiated types. Then interfaces/delegates and
+actual2048v2/JRPG behavior. Keep public APIs open to critical redesign; preserve
+useful product capabilities and update consumers/tests/docs together.
+PDB/KDBG source+stack proof, IRQs/reentrancy/banked data, all test migration,
+old compiler deletion, performance and final cross-platform/release gates remain.
+Do not merge. Preserve unrelated main-checkout battle.png edits.
+
+## Earlier checkpoints (historical)
+
+### Uncommitted virtual dispatch unit
+
+New dispatch.rs Binder selects ECMA-335 nongeneric class virtual slots with
+newslot/reuse, inherited implementation and final/strict checks. Reachability
+now computes a bounded fixed point of allocated classes, virtual sites and
+selected override bodies, then emits typed synthetic FE dispatcher functions
+using existing Call/banked ABI. Explicit MethodImpl/interface mappings still
+diagnose; generic virtual shapes are not claimed. Raw unsupported dead override
+bodies are not included. IR adds exact IsClass, checked CastClass and TypeFault;
+descriptors retain parent links, cast walk bounded65 (64 classes plus Object).
+Fault10 identifies invalid runtime type; CIL castclass for reference classes
+is wired. Synthetic calls retain originating call-site IL diagnostics.
+
+Initial16 ROM probes passed4/4 in17.475s; expanded32 probes passed4/4 in18.967s.
+Bank-constrained cases force every managed function/dispatcher to a separate
+ROM bank, including257+, preserve SVBK2 and bank2 poison, and add int64/byte/
+byref parameters. IR+banked run278/278 in24.479s, exit0,134 filtered
+(/tmp/koh-virtual-banked.log). This predates the latest signature prefilter and
+three-type loop/dead generic-overload fixture changes; rerun before claiming
+latest bytes. All local build/test handles terminal.
+
+Ordinary2048v2 SDK now advances through Game::Run to Assets::Load IL_0005 and
+fails explicitly on managed-reference fields inside a value struct, exit1 in
+29.78s (/tmp/koh-virtual-2048-sdk.log). This exposes the next compiler gap, not
+game acceptance or a reason to remove/redesign useful asset APIs mechanically.
+Need finish negative metadata/provenance tests, resource bounds and review.
+No virtual unit commit yet;47/565 test closure unchanged. Full goal remains.
+
 PUSHED b4caf551a1428481c547fc0bdde5a626196b7307 class-layoutfoundation.
 Remote/PR55head/masterdraftverified; checklistkeepsclassgamesunchecked.
 All8testedsource/fixturehashesmatchposthook /tmp/koh-class-tested.sha256.

@@ -2,7 +2,7 @@
 
 Status: validated metadata/layout foundation and executable object core.
 Native ROM probes cover allocation, constructors, fields and direct calls.
-Virtual/interface dispatch,2048v2/JRPG acceptance and source debugging remain
+Interface dispatch,2048v2/JRPG acceptance and source debugging remain
 required; this does not complete the compiler replacement.
 
 ## Requirements from actual consumers
@@ -52,7 +52,8 @@ parent descriptor address; the built-in System.Object descriptor contains zero.
 Canonical ELF symbols and relocations carry these addresses to the linker.
 Typed object references retain class identity through calls, locals and SSA
 joins. Reference-valued fields and class/string arrays use typed two-byte cells.
-Nested arrays and dispatch remain pending; raw integers cannot fabricate objects.
+Nested arrays remain pending; [class dispatch](virtual-dispatch.md) now uses these
+descriptors. Raw integers cannot fabricate objects.
 
 AutoLayout is the initial implemented class-layout mode. Sequential/explicit
 class layouts and generic instances diagnose instead of ignoring their metadata;
@@ -82,9 +83,8 @@ newobj, sets the descriptor before invoking constructors and preserves CGB
 SVBK across heap accesses. It shares the checked4KiB arena with arrays and raw
 allocations. Null access faults with code4; exhaustion faults with code5.
 Nonvirtual callvirt null-checks even when the method never reads this; ordinary
-base calls remain direct. Virtual calls explicitly diagnose pending dispatch.
-Virtual/interface reachability needs a
-bounded fixed point over instantiated types and call sites, not the entire BCL.
+base calls remain direct. Class virtual reachability now uses a bounded fixed
+point over instantiated types and call sites; interfaces remain pending.
 Banked access, reference-valued arrays, callbacks, reentrancy and capacity checks
 must compose with the existing ABI. Keep both real games and all compiler-owned
 semantic tests on the final completion checklist.
@@ -144,11 +144,12 @@ Logs: `/tmp/koh-class-workspace-check.log`, `/tmp/koh-class-doctests.log`.
 | --- | --- |
 | `CilVirtualDispatchTests::InheritedFields_UsePrefixLayout_NoOverlap` | PORT complete: native `ObjectCore::InheritedFields` checks exact before/base/after packets in four configurations. Metadata also covers hidden fields. |
 | `CilClassStringFieldTests::StringCtorParameter_StoredInClassField_ReadBackViaLengthAndIndexer` | PORT complete: native `ObjectCore::BannerFields` checks two distinct strings/scores, length and indexed characters in exact heap records. |
-| `CilVirtualDispatchTests::VirtualCalls_TagDispatchThroughBaseTypedStatic` and `SceneMachine_GameRun_DeferredChangeWithCtorState` | PORT remains incomplete: a header reservation is not executable dispatch or scene acceptance. |
+| `CilVirtualDispatchTests::VirtualCalls_TagDispatchThroughBaseTypedStatic` | PORT complete: class dispatch tests execute three runtime types through a reassigned static receiver, exact Area/Kind packets and banked calls. |
+| `CilVirtualDispatchTests::SceneMachine_GameRun_DeferredChangeWithCtorState` | PORT remains incomplete: executable dispatch alone is not scene-transition acceptance. |
 | Old scalar-aligned class layout / element-scaled GEP internals | REPLACE with the documented packed target ABI and independent offset/alias tests; old padding and helper-class names are not compatibility contracts. |
 
-Two class methods have complete native replacements; none is deferred. The
-565-method ledger now has47 complete and518 partial/outstanding. This work stays in
+Three class methods have complete native replacements; none is deferred. The
+565-method ledger now has48 complete and517 partial/outstanding. This work stays in
 the single migration PR; final acceptance still requires integrated native
 objects and real games, followed by removal of the retiring compiler.
 

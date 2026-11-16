@@ -32,6 +32,13 @@ one compatible reference-cell shape across the program, preventing equal-width
 aliases from changing their class or numeric/reference kind. Constructors and
 direct calls retain ordinary verified function signatures and source IL offsets.
 
+Virtual sites target generated FE functions with ordinary verified signatures.
+`IsClass` tests exact descriptor identity; `CastClass` preserves null and checks
+parent descriptors before returning a typed reference. Both reject numeric or
+string/array operands. Checked casts remain observable even with unused results.
+`TypeFault` is a terminal control operation with no successors or return value.
+See [slot binding, reachability and runtime checks](virtual-dispatch.md).
+
 Typed constant reuse and local forwarding preserve SSA dominance. Cross-block
 forwarding requires the identical SSA value on every incoming path and excludes
 address-exposed or pinned locals. Calls and memory writes cannot alias the remaining

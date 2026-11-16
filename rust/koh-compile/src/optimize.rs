@@ -283,6 +283,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 Op::Negate(id)
                 | Op::Upcast { value: id, .. }
                 | Op::CheckObject(id)
+                | Op::IsClass { object: id, .. }
+                | Op::CastClass { object: id, .. }
                 | Op::ObjectFieldAddress { object: id, .. }
                 | Op::Not(id)
                 | Op::Convert { value: id, .. }
@@ -317,7 +319,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 value(condition);
             }
             Control::Switch { selector, .. } => value(selector),
-            Control::Jump(_) => {}
+            Control::Jump(_) | Control::TypeFault => {}
             Control::Return(result) => {
                 if let Some(id) = result {
                     value(id);

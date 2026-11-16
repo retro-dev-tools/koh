@@ -22,7 +22,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
   Full Linux Rust workspace/all-features passes924/924, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
-  Forty-seven legacy methods have complete replacements;518 remain partial/
+  Forty-eight legacy methods have complete replacements;517 remain partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
   with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
   Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
@@ -39,8 +39,13 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   checked null/exhaustion faults:60 ROM probes in Debug/Release × DMG/CGB.
   Object regression passes376/376, with277/277 final focused checks after
   verifier review fixes and fixture formatting. Two class test methods now have
-  complete replacements. Virtual/interface dispatch and2048v2/JRPG acceptance
-  remain required. Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
+  complete replacements. Class virtual dispatch now adds36 bank-constrained ROM
+  probes, exact per-type results and wide/byref signatures. Final selected283/283
+  checks pass. Workspace1047-case run had1045 passes and two stale forged-reference
+  diagnostic assertions; both strengthened replacements pass in that selection.
+  Do not call that original full run green. Interface dispatch, managed-reference
+  structs and2048v2/JRPG acceptance remain required; SDK2048v2 now reaches the
+  struct gap in Assets::Load. Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
   and1010 Windows cases; those results predate the object-core increment.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain

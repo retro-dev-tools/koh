@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: forty-seven legacy methods; zero physically retired.**
+**Native behavioral replacements: forty-eight legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining518 methods still have
+The remaining517 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -70,6 +70,22 @@ and `/tmp/koh-object-postformat.log`. Raw-to-reference loads and incompatible
 static-cell aliases discovered during review have explicit negative coverage.
 No compiler-owned test is deferred; the C# test project remains pending final
 whole-migration deletion.
+
+## Class virtual-call replacement
+
+| Source method / purpose | Independently justified requirement | Decision / native evidence |
+| --- | --- | --- |
+| `Frontends/CilVirtualDispatchTests.VirtualCalls_TagDispatchThroughBaseTypedStatic` | Runtime receiver chooses among three overrides after static reload/reassignment; inherited implementation, parameter/return flow and loop state remain correct | PORT complete: `driver::virtual_slots_and_constructor_dispatch_execute`, `VirtualCalls::Main`, four Debug/Release × DMG/CGB cases. Rust checks individual Area/Kind packets18/227,12/130,4/163, including unsigned byte widening; managed functions and dispatchers occupy separate ROM banks, including257+. No dependency on legacy byte tags or private dispatch IR. |
+
+This maps one source method/two Roslyn configuration scenarios to four native
+cases. The same cases execute eight other entries (36 ROM probes total) covering
+newslot/base calls, constructor-time zero fields, null, transitive allocation,
+casts and64-bit/byref signatures. Two malformed-override cases and one generated
+work-budget case add independent diagnostics. Final selected283/283 checks pass
+in43.495s, exit0. Full workspace run1045/1047 passed with only two stale forged-
+framework diagnostic assertions failing; their strengthened replacements pass in
+that selected run. See [exact evidence and limitations](virtual-dispatch.md).
+This closes no interface, scene-transition or interrupt method automatically.
 
 ## Runtime fill replacements
 

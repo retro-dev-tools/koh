@@ -92,7 +92,7 @@ fn storage_type(
     })
 }
 
-fn storage_signature(
+pub(crate) fn storage_signature(
     resolver: &crate::resolve::Resolver<'_>,
     identity: Definition,
     signature: &clrmeta::MethodSig,
@@ -126,7 +126,7 @@ fn storage_signature(
     Ok(result)
 }
 
-fn owner_type(
+pub(crate) fn owner_type(
     resolver: &crate::resolve::Resolver<'_>,
     identity: Definition,
 ) -> Result<Definition, String> {
@@ -208,7 +208,7 @@ fn bound_storage(
     }
 }
 
-fn class_type(
+pub(crate) fn class_type(
     resolver: &crate::resolve::Resolver<'_>,
     identity: Definition,
 ) -> Result<ClassType, String> {
@@ -266,7 +266,7 @@ fn field_storage(
     }
 }
 
-fn bound_signature(
+pub(crate) fn bound_signature(
     resolver: &crate::resolve::Resolver<'_>,
     assembly: usize,
     signature: &clrmeta::MethodSig,
@@ -1173,6 +1173,29 @@ fn translate(
             )?;
             b.stack.push(value);
         }
+        0x74 => {
+            let Operand::Token(token) = i.operand else {
+                return Err("Missing castclass type".into());
+            };
+            let resolver = resolver.ok_or("castclass requires metadata resolution")?;
+            let Type::Object(class) = bound_type(
+                resolver,
+                method.identity.assembly,
+                &resolver.type_signature(method.identity.assembly, token)?,
+            )?
+            else {
+                return Err("castclass requires a supported reference class".into());
+            };
+            let object = b.pop()?;
+            let result = b.value(
+                Type::Object(class),
+                Op::CastClass {
+                    object: object.0,
+                    class,
+                },
+            )?;
+            b.stack.push(result);
+        }
         0x8d => {
             let Operand::Token(token) = i.operand else {
                 return Err("Missing array element type".into());
@@ -1401,9 +1424,6 @@ fn translate(
                 let signature = metadata.method_signature(target.definition.token)?;
                 if !signature.calling_convention.has_this() {
                     return Err("callvirt requires an instance method".into());
-                }
-                if metadata.method(target.definition.token)?.flags & 0x40 != 0 {
-                    return Err("Virtual reference calls require dispatch lowering".into());
                 }
             }
             if constructing {
@@ -1637,7 +1657,13 @@ fn translate(
                 });
             }
             let op = Op::Call {
-                target: target.definition,
+                target: if i.opcode == 0x6f
+                    && metadata.method(target.definition.token)?.flags & 0x40 != 0
+                {
+                    crate::dispatch::identity(target.definition)
+                } else {
+                    target.definition
+                },
                 signature,
                 arguments,
             };

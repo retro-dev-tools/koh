@@ -1041,7 +1041,7 @@ impl<'a> Resolver<'a> {
         Err(format!("Unresolved field {name} at token 0x{token:08x}"))
     }
 
-    fn methods_equal(
+    pub(crate) fn methods_equal(
         &self,
         left_assembly: usize,
         left: &MethodSig,

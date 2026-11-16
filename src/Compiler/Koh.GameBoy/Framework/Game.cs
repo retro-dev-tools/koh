@@ -5,9 +5,7 @@ namespace Koh.GameBoy.Framework;
 /// <summary>
 /// The game shell. The ideal entry point is <c>Game.Run(new TitleScene())</c> — the framework owns
 /// the loop: boot, enter the first scene, screen on, then forever <c>scene.Update()</c> +
-/// <see cref="EndFrame"/> (frame flush, input latch, clock tick, deferred scene commit). The
-/// per-frame <c>scene.Update()</c> is a closed-world tag dispatch (compiler enabler E2 — see
-/// <c>docs/superpowers/specs/2026-07-19-ideal-game-api-design.md</c>).
+/// <see cref="EndFrame"/> (frame flush, input latch, clock tick, deferred scene commit).
 ///
 /// A game may instead own its loop — <c>Game.Boot(); /* author */ Video.Start();
 /// while (true) { /* update */ Game.EndFrame(); }</c> — <see cref="Boot"/>/<see cref="EndFrame"/>
