@@ -29,7 +29,7 @@ fn read(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.len() > limit {
         return Err(format!(
-            "{}: input exceeds assembly/combined size limit",
+            "{}: input exceeds per-file/combined size limit",
             path.display()
         ));
     }
@@ -64,10 +64,12 @@ fn run() -> Result<(), String> {
     let mut output = None;
     let mut references = Vec::new();
     let mut entry = None;
+    let mut pdb = None;
+    let mut no_pdb = false;
     let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
         match arg.to_str() {
-            Some(flag @ ("-o" | "--output" | "-r" | "--reference" | "--entry")) => {
+            Some(flag @ ("-o" | "--output" | "-r" | "--reference" | "--entry" | "--pdb")) => {
                 let value = args
                     .next()
                     .ok_or_else(|| format!("Missing value after {flag}"))?;
@@ -78,6 +80,11 @@ fn run() -> Result<(), String> {
                         }
                     }
                     "-r" | "--reference" => references.push(PathBuf::from(value)),
+                    "--pdb" => {
+                        if pdb.replace(PathBuf::from(value)).is_some() {
+                            return Err("PDB specified more than once".into());
+                        }
+                    }
                     _ => {
                         let name = value
                             .into_string()
@@ -88,9 +95,10 @@ fn run() -> Result<(), String> {
                     }
                 }
             }
+            Some("--no-pdb") => no_pdb = true,
             Some("--help" | "-h") => {
                 println!(
-                    "koh-compile ASSEMBLY [-o OBJECT] [-r REFERENCE]... [--entry Type::Method]\nEmits canonical ELF32/SM83 for koh-link. References must contain reachable implementations."
+                    "koh-compile ASSEMBLY [-o OBJECT] [-r REFERENCE]... [--entry Type::Method] [--pdb SYMBOLS | --no-pdb]\nEmits canonical ELF32/SM83 for koh-link. References must contain reachable implementations.\nMatching adjacent Portable PDBs are optional; --pdb selects the root assembly's symbols."
                 );
                 return Ok(());
             }
@@ -115,10 +123,14 @@ fn run() -> Result<(), String> {
         }
     }
     let input = input.ok_or("Assembly path is required")?;
+    if no_pdb && pdb.is_some() {
+        return Err("--pdb and --no-pdb cannot be combined".into());
+    }
     let output = output.unwrap_or_else(|| input.with_extension("o"));
     let output_id = identity(&output)?;
     let mut seen = HashSet::new();
     let mut images = Vec::new();
+    let mut paths = Vec::new();
     let mut total = 0usize;
     for path in std::iter::once(&input).chain(&references) {
         let id = path
@@ -134,12 +146,54 @@ fn run() -> Result<(), String> {
             let bytes = read(&id, (64 * 1024 * 1024).min(256 * 1024 * 1024 - total))?;
             total += bytes.len();
             images.push(bytes);
+            paths.push(id);
         }
     }
+    let mut symbols = Vec::new();
+    let mut total = 0usize;
+    for (index, path) in paths.iter().enumerate() {
+        if no_pdb {
+            symbols.push(None);
+            continue;
+        }
+        let candidate = if index == 0 {
+            pdb.clone().unwrap_or_else(|| path.with_extension("pdb"))
+        } else {
+            path.with_extension("pdb")
+        };
+        match std::fs::metadata(&candidate) {
+            Ok(_) => {}
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    && !(index == 0 && pdb.is_some()) =>
+            {
+                symbols.push(None);
+                continue;
+            }
+            Err(error) => return Err(format!("{}: {error}", candidate.display())),
+        }
+        let symbol_id = candidate
+            .canonicalize()
+            .map_err(|error| format!("{}: {error}", candidate.display()))?;
+        if symbol_id == output_id || seen.contains(&symbol_id) {
+            return Err("PDB, assembly and output paths must be distinct".into());
+        }
+        let bytes = read(
+            &symbol_id,
+            (64 * 1024 * 1024).min(256 * 1024 * 1024 - total),
+        )?;
+        total += bytes.len();
+        symbols.push(Some(bytes));
+    }
     let views: Vec<_> = images.iter().map(Vec::as_slice).collect();
+    let symbol_views: Vec<_> = symbols.iter().map(|bytes| bytes.as_deref()).collect();
     let result = (|| {
         let resolver = koh_compile::resolve::Resolver::new(&views)?;
-        koh_objects::write_elf(&koh_compile::compile::object(&resolver, entry.as_deref())?)
+        koh_objects::write_elf(&koh_compile::compile::object_with_debug(
+            &resolver,
+            entry.as_deref(),
+            &symbol_views,
+        )?)
     })()
     .map_err(|e| format!("{}: {e}", input.display()))?;
     write(&output, &result)

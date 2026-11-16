@@ -494,3 +494,77 @@ All60externallockedpackagesnowcoveredwithexactselectedarchiveMIT/Zlibtexts.
 NoAPI/sourceDBuserworkflowchangeclaimeduntilnextunit. Nextcommit/pushmatching
 unit,PRdescriptionreadback; thenadjacent/explicitPDBdiscoveryandELF/KDBGmapping,
 followedactualdebuggerbreakpoint/stacktests. Legacyledgerremains68/565.
+
+## Source mapping / CLI / SDK unit in progress
+
+Pushed98f77a2 matchingunit,cleanstart. CurrentdirtyRustcompile/sm83/cartridge/PDB
+adds object_with_debug validatedorderedrawPDBinputs, survivingILlocations to
+machinebyte ranges,patchprovenance,readablemetadatafunctionaliases. Prologues/
+hiddencode/runtimehelpersnotmapped. Source caps4MiB/function,64MiB/module;
+combinedPDB256MiBinput/16MiBexpandedpaths/1m points. Badcounts/orderdiagnose.
+CoreD/R ELFroundtrip+link+ROM42 first2/2pass11.049s; strengthened4/4pass11.008s
+includinghiddenemittedspans,prologues/softwaremulhelper exclusion,budgetdiagnostic,
+optionalroot/referencePDB combinations. NoPDB/sourcePDB ROMbytesidentical.
+
+NativeCLI nowauto-discoversadjacent PDBs, explicitroot --pdb or --no-pdb, preserves
+outputonmalformedPDBandrejectsPDB/output/assemblypathaliases. CLItests2/2pass
+10.876s. SourceDebugfixtureMainnowcallsrealRgb.Make(9,1,0)thenHelper =>42.
+SDKTask PdbPaththinargument+--no-pdbonEmitDebugInfofalse,protectsexistingPDB
+inputs. SDKTargetPDBinputs/propertystampincludespresence/pathsforincremental.
+FirstSDKrun2/2RED130.255s atMSB4012 itemlistconcatinStamp; correctedtoitem
+transformsafterrunterminal. LIVE61376 /tmp/koh-pdb-sdk-stamp-fixed.log,2 SDKcases.
+No concurrentbuildin/tmp/koh-header-target; rootnativeMSBuildtargets are distinct
+target/compiler-msbuild/Debug,Release. Do noteditowningSDK/Rustsourcesmidrun.
+
+Reviewunitforreadonlyagent: allcurrentdirtydiffagainst98f77a2 acrossRustcompile,
+sm83,pdb,cartridge,main +BuildTasks/SDKtargets andtests. Parent ownsalledits/builds.
+AuditPDBprovenance,hidden/syntheticranges,resourcescaps,symbolaliasing,CLIpath
+safety,SDKoptional/incrementalflags. CheckwhetherreachablePDBoffsets should
+validateagainstactualCILinstructionboundaries beforemapping; currentlymatching
+validatesPDBmetadataandPEid/checksum,notactualoffset-to-bodyconsistency. No
+actualdebuggeracceptanceyet; existingStackTraceHandlerheuristicdoesnotunderstand
+compilerframesandbankbytewidthlimitationknown. Do nottreatthosebugsasspec.
+
+## Source mapping SDK now verified
+
+FirststampfixSDK2/2RED30.954s because testtouched bin PDB, which SDKcopiesback
+fromobj. SDKprimaryCopytargetconfirmedsourceis_DebugSymbolsIntermediatePath.
+Probe nowtouchesobj PDB,assertscopiedbinmtimeequalsthatinput,retainsnativeROM
+rebuildassertion. FinalSDK2/2pass125.502s,exit0(two62s cases),log
+/tmp/koh-pdb-sdk-intermediate.log. Bothroot/reference maps,incremental/no-debug
+flags,outputprotection/pathswithspacespass. SDKCodefrozenafterthischeckpoint.
+Readonlyreviewfindsnoconfirmeddefect; ILinstructionboundaryextra-validation
+notexplicitPortablePDBformatrequirement,notaddedasspeculativepolicy.
+
+Broadercurrentregression LIVE(log /tmp/koh-pdb-mapping-regression.log),allcompiler
+lib+allsm83+PDB/sourceCLI+actualSDKgamescases, same/tmp/koh-header-target.
+Do notbuildconcurrentlythere ormutateproduction/fixturesduringrun. Nextinspect
+terminalresult,checks/rustdoc/fmt,documentknownremainingactualdebugger/stackgate,
+commit/pushthissourceCLI/SDKunit. Ledger68/565unchangedunlessexactlegacy
+requirementfullyproved. ExistingnoPDBtestalsoasksPEwithoutPDBmetadata,notjust
+missingfile; currentmissingfileCLItestsnotthatfulllegacyclosureyet.
+Hosted98f77a2 Rust43875274042 macjob133326574819completed success; Linux
+133326574764andWin133326574969stillinprogresswhenpolled. Macprimarylognotread
+yet,nocountclaim. Currentdirtytreeincludesreadablealiasesinplainobjectoutput,
+so broadregressionneeded. Actualdebugger/sourcebreakpointstillnextunit; no
+Debuggerproductionrewrite. No concurrentparentbuildoutsideactivecommand.
+
+## Mapping regression terminal / milestone regrouping
+
+Broader254/254pass416.277s,exit0 /tmp/koh-pdb-mapping-regression.log; allselected
+lib/sm83/PDBCLI+6SDKgamecases,253intentionallyunselectedinthesebinaries.
+Workspacecheck9.11spass(existingcubehelperwarning); rustfmtpass; rustdocbeing
+checkedseparately. Sourcehashsnapshot /tmp/koh-pdb-mapping-sources.json.
+AllnativeSDK/runtimehandlesabove nowterminal. No currentdebuggerproofclaim.
+
+Useraskedwhy30-60iterationsandrequestedjustfewmilestones. Thatestimatewas
+toospeculativeandcountedmicrosteps. PR55descriptionnow4remainingacceptance
+milestones:1source-debug2compiler/runtime/hardware/games3testclosure+legacy
+removal4finalproduct/release/perf/hosts. Userwantscontinuedworkwithinmilestones,
+notstoppingaftereachinternalstep. Existinggoalunchanged; do notpromise4turns.
+PRstillhead98f77a2untilmappingcommitpush, draft/unmerged,68/565ledger.
+Nextcommitmappingunitafterrustdoc/sourcehashcheck, refreshPRmilestone1progress
+withoutcheckingitcomplete. Continueactualdebugger/KDBGloader/breakpoint/stack
+inspection. Existingmethoddisplaynamesomitnestedparents; module/tokenaliases
+areunique butqualifiednamesmaybeimprovedduringdebuggerwork. Existingcall-stack
+walkerheuristicandbankbytearenotABIorhardwarespecs; donotadaptABItoimitatebugs.

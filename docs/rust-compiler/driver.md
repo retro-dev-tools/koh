@@ -10,6 +10,10 @@ target/debug/koh-link -o game.gb game.o
 ```
 
 The reusable library boundary is `compile::object(&Resolver, Option<&str>)`.
+`compile::object_with_debug` additionally accepts optional PDB bytes in assembly
+order and validates them. The CLI reads matching adjacent Portable PDBs when present;
+`--pdb PATH` overrides root symbols and `--no-pdb` disables discovery. Source
+ranges use existing ELF/KDBG metadata; [details](source-debugging.md).
 The default entry is the managed PE entry point, or a unique static `Main` in
 a library. `--entry Namespace.Type::Method` selects an explicit entry; nested
 types use `Namespace.Outer+Inner::Method`. Entries currently take no arguments
@@ -33,7 +37,7 @@ This is an initial startup contract, not completed interrupt/runtime support.
 ## Input and output safety
 
 Paths use native OS strings, including paths with spaces. Canonical paths
-deduplicate references and prevent overwriting an input assembly. Limits are
+deduplicate references and prevent overwriting an input assembly or supplied PDB. Limits are
 64 MiB per image, 256 MiB combined and 1024 distinct images. Compilation completes
 before output is written through a newly created temporary file and rename.
 Rejected inputs preserve a previous output. Reference order does not change the

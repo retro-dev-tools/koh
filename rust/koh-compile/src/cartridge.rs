@@ -224,6 +224,15 @@ pub(crate) fn emit(
     entry: Definition,
     known_classes: &[crate::ir::ClassType],
 ) -> Result<Object, String> {
+    emit_with_debug(functions, entry, known_classes, &[])
+}
+
+pub(crate) fn emit_with_debug(
+    functions: &[Function],
+    entry: Definition,
+    known_classes: &[crate::ir::ClassType],
+    pdbs: &[Option<crate::pdb::PortablePdb>],
+) -> Result<Object, String> {
     verify_program(functions)?;
     let root = functions
         .iter()
@@ -361,6 +370,7 @@ pub(crate) fn emit(
         });
     }
     let mut classes = BTreeMap::new();
+    let mut debug_bytes = 0usize;
     for function in functions {
         for ty in function
             .parameters
@@ -387,7 +397,28 @@ pub(crate) fn emit(
                 }
             }
         }
-        objects.push(sm83::emit_with_strings(function, Some(&strings), true)?);
+        let pdb = pdbs
+            .get(function.identity.assembly)
+            .and_then(Option::as_ref);
+        let object = sm83::emit_with_strings(function, Some(&strings), true, pdb)?;
+        if pdb.is_some() {
+            for section in &object.sections {
+                debug_bytes += section
+                    .lines
+                    .iter()
+                    .map(|p| p.file.len() + 128)
+                    .sum::<usize>();
+                debug_bytes += section
+                    .patches
+                    .iter()
+                    .map(|p| p.source.file.len() + 128)
+                    .sum::<usize>();
+            }
+            if debug_bytes > 64 * 1024 * 1024 {
+                return Err("Source metadata exceeds 64 MiB compilation limit".into());
+            }
+        }
+        objects.push(object);
     }
     if !classes.is_empty() {
         classes.insert(sm83::class_symbol(None), crate::ir::ClassType::root());

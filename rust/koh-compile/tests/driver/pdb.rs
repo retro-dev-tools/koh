@@ -1,5 +1,5 @@
-use super::{Host, gameboy_images, host};
-use koh_compile::{assembly::Assembly, pdb::PortablePdb};
+use super::{Host, execute, gameboy_images, host};
+use koh_compile::{assembly::Assembly, compile, pdb::PortablePdb, resolve::Resolver};
 use rstest::rstest;
 
 fn checksum_variants(image: &[u8]) -> [Vec<u8>; 3] {
@@ -126,5 +126,161 @@ fn portable_pdb_reads_real_roslyn_documents_and_hidden_ranges(
             .documents
             .iter()
             .any(|path| path.ends_with("TileSet.cs"))
+    );
+}
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn source_ranges_survive_elf_linking_and_preserve_rom_execution(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "SourceDebug");
+    let symbols: Vec<_> = ["SourceDebug", "Koh.GameBoy"]
+        .map(|name| {
+            std::fs::read(
+                directory
+                    .path()
+                    .join(format!("bin/{configuration}/net10.0/{name}.pdb")),
+            )
+            .unwrap()
+        })
+        .into();
+    let views: Vec<_> = images.iter().map(Vec::as_slice).collect();
+    let resolver = Resolver::new(&views).unwrap();
+    let symbol_views: Vec<_> = symbols.iter().map(|bytes| Some(bytes.as_slice())).collect();
+    let object = compile::object_with_debug(&resolver, None, &symbol_views).unwrap();
+    let encoded = koh_objects::write_elf(&object).unwrap();
+    let object = koh_objects::read_elf(&encoded).unwrap();
+    let lines: Vec<_> = object.sections.iter().flat_map(|s| &s.lines).collect();
+    for (file, line) in [
+        ("mapped source.cs", 100),
+        ("other source.cs", 200),
+        ("other source.cs", 198),
+    ] {
+        assert!(
+            lines
+                .iter()
+                .any(|p| p.file.ends_with(file) && p.line == line && p.count != 0),
+            "{file}:{line}"
+        );
+    }
+    assert!(
+        lines.iter().any(|p| p.file.ends_with("Rgb.cs")),
+        "referenced runtime source"
+    );
+    assert!(
+        object
+            .symbols
+            .iter()
+            .any(|s| s.name.contains("Program::Helper")),
+        "readable function symbol"
+    );
+    let root_pdb = PortablePdb::for_assembly(&symbols[0], resolver.assembly(0).unwrap()).unwrap();
+    let helper = resolver
+        .assembly(0)
+        .unwrap()
+        .metadata()
+        .method_defs
+        .iter()
+        .enumerate()
+        .find(|(_, method)| {
+            resolver
+                .assembly(0)
+                .unwrap()
+                .metadata()
+                .strings
+                .get(method.name)
+                .unwrap()
+                == "Helper"
+        })
+        .map(|(index, _)| 0x06000001 + index as u32)
+        .unwrap();
+    let prefix = format!(
+        "{}.IL_",
+        koh_compile::sm83::symbol(koh_compile::resolve::Definition {
+            assembly: 0,
+            token: helper
+        })
+    );
+    let markers: Vec<_> = object
+        .symbols
+        .iter()
+        .filter_map(|symbol| {
+            let suffix = symbol.name.strip_prefix(&prefix)?;
+            let offset = u32::from_str_radix(suffix.split('.').next()?, 16).unwrap();
+            let koh_objects::SymbolDefinition::Label {
+                section,
+                offset: machine,
+            } = symbol.definition
+            else {
+                return None;
+            };
+            Some((section, machine as usize, offset))
+        })
+        .collect();
+    let mut hidden_bytes = 0;
+    for pair in markers.windows(2) {
+        let (section, start, il) = pair[0];
+        let (next_section, end, _) = pair[1];
+        assert_eq!(section, next_section);
+        if root_pdb.source(helper, il).is_none() && start < end {
+            hidden_bytes += end - start;
+            assert!(
+                object.sections[section.0]
+                    .lines
+                    .iter()
+                    .all(|line| line.offset + line.count <= start || line.offset >= end),
+                "hidden IL{il:04x} has a source mapping"
+            );
+        }
+    }
+    assert!(hidden_bytes > 0, "actual emitted hidden code");
+    let (section, first, _) = markers[0];
+    assert!(first > 0, "compiler prologue");
+    assert!(
+        object.sections[section.0]
+            .lines
+            .iter()
+            .all(|line| line.offset >= first)
+    );
+    let linked = koh_link::link(&[object], &Default::default()).unwrap();
+    assert!(
+        linked
+            .lines
+            .iter()
+            .any(|p| p.file.ends_with("mapped source.cs") && p.line == 100)
+    );
+    assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+    let plain = compile::object(&resolver, None).unwrap();
+    assert!(plain.sections.iter().all(|s| s.lines.is_empty()));
+    let plain = koh_link::link(&[plain], &Default::default()).unwrap();
+    assert_eq!(
+        linked.rom, plain.rom,
+        "source metadata must not change execution bytes"
+    );
+    let output = execute(host, directory.path(), &linked, "__koh_exit");
+    assert_eq!(
+        &output.split_whitespace().collect::<Vec<_>>()[..4],
+        &["00", "0000002A", "D000", "OK"]
+    );
+    for (inputs, expected) in [
+        ([Some(symbols[0].as_slice()), None], "mapped source.cs"),
+        ([None, Some(symbols[1].as_slice())], "Rgb.cs"),
+    ] {
+        let object = compile::object_with_debug(&resolver, None, &inputs).unwrap();
+        assert!(object.sections.iter().flat_map(|s| &s.lines).all(|line| {
+            line.file.ends_with(expected)
+                || (expected == "mapped source.cs"
+                    && (line.file.ends_with("other source.cs")
+                        || line.file.ends_with("Program.cs")))
+        }));
+        assert!(object.sections.iter().any(|s| !s.lines.is_empty()));
+    }
+    assert!(compile::object_with_debug(&resolver, None, &[None]).is_err());
+    assert!(
+        compile::object_with_debug(&resolver, None, &[Some(&symbols[1]), Some(&symbols[0])])
+            .is_err()
     );
 }

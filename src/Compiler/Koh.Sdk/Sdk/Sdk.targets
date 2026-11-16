@@ -48,6 +48,10 @@
 
   <Target Name="_KohWriteRomPropsStamp">
     <ItemGroup>
+      <_KohPdbCandidate Include="@(_DebugSymbolsOutputPath);@(ReferencePath->'%(RootDir)%(Directory)%(Filename).pdb')" Condition="'$(KohEmitDebugInfo)' == 'true'" />
+      <_KohPdbInput Include="@(_KohPdbCandidate)" Condition="Exists('%(_KohPdbCandidate.Identity)')" />
+      <_KohRomProps Include="@(_DebugSymbolsOutputPath->'PdbPath=%(Identity)')" />
+      <_KohRomProps Include="@(_KohPdbInput->'PdbInput=%(Identity)')" />
       <_KohRomProps Include="CgbCompatible=$(KohCgbCompatible)" />
       <_KohRomProps Include="CgbOnly=$(KohCgbOnly)" />
       <_KohRomProps Include="OutputPath=$(KohRomPath)" />
@@ -63,10 +67,10 @@
   </Target>
 
   <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
-          Inputs="$(TargetPath);@(ReferencePath);$(KohBuildTasksAssembly);$(KohCompilerExecutable);$(KohLinkExecutable);$(KohRomPropsStampFile)"
+          Inputs="$(TargetPath);@(ReferencePath);@(_KohPdbInput);$(KohBuildTasksAssembly);$(KohCompilerExecutable);$(KohLinkExecutable);$(KohRomPropsStampFile)"
           Outputs="$(KohRomPath);$(KohObjectPath);$(KohKdbgOutput)">
     <CompileKohRom OutputPath="$(KohRomPath)" ObjectPath="$(KohObjectPath)" ProjectDirectory="$(MSBuildProjectDirectory)"
-                   AssemblyPath="$(TargetPath)" ReferencePaths="@(ReferencePath)"
+                   AssemblyPath="$(TargetPath)" PdbPath="@(_DebugSymbolsOutputPath)" ReferencePaths="@(ReferencePath)"
                    CgbCompatible="$(KohCgbCompatible)" CgbOnly="$(KohCgbOnly)" EmitDebugInfo="$(KohEmitDebugInfo)"
                    CompilerPath="$(KohCompilerExecutable)" LinkerPath="$(KohLinkExecutable)" />
     <ItemGroup>

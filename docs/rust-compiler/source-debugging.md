@@ -114,5 +114,64 @@ Roslyn cases (`/tmp/koh-pdb-match-reviewed-final.log`). Workspace all-feature/
 all-target check passes19.01s with the existing cube-helper warning; separate
 rustdoc and rustfmt pass. Read-only review found no implementation defect; its
 multiple-record coverage request is included. These are selected checks, not
-whole-workspace or cross-platform acceptance. Adjacent/explicit discovery,
-embedded extraction, emitted ELF/KDBG ranges and debugger execution remain open.
+whole-workspace or cross-platform acceptance. At that checkpoint, discovery,
+emitted ELF/KDBG ranges and debugger execution were still absent; the next
+checkpoint below adds discovery and ranges. Embedded extraction remains open.
+
+## Compiler and SDK source ranges
+
+`compile::object_with_debug` accepts optional raw PDB bytes in the resolver's
+assembly order and validates each supplied PDB before use. Empty input disables
+PDBs; a populated list must have one slot per assembly. Aggregate limits are
+256MiB raw PDB input,16MiB expanded document names and one million points.
+The plain `compile::object` API remains usable without symbols.
+
+The emitter looks up each surviving instruction/terminator's original IL offset
+in its own module's PDB. Emitted bytes acquire the current visible file/line;
+contiguous equal ranges coalesce. Hidden points clear that origin. Prologues,
+synthetic functions and appended arithmetic/allocation helpers have no fabricated
+C# range. Zero source lines and empty document names are unavailable editor
+locations; column0 uses the existing column1 fallback in ELF provenance. KDBG v1
+stores file/line ranges, not source columns. Relocation diagnostics use available
+provenance. Source metadata is limited to4MiB per function and64MiB per compilation.
+
+Readable method aliases include metadata names plus module/token identity, so
+overloads and equal tokens in different assemblies remain distinct. They coexist
+with internal relocation symbols and are available even without PDBs. Canonical
+ELF metadata and the existing Rust linker carry the ranges into KDBG; no new
+container, debug format or linker path is introduced.
+
+The CLI discovers adjacent `.pdb` files for the input and references. Missing
+files are optional; malformed/mismatched files diagnose and preserve previous
+output. `--pdb PATH` selects the root assembly's symbols; `--no-pdb` disables all
+discovery and cannot be combined with it. Explicit and discovered PDB paths are
+checked against assembly/output aliases. File paths inside PE metadata are never
+opened. Embedded PDB extraction is not implemented yet.
+
+The SDK forwards the managed PDB output path, includes present root/reference
+PDBs in incremental inputs and stamps both paths and presence. `KohEmitDebugInfo`
+false passes `--no-pdb` and removes stale KDBG through the existing linker boundary.
+The task remains process/file orchestration only.
+
+Focused evidence: source-range Debug/Release cases round-trip ELF, link KDBG,
+preserve identical ROM bytes with/without symbols and execute the independently
+expected42 in the existing emulator. Real hidden machine spans are unmapped;
+both root and referenced Rgb.cs have ranges. Backend cases check unmapped
+prologues/software multiply helpers and the metadata budget. These4 cases pass
+11.008s. CLI optional/explicit/corrupt/alias cases pass2/2 in10.876s.
+
+SDK Debug/Release cases pass2/2 in125.502s, including source maps for the game and
+project reference, paths with spaces, PDB invalidation and debug toggling. The
+first stamp expression failed MSB4012 and was corrected to an item transform.
+The first timestamp probe incorrectly touched `bin`: the SDK recopies symbols
+from `obj`. The corrected probe touches the intermediate PDB, checks the copied
+timestamp and retains the ROM-rebuild assertion. This is not a relaxed assertion.
+
+Actual debugger source breakpoints, disassembly/source display and ABI-aware
+call-stack inspection still require execution evidence. Emitting KDBG and
+checking its header do not close those acceptance gates.
+
+The broader selected regression completes254/254 in416.277s, exit0
+(`/tmp/koh-pdb-mapping-regression.log`), with253 intentionally unselected cases
+in those test binaries. It includes compiler-library and SM83 targets, PDB/CLI
+cases and actual2048/JRPG SDK gameplay. This is not a full-workspace result.

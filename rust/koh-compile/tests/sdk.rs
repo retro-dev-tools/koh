@@ -170,6 +170,20 @@ public static int Main() {
     let result = build(&project, configuration, &properties);
     assert!(result.status.success(), "{}", report(&result));
     let elf = koh_objects::read_elf(&std::fs::read(&object).unwrap()).unwrap();
+    assert!(
+        elf.sections
+            .iter()
+            .flat_map(|s| &s.lines)
+            .any(|line| line.file.ends_with("Program.cs")),
+        "SDK source mappings"
+    );
+    assert!(
+        elf.sections
+            .iter()
+            .flat_map(|s| &s.lines)
+            .any(|line| line.file.ends_with("Answer.cs")),
+        "project-reference source mappings"
+    );
     let linked = koh_link::link(&[elf], &Default::default()).unwrap();
     assert_eq!(std::fs::read(&rom).unwrap(), linked.rom);
     assert!(rom.with_extension("kdbg").is_file());
@@ -212,6 +226,26 @@ public static int Main() {
         std::fs::metadata(&rom).unwrap().modified().unwrap(),
         modified
     );
+    let symbols = game.join(format!("obj/{configuration}/net10.0/Game.pdb"));
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&symbols)
+        .unwrap()
+        .set_modified(modified + std::time::Duration::from_secs(1))
+        .unwrap();
+    let result = build(&project, configuration, &properties);
+    assert!(result.status.success(), "{}", report(&result));
+    let copied = game.join(format!("bin/{configuration}/net10.0/Game.pdb"));
+    assert_eq!(
+        std::fs::metadata(&copied).unwrap().modified().unwrap(),
+        std::fs::metadata(&symbols).unwrap().modified().unwrap(),
+        "managed SDK copies the symbol input timestamp"
+    );
+    assert_ne!(
+        std::fs::metadata(&rom).unwrap().modified().unwrap(),
+        modified,
+        "PDB changes invalidate ROM metadata"
+    );
     let previous = std::fs::read(&rom).unwrap();
     properties.push("-p:KohEmitDebugInfo=false".into());
     let result = build(&project, configuration, &properties);
@@ -220,6 +254,11 @@ public static int Main() {
     assert!(
         !rom.with_extension("kdbg").exists(),
         "disabled debug must not leave stale symbols"
+    );
+    let no_debug = koh_objects::read_elf(&std::fs::read(&object).unwrap()).unwrap();
+    assert!(
+        no_debug.sections.iter().all(|s| s.lines.is_empty()),
+        "disabled PDB discovery"
     );
     properties.pop();
     let result = build(&project, configuration, &properties);

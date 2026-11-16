@@ -5,7 +5,7 @@ public static class Program
     public static int Main()
     {
 #line 100 "mapped source.cs"
-        return Helper(41);
+        return Helper(Koh.GameBoy.Graphics.Rgb.Make(9, 1, 0));
 #line default
     }
 

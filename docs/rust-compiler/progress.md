@@ -8,6 +8,27 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+Current source-mapping increment: validated PDB inputs now reach surviving IL
+origins, emitted byte ranges, canonical ELF and linker KDBG metadata. Native CLI
+adjacent/explicit discovery and disabling are integrated into the SDK, with
+PDB-aware incremental inputs and presence/path stamps. Readable method aliases
+retain module/token identity. Hidden code, prologues and internal helpers are
+unmapped; raw/expanded source metadata has explicit resource limits.
+The broader selected regression passes254/254 in416.277s, exit0, including all
+compiler-library/SM83 cases in the selection, PDB/CLI cases and six real game
+cases. SDK Debug/Release passes2/2 in125.502s, exit0, including real project
+reference maps, PDB timestamp copying/invalidation and debug toggling. Initial
+MSBuild item-expression and output-PDB timestamp-probe failures are recorded in
+the [source-debugging evidence](source-debugging.md). No assertions were relaxed.
+Read-only review found no confirmed implementation defect. Actual debugger
+breakpoints/disassembly/stack acceptance and a genuinely symbol-free assembly
+case remain open; no legacy debug method is claimed closed. Ledger68/565 remains.
+
+Remaining work is tracked as four acceptance milestones: source debugging;
+compiler/runtime/hardware and games; all test dispositions and legacy removal;
+final product/release/performance/host validation. Internal commits do not count
+as completed milestones or imply that the full migration is nearly finished.
+
 Latest PDB increment: identity/checksum matching validates raw Portable CodeView
 GUID+timestamp and checks SHA256/384/512 over the zeroed-ID PDB. Real Roslyn game
 and reference PDBs validate; identity/payload mutations diagnose. Multiple-checksum

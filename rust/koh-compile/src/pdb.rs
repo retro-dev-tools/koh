@@ -23,6 +23,16 @@ impl PortablePdb {
     }
 
     pub fn source(&self, method: u32, offset: u32) -> Option<koh_objects::Provenance> {
+        let (file, source) = self.location(method, offset)?;
+        Some(koh_objects::Provenance {
+            file: file.into(),
+            line: source.line,
+            column: source.column,
+            expansion: vec![],
+        })
+    }
+
+    pub(crate) fn location(&self, method: u32, offset: u32) -> Option<(&str, &Position)> {
         if method >> 24 != 6 {
             return None;
         }
@@ -35,15 +45,11 @@ impl PortablePdb {
                 .checked_sub(1)?,
         )?;
         let source = point.source.as_ref()?;
-        Some(koh_objects::Provenance {
-            file: self
-                .documents
-                .get(source.document.checked_sub(1)? as usize)?
-                .clone(),
-            line: source.line,
-            column: source.column,
-            expansion: vec![],
-        })
+        Some((
+            self.documents
+                .get(source.document.checked_sub(1)? as usize)?,
+            source,
+        ))
     }
 }
 

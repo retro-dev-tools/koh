@@ -16,9 +16,17 @@ and explicit ELF path now identify those inputs.
 
 The compiler object persists under `obj/<configuration>/net10.0/<assembly>.o`
 by default. `KohObjectPath` overrides it; `KohRomPath` controls the ROM. Both tools,
-the managed assembly, references, task and property stamp participate in incremental
+the managed assembly, references, present Portable PDBs, task and property stamp participate in incremental
 invalidation. Changed project-reference bodies must change observable ROM behavior,
 even when their public reference-assembly signatures are unchanged.
+
+Managed symbols reach the native compiler through `--pdb` for the root and
+adjacent discovery for references. `KohEmitDebugInfo=false` disables PDB discovery
+and removes stale KDBG output. PDB paths/presence participate in the property
+stamp; PDB timestamps invalidate source metadata. The compiler validates PE/PDB
+identity and supplied checksums. Missing symbols remain optional. See the
+[source mapping contract](source-debugging.md); actual debugger acceptance is
+tracked separately from object/KDBG emission.
 
 `KohCompilerExecutable`/`KOH_COMPILE` and `KohLinkExecutable`/`KOH_LINK` override
 native tool discovery. Defaults are beside `Koh.Build.Tasks.dll`. Its host tools

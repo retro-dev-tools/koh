@@ -20,7 +20,7 @@ pub fn static_symbol(identity: Definition) -> String {
     )
 }
 
-struct Code {
+struct Code<'a> {
     data: Vec<u8>,
     readonly: Vec<u8>,
     literals: BTreeMap<Vec<u8>, SymbolId>,
@@ -29,9 +29,47 @@ struct Code {
     prefix: String,
     il_offset: u32,
     overflow: bool,
+    pdb: Option<&'a crate::pdb::PortablePdb>,
+    method: u32,
+    source: Option<(&'a str, &'a crate::pdb::Position)>,
+    lines: Vec<Line>,
+    debug_bytes: usize,
+    debug_overflow: bool,
 }
 
-impl Code {
+impl Code<'_> {
+    fn debug_space(&mut self, bytes: usize) -> bool {
+        if let Some(total) = self
+            .debug_bytes
+            .checked_add(bytes)
+            .filter(|&n| n <= 4 * 1024 * 1024)
+        {
+            self.debug_bytes = total;
+            true
+        } else {
+            self.debug_overflow = true;
+            false
+        }
+    }
+
+    fn provenance(&mut self) -> Provenance {
+        if let Some((file, position)) = self.source {
+            if self.debug_space(file.len() + 128) {
+                return Provenance {
+                    file: file.into(),
+                    line: position.line,
+                    column: position.column.max(1),
+                    expansion: vec![],
+                };
+            }
+        }
+        Provenance {
+            file: format!("<cil:{}>", self.prefix),
+            line: self.il_offset.saturating_add(1),
+            column: 1,
+            expansion: vec![],
+        }
+    }
     fn literal(&mut self, bytes: &[u8]) -> Result<SymbolId, String> {
         if let Some(&symbol) = self.literals.get(bytes) {
             return Ok(symbol);
@@ -58,11 +96,35 @@ impl Code {
             self.overflow = true;
         }
         if !self.overflow {
+            let offset = self.data.len();
             self.data.extend_from_slice(bytes);
+            if let Some((file, position)) = self.source.filter(|_| !bytes.is_empty()) {
+                if let Some(last) = self.lines.last_mut().filter(|line| {
+                    line.offset + line.count == offset
+                        && line.file == file
+                        && line.line == position.line
+                }) {
+                    last.count += bytes.len();
+                } else if self.debug_space(file.len() + 128) {
+                    self.lines.push(Line {
+                        offset,
+                        count: bytes.len(),
+                        file: file.into(),
+                        line: position.line,
+                        expansion: vec![],
+                    });
+                }
+            }
         }
     }
 
     fn check_size(&self) -> Result<(), String> {
+        if self.debug_overflow {
+            return Err(format!(
+                "{}: source metadata exceeds 4 MiB function limit",
+                self.prefix
+            ));
+        }
         if self.overflow {
             Err(format!(
                 "{}: emitted function exceeds 16 KiB ROM bank capacity",
@@ -123,6 +185,10 @@ impl Code {
 
     fn mark_il(&mut self, offset: u32) {
         self.il_offset = offset;
+        self.source = self
+            .pdb
+            .and_then(|pdb| pdb.location(self.method, offset))
+            .filter(|(file, position)| !file.is_empty() && position.line != 0);
         self.symbols.push(Symbol {
             name: format!("{}.IL_{offset:04x}.{}", self.prefix, self.symbols.len()),
             binding: SymbolBinding::Local,
@@ -138,6 +204,7 @@ impl Code {
         self.bytes(&[opcode]);
         let offset = self.data.len();
         self.bytes(&[0, 0]);
+        let source = self.provenance();
         self.patches.push(Patch {
             offset,
             width: PatchWidth::Word,
@@ -147,12 +214,7 @@ impl Code {
                 offset: offset as u32,
             },
             expression: RelocationExpr::Symbol(target),
-            source: Provenance {
-                file: format!("<cil:{}>", self.prefix),
-                line: self.il_offset.saturating_add(1),
-                column: 1,
-                expansion: vec![],
-            },
+            source,
         });
     }
 
@@ -1171,13 +1233,14 @@ pub fn class_symbol(identity: Option<Definition>) -> String {
 }
 
 pub fn emit(function: &Function) -> Result<Object, String> {
-    emit_with_strings(function, None, false)
+    emit_with_strings(function, None, false, None)
 }
 
 pub(crate) fn emit_with_strings(
     function: &Function,
     strings: Option<&BTreeMap<Vec<u16>, String>>,
     banked: bool,
+    pdb: Option<&crate::pdb::PortablePdb>,
 ) -> Result<Object, String> {
     verify(function)?;
     let constants: BTreeMap<_, _> = function
@@ -1227,6 +1290,12 @@ pub(crate) fn emit_with_strings(
         prefix: name.clone(),
         il_offset: 0,
         overflow: false,
+        pdb,
+        method: function.identity.token,
+        source: None,
+        lines: vec![],
+        debug_bytes: 0,
+        debug_overflow: false,
     };
     let allocator = function
         .blocks
@@ -2257,7 +2326,7 @@ pub(crate) fn emit_with_strings(
             }
             code.check_size()?;
         }
-        let transfer = |code: &mut Code, edge: &Edge| {
+        let transfer = |code: &mut Code<'_>, edge: &Edge| {
             let mut offset = layout.edge;
             for (&value, &(target, _)) in edge
                 .arguments
@@ -2347,6 +2416,7 @@ pub(crate) fn emit_with_strings(
         }
         code.check_size()?;
     }
+    code.source = None;
     for (width, routine) in multipliers {
         code.mark(routine);
         code.multiply(width, layout.arithmetic + 2);
@@ -2372,6 +2442,7 @@ pub(crate) fn emit_with_strings(
                 size: code.data.len() as u32,
                 data: code.data,
                 patches: code.patches,
+                lines: code.lines,
                 ..Default::default()
             },
             Section {
@@ -2397,4 +2468,80 @@ pub(crate) fn emit_with_strings(
     }
     object.validate()?;
     Ok(object)
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+    use crate::pdb::{PortablePdb, Position, SequencePoint};
+
+    fn multiplication_chain() -> Function {
+        Function {
+            identity: Definition {
+                assembly: 0,
+                token: 0x06000001,
+            },
+            parameters: vec![Type::I32, Type::I32],
+            returns: Some(Type::I32),
+            locals: vec![],
+            blocks: vec![Block {
+                parameters: vec![(0, Type::I32), (1, Type::I32)],
+                instructions: (0..40)
+                    .map(|i| Instruction {
+                        result: Some((i + 2, Type::I32)),
+                        op: Op::Binary {
+                            op: Binary::Multiply,
+                            left: if i == 0 { 0 } else { i + 1 },
+                            right: 1,
+                        },
+                        il_offset: i,
+                    })
+                    .collect(),
+                terminator: Terminator {
+                    kind: Control::Return(Some(41)),
+                    il_offset: 40,
+                },
+            }],
+        }
+    }
+
+    fn symbols(file: String) -> PortablePdb {
+        PortablePdb {
+            id: [0; 20],
+            documents: vec![file],
+            methods: vec![
+                (0..=40)
+                    .map(|il_offset| SequencePoint {
+                        il_offset,
+                        source: Some(Position {
+                            document: 1,
+                            line: il_offset + 1,
+                            column: 1,
+                        }),
+                    })
+                    .collect(),
+            ],
+        }
+    }
+
+    #[test]
+    fn runtime_helpers_and_prologues_have_no_source_ranges() {
+        let function = multiplication_chain();
+        let pdb = symbols("game.cs".into());
+        let object = emit_with_strings(&function, None, false, Some(&pdb)).unwrap();
+        let text = &object.sections[0];
+        assert!(!text.lines.is_empty());
+        assert!(text.lines[0].offset > 0);
+        let end = text.lines.last().unwrap().offset + text.lines.last().unwrap().count;
+        assert!(end < text.data.len(), "unmapped software multiply helper");
+        assert!(text.lines.iter().all(|line| line.line <= 41));
+    }
+
+    #[test]
+    fn expanded_source_metadata_has_a_function_budget() {
+        let function = multiplication_chain();
+        let pdb = symbols("x".repeat(65_535));
+        let error = emit_with_strings(&function, None, false, Some(&pdb)).unwrap_err();
+        assert!(error.contains("source metadata exceeds"), "{error}");
+    }
 }

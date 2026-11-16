@@ -15,6 +15,8 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task, ICancelableT
     [Required]
     public string AssemblyPath { get; set; } = "";
 
+    public string PdbPath { get; set; } = "";
+
     [Required]
     public string ProjectDirectory { get; set; } = "";
 
@@ -124,8 +126,17 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task, ICancelableT
             var output = Resolve(OutputPath);
             var obj = Resolve(ObjectPath);
             var debug = Path.ChangeExtension(output, ".kdbg");
+            var pdb = string.IsNullOrEmpty(PdbPath)
+                ? Path.ChangeExtension(assembly, ".pdb")
+                : Resolve(PdbPath);
             var inputs = references
                 .Append(assembly)
+                .Concat(
+                    references
+                        .Select(path => Path.ChangeExtension(path, ".pdb"))
+                        .Append(pdb)
+                        .Where(File.Exists)
+                )
                 .Select(path => Identity(path))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var outputs = new[] { output, obj, debug };
@@ -143,6 +154,10 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task, ICancelableT
             Directory.CreateDirectory(Path.GetDirectoryName(obj)!);
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
             var arguments = new List<string> { assembly, "-o", obj };
+            if (!EmitDebugInfo)
+                arguments.Add("--no-pdb");
+            else if (File.Exists(pdb))
+                arguments.AddRange(["--pdb", pdb]);
             foreach (var reference in references)
                 arguments.AddRange(["-r", reference]);
             if (!Run(CompilerPath, arguments))

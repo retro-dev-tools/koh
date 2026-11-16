@@ -4,9 +4,52 @@ use crate::{
 };
 use std::collections::{HashSet, VecDeque};
 
+pub fn object_with_debug(
+    resolver: &Resolver<'_>,
+    selected: Option<&str>,
+    symbols: &[Option<&[u8]>],
+) -> Result<koh_objects::Object, String> {
+    if !symbols.is_empty() && symbols.len() != resolver.assembly_count() {
+        return Err("PDB inputs must correspond to every assembly in resolver order".into());
+    }
+    let mut input_bytes = 0usize;
+    let mut document_bytes = 0usize;
+    let mut points = 0usize;
+    let mut pdbs = Vec::new();
+    for (index, bytes) in symbols.iter().enumerate() {
+        let Some(bytes) = bytes else {
+            pdbs.push(None);
+            continue;
+        };
+        input_bytes = input_bytes
+            .checked_add(bytes.len())
+            .ok_or("PDB input size overflow")?;
+        if input_bytes > 256 * 1024 * 1024 {
+            return Err("Combined PDB input exceeds 256 MiB limit".into());
+        }
+        let pdb = crate::pdb::PortablePdb::for_assembly(bytes, resolver.assembly(index)?)
+            .map_err(|error| format!("Assembly{index} symbols: {error}"))?;
+        document_bytes += pdb.documents.iter().map(String::len).sum::<usize>();
+        points += pdb.methods.iter().map(Vec::len).sum::<usize>();
+        if document_bytes > 16 * 1024 * 1024 || points > 1_000_000 {
+            return Err("Combined PDB documents or sequence points exceed limit".into());
+        }
+        pdbs.push(Some(pdb));
+    }
+    object_inner(resolver, selected, &pdbs)
+}
+
 pub fn object(
     resolver: &Resolver<'_>,
     selected: Option<&str>,
+) -> Result<koh_objects::Object, String> {
+    object_inner(resolver, selected, &[])
+}
+
+fn object_inner(
+    resolver: &Resolver<'_>,
+    selected: Option<&str>,
+    pdbs: &[Option<crate::pdb::PortablePdb>],
 ) -> Result<koh_objects::Object, String> {
     let entry = entry(resolver, selected)?;
     let functions = reachable(resolver, entry)?;
@@ -16,7 +59,70 @@ pub fn object(
         .values()
         .map(|layout| crate::ir::ClassType::new(layout.identity, layout.base, layout.bytes))
         .collect::<Result<Vec<_>, _>>()?;
-    crate::cartridge::emit(&functions, entry, &classes)
+    let mut object = if pdbs.is_empty() {
+        crate::cartridge::emit(&functions, entry, &classes)?
+    } else {
+        crate::cartridge::emit_with_debug(&functions, entry, &classes, pdbs)?
+    };
+    let mut names = std::collections::HashMap::new();
+    let mut name_bytes = 0usize;
+    for function in &functions {
+        let id = function.identity;
+        if id.token >> 24 != 6 {
+            continue;
+        }
+        let key = crate::sm83::symbol(id);
+        let name = format!(
+            "{} [{key}]",
+            resolver.assembly(id.assembly)?.method_name(id.token)?
+        );
+        if name.len() > 65_535 {
+            return Err("Debug function name exceeds 65535 bytes".into());
+        }
+        let source = pdbs
+            .get(id.assembly)
+            .and_then(Option::as_ref)
+            .and_then(|pdb| {
+                pdb.methods
+                    .get((id.token & 0xffffff).checked_sub(1)? as usize)?
+                    .iter()
+                    .find_map(|point| {
+                        let mut source = pdb.source(id.token, point.il_offset)?;
+                        if source.file.is_empty() || source.line == 0 {
+                            return None;
+                        }
+                        source.column = source.column.max(1);
+                        Some(source)
+                    })
+            });
+        name_bytes += name.len() + source.as_ref().map_or(0, |p| p.file.len()) + 128;
+        if name_bytes > 64 * 1024 * 1024 {
+            return Err("Debug function names exceed 64 MiB limit".into());
+        }
+        names.insert(key, (name, source));
+    }
+    let aliases: Vec<_> = object
+        .symbols
+        .iter()
+        .filter_map(|symbol| {
+            let (name, source) = names.get(&symbol.name)?;
+            if !matches!(
+                symbol.definition,
+                koh_objects::SymbolDefinition::Label { .. }
+            ) {
+                return None;
+            }
+            Some(koh_objects::Symbol {
+                name: name.clone(),
+                source: source.clone(),
+                binding: koh_objects::SymbolBinding::Local,
+                definition: symbol.definition.clone(),
+            })
+        })
+        .collect();
+    object.symbols.extend(aliases);
+    object.validate()?;
+    Ok(object)
 }
 
 pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definition, String> {

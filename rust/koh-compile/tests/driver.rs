@@ -10,6 +10,8 @@ mod pdb;
 #[path = "driver/rectangular.rs"]
 mod rectangular;
 mod support;
+#[path = "driver/symbols.rs"]
+mod symbols;
 #[path = "driver/vblank.rs"]
 mod vblank;
 #[path = "driver/vram.rs"]
