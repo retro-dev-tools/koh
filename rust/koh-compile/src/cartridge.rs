@@ -286,7 +286,14 @@ pub(crate) fn emit(
     entry: Definition,
     known_classes: &[crate::ir::ClassType],
 ) -> Result<Object, String> {
-    emit_with_debug(functions, entry, known_classes, &HashMap::new(), &[])
+    emit_with_debug(
+        functions,
+        entry,
+        known_classes,
+        &HashMap::new(),
+        &[],
+        &HashMap::new(),
+    )
 }
 
 pub(crate) fn emit_with_debug(
@@ -295,6 +302,7 @@ pub(crate) fn emit_with_debug(
     known_classes: &[crate::ir::ClassType],
     interfaces: &HashMap<Definition, Vec<Definition>>,
     pdbs: &[Option<crate::pdb::PortablePdb>],
+    origins: &HashMap<Definition, Definition>,
 ) -> Result<Object, String> {
     verify_program(functions)?;
     let root = functions
@@ -463,7 +471,12 @@ pub(crate) fn emit_with_debug(
         let pdb = pdbs
             .get(function.identity.assembly)
             .and_then(Option::as_ref);
-        let object = sm83::emit_with_strings(function, Some(&strings), true, pdb)?;
+        let origin = origins
+            .get(&function.identity)
+            .copied()
+            .unwrap_or(function.identity);
+        let object =
+            sm83::emit_with_strings_origin(function, Some(&strings), true, pdb, origin.token)?;
         account_debug_bytes(&object, &mut debug_bytes)?;
         objects.push(object);
     }

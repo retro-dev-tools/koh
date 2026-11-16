@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 mod default_interfaces;
 #[path = "driver/delegates.rs"]
 mod delegates;
+#[path = "driver/generics.rs"]
+mod generics;
 #[path = "driver/interfaces.rs"]
 mod interfaces;
 #[path = "driver/mono.rs"]
@@ -3244,7 +3246,10 @@ fn value_constructor_metadata_and_private_storage_diagnose(
             "{kind}: {checked}"
         );
     }
-    for (entry, expected) in [("Program::UnsupportedGeneric", "Generic call instantiation")] {
+    for (entry, expected) in [(
+        "Program::UnsupportedGeneric",
+        "Generic declaring types require instantiated storage",
+    )] {
         let error = compile::object(&resolver, Some(entry)).unwrap_err();
         assert!(
             error.contains(expected) && error.contains(entry) && error.contains("IL_"),

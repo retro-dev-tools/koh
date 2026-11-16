@@ -43,6 +43,9 @@ pub struct Resolver<'a> {
     pub(crate) delegate_types: RefCell<Vec<crate::delegates::BoundDelegate>>,
     pub(crate) delegate_type_work: std::cell::Cell<usize>,
     pub(crate) callbacks: RefCell<Vec<crate::delegates::Callback>>,
+    pub(crate) generic_instances: RefCell<Vec<crate::generics::Instance>>,
+    pub(crate) generic_work: std::cell::Cell<usize>,
+    pub(crate) generic_nodes: std::cell::Cell<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -478,6 +481,9 @@ impl<'a> Resolver<'a> {
             delegate_types: RefCell::new(Vec::new()),
             delegate_type_work: std::cell::Cell::new(0),
             callbacks: RefCell::new(Vec::new()),
+            generic_instances: RefCell::new(Vec::new()),
+            generic_work: std::cell::Cell::new(0),
+            generic_nodes: std::cell::Cell::new(0),
         })
     }
 

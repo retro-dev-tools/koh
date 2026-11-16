@@ -8,7 +8,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current wide-arithmetic batch closes all14 methods in CilWideArithmeticTests:
+Current generic-method increment specializes closed unconstrained static methods
+with supported primitive/string/object/vector arguments. Substitution covers
+transitive reference calls, recursion, local/byref storage and typed operands;
+distinct instance symbols retain original MethodDef/PDB provenance. Final20/20
+passes65.508s, exit0 (`/tmp/koh-generic-final.log`), including28 generic ROMs,
+original source-range regressions and two previous generic-rejection cases now
+executing the independently expected1. Broad566-case run passed564 with those
+two obsolete rejection expectations failing,405.122s, exit100; it is not a green
+full suite. Subsequent budget and final fixture checks are covered by final20.
+Read-only review found no confirmed blockers. Ledger87/565 complete,478 partial/
+outstanding, zero physically retired. Constraints, named arguments, declaring-type
+storage and virtual/delegate generic binding remain unfinished, not malformed
+metadata or approved feature retirement. See [contract](generic-methods.md).
+
+Previous wide-arithmetic batch closes all14 methods in CilWideArithmeticTests:
 all639 original vectors plus unsigned/remainder/mask/fault cases execute through
 real Roslyn Debug/Release and native ELF/ROMs on DMG/CGB. Exact ordered packets
 replace unordered/equality-only checks. The audit corrects signed minimum%-1 to

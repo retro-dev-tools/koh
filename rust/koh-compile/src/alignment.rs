@@ -78,9 +78,12 @@ pub(crate) fn apply(resolver: &Resolver<'_>, function: &mut Function) -> Result<
             }
             Ok(allocations)
         };
+        let origin = resolver
+            .instance(function.identity)?
+            .map_or(function.identity, |instance| instance.method);
         let method_name = resolver
-            .assembly(function.identity.assembly)?
-            .method_name(function.identity.token)?;
+            .assembly(origin.assembly)?
+            .method_name(origin.token)?;
         let allocations = checked().map_err(|error| {
             format!(
                 "{method_name} IL_{:04x}: aligned field 0x{:08x}: {error}",

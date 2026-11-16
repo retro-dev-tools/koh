@@ -16,6 +16,10 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
 - Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls.
+  Closed static [generic methods](docs/rust-compiler/generic-methods.md) now specialize
+  supported primitive/reference arguments, including referenced transitive bodies,
+  byref storage and original PDB provenance. Constraints, named arguments and
+  declaring-type/virtual generic binding remain unfinished; this is not full migration.
   The SDK invokes Rust tools, retains tile-sheet generation and runs the existing emulator.
   Native copy/fill and corrected VBlank polling let all eight double-buffered/
   full-frame Debug/Release × DMG/CGB cases pass structural captures. CGB uses

@@ -372,19 +372,35 @@ pub fn assembly_method(
     resolver: &crate::resolve::Resolver<'_>,
     identity: Definition,
 ) -> Result<Function, String> {
+    let emitted_identity = identity;
+    let instance = resolver.instance(identity)?;
+    let identity = instance
+        .as_ref()
+        .map_or(identity, |instance| instance.method);
+    let arguments = instance
+        .as_ref()
+        .map_or(&[][..], |instance| instance.arguments.as_slice());
     let assembly = resolver.assembly(identity.assembly)?;
     let result = || -> Result<Function, String> {
         crate::contracts::method(resolver, identity)?;
-        let signature = storage_signature(
-            resolver,
-            identity,
-            &assembly.method_signature(identity.token)?,
-        )?;
+        let metadata_signature = assembly.method_signature(identity.token)?;
+        let metadata_signature = if instance.is_some() {
+            crate::generics::signature(&metadata_signature, arguments)?
+        } else {
+            metadata_signature
+        };
+        let signature = storage_signature(resolver, identity, &metadata_signature)?;
         let typed = bound_signature(resolver, identity.assembly, &signature)?;
         let local_types = assembly
             .local_types(identity.token)?
             .iter()
-            .map(|ty| storage_type(resolver, identity.assembly, ty))
+            .map(|ty| {
+                storage_type(
+                    resolver,
+                    identity.assembly,
+                    &crate::generics::substitute(ty, arguments)?,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let locals = local_types
             .iter()
@@ -413,6 +429,7 @@ pub fn assembly_method(
             },
             Some(resolver),
             &pinned,
+            arguments,
         )?;
         let mut prefix = Vec::new();
         for constructor in [
@@ -439,6 +456,7 @@ pub fn assembly_method(
             .collect();
         slots.resize(function.locals.len(), None);
         normalize_storage(&mut function, &slots, narrow_type(&signature.return_type))?;
+        function.identity = emitted_identity;
         verify(&function)?;
         Ok(function)
     };
@@ -557,6 +575,7 @@ pub struct Method<'a> {
 
 struct Builder<'r, 'a> {
     resolver: Option<&'r crate::resolve::Resolver<'a>>,
+    method_arguments: Vec<clrmeta::TypeSig>,
     next: u32,
     data_bytes: usize,
     edge_arguments: usize,
@@ -766,15 +785,16 @@ impl Builder<'_, '_> {
 }
 
 pub fn lower(method: Method<'_>) -> Result<Function, String> {
-    lower_with(method, None, &[])
+    lower_with(method, None, &[], &[])
 }
 
 fn lower_with(
     method: Method<'_>,
     resolver: Option<&crate::resolve::Resolver<'_>>,
     pinned: &[usize],
+    method_arguments: &[clrmeta::TypeSig],
 ) -> Result<Function, String> {
-    lower_inner(&method, resolver, pinned).map_err(|error| {
+    lower_inner(&method, resolver, pinned, method_arguments).map_err(|error| {
         format!(
             "Assembly {} method 0x{:08x}: {error}",
             method.identity.assembly, method.identity.token
@@ -786,6 +806,7 @@ fn lower_inner(
     method: &Method<'_>,
     resolver: Option<&crate::resolve::Resolver<'_>>,
     pinned: &[usize],
+    method_arguments: &[clrmeta::TypeSig],
 ) -> Result<Function, String> {
     let cil = decode(method.il)?;
     if cil.len() >= 16_384
@@ -814,6 +835,7 @@ fn lower_inner(
     locals.extend_from_slice(&method.locals);
     let mut builder = Builder {
         resolver,
+        method_arguments: method_arguments.to_vec(),
         next: method.parameters.len() as u32,
         data_bytes: 0,
         edge_arguments: 0,
@@ -1216,7 +1238,10 @@ fn translate(
             let storage = bound_storage(
                 resolver,
                 method.identity.assembly,
-                &resolver.type_signature(method.identity.assembly, token)?,
+                &crate::generics::substitute(
+                    &resolver.type_signature(method.identity.assembly, token)?,
+                    &b.method_arguments,
+                )?,
             )?;
             let ty = storage.stack_type();
             if i.opcode == 0xfe1c {
@@ -1324,7 +1349,10 @@ fn translate(
             let Type::Object(class) = bound_type(
                 resolver,
                 method.identity.assembly,
-                &resolver.type_signature(method.identity.assembly, token)?,
+                &crate::generics::substitute(
+                    &resolver.type_signature(method.identity.assembly, token)?,
+                    &b.method_arguments,
+                )?,
             )?
             else {
                 return Err("castclass requires a supported reference class".into());
@@ -1354,7 +1382,10 @@ fn translate(
             let element = bound_storage(
                 resolver,
                 method.identity.assembly,
-                &resolver.type_signature(method.identity.assembly, token)?,
+                &crate::generics::substitute(
+                    &resolver.type_signature(method.identity.assembly, token)?,
+                    &b.method_arguments,
+                )?,
             )?;
             let length = b.pop()?;
             if !matches!(length.1, Type::I32 | Type::Native) {
@@ -1395,7 +1426,10 @@ fn translate(
                 Some(bound_storage(
                     resolver,
                     method.identity.assembly,
-                    &resolver.type_signature(method.identity.assembly, token)?,
+                    &crate::generics::substitute(
+                        &resolver.type_signature(method.identity.assembly, token)?,
+                        &b.method_arguments,
+                    )?,
                 )?)
             } else {
                 None
@@ -1809,9 +1843,7 @@ fn translate(
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let target = resolver.resolve_method(method.identity.assembly, token)?;
-            if !target.type_arguments.is_empty() || !target.method_arguments.is_empty() {
-                return Err("Generic call instantiation is not lowered yet".into());
-            }
+            let instantiated = resolver.instantiate(&target, &b.method_arguments)?;
             let metadata = resolver.assembly(target.definition.assembly)?;
             if i.opcode == 0x6f {
                 let signature = metadata.method_signature(target.definition.token)?;
@@ -1849,11 +1881,14 @@ fn translate(
             {
                 return Err("Direct CIL calls to type/module constructors are unsupported".into());
             }
-            let metadata_signature = storage_signature(
-                resolver,
-                target.definition,
-                &metadata.method_signature(target.definition.token)?,
-            )?;
+            let template_signature = metadata.method_signature(target.definition.token)?;
+            let template_signature = if let Some(instance) = resolver.instance(instantiated)? {
+                crate::generics::signature(&template_signature, &instance.arguments)?
+            } else {
+                template_signature
+            };
+            let metadata_signature =
+                storage_signature(resolver, target.definition, &template_signature)?;
             let signature =
                 bound_signature(resolver, target.definition.assembly, &metadata_signature)?;
             let mut arguments = Vec::with_capacity(signature.parameters.len());
@@ -2074,7 +2109,7 @@ fn translate(
                 {
                     crate::dispatch::identity(target.definition)
                 } else {
-                    target.definition
+                    instantiated
                 },
                 signature,
                 arguments,
@@ -2130,7 +2165,10 @@ fn translate(
                     storage_signature(
                         resolver,
                         method.identity,
-                        &image.method_signature(method.identity.token)?,
+                        &crate::generics::signature(
+                            &image.method_signature(method.identity.token)?,
+                            &b.method_arguments,
+                        )?,
                     )?
                     .params
                 } else {
@@ -2139,9 +2177,12 @@ fn translate(
                 field_storage(
                     resolver,
                     method.identity.assembly,
-                    types
-                        .get(raw)
-                        .ok_or("Missing addressed storage signature")?,
+                    &crate::generics::substitute(
+                        types
+                            .get(raw)
+                            .ok_or("Missing addressed storage signature")?,
+                        &b.method_arguments,
+                    )?,
                 )?
             } else {
                 FieldStorage::Value(Storage::Scalar(match ty {

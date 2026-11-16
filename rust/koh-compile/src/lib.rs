@@ -6,6 +6,7 @@ pub mod compile;
 mod contracts;
 mod delegates;
 mod dispatch;
+mod generics;
 mod initialize;
 pub mod ir;
 pub mod layout;

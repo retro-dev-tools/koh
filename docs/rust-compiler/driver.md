@@ -19,6 +19,10 @@ a library. `--entry Namespace.Type::Method` selects an explicit entry; nested
 types use `Namespace.Outer+Inner::Method`. Entries currently take no arguments
 and return void, Int32 or UInt32. Ambiguous entries are errors.
 
+Reachable [closed static generic methods](generic-methods.md) now specialize
+supported primitive/string/object/vector arguments, including transitive
+reference-DLL calls. Other generic shapes remain explicit unfinished boundaries.
+
 ## Object and startup ownership
 
 The compiler combines emitted functions into one canonical `koh_objects::Object`,

@@ -2248,6 +2248,7 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
         ("Live", Ok(0x112233445566778B)),
         ("Mutual", Ok(1)),
         ("VoidCalls", Ok(9)),
+        ("Generic", Ok(1)),
         ("Deep", Err(1)),
     ] {
         let entry = Definition {
@@ -2283,7 +2284,6 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
     for (name, diagnostic) in [
         ("Dead", "System.Runtime"),
         ("DeadThrow", "opcode"),
-        ("Generic", "Generic"),
         ("Protected", "sections"),
         ("StaticInit", ".cctor"),
     ] {

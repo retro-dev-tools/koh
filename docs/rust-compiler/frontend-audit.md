@@ -137,12 +137,12 @@ Deterministic RNG, timer restart/one-shot behavior, asset handles, input edges/r
 
 ### CilGenericTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilGenericTests.cs`. Future Rust test group: `cil_generic`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilGenericTests.cs`. Native generic group: `driver::generics`; see [contract and dispositions](generic-methods.md). Four numeric/extension methods still need complete traceability.
 
 Transitive generic-method specialization at multiple concrete types plus signed/unsigned 64-bit arithmetic and extension. CIL type substitution and integer semantics justify results, not mangled instance names.
 
-- **PORT** `GenericMethod_TwoTypesTransitively_ProducesExpectedValue`.
-- **PORT** `GenericMethod_DebugAndReleaseProduceIdenticalObservableState`.
+- **REPLACE, complete** `GenericMethod_TwoTypesTransitively_ProducesExpectedValue`.
+- **REPLACE, complete** `GenericMethod_DebugAndReleaseProduceIdenticalObservableState`.
 - **PORT** `LongArithmetic_AddSubMulDivRem_MatchesHostComputedValue`.
 - **PORT** `ConvI8SignExtends_ConvU8ZeroExtends_MatchesHostComputedValue`.
 - **PORT** `UlongDivision_IsUnsigned_NotArithmeticShift`.

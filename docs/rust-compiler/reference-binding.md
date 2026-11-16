@@ -41,6 +41,8 @@ Transitive body reachability and dead-code elimination remain lowering work.
 - Array rank/element type determine signature type identity; size/lower-bound
   annotations do not distinguish array types. Runtime array bounds remain data.
 
+Closed static method instantiation now supplies contextual MVAR substitution for
+supported token-free arguments; see [contract and limits](generic-methods.md).
 Inherited nongeneric lookup is implemented. Inherited generic substitution and
 vararg call-site binding remain explicit incomplete native paths, not retired
 product capabilities or claimed supported execution. Array pseudo-methods require

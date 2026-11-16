@@ -71,16 +71,33 @@ fn object_inner(
         .values()
         .map(|layout| (layout.identity, layout.interfaces.clone()))
         .collect();
-    let mut object =
-        crate::cartridge::emit_with_debug(&functions, entry, &classes, &interfaces, pdbs)?;
+    let origins = functions
+        .iter()
+        .map(|function| {
+            Ok((
+                function.identity,
+                resolver
+                    .instance(function.identity)?
+                    .map_or(function.identity, |instance| instance.method),
+            ))
+        })
+        .collect::<Result<std::collections::HashMap<_, _>, String>>()?;
+    let mut object = crate::cartridge::emit_with_debug(
+        &functions,
+        entry,
+        &classes,
+        &interfaces,
+        pdbs,
+        &origins,
+    )?;
     let mut names = std::collections::HashMap::new();
     let mut name_bytes = 0usize;
     for function in &functions {
-        let id = function.identity;
+        let id = origins[&function.identity];
         if id.token >> 24 != 6 {
             continue;
         }
-        let key = crate::sm83::symbol(id);
+        let key = crate::sm83::symbol(function.identity);
         let name = format!(
             "{} [{key}]",
             resolver.assembly(id.assembly)?.method_name(id.token)?
@@ -251,6 +268,9 @@ fn type_name(
 }
 
 pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Function>, String> {
+    resolver.generic_instances.borrow_mut().clear();
+    resolver.generic_work.set(0);
+    resolver.generic_nodes.set(0);
     let mut seen = HashSet::from([entry]);
     let mut queue = VecDeque::from([entry]);
     let mut functions = Vec::new();
@@ -314,9 +334,12 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                                             if identity.token >> 24 == 0xfc {
                                                 format!("Callback {:?}", identity)
                                             } else {
+                                                let origin = resolver
+                                                    .instance(identity)?
+                                                    .map_or(identity, |instance| instance.method);
                                                 resolver
-                                                    .assembly(identity.assembly)?
-                                                    .method_name(identity.token)?
+                                                    .assembly(origin.assembly)?
+                                                    .method_name(origin.token)?
                                             },
                                             instruction.il_offset
                                         ),

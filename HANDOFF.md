@@ -849,3 +849,32 @@ no correctnessblockers. All14legacy methodsclosed7PORT+7REPLACE:85/565complete,
 480partial/outstanding,zero physicallyretired. Workspacecheck18560exit0 9.09s
 (existingcubeswarning);rustfmt/rustdoc0casesexit0. Previous63c690bhostedrun
 43919305645completedSUCCESS;notcurrentarithmeticCI. Fullmigrationstillactive.
+
+Generic-method unit in progress from7f6308c. Parent owns all mutations/builds;
+backend_audit read-only review owns generic binding/substitution/source mapping
+inspection; no builds or edits. New generics.rs per-compilation0xfb instances,
+originalMethodDef lowering, actual signatures/locals/typedoperands/transitivecalls.
+First red30136exit100 IL0002genericcall; firstgreen97835exit0oneDMGDebugcase.
+Expanded23242terminal11/11pass24.867s before referenced-library fixture addition.
+Current89484live /tmp/koh-generic-regression.log:lib/IR/SM83,4genericdrivercases,
+2widearithmetic and4interfacecases expected. AddedGenericLibrary transitivecalls
+andPDB/deterministicfresh-vs-reusedResolverchecks. No otherlocalbuildactive.
+Knownremaininggenericshapesconstraints/namedargs/declaringtype/virtual/delegates
+explicitlydiagnose; notretiredfeatures, fullgoalstillactive. Plan in docs/superpowers/
+plans/2026-11-16-generic-methods.md. Recheck current evidence before claiming final.
+
+89484terminalexit100:564/566pass405.122s; onlytwo failures were oldSM83 generic
+rejection expectations. Replaced both with actualROMreturn1; precisegenericclass
+diagnostic retained in Structs existing negativecase. History70414terminalexit0
+1/1pass6.496s; reverse classcache probe found no bug (existingdescriptorfilterworks).
+Final15389terminalexit0 20/20pass65.508s /tmp/koh-generic-final.log:10genericunit,
+4driver configurations×7ROMs=28,2PDBmachine-source,2constructormetadata,2SM83calls.
+Finalincludesprimitivewidths/native/object,typedarray/byref/default,referenced
+genericLibraryPDB,missingreference/deadbodychecks,aggregatebudgetcounters and
+fresh/reusedresolverELFparity. Read-onlyreviewtwicefoundno confirmedblockers.
+Workspacecheck74323terminalexit0 11.96s (existingcubeswarning),rustdoc22633exit0
+0cases,rustfmt/CSharpierpass. Ledger87/565complete,478partial/outstanding,zero
+physicallyretired. Nootherlocalbuildactive. Source/assets590 snapshot
+/tmp/koh-generic-sources.json needs refresh after final brace-only cleanup before
+commit. Fullgoalactive; keepdraftPR55. Currenthead7f CI43924773314Ruststillrunning,
+.NETfastSUCCESS; genericunitnotpushedyet. Nextcommit/push/updatePR/vault.

@@ -1290,6 +1290,16 @@ pub(crate) fn emit_with_strings(
     banked: bool,
     pdb: Option<&crate::pdb::PortablePdb>,
 ) -> Result<Object, String> {
+    emit_with_strings_origin(function, strings, banked, pdb, function.identity.token)
+}
+
+pub(crate) fn emit_with_strings_origin(
+    function: &Function,
+    strings: Option<&BTreeMap<Vec<u16>, String>>,
+    banked: bool,
+    pdb: Option<&crate::pdb::PortablePdb>,
+    source_method: u32,
+) -> Result<Object, String> {
     verify(function)?;
     let constants: BTreeMap<_, _> = function
         .blocks
@@ -1339,7 +1349,7 @@ pub(crate) fn emit_with_strings(
         il_offset: 0,
         overflow: false,
         pdb,
-        method: function.identity.token,
+        method: source_method,
         source: None,
         lines: vec![],
         debug_bytes: 0,
