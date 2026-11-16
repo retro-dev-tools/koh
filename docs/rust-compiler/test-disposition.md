@@ -31,13 +31,21 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: 137 legacy methods; zero physically retired.**
+**Native behavioral replacements: 139 legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 428 methods still have
+The remaining 426 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Floating negation replacements
+
+Two `CilFloatTests` methods now have native replacements (1 PORT/1 REPLACE),
+including all three original finite inputs in Debug/Release and both cartridge
+modes. Special values extend the numeric coverage; bitwise negation replaces
+the obsolete required-helper-name assertion. See the [per-method matrix](float-lowering.md#source-test-dispositions).
+The mixed arithmetic, comparison and conversion groups remain outstanding.
 
 ## Software runtime replacements
 

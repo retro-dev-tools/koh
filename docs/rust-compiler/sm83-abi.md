@@ -223,6 +223,7 @@ frames. Other recursion retains this checked ABI and its capacity limits.
 
 `F32` uses four-byte raw binary32 storage and the existing four-byte argument and
 return convention. Explicit `I32`/`F32` reinterpretation copies bits without a
-numeric conversion. Addition calls the metadata-selected `f32.add` managed CIL
-helper with raw `uint(uint, uint)` arguments/results. See [float lowering](float-lowering.md)
+numeric conversion. Addition/subtraction call metadata-selected `f32.add`/`f32.sub`
+managed CIL helpers with raw `uint(uint, uint)` arguments/results. Negation flips
+the sign bit without a call. See [float lowering](float-lowering.md)
 for the currently implemented operations and remaining limitations.

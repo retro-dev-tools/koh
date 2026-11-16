@@ -666,13 +666,18 @@ impl Builder<'_, '_> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
         if left.1 == Type::F32 || right.1 == Type::F32 {
-            if left.1 != Type::F32 || right.1 != Type::F32 || op != Binary::Add {
+            if left.1 != Type::F32 || right.1 != Type::F32 {
                 return Err("Unsupported float32 binary operation or mixed operand types".into());
             }
+            let key = match op {
+                Binary::Add => "f32.add",
+                Binary::Subtract => "f32.sub",
+                _ => return Err("Unsupported float32 binary operation".into()),
+            };
             let resolver = self
                 .resolver
-                .ok_or("float32 addition requires runtime metadata")?;
-            let target = crate::contracts::float_add(resolver)?;
+                .ok_or("float32 arithmetic requires runtime metadata")?;
+            let target = crate::contracts::float_binary(resolver, key)?;
             let left = self.value(Type::I32, Op::Reinterpret(left.0))?;
             let right = self.value(Type::I32, Op::Reinterpret(right.0))?;
             let bits = self.value(
@@ -2841,15 +2846,30 @@ fn translate(
         0x65 | 0x66 => {
             let value = b.pop()?;
             if value.1 == Type::F32 {
-                return Err("float32 unary operation requires software runtime lowering".into());
-            }
-            let op = if i.opcode == 0x65 {
-                Op::Negate(value.0)
+                if i.opcode != 0x65 {
+                    return Err("Bitwise not cannot consume float32".into());
+                }
+                let bits = b.value(Type::I32, Op::Reinterpret(value.0))?;
+                let sign = b.value(Type::I32, Op::Constant(0x80000000))?;
+                let bits = b.value(
+                    Type::I32,
+                    Op::Binary {
+                        op: Binary::Xor,
+                        left: bits.0,
+                        right: sign.0,
+                    },
+                )?;
+                let value = b.value(Type::F32, Op::Reinterpret(bits.0))?;
+                b.stack.push(value);
             } else {
-                Op::Not(value.0)
-            };
-            let value = b.value(value.1, op)?;
-            b.stack.push(value);
+                let op = if i.opcode == 0x65 {
+                    Op::Negate(value.0)
+                } else {
+                    Op::Not(value.0)
+                };
+                let value = b.value(value.1, op)?;
+                b.stack.push(value);
+            }
         }
         0x67..=0x6a | 0x6d..=0x6e | 0xd1..=0xd3 | 0xe0 => {
             let (bits, signed, ty) = match i.opcode {

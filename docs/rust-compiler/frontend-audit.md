@@ -93,8 +93,8 @@ Float operations, conversions and byrefs must preserve the declared target numer
 - **PORT** `F32_Compare_MatchesHost`.
 - **PORT** `F32_CompareInBranchPosition_MatchesHost`.
 - **PORT** `F32_TernaryMin_MatchesHost`.
-- **PORT** `F32_Neg_MatchesHost`.
-- **REPLACE** `F32_Neg_RoutesThroughRealSoftFloatFunction` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
+- **PORT COMPLETE** `F32_Neg_MatchesHost` — all finite rows in both modes plus special values, `driver/float32.rs`; [traceability](float-lowering.md#source-test-dispositions).
+- **REPLACE COMPLETE** `F32_Neg_RoutesThroughRealSoftFloatFunction` — native full-bit negation results replace the required helper name; [rationale](float-lowering.md#source-test-dispositions).
 - **PORT** `F32_ToInt_MatchesHost`.
 - **PORT** `F32_FromInt_MatchesHost`.
 - **PORT** `F32_ToF64_MatchesHost`.

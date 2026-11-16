@@ -21,7 +21,7 @@ fn heap_offset(bytes: &[u8], name: &str) -> usize {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
-fn roslyn_float_addition_calls_joins_and_references_execute(
+fn roslyn_float_arithmetic_calls_joins_and_references_execute(
     host: &Host,
     #[case] configuration: &str,
     #[case] color: bool,
@@ -70,6 +70,15 @@ fn roslyn_float_addition_calls_joins_and_references_execute(
         ("Reference", "40800000"),
         ("Field", "40800000"),
         ("Array", "40800000"),
+        ("Difference", "BF800000"),
+        ("TinyDifference", "80000001"),
+        ("InvalidDifference", "7FC00000"),
+        ("Negated", "BFC00000"),
+        ("NegatedNegative", "40200000"),
+        ("NegatedZero", "80000000"),
+        ("NegatedTiny", "80000001"),
+        ("NegatedInfinity", "FF800000"),
+        ("NegatedNan", "FFC12345"),
     ] {
         let name = format!("Program::{entry}");
         let mut object = compile::object_with_debug(&resolver, Some(&name), &[Some(&pdb), None])
@@ -112,9 +121,15 @@ fn roslyn_float_addition_calls_joins_and_references_execute(
         .err()
         .expect("unimplemented float operation must reject");
     assert!(error.contains("IL_") && error.contains("float"), "{error}");
-    for (before, after, expected) in [
-        ("f32.add", "f32.zzz", "Missing KohRuntime f32.add"),
-        ("f32.sub", "f32.add", "Duplicate KohRuntime"),
+    for (before, after, entry, expected) in [
+        ("f32.add", "f32.zzz", "Main", "Missing KohRuntime f32.add"),
+        (
+            "f32.sub",
+            "f32.zzz",
+            "Difference",
+            "Missing KohRuntime f32.sub",
+        ),
+        ("f32.sub", "f32.add", "Main", "Duplicate KohRuntime"),
     ] {
         let mut changed = images[1].clone();
         let offsets: Vec<_> = changed
@@ -126,7 +141,7 @@ fn roslyn_float_addition_calls_joins_and_references_execute(
         assert_eq!(offsets.len(), 1);
         changed[offsets[0]..offsets[0] + after.len()].copy_from_slice(after.as_bytes());
         let resolver = Resolver::new(&[&images[0], &changed]).unwrap();
-        let error = compile::object(&resolver, Some("Program::Main"))
+        let error = compile::object(&resolver, Some(&format!("Program::{entry}")))
             .err()
             .unwrap();
         assert!(error.contains(expected), "{error}");

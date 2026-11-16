@@ -10,9 +10,10 @@ baseline; authoring needs and hardware constraints determine the new contract.
 
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
-addition. Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
+addition/subtraction and direct sign-bit negation. Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
 covered. Other float operations remain unfinished and reject explicitly; this
-does not close the full legacy floating test group or change the137/565 ledger.
+does not close the full legacy floating test group. Two negation methods now
+have native replacements: the current ledger is139/565 complete,426 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
 
 Current runtime correction fixes inherited AddF32 subnormal/special-value errors
@@ -23,7 +24,7 @@ banked ROMs and415 managed observations. Independent Rust oracles and numerical
 review support the correction; sampled coverage is not exhaustive IEEE proof.
 API/compiler/emulator implementations are unchanged apart from this numeric
 runtime body. Broader floating arithmetic/conversion lowering remains unfinished; ledger
-stays137/565 complete,428 partial/outstanding, zero physically retired.
+at that stage was137/565 complete,428 partial/outstanding, zero physically retired.
 See [algorithm rationale and evidence](softfloat-addition.md).
 Formatted final14/14 passes45.734s, exit0
 (`/tmp/koh-softfloat-ieee-final.log`). Rustfmt/CSharpier pass. Hosted baseline
@@ -37,7 +38,7 @@ Previous software-runtime test migration closes23 methods (3CilKohRuntimeTests,
 managed-library numeric checks covering every original85 parameter row. The
 12 Rust cases pass12/12 in53.059s, exit0 (/tmp/koh-softfloat-first.log). Review
 confirms no lost inputs/predicates; no production code/API/emulator changes.
-Ledger137/565 complete,428 partial/outstanding, zero physically retired. Float/
+The ledger at that stage was137/565 complete,428 partial/outstanding, zero physically retired. Float/
 double CIL lowering and runtime-key dispatch remain unfinished. See the
 [complete dispositions and numeric-domain rationale](softfloat-bits-tests.md).
 

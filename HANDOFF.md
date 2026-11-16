@@ -1309,3 +1309,19 @@ alltargets/allfeaturescheck+separaterustdoc /tmp/koh-float32-workspace-check.log
 and/tmp/koh-float32-doc.log; readterminalstatusbeforecommit.
 47861 TERMINAL: workspacealltargets/allfeaturescheckEXIT0(10.92s, existing
 unusedcubeshelperwarning), separaterustdocEXIT0zerodoctests. Format/diffcheckpass.
+
+2026-11-17 nextincrement after pushedcceba4c: metadataf32.sub withsamechecked
+rawsignature, directF32neg signbitXOR (nohelperframe). Red9699 EXIT100 realCILsub
+unsupported. First61536 EXIT0 4/4pass21.847s. Expandedfixture15entries60ROMs,
+alloldneginputs1.5/-2.5/+0 D/R DMG/CGB plus tiny/inf/NaN andsubfinite/tiny/invalid.
+Missingf32.subkeydiagnosticadded. ParameterizedNegateensuresrealCILneg;
+ECMA335I.12.1.3/III.3.50/3.64primarysource consulted. Documentation explains
+helpernameassertionreplacement, twooldmethods1PORT1REPLACE; pendingfinaltests
+ledger139/565complete426outstanding, nolegacydefinitionsremoved. No floatfeature
+retirement. Current32611active /tmp/koh-float32-sub-neg-final.log selected551cases
+(alllib/allIR/Float32/softfloats), fournewcasespassed. Finishreadterminalchecks
+thencommitlocally; holdpushwhilecceba4c CI43981727648in_progress. Parentownsfiles.
+32611TERMINAL EXIT0 551/551pass71.684s296unselected; all60Float32ROMs andexisting
+softwaremathcases pass. 12378TERMINALworkspacealltargets/allfeaturescheckEXIT0
+5.48s(existingunusedcubeshelperwarning), separaterustdocEXIT0zerocases;
+rustfmt/diffchecksEXIT0. Readylogicalcommit, no fullworkspace-test/hostclaim.

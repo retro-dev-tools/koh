@@ -381,20 +381,22 @@ fn discover_runtime(resolver: &Resolver<'_>) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn float_add(resolver: &Resolver<'_>) -> Result<Definition, String> {
+pub(crate) fn float_binary(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
     discover_runtime(resolver)?;
     let definition = resolver
         .runtime_methods
         .borrow()
         .as_ref()
-        .and_then(|methods| methods.get("f32.add"))
+        .and_then(|methods| methods.get(key))
         .copied()
-        .ok_or("Missing KohRuntime f32.add implementation; include a runtime assembly")?;
+        .ok_or_else(|| {
+            format!("Missing KohRuntime {key} implementation; include a runtime assembly")
+        })?;
     let metadata = resolver.assembly(definition.assembly)?.metadata();
     let method = row(&metadata.method_defs, definition.token & 0xffffff)?;
     if method.rva == 0 || method.impl_flags & 7 != 0 {
         return Err(format!(
-            "KohRuntime f32.add {definition:?} has no CIL body; supply its implementation assembly"
+            "KohRuntime {key} {definition:?} has no CIL body; supply its implementation assembly"
         ));
     }
     let signature = crate::signature::method(
@@ -406,7 +408,7 @@ pub(crate) fn float_add(resolver: &Resolver<'_>) -> Result<Definition, String> {
     let raw = TypeSig::Primitive(clrmeta::ElementType::U4);
     if signature.params != [raw.clone(), raw.clone()] || signature.return_type != raw {
         return Err(format!(
-            "KohRuntime f32.add {definition:?} requires uint(uint,uint) raw-bit signature"
+            "KohRuntime {key} {definition:?} requires uint(uint,uint) raw-bit signature"
         ));
     }
     Ok(definition)

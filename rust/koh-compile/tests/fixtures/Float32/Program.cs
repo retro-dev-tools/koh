@@ -11,6 +11,31 @@ public static class Program
 
     static unsafe int Bits(float value) => *(int*)&value;
 
+    static unsafe float FromBits(int value) => *(float*)&value;
+
+    static float Subtract(float left, float right) => left - right;
+
+    static float Negate(float value) => -value;
+
+    public static int Difference() => Bits(Subtract(1.5f, 2.5f));
+
+    public static int TinyDifference() => Bits(Subtract(FromBits(1), FromBits(2)));
+
+    public static int InvalidDifference() =>
+        Bits(Subtract(FromBits(0x7f800000), FromBits(0x7f800000))) & 0x7fc00000;
+
+    public static int Negated() => Bits(Negate(1.5f));
+
+    public static int NegatedNegative() => Bits(Negate(-2.5f));
+
+    public static int NegatedZero() => Bits(Negate(FromBits(0)));
+
+    public static int NegatedTiny() => Bits(Negate(FromBits(1)));
+
+    public static int NegatedInfinity() => Bits(Negate(FromBits(0x7f800000)));
+
+    public static int NegatedNan() => Bits(Negate(FromBits(0x7fc12345)));
+
     static float Choose(bool first, float left, float right) => first ? left : right;
 
     static void Step(ref float value, float increment) => value = value + increment;
