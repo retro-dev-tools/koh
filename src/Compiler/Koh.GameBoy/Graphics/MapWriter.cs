@@ -381,7 +381,7 @@ internal static unsafe class MapWriter
             return;
         byte* mapBase = map == 0 ? Gb.TileMap : Gb.TileMap1;
         Cgb.SelectVramBank(1);
-        WriteAttrVerified(mapBase + Index(col, row), attr);
+        Vram.WriteByte(mapBase + Index(col, row), attr);
         Cgb.SelectVramBank(0);
     }
 
@@ -395,13 +395,9 @@ internal static unsafe class MapWriter
         Cgb.SelectVramBank(1);
         for (byte r = 0; r < h; r++)
         for (byte c = 0; c < w; c++)
-            WriteAttrVerified(mapBase + Index((byte)(col + c), (byte)(row + r)), attr);
+            Vram.WriteByte(mapBase + Index((byte)(col + c), (byte)(row + r)), attr);
         Cgb.SelectVramBank(0);
     }
-
-    /// <summary>VRAM store; interrupts disabled.</summary>
-    [KohIntrinsic("vramwrite")]
-    private static void WriteAttrVerified(byte* cell, byte attr) => *cell = attr;
 
     private static ushort Index(byte col, byte row) => (ushort)((ushort)row * 32 + col);
 }

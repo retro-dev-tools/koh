@@ -1,5 +1,7 @@
 #[path = "sdk/game.rs"]
 mod game;
+#[path = "sdk/jrpg.rs"]
+mod jrpg;
 mod support;
 
 use rstest::rstest;

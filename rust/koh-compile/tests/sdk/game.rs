@@ -391,6 +391,7 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
         .parent()
         .unwrap();
     let source = root.join("samples/csharp/gb-jrpg");
+    let screenshots = super::jrpg::curated(&source.join("screenshots"));
     for entry in std::fs::read_dir(&source).unwrap() {
         let entry = entry.unwrap();
         if entry
@@ -453,19 +454,20 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
     };
     let host = support::build_fixture_host("GameHost");
     let script = directory.path().join("input.txt");
-    std::fs::write(&script, "1200:dump:title\n1300:press:Start\n1310:release:Start\n1600:dump:initial\n1700:press:Left\n1702:release:Left\n1900:dump:moved\n").unwrap();
+    std::fs::write(&script, "299:dump:earlyTitle\n1200:dump:title\n1300:press:Start\n1310:release:Start\n1600:dump:initial\n1700:press:Left\n1702:release:Left\n1900:dump:moved\n").unwrap();
     let executed = support::dotnet()
         .arg(&host.dll)
         .arg(&rom)
         .arg(format!("{:x}", symbol("__koh_abort")))
         .arg(&script)
+        .arg("power-on")
         .output()
         .unwrap();
     assert!(executed.status.success(), "{}", report(&executed));
     let output = String::from_utf8(executed.stdout).unwrap();
     let fields: Vec<_> = output.split_whitespace().collect();
     assert_eq!(fields.len(), 4, "{output}");
-    assert!(fields[0].parse::<usize>().unwrap() < 600, "{output}");
+    assert!(fields[0].parse::<usize>().unwrap() < 300, "{output}");
     assert_eq!(&fields[1..], &["1901", "0", "Cgb"]);
     let bin = directory
         .path()
@@ -484,6 +486,65 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
     let memory = |label: &str| {
         std::fs::read(directory.path().join(format!("game.gb.{label}.wram"))).unwrap()
     };
+    let early = memory("earlyTitle");
+    let expected_title = symbol(&sm83::class_symbol(Some(definition(
+        &resolver,
+        0,
+        "TitleScene",
+    ))));
+    let actual_title = word(&early, word(&early, current_static));
+    if actual_title != expected_title {
+        let cpu = std::fs::read_to_string(directory.path().join("game.gb.earlyTitle.cpu")).unwrap();
+        let values: Vec<_> = cpu
+            .split_whitespace()
+            .map(|value| u16::from_str_radix(value, 16).unwrap())
+            .collect();
+        let bank = if values[0] < 0x4000 {
+            0
+        } else {
+            values[2] | ((values[3] & 1) << 8)
+        };
+        let nearest = linked
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.bank.unwrap_or(0) == u32::from(bank)
+                    && symbol.value <= i32::from(values[0])
+                    && symbol.name.starts_with("__koh_a")
+                    && symbol.name.contains("_m")
+            })
+            .max_by_key(|symbol| symbol.value);
+        let name = nearest
+            .map(|symbol| symbol.name.as_str())
+            .unwrap_or("unknown");
+        let method = nearest
+            .and_then(|symbol| symbol.name.split('.').next())
+            .and_then(|name| name.strip_prefix("__koh_a"))
+            .and_then(|name| name.split_once("_m"))
+            .map(|(assembly, token)| {
+                resolver
+                    .assembly(assembly.parse().unwrap())
+                    .unwrap()
+                    .method_name(u32::from_str_radix(token, 16).unwrap())
+                    .unwrap()
+            });
+        let output = super::jrpg::output_directory(configuration);
+        for path in [
+            rom.clone(),
+            object.clone(),
+            bin.join("Game.dll"),
+            bin.join("Koh.GameBoy.dll"),
+            directory.path().join("game.gb.earlyTitle.png"),
+            directory.path().join("game.gb.earlyTitle.cpu"),
+            directory.path().join("game.gb.earlyTitle.wram"),
+        ] {
+            std::fs::copy(&path, output.join(path.file_name().unwrap())).unwrap();
+        }
+        panic!(
+            "title deadline300: scene{actual_title:04x}, expected{expected_title:04x}, CPU{cpu}, bank{bank}, {name}, {method:?}; artifacts {}",
+            output.display()
+        );
+    }
     let title = memory("title");
     assert_eq!(
         word(&title, word(&title, current_static)),
@@ -588,8 +649,13 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
     .enumerate()
     {
         let frame = 1700 + index * 300;
+        let quick = if index == 0 {
+            "1703:dump:quickMove\n"
+        } else {
+            ""
+        };
         actions.push_str(&format!(
-            "{frame}:press:{button}\n{}:release:{button}\n{}:dump:{label}\n",
+            "{frame}:press:{button}\n{}:release:{button}\n{quick}{}:dump:{label}\n",
             frame + 2,
             frame + 200
         ));
@@ -601,6 +667,7 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
         .arg(&rom)
         .arg(format!("{:x}", symbol("__koh_abort")))
         .arg(&script)
+        .arg("power-on")
         .output()
         .unwrap();
     assert!(executed.status.success(), "{}", report(&executed));
@@ -749,5 +816,18 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
                 );
             }
         }
+    }
+    super::jrpg::check(&source, directory.path(), configuration);
+    let after = super::jrpg::curated(&source.join("screenshots"));
+    assert_eq!(
+        after.keys().collect::<Vec<_>>(),
+        screenshots.keys().collect::<Vec<_>>()
+    );
+    for (name, bytes) in screenshots {
+        assert!(
+            after[&name] == bytes,
+            "curated screenshot {:?} changed",
+            name
+        );
     }
 }

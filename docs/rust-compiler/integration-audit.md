@@ -64,15 +64,15 @@ and legacy ABI expectations are replaced, not ported. See the quantified
 
 ### `Samples/GbJrpgTests.cs` — 4 methods, 5 cases
 
-Native `sdk::game::sdk_jrpg_dialogue_and_battle_preserve_hero_state` now closes the
-compilation and CGB-header methods in Debug/Release. Playthrough and screenshot
-methods remain partial despite stronger new dialogue/battle state assertions:
-original terrain/palette/OAM and capture-artifact requirements are outstanding.
-See [exact disposition](test-disposition.md#jrpg-compilationheader-replacements-and-partial-gameplay).
+Native `sdk::game::sdk_jrpg_dialogue_and_battle_preserve_hero_state` closes all
+four methods in Debug/Release. `tests/sdk/jrpg.rs` adds independent source PNG,
+palette, OAM and rendered-pixel requirements, original title/movement budgets,
+persistent four-scene captures and exact curated screenshot preservation.
+See [exact disposition](test-disposition.md#jrpg-replacements).
 
 - **REPLACE, complete** `Sample_CompilesUnmodified_NoDiagnostics_ValidIr` (Debug, Release): all real sample sources plus actual PNG-generated Art; preserve both IL configurations, replace managed IR checks.
-- **PORT** `Sample_CgbPlaythrough_WalksTalksAndCallsBack`: title → overworld; exact terrain/NPC tile observations; four hero sprites and one-cell movement; no hero residue in vacated BG cells; PNG-authored water RGB555; walk to NPC; three specific dialogue pages; stored close-callback restores overworld and hero position. Helpers handle encounters while walking, but do not assert every combat outcome.
-- **REPLACE** `Sample_CaptureAcceptanceScreenshots`: keep bounded arrival at title, overworld, dialogue and encounter with monster tiles; four PNG artifacts under test-output `TestResults/gb-jrpg/<run-id>` and unchanged hashes/file set for tracked screenshots. Existing assertions check file existence and scene memory markers, **not image equality, scene composition or visual quality**. Preserve artifact isolation and add reviewed visual/frame invariants when claiming visual parity.
+- **PORT, complete** `Sample_CgbPlaythrough_WalksTalksAndCallsBack`: title → overworld; exact terrain/NPC tile observations; four hero sprites and one-cell movement; no hero residue in vacated BG cells; PNG-authored water RGB555; walk to NPC; three specific dialogue pages; stored close-callback restores overworld and hero position. Helpers handle encounters while walking, but do not assert every combat outcome.
+- **REPLACE, complete** `Sample_CaptureAcceptanceScreenshots`: keep bounded arrival at title, overworld, dialogue and encounter with monster tiles; four PNG artifacts under test-output `TestResults/gb-jrpg/<run-id>` and unchanged hashes/file set for tracked screenshots. Existing assertions check file existence and scene memory markers, **not image equality, scene composition or visual quality**. Preserve artifact isolation and add reviewed visual/frame invariants when claiming visual parity.
 - **PORT, complete** `Sample_RomHeader_IsCgbExclusive`: linked ROM byte 0x143 == 0xC0. Header flag is a linker contract exercised with compiler output; retain explicit SDK forwarding acceptance too.
 
 ### `Samples/Cube3dTests.cs` — 3 methods, 6 cases

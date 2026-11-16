@@ -22,7 +22,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
   Callback checkpoint Linux workspace/all-features passes1193/1193, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
-  Sixty-four legacy methods have complete replacements;501 remain partial/
+  Sixty-eight legacy methods have complete replacements;497 remain partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
   with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
   Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
@@ -55,8 +55,11 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   and Debug/Release CGB dialogue/Slime-battle assertions pass. New primitive
   checks include9856 sampled phase probes and396 broader regressions. The
   [contract](docs/rust-compiler/vram-write.md) explicitly leaves interrupts
-  disabled for nonempty CGB attribute writes. Remaining JRPG art/OAM/capture
-  assertions, interface dispatch and whole-migration gates remain required.
+  disabled for nonempty CGB attribute writes and nonempty1bpp/font loads.
+  JRPG art/palette/OAM/pixel checks and four isolated captures now pass, retaining
+  the300-frame power-on title deadline; font-loop throughput was corrected.
+  Final selected42/42 and edited JRPG9/9 pass. Interface dispatch and the other
+  whole-migration gates remain required.
   Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
   and1010 Windows cases; those results predate the object-core increment.
   Full current-head workspace/hosted acceptance, source debugging, broader

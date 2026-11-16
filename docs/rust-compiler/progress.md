@@ -8,6 +8,28 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+Latest visual/font increment: [JRPG acceptance](jrpg-acceptance.md) now includes
+independent PNG/RGB555/bitplane/pixel checks, terrain, four Hero OAM quadrants,
+HUD and rendered no-residue at the original movement budget. Four actual PNG
+captures are isolated under TestResults; curated screenshots remain unchanged.
+The300-frame power-on title deadline exposed slow1bpp expansion; hoisted masks
+and pointer walks fix it while reusing guarded VRAM stores. Nonempty1bpp/font
+loads explicitly leave interrupts disabled. The separate Mono fixture checks
+all16 color pairs, both LCD states, selected banks, wrapping and empty input.
+Final focused42/42 passes478.485s, final edited JRPG/HUD9/9 passes56.031s, exit0
+for both. Four more legacy methods close:68/565 complete,497 outstanding,
+zero physically retired. This is selected verification, not a new full suite.
+
+Hosted native validation for a19d67a completed in workflow43860434611:
+Linux1205/1205 in1133.700s (job133275524527), macOS1205/1205 in1280.221s
+(job133275524423), Windows1203/1203 in1966.459s (job133275524540), zero skipped
+in each full run. Separate rustdoc, executable artifact smoke and native-backed
+language-server publishing succeed on all three hosts. Managed CI43860434567
+still fails:110 legacy compiler cases reject new intrinsic kinds on both hosts;
+Windows additionally has an LSP timeout (6.1650563s against5s). Native replacement
+coverage and legacy removal remain required; the unrelated LSP timeout needs
+separate investigation. These results do not validate subsequent uncommitted work.
+
 Latest graphics increment: [guarded VRAM stores](vram-write.md) fixes the old
 library's live-attribute retry race without changing sample sources or relaxing
 zero mode-3-write assertions. [JRPG native acceptance](jrpg-acceptance.md) now

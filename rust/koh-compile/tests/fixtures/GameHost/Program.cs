@@ -26,7 +26,8 @@ while (gb.BootRomMapped && boot++ < 600)
     Frame();
 if (gb.BootRomMapped)
     throw new InvalidOperationException("Boot did not complete");
-for (int frame = 0; frame <= last; frame++)
+int firstFrame = args.Length > 3 && args[3] == "power-on" ? boot : 0;
+for (int frame = firstFrame; frame <= last; frame++)
 {
     var current = actions.Where(action => int.Parse(action[0]) == frame).ToArray();
     foreach (var action in current.Where(action => action[1] != "dump"))
@@ -63,6 +64,19 @@ for (int frame = 0; frame <= last; frame++)
         File.WriteAllBytes(path + ".rgba", gb.Framebuffer.Front.ToArray());
         File.WriteAllBytes(path + ".vram", gb.Mmu.VramArray);
         File.WriteAllBytes(path + ".palette", gb.Ppu.BgPalette.RawData.ToArray());
+        File.WriteAllBytes(path + ".objpalette", gb.Ppu.ObjPalette.RawData.ToArray());
+        var oam = new byte[160];
+        for (int index = 0; index < oam.Length; index++)
+            oam[index] = gb.Mmu.DebugRead((ushort)(0xFE00 + index));
+        File.WriteAllBytes(path + ".oam", oam);
+        File.WriteAllBytes(
+            path + ".video",
+            [gb.Mmu.DebugRead(0xFF40), gb.Mmu.DebugRead(0xFF42), gb.Mmu.DebugRead(0xFF43)]
+        );
+        File.WriteAllText(
+            path + ".cpu",
+            $"{gb.Cpu.Registers.Pc:X4} {gb.Cpu.Registers.Sp:X4} {gb.Cartridge.Mbc1_BankLow:X2} {gb.Cartridge.Mbc1_BankHigh:X2}"
+        );
         using var png = File.Create(path + ".png");
         gb.Framebuffer.WritePng(png);
     }

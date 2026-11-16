@@ -3,6 +3,8 @@ use rstest::rstest;
 use std::path::{Path, PathBuf};
 #[path = "driver/delegates.rs"]
 mod delegates;
+#[path = "driver/mono.rs"]
+mod mono;
 #[path = "driver/rectangular.rs"]
 mod rectangular;
 mod support;

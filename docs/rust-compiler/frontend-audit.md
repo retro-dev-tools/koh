@@ -458,8 +458,8 @@ Tile copies/subranges, 1bpp-to-2bpp ink/paper masks, row writes and clear preser
 
 - **PORT, complete** `Load_LcdOff_CopiesTileBytesVerbatimIntoVram` — native `driver::actual_tileset_load_copies_vram_and_preserves_banks`; whole-bank byte checks and real initialization dependency.
 - **PORT** `Load_SubRange_CopiesFromStartTileNotFromDataStart`.
-- **PORT** `Load1bpp_ExpandsSetBitsToInkClearBitsToPaper`.
-- **PORT** `Load1bpp_MixedInkPaper_ProducesCorrectPlaneMasks`.
+- **PORT, complete** `Load1bpp_ExpandsSetBitsToInkClearBitsToPaper` — native `driver::mono::mono_tiles_preserve_ink_paper_wrap_and_selected_banks`; independent per-pixel masks, all16 color pairs, LCDon/off, banks, wrap and empty input in D/R×DMG/CGB.
+- **PORT, complete** `Load1bpp_MixedInkPaper_ProducesCorrectPlaneMasks` — native `driver::mono::mono_tiles_preserve_ink_paper_wrap_and_selected_banks`; independent per-pixel masks, all16 color pairs, LCDon/off, banks, wrap and empty input in D/R×DMG/CGB.
 - **PORT, complete** `Load_LcdOn_ChunksAcrossVblanksAndNeverWritesDuringMode3` — native actual_tileset driver retains32 distinct bytes at tile7, adds D/R×DMG/CGB and1920-byte split GDMA; zero mode-3 writes and bounded DMA duration. See [timing evidence](lcd-on-transfers.md).
 - **PORT** `SetRowAndClear_PassThroughToTileData`.
 

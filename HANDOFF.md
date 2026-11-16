@@ -326,3 +326,91 @@ acceptance; samplesources/assets unchanged. Explicit IME-disabled contract stays
 Next commit/push scoped graphics/JRPG unit, verify sourcehashes/remotehead, update
 existing draftPR55 checklist/evidence. Newhead hosted/full-workspace validation
 remains required;1193fullpass belongs precedingcallback snapshot. No merge.
+
+## Next visual acceptance unit
+
+Graphics/JRPG unit is now pusheda19d67ad4d4165a041ac0a6f0b4a53f206f7c406;
+PR55 read back draft/unmerged with64/565complete,501outstanding. Worktree wasclean.
+Newhead managed CI43860434567 terminalfailure: Linux133275524551 has110 legacy
+C#compiler test failures; Windows133275524378 has110 samecompiler failures plus
+one LSPtimeout. Primary logs show unsupported legacyintrinsic kinds memfill,
+memcopy,vblankcopy,vramwrite. Do not port newalgorithms back to oldcompiler or
+weaken tests; nativecoverage closure/deletion stillrequired. Windows separate
+UnreadLargeRequestTimesOutAndClientCanRestart elapsed6.1650563s exceeds5s.
+Proposal for LSPowner: investigate Windows deadline/cancellation underload;
+no threshold increase or unrelated LSPimplementation change in currentunit.
+Native workflow43860434611 stilllive: refs133275524120,mac133275524423,
+Linux133275524527,Windows133275524540. No hostedgreenclaim.
+
+Current scope: finish two remaining JRPG legacytest requirements with native
+OAM/terrain/palette/noresidue assertions, independent PNGpixel checks and
+isolated persistent4scene captures. Existing png0.18.1 is installed locally;
+use it only as Rustdevdependency instead of customPNGdecoder. Actualsample
+code/art unchanged. First inspect/build/runfocusedtests; no new production
+graphics/emulator subsystem. All priorlocal test handles terminal.
+
+Visual unit now implemented in tests/sdk/jrpg.rs and expanded GameHost data
+capture (OAM/OBJpalette/video/rawCPU), plus test-only png0.18.1 dependency.
+First oracle assumed channel-bit truncation; asset pipeline uses normalized
+nearestRGB555. Independent32-level minimum-error search plus6fixedcolorvectors
+and hardwarebitplane vector replace that unsupported oracle assumption. Exact
+pixel comparisons retained. Visual run9/9 passes56.693s,exit0, captures4scenes
+perconfig under testbinary/TestResults/gb-jrpg. ActualPNGs reviewed, no curated
+images changed. QuickMove snapshot after4frames matches legacy no-ghost budget.
+
+Added original300frame title deadline counted from power-on, not postboot.
+Optional GameHost power-on flag preserves existing2048 relative-frame protocol.
+Deadline runRED2/9, actualsceneBootScene vsTitleScene at300. Diagnostic artifacts
+/tmp/koh-header-target/debug/deps/TestResults/gb-jrpg/Debug-K7SiUe, rawPC473E,
+SPCDF5,bank4, __koh_a1_m060000dd.IL_0034.82, TileSet.Load1bppCore.
+Budget retained. Streamed source/destination pointers and hoisted four color
+masks in C#graphics runtime, reusing Rust vramwrite via internalGraphics.Vram
+declaration sharedwithMapWriter. No newcompiler/name pattern or publicAPI.
+Deadline visualrun9/9 nowpasses56.334s,exit0 /tmp/koh-jrpg-font-deadline.log.
+One semantic-preserving inversebyte change to XORFF afterward needs final rerun.
+
+General mono fixture/driver added for all16ink/paperpairs, LCDon/off, selected
+VRAMbank, firsttile255wrap and empty/null input. LIVE session52540,log
+/tmp/koh-mono-first.log,4configs. No otherlocalbuildactive. After result run
+allSDK/existingtile/vram regression, final checks/format and sourcehashes. Library
+Load1bpp XML still needs explicit updated interrupt restriction and removed
+stale per-row managed-wait description. Newcompiledfontcase doesnotretire
+legacy tests until fulltraceability/coverage checks complete.
+
+Read-only review scope for thisunit: fontloop semantic equivalence, tilewrap/
+count/masks, publiccontract changes, independentPNG/palette/OAM/pixel oracles,
+power-on/frame deadline accounting and captureisolation. Reviewer owns no files
+or builds; parent owns all edits/testoutputs. Compare dirtytree againsta19d67a.
+
+## Current visual/font continuation
+
+Mono first matrix terminal4/4pass28.122s. Review-required quickMove framebuffer
+region added to assert oldHero16x16 is grass, plus explicit initial/closed/won
+HUD HP/LV glyph assertions discovered in original test cross-check. Public Font
+and Load1bpp remarks now disclose interrupts disabled. Rustfmt applied.
+LIVE final focused session57280,/tmp/koh-jrpg-visual-final.log,42selected
+SDK/mono/tile/pin/VRAM tests. HUD assertions were added after this binary built;
+run final sdk selection again afterward before committing. Same targetdir
+/tmp/koh-header-target remains owned by this run. No concurrent cargo build.
+Do not claim matrix closure or68/565 until final edited tests pass.
+
+Hosted a19 native workflow43860434611 now terminalsuccess, actualprimarylogs
+read: Linux1205/1205,1133.700s; mac1205/1205,1280.221s; Win1203/1203,1966.459s,
+zero skips. Rustdoc/artifact/native-backedLSPpublish steps success on allhosts.
+progress.md records jobIDs and separate managed legacy/LSP failures. This does
+not validate currentdirtyvisual/font unit. Next terminalfocusedrun, finalSDK
+rerun, workspacecheck/rustdoc/rustfmt, closeexact4legacy requirements ifproven,
+reviewfinaldelta, commit/push logicalunit, updatePR55shortchecklist. No merge.
+
+## Visual/font unit ready for commit
+
+All localhandles terminal. Final42/42pass478.485s,exit0, includesallSDK plus
+mono/tile/pin/VRAMphase regressions. FinaleditedJRPG/HUD9/9pass56.031s,exit0.
+Workspaceallfeature/alltargetcheckpass21.55s(existingcubehelperwarning); separate
+rustdocfourcrates/zero casespass8.63s; rustfmtpass. FourlatestDebugPNGs visually
+inspected; standarddecoding equalsrawframebuffers. Maincheckoutbattlehashintact.
+Docs/testledger68/565complete,497outstanding,0retired; exact2font+2JRPGmethods
+closed with independent art/mask/pixel oracles, retained300framepowerondeadline
+and4framemovementbudget. Allsourcehashes /tmp/koh-jrpg-visual-sources.json.
+Next scopedcommit/push, compareposthookhashes, refreshPR55description/readback.
+No fullmigrationcompletionclaim; PDB/debug/IRQ/language/legacydeletion/perfremain.

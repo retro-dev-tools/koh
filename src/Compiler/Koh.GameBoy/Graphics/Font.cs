@@ -43,10 +43,8 @@ public static class Font
     /// same "caller's responsibility to author before drawing" stance as every other module here.</summary>
     internal static byte FirstTile;
 
-    /// <summary>Loads the built-in 96-glyph font into VRAM starting at tile <paramref name="firstTile"/>
-    /// (via <see cref="TileSet.Load1bpp"/> — LCD-off straight expansion, LCD-on immediate-checked
-    /// per-row, see that method's remarks) and remembers <paramref name="firstTile"/> so
-    /// <see cref="Text"/> can map a character to a VRAM tile index.</summary>
+    /// <summary>Load the built-in font and select its first tile for text.</summary>
+    /// <remarks>Leaves interrupts disabled.</remarks>
     public static void LoadDefault(byte firstTile)
     {
         FirstTile = firstTile;

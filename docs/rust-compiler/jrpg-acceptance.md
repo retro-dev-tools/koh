@@ -38,11 +38,42 @@ The expanded dialogue check found the old attribute writer racing the PPU:
 settling budgets were not increased to conceal the defect. Its explicit interrupt
 restriction is part of the current graphics contract.
 
+## Visual and font acceptance
+
+The native visual checks decode all seven source PNG sheets with the test-only
+`png` crate. An independent search over the32 normalized RGB555 levels determines
+each expected channel; palette slot ordering is not copied from the converter.
+Every uploaded source pixel is checked through hardware two-plane decoding and
+palette RAM. Fixed color vectors and the3C/7E bitplane vector test the oracle.
+The initial truncation-based oracle was wrong for grass160/208/96; nearest
+normalized quantization gives3333, not3354. Exact pixel assertions were retained.
+
+Checks cover terrain/NPC map cells and attributes, all four Hero OAM quadrants,
+OBJ transparency and unused slots, scroll and LCD mode, plus rendered Hero,
+tree, NPC, water and Slime regions. Four frames after the first movement input,
+the vacated16x16 region must render grass. Initial and restored HUD glyphs are
+checked. Title text and mascot must appear by the300th frame from power-on,
+including boot; neither the original deadline nor movement budget is increased.
+
+That deadline exposed slow1bpp font expansion in TileSet.Load1bppCore. Hoisting
+color masks and walking source/destination pointers removes repeated work;
+stores use the existing guarded VRAM intrinsic. Nonempty Load1bpp and LoadDefault
+calls explicitly leave interrupts disabled. A separate Rust-driven Mono fixture
+checks all16 ink/paper combinations against a per-pixel bitplane oracle, LCD
+on/off, both CGB VRAM banks, untouched bank contents, WRAM bank preservation,
+tile255 wrapping and empty/null input in Debug/Release on DMG/CGB.
+
+Each SDK case saves title/overworld/dialogue/battle PNGs below the test binary's
+TestResults/gb-jrpg/unique-run directory. Standard PNG decoding must reproduce
+the captured raw framebuffer exactly. Curated screenshot file names and bytes
+are snapshotted before and after execution and must remain unchanged. These
+artifacts are diagnostic outputs; the curated images are not golden oracles.
+
 ## Remaining coverage
 
 The sample deliberately has no DMG graphics path; other games and compiler
 fixtures cover DMG. These cases do not yet prove all terrain/boundary collisions,
-hero OAM quadrants or independently decoded art pixels, heal/run branches,
+heal/run branches,
 other enemies, level-up/victory/defeat, debugger breakpoints, physical hardware
 or the whole compiler migration. Existing emulator defaults and old compiler
 results are not correctness specifications. Curated sample assets stay unchanged.

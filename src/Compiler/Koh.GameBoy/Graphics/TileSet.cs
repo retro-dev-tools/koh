@@ -45,13 +45,8 @@ public static unsafe class TileSet
             LoadCore(firstTile, source + startTile * TileBytes, count);
     }
 
-    /// <summary>Expand a 1bpp source (8 bytes/tile — one bit per pixel, MSB first, same row order as
-    /// 2bpp) to 2bpp planar tiles in VRAM: a set source bit becomes color <paramref name="ink"/>
-    /// (0-3), a clear bit becomes color <paramref name="paper"/> (0-3). Halves a font/icon table's ROM
-    /// size versus shipping it pre-expanded to 2bpp. Immediate-checked (gates on
-    /// <see cref="Ppu.WaitForVramAccess"/> per row, like <see cref="Graphics.Palettes"/>'s writes) rather
-    /// than vblank-chunked — a 1bpp table is small (a 96-glyph font is 768 bytes) and this is a one-time
-    /// load, not a per-frame budget concern.</summary>
+    /// <summary>Expand 1bpp tiles using ink and paper colors (0-3).</summary>
+    /// <remarks>Nonempty loads leave interrupts disabled. Tile indices wrap at 256.</remarks>
     public static void Load1bpp(byte firstTile, byte[] mono, byte ink, byte paper, byte count)
     {
         if (count == 0)
@@ -149,36 +144,24 @@ public static unsafe class TileSet
 
     private static void Load1bppCore(byte firstTile, byte* source, byte ink, byte paper, byte count)
     {
-        byte inkLo = (byte)(ink & 1);
-        byte inkHi = (byte)((ink >> 1) & 1);
-        byte paperLo = (byte)(paper & 1);
-        byte paperHi = (byte)((paper >> 1) & 1);
+        byte inkLo = (ink & 1) != 0 ? (byte)0xFF : (byte)0;
+        byte inkHi = (ink & 2) != 0 ? (byte)0xFF : (byte)0;
+        byte paperLo = (paper & 1) != 0 ? (byte)0xFF : (byte)0;
+        byte paperHi = (paper & 2) != 0 ? (byte)0xFF : (byte)0;
 
         for (byte t = 0; t < count; t++)
         {
             byte tile = (byte)(firstTile + t);
+            byte* destination = Gb.TileData + tile * TileBytes;
             for (byte row = 0; row < 8; row++)
             {
-                byte mono = *(source + t * 8 + row);
-                byte low = ExpandPlane(mono, inkLo, paperLo);
-                byte high = ExpandPlane(mono, inkHi, paperHi);
-                Ppu.WaitForVramAccess();
-                TileData.SetRow(tile, row, low, high);
+                byte mono = *source++;
+                byte inverse = (byte)(mono ^ 0xFF);
+                byte low = (byte)((mono & inkLo) | (inverse & paperLo));
+                byte high = (byte)((mono & inkHi) | (inverse & paperHi));
+                Vram.WriteByte(destination++, low);
+                Vram.WriteByte(destination++, high);
             }
         }
-    }
-
-    /// <summary>One bit-plane byte of a 1bpp-&gt;2bpp expansion: for each bit position, a SET
-    /// <paramref name="mono"/> bit selects <paramref name="inkBit"/>, a CLEAR bit selects
-    /// <paramref name="paperBit"/> (each already isolated to bit 0 by the caller — this only cares
-    /// whether it's 0 or 1). Built as two all-ones/all-zeros masks rather than a per-bit loop: a mask
-    /// is 0xFF when its bit is 1, 0x00 when it's 0, so ANDing <paramref name="mono"/>/<c>~mono</c>
-    /// against the two masks and ORing the results picks the right source for every bit position at
-    /// once.</summary>
-    private static byte ExpandPlane(byte mono, byte inkBit, byte paperBit)
-    {
-        byte inkMask = inkBit != 0 ? (byte)0xFF : (byte)0x00;
-        byte paperMask = paperBit != 0 ? (byte)0xFF : (byte)0x00;
-        return (byte)((mono & inkMask) | (~mono & paperMask));
     }
 }
