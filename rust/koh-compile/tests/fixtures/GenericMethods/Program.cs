@@ -34,11 +34,56 @@ public static class Program
     static int Expand<T>() => Expand<T[]>();
 
     static T Constrained<T>(T value)
-        where T : struct => value;
+        where T : struct => Library.Constrained(value);
+
+    static T ReferenceOnly<T>(T value)
+        where T : class => value;
+
+    static T Defaultable<T>(T value)
+        where T : new() => value;
+
+    static T BaseOnly<T>(T value)
+        where T : ConstraintBase => value;
+
+    static T InterfaceOnly<T>(T value)
+        where T : IMarker => value;
+
+    static T Related<T, U>(T value)
+        where T : U => value;
+
+    static T Combined<T>(T value)
+        where T : ConstraintBase, IMarker => value;
+
+    static T EnumOnly<T>(T value)
+        where T : System.Enum => value;
+
+    static int ConstructorType<T>()
+        where T : new() => 42;
+
+    public static int ConstructorEligibility() => ConstructorType<Marker>();
 
     public static int Expanding() => Expand<int>();
 
     public static int Constraint() => Constrained<int>(42);
+
+    public static int ConstraintShapes()
+    {
+        Marker marker = ReferenceOnly(new Marker { Value = 42 });
+        Payload value = Constrained(new Payload { Tag = 17, Value = 1000 });
+        return
+            Defaultable(marker).Value == 42
+            && BaseOnly(marker).Value == 42
+            && InterfaceOnly(marker).Value == 42
+            && InterfaceOnly(value).Value == 1000
+            && Defaultable(value).Tag == 17
+            && ReferenceOnly<string>(null) == null
+            && Related<Marker, ConstraintBase>(marker).Value == 42
+            && Related<LocalCode, object>(LocalCode.Value) == LocalCode.Value
+            && Combined(marker).Value == 42
+            && EnumOnly(LocalCode.Value) == LocalCode.Value
+            ? 42
+            : 0;
+    }
 
     public static int Referenced() =>
         Library.Forward<byte>(5) + (Library.Forward<ushort>(1000) >> 3);
@@ -144,7 +189,7 @@ public static class Program
     }
 }
 
-public sealed class Marker : IMarker
+public sealed class Marker : ConstraintBase, IMarker
 {
     public int Value;
 
@@ -155,10 +200,12 @@ public sealed class Marker : IMarker
     System.Runtime.InteropServices.LayoutKind.Sequential,
     Pack = 1
 )]
-public struct Payload
+public struct Payload : IMarker
 {
     public byte Tag;
     public ushort Value;
+
+    public int Read() => Value;
 }
 
 public enum LocalCode : ushort
@@ -172,3 +219,7 @@ public interface IMarker
 }
 
 public delegate int Reader(int value);
+
+public class ConstraintBase { }
+
+public class ConstraintOther { }

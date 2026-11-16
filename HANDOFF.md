@@ -920,3 +920,51 @@ Alllocalhandles terminal. Nextcommit/pushsamePR55/updatebodyandvaulthandoff.
 Current2221bebCI43928478533 lastverifiedRustin_progress,.NETfastSUCCESS; recheck
 exactrun beforeclaiminghostedoutcome. Fullmigrationstillactive; genericconstraints,
 constructedargs/declaringtypes/virtualtargets,floats,IRQ,bankdata,etc remainopen.
+
+Constraint unit starts from0913e97. Parent owns allmutations/builds. Added realC#
+struct/class/new/base/interface/typeparam constraints includingtransitiveLibrary
+andvalue-typeinterfacecase. Current85166 red /tmp/koh-generic-constraints-red.log;
+waitactualblanketrejection. Plan metadata validation ofknown closed arguments;
+publicparameterless ctor eligibility, nominal ancestry/interface membership,
+System.ValueType/Enum/Object constraint rules; explicitunfinished constructed
+constraints/primitiveframeworktraits andnewT runtimeconstruction paths. Do not
+pretend new() validation implements Activator.CreateInstance<T>. Add mutated
+GenericParam/GenericParamConstraint cases for invalid applications and cycles.
+
+Constraint85166terminalEXIT100 reproducedblanketconstraintrejection. First74462
+terminalEXIT0 1/1pass7.339s; mutatedflags/nominalnegative40141EXIT0 1/1pass7.272s.
+Validator nowchecks specialflags, constructorownpublicparameterlesseligibility,
+nominalbase/interfaceincludingvalueInterfaceImpl, typedclosedparameterconstraints,
+knownSystemObject/ValueType/Enum/Array rules andstrictframeworkidentityfornominal
+coredefinitions. Addedduplicate/basecount/void/flagdiagnostics. No newTallocation
+lowering; no boxing/constrained-call runtime claim. ECMAII9.11allowsrecursive
+parameterreferences, so doNOTcallclosedselfconstraints malformed. Current89894
+live /tmp/koh-generic-constraints-self.log includesmutatedvalidselfTypeSpecconstraint
+ROM42,private/protectedCtor/abstractnew() negatives. Parentownsalledits/builds.
+backend_auditread-onlyownsconstraintsemantics/resource/spec review, no edits/builds.
+Nextbroadregressionaftercurrentterminal, docs/testmatrixledger87unchanged.
+
+Constraintbroad46544terminalEXIT0 572/572pass335.233s. Read-onlyreview value
+InterfaceImpl-to-classgap reproduced88688EXIT100; fixed actualinterfaceflagcheck.
+GlobalGPCowner0 ignored reproduced86464EXIT100; sharedAssemblymetadataparser now
+validates owner/target ranges, duplicateOwner+Constraint andcontiguousownergroups.
+Removed redundantper-methodrawduplicateHashSet. Owner71737EXIT0 1/1pass7.376s.
+Current45070live /tmp/koh-generic-constraints-final.log lib/assembly/references plus
+all4genericdriverconfigurations/PDB/constructorprobes. Includesfinalprivate/protected/
+abstract/virtualCtornegatives andforgedSystemValueTypeassemblyidentitynegative.
+Namedpredecessor0913e97 hostedrun43933091863 completedSUCCESS:1318/1318allfeatures
+workspacezero skips1398.743s+rustdoc+.NETfast. Primary /tmp/koh-named-hosted-success.log
+61525terminalEXIT0. Thesehostedresultspredatetheconstraintunit. Ledger87unchanged.
+
+Constraintfinal45070terminalEXIT0 213/213pass294.935s coversall170library,
+assembly/reference suites andgeneric/PDB/constructor drivers. Addedlastnoncontig
+owner-rowprobe;53403terminalEXIT0 4/4pass29.294s currentfinalcases. Eachconfiguration
+executes11regularROMentries+1validpatchedselfconstraint=48ROMtotal and20negative
+metadata mutations=80rejections. ExistingExpandingunsupported/missingrefschecks
+remain. Check37489EXIT0 9.12s existingcubeswarning; rustdoc22188EXIT0 0cases;
+rustfmt/CSharpierpass. Noall-workspaceclaimforthisdirtyunit. Previous0913e97
+hostedSUCCESS1318/1318zero skips1398.743s+rustdoc+.NETfast (43933091863).
+Alllocalhandles terminal. DocsGenericConstraints contract coversexplicitremaining
+boundariesandfullvisibilityaudit. Ledger87/565unchanged,478partial/outstanding,
+zero physicallyretired. Nextsnapshot/commit/pushsamePR55/updatebody/vault;
+fullgoalactive. No otherbuildsoragentmutations. Reviewreportednoadditionalconfirmedblockers.

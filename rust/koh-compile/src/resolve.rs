@@ -85,7 +85,7 @@ fn row<T>(rows: &[T], token: u32, table: u8) -> Result<&T, String> {
         .ok_or_else(|| format!("Invalid metadata token 0x{token:08x}"))
 }
 
-fn coded(index: CodedIndex) -> Result<u32, String> {
+pub(crate) fn coded(index: CodedIndex) -> Result<u32, String> {
     let table = index.table.ok_or("Invalid coded metadata index tag")?;
     if index.row == 0 || index.row > 0x00ff_ffff {
         return Err("Invalid coded metadata row".into());
@@ -224,6 +224,38 @@ impl<'a> Resolver<'a> {
 
     fn framework_type(&self, assembly: usize, token: u32) -> Result<Option<(&str, &str)>, String> {
         framework_type(self.assembly(assembly)?.metadata(), token)
+    }
+
+    pub(crate) fn framework_definition(
+        &self,
+        definition: Definition,
+    ) -> Result<Option<(&str, &str)>, String> {
+        let image = self.assembly(definition.assembly)?;
+        let Some(expected) = framework_key(image.name()?) else {
+            return Ok(None);
+        };
+        if image.metadata().assemblies[0].flags & 0x0f00 != 0
+            || !self.identities.iter().any(|(identity, &index)| {
+                index == definition.assembly
+                    && identity.key == Some(expected)
+                    && identity.culture.is_empty()
+            })
+        {
+            return Ok(None);
+        }
+        let ty = row(&image.metadata().type_defs, definition.token, 2)?;
+        Ok(Some((
+            image
+                .metadata()
+                .strings
+                .get(ty.type_namespace)
+                .map_err(|e| e.to_string())?,
+            image
+                .metadata()
+                .strings
+                .get(ty.type_name)
+                .map_err(|e| e.to_string())?,
+        )))
     }
 
     pub(crate) fn string_member(

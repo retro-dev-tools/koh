@@ -19,7 +19,9 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   Closed static [generic methods](docs/rust-compiler/generic-methods.md) now specialize
   supported primitive/named arguments, including referenced transitive bodies,
   byref storage and original PDB provenance. Assembly scopes distinguish same-row
-  types across DLLs. Constraints, constructed generic arguments and
+  types across DLLs. Closed special/base/interface/parameter constraints now
+  validate, including constructor eligibility and malformed-metadata probes.
+  Broader constraints, constructed generic arguments and
   declaring-type/virtual generic binding remain unfinished; this is not full migration.
   The SDK invokes Rust tools, retains tile-sheet generation and runs the existing emulator.
   Native copy/fill and corrected VBlank polling let all eight double-buffered/

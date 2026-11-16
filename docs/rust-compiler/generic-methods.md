@@ -1,11 +1,14 @@
 # Closed static generic methods
 
-The native compiler now specializes reachable unconstrained static generic methods
+The native compiler now specializes reachable static generic methods
 on nongeneric declaring types. Concrete arguments may be supported primitive
 types, strings, nongeneric classes/interfaces/delegates, enums, nongeneric values
 or supported vectors of those types. A method
 and its full argument list identify an instance; byte and ushort remain distinct
 even though both use the CIL int32 evaluation-stack type.
+
+[Closed argument constraints](generic-constraints.md) now validate supported
+special, base/interface and method-parameter requirements before code generation.
 
 [ECMA-335 II.9.3–9.4 and II.23.2.15](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
 justify method-parameter scope, closed substitution and MethodSpec arity.
@@ -31,8 +34,9 @@ of1048576 bound expansion, in addition to ordinary IR and method-count limits.
 ## Acceptance
 
 Rust `driver::generics::generic_method_instances_execute_transitively` drives real
-Roslyn Debug/Release × DMG/CGB. Each of four cases executes eight entries
-(seven distinct entries and a repeated Main after class allocation),32 ROMs total:
+Roslyn Debug/Release × DMG/CGB. Each of four cases now executes eleven regular
+entries (including a repeated Main) and one patched valid self-constraint entry:
+48 ROMs total. Earlier named-only evidence below covered32 ROMs.
 
 - Original transitive Identity/Wrap byte5 and ushort1000 calls write/read BGP130.
 - Int64 recursion preserves-5000000001; UInt64 locals preserveFEDCBA9876543210.
@@ -49,6 +53,9 @@ Roslyn Debug/Release × DMG/CGB. Each of four cases executes eight entries
   reference aliases and remote-class byref swaps must retain the distinct types.
 - Interface and nongeneric delegate arguments also share rows across assemblies;
   interface dispatch and different delegate signatures retain their identities.
+- Closed constraints cover value/reference/new(), nominal bases/interfaces,
+  combined and parameter constraints, plus independent malformed-input probes;
+  see [constraint evidence and boundaries](generic-constraints.md).
 
 Each object has instance source provenance, round-trips canonical ELF, is linked
 with managed functions in separate banks and reaches the expected return with
@@ -92,8 +99,8 @@ reported as green. Intermediate success is not whole-goal proof.
 Constructed generic signatures containing foreign named arguments still require
 scoped layout binding; those shapes diagnose rather than reinterpreting tokens.
 Generic declaring types
-need per-instantiation layouts/static storage. Constraints require actual
-validation; instance/virtual generic calls, generic method-pointer targets and
+need per-instantiation layouts/static storage. Broader constraint shapes and
+instance/virtual generic calls, generic method-pointer targets and
 constructed generic type arguments require binding.
 These are unfinished compiler features, not malformed CLI shapes or approved
 feature retirements. They currently produce explicit diagnostics. Expanding

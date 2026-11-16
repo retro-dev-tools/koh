@@ -8,7 +8,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current named-generic increment preserves assembly scope through substitution,
+Current constraint increment validates closed special, constructor, nongeneric
+base/interface and parameter constraints before instantiation. Valid recursive
+parameter constraints are not rejected by a C#-syntax/CLR assumption: the patched
+self-constraint ROM executes42. Malformed value InterfaceImpl and ignored owner0
+were reproduced, then fixed; the shared reader validates owner/target indices,
+duplicates and owner contiguity. Final4/4 passes29.294s, including48 ROMs and80
+metadata-rejection probes across D/R × DMG/CGB. Selected broad572/572 passes
+335.233s; subsequent213/213 passes294.935s with reader/reference coverage. These
+are selected local results, not final workspace/platform acceptance. See
+[constraint contract and limits](generic-constraints.md). Ledger remains87/565,
+478 partial/outstanding, zero physically retired.
+
+Preceding pushed0913e97 has completed hosted success:1318/1318 workspace/
+all-features tests, zero skips,1398.743s, plus separate rustdoc and .NET fast tests
+(run43933091863). Those hosted results predate the constraint increment.
+
+Previous named-generic increment preserves assembly scope through substitution,
 then binds individual parameters/returns, locals and typed operands in that scope.
 Canonical named keys retain TypeDef+assembly and enum identity. Same-row types in
 separate DLLs have distinct packed layouts, class fields, enum widths, interface

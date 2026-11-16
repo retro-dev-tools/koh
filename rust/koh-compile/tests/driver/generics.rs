@@ -1,6 +1,8 @@
 use super::{Host, execute_mode, gameboy_images, host};
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
+#[path = "../support/metadata.rs"]
+mod metadata;
 
 #[rstest]
 #[case("Debug", false)]
@@ -77,6 +79,9 @@ fn generic_method_instances_execute_transitively(
         ("Referenced", "00000082"),
         ("PrimitiveWidths", "0000002A"),
         ("NamedTypes", "0000002A"),
+        ("Constraint", "0000002A"),
+        ("ConstraintShapes", "0000002A"),
+        ("ConstructorEligibility", "0000002A"),
         ("Main", "00000082"),
     ] {
         let mut object = compile::object_with_debug(
@@ -166,18 +171,302 @@ fn generic_method_instances_execute_transitively(
             assert_eq!(fields[5], "6B".repeat(4096), "{entry} bank2");
         }
     }
-    for (entry, expected) in [
-        ("Constraint", "Generic constraints"),
-        (
-            "Expanding",
-            "Managed references require primitive/pointer scalar storage",
-        ),
-    ] {
+    for (entry, expected) in [(
+        "Expanding",
+        "Managed references require primitive/pointer scalar storage",
+    )] {
         let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
         assert!(
             error.contains(expected) && error.contains("IL_"),
             "{entry}: {error}"
         );
+    }
+    let image = resolver.assembly(0).unwrap();
+    let data = image.metadata();
+    let parameter = |name| {
+        data.generic_params
+            .iter()
+            .position(|parameter| {
+                parameter.owner.table == Some(clrmeta::TableId::MethodDef)
+                    && image.method_name(0x06000000 | parameter.owner.row).unwrap()
+                        == format!("Program::{name}")
+                    && parameter.number == 0
+            })
+            .unwrap()
+    };
+    for owner in [0, data.generic_params.len() as u32 + 1] {
+        let mut bytes = images[0].clone();
+        let (offset, context) =
+            metadata::table_row(&bytes, clrmeta::TableId::GenericParamConstraint, 0);
+        let width = context.table_index_size(clrmeta::TableId::GenericParam);
+        bytes[offset..offset + width].copy_from_slice(&owner.to_le_bytes()[..width]);
+        assert!(
+            koh_compile::assembly::Assembly::parse(&bytes).is_err(),
+            "invalid GenericParamConstraint owner {owner} accepted"
+        );
+    }
+    let combined_owner = parameter("Combined") as u32 + 1;
+    let combined = data
+        .generic_param_constraints
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.owner == combined_owner)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    for duplicate in [false, true] {
+        let mut bytes = images[0].clone();
+        let (offset, context) = metadata::table_row(
+            &bytes,
+            clrmeta::TableId::GenericParamConstraint,
+            combined[1],
+        );
+        let offset = offset + context.table_index_size(clrmeta::TableId::GenericParam);
+        let width = context.coded_index_size(clrmeta::CodedIndexKind::TypeDefOrRef);
+        let encoded = if duplicate {
+            let (first, _) = metadata::table_row(
+                &bytes,
+                clrmeta::TableId::GenericParamConstraint,
+                combined[0],
+            );
+            bytes[first + context.table_index_size(clrmeta::TableId::GenericParam)..][..width]
+                .to_vec()
+        } else {
+            vec![0; width]
+        };
+        bytes[offset..offset + width].copy_from_slice(&encoded);
+        let result = koh_compile::assembly::Assembly::parse(&bytes);
+        assert!(
+            result.is_err(),
+            "invalid constraint target/duplicate accepted"
+        );
+    }
+    assert_eq!(combined[1], combined[0] + 1);
+    let mut bytes = images[0].clone();
+    let other = (0..data.generic_param_constraints.len())
+        .find(|index| !combined.contains(index))
+        .unwrap();
+    let (first, context) = metadata::table_row(
+        &bytes,
+        clrmeta::TableId::GenericParamConstraint,
+        combined[1],
+    );
+    let (second, _) = metadata::table_row(&bytes, clrmeta::TableId::GenericParamConstraint, other);
+    let size = context.row_size(clrmeta::TableId::GenericParamConstraint);
+    let saved = bytes[first..first + size].to_vec();
+    let swapped = bytes[second..second + size].to_vec();
+    bytes[first..first + size].copy_from_slice(&swapped);
+    bytes[second..second + size].copy_from_slice(&saved);
+    let result = koh_compile::assembly::Assembly::parse(&bytes);
+    assert!(result.is_err(), "noncontiguous constraint owner accepted");
+
+    for (flags, entry, expected) in [
+        (4u16, "Main", "special constraints"),
+        (8, "References", "special constraints"),
+        (16, "References", "special constraints"),
+        (12, "Main", "Invalid generic method parameter flags"),
+        (1, "Main", "Invalid generic method parameter flags"),
+        (0x8000, "Main", "Invalid generic method parameter flags"),
+    ] {
+        let mut bytes = images[0].clone();
+        let (offset, _) = metadata::table_row(
+            &bytes,
+            clrmeta::TableId::GenericParam,
+            parameter("Identity"),
+        );
+        bytes[offset + 2..offset + 4].copy_from_slice(&flags.to_le_bytes());
+        let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+        let error = compile::object(&changed, Some(&format!("Program::{entry}"))).unwrap_err();
+        assert!(
+            error.contains(expected) && error.contains("IL_"),
+            "{entry}: {error}"
+        );
+    }
+    for (name, second, expected) in [
+        ("InterfaceOnly", false, "type constraint"),
+        ("Combined", true, "Multiple class constraints"),
+    ] {
+        let owner = parameter(name) as u32 + 1;
+        let rows = data
+            .generic_param_constraints
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.owner == owner)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let mut bytes = images[0].clone();
+        let (offset, context) = metadata::table_row(
+            &bytes,
+            clrmeta::TableId::GenericParamConstraint,
+            rows[usize::from(second)],
+        );
+        let offset = offset + context.table_index_size(clrmeta::TableId::GenericParam);
+        let width = context.coded_index_size(clrmeta::CodedIndexKind::TypeDefOrRef);
+        let replacement = ((type_row(0, "ConstraintOther") as u32 + 1) << 2).to_le_bytes();
+        bytes[offset..offset + width].copy_from_slice(&replacement[..width]);
+        let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+        let error = compile::object(&changed, Some("Program::ConstraintShapes")).unwrap_err();
+        assert!(
+            error.contains(expected) && error.contains("IL_"),
+            "{name}: {error}"
+        );
+    }
+    let mapping = data
+        .interface_impls
+        .iter()
+        .position(|row| row.class == type_row(0, "Payload") as u32 + 1)
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (offset, context) = metadata::table_row(&bytes, clrmeta::TableId::InterfaceImpl, mapping);
+    let offset = offset + context.table_index_size(clrmeta::TableId::TypeDef);
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::TypeDefOrRef);
+    let encoded = ((type_row(0, "Marker") as u32 + 1) << 2).to_le_bytes();
+    bytes[offset..offset + width].copy_from_slice(&encoded[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let result = compile::object(&changed, Some("Program::ConstraintShapes"));
+    assert!(
+        result.is_err(),
+        "value InterfaceImpl accepted a class instead of an interface"
+    );
+    let error = result.unwrap_err();
+    assert!(
+        error.contains("interface") && error.contains("IL_"),
+        "{error}"
+    );
+
+    let ctor = data
+        .method_defs
+        .iter()
+        .enumerate()
+        .find(|(index, _)| {
+            image.method_name(0x06000001 + *index as u32).unwrap() == "Marker::.ctor"
+        })
+        .unwrap()
+        .0;
+    for access in [1u16, 4] {
+        let mut bytes = images[0].clone();
+        let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::MethodDef, ctor);
+        let flags = (data.method_defs[ctor].flags & !7) | access;
+        bytes[offset + 6..offset + 8].copy_from_slice(&flags.to_le_bytes());
+        let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+        let error = compile::object(&changed, Some("Program::ConstructorEligibility")).unwrap_err();
+        assert!(
+            error.contains("special constraints") && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    for extra in [0x40u16, 0x400] {
+        let mut bytes = images[0].clone();
+        let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::MethodDef, ctor);
+        bytes[offset + 6..offset + 8]
+            .copy_from_slice(&(data.method_defs[ctor].flags | extra).to_le_bytes());
+        let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+        let error = compile::object(&changed, Some("Program::ConstructorEligibility")).unwrap_err();
+        assert!(
+            error.contains("Invalid abstract/virtual constructor") && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    let value_type = data
+        .type_refs
+        .iter()
+        .enumerate()
+        .find(|(_, ty)| {
+            data.strings.get(ty.type_name).unwrap() == "ValueType"
+                && data.strings.get(ty.type_namespace).unwrap() == "System"
+        })
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (offset, context) = metadata::table_row(
+        &bytes,
+        clrmeta::TableId::TypeDef,
+        type_row(0, "ConstraintBase"),
+    );
+    let width = context.string_index_size();
+    bytes[offset + 4..offset + 4 + width]
+        .copy_from_slice(&value_type.1.type_name.to_le_bytes()[..width]);
+    bytes[offset + 4 + width..offset + 4 + width * 2]
+        .copy_from_slice(&value_type.1.type_namespace.to_le_bytes()[..width]);
+    let owner = parameter("BaseOnly") as u32 + 1;
+    let constraint = data
+        .generic_param_constraints
+        .iter()
+        .position(|row| row.owner == owner)
+        .unwrap();
+    let (offset, context) =
+        metadata::table_row(&bytes, clrmeta::TableId::GenericParamConstraint, constraint);
+    let offset = offset + context.table_index_size(clrmeta::TableId::GenericParam);
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::TypeDefOrRef);
+    let encoded = (((value_type.0 as u32 + 1) << 2) | 1).to_le_bytes();
+    bytes[offset..offset + width].copy_from_slice(&encoded[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::ConstraintShapes")).unwrap_err();
+    assert!(
+        error.contains("type constraint") && error.contains("IL_"),
+        "forged System.ValueType: {error}"
+    );
+    let mut bytes = images[0].clone();
+    let marker = type_row(0, "Marker");
+    let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::TypeDef, marker);
+    let flags = (data.type_defs[marker].flags & !0x100) | 0x80;
+    bytes[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::ConstructorEligibility")).unwrap_err();
+    assert!(
+        error.contains("special constraints") && error.contains("IL_"),
+        "{error}"
+    );
+
+    let owner = parameter("Related") as u32 + 1;
+    let constraint = data
+        .generic_param_constraints
+        .iter()
+        .position(|row| row.owner == owner)
+        .unwrap();
+    let self_type = data
+        .type_specs
+        .iter()
+        .position(|row| {
+            koh_compile::signature::type_spec(data.blobs.get(row.signature).unwrap()).unwrap()
+                == clrmeta::TypeSig::MVar(0)
+        })
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (offset, context) =
+        metadata::table_row(&bytes, clrmeta::TableId::GenericParamConstraint, constraint);
+    let offset = offset + context.table_index_size(clrmeta::TableId::GenericParam);
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::TypeDefOrRef);
+    let encoded = (((self_type as u32 + 1) << 2) | 2).to_le_bytes();
+    bytes[offset..offset + width].copy_from_slice(&encoded[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let object = compile::object(&changed, Some("Program::ConstraintShapes")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let report = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-heap",
+    );
+    let fields = report.split_whitespace().collect::<Vec<_>>();
+    assert_eq!(
+        &fields[..4],
+        &["00", "0000002A", "D000", "OK"],
+        "closed self constraint"
+    );
+    if color {
+        assert_eq!(fields[5], "6B".repeat(4096));
     }
     let missing = Resolver::new(&[&images[0], &images[1]]).unwrap();
     compile::object(&missing, Some("Program::Main")).unwrap();

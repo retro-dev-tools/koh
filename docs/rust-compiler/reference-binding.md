@@ -35,8 +35,8 @@ not this definition-binding boundary.
 - MethodSpecs retain method arguments and their originating assembly. Generic
   instantiation arities are checked recursively in bound signatures and arguments.
 - Generic parameter indices must be unique and contiguous in their metadata owner.
-  Contextual use of VAR/MVAR and generic constraints still need the caller's typed
-  instantiation context; binding does not claim those checks are complete.
+  Contextual use of MVAR and supported constraints now uses the caller's typed
+  instantiation context; broader declaring-type/constraint shapes remain unfinished.
 - Nonzero coded indices with row zero are rejected. They cannot alias a local
   type through the metadata library's row-only null predicate.
 - Array rank/element type determine signature type identity; size/lower-bound

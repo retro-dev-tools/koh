@@ -46,7 +46,8 @@ Two `CilGenericTests` methods are REPLACE complete in native
 byte/ushort specialization and independently justified build-mode equivalence.
 Private mangled-name assertions become actual BGP130, typed recursion/storage,
 reference-DLL reachability, original source mappings and fresh/reused resolver
-determinism. Four rstest configurations now execute32 ROMs, including named
+determinism. Four rstest configurations now execute48 ROMs, including closed
+constraints and named
 struct/class/enum/interface/delegate arguments with deliberately matching metadata
 rows across separate assemblies. The other four methods
 remain partial pending full expression/extension traceability. See the

@@ -1,5 +1,6 @@
 use crate::resolve::{Definition, ResolvedMethod, Resolver};
 use clrmeta::{MethodSig, TableId, TypeSig};
+mod constraints;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Instance {
@@ -433,19 +434,6 @@ impl Resolver<'_> {
         }) {
             return Err("Generic declaring types require instantiated storage".into());
         }
-        for (index, parameter) in image.metadata().generic_params.iter().enumerate() {
-            if parameter.owner.table == Some(TableId::MethodDef)
-                && parameter.owner.row == target.definition.token & 0xffffff
-                && (parameter.flags != 0
-                    || image
-                        .metadata()
-                        .generic_param_constraints
-                        .iter()
-                        .any(|c| c.owner as usize == index + 1))
-            {
-                return Err("Generic constraints require instantiated validation".into());
-            }
-        }
         let arguments = target
             .method_arguments
             .iter()
@@ -471,6 +459,7 @@ impl Resolver<'_> {
             let ty = crate::lower::storage_type(self, argument.assembly, &argument.ty)?;
             crate::lower::bound_type(self, argument.assembly, &ty)?;
         }
+        constraints::validate(self, target.definition, &arguments)?;
         let instance = Instance {
             method: target.definition,
             arguments,

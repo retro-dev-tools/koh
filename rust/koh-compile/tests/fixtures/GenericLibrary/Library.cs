@@ -4,6 +4,9 @@ public static class Library
 
     public static T Forward<T>(T value) => Identity(value);
 
+    public static T Constrained<T>(T value)
+        where T : struct => Identity(value);
+
     public static float Unused() => 0.25f;
 }
 

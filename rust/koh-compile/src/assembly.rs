@@ -252,6 +252,33 @@ fn metadata(bytes: &[u8]) -> Result<Metadata, String> {
         index.row != 0 && index.row as usize <= count
     };
     let mut interfaces = HashSet::new();
+    let mut constraint_rows = HashSet::new();
+    let mut constraint_owners = HashSet::new();
+    let mut previous_owner = 0;
+    for (index, row) in result.generic_param_constraints.iter().enumerate() {
+        if row.owner == 0
+            || row.owner as usize > result.generic_params.len()
+            || !valid_row(row.constraint)
+            || !matches!(
+                row.constraint.table,
+                Some(TableId::TypeDef | TableId::TypeRef | TableId::TypeSpec)
+            )
+        {
+            return Err(format!(
+                "GenericParamConstraint row{} has invalid owner/type index",
+                index + 1
+            ));
+        }
+        if !constraint_rows.insert((row.owner, row.constraint.table, row.constraint.row)) {
+            return Err(format!("Duplicate GenericParamConstraint row{}", index + 1));
+        }
+        if row.owner != previous_owner {
+            if !constraint_owners.insert(row.owner) {
+                return Err("Noncontiguous GenericParamConstraint owner rows".into());
+            }
+            previous_owner = row.owner;
+        }
+    }
     for (index, row) in result.interface_impls.iter().enumerate() {
         if row.class == 0
             || row.class as usize > result.type_defs.len()
