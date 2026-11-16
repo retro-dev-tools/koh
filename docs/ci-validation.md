@@ -4,7 +4,7 @@
 | --- | --- |
 | PR opened, reopened or updated, including drafts | Two Linux jobs: Rust workspace tests and .NET fast tests |
 | Non-draft PR opened, reopened or marked ready | Full validation |
-| Push to `master` | Full validation |
+| Push to `master` | No duplicate validation run; validate the PR head before merge |
 | Manual `Full validation` dispatch | Full validation on the selected ref |
 | `tools-v*.*.*` or `ext-v*.*.*` tag | Existing toolchain or extension release packaging |
 
